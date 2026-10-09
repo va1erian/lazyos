@@ -1,8 +1,9 @@
 //! Messenger parcel codec (issue #65).
 //!
-//! The wire format is specified in `docs/messenger.md` section 4: a fixed
-//! header, then a self-describing TLV body, then arrays of transferred handles
-//! and shared-buffer descriptors. Everything is little-endian.
+//! The wire format is parcel version 2 (`docs/messenger-core-plan.md` 3.1):
+//! a fixed header, a self-describing TLV body, then the *object list*, the
+//! kernel objects (channel ends and shared buffers) the body's object fields
+//! refer to by index. Everything is little-endian.
 //!
 //! Two properties matter more than cleverness:
 //!
@@ -20,49 +21,42 @@
 extern crate alloc;
 
 pub mod envelope;
+#[cfg(any(test, feature = "fuzz"))]
+pub mod fuzz;
 mod parcel;
 #[cfg(test)]
 mod tests;
 mod tlv;
 
-pub use parcel::{BufferDesc, Header, Parcel, ParcelView};
+pub use parcel::{Buffer, Header, Object, ObjectKind, Parcel, ParcelView, OBJECT_ENTRY_SIZE};
 pub use tlv::{Decoder, Encoder, Field, Kind};
 
 use core::fmt;
 
 /// Wire version written into new parcels.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 /// Fixed header size in bytes.
 pub const HEADER_SIZE: usize = 48;
 /// Largest parcel we will encode or accept.
 pub const MAX_PARCEL_BYTES: usize = 1 << 20;
 /// Largest TLV body.
 pub const MAX_BODY_BYTES: usize = 1 << 20;
-/// Largest number of transferred handles per parcel.
-pub const MAX_HANDLES: usize = 64;
-/// Largest number of shared-buffer descriptors per parcel.
-pub const MAX_BUFFERS: usize = 64;
+/// Largest number of objects (channel ends and buffers) per parcel.
+pub const MAX_OBJECTS: usize = 8;
 /// Largest number of top-level TLV fields.
 pub const MAX_FIELDS: usize = 1024;
 /// Largest nesting depth for composite TLV values (array/struct/map/option).
 pub const MAX_DEPTH: u8 = 16;
-/// Size of one shared-buffer descriptor.
-pub(crate) const BUFFER_DESC_SIZE: usize = 28;
 
 /// Parcel header flags (see `docs/messenger.md`).
 pub mod flags {
+    // Bits 2, 4 and 5 are reserved: nothing sets or reads them.
     /// A reply is expected (synchronous transaction).
     pub const SYNC: u16 = 1 << 0;
     /// Fire-and-forget.
     pub const ONE_WAY: u16 = 1 << 1;
-    /// Do not error if the callee dies before replying.
-    pub const NO_REPLY_IF_DEAD: u16 = 1 << 2;
     /// Nested transactions are permitted.
     pub const ALLOW_NESTED: u16 = 1 << 3;
-    /// The callee requires kernel credentials.
-    pub const CRED_REQUIRED: u16 = 1 << 4;
-    /// Emit trace events for this transaction.
-    pub const TRACE: u16 = 1 << 5;
 }
 
 /// Why a parcel could not be encoded or decoded.
@@ -70,7 +64,7 @@ pub mod flags {
 pub enum Error {
     /// Input ended in the middle of a structure.
     Truncated,
-    /// A size limit (parcel, body, handles, buffers, fields, depth) was exceeded.
+    /// A size limit (parcel, body, objects, fields, depth) was exceeded.
     TooLarge,
     /// Nesting exceeded [`MAX_DEPTH`].
     TooDeep,
@@ -82,6 +76,13 @@ pub enum Error {
     BadVersion,
     /// Trailing bytes after a well-formed parcel.
     TrailingBytes,
+    /// An object-list entry has an unknown kind or a reserved word that is
+    /// not zero.
+    BadObject,
+    /// An object field's index is not its position in the declared order
+    /// (repeated, skipped, out of range or of the other kind), or an object
+    /// of the list was claimed by no field.
+    BadObjectIndex,
 }
 
 impl Error {
@@ -95,6 +96,8 @@ impl Error {
             Error::BadString => "string field is not valid UTF-8",
             Error::BadVersion => "unsupported parcel version",
             Error::TrailingBytes => "parcel has trailing bytes after its body",
+            Error::BadObject => "object list entry has an unknown kind",
+            Error::BadObjectIndex => "object field does not name its declared slot",
         }
     }
 }

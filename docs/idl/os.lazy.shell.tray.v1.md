@@ -30,18 +30,18 @@ standard error field (id 15, `docs/midl.md`).
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Set | 1 | sync | `(item: Item) -> () transfers (events: Channel<os.lazy.shell.tray.events.v1>)` |
+| Set | 1 | sync | `(item: Item, events: Channel<os.lazy.shell.tray.events.v1>) -> ()` |
 | Update | 2 | sync | `(icon: Option<Icon>, tooltip: Option<String>, status: Option<U32>, badge: Option<String>, menu: Option<Menu>) -> ()` |
 | Clear | 3 | sync | `() -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Set | `events` | `handles[0]`, a channel the receiver sends `os.lazy.shell.tray.events.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Set | `events` | `Channel<os.lazy.shell.tray.events.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.shell.tray.events.v1` on |
 
 ## Topics
 

@@ -33,7 +33,7 @@ LAZYRAD_DEP = re.compile(r'(git\s*=\s*"https://github\.com/va1erian/lazyrad"[^\n
 # The `rev = "<sha>"` docs/xui-plan.md quotes.
 DOC_REV = re.compile(r'(rev = ")([0-9a-f]{40})(")')
 # The workspaces with a lockfile of their own (relative to the root).
-WORKSPACES = ["xui-app", "doom", "lazyrad-os"]
+WORKSPACES = ["xui-app", "doom", "emusic", "lazyrad-os"]
 
 
 def resolve(repo: str, ref: str) -> str:

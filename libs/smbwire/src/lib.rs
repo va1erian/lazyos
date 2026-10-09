@@ -21,7 +21,7 @@
 //! The library holds no clock and no random source: the caller supplies the
 //! client challenge, the `ClientGuid` and the time ([`client::Config`]).
 
-#![cfg_attr(not(any(test, feature = "fuzz")), no_std)]
+#![cfg_attr(not(any(test, feature = "fuzz", feature = "testserver")), no_std)]
 
 extern crate alloc;
 
@@ -40,6 +40,9 @@ pub mod fuzz;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(test, feature = "testserver"))]
+pub mod testserver;
 
 use alloc::string::String;
 

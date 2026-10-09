@@ -105,12 +105,8 @@ pub mod op {
     pub const INPUT_POLL: u64 = 2;
     /// Copy a damage rectangle from the screen buffer to the framebuffer.
     pub const PRESENT: u64 = 3;
-    /// Create a shared buffer and map it; `[handle, va, size]` out.
-    pub const CREATE_BUFFER: u64 = 4;
-    /// Map an existing shared buffer; its address out.
-    pub const MAP_BUFFER: u64 = 5;
-    /// Close a shared-buffer handle (unmap + drop the reference).
-    pub const CLOSE_BUFFER: u64 = 6;
+    // Ops 4 to 6 were the shared-buffer ops, now `messenger`'s
+    // `OP_BUFFER_CREATE`/`MAP`/`CLOSE`; the numbers stay unassigned.
     /// Declare the screen buffer's byte order (one of [`super::layout`]).
     pub const SET_LAYOUT: u64 = 7;
     /// The byte order `present` copies without conversion, or `-ENOENT`.
@@ -129,7 +125,6 @@ pub mod layout {
 pub(crate) mod errno {
     pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
-    pub const EBADF: i64 = 9;
     pub const ENOMEM: i64 = 12;
     pub const EFAULT: i64 = 14;
     pub const EBUSY: i64 = 16;
@@ -147,8 +142,6 @@ pub(crate) fn shared_errno(error: shared::Error) -> u64 {
     negative(match error {
         InvalidHandle | NotFound => errno::ENOENT,
         NoFreeHandle | RegistryFull | Quota | UserQuota | OutOfMemory => errno::ENOMEM,
-        BadTask | WrongKind | BadSize | MissingRight | ShareOnly | BadDescriptor | MapFailed => {
-            errno::EINVAL
-        }
+        BadTask | WrongKind | BadSize | MissingRight | ShareOnly | MapFailed => errno::EINVAL,
     })
 }

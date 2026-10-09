@@ -1,0 +1,28 @@
+[
+  {
+    "name": "configure_args",
+    "interface": "os.lazy.conformance.objects.v1",
+    "message": "Configure.args",
+    "value": {
+      "surface": 7,
+      "pixels": {"handle": 40, "offset": 0, "len": 4096},
+      "config": {
+        "name": "main",
+        "events": 41,
+        "state": {"page": {"handle": 42, "offset": 4096, "len": 64}, "generation": 3}
+      }
+    }
+  },
+  {
+    "name": "attach_args",
+    "interface": "os.lazy.conformance.objects.v1",
+    "message": "Attach.args",
+    "value": {"slots": 16, "rings": {"handle": 5, "offset": 0, "len": 8192}, "notify": 6}
+  },
+  {
+    "name": "plain_args",
+    "interface": "os.lazy.conformance.objects.v1",
+    "message": "Plain.args",
+    "value": {"point": {"x": -1, "y": 2}}
+  }
+]

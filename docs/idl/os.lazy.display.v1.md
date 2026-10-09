@@ -19,13 +19,12 @@ drag-and-drop set
 values the hand-written protocol used (1-24), so the numbering stays
 append-only from here on.
 
-Endpoint and buffer transfers ride in the parcel's `handles` and `buffers`
-vectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`
-fields because a raw handle number in the body would be meaningless to the
-receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
-(`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
-least `width * height * 4` bytes of RGBA8 for the surface's current
-content size, rows tightly packed at that width).
+Endpoints and buffers are object fields of the request (the parcel's
+object list, which the kernel resolves and installs in the receiver's
+table): `CreateSurface` and `Subscribe` move one event endpoint
+(`events`), `AttachBuffer` shares one pixel buffer (`pixels`, at least
+`width * height * 4` bytes of RGBA8 for the surface's current content
+size, rows tightly packed at that width).
 
 Pointer coordinates in every event are relative to the surface content
 origin; a move outside the surface (a press-and-drag) reports negative or
@@ -38,8 +37,8 @@ fields, which never use that id.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32, popup: Option<U64>) -> (surface: U64) transfers (events: Channel<os.lazy.display.v1>)` |
-| AttachBuffer | 2 | sync | `(surface: U64) -> () transfers (pixels: Buffer)` |
+| CreateSurface | 1 | sync | `(width: U32, height: U32, title: String, role: U32, popup: Option<U64>, events: Channel<os.lazy.display.v1>) -> (surface: U64)` |
+| AttachBuffer | 2 | sync | `(surface: U64, pixels: Buffer) -> ()` |
 | Commit | 3 | sync | `(surface: U64, x: U32, y: U32, w: U32, h: U32) -> ()` |
 | DestroySurface | 4 | sync | `(surface: U64) -> ()` |
 | PointerMove | 5 | oneway | `(x: I32, y: I32) -> ()` |
@@ -57,12 +56,12 @@ fields, which never use that id.
 | DragEnded | 17 | oneway | `(dropped: Bool) -> ()` |
 | ListSurfaces | 18 | sync | `() -> (surfaces: Array<SurfaceRow>)` |
 | GetWorkArea | 19 | sync | `() -> (x: I32, y: I32, w: I32, h: I32)` |
-| Subscribe | 20 | sync | `(subscriber_role: String) -> () transfers (events: Channel<os.lazy.display.v1>)` |
+| Subscribe | 20 | sync | `(subscriber_role: String, events: Channel<os.lazy.display.v1>) -> ()` |
 | GetTheme | 21 | sync | `() -> (title_bg_active: U32, title_bg_inactive: U32, border: U32, taskbar: U32, text: U32, mode: String, accent: U32)` |
 | SurfaceChanged | 22 | oneway | `(surface: U64, kind: U32, x: I32, y: I32, w: I32, h: I32, minimized: Bool, focused: Bool, title: Option<String>, role: U32, maximized: Bool) -> ()` |
 | FocusChanged | 23 | oneway | `(surface: Option<U64>) -> ()` |
 | StartMenu | 24 | oneway | `() -> ()` |
-| AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32) -> () transfers (pixels: Buffer)` |
+| AttachBufferSlot | 25 | sync | `(surface: U64, slot: U32, pixels: Buffer) -> ()` |
 | Present | 26 | oneway | `(surface: U64, slot: U32, seq: U64, damage: Array<Rect>) -> ()` |
 | BufferRelease | 27 | oneway | `(surface: U64, slot: U32) -> ()` |
 | FrameDone | 28 | oneway | `(surface: U64, seq: U64) -> ()` |
@@ -86,17 +85,17 @@ fields, which never use that id.
 | PanelKey | 46 | oneway | `(key: U32) -> ()` |
 | TrayKeys | 47 | oneway | `() -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| CreateSurface | `events` | `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on |
-| AttachBuffer | `pixels` | `buffers[0]`, a shared buffer |
-| Subscribe | `events` | `handles[0]`, a channel the receiver sends `os.lazy.display.v1` on |
-| AttachBufferSlot | `pixels` | `buffers[0]`, a shared buffer |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| CreateSurface | `events` | `Channel<os.lazy.display.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.display.v1` on |
+| AttachBuffer | `pixels` | `Buffer` | `objects[0]`, a shared buffer |
+| Subscribe | `events` | `Channel<os.lazy.display.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.display.v1` on |
+| AttachBufferSlot | `pixels` | `Buffer` | `objects[0]`, a shared buffer |
 
 ## struct `Rect`
 

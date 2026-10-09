@@ -23,5 +23,5 @@ fn connect() {
     msg::connect("os.lazy.init.app.v1")
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Watch.

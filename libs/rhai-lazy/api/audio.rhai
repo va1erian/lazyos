@@ -17,12 +17,12 @@
 // that opened it.
 //
 // **The client owns the ring.** Replies cannot carry buffers (the kernel
-// refuses transfers in a reply), and the driver must not trust memory a
+// refuses objects in a reply), and the driver must not trust memory a
 // client can rewrite while the device reads it, so the driver keeps its own DMA
 // slots and copies committed periods out of the client's ring. A playback
 // client therefore: `OpenStream` (learn the granted parameters), create a
 // shared buffer of at least `periods * period_bytes` bytes, `AttachRing` it
-// (`buffers[0]` of the request), write interleaved samples into it, `Commit`
+// (the request's `ring`), write interleaved samples into it, `Commit`
 // how many frames it has written, `Start`, and finally `Drain` and
 // `CloseStream`.
 //
@@ -140,7 +140,7 @@ fn set_mute(stream, mute) {
     msg::connect("os.lazy.audio.v1").invoke("SetMute", [stream, mute])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): AttachRing.
 
 /// A `AudioInfo` with every field at its zero value.

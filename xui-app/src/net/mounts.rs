@@ -97,6 +97,8 @@ pub fn mount(request: &Request) -> Result<String, Error> {
         port: u32::from(request.port),
         user: request.user.clone(),
         password: request.password.clone(),
+        kind: String::from(request.kind.name()),
+        share: request.share.clone(),
     }))?;
     let body = call(NAME, wire::INTERFACE_ID, wire::METHOD_MOUNT, body)?;
     Ok(decoded(wire::decode_mount_reply(&body))?.path)

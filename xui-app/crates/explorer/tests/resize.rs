@@ -1,17 +1,15 @@
-//! Window-resize tests: one open folder window re-flows its icon view and
-//! status bar when the window changes size. Driven through the resizable
+//! Window-resize tests: one open folder window re-flows its toolbar, its
+//! icon view and its status bar when the window changes size. Driven through the resizable
 //! offscreen backend, which delivers the window-level `Event::Resize`.
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Instant;
 
 use xui_app_testkit::TestBackend;
 use xui_core::backend::{Backend, PlatformSpec, WidgetId, WindowId};
 use xui_core::units::Dip;
 use xui_core::{Ui, run_app};
-use xui_explorer::model::Clock;
 use xui_explorer::platform::Launcher;
 use xui_explorer::window::Msg;
 use xui_explorer::{Explorer, ExplorerWindow, MemPlatform};
@@ -20,6 +18,8 @@ const WIDTH: i32 = 420;
 const HEIGHT: i32 = 320;
 /// The status bar's design height, in device pixels at 96 DPI.
 const STATUS_HEIGHT: i32 = 24;
+/// The toolbar's design height, in device pixels at 96 DPI.
+const TOOLBAR_HEIGHT: i32 = 38;
 
 /// A launcher that opens nothing; the resize test never activates an entry.
 struct NoopLauncher;
@@ -66,8 +66,7 @@ fn resized(width: i32, height: i32, check: impl FnOnce(&Probe) + 'static) {
         handle,
         PlatformSpec::new("files").size(Dip(WIDTH as f32), Dip(HEIGHT as f32)),
         move |ui| {
-            let clock: Clock = Rc::new(Instant::now);
-            let window = ExplorerWindow::with_clock(ui, explorer, PathBuf::from("/a"), clock)
+            let window = ExplorerWindow::new(ui, explorer, PathBuf::from("/a"))
                 .expect("the explorer window built");
             *build_probe.borrow_mut() = Some(Probe {
                 ui: ui.clone(),
@@ -93,6 +92,10 @@ fn a_larger_window_reflows_the_view_and_status_bar() {
         assert_eq!(
             view.bottom, status.top,
             "the view ends where the bar begins"
+        );
+        assert_eq!(
+            view.top, TOOLBAR_HEIGHT,
+            "the view starts under the toolbar"
         );
     });
 }

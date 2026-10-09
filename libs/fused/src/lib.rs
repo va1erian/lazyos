@@ -17,6 +17,7 @@
 //!   [`daemon::Provider`] and answers it. The kernel test suite drives it
 //!   against the real kernel path; host tests drive it against a fake.
 //! * [`memfs`]: an in-memory filesystem, the `memfuse` daemon's tree.
+//! * [`inodes`]: inode numbers by path, for daemons over a network share.
 //!
 //! Nothing a daemon sends is trusted by the kernel and nothing the kernel
 //! sends is trusted by a daemon: both sides decode through this crate, which
@@ -27,6 +28,7 @@
 extern crate alloc;
 
 pub mod daemon;
+pub mod inodes;
 pub mod memfs;
 pub mod payload;
 pub mod wire;

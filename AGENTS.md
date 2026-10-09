@@ -71,6 +71,18 @@ IPC, processes, display, etc.) and focused plans for
 Read those for anything about kernel internals, syscall numbers, or
 window/task management rather than assuming from comments elsewhere.
 
+Before touching IPC, read the six concepts and the cheat sheet in
+[`docs/messenger.md`](docs/messenger.md) (sections 1 and 5): a message is a
+header, a TLV body and an object list; an interface's objects are parameters
+of type `Channel<I>` (one end of a channel, which moves) or `Buffer` (shared
+pages with a byte range, which is shared), declared in `.midl` like any other
+field and refused in a reply, a topic, an `Option` or an `Array`. The index
+rule and fixed cardinality apply: an object field's index is its position in
+the method's declared order, the kernel refuses a request whose object list
+is not exactly the declared kinds, and the generated `decode_<m>_args`
+refuses any other index. `midlc` refuses the old `transfers (...)` clause;
+there is no other way to carry a handle.
+
 Boot it with one command:
 
 ```bash
@@ -829,13 +841,15 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out sh
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 
-## Network Drives (FTP mounts from the desktop)
+## Network Drives (FTP and SMB mounts from the desktop)
 
-`ftpfuse` serves an FTP server at `/mnt/<name>` through the FUSE mechanism
-(syscall 35, `CAP_FS_PROVIDER`). Apps hold no capabilities, so the desktop
-asks `mountd` (`os.lazy.mount.v1`, `idl/mount.midl`; uid 910 with only
-`CAP_FS_PROVIDER`), which starts one `ftpfuse` per mount with the caller's
-ownership (`owner=`) and reports `connecting`/`mounted`/`failed`. The rules are
+`ftpfuse` serves an FTP server, and `smbfuse` an SMB share, at
+`/mnt/<name>` through the FUSE mechanism (syscall 35, `CAP_FS_PROVIDER` and
+a provider uid: root or `_mountd`, `mounttable::FS_PROVIDER_UIDS`). Apps
+hold no capabilities, so the desktop asks `mountd` (`os.lazy.mount.v1`,
+`idl/mount.midl`; uid 910 with only `CAP_FS_PROVIDER`), which starts one
+daemon per mount (`kind` `ftp` or `smb`) with the caller's ownership
+(`owner=`) and reports `connecting`/`mounted`/`failed`. The rules are
 `libs/mounttable` (host-tested); the front end is the core package **Network
 Drives** (`os.lazy.netdrives`, `xui-app/src/bin/netdrives.rs`), shipped in
 every `--net` desktop. See [`docs/smb-plan.md`](docs/smb-plan.md) §3.4.
@@ -844,7 +858,31 @@ every `--net` desktop. See [`docs/smb-plan.md`](docs/smb-plan.md) §3.4.
 python tools/run_demo.py --desktop --net  # then Internet -> Network Drives, server 10.0.2.2
 cargo test -p mounttable
 python tools/fuse/ui_run.py               # build, mount from the app against a host FTP server, judge
+python tools/fuse/ui_run.py --smb         # the same against the host SMB harness server
 python tools/fuse/test_ui_judge.py        # the judge fails when it should
+```
+
+## SMB shares as directories (`smbfuse`, docs/smb-plan.md F3)
+
+`smbfuse -U USER //SERVER/SHARE [name=NAME]` mounts an SMB 2.1 share at
+`/mnt/<name>` (default: the share's name in lower case) in every
+`LAZYOS_NETD=1` image: it prompts for the password without echo, starts
+itself again in the background with the password in that copy's
+environment (never `argv`), and returns once the mount answers (`-f`
+serves in the foreground; `mountd` passes `LAZYOS_SMB_PASSWORD`). The FUSE
+mapping is `libs/smbfs` (host-tested against `smbwire`'s in-memory server,
+which the `testserver` feature exposes). FUSE metadata is believed for 1 s
+in the VFS (`Filesystem::cache_deadline`, `fuse::ATTR_TICKS`), so a change
+another client makes shows within that. Running `smbfuse` directly needs
+a provider identity (root, as in a console image's shell, or `_mountd`): a
+session user's shell has no `CAP_FS_PROVIDER` and mounts through `mountd`
+(Network Drives, or `sys::mount` from `rhai`).
+
+```bash
+cargo test -p smbfs -p mounttable -p fused
+LAZYOS_TEST_FILTER=fuse python tools/test/run.py --accel none   # incl. the cache lifetime (coherence.rs)
+python tools/smb/fuse_run.py              # build, mount two shares, use them with BusyBox, judge servers + pcap
+python tools/smb/test_fuse_judge.py
 ```
 
 ## SMB client (`LAZYOS_SMB=1`: `smb`)

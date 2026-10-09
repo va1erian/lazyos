@@ -28,6 +28,7 @@ pub mod outbox;
 pub mod pointer;
 mod repeat;
 pub mod router;
+pub mod session_layout;
 #[cfg(test)]
 mod tests;
 
@@ -39,8 +40,10 @@ pub use outbox::Outbox;
 pub use pointer::{Pointer, PointerOut, RawPointer};
 pub use repeat::{REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS, TICK_NS};
 pub use router::Router;
+pub use session_layout::LayoutChoice;
 
-/// The `confd` key that selects the keyboard layout (`"us"` or `"fr"`).
+/// The `confd` key holding the machine's keyboard layout (`"us"` or `"fr"`);
+/// an account's own overrides it ([`session_layout`]).
 pub const LAYOUT_KEY: &str = "sys/input/layout";
 
 /// Modifier and lock bits reported in `KeyEvent.mods` (and matched by hotkeys,

@@ -18,7 +18,7 @@ fn hex(text: &str) -> Vec<u8> {
 }
 
 mod case_declarations {
-use messenger_generated::{rings, topics, transfers};
+use messenger_generated::{objects, rings, topics};
 /// `os.lazy.conformance.events.v1` (interface id `0xd47ef877a2df181c`).
 #[rustfmt::skip]
 pub mod os_lazy_conformance_events_v1 {
@@ -31,7 +31,9 @@ pub mod os_lazy_conformance_events_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -45,7 +47,7 @@ pub mod os_lazy_conformance_events_v1 {
     /// `Changed` method id.
     pub const METHOD_CHANGED: u32 = 163913787;
 
-    /// Sent on the channel `Watch` transfers.
+    /// Sent on the channel `Watch` carries.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ChangedArgs {
         pub path: alloc::string::String,
@@ -68,12 +70,10 @@ pub mod os_lazy_conformance_events_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 /// `os.lazy.conformance.decl.v1` (interface id `0xa186445ec166d00f`).
 #[rustfmt::skip]
@@ -87,7 +87,9 @@ pub mod os_lazy_conformance_decl_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -150,21 +152,40 @@ pub mod os_lazy_conformance_decl_v1 {
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct WatchArgs {
         pub prefix: alloc::string::String,
+        pub events: u64,
     }
 
-    pub fn encode_watch_args(value: &WatchArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Watch`.
+    pub fn encode_watch_args(value: &WatchArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.string(1, &value.prefix)?;
-        Ok(target.finish())
+        target.channel(2, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_watch_args(body: &[u8]) -> Result<WatchArgs, Error> {
+    /// `Watch` from its body and the objects the kernel installed
+    /// (`WATCH_OBJECTS`, each claimed by its field).
+    pub fn decode_watch_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<WatchArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = WatchArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.prefix = field.as_str()?.into();
+            match field.id {
+                1 => {
+                    out.prefix = field.as_str()?.into();
+                }
+                2 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
@@ -191,76 +212,92 @@ pub mod os_lazy_conformance_decl_v1 {
         Ok(out)
     }
 
-    /// What a `Watch` request carries outside its body.
-    pub const WATCH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
-
-    /// The objects a `Watch` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct WatchTransfers {
-        /// `handles[0]`, a channel the receiver sends `os.lazy.conformance.events.v1` on.
-        pub events: u64,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Watch` request.
-    pub fn encode_watch_transfers(value: &WatchTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (alloc::vec![value.events], Vec::new())
-    }
+    /// The objects a `Watch` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.conformance.events.v1` on.
+    pub const WATCH_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ShareArgs {
         pub len: u64,
+        pub pixels: libmessenger::Buffer,
     }
 
-    pub fn encode_share_args(value: &ShareArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Share`.
+    pub fn encode_share_args(value: &ShareArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u64(1, value.len)?;
-        Ok(target.finish())
+        target.buffer(2, &value.pixels, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_share_args(body: &[u8]) -> Result<ShareArgs, Error> {
+    /// `Share` from its body and the objects the kernel installed
+    /// (`SHARE_OBJECTS`, each claimed by its field).
+    pub fn decode_share_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<ShareArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = ShareArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.len = field.as_u64()?;
+            match field.id {
+                1 => {
+                    out.len = field.as_u64()?;
+                }
+                2 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
 
-    /// What a `Share` request carries outside its body.
-    pub const SHARE_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `Share` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct ShareTransfers {
-        /// `buffers[0]`, a shared buffer.
-        pub pixels: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Share` request.
-    pub fn encode_share_transfers(value: &ShareTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.pixels])
-    }
+    /// The objects a `Share` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    pub const SHARE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachArgs {
         pub slots: u32,
+        pub rings: libmessenger::Buffer,
     }
 
-    pub fn encode_attach_args(value: &AttachArgs) -> Result<Vec<u8>, Error> {
+    /// The body and the object list of `Attach`.
+    pub fn encode_attach_args(value: &AttachArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
         let mut target = Encoder::new();
+        let objects = &mut Vec::new();
         target.u32(1, value.slots)?;
-        Ok(target.finish())
+        target.buffer(2, &value.rings, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
     }
 
-    pub fn decode_attach_args(body: &[u8]) -> Result<AttachArgs, Error> {
+    /// `Attach` from its body and the objects the kernel installed
+    /// (`ATTACH_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
         let mut out = AttachArgs::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
-            if field.id == 1 {
-                out.slots = field.as_u32()?;
+            match field.id {
+                1 => {
+                    out.slots = field.as_u32()?;
+                }
+                2 => {
+                    out.rings = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
             }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
         }
         Ok(out)
     }
@@ -287,20 +324,9 @@ pub mod os_lazy_conformance_decl_v1 {
         Ok(out)
     }
 
-    /// What a `Attach` request carries outside its body.
-    pub const ATTACH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 0, buffers: 1 };
-
-    /// The objects a `Attach` request transfers, by name.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct AttachTransfers {
-        /// `buffers[0]`, a shared buffer holding the rings `Out` back to back.
-        pub rings: libmessenger::BufferDesc,
-    }
-
-    /// The parcel's `handles` and `buffers` for a `Attach` request.
-    pub fn encode_attach_transfers(value: &AttachTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
-        (Vec::new(), alloc::vec![value.rings])
-    }
+    /// The objects a `Attach` request carries, in object-list order:
+    /// `rings`, `objects[0]`, a shared buffer holding the rings `Out` back to back.
+    pub const ATTACH_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// The rings of `Attach`'s `rings` buffer, in order.
     pub const ATTACH_RINGS: [rings::RingDecl; 1] = [RING_OUT];
@@ -342,16 +368,13 @@ pub mod os_lazy_conformance_decl_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        match method {
-            METHOD_WATCH => WATCH_TRANSFERS,
-            METHOD_SHARE => SHARE_TRANSFERS,
-            METHOD_ATTACH => ATTACH_TRANSFERS,
-            _ => transfers::Transfers::NONE,
-        }
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_WATCH, WATCH_OBJECTS),
+        (METHOD_SHARE, SHARE_OBJECTS),
+        (METHOD_ATTACH, ATTACH_OBJECTS),
+    ];
 
     /// Client-produced frames, woken with `Kick`.
     pub const RING_OUT: rings::RingDecl = rings::RingDecl {
@@ -481,7 +504,7 @@ fn declarations_changed_args() {
 }
 
 mod case_errors {
-use messenger_generated::{rings, topics, transfers};
+use messenger_generated::{objects, rings, topics};
 /// `os.lazy.conformance.errors.v1` (interface id `0x7ea3d3eeacf8881e`).
 #[rustfmt::skip]
 pub mod os_lazy_conformance_errors_v1 {
@@ -494,7 +517,9 @@ pub mod os_lazy_conformance_errors_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -560,12 +585,10 @@ pub mod os_lazy_conformance_errors_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 }
 
@@ -601,8 +624,449 @@ fn errors_hint_only_error() {
     assert_eq!(messenger_generated::errors::find(&bytes).unwrap(), Some(value));
 }
 
+mod case_objects {
+use messenger_generated::{objects, rings, topics};
+/// `os.lazy.conformance.objevents.v1` (interface id `0x111aea0c8bda9c97`).
+#[rustfmt::skip]
+pub mod os_lazy_conformance_objevents_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x111aea0c8bda9c97;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.conformance.objevents.v1";
+
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 314575196;
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
+}
+/// `os.lazy.conformance.objects.v1` (interface id `0x3fbad00478336bc7`).
+#[rustfmt::skip]
+pub mod os_lazy_conformance_objects_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x3fbad00478336bc7;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.conformance.objects.v1";
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Config {
+        pub name: alloc::string::String,
+        pub events: u64,
+        pub state: State,
+    }
+
+    pub fn encode_config(value: &Config, objects: &mut Vec<libmessenger::Object>) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.channel(2, value.events, objects)?;
+        target.raw(Kind::Struct, 3, &encode_state(&value.state, objects)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_config(body: &[u8], objects: &[libmessenger::Object], next: &mut usize) -> Result<Config, Error> {
+        let mut out = Config::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                3 => {
+                    out.state = decode_state(field.payload, objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct State {
+        pub page: libmessenger::Buffer,
+        pub generation: u32,
+    }
+
+    pub fn encode_state(value: &State, objects: &mut Vec<libmessenger::Object>) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.buffer(1, &value.page, objects)?;
+        target.u32(2, value.generation)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_state(body: &[u8], objects: &[libmessenger::Object], next: &mut usize) -> Result<State, Error> {
+        let mut out = State::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.page = field.claim_buffer(objects, next)?;
+                }
+                2 => {
+                    out.generation = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Point {
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn encode_point(value: &Point) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_point(body: &[u8]) -> Result<Point, Error> {
+        let mut out = Point::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Configure` method id.
+    pub const METHOD_CONFIGURE: u32 = 1;
+    /// `Attach` method id.
+    pub const METHOD_ATTACH: u32 = 2;
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 314575196;
+    /// `Plain` method id.
+    pub const METHOD_PLAIN: u32 = 3;
+
+    /// A top-level buffer, then a struct holding a channel and a nested buffer.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConfigureArgs {
+        pub surface: u64,
+        pub pixels: libmessenger::Buffer,
+        pub config: Config,
+    }
+
+    /// The body and the object list of `Configure`.
+    pub fn encode_configure_args(value: &ConfigureArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.surface)?;
+        target.buffer(2, &value.pixels, objects)?;
+        target.raw(Kind::Struct, 3, &encode_config(&value.config, objects)?)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Configure` from its body and the objects the kernel installed
+    /// (`CONFIGURE_OBJECTS`, each claimed by its field).
+    pub fn decode_configure_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<ConfigureArgs, Error> {
+        if objects.len() != 3 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = ConfigureArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.config = decode_config(field.payload, objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 3 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConfigureReply {
+        pub ok: bool,
+    }
+
+    pub fn encode_configure_reply(value: &ConfigureReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.ok)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_configure_reply(body: &[u8]) -> Result<ConfigureReply, Error> {
+        let mut out = ConfigureReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ok = field.as_bool()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Configure` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    /// `config.events`, `objects[1]`, a channel the receiver sends `os.lazy.conformance.objevents.v1` on.
+    /// `config.state.page`, `objects[2]`, a shared buffer.
+    pub const CONFIGURE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer, objects::Kind::Channel, objects::Kind::Buffer];
+
+    /// A server-produced frames ring with the channel its doorbell travels on.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachArgs {
+        pub slots: u32,
+        pub rings: libmessenger::Buffer,
+        pub notify: u64,
+    }
+
+    /// The body and the object list of `Attach`.
+    pub fn encode_attach_args(value: &AttachArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u32(1, value.slots)?;
+        target.buffer(2, &value.rings, objects)?;
+        target.channel(3, value.notify, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Attach` from its body and the objects the kernel installed
+    /// (`ATTACH_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachArgs, Error> {
+        if objects.len() != 2 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.slots = field.as_u32()?;
+                }
+                2 => {
+                    out.rings = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.notify = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 2 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachReply {
+        pub ring: u32,
+    }
+
+    pub fn encode_attach_reply(value: &AttachReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_reply(body: &[u8]) -> Result<AttachReply, Error> {
+        let mut out = AttachReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Attach` request carries, in object-list order:
+    /// `rings`, `objects[0]`, a shared buffer holding the rings `Rx` back to back.
+    /// `notify`, `objects[1]`, a channel the receiver sends `os.lazy.conformance.objects.v1` on.
+    pub const ATTACH_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer, objects::Kind::Channel];
+
+    /// The rings of `Attach`'s `rings` buffer, in order.
+    pub const ATTACH_RINGS: [rings::RingDecl; 1] = [RING_RX];
+
+    /// Where each ring of `Attach`'s buffer starts, and its total size.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct AttachRings {
+        pub rx: u64,
+        pub total: u64,
+    }
+
+    /// The layout of `Attach`'s buffer for rings `ring_bytes` long; `None` on overflow.
+    pub fn attach_rings(ring_bytes: u64) -> Option<AttachRings> {
+        Some(AttachRings {
+            rx: rings::offset(0, ring_bytes)?,
+            total: rings::offset(1, ring_bytes)?,
+        })
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// A struct that holds no object keeps the plain codec.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PlainArgs {
+        pub point: Point,
+    }
+
+    pub fn encode_plain_args(value: &PlainArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_point(&value.point)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_plain_args(body: &[u8]) -> Result<PlainArgs, Error> {
+        let mut out = PlainArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.point = decode_point(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CONFIGURE, CONFIGURE_OBJECTS),
+        (METHOD_ATTACH, ATTACH_OBJECTS),
+    ];
+
+    pub const RING_RX: rings::RingDecl = rings::RingDecl {
+        name: "Rx",
+        layout: rings::Layout::Frames,
+        producer: rings::Side::Server,
+        doorbell: Some(METHOD_NOTIFY),
+        advance: None,
+    };
+}
+}
+
+#[test]
+fn objects_configure_args() {
+    let value = case_objects::os_lazy_conformance_objects_v1::ConfigureArgs { surface: 7u64, pixels: libmessenger::Buffer { handle: 40u64, offset: 0u64, len: 4096u64 }, config: case_objects::os_lazy_conformance_objects_v1::Config { name: String::from("main"), events: 41u64, state: case_objects::os_lazy_conformance_objects_v1::State { page: libmessenger::Buffer { handle: 42u64, offset: 4096u64, len: 64u64 }, generation: 3u32 } } };
+    let bytes = hex("050100000800000007000000000000000f0200001400000000000000000000000000000000100000000000000a0300004800000007010000040000006d61696e0e02000004000000010000000a030000280000000f010000140000000200000000100000000000004000000000000000040200000400000003000000");
+    let objects = alloc::vec![libmessenger::Object::Buffer(40u64), libmessenger::Object::Channel(41u64), libmessenger::Object::Buffer(42u64)];
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::encode_configure_args(&value).unwrap(), (bytes.clone(), objects.clone()));
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::decode_configure_args(&bytes, &objects).unwrap(), value);
+}
+
+#[test]
+fn objects_attach_args() {
+    let value = case_objects::os_lazy_conformance_objects_v1::AttachArgs { slots: 16u32, rings: libmessenger::Buffer { handle: 5u64, offset: 0u64, len: 8192u64 }, notify: 6u64 };
+    let bytes = hex("0401000004000000100000000f0200001400000000000000000000000000000000200000000000000e0300000400000001000000");
+    let objects = alloc::vec![libmessenger::Object::Buffer(5u64), libmessenger::Object::Channel(6u64)];
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::encode_attach_args(&value).unwrap(), (bytes.clone(), objects.clone()));
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::decode_attach_args(&bytes, &objects).unwrap(), value);
+}
+
+#[test]
+fn objects_plain_args() {
+    let value = case_objects::os_lazy_conformance_objects_v1::PlainArgs { point: case_objects::os_lazy_conformance_objects_v1::Point { x: -1i32, y: 2i32 } };
+    let bytes = hex("0a010000180000000201000004000000ffffffff020200000400000002000000");
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::encode_plain_args(&value).unwrap(), bytes);
+    assert_eq!(case_objects::os_lazy_conformance_objects_v1::decode_plain_args(&bytes).unwrap(), value);
+}
+
 mod case_types {
-use messenger_generated::{rings, topics, transfers};
+use messenger_generated::{objects, rings, topics};
 /// `os.lazy.conformance.types.v1` (interface id `0x9507444b8cb05f7c`).
 #[rustfmt::skip]
 pub mod os_lazy_conformance_types_v1 {
@@ -615,7 +1079,9 @@ pub mod os_lazy_conformance_types_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
@@ -953,12 +1419,10 @@ pub mod os_lazy_conformance_types_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 }
 

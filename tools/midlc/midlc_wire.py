@@ -8,7 +8,11 @@ corpus pins the wire format for every implementation, not just one.
 
 Values are JSON-shaped: `Bool` a bool, integers and `F64` numbers, `String` a
 string, `Bytes` a hex string, `Array` a list, `Option` `null` or the value, a
-struct an object with every field, an enum its variant name (or index).
+struct an object with every field, an enum its variant name (or index), a
+`Channel` the sender's handle number, a `Buffer`/`Ring` an object with
+`handle`, `offset` and `len`. An object field encodes as its index in the
+parcel's object list, counted depth-first in declaration order, which is
+the list the message's `objects` entry records.
 """
 
 from __future__ import annotations
@@ -20,7 +24,10 @@ from midlc_model import Interface, MidlError, Param, Type
 KIND = {
     "Bool": 1, "I32": 2, "I64": 3, "U32": 4, "U64": 5, "F64": 6, "String": 7,
     "Bytes": 8, "Array": 9, "Struct": 10, "Map": 11, "Option": 12, "Error": 13,
+    "Handle": 14, "Buffer": 15,
 }
+# The object-list kind tags (`libmessenger::ObjectKind`).
+OBJECT_KIND = {"Channel": 1, "Buffer": 2, "Ring": 2}
 SCALAR_FORMAT = {"I32": "<i", "I64": "<q", "U32": "<I", "U64": "<Q", "F64": "<d"}
 # The standard error's detail record (`midlc_errors.DETAIL_FIELDS`).
 ERROR_DETAIL = {"domain": 1, "hint": 2, "docs": 3}
@@ -40,11 +47,21 @@ def enum_index(interface: Interface, ty: Type, value) -> int:
     return variants.index(value)
 
 
-def encode_value(interface: Interface, ty: Type, value, field_id: int) -> bytes:
-    """`value` of type `ty` as the field `field_id`."""
+def encode_value(interface: Interface, ty: Type, value, field_id: int, objects: list | None = None) -> bytes:
+    """`value` of type `ty` as the field `field_id`. An object field appends
+    `(kind tag, handle)` to `objects` and carries its index."""
     name = "U32" if ty.enum else ty.name
     if ty.enum:
         value = enum_index(interface, ty, value)
+    if name in OBJECT_KIND:
+        if objects is None:
+            raise MidlError(f"{ty}: an object field needs the message's object list")
+        index = len(objects)
+        if name == "Channel":
+            objects.append((OBJECT_KIND[name], value))
+            return tlv("Handle", field_id, struct.pack("<I", index))
+        objects.append((OBJECT_KIND[name], value["handle"]))
+        return tlv("Buffer", field_id, struct.pack("<IQQ", index, value["offset"], value["len"]))
     if name == "Bool":
         if not isinstance(value, bool):
             raise MidlError(f"expected a bool, found {value!r}")
@@ -64,17 +81,17 @@ def encode_value(interface: Interface, ty: Type, value, field_id: int) -> bytes:
     record = next((s for s in interface.structs if s.name == name), None)
     if record is None:
         raise MidlError(f"cannot encode type {ty}")
-    return tlv("Struct", field_id, encode_fields(interface, record.fields, value))
+    return tlv("Struct", field_id, encode_fields(interface, record.fields, value, objects))
 
 
-def encode_fields(interface: Interface, fields: list[Param], value: dict) -> bytes:
+def encode_fields(interface: Interface, fields: list[Param], value: dict, objects: list | None = None) -> bytes:
     """A record body: every field in declaration order, under its own id
     (the order the generated encoders write; a decoder accepts any order)."""
     missing = [f.name for f in fields if f.name not in value]
     extra = sorted(set(value) - {f.name for f in fields})
     if missing or extra:
         raise MidlError(f"record value: missing {missing}, unknown {extra}")
-    return b"".join(encode_value(interface, f.ty, value[f.name], f.id) for f in fields)
+    return b"".join(encode_value(interface, f.ty, value[f.name], f.id, objects) for f in fields)
 
 
 def message_fields(interface: Interface, message: str) -> list[Param]:
@@ -91,8 +108,19 @@ def message_fields(interface: Interface, message: str) -> list[Param]:
     return record.fields
 
 
-def encode_message(interface: Interface, message: str, value: dict) -> bytes:
-    return encode_fields(interface, message_fields(interface, message), value)
+def message_objects(interface: Interface, message: str) -> bool:
+    """Whether `message` carries objects (only a `Method.args` may)."""
+    return any(f.ty.objects for f in message_fields(interface, message))
+
+
+def encode_message(interface: Interface, message: str, value: dict) -> tuple[bytes, list]:
+    """The body bytes and the object list (`(kind tag, handle)` pairs) of
+    `message`; the list is empty for a value-only message."""
+    objects: list = []
+    if message_objects(interface, message) and not message.endswith(".args"):
+        raise MidlError(f"{message!r} carries objects; only a request (`Method.args`) may")
+    body = encode_fields(interface, message_fields(interface, message), value, objects)
+    return body, objects
 
 
 def encode_error(error_field: int, value: dict) -> bytes:

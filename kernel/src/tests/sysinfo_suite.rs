@@ -202,6 +202,26 @@ pub fn snapshot_fields_sane() -> Result<(), String> {
         words[sysinfo::H_HEAP_FREE],
         words[sysinfo::H_HEAP_TOTAL]
     );
+    // Version 5: the cache and slab frames are shares of the live frames,
+    // and with the heap's own pages they never add up to more than that.
+    let slab_frames: u64 = mem::slab::stats()
+        .classes
+        .iter()
+        .map(|class| class.slabs as u64)
+        .sum();
+    let cache = words[sysinfo::H_CACHE_FRAMES];
+    check!(
+        cache == crate::fs::ext2::cache_frames() as u64
+            && words[sysinfo::H_SLAB_FRAMES] == slab_frames,
+        "cache/slab frame words are {cache}/{}, expected {}/{slab_frames}",
+        words[sysinfo::H_SLAB_FRAMES],
+        crate::fs::ext2::cache_frames()
+    );
+    let kernel = words[sysinfo::H_HEAP_TOTAL] / 4096 + words[sysinfo::H_SLAB_FRAMES];
+    check!(
+        kernel + cache <= live,
+        "heap+slab {kernel} and cache {cache} frames exceed the {live} live frames"
+    );
     check!(
         words[sysinfo::H_TASKS_LIVE] == 1,
         "live task count is {}, expected the kernel task only",

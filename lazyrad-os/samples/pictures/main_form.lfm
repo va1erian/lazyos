@@ -21,110 +21,110 @@ kind = "Button"
 name = "prev_button"
 left = 11
 top = 548
-width = 72
+width = 40
 height = 28
 anchor = "bottom"
-text = "Previous"
+icon = "chevron-left"
 
 [[node]]
 kind = "Button"
 name = "next_button"
-left = 87
+left = 55
 top = 548
-width = 56
+width = 40
 height = 28
 anchor = "bottom"
-text = "Next"
+icon = "chevron-right"
 
 [[node]]
 kind = "Button"
 name = "fit_button"
-left = 153
+left = 99
 top = 548
-width = 72
+width = 40
 height = 28
 anchor = "bottom"
-text = "Best Fit"
+icon = "rectangle-horizontal"
 
 [[node]]
 kind = "Button"
 name = "actual_button"
-left = 229
+left = 143
 top = 548
-width = 88
+width = 40
 height = 28
 anchor = "bottom"
-text = "Actual Size"
+icon = "image"
 
 [[node]]
 kind = "Button"
 name = "slideshow_button"
-left = 327
+left = 187
 top = 548
-width = 88
+width = 40
 height = 28
 anchor = "bottom"
-text = "Slide Show"
+icon = "play"
 
 [[node]]
 kind = "Button"
 name = "zoom_in_button"
-left = 425
+left = 231
 top = 548
-width = 72
+width = 40
 height = 28
 anchor = "bottom"
-text = "Zoom In"
+icon = "plus"
 
 [[node]]
 kind = "Button"
 name = "zoom_out_button"
-left = 501
+left = 275
 top = 548
-width = 80
+width = 40
 height = 28
 anchor = "bottom"
-text = "Zoom Out"
+icon = "minus"
 
 [[node]]
 kind = "Button"
 name = "rotate_cw_button"
-left = 591
+left = 319
 top = 548
-width = 96
+width = 40
 height = 28
 anchor = "bottom"
-text = "Rotate Right"
+icon = "redo-2"
 
 [[node]]
 kind = "Button"
 name = "rotate_ccw_button"
-left = 691
+left = 363
 top = 548
-width = 88
+width = 40
 height = 28
 anchor = "bottom"
-text = "Rotate Left"
+icon = "undo-2"
 
 [[node]]
 kind = "Button"
 name = "open_button"
-left = 789
+left = 407
 top = 548
-width = 64
+width = 40
 height = 28
 anchor = "bottom"
-text = "Open..."
+icon = "folder-open"
 
 [[node]]
 kind = "Button"
 name = "edit_button"
-left = 857
+left = 451
 top = 548
-width = 52
+width = 40
 height = 28
 anchor = "bottom"
-text = "Edit"
+icon = "pencil"
 
 [[node]]
 kind = "Label"

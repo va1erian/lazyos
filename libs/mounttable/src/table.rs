@@ -12,7 +12,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{exit_reason, Request, MAX_MOUNTS, MOUNT_TICKS};
+use crate::{exit_reason, Kind, Request, MAX_MOUNTS, MOUNT_TICKS};
 
 /// The reason of a mount whose daemon took longer than [`MOUNT_TICKS`].
 pub const TIMED_OUT: &str = "the server did not answer in time";
@@ -50,9 +50,12 @@ impl State {
 /// One mount.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
+    pub kind: Kind,
     pub name: String,
     pub host: String,
     pub port: u16,
+    /// The SMB share, empty for FTP.
+    pub share: String,
     pub user: String,
     /// The requester: the files' owner, and who may remove it.
     pub owner: u32,
@@ -104,9 +107,11 @@ impl Table {
     /// ran [`Table::admit`] first.
     pub fn add(&mut self, request: &Request, owner: u32, pid: u64, now: u64) {
         self.entries.push(Entry {
+            kind: request.kind,
             name: request.name.clone(),
             host: request.host.clone(),
             port: request.port,
+            share: request.share.clone(),
             user: request.user.clone(),
             owner,
             pid: Some(pid),

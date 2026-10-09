@@ -16,6 +16,7 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+use inputmap::Layout;
 use user::messenger::input::{PointerState, ShellEvent, ShellLink};
 use user::messenger::{errno, Error};
 use user::sys;
@@ -35,6 +36,9 @@ pub(super) struct InputLink {
     pub(super) told_focus: Option<Option<u64>>,
     /// The key hold `inputd` last heard (`NoteKeysHeld`; `None`: never told).
     pub(super) told_held: Option<bool>,
+    /// The session layout `inputd` last heard (`NoteSessionLayout`; `None`:
+    /// never told).
+    pub(super) told_layout: Option<Option<Layout>>,
     /// The last failure logged, so a changing error is reported but retries
     /// of the same one stay quiet.
     reported: Option<Option<i64>>,
@@ -69,6 +73,7 @@ impl InputLink {
             registered: BTreeSet::new(),
             told_focus: None,
             told_held: None,
+            told_layout: None,
             reported: None,
             owns_pointer: false,
             buttons: 0,
@@ -125,6 +130,7 @@ impl Compositor {
                 self.input.registered.clear();
                 self.input.told_focus = None;
                 self.input.told_held = None;
+                self.input.told_layout = None;
                 self.input.press_unacked = false;
                 sys::write_str("xuid: attached to inputd\n");
                 self.register_chords();
@@ -327,6 +333,15 @@ impl Compositor {
         if self.input.told_held != Some(keys_held) {
             match sent(link.note_keys_held(keys_held)) {
                 Some(true) => self.input.told_held = Some(keys_held),
+                Some(false) => {}
+                None => return false,
+            }
+        }
+        // The shell user's own keyboard layout (`layoutfeed.rs`).
+        let layout = self.layoutfeed.wanted();
+        if self.input.told_layout != Some(layout) {
+            match sent(link.note_session_layout(layout.map(Layout::name))) {
+                Some(true) => self.input.told_layout = Some(layout),
                 Some(false) => {}
                 None => return false,
             }

@@ -3,13 +3,13 @@
 //!
 //! The client keeps writing this memory while the mixer reads it, so it is
 //! never referenced: every read is a raw copy of a range checked against the
-//! extent the kernel validated. A client scribbling over its ring therefore
-//! produces noise in its own stream, never an out-of-bounds access. Dropping
-//! the ring closes the buffer, which unmaps it.
+//! extent checked against the size the kernel mapped. A client scribbling
+//! over its ring therefore produces noise in its own stream, never an
+//! out-of-bounds access. Dropping the ring closes the buffer, which unmaps it.
 
 use core::ptr;
 
-use libmessenger::BufferDesc;
+use libmessenger::Buffer;
 use user::sys;
 
 pub(super) struct MappedRing {
@@ -19,21 +19,25 @@ pub(super) struct MappedRing {
 }
 
 impl MappedRing {
-    /// Map the request's buffer `handle`; `desc` is the range the request
-    /// declared, which the kernel already checked lies inside the object. On
-    /// failure the handle is closed, so nothing leaks either way.
-    pub(super) fn map(handle: u64, desc: &BufferDesc) -> Option<MappedRing> {
+    /// Map the request's `ring`: its handle and the range the request
+    /// declared, checked against the size the kernel reports. On failure the
+    /// handle is closed, so nothing leaks either way.
+    pub(super) fn map(ring: &Buffer) -> Option<MappedRing> {
+        let handle = ring.handle;
         let mapped = (|| {
-            let offset = usize::try_from(desc.offset).ok()?;
-            let len = usize::try_from(desc.len).ok()?;
-            let va = sys::display_map_buffer(handle).ok()?;
+            let offset = usize::try_from(ring.offset).ok()?;
+            let len = usize::try_from(ring.len).ok()?;
+            let (va, size) = sys::buffer_map(handle).ok()?;
+            if !ring.fits(size) {
+                return None;
+            }
             let base = (va as usize).checked_add(offset)? as *const u8;
             Some((base, len))
         })();
         match mapped {
             Some((base, len)) => Some(MappedRing { handle, base, len }),
             None => {
-                let _ = sys::display_close_buffer(handle);
+                let _ = sys::buffer_close(handle);
                 None
             }
         }
@@ -65,6 +69,6 @@ impl audiomix::Ring for MappedRing {
 
 impl Drop for MappedRing {
     fn drop(&mut self) {
-        let _ = sys::display_close_buffer(self.handle);
+        let _ = sys::buffer_close(self.handle);
     }
 }

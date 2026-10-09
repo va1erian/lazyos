@@ -11,12 +11,12 @@
 /// that opened it.
 ///
 /// **The client owns the ring.** Replies cannot carry buffers (the kernel
-/// refuses transfers in a reply), and the driver must not trust memory a
+/// refuses objects in a reply), and the driver must not trust memory a
 /// client can rewrite while the device reads it, so the driver keeps its own DMA
 /// slots and copies committed periods out of the client's ring. A playback
 /// client therefore: `OpenStream` (learn the granted parameters), create a
 /// shared buffer of at least `periods * period_bytes` bytes, `AttachRing` it
-/// (`buffers[0]` of the request), write interleaved samples into it, `Commit`
+/// (the request's `ring`), write interleaved samples into it, `Commit`
 /// how many frames it has written, `Start`, and finally `Drain` and
 /// `CloseStream`.
 ///
@@ -51,11 +51,10 @@ interface os.lazy.audio.v1 {
     /// the granted parameters. The stream is idle until a ring is attached and
     /// it is started.
     method OpenStream(dir: U32 = 1, format: U32 = 2, rate: U32 = 3, channels: U32 = 4, period_bytes: U32 = 5) -> (grant: StreamGrant = 1);
-    /// Attach the stream's sample ring: the request's `buffers[0]`, at least
+    /// Attach the stream's sample ring: `ring`, a shared buffer at least
     /// `periods * period_bytes` bytes long. Fails with `EINVAL` when it is
     /// shorter and `EBUSY` when a ring is already attached.
-    method AttachRing(stream: U32 = 1) -> ()
-        transfers (ring: Ring<Samples>);
+    method AttachRing(stream: U32 = 1, ring: Ring<Samples> = 2) -> ();
     /// Interleaved samples, client to driver; `Commit` reports how far the
     /// client wrote and replies how far the driver consumed.
     ring Samples : stream producer=client advance=Commit;

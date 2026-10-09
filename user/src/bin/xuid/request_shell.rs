@@ -9,9 +9,7 @@ use user::messenger::{self, Endpoint, Message};
 use user::sys::Cred;
 
 use super::compositor::Compositor;
-use super::protocol::{
-    color_u32, drop_rejected_transfers, empty_reply, error_reply, privileged, typed_reply,
-};
+use super::protocol::{color_u32, empty_reply, error_reply, privileged, typed_reply};
 use super::shell::ShellSub;
 use super::shellcalls::{shell_allowed, ShellClaim};
 use super::surface::Surface;
@@ -66,27 +64,28 @@ impl Compositor {
     /// capability and a restarted one replaces its predecessor; a live shell
     /// is never displaced (issue #623). Any other role is an observer: it
     /// needs privilege and can never displace the shell (issue #447).
-    pub(super) fn subscribe(&mut self, message: &Message, body: &[u8]) -> Parcel {
-        let role = wire::decode_subscribe_args(body)
-            .unwrap_or_default()
-            .subscriber_role;
-        if !message.carries(wire::SUBSCRIBE_TRANSFERS)
-            || role.is_empty()
-            || role.len() > display::MAX_ROLE
-        {
-            drop_rejected_transfers(message);
+    pub(super) fn subscribe(&mut self, message: &Message, _body: &[u8]) -> Parcel {
+        let Ok(args) = message.decode(wire::decode_subscribe_args) else {
             return error_reply(message.method(), messenger::errno::EINVAL);
+        };
+        let role = args.subscriber_role;
+        // Decoded, so the event endpoint is ours to close on a refusal.
+        let refuse = |code| {
+            let _ = Endpoint::from_raw(args.events).close();
+            error_reply(message.method(), code)
+        };
+        if role.is_empty() || role.len() > display::MAX_ROLE {
+            return refuse(messenger::errno::EINVAL);
         }
         let cred = message.caller();
         let sub = ShellSub {
-            events: message.first_handle,
+            events: args.events,
             task: message.sender,
             dead: false,
         };
         if role != display::ROLE_SHELL {
             if !privileged(&cred) {
-                drop_rejected_transfers(message);
-                return error_reply(message.method(), messenger::errno::EACCES);
+                return refuse(messenger::errno::EACCES);
             }
             // A re-subscribe replaces the endpoint, so close the one it
             // replaces (issue #175: it was leaked).
@@ -98,8 +97,7 @@ impl Compositor {
         let Some(cred) = Some(cred).filter(|cred| self.may_be_shell(cred, message.sender)) else {
             // Every window title, geometry and focus change is the shell's
             // (issue #175): anyone else's claim is refused outright.
-            drop_rejected_transfers(message);
-            return error_reply(message.method(), messenger::errno::EACCES);
+            return refuse(messenger::errno::EACCES);
         };
         if self.display_session.is_none() && cred.session != 0 {
             self.display_session = Some(cred.session);
@@ -109,6 +107,9 @@ impl Compositor {
         if self.themefeed.follow_user(cred.uid) {
             self.repaint_full();
         }
+        // And types with the user's own keyboard layout.
+        self.layoutfeed
+            .follow_user(cred.uid, self.themefeed.confd());
         empty_reply(message.method())
     }
 

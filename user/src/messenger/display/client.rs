@@ -3,7 +3,7 @@
 
 use alloc::vec::Vec;
 
-use libmessenger::{flags, BufferDesc, Parcel};
+use libmessenger::{flags, Buffer, Parcel};
 
 use super::super::{errno, registry, Endpoint, Error, Result};
 use super::canvas::Rect;
@@ -96,19 +96,16 @@ impl Client {
         events: &Endpoint,
         role: u32,
     ) -> Result<u64> {
-        let body = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
+        let (body, objects) = wire::encode_create_surface_args(&wire::CreateSurfaceArgs {
             width: wire_u32(width),
             height: wire_u32(height),
             title: title.into(),
             role,
             popup: None,
+            events: events.handle(),
         })
         .map_err(Error::Parcel)?;
-        let (handles, buffers) =
-            wire::encode_create_surface_transfers(&wire::CreateSurfaceTransfers {
-                events: events.handle(),
-            });
-        let reply = self.call(request(wire::METHOD_CREATESURFACE, body, handles, buffers))?;
+        let reply = self.call(request(wire::METHOD_CREATESURFACE, body, objects))?;
         let surface = wire::decode_create_surface_reply(&reply.body)
             .map_err(Error::Parcel)?
             .surface;
@@ -127,14 +124,12 @@ impl Client {
     /// observer that never replaces the shell. Registering again replaces the
     /// endpoint.
     pub fn subscribe(&self, role: &str, events: &Endpoint) -> Result<()> {
-        let body = wire::encode_subscribe_args(&wire::SubscribeArgs {
+        let (body, objects) = wire::encode_subscribe_args(&wire::SubscribeArgs {
             subscriber_role: role.into(),
+            events: events.handle(),
         })
         .map_err(Error::Parcel)?;
-        let (handles, buffers) = wire::encode_subscribe_transfers(&wire::SubscribeTransfers {
-            events: events.handle(),
-        });
-        self.call(request(wire::METHOD_SUBSCRIBE, body, handles, buffers))
+        self.call(request(wire::METHOD_SUBSCRIBE, body, objects))
             .map(|_| ())
     }
 
@@ -142,12 +137,7 @@ impl Client {
     /// bottom first (the desktop, the windows in z-order, the panels), with
     /// the composited geometry (issue #167).
     pub fn list_surfaces(&self) -> Result<Vec<SurfaceInfo>> {
-        let parcel = request(
-            wire::METHOD_LISTSURFACES,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
+        let parcel = request(wire::METHOD_LISTSURFACES, Vec::new(), Vec::new());
         let reply = self.endpoint.call(&parcel, None)?;
         if let Some(code) = error_field(&reply) {
             return Err(Error::Errno(-code));
@@ -160,12 +150,7 @@ impl Client {
     /// `GetWorkArea`: the rectangle windows may occupy: what the shell set
     /// with [`Client::set_work_area`], else the whole screen.
     pub fn get_work_area(&self) -> Result<Rect> {
-        let reply = self.call(request(
-            wire::METHOD_GETWORKAREA,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        ))?;
+        let reply = self.call(request(wire::METHOD_GETWORKAREA, Vec::new(), Vec::new()))?;
         let area = wire::decode_get_work_area_reply(&reply.body).map_err(Error::Parcel)?;
         Ok(Rect::new(area.x, area.y, area.w, area.h))
     }
@@ -173,12 +158,7 @@ impl Client {
     /// `GetTheme`: xuid's current chrome palette, so the shell's own
     /// surfaces can match it (issue #167).
     pub fn get_theme(&self) -> Result<Theme> {
-        let reply = self.call(request(
-            wire::METHOD_GETTHEME,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        ))?;
+        let reply = self.call(request(wire::METHOD_GETTHEME, Vec::new(), Vec::new()))?;
         let theme = wire::decode_get_theme_reply(&reply.body).map_err(Error::Parcel)?;
         Ok(Theme::from_reply(&theme))
     }
@@ -187,13 +167,12 @@ impl Client {
     /// `create_buffer`) with the compositor as `surface`'s pixels. The
     /// sender keeps its handle and mapping; the compositor gains one.
     pub fn attach_buffer(&self, surface: u64, buffer: u64, len: u64) -> Result<()> {
-        let body = wire::encode_attach_buffer_args(&wire::AttachBufferArgs { surface })
-            .map_err(Error::Parcel)?;
-        let (handles, buffers) =
-            wire::encode_attach_buffer_transfers(&wire::AttachBufferTransfers {
-                pixels: whole(buffer, len),
-            });
-        self.call(request(wire::METHOD_ATTACHBUFFER, body, handles, buffers))
+        let (body, objects) = wire::encode_attach_buffer_args(&wire::AttachBufferArgs {
+            surface,
+            pixels: Buffer::whole(buffer, len),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(request(wire::METHOD_ATTACHBUFFER, body, objects))
             .map(|_| ())
     }
 
@@ -207,7 +186,7 @@ impl Client {
             h: damage.h.max(0) as u32,
         })
         .map_err(Error::Parcel)?;
-        self.call(request(wire::METHOD_COMMIT, body, Vec::new(), Vec::new()))
+        self.call(request(wire::METHOD_COMMIT, body, Vec::new()))
             .map(|_| ())
     }
 
@@ -234,33 +213,22 @@ impl Client {
             max_h,
         })
         .map_err(Error::Parcel)?;
-        self.call(request(
-            wire::METHOD_SETSIZEHINTS,
-            body,
-            Vec::new(),
-            Vec::new(),
-        ))
-        .map(|_| ())
+        self.call(request(wire::METHOD_SETSIZEHINTS, body, Vec::new()))
+            .map(|_| ())
     }
 
     /// `AttachBufferSlot`: share `buffer` with the compositor as buffer slot
     /// `slot` (`0..surfbuf::MAX_SLOTS`) of `surface` (issue #361). Fails with
     /// `EBUSY` while `slot` is the surface's current buffer.
     pub fn attach_slot(&self, surface: u64, slot: u32, buffer: u64, len: u64) -> Result<()> {
-        let body =
-            wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs { surface, slot })
-                .map_err(Error::Parcel)?;
-        let (handles, buffers) =
-            wire::encode_attach_buffer_slot_transfers(&wire::AttachBufferSlotTransfers {
-                pixels: whole(buffer, len),
-            });
-        self.call(request(
-            wire::METHOD_ATTACHBUFFERSLOT,
-            body,
-            handles,
-            buffers,
-        ))
-        .map(|_| ())
+        let (body, objects) = wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs {
+            surface,
+            slot,
+            pixels: Buffer::whole(buffer, len),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(request(wire::METHOD_ATTACHBUFFERSLOT, body, objects))
+            .map(|_| ())
     }
 
     /// `Present` (issue #361): a one-way, pipelined commit. Makes `slot` the
@@ -286,7 +254,7 @@ impl Client {
             damage,
         })
         .map_err(Error::Parcel)?;
-        let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new(), Vec::new());
+        let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new());
         parcel.header.flags |= flags::ONE_WAY;
         self.endpoint.send(&parcel)
     }
@@ -295,13 +263,8 @@ impl Client {
     pub fn destroy_surface(&self, surface: u64) -> Result<()> {
         let body = wire::encode_destroy_surface_args(&wire::DestroySurfaceArgs { surface })
             .map_err(Error::Parcel)?;
-        self.call(request(
-            wire::METHOD_DESTROYSURFACE,
-            body,
-            Vec::new(),
-            Vec::new(),
-        ))
-        .map(|_| ())
+        self.call(request(wire::METHOD_DESTROYSURFACE, body, Vec::new()))
+            .map(|_| ())
     }
 
     /// `DragStart(surface, token, mime)`: hand `surface`'s in-progress
@@ -315,26 +278,16 @@ impl Client {
             mime: mime.into(),
         })
         .map_err(Error::Parcel)?;
-        self.call(request(
-            wire::METHOD_DRAGSTART,
-            body,
-            Vec::new(),
-            Vec::new(),
-        ))
-        .map(|_| ())
+        self.call(request(wire::METHOD_DRAGSTART, body, Vec::new()))
+            .map(|_| ())
     }
 
     /// `DragCancel(surface)`: cancel the drag that started at `surface`.
     pub fn drag_cancel(&self, surface: u64) -> Result<()> {
         let body = wire::encode_drag_cancel_args(&wire::DragCancelArgs { surface })
             .map_err(Error::Parcel)?;
-        self.call(request(
-            wire::METHOD_DRAGCANCEL,
-            body,
-            Vec::new(),
-            Vec::new(),
-        ))
-        .map(|_| ())
+        self.call(request(wire::METHOD_DRAGCANCEL, body, Vec::new()))
+            .map(|_| ())
     }
 
     /// `PlaceSurface`: move this task's panel so its top-left is at screen
@@ -400,8 +353,7 @@ impl Client {
         body: core::result::Result<Vec<u8>, libmessenger::Error>,
     ) -> Result<()> {
         let body = body.map_err(Error::Parcel)?;
-        self.call(request(method, body, Vec::new(), Vec::new()))
-            .map(|_| ())
+        self.call(request(method, body, Vec::new())).map(|_| ())
     }
 
     /// One synchronous call; a structured error reply becomes
@@ -414,15 +366,5 @@ impl Client {
             Some(code) => Err(Error::Errno(-code)),
             None => Ok(reply),
         }
-    }
-}
-
-/// The first `len` bytes of shared buffer `buffer`, as a transfer.
-fn whole(buffer: u64, len: u64) -> BufferDesc {
-    BufferDesc {
-        handle: buffer,
-        offset: 0,
-        len,
-        flags: 0,
     }
 }

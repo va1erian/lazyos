@@ -3,6 +3,7 @@
 //! releases fabric/quota state (including soaks).
 
 use super::*;
+use crate::tests::bufops;
 
 /// A refused display request leaves no state behind and a bad event
 /// buffer does not eat input.
@@ -30,24 +31,23 @@ pub fn display_bad_pointers_leave_no_state() -> Result<(), String> {
             shared::stats().buffers == buffers_before,
             "a refused bind leaked the screen buffer"
         );
-
-        let mut out = canary(24);
-        let code = process::dispatch_for_test(
-            12,
-            crate::display::op::CREATE_BUFFER,
-            4096,
-            out.as_mut_ptr() as u64,
-        );
+    }
+    // A buffer op whose result block is kernel memory is refused before
+    // anything is created (the gate validates the block first).
+    bufops::in_space(|| {
+        let mut out = canary(64);
+        let code = bufops::create_into_kernel(4096, out.as_mut_ptr() as u64);
         check!(
             code == failed(EFAULT),
-            "create_buffer into kernel memory -> {code:#x}"
+            "buffer_create into kernel memory -> {code:#x}"
         );
-        untouched(&out, "create_buffer")?;
+        untouched(&out, "buffer_create")?;
         check!(
             shared::stats().buffers == buffers_before,
-            "a refused create_buffer leaked the buffer"
+            "a refused buffer_create leaked the buffer"
         );
-    }
+        Ok(())
+    })?;
 
     // Bind properly (kernel buffers are trusted outside the guard).
     let mut info = [0u64; crate::display::INFO_WORDS];
@@ -86,7 +86,7 @@ pub fn display_bad_pointers_leave_no_state() -> Result<(), String> {
 }
 
 /// Binding the display hands over every pixel and keystroke, so it needs
-/// `CAP_SYS_ADMIN`; the shared-buffer ops stay open to every task.
+/// `CAP_SYS_ADMIN`; the `messenger` buffer ops stay open to every task.
 pub fn display_bind_requires_capability() -> Result<(), String> {
     fresh()?;
     let slot = task::spawn_fork().map_err(to_string)?;
@@ -105,14 +105,11 @@ pub fn display_bind_requires_capability() -> Result<(), String> {
         "an unprivileged task now owns the display"
     );
 
-    let mut out = [0u64; 3];
-    let code = process::dispatch_for_test(
-        12,
-        crate::display::op::CREATE_BUFFER,
-        4096,
-        out.as_mut_ptr() as u64,
-    );
-    check!(code == 0, "create_buffer must stay open: {code:#x}");
+    bufops::in_space(|| {
+        let (handle, _) = bufops::create(4096)?;
+        check!(bufops::close(handle) == 0, "buffer_close failed");
+        Ok(())
+    })?;
 
     credentials::set(
         slot,
@@ -227,8 +224,7 @@ pub fn teardown_releases_fabric_state() -> Result<(), String> {
                 deadline_ns: 0,
             },
             body: Vec::new(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         let mut bytes = Vec::new();
         parcel.encode(&mut bytes).map_err(|e| e.message())?;

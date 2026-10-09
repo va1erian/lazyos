@@ -53,7 +53,7 @@ fn clear() {
     msg::connect("os.lazy.shell.tray.v1").invoke("Clear", [])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Set.
 
 /// A `Item` with every field at its zero value.

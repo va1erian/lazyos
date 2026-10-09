@@ -55,6 +55,15 @@ pub mod op {
     pub const ENDPOINT_FD: u64 = 21;
     /// `flags` of [`ENDPOINT_FD`]: open the descriptor close-on-exec.
     pub const ENDPOINT_FD_CLOEXEC: u64 = 1;
+    /// Create a shared buffer of `parcel_len` bytes, mapped into the caller
+    /// (`docs/messenger-core-plan.md` 3.4): `value` is the handle, `aux`
+    /// the address, `bytes` the size.
+    pub const BUFFER_CREATE: u64 = 22;
+    /// Map the buffer `handle` names: `value` is the address, `aux` the
+    /// size.
+    pub const BUFFER_MAP: u64 = 23;
+    /// Unmap and drop the caller's reference to the buffer `handle` names.
+    pub const BUFFER_CLOSE: u64 = 24;
     /// `flags` of [`RECV`]: also write the sender's kernel-stamped
     /// [`super::SenderId`] to `parcel_ptr`.
     pub const RECV_SENDER_ID: u64 = 1;
@@ -115,14 +124,16 @@ pub const FD_READY: u64 = 1 << 59;
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgArgs {
-    /// Endpoint handle: call, begin, send, recv, cancel, close, stats.
+    /// Endpoint handle: call, begin, send, recv, cancel, close, stats; the
+    /// buffer handle of [`op::BUFFER_MAP`] and [`op::BUFFER_CLOSE`].
     pub handle: u64,
     /// Transaction id (reply, cancel, await), or the registry target task.
     pub txn_id: u64,
     /// Request parcel bytes (call, begin, send, reply), the wait set, or the
     /// sender-id block of a [`op::RECV_SENDER_ID`] receive.
     pub parcel_ptr: u64,
-    /// Length of `parcel_ptr` (bytes, or words for the wait set).
+    /// Length of `parcel_ptr` (bytes, or words for the wait set); the size
+    /// of [`op::BUFFER_CREATE`].
     pub parcel_len: u64,
     /// Reply or receive buffer (call, recv, await, stats, list).
     pub buf_ptr: u64,
@@ -136,22 +147,40 @@ pub struct MsgArgs {
     pub flags: u64,
 }
 
-/// The syscall response block; the kernel's `MsgResult`.
+/// The most objects one message carries (`libmessenger::MAX_OBJECTS`).
+pub const MAX_OBJECTS: usize = 8;
+
+/// The syscall response block; the kernel's `MsgResult`
+/// (`docs/messenger.md` section 10, `docs/messenger-core-plan.md` 3.3).
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgResult {
     /// 0 on success, or a negative errno.
     pub status: i64,
-    /// New handle (create_pair, resolve, bootstrap), transaction id
-    /// (begin, recv), or the wait's ready mask.
+    /// New handle (create_pair, resolve, bootstrap, buffer_create),
+    /// transaction id (begin, recv), the wait's ready mask, or a buffer's
+    /// address (buffer_map).
     pub value: u64,
-    /// Second handle (create_pair), sender task slot (recv).
+    /// Second handle (create_pair), sender task slot (recv), a buffer's
+    /// address (buffer_create) or size (buffer_map).
     pub aux: u64,
-    /// Bytes written to `buf_ptr`.
+    /// Bytes written to `buf_ptr`, or a new buffer's size (buffer_create).
     pub bytes: u64,
-    /// `recv` reports the delivered transfers here: `[first handle, handle
-    /// count, first buffer handle, buffer count]`; zero otherwise.
-    pub reserved: [u64; 4],
+    /// `recv`: how many objects the message carried (its parcel's object
+    /// list length), each installed in this task's table; zero otherwise.
+    pub object_count: u64,
+    /// `recv`: the installed handle numbers of the first `object_count`
+    /// objects, in object-list order (a channel end to receive on, a buffer
+    /// to `buffer_map`).
+    pub objects: [u64; MAX_OBJECTS],
+}
+
+impl MsgResult {
+    /// The installed objects a `recv` delivered.
+    pub fn delivered(&self) -> &[u64] {
+        let count = (self.object_count as usize).min(MAX_OBJECTS);
+        &self.objects[..count]
+    }
 }
 
 /// Channel counters in the compact 64-byte shape; the kernel's `MsgStats`.
@@ -213,9 +242,9 @@ impl SenderId {
     }
 }
 
-/// The kernel pins both blocks at 64 bytes (`ARGS_SIZE`, `RESULT_SIZE`).
+/// The kernel pins the blocks at 64 and 104 bytes (`ARGS_SIZE`, `RESULT_SIZE`).
 const _: () = assert!(core::mem::size_of::<MsgArgs>() == 64);
-const _: () = assert!(core::mem::size_of::<MsgResult>() == 64);
+const _: () = assert!(core::mem::size_of::<MsgResult>() == 104);
 const _: () = assert!(core::mem::size_of::<Stats>() == Stats::SIZE);
 
 #[cfg(test)]

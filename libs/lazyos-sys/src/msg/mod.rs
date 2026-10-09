@@ -4,9 +4,11 @@
 //! Everything here moves bytes; parcels are the caller's business. The
 //! native runtime builds its `Endpoint`/`Server` API on [`messenger`];
 //! [`parcel`] (feature `parcel`) adds the `libmessenger` call and registry
-//! helpers the static-musl programs share.
+//! helpers the static-musl programs share. The shared buffers messages
+//! carry are [`buffer_create`], [`buffer_map`] and [`buffer_close`].
 
 mod abi;
+mod buffer;
 mod fabric;
 mod handle;
 #[cfg(feature = "parcel")]
@@ -14,6 +16,7 @@ pub mod parcel;
 mod pollfd;
 
 pub use abi::*;
+pub use buffer::{buffer_close, buffer_create, buffer_map};
 #[cfg(feature = "alloc")]
 pub use fabric::fabric_stats;
 pub use fabric::{fabric_stats_into, FabricStats, TaskUsage, FABRIC_TASKS};

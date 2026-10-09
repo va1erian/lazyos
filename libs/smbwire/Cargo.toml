@@ -14,6 +14,9 @@ path = "src/lib.rs"
 # Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
 # target (`fuzz/fuzz_targets/smbwire.rs`).
 fuzz = []
+# Expose `testserver`, the in-memory SMB 2.1 server of the host tests, to
+# other crates' tests (`libs/smbfs`). Needs std.
+testserver = []
 
 # RustCrypto primitives (pure Rust, `no_std`, MIT OR Apache-2.0: GPLv2
 # compatible under the MIT choice). `sha2` uses the `force-soft` backend for

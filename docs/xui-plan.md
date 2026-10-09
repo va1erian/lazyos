@@ -7,7 +7,7 @@ renderer**) inside a LazyOS window, with real input — **without** `winit`,
 > **Status:** M0-M2 and the compositor-client milestone are done; see the
 > "Status" section at the end. The design sections predate the display grant:
 > the "one implicit window per task" `gfx_present`/`input_poll` surface was
-> realised as native syscall 12 (`bind`/`present`/`input_poll`/`create_buffer`,
+> realised as native syscall 12 (`bind`/`present`/`input_poll`; the shared buffers are Messenger's `buffer_create`,
 > [`architecture/display.md`](architecture/display.md)) and, for windowed apps,
 > as the `os.lazy.display.v1` client mode inside `xuid`. The `xui-skia` split
 > was not needed: upstream `xui-canvas` grew a default-on `winit-backend`
@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "51bded370a5174ab43a33be56991807ae5b2be93"` (see
+the same `rev = "bcdde8c859c017067505de082582c8fc02b3932b"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -204,7 +204,7 @@ disagrees, and lists a workspace that has to wait (`LAGGING`) with the reason.
 runs the same counter + an `Edit` text field as a `xuid` client:
 `LazyOSBackend::new_client` resolves `os.lazy.display.v1` through the raw
 syscall-5 shim (wire codecs from the generated `messenger-generated` stubs), creates a surface, attaches a display shared buffer
-(`create_buffer` op 4), commits damage rectangles per invalidated node, and
+(Messenger's `buffer_create`), commits damage rectangles per invalidated node, and
 consumes pointer/key/`WINDOW_CLOSE` events from its event endpoint. The
 compositor chrome (drag, minimize, close) is `xuid`'s, and a title-bar
 drag works on the app window. Build with `LAZYOS_XUID=1`, `LAZYOS_XUI_CLIENT=1`

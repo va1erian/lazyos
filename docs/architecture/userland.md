@@ -70,7 +70,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 
 | Crate | Contents | Tests |
 |---|---|---|
-| `libs/messenger` | Parcel codec: `Header`, `Parcel`, `Encoder`/`Decoder`, `BufferDesc`, limits, `Error` | `cargo test -p libmessenger` (round-trip, limits, 1M-case decode fuzz); [README](../../libs/messenger/README.md) |
+| `libs/messenger` | Parcel codec: `Header`, `Parcel`, `Encoder`/`Decoder`, `Object`/`Buffer` (the object list), limits, `Error` | `cargo test -p libmessenger` (round-trip, limits, 1M-case decode fuzz); [README](../../libs/messenger/README.md) |
 | `libs/generated` | `midlc` output for every `idl/*.midl` (`os_lazy_echo_v1`, `os_lazy_messenger_registry_v1`, `os_lazy_messenger_topics_v1`, ...); also linked by the static-musl `xui-app` | `cargo test -p messenger-generated` |
 | `libs/crypto` | SHA-256, HMAC-SHA256, HKDF-SHA256, Argon2id, RNG pool, wrap/unwrap, hex | `cargo test -p lazyos-crypto` (KATs); issue #102 |
 
@@ -90,7 +90,7 @@ See [processes.md](processes.md) and [display.md](display.md).
 | `netd` / `netctl` / `ping` | `netd` / `netctl` / `ping` | The network stack service (smoltcp in `libs/netstack`): DHCP, ARP, echo, `os.lazy.net.stack.v1` (`idl/net.midl`), supervised by `init` as `_netd` (uid 903, no capabilities); the only client of `netdrv`. `netctl` shows and drives it, `ping` is the native ping. `LAZYOS_NETD=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netd` (`demo=1`) |
 | `netdrv` / `nicctl` | `netdrv` / `nicctl` | virtio-net driver serving `os.lazy.net.nic.v1` (`idl/net.midl`), supervised by `init` as `_net` (uid 902); `nicctl [arp]` is its shell command and the network harness's client. `LAZYOS_NET=1` ships them; see [networking.md](networking.md) | `init` / shell (`sh` native exec) or `netdrv` (`demo=1`) |
 | `sndd` / `beep` | `sndd` / `beep` | virtio-sound driver serving `os.lazy.audio.v1` (`idl/audio.midl`), supervised by `init` as `_snd`; `beep [freq_hz [ms]]` is its shell command and the sound harness's client. `LAZYOS_SOUND=1` or the desktop profile ships them; see [audio.md](audio.md) | `init` / shell (`sh` native exec) or `sndd` (`demo=1`) |
-| `mountd` / `ftpfuse` | `mountd` / `ftpfuse` | The network mount service `os.lazy.mount.v1` (`idl/mount.midl`, [smb-plan.md](../smb-plan.md) §3.4): supervised by `init` as `_mountd` (uid 910, only `CAP_FS_PROVIDER`), it starts one `ftpfuse` per mount at `/mnt/<name>` with the requester's ownership and reports each mount's state; the rules are `libs/mounttable`. The Network Drives app is its front end. `LAZYOS_NETD=1` ships them | `init` (after `netd`) / `mountd` |
+| `mountd` / `ftpfuse` / `smbfuse` | `mountd` / `ftpfuse` / `smbfuse` | The network mount service `os.lazy.mount.v1` (`idl/mount.midl`, [smb-plan.md](../smb-plan.md) §3.4): supervised by `init` as `_mountd` (uid 910, only `CAP_FS_PROVIDER`), it starts one `ftpfuse` (FTP) or `smbfuse` (an SMB 2.1 share, `libs/smbfs`, F3) per mount at `/mnt/<name>` with the requester's ownership and reports each mount's state; the rules are `libs/mounttable`. The Network Drives app is its front end; `smbfuse -U USER //SERVER/SHARE` also mounts from a root shell (a provider identity: a session user's shell mounts through `mountd`). `LAZYOS_NETD=1` ships them | `init` (after `netd`) / `mountd`, or a root shell |
 | `timed` / `timectl` | `timed` / `timectl` | Time-of-day service `os.lazy.timed.v1` (`idl/timed.midl`, #369): UTC from syscall 24, zone from `confd` `sys/time/zone` (UTC when unset, follows change notifications), retained `time/tick` topic each minute; zone/DST tables and resolution live in `libs/timed` (`timezone`). `timectl` is its command line and `demo=1` self-test | `init` (after `messengerd` and `confd`) / `timed` (`demo=1`) |
 | `inputd` | `inputd` | Input policy service (`docs/input-plan.md`): the only holder of the kernel `input.raw` capability. Drains the raw HID-coded key bus (syscall 25), applies the compiled-in US/FR keymap (`libs/inputmap`; `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`), modifier/lock state, key repeat (500 ms delay, 30 ms interval, flagged `Repeat`) and hotkeys, and serves `os.lazy.input.v1` (client sessions) and `os.lazy.input.shell.v1` (the compositor: surface registration, focus, hotkeys) from `idl/input.midl`. `trace=1` (debug images) echoes `INPUTD:KEY`/`INPUTD:TEXT` to serial (`tools/input/verify_trace.py`) | `init` (after `confd`, with only `CAP_INPUT_RAW`) |
 | `sysmond` / `top` | `sysmond` / `top` | System-stats service `os.lazy.sysmond.v1` (`idl/sysmond.midl`) over syscall 14 with retained `system/stats/*` topics / one-shot text client (#144); services image only, `top` left out of `LAZYOS_DESKTOP=1` | `init` / `sysmond` (`demo=1`) or `init` `Launch` |
@@ -229,6 +229,27 @@ command.
   `HEALTH:SVC:PASS <name>` / `HEALTH:SVC:FAIL <name> (<status>)` per
   transition. `tools/screenshot/examples/services_demo.json` and
   `xui_sysmon.json` (with `LAZYOS_SERVICES=1`) are the scripted checks.
+
+**Which kind of service to write** (issue #668). Two kinds exist:
+
+| | Native `no_std` (`user/src/bin/`) | Linux-personality musl `std` |
+|---|---|---|
+| Use for | `init`, `messengerd`, and anything needed before the root filesystem or the Linux personality is up (`logd`, `keyd`, `devd`, `mountd`, `confd` and the other boot-path services); anything where binary size or boot time counts | New services and services worth migrating that gain from threads, `std::collections`/`fs`/`net`, or crates.io crates |
+| Runtime | `user` crate: bump heap, blocking/async Messenger client, no threads | Static `x86_64-unknown-linux-musl` binary, spawned with `Personality::Linux`; `clone` threads, futex, epoll, sockets and files from the Linux shim ([`linux-abi-plan.md`](../linux-abi-plan.md)); native calls and Messenger through `lazyos-sys` |
+| Built | Part of the `user` workspace | A standalone workspace like `nettls/` (built by a `tools/<name>/build.py`, embedded under `/system/bin` by a `build_support/*_embed.rs`), so the OS workspace never resolves its dependencies |
+
+Rule: a service is `no_std` unless it is not needed to reach the Linux
+personality and it has a concrete use for `std`. Never move a service that
+`init` must start before `/` is mounted. Credentials, capabilities and the
+label policy are properties of the task, not of the personality, and `init`
+supervises both kinds through the same `SpawnCred` and `svcpolicy` path.
+
+Not yet done: a kernel test that a Linux-personality task gains or loses no
+authority against a native one, a service-side check of restart and
+`os.lazy.lifecycle.v1` shutdown for a `std` service, and a pilot port with
+size, memory and boot-marker numbers. Until the pilot lands, `fetch`
+(`nettls/`) is the only `std` program shipped, and it is a client, not a
+supervised service.
 
 **Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
 (the task table has 256 slots, so the drag & drop and shell-probe demos fit

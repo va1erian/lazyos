@@ -161,12 +161,12 @@ fn start_show() {
         return;
     }
     slide_timer.enabled = true;
-    slideshow_button.text = "Stop Show";
+    slideshow_button.icon = "pause";
 }
 
 fn stop_show() {
     slide_timer.enabled = false;
-    slideshow_button.text = "Slide Show";
+    slideshow_button.icon = "play";
 }
 
 // ------------------------------------------------------------- handlers ---

@@ -16,7 +16,7 @@
 
 use std::cell::RefCell;
 
-use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
+use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 
 use crate::sys::{self, errno};
 
@@ -181,22 +181,22 @@ impl Service {
         self.call_at(interface, method, error_id, body, deadline)
     }
 
-    /// [`Service::call_within`] whose request moves `handles` (this task's
-    /// channel ends) to the service, for a method with a `transfers` clause
-    /// (the tray's `Set` hands over its event channel).
+    /// [`Service::call_within`] whose request carries `objects` (what the
+    /// generated `encode_*_args` returned beside the body: the tray's `Set`
+    /// moves its event channel, `init`'s `Watch` likewise).
     pub fn call_moving_within(
         &self,
         interface: u64,
         method: u32,
         error_id: u16,
         body: Vec<u8>,
-        handles: Vec<u64>,
+        objects: Vec<Object>,
         ticks: u64,
     ) -> Result<Parcel, i64> {
         let deadline = sys::clock_ticks()
             .saturating_add(ticks.max(1))
             .max(sys::EXPIRED_DEADLINE + 1);
-        self.call_with(interface, method, error_id, body, handles, deadline)
+        self.call_with(interface, method, error_id, body, objects, deadline)
             .map_err(|error| error.code)
     }
 
@@ -213,14 +213,14 @@ impl Service {
         self.call_with(interface, method, error_id, body, Vec::new(), deadline)
     }
 
-    /// [`Service::call_at`] carrying `handles`.
+    /// [`Service::call_at`] carrying `objects`.
     fn call_with(
         &self,
         interface: u64,
         method: u32,
         error_id: u16,
         body: Vec<u8>,
-        handles: Vec<u64>,
+        objects: Vec<Object>,
         deadline: u64,
     ) -> Result<Parcel, CallError> {
         let parcel = Parcel {
@@ -236,8 +236,7 @@ impl Service {
                 deadline_ns: 0,
             },
             body,
-            handles,
-            buffers: Vec::new(),
+            objects,
         };
         let mut buf = vec![0u8; REPLY_BUF];
         let reply = match sys::msg_call(self.endpoint, &parcel, &mut buf, deadline) {

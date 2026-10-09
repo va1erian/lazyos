@@ -19,17 +19,17 @@ import ui_run  # noqa: E402
 GOOD = "\n".join([
     "MOUNTD:READY interface=0x9d456629506ac305",
     "HEALTH:SVC:PASS os.lazy.netdrives",
-    "MOUNTD:START bad pid=41",
+    "MOUNTD:START bad kind=ftp pid=41",
     "FTPFUSE:FAIL 10.0.2.2: 530 Login incorrect",
     "NETDRIVES:MOUNT:FAIL name=bad reason=cannot connect or log in (check the host, port, user and password)",
     "NETDRIVES:UNMOUNT:PASS name=bad",
-    "MOUNTD:START site pid=42",
+    "MOUNTD:START site kind=ftp pid=42",
     "FTPFUSE:UP /mnt/site",
     "MOUNTD:UP site",
     "NETDRIVES:MOUNT:PASS name=site path=/mnt/site",
     "TERM:OUT:hello from the host",
     "TERM:OUT:WROTE:0",
-    "TERM:OUT:OWNER:0:0",
+    "TERM:OUT:OWNER:1000:1000",
     "NETDRIVES:OPEN:PASS path=/mnt/site",
     "NETDRIVES:UNMOUNT:PASS name=site",
     "MOUNTD:STOP site",
@@ -60,7 +60,7 @@ class JudgeTests(unittest.TestCase):
                 self.assertIn(why, self.problems(GOOD.replace(line + "\n", "")))
 
     def test_files_owned_by_the_service_fail(self) -> None:
-        text = GOOD.replace("OWNER:0:0", "OWNER:907:907")
+        text = GOOD.replace("OWNER:1000:1000", "OWNER:910:910")
         self.assertTrue(any("owned" in p for p in self.problems(text)))
 
     def test_a_mount_left_after_unmount_fails(self) -> None:
@@ -83,6 +83,15 @@ class JudgeTests(unittest.TestCase):
     def test_a_leaked_password_fails(self) -> None:
         text = GOOD + "spawn ftpfuse 10.0.2.2:2121 user=lazy pass=os name=site\n"
         self.assertTrue(any("password" in p for p in self.problems(text)))
+
+    def test_an_smb_run_judges_smbfuse_and_its_password(self) -> None:
+        smb = (GOOD.replace("kind=ftp", "kind=smb").replace("FTPFUSE:UP", "SMBFUSE:UP")
+               .replace("FTPFUSE:FAIL 10.0.2.2: 530 Login incorrect", "SMBFUSE:FAIL SESSION_SETUP: LOGON_FAILURE"))
+        judge = ui_run.judge
+        self.assertEqual(judge(smb, self.root, 2, ui_run.SMB, "Secret123"), [])
+        self.assertTrue(judge(GOOD, self.root, 2, ui_run.SMB, "Secret123"), "an FTP log passes as SMB")
+        leaked = smb + "Secret123\n"
+        self.assertTrue(any("SMB password" in p for p in judge(leaked, self.root, 2, ui_run.SMB, "Secret123")))
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ name = "audiomix"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "libmessenger",
  "messenger-generated",
  "virtio-snd",
 ]
@@ -623,6 +624,7 @@ dependencies = [
  "logstore",
  "membook",
  "messenger-generated",
+ "mounttable",
  "netpolicy",
  "nvme",
  "pkgstore",
@@ -701,6 +703,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libmessenger"
 version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
 
 [[package]]
 name = "linked_list_allocator"
@@ -1064,6 +1069,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "smbfs"
+version = "0.1.0"
+dependencies = [
+ "fused",
+ "smbwire",
+]
+
+[[package]]
 name = "smbwire"
 version = "0.1.0"
 dependencies = [
@@ -1286,6 +1299,7 @@ name = "trayclient"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "libmessenger",
  "messenger-generated",
 ]
 
@@ -1380,6 +1394,7 @@ dependencies = [
  "passwd",
  "pcm",
  "pkgstore",
+ "smbfs",
  "smbwire",
  "sndpolicy",
  "spin",

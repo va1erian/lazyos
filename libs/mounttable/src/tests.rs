@@ -167,3 +167,90 @@ fn the_table_never_keeps_a_password() {
     let shown = alloc::format!("{:?}", table.entries());
     assert!(!shown.contains("os\""), "{shown}");
 }
+
+#[test]
+fn only_root_and_mountd_may_provide_filesystems() {
+    assert_eq!(FS_PROVIDER_UIDS, &[0, MOUNTD_UID]);
+    const { assert!(MOUNTD_UID < 1000) };
+}
+
+fn smb(share: &str) -> Result<Request, &'static str> {
+    validate_smb("nas", "10.0.2.2", 0, share, "chaton", "pw d=x")
+}
+
+#[test]
+fn an_smb_request_names_a_share_and_a_user() {
+    let r = smb("share").unwrap();
+    assert_eq!(
+        (r.kind, r.port, r.share.as_str()),
+        (Kind::Smb, SMB_PORT, "share")
+    );
+    assert_eq!(smb("My Files").unwrap().share, "My Files");
+    for share in [
+        "", ".", "..", "a/b", "a\\b", "c:", "x*", "q?", "\"", "<", ">", "|", "t\n",
+    ] {
+        assert!(smb(share).is_err(), "{share:?}");
+    }
+    assert!(smb(&"s".repeat(SHARE_MAX + 1)).is_err());
+    assert!(smb(&"s".repeat(SHARE_MAX)).is_ok());
+    assert!(
+        validate_smb("nas", "h", 0, "s", "", "").is_err(),
+        "an anonymous share"
+    );
+    // The FTP rules still apply to the rest.
+    assert!(validate_smb("NAS", "h", 0, "s", "u", "").is_err());
+    assert!(validate_smb("nas", "-h", 0, "s", "u", "").is_err());
+    assert_eq!(
+        validate_smb("nas", "h", 1445, "s", "u", "").unwrap().port,
+        1445
+    );
+}
+
+#[test]
+fn the_kind_picks_the_rules() {
+    let ftp = validate_kind("", "site", "h", 0, "", "", "").unwrap();
+    assert_eq!((ftp.kind, ftp.port), (Kind::Ftp, DEFAULT_PORT));
+    assert_eq!(
+        validate_kind("ftp", "site", "h", 0, "", "", "").unwrap(),
+        ftp
+    );
+    assert!(validate_kind("ftp", "site", "h", 0, "share", "", "").is_err());
+    let smb = validate_kind("smb", "nas", "h", 0, "s", "u", "p").unwrap();
+    assert_eq!(smb.kind, Kind::Smb);
+    assert!(validate_kind("nfs", "n", "h", 0, "", "", "").is_err());
+    assert_eq!(Kind::Smb.name(), KIND_SMB);
+    assert_eq!(Kind::Ftp.default_port(), DEFAULT_PORT);
+}
+
+#[test]
+fn an_smb_daemon_gets_its_password_in_the_environment_only() {
+    let r = smb("share").unwrap();
+    let argv = daemon_args("/system/bin/smbfuse", &r, 1000, 100);
+    assert_eq!(
+        argv,
+        vec![
+            "/system/bin/smbfuse",
+            "-p",
+            "445",
+            "-U",
+            "chaton",
+            "//10.0.2.2/share",
+            "name=nas",
+            "owner=1000:100",
+        ]
+    );
+    assert!(!argv.iter().any(|a| a.contains("pw")), "{argv:?}");
+    assert_eq!(daemon_env(&r), vec!["LAZYOS_SMB_PASSWORD=pw d=x"]);
+    assert!(daemon_env(&request("site")).is_empty());
+    assert!(exit_reason(8).contains("share"));
+}
+
+#[test]
+fn an_smb_entry_keeps_its_kind_and_share_but_no_password() {
+    let mut table = Table::new();
+    table.add(&smb("share").unwrap(), 1000, 7, 0);
+    let entry = &table.entries()[0];
+    assert_eq!((entry.kind, entry.share.as_str()), (Kind::Smb, "share"));
+    let shown = alloc::format!("{:?}", table.entries());
+    assert!(!shown.contains("pw d=x"), "{shown}");
+}

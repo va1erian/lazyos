@@ -119,8 +119,7 @@ fn stuff_inbox_from_driver(endpoint: u64) -> Result<(), crate::ipc::channels::Er
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel

@@ -1,0 +1,5 @@
+// Conformance case (must be rejected): a struct holding an object cannot be an Array element.
+interface os.lazy.conformance.bad.v1 {
+    method M(pages: Array<Page> = 1) -> ();
+    struct Page { pixels: Buffer = 1 }
+}

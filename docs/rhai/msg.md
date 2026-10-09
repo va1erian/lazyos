@@ -32,7 +32,7 @@ sys::messenger_topics::QOS_RELIABLE;            // enum variants are constants
 Every function is one call into `msg`, so everything below (values, errors,
 timeouts) applies unchanged. The reference, generated with the modules, is
 [`libs/rhai-lazy/api/README.md`](../../libs/rhai-lazy/api/README.md); each
-module's `.rhai` source sits next to it. Methods whose request transfers a
+module's `.rhai` source sits next to it. Methods whose request carries a
 channel, buffer or ring are not generated (a script cannot create those), and
 neither are the kernel ACL scopes. Regenerate after an IDL change with
 `python tools/midlc/midlc.py --rhai-api libs/rhai-lazy/api idl/*.midl`.

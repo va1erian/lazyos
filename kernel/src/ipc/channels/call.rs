@@ -34,9 +34,8 @@ pub fn begin_call_owned(
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let parcel = validate_parcel(&parcel_bytes)?;
     let parcel_flags = parcel.header.flags;
-    let (handles, buffers) = resolve_transfers(&parcel)?;
-    let numbers: Vec<u64> = parcel.handles().collect();
-    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
+    let objects = resolve_objects(&parcel)?;
+    let numbers = moved_handles(&parcel);
     let peer = 1 - side;
     let txn_id = new_txn_id(channel_id);
     let receivers = {
@@ -100,22 +99,21 @@ pub fn begin_call_owned(
             txn: Some(txn_id),
             deadline,
             bytes: parcel_bytes,
-            handles,
-            buffers,
+            objects,
         };
         // Per-uid queue quota (issue #103), then take the buffer references and
-        // finish the handle move before the request is visible, so a callee that
-        // runs immediately finds the transfers already installed in the message.
+        // finish the channel move before the request is visible, so a callee
+        // that runs immediately finds the objects already in the message.
         if let Err(error) = charge_queued(queued.origin.uid, queued_bytes) {
             channel.drops += 1;
             return Err(error);
         }
-        if let Err(error) = retain_transfers(&queued) {
+        if let Err(error) = retain_objects(&queued) {
             release_queued_quota(queued.origin.uid, queued_bytes);
             channel.drops += 1;
             return Err(error);
         }
-        close_moved_handles(&numbers, &kinds);
+        close_moved_handles(&numbers);
         channel.txns.push(Transaction {
             id: txn_id,
             caller: me,
@@ -225,10 +223,9 @@ pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
 /// [`reply`] that stores `parcel_bytes` itself instead of a copy.
 pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     let parcel = validate_parcel(&parcel_bytes)?;
-    // Replies travel back through `await_reply`, which returns bytes only;
-    // installing reply-borne handles would need the caller's table at consume
-    // time, so replies refuse transfers until that path grows one.
-    if parcel.handle_count() != 0 || parcel.buffer_count() != 0 {
+    // A reply carries no objects (`docs/messenger-core-plan.md` 2.3): replies
+    // travel back through `await_reply`, which returns bytes only.
+    if parcel.object_count() != 0 {
         return Err(Error::UnsupportedTransfer);
     }
     let caller = {

@@ -56,6 +56,7 @@ use crate::task;
 mod abi;
 mod aclop;
 pub mod bootstrap;
+mod bufop;
 mod regops;
 mod usermem;
 
@@ -140,6 +141,9 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_ACL_LOAD => aclop::op_acl_load(args),
         OP_WAIT => op_wait(args),
         OP_ENDPOINT_FD => op_endpoint_fd(args),
+        OP_BUFFER_CREATE => bufop::op_buffer_create(args),
+        OP_BUFFER_MAP => bufop::op_buffer_map(args),
+        OP_BUFFER_CLOSE => bufop::op_buffer_close(args),
         _ => Err(errno::EINVAL),
     }
 }
@@ -266,26 +270,22 @@ fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
     if let Some(len) = sender_len {
         copy_out(args.parcel_ptr, &message.origin.to_bytes()[..len])?;
     }
+    // The delivered objects, as the numbers the receiver's table installed
+    // them under, in object-list order. The count tells "none" from a
+    // legitimately zero handle number: handle tables hand out 0 as their
+    // first slot.
+    let mut objects = [0u64; libmessenger::MAX_OBJECTS];
+    for (slot, handle) in objects.iter_mut().zip(&message.objects) {
+        *slot = *handle;
+    }
     Ok(MsgResult {
         // The kernel transaction id (0 for one-way messages), not the
         // sender's header field, is what `reply` expects.
         value: message.txn.unwrap_or(0),
         aux: message.sender as u64,
         bytes: message.bytes.len() as u64,
-        // The delivered transfers, for protocols that receive a handle or a
-        // buffer (issue #113's display protocol attaches both). The counts
-        // distinguish "none" from a legitimately zero handle number: handle
-        // tables hand out 0 as their first slot.
-        reserved: [
-            message.handles.first().copied().unwrap_or(0),
-            message.handles.len() as u64,
-            message
-                .buffers
-                .first()
-                .map(|buffer| buffer.handle)
-                .unwrap_or(0),
-            message.buffers.len() as u64,
-        ],
+        object_count: message.objects.len() as u64,
+        objects,
         ..MsgResult::default()
     })
 }
@@ -420,7 +420,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
-        BadTransfer | UnsupportedTransfer | UndeclaredTransfer => errno::EINVAL,
+        BadTransfer | UnsupportedTransfer | UndeclaredObject | WrongObjectKind => errno::EINVAL,
     }
 }
 

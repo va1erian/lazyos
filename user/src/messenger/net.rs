@@ -11,7 +11,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use framering::{ring_bytes, valid_slots, Consumer, Producer, Ring};
-use libmessenger::{flags, BufferDesc, Header, Parcel, VERSION};
+use libmessenger::{flags, Buffer, Header, Object, Parcel, VERSION};
 
 use super::services::error_field;
 use super::{create_pair, registry, Endpoint, Error, Result};
@@ -29,9 +29,9 @@ pub const INTERFACE: u64 = wire::INTERFACE_ID;
 /// Card description and counters.
 pub use wire::{NicInfo as Info, NicStats as Stats};
 
-/// A parcel of `method` carrying an encoded `body`, plus the endpoints and
-/// shared buffers the method transfers (only `AttachRing` sends any).
-pub fn parcel(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<BufferDesc>) -> Parcel {
+/// A parcel of `method` carrying an encoded `body`, plus the objects the
+/// method carries (only `AttachRing` sends any).
+pub fn parcel(method: u32, body: Vec<u8>, objects: Vec<Object>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
@@ -43,14 +43,13 @@ pub fn parcel(method: u32, body: Vec<u8>, handles: Vec<u64>, buffers: Vec<Buffer
             deadline_ns: 0,
         },
         body,
-        handles,
-        buffers,
+        objects,
     }
 }
 
 /// A one-way event parcel (`Kick`, `Notify`).
 pub fn event(method: u32, body: Vec<u8>) -> Parcel {
-    let mut parcel = parcel(method, body, Vec::new(), Vec::new());
+    let mut parcel = parcel(method, body, Vec::new());
     parcel.header.flags = flags::ONE_WAY;
     parcel
 }
@@ -86,14 +85,8 @@ impl Client {
 
     /// Send an arbitrary request (hostile-input tests): everything goes out
     /// as given, and a service failure still comes back as its errno.
-    pub fn raw(
-        &self,
-        method: u32,
-        body: Vec<u8>,
-        handles: Vec<u64>,
-        buffers: Vec<BufferDesc>,
-    ) -> Result<Parcel> {
-        self.call(parcel(method, body, handles, buffers), None)
+    pub fn raw(&self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Parcel> {
+        self.call(parcel(method, body, objects), None)
     }
 
     /// Send a complete, arbitrary parcel (hostile-input tests that need a
@@ -108,7 +101,7 @@ impl Client {
     }
 
     fn simple(&self, method: u32, body: Vec<u8>) -> Result<Parcel> {
-        self.call(parcel(method, body, Vec::new(), Vec::new()), None)
+        self.call(parcel(method, body, Vec::new()), None)
     }
 
     /// `Info()`.
@@ -189,8 +182,7 @@ impl Client {
         let layout =
             wire::attach_ring_rings(one as u64).ok_or(Error::Errno(-super::errno::EINVAL))?;
         let len = layout.total as usize;
-        let (buffer, va, _) =
-            sys::display_create_buffer(len as u64).map_err(|code| Error::Errno(-code))?;
+        let (buffer, va, _) = sys::buffer_create(len as u64).map_err(|code| Error::Errno(-code))?;
         let base = va as *mut u8;
         // SAFETY: the kernel mapped `len` zeroed bytes at `va`; each ring is
         // `one` bytes at an offset the layout keeps inside `len`, and the
@@ -201,21 +193,16 @@ impl Client {
             (rx, tx)
         };
         let (Ok(rx), Ok(tx)) = (rx, tx) else {
-            let _ = sys::display_close_buffer(buffer);
+            let _ = sys::buffer_close(buffer);
             return Err(Error::Errno(-super::errno::EINVAL));
         };
-        let body = wire::encode_attach_ring_args(&wire::AttachRingArgs { slots })
-            .map_err(Error::Parcel)?;
-        let (handles, buffers) = wire::encode_attach_ring_transfers(&wire::AttachRingTransfers {
-            rings: BufferDesc {
-                handle: buffer,
-                offset: 0,
-                len: len as u64,
-                flags: 0,
-            },
+        let (body, objects) = wire::encode_attach_ring_args(&wire::AttachRingArgs {
+            slots,
+            rings: Buffer::whole(buffer, len as u64),
             notify: transfer,
-        });
-        let request = parcel(wire::METHOD_ATTACHRING, body, handles, buffers);
+        })
+        .map_err(Error::Parcel)?;
+        let request = parcel(wire::METHOD_ATTACHRING, body, objects);
         match self.call(request, None) {
             Ok(reply) => {
                 let ring = wire::decode_attach_ring_reply(&reply.body)
@@ -233,7 +220,7 @@ impl Client {
                 })
             }
             Err(error) => {
-                let _ = sys::display_close_buffer(buffer);
+                let _ = sys::buffer_close(buffer);
                 Err(error)
             }
         }
@@ -252,7 +239,7 @@ impl Shared {
     /// Unmap the shared buffer and close the notify endpoint. The ring
     /// endpoints must be gone first: they point into the buffer.
     pub fn close(self) {
-        let _ = sys::display_close_buffer(self.buffer);
+        let _ = sys::buffer_close(self.buffer);
         if let Some(notify) = self.notify {
             let _ = notify.close();
         }
@@ -333,7 +320,7 @@ impl Attachment {
     /// Release the shared buffer and the notify endpoint. Call
     /// [`Client::detach`] first to release the driver's side.
     pub fn close(self) {
-        let _ = sys::display_close_buffer(self.buffer);
+        let _ = sys::buffer_close(self.buffer);
         if let Some(notify) = self.notify {
             let _ = notify.close();
         }

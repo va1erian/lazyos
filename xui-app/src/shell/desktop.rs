@@ -30,9 +30,7 @@ use crate::client_window::SurfaceRole;
 /// The heartbeat period. The backend's loop parks about a tick per window, so
 /// this is roughly every pass.
 const TICK_MILLIS: u32 = 30;
-/// Inset of the icon columns from the screen's top-right corner. They sit on
-/// the right because the compositor places new windows from the top-left,
-/// where they would cover the icons and their labels.
+/// Inset of the icon columns from the screen's top-left corner.
 const ICONS_INSET: i32 = 12;
 /// A medium icon tile's size and the gap between tiles (xui's metrics), and
 /// the slack a column keeps beside its tile.
@@ -274,14 +272,13 @@ fn rows_fit(ctx: &Ctx) -> usize {
 }
 
 /// The icon view's rectangle in design pixels for `grid`, as `(x, y, width,
-/// height)`: as many columns as it has, anchored to the top-right corner.
+/// height)`: as many columns as it has, anchored to the top-left corner.
 fn icons_design(ctx: &Ctx, grid: Grid) -> (i32, i32, i32, i32) {
     let columns = i32::try_from(grid.columns).unwrap_or(1);
     let width = columns * (TILE_W + TILE_GAP) - TILE_GAP + COLUMN_SLACK;
     let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
-    let right = ctx.screen.0 - ICONS_INSET;
-    let left = (right - width).max(0);
-    (left, ICONS_INSET, right - left, bottom - ICONS_INSET)
+    let right = (ICONS_INSET + width).min(ctx.screen.0);
+    (ICONS_INSET, ICONS_INSET, right - ICONS_INSET, bottom - ICONS_INSET)
 }
 
 /// The same rectangle in screen pixels: where the labels sit.

@@ -108,8 +108,10 @@ pub(super) const ELEVD_CRED: SysCred =
     SysCred::new(accountdb::ELEVD_UID, accountdb::ELEVD_UID, 0, 0, 0);
 
 /// The network mount service's identity (docs/smb-plan.md §3.4): its own
-/// system uid holding only `CAP_FS_PROVIDER`, which the `ftpfuse` daemons it
-/// starts inherit: they may serve `/mnt/<name>` and nothing more.
+/// system uid holding only `CAP_FS_PROVIDER`, which the `ftpfuse` and
+/// `smbfuse` daemons it starts inherit: they may serve `/mnt/<name>` and
+/// nothing more (the kernel also requires this uid, or root, to serve:
+/// `mounttable::FS_PROVIDER_UIDS`).
 #[cfg(lazyos_netd)]
 pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
     mounttable::MOUNTD_UID,

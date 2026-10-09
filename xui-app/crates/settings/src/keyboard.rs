@@ -1,12 +1,14 @@
 //! Keyboard layout: which layouts exist and where the choice is stored.
 //!
-//! `inputd` reads [`KEY_LAYOUT`] and applies a change live, so this module only
-//! reads and writes the key.
+//! [`KEY_LAYOUT`] is the machine default `inputd` follows. Through the
+//! per-user store ([`crate::user_theme`]) the same key is the account's own
+//! `user/<uid>/input/layout`, which `xuid` hands `inputd` for the session;
+//! both apply live, so this module only reads and writes the key.
 
 use crate::store::{ConfigStore, StoreError, Value};
 
-/// The confd key `inputd` follows.
-pub const KEY_LAYOUT: &str = "sys/input/layout";
+/// The machine layout's confd key (an account's own shadows it).
+pub const KEY_LAYOUT: &str = inputmap::LAYOUT_KEY;
 
 /// `(confd value, display name)`; the value is what `inputd` matches on.
 pub const LAYOUTS: [(&str, &str); 2] = [("us", "English (US)"), ("fr", "Français (AZERTY)")];
@@ -17,6 +19,11 @@ pub fn current(store: &dyn ConfigStore) -> Option<usize> {
         Value::Str(name) => LAYOUTS.iter().position(|(value, _)| *value == name),
         _ => None,
     }
+}
+
+/// The display name of `LAYOUTS[index]` (`""` when out of range).
+pub fn name(index: usize) -> &'static str {
+    LAYOUTS.get(index).map_or("", |(_, name)| name)
 }
 
 /// Store `LAYOUTS[index]`; an out-of-range index is refused.

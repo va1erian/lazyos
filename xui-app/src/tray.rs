@@ -51,7 +51,7 @@ impl Transport for XuiTransport {
         &mut self,
         method: u32,
         body: Vec<u8>,
-        handles: Vec<u64>,
+        objects: Vec<trayclient::Object>,
     ) -> trayclient::Result<Vec<u8>> {
         let shell = Service::try_connect(trayclient::NAME).ok_or(-errno::ENOENT)?;
         shell
@@ -60,7 +60,7 @@ impl Transport for XuiTransport {
                 method,
                 ERROR_FIELD,
                 body,
-                handles,
+                objects,
                 CALL_TICKS,
             )
             .map(|reply| reply.body)

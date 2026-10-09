@@ -2,7 +2,8 @@
 
 **What it is.** The kernel transport of the Messenger fabric: capability
 handles, duplex channels with synchronous transactions, and zero-copy shared
-buffers. Spec: [messenger.md](../messenger.md) sections 4-10.
+buffers. Spec: [messenger.md](../messenger.md) sections 1-5 (the model, the
+rules and the wire), 6 (transactions) and 10 (the receive ABI).
 
 **Key files**
 
@@ -110,19 +111,46 @@ userspace never names another task's handles.
   committed. Plain `recv` with `EXPIRED_DEADLINE` (no transaction) is unchanged.
   Tests: `ipc_channel_poll_*` in `tests/ipc_channel_suite/poll.rs`, including a
   20,000-round soak.
-- A parcel's handles **move** (sender holds `TRANSFER`; its handle closes once
-  queued; delivery opens a receiver-local one); buffers **share** (the message
-  takes one reference). Replies refuse transfers (`UnsupportedTransfer`);
-  non-buffer objects have no refcount yet.
-- **Declared transfers** (issue #516, `channels/declared.rs`): a request may
-  carry only what its `.midl` method declares. `send`/`begin_call` look the
-  parcel header's `(interface_id, method)` up in `midlc`'s generated
-  `DECLARED_TRANSFERS` before resolving anything and refuse more handles or
-  buffers with `UndeclaredTransfer` (`EINVAL`), so the sender's table is
-  untouched and nothing reaches the receiver. An interface no `.midl` declares
-  may carry none. Test builds exempt the suite's fixture interface
-  (`0x0bad_cafe`). Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`,
-  with a 20,000-request soak).
+- **Objects** (`channels/support.rs`, `recv.rs`; messenger.md section 3):
+  a parcel's object list (`libmessenger::Object`, one entry per `Channel<I>`
+  or `Buffer` field) goes through two loops over the same `Vec<Resolved {
+  kind, rights, object_id }>`. *Resolve* (`resolve_objects`, at `send`/
+  `begin_call`): the declared gate first, then per entry the handle must be
+  of its slot's kind (`WrongObjectKind`) and hold `TRANSFER`, and a channel
+  end may appear once (`BadTransfer`); the message then takes one reference
+  per buffer (`retain_objects`, `shared::retain`) and the sender's moved
+  channel handles close (`close_moved_handles`). *Deliver* (`deliver`, at
+  `recv`): one `match` per entry opens a receiver-local channel handle
+  (`handles::open`) or converts the buffer reference into a handle
+  (`shared::attach`); the first failure runs `rollback_delivery` (installed
+  handles closed, pending references released, orphaned ends closed) and
+  nothing reaches the receiver. The kernel knows nothing about byte ranges:
+  a `Buffer` field's offset and length are data the receiving library checks
+  against the mapped size. The receive ABI reports the installed numbers in
+  list order (`MsgResult.object_count`, `objects[8]`; 13 words, 104 bytes,
+  `syscalls/abi.rs`, mirrored in `lazyos_sys::msg::MsgResult`), and the
+  parcel arrives with its own object list, so the receiver knows each
+  handle's kind. Replies refuse objects (`UnsupportedTransfer`); non-buffer
+  objects have no refcount yet. Tests: `ipc_buffer_handle_transfer_rights`,
+  `ipc_object_*` (`tests/ipc_shared_suite/{transfer,objects}.rs`, with a
+  100,000-round move/share soak).
+- **Buffer syscalls** are `messenger` ops (`syscalls/bufop.rs`):
+  `OP_BUFFER_CREATE = 22` (`parcel_len` is the size; `value` the handle, `aux`
+  the address, `bytes` the size), `OP_BUFFER_MAP = 23` (`value` the address,
+  `aux` the size) and `OP_BUFFER_CLOSE = 24` (`EBUSY` for the bound
+  compositor's screen buffer). The display syscall's former ops 4 to 6 are
+  gone. Userspace: `lazyos_sys::msg::{buffer_create, buffer_map,
+  buffer_close}`. Tests: `display_close_buffer_*`, `tests/bufops.rs`.
+- **Declared objects** (issue #516, `channels/declared.rs`): a request
+  carries exactly what its `.midl` method declares. `send`/`begin_call`
+  compare the parcel's object kinds with `midlc`'s generated
+  `declared_objects(interface_id, method)` (same length, kinds and order)
+  before resolving anything and refuse any other list with
+  `UndeclaredObject` (`EINVAL`), so the sender's table is untouched and
+  nothing reaches the receiver. An interface no `.midl` declares may carry
+  none. Test builds exempt the suite's fixture interface (`0x0bad_cafe`).
+  Tests: `transfer_gate_*` (`tests/transfer_gate_suite.rs`, with a
+  20,000-request soak).
 
 **Shared buffers** (`shared.rs`)
 
@@ -136,9 +164,9 @@ userspace never names another task's handles.
   and refuses a driver's share-only DMA buffer (`dma_alloc(SHARE_ONLY)`,
   [devices.md](devices.md)) for anyone but the creator; `close` unmaps and drops a
   reference; `info` reports state.
-- Lifetime is refcounted: handles + in-flight messages + mappings. `retain` /
-  `retain_descriptor` take the message reference, `attach` converts it into the
-  receiver's handle, `release` drops it when a queue is discarded.
+- Lifetime is refcounted: handles + in-flight messages + mappings. `retain`
+  takes the message reference, `attach` converts it into the receiver's
+  handle, `release` drops it when a queue is discarded.
 - Every handoff is zero-copy (`Stats::handoffs`): mappings alias the same
   frames. Ordering belongs to the protocol (a `Present` reply, audio's
   `Commit`, a ring's armed flag), never to the kernel.
@@ -172,7 +200,7 @@ name policy is `Resolve`'s. User side: `messenger::registry::connect`. Tests:
 `connect_*` (`tests/connect_suite.rs`, two clients in two tasks, orphans, a
 5,000-round connect/call/close soak) and `ipc_registry_syscall_connect`.
 
-**Status.** Working: handle rights, transactions with deadlines/cancel, handle
-move and buffer share, per-connection channels. Open: reply-borne
-transfers, services serving their connections (they still serve the shared
-endpoint), non-buffer object refcounts.
+**Status.** Working: handle rights, transactions with deadlines/cancel,
+objects as fields (channel move and buffer share), per-connection channels.
+Open: reply-borne objects, services serving their connections (they still
+serve the shared endpoint), non-buffer object refcounts.

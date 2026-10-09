@@ -119,4 +119,19 @@ pub trait Filesystem: Send + Sync {
 
     /// List a directory's entries (without `.`/`..`, which the ABI layer adds).
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError>;
+
+    /// Until which tick (of [`Filesystem::cache_now`]) the VFS may believe
+    /// metadata it looks up now. `None`, the default, keeps it until a change
+    /// made through the VFS invalidates it: right for a filesystem only this
+    /// kernel changes. A user-space filesystem serving a network share,
+    /// which other clients change, answers a short lifetime
+    /// (docs/smb-plan.md §3.1).
+    fn cache_deadline(&self) -> Option<u64> {
+        None
+    }
+
+    /// The clock [`Filesystem::cache_deadline`] counts in.
+    fn cache_now(&self) -> u64 {
+        crate::task::ticks()
+    }
 }

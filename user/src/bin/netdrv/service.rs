@@ -54,7 +54,7 @@ impl Service {
     fn drop_attachment(&mut self, why: &str) {
         if let Some(attachment) = self.attachment.take() {
             sys::write_str(&format!("NETDRV:DETACH {why}\n"));
-            let _ = sys::display_close_buffer(attachment.buffer);
+            let _ = sys::buffer_close(attachment.buffer);
             let _ = attachment.notify.release();
         }
     }
@@ -113,29 +113,20 @@ impl Service {
     }
 
     /// Route one request. `Ok` is the reply; `Err` becomes the error reply.
+    /// The objects a request carried (`AttachRing`'s ring buffer and notify
+    /// endpoint) are the message's until its decoder claims them: a refused
+    /// request's objects close when the message drops.
     pub(super) fn dispatch(&mut self, message: &Message) -> Result<Parcel> {
-        // Whatever the request transferred lands in this task's handle table
-        // before we look at it, so every path out, success or refusal, must
-        // close what was not adopted: a client that can resolve this service
-        // could otherwise fill the table with malformed requests.
-        let mut adopted = false;
-        let result = self.route(message, &mut adopted);
-        discard_transfers(message, adopted);
+        let result = self.route(message);
         self.sync();
         result
     }
 
-    fn route(&mut self, message: &Message, adopted: &mut bool) -> Result<Parcel> {
+    fn route(&mut self, message: &Message) -> Result<Parcel> {
         if message.interface_id() != api::INTERFACE {
             return Err(err(errno::EINVAL));
         }
         let method = message.method();
-        // Exactly what `net.midl` declares for the method (only `AttachRing`
-        // carries anything), or the request is refused before it is served;
-        // `dispatch` closes what it carried.
-        if !message.carries(wire::request_transfers(method)) {
-            return Err(err(errno::EINVAL));
-        }
         let body = &message.parcel.body;
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
@@ -151,9 +142,8 @@ impl Service {
                     .map_err(MsgError::Parcel)?
             }
             wire::METHOD_ATTACHRING => {
-                let args = wire::decode_attach_ring_args(body).map_err(MsgError::Parcel)?;
-                let ring = self.attach(message, args.slots)?;
-                *adopted = true;
+                let args = message.decode(wire::decode_attach_ring_args)?;
+                let ring = self.attach(message, &args)?;
                 wire::encode_attach_ring_reply(&wire::AttachRingReply { ring })
                     .map_err(MsgError::Parcel)?
             }
@@ -177,7 +167,7 @@ impl Service {
             }
             _ => return Err(err(errno::EINVAL)),
         };
-        Ok(api::parcel(method, reply, Vec::new(), Vec::new()))
+        Ok(api::parcel(method, reply, Vec::new()))
     }
 
     fn info(&self) -> Result<Vec<u8>> {
@@ -214,39 +204,48 @@ impl Service {
         .map_err(MsgError::Parcel)
     }
 
-    /// `AttachRing`: map the client's buffer and hand it to the engine.
-    fn attach(&mut self, message: &Message, slots: u32) -> Result<u32> {
-        // The rings are the request's transferred buffer and the notify
-        // endpoint its transferred handle (`route` checked both arrived).
-        let desc = message
-            .parcel
-            .buffers
-            .first()
-            .ok_or_else(|| err(errno::EINVAL))?;
+    /// `AttachRing`: map the client's buffer and hand it to the engine. The
+    /// decoded request owns the ring buffer and the notify endpoint; every
+    /// way out but success closes them.
+    fn attach(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32> {
+        let outcome = self.attach_inner(message, args);
+        if outcome.is_err() {
+            let _ = sys::buffer_close(args.rings.handle);
+            let _ = Endpoint::from_raw(args.notify).release();
+        }
+        outcome
+    }
+
+    fn attach_inner(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32> {
         if self.card.engine.attached().is_some() {
             return Err(err(errno::EBUSY));
         }
-        let offset = usize::try_from(desc.offset).map_err(|_| err(errno::EINVAL))?;
-        let len = usize::try_from(desc.len).map_err(|_| err(errno::EINVAL))?;
-        let va = sys::display_map_buffer(message.first_buffer).map_err(MsgError::Errno)?;
+        let (va, size) = sys::buffer_map(args.rings.handle).map_err(MsgError::Errno)?;
+        // The range is the client's claim; the mapped size is the truth.
+        if !args.rings.fits(size) {
+            return Err(err(errno::EINVAL));
+        }
+        let offset = usize::try_from(args.rings.offset).map_err(|_| err(errno::EINVAL))?;
+        let len = usize::try_from(args.rings.len).map_err(|_| err(errno::EINVAL))?;
         let base = (va as usize)
             .checked_add(offset)
             .ok_or_else(|| err(errno::EINVAL))?;
-        // SAFETY: the kernel checked that `offset..offset + len` lies inside
-        // the shared object it mapped at `va`; the mapping stays until
+        // SAFETY: `offset..offset + len` lies inside the `size` bytes the
+        // kernel mapped at `va` (checked above); the mapping stays until
         // `drop_attachment` closes the buffer, which happens whenever the
         // engine lets the client go. The client may rewrite the memory at any
         // time, which the ring implementation is built to tolerate.
         let attached = unsafe {
             self.card
                 .engine
-                .attach(message.sender, slots, base as *mut u8, len)
+                .attach(message.sender, args.slots, base as *mut u8, len)
         };
+        let slots = args.slots;
         match attached {
             Ok(ring) => {
                 self.attachment = Some(Attachment {
-                    buffer: message.first_buffer,
-                    notify: Endpoint::from_raw(message.first_handle),
+                    buffer: args.rings.handle,
+                    notify: Endpoint::from_raw(args.notify),
                     next_probe: sys::clock() + PROBE_TICKS,
                 });
                 sys::write_str(&format!(
@@ -266,20 +265,4 @@ fn ctl_errno(error: CtlError) -> MsgError {
         CtlError::Denied => errno::EACCES,
         CtlError::NoRing => errno::EINVAL,
     })
-}
-
-/// Close whatever a request transferred and the driver did not adopt: the
-/// buffer unless `AttachRing` took it, and the endpoint likewise. The kernel
-/// surfaces only the first of each kind, so a request carrying several still
-/// leaves the extras open until the client's own quotas stop it.
-fn discard_transfers(message: &Message, adopted: bool) {
-    if adopted {
-        return;
-    }
-    if message.buffers > 0 {
-        let _ = sys::display_close_buffer(message.first_buffer);
-    }
-    if message.handles > 0 {
-        let _ = Endpoint::from_raw(message.first_handle).release();
-    }
 }

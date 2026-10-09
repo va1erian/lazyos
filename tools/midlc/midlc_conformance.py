@@ -20,7 +20,7 @@ from midlc_lexer import lex
 from midlc_model import ERROR_FIELD, Interface, MidlError, Param
 from midlc_parser import Parser
 from midlc_rings import manifest_rings
-from midlc_transfers import check_channel_targets
+from midlc_objects import check_channel_targets
 from midlc_wire import encode_error, encode_message
 
 # `vectors.json` entries whose `message` is this encode the standard error.
@@ -38,12 +38,12 @@ def field_rows(fields: list[Param]) -> list[dict]:
     return [{"name": f.name, "type": str(f.ty), "id": f.id, "explicit": f.explicit} for f in fields]
 
 
-def transfer_row(transfer) -> dict:
-    row = {"name": transfer.name, "kind": transfer.kind, "slot": transfer.index}
-    if transfer.interface:
-        row["interface"] = transfer.interface
-    if transfer.rings:
-        row["rings"] = transfer.rings
+def object_row(obj) -> dict:
+    row = {"name": obj.name, "kind": obj.kind, "index": obj.index, "path": obj.path}
+    if obj.interface:
+        row["interface"] = obj.interface
+    if obj.rings:
+        row["rings"] = obj.rings
     return row
 
 
@@ -60,7 +60,7 @@ def model(interface: Interface) -> dict:
                 "oneway": m.oneway,
                 "params": field_rows(m.params),
                 "returns": field_rows(m.returns),
-                "transfers": [transfer_row(t) for t in m.transfers],
+                "objects": [object_row(o) for o in m.objects],
             }
             for m in interface.methods
         ],
@@ -77,14 +77,17 @@ def model(interface: Interface) -> dict:
     }
 
 
-def encode_vector(interfaces: list[Interface], vector: dict) -> bytes:
+def encode_vector(interfaces: list[Interface], vector: dict) -> tuple[bytes, list]:
+    """The body bytes and the object list (`[kind tag, handle]` rows) of one
+    sample value."""
     if vector["message"] == ERROR_MESSAGE:
-        return encode_error(ERROR_FIELD, vector["value"])
+        return encode_error(ERROR_FIELD, vector["value"]), []
     name = vector.get("interface", interfaces[0].name)
     interface = next((i for i in interfaces if i.name == name), None)
     if interface is None:
         raise MidlError(f"vector {vector['name']!r}: no interface {name!r}")
-    return encode_message(interface, vector["message"], vector["value"])
+    body, objects = encode_message(interface, vector["message"], vector["value"])
+    return body, [list(entry) for entry in objects]
 
 
 def expected_valid(midl: Path) -> dict:
@@ -95,7 +98,10 @@ def expected_valid(midl: Path) -> dict:
     out_vectors = []
     for vector in vectors:
         row = dict(vector)
-        row["bytes"] = encode_vector(interfaces, vector).hex()
+        body, objects = encode_vector(interfaces, vector)
+        row["bytes"] = body.hex()
+        if objects:
+            row["objects"] = objects
         out_vectors.append(row)
     return {
         "error_field": ERROR_FIELD,

@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import midlc  # noqa: E402
-import midlc_transfers  # noqa: E402
+import midlc_objects  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # `conformance` is the MIDL test corpus (`idl/conformance/`): sample and
@@ -82,7 +82,7 @@ def load(paths: list[Path]) -> list[Loaded]:
 def signature(method: midlc.Method) -> str:
     args = ", ".join(f"{p.name}: {p.ty}" for p in method.params)
     rets = ", ".join(f"{p.name}: {p.ty}" for p in method.returns)
-    return f"({args}) -> ({rets}){midlc_transfers.signature(method)}"
+    return f"({args}) -> ({rets})"
 
 
 def kind_of(method: midlc.Method) -> str:
@@ -105,13 +105,13 @@ def matches(query: str, *texts: str) -> bool:
 def filtered(interface: midlc.Interface, query: str, *context: str) -> midlc.Interface | None:
     """`interface` cut down to what matches `query` (all of it when the
     interface itself or `context` matches), or `None` when nothing does. A
-    method also matches on its transfers, so `Channel`, `Ring` or an interface
+    method also matches on its objects' types, so `Channel`, `Ring` or an interface
     name finds the methods that carry them."""
     if not query or matches(query, interface.name, interface.docs, *context):
         return interface
     methods = [
         m for m in interface.methods
-        if matches(query, m.name, m.doc, midlc_transfers.signature(m))
+        if matches(query, m.name, m.doc, *(midlc_objects.type_text(o) for o in m.objects))
     ]
     structs = [s for s in interface.structs if matches(query, s.name, s.doc)]
     enums = [e for e in interface.enums if matches(query, e.name)]
@@ -135,7 +135,7 @@ def counts(loaded: list[Loaded]) -> dict[str, int]:
         "files": len(files),
         "failed": len(failed),
         "methods": sum(len(i.methods) for i in ok),
-        "transferring": sum(1 for i in ok for m in i.methods if m.transfers),
+        "carrying": sum(1 for i in ok for m in i.methods if m.objects),
         "structs": sum(len(i.structs) for i in ok),
         "enums": sum(len(i.enums) for i in ok),
         "topics": sum(len(i.topics) for i in ok),

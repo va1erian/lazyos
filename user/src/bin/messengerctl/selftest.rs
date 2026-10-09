@@ -27,6 +27,12 @@ pub(crate) fn topic_selftest() {
     marker("TOPIC:SECURITY", selftest_security());
 }
 
+/// The boot-time marker for objects as fields (`docs/messenger-core-plan.md`
+/// 3.3): what a message owns, what a decoder claims, what closes on drop.
+pub(crate) fn objects_selftest() {
+    marker("MESSAGE:OBJECTS", super::object_tests::selftest_objects());
+}
+
 /// PIT ticks [`selftest_security`] waits for its probe child to exit.
 const SECURITY_PROBE_TICKS: u64 = 200;
 

@@ -18,12 +18,13 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_demo  # noqa: E402
+from lazygui.catalog import LAZYOS_LAZYRAD_SAMPLES  # noqa: E402
 
 LABEL_OFFSET = 1024 + 120  # ext2 s_volume_name
 # No drive letter: on Linux `os.pathsep` is `:`, which would split `C:\...`.
 SAMPLES = [os.path.join(os.sep, "lr", "hello"), os.path.join(os.sep, "lr", "calc")]
-#: The LazyOS-only samples every LazyRAD image embeds (`catalog.LAZYOS_LAZYRAD_SAMPLES`).
-LAZYOS_SAMPLES = ["lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer"]
+#: The samples every LazyRAD image embeds (`catalog.LAZYOS_LAZYRAD_SAMPLES`).
+LAZYOS_SAMPLES = list(LAZYOS_LAZYRAD_SAMPLES)
 
 
 class PrepareHomeDiskTests(unittest.TestCase):

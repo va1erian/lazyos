@@ -1,7 +1,9 @@
 # SMB harness (`tools/smb/`)
 
 Verification for the SMB 2.1 client of [docs/smb-plan.md](../../docs/smb-plan.md)
-stage F2: `libs/smbwire` and the guest command `smb` (`LAZYOS_SMB=1`). As with
+stage F2 (`libs/smbwire` and the guest command `smb`, `LAZYOS_SMB=1`) and of
+stage F3, the share mounted as a directory (`libs/smbfs` and `smbfuse`, in
+every `LAZYOS_NETD=1` image). As with
 networking and TLS, serial markers only say *when*; the verdict is what the
 servers recorded and what crossed the wire.
 
@@ -14,13 +16,18 @@ servers recorded and what crossed the wire.
 | `smbserver.py`, `smbfiles.py`, `smbproto.py`, `ntlm.py` | A standard-library SMB 2.1 server over a real directory (NTLMv2 with its own MD4, signing both ways, a request record, misbehaviour switches) |
 | `samba_interop.py` | `libs/smbwire`'s host client `smbcat` against real Samba 4.19 in Docker |
 | `licenses.py` | Every crate linked into `smbwire` has a GPLv2-compatible licence |
-| `test_smbserver.py`, `test_judge.py` | The server against `smbcat`; the judges fail when they should |
+| `fuse_run.py` | F3: build `LAZYOS_CLI=1 LAZYOS_NETD=1`, mount two servers' shares with `smbfuse`, use them with BusyBox, judge the servers' directories, records, the capture and the leak scan |
+| `fuse_checks.py` | F3's session (mounts and steps) and its judges (step statuses and output, the servers' trees) |
+| `test_smbserver.py`, `test_judge.py`, `test_fuse_judge.py` | The server against `smbcat`; the judges fail when they should |
 
 ```bash
 python tools/smb/run.py                 # build, boot, judge (shots/smb/)
 python tools/smb/run.py --no-build      # reuse target/lazyos.img
 python tools/smb/test_smbserver.py
 python tools/smb/test_judge.py
+python tools/smb/fuse_run.py            # F3: the share as a directory (shots/smbfuse/)
+python tools/smb/test_fuse_judge.py
+cargo test -p smbfs                     # the FUSE operations against the in-memory server
 python tools/smb/samba_interop.py       # needs Docker
 python tools/smb/smbserver.py DIR --port 1445 --password PW   # a server to try `smb` by hand
 cargo run -p smbwire --example smbcat -- 127.0.0.1:1445 share chaton selftest   # LAZYOS_SMB_PASSWORD=PW

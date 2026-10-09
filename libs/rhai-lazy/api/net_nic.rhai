@@ -10,8 +10,8 @@
 // policy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and
 // never parses a payload.
 //
-// **The client owns the rings.** Replies cannot carry buffers or handles (the
-// kernel refuses transfers in a reply), and the driver must not let its device
+// **The client owns the rings.** Replies cannot carry buffers or channels (the
+// kernel refuses objects in a reply), and the driver must not let its device
 // read memory a client can rewrite, so the client creates two shared buffers
 // and the driver copies frames between them and its own DMA slots, in both
 // directions (the audio rule, see `os.lazy.audio.v1`). A ring is the
@@ -20,16 +20,14 @@
 // free-running `u32` indices in a header page. Nothing about the wire lives in
 // a request body except the slot count.
 //
-// `AttachRing` carries, in the parcel's `handles` and `buffers` vectors (its
-// `transfers` clause and the `Rx`/`Tx` ring declarations say the same):
+// `AttachRing` carries two objects (its `Ring<Rx, Tx>` and `Channel`
+// parameters; the ring declarations say the layout):
 //
-// * `buffers[0]`: one shared buffer holding **both rings**, back to back: the
+// * `rings`: one shared buffer holding **both rings**, back to back: the
 // **receive ring** (driver produces, client consumes) at byte 0 and the
 // **transmit ring** (client produces, driver consumes) at byte
-// `framering::ring_bytes(slots)`. (The kernel surfaces only the first
-// transferred buffer of a request to its receiver, so two rings cannot
-// travel as two buffers.)
-// * `handles[0]`: the **notify endpoint**, an endpoint the client holds the
+// `framering::ring_bytes(slots)`.
+// * `notify`: the **notify endpoint**, an endpoint the client holds the
 // receiving side of, to which the driver posts `Notify`.
 //
 // The buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two
@@ -131,7 +129,7 @@ fn notify(ring, events) {
     msg::connect("os.lazy.net.nic.v1").invoke("Notify", [ring, events])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): AttachRing.
 
 /// A `NicInfo` with every field at its zero value.

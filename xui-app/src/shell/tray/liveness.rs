@@ -33,8 +33,7 @@ pub fn send(channel: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     sys::msg_send(channel, &parcel)
 }

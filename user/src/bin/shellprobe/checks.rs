@@ -89,7 +89,7 @@ pub(super) fn panel(client: &Client, screen: Rect) -> Option<(u64, Endpoint)> {
         client.place_surface(panel, screen.w + 500, -50),
     )?;
     let bytes = (PANEL_W * PANEL_H * 4) as u64;
-    let (buffer, va, _) = sys::display_create_buffer(bytes).ok()?;
+    let (buffer, va, _) = sys::buffer_create(bytes).ok()?;
     // SAFETY: `va` maps the buffer just created, `PANEL_W * PANEL_H * 4`
     // bytes long, and nothing else touches it.
     let mut canvas = unsafe { Canvas::new(va, PANEL_W, PANEL_H) };

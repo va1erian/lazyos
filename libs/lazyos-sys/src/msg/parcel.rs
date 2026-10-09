@@ -17,7 +17,7 @@ use crate::errno::{E2BIG, EINVAL};
 pub const LIST_BUFFER: usize = 32 * 1024;
 
 /// A parcel for `method` of `interface` with `flag_bits` and `body`, no
-/// transfers.
+/// objects.
 pub fn request(interface: u64, method: u32, flag_bits: u16, body: Vec<u8>) -> Parcel {
     Parcel {
         header: Header {
@@ -30,8 +30,7 @@ pub fn request(interface: u64, method: u32, flag_bits: u16, body: Vec<u8>) -> Pa
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 

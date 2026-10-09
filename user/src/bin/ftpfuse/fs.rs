@@ -20,11 +20,12 @@ use alloc::vec::Vec;
 
 use ftpwire::listing::{parse_listing, ListEntry};
 use fused::daemon::{Errno, FuseFs, Target};
+use fused::inodes::Inodes;
 use fused::payload::{DirEnt, SetAttrRecord, StatFsRecord};
 use fused::wire::{errno, Attr, S_IFDIR, S_IFREG};
 use user::sys;
 
-use crate::link::{remote, Inodes, Link, RenameError, MAX_FILE};
+use crate::link::{remote, Link, RenameError, MAX_FILE};
 
 /// How long a listing is believed, ticks (100 Hz).
 const LISTING_TICKS: u64 = 300;

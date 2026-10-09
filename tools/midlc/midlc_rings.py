@@ -11,8 +11,7 @@ declaration states the whole contract, which used to live in prose:
     /// Frames to send, client to driver.
     ring Tx : frames producer=client doorbell=Kick;
 
-    method AttachRing(slots: U32) -> (ring: U32)
-        transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>);
+    method AttachRing(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>) -> (ring: U32);
 
 * `frames`: fixed slots with the indices and an `armed` flag in a header page
   (`libs/framering`). The producer sends the `oneway` `doorbell` method when
@@ -20,9 +19,9 @@ declaration states the whole contract, which used to live in prose:
 * `stream`: a byte ring whose position travels in calls: the producer reports
   how far it wrote with the `advance` method (audio's `Commit`).
 
-`producer` is `client` (the side that transfers the buffer) or `server`. A
-`Ring<A, B>` transfer is one shared buffer holding the listed rings back to
-back, all the same size.
+`producer` is `client` (the side that sends the buffer) or `server`. A
+`Ring<A, B>` parameter is one shared buffer (a `Buffer` object with a layout)
+holding the listed rings back to back, all the same size.
 """
 
 from __future__ import annotations
@@ -55,7 +54,7 @@ def make_ring(name: str, layout: str, options: dict[str, str], doc: str, line: i
 
 
 def validate_rings(interface: Interface, claim) -> None:
-    """Rings are unique, name real methods, are transferred, and a
+    """Rings are unique, name real methods, are carried by a request, and a
     server-produced frames ring has a channel to ring its doorbell on."""
     methods = {m.name: m for m in interface.methods}
     rings = {}
@@ -74,34 +73,36 @@ def validate_rings(interface: Interface, claim) -> None:
             raise MidlError(f"ring {ring.name!r}: advance {ring.advance!r} is not a method", ring.line)
     carried: set[str] = set()
     for method in interface.methods:
-        for transfer in method.transfers:
-            if transfer.kind == "rings":
-                check_ring_transfer(interface, method, transfer.rings, rings)
-                carried.update(transfer.rings)
-                claim(f"{snake_case(method.name)}_rings".upper(), f"{method.name} (rings)")
-                claim(f"{method.name}Rings", f"{method.name} (rings)")
-                claim(f"{snake_case(method.name)}_rings", f"{method.name} (rings)")
+        ring_objects = [o for o in method.objects if o.kind == "rings"]
+        if len(ring_objects) > 1:
+            raise MidlError(f"{method.name}: a request carries at most one Ring<...> buffer")
+        for obj in ring_objects:
+            check_ring_object(interface, method, obj.rings, rings)
+            carried.update(obj.rings)
+            claim(f"{snake_case(method.name)}_rings".upper(), f"{method.name} (rings)")
+            claim(f"{method.name}Rings", f"{method.name} (rings)")
+            claim(f"{snake_case(method.name)}_rings", f"{method.name} (rings)")
     for ring in interface.rings:
         if ring.name not in carried:
-            raise MidlError(f"ring {ring.name!r} is declared but no method transfers it", ring.line)
+            raise MidlError(f"ring {ring.name!r} is declared but no method carries it", ring.line)
 
 
-def check_ring_transfer(interface: Interface, method: Method, names: list[str], rings: dict) -> None:
-    origin = f"{method.name} transfer Ring<{', '.join(names)}>"
+def check_ring_object(interface: Interface, method: Method, names: list[str], rings: dict) -> None:
+    origin = f"{method.name} object Ring<{', '.join(names)}>"
     if len(set(names)) != len(names):
         raise MidlError(f"{origin}: a ring is listed twice")
     for name in names:
         ring = rings.get(name)
         if ring is None:
             raise MidlError(f"{origin}: {name!r} is not a ring of {interface.name!r}")
-        # The client transfers the buffer, so it can only wake a server-side
+        # The client sends the buffer, so it can only wake a server-side
         # consumer over its own connection; a server producer needs a channel
         # back to the client, carrying this interface's doorbell method.
         if ring.layout == "frames" and ring.producer == "server":
-            if not any(t.kind == "channel" and t.interface == interface.name for t in method.transfers):
+            if not any(o.kind == "channel" and o.interface == interface.name for o in method.objects):
                 raise MidlError(
                     f"{origin}: ring {name!r} is produced by the server, so the request "
-                    f"must also transfer a Channel<{interface.name}> for its doorbell"
+                    f"must also carry a Channel<{interface.name}> for its doorbell"
                 )
 
 
@@ -110,7 +111,7 @@ def check_ring_transfer(interface: Interface, method: Method, names: list[str], 
 # ---------------------------------------------------------------------------
 
 RING_SUPPORT = '''\
-/// Shared-memory rings declared in `.midl` (`ring` and `Ring<...>` transfers).
+/// Shared-memory rings declared in `.midl` (`ring` and `Ring<...>` parameters).
 #[rustfmt::skip]
 pub mod rings {
     /// How a ring is laid out and how its position moves.
@@ -126,7 +127,7 @@ pub mod rings {
     /// Which side of the request writes the ring.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Side {
-        /// The side that transfers the buffer.
+        /// The side that sends the buffer.
         Client,
         /// The side that receives it.
         Server,
@@ -171,8 +172,8 @@ def emit_ring_decls(interface: Interface) -> list[str]:
 
 
 def emit_method_rings(method: Method) -> list[str]:
-    """For a `Ring<...>` transfer: the rings in order and their offsets."""
-    transfer = next((t for t in method.transfers if t.kind == "rings"), None)
+    """For a `Ring<...>` parameter: the rings in order and their offsets."""
+    transfer = next((o for o in method.objects if o.kind == "rings"), None)
     if transfer is None:
         return []
     snake = snake_case(method.name)

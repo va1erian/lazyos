@@ -32,27 +32,30 @@
 //! only nesting is `CHANNELS` -> `REGISTRY`/handle table while a message is
 //! queued with its references taken.
 //!
-//! # Handle and buffer transfer (issue #67)
+//! # Objects (issue #67, `docs/messenger-core-plan.md` 2)
 //!
-//! A parcel's `handles` list **moves** each handle: the sender's handle is
-//! resolved and closed when the message is queued, and the receiver's table
-//! gains a new handle when it takes delivery (`try_recv`/`recv` rewrites the
-//! list to receiver-local numbers). A sender that still needs the handle must
-//! duplicate it before sending. Every moved handle needs `TRANSFER` rights.
-//!
-//! A parcel's `buffers` list **shares**: each `BufferDesc` takes one message
+//! A parcel's object list names the kernel objects its body's object fields
+//! refer to. A **channel** entry moves: the sender's handle is resolved and
+//! closed when the message is queued, and the receiver's table gains a new
+//! handle when it takes delivery (`try_recv`/`recv` reports the installed
+//! numbers in list order). A sender that still needs the end must duplicate
+//! it before sending. A **buffer** entry shares: the message takes one
 //! reference to the buffer (the sender keeps its handle and mapping) and
-//! delivery installs a receiver-local buffer handle without copying a byte.
-//! The receiver maps it on demand with `ipc::shared::map` (a driver's
-//! share-only DMA buffer is refused for anyone but the creator).
+//! delivery installs a receiver-local buffer handle without copying a byte;
+//! the receiver maps it on demand with `ipc::shared::map`. Every object needs
+//! `TRANSFER` rights, an entry's handle must be of the entry's kind
+//! ([`Error::WrongObjectKind`]), and a channel end appears once
+//! ([`Error::BadTransfer`]). The kernel knows nothing about byte ranges: a
+//! buffer field's offset and length are data the receiving library checks.
 //!
-//! Replies carry no transfers yet: a reply parcel with handles or buffers is
-//! refused with [`Error::UnsupportedTransfer`].
+//! Replies carry no objects: a reply parcel with any is refused with
+//! [`Error::UnsupportedTransfer`].
 //!
-//! A request carries at most what its `.midl` method declares (`transfers
-//! (...)`, issue #516): [`declared`] checks the parcel header's interface and
-//! method against the generated table before anything moves, and refuses the
-//! rest with [`Error::UndeclaredTransfer`]. An unknown interface declares none.
+//! A request carries exactly what its `.midl` method declares (its
+//! `Channel<I>`, `Buffer` and `Ring<...>` parameters, issue #516):
+//! [`declared`] compares the parcel's kind list with the generated table
+//! before anything moves, and refuses any other list with
+//! [`Error::UndeclaredObject`]. An unknown interface declares none.
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -60,7 +63,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use spin::Mutex;
 
-use libmessenger::{flags, BufferDesc, ParcelView};
+use libmessenger::{flags, Object, ObjectKind, ParcelView};
 
 use crate::ipc::credentials;
 use crate::ipc::handles::{self, rights, HandleKind};
@@ -157,7 +160,7 @@ pub mod harness;
 /// Create a channel and open both endpoint handles in the calling task.
 ///
 /// Hand one endpoint to a peer by duplicating its handle and sending the copy
-/// in a parcel's handle list (the transfer moves it; see the module docs).
+/// as a `Channel<I>` field (the move closes it; see the module docs).
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
@@ -193,9 +196,8 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let parcel = validate_parcel(&parcel_bytes)?;
     let (method, parcel_flags) = (parcel.header.method, parcel.header.flags);
-    let (handles, buffers) = resolve_transfers(&parcel)?;
-    let numbers: Vec<u64> = parcel.handles().collect();
-    let kinds: Vec<HandleKind> = handles.iter().map(|transfer| transfer.kind).collect();
+    let objects = resolve_objects(&parcel)?;
+    let numbers = moved_handles(&parcel);
     let receivers = enqueue(
         channel_id,
         side,
@@ -207,12 +209,11 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
             txn: None,
             deadline: None,
             bytes: parcel_bytes,
-            handles,
-            buffers,
+            objects,
         },
     )?;
     // The message owns the moved references now; the sender's numbers are gone.
-    close_moved_handles(&numbers, &kinds);
+    close_moved_handles(&numbers);
     wake(receivers.iter());
     ring(channel_id, 1 - side);
     Ok(())
@@ -249,7 +250,7 @@ fn enqueue(channel_id: u64, from_side: usize, message: Queued) -> Result<WaiterS
     }
     // The queue has room: take the message's buffer references so a sender
     // that closes its own handle cannot free frames an in-flight message needs.
-    if let Err(error) = retain_transfers(&message) {
+    if let Err(error) = retain_objects(&message) {
         release_queued_quota(message.origin.uid, message.bytes.len());
         channel.drops += 1;
         return Err(error);

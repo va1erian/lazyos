@@ -5,7 +5,7 @@
 # thing under test or the build host cannot depend on the crate yet.
 kernel/src/process/linux/path.rs:99:the Linux ABI's synthetic /etc directory, an ABI concept rather than LazyOS layout
 user/src/bin/mimed/selftest.rs:22:test data for MIME guessing by extension, not a boot file
-xui-app/crates/explorer/src/testing.rs:178:fixture directory name of an in-memory test platform
+xui-app/crates/explorer/src/testing.rs:189:fixture directory name of an in-memory test platform
 libs/ext2fs/examples/mkimage.rs:CI image fixture: fixed paths so the e2fsck/debugfs checks can assert them, independent of libs/fhs
 kernel/src/process/linux/etcfs.rs:the Linux ABI's fabricated /etc files (passwd, hosts, resolv.conf, ...), an ABI concept rather than LazyOS layout, like /proc
 kernel/src/process/linux/procfs.rs:211:the Linux ABI's synthetic /etc directory listing

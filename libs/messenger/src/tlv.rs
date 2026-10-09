@@ -2,7 +2,12 @@
 
 use alloc::vec::Vec;
 
-use crate::{BufferDesc, Error, BUFFER_DESC_SIZE, MAX_BODY_BYTES, MAX_DEPTH, MAX_FIELDS};
+use crate::{Buffer, Error, Object, MAX_BODY_BYTES, MAX_DEPTH, MAX_FIELDS, MAX_OBJECTS};
+
+/// Payload size of a `Handle` field: the `u32` index of a channel end.
+const HANDLE_FIELD_SIZE: usize = 4;
+/// Payload size of a `Buffer` field: `u32` index, `u64` offset, `u64` len.
+const BUFFER_FIELD_SIZE: usize = 20;
 
 /// The kind of a TLV field.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -182,18 +187,54 @@ impl Encoder {
         self.push(Kind::Error, id, &payload)
     }
 
-    pub fn handle(&mut self, id: u16, handle: u64) -> Result<(), Error> {
-        self.push(Kind::Handle, id, &handle.to_le_bytes())
+    /// A channel end: `handle` (the sender's number) joins the parcel's
+    /// `objects` list and the field carries its index.
+    pub fn channel(
+        &mut self,
+        id: u16,
+        handle: u64,
+        objects: &mut Vec<Object>,
+    ) -> Result<(), Error> {
+        let index = push_object(objects, Object::Channel(handle))?;
+        self.push(Kind::Handle, id, &index.to_le_bytes())
     }
 
-    pub fn buffer(&mut self, id: u16, buffer: &BufferDesc) -> Result<(), Error> {
-        let mut payload = [0u8; BUFFER_DESC_SIZE];
-        payload[0..8].copy_from_slice(&buffer.handle.to_le_bytes());
-        payload[8..16].copy_from_slice(&buffer.offset.to_le_bytes());
-        payload[16..24].copy_from_slice(&buffer.len.to_le_bytes());
-        payload[24..28].copy_from_slice(&buffer.flags.to_le_bytes());
+    /// A shared buffer: `buffer.handle` joins the parcel's `objects` list and
+    /// the field carries its index with the byte range.
+    pub fn buffer(
+        &mut self,
+        id: u16,
+        buffer: &Buffer,
+        objects: &mut Vec<Object>,
+    ) -> Result<(), Error> {
+        let index = push_object(objects, Object::Buffer(buffer.handle))?;
+        let mut payload = [0u8; BUFFER_FIELD_SIZE];
+        payload[0..4].copy_from_slice(&index.to_le_bytes());
+        payload[4..12].copy_from_slice(&buffer.offset.to_le_bytes());
+        payload[12..20].copy_from_slice(&buffer.len.to_le_bytes());
         self.push(Kind::Buffer, id, &payload)
     }
+}
+
+/// Append `object` to a parcel's object list and return its index.
+fn push_object(objects: &mut Vec<Object>, object: Object) -> Result<u32, Error> {
+    if objects.len() >= MAX_OBJECTS {
+        return Err(Error::TooLarge);
+    }
+    objects.push(object);
+    Ok((objects.len() - 1) as u32)
+}
+
+/// Take the object at `index` out of `objects` under the index rule
+/// (`docs/messenger-core-plan.md` 2.3): an object field's index must be its
+/// position in the declared order, which `next` counts, so a repeated,
+/// skipped or out-of-range index is refused and every object is claimed by
+/// exactly one field. The caller advances `next` once the kind matches too.
+fn claim(objects: &[Object], next: usize, index: u32) -> Result<Object, Error> {
+    if index as usize != next {
+        return Err(Error::BadObjectIndex);
+    }
+    objects.get(next).copied().ok_or(Error::BadObjectIndex)
 }
 
 /// One decoded TLV field borrowing from the body.
@@ -266,19 +307,56 @@ impl<'a> Field<'a> {
             pos: 0,
         })
     }
-    pub fn as_handle(&self) -> Result<u64, Error> {
-        self.as_u64()
-    }
-    pub fn as_buffer(&self) -> Result<BufferDesc, Error> {
-        if self.payload.len() != BUFFER_DESC_SIZE {
+    /// The index a `Handle` field carries into the object list.
+    pub fn object_index(&self) -> Result<u32, Error> {
+        if self.payload.len() != HANDLE_FIELD_SIZE {
             return Err(Error::BadValue);
         }
-        Ok(BufferDesc {
-            handle: read_u64(self.payload, 0)?,
-            offset: read_u64(self.payload, 8)?,
-            len: read_u64(self.payload, 16)?,
-            flags: read_u32(self.payload, 24)?,
-        })
+        read_u32(self.payload, 0)
+    }
+
+    /// A `Buffer` field's `(index, offset, len)`.
+    pub fn buffer_parts(&self) -> Result<(u32, u64, u64), Error> {
+        if self.payload.len() != BUFFER_FIELD_SIZE {
+            return Err(Error::BadValue);
+        }
+        Ok((
+            read_u32(self.payload, 0)?,
+            read_u64(self.payload, 4)?,
+            read_u64(self.payload, 12)?,
+        ))
+    }
+
+    /// Claim the channel end this `Handle` field names in `objects` (the
+    /// receiver's list, handles already installed): the field's index must
+    /// be `*next`, the declared position the caller counts, and the entry
+    /// must be a channel. Returns the handle and advances `next`.
+    pub fn claim_channel(&self, objects: &[Object], next: &mut usize) -> Result<u64, Error> {
+        match claim(objects, *next, self.object_index()?)? {
+            Object::Channel(handle) => {
+                *next += 1;
+                Ok(handle)
+            }
+            Object::Buffer(_) => Err(Error::BadObjectIndex),
+        }
+    }
+
+    /// Claim the shared buffer this `Buffer` field names in `objects`, like
+    /// [`Field::claim_channel`]; the range is data the caller checks against
+    /// the mapped size.
+    pub fn claim_buffer(&self, objects: &[Object], next: &mut usize) -> Result<Buffer, Error> {
+        let (index, offset, len) = self.buffer_parts()?;
+        match claim(objects, *next, index)? {
+            Object::Buffer(handle) => {
+                *next += 1;
+                Ok(Buffer {
+                    handle,
+                    offset,
+                    len,
+                })
+            }
+            Object::Channel(_) => Err(Error::BadObjectIndex),
+        }
     }
 }
 

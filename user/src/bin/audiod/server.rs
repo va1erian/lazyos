@@ -9,7 +9,6 @@ use alloc::vec::Vec;
 
 use audiomix::service::{self, errno as mix_errno, Outcome, Request};
 use audiomix::{Config, Mixer};
-use messenger_generated::transfers::Transfers;
 use user::messenger::audio::{self as api, wire};
 use user::messenger::{services, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
@@ -69,17 +68,18 @@ impl Server {
     pub(super) fn dispatch(&mut self, message: &Message) -> Option<Parcel> {
         let interface = message.interface_id();
         let method = message.method();
-        // A request carries exactly what its method declares in `audio.midl`
-        // (only `AttachRing`'s `Ring<Samples>`); anything else is closed and
-        // the request refused, so nothing undeclared crosses into the mixer.
-        let declared = declared_transfers(interface, method);
-        if !message.carries(declared) {
-            let _ = take_ring(message, false);
-            close_endpoint(message);
-            return Some(error_parcel(interface, method, mix_errno::EINVAL));
-        }
-        let ring = take_ring(message, declared.buffers > 0);
-        close_endpoint(message);
+        // Only `AttachRing` carries an object, its `Ring<Samples>` (the
+        // kernel gate holds every request to its declaration); the message
+        // keeps whatever it carried until the ring is taken, and closes it
+        // when it drops.
+        let ring = if interface == api::INTERFACE && method == wire::METHOD_ATTACHRING {
+            match message.decode(wire::decode_attach_ring_args) {
+                Ok(args) => MappedRing::map(&args.ring),
+                Err(_) => return Some(error_parcel(interface, method, mix_errno::EINVAL)),
+            }
+        } else {
+            None
+        };
         let outcome = service::handle(
             self.mixer.as_mut(),
             Request {
@@ -238,39 +238,4 @@ impl Server {
 /// The error reply carrying `code` (a positive errno).
 fn error_parcel(interface: u64, method: u32, code: i64) -> Parcel {
     services::error_reply(interface, method, MsgError::Errno(-code))
-}
-
-/// What a request to `interface` declares outside its body: the playback
-/// interface's `transfers` clauses; the mixer control interface has none.
-fn declared_transfers(interface: u64, method: u32) -> Transfers {
-    if interface == api::INTERFACE {
-        wire::request_transfers(method)
-    } else {
-        api::control_wire::request_transfers(method)
-    }
-}
-
-/// The request's ring, mapped, when it is an `AttachRing` that carried one.
-/// Any buffer on another method is closed at once, so a client cannot fill
-/// this task's handle table with transfers it never uses. The kernel surfaces
-/// only the first buffer of a request.
-fn take_ring(message: &Message, wanted: bool) -> Option<MappedRing> {
-    if message.buffers == 0 {
-        return None;
-    }
-    let handle = message.first_buffer;
-    match message.parcel.buffers.first() {
-        Some(desc) if wanted => MappedRing::map(handle, desc),
-        _ => {
-            let _ = sys::display_close_buffer(handle);
-            None
-        }
-    }
-}
-
-/// No method takes an endpoint: close any that was transferred.
-fn close_endpoint(message: &Message) {
-    if message.handles > 0 {
-        let _ = Endpoint::from_raw(message.first_handle).close();
-    }
 }

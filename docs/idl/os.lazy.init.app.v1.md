@@ -16,13 +16,13 @@ in `init`'s table, and only for its own instance; anyone else gets
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Watch | 1 | sync | `() -> () transfers (events: Channel<os.lazy.init.app.events.v1>)` |
+| Watch | 1 | sync | `(events: Channel<os.lazy.init.app.events.v1>) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Watch | `events` | `handles[0]`, a channel the receiver sends `os.lazy.init.app.events.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Watch | `events` | `Channel<os.lazy.init.app.events.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.init.app.events.v1` on |

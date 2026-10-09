@@ -94,75 +94,87 @@ retained flag and the derived `publish:<pattern>` / `subscribe:<pattern>`
 permission strings (security-model section 6); the permissions are never
 hand-typed. The generated Markdown (`docs/idl/*.md`) lists the same table.
 
-## Transfers: handles and buffers
+## Objects: channels and buffers
 
-A parcel carries kernel objects in two vectors beside its TLV body, `handles`
-and `buffers` (`docs/messenger.md` section 4). The kernel rewrites each one into
-the receiver's handle table, so a handle number written into the *body* would
-mean nothing to the receiver. That is why `Handle`, `Buffer` and `Channel` are
-refused as body types. Every object a request carries is declared instead in
-a `transfers (...)` clause after the method:
+A parcel carries its kernel objects in an *object list* beside its TLV body
+([`docs/messenger.md`](messenger.md) sections 1 and 4); an object field in
+the body holds only an index into that list, which the kernel resolves,
+checks and installs in the receiver's table. In MIDL an object is a
+parameter type like any other:
 
 ```idl
 interface os.lazy.display.v1 {
-    method CreateSurface(width: U32, height: U32, title: String, role: U32) -> (surface: U64) = 1
-        transfers (events: Channel<os.lazy.display.v1>);
-    method AttachBuffer(surface: U64) -> () = 2
-        transfers (pixels: Buffer);
+    method CreateSurface(width: U32, height: U32, title: String, role: U32,
+                         events: Channel<os.lazy.display.v1>) -> (surface: U64) = 1;
+    method AttachBuffer(surface: U64, pixels: Buffer) -> () = 2;
 }
 ```
 
 * **`Channel<I>`**: one end of a channel pair (`user::messenger::create_pair`).
-  The receiver keeps it and sends `I`'s `oneway` methods on it: this is how
-  input reaches a window (the event-endpoint pattern). `I` may be declared in
-  another file, and it must have at least one `oneway` method.
-* **`Buffer`**: a shared buffer (`BufferDesc`), mapped by the receiver.
+  It **moves**: the sender's handle closes when the message is queued, and
+  the receiver keeps the fresh one and sends `I`'s `oneway` methods on it
+  (the event-endpoint pattern). `I` may be declared in another file, and it
+  must have at least one `oneway` method.
+* **`Buffer`**: a shared buffer with a byte range (`libmessenger::Buffer`:
+  `handle`, `offset`, `len`). It is **shared**: the sender keeps its handle
+  and mapping, the receiver gets a new handle to the same pages and maps it
+  when it wants; the range is data it checks against the mapped size.
+* **`Ring<A, B>`**: a `Buffer` with a ring layout (below).
 
-Each kind fills its vector in declaration order (`handles[0]`, `buffers[0]`).
-A request carries at most one of each kind, because the kernel tells the
-receiver only the first handle and the first buffer of a delivery
-(`Message::first_handle`, `first_buffer`). The kernel refuses transfers in a
-reply, so the clause belongs to the request.
+An object may sit in a request's parameters or inside a `struct` (nested
+structs too). It is refused in a reply, in a topic payload, and inside an
+`Option<T>` or an `Array<T>`: every method's object count is fixed, so the
+kernel gate compares one static kind list per method, and the generated
+decoder demands that each object field's index be its position in the
+declared order (the parameters walked depth-first), so a repeated, skipped,
+out-of-range or wrong-kind index is refused and every installed object is
+claimed by exactly one field. A request carries at most eight objects.
 
 ### Generated code
 
-For each method with a clause, in the interface's module:
+A `Channel<I>` field is a `u64` (the sender's handle when encoding, the
+installed one when decoded); a `Buffer` or `Ring<...>` field is a
+`libmessenger::Buffer`. Both sit in the request struct (`<Method>Args`,
+e.g. `AttachBufferArgs { surface: u64, pixels: libmessenger::Buffer }`) as
+plain fields. For a method whose request carries objects, in the
+interface's module:
 
-* `<METHOD>_TRANSFERS: transfers::Transfers`: the declared counts;
-* `<Method>Transfers`: the objects by name (`u64` for a channel,
-  `BufferDesc` for a buffer), and `encode_<method>_transfers(&value)`, which
-  returns the parcel's `(handles, buffers)`.
+* `encode_<method>_args(&value)` returns `(body, objects)`, the parcel's body
+  and object list, in the field order;
+* `decode_<method>_args(body, objects)` takes the installed object list the
+  kernel reported (`Message::objects`) and refuses one that is not exactly
+  the declared slots each claimed once, in order (`Error::BadObjectIndex`);
+* `<METHOD>_OBJECTS: &[objects::Kind]`, the declared kinds, and
+  `DECLARED_OBJECTS`, every `(method id, kinds)` of the interface.
 
-Every module also gets `request_transfers(method)`, the declared counts of any
-method id (`Transfers::NONE` when it declares none). A server checks a delivery
-with `Message::carries(wire::OPEN_TRANSFERS)` (or
-`carries(wire::request_transfers(method))`): the check is exact, so an
-undeclared object is refused rather than adopted. The Markdown reference lists
-each method's slots under **Transfers**, and the manifest gives each method a
-`transfers` array (`name`, `kind`, `slot`, `interface`). The `--schema` table
-carries them too, and the Rhai `msg` module refuses to call a method that
-declares transfers, because a script cannot create a channel or a buffer.
+A struct that holds an object gets the same shape: `encode_<struct>(&value,
+objects)` pushes onto the request's list and `decode_<struct>(body, objects,
+next)` claims from it. A server decodes with `Message::decode(wire::decode_<method>_args)`:
+an object no decoder claimed is closed when the `Message` drops. The Markdown
+reference lists each method's objects under **Objects**, and the manifest
+gives each method an `objects` array (`name`, `kind`, `index`, `interface`,
+`rings`, and `path` for a nested field). The `--schema` table carries them
+too, and the Rhai `msg` module refuses to call a method that carries objects,
+because a script cannot create a channel or a buffer.
 
-The crate also gets `DECLARED_TRANSFERS`, one `transfers::TransferDecl` per
-method with a clause (interface id, method id, counts), and
-`declared_transfers(interface, method)`. The kernel enforces it on every
-request (issue #516, `kernel/src/ipc/channels/declared.rs`): a parcel whose
-header names a method that declares fewer handles or buffers than it carries
-is refused with `EINVAL` before any handle moves, and so is any transfer to an
-interface no `.midl` declares. Fewer than declared passes the kernel; the
-server's exact `carries` check stays as defence in depth.
+The crate also gets `DECLARED_OBJECTS`, one `objects::ObjectDecl` per method
+that carries objects (interface id, method id, kinds), and
+`declared_objects(interface, method)`. The kernel enforces it on every
+request (`kernel/src/ipc/channels/declared.rs`): a parcel whose object list
+differs from its header's method in length, kind or order is refused with
+`EINVAL` before any handle moves, and so is any object sent to an interface no
+`.midl` declares.
 
 ## Rings: bulk data through shared memory
 
 Bulk data (frames, samples) never travels in a message body. It goes through
 a single-producer/single-consumer ring in a shared buffer, and messages only
 wake the consumer or move a position. A `ring` declaration states that
-contract in the interface, and a `Ring<...>` transfer attaches the rings:
+contract in the interface, and a `Ring<...>` parameter attaches the rings:
 
 ```idl
 interface os.lazy.net.nic.v1 {
-    method AttachRing(slots: U32) -> (ring: U32)
-        transfers (rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>);
+    method AttachRing(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.nic.v1>) -> (ring: U32);
     method Kick(ring: U32) -> () oneway;
     method Notify(ring: U32, events: U32) -> () oneway;
     /// The receive ring: frames the card received, driver to client.
@@ -181,15 +193,15 @@ or `... advance=<Method>`:
 * **Layout `stream`**: a byte ring whose position travels in calls. The
   producer reports how far it wrote with the **advance** method, whose reply
   says how far the consumer read (audio's `Commit`).
-* **`producer`**: `client` (the side that transfers the buffer) or `server`.
+* **`producer`**: `client` (the side that sends the buffer) or `server`.
 
-`Ring<A, B>` is one shared buffer that holds the listed rings back to back,
-all the same size. It takes the request's buffer slot, because a request
-carries at most one buffer. The compiler checks that:
+`Ring<A, B>` is one shared buffer (a `Buffer` object with a layout) that
+holds the listed rings back to back, all the same size; a request carries
+at most one. The compiler checks that:
 
 * the doorbell is a `oneway` method of the interface;
 * the advance method exists;
-* every declared ring is transferred by some method;
+* every declared ring is carried by some method;
 * a `frames` ring the **server** produces comes with a `Channel` of the same
   interface in the same request, the path its doorbell travels back to the
   client.
@@ -201,7 +213,7 @@ Each interface module gets:
 
 * `RING_<NAME>: rings::RingDecl` per ring (layout, producer, and the method id
   of its doorbell or advance method);
-* for the method that transfers them, `<METHOD>_RINGS` (the rings in buffer
+* for the method that carries them, `<METHOD>_RINGS` (the rings in buffer
   order) and `<method>_rings(ring_bytes) -> Option<<Method>Rings>`, the
   offset of each ring plus the `total` buffer size, with overflow checked.
 
@@ -236,7 +248,7 @@ member     = method | struct | enum | topic | ring ;
 method     = "method" IDENT params "->" params { attr } ";" ;
 params     = "(" [ field { "," field } ] ")" ;
 field      = IDENT ":" type [ "=" NUMBER ] ;
-attr       = "=" NUMBER | "oneway" | "sync" | "transfers" params ;
+attr       = "=" NUMBER | "oneway" | "sync" ;
 struct     = "struct" IDENT "{" { field [ "," ] } "}" ;
 enum       = "enum" IDENT "{" { IDENT [ "," ] } "}" ;
 topic      = "topic" STRING ":" IDENT { "retained" | "qos" "=" IDENT } ";" ;
@@ -246,20 +258,21 @@ type       = IDENT [ "<" type { "," type } ">" ] ;
 
 `NAME` is reverse-DNS ending in `.vN` and must match `[a-z0-9_.]+\.v\d+`
 (`os.lazy.confd.v1`). Several interfaces may share a file. `sync` is the
-default and only cancels an earlier `oneway`. A method has at most one
-`transfers` clause, whose entries take no `= N` (a transfer has a slot, not a
-field id).
+default and only cancels an earlier `oneway`.
 
 ### Types
 
 Built-ins: `Bool`, `I32`, `I64`, `U32`, `U64`, `F64`, `String` (UTF-8),
-`Bytes`, `Array<T>` and `Option<T>` (exactly one parameter each). A name
+`Bytes`, `Array<T>` and `Option<T>` (exactly one parameter each), and the
+objects `Channel<I>`, `Buffer` and `Ring<A, ...>` (above: in a request or a
+struct, never in a reply, a topic, an `Option` or an `Array`; `I` must be an
+interface of the compile with a `oneway` method; at most eight objects per
+request; each object field's index is its position in the depth-first
+declaration order). A name
 declared as a `struct` or `enum` of the same interface is also a type. Enums
 travel as `U32` (the variant's index, in declaration order), and an
 enum-typed field is a `u32` in the generated Rust (compare it with the
-`{ENUM}_{VARIANT}` constants). `Channel`,
-`Buffer` and `Ring` (and the `Handle` kind) appear only inside `transfers (...)`
-and are rejected in a body. There is **no `Map`**: the runtime's TLV layer has
+`{ENUM}_{VARIANT}` constants). There is **no `Map`**: the runtime's TLV layer has
 a `Map` kind, but `midlc` does not accept `Map<K, V>`, so model a map as
 `Array<Entry>` of a struct with `key` and `value` fields.
 
@@ -292,7 +305,8 @@ the payload: a little-endian `u32` tag, `kind | (id << 8)` (the id is 16 bits),
 then a little-endian `u32` payload length. Kinds: `Bool`=1 (one byte), `I32`=2,
 `I64`=3, `U32`=4, `U64`=5, `F64`=6 (little-endian), `String`=7, `Bytes`=8,
 `Array`=9, `Struct`=10, `Map`=11 (unused by MIDL), `Option`=12, `Error`=13,
-`Handle`=14, `Buffer`=15 (the last two never in a MIDL body).
+`Handle`=14 (a `Channel<I>` field: a `u32` index into the object list),
+`Buffer`=15 (a `Buffer`/`Ring` field: `u32` index, `u64` offset, `u64` len).
 
 * `Array<T>`: one `Array` field whose payload is the elements, each a TLV with
   id 1.
@@ -304,9 +318,9 @@ then a little-endian `u32` payload length. Kinds: `Bool`=1 (one byte), `I32`=2,
   retyping is not (publish `.v2`).
 * `oneway` methods have no reply (`returns` must be empty) and set the
   `ONE_WAY` call flag; the caller does not wait.
-* A request's channels and buffers are not in the body: they ride in the
-  parcel's `handles`/`buffers` vectors, in the order `transfers (...)` lists
-  (see above).
+* A request's channels and buffers are entries of the parcel's object list,
+  in the depth-first order of its parameters; the body fields hold their
+  indexes (see "Objects").
 
 ### Compatibility rules
 

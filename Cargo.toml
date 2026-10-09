@@ -103,6 +103,10 @@ members = [
     # NTLMv2/SPNEGO, signing and a synchronous client over a byte transport.
     # Pure `no_std` + `alloc`, host-tested and fuzzed.
     "libs/smbwire",
+    # An SMB share as a user-space filesystem (docs/smb-plan.md F3): the FUSE
+    # operations mapped onto smbwire's client, for `smbfuse`. Host-tested
+    # against smbwire's in-memory server.
+    "libs/smbfs",
     # Printing (docs/printing-plan.md P1/P2): IPP messages and the PWG Raster
     # encoder, pure `no_std` + `alloc` with host tests and fuzz entry points.
     "libs/ipp",

@@ -103,6 +103,17 @@ impl MemPlatform {
         self
     }
 
+    /// Makes `dir`'s `list` fail (or succeed again) on a tree already in use,
+    /// as a permission change would.
+    pub fn set_readable(&self, dir: &str, readable: bool) {
+        let mut inner = self.inner.borrow_mut();
+        if readable {
+            inner.unreadable.remove(Path::new(dir));
+        } else {
+            inner.unreadable.insert(PathBuf::from(dir));
+        }
+    }
+
     /// Makes `path`'s `remove` fail, as a permission error would.
     pub fn undeletable(self, path: &str) -> MemPlatform {
         self.inner

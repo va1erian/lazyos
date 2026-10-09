@@ -38,8 +38,7 @@ pub fn wrap(payload: &[u8]) -> Result<Vec<u8>, Error> {
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes)?;
@@ -92,8 +91,7 @@ mod tests {
                 ..Header::default()
             },
             body: body.finish(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         }
         .encode(&mut foreign)
         .expect("encodes");

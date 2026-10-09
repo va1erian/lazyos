@@ -39,8 +39,7 @@ interface os.lazy.messenger.registry.v1 {
     /// has no untyped channel, and a service answers on its own interfaces,
     /// not on this one). The message is stamped with the connecting task's
     /// identity.
-    method Connected(name: String = 1) -> () oneway
-        transfers (connection: Channel<os.lazy.messenger.registry.v1>);
+    method Connected(name: String = 1, connection: Channel<os.lazy.messenger.registry.v1> = 2) -> () oneway;
     /// Withdraw `name`. Only its owner (or an administrator) may.
     method Unregister(name: String = 1) -> ();
     /// Snapshot the name table.

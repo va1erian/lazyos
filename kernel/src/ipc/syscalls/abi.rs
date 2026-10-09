@@ -131,13 +131,32 @@ pub const OP_CONNECT: u64 = 20;
 /// ABI op: no parcel crosses it.
 pub const OP_ENDPOINT_FD: u64 = 21;
 
+/// Create a shared buffer of `parcel_len` bytes, mapped into the caller
+/// (`docs/messenger-core-plan.md` 3.4): `value` is the buffer handle, `aux`
+/// its address, `bytes` its size (rounded up to whole pages). The handle
+/// travels in a parcel's `buffers` list; the peer maps it with
+/// [`OP_BUFFER_MAP`]. `EINVAL` for a zero or oversized size, `EAGAIN` over
+/// the buffer quota, `ENOMEM` when no frames or handle are left.
+pub const OP_BUFFER_CREATE: u64 = 22;
+
+/// Map the buffer `handle` names into the caller (idempotent per task):
+/// `value` is the address, `aux` the size. `ENOENT` for no such handle,
+/// `EINVAL` for one that is not a buffer.
+pub const OP_BUFFER_MAP: u64 = 23;
+
+/// Close the buffer `handle` names: unmap it and drop the caller's reference
+/// (the pages live while any other handle or in-flight message holds one).
+/// `ENOENT` for a handle the caller does not hold, `EBUSY` for the bound
+/// compositor's own screen buffer (`unbind` releases that one).
+pub const OP_BUFFER_CLOSE: u64 = 24;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 
 /// Number of bytes in [`MsgArgs`], the first range the syscall validates.
 pub const ARGS_SIZE: usize = 64;
 /// Number of bytes in [`MsgResult`].
-pub const RESULT_SIZE: usize = 64;
+pub const RESULT_SIZE: usize = 104;
 
 /// The syscall request block. The layout is shared with `user/src/messenger/`
 /// and must stay in lockstep; every field is a little-endian `u64`.
@@ -148,13 +167,14 @@ pub const RESULT_SIZE: usize = 64;
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgArgs {
-    /// Endpoint handle: call, begin, send, recv, close, stats.
+    /// Endpoint handle: call, begin, send, recv, close, stats; the buffer
+    /// handle of `buffer_map` and `buffer_close`.
     pub handle: u64,
     /// Transaction id: reply, cancel, await.
     pub txn_id: u64,
     /// Request parcel bytes (call, begin, send, reply).
     pub parcel_ptr: u64,
-    /// Request parcel length in bytes.
+    /// Request parcel length in bytes; the size of `buffer_create`.
     pub parcel_len: u64,
     /// Reply or receive buffer (call, recv, await, stats).
     pub buf_ptr: u64,
@@ -227,8 +247,9 @@ impl MsgArgs {
     }
 }
 
-/// The syscall response block: `status`/`value`/`aux`/`bytes` plus reserved
-/// space. Shared with `user/src/messenger/`, little-endian `u64` fields.
+/// The syscall response block: `status`/`value`/`aux`/`bytes`, then the
+/// objects a `recv` delivered. Shared with `user/src/messenger/`,
+/// little-endian `u64` fields; [`RESULT_SIZE`] bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct MsgResult {
@@ -241,10 +262,16 @@ pub struct MsgResult {
     pub aux: u64,
     /// Bytes written to `buf_ptr` (call, call_await, recv, stats).
     pub bytes: u64,
-    /// `recv` reports the delivered transfers here: `[first handle, handle
-    /// count, first buffer handle, buffer count]`; zero otherwise.
-    pub reserved: [u64; 4],
+    /// `recv`: how many objects the message carried (the parcel's object
+    /// list length), each installed in the receiver's table; zero otherwise.
+    pub object_count: u64,
+    /// `recv`: the installed handle numbers of the first `object_count`
+    /// objects, in object-list order (`docs/messenger-core-plan.md` 3.3).
+    pub objects: [u64; libmessenger::MAX_OBJECTS],
 }
+
+/// Words of the result block: the four outputs, the count, the objects.
+const RESULT_WORDS: usize = 5 + libmessenger::MAX_OBJECTS;
 
 impl MsgResult {
     /// Decode a little-endian block of exactly [`RESULT_SIZE`] bytes.
@@ -252,39 +279,42 @@ impl MsgResult {
         if bytes.len() != RESULT_SIZE {
             return None;
         }
-        let mut words = [0u64; 8];
+        let mut words = [0u64; RESULT_WORDS];
         for (index, word) in words.iter_mut().enumerate() {
             let at = index * 8;
             *word = u64::from_le_bytes(bytes[at..at + 8].try_into().ok()?);
         }
+        let mut objects = [0u64; libmessenger::MAX_OBJECTS];
+        objects.copy_from_slice(&words[5..]);
         Some(MsgResult {
             status: words[0] as i64,
             value: words[1],
             aux: words[2],
             bytes: words[3],
-            reserved: [words[4], words[5], words[6], words[7]],
+            object_count: words[4],
+            objects,
         })
     }
 
     /// Encode little-endian; the user library's mirror keeps the same order.
     pub fn to_bytes(self) -> [u8; RESULT_SIZE] {
-        let words = [
+        let mut words = [0u64; RESULT_WORDS];
+        words[..5].copy_from_slice(&[
             self.status as u64,
             self.value,
             self.aux,
             self.bytes,
-            self.reserved[0],
-            self.reserved[1],
-            self.reserved[2],
-            self.reserved[3],
-        ];
+            self.object_count,
+        ]);
+        words[5..].copy_from_slice(&self.objects);
         encode_words(&words)
     }
 }
 
 /// Fixed-size little-endian encoding of a word block.
-fn encode_words(words: &[u64; 8]) -> [u8; 64] {
-    let mut bytes = [0u8; 64];
+fn encode_words<const WORDS: usize, const BYTES: usize>(words: &[u64; WORDS]) -> [u8; BYTES] {
+    const { assert!(BYTES == WORDS * 8) };
+    let mut bytes = [0u8; BYTES];
     for (index, word) in words.iter().enumerate() {
         bytes[index * 8..index * 8 + 8].copy_from_slice(&word.to_le_bytes());
     }

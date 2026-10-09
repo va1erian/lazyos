@@ -4,9 +4,9 @@
 //! Registering a user-space filesystem needs `CAP_FS_PROVIDER`, which an
 //! installed app never holds. `mountd` does, and nothing else: it runs as the
 //! `_mountd` system user (`mounttable::MOUNTD_UID`) and starts one `ftpfuse`
-//! per `Mount`, which inherits that credential and serves `/mnt/<name>` with
-//! its files reported as the requester's (`owner=`). The Network Drives app
-//! is its desktop front end.
+//! (an FTP server) or `smbfuse` (an SMB share) per `Mount`, which inherits
+//! that credential and serves `/mnt/<name>` with its files reported as the
+//! requester's (`owner=`). The Network Drives app is its desktop front end.
 //!
 //! A daemon has no pipe back (native programs have none), so the service
 //! learns a mount's fate from the outside: the mount point appearing makes it
@@ -18,7 +18,7 @@
 //! crash does not (they are this task's children, not `init`'s): after a
 //! restart their mounts keep working but are no longer listed.
 //!
-//! Serial lines: `MOUNTD:READY`, `MOUNTD:START <name> pid=<pid>`,
+//! Serial lines: `MOUNTD:READY`, `MOUNTD:START <name> kind=<kind> pid=<pid>`,
 //! `MOUNTD:UP <name>`, `MOUNTD:FAIL <name> <reason>`, `MOUNTD:STOP <name>`.
 
 #![no_std]

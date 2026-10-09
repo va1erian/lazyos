@@ -1,7 +1,7 @@
 //! The desktop's icons as an icon-view model, what activating one does, and
 //! the desktop's side of drag and drop.
 //!
-//! The icons sit in right-anchored columns ([`lazyshell::desktop::grid`]):
+//! The icons sit in left-anchored columns ([`lazyshell::desktop::grid`]):
 //! the icon view's slots map to items through the grid, and a slot in a
 //! short column's foot is empty. Activating an icon launches a shortcut's
 //! app, browses a folder (or a shortcut to one) in Files, or hands a file to

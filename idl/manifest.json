@@ -59,11 +59,11 @@
         "name": "AttachRing",
         "id": 62355614,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "ring",
             "kind": "rings",
-            "slot": 0,
+            "index": 0,
             "rings": [
               "Samples"
             ]
@@ -299,11 +299,11 @@
         "name": "CreateSurface",
         "id": 1,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.display.v1"
           }
         ]
@@ -312,11 +312,11 @@
         "name": "AttachBuffer",
         "id": 2,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "pixels",
             "kind": "buffer",
-            "slot": 0
+            "index": 0
           }
         ]
       },
@@ -409,11 +409,11 @@
         "name": "Subscribe",
         "id": 20,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.display.v1"
           }
         ]
@@ -442,11 +442,11 @@
         "name": "AttachBufferSlot",
         "id": 25,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "pixels",
             "kind": "buffer",
-            "slot": 0
+            "index": 0
           }
         ]
       },
@@ -778,11 +778,11 @@
         "name": "Watch",
         "id": 1,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.init.app.events.v1"
           }
         ]
@@ -815,11 +815,11 @@
         "name": "Open",
         "id": 1,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.input.v1"
           }
         ]
@@ -853,11 +853,11 @@
         "name": "AttachKeyState",
         "id": 7,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "state",
             "kind": "buffer",
-            "slot": 0
+            "index": 0
           }
         ]
       },
@@ -902,11 +902,11 @@
         "name": "Attach",
         "id": 1,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.input.shell.v1"
           }
         ]
@@ -974,6 +974,11 @@
       {
         "name": "NoteKeysHeld",
         "id": 14,
+        "oneway": true
+      },
+      {
+        "name": "NoteSessionLayout",
+        "id": 15,
         "oneway": true
       },
       {
@@ -1266,11 +1271,11 @@
         "name": "AttachRing",
         "id": 62355614,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "rings",
             "kind": "rings",
-            "slot": 0,
+            "index": 0,
             "rings": [
               "Rx",
               "Tx"
@@ -1279,7 +1284,7 @@
           {
             "name": "notify",
             "kind": "channel",
-            "slot": 0,
+            "index": 1,
             "interface": "os.lazy.net.nic.v1"
           }
         ]
@@ -1637,11 +1642,11 @@
         "name": "Connected",
         "id": 2079757168,
         "oneway": true,
-        "transfers": [
+        "objects": [
           {
             "name": "connection",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.messenger.registry.v1"
           }
         ]
@@ -1807,11 +1812,11 @@
         "name": "Bell",
         "id": 1766698328,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "bell",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.messenger.topics.bell.v1"
           }
         ]
@@ -1863,11 +1868,11 @@
         "name": "Set",
         "id": 1,
         "oneway": false,
-        "transfers": [
+        "objects": [
           {
             "name": "events",
             "kind": "channel",
-            "slot": 0,
+            "index": 0,
             "interface": "os.lazy.shell.tray.events.v1"
           }
         ]

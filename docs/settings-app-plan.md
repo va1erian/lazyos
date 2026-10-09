@@ -9,7 +9,7 @@ onto the ext2 data volume.
 | Parameter | Mechanism |
 |---|---|
 | Date and time, timezone | `timed` (`SetTime`, `SetZone`, `Now`) |
-| Keyboard layout (US, FR only) | UI only: writes `sys/input/layout` to confd; `inputd` applies it live |
+| Keyboard layout (US, FR only) | UI only: writes the user's `user/<uid>/input/layout` (no prompt; `xuid` hands it to `inputd`), or `sys/input/layout` through `elevd` for everyone; applied live |
 | Background, active/inactive window, taskbar, accent colors | runtime `Theme` in `xuid`, driven by confd |
 | Dark / light theme | preset that resolves into the same `Theme` |
 | Extras | animations toggle, 12/24-hour clock, show seconds, per-section reset, About page |
@@ -28,7 +28,7 @@ trusted prompt (docs/accounts-plan.md U2), one approval per write.
 | `sys/ui/bg`, `sys/ui/accent`, `sys/ui/title_active`, `sys/ui/title_inactive`, `sys/ui/taskbar` | u64 0xRRGGBB |
 | `sys/ui/anim` | bool |
 | `sys/ui/wallpaper` | string: absolute path of a PNG or JPEG desktop picture (absent: the plain `sys/ui/bg` colour); read by LazyShell, see `docs/shell-plan.md` |
-| `sys/input/layout` | string `us` / `fr` |
+| `sys/input/layout` | string `us` / `fr`: the machine default (login screen, console, accounts without their own); `user/<uid>/input/layout` overrides it for that account |
 | `sys/time/zone` | string (existing) |
 | `sys/time/clock24`, `sys/time/show_seconds` | bool |
 
@@ -61,7 +61,7 @@ with the theme keys every few seconds and lays its clock slot out again.
 **About.** Version (`uname`), uptime (`sysinfo` ticks) and the confd store
 directory and persistence (`Info`).
 
-**Keyboard.** UI only. The section shows a two-item single-select `ListView` (`English (US)`, `Français (AZERTY)`; `ListView::new(ui, bounds, &[...])`, `.selection_mode(Single)`, `.on_select(...)`) and a test text field and writes `sys/input/layout`. No kernel syscall or `init` wiring is needed: `inputd` (merged from `docs/input-plan.md`) already reads confd `sys/input/layout` and applies a change live, so the section shows the stored value and the effect is immediate.
+**Keyboard.** UI only. The section shows a two-item single-select `ListView` (`English (US)`, `Français (AZERTY)`; `ListView::new(ui, bounds, &[...])`, `.selection_mode(Single)`, `.on_select(...)`) and a test text field. **Use this layout** writes the account's own `user/<uid>/input/layout` and asks nobody (the per-user store, `user_theme.rs`, maps `sys/input/layout` there as it does the theme keys); **Make it the default for everyone** writes `sys/input/layout` through `elevd`, then drops the account's own copy. `inputd` follows the machine key in confd; it may not read a user's keys and does not know who is logged in, so `xuid` (`layoutfeed.rs`) reads the shell user's key and hands it over with `NoteSessionLayout` on `os.lazy.input.shell.v1`, and sends `None` at logout so the login screen types with the machine layout (`inputmap::session_layout`). Both apply live. Session: `tools/screenshot/examples/keyboard_layout_user.json`.
 
 **App.** `xui-app/crates/settings` (host-testable model + reducer + schema) and
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
@@ -75,7 +75,7 @@ was `user/src/bin/xuid/menu.rs`).
 
 1. **Persistence** (done): confd stores in `/conf`, merges an F3 image's `/data/confd` in once, and falls back to `/transient/conf` (degraded) when `/conf` is not writable (`libs/confd/src/dir.rs`, host-tested; see Persistence above).
 2. **Runtime theme in xuid** (done): `libs/uitheme` + `xuid/themefeed.rs`; verified live by `tools/screenshot/examples/theme_live.json`. `GetTheme` reports `mode` and `accent` (done).
-3. **Keyboard** (done, UI only): `inputd` applies `sys/input/layout`.
+3. **Keyboard** (done, UI only): `inputd` applies `sys/input/layout`, or the logged-in user's `user/<uid>/input/layout` as `xuid` names it.
 4. **App scaffold** (done): `xui-app/crates/settings` + `xui-settings` binary, `IconView` sidebar, registered in `tools/xui/build.py`, `build.rs`, `init/apps.rs`, `xuid/menu.rs`.
 5. **Sections** (done): Appearance, Windows (full `ColorPanel`), Keyboard, Menu, Hidden apps, Time & Date, About. Hidden apps (issue #509) writes `user/<uid>/menu/hidden/<id>` per app over the machine default `sys/menu/hidden/<id>` (`libs/deskmenu/src/hidden.rs`); LazyShell leaves those apps out of the start menu, and they still launch and open files.
 6. **Polish** (done): animations toggle (`sys/ui/anim` gates `xuid`'s zoom), 12/24-hour and seconds, title contrast.

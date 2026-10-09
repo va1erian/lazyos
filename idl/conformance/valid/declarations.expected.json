@@ -19,7 +19,7 @@
             }
           ],
           "returns": [],
-          "transfers": []
+          "objects": []
         }
       ],
       "structs": [],
@@ -30,7 +30,7 @@
     {
       "name": "os.lazy.conformance.decl.v1",
       "id": "0xa186445ec166d00f",
-      "doc": "Kernel objects beside the body, declared topics and a ring.",
+      "doc": "Kernel objects as fields, declared topics and a ring.",
       "methods": [
         {
           "name": "Watch",
@@ -42,6 +42,12 @@
               "type": "String",
               "id": 1,
               "explicit": true
+            },
+            {
+              "name": "events",
+              "type": "Channel<os.lazy.conformance.events.v1>",
+              "id": 2,
+              "explicit": true
             }
           ],
           "returns": [
@@ -52,11 +58,14 @@
               "explicit": true
             }
           ],
-          "transfers": [
+          "objects": [
             {
               "name": "events",
               "kind": "channel",
-              "slot": 0,
+              "index": 0,
+              "path": [
+                "events"
+              ],
               "interface": "os.lazy.conformance.events.v1"
             }
           ]
@@ -71,14 +80,23 @@
               "type": "U64",
               "id": 1,
               "explicit": true
+            },
+            {
+              "name": "pixels",
+              "type": "Buffer",
+              "id": 2,
+              "explicit": true
             }
           ],
           "returns": [],
-          "transfers": [
+          "objects": [
             {
               "name": "pixels",
               "kind": "buffer",
-              "slot": 0
+              "index": 0,
+              "path": [
+                "pixels"
+              ]
             }
           ]
         },
@@ -92,6 +110,12 @@
               "type": "U32",
               "id": 1,
               "explicit": true
+            },
+            {
+              "name": "rings",
+              "type": "Ring<Out>",
+              "id": 2,
+              "explicit": true
             }
           ],
           "returns": [
@@ -102,11 +126,14 @@
               "explicit": true
             }
           ],
-          "transfers": [
+          "objects": [
             {
               "name": "rings",
               "kind": "rings",
-              "slot": 0,
+              "index": 0,
+              "path": [
+                "rings"
+              ],
               "rings": [
                 "Out"
               ]
@@ -126,7 +153,7 @@
             }
           ],
           "returns": [],
-          "transfers": []
+          "objects": []
         }
       ],
       "structs": [

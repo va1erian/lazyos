@@ -160,6 +160,19 @@ fn note_keys_held(held) {
     msg::connect("os.lazy.input.shell.v1").invoke("NoteKeysHeld", [held])
 }
 
+/// `NoteSessionLayout(layout: Option<String>) -> () oneway`
+///
+/// One-way: the logged-in user's own keyboard layout (`confd`'s
+/// `user/<uid>/input/layout`, which `inputd` may not read), or absent to
+/// follow the machine default `sys/input/layout` again (the login
+/// screen, a logout). An unknown name also means the machine default.
+/// It ends with the compositor (`inputmap::session_layout`).
+///
+/// One-way: returns `()` once the message is queued.
+fn note_session_layout(layout) {
+    msg::connect("os.lazy.input.shell.v1").invoke("NoteSessionLayout", [layout])
+}
+
 /// `HotkeyFired(id: U64) -> () oneway`
 ///
 /// Shell event: a registered chord was pressed.
@@ -238,5 +251,5 @@ fn grab_changed(surface) {
     msg::connect("os.lazy.input.shell.v1").invoke("GrabChanged", [surface])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Attach.

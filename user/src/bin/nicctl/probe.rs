@@ -13,7 +13,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use framering::{ring_bytes, Ring};
-use libmessenger::{BufferDesc, Header, Parcel, VERSION};
+use libmessenger::{Buffer, Header, Parcel, VERSION};
 use user::messenger::net::{self as api, wire, Client};
 use user::messenger::{create_pair, errno};
 use user::sys;
@@ -77,15 +77,19 @@ impl Attempt {
         }
     }
 
-    /// Send it; whatever the driver refused is cleaned up here.
+    /// Send it; whatever the driver refused is cleaned up here. The request
+    /// is built by hand so an attempt can leave an object out, which the
+    /// generated encoder cannot.
     fn send(&self, client: &Client) -> Result<Parcel, user::messenger::Error> {
-        let mut handles = Vec::new();
-        let mut buffers = Vec::new();
+        let mut body = libmessenger::Encoder::new();
+        let mut objects = Vec::new();
+        body.u32(1, self.slots)
+            .map_err(user::messenger::Error::Parcel)?;
         let mut buffer = None;
         if self.with_buffer {
             let size = self.buffer_bytes.max(4096) as u64;
-            let (handle, va, _) = sys::display_create_buffer(size)
-                .map_err(|code| user::messenger::Error::Errno(-code))?;
+            let (handle, va, _) =
+                sys::buffer_create(size).map_err(|code| user::messenger::Error::Errno(-code))?;
             buffer = Some(handle);
             let one = ring_bytes(self.init_slots);
             if one != 0 && self.buffer_bytes >= one * 2 {
@@ -96,26 +100,25 @@ impl Attempt {
                     let _ = Ring::create(base.add(one), one, self.init_slots);
                 }
             }
-            buffers.push(BufferDesc {
-                handle,
-                offset: 0,
-                len: self.declared as u64,
-                flags: 0,
-            });
+            body.buffer(
+                2,
+                &Buffer::whole(handle, self.declared as u64),
+                &mut objects,
+            )
+            .map_err(user::messenger::Error::Parcel)?;
         }
         let mut pair = None;
         if self.with_endpoint {
             let (mine, theirs) = create_pair()?;
-            handles.push(theirs.handle());
+            body.channel(3, theirs.handle(), &mut objects)
+                .map_err(user::messenger::Error::Parcel)?;
             pair = Some((mine, theirs));
         }
-        let body = wire::encode_attach_ring_args(&wire::AttachRingArgs { slots: self.slots })
-            .map_err(user::messenger::Error::Parcel)?;
-        let result = client.raw(wire::METHOD_ATTACHRING, body, handles, buffers);
+        let result = client.raw(wire::METHOD_ATTACHRING, body.finish(), objects);
         if result.is_err() {
             // The driver closed its copies; ours are closed here.
             if let Some(handle) = buffer {
-                let _ = sys::display_close_buffer(handle);
+                let _ = sys::buffer_close(handle);
             }
             if let Some((mine, theirs)) = pair {
                 let _ = mine.close();
@@ -175,7 +178,7 @@ pub(super) fn run() -> Result<u32, String> {
     )?;
     checks.refused(
         "an unknown method",
-        client.raw(0xDEAD_BEEF, Vec::new(), Vec::new(), Vec::new()),
+        client.raw(0xDEAD_BEEF, Vec::new(), Vec::new()),
         errno::EINVAL,
     )?;
     checks.refused(
@@ -191,7 +194,7 @@ pub(super) fn run() -> Result<u32, String> {
     // A body that is not a valid request.
     checks.refused(
         "AttachRing with an empty body",
-        client.raw(wire::METHOD_ATTACHRING, Vec::new(), Vec::new(), Vec::new()),
+        client.raw(wire::METHOD_ATTACHRING, Vec::new(), Vec::new()),
         errno::EINVAL,
     )?;
     let mut no_buffer = Attempt::good(16);

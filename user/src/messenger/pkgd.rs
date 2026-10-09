@@ -69,8 +69,7 @@ pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: header(method),
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 

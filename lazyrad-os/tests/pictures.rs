@@ -290,13 +290,13 @@ fn the_slide_show_starts_advances_and_stops() {
     };
     run(vec![dir.join("a.png")], messages, |form| {
         assert_eq!(form.get("slide_timer", "enabled"), Some(Value::Bool(true)));
-        assert_eq!(text(form, "slideshow_button", "text"), "Stop Show");
+        assert_eq!(text(form, "slideshow_button", "icon"), "pause");
         assert!(status(form).starts_with("B.bmp "), "{}", status(form));
     });
     let messages = || vec![key("f11"), key("escape")];
     run(vec![dir.join("a.png")], messages, |form| {
         assert_eq!(form.get("slide_timer", "enabled"), Some(Value::Bool(false)));
-        assert_eq!(text(form, "slideshow_button", "text"), "Slide Show");
+        assert_eq!(text(form, "slideshow_button", "icon"), "play");
     });
 }
 

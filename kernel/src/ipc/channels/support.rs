@@ -1,4 +1,4 @@
-//! Channel helpers: id packing, parcel validation, transfer retention and quota release.
+//! Channel helpers: id packing, parcel validation, object resolution and quota release.
 
 use super::*;
 
@@ -59,75 +59,64 @@ pub(super) fn validate_parcel(bytes: &[u8]) -> Result<ParcelView<'_>, Error> {
     ParcelView::parse(bytes).map_err(|_| Error::BadParcel)
 }
 
-/// Resolve a parcel's `handles` and `buffers` against the sending task's
-/// table, validating the declaration (issue #516), kinds, rights and the
-/// per-message limits. No reference is taken here: [`retain_transfers`] runs
-/// once the message is accepted for queueing, so a refused send changes
-/// nothing.
-pub(super) fn resolve_transfers(
-    parcel: &ParcelView<'_>,
-) -> Result<(Vec<Transfer>, Vec<BufferTransfer>), Error> {
+/// Resolve a parcel's object list against the sending task's table
+/// (`docs/messenger-core-plan.md` 2.3): the list must equal what the
+/// header's method declares (`declared`), each entry's handle must be of the
+/// entry's kind and carry `TRANSFER`, and a channel end may appear once. No
+/// reference is taken here: [`retain_objects`] runs once the message is
+/// accepted for queueing, so a refused send changes nothing.
+pub(super) fn resolve_objects(parcel: &ParcelView<'_>) -> Result<Vec<Resolved>, Error> {
     declared::check_declared(parcel)?;
-    if parcel.handle_count() > libmessenger::MAX_HANDLES
-        || parcel.buffer_count() > libmessenger::MAX_BUFFERS
-    {
-        return Err(Error::BadParcel);
-    }
-    let mut transfers = Vec::with_capacity(parcel.handle_count());
-    for (index, local) in parcel.handles().enumerate() {
-        if parcel.handles().take(index).any(|earlier| earlier == local) {
+    let mut resolved = Vec::with_capacity(parcel.object_count());
+    for (index, object) in parcel.objects().enumerate() {
+        let entry = handles::get(object.handle()).map_err(from_handles)?;
+        let kind = match (object, entry.kind) {
+            (Object::Channel(_), HandleKind::Channel) => ObjectKind::Channel,
+            (Object::Buffer(_), HandleKind::Buffer) => ObjectKind::Buffer,
+            // A buffer in a channel slot or a channel in a buffer slot: the
+            // kernel would move what should be shared, or the reverse.
+            _ => return Err(Error::WrongObjectKind),
+        };
+        if entry.rights & rights::TRANSFER == 0 {
+            return Err(Error::MissingRight);
+        }
+        if kind == ObjectKind::Channel
+            && parcel
+                .objects()
+                .take(index)
+                .any(|earlier| earlier.handle() == object.handle())
+        {
             // One handle, one move: a duplicate entry would install two
             // receiver handles from a single reference.
             return Err(Error::BadTransfer);
         }
-        let entry = handles::get(local).map_err(from_handles)?;
-        if entry.rights & rights::TRANSFER == 0 {
-            return Err(Error::MissingRight);
-        }
-        transfers.push(Transfer {
-            kind: entry.kind,
+        resolved.push(Resolved {
+            kind,
             rights: entry.rights,
             object_id: entry.object_id,
         });
     }
-    let mut buffers = Vec::with_capacity(parcel.buffer_count());
-    for descriptor in parcel.buffers() {
-        let entry = handles::get(descriptor.handle).map_err(from_handles)?;
-        if entry.kind != HandleKind::Buffer {
-            return Err(Error::WrongKind);
-        }
-        if entry.rights & rights::TRANSFER == 0 {
-            return Err(Error::MissingRight);
-        }
-        buffers.push(BufferTransfer {
-            object_id: entry.object_id,
-            offset: descriptor.offset,
-            len: descriptor.len,
-            flags: descriptor.flags,
-            rights: entry.rights,
-        });
-    }
-    Ok((transfers, buffers))
+    Ok(resolved)
+}
+
+/// The sender's handle numbers of the channel ends `parcel` moves: closed
+/// once the message is queued ([`close_moved_handles`]).
+pub(super) fn moved_handles(parcel: &ParcelView<'_>) -> Vec<u64> {
+    parcel
+        .objects()
+        .filter_map(|object| match object {
+            Object::Channel(handle) => Some(handle),
+            Object::Buffer(_) => None,
+        })
+        .collect()
 }
 
 /// Take one registry reference per buffer the message carries, releasing what
 /// was already taken if a later entry fails.
-pub(super) fn retain_transfers(message: &Queued) -> Result<(), Error> {
+pub(super) fn retain_objects(message: &Queued) -> Result<(), Error> {
     let mut retained: Vec<u64> = Vec::new();
-    for transfer in &message.handles {
-        if transfer.kind != HandleKind::Buffer {
-            continue;
-        }
-        if let Err(error) = shared::retain(transfer.object_id) {
-            for object_id in &retained {
-                shared::release(*object_id);
-            }
-            return Err(from_shared(error));
-        }
-        retained.push(transfer.object_id);
-    }
-    for buffer in &message.buffers {
-        if let Err(error) = shared::retain_descriptor(buffer.object_id, buffer.offset, buffer.len) {
+    for buffer in buffers(&message.objects) {
+        if let Err(error) = shared::retain(buffer.object_id) {
             for object_id in &retained {
                 shared::release(*object_id);
             }
@@ -136,6 +125,21 @@ pub(super) fn retain_transfers(message: &Queued) -> Result<(), Error> {
         retained.push(buffer.object_id);
     }
     Ok(())
+}
+
+/// The shared buffers among `objects`.
+pub(super) fn buffers(objects: &[Resolved]) -> impl Iterator<Item = &Resolved> + '_ {
+    objects
+        .iter()
+        .filter(|object| object.kind == ObjectKind::Buffer)
+}
+
+/// The channel endpoints among `objects` (their object ids).
+pub(super) fn channel_objects(objects: &[Resolved]) -> impl Iterator<Item = u64> + '_ {
+    objects
+        .iter()
+        .filter(|object| object.kind == ObjectKind::Channel)
+        .map(|object| object.object_id)
 }
 
 /// Charge one queued message to its sender's uid (issue #103): parcel bytes and
@@ -168,25 +172,17 @@ pub(super) fn release_queued_quota(uid: u32, bytes: usize) {
 /// (the receiving endpoint closed, the channel was dropped, or delivery failed
 /// before the handles were installed).
 pub(super) fn release_queued(message: &Queued) {
-    for transfer in &message.handles {
-        if transfer.kind == HandleKind::Buffer {
-            shared::release(transfer.object_id);
-        }
-    }
-    for buffer in &message.buffers {
+    for buffer in buffers(&message.objects) {
         shared::release(buffer.object_id);
     }
 }
 
-/// Finish a handle move: the sender's numbers were resolved into the message,
-/// so close the sender's handles now that the message is safely queued.
-pub(super) fn close_moved_handles(numbers: &[u64], kinds: &[HandleKind]) {
-    for (local, kind) in numbers.iter().zip(kinds.iter()) {
-        if *kind == HandleKind::Buffer {
-            shared::close(*local).ok();
-        } else {
-            handles::close(*local).ok();
-        }
+/// Finish a channel move: the sender's numbers were resolved into the
+/// message, so close the sender's handles now that the message is safely
+/// queued.
+pub(super) fn close_moved_handles(numbers: &[u64]) {
+    for local in numbers {
+        handles::close(*local).ok();
     }
 }
 

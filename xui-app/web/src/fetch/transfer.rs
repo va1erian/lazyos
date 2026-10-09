@@ -189,7 +189,11 @@ fn send(agent: &Agent, options: &Options, request: Request) -> Result<Response<B
 
 /// Adds the jar's `Cookie` header, unless the request names its own.
 fn send_cookies(jar: &Mutex<Jar>, request: &mut Request) {
-    if request.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("cookie")) {
+    if request
+        .headers
+        .iter()
+        .any(|(n, _)| n.eq_ignore_ascii_case("cookie"))
+    {
         return;
     }
     let header = jar

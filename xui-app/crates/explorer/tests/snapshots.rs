@@ -1,5 +1,6 @@
-//! Headless light/dark renders of the explorer, written to
-//! `target/snapshots/xui-explorer-{light,dark}.png` for eyeballing.
+//! Headless light/dark renders of the explorer's icon and details views,
+//! written to `target/snapshots/xui-explorer-{icons,details}-{light,dark}.png`
+//! for eyeballing.
 #![forbid(unsafe_code)]
 
 use std::io;
@@ -36,34 +37,41 @@ fn demo_platform() -> Rc<MemPlatform> {
     )
 }
 
-fn render_explorer(theme: Theme) -> Image {
+fn render_explorer(theme: Theme, details: bool) -> Image {
     let platform: Rc<dyn Platform> = demo_platform();
     render_with(
         Snapshot::new(Dip(720.0), Dip(480.0)).theme(theme),
         move |ui| {
             let explorer = Explorer::new(platform, Rc::new(NoLauncher));
-            ExplorerWindow::new(ui, explorer, PathBuf::from("/demo"))
+            // Start in Reports and come back up, so Back is enabled and the
+            // folder we came from is selected.
+            let window = ExplorerWindow::new(ui, explorer, PathBuf::from("/demo/Reports"))?;
+            Ok::<_, xui_core::backend::BackendError>(window)
         },
-        // Activate the Reports folder so the image shows the open-folder icon.
-        // Entries are folders first: Images is item 0, Reports item 1.
-        |stage| stage.emit(Msg::Activate(1)),
+        move |stage| {
+            stage.emit(Msg::Up);
+            if details {
+                stage.emit(Msg::SortColumn(1)); // by size
+                stage.emit(Msg::ToggleView);
+            }
+        },
     )
     .expect("the explorer renders")
 }
 
 #[test]
-fn the_explorer_renders_in_light_and_dark() {
-    let light = render_explorer(Theme::light());
-    let dark = render_explorer(Theme::dark());
-    assert!(light.width() > 0 && light.height() > 0);
-    assert!(dark.width() > 0 && dark.height() > 0);
-    assert_ne!(light, dark, "the two themes render differently");
-
+fn the_explorer_renders_both_views_in_light_and_dark() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/snapshots");
     std::fs::create_dir_all(&dir).expect("snapshot dir");
-    light
-        .save_png(dir.join("xui-explorer-light.png"))
-        .expect("save light");
-    dark.save_png(dir.join("xui-explorer-dark.png"))
-        .expect("save dark");
+    for (view, details) in [("icons", false), ("details", true)] {
+        let light = render_explorer(Theme::light(), details);
+        let dark = render_explorer(Theme::dark(), details);
+        assert!(light.width() > 0 && light.height() > 0);
+        assert_ne!(light, dark, "the two themes render differently");
+        light
+            .save_png(dir.join(format!("xui-explorer-{view}-light.png")))
+            .expect("save light");
+        dark.save_png(dir.join(format!("xui-explorer-{view}-dark.png")))
+            .expect("save dark");
+    }
 }

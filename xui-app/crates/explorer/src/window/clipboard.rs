@@ -15,7 +15,7 @@ impl ExplorerWindow {
     /// The selection as absolute paths, in view order.
     fn selected_paths(&self) -> Vec<PathBuf> {
         self.listing
-            .names_of(&self.view.selection())
+            .names_of(&self.selection())
             .into_iter()
             .map(|name| self.dir.join(name))
             .collect()
@@ -31,7 +31,7 @@ impl ExplorerWindow {
             Ok(()) => format!("Copied {}", count(paths.len())),
             Err(error) => format!("Cannot copy: {error}"),
         };
-        self.status.set_parts(&[&text]);
+        self.chrome.status.set_parts(&[&text]);
     }
 
     /// Copies the clipboard's files into this folder, refreshes every window
@@ -40,10 +40,9 @@ impl ExplorerWindow {
         let result = self.explorer.session().paste_into(&self.dir);
         if result.as_ref().is_ok_and(|pasted| pasted.copied > 0) {
             self.refresh(ui);
-            self.explorer
-                .refresh_windows_showing(&self.dir, ui.window());
+            self.explorer.refresh_under(&self.dir, Some(ui.window()));
         }
-        self.status.set_parts(&[&paste_summary(&result)]);
+        self.chrome.status.set_parts(&[&paste_summary(&result)]);
     }
 
     /// Selects the entry called `name` (a reveal), when the folder holds it;
@@ -53,7 +52,8 @@ impl ExplorerWindow {
         if rows.is_empty() {
             return false;
         }
-        self.view.set_selection(&rows);
+        self.set_selection(&rows);
+        self.ensure_visible(rows[0]);
         self.selection_changed();
         true
     }

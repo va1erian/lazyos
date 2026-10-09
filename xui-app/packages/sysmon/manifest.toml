@@ -21,5 +21,14 @@ abi = "linux"
 autostart = false
 
 [permissions]
-# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`). The
+# Services tab reads `init`'s supervision table (`Services`; `init` checks
+# Launch, Stop and RestartService itself) and `healthd`'s health rows; the
+# Help button opens the app's docs through `mimed`.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.input.v1",
+    "os.lazy.init.v1",
+    "os.lazy.healthd.v1",
+    "os.lazy.mimed.v1",
+]

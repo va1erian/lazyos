@@ -3,7 +3,8 @@
 //! The kernel raw event bus carries physical, HID-coded key edges and nothing
 //! else. `inputd` is the only task holding `CAP_INPUT_RAW` and owns everything
 //! that used to be hard-wired in the kernel: the keymap (compiled-in US and FR,
-//! chosen by `confd` key `sys/input/layout`), modifier and lock state, key
+//! chosen by `confd` key `sys/input/layout`, or the logged-in user's own as
+//! the compositor names it: `inputd/layoutsel.rs`), modifier and lock state, key
 //! repeat, hotkeys and the resync after a `Dropped` marker. It also owns the
 //! one cursor every pointing device moves (`docs/usb-hid-plan.md`), which it
 //! reports to the compositor alone. (Not `keyd`: that
@@ -42,6 +43,8 @@ mod held;
 mod hub;
 #[path = "inputd/keypages.rs"]
 mod keypages;
+#[path = "inputd/layoutsel.rs"]
+mod layoutsel;
 #[path = "inputd/pointer.rs"]
 mod pointer;
 #[path = "inputd/settle.rs"]
@@ -107,8 +110,7 @@ fn run() -> Result<(), &'static str> {
 
     loop {
         if let Some(layout) = config.poll() {
-            if layout != hub.engine.layout() {
-                hub.set_layout(layout);
+            if hub.set_machine_layout(layout) {
                 trace.layout(layout);
             }
         }

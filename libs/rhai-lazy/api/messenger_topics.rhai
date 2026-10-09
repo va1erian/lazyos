@@ -87,7 +87,7 @@ fn ping() {
     msg::connect("os.lazy.messenger.topics.v1").invoke("Ping", [])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Bell.
 
 /// A `Event` with every field at its zero value.

@@ -1,0 +1,208 @@
+[
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "at": 2.0,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.2,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 2.4,
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "at": 3.0,
+  "mouse_move": [
+   200,
+   300
+  ]
+ },
+ {
+  "at": 3.4,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.0,
+  "type": "cp -r /system/share/lazyrad/perf2000 /tmp/perf && echo copied"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:cp -r /system/share/lazyrad/perf2000 /tmp/perf && echo copied",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "TERM:OUT:copied",
+  "timeout": 60
+ },
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "at": 1.0,
+  "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "echo 'i.launch(\"os.lazy.lazyrad\", os::args()[0], 0);' >> /tmp/l.rhai"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:echo 'i.launch(\"os.lazy.lazyrad\", os::args()[0], 0);' >> /tmp/l.rhai",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "at": 1.0,
+  "type": "rhai /tmp/l.rhai /tmp/perf"
+ },
+ {
+  "at": 0.5,
+  "key": "enter",
+  "until": "TERM:CMD:rhai /tmp/l.rhai /tmp/perf",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "LRIDE:UP:PASS",
+  "timeout": 180
+ },
+ {
+  "wait_for": "LRIDE:OPEN:PASS:perf",
+  "timeout": 60
+ },
+ {
+  "at": 3.0,
+  "shot": "01_perf_project_open"
+ },
+ {
+  "at": 2.5,
+  "mouse_move": [
+   856,
+   -28
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.5,
+  "key": "enter"
+ },
+ {
+  "at": 4.0,
+  "shot": "02_module_opened"
+ },
+ {
+  "at": 2.5,
+  "mouse_move": [
+   -456,
+   28
+  ]
+ },
+ {
+  "at": 1.0,
+  "mouse_click": "left"
+ },
+ {
+  "at": 1.5,
+  "key_down": "ctrl"
+ },
+ {
+  "at": 0.3,
+  "key": "end"
+ },
+ {
+  "at": 0.3,
+  "key_up": "ctrl"
+ },
+ {
+  "at": 2.0,
+  "shot": "03_editor_end"
+ },
+ {
+  "at": 2.0,
+  "type": "a"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149781",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "key": "backspace"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149780",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "key": "tab"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149784",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "shot": "04_tab_indented"
+ },
+ {
+  "at": 2.0,
+  "type": "x"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149785",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "key_down": "shift"
+ },
+ {
+  "at": 0.3,
+  "key": "tab"
+ },
+ {
+  "at": 0.3,
+  "key_up": "shift"
+ },
+ {
+  "wait_for": "LRIDE:EDIT:PASS:big 149781",
+  "timeout": 60
+ },
+ {
+  "at": 2.0,
+  "shot": "05_shift_tab_outdented"
+ },
+ {
+  "at": 1.0,
+  "quit": true
+ }
+]

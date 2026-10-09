@@ -241,6 +241,13 @@ impl LazyOSBackend {
         }
     }
 
+    /// `rect` grown by the margin a painter may draw past its node's bounds
+    /// ([`PAINT_SPILL`]): what a node that appears or goes must repaint, or
+    /// its border and anti-aliased edges stay behind on screen.
+    pub(super) fn with_spill(&self, rect: Rect) -> Rect {
+        inflate(rect, PAINT_SPILL * self.scale() as i32)
+    }
+
     /// The damage `window` accumulated since the last present, clamped to
     /// `full`.
     pub(super) fn take_damage(&self, window: WindowId, full: Rect) -> Rect {
@@ -330,6 +337,7 @@ mod tests {
             visible: true,
             enabled: true,
             focus_stop: false,
+            wants_tab: false,
             clip: None,
             text: String::new(),
             painter: Some(painter),
@@ -371,6 +379,18 @@ mod tests {
         assert!(backend.composite(W, Rect::new(0, 0, 64, 64)));
         assert_eq!((left.get(), right.get()), (1, 1));
         (backend, left, right)
+    }
+
+    #[test]
+    fn hiding_a_node_repaints_what_its_painter_spilled() {
+        use xui_core::backend::Backend;
+
+        let (backend, _, _) = rig();
+        backend.take_damage(W, Rect::new(0, 0, 64, 64));
+        backend.set_visible(WidgetId::from_raw(1), false);
+        // The node is 0..32 wide; the repaint reaches PAINT_SPILL past it.
+        let damage = backend.take_damage(W, Rect::new(0, 0, 64, 64));
+        assert_eq!(damage, Rect::new(0, 0, 32 + PAINT_SPILL, 64));
     }
 
     #[test]
