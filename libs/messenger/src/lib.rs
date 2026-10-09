@@ -50,18 +50,13 @@ pub const MAX_DEPTH: u8 = 16;
 
 /// Parcel header flags (see `docs/messenger.md`).
 pub mod flags {
+    // Bits 2, 4 and 5 are reserved: nothing sets or reads them.
     /// A reply is expected (synchronous transaction).
     pub const SYNC: u16 = 1 << 0;
     /// Fire-and-forget.
     pub const ONE_WAY: u16 = 1 << 1;
-    /// Do not error if the callee dies before replying.
-    pub const NO_REPLY_IF_DEAD: u16 = 1 << 2;
     /// Nested transactions are permitted.
     pub const ALLOW_NESTED: u16 = 1 << 3;
-    /// The callee requires kernel credentials.
-    pub const CRED_REQUIRED: u16 = 1 << 4;
-    /// Emit trace events for this transaction.
-    pub const TRACE: u16 = 1 << 5;
 }
 
 /// Why a parcel could not be encoded or decoded.

@@ -230,6 +230,27 @@ command.
   transition. `tools/screenshot/examples/services_demo.json` and
   `xui_sysmon.json` (with `LAZYOS_SERVICES=1`) are the scripted checks.
 
+**Which kind of service to write** (issue #668). Two kinds exist:
+
+| | Native `no_std` (`user/src/bin/`) | Linux-personality musl `std` |
+|---|---|---|
+| Use for | `init`, `messengerd`, and anything needed before the root filesystem or the Linux personality is up (`logd`, `keyd`, `devd`, `mountd`, `confd` and the other boot-path services); anything where binary size or boot time counts | New services and services worth migrating that gain from threads, `std::collections`/`fs`/`net`, or crates.io crates |
+| Runtime | `user` crate: bump heap, blocking/async Messenger client, no threads | Static `x86_64-unknown-linux-musl` binary, spawned with `Personality::Linux`; `clone` threads, futex, epoll, sockets and files from the Linux shim ([`linux-abi-plan.md`](../linux-abi-plan.md)); native calls and Messenger through `lazyos-sys` |
+| Built | Part of the `user` workspace | A standalone workspace like `nettls/` (built by a `tools/<name>/build.py`, embedded under `/system/bin` by a `build_support/*_embed.rs`), so the OS workspace never resolves its dependencies |
+
+Rule: a service is `no_std` unless it is not needed to reach the Linux
+personality and it has a concrete use for `std`. Never move a service that
+`init` must start before `/` is mounted. Credentials, capabilities and the
+label policy are properties of the task, not of the personality, and `init`
+supervises both kinds through the same `SpawnCred` and `svcpolicy` path.
+
+Not yet done: a kernel test that a Linux-personality task gains or loses no
+authority against a native one, a service-side check of restart and
+`os.lazy.lifecycle.v1` shutdown for a `std` service, and a pilot port with
+size, memory and boot-marker numbers. Until the pilot lands, `fetch`
+(`nettls/`) is the only `std` program shipped, and it is a client, not a
+supervised service.
+
 **Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
 (the task table has 256 slots, so the drag & drop and shell-probe demos fit
 next to the services), and the `LAZYOS_DESKTOP=1` profile
