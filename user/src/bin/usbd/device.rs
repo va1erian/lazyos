@@ -320,9 +320,13 @@ impl Device {
             return Err(Error::Descriptor("request too long"));
         }
         let (trbs, count) = trb::control_transfer(setup, self.mem.bus(DATA));
+        // No Chain bits: a control TD's stages are told apart by type, and a
+        // Setup Stage TRB's bit 4 is reserved while a Data Stage TRB with it
+        // set pulls the Status Stage into the data stage (xHCI 6.4.1.2). QEMU
+        // ignores it; a real controller hangs or stalls (the Kaby Lake box).
         let status = self
             .ep0
-            .enqueue(&trbs[..count], true)
+            .enqueue(&trbs[..count], false)
             .map_err(Error::Xhci)?;
         hc.doorbell(self.slot, 1);
         let slot = self.slot;
