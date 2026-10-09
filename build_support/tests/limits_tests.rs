@@ -96,7 +96,14 @@ fn diag_hold_line_only_for_a_positive_number_and_is_clamped() {
     assert_eq!(diag_hold_line(Some("45")), "diag.hold=45\n");
     assert_eq!(diag_hold_line(Some(" 30 ")), "diag.hold=30\n");
     assert_eq!(diag_hold_line(Some("100000")), "diag.hold=600\n");
-    for none in [None, Some(""), Some("0"), Some("-5"), Some("soon"), Some("1.5")] {
+    for none in [
+        None,
+        Some(""),
+        Some("0"),
+        Some("-5"),
+        Some("soon"),
+        Some("1.5"),
+    ] {
         assert_eq!(diag_hold_line(none), "", "{none:?}");
     }
 }
