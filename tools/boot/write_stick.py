@@ -93,9 +93,19 @@ POWERSHELL_LIST = (
 )
 
 
+class PowerShellError(RuntimeError):
+    """A PowerShell command failed; the message carries what it said."""
+
+
 def powershell(command: str) -> str:
-    result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
-                            capture_output=True, text=True, check=True)
+    """Run `command` (errors are terminating) and return stdout; on failure raise
+    PowerShellError with PowerShell's own message, not just an exit status."""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", f"$ErrorActionPreference='Stop'; {command}"],
+        capture_output=True, text=True)
+    if result.returncode:
+        said = (result.stderr or result.stdout).strip() or f"exit status {result.returncode}"
+        raise PowerShellError(f"{command}\n{said}")
     return result.stdout
 
 
@@ -118,6 +128,31 @@ def windows_disks() -> list[Disk]:
 def windows_offline(disk: Disk, offline: bool) -> None:
     state = "$true" if offline else "$false"
     powershell(f"Set-Disk -Number {disk.number} -IsOffline {state}")
+
+
+def windows_release(disk: Disk) -> bool:
+    """Free the stick's volumes before the raw write. Taking a USB disk offline is
+    refused on some systems (and always without an elevated prompt), so on failure
+    say why and fall back to clearing its partition table, which also leaves no
+    volume to hold open. Returns True when the disk was taken offline (and so must
+    be brought back online afterwards)."""
+    try:
+        windows_offline(disk, True)
+        return True
+    except PowerShellError as error:
+        print(f"could not take {disk.path} offline:\n{error}\n"
+              "clearing its partition table instead (the whole stick is about to be "
+              "overwritten anyway)", file=sys.stderr)
+    powershell(f"Clear-Disk -Number {disk.number} -RemoveData -RemoveOEM -Confirm:$false")
+    return False
+
+
+def windows_restore(disk: Disk, was_offline: bool) -> None:
+    """Hand the stick back to Windows after the write: online again, or a rescan."""
+    if was_offline:
+        windows_offline(disk, False)
+    else:
+        powershell(f"Update-Disk -Number {disk.number}")
 
 
 # ----- Common ------------------------------------------------------------
@@ -224,13 +259,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.yes and not confirm(disk, image):
         print("nothing written")
         return 1
-    if os.name == "nt":
-        windows_offline(disk, True)
+    was_offline = windows_release(disk) if os.name == "nt" else False
     try:
         write_and_verify(disk, image)
     finally:
         if os.name == "nt":
-            windows_offline(disk, False)
+            windows_restore(disk, was_offline)
     print("done: unplug the stick, plug it into the PC and pick it in the boot menu "
           "(F8 on ASUS boards); see docs/usb-stick.md")
     return 0
