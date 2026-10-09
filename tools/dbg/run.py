@@ -214,6 +214,12 @@ def exercise(key: str, c: Checks, usb: bool) -> None:
                     for r in got), str(got[-3:]))
         call("log.unfollow")
 
+        # The client's own follow(): streams the chosen ring, then stops it.
+        seen: list[dict] = []
+        dbg.follow(seen.append, seconds=1.5, backlog=5, source="programs")
+        c.check("DbgClient.follow delivers the backlog and ends the stream",
+                len(seen) >= 1 and call("ping")["uptime_ms"] > 0 and not dbg.pending)
+
     # -- the MCP bridge's TCP transport answers its two tools from dbgd ------
     sys.path.insert(0, str(ROOT / "tools" / "mcp"))
     from dbgd_session import DbgdSession  # noqa: E402
