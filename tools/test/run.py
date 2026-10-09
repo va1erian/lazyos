@@ -153,6 +153,7 @@ def write_report(payload: dict) -> Path:
         and reported is not None
         and reported["pass"] == passed
         and reported["fail"] == failed
+        and not payload.get("required_skipped")
     )
     report = {
         "generated": generated,
@@ -161,6 +162,7 @@ def write_report(payload: dict) -> Path:
         "accel": payload["accel"],
         "qemu_exit_code": payload["qemu_exit_code"],
         "missing_summary": payload["missing_summary"],
+        "required_skipped": bool(payload.get("required_skipped")),
         "summary": {"pass": passed, "fail": failed},
         "reported_summary": reported,
         "tests": tests,
@@ -387,6 +389,11 @@ def main() -> int:
     payload["accel"] = extra[1] if extra and extra[0] == "-accel" else "none"
     payload["qemu_exit_code"] = proc.returncode
     payload["missing_summary"] = payload["reported"] is None
+    # The suite skips (and passes) without its scratch disk; a run that asked
+    # for one must not count as ok, in the report or the exit code.
+    payload["required_skipped"] = bool(
+        args.ahci and any(AHCI_SKIPPED in line for line in payload["info"])
+    )
 
     report_md = write_report(payload)
     passed = sum(1 for test in payload["tests"] if test["status"] == "pass")
@@ -410,9 +417,7 @@ def main() -> int:
         return 1
     if failed:
         return 1
-    if args.ahci and any(AHCI_SKIPPED in line for line in payload["info"]):
-        # The suite skips (and passes) without a scratch disk; a run that
-        # asked for one must not.
+    if payload["required_skipped"]:
         print(
             "error: --ahci requested but the AHCI scratch disk was not attached",
             file=sys.stderr,
