@@ -32,7 +32,7 @@ pub fn hex(bytes: &[u8]) -> String {
 /// Bytes of a hex string (either case); `None` for odd length or a bad digit.
 pub fn unhex(text: &str) -> Option<Vec<u8>> {
     let text = text.as_bytes();
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     text.chunks(2)

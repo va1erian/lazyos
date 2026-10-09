@@ -21,7 +21,13 @@ fn the_lines_are_what_dbgd_reads_back() {
 fn keys_and_peers_the_service_would_refuse_fail_the_build() {
     assert!(validate_key(KEY).is_ok());
     assert!(validate_key(&"ab".repeat(64)).is_ok());
-    for bad in ["", "abc", &"ab".repeat(15), &"ab".repeat(65), &"zz".repeat(16)] {
+    for bad in [
+        "",
+        "abc",
+        &"ab".repeat(15),
+        &"ab".repeat(65),
+        &"zz".repeat(16),
+    ] {
         assert!(validate_key(bad).is_err(), "{bad:?}");
         assert!(dbgwire::config::parse(&format!("diag.dbg=1\ndiag.dbg.key={bad}\n")).is_err());
     }

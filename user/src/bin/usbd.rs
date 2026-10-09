@@ -267,7 +267,7 @@ impl Dump {
         for controller in controllers.iter_mut() {
             for line in controller.dump_lines() {
                 text.push_str(&line);
-                text.push_str("\n");
+                text.push('\n');
             }
         }
         let _ = user::files::write_file(DUMP_PATH, text.as_bytes());

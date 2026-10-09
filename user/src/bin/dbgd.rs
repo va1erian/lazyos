@@ -27,6 +27,8 @@ extern crate alloc;
 mod audit;
 #[path = "dbgd/handlers.rs"]
 mod handlers;
+#[path = "dbgd/msg.rs"]
+mod msg;
 #[path = "dbgd/session.rs"]
 mod session;
 
