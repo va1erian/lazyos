@@ -22,7 +22,9 @@
 //!
 //! Every wait is bounded. A command unanswered for [`TIMEOUT_NS`] or
 //! answered with an error stops the port and restarts it (`ahci::reset`);
-//! two failed restarts in a row detach it: its device stays registered and
+//! two failed restarts in a row detach it (at once when the port will not stop
+//! at all: the controller's bus mastering is then cut so the HBA cannot touch
+//! the caller's buffers): its device stays registered and
 //! answers [`BlockError::Io`]. Boot never waits on it.
 //!
 //! A disk with anything but 512-byte logical sectors is refused with a log
@@ -70,6 +72,8 @@ const FIS_OFFSET: u64 = 0x400;
 struct Live {
     hw: Hw,
     port: Port,
+    /// The controller, to cut its bus mastering if a port cannot be stopped.
+    address: pci::Address,
 }
 
 /// One driven port: its DMA memory and the registry-facing device.
@@ -167,7 +171,7 @@ pub fn attach_function(
             serial_println!("ahci: more than {MAX_AHCI} disks; port {index} ignored");
             break;
         };
-        match open_port(slot, &hba, &hw, index) {
+        match open_port(slot, &hba, &hw, function.address, index) {
             Some(device) => disks.push(device),
             None => {
                 slot.claimed.store(false, Ordering::Release);
@@ -193,6 +197,7 @@ fn open_port(
     slot: &'static Slot,
     hba: &Hba,
     hw: &Hw,
+    address: pci::Address,
     index: usize,
 ) -> Option<&'static dyn BlockDevice> {
     let name = NAMES[slot.device.index];
@@ -242,7 +247,11 @@ fn open_port(
     );
     let device = &slot.device;
     device.sectors.store(disk.sectors, Ordering::Relaxed);
-    *device.state.lock() = Some(Live { hw: *hw, port });
+    *device.state.lock() = Some(Live {
+        hw: *hw,
+        port,
+        address,
+    });
     Some(device)
 }
 
@@ -343,6 +352,16 @@ impl AhciDisk {
                     if write { "write" } else { "read" },
                     total
                 );
+                if live.port.dma_unsafe() {
+                    // The port would not stop, so the HBA may still be using
+                    // the caller's buffers: cut the controller's DMA (every
+                    // port on it) before they are handed back.
+                    pci::clear_command(live.address, pci::COMMAND_BUS_MASTER);
+                    serial_println!(
+                        "{}: port would not stop; bus mastering disabled on its controller",
+                        NAMES[self.index]
+                    );
+                }
                 if live.port.is_detached() {
                     serial_println!("{}: port detached", NAMES[self.index]);
                     *guard = None;

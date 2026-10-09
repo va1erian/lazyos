@@ -232,7 +232,7 @@ fn a_hung_command_times_out_and_the_port_is_stopped() {
 }
 
 #[test]
-fn a_port_that_cannot_be_stopped_is_detached_after_two_failures() {
+fn a_port_that_cannot_be_stopped_is_dma_unsafe_and_detached_at_once() {
     let model = Model::new(SECTORS);
     let mut port = open(&model).unwrap();
     model.behavior(|behavior| {
@@ -240,26 +240,44 @@ fn a_port_that_cannot_be_stopped_is_detached_after_two_failures() {
         behavior.never_stop = true;
     });
     let buffer = Buffer::new(0x5000_0000, 0, 4096, 0);
-    let mut attempts = 0;
-    while !port.is_detached() && attempts < 5 {
-        attempts += 1;
-        let mut wait = waiter(&model, 20);
-        let result = port.transfer(
-            &model,
-            Op::Read,
-            0,
-            &[(buffer.virt, 4096)],
-            &|virt| buffer.translate(virt),
-            &mut *wait,
-        );
-        assert!(result.is_err());
-    }
-    assert_eq!(attempts, 2, "two failed recoveries detach");
+    let mut wait = waiter(&model, 20);
+    let result = port.transfer(
+        &model,
+        Op::Read,
+        0,
+        &[(buffer.virt, 4096)],
+        &|virt| buffer.translate(virt),
+        &mut *wait,
+    );
+    assert!(result.is_err());
+    // CR stayed set: the HBA may still be writing into the buffer, so no
+    // second chance and the caller is told.
+    assert!(port.is_detached());
+    assert!(port.dma_unsafe());
     assert_eq!(read(&model, &mut port, 0, 512, 0, 0), Err(Error::Detached));
     assert_eq!(
         port.flush(&model, &mut *waiter(&model, 10)),
         Err(Error::Detached)
     );
+}
+
+#[test]
+fn a_failed_recovery_with_the_port_stopped_gets_a_second_chance() {
+    let model = Model::new(SECTORS);
+    model.behavior(|behavior| {
+        behavior.fail_lba = Some(5);
+        behavior.busy_after_error = true;
+        behavior.dead_link = true;
+    });
+    let mut port = open(&model).unwrap();
+    // The error leaves the device busy and the link will not come back:
+    // recovery fails, but the port is stopped, so DMA is safe.
+    assert!(read(&model, &mut port, 0, 8192, 0, 0).is_err());
+    assert!(!port.is_detached());
+    assert!(!port.dma_unsafe());
+    assert!(read(&model, &mut port, 0, 8192, 0, 0).is_err());
+    assert!(port.is_detached(), "two failed recoveries in a row");
+    assert!(!port.dma_unsafe());
 }
 
 #[test]
@@ -301,6 +319,15 @@ fn no_write_cache_means_no_flush() {
     let mut port = open(&model).unwrap();
     port.flush(&model, &mut *waiter(&model, 1000)).unwrap();
     assert_eq!(model.port(0, |port| port.flushes), 0);
+}
+
+#[test]
+fn shutdown_flushes_even_when_identify_said_the_cache_was_off() {
+    let model = Model::new(SECTORS);
+    model.port(0, |port| port.ident.write_cache = false);
+    let mut port = open(&model).unwrap();
+    port.shutdown(&model, &mut *waiter(&model, 1000)).unwrap();
+    assert_eq!(model.port(0, |port| (port.flushes, port.standbys)), (1, 1));
 }
 
 #[test]

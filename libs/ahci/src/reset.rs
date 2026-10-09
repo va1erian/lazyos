@@ -61,6 +61,11 @@ impl<'a> PortRegs<'a> {
         poll(self.platform, READY_NS, || self.idle())
     }
 
+    /// The port is still processing commands (`PxCMD.CR`).
+    pub fn running(&self) -> bool {
+        self.read(px::CMD) & cmd::CR != 0
+    }
+
     /// Clear `ST` and wait for `CR`. Command processing is stopped, every
     /// issued slot dropped (`PxCI` clears), and the HBA no longer touches
     /// the data buffers. The FIS receive area is left running.

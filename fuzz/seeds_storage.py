@@ -195,11 +195,16 @@ def ahci_seeds():
     struct.pack_into("<Q", identify, 100 * 2, 1 << 20)
     struct.pack_into("<H", identify, 106 * 2, 0x4000 | 1 << 13 | 3)
     identify[27 * 2:27 * 2 + 20] = b"aQEMU HARDDISK".ljust(20)
+    struct.pack_into("<H", identify, 87 * 2, 0x4000)
+    # 4Kn: word 106 says the logical sector size is in words 117..=118.
+    identify_4kn = bytearray(identify)
+    struct.pack_into("<H", identify_4kn, 106 * 2, 0x4000 | 1 << 12)
+    struct.pack_into("<H", identify_4kn, 117 * 2, 2048)
     # CAP: 4 ports, 32 slots; PI: port 0; VS 1.3.1; SSTS present; SIG ATA.
     hba = struct.pack("<IIII", 3 | 31 << 8, 1, 0x00010301, 0x0113) + struct.pack("<I", 0x101) * 8
     return {
         "identify_disk": bytes([0]) + bytes(identify),
-        "identify_4kn": bytes([0]) + bytes(identify[:212]) + struct.pack("<H", 0x4000 | 1 << 12) + bytes(10) + struct.pack("<H", 2048) + bytes(294),
+        "identify_4kn": bytes([0]) + bytes(identify_4kn),
         "plan_scattered": bytes([1, 7, 0, 3, 0x10, 0x02, 0, 4, 1, 0x34, 0x12, 1]),
         "plan_above_4g": bytes([1, 15, 1, 2, 0, 0, 0, 7, 0, 0, 0, 2, 0]),
         "hostile_present": bytes([2]) + hba * 4,

@@ -159,9 +159,10 @@ impl Disk {
         if logical != 512 {
             return Err(Refusal::SectorSize(logical));
         }
-        // Word 85 bit 5: write cache enabled, valid when word 84 says so.
+        // Word 85 bit 5: write cache enabled. Words 85..=87 are valid when
+        // word 87 bits 15:14 are 01 (word 84 guards words 82..=84).
         let enabled = words[85];
-        let write_cache = words[84] >> 14 == 0b01 && enabled & (1 << 5) != 0;
+        let write_cache = words[87] >> 14 == 0b01 && enabled & (1 << 5) != 0;
         Ok(Disk {
             model: Text::parse(&words[27..47]),
             serial: Text::parse(&words[10..20]),

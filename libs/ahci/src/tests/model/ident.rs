@@ -62,6 +62,7 @@ pub(super) fn identify_data(ident: &Ident, sectors: u64) -> [u8; 512] {
     }
     put(83, w83);
     put(84, 0x4000);
+    put(87, 0x4000);
     put(85, if ident.write_cache { 1 << 5 } else { 0 });
     let capacity = if ident.zero_capacity { 0 } else { sectors };
     for word in 0..4 {

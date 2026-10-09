@@ -70,6 +70,7 @@ fn identify(change: impl FnOnce(&mut [u16; 256])) -> [u8; 512] {
     let mut words = [0u16; 256];
     words[83] = 0x4000 | 1 << 10 | 1 << 13;
     words[84] = 0x4000;
+    words[87] = 0x4000;
     words[85] = 1 << 5;
     words[100] = 0x1000;
     change(&mut words);
@@ -142,9 +143,13 @@ fn identify_ignores_words_whose_validity_bits_are_clear() {
     // Word 106 not marked valid: its sector-size claims do not count.
     let disk = Disk::parse(&identify(|w| w[106] = 1 << 12 | 1 << 13 | 7)).unwrap();
     assert_eq!(disk.physical_bytes, 512);
-    // Word 84 not valid: the write-cache bit is not believed.
-    let disk = Disk::parse(&identify(|w| w[84] = 0)).unwrap();
+    // Word 87 not valid: the write-cache bit in word 85 is not believed,
+    // whatever word 84 says.
+    let disk = Disk::parse(&identify(|w| w[87] = 0)).unwrap();
     assert!(!disk.write_cache);
+    // Word 84 not valid does not matter for word 85.
+    let disk = Disk::parse(&identify(|w| w[84] = 0)).unwrap();
+    assert!(disk.write_cache);
 }
 
 #[test]

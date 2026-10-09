@@ -77,6 +77,10 @@ pub struct Port {
     running: bool,
     failures: u8,
     detached: bool,
+    /// The HBA may still be moving data: the port could not be stopped
+    /// (`PxCMD.CR` stays set). Only cutting the controller's bus mastering
+    /// makes the caller's buffers safe again.
+    dma_unsafe: bool,
 }
 
 impl Port {
@@ -142,6 +146,7 @@ impl Port {
             running: false,
             failures: 0,
             detached: false,
+            dma_unsafe: false,
         };
         regs.clear_status();
         regs.start();
@@ -182,12 +187,21 @@ impl Port {
         self.detached
     }
 
+    /// The port could not be stopped, so the HBA may still read or write the
+    /// buffers of the last request. The caller must cut the controller's bus
+    /// mastering before it lets those buffers go.
+    pub fn dma_unsafe(&self) -> bool {
+        self.dma_unsafe
+    }
+
     /// Stop the port for good: it touches no memory afterwards and every
     /// later request fails.
     pub fn detach(&mut self, platform: &dyn Platform) {
         self.detached = true;
         self.running = false;
-        PortRegs::new(platform, self.index).stop();
+        if !PortRegs::new(platform, self.index).stop() {
+            self.dma_unsafe = true;
+        }
     }
 
     /// A command is bad if the disk or the bus said so. Only `PxIS` counts:
@@ -218,7 +232,11 @@ impl Port {
             }
             Err(_) => {
                 self.failures += 1;
-                if self.failures >= RECOVERY_LIMIT {
+                // A port still running cannot be retried: it may be using
+                // the caller's buffers right now.
+                let running = PortRegs::new(platform, self.index).running();
+                self.dma_unsafe |= running;
+                if running || self.failures >= RECOVERY_LIMIT {
                     self.detach(platform);
                 }
             }
@@ -448,7 +466,9 @@ impl Port {
         platform: &dyn Platform,
         wait: &mut dyn FnMut(&dyn Fn() -> bool) -> bool,
     ) -> Result<(), Error> {
-        let flushed = self.flush(platform, wait);
+        // Not `flush`: that skips a disk whose IDENTIFY said the cache was
+        // off, and the answer is only a snapshot.
+        let flushed = self.run(platform, H2d::plain(ata::FLUSH_CACHE_EXT), &[], false, wait);
         let parked = self.run(
             platform,
             H2d::plain(ata::STANDBY_IMMEDIATE),

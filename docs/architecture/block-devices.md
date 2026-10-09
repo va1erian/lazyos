@@ -215,7 +215,7 @@ failed recoveries in a row, not after media errors. The kernel supplies the
 (`tools/test/run.py --ahci`), `tools/boot/run.py --media ahci`, and
 `tools/run_demo.py --disk ahci` (also on the launcher) to try it by hand.
 
-**User-space block providers (`block/provider.rs`).** A ring-3 driver A ring-3 driver
+**User-space block providers (`block/provider.rs`).** A ring-3 driver
 holding `CAP_BLOCK_PROVIDER` (only `usbd`, for a USB stick) registers a
 `UserDisk` through syscall 33; it joins the registry as `usb<n>` and is driven
 like any other device, one request at a time through a kernel bounce buffer,
