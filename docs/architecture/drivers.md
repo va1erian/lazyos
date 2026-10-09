@@ -19,7 +19,8 @@ the device syscall. The kernel device core underneath is
 | `user/src/bin/init/drivers.rs` | `StartDriver`: the driver rows `devd` may ask for |
 | `libs/nicdrv/src/rings.rs` | `NicRings`, the trait a NIC implements under the shared engine |
 | `libs/e1000` | The 8254x: registers, reset, station address, legacy descriptor rings |
-| `user/src/bin/netdrv/{device,card,virtio_card,e1000_card,rings}.rs` | `netdrv`'s card front and its two back ends |
+| `libs/rtl8168` | The RTL8111H (XID 541): width-exact registers, reset, PHY, descriptor rings with the FCS trimmed, watchdog |
+| `user/src/bin/netdrv/{device,card,virtio_card,e1000_card,rtl8168_card,rings}.rs` | `netdrv`'s card front and its three back ends |
 | `libs/hda` | HDA: controller, CORB/RIRB, codec walk, path programming, stream, cursor |
 | `user/src/bin/sndd/{card,device,virtio_card,hda_card}.rs` | `sndd`'s card front and its two back ends |
 | `kernel/src/block/virtio/{regs,modern,io}.rs` | virtio-blk's legacy and modern transports |
@@ -93,7 +94,7 @@ which deasserts the line before `irq_ack`).
 ones virtio-net used: claim, `cfg_write` (decode, bus master, INTx),
 `map_bar`, `dma_alloc`, `irq_enable`/`irq_ack`.
 
-## The fourth NIC: Realtek RTL8111H
+## The third NIC: Realtek RTL8111H
 
 `libs/rtl8168` is the RTL8168-family back end for the same engine, for the
 Kaby Lake box's chip only (XID `541`; every other revision is refused by name,
@@ -169,7 +170,7 @@ space's own ([physical-memory.md](physical-memory.md), teardown invariants).
 ## Verification
 
 ```bash
-cargo test -p e1000 -p hda -p devmatch -p nicdrv -p virtio
+cargo test -p e1000 -p rtl8168 -p hda -p devmatch -p nicdrv -p virtio
 LAZYOS_TEST_FILTER=dev_fuzz python tools/test/run.py --accel none
 LAZYOS_TEST_FILTER=virtio python tools/test/run.py --accel none   # incl. virtio_modern_*
 python tools/net/run.py --nic e1000            # the capture judges the 8254x

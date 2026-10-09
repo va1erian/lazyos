@@ -68,7 +68,7 @@ def mii_report(regs: dict[int, int]) -> str:
 def run(command: list[str]) -> str:
     if shutil.which(command[0]) is None:
         return f"(skipped: {command[0]} not installed)\n"
-    done = subprocess.run(command, capture_output=True, text=True)
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
     return done.stdout + done.stderr
 
 
