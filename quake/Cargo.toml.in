@@ -1,6 +1,6 @@
 # Quake on LazyOS (docs/quake-port-plan.md): the `quake-srp` port of id's
 # Quake (Rust, GPL-2.0-or-later, fetched at the revision pinned in
-# `tools/quake/fetch.py`, never committed) with its browser platform layer
+# `tools/quake/qfetch.py`, never committed) with its browser platform layer
 # (`quake-wasm`: menus, console, mixer, saves) driven over the same record
 # protocol, and this crate's LazyOS bridge in front of it: a worker-free
 # process whose main thread pumps the `xuid` window, feeds Quake key records

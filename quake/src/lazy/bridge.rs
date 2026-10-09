@@ -47,9 +47,10 @@ const MAX_DT: f64 = 0.25;
 /// run's frame N is the same on every machine — real elapsed time between
 /// two ticks would make the deterministic verdict worthless.
 const FIXED_DT: f64 = 1.0 / 72.0;
-/// The headless budget when `-frames` does not name one: the attract loop
-/// otherwise never ends, and the harness must terminate.
-pub const HEADLESS_DEFAULT_FRAMES: u32 = 600;
+/// The headless budget when `-frames` does not name one: 300, the
+/// plan's D7 budget (the attract loop otherwise never ends, and the
+/// harness must terminate).
+pub const HEADLESS_DEFAULT_FRAMES: u32 = 300;
 
 /// The window both halves use.
 pub type Shared = Rc<RefCell<WindowSlot>>;

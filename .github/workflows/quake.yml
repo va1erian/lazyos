@@ -5,7 +5,7 @@
 # the census) and the port's platform tests, builds the engine and `lazyquake`
 # with zig (quake-srp and id's shareware zip are fetched at pinned SHA-256s and
 # never committed), packs `quake.lzp`, and boots the desktop: the session
-# installs the package through `pkgd`, runs a headless `-headless -frames 300`
+# installs the package through `pkgd`, runs a headless `-headless -frames 200`
 # deterministic checksum from the installed copy, launches the game from the
 # start menu and plays a few seconds of the attract loop. A missing download
 # fails the job (`--require`): an unavailable pak must never look like a pass.

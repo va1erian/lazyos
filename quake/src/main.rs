@@ -89,13 +89,18 @@ fn lazyos_main() -> std::process::ExitCode {
         }
     };
     // The search path found id's pak; the saves and `config.cfg` go to
-    // the package's per-user folder in the player's home.
+    // the package's per-user folder in the player's home. A folder the
+    // platform cannot create is a launch failure, not a soft one: the
+    // engine's fallback would write into the package's own (read-only,
+    // replaced on update) tree, nothing of it would survive.
     let home = std::env::var("HOME").ok();
     let data_dir = lazy::launch::config_dir(home.as_deref());
-    if std::fs::create_dir_all(&data_dir).is_ok() {
-        crate::common::set_data_dir(std::path::PathBuf::from(&data_dir));
-    } else {
-        println!("QUAKE:DATA:FAIL cannot create {data_dir}");
+    match std::fs::create_dir_all(&data_dir) {
+        Ok(()) => crate::common::set_data_dir(std::path::PathBuf::from(&data_dir)),
+        Err(e) => {
+            println!("QUAKE:DATA:FAIL cannot create {data_dir}: {e}");
+            return ExitCode::FAILURE;
+        }
     }
     // ID_StartupClient: the presets' numbers for this machine, before
     // `quake.rc` runs.

@@ -38,7 +38,7 @@ archive, each checked against a pinned SHA-256), both cached under
 | Assembled crate | `target/quake/quake-srp-<rev>/lazyos/`: `quake-wasm` + this tree's overlay (`quake/src/`) |
 | Ported root | `quake/src/main.rs`: quake-wasm's `mod` list, the startup, the data directory |
 | The one patched upstream file | `quake/src/common.rs` (documented diff: the package names its data directory for the saves and `config.cfg`) |
-| LazyOS bridge | `quake/src/lazy/`: `window.rs` + `window_input.rs` (the `xuid` window, `inputd` keys), `bridge.rs` (the record protocol: keys in, frames out), `records.rs` (the encoders), `launch.rs` (the command line, the paths), `keymap.rs`, `pixels.rs` (the 4:3 box), `headless.rs`, `crc.rs`, `launch/session.rs` (the grab, the key-state page) |
+| LazyOS bridge | `quake/src/lazy/`: `window.rs` + `window_input.rs` (the `xuid` window, `inputd` keys), `bridge.rs` (the record protocol: keys in, frames out), `records.rs` (the encoders), `launch.rs` (the command line, the paths), `keymap.rs`, `pixels.rs` (the 4:3 box), `headless.rs`, `crc.rs`, `session.rs` (the grab, the key-state page) |
 | Headless mode | `quake.elf -headless -frames 200`: `QUAKE:HEADLESS:PASS frames=N crc=<hex>`, verdict in `/tmp/quake-result.txt` |
 | Package tree | `package/` (manifest, icons, docs); the build adds `bin/quake.elf`, `resources/id1/pak0.pak` and the licence files |
 | Image switch | `LAZYOS_QUAKE=1` -> `build_support/quake_embed.rs` puts `/system/share/samples/quake.lzp` on the OS volume |
