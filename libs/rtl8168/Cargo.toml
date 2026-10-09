@@ -1,0 +1,18 @@
+[package]
+name = "rtl8168"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Realtek RTL8111H / RTL8168H (XID 541) NIC driver logic, host testable: registers, bring-up, PHY access and descriptor rings for the nicdrv engine"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "rtl8168"
+path = "src/lib.rs"
+
+[dependencies]
+nicdrv = { path = "../nicdrv" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
+framering = { path = "../framering", features = ["fuzz"] }
