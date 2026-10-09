@@ -107,9 +107,12 @@ jobs:
       - name: Test the crate (upstream + port, host)
         run: python tools/quake/build.py --test --require
 
-      - name: Build the engine, the bridge and the package
+      - name: Build the xui apps, the engine, the bridge and the package
         run: |
           set -euo pipefail
+          # The desktop image's apps (LazyShell and friends) go first: the
+          # image build embeds them (#538) as doom.yml does too.
+          python tools/xui/build.py > /dev/null
           python tools/quake/build.py --require
           ls -l target/quake/quake.elf target/pkg/quake.lzp
 
