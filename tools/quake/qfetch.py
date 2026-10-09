@@ -174,6 +174,7 @@ def shareware(tree: Path) -> Path | None:
             raise ValueError(f"PAK0.PAK's digest is {digest}, not the pinned one")
         shutil.rmtree(data, ignore_errors=True)
         data.mkdir(parents=True)
+        (data / "ID1").mkdir()
         shutil.copyfile(staging / "ID1" / "PAK0.PAK", pak)
         shutil.copyfile(staging / "SLICNSE.TXT", data / "SLICNSE.TXT")
         shutil.copyfile(archive, data / "quake106.zip")
