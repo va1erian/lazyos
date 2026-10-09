@@ -1,0 +1,25 @@
+# for f in /sys/class/dmi/id/*; do [ -f "$f" ] && [ -r "$f" ] && printf "%s: " "$(basename $f)" && cat "$f"; done
+bios_date: 08/31/2026
+bios_release: 5.12
+bios_vendor: American Megatrends Inc.
+bios_version: 5.12
+board_asset_tag: REDACTED
+board_name: SKYBAY
+board_serial: REDACTED
+board_vendor: INTEL Corporation
+board_version: Default string
+chassis_asset_tag: REDACTED
+chassis_serial: REDACTED
+chassis_type: 3
+chassis_vendor: Default string
+chassis_version: Default string
+modalias: dmi:bvnAmericanMegatrendsInc.:bvr5.12:bd08/31/2026:br5.12:svnDefaultstring:pnDefaultstring:pvrDefaultstring:rvnINTELCorporation:rnSKYBAY:rvrDefaultstring:cvnDefaultstring:ct3:cvrDefaultstring:skuDefaultstring:pfaDefaultstring:
+product_family: Default string
+product_name: Default string
+product_serial: REDACTED
+product_sku: Default string
+product_uuid: REDACTED
+product_version: Default string
+sys_vendor: Default string
+uevent: MODALIAS=dmi:bvnAmericanMegatrendsInc.:bvr5.12:bd08/31/2026:br5.12:svnDefaultstring:pnDefaultstring:pvrDefaultstring:rvnINTELCorporation:rnSKYBAY:rvrDefaultstring:cvnDefaultstring:ct3:cvrDefaultstring:skuDefaultstring:pfaDefaultstring:
+# exit 0

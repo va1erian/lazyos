@@ -1,0 +1,51 @@
+# dmesg | grep -i -E "i915|drm|efifb|simpledrm|fb0|framebuffer|vgaarb|BAR"
+[    0.013582] Booting paravirtualized kernel on bare hardware
+[    0.139558] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.139567] Spectre V2 : mitigation: Enabling conditional Indirect Branch Prediction Barrier
+[    0.370817] pci 0000:00:02.0: BAR 0 [mem 0xde000000-0xdeffffff 64bit]
+[    0.370821] pci 0000:00:02.0: BAR 2 [mem 0xc0000000-0xcfffffff 64bit pref]
+[    0.370825] pci 0000:00:02.0: BAR 4 [io  0xf000-0xf03f]
+[    0.371281] pci 0000:00:14.0: BAR 0 [mem 0xdf210000-0xdf21ffff 64bit]
+[    0.372550] pci 0000:00:14.2: BAR 0 [mem 0xdf22e000-0xdf22efff 64bit]
+[    0.372735] pci 0000:00:16.0: BAR 0 [mem 0xdf22d000-0xdf22dfff 64bit]
+[    0.373366] pci 0000:00:17.0: BAR 0 [mem 0xdf228000-0xdf229fff]
+[    0.373370] pci 0000:00:17.0: BAR 1 [mem 0xdf22c000-0xdf22c0ff]
+[    0.373373] pci 0000:00:17.0: BAR 2 [io  0xf090-0xf097]
+[    0.373377] pci 0000:00:17.0: BAR 3 [io  0xf080-0xf083]
+[    0.373380] pci 0000:00:17.0: BAR 4 [io  0xf060-0xf07f]
+[    0.373384] pci 0000:00:17.0: BAR 5 [mem 0xdf22b000-0xdf22b7ff]
+[    0.376687] pci 0000:00:1f.2: BAR 0 [mem 0xdf224000-0xdf227fff]
+[    0.377176] pci 0000:00:1f.3: BAR 0 [mem 0xdf220000-0xdf223fff 64bit]
+[    0.377184] pci 0000:00:1f.3: BAR 4 [mem 0xdf200000-0xdf20ffff 64bit]
+[    0.378452] pci 0000:00:1f.4: BAR 0 [mem 0xdf22a000-0xdf22a0ff 64bit]
+[    0.378465] pci 0000:00:1f.4: BAR 4 [io  0xf040-0xf05f]
+[    0.379118] pci 0000:01:00.0: BAR 0 [io  0xe000-0xe0ff]
+[    0.379127] pci 0000:01:00.0: BAR 2 [mem 0xdf100000-0xdf10ffff 64bit]
+[    0.380202] pci 0000:02:00.0: BAR 0 [io  0xd000-0xd0ff]
+[    0.380209] pci 0000:02:00.0: BAR 2 [mem 0xdf004000-0xdf004fff 64bit]
+[    0.380215] pci 0000:02:00.0: BAR 4 [mem 0xdf000000-0xdf003fff 64bit]
+[    0.421618] pci 0000:00:02.0: vgaarb: setting as boot VGA device
+[    0.421618] pci 0000:00:02.0: vgaarb: bridge control possible
+[    0.421618] pci 0000:00:02.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    0.421618] vgaarb: loaded
+[    0.471054] pci 0000:00:1f.1: BAR 0 [mem 0xfd000000-0xfdffffff 64bit]
+[    0.542184] ACPI: bus type drm_connector registered
+[    0.560381] simple-framebuffer simple-framebuffer.0: [drm] Registered 1 planes with drm panic
+[    0.560399] [drm] Initialized simpledrm 1.0.0 for simple-framebuffer.0 on minor 0
+[    0.561187] simple-framebuffer simple-framebuffer.0: [drm] fb0: simpledrmdrmfb frame buffer device
+[    1.349636] ata1: SATA max UDMA/133 abar m2048@0xdf22b000 port 0xdf22b100 irq 128 lpm-pol 3
+[    1.349644] ata2: SATA max UDMA/133 abar m2048@0xdf22b000 port 0xdf22b180 irq 128 lpm-pol 3
+[    3.027988] systemd[1]: systemd 259.5-0ubuntu3.4 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[    3.496792] systemd[1]: modprobe@drm.service - Load Kernel Module drm skipped, unmet condition check ConditionKernelModuleLoaded=!drm
+[    8.725106] i915 0000:00:02.0: [drm] Found kabylake/ult (device ID 5916) integrated display version 9.00 stepping B0
+[    8.745369] i915 0000:00:02.0: vgaarb: deactivate vga console
+[    8.751407] i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io+mem,decodes=io+mem:owns=io+mem
+[    8.754066] i915 0000:00:02.0: [drm] Finished loading DMC firmware i915/kbl_dmc_ver1_04.bin (v1.4)
+[    8.757903] mei_hdcp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+[    8.826101] i915 0000:00:02.0: [drm] Registered 3 planes with drm panic
+[    8.834972] [drm] Initialized i915 1.6.0 for 0000:00:02.0 on minor 1
+[    9.204560] fbcon: i915drmfb (fb0) is primary device
+[    9.204574] i915 0000:00:02.0: [drm] fb0: i915drmfb frame buffer device
+[    9.250570] i915 0000:00:02.0: [drm] Reducing the compressed framebuffer size. This may lead to less power savings than a non-reduced-size. Try to increase stolen memory size if available in BIOS.
+[    9.585585] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+# exit 0

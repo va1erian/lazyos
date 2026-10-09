@@ -1,0 +1,64 @@
+# dmesg | grep -i -E "xhci|usb |usbhid|hid-|input:"
+[    0.391710] ACPI: bus type USB registered
+[    0.518470] input: Sleep Button as /devices/platform/PNP0C0E:00/input/input0
+[    0.518612] input: Power Button as /devices/platform/PNP0C0C:00/input/input1
+[    0.518716] input: Power Button as /devices/platform/LNXPWRBN:00/input/input2
+[    0.545325] xhci_hcd 0000:00:14.0: xHCI Host Controller
+[    0.545337] xhci_hcd 0000:00:14.0: new USB bus registered, assigned bus number 1
+[    0.546533] xhci_hcd 0000:00:14.0: hcc params 0x200077c1 hci version 0x100 quirks 0x0000000081109810
+[    0.547300] xhci_hcd 0000:00:14.0: xHCI Host Controller
+[    0.547308] xhci_hcd 0000:00:14.0: new USB bus registered, assigned bus number 2
+[    0.547314] xhci_hcd 0000:00:14.0: Host supports USB 3.0 SuperSpeed
+[    0.547393] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 7.00
+[    0.547398] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber: REDACTED
+[    0.547403] usb usb1: Product: xHCI Host Controller
+[    0.547406] usb usb1: Manufacturer: Linux 7.0.0-38-generic xhci-hcd
+[    0.547410] usb usb1: SerialNumber: REDACTED
+[    0.547734] hub 1-0:1.0: USB hub found
+[    0.551837] usb usb2: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 7.00
+[    0.551846] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber: REDACTED
+[    0.551850] usb usb2: Product: xHCI Host Controller
+[    0.551854] usb usb2: Manufacturer: Linux 7.0.0-38-generic xhci-hcd
+[    0.551858] usb usb2: SerialNumber: REDACTED
+[    0.552088] hub 2-0:1.0: USB hub found
+[    0.786556] usb 1-3: new full-speed USB device number 2 using xhci_hcd
+[    0.910434] usb 1-3: New USB device found, idVendor=0bda, idProduct=b00c, bcdDevice= 0.00
+[    0.910441] usb 1-3: New USB device strings: Mfr=1, Product=2, SerialNumber: REDACTED
+[    0.910445] usb 1-3: Product: Bluetooth Radio
+[    0.910448] usb 1-3: Manufacturer: Realtek
+[    0.910452] usb 1-3: SerialNumber: REDACTED
+[    1.023562] usb 1-4: new full-speed USB device number 3 using xhci_hcd
+[    1.148300] usb 1-4: New USB device found, idVendor=0573, idProduct=1573, bcdDevice=80.07
+[    1.148313] usb 1-4: New USB device strings: Mfr=1, Product=2, SerialNumber: REDACTED
+[    1.148318] usb 1-4: Product: USB Audio and HID
+[    1.148323] usb 1-4: Manufacturer: CSCTEK
+[    1.148328] usb 1-4: SerialNumber: REDACTED
+[    1.264558] usb 1-5: new full-speed USB device number 4 using xhci_hcd
+[    1.390445] usb 1-5: New USB device found, idVendor=1a2c, idProduct=b51f, bcdDevice= 1.00
+[    1.390457] usb 1-5: New USB device strings: Mfr=1, Product=2, SerialNumber: REDACTED
+[    1.390461] usb 1-5: Product: BladeMaster TE 87K
+[    1.390465] usb 1-5: Manufacturer: DREVO.Inc
+[    1.588611] usb 1-9: new full-speed USB device number 5 using xhci_hcd
+[    1.713934] usb 1-9: New USB device found, idVendor=046d, idProduct=c542, bcdDevice= 3.08
+[    1.713944] usb 1-9: New USB device strings: Mfr=1, Product=2, SerialNumber: REDACTED
+[    1.713948] usb 1-9: Product: Wireless Receiver
+[    1.713952] usb 1-9: Manufacturer: Logitech
+[    1.750783] usbhid 1-4:1.3: couldn't find an input interrupt endpoint
+[    1.754905] usbcore: registered new interface driver usbhid
+[    1.754912] usbhid: USB HID core driver
+[    1.791005] input: DREVO.Inc BladeMaster TE 87K Keyboard as /devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0/0003:1A2C:B51F.0001/input/input3
+[    1.841881] input: DREVO.Inc BladeMaster TE 87K Mouse as /devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.0/0003:1A2C:B51F.0001/input/input4
+[    1.842345] hid-generic 0003:1A2C:B51F.0001: input,hiddev0,hidraw0: USB HID v1.10 Keyboard [DREVO.Inc BladeMaster TE 87K] on usb-0000:00:14.0-5/input0
+[    1.842769] input: DREVO.Inc BladeMaster TE 87K as /devices/pci0000:00/0000:00:14.0/usb1/1-5/1-5:1.1/0003:1A2C:B51F.0002/input/input6
+[    1.893940] hid-generic 0003:1A2C:B51F.0002: input,hidraw1: USB HID v1.10 Keyboard [DREVO.Inc BladeMaster TE 87K] on usb-0000:00:14.0-5/input1
+[    1.894246] input: Logitech Wireless Receiver Mouse as /devices/pci0000:00/0000:00:14.0/usb1/1-9/1-9:1.0/0003:046D:C542.0003/input/input7
+[    1.894526] hid-generic 0003:046D:C542.0003: input,hidraw2: USB HID v1.11 Mouse [Logitech Wireless Receiver] on usb-0000:00:14.0-9/input0
+[    9.056591] input: Video Bus as /devices/pci0000:00/acpi.video_bus.0/input/input8
+[    9.096578] usb 1-4: Warning! Unlikely big volume range (=511), cval->res is probably wrong.
+[    9.096588] usb 1-4: [5] FU [Mic Capture Volume] ch = 1, val = -8192/-1/16
+[    9.099460] usb 1-4: Warning! Unlikely big volume range (=832), cval->res is probably wrong.
+[    9.099468] usb 1-4: [6] FU [PCM Playback Volume] ch = 2, val = -16384/-3072/16
+[    9.658806] input: HDA Intel PCH HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input9
+[    9.660677] input: HDA Intel PCH HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input10
+[    9.661661] input: HDA Intel PCH HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input11
+# exit 0
