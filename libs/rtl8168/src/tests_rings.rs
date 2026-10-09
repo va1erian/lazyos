@@ -393,7 +393,7 @@ fn seeded_traffic_with_a_hostile_chip() {
         let mut dead = false;
         for step in 0..rng.range(50, 400) {
             match rng.below(6) {
-                0 | 1 if want_rx.len() - got_rx.len() < SLOTS as usize - 1 => {
+                0 | 1 if want_rx.len().saturating_sub(got_rx.len()) < SLOTS as usize - 1 => {
                     let f = frame(rng.range(60, 1514) as usize, step as u8);
                     if bench.fake.deliver(&f) {
                         want_rx.push(f);

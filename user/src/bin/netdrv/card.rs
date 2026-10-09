@@ -97,9 +97,12 @@ impl Card {
         };
         device::arm(&mut claimed)?;
         // The Realtek chip's causes are unmasked only now that the line is
-        // armed, so none is raised into a vector nobody listens on.
+        // armed, and only if it is: when polling, nothing would acknowledge
+        // a cause, which would hold a shared INTx line asserted.
         let mut brought = brought;
-        if let (Backend::Rtl8168(_), AnyRings::Rtl8168(rings)) = (&backend, &mut brought.rings) {
+        if let (true, Backend::Rtl8168(_), AnyRings::Rtl8168(rings)) =
+            (claimed.irq, &backend, &mut brought.rings)
+        {
             rtl8168_card::enable(rings);
         }
         if let (Some(user::dev::IrqMode::MsiX), Backend::Virtio(virtio)) = (claimed.mode, &backend)
