@@ -96,8 +96,10 @@ pub(crate) fn msg_topic(params: &Value) -> Result<String, Failure> {
     let subscription = client
         .subscribe(topic, user::messenger::topics_client::Qos::Latest)
         .map_err(|e| (code::DENIED, format!("broker: {}", e.message())))?;
-    let event = subscription.poll_event().ok().flatten();
+    let polled = subscription.poll_event();
     let _ = subscription.unsubscribe();
+    // `Ok(None)` is the answer "nothing is held"; an error is not.
+    let event = polled.map_err(|e| (code::UNAVAILABLE, format!("broker: {}", e.message())))?;
     let Some(event) = event else {
         return Ok(Object::new()
             .str("topic", topic)

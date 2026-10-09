@@ -163,22 +163,31 @@ class DbgClient:
         if source:
             params["source"] = source
         answer = self.call("log.follow", **params)
-        for record in answer.get("lines", []):
-            on_line(record)
-        end = time.monotonic() + seconds
-        pending, self.pending = self.pending, []
-        while True:
-            for note in pending:
-                if note.get("method") == "log":
-                    for record in note["params"].get("lines", []):
-                        on_line(record)
-            pending = []
-            left = end - time.monotonic()
-            if left <= 0:
-                return
+        try:
+            for record in answer.get("lines", []):
+                on_line(record)
+            end = time.monotonic() + seconds
+            pending, self.pending = self.pending, []
+            while True:
+                for note in pending:
+                    if note.get("method") == "log":
+                        for record in note["params"].get("lines", []):
+                            on_line(record)
+                pending = []
+                left = end - time.monotonic()
+                if left <= 0:
+                    return
+                try:
+                    message = self.read_message(timeout=min(left, 1.0))
+                except socket.timeout:
+                    continue
+                if "id" not in message:
+                    pending.append(message)
+        finally:
+            # End the stream however the follow ended (expiry, a raising
+            # callback): the server would keep sending on this connection.
             try:
-                message = self.read_message(timeout=min(left, 1.0))
-            except socket.timeout:
-                continue
-            if "id" not in message:
-                pending.append(message)
+                self.call("log.unfollow")
+            except (DbgError, OSError):
+                pass
+            self.pending = []
