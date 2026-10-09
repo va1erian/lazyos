@@ -12,4 +12,4 @@ description = "Registers the Liberation fonts a desktop image installs with xui-
 fhs = { path = "../../../libs/fhs" }
 # No `system-fonts`: it loads fontconfig with `dlopen`, which a static binary
 # cannot do. The same revision as every other xui crate here.
-xui-blitz = { git = "https://github.com/va1erian/xui", rev = "59c1bd433e9b174e6e7896137891d06c073e7d1c", default-features = false }
+xui-blitz = { git = "https://github.com/va1erian/xui", rev = "beaec24f65e0616c54ac1987e774441009189358", default-features = false }

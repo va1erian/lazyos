@@ -20,9 +20,9 @@ path = "src/main.rs"
 xui-app = { path = ".." }
 # The documentation root the Open dialog starts in.
 fhs = { path = "../../libs/fhs" }
-xui-core = { git = "https://github.com/va1erian/xui", rev = "59c1bd433e9b174e6e7896137891d06c073e7d1c" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "beaec24f65e0616c54ac1987e774441009189358" }
 # One xui revision for every crate, so a single `xui_core` links. No
 # `system-fonts`: LazyOS has no fontconfig (fonts are registered at start).
 webfonts = { path = "../crates/webfonts" }
-xui-blitz = { git = "https://github.com/va1erian/xui", rev = "59c1bd433e9b174e6e7896137891d06c073e7d1c", default-features = false }
+xui-blitz = { git = "https://github.com/va1erian/xui", rev = "beaec24f65e0616c54ac1987e774441009189358", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
