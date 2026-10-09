@@ -337,7 +337,7 @@ impl Device {
                 return self.ep0.retire(status).map_err(Error::Xhci);
             }
             Ok(event) => Error::Completion(setup.request, event.completion_code()),
-            Err(Error::Timeout(_)) => Error::Timeout(request_name(setup.request)),
+            Err(Error::Timeout(_)) => Error::Timeout(super::names::request_name(setup.request)),
             Err(error) => error,
         };
         // What the controller made of it, before recovery changes anything:
@@ -404,16 +404,4 @@ impl Device {
 /// Lower-case hex of `bytes`, for the descriptor evidence lines.
 pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// What a standard control request is called in a timeout message.
-fn request_name(request: u8) -> &'static str {
-    match request {
-        5 => "SET_ADDRESS transfer",
-        6 => "GET_DESCRIPTOR transfer",
-        9 => "SET_CONFIGURATION transfer",
-        10 => "SET_IDLE transfer",
-        11 => "SET_PROTOCOL transfer",
-        _ => "control transfer",
-    }
 }

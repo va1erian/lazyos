@@ -403,7 +403,7 @@ impl Hc {
             .map_err(|error| match error {
                 // Say which command, so a hang on a real controller points at
                 // its step (a bare "event" cannot).
-                Error::Timeout(_) => Error::Timeout(command_name(command.kind())),
+                Error::Timeout(_) => Error::Timeout(super::names::command_name(command.kind())),
                 other => other,
             })?;
         self.commands.retire(pointer).map_err(Error::Xhci)?;
@@ -491,20 +491,5 @@ impl Hc {
 
     pub(super) fn set_portsc(&mut self, port: u8, value: u32) {
         self.set_opreg(op::PORTS + usize::from(port - 1) * op::PORT_STRIDE, value);
-    }
-}
-
-/// What a command TRB type is called in a timeout message.
-fn command_name(kind: u8) -> &'static str {
-    match kind {
-        kind::ENABLE_SLOT => "Enable Slot completion",
-        kind::DISABLE_SLOT => "Disable Slot completion",
-        kind::ADDRESS_DEVICE => "Address Device completion",
-        kind::CONFIGURE_ENDPOINT => "Configure Endpoint completion",
-        kind::EVALUATE_CONTEXT => "Evaluate Context completion",
-        kind::RESET_ENDPOINT => "Reset Endpoint completion",
-        kind::STOP_ENDPOINT => "Stop Endpoint completion",
-        kind::SET_TR_DEQUEUE => "Set TR Dequeue completion",
-        _ => "command completion",
     }
 }
