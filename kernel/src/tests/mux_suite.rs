@@ -1,7 +1,7 @@
 //! The terminal multiplexer's window layout (issue #218).
 
 use super::*;
-use crate::mux::column;
+use crate::mux::{column, wrap_rows};
 
 /// One window fills the screen between the margins; two split it evenly.
 pub fn layout_widths() -> Result<(), String> {
@@ -37,7 +37,40 @@ pub fn layout_bounds() -> Result<(), String> {
     Ok(())
 }
 
+/// Long lines wrap into rows that lose no bytes and never exceed the width;
+/// short and empty lines pass through; a multi-byte character is not split.
+pub fn wrap_keeps_every_byte() -> Result<(), String> {
+    let long = [b'x'; 25];
+    let lines: [&[u8]; 3] = [b"short", b"", &long];
+    let rows = wrap_rows(&lines, 10);
+    check!(rows.len() == 5, "rows {}", rows.len());
+    check!(
+        rows[0] == b"short" && rows[1].is_empty(),
+        "short rows changed"
+    );
+    check!(
+        rows[2..]
+            .iter()
+            .map(|r| r.len())
+            .collect::<alloc::vec::Vec<_>>()
+            == [10, 10, 5],
+        "long line split wrongly"
+    );
+    let text = "aé".repeat(6);
+    let multibyte: [&[u8]; 1] = [text.as_bytes()];
+    for row in wrap_rows(&multibyte, 5) {
+        check!(row.len() <= 5, "row {} bytes", row.len());
+        check!(core::str::from_utf8(row).is_ok(), "a character was split");
+    }
+    check!(
+        wrap_rows(&lines, 0).len() >= 3,
+        "zero columns must not loop"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mux_layout_widths", layout_widths),
     ("mux_layout_bounds", layout_bounds),
+    ("mux_wrap_keeps_every_byte", wrap_keeps_every_byte),
 ];

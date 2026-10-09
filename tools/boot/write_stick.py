@@ -7,8 +7,9 @@
 
 Only removable or USB disks are offered or accepted. On Linux a disk with a
 mounted partition is refused (unmount it first); on Windows the system and
-boot disks are refused and the chosen disk is taken offline for the write
-(which dismounts its volumes) and brought back online after. The tool shows
+boot disks are refused and the chosen disk's partition table is cleared for the
+write (which removes its volumes; Windows refuses to take removable media
+offline) and the disk is rescanned after. The tool shows
 the disk's model and size and asks twice, the second time for the device name
 typed back, then writes the whole image and reads it back to compare SHA-256
 digests. Everything on the disk is lost.
@@ -93,9 +94,19 @@ POWERSHELL_LIST = (
 )
 
 
+class PowerShellError(RuntimeError):
+    """A PowerShell command failed; the message carries what it said."""
+
+
 def powershell(command: str) -> str:
-    result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
-                            capture_output=True, text=True, check=True)
+    """Run `command` (errors are terminating) and return stdout; on failure raise
+    PowerShellError with PowerShell's own message, not just an exit status."""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", f"$ErrorActionPreference='Stop'; {command}"],
+        capture_output=True, text=True)
+    if result.returncode:
+        said = (result.stderr or result.stdout).strip() or f"exit status {result.returncode}"
+        raise PowerShellError(f"{command}\n{said}")
     return result.stdout
 
 
@@ -115,9 +126,19 @@ def windows_disks() -> list[Disk]:
     return disks
 
 
-def windows_offline(disk: Disk, offline: bool) -> None:
-    state = "$true" if offline else "$false"
-    powershell(f"Set-Disk -Number {disk.number} -IsOffline {state}")
+def windows_release(disk: Disk) -> None:
+    """Free the stick's volumes before the raw write by clearing its partition table.
+
+    Taking the disk offline is not an option: Windows refuses it for removable
+    media ("Removable media cannot be set to offline"), which every USB stick the
+    tool accepts is. The stick is about to be overwritten whole anyway, and the
+    caller has already refused system disks and had the user confirm this one."""
+    powershell(f"Clear-Disk -Number {disk.number} -RemoveData -RemoveOEM -Confirm:$false")
+
+
+def windows_restore(disk: Disk) -> None:
+    """Hand the stick back to Windows after the write: rescan it."""
+    powershell(f"Update-Disk -Number {disk.number}")
 
 
 # ----- Common ------------------------------------------------------------
@@ -143,8 +164,8 @@ def confirm(disk: Disk, image: Path) -> bool:
     print(f"\nAbout to write {image} ({image.stat().st_size >> 20} MiB) to:\n  {disk.describe()}")
     print("EVERYTHING on this disk will be destroyed.")
     if os.name == "nt" and disk.mounted:
-        print(f"Its volumes ({', '.join(disk.mounted)}) are dismounted: the disk goes offline "
-              "for the write.")
+        print(f"Its volumes ({', '.join(disk.mounted)}) are removed: the disk's "
+              "partition table is cleared for the write.")
     if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
         return False
     typed = input(f"Type the device name ({disk.path}) to confirm: ").strip()
@@ -225,12 +246,12 @@ def main(argv: list[str] | None = None) -> int:
         print("nothing written")
         return 1
     if os.name == "nt":
-        windows_offline(disk, True)
+        windows_release(disk)
     try:
         write_and_verify(disk, image)
     finally:
         if os.name == "nt":
-            windows_offline(disk, False)
+            windows_restore(disk)
     print("done: unplug the stick, plug it into the PC and pick it in the boot menu "
           "(F8 on ASUS boards); see docs/usb-stick.md")
     return 0

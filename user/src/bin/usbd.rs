@@ -59,6 +59,8 @@ mod mem;
 mod msc;
 #[path = "usbd/msc_link.rs"]
 mod msc_link;
+#[path = "usbd/names.rs"]
+mod names;
 #[path = "usbd/pipe.rs"]
 mod pipe;
 #[path = "usbd/port.rs"]

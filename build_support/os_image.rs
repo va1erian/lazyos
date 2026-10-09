@@ -151,6 +151,17 @@ pub fn boot_cfg(uuid: [u8; 16], limits: &[(String, String)]) -> String {
     )
 }
 
+/// `diag.hold=<seconds>\n` for `LAZYOS_DIAG_HOLD=<seconds>` (a positive whole
+/// number), else nothing. `xuid` then keeps the boot log panes on screen that
+/// long before the desktop opens, so a PC with no serial port can be read and
+/// photographed (docs/compat/kabylake/B0.md).
+pub fn diag_hold_line(value: Option<&str>) -> String {
+    match value.and_then(|v| v.trim().parse::<u32>().ok()) {
+        Some(seconds) if seconds > 0 => format!("diag.hold={}\n", seconds.min(600)),
+        _ => String::new(),
+    }
+}
+
 /// The 36-character `8-4-4-4-12` form the kernel parses.
 pub fn format_uuid(uuid: [u8; 16]) -> String {
     let hex: String = uuid.iter().map(|byte| format!("{byte:02x}")).collect();

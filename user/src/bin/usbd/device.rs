@@ -20,7 +20,7 @@ use alloc::vec::Vec;
 
 use usbhid::desc::{self, Config, DeviceDescriptor, Endpoint};
 use user::sys;
-use xhci::context::{EndpointContext, HubSlot, InputContext, INPUT_CONTEXTS};
+use xhci::context::{slot_state, EndpointContext, HubSlot, InputContext, INPUT_CONTEXTS};
 use xhci::regs::Speed;
 use xhci::ring::{ProducerRing, RawMem};
 use xhci::route::Location;
@@ -320,9 +320,13 @@ impl Device {
             return Err(Error::Descriptor("request too long"));
         }
         let (trbs, count) = trb::control_transfer(setup, self.mem.bus(DATA));
+        // No Chain bits: a control TD's stages are told apart by type, and a
+        // Setup Stage TRB's bit 4 is reserved while a Data Stage TRB with it
+        // set pulls the Status Stage into the data stage (xHCI 6.4.1.2). QEMU
+        // ignores it; a real controller hangs or stalls (the Kaby Lake box).
         let status = self
             .ep0
-            .enqueue(&trbs[..count], true)
+            .enqueue(&trbs[..count], false)
             .map_err(Error::Xhci)?;
         hc.doorbell(self.slot, 1);
         let slot = self.slot;
@@ -333,14 +337,43 @@ impl Device {
                 return self.ep0.retire(status).map_err(Error::Xhci);
             }
             Ok(event) => Error::Completion(setup.request, event.completion_code()),
+            Err(Error::Timeout(_)) => Error::Timeout(super::names::request_name(setup.request)),
             Err(error) => error,
         };
+        // What the controller made of it, before recovery changes anything:
+        // on a real PC "timed out" alone cannot say whether the controller
+        // never fetched the TRBs or ran them and lost the event.
+        self.snapshot(hc, &failed);
         // A stall (or a timeout) leaves endpoint 0 halted or busy with the
         // rest of the transfer: reset it and skip what is left, so the next
         // request starts clean.
         let pointer = self.ep0.abandon();
         self.recover(hc, 1, pointer)?;
         Err(failed)
+    }
+
+    /// One `USBD:DIAG` line: the slot state and address the controller
+    /// recorded, endpoint 0's state and the dequeue pointer it has reached
+    /// (against the ring's base `ours`), and the controller's own status.
+    fn snapshot(&mut self, hc: &Hc, failed: &Error) {
+        let stride = if hc.info.context_64 { 16 } else { 8 };
+        let ours = self.ep0.dequeue_pointer();
+        let words = self.mem.dwords(OUTPUT, 2 * stride);
+        let slot = match slot_state(words) {
+            Some((state, address)) => format!("{state:?}/addr{address}"),
+            None => String::from("?"),
+        };
+        let (ep_dw0, ep_dq) = (
+            words[stride],
+            u64::from(words[stride + 2]) | u64::from(words[stride + 3]) << 32,
+        );
+        sys::write_str(&format!(
+            "USBD:DIAG port={} {failed} slot={slot} ep0state={} ep0dq={ep_dq:#x} ring={ours:#x} mps={} {}\n",
+            self.name,
+            ep_dw0 & 7,
+            self.max_packet0,
+            hc.state_text()
+        ));
     }
 
     /// Bring endpoint `dci` back after a failure: Reset Endpoint (a halted

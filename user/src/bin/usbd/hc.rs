@@ -219,6 +219,15 @@ impl Hc {
         Ok(hc)
     }
 
+    /// `USBCMD`/`USBSTS` in one short string, for failure snapshots.
+    pub(super) fn state_text(&self) -> alloc::string::String {
+        alloc::format!(
+            "usbcmd={:#x} usbsts={:#x}",
+            self.opreg(op::USBCMD),
+            self.opreg(op::USBSTS)
+        )
+    }
+
     fn opreg(&self, offset: usize) -> u32 {
         self.bar.read32(self.op + offset)
     }
@@ -389,8 +398,14 @@ impl Hc {
             .enqueue(&[command], false)
             .map_err(Error::Xhci)?;
         self.doorbell(0, 0);
-        let event =
-            self.wait(|e| e.kind() == kind::COMMAND_COMPLETION && e.parameter == pointer)?;
+        let event = self
+            .wait(|e| e.kind() == kind::COMMAND_COMPLETION && e.parameter == pointer)
+            .map_err(|error| match error {
+                // Say which command, so a hang on a real controller points at
+                // its step (a bare "event" cannot).
+                Error::Timeout(_) => Error::Timeout(super::names::command_name(command.kind())),
+                other => other,
+            })?;
         self.commands.retire(pointer).map_err(Error::Xhci)?;
         match event.completion_code() {
             code::SUCCESS => Ok(event),

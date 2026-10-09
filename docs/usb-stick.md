@@ -24,6 +24,7 @@ Advanced tab has a "USB stick image too" box). The stick image is opt-in:
 | `LAZYOS_USB=1` | off | required with `LAZYOS_USB_IMAGE=1`: ships `usbd` and lists it in `init`'s manifest |
 | `LAZYOS_USB_HOME_SIZE` | `1G` | size of the `lazyhome` partition (`16M` minimum; `K`/`M`/`G` suffixes) |
 | `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written |
+| `LAZYOS_DIAG_HOLD` | unset | seconds (1 to 600): `lazyos.cfg` gets `diag.hold=<n>` and `xuid` keeps the console log panes on screen that long before the desktop opens, so the driver lines (`USBD:*`, `NETDRV:*`) of a PC with no serial port can be read and photographed; the panes wrap long lines |
 
 **USB input is mandatory.** The target PC may have no PS/2 port, so the build
 refuses `LAZYOS_USB_IMAGE=1` unless `LAZYOS_USB=1` and a services session
@@ -86,8 +87,9 @@ python tools\boot\write_stick.py --device \\.\PhysicalDrive2   # Windows, in an 
 
 The tool offers and accepts only removable or USB disks, refuses one with a
 mounted partition on Linux (unmount it first) and the system or boot disk on
-Windows (where it takes the chosen disk offline for the write, which dismounts
-its volumes, and brings it back online after). It shows the model and size,
+Windows (where it clears the chosen disk's partition table for the write, which
+removes its volumes, and rescans the disk after; Windows will not take removable
+media offline). It shows the model and size,
 asks twice (the second time you type the device name back), writes the whole
 image and reads it back to compare SHA-256 digests.
 

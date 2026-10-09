@@ -222,14 +222,40 @@ fn draw_window(
     if lines.last().map(|l| l.is_empty()).unwrap_or(false) {
         lines.pop();
     }
+    let columns = ((w - PAD * 2) / crate::font::ADVANCE as i32).max(1) as usize;
+    let rows = wrap_rows(&lines, columns);
     let visible = ((h - TITLE_H - PAD * 2) / crate::font::LINE_HEIGHT).max(1) as usize;
-    let start = lines.len().saturating_sub(visible);
+    let start = rows.len().saturating_sub(visible);
     let mut baseline = y + TITLE_H + PAD + crate::font::ASCENDER.max(0);
-    for line in &lines[start.min(lines.len())..] {
-        let text = core::str::from_utf8(line).unwrap_or("");
+    for row in &rows[start.min(rows.len())..] {
+        let text = core::str::from_utf8(row).unwrap_or("");
         text::draw_text(back, x + PAD, baseline, text, TEXT_COLOR, content_clip);
         baseline += crate::font::LINE_HEIGHT;
     }
+}
+
+/// Break each output line into rows of at most `columns` bytes (the font is
+/// fixed-advance), so a long log line such as `USBD:XHCI ... handoff=...` is
+/// read in full on a PC with no serial port instead of being cut at the
+/// window edge. A line is cut on a byte boundary that is also a character
+/// boundary; a short line is one row and an empty line stays one empty row.
+pub(crate) fn wrap_rows<'a>(lines: &[&'a [u8]], columns: usize) -> alloc::vec::Vec<&'a [u8]> {
+    let columns = columns.max(1);
+    let mut rows = alloc::vec::Vec::with_capacity(lines.len());
+    for line in lines {
+        let mut rest = *line;
+        while rest.len() > columns {
+            let mut cut = columns;
+            // Never split a UTF-8 sequence (continuation bytes are 10xxxxxx).
+            while cut > 1 && rest[cut] & 0xC0 == 0x80 {
+                cut -= 1;
+            }
+            rows.push(&rest[..cut]);
+            rest = &rest[cut..];
+        }
+        rows.push(rest);
+    }
+    rows
 }
 
 /// Present a rectangle of the back buffer to the logical screen.

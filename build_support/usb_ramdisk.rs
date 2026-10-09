@@ -68,7 +68,9 @@ pub fn write(
     files: &[OsFile],
 ) -> Result<Written, String> {
     let limits = os_image::limits_cfg::from_env();
-    let fat = fat_volume(os_image::boot_cfg(settings.uuid, &limits).as_bytes())?;
+    let mut cfg = os_image::boot_cfg(settings.uuid, &limits);
+    cfg += &os_image::diag_hold_line(std::env::var("LAZYOS_DIAG_HOLD").ok().as_deref());
+    let fat = fat_volume(cfg.as_bytes())?;
     let mut os_bytes = estimate_os_bytes(dirs, files)? + settings.root_free;
     for _ in 0..SIZE_ATTEMPTS {
         match write_once(path, settings, &fat, os_bytes, dirs, files) {

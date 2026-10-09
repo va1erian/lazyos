@@ -12,4 +12,4 @@ folder with the evidence.
 
 | Machine | Year | Firmware | CPU | RAM | Framebuffer | `HW:` verdicts | Input | Result | Evidence |
 |---|---|---|---|---|---|---|---|---|---|
-| Mini PC (i3-7100U, SATA SSD, RTL8111H) | 2026 | UEFI | i3-7100U | _to fill_ | _to fill_ | _to fill_ | _to fill_ | **not yet booted** (step B0) | [`kabylake/`](kabylake/README.md) |
+| Mini PC (i3-7100U, SATA SSD, RTL8111H) | 2026 | UEFI | i3-7100U | 8 GiB | 2560x1440 (HDMI), 1080p logical | boots to desktop; `netdrv` and `sndd` start | USB keyboard and mouse after the control-transfer chain fix | **works** with laggy windows; see notes | [`kabylake/boot-1/`](kabylake/boot-1/NOTES.md) |

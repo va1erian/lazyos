@@ -448,6 +448,28 @@ fn portsc_writes_never_echo_dangerous_bits() {
     assert_eq!(ack & (portsc::PED | portsc::PR), 0);
 }
 
+/// A control transfer's stages carry no Chain bit, across the Link TRB too:
+/// the Setup Stage TRB's bit 4 is reserved and a Data Stage with Chain set
+/// pulls the Status Stage into the data stage (xHCI 6.4.1.2). QEMU ignores
+/// it, a real controller hangs or stalls on it; `usbd` enqueues control
+/// transfers with `chain = false`.
+#[test]
+fn control_transfer_stages_carry_no_chain_bit_even_across_the_link() {
+    let mut ring = ProducerRing::new(VecMem::new(8, 0x4000)).unwrap();
+    for round in 0..20 {
+        let (trbs, count) = trb::control_transfer(&request::get_descriptor(1, 0, 18), 0x9000);
+        let last = ring.enqueue(&trbs[..count], false).unwrap();
+        for index in 0..8 {
+            assert_eq!(
+                ring.mem().read(index).control & CHAIN,
+                0,
+                "round {round}, slot {index}"
+            );
+        }
+        ring.retire(last).unwrap();
+    }
+}
+
 #[test]
 fn abandon_skips_what_a_halted_endpoint_left() {
     let mut ring = ProducerRing::new(VecMem::new(8, 0x4000)).unwrap();
