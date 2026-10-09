@@ -159,6 +159,10 @@ table in static memory with room for 64 PRDT entries.
   its device stays registered and answers `BlockError::Io` (the NVMe rule),
   and the HBA touches no more of its memory (the port is stopped, `FRE`
   clear, before anything is freed; nothing is ever freed while it runs).
+  A port that will not stop at all (`PxCMD.CR` stays set after COMRESET) is
+  detached at once and flagged DMA-unsafe: the HBA may still be using the
+  caller's buffers, so the kernel clears the controller's PCI bus-master
+  bit (every port on it) before the request returns.
 - **Host bus errors** (`PxIS.HBFS`, `HBDS`, `IFS`): treated as a timeout.
 - **Media errors** reach the filesystem as `Io`, which ext2 already handles
   (read-only remount on a write failure, as today).
