@@ -271,6 +271,10 @@ def main() -> int:
         help="one more QEMU argument, repeatable (e.g. --extra-arg=-cpu --extra-arg=max)",
     )
     args = parser.parse_args()
+    if args.ahci and args.ide_disk:
+        # The IDE boot disk has no bootindex, so the blank AHCI scratch disk
+        # could be the one firmware boots; the two also test different drivers.
+        parser.error("--ahci and --ide-disk cannot be combined")
 
     image = Path(args.image).resolve()
     out_dir = (ROOT / args.out).resolve() if not Path(args.out).is_absolute() else Path(args.out)
