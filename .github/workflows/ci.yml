@@ -104,6 +104,12 @@ jobs:
           FUZZ_CASES: "5000"
       - name: Clippy (nvme, tests and fuzz entry point)
         run: cargo clippy -p nvme --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: AHCI protocol core (model HBA, PRDT planning, hostile HBA fuzz)
+        run: cargo test -p ahci
+        env:
+          FUZZ_CASES: "5000"
+      - name: Clippy (ahci, tests and fuzz entry point)
+        run: cargo clippy -p ahci --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
       - name: ACPI table walker (golden QEMU dumps, hostile tables, seeded fuzz)
         run: cargo test -p acpi
         env:
