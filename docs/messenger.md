@@ -502,23 +502,6 @@ not planned; heartbeats live in `healthd`. The declared-gate refusal count
 (`channels/declared.rs::refused()`) is a kernel diagnostic read by kernel
 tests only; it is not exported.
 
----|---|
-| `os.lazy.messenger.registry.v1` | ListServices, GetService, ListInterfaces, GetInterface (methods, types, docs), WhoOwns |
-| `os.lazy.messenger.topics.v1` | ListTopics, ListSubscribers, GetRetained, Tail(filter) |
-| `os.lazy.messenger.stats.v1` | per-service and global call counts, error rates, p50/p99 latency, queue depth, drops, handle counts |
-| `os.lazy.messenger.trace.v1` | subscribe to transaction start/finish with ids and durations |
-| `os.lazy.health.v1` | service heartbeats, dependency health, last-error, restart count (also a retained topic) |
-| `os.lazy.audit.v1` | read the audit stream (policy-gated) |
-
-The kernel-side slice is live: the `messenger` syscall's `STATS` op serves a
-versioned `FabricStats` snapshot (services, endpoints, channels, message
-counters, shared buffers, handles, ACL/audit state, per-slot usage) and
-`TOTALS` the compact counters; `messengerctl` (`LAZYOS_MESSENGERCTL=1`)
-renders them (`services`, `iface <name>`, `topics`, `subs`, `tail <topic>`,
-`trace <service>`, `stat`, `policy check`, `why <txn>`, `graph`). Tracing
-correlates on `txn_id`; events carry pid/uid/interface/method/duration/outcome,
-sampled so tracing stays cheap under load.
-
 ---
 
 ## 14. Kernel implementation sketch
