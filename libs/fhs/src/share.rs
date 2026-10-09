@@ -55,6 +55,12 @@ pub const DOOM_LZP: &str = "/system/share/samples/doom.lzp";
 /// `pkgctl install`, like [`DOOM_LZP`]. Written by the image build.
 pub const EMUSIC_LZP: &str = "/system/share/samples/emusic.lzp";
 
+/// The Quake package (`org.lazy.quake`, `LAZYOS_QUAKE=1` images): a user
+/// package, copied to the user's home (the ramfs `/transient` is too small
+/// for its 18 MiB) and installed from there with `pkgctl install`, like
+/// [`DOOM_LZP`]. Written by the image build.
+pub const QUAKE_LZP: &str = "/system/share/samples/quake.lzp";
+
 /// The development-run test package (`org.lazy.test.lrdev`, issue #529): the
 /// LazyRAD IDE with `develop = true`, built by `tools/lazyrad/devtest.py` and
 /// embedded in `LAZYOS_LAZYRAD=1` images when it was built.
@@ -101,6 +107,7 @@ mod tests {
             PKGDEMO,
             DOOM_LZP,
             EMUSIC_LZP,
+            QUAKE_LZP,
             LRDEV_TEST_LZP,
             MODPLAYER_LZP,
         ] {

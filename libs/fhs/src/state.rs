@@ -141,6 +141,15 @@ pub const DOOM_TMP: &str = "/tmp/doom";
 /// (`doom/src/headless.rs`).
 pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 
+/// Quake's saves and `config.cfg` when the player has no home (otherwise
+/// its per-user folder, `$HOME/.apps/org.lazy.quake`). Written by the
+/// `org.lazy.quake` package.
+pub const QUAKE_TMP: &str = "/tmp/quake";
+
+/// The verdict line Quake's headless mode writes for a harness to read
+/// (`quake/src/lazy/headless.rs`).
+pub const QUAKE_RESULT: &str = "/tmp/quake-result.txt";
+
 /// The tray demo's lifecycle test hooks (`xui-app/src/bin/traydemo.rs`,
 /// tools/screenshot/examples/tray_resident.json): milliseconds to delay its
 /// `Watch` by, and a marker that makes it ignore `Quit`.

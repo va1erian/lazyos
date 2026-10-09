@@ -9,8 +9,9 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 
 #: The Simple tab's extra switches, in `catalog.simple_config`'s argument order;
 #: each is the Tk variable `simple_<name>`.
-SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "modplayer", "net", "linuxapps", "hidpi", "tls",
-                 "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures", "emusic")
+SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
+                 "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
+                 "emusic")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -19,7 +20,7 @@ def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
 
 
 def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell_var,
-                     devices_var, doom_var, modplayer_var, net_var, on_start,
+                     devices_var, doom_var, quake_var, modplayer_var, net_var, on_start,
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
                      autologin_var=None, setup_var=None, pictures_var=None,
@@ -28,18 +29,18 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
 
     ``build_var``/``iface_var`` are Tk string variables holding a
     ``SIMPLE_BUILDS`` / ``SIMPLE_INTERFACES`` label; ``lazyrad_var``,
-    ``shell_var``, ``devices_var``, ``doom_var`` and ``modplayer_var`` are Tk
-    booleans for the LazyRAD IDE, the LazyShell desktop, opening the Devices app
-    at boot, the Doom package and the LazyRAD MOD player package; ``net_var``
-    adds networking, ``linuxapps_var`` the Linux programs, ``hidpi_var``
-    the 2560x1440 HiDPI screen and ``tls_var`` the HTTPS clients (with
-    networking), on either interface; ``lazyweb_var`` the LazyWeb browser
-    (Desktop; with networking and HTTPS); ``mail_var`` the Mail app (Desktop,
-    with HTTPS); ``traydemo_var`` the tray sample app (Desktop);
-    ``autologin_var`` skips the Desktop's login screen (logs in ``user``,
-    issue #623); ``setup_var`` starts it with no account, the login screen
-    asking for the owner (docs/accounts-plan.md U1); ``pictures_var`` the
-    Picture Viewer (Desktop); ``on_start`` runs the plan.
+    ``shell_var``, ``devices_var``, ``doom_var``, ``quake_var`` and
+    ``modplayer_var`` are Tk booleans for the LazyRAD IDE, the LazyShell
+    desktop, opening the Devices app at boot, the Doom, Quake and LazyRAD
+    MOD player packages; ``net_var`` adds networking, ``linuxapps_var`` the
+    Linux programs, ``hidpi_var`` the 2560x1440 HiDPI screen and ``tls_var``
+    the HTTPS clients (with networking), on either interface; ``lazyweb_var``
+    the LazyWeb browser (Desktop; with networking and HTTPS); ``mail_var``
+    the Mail app (Desktop, with HTTPS); ``traydemo_var`` the tray sample app
+    (Desktop); ``autologin_var`` skips the Desktop's login screen (logs in
+    ``user``, issue #623); ``setup_var`` starts it with no account, the
+    login screen asking for the owner (docs/accounts-plan.md U1);
+    ``pictures_var`` the Picture Viewer (Desktop); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -83,6 +84,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ttk.Checkbutton(apps, text="Doom (builds the package; install it from "
                                "/system/share/samples/doom.lzp)",
                     variable=doom_var).pack(anchor="w", padx=8, pady=4)
+    if quake_var is not None:
+        ttk.Checkbutton(apps, text="Quake (builds the package with the shareware; install "
+                                   "it from /system/share/samples like Doom)",
+                        variable=quake_var).pack(anchor="w", padx=8, pady=4)
     ttk.Checkbutton(apps, text="MOD player made with LazyRAD (builds the package; install "
                                "it from /system/share/samples like Doom)",
                     variable=modplayer_var).pack(anchor="w", padx=8, pady=4)

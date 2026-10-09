@@ -76,7 +76,7 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail,
-    build_modplayer, build_pictures, build_rhai, build_tls, build_xui_apps,
+    build_modplayer, build_pictures, build_quake, build_rhai, build_tls, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -255,6 +255,7 @@ def main(argv: list[str]) -> int:
             env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
         # Opt-in apps, built before their switch (the MOD player after LazyRAD's).
         for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
+                                      (args.quake, build_quake, "LAZYOS_QUAKE"),
                                       (args.emusic, build_emusic, "LAZYOS_EMUSIC"),
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
