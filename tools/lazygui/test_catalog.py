@@ -22,6 +22,7 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
     DoomTests, EmusicTests, LazyWebTests, LinuxAppsTests, ModPlayerTests, SmbTests, TlsTests,
     TrayDemoTests,
 )
+from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
 from lazygui.test_assets import AssetDirTests  # noqa: E402,F401

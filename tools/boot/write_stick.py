@@ -10,8 +10,7 @@ mounted partition is refused (unmount it first); on Windows the system and
 boot disks are refused and the chosen disk's partition table is cleared for the
 write (which removes its volumes; Windows refuses to take removable media
 offline) and the disk is rescanned after. The tool shows
-the disk's model and size and asks twice, the second time for the device name
-typed back, then writes the whole image and reads it back to compare SHA-256
+the disk's model and size and asks once (y/N), then writes the whole image and reads it back to compare SHA-256
 digests. Everything on the disk is lost.
 
 `tools/boot/stick_gui.py` does the same, and the build, from a window.
@@ -32,6 +31,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHUNK = 4 << 20
+#: Bytes at the start of the image written last: the partition tables (MBR at
+#: LBA 0, GPT header and entries at LBA 1 to 33) and nothing a volume owns.
+HEAD = 1 << 20
 
 
 @dataclass
@@ -166,10 +168,7 @@ def confirm(disk: Disk, image: Path) -> bool:
     if os.name == "nt" and disk.mounted:
         print(f"Its volumes ({', '.join(disk.mounted)}) are removed: the disk's "
               "partition table is cleared for the write.")
-    if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
-        return False
-    typed = input(f"Type the device name ({disk.path}) to confirm: ").strip()
-    return typed == disk.path
+    return input("Continue? [y/N] ").strip().lower() in ("y", "yes")
 
 
 def write_and_verify(disk: Disk, image: Path) -> None:
@@ -178,16 +177,38 @@ def write_and_verify(disk: Disk, image: Path) -> None:
     flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
     fd = os.open(disk.path, flags)
     try:
+        # The first HEAD bytes (the MBR, the GPT and its entries) are held back
+        # and written last. Windows mounts a volume as soon as it can read a
+        # partition table, and then refuses writes into that volume's sectors
+        # (PermissionError mid-image, where the boot partition starts): with no
+        # table on the disk until the data is in place, nothing is mounted.
+        head = bytearray()
         with image.open("rb") as source:
             done = 0
             while chunk := source.read(CHUNK):
                 if len(chunk) % 512:
                     chunk += bytes(512 - len(chunk) % 512)  # raw devices take whole sectors
-                os.write(fd, chunk)
                 written.update(chunk)
-                done += len(chunk)
+                if done < HEAD:
+                    keep = chunk[: HEAD - done]
+                    head += keep
+                    chunk = chunk[len(keep):]
+                    if chunk:
+                        os.lseek(fd, done + len(keep), os.SEEK_SET)
+                else:
+                    keep = b""
+                if chunk:
+                    os.write(fd, chunk)
+                done += len(keep) + len(chunk)
                 print(f"\rwrote {done >> 20} / {size >> 20} MiB", end="", flush=True)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, bytes(head))
         os.fsync(fd)
+    except PermissionError as error:
+        raise SystemExit(
+            f"\nwrite refused at {done >> 20} MiB: {error}. Windows holds a volume of "
+            f"{disk.path}: close Explorer windows or anything using the stick, unplug and "
+            "replug it, run as Administrator, and try again") from error
     finally:
         os.close(fd)
     print()
@@ -219,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", help="the disk to write (/dev/sdX or \\\\.\\PhysicalDriveN)")
     parser.add_argument("--list", action="store_true", help="list removable disks and exit")
     parser.add_argument("--yes", action="store_true",
-                        help="skip the two questions (the GUI, stick_gui.py, asks them itself)")
+                        help="skip the question (the GUI, stick_gui.py, asks it itself)")
     args = parser.parse_args(argv)
 
     image = Path(args.image)

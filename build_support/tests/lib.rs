@@ -47,6 +47,8 @@ mod accounts_tests;
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
+mod dbgd_tests;
+#[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]
 mod f4_layout_tests;

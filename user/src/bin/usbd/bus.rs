@@ -17,6 +17,8 @@ use xhci::regs::portsc;
 use xhci::route::Location;
 use xhci::trb::{kind, Trb};
 
+use alloc::string::String;
+
 use super::class::{self, Function};
 use super::device::Device;
 use super::hc::Hc;
@@ -54,6 +56,19 @@ impl Controller {
         }
     }
 
+    /// The controller's registers, ports and every enumerated device, as
+    /// `USBD:DUMP:*` lines.
+    pub(super) fn dump_lines(&mut self) -> Vec<String> {
+        let mut lines = self.hc.dump_lines();
+        for node in &mut self.nodes {
+            lines.push(node.device.dump_line(&self.hc));
+        }
+        if self.dead {
+            lines.push(format!("USBD:DUMP:DEAD hc={}", self.hc.index));
+        }
+        lines
+    }
+
     /// Devices with at least one function bound (hubs included).
     pub(super) fn devices(&self) -> usize {
         self.nodes.len()
@@ -84,7 +99,8 @@ impl Controller {
                 }
             }
             self.dead = true;
-            return false;
+            // The snapshot changed (`USBD:DUMP:DEAD`): report it as an event.
+            return true;
         }
         let mut busy = false;
         while let Some(event) = self.hc.next_event() {

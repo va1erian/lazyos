@@ -131,6 +131,16 @@ fn main() {
         println!("cargo:rustc-cfg=netd_demo");
     }
 
+    // Remote inspection (docs/dbgd-plan.md, issue #701): `LAZYOS_DBGD=1`
+    // compiles in the one kernel hook `dbgd` needs, the boot-log read of
+    // the system-stats syscall (op 2). Without it that op is an unknown op
+    // (`-EINVAL`) and none of its code, or its tests, is in the kernel.
+    println!("cargo:rerun-if-env-changed=LAZYOS_DBGD");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_dbgd)");
+    if env::var_os("LAZYOS_DBGD").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_dbgd");
+    }
+
     // CLI mode switch: `LAZYOS_CLI=1` boots only the system shell (BusyBox
     // `sh`) in a single mux window, dropping the `hello` demo window.
     // Ignored in services mode, where `init` owns the session.

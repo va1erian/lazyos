@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":"x","method":"fs.read","params":{"path":"/transient/usbd.dump","offset":0,"len":4096}}

@@ -36,6 +36,16 @@ Usage
 
 Then point an MCP-capable client at this script (stdio transport). It exposes
 two tools: `fabric_stats` and `list_tasks`.
+
+TCP transport (a box running `dbgd`, QEMU with user networking or a real PC;
+docs/dbgd-plan.md):
+
+    python tools/mcp/debug_bridge.py --connect 192.168.1.50 [--key HEX]
+
+The same two tools are answered by `dbgd`, and more appear: `log_tail`,
+`devices`, `drivers`, `usb_dump`, `hwreport`, `messenger_registry`,
+`messenger_services`, `messenger_topics`, `fs_read` and a generic
+`dbgd_call`. The key defaults to `target/dbgd.key`.
 """
 
 from __future__ import annotations
@@ -138,8 +148,16 @@ class DebugBridgeSession:
         return self._query("tasks-json", "TASK_SNAPSHOT", timeout)
 
 
-def _self_test(image: str, out_dir: Path, qemu_path: str | None, accel: str) -> None:
-    session = DebugBridgeSession(image, out_dir, qemu_path, accel)
+def _make_session(args) -> "DebugBridgeSession":
+    """The QEMU/serial session, or the TCP one for `--connect`."""
+    if args.connect:
+        from dbgd_session import DbgdSession
+
+        return DbgdSession(args.connect, args.key)
+    return DebugBridgeSession(args.image, Path(args.out), args.qemu, args.accel)
+
+
+def _self_test(session) -> None:
     try:
         print("fabric_stats:")
         print(json.dumps(session.fabric_stats(), indent=2))
@@ -149,18 +167,23 @@ def _self_test(image: str, out_dir: Path, qemu_path: str | None, accel: str) -> 
         session.close()
 
 
-def _run_mcp_server(image: str, out_dir: Path, qemu_path: str | None, accel: str) -> None:
+def _run_mcp_server(session) -> None:
     try:
-        from mcp.server.fastmcp import FastMCP
+        try:
+            from mcp.server.fastmcp import FastMCP  # mcp 1.x
+        except ImportError:
+            # mcp 2.x renamed it (FastMCP -> MCPServer).
+            from mcp.server.mcpserver import MCPServer as FastMCP
     except ImportError as exc:
         raise SystemExit(
-            "the 'mcp' package is required to run as an MCP server "
-            "(pip install mcp); use --self-test to exercise the QEMU "
-            "plumbing without it"
+            f"cannot import the MCP server library ({type(exc).__name__}: {exc}) "
+            f"with {sys.executable}.\n"
+            "Install it into that interpreter: "
+            f'"{sys.executable}" -m pip install mcp\n'
+            "(--self-test exercises the transport without it)"
         ) from exc
 
     server = FastMCP("lazyos-debug-bridge")
-    session = DebugBridgeSession(image, out_dir, qemu_path, accel)
 
     @server.tool()
     def fabric_stats() -> dict:
@@ -183,15 +206,79 @@ def _run_mcp_server(image: str, out_dir: Path, qemu_path: str | None, accel: str
         """
         return session.list_tasks()
 
+    if hasattr(session, "call"):
+        _register_dbgd_tools(server, session)
+
     try:
         server.run()
     finally:
         session.close()
 
 
+def _register_dbgd_tools(server, session) -> None:
+    """The tools only a `dbgd` transport can answer (read-only)."""
+
+    @server.tool()
+    def log_tail(lines: int = 100, source: str = "kernel") -> dict:
+        """The newest log lines of the box: source "kernel" (the boot log),
+        "programs" (what the services printed: USBD:, NETDRV:, ...) or a
+        logd journal. Lines are split into tag, key=value fields and text."""
+        return session.call("log.tail", lines=lines, source=source)
+
+    @server.tool()
+    def devices() -> dict:
+        """The PCI inventory: class, ids, owning driver uid, rights."""
+        return session.call("devices.list")
+
+    @server.tool()
+    def drivers() -> dict:
+        """devd's view: each device's matched driver, model and state."""
+        return session.call("drivers.list")
+
+    @server.tool()
+    def usb_dump() -> dict:
+        """usbd's last controller and device snapshot (xHCI registers,
+        slots, endpoint rings), or unavailable without an xHCI."""
+        return session.call("usb.dump")
+
+    @server.tool()
+    def hwreport() -> dict:
+        """The HW:* verdict lines of the boot log, as fields."""
+        return session.call("hwreport")
+
+    @server.tool()
+    def messenger_registry() -> dict:
+        """Messenger's registered service names, owners and interfaces."""
+        return session.call("msg.registry")
+
+    @server.tool()
+    def messenger_services() -> dict:
+        """The services init supervises: state, pid, restarts, health."""
+        return session.call("msg.services")
+
+    @server.tool()
+    def messenger_topics() -> dict:
+        """The topics the Messenger broker has seen."""
+        return session.call("msg.topics")
+
+    @server.tool()
+    def fs_read(path: str, offset: int = 0, length: int = 4096) -> dict:
+        """Read a file under an allowlisted root (/transient, /tmp, /logs,
+        /system/etc, /system/share, /docs)."""
+        return session.call("fs.read", path=path, offset=offset, len=length)
+
+    @server.tool()
+    def dbgd_call(method: str, params: dict | None = None) -> dict:
+        """Any dbgd method by name (see `methods`)."""
+        return session.call(method, **(params or {}))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", required=True, help="LazyOS disk image")
+    parser.add_argument("--image", help="LazyOS disk image (the QEMU transport)")
+    parser.add_argument("--connect", metavar="HOST[:PORT]",
+                        help="use a running box's dbgd over TCP instead of booting QEMU")
+    parser.add_argument("--key", help="with --connect: the hex key (default: target/dbgd.key)")
     parser.add_argument("--out", default="shots/mcp", help="scratch dir for the serial log")
     parser.add_argument("--qemu", default=None, help="path to qemu-system-x86_64")
     parser.add_argument("--accel", default="auto", help="auto|kvm|whpx|none")
@@ -200,12 +287,16 @@ def main() -> None:
         help="boot, query each tool once, print JSON, exit (no MCP client needed)",
     )
     args = parser.parse_args()
-    out_dir = Path(args.out)
-
+    if not args.image and not args.connect:
+        parser.error("give --image (boot QEMU) or --connect HOST[:PORT] (a box running dbgd)")
+    session = _make_session(args)
     if args.self_test:
-        _self_test(args.image, out_dir, args.qemu, args.accel)
+        try:
+            _self_test(session)
+        finally:
+            session.close()
     else:
-        _run_mcp_server(args.image, out_dir, args.qemu, args.accel)
+        _run_mcp_server(session)
 
 
 if __name__ == "__main__":

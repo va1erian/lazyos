@@ -25,7 +25,7 @@ def wants_tls(cfg: dict) -> bool:
 def wants_net(cfg: dict) -> bool:
     """Whether the image has the network stack and QEMU a network card (the
     SMB client needs it too)."""
-    return bool(cfg.get("net") or cfg.get("smb") or wants_tls(cfg))
+    return bool(cfg.get("net") or cfg.get("smb") or cfg.get("dbgd") or wants_tls(cfg))
 
 
 def net_specs(cfg: dict) -> list[str]:
@@ -42,6 +42,9 @@ def net_flags(cfg: dict) -> list[str]:
     specs = net_specs(cfg)
     qemu_net.forwards_from(specs)  # validate now, not after a long build
     flags = ["--net"]
+    if cfg.get("dbgd") and not specs:
+        # The default forwards plus dbgd's port (run_demo --dbgd does the same).
+        specs = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]
     for spec in specs:
         flags += ["--net-forward", spec]
     if cfg.get("net_restrict"):

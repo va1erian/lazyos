@@ -20,7 +20,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ext2fs::{Ext2, Geometry};
 
@@ -60,6 +60,13 @@ pub struct Written {
     pub os_bytes: u64,
 }
 
+/// Where the generated `dbgd` key is kept (`target/dbgd.key`).
+fn dbgd_key_file() -> PathBuf {
+    let root =
+        std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
+    root.join("target").join("dbgd.key")
+}
+
 /// Write the ramdisk image to `path` (replacing it).
 pub fn write(
     path: &Path,
@@ -70,6 +77,7 @@ pub fn write(
     let limits = os_image::limits_cfg::from_env();
     let mut cfg = os_image::boot_cfg(settings.uuid, &limits);
     cfg += &os_image::diag_hold_line(std::env::var("LAZYOS_DIAG_HOLD").ok().as_deref());
+    cfg += &os_image::dbgd_cfg::from_env(&dbgd_key_file());
     let fat = fat_volume(cfg.as_bytes())?;
     let mut os_bytes =
         estimate_os_bytes(dirs, files)? + installed_package_bytes(files)? + settings.root_free;

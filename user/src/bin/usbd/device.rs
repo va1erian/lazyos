@@ -352,6 +352,33 @@ impl Device {
         Err(failed)
     }
 
+    /// One `USBD:DUMP:DEV` line: who is in the slot, the slot state and
+    /// address the controller recorded and endpoint 0's state and
+    /// dequeue pointer against our ring's.
+    pub(super) fn dump_line(&mut self, hc: &Hc) -> String {
+        let stride = if hc.info.context_64 { 16 } else { 8 };
+        let ours = self.ep0.dequeue_pointer();
+        let words = self.mem.dwords(OUTPUT, 2 * stride);
+        let slot = match slot_state(words) {
+            Some((state, address)) => format!("{state:?}/addr{address}"),
+            None => String::from("?"),
+        };
+        let (ep_dw0, ep_dq) = (
+            words[stride],
+            u64::from(words[stride + 2]) | u64::from(words[stride + 3]) << 32,
+        );
+        format!(
+            "USBD:DUMP:DEV hc={} port={} slot={} state={slot} ep0state={} ep0dq={ep_dq:#x} ring={ours:#x} mps={} vendor={:#06x} product={:#06x}",
+            hc.index,
+            self.name,
+            self.slot,
+            ep_dw0 & 7,
+            self.max_packet0,
+            self.descriptor.vendor,
+            self.descriptor.product,
+        )
+    }
+
     /// One `USBD:DIAG` line: the slot state and address the controller
     /// recorded, endpoint 0's state and the dequeue pointer it has reached
     /// (against the ring's base `ours`), and the controller's own status.

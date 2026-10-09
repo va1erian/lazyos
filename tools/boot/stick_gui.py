@@ -11,8 +11,8 @@ Three steps (docs/usb-stick.md):
    xui apps and BusyBox when they are missing).
 2. **Stick**: pick a removable or USB disk; the ones `write_stick.py` refuses
    are listed with the reason and cannot be picked.
-3. **Write**: two confirmations (the second asks for the device name typed
-   back), then `write_stick.py --yes` writes the image and reads it back to
+3. **Write**: one confirmation (the erase warning names the disk), then
+   `write_stick.py --yes` writes the image and reads it back to
    compare SHA-256 digests. On Linux it runs through `pkexec` (or the GUI's
    own root), so the build never runs as root.
 
@@ -111,7 +111,7 @@ def disk_rows(disks: list[write_stick.Disk], image: Path) -> list[tuple[write_st
 
 def main() -> int:
     import tkinter as tk
-    from tkinter import filedialog, messagebox, simpledialog, ttk
+    from tkinter import filedialog, messagebox, ttk
 
     from lazygui.runner import Runner
 
@@ -259,12 +259,6 @@ def main() -> int:
                 f"Write {image.name} ({image.stat().st_size >> 20} MiB) to:\n\n"
                 f"{disk.describe()}\n\nEVERYTHING on this disk will be destroyed.{offline}",
                 icon="warning", default="no"):
-            return
-        typed = simpledialog.askstring("Confirm",
-                                       f"Type the device name ({disk.path}) to confirm:",
-                                       parent=root)
-        if (typed or "").strip() != disk.path:
-            status_var.set("Nothing written (the device name did not match).")
             return
         say("\n")
         status_var.set(f"Writing {disk.path}…")

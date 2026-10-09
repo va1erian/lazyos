@@ -102,6 +102,40 @@ pub fn snapshot(out: &mut [u8]) -> usize {
     x86_64::instructions::interrupts::without_interrupts(|| RING.lock().copy_to(out))
 }
 
+#[cfg(lazyos_dbgd)]
+/// Copy the newest bytes into `out` (oldest first) and return how many were
+/// copied with the total ever logged, both from one look at the ring: the
+/// bytes are the range `[total - count, total)` of the boot log, so a reader
+/// that remembers `total` can ask for what came after it (`dbgd`'s follow).
+pub fn snapshot_with_total(out: &mut [u8]) -> (usize, u64) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let ring = RING.lock();
+        (ring.copy_to(out), ring.total())
+    })
+}
+
+/// What the programs wrote to the terminal (`serial::mirror`), kept apart
+/// from the boot log so a chatty program cannot push the boot out of it.
+/// Only a `LAZYOS_DBGD=1` kernel keeps it: `dbgd` serves it as the services'
+/// log (`USBD:`, `NETDRV:`, ...).
+#[cfg(lazyos_dbgd)]
+static PROGRAMS: Mutex<Ring<CAPACITY>> = Mutex::new(Ring::new());
+
+/// Append program output to its ring.
+#[cfg(lazyos_dbgd)]
+pub fn push_program(bytes: &[u8]) {
+    x86_64::instructions::interrupts::without_interrupts(|| PROGRAMS.lock().push(bytes));
+}
+
+/// [`snapshot_with_total`] for the program-output ring.
+#[cfg(lazyos_dbgd)]
+pub fn programs_with_total(out: &mut [u8]) -> (usize, u64) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let ring = PROGRAMS.lock();
+        (ring.copy_to(out), ring.total())
+    })
+}
+
 /// Total bytes logged since boot.
 #[allow(dead_code)] // Reported by `dmesg`-style tools; the suite reads it.
 pub fn total() -> u64 {

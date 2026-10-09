@@ -35,6 +35,7 @@ passwd = { path = "../libs/passwd", features = ["fuzz"] }
 accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
 elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
 accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
+dbgwire = { path = "../libs/dbgwire", features = ["fuzz"] }
 smbwire = { path = "../libs/smbwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
 libmessenger = { path = "../libs/messenger", features = ["fuzz"] }
@@ -226,6 +227,13 @@ bench = false
 [[bin]]
 name = "messenger"
 path = "fuzz_targets/messenger.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dbgwire"
+path = "fuzz_targets/dbgwire.rs"
 test = false
 doc = false
 bench = false

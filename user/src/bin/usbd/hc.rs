@@ -23,6 +23,8 @@ use xhci::trb::{self, code, kind, Trb};
 use super::mem::{Bar, Region, PAGE};
 use super::Error;
 
+#[path = "hc/dump.rs"]
+mod dump;
 #[path = "hc_events.rs"]
 mod events;
 

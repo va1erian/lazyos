@@ -81,7 +81,7 @@ python tools\boot\stick_gui.py          # Windows, in an Administrator prompt
 
 Its **Build image** button runs `run_demo.py --desktop --usb-image
 --build-only` (release profile by default, with the `/home` size you pick, so
-`LAZYOS_USB_HOME_SIZE`); **Write to stick** asks twice like the command line
+`LAZYOS_USB_HOME_SIZE`); **Write to stick** asks once, like the command line,
 and runs `write_stick.py --yes`, whose checks, write and SHA-256 read-back are
 the same, with a progress bar. Sticks the tool refuses are listed greyed out
 with the reason. On Linux the build runs as you and only the write is
@@ -101,8 +101,9 @@ mounted partition on Linux (unmount it first) and the system or boot disk on
 Windows (where it clears the chosen disk's partition table for the write, which
 removes its volumes, and rescans the disk after; Windows will not take removable
 media offline). It shows the model and size,
-asks twice (the second time you type the device name back), writes the whole
-image and reads it back to compare SHA-256 digests.
+asks once (y/N), writes the whole
+image (the partition table last, so Windows does not mount the stick
+mid-write) and reads it back to compare SHA-256 digests.
 
 On Windows, [Rufus](https://rufus.ie) works too: pick the image and, when Rufus
 asks, choose **DD Image** mode (not ISO mode). balenaEtcher writes raw images
