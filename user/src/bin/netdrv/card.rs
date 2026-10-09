@@ -19,6 +19,7 @@ use super::dma::Region;
 use super::e1000_card;
 use super::error::Error;
 use super::rings::AnyRings;
+use super::rtl8168_card;
 use super::virtio_card::{self, Virtio};
 
 /// Ticks (100 Hz) between reads of the link status when no interrupt says it
@@ -39,6 +40,7 @@ pub(super) struct Brought {
 enum Backend {
     Virtio(Virtio),
     E1000,
+    Rtl8168(rtl8168_card::State),
 }
 
 /// A doorbell for cards whose ring tails are written by the rings
@@ -88,8 +90,18 @@ impl Card {
                 let brought = e1000_card::open(&claimed, settings)?;
                 (Backend::E1000, brought, model, "e1000-0")
             }
+            Kind::Rtl8168(model) => {
+                let (brought, state) = rtl8168_card::open(&claimed, settings)?;
+                (Backend::Rtl8168(state), brought, model, "rtl8168-0")
+            }
         };
         device::arm(&mut claimed)?;
+        // The Realtek chip's causes are unmasked only now that the line is
+        // armed, so none is raised into a vector nobody listens on.
+        let mut brought = brought;
+        if let (Backend::Rtl8168(_), AnyRings::Rtl8168(rings)) = (&backend, &mut brought.rings) {
+            rtl8168_card::enable(rings);
+        }
         if let (Some(user::dev::IrqMode::MsiX), Backend::Virtio(virtio)) = (claimed.mode, &backend)
         {
             virtio.use_msix()?;
@@ -118,9 +130,18 @@ impl Card {
 
     /// Do all pending work (see `Engine::pump`).
     pub(super) fn pump(&mut self) -> Result<PumpOutcome, Error> {
-        Ok(match &self.backend {
+        Ok(match &mut self.backend {
             Backend::Virtio(virtio) => self.engine.pump(&mut virtio.bell())?,
             Backend::E1000 => self.engine.pump(&mut NoBell)?,
+            Backend::Rtl8168(state) => {
+                // A fault noticed in the interrupt handler (a gone device, a
+                // PCI error) and a stuck transmit queue end the driver; the
+                // restart's soft reset is the recovery.
+                if let AnyRings::Rtl8168(rings) = self.engine.queues() {
+                    state.check(rings, self.engine.link())?;
+                }
+                self.engine.pump(&mut NoBell)?
+            }
         })
     }
 
@@ -135,13 +156,19 @@ impl Card {
     /// link change refreshes the link state.
     pub(super) fn handle_interrupt(&mut self) {
         self.engine.count_interrupt();
-        let link_changed = match &self.backend {
+        let link_changed = match &mut self.backend {
             Backend::Virtio(virtio) => virtio.take_config_change(),
             Backend::E1000 => match self.engine.queues_mut() {
                 AnyRings::E1000(rings) => {
                     e1000::setup::take_causes(rings.regs_mut()) & e1000::regs::int::LSC != 0
                 }
-                AnyRings::Virtio(_) => false,
+                AnyRings::Virtio(_) | AnyRings::Rtl8168(_) => false,
+            },
+            Backend::Rtl8168(state) => match self.engine.queues_mut() {
+                AnyRings::Rtl8168(rings) => {
+                    state.note_causes(rtl8168::setup::take_causes(rings.regs_mut()))
+                }
+                _ => false,
             },
         };
         if link_changed {
@@ -152,14 +179,34 @@ impl Card {
 
     /// Re-read the link status from the device.
     fn refresh_link(&mut self) -> bool {
-        let link = match &self.backend {
+        let link = match &mut self.backend {
             Backend::Virtio(virtio) => virtio.link(),
             Backend::E1000 => match self.engine.queues() {
                 AnyRings::E1000(rings) => Some(e1000::setup::link_up(rings.regs())),
-                AnyRings::Virtio(_) => None,
+                AnyRings::Virtio(_) | AnyRings::Rtl8168(_) => None,
+            },
+            Backend::Rtl8168(state) => match self.engine.queues() {
+                AnyRings::Rtl8168(rings) => {
+                    let link = rtl8168::setup::link(rings.regs());
+                    if link.is_none() {
+                        state.gone();
+                    }
+                    link.map(|link| link.up)
+                }
+                _ => None,
             },
         };
-        link.is_some_and(|up| self.engine.set_link(up))
+        let changed = link.is_some_and(|up| self.engine.set_link(up));
+        if changed {
+            // A change of link on this chip is where a cold start differs from
+            // Linux's: keep its registers on the log (rtl8168 plan section 5).
+            if let (Backend::Rtl8168(_), AnyRings::Rtl8168(rings)) =
+                (&self.backend, self.engine.queues())
+            {
+                rtl8168_card::report_link("link-change", rings.regs());
+            }
+        }
+        changed
     }
 
     /// Poll the link status when its time has come; returns whether it changed.
@@ -191,6 +238,18 @@ impl Card {
             if Card::is_interrupt(&message) {
                 self.handle_interrupt();
             }
+        }
+    }
+}
+
+impl Drop for Card {
+    /// No DMA may run after the driver's memory is gone: stop the Realtek
+    /// chip before `_region` is released (fields drop after this body).
+    fn drop(&mut self) {
+        if let (Backend::Rtl8168(_), AnyRings::Rtl8168(rings)) =
+            (&self.backend, self.engine.queues_mut())
+        {
+            rtl8168_card::shutdown(rings);
         }
     }
 }

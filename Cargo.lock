@@ -332,6 +332,7 @@ version = "0.1.0"
 dependencies = [
  "e1000",
  "hda",
+ "rtl8168",
 ]
 
 [[package]]
@@ -960,6 +961,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtl8168"
+version = "0.1.0"
+dependencies = [
+ "framering",
+ "fuzzkit",
+ "nicdrv",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1394,6 +1404,7 @@ dependencies = [
  "passwd",
  "pcm",
  "pkgstore",
+ "rtl8168",
  "smbfs",
  "smbwire",
  "sndpolicy",

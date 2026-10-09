@@ -1,6 +1,10 @@
 # Realtek RTL8111H / RTL8168H NIC driver — plan
 
-> **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
+> **Status: revision 2 (2026-10-09). R1 and R2 are built and host-tested
+> (`libs/rtl8168`, the `netdrv` back end, the `devmatch` row); the diagnosis
+> tools for R0 and the VFIO script for R3 exist. Nothing has run on the chip:
+> R0, R3 and R4 need the box.** See "As built" at the end for what differs
+> from the draft.
 > The wired Ethernet for the Kaby Lake box ([kabylake-box-plan.md](kabylake-box-plan.md)):
 > a fourth back end of `netdrv` serving `os.lazy.net.nic.v1` unchanged, so
 > `netd`, sockets and every tool keep working. It copies the shape of the
@@ -121,7 +125,16 @@ rings 256-byte aligned, at most 1024 entries *to confirm*, 256 by default.
 - **Receive:** every descriptor owns a fixed 2 KiB slot and is handed to the
   device with `OWN` set (and `EOR` on the last). A completion is a
   descriptor whose `OWN` the device cleared. Its length includes the 4-byte
-  CRC *to confirm*; a length past the slot, a frame without both `FS` and
+  FCS: the chip does not strip it and Linux's receive path for this revision
+  subtracts `ETH_FCS_LEN` unconditionally. **The driver trims the FCS before
+  `deliver`**, because `NicRings::poll_frames` takes `max_frame` as MTU plus
+  Ethernet header (1514): with the FCS a maximum-size frame is 1518 and would
+  be refused as oversize, and shorter frames would carry four bytes of FCS to
+  the client. A reported length below 4 is a runt, and a trimmed length below
+  14 is a runt. Tests: frames of 14, 15, 60, 61, 1000, 1513 and 1514 bytes
+  arrive exactly as sent with the descriptor reporting length + 4; 1515 is
+  `Oversize`; a descriptor length equal to the limit is a 4-byte-shorter
+  frame, not an oversize one. A length past the slot, a frame without both `FS` and
   `LS` (spread over descriptors: v1 never asks for that), or an error bit
   (`RES`, CRC, runt, the rest *to confirm*) is dropped and counted. The frame
   is copied out of its slot, then the descriptor goes back with `OWN`.
@@ -243,3 +256,47 @@ speed on Messenger (shared with the I226 plan's I5), hardware counters into
    measures how often.
 5. **Wake and power states.** The function supports D3 and PME; v1 never
    leaves D0 and never arms wake.
+
+## 8. As built (revision 2)
+
+What the code does that the draft above did not say, or does differently:
+
+- **Receive filter.** The chip is programmed to accept every unicast, multicast
+  and broadcast frame (`MAR` all ones, `AcceptAllPhys`) and the engine filters,
+  as the 8254x back end does, so `SetRxMode` works without reprogramming the
+  chip. The draft's "no promiscuous" would have made the engine's promiscuous
+  mode a lie.
+- **Register widths.** `Regs` has 8, 16 and 32-bit accessors: `IntrMask` and
+  `IntrStatus` are neighbours and the status is write-one-to-clear, so a 32-bit
+  write meant for the mask would acknowledge causes.
+- **Interrupts are unmasked after `device::arm`**, as §3.2 step 7 says (the
+  8254x back end unmasks before; this one does not).
+- **Transmit padding.** Frames under 60 bytes are zero-padded by the driver, so
+  no revision-specific hardware padding behaviour is relied on.
+- **Hostile completions.** A completion behind a descriptor the chip still owns,
+  seen on two polls running, is `Fatal::Hardware`. Receive "never handed over"
+  cannot arise (every descriptor is re-posted at once); transmit completions on
+  descriptors not in flight are ignored.
+- **Transmit watchdog.** `libs/rtl8168::TxWatchdog`: queued frames, no
+  completion for 500 ticks, link up: `Fatal::Hardware("tx timeout")`.
+  A system error, an all-ones interrupt status or link register is fatal too.
+- **Unsupported revision.** `setup::identify` refuses every XID but `541`;
+  `netdrv` prints `NETDRV:UNSUPPORTED <reason>` and parks (as for "no device")
+  instead of exiting, because the kabylake plan's `EXIT_UNSUPPORTED` (§3.3, B2)
+  does not exist yet. When it lands the park becomes that exit.
+- **Shutdown.** `Card`'s `Drop` disables `RE | TE`, masks and soft-resets before
+  the DMA region is released.
+- **Diagnosis.** `netdrv` prints `NETDRV:RTL8168 xid=… phy_id=…`, the link and
+  `NETDRV:REGS <label> <offset>: <32 bytes>` (256 bytes) at bring-up and on
+  every link change, always (the chip has no QEMU model, so the log is the
+  instrument). `tools/net/rtl8168/rtl8168_probe.py` collects the Linux side
+  (`survey`: `lspci`, `ethtool -i/-d/-S/--show-eee`, `dmesg`, BAR 2 and the
+  PHY's MII registers), decodes any dump and diffs Linux against LazyOS; its
+  `decode` also checks the plan's assumptions (XID, unicast MAC, the function
+  answering). `tools/net/vfio_box.sh` is R3's script.
+- **Not done:** the cargo-fuzz target and `fuzz/seeds/rtl8168` (the seeded
+  hostile-chip test `seeded_traffic_with_a_hostile_chip` runs in `cargo test`);
+  `docs/compat/hardware.md` (it does not exist yet); every *to confirm* in §3.1
+  stays so until `survey` has run on the box. The descriptor layout, error bit
+  positions and register offsets are the ones the family's open drivers agree
+  on, written from an understanding of them, not copied.

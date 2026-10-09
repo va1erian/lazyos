@@ -49,6 +49,9 @@ with hostile lengths, packet headers and settings to the parsers.
 python tools/net/run.py                            # build, boot, capture, verify (about 15 s on WHPX/KVM)
 python tools/net/run.py --no-build --accel none    # reuse target/lazyos.img, force TCG
 python tools/net/run.py --services                 # devd starts netdrv as the unprivileged _net user (uid 902)
+python tools/net/rtl8168/rtl8168_probe.py survey   # on the Kaby Lake box's Linux: collect the RTL8111H facts (docs/rtl8168-driver-plan.md R0)
+python tools/net/rtl8168/rtl8168_probe.py diff --ethtool ethtool-d.txt --serial serial.log   # Linux's registers vs LazyOS's NETDRV:REGS lines
+sudo tools/net/vfio_box.sh                        # LazyOS under QEMU/KVM with the box's RTL8111H passed through (R3)
 python tools/net/run.py --nic e1000                # an Intel 8254x (QEMU's e1000) instead of virtio-net (issue #497)
 python tools/net/run.py --machine q35 --virtio-disk
 python tools/net/run.py --poll                     # interrupts off: the driver must poll and still pass

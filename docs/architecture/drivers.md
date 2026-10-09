@@ -93,6 +93,21 @@ which deasserts the line before `irq_ack`).
 ones virtio-net used: claim, `cfg_write` (decode, bus master, INTx),
 `map_bar`, `dma_alloc`, `irq_enable`/`irq_ack`.
 
+## The fourth NIC: Realtek RTL8111H
+
+`libs/rtl8168` is the RTL8168-family back end for the same engine, for the
+Kaby Lake box's chip only (XID `541`; every other revision is refused by name,
+`netdrv` parks with `NETDRV:UNSUPPORTED`). Both rings are 16-byte descriptors
+with an `OWN` bit (no head/tail registers: the device clears `OWN`, the
+transmit doorbell is `TxPoll`), one 2048-byte slot each. The chip leaves the
+4-byte FCS on received frames and counts it in the length; the rings trim it
+before the engine sees the frame. Registers are accessed at their own widths
+(`IntrStatus` is write-one-to-clear and sits beside `IntrMask`). The PHY is
+reached through `PHYAR`; v1 only restarts autonegotiation. There is no QEMU
+model, so the driver logs `NETDRV:REGS` and `tools/net/rtl8168/` compares it
+with Linux's dump. Plan and status: [../rtl8168-driver-plan.md](../rtl8168-driver-plan.md).
+Settings: `sys/dev/net/rtl8168/*`.
+
 ## The second sound card: Intel HDA
 
 `libs/hda` is the generic HDA driver logic: link reset and codec discovery

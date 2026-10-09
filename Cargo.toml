@@ -94,6 +94,9 @@ members = [
     "libs/nicdrv",
     # The Intel 8254x NIC behind the same engine (issue #497, driver-plan D7).
     "libs/e1000",
+    # The Realtek RTL8111H/8168H NIC behind the same engine
+    # (docs/rtl8168-driver-plan.md).
+    "libs/rtl8168",
     # Intel High Definition Audio behind sndd (issue #497, driver-plan D7).
     "libs/hda",
     # devd's static driver manifest (issue #497, driver-plan 3.6).

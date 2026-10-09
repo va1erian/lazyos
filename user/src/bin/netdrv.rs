@@ -63,6 +63,8 @@ mod e1000_card;
 mod error;
 #[path = "netdrv/rings.rs"]
 mod rings;
+#[path = "netdrv/rtl8168_card.rs"]
+mod rtl8168_card;
 #[path = "netdrv/selftest.rs"]
 mod selftest;
 #[path = "netdrv/service.rs"]
@@ -138,7 +140,7 @@ fn mac_text(mac: &[u8; 6]) -> String {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    sys::write_str("netdrv: NIC driver (virtio-net, Intel 8254x)\n");
+    sys::write_str("netdrv: NIC driver (virtio-net, Intel 8254x, Realtek RTL8168)\n");
     // The identity the kernel stamped on this task: `_net` with only
     // `CAP_DEV_CLAIM` under `init`, root when the kernel boots it directly.
     match sys::cred_get(None) {
@@ -151,6 +153,12 @@ pub extern "C" fn _start() -> ! {
     let args = Args::from_service();
     match run(&args) {
         Ok(()) => sys::exit(0),
+        Err(Error::Unsupported(reason)) => {
+            // A device this driver cannot drive will not become drivable by a
+            // restart: say so once and park, as for no device.
+            sys::write_str(&format!("NETDRV:UNSUPPORTED {reason}\n"));
+            idle()
+        }
         Err(Error::NoDevice) => {
             sys::write_str("NETDRV:NODEV no supported NIC on this machine\n");
             idle()
