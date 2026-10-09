@@ -90,10 +90,13 @@ pub struct Tally {
 }
 
 impl Tally {
-    /// The serial marker for a finished pass.
-    pub fn done_line(&self) -> String {
+    /// The serial marker for a finished pass, with the bytes left free on
+    /// the volume that holds `/apps` when known (a regression in the stick's
+    /// RAM root sizing shows here before real hardware, issue #703).
+    pub fn done_line(&self, free: Option<u64>) -> String {
+        let free = free.map_or(String::new(), |bytes| format!(" free={bytes}"));
         format!(
-            "PKGD:PROVISION:DONE installed={} upgraded={} kept={} failed={}\n",
+            "PKGD:PROVISION:DONE installed={} upgraded={} kept={} failed={}{free}\n",
             self.installed, self.upgraded, self.kept, self.failed
         )
     }

@@ -23,6 +23,9 @@ use xhci::trb::{self, code, kind, Trb};
 use super::mem::{Bar, Region, PAGE};
 use super::Error;
 
+#[path = "hc_events.rs"]
+mod events;
+
 /// PCI class of an xHCI controller: serial bus, USB, xHCI programming
 /// interface.
 const CLASS: (u8, u8, u8) = (0x0C, 0x03, 0x30);
@@ -411,59 +414,6 @@ impl Hc {
             code::SUCCESS => Ok(event),
             other => Err(Error::Completion(command.kind(), other)),
         }
-    }
-
-    /// Wait for the first event matching `wanted`, keeping the others.
-    pub(super) fn wait(&mut self, wanted: impl Fn(&Trb) -> bool) -> Result<Trb, Error> {
-        let deadline = sys::clock() + TIMEOUT_TICKS;
-        loop {
-            self.pump();
-            if let Some(at) = self.pending.iter().position(&wanted) {
-                return Ok(self.pending.remove(at).unwrap_or_default());
-            }
-            if sys::clock() > deadline {
-                return Err(Error::Timeout("event"));
-            }
-            nap();
-        }
-    }
-
-    /// Move every new event into the pending queue and tell the controller
-    /// how far the driver got.
-    pub(super) fn pump(&mut self) {
-        let mut moved = false;
-        while let Some(event) = self.events.pop() {
-            if self.pending.len() == PENDING_CAP {
-                self.pending.pop_front();
-                self.dropped += 1;
-            }
-            self.pending.push_back(event);
-            moved = true;
-        }
-        if moved {
-            let erdp = self.events.erdp();
-            let at = self.rt + rt::INTERRUPTERS + rt::ERDP;
-            self.bar.write64(at, erdp);
-        }
-    }
-
-    /// Drop every queued transfer event of `slot` (`dci` 0: all of its
-    /// endpoints). Called after Disable Slot, or after an endpoint was reset
-    /// and its ring skipped: the memory is reused at the same bus addresses,
-    /// so a stale completion could otherwise look like a new one.
-    pub(super) fn discard(&mut self, slot: u8, dci: u8) {
-        self.pump();
-        self.pending.retain(|event| {
-            !(event.kind() == kind::TRANSFER_EVENT
-                && event.slot() == slot
-                && (dci == 0 || event.endpoint() == dci))
-        });
-    }
-
-    /// Take the oldest pending event, if any.
-    pub(super) fn next_event(&mut self) -> Option<Trb> {
-        self.pump();
-        self.pending.pop_front()
     }
 
     /// Interrupter 0 raises the interrupt: no moderation beyond `imod`

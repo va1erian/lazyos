@@ -73,4 +73,6 @@ mod tls_files_tests;
 #[cfg(test)]
 mod usb_tests;
 #[cfg(test)]
+mod usb_root_tests;
+#[cfg(test)]
 mod wallpapers_tests;

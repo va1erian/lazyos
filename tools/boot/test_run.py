@@ -109,6 +109,34 @@ class SerialJudge(unittest.TestCase):
         self.assertTrue(any("panicked" in f for f in judge.judge_serial(log, "uefi")))
 
 
+PROVISIONED = "PKGD:PROVISION:DONE installed=20 upgraded=0 kept=0 failed=0 free=71303168\n"
+
+
+class ProvisionJudge(unittest.TestCase):
+    def test_every_package_installed_with_room_passes(self):
+        self.assertEqual(judge.judge_provision(GOOD + PROVISIONED), [])
+
+    def test_no_done_line_fails(self):
+        self.assertTrue(judge.judge_provision(GOOD))
+
+    def test_a_failed_package_fails_and_is_named(self):
+        log = GOOD + (
+            'PKGD:PROVISION:FAIL sn=os.lazy.calc reason="Installing failed while writing '
+            'bin/calc.elf: no space left"\n'
+            "PKGD:PROVISION:DONE installed=19 upgraded=0 kept=0 failed=1 free=0\n")
+        failures = judge.judge_provision(log)
+        self.assertTrue(any("os.lazy.calc" in f for f in failures), failures)
+        self.assertTrue(any("MiB free" in f for f in failures), failures)
+
+    def test_a_done_line_without_free_fails(self):
+        log = GOOD + "PKGD:PROVISION:DONE installed=20 upgraded=0 kept=0 failed=0\n"
+        self.assertTrue(any("free=" in f for f in judge.judge_provision(log)))
+
+    def test_a_nearly_full_root_fails(self):
+        log = GOOD + PROVISIONED.replace("free=71303168", "free=1048576")
+        self.assertTrue(any("1 MiB free" in f for f in judge.judge_provision(log)))
+
+
 class PixelJudge(unittest.TestCase):
     def test_a_desktop_passes(self):
         self.assertEqual(judge.judge_pixels(DESKTOP), [])

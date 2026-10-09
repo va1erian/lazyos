@@ -35,6 +35,15 @@ mod fake {
         server.map(|server| server(index)).is_some()
     }
 
+    /// Put a request of disk `index` in its provider's hands, as if taken
+    /// now and never answered (the provider busy on that disk).
+    pub fn hold_taken(index: usize) {
+        let mut state = DISKS[index].state.lock();
+        state.busy = true;
+        state.phase = Phase::Taken;
+        state.taken_at = super::super::now();
+    }
+
     /// Give every slot back (between tests). The registry keeps its
     /// entries, so a recycled slot comes back under the same name.
     pub fn recycle_all() {

@@ -183,6 +183,9 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }
+# The stick's RAM root is sized for the core packages `pkgd` unpacks at
+# first boot, read with the reader `pkgd` installs them with (issue #703).
+lazypkg = { path = "libs/lazypkg" }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }

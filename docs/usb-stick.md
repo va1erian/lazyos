@@ -23,7 +23,7 @@ Advanced tab has a "USB stick image too" box). The stick image is opt-in:
 | `LAZYOS_USB_IMAGE=1` | off | also write `target/lazyos-usb.img` |
 | `LAZYOS_USB=1` | off | required with `LAZYOS_USB_IMAGE=1`: ships `usbd` and lists it in `init`'s manifest |
 | `LAZYOS_USB_HOME_SIZE` | `1G` | size of the `lazyhome` partition (`16M` minimum; `K`/`M`/`G` suffixes) |
-| `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written |
+| `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written **and** the core packages are unpacked into `/apps` at first boot (the build adds their unpacked size itself, issue #703) |
 | `LAZYOS_DIAG_HOLD` | unset | seconds (1 to 600): `lazyos.cfg` gets `diag.hold=<n>` and `xuid` keeps the console log panes on screen that long before the desktop opens, so the driver lines (`USBD:*`, `NETDRV:*`) of a PC with no serial port can be read and photographed; the panes wrap long lines |
 
 **USB input is mandatory.** The target PC may have no PS/2 port, so the build
@@ -54,6 +54,17 @@ The gap is the ramdisk load: the UEFI loader reads it through the firmware's
 USB driver in large blocks, the BIOS loader through INT 13h in small ones.
 Shrinking `LAZYOS_USB_ROOT_FREE` shortens the BIOS load almost linearly (the
 free space is loaded too), at the cost of room for files written to `/`.
+
+**The core packages need their own room.** The desktop's apps ship as `.lzp`
+archives in `/system/packages`, and `pkgd` unpacks every one into `/apps`
+(and its `docs/**.md` into `/docs/apps`) at the first boot; on the stick that
+is every boot, since the root lives in RAM. The ramdisk is therefore sized to
+the files, plus the packages' unpacked size counted from the archives
+(`usb_ramdisk::installed_package_bytes`), plus `LAZYOS_USB_ROOT_FREE`. The
+first real-PC boot had only the 64 MiB and lost 6 of 20 apps to `no space
+left` (issue #703). `pkgd` prints the free space left once it is done
+(`PKGD:PROVISION:DONE ... failed=0 free=<bytes>`), and `tools/boot/run.py`
+fails a desktop boot with a failed package or under 16 MiB free.
 
 ## Write it to a stick
 

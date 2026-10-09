@@ -12,7 +12,7 @@
 //! Serial evidence: `PKGD:PROVISION:INSTALL|UPGRADE <system_name>`,
 //! `PKGD:PROVISION:KEEP sn=<..> installed=<v> shipped=<v>`,
 //! `PKGD:PROVISION:FAIL sn=<..> reason=<..>`, and once per start
-//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>`.
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n> free=<bytes>`.
 //! Every step is audited in `pkg.log` as `op=provision`.
 
 use alloc::format;
@@ -182,7 +182,10 @@ impl Pkgd {
             kept: tally.kept,
             failed: tally.failed,
         };
-        sys::write_str(&tally.done_line());
+        let free = files::fs_space(pkgstore::layout::APPS_ROOT)
+            .ok()
+            .map(|(_, free)| free);
+        sys::write_str(&tally.done_line(free));
         let mut done = event("provision", &Subject::none(), 0, tally.failed == 0, "done");
         match summary {
             // A pass that did something ends with a record of it.

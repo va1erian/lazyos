@@ -4,7 +4,8 @@
 Builds ``target/lazyos-usb.img`` (``LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo
 build``) unless ``--no-build``, boots it under the chosen firmware from the
 chosen medium, waits for the desktop, takes a screenshot over QMP and judges
-the serial markers and the pixels (``judge.py``):
+the serial markers, the pixels and the first-boot package install
+(``PKGD:PROVISION:DONE ... failed=0 free=<bytes>``, issue #703; ``judge.py``):
 
     python tools/boot/run.py                              # OVMF, USB stick only
     python tools/boot/run.py --firmware bios              # SeaBIOS, USB stick only
@@ -125,10 +126,11 @@ def build(env_extra: dict[str, str]) -> None:
     subprocess.run(["cargo", "build"], cwd=ROOT, env=env, check=True)
 
 
-def watch(serial: Path, started: float, ready: str | None, timeout: float,
+def watch(serial: Path, started: float, markers: list[str], timeout: float,
           process: subprocess.Popen) -> list[tuple[float, str]]:
     """Follow the serial log, stamping each new line with the seconds since
-    QEMU started, until the ready marker, a panic, QEMU exiting or the timeout."""
+    QEMU started, until every marker appeared, a panic, QEMU exiting or the
+    timeout."""
     stamped: list[tuple[float, str]] = []
     seen = 0
     while time.time() - started < timeout:
@@ -137,7 +139,8 @@ def watch(serial: Path, started: float, ready: str | None, timeout: float,
         now = time.time() - started
         stamped += [(now, line) for line in lines[seen:]]
         seen = len(lines)
-        if (ready and ready in text) or judge.PANIC.search(text) or process.poll() is not None:
+        done = all(marker in text for marker in markers)
+        if done or judge.PANIC.search(text) or process.poll() is not None:
             break
         time.sleep(0.5)
     return stamped
@@ -201,7 +204,11 @@ def main(argv: list[str] | None = None) -> int:
         shot = out / "screen.png"
         try:
             qmp = qemu_qmp.Qmp("127.0.0.1", port, timeout=30)
-            stamped = watch(serial, started, ready, args.timeout, process)
+            # A desktop also installs the core packages (issue #703).
+            markers = [m for m in (ready,) if m]
+            if not args.serial_only:
+                markers.append(judge.PROVISION_MARKER)
+            stamped = watch(serial, started, markers, args.timeout, process)
             if process.poll() is None:
                 time.sleep(args.settle)
                 shot = qmp.screenshot(out / "screen")
@@ -221,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         _, stats, _ = pngstats.analyse_file(str(shot), None, None, None, None, None)
     if not args.serial_only:
         failures += judge.judge_pixels(stats)
+        failures += judge.judge_provision(log)
     report = {
         "firmware": args.firmware,
         "media": args.media,
@@ -229,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         "seconds": judge.milestones(stamped, ready),
         "media_marker": judge.MEDIA.findall(log),
         "root": judge.ROOT.findall(log),
+        "provision": [line for line in log.splitlines() if line.startswith("PKGD:PROVISION:DONE")],
         "screen": stats,
         "failures": failures,
     }

@@ -72,6 +72,23 @@ pub fn stat(path: &str) -> Result<(u64, Kind), i64> {
     Ok((out[0], if out[1] == 1 { Kind::Dir } else { Kind::File }))
 }
 
+/// `stat`'s flag for the capacity of a path's filesystem
+/// (`kernel/src/process/fsops.rs`, `STAT_FS`).
+const STAT_FS: u64 = 1;
+
+/// Total and free bytes of the filesystem holding `path`.
+pub fn fs_space(path: &str) -> Result<(u64, u64), i64> {
+    let path = nul_terminated(path);
+    let mut out = [0u64; 2];
+    check(syscall(
+        SYS_STAT,
+        path.as_ptr() as u64,
+        out.as_mut_ptr() as u64,
+        STAT_FS,
+    ))?;
+    Ok((out[0], out[1]))
+}
+
 /// The entries of directory `path`.
 pub fn list(path: &str) -> Result<Vec<Entry>, i64> {
     let path = nul_terminated(path);

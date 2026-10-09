@@ -60,6 +60,34 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
    events dropped) and `usbmsc` on the device (CLEAR_FEATURE(HALT), CSW
    retried once, then Bulk-Only reset recovery).
 
+### The driver's timeouts
+
+A flash stick does not answer at a steady pace: a write (and especially its
+status) can sit for seconds while the controller inside the stick erases and
+moves blocks. The first real-PC run (a SanDisk 0781:5591 on an Intel 9d2f,
+issue #704) lost `/home` minutes after boot: with a 5 s wait per transfer,
+a slow write was abandoned and reset, retried up to four times, and the
+kernel's then 10 s request deadline fired twice. Now (`msc_link.rs`):
+
+| What | Limit | Why |
+|---|---|---|
+| One bulk transfer while serving a request | 30 s (`SERVE_TRANSFER_TICKS`) | Linux's SCSI command timeout |
+| One kernel request, retries and recovery included | 45 s (`REQUEST_BUDGET_TICKS`) | below the kernel's 60 s `TAKEN_TICKS`, so the driver answers (with an error if it must) before the kernel gives up |
+| One bulk transfer during bring-up | 5 s | a stick that never answers INQUIRY must not stall the other devices |
+
+Once the budget is spent every further transfer of the request fails at
+once, so its remaining retries end quickly. While `usbd` waits on a stick its
+HID devices are not served, so a stalled write pauses the USB mouse too.
+
+Evidence for the next real-hardware run: `USBD:MSC:XFER port=<p> in|out
+len=<n> result=timeout|stall|budget|<completion code> waited_ms=<ms>
+epstate=<xHCI endpoint state> epdq=<dequeue pointer> usbcmd=.. usbsts=..`
+for every transfer that did not complete (read before recovery changes
+anything), then `USBD:MSC:REQ id=usb<n> op=read|write|flush lba=<n>
+bytes=<n> ms=<ms> result=<..> stalls=<n> resets=<n>` for every request that
+failed or took over 2 s. `USBD:MSC:FAIL ... next errno 3` now says what it
+means: the kernel declared the disk dead, and its own log says why.
+
 ```
   ext2 / VFS ──read_sectors──▶ UserDisk (kernel, usb<n>)
                                   │ request slot + 64 KiB bounce buffer
@@ -91,7 +119,15 @@ providers per boot).
 Nothing the provider does can hang or crash the kernel:
 
 - The requester parks on the disk in **10-tick slices** and checks at each
-  wake that the provider task is alive. A request has **10 s**; a timed-out
+  wake that the provider task is alive. The provider must **take** a queued
+  request within **10 s** (`QUEUE_TICKS`: a provider that does not even look
+  is stuck) and **finish** one it took within **60 s** (`TAKEN_TICKS`). The
+  second deadline is long on purpose: a real stick can stall a write for
+  seconds while its flash reorganises (Linux gives a SCSI command 30 s), and
+  the first real-PC run lost `/home` to a 10 s limit (issue #704). `usbd`
+  bounds its own work on a request below that (45 s, see "The driver's
+  timeouts"). Each timeout prints `block: usb<n>: <op> lba <n> (<bytes>
+  bytes) timed out untaken|in the provider after <s> s`; a timed-out
   request is abandoned (a late `COMPLETE` is `ESTALE`). **Two timeouts in a
   row**, the provider's death (`ipc::teardown_task`), a `GONE` status or a
   `REMOVE` mark the disk **dead**: every pending and future request fails at

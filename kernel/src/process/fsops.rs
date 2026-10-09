@@ -3,7 +3,7 @@
 //!
 //! | nr | call | `rdi` | `rsi` | `rdx` | result |
 //! |----|------|-------|-------|-------|--------|
-//! | 15 | `stat` | path | out `[size, kind]` (2 x u64) | - | 0 |
+//! | 15 | `stat` | path | out `[size, kind]` (2 x u64) | 0, or [`STAT_FS`]: out `[total, free]` bytes of its filesystem | 0 |
 //! | 16 | `readdir` | path | buffer | buffer length | bytes written |
 //! | 17 | `write_file` | path | data | data length | bytes written |
 //! | 18 | `mkdir` | path | - | - | 0 |
@@ -95,7 +95,7 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
 /// 32 `chmod`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     let outcome = match nr {
-        15 => stat(a1, a2),
+        15 => stat(a1, a2, a3),
         16 => readdir(a1, a2, a3),
         17 => write_file(a1, a2, a3),
         18 => path_arg(a1).and_then(|path| mkdir(&path)),
@@ -113,11 +113,35 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     outcome.unwrap_or_else(|code| code)
 }
 
-fn stat(path_ptr: u64, out: u64) -> Result<u64, u64> {
+/// `stat`'s third argument: report the capacity of the filesystem holding
+/// the path instead of the path itself (`pkgd`'s `free=`, issue #703).
+pub const STAT_FS: u64 = 1;
+
+fn stat(path_ptr: u64, out: u64, flags: u64) -> Result<u64, u64> {
     let path = path_arg(path_ptr)?;
+    match flags {
+        0 => {}
+        STAT_FS => return stat_fs(&path, out),
+        _ => return Err(failed(EINVAL)),
+    }
     let meta = fs::vfs_stat(Id::current(), &path).map_err(|e| failed(errno_of(e)))?;
     let kind = u64::from(meta.kind == FileKind::Dir);
     user_ptr::try_copy_words(out, &[meta.size, kind]).map_err(|_| failed(EFAULT))?;
+    Ok(0)
+}
+
+/// `[total, free]` bytes of the filesystem holding `path` (the path must
+/// exist and be reachable by the caller, as for `stat`).
+fn stat_fs(path: &str, out: u64) -> Result<u64, u64> {
+    let id = Id::current();
+    fs::vfs_stat(id, path).map_err(|e| failed(errno_of(e)))?;
+    let capacity = fs::abi_statfs(id, path).map_err(|e| failed(errno_of(e)))?;
+    let block = u64::from(capacity.block_size);
+    let words = [
+        capacity.blocks.saturating_mul(block),
+        capacity.blocks_free.saturating_mul(block),
+    ];
+    user_ptr::try_copy_words(out, &words).map_err(|_| failed(EFAULT))?;
     Ok(0)
 }
 
