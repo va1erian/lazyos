@@ -83,6 +83,8 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     # Review of #659: what elevd refuses before any prompt.
     "audit_forge", "core_claim")}
 RHAI_ATTACKS |= {f"restart_{name}": f"restart_guarded.rhai {name}" for name in ("elevd", "xuid")}
+# The session's own layout needs no prompt; the machine's and admin's stay shut.
+RHAI_ATTACKS |= {f"layout_{name}": f"layout_write.rhai {name}" for name in ("machine", "other")}
 #: A step that only prepares a scenario prints this marker instead.
 SETUP_MARKERS = {"autostart_pkg": "TERM:OUT:ACCT:INSTALL:autostart_pkg:"}
 

@@ -5710,6 +5710,7 @@ dependencies = [
  "confd",
  "deskmenu",
  "fhs",
+ "inputmap",
  "timezone",
  "uitheme",
  "xui-canvas",

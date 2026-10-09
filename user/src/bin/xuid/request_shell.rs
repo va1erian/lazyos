@@ -107,6 +107,9 @@ impl Compositor {
         if self.themefeed.follow_user(cred.uid) {
             self.repaint_full();
         }
+        // And types with the user's own keyboard layout.
+        self.layoutfeed
+            .follow_user(cred.uid, self.themefeed.confd());
         empty_reply(message.method())
     }
 

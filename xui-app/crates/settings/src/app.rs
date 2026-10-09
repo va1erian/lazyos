@@ -271,7 +271,7 @@ impl SettingsApp {
         let picture = wallpaper_ops::current(self.store.as_ref());
         a.wallpaper
             .select(wallpaper_ops::row_of(&self.pictures, picture.as_deref()));
-        p.keyboard.load(self.store.as_ref());
+        p.keyboard.load(self.store.as_ref(), self.machine.as_ref());
         self.load_target(self.target);
         self.pages.menu.load(self.store.as_ref());
     }
@@ -415,7 +415,12 @@ impl App for SettingsApp {
                 self.retheme(ui);
             }
             Msg::MakeDefault => self.make_default(ui),
-            Msg::Keyboard(msg) => say(&self.status, self.pages.keyboard.update(msg, store)),
+            Msg::Keyboard(msg) => say(
+                &self.status,
+                self.pages
+                    .keyboard
+                    .update(msg, store, self.machine.as_ref()),
+            ),
             Msg::Time(msg) => say(
                 &self.status,
                 self.pages.time.update(msg, store, self.system.as_ref()),

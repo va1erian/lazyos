@@ -129,6 +129,10 @@ EXPECTATIONS: dict[str, Expect] = {
     "core_claim": Expect("blocked", U2, INSTALL_PATHS),
     "restart_elevd": Expect("blocked", U2),
     "restart_xuid": Expect("blocked", U2),
+    # A per-user keyboard layout: the machine default stays elevd's, and an
+    # account's own layout is its owner's alone.
+    "layout_machine": Expect("blocked", U2, ("/conf",)),
+    "layout_other": Expect("blocked", U0, ("/conf",)),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
 }

@@ -1514,37 +1514,13 @@
  },
  {
   "mouse_click": "left",
-  "until": "XUID:PROMPT:UP",
+  "until": "SETTINGS:LAYOUT:APPLIED:fr",
   "timeout": 40,
-  "retries": 1
+  "retries": 1,
+  "note": "the layout is the user's own (user/<uid>/input/layout): no administrator prompt"
  },
  {
-  "wait": 1.5
- },
- {
-  "type": "admin"
- },
- {
-  "key": "tab"
- },
- {
-  "type": "nimda"
- },
- {
-  "key": "ret"
- },
- {
-  "wait_for": "ELEVD:REQUEST op=conf.set .*outcome=granted",
-  "regex": true,
-  "occurrence": 1,
-  "timeout": 120,
-  "note": "every machine setting asks an administrator (docs/accounts-plan.md U2)"
- },
- {
-  "wait": 1.0
- },
- {
-  "wait_for": "SETTINGS:LAYOUT:APPLIED:fr",
+  "wait_for": "INPUTD:LAYOUT:SESSION fr effective=fr",
   "timeout": 30
  },
  {

@@ -100,6 +100,11 @@ impl ThemeFeed {
         scale
     }
 
+    /// The `confd` link, once reached (shared with `layoutfeed.rs`).
+    pub(super) fn confd(&self) -> Option<&Client> {
+        self.client.as_ref()
+    }
+
     /// Whether the desktop animations are enabled (`sys/ui/anim`).
     pub(super) fn animations(&self) -> bool {
         self.settings.anim
@@ -212,7 +217,7 @@ impl ThemeFeed {
 
 /// Subscribe to `filter`, bounded: the compositor must not stall on a silent
 /// broker. A failure is logged and retried by a later poll.
-fn subscribe(filter: String, now: u64) -> Option<Subscription> {
+pub(super) fn subscribe(filter: String, now: u64) -> Option<Subscription> {
     let deadline = Some(now + SUBSCRIBE_TICKS);
     let watch = Bus::connect()
         .and_then(|mut bus| bus.subscribe_with_deadline(&filter, Qos::Latest, deadline));
@@ -224,7 +229,7 @@ fn subscribe(filter: String, now: u64) -> Option<Subscription> {
 
 /// Whether at least one change event arrived on `watch` (all pending ones
 /// consumed). A broken subscription is dropped, so a later poll resubscribes.
-fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool {
+pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool {
     let Some(subscription) = watch else {
         return false;
     };

@@ -240,6 +240,14 @@ What exists, and the decisions taken on the way:
   written through `elevd` (one approval per key; a multi-key operation in
   `elevd` would make it one), then the user's copy is dropped so they follow
   the default they set. A desktop picture under `/home` stays the user's.
+- **The keyboard layout (decision):** personal like the theme. Settings
+  writes `user/<uid>/input/layout` with no prompt; `sys/input/layout` is the
+  machine default (the login screen, the console, accounts without their
+  own) and changes only through Keyboard's **Make it the default for
+  everyone**, through `elevd`. `inputd` keeps no `confd` rights beyond
+  `sys/**` and learns the user's layout from `xuid` (`NoteSessionLayout`),
+  which clears it at logout so a password is typed at the login screen with
+  the machine layout. Attacks `layout_machine` and `layout_other`.
 - **Passwords (decision, review of #659):** one rule,
   `accountdb::secret::check_secret`: 4 to 64 characters (bytes for the
   maximum, `keyd`'s limit), no control character. `accountsd` applies it to
@@ -261,7 +269,8 @@ What exists, and the decisions taken on the way:
 The prompt's keys come from `inputd`, like any window's: `xuid` gives the
 focus to a surface of its own while the prompt is up and reads that
 session (`user/src/bin/xuid/prompt_keys.rs`), so every keyboard (PS/2 or
-USB) types into it under the active layout (`sys/input/layout`, e.g. `fr`).
+USB) types into it under the active layout: the session user's own
+(`user/<uid>/input/layout`) or the machine's (`sys/input/layout`), e.g. `fr`.
 No client can read those keys: only a surface's owner opens its session,
 and this surface is the compositor's.
 

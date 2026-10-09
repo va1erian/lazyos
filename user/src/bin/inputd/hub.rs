@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 
 use inputmap::hold::KeyHold;
 use inputmap::router::Error as RouteError;
-use inputmap::{Barrier, Engine, Grabs, KeyOut, KeyState, Layout, Output, Router};
+use inputmap::{Barrier, Engine, Grabs, KeyOut, KeyState, Layout, LayoutChoice, Output, Router};
 use user::messenger::input::{self as api, shell_wire, wire};
 use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result};
 use user::sys;
@@ -54,6 +54,8 @@ pub(super) struct Hub {
     /// Key content held while the shell's panel menu has the keyboard
     /// (`held.rs`).
     pub(super) hold: KeyHold,
+    /// The machine layout and the logged-in user's own (`layoutsel.rs`).
+    pub(super) layouts: LayoutChoice,
 }
 
 impl Hub {
@@ -68,6 +70,7 @@ impl Hub {
             key_pages: KeyPages::default(),
             barrier: Barrier::new(),
             hold: KeyHold::new(),
+            layouts: LayoutChoice::new(layout),
         }
     }
 
@@ -116,6 +119,9 @@ impl Hub {
                 Ok(Vec::new())
             }
             shell_wire::METHOD_NOTEKEYSHELD => self.note_keys_held(body).map(|()| Vec::new()),
+            shell_wire::METHOD_NOTESESSIONLAYOUT => {
+                self.note_session_layout(body).map(|()| Vec::new())
+            }
             shell_wire::METHOD_NOTEINPUTDONE => {
                 let args = shell_wire::decode_note_input_done_args(body).map_err(Error::Parcel)?;
                 self.input_done(args.seq);
@@ -313,19 +319,6 @@ impl Hub {
         }
     }
 
-    /// The layout changed: adopt it and tell every session (the layout name is
-    /// not secret).
-    pub(super) fn set_layout(&mut self, layout: Layout) {
-        self.engine.set_layout(layout);
-        let sessions: Vec<u64> = self.router.sessions().collect();
-        for session in sessions {
-            let body = wire::encode_layout_changed_args(&wire::LayoutChangedArgs {
-                layout: layout.name().into(),
-            });
-            self.send(session, wire::METHOD_LAYOUTCHANGED, body);
-        }
-    }
-
     /// Send an event to `session` (behind any backlog it has), dropping the
     /// session when its endpoint is gone.
     pub(super) fn send(&mut self, session: u64, method: u32, body: Encoded) {
@@ -391,6 +384,8 @@ impl Hub {
         self.pointer.subscribed = false;
         // A hold is the compositor's: it ends with it.
         self.hold.set(false, [0; 4]);
+        // So is the user's layout: back to the machine default.
+        self.end_session_layout();
         if let Some(old) = self.shell.take() {
             let _ = old.events.close();
             for id in old.hotkeys {

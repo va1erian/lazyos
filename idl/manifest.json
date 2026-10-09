@@ -977,6 +977,11 @@
         "oneway": true
       },
       {
+        "name": "NoteSessionLayout",
+        "id": 15,
+        "oneway": true
+      },
+      {
         "name": "HotkeyFired",
         "id": 20,
         "oneway": true
