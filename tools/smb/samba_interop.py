@@ -30,7 +30,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-IMAGE = "alpine:3.20"
+# The ECR Public mirror of Docker's official image first: Docker Hub throttles
+# anonymous pulls from GitHub's shared runner IPs (toomanyrequests).
+IMAGES = ("public.ecr.aws/docker/library/alpine:3.20", "alpine:3.20")
 NAME = "lazyos-smb-interop"
 SMBCAT = ROOT / "target" / "debug" / "examples" / ("smbcat.exe" if os.name == "nt" else "smbcat")
 CONF = """[global]
@@ -67,17 +69,22 @@ def docker(*args: str, check: bool = True, **kw) -> subprocess.CompletedProcess:
     return result
 
 
-def pull_image(attempts: int = 4) -> None:
-    """Pull `IMAGE`, retrying: a registry hiccup or rate limit is not a Samba failure."""
-    for attempt in range(1, attempts + 1):
-        try:
-            docker("pull", "-q", IMAGE)
-            return
-        except DockerError as err:
-            print(f"docker pull attempt {attempt}/{attempts}: {err}", file=sys.stderr)
-            if attempt == attempts:
-                raise
-            time.sleep(5 * attempt)
+def pull_image(attempts: int = 3) -> str:
+    """Pull the first image of `IMAGES` that arrives and return its name.
+
+    Each is retried: a registry hiccup or rate limit is not a Samba failure.
+    """
+    last = None
+    for image in IMAGES:
+        for attempt in range(1, attempts + 1):
+            try:
+                docker("pull", "-q", image)
+                return image
+            except DockerError as err:
+                last = err
+                print(f"docker pull {image} attempt {attempt}/{attempts}: {err}", file=sys.stderr)
+                time.sleep(5 * attempt)
+    raise last
 
 
 def free_port() -> int:
@@ -150,14 +157,14 @@ def main() -> int:
     password = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
     port = free_port()
     try:
-        pull_image()
+        image = pull_image()
     except DockerError as err:
-        print(f"SMB:INTEROP:FAIL cannot pull {IMAGE}: {err}")
+        print(f"SMB:INTEROP:FAIL cannot pull {IMAGES[0]}: {err}")
         return 1
     docker("rm", "-f", NAME, check=False)
     try:
         docker("run", "-d", "--name", NAME, "-p", f"127.0.0.1:{port}:445", "-e", f"CONF={CONF}",
-               "-e", f"PW={password}", IMAGE, "sh", "-c", SETUP)
+               "-e", f"PW={password}", image, "sh", "-c", SETUP)
     except DockerError as err:
         print(f"SMB:INTEROP:FAIL cannot start the container: {err}")
         return 1
