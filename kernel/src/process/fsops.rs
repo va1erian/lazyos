@@ -150,7 +150,7 @@ fn stat(path_ptr: u64, out: u64, flags: u64) -> Result<u64, u64> {
 fn stat_fs(path: &str, out: u64) -> Result<u64, u64> {
     let id = Id::current();
     fs::vfs_stat(id, path).map_err(|e| failed(errno_of(e)))?;
-    let capacity = fs::abi_statfs(id, path).map_err(|e| failed(errno_of(e)))?;
+    let capacity = fs::vfs_statfs(id, path).map_err(|e| failed(errno_of(e)))?;
     let block = u64::from(capacity.block_size);
     let words = [
         capacity.blocks.saturating_mul(block),

@@ -31,6 +31,9 @@ enum Mode {
     Silent,
     /// Never take a request (a provider stuck elsewhere; the clock moves on).
     Absent,
+    /// Never take a request of this disk, and keep one of disk `n` (this
+    /// provider's too) always freshly taken: busy elsewhere forever.
+    BusyElsewhere(usize),
     /// Take a request and answer it correctly this many ticks later (a USB
     /// stick stalling a write while its flash reorganises, issue #704).
     Slow(u64),
@@ -209,7 +212,10 @@ fn serve(index: usize) {
         }
         return;
     }
-    if fake.mode == Mode::Absent {
+    if let Mode::BusyElsewhere(other) = fake.mode {
+        test_clock::hold_taken(other);
+    }
+    if matches!(fake.mode, Mode::Absent | Mode::BusyElsewhere(_)) {
         test_clock::advance(provider::SLICE_TICKS);
         return;
     }
@@ -226,7 +232,7 @@ fn serve(index: usize) {
     fake.last = Some(request);
     fake.served += 1;
     let code = match fake.mode {
-        Mode::Silent | Mode::Absent => {
+        Mode::Silent | Mode::Absent | Mode::BusyElsewhere(_) => {
             test_clock::advance(provider::SLICE_TICKS);
             return;
         }
@@ -356,6 +362,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "provider_queued_behind_another_disk",
         slow::queued_behind_another_disk,
     ),
+    ("provider_deferral_is_bounded", slow::deferral_is_bounded),
     ("provider_soak_slow_requests", slow::soak_slow_requests),
     (
         "provider_kill_mid_request_releases_slot",

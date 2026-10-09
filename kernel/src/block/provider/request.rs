@@ -74,8 +74,11 @@ impl UserDisk {
         read: Option<&mut [u8]>,
     ) -> Result<(), BlockError> {
         // Whether an untaken request's deadline may still be pushed back
-        // because its provider is busy with another of its disks.
+        // because its provider is busy with another of its disks, and until
+        // when: one taken request's worth, so with its own queue and taken
+        // time a holder stays within `SLOT_TICKS`.
         let mut may_defer = true;
+        let defer_until = queued_at + TAKEN_TICKS;
         loop {
             let deadline;
             let owner;
@@ -113,7 +116,7 @@ impl UserDisk {
                 // Untaken: a provider serving another of its sticks (one
                 // transfer at a time) has not neglected this one. Checked
                 // with this disk's lock dropped: disks are locked one at a time.
-                if super::busy_elsewhere(self.index, owner, now()) {
+                if now() < defer_until && super::busy_elsewhere(self.index, owner, now()) {
                     queued_at = now();
                 } else {
                     may_defer = false;

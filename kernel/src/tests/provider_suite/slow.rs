@@ -140,6 +140,40 @@ pub fn queued_behind_another_disk() -> Result<(), String> {
     result
 }
 
+/// A provider that keeps taking fresh requests of another disk never takes
+/// this one: the deferral ends after one taken request's worth, so the
+/// request fails within `SLOT_TICKS` and counts once.
+pub fn deferral_is_bounded() -> Result<(), String> {
+    let disk = setup(Mode::Absent)?;
+    let result = (|| {
+        let owner = with_fake(|fake| fake.owner);
+        let other = provider::register(owner, SECTORS, true)
+            .map_err(|e| format!("register a second disk: {e:?}"))?;
+        mode(Mode::BusyElsewhere(other));
+        let before = test_clock::offset();
+        let mut sector = [0u8; SECTOR_SIZE];
+        expect_err(
+            disk.read_sectors(3, &mut sector),
+            BlockError::Io,
+            "a request behind an endlessly busy provider",
+        )?;
+        let waited = test_clock::offset() - before;
+        check!(
+            waited <= provider::TAKEN_TICKS + provider::QUEUE_TICKS + 2 * provider::SLICE_TICKS,
+            "deferred for {waited} ticks"
+        );
+        check!(waited < provider::SLOT_TICKS, "waited {waited} ticks");
+        let (stats, alive) = state()?;
+        check!(
+            alive && stats.timeouts == 1,
+            "stats {stats:?} alive {alive}"
+        );
+        Ok(())
+    })();
+    teardown();
+    result
+}
+
 /// Hundreds of requests, each stalled for a different long while (up to
 /// 40 s), through the ext2-sized range: none times out, the data is right,
 /// and the heap is where it started.

@@ -421,6 +421,12 @@ pub fn abi_sync_all() -> Result<(), FsError> {
     abi_with(|vfs| vfs.sync_all()).unwrap_or(Ok(()))
 }
 
+/// Capacity of the filesystem holding `path` in the native table (the one
+/// the native syscalls resolve paths in).
+pub fn vfs_statfs(id: Id, path: &str) -> Result<vfs::StatFs, FsError> {
+    with(|vfs| vfs.statfs(id, path)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// Capacity of the filesystem holding `path` (`statfs`).
 pub fn abi_statfs(id: Id, path: &str) -> Result<vfs::StatFs, FsError> {
     abi_with(|vfs| vfs.statfs(id, path)).unwrap_or(Err(FsError::NotFound))
