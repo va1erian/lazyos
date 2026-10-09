@@ -2,12 +2,13 @@
 //! address field and the throbber, the page, and the status bar with its
 //! security badge and download progress.
 
+use xui_core::app::Ui;
 use xui_core::arrange::{
     build, button, column, edit, label, menu_bar, progress, row, Align, Handle, Layout, LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::layout::Insets;
-use xui_core::widget::{Button, Edit, Label, MenuId, ProgressBar};
+use xui_core::widget::{Button, Edit, Label, Menu, MenuId, ProgressBar};
 use xui_core::Dip;
 
 use crate::app::Msg;
@@ -38,10 +39,14 @@ pub enum Command {
     ClearHistory,
     ShowDownloads,
     About,
+    /// The context menu's: act on what was right-clicked.
+    OpenLink,
+    CopyLink,
+    SaveImage,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 12] = [
+const COMMANDS: [Command; 15] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -54,6 +59,9 @@ const COMMANDS: [Command; 12] = [
     Command::ClearHistory,
     Command::ShowDownloads,
     Command::About,
+    Command::OpenLink,
+    Command::CopyLink,
+    Command::SaveImage,
 ];
 
 impl Command {
@@ -62,7 +70,7 @@ impl Command {
         MenuId::new(index + 1)
     }
 
-    fn from_id(id: MenuId) -> Option<Command> {
+    pub fn from_id(id: MenuId) -> Option<Command> {
         COMMANDS.iter().copied().find(|c| c.id() == id)
     }
 }
@@ -145,6 +153,29 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
     })
     .on_select_with(|id| Command::from_id(id).map(Msg::Menu))
     .bind(&widgets.menu)
+}
+
+/// The popup a right click on the page opens: the page's own commands, then
+/// the ones for the link or picture under the pointer (`app.rs` enables
+/// those only when there is one).
+pub fn context_menu(ui: &Ui<Msg>) -> Menu<Msg> {
+    Menu::context(ui)
+        .build(|m| {
+            m.item(Command::Back.id(), "&Back")
+                .icon(Lucide::ChevronLeft);
+            m.item(Command::Forward.id(), "&Forward")
+                .icon(Lucide::ChevronRight);
+            m.item(Command::Reload.id(), "&Reload")
+                .icon(Lucide::RefreshCw);
+            m.separator();
+            m.item(Command::OpenLink.id(), "&Open Link")
+                .icon(Lucide::ExternalLink);
+            m.item(Command::CopyLink.id(), "Copy Link &Address")
+                .icon(Lucide::Link);
+            m.item(Command::SaveImage.id(), "&Save Image As...")
+                .icon(Lucide::Download);
+        })
+        .on_select(|id| Command::from_id(id).map(Msg::Menu))
 }
 
 /// An icon button with a tooltip.

@@ -6,7 +6,7 @@ publish = false
 description = "The LazyOS Settings app core: sections, config store seam and UI (host-testable)"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "59c1bd433e9b174e6e7896137891d06c073e7d1c" }
 # The theme schema and palette resolution shared with xuid, so the app never
 # hand-copies the `sys/ui/*` keys or the preset colours.
 uitheme = { path = "../../../libs/uitheme" }
@@ -24,4 +24,4 @@ accountdb = { path = "../../../libs/accountdb" }
 fhs = { path = "../../../libs/fhs" }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "59c1bd433e9b174e6e7896137891d06c073e7d1c", default-features = false }
