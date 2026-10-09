@@ -21,9 +21,11 @@ passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
 lazyos-crypto = { path = "../../libs/crypto" }
-# What `dbgd` parses from the lines the build writes (`dbgd_cfg.rs`).
-dbgwire = { path = "../../libs/dbgwire" }
+# The OS random source `dbgd_cfg.rs` makes the generated key from.
+getrandom = "0.4.3"
 
 [dev-dependencies]
 # The roots the image's CA bundle is built from (the root crate pins it).
 webpki-root-certs = "=1.0.9"
+# What `dbgd` parses from the lines the build writes (`dbgd_cfg.rs`).
+dbgwire = { path = "../../libs/dbgwire" }
