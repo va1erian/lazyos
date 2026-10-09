@@ -96,6 +96,14 @@ asks, choose **DD Image** mode (not ISO mode). balenaEtcher writes raw images
 as they are. Plain `dd if=target/lazyos-usb.img of=/dev/sdX bs=4M conv=fsync`
 is the same thing without the checks.
 
+Before writing, `python3 tools/boot/preflight.py` re-reads the image's bytes
+(MBR, the boot FAT's files, `BOOTX64.EFI` as a PE32+ x86-64 application, the
+ramdisk and its `lazyos.cfg`, both ext2 labels) and prints `PREFLIGHT:PASS`;
+`release.yml` runs it before the boot judge. A first boot on a new PC
+(survey script, firmware settings, what to photograph and save):
+[`compat/kabylake/B0.md`](compat/kabylake/B0.md); results go in
+[`compat/hardware.md`](compat/hardware.md).
+
 ## Boot it (ASUS PRIME Z890M-PLUS WIFI, AMI Aptio UEFI)
 
 1. Enter the firmware setup (**Del** at power-on) and go to Advanced Mode (F7).
