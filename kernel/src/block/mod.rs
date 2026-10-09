@@ -21,7 +21,9 @@
 //! read is tied to one disk regardless of which driver won the probe and which
 //! device is the active boot device.
 
+pub mod ahci;
 pub mod ata;
+mod dma;
 pub mod iowait;
 pub mod mem;
 pub mod nvme;
@@ -346,6 +348,28 @@ pub(crate) fn install_nvme(
         device.sector_count()
     );
     Some(device)
+}
+
+/// Attach one AHCI controller and register a block device for every port with
+/// a disk. The first takes the boot slot only when no earlier driver found a
+/// disk (docs/ahci-plan.md A2): the root is chosen by UUID from `lazyos.cfg`
+/// on any device, so the boot slot is only the legacy fallback. Called by the
+/// device core's driver entry once per matching function; returns how many
+/// disks it registered.
+pub(crate) fn install_ahci(function: crate::dev::pci::Function, bar: u64, len: u64) -> usize {
+    let disks = ahci::attach_function(function, bar, len);
+    for &device in &disks {
+        let _ = register(device);
+        if boot_device().is_none() {
+            set_boot_device(device);
+        }
+        serial_println!(
+            "block: {} ready, {} sectors",
+            device.name(),
+            device.sector_count()
+        );
+    }
+    disks.len()
 }
 
 /// Translate a kernel virtual address to its physical address by walking the

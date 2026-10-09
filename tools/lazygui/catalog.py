@@ -120,7 +120,7 @@ DEVICES_AUTOSTART = "devices"
 # list the embedded apps: `LAZYOS_DESKTOP=1` makes `build.rs` embed its own default set.
 DOCUMENT_APPS = ("editor", "files", "paint", "writer", "archiver")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
-DISKS = ["virtio", "ata"]
+DISKS = ["virtio", "ata", "ahci"]
 #: Guest RAM the GUI starts with; the same as every CLI launcher's default
 #: (`tools/screenshot/qemu_qmp.py` `DEFAULT_MEMORY`).
 DEFAULT_MEMORY = "1G"

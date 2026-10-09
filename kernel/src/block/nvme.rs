@@ -30,7 +30,6 @@
 //! log line naming the format: the block layer is 512 everywhere
 //! ([`SECTOR_SIZE`]).
 
-mod bounce;
 mod hw;
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -38,8 +37,8 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use alloc::vec::Vec;
 use nvme::{Controller, Op, Pages, Platform, MAX_INFLIGHT};
 
-use bounce::{gather, scatter};
-use hw::{Hw, Page};
+use super::dma::{gather, scatter, Page};
+use hw::Hw;
 use x86_64::VirtAddr;
 
 use super::iowait::{self, Expect};

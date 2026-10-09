@@ -1,0 +1,19 @@
+[package]
+name = "ahci"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "AHCI (SATA) HBA bring-up, command tables, PRDT planning and IDENTIFY parsing for the LazyOS kernel driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "ahci"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte entry point shared by the in-tree seeded tests
+# and the cargo-fuzz target (`fuzz/fuzz_targets/ahci.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

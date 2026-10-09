@@ -56,6 +56,10 @@ jobs:
           # docs/nvme-install-plan.md N1).
           - name: nvme
             args: "--machine q35 --nvme"
+          # A scratch disk on QEMU's AHCI controller for the AHCI request-path
+          # tests (ahci_suite, docs/ahci-plan.md A2).
+          - name: ahci
+            args: "--machine q35 --ahci"
     steps:
       - uses: actions/checkout@v4
 
@@ -124,4 +128,37 @@ jobs:
         with:
           name: nvme-boot
           path: shots/nvme-boot/**
+          if-no-files-found: warn
+
+  # The dev image on QEMU's AHCI controller and nothing else: firmware boots
+  # from it, the kernel attaches ahci0 and mounts / from ahci0p3
+  # (docs/ahci-plan.md A3). Default build, judged on serial markers.
+  ahci-boot:
+    name: ahci-boot (bios)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/qemu
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      - name: Build the dev image
+        run: cargo build
+
+      - name: Boot from AHCI and judge it
+        run: >
+          python tools/boot/run.py --no-build --image target/lazyos.img
+          --media ahci --firmware bios --root ahci0p3
+          --ready "Hello from ring 3!" --serial-only --settle 0
+          --out shots/ahci-boot
+
+      - name: Upload the boot log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ahci-boot
+          path: shots/ahci-boot/**
           if-no-files-found: warn

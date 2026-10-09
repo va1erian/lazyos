@@ -30,6 +30,7 @@ acpi = { path = "../libs/acpi", features = ["fuzz"] }
 ipp = { path = "../libs/ipp", features = ["fuzz"] }
 raster = { path = "../libs/raster", features = ["fuzz"] }
 nvme = { path = "../libs/nvme", features = ["fuzz"] }
+ahci = { path = "../libs/ahci", features = ["fuzz"] }
 passwd = { path = "../libs/passwd", features = ["fuzz"] }
 accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
 elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
@@ -162,6 +163,13 @@ bench = false
 [[bin]]
 name = "pwgraster"
 path = "fuzz_targets/pwgraster.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ahci"
+path = "fuzz_targets/ahci.rs"
 test = false
 doc = false
 bench = false

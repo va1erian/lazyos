@@ -24,6 +24,9 @@ have no PS/2 port. ``usbd`` claims the controller once it starts, which is
 fine: the kernel never touches the stick. The drive is opened with ``snapshot=on``
 unless ``--persist``, so a run never changes the image.
 
+``--media ahci`` does the same on QEMU's AHCI controller (docs/ahci-plan.md
+A3; ``--root ahci0p3``).
+
 ``--media nvme`` attaches the image to QEMU's NVMe controller as the only
 disk (docs/nvme-install-plan.md N1); with the dev image and ``--root nvme0p3``
 the kernel must mount its root from the NVMe disk. ``--serial-only`` judges a
@@ -97,6 +100,11 @@ def media_args(media: str, image: Path, persist: bool) -> list[str]:
         # (docs/nvme-install-plan.md N1). SeaBIOS and OVMF both boot from it.
         return ["-drive", drive,
                 "-device", "nvme,serial=lazyos-nvme0,drive=stick,bootindex=0"]
+    if media == "ahci":
+        # An AHCI controller of its own (docs/ahci-plan.md A3), so it works on
+        # every machine type; the disk is the only one on it.
+        return ["-device", "ahci,id=ahcib", "-drive", drive,
+                "-device", "ide-hd,drive=stick,bus=ahcib.0,bootindex=0"]
     return ["-drive", drive,
             "-device", "virtio-blk-pci,drive=stick,disable-modern=on,bootindex=0"]
 
@@ -139,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--firmware", choices=["uefi", "bios"], default="uefi")
-    parser.add_argument("--media", choices=["usb", "ide", "virtio", "nvme"], default="usb")
+    parser.add_argument("--media", choices=["usb", "ide", "virtio", "nvme", "ahci"], default="usb")
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos-usb.img"))
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--out", help="output directory (default shots/boot/<firmware>-<media>)")

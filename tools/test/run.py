@@ -69,6 +69,10 @@ def build_test_image(image: Path) -> None:
         sys.exit(f"build succeeded but {image} does not exist")
 
 
+# What ahci_suite prints when no scratch AHCI disk is attached.
+AHCI_SKIPPED = "no scratch AHCI disk; skipped"
+
+
 def parse_serial(text: str) -> dict:
     """Parse TEST: lines into a report payload."""
     results: list[dict] = []
@@ -149,6 +153,7 @@ def write_report(payload: dict) -> Path:
         and reported is not None
         and reported["pass"] == passed
         and reported["fail"] == failed
+        and not payload.get("required_skipped")
     )
     report = {
         "generated": generated,
@@ -157,6 +162,7 @@ def write_report(payload: dict) -> Path:
         "accel": payload["accel"],
         "qemu_exit_code": payload["qemu_exit_code"],
         "missing_summary": payload["missing_summary"],
+        "required_skipped": bool(payload.get("required_skipped")),
         "summary": {"pass": passed, "fail": failed},
         "reported_summary": reported,
         "tests": tests,
@@ -253,12 +259,22 @@ def main() -> int:
         "request-path tests (docs/nvme-install-plan.md N1)",
     )
     parser.add_argument(
+        "--ahci",
+        action="store_true",
+        help="add a blank 16 MiB disk on a QEMU AHCI controller (-device ahci) "
+        "for the AHCI request-path tests (docs/ahci-plan.md A2)",
+    )
+    parser.add_argument(
         "--extra-arg",
         action="append",
         default=[],
         help="one more QEMU argument, repeatable (e.g. --extra-arg=-cpu --extra-arg=max)",
     )
     args = parser.parse_args()
+    if args.ahci and args.ide_disk:
+        # The IDE boot disk has no bootindex, so the blank AHCI scratch disk
+        # could be the one firmware boots; the two also test different drivers.
+        parser.error("--ahci and --ide-disk cannot be combined")
 
     image = Path(args.image).resolve()
     out_dir = (ROOT / args.out).resolve() if not Path(args.out).is_absolute() else Path(args.out)
@@ -327,8 +343,27 @@ def main() -> int:
             "-drive", f"if=none,id=nvmescratch,format=raw,file={nvme_scratch.as_posix()}",
             "-device", "nvme,serial=lazyos-scratch,drive=nvmescratch",
         ]
+    ahci_scratch: Path | None = None
+    if args.ahci:
+        # A blank disk on its own AHCI controller, written by ahci_suite;
+        # never the boot disk. A controller of its own works on every machine
+        # type (q35's built-in one stays empty).
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="ahci-", suffix=".img", delete=False
+        ) as handle:
+            ahci_scratch = Path(handle.name).resolve()
+            if ahci_scratch == image:
+                sys.exit(f"AHCI scratch disk {ahci_scratch} is the boot image")
+            handle.truncate(SCRATCH_BYTES)
+        extra += [
+            "-device", "ahci,id=ahcis",
+            "-drive", f"if=none,id=ahcischratch,format=raw,file={ahci_scratch.as_posix()}",
+            "-device", "ide-hd,drive=ahcischratch,bus=ahcis.0",
+        ]
     command = build_qemu_command(
-        qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk
+        qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk,
+        # The blank AHCI scratch disk must not become the disk firmware boots.
+        boot_first=args.ahci,
     )
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -348,6 +383,8 @@ def main() -> int:
             modern_scratch.unlink(missing_ok=True)
         if nvme_scratch is not None:
             nvme_scratch.unlink(missing_ok=True)
+        if ahci_scratch is not None:
+            ahci_scratch.unlink(missing_ok=True)
 
     if serial_log.is_file():
         text = serial_log.read_text(errors="replace")
@@ -358,6 +395,11 @@ def main() -> int:
     payload["accel"] = extra[1] if extra and extra[0] == "-accel" else "none"
     payload["qemu_exit_code"] = proc.returncode
     payload["missing_summary"] = payload["reported"] is None
+    # The suite skips (and passes) without its scratch disk; a run that asked
+    # for one must not count as ok, in the report or the exit code.
+    payload["required_skipped"] = bool(
+        args.ahci and any(AHCI_SKIPPED in line for line in payload["info"])
+    )
 
     report_md = write_report(payload)
     passed = sum(1 for test in payload["tests"] if test["status"] == "pass")
@@ -380,6 +422,12 @@ def main() -> int:
             )
         return 1
     if failed:
+        return 1
+    if payload["required_skipped"]:
+        print(
+            "error: --ahci requested but the AHCI scratch disk was not attached",
+            file=sys.stderr,
+        )
         return 1
     if payload["reported"]["pass"] != passed or payload["reported"]["fail"] != failed:
         print(

@@ -46,8 +46,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
                              "(many times faster than TCG)")
-    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
-                        help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
+    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata", "ahci"],
+                        help="boot disk bus: virtio-blk (DMA, fast), legacy IDE/ATA PIO, "
+                             "or QEMU's AHCI (SATA) controller (docs/ahci-plan.md A3)")
     parser.add_argument("--home-disk", default=str(mkdisk.DEFAULT_HOME_PATH), metavar="PATH",
                         help="persistent ext2 home volume (label lazyhome, mounted at /home), "
                              "attached as a second virtio-blk device and created if missing "

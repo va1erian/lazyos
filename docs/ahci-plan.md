@@ -1,6 +1,16 @@
 # AHCI (SATA) block driver — plan
 
-> **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
+> **Status: revision 2 (2026-10-09). A1 (`libs/ahci`: model HBA tests, fuzz,
+> clippy) and the code of A2/A3 (kernel adapter, `--ahci`, `--media ahci`,
+> `--disk ahci`, flush and standby in the power path, CI jobs) are written.
+> The kernel suite and the CI jobs have not run yet (no QEMU where this was
+> written), and A0 (checking offsets against the specification) and A4 (the
+> box) are open: the *to confirm* marks stand.**
+>
+> Deviations from revision 1: `run_demo.py` already had `--disk
+> {virtio,ata}`, so AHCI is a third value of it (`--disk ahci`), not a new
+> `--disk-bus`; the AHCI test disk sits on its own `-device ahci` rather
+> than q35's built-in controller, so it works on every machine type.
 > The disk driver for the Kaby Lake box ([kabylake-box-plan.md](kabylake-box-plan.md):
 > a 512 GB SATA SSD on a Sunrise Point-LP AHCI controller, `8086:9d03`, no
 > NVMe), and for any PC whose SATA runs in AHCI mode. It follows NVMe N1
@@ -111,7 +121,12 @@ table in static memory with room for 64 PRDT entries.
 - **Data path:** the device reads and writes the caller's buffers directly,
   each page translated with `virt_to_phys` (the virtio and NVMe rule). A
   transfer is cut into commands of at most 64 entries and 256 KiB, no entry
-  crossing a page. AHCI requires each entry's address to be word aligned
+  crossing a page. Without `CAP.S64A` the HBA cannot address memory above
+  4 GiB, and caller buffers (heap pages) can lie there: the planner checks
+  every entry it builds, not only the static DMA pages, and a buffer with
+  any page at or above 4 GiB goes through the port's bounce page, which is
+  itself checked to be below 4 GiB at attach (the port is refused if not).
+  AHCI requires each entry's address to be word aligned
   and its byte count even (`DBC` holds count − 1 with bit 0 set, *to
   confirm*); a buffer that breaks that goes through the port's bounce page,
   as NVMe's non-dword-aligned buffers do.
@@ -144,6 +159,10 @@ table in static memory with room for 64 PRDT entries.
   its device stays registered and answers `BlockError::Io` (the NVMe rule),
   and the HBA touches no more of its memory (the port is stopped, `FRE`
   clear, before anything is freed; nothing is ever freed while it runs).
+  A port that will not stop at all (`PxCMD.CR` stays set after COMRESET) is
+  detached at once and flagged DMA-unsafe: the HBA may still be using the
+  caller's buffers, so the kernel clears the controller's PCI bus-master
+  bit (every port on it) before the request returns.
 - **Host bus errors** (`PxIS.HBFS`, `HBDS`, `IFS`): treated as a timeout.
 - **Media errors** reach the filesystem as `Io`, which ext2 already handles
   (read-only remount on a write failure, as today).

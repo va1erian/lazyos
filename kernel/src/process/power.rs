@@ -104,6 +104,9 @@ fn sync_filesystems() {
     // NVMe controllers write their caches back and say when power may go
     // (docs/nvme-install-plan.md N1); nothing writes after this.
     crate::block::nvme::shutdown_all();
+    // AHCI disks flush their caches (docs/ahci-plan.md A3). `shutdown` also
+    // parks them; a reboot leaves them spinning.
+    crate::block::ahci::flush_all();
 }
 
 /// The 8042 status port and its input-buffer-full bit.
@@ -179,6 +182,7 @@ fn shutdown() -> ! {
     crate::serial_println!("power: shutdown requested");
     crate::serial::flush();
     sync_filesystems();
+    crate::block::ahci::standby_all();
     x86_64::instructions::interrupts::disable();
     // SAFETY: these ports only exist on virtual machines: 0x604 is QEMU's ACPI
     // PM1a control (SLP_TYP=S5|SLP_EN) and 0xB004 the older Bochs/QEMU one; on
