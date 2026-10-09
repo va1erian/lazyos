@@ -103,7 +103,7 @@ def exercise(key: str, c: Checks, usb: bool) -> None:
     wrong = DbgClient(host, HOST_PORT, "00" * 16)
     c.raises("a wrong key is refused", -32001, wrong.connect)
     wrong.close()
-    time.sleep(1.2)  # the lockout after one failure is one second
+    time.sleep(2.5)  # the lockout after one failure is one second (guest clock)
 
     with DbgClient(host, HOST_PORT, key) as dbg:
         call = dbg.call

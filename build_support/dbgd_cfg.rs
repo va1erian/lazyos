@@ -66,18 +66,13 @@ pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>) -> String {
     out
 }
 
-/// A new random key (32 bytes as hex). The build has no `rand`: the
-/// standard library's per-process hasher keys come from the OS.
+/// A new random key (32 bytes as hex) from the operating system's
+/// cryptographic random source.
 fn random_key() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let mut out = String::new();
-    for index in 0..4u64 {
-        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-        hasher.write_u64(index);
-        hasher.write_u32(std::process::id());
-        out.push_str(&format!("{:016x}", hasher.finish()));
-    }
-    out
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .unwrap_or_else(|e| panic!("no OS random source for the dbgd key: {e}"));
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The key to use: `LAZYOS_DBGD_KEY`, else the one in `key_file`, else a new
