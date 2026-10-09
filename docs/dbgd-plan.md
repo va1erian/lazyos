@@ -82,7 +82,9 @@ output (`sys::write_str`) is mirrored to the serial port and the console
 panes but was never kept: the `USBD:DIAG` line of the bring-up existed only
 on a screen. A `LAZYOS_DBGD=1` kernel keeps it in a second 64 KiB ring
 (`kernel/src/klog.rs`, written by `serial::mirror`, read by op 3), kept
-apart so a chatty program cannot push the boot out of the boot log.
+apart so a chatty program cannot push the boot out of the boot log. Op 3 is
+refused (`EPERM`) to every uid but root and `dbgd`'s (911): service output can
+hold anything a service logs, unlike the boot log (open like `dmesg`).
 
 `usbd` rewrites `/transient/usbd.dump` (at most every 2 s, when the bus
 changed); `dbgd` serves the file. Everything else is read through the

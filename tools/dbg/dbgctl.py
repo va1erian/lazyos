@@ -49,7 +49,7 @@ def run(args, dbg: DbgClient) -> object:
                 seen += 1
                 print(line_text(record), flush=True)
             try:
-                dbg.follow(show, seconds=args.seconds, backlog=args.lines)
+                dbg.follow(show, seconds=args.seconds, backlog=args.lines, source=args.source)
             except KeyboardInterrupt:
                 pass
             return None

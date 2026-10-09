@@ -99,7 +99,8 @@ impl Controller {
                 }
             }
             self.dead = true;
-            return false;
+            // The snapshot changed (`USBD:DUMP:DEAD`): report it as an event.
+            return true;
         }
         let mut busy = false;
         while let Some(event) = self.hc.next_event() {

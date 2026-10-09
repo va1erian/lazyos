@@ -668,6 +668,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "getrandom",
  "kernel",
  "lazyos-crypto",
  "passwd",

@@ -22,6 +22,9 @@ from typing import Callable
 
 PROTO = "lazyos-dbg/1"
 DEFAULT_PORT = 9701
+#: Longest reply line accepted (the largest legitimate one is a 32 KiB file
+#: read in JSON, well under this).
+MAX_LINE = 4 << 20
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -116,6 +119,8 @@ class DbgClient:
             if not data:
                 raise DbgError(-1, "connection closed by the server")
             self.buffer += data
+            if b"\n" not in self.buffer and len(self.buffer) > MAX_LINE:
+                raise DbgError(-1, "the server sent a line over the size limit")
         line, _, self.buffer = self.buffer.partition(b"\n")
         return json.loads(line)
 
@@ -149,13 +154,31 @@ class DbgClient:
                 out.append(message)
         return out
 
-    def follow(self, on_line: Callable[[dict], None], seconds: float, backlog: int = 0) -> None:
-        """Stream the kernel log to `on_line` (one record per line) for
-        `seconds`, after `backlog` lines of history."""
-        answer = self.call("log.follow", lines=backlog)
+    def follow(self, on_line: Callable[[dict], None], seconds: float, backlog: int = 0,
+               source: str | None = None) -> None:
+        """Stream a log ring (`source` "kernel" or "programs") to `on_line`,
+        one record per line, as it arrives, for `seconds`, after `backlog`
+        lines of history."""
+        params = {"lines": backlog}
+        if source:
+            params["source"] = source
+        answer = self.call("log.follow", **params)
         for record in answer.get("lines", []):
             on_line(record)
-        for note in self.notifications(seconds):
-            if note.get("method") == "log":
-                for record in note["params"].get("lines", []):
-                    on_line(record)
+        end = time.monotonic() + seconds
+        pending, self.pending = self.pending, []
+        while True:
+            for note in pending:
+                if note.get("method") == "log":
+                    for record in note["params"].get("lines", []):
+                        on_line(record)
+            pending = []
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            try:
+                message = self.read_message(timeout=min(left, 1.0))
+            except socket.timeout:
+                continue
+            if "id" not in message:
+                pending.append(message)

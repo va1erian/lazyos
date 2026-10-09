@@ -245,14 +245,16 @@ const DUMP_TICKS: u64 = 200;
 /// two seconds. A failed write (no `/transient`) is not retried hard: the
 /// next event tries again.
 struct Dump {
-    last: u64,
+    /// The tick of the last attempt (`None`: none yet, so the first is not
+    /// held back by the interval).
+    last: Option<u64>,
     dirty: bool,
 }
 
 impl Dump {
     fn new() -> Dump {
         Dump {
-            last: 0,
+            last: None,
             dirty: true,
         }
     }
@@ -260,7 +262,7 @@ impl Dump {
     fn write(&mut self, controllers: &mut [Controller], busy: bool) {
         self.dirty |= busy;
         let now = sys::clock();
-        if !self.dirty || now < self.last + DUMP_TICKS {
+        if !self.dirty || self.last.is_some_and(|last| now < last + DUMP_TICKS) {
             return;
         }
         let mut text = format!("USBD:DUMP:AT tick={now}\n");
@@ -270,9 +272,11 @@ impl Dump {
                 text.push('\n');
             }
         }
-        let _ = user::files::write_file(DUMP_PATH, text.as_bytes());
-        self.last = now;
-        self.dirty = false;
+        // A failed write (the ramfs not there yet) stays pending and is
+        // tried again after the interval, so the file appears without
+        // waiting for another bus event.
+        self.last = Some(now);
+        self.dirty = user::files::write_file(DUMP_PATH, text.as_bytes()).is_err();
     }
 }
 

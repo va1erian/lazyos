@@ -191,8 +191,14 @@ pub const WORDS: usize = HEADER_WORDS + task::MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.
 pub const SIZE: u64 = (WORDS * 8) as u64;
 
+/// `dbgd`'s uid (`libs/dbgwire::config::DBGD_UID`).
+#[cfg(lazyos_dbgd)]
+const DBGD_UID: u32 = 911;
+
 /// Errno values, matching the Linux numbering the native ABI uses.
 mod errno {
+    #[cfg(lazyos_dbgd)]
+    pub const EPERM: i64 = 1;
     pub const E2BIG: i64 = 7;
     pub const EFAULT: i64 = 14;
     pub const EINVAL: i64 = 22;
@@ -211,7 +217,15 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         #[cfg(lazyos_dbgd)]
         op::KLOG => log_ring(a1, a2, crate::klog::snapshot_with_total),
         #[cfg(lazyos_dbgd)]
-        op::PROGRAM_LOG => log_ring(a1, a2, crate::klog::programs_with_total),
+        op::PROGRAM_LOG => {
+            // What programs print can hold anything a service logs: only
+            // root and `dbgd` (`libs/dbgwire::config::DBGD_UID`) read it.
+            let uid = crate::ipc::credentials::of(task::current()).uid;
+            if uid != 0 && uid != DBGD_UID {
+                return negative(errno::EPERM);
+            }
+            log_ring(a1, a2, crate::klog::programs_with_total)
+        }
         _ => negative(errno::EINVAL),
     }
 }
