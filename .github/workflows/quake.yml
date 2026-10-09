@@ -69,7 +69,9 @@ jobs:
 
       - uses: ./.github/actions/qemu
         with:
-          packages: qemu-system-x86 musl-tools bsdtar
+          # `libarchive-tools` runs `bsdtar`: the shareware zip holds an LZH
+          # archive, which it unpacks in the fetcher's one call.
+          packages: qemu-system-x86 musl-tools libarchive-tools
 
       - uses: ./.github/actions/rust-cache
         with:
