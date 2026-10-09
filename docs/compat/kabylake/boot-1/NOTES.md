@@ -20,6 +20,24 @@ some waits are long (to investigate, see "Open").
   MSI armed, 256-entry rings, `NETDRV:READY`. `link=false` because no cable was
   plugged in. First run of that driver on real hardware.
 - `sndd` on the HDMI codec: `SNDD:HDA codec=2 afg=1 pin=3 ... SNDD:READY`.
+- **Networking**: with a cable plugged in, the status bar shows
+  `eth0 192.168.1.146/24 via 192.168.1.254 - link up`; the box answers ping and
+  fetches HTTP. The RTL8168 driver, its MSI and DHCP work on bare metal.
+
+### The `HW:` lines (from `dmesg | grep HW:` in the Terminal)
+
+```
+HW:COM1:ABSENT
+HW:FB:2560x1440->1920x1080 at 320,180 stride 2560 bpp 4
+HW:FB:WC:3600 pages write-combining
+HW:ACPI:PRESENT rev=2 root=XSDT fadt=ok madt=ok hpet=ok dsdt=ok ...
+HW:TIMER:pit pit 1193182
+HW:IRQCHIP:ioapic pins=120 dest=0 pci_lines=0x0800
+HW:I8042:ABSENT (status reads 0xff)
+```
+
+The PIT works here (no LAPIC fallback needed), the framebuffer is mapped
+write-combining, ACPI tables parse cleanly.
 
 ## What failed, and how it was found
 
@@ -49,8 +67,12 @@ advanced, `USBSTS` clean.
 
 ## Open
 
-- Responsiveness: laggy windows and long waits. Candidates: uncached
-  framebuffer writes at 2560x1440 (look for `HW:FB:WC:` in the log), the tick
-  source (`HW:TIMER:`), and `usbd` retrying devices it does not bind.
-- Link and DHCP on the RTL8168 with a cable.
+- Responsiveness: laggy windows and long waits. Ruled out: framebuffer
+  mapping (write-combining is on) and the tick source (the PIT works). To
+  measure: `top` / System Monitor on the box (which task burns the CPU; the
+  kernel runs on one core, SMP is platform S8); whether `usbd` runs
+  interrupt-driven (the QEMU log has `USBD:IRQ hc=0 armed ...` right after
+  `USBD:CRED`; the first photos from the box show no such line before
+  `USBD:XHCI`, so it may be polling, one tick per look).
+- A remote read-only debug channel over the working network (log, `top`).
 - The AHCI driver and installing to the SSD (plan steps B1, B4).
