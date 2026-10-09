@@ -1,0 +1,25 @@
+# QEMU/OVMF baseline of the stick (usb-storage only, qemu-xhci), 2026-10-09: the lines to compare the box's boot against.
+# Produced by: python tools/boot/run.py --no-build --ready GREETER:UP:PASS (no BusyBox in this image: no Terminal).
+HW:COM1:PRESENT
+LazyOS: kernel entered
+LazyOS: framebuffer 1280x800 Bgr
+HW:FB:1280x800->1280x800 at 0,0 stride 1280 bpp 4
+BOOT:MEDIA:uefi
+HW:FB:WC:SKIPPED (hypervisor: the framebuffer is guest RAM)
+DEV:ENUM:PASS:7 devices (6 PCI, 0 drivers attached)
+FS:ROOT:ram0p2
+LazyOS: FAT16 filesystem mounted
+HW:ACPI:PRESENT rev=2 root=XSDT fadt=ok madt=ok hpet=ok dsdt=ok bad_entries=0
+HW:TIMER:pit pit 1193182
+HW:IRQCHIP:ioapic pins=24 dest=0 pci_lines=0x0c00
+HW:I8042:PRESENT aux=yes
+DEV:IRQ:PASS:16 vectors installed, 2/2 INTx-wired PCI functions on routable lines; 32 MSI vectors (on), 1 message-capable functions
+LazyOS: spawned init as task 1
+LazyOS: spawned xuid as task 2
+LazyOS: scheduler started (Tab switches focus)
+USBD:XHCI hc=0 vendor=0x1b36 device=0x000d version=0x100 ports=8 usb2=4 usb3=4 slots=12 scratchpads=0 csz64=false ac64=true ppc=false handoff=Absent
+DEV:MSI:PASS:00:03.0 dev 6 MsiX vector 0x40
+USBD:HID:KBD port=0-5 slot=2 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=2
+USBD:HID:MOUSE port=0-6 slot=3 vendor=0x0627 product=0x0001 interface=0 dci=3 regions=3
+USBD:READY devices=3 controllers=1
+INIT:HOME mounted

@@ -12,7 +12,9 @@ shots/
 
 # Generated ABI conformance output (tools/abi); CI publishes it to the wiki
 docs/compat/*
-# ...except the facts collected from real boxes (docs/rtl8168-driver-plan.md R0)
+# ...except the hand-written real-hardware evidence (docs/compat/hardware.md,
+# docs/compat/<machine>/; real-pc-boot-plan.md, kabylake-box-plan.md)
+!docs/compat/hardware.md
 !docs/compat/kabylake/
 
 # A static BusyBox binary is a fetched/built artifact (issue #254), never
