@@ -618,6 +618,7 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+ "ahci",
  "bootloader_api",
  "confd",
  "ext2fs",

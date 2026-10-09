@@ -253,6 +253,12 @@ def main() -> int:
         "request-path tests (docs/nvme-install-plan.md N1)",
     )
     parser.add_argument(
+        "--ahci",
+        action="store_true",
+        help="add a blank 16 MiB disk on a QEMU AHCI controller (-device ahci) "
+        "for the AHCI request-path tests (docs/ahci-plan.md A2)",
+    )
+    parser.add_argument(
         "--extra-arg",
         action="append",
         default=[],
@@ -327,6 +333,23 @@ def main() -> int:
             "-drive", f"if=none,id=nvmescratch,format=raw,file={nvme_scratch.as_posix()}",
             "-device", "nvme,serial=lazyos-scratch,drive=nvmescratch",
         ]
+    ahci_scratch: Path | None = None
+    if args.ahci:
+        # A blank disk on its own AHCI controller, written by ahci_suite;
+        # never the boot disk. A controller of its own works on every machine
+        # type (q35's built-in one stays empty).
+        with tempfile.NamedTemporaryFile(
+            dir=out_dir, prefix="ahci-", suffix=".img", delete=False
+        ) as handle:
+            ahci_scratch = Path(handle.name).resolve()
+            if ahci_scratch == image:
+                sys.exit(f"AHCI scratch disk {ahci_scratch} is the boot image")
+            handle.truncate(SCRATCH_BYTES)
+        extra += [
+            "-device", "ahci,id=ahcis",
+            "-drive", f"if=none,id=ahcischratch,format=raw,file={ahci_scratch.as_posix()}",
+            "-device", "ide-hd,drive=ahcischratch,bus=ahcis.0",
+        ]
     command = build_qemu_command(
         qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk
     )
@@ -348,6 +371,8 @@ def main() -> int:
             modern_scratch.unlink(missing_ok=True)
         if nvme_scratch is not None:
             nvme_scratch.unlink(missing_ok=True)
+        if ahci_scratch is not None:
+            ahci_scratch.unlink(missing_ok=True)
 
     if serial_log.is_file():
         text = serial_log.read_text(errors="replace")

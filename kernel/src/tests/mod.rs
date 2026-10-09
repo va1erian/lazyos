@@ -162,6 +162,7 @@ impl Drop for UserStack {
 }
 
 mod acl_suite;
+mod ahci_suite;
 mod arch_suite;
 mod block_sleep_suite;
 mod block_suite;
@@ -291,6 +292,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     virtio_suite::CASES,
     virtio_modern_suite::CASES,
     nvme_suite::CASES,
+    ahci_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,

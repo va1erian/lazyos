@@ -130,9 +130,56 @@ impl Driver for NvmeDriver {
     }
 }
 
+/// AHCI controllers (class 01:06, programming interface 01), on any vendor,
+/// one block device per port with a disk (docs/ahci-plan.md A2). After NVMe in
+/// the table, so it never displaces an earlier boot device. RAID mode (class
+/// 01:04) does not match.
+struct AhciDriver;
+
+impl Driver for AhciDriver {
+    fn name(&self) -> &'static str {
+        "ahci"
+    }
+
+    fn matches(&self, info: &DeviceInfo) -> bool {
+        matches!(info.bus, BusId::Pci(_))
+            && (info.class, info.subclass, info.prog_if) == (0x01, 0x06, 0x01)
+    }
+
+    fn attach(&self, handle: DeviceHandle) -> Result<(), DevError> {
+        let info = super::table()
+            .lock()
+            .get(handle.id())
+            .ok_or(DevError::NoDriver)?;
+        let BusId::Pci(address) = info.bus else {
+            return Err(DevError::NoDriver);
+        };
+        // ABAR is BAR 5.
+        let Some(bar) = info
+            .resources
+            .bar(5)
+            .filter(|bar| bar.kind == super::BarKind::Mem)
+        else {
+            serial_println!("ahci: {:?} has no memory BAR5", address);
+            return Err(DevError::NoDriver);
+        };
+        let function = super::pci::Function {
+            address,
+            vendor: info.vendor,
+            id: info.device,
+        };
+        // A controller with no disk is not an error, but there is nothing
+        // to keep it claimed for.
+        match crate::block::install_ahci(function, bar.base, bar.len) {
+            0 => Err(DevError::NoDriver),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// The static in-kernel driver table. Order matters only for which driver wins
 /// a device both accept; drivers do not overlap today.
-pub static DRIVERS: &[&dyn Driver] = &[&AtaDriver, &VirtioBlkDriver, &NvmeDriver];
+pub static DRIVERS: &[&dyn Driver] = &[&AtaDriver, &VirtioBlkDriver, &NvmeDriver, &AhciDriver];
 
 /// Guards the one-shot boot probe.
 static PROBED: AtomicBool = AtomicBool::new(false);

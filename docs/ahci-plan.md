@@ -111,7 +111,12 @@ table in static memory with room for 64 PRDT entries.
 - **Data path:** the device reads and writes the caller's buffers directly,
   each page translated with `virt_to_phys` (the virtio and NVMe rule). A
   transfer is cut into commands of at most 64 entries and 256 KiB, no entry
-  crossing a page. AHCI requires each entry's address to be word aligned
+  crossing a page. Without `CAP.S64A` the HBA cannot address memory above
+  4 GiB, and caller buffers (heap pages) can lie there: the planner checks
+  every entry it builds, not only the static DMA pages, and a buffer with
+  any page at or above 4 GiB goes through the port's bounce page, which is
+  itself checked to be below 4 GiB at attach (the port is refused if not).
+  AHCI requires each entry's address to be word aligned
   and its byte count even (`DBC` holds count − 1 with bit 0 set, *to
   confirm*); a buffer that breaks that goes through the port's bounce page,
   as NVMe's non-dword-aligned buffers do.
