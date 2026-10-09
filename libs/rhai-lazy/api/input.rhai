@@ -149,7 +149,7 @@ fn grant_changed(kind, active, reason) {
     msg::connect("os.lazy.input.v1").invoke("GrantChanged", [kind, active, reason])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Open, AttachKeyState.
 
 // The variants of `KeyState`, in wire order.

@@ -14,10 +14,12 @@
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
 //! is `4` (version 1 carried 16 rows, version 2 had 64 after issue #204,
-//! version 3 has 256 for the application package system, and version 4
+//! version 3 has 256 for the application package system, version 4
 //! appends the idle tick counter to the header so a monitor can tell idle
-//! time from CPU time charged to tasks); a caller must reject a header
-//! version it does not know. A buffer
+//! time from CPU time charged to tasks, and version 5 appends the frames the
+//! block cache and the typed-object slabs hold, so a monitor can split memory
+//! into programs, the kernel, the disk cache and free); a caller must reject a
+//! header version it does not know. A buffer
 //! smaller than [`SIZE`] is refused with `-E2BIG` (like the Messenger stats
 //! op), a null buffer with `-EFAULT`, an unknown op with `-EINVAL`. The
 //! `snapshot` op fills one stack array in place (never returned by value: at
@@ -46,7 +48,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 4;
+pub const SYSTEM_STATS_VERSION: u64 = 5;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {
@@ -139,9 +141,15 @@ pub const H_TASK_SLOTS: usize = 22;
 /// time is `H_TICKS - H_IDLE_TICKS`, so CPU load between two snapshots is
 /// `1 - Δidle / Δticks`. Version 4.
 pub const H_IDLE_TICKS: usize = 23;
+/// Frames the ext2 block caches hold (file data kept for reuse, given back
+/// under memory pressure). Part of `H_FRAMES_LIVE`. Version 5.
+pub const H_CACHE_FRAMES: usize = 24;
+/// Frames carved into typed-object slabs (`mem::slab`; never returned).
+/// Part of `H_FRAMES_LIVE`, separate from the heap's `H_HEAP_TOTAL`. Version 5.
+pub const H_SLAB_FRAMES: usize = 25;
 
 /// Words in the header.
-pub const HEADER_WORDS: usize = 24;
+pub const HEADER_WORDS: usize = 26;
 /// Words in one task row.
 pub const TASK_ROW_WORDS: usize = 10;
 
@@ -256,6 +264,8 @@ pub fn snapshot_words(words: &mut [u64; WORDS]) {
     words[H_TASK_ROW_WORDS] = TASK_ROW_WORDS as u64;
     words[H_TASK_SLOTS] = task::MAX_TASKS as u64;
     words[H_IDLE_TICKS] = task::idle_ticks();
+    words[H_CACHE_FRAMES] = crate::fs::ext2::cache_frames() as u64;
+    words[H_SLAB_FRAMES] = slab.classes.iter().map(|class| class.slabs as u64).sum();
 
     for (slot, row) in tasks.rows.iter().enumerate() {
         if !row.present {

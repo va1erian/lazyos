@@ -18,7 +18,9 @@ pub enum Ty {
     F64,
     String,
     Bytes,
-    Handle,
+    /// A channel end (`Channel<I>`): a kernel object a script cannot make.
+    Channel,
+    /// A shared buffer (`Buffer`, or a `Ring<...>` buffer): likewise.
     Buffer,
     Array(&'static Ty),
     Option(&'static Ty),
@@ -44,14 +46,16 @@ pub struct Method {
     pub doc: &'static str,
     pub params: &'static [Field],
     pub returns: &'static [Field],
-    /// Kernel objects the request carries outside its body (`transfers (...)`).
-    pub transfers: &'static [Transfer],
+    /// Kernel objects the request carries (its `Channel<I>`, `Buffer` and
+    /// `Ring<...>` parameters, nested ones included), in object-list order.
+    pub objects: &'static [Object],
 }
 
-/// One declared transfer: a channel (`Some(interface)`, what its receiver
-/// sends on it) or a shared buffer (`None`).
+/// One declared object: a channel (`Some(interface)`, what its receiver
+/// sends on it) or a shared buffer (`None`). `name` is the field path
+/// (`config.pixels` for a nested one).
 #[derive(Debug, Clone, Copy)]
-pub struct Transfer {
+pub struct Object {
     pub name: &'static str,
     pub channel: Option<&'static str>,
 }

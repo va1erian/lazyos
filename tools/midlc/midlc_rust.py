@@ -10,7 +10,7 @@ from __future__ import annotations
 from midlc_model import Interface, Param, SCALARS, Topic, Type, snake_case
 from midlc_topics import qos_rust_expr
 from midlc_rings import emit_method_rings, emit_ring_decls
-from midlc_transfers import emit_method_transfers, emit_request_transfers
+from midlc_objects import emit_declared_objects, emit_method_objects, object_kind
 
 # Topic codegen lives here; the shared Rust runtime (`TOPIC_SUPPORT`) is in
 # `midlc_topic_support` to keep this file small.
@@ -22,9 +22,15 @@ from midlc_transfers import emit_method_transfers, emit_request_transfers
 RUST_TYPE = {
     "String": "alloc::string::String",
     "Bytes": "alloc::vec::Vec<u8>",
-    "Handle": "u64",
-    "Buffer": "libmessenger::BufferDesc",
+    # Objects (`docs/midl.md`, "Objects"): a channel end is a handle number
+    # (the sender's when encoding, the installed one when decoded), a buffer
+    # or a ring buffer is a handle with its byte range.
+    "Channel": "u64",
+    "Buffer": "libmessenger::Buffer",
+    "Ring": "libmessenger::Buffer",
 }
+OBJECTS_IN = "objects: &mut Vec<libmessenger::Object>"
+OBJECTS_OUT = "objects: &[libmessenger::Object], next: &mut usize"
 
 
 def wire_name(ty: Type) -> str:
@@ -68,10 +74,10 @@ def encode_lines(ty: Type, *, id: int, value: str, indent: str, target: str = "t
         return [f"{indent}{target}.string({id}, {value})?;"]
     if ty.name == "Bytes":
         return [f"{indent}{target}.bytes({id}, {value})?;"]
-    if ty.name == "Handle":
-        return [f"{indent}{target}.handle({id}, {deref(value)})?;"]
-    if ty.name == "Buffer":
-        return [f"{indent}{target}.buffer({id}, {value})?;"]
+    if object_kind(ty) == "channel":
+        return [f"{indent}{target}.channel({id}, {deref(value)}, objects)?;"]
+    if object_kind(ty) is not None:
+        return [f"{indent}{target}.buffer({id}, {value}, objects)?;"]
     if ty.name == "Array":
         inner = ty.args[0]
         lines = [f"{indent}let mut nested = Encoder::new();", f"{indent}for item in {value} {{"]
@@ -87,8 +93,10 @@ def encode_lines(ty: Type, *, id: int, value: str, indent: str, target: str = "t
         lines += [f"{indent}    None => {{", f"{indent}        {target}.option({id}, None)?;", f"{indent}    }}"]
         lines += [f"{indent}}}"]
         return lines
-    # Named struct: encode as a nested record.
-    return [f"{indent}{target}.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({value})?)?;"]
+    # Named struct: encode as a nested record (one holding objects pushes
+    # them onto the same list, in field order).
+    args = f"{value}, objects" if ty.objects else value
+    return [f"{indent}{target}.raw(Kind::Struct, {id}, &encode_{snake_case(ty.name)}({args})?)?;"]
 
 
 DECODE_EXPR = {
@@ -100,8 +108,6 @@ DECODE_EXPR = {
     "F64": "field.as_f64()?",
     "String": "field.as_str()?.into()",
     "Bytes": "field.as_bytes().to_vec()",
-    "Handle": "field.as_handle()?",
-    "Buffer": "field.as_buffer()?",
 }
 
 ITEM_EXPR = {
@@ -113,8 +119,6 @@ ITEM_EXPR = {
     "F64": "item.as_f64()?",
     "String": "item.as_str()?.into()",
     "Bytes": "item.as_bytes().to_vec()",
-    "Handle": "item.as_handle()?",
-    "Buffer": "item.as_buffer()?",
 }
 
 
@@ -122,6 +126,12 @@ def decode_block(ty: Type, *, target: str, indent: str) -> list[str]:
     """Lines that fill `target` from the current `field`."""
     if wire_name(ty) in DECODE_EXPR:
         return [f"{indent}{target} = {DECODE_EXPR[wire_name(ty)]};"]
+    # An object field claims its slot of the object list under the index
+    # rule (`Field::claim_*`): the index must be the next declared position.
+    if object_kind(ty) == "channel":
+        return [f"{indent}{target} = field.claim_channel(objects, next)?;"]
+    if object_kind(ty) is not None:
+        return [f"{indent}{target} = field.claim_buffer(objects, next)?;"]
     if ty.name == "Array":
         inner = ty.args[0]
         lines = [
@@ -146,7 +156,8 @@ def decode_block(ty: Type, *, target: str, indent: str) -> list[str]:
             f"{indent}    {target} = Some({expr});",
             f"{indent}}}",
         ]
-    return [f"{indent}{target} = decode_{snake_case(ty.name)}(field.payload)?;"]
+    args = "field.payload, objects, next" if ty.objects else "field.payload"
+    return [f"{indent}{target} = decode_{snake_case(ty.name)}({args})?;"]
 
 
 def emit_field_dispatch(fields: list[Param], target_prefix: str, indent: str) -> list[str]:
@@ -175,6 +186,10 @@ def emit_doc_lines(doc: str, indent: str) -> list[str]:
 
 
 def emit_struct(name: str, fields: list[Param], doc: str) -> str:
+    """A struct and its codec. One that holds objects encodes against the
+    parcel's object list and decodes against the installed one, like the
+    request it belongs to (`OBJECTS_IN`, `OBJECTS_OUT`)."""
+    holds = any(f.ty.objects for f in fields)
     lines = []
     lines += emit_doc_lines(doc, indent="    ")
     lines.append("    #[derive(Clone, Debug, Default, PartialEq)]")
@@ -183,14 +198,16 @@ def emit_struct(name: str, fields: list[Param], doc: str) -> str:
         lines.append(f"        pub {f.name}: {rust_type(f.ty)},")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn encode_{snake_case(name)}(value: &{name}) -> Result<Vec<u8>, Error> {{")
+    encode_params = f"value: &{name}, {OBJECTS_IN}" if holds else f"value: &{name}"
+    lines.append(f"    pub fn encode_{snake_case(name)}({encode_params}) -> Result<Vec<u8>, Error> {{")
     lines.append("        let mut target = Encoder::new();")
     for f in fields:
         lines += encode_lines(f.ty, id=f.id, value=f"&value.{f.name}", indent="        ")
     lines.append("        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn decode_{snake_case(name)}(body: &[u8]) -> Result<{name}, Error> {{")
+    decode_params = f"body: &[u8], {OBJECTS_OUT}" if holds else "body: &[u8]"
+    lines.append(f"    pub fn decode_{snake_case(name)}({decode_params}) -> Result<{name}, Error> {{")
     lines.append(f"        let mut out = {name}::default();")
     lines.append("        let mut decoder = Decoder::new(body);")
     lines.append("        while let Some(field) = decoder.next()? {")
@@ -201,27 +218,51 @@ def emit_struct(name: str, fields: list[Param], doc: str) -> str:
     return "\n".join(lines)
 
 
-def emit_message(method_name: str, kind: str, params: list[Param]) -> str:
+def emit_message(method_name: str, kind: str, params: list[Param], count: int = 0) -> str:
+    """A method's args or reply record and its codec. A request carrying
+    `count` objects encodes to `(body, objects)` and decodes from the body
+    and the installed objects, refusing any list that is not exactly the
+    `count` declared slots each claimed once, in order."""
     struct_name = f"{method_name}{kind.capitalize()}"
+    snake = f"{snake_case(method_name)}_{kind}"
     lines = ["    #[derive(Clone, Debug, Default, PartialEq)]"]
     lines.append(f"    pub struct {struct_name} {{")
     for p in params:
         lines.append(f"        pub {p.name}: {rust_type(p.ty)},")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn encode_{snake_case(method_name)}_{kind}(value: &{struct_name}) -> Result<Vec<u8>, Error> {{")
-    lines.append("        let mut target = Encoder::new();")
+    if count:
+        lines.append(f"    /// The body and the object list of `{method_name}`.")
+        lines.append(f"    pub fn encode_{snake}(value: &{struct_name}) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {{")
+        lines.append("        let mut target = Encoder::new();")
+        lines.append("        let objects = &mut Vec::new();")
+    else:
+        lines.append(f"    pub fn encode_{snake}(value: &{struct_name}) -> Result<Vec<u8>, Error> {{")
+        lines.append("        let mut target = Encoder::new();")
     for p in params:
         lines += encode_lines(p.ty, id=p.id, value=f"&value.{p.name}", indent="        ")
-    lines.append("        Ok(target.finish())")
+    lines.append("        Ok((target.finish(), core::mem::take(objects)))" if count else "        Ok(target.finish())")
     lines.append("    }")
     lines.append("")
-    lines.append(f"    pub fn decode_{snake_case(method_name)}_{kind}(body: &[u8]) -> Result<{struct_name}, Error> {{")
+    if count:
+        lines.append(f"    /// `{method_name}` from its body and the objects the kernel installed")
+        lines.append(f"    /// (`{snake_case(method_name).upper()}_OBJECTS`, each claimed by its field).")
+        lines.append(f"    pub fn decode_{snake}(body: &[u8], objects: &[libmessenger::Object]) -> Result<{struct_name}, Error> {{")
+        lines.append(f"        if objects.len() != {count} {{")
+        lines.append("            return Err(Error::BadObjectIndex);")
+        lines.append("        }")
+        lines.append("        let next = &mut 0usize;")
+    else:
+        lines.append(f"    pub fn decode_{snake}(body: &[u8]) -> Result<{struct_name}, Error> {{")
     lines.append(f"        let mut out = {struct_name}::default();")
     lines.append("        let mut decoder = Decoder::new(body);")
     lines.append("        while let Some(field) = decoder.next()? {")
     lines += emit_field_dispatch(params, "out", indent="            ")
     lines.append("        }")
+    if count:
+        lines.append(f"        if *next != {count} {{")
+        lines.append("            return Err(Error::BadObjectIndex);")
+        lines.append("        }")
     lines.append("        Ok(out)")
     lines.append("    }")
     return "\n".join(lines)
@@ -360,7 +401,9 @@ def emit_rust(interface: Interface) -> str:
         "    // Only interfaces that declare topics use the shared topic runtime.",
         "    #[allow(unused_imports)]",
         "    use super::topics;",
-        "    use super::transfers;",
+        "    // Only interfaces whose requests carry objects use the object kinds.",
+        "    #[allow(unused_imports)]",
+        "    use super::objects;",
         "    // Only interfaces that declare rings use the ring descriptors.",
         "    #[allow(unused_imports)]",
         "    use super::rings;",
@@ -392,18 +435,18 @@ def emit_rust(interface: Interface) -> str:
         if method.params or method.returns:
             lines += emit_doc_lines(method.doc, indent="    ")
         if method.params:
-            lines += emit_message(method.name, "args", method.params).splitlines()
+            lines += emit_message(method.name, "args", method.params, len(method.objects)).splitlines()
             lines.append("")
         if method.returns:
             lines += emit_message(method.name, "reply", method.returns).splitlines()
             lines.append("")
-        if method.transfers:
-            lines += emit_method_transfers(method)
+        if method.objects:
+            lines += emit_method_objects(method)
             lines.append("")
-        if any(t.kind == "rings" for t in method.transfers):
+        if any(o.kind == "rings" for o in method.objects):
             lines += emit_method_rings(method)
             lines.append("")
-    lines += emit_request_transfers(interface)
+    lines += emit_declared_objects(interface)
     lines.append("")
     lines += emit_ring_decls(interface)
     for topic in interface.topics:

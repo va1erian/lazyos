@@ -61,6 +61,9 @@ impl Server {
             disposition::CREATE if options & msg::OPTION_DIRECTORY_FILE != 0 => {
                 self.dirs.insert(path.clone());
             }
+            disposition::CREATE => {
+                self.files.insert(path.clone(), Vec::new());
+            }
             disposition::OVERWRITE_IF => {
                 if self.dirs.contains(&path) {
                     return self.reply(h, FILE_IS_A_DIRECTORY, &[]);
@@ -221,8 +224,29 @@ impl Server {
                 if let Some(bytes) = self.files.remove(&path) {
                     self.files.insert(to.clone(), bytes);
                 } else {
-                    self.dirs.remove(&path);
-                    self.dirs.insert(to.clone());
+                    // A directory takes everything below it along.
+                    let below = format!("{path}/");
+                    let moved = |p: &String| format!("{to}{}", &p[path.len()..]);
+                    let files: Vec<String> = self
+                        .files
+                        .keys()
+                        .filter(|p| p.starts_with(&below))
+                        .cloned()
+                        .collect();
+                    for old in files {
+                        let bytes = self.files.remove(&old).unwrap();
+                        self.files.insert(moved(&old), bytes);
+                    }
+                    let dirs: Vec<String> = self
+                        .dirs
+                        .iter()
+                        .filter(|p| **p == path || p.starts_with(&below))
+                        .cloned()
+                        .collect();
+                    for old in dirs {
+                        self.dirs.remove(&old);
+                        self.dirs.insert(moved(&old));
+                    }
                 }
                 self.handles.get_mut(&id).unwrap().0 = to;
             }

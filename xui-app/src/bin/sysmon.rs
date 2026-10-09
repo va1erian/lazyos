@@ -1,19 +1,24 @@
 //! `sysmon`: a windowed dashboard over the native system-stats snapshot
 //! (syscall 14, issue #144).
 //!
-//! Two tabs of standard xui widgets laid out without coordinates: Overview
-//! has three memory gauges (frames, slab, kernel heap) and the task table
-//! (pid, state, class, CPU ticks, name); Services (issue #489) lists the
-//! services `init` supervises with the health `healthd` retains for each. A
-//! status bar carries uptime and refresh counts. A one-second timer refreshes;
-//! `o`/`s` (or a click on a tab) switch tabs, the tables scroll with the
-//! keyboard and the wheel, `r` refreshes immediately, `c` toggles the compact
-//! view (three meters) by asking the compositor for a size, and `q` quits.
+//! Three tabs laid out without coordinates. Overview is for anyone: how busy
+//! the processor is (now and over the last minute), memory split into named,
+//! coloured shares (programs, the system, the disk cache, free) and the
+//! busiest programs. Services (issue #489) lists the services `init`
+//! supervises with the health `healthd` retains for each. Advanced keeps the
+//! kernel's own counters (frames, slab, kernel heap) and the full task table.
+//! The Help button (or F1) opens the app's guide, `README.md` in its package
+//! docs, in the Docs app through `mimed`. A status bar carries uptime and
+//! refresh counts. A one-second timer refreshes; `o`/`s`/`a` (or a click on a
+//! tab) switch tabs, the tables scroll with the keyboard and the wheel, `r`
+//! refreshes immediately, `c` toggles the compact view (three meters) by
+//! asking the compositor for a size, and `q` quits.
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),
-//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:VIEW:<overview|services>` on a tab
-//! switch, `SYSMON:SERVICES:PASS services=<n> ok=<n> degraded=<n> down=<n>`
+//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:VIEW:<overview|services|advanced>`
+//! on a tab switch, `SYSMON:HELP:PASS` once `mimed` launched the guide (or
+//! `SYSMON:HELP:FAIL:<reason>`), `SYSMON:SERVICES:PASS services=<n> ok=<n> degraded=<n> down=<n>`
 //! the first time the Services tab shows both sources after a switch to it
 //! (`SYSMON:SERVICES:NONE:init=<errno> healthd=<errno>` once when it
 //! cannot yet), `SYSMON:SIZE:<w>x<h>` after every resize, `SYSMON:QUIT:PASS`
@@ -23,19 +28,29 @@
 use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
+use xui_app::platform::launcher;
 use xui_app::services::{self, Services};
 use xui_app::sysinfo::{self, Snapshot};
 use xui_app::{compact, hidpi, launch};
+use xui_core::Key;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, WidgetId};
-use xui_core::Key;
 
+#[path = "sysmon/advanced.rs"]
+mod advanced;
+#[path = "sysmon/load.rs"]
+mod load;
+#[path = "sysmon/overview.rs"]
+mod overview;
+#[path = "sysmon/paint.rs"]
+mod paint;
 #[cfg(test)]
 #[path = "sysmon/tests.rs"]
 mod tests;
 #[path = "sysmon/view.rs"]
 mod view;
 
+use load::Load;
 use view::Widgets;
 
 /// The window size when a compositor lays the app out (issue #215); as the
@@ -44,19 +59,25 @@ const WINDOW: (i32, i32) = (860, 600);
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
 
-/// The two tabs.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// The app's guide, shipped in its package's `docs/` (`docs/packages.md`).
+fn help_path() -> String {
+    format!("{}/os.lazy.sysmon/README.md", fhs::docs::DOCS_APPS)
+}
+
+/// The three tabs, in their order on screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum View {
     Overview,
     Services,
+    Advanced,
 }
 
 impl View {
     pub(crate) fn from_index(index: usize) -> View {
-        if index == 1 {
-            View::Services
-        } else {
-            View::Overview
+        match index {
+            1 => View::Services,
+            2 => View::Advanced,
+            _ => View::Overview,
         }
     }
 
@@ -69,6 +90,7 @@ impl View {
         match self {
             View::Overview => "overview",
             View::Services => "services",
+            View::Advanced => "advanced",
         }
     }
 }
@@ -82,6 +104,7 @@ pub(crate) enum Msg {
     ToggleCompact,
     Resized,
     Show(View),
+    Help,
 }
 
 /// What the services marker has said since the last switch to the tab.
@@ -94,6 +117,7 @@ enum Reported {
 
 struct Sysmon {
     widgets: Widgets,
+    load: Load,
     backend: Rc<LazyOSBackend>,
     view: View,
     refreshes: u64,
@@ -114,7 +138,8 @@ impl Sysmon {
         }
         match sysinfo::snapshot() {
             Ok(snapshot) => {
-                self.widgets.show_snapshot(&snapshot);
+                let (cpu, programs) = self.load.update(&snapshot);
+                self.widgets.show_snapshot(&snapshot, cpu, &programs);
                 self.widgets
                     .show_status(snapshot.ticks, self.refreshes, None);
                 None
@@ -173,6 +198,16 @@ impl App for Sysmon {
                 }
                 println!("SYSMON:VIEW:{}", view.marker());
             }
+            Msg::Help => match launcher::open_path(&help_path()) {
+                Ok(()) => println!("SYSMON:HELP:PASS"),
+                Err(error) => {
+                    println!("SYSMON:HELP:FAIL:{error}");
+                    self.widgets
+                        .status
+                        .get()
+                        .set_text(3, &format!("Could not open the guide: {error}"));
+                }
+            },
             Msg::Quit => {
                 println!("SYSMON:QUIT:PASS");
                 ui.quit();
@@ -210,6 +245,8 @@ fn shortcut(key: Key) -> Option<Msg> {
         Key::C => Msg::ToggleCompact,
         Key::O => Msg::Show(View::Overview),
         Key::S => Msg::Show(View::Services),
+        Key::A => Msg::Show(View::Advanced),
+        Key::F1 => Msg::Help,
         _ => return None,
     })
 }
@@ -218,15 +255,15 @@ fn shortcut(key: Key) -> Option<Msg> {
 fn evidence(snapshot: &Result<Snapshot, i64>) -> String {
     match snapshot {
         Ok(s) => format!(
-            "SYSMON:UP:PASS\nSYSMON:DATA:tasks={} frames_free={} frames_live={} slab_live={} heap_used={}",
-            s.tasks_live, s.frames_free, s.frames_live, s.slab_live, s.heap_used
+            "SYSMON:UP:PASS\nSYSMON:DATA:tasks={} frames_free={} frames_live={} slab_live={} heap_used={} cache_frames={}",
+            s.tasks_live, s.frames_free, s.frames_live, s.slab_live, s.heap_used, s.cache_frames
         ),
         Err(code) => format!("SYSMON:UP:FAIL:{code}"),
     }
 }
 
 fn main() {
-    launch::run("SYSMON", "sysmon", WINDOW, |ui, backend| {
+    launch::run("SYSMON", "System Monitor", WINDOW, |ui, backend| {
         // Resizable, down to the compact view, so `RequestSize` is accepted.
         backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
         let first = evidence(&sysinfo::snapshot());
@@ -243,6 +280,7 @@ fn main() {
 
         let mut app = Sysmon {
             widgets,
+            load: Load::default(),
             backend: Rc::clone(backend),
             view: View::Overview,
             refreshes: 0,

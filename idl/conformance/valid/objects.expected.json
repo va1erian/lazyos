@@ -1,0 +1,335 @@
+{
+  "error_field": 15,
+  "interfaces": [
+    {
+      "name": "os.lazy.conformance.objevents.v1",
+      "id": "0x111aea0c8bda9c97",
+      "doc": "Events the server sends on a client's channel.",
+      "methods": [
+        {
+          "name": "Notify",
+          "id": 314575196,
+          "oneway": true,
+          "params": [
+            {
+              "name": "ring",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "objects": []
+        }
+      ],
+      "structs": [],
+      "enums": [],
+      "topics": [],
+      "rings": []
+    },
+    {
+      "name": "os.lazy.conformance.objects.v1",
+      "id": "0x3fbad00478336bc7",
+      "doc": "Objects as plain and nested fields.",
+      "methods": [
+        {
+          "name": "Configure",
+          "id": 1,
+          "oneway": false,
+          "params": [
+            {
+              "name": "surface",
+              "type": "U64",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "pixels",
+              "type": "Buffer",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "config",
+              "type": "Config",
+              "id": 3,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "ok",
+              "type": "Bool",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "objects": [
+            {
+              "name": "pixels",
+              "kind": "buffer",
+              "index": 0,
+              "path": [
+                "pixels"
+              ]
+            },
+            {
+              "name": "events",
+              "kind": "channel",
+              "index": 1,
+              "path": [
+                "config",
+                "events"
+              ],
+              "interface": "os.lazy.conformance.objevents.v1"
+            },
+            {
+              "name": "page",
+              "kind": "buffer",
+              "index": 2,
+              "path": [
+                "config",
+                "state",
+                "page"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Attach",
+          "id": 2,
+          "oneway": false,
+          "params": [
+            {
+              "name": "slots",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "rings",
+              "type": "Ring<Rx>",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "notify",
+              "type": "Channel<os.lazy.conformance.objects.v1>",
+              "id": 3,
+              "explicit": true
+            }
+          ],
+          "returns": [
+            {
+              "name": "ring",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "objects": [
+            {
+              "name": "rings",
+              "kind": "rings",
+              "index": 0,
+              "path": [
+                "rings"
+              ],
+              "rings": [
+                "Rx"
+              ]
+            },
+            {
+              "name": "notify",
+              "kind": "channel",
+              "index": 1,
+              "path": [
+                "notify"
+              ],
+              "interface": "os.lazy.conformance.objects.v1"
+            }
+          ]
+        },
+        {
+          "name": "Notify",
+          "id": 314575196,
+          "oneway": true,
+          "params": [
+            {
+              "name": "ring",
+              "type": "U32",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "objects": []
+        },
+        {
+          "name": "Plain",
+          "id": 3,
+          "oneway": false,
+          "params": [
+            {
+              "name": "point",
+              "type": "Point",
+              "id": 1,
+              "explicit": true
+            }
+          ],
+          "returns": [],
+          "objects": []
+        }
+      ],
+      "structs": [
+        {
+          "name": "Config",
+          "fields": [
+            {
+              "name": "name",
+              "type": "String",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "events",
+              "type": "Channel<os.lazy.conformance.objevents.v1>",
+              "id": 2,
+              "explicit": true
+            },
+            {
+              "name": "state",
+              "type": "State",
+              "id": 3,
+              "explicit": true
+            }
+          ]
+        },
+        {
+          "name": "State",
+          "fields": [
+            {
+              "name": "page",
+              "type": "Buffer",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "generation",
+              "type": "U32",
+              "id": 2,
+              "explicit": true
+            }
+          ]
+        },
+        {
+          "name": "Point",
+          "fields": [
+            {
+              "name": "x",
+              "type": "I32",
+              "id": 1,
+              "explicit": true
+            },
+            {
+              "name": "y",
+              "type": "I32",
+              "id": 2,
+              "explicit": true
+            }
+          ]
+        }
+      ],
+      "enums": [],
+      "topics": [],
+      "rings": [
+        {
+          "name": "Rx",
+          "layout": "frames",
+          "producer": "server",
+          "doorbell": "Notify"
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "vectors": [
+    {
+      "name": "configure_args",
+      "interface": "os.lazy.conformance.objects.v1",
+      "message": "Configure.args",
+      "value": {
+        "surface": 7,
+        "pixels": {
+          "handle": 40,
+          "offset": 0,
+          "len": 4096
+        },
+        "config": {
+          "name": "main",
+          "events": 41,
+          "state": {
+            "page": {
+              "handle": 42,
+              "offset": 4096,
+              "len": 64
+            },
+            "generation": 3
+          }
+        }
+      },
+      "bytes": "050100000800000007000000000000000f0200001400000000000000000000000000000000100000000000000a0300004800000007010000040000006d61696e0e02000004000000010000000a030000280000000f010000140000000200000000100000000000004000000000000000040200000400000003000000",
+      "objects": [
+        [
+          2,
+          40
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          2,
+          42
+        ]
+      ]
+    },
+    {
+      "name": "attach_args",
+      "interface": "os.lazy.conformance.objects.v1",
+      "message": "Attach.args",
+      "value": {
+        "slots": 16,
+        "rings": {
+          "handle": 5,
+          "offset": 0,
+          "len": 8192
+        },
+        "notify": 6
+      },
+      "bytes": "0401000004000000100000000f0200001400000000000000000000000000000000200000000000000e0300000400000001000000",
+      "objects": [
+        [
+          2,
+          5
+        ],
+        [
+          1,
+          6
+        ]
+      ]
+    },
+    {
+      "name": "plain_args",
+      "interface": "os.lazy.conformance.objects.v1",
+      "message": "Plain.args",
+      "value": {
+        "point": {
+          "x": -1,
+          "y": 2
+        }
+      },
+      "bytes": "0a010000180000000201000004000000ffffffff020200000400000002000000"
+    }
+  ]
+}

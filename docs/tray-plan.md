@@ -106,9 +106,8 @@ in `idl/init.midl` (its publisher's interface), the tray generation topic in
 /// also needs this interface in its manifest (implied by `resident`).
 interface os.lazy.shell.tray.v1 {
     /// Show the app's item, replacing its current one (custom or default);
-    /// the parcel transfers the channel the shell sends the item's events on.
-    method Set(item: Item = 1) -> () = 1
-        transfers (events: Channel<os.lazy.shell.tray.events.v1>);
+    /// `events` is the channel the shell sends the item's events on.
+    method Set(item: Item = 1, events: Channel<os.lazy.shell.tray.events.v1> = 2) -> () = 1;
     /// Replace the given parts of the app's item (absent fields are kept).
     /// `ENOENT` before `Set`.
     method Update(icon: Option<Icon> = 1, tooltip: Option<String> = 2,
@@ -165,8 +164,7 @@ interface os.lazy.init.app.v1 {
     /// Ask for this instance's lifecycle events; replaces an earlier channel.
     /// `Reopen`s queued before the first `Watch` are sent on it at once; a
     /// `Stop` pending at that moment sends `Quit` with the grace remaining.
-    method Watch() -> () = 1
-        transfers (events: Channel<os.lazy.init.app.events.v1>);
+    method Watch(events: Channel<os.lazy.init.app.events.v1> = 1) -> () = 1;
 }
 
 interface os.lazy.init.app.events.v1 {

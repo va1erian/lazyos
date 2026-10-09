@@ -1,12 +1,17 @@
-//! `xui-files`: the spatial file explorer, migrated from xui's `xui-explorer`.
+//! `xui-files`: the explorer-style file manager, on xui's `xui-explorer`.
 //!
 //! The portable explorer core lives in `xui-explorer`; this file supplies the
 //! LazyOS platform: `StdPlatform` over the Linux shim's `std::fs`, the
-//! [`LazyLauncher`] (a `mimed.Open` client that launches through `init`), and
-//! the start folder (a path on the command line, else the filesystem root `/`).
+//! [`LazyLauncher`] (a `mimed.Open` client that launches through `init`),
+//! the backend's keyboard focus (so Delete and Backspace edit the address
+//! bar while it has the focus), and the start folder (a path on the command
+//! line, else the filesystem root `/`).
 //!
-//! Every folder opens its own window (a `xuid` surface); closing the last
-//! window ends the process.
+//! A window browses in place: opening a folder replaces the view, the
+//! toolbar has Back, Forward, Up, the address bar, Sort, the folder's
+//! Properties and the icons/details switch, and the title is the folder's
+//! name. "Open in New Window" in the context menu opens another window (a
+//! `xuid` surface); closing the last window ends the process.
 //!
 //! Drag and drop (`docs/archiver-plan.md`): a press-and-drag on a window's
 //! tiles offers the selection as a `text/uri-list`, and a `text/uri-list`
@@ -26,7 +31,8 @@
 //! `reveal` verb hands Files through `init.Launch`) opens the folder holding
 //! it with that item selected.
 //!
-//! Serial evidence: `FILES:UP:PASS` after the first frame,
+//! Serial evidence: `FILES:UP:PASS` after the first frame, `FILES:DIR:<path>`
+//! when a window shows another folder,
 //! `FILES:REVEAL:PASS:<path>` when a reveal selected its item
 //! (`FILES:REVEAL:MISSING:<path>` when the folder does not hold it), the
 //! copy, paste and selection markers of [`session`], `FILES:OPEN:PASS`
@@ -56,7 +62,7 @@ use xui_explorer::std_platform::{drop_into, Intent, StdPlatform};
 use xui_explorer::window::Msg;
 use xui_explorer::Explorer;
 
-/// Window size each folder window opens at.
+/// The size the first window opens at.
 const WINDOW: (i32, i32) = (720, 480);
 
 /// The launcher, with serial reporting; it also passes the explorer's
@@ -193,6 +199,10 @@ fn main() {
             Rc::new(session::LazySession::new()),
         );
         {
+            let backend = Rc::clone(backend);
+            explorer.set_focus_probe(move || backend.focused());
+        }
+        {
             let explorer = Rc::clone(&explorer);
             backend.on_drag_gesture(move |window, widget, _| gesture(&explorer, window, widget));
         }
@@ -200,7 +210,7 @@ fn main() {
             let explorer = Rc::clone(&explorer);
             backend.on_drag_event(move |window, event| dropped(&explorer, window, event));
         }
-        // Every folder window is resizable; the explorer's tile view re-flows.
+        // Every window is resizable; the toolbar and the views re-flow.
         backend.set_size_hints(360, 240, 0, 0);
         backend.on_first_frame(|| println!("FILES:UP:PASS"));
         Ok(match start {

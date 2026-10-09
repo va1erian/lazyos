@@ -180,6 +180,7 @@ impl Backend for LazyOSBackend {
                 visible: spec.visible,
                 enabled: spec.enabled,
                 focus_stop: focus_stop(spec),
+                wants_tab: spec.wants_tab,
                 clip: None,
                 text: spec.text.clone(),
                 painter: None,
@@ -271,8 +272,10 @@ impl Backend for LazyOSBackend {
 
     fn set_visible(&self, id: WidgetId, visible: bool) {
         if self.is_client() {
+            // Painters may spill past their bounds (a menu popup's border),
+            // and a hidden node's spill would otherwise stay on screen.
             if let Some((window, bounds)) = self.absolute_damage(id) {
-                self.add_damage(window, bounds);
+                self.add_damage(window, self.with_spill(bounds));
             }
         }
         self.with_node(id, |node| node.visible = visible);

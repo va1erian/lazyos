@@ -73,6 +73,10 @@ pub const MAX_PROVIDERS: usize = 8;
 pub const REQUEST_TICKS: u64 = 1000;
 /// How often a waiting requester checks that its daemon is alive.
 pub const SLICE_TICKS: u64 = 10;
+/// How long the VFS believes metadata a daemon answered (ticks): 1 s. A
+/// remote change shows in `stat` and `ls` within this, and a path walked
+/// often costs one lookup per component per second.
+pub const ATTR_TICKS: u64 = 100;
 /// Consecutive timeouts after which a provider is declared dead.
 pub const DEAD_AFTER_TIMEOUTS: u32 = 2;
 

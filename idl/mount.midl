@@ -1,5 +1,6 @@
 /// The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
-/// supervises one user-space filesystem daemon per mount (`ftpfuse` today),
+/// supervises one user-space filesystem daemon per mount (`ftpfuse` for an
+/// FTP server, `smbfuse` for an SMB share),
 /// each serving `/mnt/<name>` through the FUSE mechanism, so a program that
 /// may not register a filesystem itself (an installed app has no
 /// capabilities) can still ask for one.
@@ -19,7 +20,7 @@ interface os.lazy.mount.v1 {
     struct MountInfo {
         /// The mount's name: it is served at `path`, `/mnt/<name>`.
         name: String = 1,
-        /// The filesystem daemon's protocol (`ftp`).
+        /// The filesystem daemon's protocol (`ftp` or `smb`).
         kind: String = 2,
         /// The server's host name or address, as given.
         host: String = 3,
@@ -34,17 +35,24 @@ interface os.lazy.mount.v1 {
         /// Why a mount failed, empty otherwise.
         detail: String = 8,
         /// The requester's uid: the files' owner.
-        owner: U32 = 9
+        owner: U32 = 9,
+        /// The SMB share, empty for an FTP mount.
+        share: String = 10
     }
 
-    /// Mount the FTP server `host:port` at `/mnt/<name>`, logged in as `user`
-    /// with `password` (an empty `user` is the anonymous login). `name` is 1
-    /// to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to 253 of letters, digits,
-    /// `.` and `-`, not starting with `-` and with no `:` (the port goes in
-    /// `port`, 1 to 65535, 0 meaning 21); `user` and `password` at most 128
-    /// bytes with no control character, and a `password` only with a `user`.
-    /// `path` is the mount point the daemon will serve.
-    method Mount(name: String = 1, host: String = 2, port: U32 = 3, user: String = 4, password: String = 5) -> (path: String = 1);
+    /// Mount a server at `/mnt/<name>`, logged in as `user` with `password`.
+    /// `kind` is `ftp` (or empty) for the FTP server `host:port`, where an
+    /// empty `user` is the anonymous login, or `smb` for the SMB 2.1 share
+    /// `\\host\share`, which needs a `user` (the NTLM domain comes from the
+    /// server). `name` is 1 to 32 of `a-z`, `0-9`, `-` and `_`; `host` 1 to
+    /// 253 of letters, digits, `.` and `-`, not starting with `-` and with no
+    /// `:` (the port goes in `port`, 1 to 65535, 0 meaning 21 for FTP and 445
+    /// for SMB); `share` (SMB only) 1 to 80 characters with none of
+    /// `\ / : * ? " < > |`; `user` and `password` at most 128 bytes with no
+    /// control character, and a `password` only with a `user`. An SMB
+    /// password reaches `smbfuse` through its environment, never its
+    /// arguments. `path` is the mount point the daemon will serve.
+    method Mount(name: String = 1, host: String = 2, port: U32 = 3, user: String = 4, password: String = 5, kind: String = 6, share: String = 7) -> (path: String = 1);
 
     /// Stop the mount `name` and forget it (a failed one is just forgotten).
     /// The daemon is stopped at once; the kernel takes the dead mount out of

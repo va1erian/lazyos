@@ -1,0 +1,18 @@
+[package]
+name = "smbfs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "An SMB 2.1 share as a user-space filesystem (docs/smb-plan.md F3): the FUSE operations of libs/fused mapped onto libs/smbwire's client, with short-lived metadata caches, a small pool of open handles and reconnects. Pure no_std + alloc"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "smbfs"
+path = "src/lib.rs"
+
+[dependencies]
+fused = { path = "../fused" }
+smbwire = { path = "../smbwire" }
+
+[dev-dependencies]
+smbwire = { path = "../smbwire", features = ["testserver"] }

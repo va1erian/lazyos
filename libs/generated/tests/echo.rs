@@ -3,7 +3,7 @@
 //! These run on the host: the generated code only depends on the `libmessenger`
 //! codec, so a generated client/server pair can be tested without QEMU.
 
-use libmessenger::BufferDesc;
+use libmessenger::Buffer;
 use messenger_generated::os_lazy_echo_v1::*;
 
 #[test]
@@ -67,15 +67,9 @@ fn unknown_fields_are_ignored() {
 }
 
 #[test]
-fn buffer_descriptors_roundtrip() {
-    // Not part of echo.midl today, but the codec path generated for `Buffer`
-    // is exercised by the ping/echo types above; keep a direct check that the
-    // descriptor type re-export is usable from generated code.
-    let desc = BufferDesc {
-        handle: 3,
-        offset: 0,
-        len: 4096,
-        flags: 1,
-    };
-    assert_eq!(desc.len, 4096);
+fn buffer_fields_are_the_codec_type() {
+    // Not part of echo.midl today; a `Buffer` parameter is the codec's own
+    // type, usable from generated code without a re-export.
+    let buffer = Buffer::whole(3, 4096);
+    assert_eq!((buffer.handle, buffer.offset, buffer.len), (3, 0, 4096));
 }

@@ -47,15 +47,13 @@ impl KeySession {
         let (events, peer) = create_pair()?;
         let body = wire::encode_open_args(&wire::OpenArgs {
             surface: Some(surface),
+            events: peer.handle(),
         })
         .map_err(Error::Parcel);
-        let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers {
-            events: peer.handle(),
-        });
-        let reply = body.and_then(|body| {
+        let reply = body.and_then(|(body, objects)| {
             call_on(
                 &service,
-                &request(INTERFACE, wire::METHOD_OPEN, body, handles),
+                &request(INTERFACE, wire::METHOD_OPEN, body, objects),
             )
         });
         match reply.and_then(|reply| wire::decode_open_reply(&reply.body).map_err(Error::Parcel)) {

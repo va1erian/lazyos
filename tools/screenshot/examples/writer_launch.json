@@ -163,7 +163,7 @@
   {"at": 4.6, "mouse_move": [-300, -300]},
   {"at": 4.8, "mouse_move": [-300, -300]},
   {"at": 5.0, "mouse_move": [-300, -300]},
-  {"at": 5.4, "mouse_move": [370, 165], "note": "Files: the x.lzw tile"},
+  {"at": 5.4, "mouse_move": [370, 203], "note": "Files: the x.lzw tile (under the 38 px toolbar)"},
   {"at": 6.0, "mouse_click": "left"},
   {"at": 6.15, "mouse_click": "left"},
   {"wait_for": "FILES:OPEN:PASS:/home/user/x.lzw", "timeout": 120},

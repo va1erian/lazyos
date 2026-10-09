@@ -228,19 +228,20 @@ class LazyRadTests(unittest.TestCase):
     def test_the_switch_sets_the_embed_variable(self) -> None:
         env = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True})
         self.assertEqual(env["LAZYOS_LAZYRAD"], "1")
-        # The LazyOS-only samples (Messenger, the MOD player) always come along.
+        # The bundled samples (Messenger, the MOD player, LazyRAD's examples)
+        # always come along.
         self.assertEqual(env["LAZYRAD_SAMPLES"].split(os.pathsep),
-                         ["lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer"])
+                         list(catalog.LAZYOS_LAZYRAD_SAMPLES))
+        self.assertIn("lazyrad-os/samples/brickbreaker", catalog.LAZYOS_LAZYRAD_SAMPLES)
 
     def test_samples_are_passed_only_with_the_switch(self) -> None:
         on = catalog.build_env({**self.base(), "desktop": True, "lazyrad": True,
                                 "lazyrad_samples": os.pathsep.join(["a", "b"])})
         self.assertEqual(on["LAZYRAD_SAMPLES"].split(os.pathsep),
-                         ["a", "b", "lazyrad-os/samples/messenger",
-                          "lazyrad-os/samples/modplayer"])
+                         ["a", "b", *catalog.LAZYOS_LAZYRAD_SAMPLES])
         listed = catalog.lazyrad_samples("lazyrad-os/samples/messenger")
         self.assertEqual(listed.split(os.pathsep),
-                         ["lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer"],
+                         list(catalog.LAZYOS_LAZYRAD_SAMPLES),
                          "no duplicate entry")
         off = catalog.build_env({**self.base(), "desktop": True, "lazyrad": False,
                                  "lazyrad_samples": "C:\a"})

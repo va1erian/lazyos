@@ -338,14 +338,27 @@ pub fn pressure_returns_frames() -> Result<(), String> {
     task::register_kernel();
     let disk = formatted(0)?;
     let before = mem::frame_stats().live();
+    let counted = crate::fs::ext2::cache_frames();
     let (fs, mut vfs) = cached(disk, 512)?;
     let data = pattern_bytes(2, 200_000);
     write_file(&mut vfs, "/f", &data)?;
     let held = mem::frame_stats().live() - before;
     check!(held > 150, "the cache holds only {held} frames");
+    // The snapshot's disk-cache share (sysinfo v5) follows the pages.
+    let pages = fs.cache_stats().ok_or("no cache")?.pages;
+    let grown = crate::fs::ext2::cache_frames() - counted;
+    check!(
+        grown == pages,
+        "the cache counter grew by {grown} for {pages} pages"
+    );
     vfs.writeback_all(true).map_err(fs_error)?;
     let stats = fs.cache_stats().ok_or("no cache")?;
     check!(stats.pages == 0, "pressure kept {} pages", stats.pages);
+    check!(
+        crate::fs::ext2::cache_frames() == counted,
+        "the cache counter kept {} frames after a shrink",
+        crate::fs::ext2::cache_frames() - counted
+    );
     check!(read_file(&mut vfs, "/f")? == data, "reads after a shrink");
     drop((fs, vfs));
     let after = mem::frame_stats().live();

@@ -143,11 +143,12 @@ fn open() -> Result<Session, &'static str> {
     sys::input_console_claim().map_err(|_| "claim-refused")?;
     let input = registry::resolve(api::NAME).map_err(|_| "no-inputd")?;
     let (events, peer) = create_pair().map_err(|_| "no-channel")?;
-    let body = wire::encode_open_args(&wire::OpenArgs { surface: None }).unwrap_or_default();
-    let (handles, _) = wire::encode_open_transfers(&wire::OpenTransfers {
+    let (body, objects) = wire::encode_open_args(&wire::OpenArgs {
+        surface: None,
         events: peer.handle(),
-    });
-    let parcel = api::request(api::INTERFACE, wire::METHOD_OPEN, body, handles);
+    })
+    .unwrap_or_default();
+    let parcel = api::request(api::INTERFACE, wire::METHOD_OPEN, body, objects);
     let mut buffer = [0u8; 256];
     let reply = input
         .call_with(&parcel, &mut buffer, Some(sys::clock() + CALL_TICKS))

@@ -11,7 +11,6 @@ import re
 
 from midlc_lexer import Token
 from midlc_model import (
-    BODY_FORBIDDEN,
     BUILTINS,
     ERROR_FIELD,
     MAX_FIELD_ID,
@@ -28,7 +27,7 @@ from midlc_model import (
 )
 from midlc_topics import make_topic
 from midlc_rings import make_ring, validate_rings
-from midlc_transfers import claim_names, make_transfers
+from midlc_objects import check_object_type, mark_objects, object_kind, object_structs, walk_objects
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +159,6 @@ class Parser:
         returns = self.parse_params()
         method_id = fnv1a32(name.text)
         oneway = False
-        transfers = []
         while self.peek() and self.peek().text != ";":
             token = self.next()
             if token.text == "=":
@@ -173,15 +171,17 @@ class Parser:
             elif token.text == "sync":
                 oneway = False
             elif token.text == "transfers":
-                if transfers:
-                    raise MidlError(f"method {name.text!r} has two `transfers` clauses", token.line)
-                transfers = make_transfers(self.parse_params(), token.line)
+                raise MidlError(
+                    "the `transfers (...)` clause is gone: declare a Channel<interface>, "
+                    "Buffer or Ring<...> parameter instead",
+                    token.line,
+                )
             else:
                 raise MidlError(f"unexpected {token.text!r} in method", token.line)
         self.expect(";")
         self.assign_field_ids(params, f"{name.text} (args)")
         self.assign_field_ids(returns, f"{name.text} (reply)", reply=True)
-        return Method(name.text, params, returns, method_id, oneway, doc, transfers)
+        return Method(name.text, params, returns, method_id, oneway, doc)
 
     def parse_struct(self) -> Struct:
         doc = self.take_doc()
@@ -300,6 +300,10 @@ class Parser:
 
 def validate(interface: Interface) -> None:
     named = {s.name for s in interface.structs} | {e.name for e in interface.enums}
+    structs = {s.name: s for s in interface.structs}
+    # The structs that carry an object somewhere inside: such a value is
+    # refused wherever an object itself is.
+    holding = object_structs(interface.structs)
     ids: dict[int, str] = {}
     # snake_case identifier -> the declared name(s) it came from, so distinct
     # names that fold to the same generated `encode_*`/`decode_*` function
@@ -338,29 +342,32 @@ def validate(interface: Interface) -> None:
         ids[method.method_id] = method.name
         if method.oneway and method.returns:
             raise MidlError(f"oneway method {method.name!r} cannot return values")
-        claim_names(method, claim)
         if method.params:
             claim(f"encode_{snake_case(method.name)}_args", f"{method.name} (args)")
             claim(f"decode_{snake_case(method.name)}_args", f"{method.name} (args)")
         if method.returns:
             claim(f"encode_{snake_case(method.name)}_reply", f"{method.name} (reply)")
             claim(f"decode_{snake_case(method.name)}_reply", f"{method.name} (reply)")
-        for param in method.params + method.returns:
-            check_type(param.ty, named)
+        for param in method.params:
+            check_type(param.ty, named, where="args", holding=holding, line=param.line)
+        for param in method.returns:
+            check_type(param.ty, named, where="reply", holding=holding, line=param.line)
+        method.objects = walk_objects(method.params, structs, f"{interface.name}.{method.name}")
     for struct in interface.structs:
         for f in struct.fields:
-            check_type(f.ty, named)
+            check_type(f.ty, named, where="struct", holding=holding, line=f.line)
     enums = {e.name for e in interface.enums}
     for fields in [s.fields for s in interface.structs] + [m.params + m.returns for m in interface.methods]:
         for f in fields:
             mark_enums(f.ty, enums)
-    validate_topics(interface, named, claim)
+            mark_objects(f.ty, holding)
+    validate_topics(interface, named, claim, holding)
     validate_rings(interface, claim)
 
 
-def validate_topics(interface: Interface, named: set[str], claim) -> None:
-    """Every topic must name a payload type of this interface, be unique, and
-    not collide with another codec name."""
+def validate_topics(interface: Interface, named: set[str], claim, holding: set[str] = frozenset()) -> None:
+    """Every topic must name a payload type of this interface that carries no
+    object, be unique, and not collide with another codec name."""
     patterns: dict[str, str] = {}
     suffixes: dict[str, str] = {}
     for topic in interface.topics:
@@ -368,6 +375,11 @@ def validate_topics(interface: Interface, named: set[str], claim) -> None:
         if topic.payload not in named:
             raise MidlError(
                 f"{origin} payload {topic.payload!r} is not a struct or enum of {interface.name!r}"
+            )
+        if topic.payload in holding:
+            raise MidlError(
+                f"{origin} payload {topic.payload!r} carries a kernel object; "
+                "a published event carries none"
             )
         if topic.name in patterns:
             raise MidlError(f"topic {topic.name!r} is declared twice")
@@ -395,18 +407,38 @@ def mark_enums(ty: Type, enums: set[str]) -> None:
         mark_enums(arg, enums)
 
 
-def check_type(ty: Type, named: set[str]) -> None:
-    if ty.name in BODY_FORBIDDEN:
-        raise MidlError(
-            f"{ty.name} cannot travel in a message body (a handle number means "
-            "nothing in the receiver's table); declare it in the method's "
-            "`transfers (...)` clause"
-        )
+def check_type(
+    ty: Type,
+    named: set[str],
+    *,
+    where: str = "struct",
+    holding: set[str] = frozenset(),
+    nested: str | None = None,
+    line: int = 0,
+) -> None:
+    """`ty` is a type `where` (`"args"`, `"reply"` or `"struct"`) may hold.
+    An object (`Channel`, `Buffer`, `Ring`, or a struct in `holding`) is
+    refused in a reply and inside an `Option`/`Array` (`nested`), so every
+    method's object count is fixed."""
+    if ty.name == "Handle":
+        raise MidlError("`Handle` is not a MIDL type; a channel end is `Channel<interface>`", line)
     if ty.name == "Map" and "Map" not in named:
-        raise MidlError("MIDL has no Map type; use an Array of a struct with key and value fields")
+        raise MidlError("MIDL has no Map type; use an Array of a struct with key and value fields", line)
     if ty.name in {"Array", "Option"} and len(ty.args) != 1:
-        raise MidlError(f"{ty.name} takes exactly one type parameter")
+        raise MidlError(f"{ty.name} takes exactly one type parameter", line)
     if ty.name not in BUILTINS and ty.name not in named:
-        raise MidlError(f"unknown type {ty.name!r}")
+        raise MidlError(f"unknown type {ty.name!r}", line)
+    is_object = object_kind(ty) is not None or ty.name in holding
+    if is_object and where == "reply":
+        raise MidlError(f"{ty}: a reply carries no objects; return a value and keep the object in the request", line)
+    if is_object and nested is not None:
+        raise MidlError(
+            f"{ty} inside {nested}: a request's object count must be fixed, "
+            "so an object never sits in an Option or an Array",
+            line,
+        )
+    if object_kind(ty) is not None:
+        check_object_type(ty, str(ty), line)
+        return
     for arg in ty.args:
-        check_type(arg, named)
+        check_type(arg, named, where=where, holding=holding, nested=ty.name, line=line)

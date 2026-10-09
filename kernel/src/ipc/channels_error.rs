@@ -37,17 +37,16 @@ pub enum Error {
     Canceled,
     /// The endpoint on the other side was closed.
     PeerDied,
-    /// A transferred handle is missing, of the wrong kind, or lacks the right
-    /// to be moved.
+    /// A channel end appears twice in the object list (one handle, one move).
     BadTransfer,
-    /// Transfers are only carried by messages, not by replies (yet).
+    /// Objects are only carried by requests, never by replies.
     UnsupportedTransfer,
-    /// A shared-buffer handle sits in the `handles` vector; a buffer travels
-    /// only in `buffers`.
-    BufferInHandles,
-    /// The request carries more handles or buffers than its interface and
-    /// method declare in `.midl` (issue #516).
-    UndeclaredTransfer,
+    /// An object-list entry names a handle of the other kind: a buffer in a
+    /// channel slot, or a channel end in a buffer slot.
+    WrongObjectKind,
+    /// The request's object list is not what its interface and method
+    /// declare in `.midl` (length, kinds or order; issue #516).
+    UndeclaredObject,
 }
 
 impl Error {
@@ -73,16 +72,12 @@ impl Error {
             Error::TimedOut => "the deadline passed before a reply arrived",
             Error::Canceled => "the caller canceled this transaction",
             Error::PeerDied => "the endpoint on the other side was closed",
-            Error::BadTransfer => {
-                "a transferred handle does not exist or does not grant the transfer right"
+            Error::BadTransfer => "a channel end appears twice in the message's objects",
+            Error::UnsupportedTransfer => "replies cannot carry objects",
+            Error::WrongObjectKind => {
+                "an object of the message is not of the kind its slot declares"
             }
-            Error::UnsupportedTransfer => "replies cannot carry handles or buffers yet",
-            Error::BufferInHandles => {
-                "a shared buffer is sent in the buffers list, not as a handle"
-            }
-            Error::UndeclaredTransfer => {
-                "this request carries handles or buffers its method does not declare"
-            }
+            Error::UndeclaredObject => "this request's objects are not what its method declares",
         }
     }
 }

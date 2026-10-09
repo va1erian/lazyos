@@ -53,7 +53,9 @@ impl<M: 'static> Editor<M> {
     pub fn with_options(ui: &Ui<M>, bounds: Rect, options: Options) -> Result<Editor<M>> {
         let control = xui_core::widget::Control::new(
             ui,
-            &NodeSpec::new(NodeKind::Custom, bounds).tab_stop(),
+            &NodeSpec::new(NodeKind::Custom, bounds)
+                .tab_stop()
+                .wants_tab(),
         )?;
         ui.set_cursor(control.id(), Cursor::Text);
 

@@ -1,13 +1,15 @@
 //! `xui-netdrives`: the Network Drives app. The top half connects to an FTP
-//! server: host, port, user (empty for the anonymous login), password and the
-//! folder name, served at `/mnt/<name>`. The bottom half lists every mount
+//! server (host, port, user, empty for the anonymous login, and password) or
+//! an SMB share (the same plus the share's name; docs/smb-plan.md F3), and
+//! names the folder it is served at, `/mnt/<name>`. The bottom half lists every mount
 //! the network mount service (`mountd`, `os.lazy.mount.v1`) knows about,
 //! refreshed every second, with its state (connecting, mounted, or failed
 //! and why); "Open in Files" (or a double-click) opens a mounted folder,
 //! "Unmount" stops one.
 //!
-//! The app holds no filesystem authority: `mountd` starts the `ftpfuse`
-//! daemon that serves the folder (docs/smb-plan.md §3.4), and the folder's
+//! The app holds no filesystem authority: `mountd` starts the `ftpfuse` or
+//! `smbfuse` daemon that serves the folder (docs/smb-plan.md §3.4), and the
+//! folder's
 //! files are owned by the user who ran the app. The form is checked with
 //! `mountd`'s own rules first (`xui_app::net::drives`), so a request the
 //! service would refuse is refused here with the reason.
@@ -19,11 +21,13 @@
 //! reason=<why>` once one failed; `NETDRIVES:UNMOUNT:PASS|FAIL name=<n>`;
 //! `NETDRIVES:OPEN:PASS|FAIL path=<p>`; `NETDRIVES:LIST:NOSERVICE` once
 //! when `mountd` is absent; `NETDRIVES:CLOSE:PASS` on close. With the UI
-//! probe on, `UI:WIDGET` lines name `host`, `port`, `user`, `password`,
-//! `name`, `mount_button`, `mounts`, `open_button` and `unmount_button`.
+//! probe on, `UI:WIDGET` lines name `kind_ftp`, `kind_smb`, `host`, `port`,
+//! `share`, `user`, `password`, `name`, `mount_button`, `mounts`,
+//! `open_button` and `unmount_button`.
 
 use std::collections::HashMap;
 
+use mounttable::Kind;
 use xui_app::launch;
 use xui_app::net::drives::{self, Form};
 use xui_app::net::mounts::{self, MountInfo};
@@ -33,13 +37,16 @@ use xui_core::prelude::*;
 /// The window title, which the UI probe lines name.
 const TITLE: &str = "Network Drives";
 /// The window size when a compositor lays the app out.
-const WINDOW: (i32, i32) = (640, 500);
+const WINDOW: (i32, i32) = (640, 580);
+/// The protocol choices, in radio order.
+const KINDS: [Kind; 2] = [Kind::Ftp, Kind::Smb];
 /// How often the mount list refreshes.
 const REFRESH_MILLIS: u32 = 1000;
 
 #[derive(Clone)]
 enum Msg {
     Tick,
+    Kind(usize),
     Mount,
     Open,
     Unmount,
@@ -49,8 +56,10 @@ enum Msg {
 /// Every widget the app reads or changes after start-up.
 #[derive(Default)]
 struct Widgets {
+    kind: Handle<RadioGroup<Msg>>,
     host: Handle<Edit<Msg>>,
     port: Handle<Edit<Msg>>,
+    share: Handle<Edit<Msg>>,
     user: Handle<Edit<Msg>>,
     password: Handle<Edit<Msg>>,
     name: Handle<Edit<Msg>>,
@@ -75,18 +84,29 @@ fn field(caption: &str, edit: Build<Edit<Msg>, Msg>, width: i32) -> Entry<Msg> {
 impl Widgets {
     fn layout(&self) -> Layout<Msg> {
         let server = column().gap(8).children((
-            row().gap(16).children((
-                field(
-                    "Server",
-                    edit().placeholder("ftp.example.org").bind(&self.host),
-                    220,
-                ),
-                field("Port", edit().placeholder("21").bind(&self.port), 80),
+            row().gap(8).children((
+                label("Protocol").width(80),
+                radio_group(&["FTP server", "SMB share (Windows, Samba)"])
+                    .on_select(Msg::Kind)
+                    .bind(&self.kind),
             )),
             row().gap(16).children((
                 field(
+                    "Server",
+                    edit().placeholder("name or address").bind(&self.host),
+                    220,
+                ),
+                field("Port", edit().placeholder("21/445").bind(&self.port), 80),
+            )),
+            field(
+                "Share",
+                edit().placeholder("SMB shares only").bind(&self.share),
+                220,
+            ),
+            row().gap(16).children((
+                field(
                     "User",
-                    edit().placeholder("anonymous").bind(&self.user),
+                    edit().placeholder("empty: anonymous FTP").bind(&self.user),
                     220,
                 ),
                 field("Password", edit().password().bind(&self.password), 160),
@@ -94,7 +114,7 @@ impl Widgets {
             row().gap(16).children((
                 field(
                     "Name",
-                    edit().placeholder(drives::DEFAULT_NAME).bind(&self.name),
+                    edit().placeholder("ftp, or the share").bind(&self.name),
                     220,
                 ),
                 button("Mount")
@@ -107,7 +127,7 @@ impl Widgets {
             .padding(Insets::new(Dip(12.0), Dip(8.0), Dip(12.0), Dip(8.0)))
             .gap(8)
             .children((
-                group("Connect to an FTP server", server),
+                group("Connect to a server", server),
                 group(
                     "Mounted folders",
                     column().gap(8).children((
@@ -136,10 +156,19 @@ impl Widgets {
             ))
     }
 
+    fn kind(&self) -> Kind {
+        KINDS
+            .get(self.kind.get().selected())
+            .copied()
+            .unwrap_or(Kind::Ftp)
+    }
+
     fn form(&self) -> Form {
         Form {
+            kind: self.kind(),
             host: self.host.get().text(),
             port: self.port.get().text(),
+            share: self.share.get().text(),
             user: self.user.get().text(),
             password: self.password.get().text(),
             name: self.name.get().text(),
@@ -148,9 +177,13 @@ impl Widgets {
 
     /// Print where the named controls are (UI probe images only).
     fn probe(&self, ui: &Ui<Msg>) {
+        let kinds = self.kind.get().ids();
         let rects = [
+            ("kind_ftp", ui.bounds(kinds[0])),
+            ("kind_smb", ui.bounds(kinds[1])),
             ("host", ui.bounds(self.host.get().id())),
             ("port", ui.bounds(self.port.get().id())),
+            ("share", ui.bounds(self.share.get().id())),
             ("user", ui.bounds(self.user.get().id())),
             ("password", ui.bounds(self.password.get().id())),
             ("name", ui.bounds(self.name.get().id())),
@@ -199,6 +232,9 @@ impl App for Netdrives {
                     self.w.probe(ui);
                     self.probed = true;
                 }
+            }
+            Msg::Kind(index) => {
+                println!("NETDRIVES:KIND {}", KINDS[index.min(1)].name());
             }
             Msg::Mount => self.mount(),
             Msg::Open => self.open(),

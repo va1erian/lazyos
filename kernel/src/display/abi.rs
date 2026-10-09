@@ -142,8 +142,6 @@ pub(crate) fn shared_errno(error: shared::Error) -> u64 {
     negative(match error {
         InvalidHandle | NotFound => errno::ENOENT,
         NoFreeHandle | RegistryFull | Quota | UserQuota | OutOfMemory => errno::ENOMEM,
-        BadTask | WrongKind | BadSize | MissingRight | ShareOnly | BadDescriptor | MapFailed => {
-            errno::EINVAL
-        }
+        BadTask | WrongKind | BadSize | MissingRight | ShareOnly | MapFailed => errno::EINVAL,
     })
 }

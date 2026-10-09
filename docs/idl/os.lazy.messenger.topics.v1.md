@@ -27,16 +27,16 @@ id.
 | ListTopics | 225427937 | sync | `() -> (topics: Array<TopicInfo>)` |
 | Stats | 267161228 | sync | `(subscription: U64) -> (stats: Stats)` |
 | Ping | 2142761129 | sync | `() -> ()` |
-| Bell | 1766698328 | sync | `(subscription: U64) -> () transfers (bell: Channel<os.lazy.messenger.topics.bell.v1>)` |
+| Bell | 1766698328 | sync | `(subscription: U64, bell: Channel<os.lazy.messenger.topics.bell.v1>) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Bell | `bell` | `handles[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Bell | `bell` | `Channel<os.lazy.messenger.topics.bell.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.messenger.topics.bell.v1` on |
 
 ## struct `Event`
 

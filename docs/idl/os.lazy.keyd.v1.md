@@ -11,9 +11,8 @@ Payloads of `Bytes` are capped at 8 KiB so a reply always fits the call
 buffer. Failures are returned as a structured error field (errno-style
 code, friendly text), not as a typed reply.
 
-Key tables are meant to live in `SHARE_ONLY` shared buffers once a
-userspace syscall for them exists; the wire has no buffer or handle
-parameters today, so nothing here needs `Buffer`/`Handle` yet.
+Key material stays in `keyd`'s own memory: no method carries a `Buffer`
+or a `Channel`, so no client ever maps a page that holds a key.
 
 ## Methods
 

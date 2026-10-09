@@ -36,6 +36,7 @@ elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
 accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
 smbwire = { path = "../libs/smbwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
+libmessenger = { path = "../libs/messenger", features = ["fuzz"] }
 
 [workspace]
 
@@ -210,6 +211,13 @@ bench = false
 [[bin]]
 name = "smbwire"
 path = "fuzz_targets/smbwire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "messenger"
+path = "fuzz_targets/messenger.rs"
 test = false
 doc = false
 bench = false

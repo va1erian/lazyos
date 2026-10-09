@@ -220,8 +220,10 @@ pool when its last reference drops. Bytes are charged to a new
 
 Because it is a normal Buffer handle (with `TRANSFER`/`DUPLICATE` rights) it
 can be **passed to a client in a Messenger message** for zero-copy
-audio/packet payloads, and `SHARE_ONLY` lets a client hand a buffer to the
-driver without mapping it. The buffer is never executable. On the last
+audio/packet payloads; `SHARE_ONLY` keeps a DMA target mapped only in the
+driver that allocated it (the kernel refuses `buffer_map` for any other
+task; the only share-only buffer left after `messenger-core-plan.md` M1).
+The buffer is never executable. On the last
 reference drop the frames return to the pool and the `DmaMemory` charge is
 released exactly once, against the uid that allocated it. `release` and task
 teardown close the owner's reference by buffer object id, so a transferred

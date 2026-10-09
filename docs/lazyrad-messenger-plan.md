@@ -65,7 +65,7 @@ command and checked by CI like the existing `--out` and `--schema` outputs.
     with the declared QoS and run `handler` with the decoded payload;
   - `sys::confd::subscribe_changed(...)` for the pull form (`sub.next()`);
   - `sys::confd::publish_changed(path, change)`.
-- **Not generated:** methods whose request transfers kernel objects (channels,
+- **Not generated:** methods whose request carries kernel objects (channels,
   buffers, rings; `display`, `audio`, `input`, `net` drivers). A script cannot
   create those. The module lists them in a comment instead of offering a function
   that always fails.

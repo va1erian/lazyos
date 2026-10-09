@@ -23,11 +23,10 @@
 /// standard error field (id 15, `docs/midl.md`).
 interface os.lazy.shell.tray.v1 {
     /// Show the app's item, replacing its current one (custom or default).
-    /// The parcel transfers the channel the shell sends the item's events
+    /// `events` is the channel the shell sends the item's events
     /// on; the shell `Ping`s it on its heartbeat and drops the custom item
     /// when the channel is gone (`EPIPE`).
-    method Set(item: Item = 1) -> () = 1
-        transfers (events: Channel<os.lazy.shell.tray.events.v1>);
+    method Set(item: Item = 1, events: Channel<os.lazy.shell.tray.events.v1> = 2) -> () = 1;
     /// Replace the given parts of the app's item; absent fields are kept
     /// (an empty `badge` removes the badge). `ENOENT` before `Set`.
     method Update(icon: Option<Icon> = 1, tooltip: Option<String> = 2, status: Option<U32> = 3, badge: Option<String> = 4, menu: Option<Menu> = 5) -> () = 2;

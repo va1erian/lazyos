@@ -23,7 +23,7 @@ use crate::arch::{clock, irq_window, irqchip, irqoff};
 pub(in crate::tests) const BOUND_US: u64 = irqoff::REPORT_US;
 /// Native syscall numbers the suite charges its fake syscalls to (unused by
 /// the gate).
-const NR_A: u64 = 60;
+pub(in crate::tests) const NR_A: u64 = 60;
 const NR_B: u64 = 61;
 /// Attempts a timing assertion gets (module docs).
 pub(in crate::tests) const ATTEMPTS: usize = 6;
@@ -52,6 +52,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "irqwin_soak_serial_drains_stay_bounded",
         soak_serial_drains_stay_bounded,
+    ),
+    (
+        "irqwin_deadline_timer_defers_in_window",
+        super::irq_window_deadline::deadline_timer_defers_in_window,
     ),
 ];
 
@@ -212,7 +216,7 @@ pub(in crate::tests) fn best_of(
     Err(format!("{what}: no attempt within bounds: {seen:?}"))
 }
 
-fn calibrated() -> Result<(), String> {
+pub(in crate::tests) fn calibrated() -> Result<(), String> {
     check!(
         clock::cycles_per_tick() != 0,
         "the TSC is not calibrated: no time base for windows"

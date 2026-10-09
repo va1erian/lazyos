@@ -41,8 +41,7 @@ pub fn load_label(label: &str, rules: &[wire::LabelRule]) -> Result<u64> {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let bytes = encode(&parcel)?;
     let args = MsgArgs {

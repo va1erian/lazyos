@@ -1,12 +1,12 @@
 //! The page as a layout entry. [`BlitzView`] exposes no node of its own to
 //! place, so the window layout places a container and the view fills it.
 
+use xui_blitz::BlitzView;
 use xui_core::app::Ui;
 use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_blitz::BlitzView;
 
 use crate::app::Msg;
 

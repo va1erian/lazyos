@@ -115,7 +115,8 @@ pub fn tree_operations() -> Result<(), String> {
         );
         // A chmod reaches the daemon and comes back in the metadata. (Each
         // mount table caches on its own: a change made through the native
-        // table is not seen by the ABI table's cache, docs/smb-plan.md §3.1.)
+        // table reaches the ABI table's cache when its entry expires,
+        // `coherence.rs`.)
         vfsapi::abi_setattr(ROOT, &at("b.txt"), crate::fs::vfs::AttrRequest::Mode(0o640))
             .map_err(|e| format!("chmod: {e:?}"))?;
         let mode = vfsapi::abi_stat(ROOT, &at("b.txt")).map(|m| m.mode & 0o7777);

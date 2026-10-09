@@ -14,7 +14,9 @@
 //! `FILES:PASTE:PASS:<copied>:<failed>` (`FILES:PASTE:EMPTY` when the
 //! clipboard holds no files, `FILES:PASTE:FAIL:<errno>` when it refused), and
 //! `FILES:SELECTION:PASS:<n>` per published selection of `n` paths
-//! (`FILES:SELECTION:FAIL:<reason>` when the broker refused).
+//! (`FILES:SELECTION:FAIL:<reason>` when the broker refused), and
+//! `FILES:DIR:<path>` whenever the folder a window announces differs from
+//! the last one announced (a navigation, or another window's folder).
 
 use std::cell::RefCell;
 use std::io;
@@ -36,6 +38,8 @@ pub struct LazySession {
     session: Option<u64>,
     /// The last selection published, so an unchanged one is not sent again.
     last: RefCell<Option<(PathBuf, Vec<PathBuf>)>>,
+    /// The folder of the last announcement, for `FILES:DIR`.
+    dir: RefCell<Option<PathBuf>>,
 }
 
 impl LazySession {
@@ -43,6 +47,7 @@ impl LazySession {
         LazySession {
             session: xui_app::sys::cred_get(None).ok().map(|cred| cred.session),
             last: RefCell::new(None),
+            dir: RefCell::new(None),
         }
     }
 }
@@ -88,6 +93,10 @@ impl Session for LazySession {
     }
 
     fn selection_changed(&self, dir: &Path, paths: &[PathBuf]) {
+        if self.dir.borrow().as_deref() != Some(dir) {
+            println!("FILES:DIR:{}", dir.display());
+            *self.dir.borrow_mut() = Some(dir.to_path_buf());
+        }
         let Some(session) = self.session else {
             return;
         };

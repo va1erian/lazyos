@@ -1,9 +1,10 @@
 //! Shared buffers (`docs/messenger-core-plan.md` 2.2): pages the kernel
 //! knows nothing more about. `buffer_create` gives the creator a handle and a
-//! mapping, the handle travels in a parcel's `buffers` list (never in
-//! `handles`), the receiver maps it with `buffer_map` and reads the size the
-//! kernel reports, and `buffer_close` unmaps and drops a reference. The
-//! pages live while any handle or in-flight message references them.
+//! mapping, the handle travels as a `Buffer` field of a request (an entry of
+//! the parcel's object list), the receiver maps it with `buffer_map` and
+//! reads the size the kernel reports, and `buffer_close` unmaps and drops a
+//! reference. The pages live while any handle or in-flight message
+//! references them.
 
 use super::{op, plain, MsgArgs};
 

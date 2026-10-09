@@ -129,6 +129,7 @@ pub fn remount_cycles() -> Result<(), String> {
     task::register_kernel();
     let disk = formatted(0)?;
     let frames = mem::frame_stats().live();
+    let counted = crate::fs::ext2::cache_frames();
     let mut rng = Rng(0x0BAD_CAFE);
     let mut model = vec![Vec::new(); FILES as usize];
     for cycle in 0..CYCLES {
@@ -157,6 +158,11 @@ pub fn remount_cycles() -> Result<(), String> {
     check!(
         after == frames,
         "frames leaked: {frames} before, {after} after"
+    );
+    let cached_after = crate::fs::ext2::cache_frames();
+    check!(
+        cached_after == counted,
+        "the cache counter drifted: {counted} before, {cached_after} after"
     );
     release(disk);
     Ok(())

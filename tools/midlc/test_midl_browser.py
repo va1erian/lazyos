@@ -17,8 +17,7 @@ import midl_browser_model as model  # noqa: E402
 TWO = """
 /// First.
 interface os.lazy.first.v1 {
-    method Attach(slots: U32) -> ()
-        transfers (rings: Ring<Rx>, notify: Channel<os.lazy.first.v1>);
+    method Attach(slots: U32, rings: Ring<Rx>, notify: Channel<os.lazy.first.v1>) -> ();
     method Notify() -> () oneway;
     /// Frames in.
     ring Rx : frames producer=server doorbell=Notify;
@@ -34,7 +33,7 @@ TWIN_RINGS = TWO.replace(
     method Ping() -> ();
 }""",
     """interface os.lazy.second.v1 {
-    method Bind() -> () transfers (ring: Ring<Rx>);
+    method Bind(ring: Ring<Rx>) -> ();
     method Advance() -> ();
     ring Rx : stream producer=client advance=Advance;
 }""",
@@ -55,14 +54,14 @@ class ModelTests(unittest.TestCase):
         names = [entry.interface.name for entry in self.loaded]
         self.assertEqual(names, ["os.lazy.first.v1", "os.lazy.second.v1"])
 
-    def test_signature_shows_transfers(self) -> None:
+    def test_signature_shows_objects(self) -> None:
         attach = self.loaded[0].interface.methods[0]
         self.assertEqual(
             model.signature(attach),
-            "(slots: U32) -> () transfers (rings: Ring<Rx>, notify: Channel<os.lazy.first.v1>)",
+            "(slots: U32, rings: Ring<Rx>, notify: Channel<os.lazy.first.v1>) -> ()",
         )
 
-    def test_filter_finds_rings_and_transfers(self) -> None:
+    def test_filter_finds_rings_and_objects(self) -> None:
         first = self.loaded[0].interface
         by_ring = model.filtered(first, "doorbell notify")
         self.assertEqual([r.name for r in by_ring.rings], ["Rx"])
@@ -74,8 +73,8 @@ class ModelTests(unittest.TestCase):
     def test_counts(self) -> None:
         total = model.counts(self.loaded)
         self.assertEqual(
-            {k: total[k] for k in ("interfaces", "files", "failed", "methods", "transferring", "rings")},
-            {"interfaces": 2, "files": 1, "failed": 0, "methods": 3, "transferring": 1, "rings": 1},
+            {k: total[k] for k in ("interfaces", "files", "failed", "methods", "carrying", "rings")},
+            {"interfaces": 2, "files": 1, "failed": 0, "methods": 3, "carrying": 1, "rings": 1},
         )
 
     def test_parse_error_is_one_entry(self) -> None:
@@ -129,7 +128,7 @@ class GuiSmokeTests(unittest.TestCase):
                 text = browser.detail.get("1.0", "end")
                 self.assertIn("ring Rx", text)
                 self.assertIn("doorbell    Notify (oneway)", text)
-                self.assertIn("Attach: `buffers[0]`, a shared buffer holding the rings `Rx`", text)
+                self.assertIn("Attach: `objects[0]`, a shared buffer holding the rings `Rx`", text)
                 self.assertIn("1 rings", browser.status.cget("text"))
                 # A same-named ring in another interface of the file is not
                 # credited to this interface's `Attach`.
@@ -140,7 +139,7 @@ class GuiSmokeTests(unittest.TestCase):
                 self.assertEqual(len(rings), 2)
                 browser._render(browser.nodes[rings[1]])
                 text = browser.detail.get("1.0", "end")
-                self.assertIn("Bind: `buffers[0]`", text)
+                self.assertIn("Bind: `objects[0]`", text)
                 self.assertNotIn("Attach:", text)
                 path.write_text(TWO, encoding="utf-8")
                 browser.reload()

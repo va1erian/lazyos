@@ -13,6 +13,16 @@ macro_rules! roundtrip {
     }};
 }
 
+/// The same for a request that carries objects: the decoder reads the
+/// installed list, which here is the sender's own (numbers are numbers).
+macro_rules! roundtrip_objects {
+    ($value:expr, $encode:ident, $decode:ident) => {{
+        let value = $value;
+        let (body, objects) = $encode(&value).unwrap();
+        assert_eq!($decode(&body, &objects).unwrap(), value);
+    }};
+}
+
 // Not `tests/present.rs`: cargo would build that as a test target of its own.
 #[path = "display/present.rs"]
 mod present;
@@ -145,13 +155,14 @@ fn request_size_is_appended_after_configure_and_roundtrips() {
 #[test]
 fn surface_calls_roundtrip() {
     for title in [String::new(), "xdemo".to_string(), "T".repeat(4000)] {
-        roundtrip!(
+        roundtrip_objects!(
             CreateSurfaceArgs {
                 width: 640,
                 height: 480,
                 title: title.clone(),
                 role: ROLE_DESKTOP,
-                popup: None
+                popup: None,
+                events: 4
             },
             encode_create_surface_args,
             decode_create_surface_args
@@ -162,8 +173,11 @@ fn surface_calls_roundtrip() {
         encode_create_surface_reply,
         decode_create_surface_reply
     );
-    roundtrip!(
-        AttachBufferArgs { surface: 3 },
+    roundtrip_objects!(
+        AttachBufferArgs {
+            surface: 3,
+            pixels: libmessenger::Buffer::whole(6, 640 * 480 * 4)
+        },
         encode_attach_buffer_args,
         decode_attach_buffer_args
     );
@@ -323,9 +337,10 @@ fn shell_calls_roundtrip() {
         encode_get_work_area_reply,
         decode_get_work_area_reply
     );
-    roundtrip!(
+    roundtrip_objects!(
         SubscribeArgs {
-            subscriber_role: "shell".into()
+            subscriber_role: "shell".into(),
+            events: 9
         },
         encode_subscribe_args,
         decode_subscribe_args
@@ -382,23 +397,30 @@ fn truncated_bodies_are_rejected() {
     })
     .unwrap();
     assert!(decode_list_surfaces_reply(&body[..body.len() - 3]).is_err());
-    let body = encode_create_surface_args(&CreateSurfaceArgs {
+    let (body, objects) = encode_create_surface_args(&CreateSurfaceArgs {
         width: 1,
         height: 1,
         title: "abc".into(),
         role: 0,
         popup: None,
+        events: 2,
     })
     .unwrap();
-    assert!(decode_create_surface_args(&body[..body.len() - 1]).is_err());
+    assert!(decode_create_surface_args(&body[..body.len() - 1], &objects).is_err());
     assert!(decode_pointer_down_args(&[1, 2, 3]).is_err());
 }
 
 #[test]
 fn missing_fields_take_defaults() {
-    let empty = decode_create_surface_args(&[]).unwrap();
-    assert_eq!(empty, CreateSurfaceArgs::default());
-    assert_eq!(empty.role, ROLE_WINDOW);
+    // A request carrying objects is never empty: its object fields must
+    // each claim their slot, so a body without them is refused.
+    assert_eq!(
+        decode_create_surface_args(&[], &[]),
+        Err(libmessenger::Error::BadObjectIndex)
+    );
+    let empty = decode_commit_args(&[]).unwrap();
+    assert_eq!(empty, CommitArgs::default());
+    assert_eq!(CreateSurfaceArgs::default().role, ROLE_WINDOW);
     assert_eq!(
         decode_surface_changed_args(&[]).unwrap().kind,
         CHANGE_UNSPECIFIED

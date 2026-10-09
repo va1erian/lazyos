@@ -8,7 +8,6 @@
 //! server's refusal is not a connection failure and is never retried; it
 //! becomes an errno.
 
-use alloc::collections::BTreeMap;
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -282,72 +281,4 @@ pub fn errno_of(code: u16) -> Errno {
 /// The remote path of a mount-relative path.
 pub fn remote(path: &str) -> String {
     alloc::format!("/{path}")
-}
-
-/// Inode numbers by path: stable while the daemon runs, moved by renames,
-/// never reused (so a node handle of a deleted file stays stale).
-pub struct Inodes {
-    by_path: BTreeMap<String, u64>,
-    by_ino: BTreeMap<u64, String>,
-    next: u64,
-}
-
-impl Inodes {
-    pub const ROOT: u64 = 1;
-
-    pub fn new() -> Inodes {
-        let mut inodes = Inodes {
-            by_path: BTreeMap::new(),
-            by_ino: BTreeMap::new(),
-            next: Self::ROOT + 1,
-        };
-        inodes.by_path.insert(String::new(), Self::ROOT);
-        inodes.by_ino.insert(Self::ROOT, String::new());
-        inodes
-    }
-
-    pub fn ino(&mut self, path: &str) -> u64 {
-        if let Some(&ino) = self.by_path.get(path) {
-            return ino;
-        }
-        let ino = self.next;
-        self.next += 1;
-        self.by_path.insert(String::from(path), ino);
-        self.by_ino.insert(ino, String::from(path));
-        ino
-    }
-
-    pub fn path(&self, ino: u64) -> Option<&str> {
-        self.by_ino.get(&ino).map(String::as_str)
-    }
-
-    /// Forget `path` and everything below it.
-    pub fn forget(&mut self, path: &str) {
-        for (old, ino) in self.below(path) {
-            self.by_path.remove(&old);
-            self.by_ino.remove(&ino);
-        }
-    }
-
-    /// `from` (and everything below it) is now `to`.
-    pub fn rename(&mut self, from: &str, to: &str) {
-        self.forget(to);
-        for (old, ino) in self.below(from) {
-            let new = alloc::format!("{to}{}", &old[from.len()..]);
-            self.by_path.remove(&old);
-            self.by_path.insert(new.clone(), ino);
-            self.by_ino.insert(ino, new);
-        }
-    }
-
-    fn below(&self, path: &str) -> Vec<(String, u64)> {
-        self.by_path
-            .iter()
-            .filter(|(p, _)| {
-                p.as_str() == path
-                    || (p.starts_with(path) && p.as_bytes().get(path.len()) == Some(&b'/'))
-            })
-            .map(|(p, &ino)| (p.clone(), ino))
-            .collect()
-    }
 }

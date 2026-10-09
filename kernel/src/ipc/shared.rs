@@ -1,15 +1,15 @@
 //! Shared buffers (issue #67).
 //!
-//! `docs/messenger.md` sections 4, 7.1 and 10: a shared buffer is a page-aligned
+//! `docs/messenger.md` sections 2, 4 and 7.1: a shared buffer is a page-aligned
 //! run of frames that can be mapped read/write into several address spaces at
 //! once. The kernel keeps those frames in the `REGISTRY` keyed by the
 //! `object_id` carried by `HandleKind::Buffer` handles, so a handle number
 //! stays a small per-process integer and the frames outlive any single holder.
 //!
 //! Lifetime is reference-counted. Every handle holds one reference; every
-//! in-flight message that carries the buffer holds one, taken by [`retain`] /
-//! [`retain_descriptor`] when the parcel is queued and turned into the
-//! receiver's handle by [`attach`] on delivery. Each registry reference and
+//! in-flight message that carries the buffer holds one, taken by [`retain`]
+//! when the parcel is queued and turned into the receiver's handle by
+//! [`attach`] on delivery. Each registry reference and
 //! each mapping holds one allocator reference per frame, so a frame returns to
 //! the free pool exactly when its last reference (in flight, mapped, or held by
 //! a handle) goes away.
@@ -316,9 +316,10 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     }
 }
 
-/// Take the message reference for a buffer moved inside a parcel's handle
-/// list: the sender's handle is closed once the message is queued, and the
-/// message keeps the frame run alive until delivery.
+/// Take the message reference for a buffer a queued parcel shares: the
+/// sender keeps its own handle and mapping, and this reference lives until
+/// [`attach`] turns it into the receiver's handle (or the message is
+/// dropped, [`release`]).
 pub fn retain(object_id: u64) -> Result<(), Error> {
     let mut registry = REGISTRY.lock();
     let Some(buffer) = registry
@@ -328,31 +329,6 @@ pub fn retain(object_id: u64) -> Result<(), Error> {
     else {
         return Err(Error::NotFound);
     };
-    if !share_frames(&buffer.frames) {
-        return Err(Error::NotFound);
-    }
-    buffer.refs += 1;
-    Ok(())
-}
-
-/// Validate a descriptor's range and take the message reference for it.
-///
-/// Called when a parcel carrying the descriptor is queued; the sender keeps its
-/// own handle and mapping, and this reference lives until [`attach`] turns it
-/// into the receiver's handle.
-pub fn retain_descriptor(object_id: u64, offset: u64, len: u64) -> Result<(), Error> {
-    let mut registry = REGISTRY.lock();
-    let Some(buffer) = registry
-        .buffers
-        .iter_mut()
-        .find(|buffer| buffer.object_id == object_id)
-    else {
-        return Err(Error::NotFound);
-    };
-    let end = offset.checked_add(len).ok_or(Error::BadDescriptor)?;
-    if len == 0 || end > buffer.size {
-        return Err(Error::BadDescriptor);
-    }
     if !share_frames(&buffer.frames) {
         return Err(Error::NotFound);
     }

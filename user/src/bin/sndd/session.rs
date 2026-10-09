@@ -13,7 +13,7 @@ use core::ptr;
 
 use audiomix::events::{Event, Kind, Starvation};
 use audiomix::volume::{StreamVolume, VolumeError};
-use libmessenger::BufferDesc;
+use libmessenger::Buffer;
 use user::messenger::{errno, Error as MsgError};
 use user::sys;
 use virtio_snd::params::{audio_format, Request};
@@ -141,24 +141,25 @@ impl Session {
         u64::from(grant.period_bytes) / u64::from(grant.frame_bytes().max(1))
     }
 
-    /// Map the client's ring. `desc` is the request's declared range; the
-    /// kernel already checked it lies inside the shared object.
-    pub(super) fn attach(&mut self, handle: u64, desc: &BufferDesc) -> Result<()> {
+    /// Map the client's ring: the request's `Buffer`, whose range is checked
+    /// against the size the kernel mapped.
+    pub(super) fn attach(&mut self, ring: &Buffer) -> Result<()> {
         if self.ring.is_some() {
             return Err(busy());
         }
         let needed = u64::from(self.stream.grant.buffer_bytes());
-        if desc.len < needed {
+        if ring.len < needed {
             return Err(invalid());
         }
-        let offset = usize::try_from(desc.offset).map_err(|_| invalid())?;
-        let bytes = usize::try_from(desc.len).map_err(|_| invalid())?;
-        let va = sys::buffer_map(handle)
-            .map(|(va, _)| va)
-            .map_err(MsgError::Errno)?;
+        let offset = usize::try_from(ring.offset).map_err(|_| invalid())?;
+        let bytes = usize::try_from(ring.len).map_err(|_| invalid())?;
+        let (va, size) = sys::buffer_map(ring.handle).map_err(MsgError::Errno)?;
+        if !ring.fits(size) {
+            return Err(invalid());
+        }
         let base = (va as usize).checked_add(offset).ok_or_else(invalid)? as *const u8;
         self.ring = Some(ClientRing {
-            handle,
+            handle: ring.handle,
             base,
             bytes,
         });

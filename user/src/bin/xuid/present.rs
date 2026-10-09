@@ -7,6 +7,7 @@
 //! repaints. `Surface::pixels`/`bytes` always mirror the *current* slot, so
 //! the renderer never has to know slots exist.
 
+use libmessenger::Buffer;
 use surfbuf::{clip_damage, Area};
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::{self, Endpoint, Message};
@@ -62,17 +63,19 @@ impl Surface {
 }
 
 /// Serve `AttachBuffer` (`slot == None`, the legacy slot-0 replace) or
-/// `AttachBufferSlot`. On any refusal the buffer handle that arrived with the
-/// request is closed, so a bad request cannot leak the compositor's handles.
+/// `AttachBufferSlot` with the decoded `pixels` the request carried. On any
+/// refusal the buffer is closed, so a bad request cannot leak the
+/// compositor's handles.
 pub(super) fn attach(
     message: &Message,
     surfaces: &mut [Surface],
     id: u64,
     slot: Option<u32>,
+    pixels: &Buffer,
 ) -> Result<(), i64> {
-    let result = try_attach(message, surfaces, id, slot);
-    if result.is_err() && message.buffers != 0 {
-        let _ = sys::buffer_close(message.first_buffer);
+    let result = try_attach(message, surfaces, id, slot, pixels);
+    if result.is_err() {
+        let _ = sys::buffer_close(pixels.handle);
     }
     result
 }
@@ -83,6 +86,7 @@ fn try_attach(
     surfaces: &mut [Surface],
     id: u64,
     slot: Option<u32>,
+    pixels: &Buffer,
 ) -> Result<(), i64> {
     // An unknown id is `ENOENT`, not `EINVAL` (issue #498): the window was
     // closed before this attach arrived, which a client tells apart from a
@@ -95,7 +99,7 @@ fn try_attach(
         // any caller that guessed the id could spoof another app's window).
         return Err(messenger::errno::EACCES);
     }
-    // The descriptor's length is the sender's claim about how many bytes the
+    // The field's length is the sender's claim about how many bytes the
     // surface needs; never trust it to cover the geometry the compositor
     // paints. The mapping records the size it was attached for, so the
     // renderer's stride is always the attach-time width even after a resize;
@@ -108,22 +112,18 @@ fn try_attach(
         .checked_mul(surface.h.max(0) as u64)
         .and_then(|area| area.checked_mul(4))
         .ok_or(messenger::errno::EINVAL)?;
-    let claimed = message
-        .parcel
-        .buffers
-        .first()
-        .map_or(0, |buffer| buffer.len);
-    // `AttachBuffer` and `AttachBufferSlot` both declare one buffer.
-    if !message.carries(wire::request_transfers(message.method())) || claimed < expected {
+    if pixels.len < expected {
         return Err(messenger::errno::EINVAL);
     }
-    let va = sys::buffer_map(message.first_buffer)
-        .map(|(va, _)| va)
-        .map_err(|code| -code)?;
+    // The mapped size is the truth about the range the field claims.
+    let (va, size) = sys::buffer_map(pixels.handle).map_err(|code| -code)?;
+    if !pixels.fits(size) {
+        return Err(messenger::errno::EINVAL);
+    }
     let mapping = Mapping {
-        va,
+        va: va + pixels.offset,
         bytes: expected,
-        handle: message.first_buffer,
+        handle: pixels.handle,
         width: surface.w,
         height: surface.h,
     };

@@ -1,44 +1,23 @@
 # Messenger core: handles and buffers are fields
 
-Status: plan (accepted). No compatibility with parcel v1 is kept. Owner: kernel IPC. Related: [`messenger.md`](messenger.md),
-[`midl.md`](midl.md), [`architecture/ipc-core.md`](architecture/ipc-core.md).
+Status: landed (M1 #682, M2 #681, M3 #690, M4 #691). Owner: kernel IPC.
+Related: [`messenger.md`](messenger.md), [`midl.md`](midl.md),
+[`architecture/ipc-core.md`](architecture/ipc-core.md).
 
-## 1. Why
-
-Messenger works, but its transfer story is harder to explain than it needs to
-be. A request today carries two parallel vectors beside its body: `handles`
-*moves* kernel objects (the sender loses its number) and `buffers` *shares*
-memory (the sender keeps its mapping, the receiver gets a descriptor). A
-shared buffer may travel on either path, so the kernel special-cases
-`HandleKind::Buffer` in queue, deliver and rollback. MIDL declares them in a
-`transfers (...)` clause apart from the parameters, narrows both vectors to
-one slot each, and the receive syscall reports only the first of each
-(`first_handle`, `first_buffer`). The wire, the kernel and the docs still
-describe N of each.
-
-Around that sit features nothing uses. Each was a forward bet a later design
-made unnecessary:
-
-| Feature | Intended for | What happened |
-|---|---|---|
-| Fences (`fence_submit`, `fence_wait`) | GPU-style ordering of a producer's writes against the compositor and drivers (`messenger.md` 10, the ebook's "client presents a frame" example) | `Present` is a call whose reply is the fence; audio orders with `Commit`; net rings use the armed flag in the ring header. `networking-plan.md`: "Fences stay unused." Two stats viewers print the counters. |
-| `SHARE_ONLY` | `keyd` key tables no client can map; a driver client handing a DMA buffer "without mapping it" | Never passed. `input-plan.md` found the semantics backwards for the key-state page (only the *creator* may map). `keyd` is served by never sending the buffer. |
-| `PINNED` | DMA | Superseded by `dma_alloc` / `create_from_frames`. Only recorded. |
-| `EXECUTABLE` | A W^X story the kernel does not have | Always refused. |
-| `BufferDesc.flags`, `BufferDesc.offset` | Descriptor metadata | Flags read by nobody; offset always 0 from every sender. |
-| TLV kinds `HANDLE`, `BUFFER` | Objects as body fields | Defined by the codec, refused by MIDL "because the number would mean nothing in the receiver's table". |
-| Buffer-by-move (a buffer handle in `handles`) | | Kernel tests only. |
-| `msg_buffer_create` (as documented) | | Does not exist: buffers are `display_create_buffer`, `display_map_buffer`, `display_close_buffer` in the *display* syscall family. |
-
-The goal of this plan is a Messenger whose whole model fits on one page
-(section 2), implemented with less code than today, where a handle or a
-buffer is a field like any other.
+The motivation (the two parallel `handles`/`buffers` vectors, the
+`transfers (...)` clause, `first_handle`/`first_buffer`, fences, `SHARE_ONLY`,
+`PINNED`, `EXECUTABLE`, `BufferDesc` and the display buffer syscalls) was
+section 1 of this plan; it was removed when the work landed, and the
+numbering below is kept so references to 2.x and 3.x stay valid. Sections 2
+and 3 are now carried by [`messenger.md`](messenger.md) (sections 1 to 5 and
+10) and [`midl.md`](midl.md); they stay here as the reference text the
+implementation was checked against.
 
 ## 2. The model (the documentation)
 
-This section is written to become the opening of `docs/messenger.md` and the
-text an agent reads before touching IPC. Everything else in that document is
-detail under these six concepts.
+This section is the opening of `docs/messenger.md` and the text an agent
+reads before touching IPC. Everything else in that document is detail under
+these six concepts.
 
 ### 2.1 Six concepts
 
@@ -111,21 +90,21 @@ length are data, and the receiving library checks them against the size
 
 | I want to | Do |
 |---|---|
-| Hand a service a window buffer | `.midl`: `method Attach(surface: U64, pixels: Buffer) -> ();`. Client: `attach(&AttachRequest { surface, pixels: Buffer::whole(handle, len) })`. Server: `request.pixels.map()?`. |
+| Hand a service a window buffer | `.midl`: `method Attach(surface: U64, pixels: Buffer) -> ();`. Client: `encode_attach_args(&AttachArgs { surface, pixels: Buffer::whole(handle, len) })`. Server: `message.decode(wire::decode_attach_args)?`, then `buffer_map(args.pixels.handle)` and `args.pixels.fits(size)`. |
 | Give a service a way to send me events | `method Open(events: Channel<os.lazy.x.events.v1>) -> ();` create a pair, pass one end, keep the other. |
 | Send bytes larger than a parcel | A buffer plus a `ring` declaration. Never a `Bytes` field over 64 KiB. |
 | Put an object inside a struct | Allowed; it is a field with a fixed place. |
 | Put an object inside an option or an array | Refused by `midlc`: the kernel gate needs a fixed object count per method. Use a separate method, or a `U32` count beside fixed fields. |
 | Check what a request carried | The generated decoder refuses a request whose objects do not match; nothing to do by hand. |
-| See why a call was refused | `LAZYOS_LABEL_TRACE=1` for policy; `msg_stats` `undeclared_refused` for the object gate. |
-| Add a third object kind | Do not, unless it is a new kernel object. Then: one enum variant, one wire tag, one `match` arm in `resolve` and one in `deliver`. |
+| See why a call was refused | `LAZYOS_LABEL_TRACE=1` for policy; `EINVAL` on a send with objects is the declared gate (`channels/declared.rs` counts its refusals). |
+| Add a third object kind | Do not, unless it is a new kernel object. Then: one enum variant, one wire tag, one `match` arm in `resolve_objects` and one in `deliver`. |
 
 ## 3. Target design
 
 ### 3.1 Wire (parcel version 2)
 
 ```
-Header (40 bytes)
+Header (48 bytes)
   u16 version (=2)   u16 flags       u32 object_count
   u64 interface_id   u32 method      u32 body_len
   u64 txn_id         u64 reply_to
@@ -138,8 +117,9 @@ Object list: object_count x 16 bytes
   u64 handle (sender's number; the receiver ignores it)
 ```
 
-`body_crc32c`, `handle_count`, `buffer_count` and the buffer descriptor go.
-`MAX_OBJECTS = 8` replaces `MAX_HANDLES = 64` and `MAX_BUFFERS = 64`. This
+`body_crc32c`, `handle_count`, `buffer_count` and the buffer descriptor went
+(the header keeps its 48 bytes: `object_count` and `body_len` take the room).
+`MAX_OBJECTS = 8` replaced `MAX_HANDLES = 64` and `MAX_BUFFERS = 64`. This
 is the Fuchsia FIDL shape: handles in the body are presence markers, the
 kernel moves a flat list it never has to find.
 
@@ -158,37 +138,38 @@ one, or one past the list are all `Error::BadObjectIndex`). The kernel
 resolves each list entry to `Resolved { kind, rights, object_id }` and
 delivery installs them with one loop and one rollback. `Transfer`,
 `BufferTransfer`, `BufferDesc`, `retain_descriptor` and the three
-`kind == Buffer` branches go.
+`kind == Buffer` branches went.
 
 ### 3.3 Receive ABI
 
 `MsgResult.reserved[0..4]` (`first_handle`, `handles`, `first_buffer`,
-`buffers`) become `object_count` plus the installed numbers, written to a
-small user block beside the sender-id block. `Message` keeps them until the
-generated decoder claims each one; an object no decoder claimed is closed
-when the `Message` drops, so a server that ignores one cannot leak it. Today
-each server closes `first_buffer` by hand in its default arm (`audiod`,
-`sndd`, `netdrv`, `inputd`, `xuid`).
+`buffers`) became `object_count` plus the installed numbers, in the result
+block itself (13 words, 104 bytes: `status`, `value`, `aux`, `bytes`,
+`object_count`, `objects[8]`; `docs/messenger.md` section 10). `Message`
+keeps them until the generated decoder claims each one; an object no decoder
+claimed is closed when the `Message` drops, so a server that ignores one
+cannot leak it. Before this, each server closed `first_buffer` by hand in its
+default arm (`audiod`, `sndd`, `netdrv`, `inputd`, `xuid`).
 
 ### 3.4 Buffer syscalls
 
-`buffer_create`, `buffer_map`, `buffer_close` join the `msg` op family
+`buffer_create`, `buffer_map`, `buffer_close` are `msg` ops
 (`op::BUFFER_CREATE = 22`, `BUFFER_MAP = 23`, `BUFFER_CLOSE = 24`; 21 went
 to `ENDPOINT_FD`, issue #667, before this landed); `map` returns the address
 and the size. The display ops `CREATE_BUFFER`, `MAP_BUFFER`, `CLOSE_BUFFER`
-are removed once every caller moves. `create` takes a size and nothing else.
+are gone. `create` takes a size and nothing else.
 
 ### 3.5 MIDL
 
-The `transfers (...)` clause is removed. `Channel<I>` and `Buffer` are
-parameter types, legal in a request's parameters and inside a `struct`
-(nested structs included), illegal inside `Option<T>` or `Array<T>`, in a
-reply and in a topic (`midlc` errors). The restriction keeps every method's
-object count fixed, which is what lets the kernel gate compare a static slice
-without reading the body. The rules on
-`I` (declared somewhere, has a one-way method) and on rings (`Ring<A, B>`
-is a `Buffer` parameter with a layout) stay. The fifteen clauses in `idl/`
-become parameters:
+The `transfers (...)` clause is gone (`midlc` refuses it with its own
+message). `Channel<I>` and `Buffer` are parameter types, legal in a
+request's parameters and inside a `struct` (nested structs included),
+illegal inside `Option<T>` or `Array<T>`, in a reply and in a topic (`midlc`
+errors). The restriction keeps every method's object count fixed, which is
+what lets the kernel gate compare a static slice without reading the body.
+The rules on `I` (declared somewhere, has a one-way method) and on rings
+(`Ring<A, B>` is a `Buffer` parameter with a layout) stay. The thirteen
+clauses in `idl/` became parameters:
 
 ```idl
 method AttachBuffer(surface: U64, pixels: Buffer) -> () = 2;
@@ -198,98 +179,99 @@ method AttachRing(slots: U32, rings: Ring<Rx, Tx>, notify: Channel<os.lazy.net.n
 ```
 
 `midlc` walks each request's fields in order to produce the object kinds, and
-emits per interface `DECLARED_OBJECTS` and `declared_objects(interface,
-method) -> &[Kind]` for the kernel gate. The generated request struct has the
-object as a normal field (`pixels: Buffer`, `events: Endpoint` on receive);
-`<Method>Transfers`, `encode_<method>_transfers`, `request_transfers` and
-`Message::carries` disappear. The manifest's `transfers` array becomes an
-`objects` array (`name`, `kind`, `index`, `interface`, `path` for a nested
-field). The `--schema` table keeps the kinds so the Rhai `msg` module still
-refuses a method that carries objects.
+emits per interface `DECLARED_OBJECTS` and crate-level
+`declared_objects(interface, method) -> &[Kind]` for the kernel gate. The
+generated request struct has the object as a normal field (`pixels: Buffer`,
+`events: u64`); `<Method>Transfers`, `encode_<method>_transfers`,
+`request_transfers` and `Message::carries` are gone. The manifest's
+`transfers` array became an `objects` array (`name`, `kind`, `index`,
+`interface`, `rings`, `path` for a nested field). The `--schema` table keeps
+the kinds so the Rhai `msg` module still refuses a method that carries
+objects.
 
 ## 4. Stages
 
-Each stage lands alone, green, with its tests. M1 and M2 change no semantics
-for any caller and can go first in either order.
+Each stage landed alone, green, with its tests.
 
-### M1. Delete the dead machinery
+### M1. Delete the dead machinery (done, #682)
 
-* Remove fences: `kernel/src/ipc/shared/fences.rs`, `FENCES`, `park_wait`,
+* Removed fences: `kernel/src/ipc/shared/fences.rs`, `FENCES`, `park_wait`,
   the five fence fields of `Stats` and `ProcessStats`, their rows in
   `messengerctl` `render.rs`, `fabricmon` `view.rs`, `lazyos-sys` `fabric.rs`,
   and the test `ipc_buffer_fence_submit_wait`.
-* Remove the buffer flags and `Error::{BadFlags, ExecutableDenied, ShareOnly,
-  StaleSequence, TimedOut}`; `shared::create(size)`. Remove
+* Removed the buffer flags and `Error::{BadFlags, ExecutableDenied, ShareOnly,
+  StaleSequence, TimedOut}`; `shared::create(size)`. Removed
   `ipc_buffer_share_only_not_mappable`. The `dma_alloc` `SHARE_ONLY` flag is a
   different mechanism (`user/src/dev.rs`) and stays.
-* Verify: `cargo test -p messenger -p build-support-tests`,
+* Verified: `cargo test -p messenger -p build-support-tests`,
   `LAZYOS_TEST_FILTER=ipc python tools/test/run.py --accel none`, the
   `core_apps.json` session under `LAZYOS_LABEL_TRACE=1` (no new `LABEL:DENY`),
   `python tools/sound/run.py --mix`, `python tools/net/run.py --netd`.
 
-### M2. One path for a buffer
+### M2. One path for a buffer (done, #681)
 
-* Refuse a `Buffer` handle in the `handles` vector (`EINVAL`), delete the
-  `kind == Buffer` branches in `recv.rs` and `support.rs`, and rewrite
-  `ipc_buffer_handle_transfer_rights` and the `transfer.rs` cases to use the
+* A `Buffer` handle in the `handles` vector is refused (`EINVAL`); the
+  `kind == Buffer` branches in `recv.rs` and `support.rs` went, and
+  `ipc_buffer_handle_transfer_rights` and the `transfer.rs` cases use the
   buffers vector.
-* Move `create`, `map`, `close` to the `msg` ops (3.4) and delete the display
-  ops and their `lazyos-sys` wrappers in the same change.
-* Verify as M1 plus `python tools/usb/run.py` (DMA buffers untouched) and the
+* `create`, `map`, `close` moved to the `msg` ops (3.4); the display ops and
+  their `lazyos-sys` wrappers went in the same change.
+* Verified as M1 plus `python tools/usb/run.py` (DMA buffers untouched) and the
   `xui_writer.json` session.
 
-### M3. Objects as fields (wire v2, ABI, MIDL, userspace)
+### M3. Objects as fields (wire v2, ABI, MIDL, userspace) (done, #690)
 
-This is the one stage where everything rebuilds together.
+The one stage where everything rebuilt together.
 
 * `libs/messenger`: `Object`, `Buffer`, the parcel v2 codec, index-valued
-  `HANDLE`/`BUFFER` fields, `MAX_OBJECTS`; the v1 decoder is deleted, not
-  kept (no parcel is ever persisted).
+  `HANDLE`/`BUFFER` fields, `MAX_OBJECTS`; the v1 decoder deleted, not kept
+  (no parcel is ever persisted).
 * `tools/midlc`: `midlc_parser.py` (no clause; `Channel<I>` and `Buffer` as
   types), `midlc_model.py` (object walk, index, path), `midlc_transfers.py`
-  becomes `midlc_objects.py`, `midlc_rings.py` (`Ring` as a `Buffer`
+  became `midlc_objects.py`, `midlc_rings.py` (`Ring` as a `Buffer`
   parameter), `midlc_rust.py` (3.5), `midlc_docs.py`, `midlc_conformance.py`,
-  `midlc_schema.py`, `midlc_rhai.py`. The fifteen `.midl` methods. Regenerate
-  `libs/generated`, `libs/rhai-lazy/api`, `docs/idl/`, `idl/manifest.json`;
-  update `test_midlc_transfers.py` and the conformance corpus (new fixtures:
-  an object in a struct accepted; in an option, in an array, in a reply and
+  `midlc_schema.py`, `midlc_rhai.py`. The thirteen `.midl` methods.
+  Regenerated `libs/generated`, `libs/rhai-lazy/api`, `docs/idl/`,
+  `idl/manifest.json`; `test_midlc_transfers.py` became
+  `test_midlc_objects.py` and the conformance corpus gained the new fixtures
+  (an object in a struct accepted; in an option, in an array, in a reply and
   in a topic refused).
 * Kernel: `channels/types.rs` (`Resolved`, `Message.objects`), `support.rs`
-  (`resolve_objects`), `recv.rs` (one loop), `declared.rs` (exact kind-list check),
-  `syscalls.rs` (3.3), `channels_kernel.rs`.
+  (`resolve_objects`), `recv.rs` (one loop), `declared.rs` (exact kind-list
+  check), `syscalls.rs` (3.3), `channels_kernel.rs`.
 * Userspace: `user/src/messenger/message.rs` and `endpoint.rs`, then every
-  sender and receiver that `grep -rn "encode_.*_transfers\|first_buffer\|first_handle"`
-  finds (today: the display client, input, net, logind, xuid, inputd, netdrv,
-  sndd, audiod, xui-app display and input, nicctl). Each gets shorter: the
-  object is a field of the request struct, and the default arm closes nothing.
-* Tests: a `channels_suite` case per rule in 2.3 (kind-list gate, duplicate
-  channel, reply refused, rollback on a full table, an index out of range,
-  repeated or out of order refused by the decoder with the message's objects
-  then closed on drop, an unclaimed object closed on drop); a soak that
-  moves a channel end back and forth 100k times and shares a buffer 100k
-  times with handle-count and frame-count checks before and after; a
-  `libs/messenger` seeded fuzz of the v2 decoder (`fuzz/`, `gen_corpus.py`).
-* Verify: the M1 list, `python tools/abi/run.py` (unchanged matrix),
+  sender and receiver (the display client, input, net, logind, xuid, inputd,
+  netdrv, sndd, audiod, xui-app display and input, nicctl, messengerd, init,
+  the topics client, `audioclient`, `trayclient`). Each got shorter: the
+  object is a field of the request struct, and the default arm closes
+  nothing.
+* Tests: a case per rule in 2.3 (kind-list gate, duplicate channel, reply
+  refused, rollback on a full table, an index out of range, repeated or out
+  of order refused by the decoder with the message's objects then closed on
+  drop, an unclaimed object closed on drop); a soak that moves a channel end
+  back and forth 100k times and shares a buffer 100k times with handle-count
+  and frame-count checks; a `libs/messenger` seeded fuzz of the v2 decoder
+  (`fuzz/`, `gen_corpus.py`); `messengerctl`'s `MESSAGE:OBJECTS:PASS`.
+* Verified: the M1 list, `python tools/abi/run.py` (unchanged matrix),
   `python tools/rhai/run.py --desktop`, `python tools/lazyrad/modplayer_run.py`,
   `python tools/accounts/run.py`, and the perf harness
-  (`python tools/perf/run.py --label objects`): the in-kernel IPC round trip
-  must not regress.
+  (`python tools/perf/run.py --label objects`): no IPC regression.
 
-### M4. Documentation
+### M4. Documentation (done, #691)
 
-* `docs/messenger.md`: replace sections 1 to 4, 9, 10 and 14 with section 2 of
-  this plan and the wire of 3.1; queues, topics, ACLs and credentials stay.
-  The document should get shorter.
-* `docs/midl.md`: delete "Transfers: handles and buffers"; add `Channel<I>`
-  and `Buffer` to "Types" with the reply and topic restrictions; rings
-  reworded as a `Buffer` parameter with a layout.
-* `docs/architecture/ipc-core.md`: the resolve and deliver path as one loop;
-  the fences paragraph goes.
+* `docs/messenger.md`: sections 1 to 4, 9, 10 and 14 replaced by section 2
+  of this plan and the wire of 3.1 (six concepts, buffers, rules, wire,
+  cheat sheet; identity; the receive ABI; the kernel sketch); queues, topics,
+  ACLs and credentials stayed. The document got shorter.
+* `docs/midl.md`: no "Transfers" section; `Channel<I>` and `Buffer` in
+  "Types" with the reply, topic, `Option` and `Array` restrictions and the
+  index rule; rings as a `Buffer` parameter with a layout.
+* `docs/architecture/ipc-core.md`: resolve and deliver as one loop over
+  `Resolved`; the receive ABI; no fences paragraph.
 * `AGENTS.md`: one paragraph pointing at the six concepts and the cheat sheet.
-* Delete this plan's section 1 once the work has landed; keep 2 and 3 as the
-  reference until `messenger.md` carries them.
+* Section 1 of this plan deleted; 2 and 3 kept as the reference.
 
-## 5. What this does not change
+## 5. What this did not change
 
 * Rings, doorbells and the ring header protocol (`libs/framering`).
 * DMA buffers (`create_from_frames`, `dma_alloc`) and device claims.
@@ -297,11 +279,11 @@ This is the one stage where everything rebuilds together.
   the `Object` handle kind. `MONITOR` and `CONTROL` have no user today and are
   a candidate for a later plan; they are not in this one.
 * The ACL hook, labels, audit, credentials, topics, the registry, `wait_any`.
-* Objects in topics: a published event carries none, as today.
+* Objects in topics: a published event carries none, as before.
 
-## 6. Expected size
+## 6. Size
 
-Rough counts from today's tree, to be checked at each stage:
+Rough counts from the tree before M1, checked at each stage:
 
 | Area | Removed | Added |
 |---|---|---|
@@ -314,8 +296,8 @@ Rough counts from today's tree, to be checked at each stage:
 
 ## 7. Acceptance
 
-* The fifteen `.midl` methods lose their clause and gain the same names as
-  parameters; nothing else in `idl/` changes.
+* The thirteen `.midl` methods lost their clause and gained the same names as
+  parameters; nothing else in `idl/` changed.
 * `grep -rn "first_handle\|first_buffer\|BufferDesc\|handle_count\|buffer_count\|fence_\|_transfers\|transfers (" --include=*.rs --include=*.midl`
   finds nothing outside git history.
 * A new reader can answer "what can a message carry, and who owns it

@@ -10,19 +10,31 @@ use xui_core::{Key, Modifiers, MouseButton, Rect};
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
+use super::focus::{tab_action, TabAction};
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES, INPUT_BATCH};
 
 impl LazyOSBackend {
     /// Route one key press: focus navigation first, then the focused widget.
     ///
-    /// `Tab` and `Shift+Tab` move the widget focus. `PageUp`/`PageDown` are
-    /// *not* focus keys: the compositor no longer reserves them, so they reach
-    /// the focused widget (the Editor scrolls with them).
+    /// `Tab` and `Shift+Tab` move the widget focus, unless the focused widget
+    /// handles Tab itself (`NodeSpec::wants_tab`, a code editor), which then
+    /// gets it like any key. `PageUp`/`PageDown` are *not* focus keys: the
+    /// compositor no longer reserves them, so they reach the focused widget
+    /// (the Editor scrolls with them).
     fn key_down(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, true);
         if code == key::TAB {
-            self.cycle_focus(window, !modifiers.shift);
-            return;
+            let action = tab_action(modifiers, self.focused_wants_tab());
+            // The release follows this decision (see `key_up`).
+            self.tab_delivered.set(action == TabAction::Deliver);
+            match action {
+                TabAction::CycleFocus => {
+                    self.cycle_focus(window, !modifiers.shift);
+                    return;
+                }
+                TabAction::Ignore => return,
+                TabAction::Deliver => {}
+            }
         }
         let target = self.focused.get().unwrap_or(WidgetId::NONE);
         if let Some(event) = key_event(code, true, modifiers) {
@@ -36,6 +48,12 @@ impl LazyOSBackend {
     /// Route one key release to the focused widget.
     fn key_up(&self, window: WindowId, raw: u32) {
         let (code, modifiers) = self.key_state(raw, false);
+        // A Tab release goes to the widget exactly when its press did, as
+        // decided at the press: not after a press that moved the focus, nor for
+        // a compositor chord (Ctrl/Alt+Tab), even if a modifier changed between.
+        if code == key::TAB && !self.tab_delivered.replace(false) {
+            return;
+        }
         let target = self.focused.get().unwrap_or(WidgetId::NONE);
         if let Some(event) = key_event(code, false, modifiers) {
             self.deliver(window, target, &event);

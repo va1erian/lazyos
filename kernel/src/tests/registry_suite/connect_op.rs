@@ -47,10 +47,10 @@ pub fn syscall_connect() -> Result<(), String> {
             .map_err(friendly)?
             .ok_or("the service got no Connected notice")?;
         check!(
-            notice.method == registry::method::CONNECTED && notice.handles.len() == 1,
-            "the notice is method {} with {} handles",
+            notice.method == registry::method::CONNECTED && notice.objects.len() == 1,
+            "the notice is method {} with {} objects",
             notice.method,
-            notice.handles.len()
+            notice.objects.len()
         );
         let (code, _) = connect("os.example.nobody")?;
         check!(code == failed(errno::ENOENT), "unknown name -> {code:#x}");

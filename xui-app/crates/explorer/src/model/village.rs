@@ -63,10 +63,9 @@ impl FileClass {
 }
 
 /// The single-colour Lucide icon for `entry`, used when the coloured path is
-/// off. A folder shows the open icon while `flashing`.
-pub(crate) fn icon_ref(entry: &Entry, flashing: bool) -> IconRef {
+/// off and by the details view's rows.
+pub(crate) fn icon_ref(entry: &Entry) -> IconRef {
     let icon = match FileClass::of(entry) {
-        FileClass::Folder if flashing => Lucide::FolderOpen,
         FileClass::Folder => Lucide::Folder,
         FileClass::Image => Lucide::Image,
         FileClass::Music => Lucide::File,
@@ -83,7 +82,6 @@ pub(crate) fn icon_ref(entry: &Entry, flashing: bool) -> IconRef {
 #[cfg(feature = "village-icons")]
 pub(crate) fn paint(
     entry: &Entry,
-    flashing: bool,
     canvas: &mut dyn Canvas,
     rect: Rect,
     theme: &Theme,
@@ -100,7 +98,6 @@ pub(crate) fn paint(
     const DARK_INK: xui_core::backend::Rgba = xui_core::backend::Rgba::rgb(0xEC, 0xE6, 0xFF);
 
     let icon = match FileClass::of(entry) {
-        FileClass::Folder if flashing => Icon::FolderOpen,
         FileClass::Folder => Icon::Folder,
         FileClass::Image => Icon::Image,
         FileClass::Music => Icon::Music,
@@ -116,7 +113,6 @@ pub(crate) fn paint(
 #[cfg(not(feature = "village-icons"))]
 pub(crate) fn paint(
     _entry: &Entry,
-    _flashing: bool,
     _canvas: &mut dyn Canvas,
     _rect: Rect,
     _theme: &Theme,
@@ -132,13 +128,10 @@ mod tests {
     use super::*;
 
     fn entry(name: &str, kind: Kind) -> Entry {
-        Entry {
+        Entry::from_raw(crate::platform::RawEntry {
             name: OsString::from(name),
-            display: name.to_string(),
-            detail: String::new(),
-            kind,
-            size: None,
-        }
+            meta: crate::platform::Meta::bare(std::path::Path::new(name), kind),
+        })
     }
 
     fn class(name: &str) -> FileClass {
@@ -166,21 +159,17 @@ mod tests {
     }
 
     #[test]
-    fn the_fallback_icon_follows_the_class_and_flash() {
+    fn the_fallback_icon_follows_the_class() {
         assert_eq!(
-            icon_ref(&entry("docs", Kind::Dir), false),
+            icon_ref(&entry("docs", Kind::Dir)),
             IconRef::Lucide(Lucide::Folder)
         );
         assert_eq!(
-            icon_ref(&entry("docs", Kind::Dir), true),
-            IconRef::Lucide(Lucide::FolderOpen)
-        );
-        assert_eq!(
-            icon_ref(&entry("photo.png", Kind::File), false),
+            icon_ref(&entry("photo.png", Kind::File)),
             IconRef::Lucide(Lucide::Image)
         );
         assert_eq!(
-            icon_ref(&entry("bundle.zip", Kind::File), false),
+            icon_ref(&entry("bundle.zip", Kind::File)),
             IconRef::Lucide(Lucide::Package)
         );
     }
@@ -195,14 +184,7 @@ mod tests {
         let mut surface = Surface::new(48, 48);
         let rect = Rect::new(4, 4, 40, 40);
         let claimed = surface.with_canvas_at(rect, 96, |canvas| {
-            paint(
-                &entry("docs", Kind::Dir),
-                false,
-                canvas,
-                rect,
-                &Theme::light(),
-                96,
-            )
+            paint(&entry("docs", Kind::Dir), canvas, rect, &Theme::light(), 96)
         });
         assert!(!claimed, "the feature-off path declines");
     }
@@ -221,33 +203,31 @@ mod tests {
         let background = Color::rgb(255, 255, 255);
 
         // Returns (claimed, drew pixels) for one tile on one theme.
-        let draw = |entry: &Entry, flashing: bool, theme: &Theme| -> (bool, bool) {
+        let draw = |entry: &Entry, theme: &Theme| -> (bool, bool) {
             let mut surface = Surface::new(48, 48);
             surface.fill(background);
             let before = surface.pixels().to_vec();
-            let claimed = surface.with_canvas_at(rect, 96, |canvas| {
-                paint(entry, flashing, canvas, rect, theme, 96)
-            });
+            let claimed =
+                surface.with_canvas_at(rect, 96, |canvas| paint(entry, canvas, rect, theme, 96));
             (claimed, surface.pixels() != before.as_slice())
         };
 
         let cases = [
-            (entry("docs", Kind::Dir), false),
-            (entry("docs", Kind::Dir), true),
-            (entry("photo.png", Kind::File), false),
-            (entry("clip.mp3", Kind::File), false),
-            (entry("bundle.zip", Kind::File), false),
-            (entry("main.rs", Kind::File), false),
-            (entry("notes.txt", Kind::File), false),
+            entry("docs", Kind::Dir),
+            entry("photo.png", Kind::File),
+            entry("clip.mp3", Kind::File),
+            entry("bundle.zip", Kind::File),
+            entry("main.rs", Kind::File),
+            entry("notes.txt", Kind::File),
         ];
-        for (entry, flashing) in cases {
-            let (claimed, drew) = draw(&entry, flashing, &Theme::light());
+        for entry in cases {
+            let (claimed, drew) = draw(&entry, &Theme::light());
             assert!(claimed, "{} claims the coloured tile", entry.display);
             assert!(drew, "{} draws pixels", entry.display);
         }
 
         // The dark theme retints the near-black ink; it must still draw.
-        let (claimed, drew) = draw(&entry("docs", Kind::Dir), false, &Theme::dark());
+        let (claimed, drew) = draw(&entry("docs", Kind::Dir), &Theme::dark());
         assert!(claimed && drew, "the dark palette draws");
 
         // An empty rectangle draws nothing (the backend would clip it away).
@@ -257,7 +237,6 @@ mod tests {
         let claimed = surface.with_canvas_at(rect, 96, |canvas| {
             paint(
                 &entry("docs", Kind::Dir),
-                false,
                 canvas,
                 Rect::new(0, 0, 0, 0),
                 &Theme::light(),

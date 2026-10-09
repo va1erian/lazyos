@@ -137,12 +137,13 @@ fn grace_left(deadline: u64, now: u64) -> u32 {
     u32::try_from(ms).unwrap_or(u32::MAX)
 }
 
-/// `Watch`: adopt the transferred channel as the sender's row's lifecycle
-/// line, then deliver what waited for it.
+/// `Watch`: adopt the channel the request carried as the sender's row's
+/// lifecycle line, then deliver what waited for it. A refused request leaves
+/// the channel with the message, which closes it, so a caller cannot fill
+/// this task's handle table.
 pub(super) fn watch(services: &mut [Service], message: &Message) -> messenger::Result<Parcel> {
     let not_mine = messenger::Error::Errno(-messenger::errno::ESRCH);
     if message.method() != app_wire::METHOD_WATCH {
-        release_handle(message);
         return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
     }
     let Some(row) = services.iter_mut().find(|row| {
@@ -151,13 +152,10 @@ pub(super) fn watch(services: &mut [Service], message: &Message) -> messenger::R
             && message.sender != 0
             && matches!(row.phase, Phase::Running | Phase::Stopping)
     }) else {
-        release_handle(message);
         return Err(not_mine);
     };
-    if message.handles == 0 {
-        return Err(messenger::Error::Errno(-messenger::errno::EINVAL));
-    }
-    let channel = Endpoint::from_raw(message.first_handle);
+    let args = message.decode(app_wire::decode_watch_args)?;
+    let channel = Endpoint::from_raw(args.events);
     if let Some(old) = row.life.watch.replace(channel) {
         let _ = old.release();
     }
@@ -196,14 +194,6 @@ fn reply(method: u32) -> Parcel {
             deadline_ns: 0,
         },
         ..Parcel::default()
-    }
-}
-
-/// Close a channel a refused `Watch` carried, so a caller cannot fill this
-/// task's handle table.
-fn release_handle(message: &Message) {
-    if message.handles > 0 {
-        let _ = Endpoint::from_raw(message.first_handle).release();
     }
 }
 

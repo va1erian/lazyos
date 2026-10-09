@@ -166,8 +166,7 @@ pub fn concurrent_clients_are_not_a_deadlock() -> Result<(), String> {
                 deadline_ns: 0,
             },
             body: Vec::new(),
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         let mut bytes = Vec::new();
         parcel.encode(&mut bytes).map_err(|e| e.message())?;

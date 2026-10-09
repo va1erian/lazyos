@@ -107,7 +107,7 @@ An audio card's control and data-plane interface (docs/driver-plan.md §3.8).
 | `new_stream_grant()` | struct `StreamGrant` | a `StreamGrant` at its zero value |
 | `new_audio_event()` | struct `AudioEvent` | a `AudioEvent` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `AttachRing`.
+Not callable from a script (the request carries a kernel object): `AttachRing`.
 
 - `EVENT_KIND` = the `EventKind` variants; `EVENT_KIND_UNDERRUN`, `EVENT_KIND_OVERRUN`, `EVENT_KIND_DRAINED`, `EVENT_KIND_DEVICE_ERROR`, `EVENT_KIND_PERIOD`
 - `DIRECTION` = the `Direction` variants; `DIRECTION_PLAYBACK`, `DIRECTION_CAPTURE`
@@ -248,7 +248,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `CreateSurface`, `AttachBuffer`, `Subscribe`, `AttachBufferSlot`.
+Not callable from a script (the request carries a kernel object): `CreateSurface`, `AttachBuffer`, `Subscribe`, `AttachBufferSlot`.
 
 - `ROLE` = the `Role` variants; `ROLE_WINDOW`, `ROLE_DESKTOP`, `ROLE_PANEL`, `ROLE_POPUP`
 - `CHANGE` = the `Change` variants; `CHANGE_UNSPECIFIED`, `CHANGE_CREATED`, `CHANGE_DESTROYED`, `CHANGE_MOVED`, `CHANGE_MINIMIZED`, `CHANGE_RESTORED`, `CHANGE_TITLE`, `CHANGE_RESIZED`, `CHANGE_MAXIMIZED`, `CHANGE_UNMAXIMIZED`
@@ -372,7 +372,7 @@ A launched app's own line to `init` (docs/tray-plan.md section 5), served
 | Function | IDL | About |
 |---|---|---|
 
-Not callable from a script (the request transfers a kernel object): `Watch`.
+Not callable from a script (the request carries a kernel object): `Watch`.
 
 ## `sys::init_app_events`
 
@@ -405,7 +405,7 @@ The system input service (`inputd`; `docs/input-plan.md`).
 | `layout_changed(layout)` | `LayoutChanged(layout: String) -> () oneway` | Event: the layout changed (a `confd` write, live). |
 | `grant_changed(kind, active, reason)` | `GrantChanged(kind: U32, active: Bool, reason: U32) -> () oneway` | Event: the session's grab of kind `kind` started (`active`) or ended; |
 
-Not callable from a script (the request transfers a kernel object): `Open`, `AttachKeyState`.
+Not callable from a script (the request carries a kernel object): `Open`, `AttachKeyState`.
 
 - `KEY_STATE` = the `KeyState` variants; `KEY_STATE_DOWN`, `KEY_STATE_UP`, `KEY_STATE_REPEAT`
 - `GRANT_KIND` = the `GrantKind` variants; `GRANT_KIND_NONE`, `GRANT_KIND_KEYBOARD`
@@ -441,7 +441,7 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq)` | `PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () oneway` | Shell event: the pointer changed. One cursor for every pointing device |
 | `grab_changed(surface)` | `GrabChanged(surface: Option<U64>) -> () oneway` | Shell event: `surface` now holds the keyboard grab (absent: nobody |
 
-Not callable from a script (the request transfers a kernel object): `Attach`.
+Not callable from a script (the request carries a kernel object): `Attach`.
 
 ## `sys::keyd`
 
@@ -541,7 +541,7 @@ The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
 
 | Function | IDL | About |
 |---|---|---|
-| `mount(name, host, port, user, password)` | `Mount(name: String, host: String, port: U32, user: String, password: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
+| `mount(name, host, port, user, password, kind, share)` | `Mount(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
 | `unmount(name)` | `Unmount(name: String) -> ()` | Stop the mount `name` and forget it (a failed one is just forgotten). |
 | `list()` | `List() -> (mounts: Array<MountInfo>)` | Every mount the service knows about, in the order they were asked for. |
 | `new_mount_info()` | struct `MountInfo` | a `MountInfo` at its zero value |
@@ -564,7 +564,7 @@ A network interface card, **link layer only** (docs/driver-plan.md §3.8,
 | `new_nic_stats()` | struct `NicStats` | a `NicStats` at its zero value |
 | `new_link_event()` | struct `LinkEvent` | a `LinkEvent` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `AttachRing`.
+Not callable from a script (the request carries a kernel object): `AttachRing`.
 
 - `NOTIFY_BIT` = the `NotifyBit` variants; `NOTIFY_BIT_RX_READY`, `NOTIFY_BIT_TX_SPACE`, `NOTIFY_BIT_LINK_CHANGE`
 - `RX_MODE` = the `RxMode` variants; `RX_MODE_OFF`, `RX_MODE_FILTERED`, `RX_MODE_PROMISCUOUS`
@@ -698,7 +698,7 @@ The Messenger service name registry (issues #89, #300).
 | `list()` | `List() -> (entries: Array<Entry>)` | Snapshot the name table. |
 | `new_entry()` | struct `Entry` | a `Entry` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `Connected`.
+Not callable from a script (the request carries a kernel object): `Connected`.
 
 ## `sys::shell`
 
@@ -773,7 +773,7 @@ The Messenger publish/subscribe broker (issue #92, `docs/messenger.md`
 | `new_topic_info()` | struct `TopicInfo` | a `TopicInfo` at its zero value |
 | `new_stats()` | struct `Stats` | a `Stats` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `Bell`.
+Not callable from a script (the request carries a kernel object): `Bell`.
 
 - `QOS` = the `Qos` variants; `QOS_LATEST`, `QOS_BUFFERED`, `QOS_CONFLATE`, `QOS_RELIABLE`
 
@@ -804,7 +804,7 @@ The taskbar tray (docs/tray-plan.md), served by LazyShell on Messenger
 | `new_menu_item()` | struct `MenuItem` | a `MenuItem` at its zero value |
 | `new_generation()` | struct `Generation` | a `Generation` at its zero value |
 
-Not callable from a script (the request transfers a kernel object): `Set`.
+Not callable from a script (the request carries a kernel object): `Set`.
 
 - `STATUS` = the `Status` variants; `STATUS_ACTIVE`, `STATUS_PASSIVE`, `STATUS_ATTENTION`
 - `MENU_KIND` = the `MenuKind` variants; `MENU_KIND_NORMAL`, `MENU_KIND_CHECK`, `MENU_KIND_RADIO`, `MENU_KIND_SEPARATOR`, `MENU_KIND_SUBMENU`

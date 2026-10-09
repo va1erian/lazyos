@@ -4,7 +4,7 @@
 //! `update`.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::Path;
 
 use xui_core::app::Ui;
 use xui_core::widget::{Dialog, TaskDialog, TaskDialogAction, TaskDialogIcon};
@@ -17,7 +17,7 @@ impl ExplorerWindow {
     /// Opens the delete confirmation for the current selection, naming what
     /// will go. Does nothing when the selection is empty.
     pub(super) fn begin_delete(&mut self, ui: &mut Ui<Msg>) {
-        let selection = self.view.selection();
+        let selection = self.selection();
         if selection.is_empty() {
             return;
         }
@@ -51,17 +51,16 @@ impl ExplorerWindow {
         }
     }
 
-    /// Deletes each still-present target, collects failures, closes the windows
-    /// below any deleted folder, refreshes the parent windows and finally shows
-    /// what could not be deleted.
+    /// Deletes each still-present target, collects failures, refreshes every
+    /// window at or below this folder (a window inside a deleted folder climbs
+    /// out of it) and finally shows what could not be deleted.
     ///
     /// Targets are re-resolved by name against a freshly read listing, so a
     /// confirm opened before a change deletes only what really exists now and
     /// quietly skips something that already vanished.
     fn perform_delete(&mut self, names: &[OsString], ui: &mut Ui<Msg>) {
-        let current = Listing::load(self.explorer.platform(), &self.dir);
+        let current = Listing::load(self.explorer.platform(), &self.dir, self.options.sort);
         let mut failures: Vec<String> = Vec::new();
-        let mut deleted_dirs: Vec<PathBuf> = Vec::new();
         for name in names {
             let Some(entry) = current
                 .entries
@@ -78,54 +77,62 @@ impl ExplorerWindow {
                 continue;
             }
             let recursive = entry.kind == Kind::Dir;
-            match self.explorer.platform().remove(&path, recursive) {
-                Ok(()) => {
-                    if recursive {
-                        deleted_dirs.push(path);
-                    }
-                }
-                Err(error) => failures.push(format!("{}: {error}", entry.display)),
+            if let Err(error) = self.explorer.platform().remove(&path, recursive) {
+                failures.push(format!("{}: {error}", entry.display));
             }
         }
 
-        // Close descendants and refresh siblings with no registry borrow held.
-        for dir in deleted_dirs {
-            self.explorer.close_under(&dir);
-        }
+        // Every other window showing this folder, or a folder below it,
+        // refreshes; one inside a deleted folder climbs out of it.
         self.refresh(ui);
-        self.explorer
-            .refresh_windows_showing(&self.dir, ui.window());
+        self.explorer.refresh_under(&self.dir, Some(ui.window()));
         if !failures.is_empty() {
-            self.status
+            self.chrome
+                .status
                 .set_parts(&[&format!("Could not delete: {}", failures.join("; "))]);
         }
     }
 
     /// Shows the first selected item's properties. A folder reports its direct
     /// entry count, never a recursive size.
-    pub(super) fn show_properties(&mut self, ui: &mut Ui<Msg>) {
-        let Some(index) = self.view.selection().first().copied() else {
+    pub(super) fn show_selection_properties(&mut self, ui: &mut Ui<Msg>) {
+        let Some(index) = self.selection().first().copied() else {
             return;
         };
-        let Some(entry) = self.listing.entries.get(index).cloned() else {
+        let Some(entry) = self.listing.entries.get(index) else {
             return;
         };
-        let path = self.dir.join(&entry.name);
-        let meta = match self.explorer.platform().metadata(&path) {
+        let (path, name) = (self.dir.join(&entry.name), entry.display.clone());
+        self.show_properties(ui, &path, &name);
+    }
+
+    /// Shows the properties of the folder the window shows.
+    pub(super) fn show_folder_properties(&mut self, ui: &mut Ui<Msg>) {
+        let (path, name) = (self.dir.clone(), self.title.clone());
+        self.show_properties(ui, &path, &name);
+    }
+
+    /// Shows `path`'s properties in a dialog named after `name`.
+    fn show_properties(&mut self, ui: &mut Ui<Msg>, path: &Path, name: &str) {
+        let meta = match self.explorer.platform().metadata(path) {
             Ok(meta) => meta,
             Err(error) => {
-                self.status
-                    .set_parts(&[&format!("Cannot read {}: {error}", entry.display)]);
+                self.chrome
+                    .status
+                    .set_parts(&[&format!("Cannot read {name}: {error}")]);
                 return;
             }
         };
         let rows = describe(&meta);
-        let title = format!("Properties — {}", entry.display);
+        let title = format!("Properties — {name}");
         let message = rows
             .iter()
             .map(|(key, value)| format!("{key}: {value}"))
             .collect::<Vec<_>>()
-            .join("\n");
+            .join(
+                "
+",
+            );
         let dialog = Dialog::message(ui, &title, &message)
             .expect("the properties dialog built")
             .on_action(|_| Some(Msg::PropertiesClosed));

@@ -16,6 +16,7 @@ use crate::display;
 use crate::input::{self, keysym, mods, Event as InputEvent, KeyState};
 use crate::sys::{self, errno};
 
+use super::focus::{tab_action, TabAction};
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES};
 
 impl LazyOSBackend {
@@ -78,15 +79,21 @@ impl LazyOSBackend {
         modifiers: Modifiers,
         state: KeyState,
     ) {
-        // Tab moves widget focus rather than reaching a widget.
-        // Alt/Ctrl+Tab are the compositor's chords; `inputd` normally consumes
-        // them, and if one slips through it must not also move widget focus.
-        if sym == keysym::TAB && (modifiers.alt || modifiers.ctrl) {
-            return;
-        }
-        if sym == keysym::TAB && state != KeyState::Up {
-            self.cycle_focus(window, !modifiers.shift);
-            return;
+        // Tab moves widget focus rather than reaching a widget, unless the
+        // focused widget handles Tab itself (a code editor indents). Alt/Ctrl+Tab
+        // are the compositor's chords; `inputd` normally consumes them, and if
+        // one slips through it must not also move widget focus.
+        if sym == keysym::TAB {
+            match tab_action(modifiers, self.focused_wants_tab()) {
+                TabAction::Ignore => return,
+                TabAction::CycleFocus => {
+                    if state != KeyState::Up {
+                        self.cycle_focus(window, !modifiers.shift);
+                    }
+                    return;
+                }
+                TabAction::Deliver => {}
+            }
         }
         let Some(key) = key_of(code, sym) else {
             return;

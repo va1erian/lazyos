@@ -28,6 +28,8 @@ mod cache;
 mod fsimpl;
 mod volio;
 
+pub use cache::cache_frames;
+
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 ///
 /// `gate` serialises every call into the library. The library's own lock is

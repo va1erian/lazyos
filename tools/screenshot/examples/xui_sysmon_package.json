@@ -1,0 +1,18 @@
+[
+  {"wait_for": "SYSMON:UP:PASS", "timeout": 240},
+  {"wait": 4.0},
+  {"shot": "sysmon_overview"},
+  {"key": "s", "until": "SYSMON:VIEW:services", "timeout": 60, "retries": 2},
+  {"wait_for": "SYSMON:SERVICES:PASS", "timeout": 90},
+  {"wait": 1.0},
+  {"shot": "sysmon_services"},
+  {"key": "a", "until": "SYSMON:VIEW:advanced", "timeout": 60, "retries": 2},
+  {"wait": 1.0},
+  {"shot": "sysmon_advanced"},
+  {"key": "o", "until": "SYSMON:VIEW:overview", "timeout": 60, "retries": 2},
+  {"key": "f1", "until": "SYSMON:HELP:PASS", "timeout": 60, "retries": 2},
+  {"wait_for": "DOCS:OPEN:PASS:/docs/apps/os.lazy.sysmon/README.md", "timeout": 90},
+  {"wait": 3.0},
+  {"shot": "sysmon_help"},
+  {"quit": true}
+]

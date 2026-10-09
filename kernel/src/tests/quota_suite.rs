@@ -45,8 +45,7 @@ fn one_way() -> Result<Vec<u8>, String> {
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).map_err(|error| error.message())?;

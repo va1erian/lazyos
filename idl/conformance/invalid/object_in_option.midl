@@ -1,0 +1,4 @@
+// Conformance case (must be rejected): an object's count must be fixed, so it never sits in an Option.
+interface os.lazy.conformance.bad.v1 {
+    method M(pixels: Option<Buffer> = 1) -> ();
+}

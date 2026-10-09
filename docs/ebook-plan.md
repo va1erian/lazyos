@@ -181,16 +181,17 @@ step-by-step trace before any generalisation:
   the message is queued, delivery opens a new receiver-local handle number.
   What happens on each failure path (refused, queue full, receiver gone,
   queue discarded) and who holds the object at that moment.
-- *The declared-transfer gate* (`channels/declared.rs`, issue #516): the
-  check against `midlc`'s `DECLARED_TRANSFERS` runs *before* any handle is
-  resolved, so a refused request leaves the sender's table untouched; fewer
-  than declared passes the gate, servers still demand an exact match
-  (`Message::carries`); replies refuse every transfer (`reply_owned`).
+- *The declared-object gate* (`channels/declared.rs`, issue #516;
+  `messenger-core-plan.md` M3): the check against `midlc`'s
+  `declared_objects` runs *before* any handle is resolved, so a refused
+  request leaves the sender's table untouched; the list must match exactly
+  (length, kinds, order), the generated decoder repeats the check field by
+  field (`Message::decode`), and replies refuse every object (`reply_owned`).
 - *Shared buffers* (`kernel/src/ipc/shared/`): buffers **share**, not move.
   The refcount is handles + in-flight messages + mappings (`retain`,
-  `attach`, `release`), the mapping window at `SHARED_WINDOW_BASE`,
-  `SHARE_ONLY`, the per-process quota from `limits.rs`. Same frame-by-frame
-  trace, now showing the refcount.
+  `attach`, `release`), the mapping window at `SHARED_WINDOW_BASE`, the
+  per-process quota from `limits.rs`; no flags. Same frame-by-frame trace,
+  now showing the refcount.
 - *Ordering without fences*: the kernel has no fence (issue #677); the
   worked example is a real one, an xui client presenting a frame to `xuid`
   and waiting for the `Present` reply (chapter 11 picks it up from there).
@@ -433,7 +434,7 @@ a review pass.
    worse than wrong. So for chapters 6-9:
    - *Every rule is backed by a test.* Each statement of behaviour ("the
      sender's slot closes once the message is queued", "a refused request
-     leaves the sender's table untouched", "replies carry no transfers")
+     leaves the sender's table untouched", "replies carry no objects")
      cites the kernel test that proves it (`tests/ipc_channel_suite/`,
      `ipc_shared_suite/`, `transfer_gate_suite.rs`, `topics_gate_suite.rs`,
      `registry_suite/`). Where no test exists, the claim is either dropped
@@ -452,7 +453,7 @@ a review pass.
      owns the object afterwards. The summary table at the end of chapter 7
      is checked cell by cell against the code.
    - *Spec vs code.* Where `docs/messenger.md` describes something the code
-     does not do yet (reply-borne handle transfers, for one), the book
+     does not do yet (reply-borne objects, for one), the book
      follows the code and says so in "Where it stops".
    - *Two reviewers.* Chapters 6 and 7 get a second, independent fact
      review that only reads the code and the tests, with the draft's
@@ -477,7 +478,7 @@ Milestones:
 | # | Deliverable | Done when |
 |---|---|---|
 | B0 | Tooling: `book/` skeleton, `tools/book/{build,excerpt,check}.py` with tests, fonts and style; one dummy chapter with a listing, a figure and a screenshot | `python tools/book/build.py` writes a PDF with a linked TOC and outline; a renamed function breaks the build |
-| B1 | Pilot: chapters 6 and 7 (messages and transfers) and the system-map figure | the style is settled on real content; review notes folded into §2 and §4 |
+| B1 | Pilot: chapters 6 and 7 (messages and objects) and the system-map figure | the style is settled on real content; review notes folded into §2 and §4 |
 | B2 | Part I and Part II | chapters 1-5 pass §5 |
 | B3 | Parts III-IV | chapters 8-10, and chapters 6-7 re-checked against §5.7 |
 | B4 | Parts V-VI | chapters 11-13, screenshots from sessions |

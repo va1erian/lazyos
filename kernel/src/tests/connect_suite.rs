@@ -60,14 +60,24 @@ fn accept(listen: u64) -> Result<u64, String> {
         view.header.interface_id,
         view.header.method
     );
-    let args = registry::wire::decode_connected_args(view.body()).map_err(|_| "bad notice body")?;
+    check!(
+        message.objects.len() == 1,
+        "the notice carried {} objects",
+        message.objects.len()
+    );
+    // The receiver decodes against the installed list: the field's index
+    // names the end the kernel just gave it.
+    let installed = [libmessenger::Object::Channel(message.objects[0])];
+    let args = registry::wire::decode_connected_args(view.body(), &installed)
+        .map_err(|_| "bad notice body")?;
     check!(args.name == NAME, "the notice names {:?}", args.name);
     check!(
-        message.handles.len() == 1,
-        "the notice carried {} handles",
-        message.handles.len()
+        args.connection == message.objects[0],
+        "the decoded connection is {} not {}",
+        args.connection,
+        message.objects[0]
     );
-    Ok(message.handles[0])
+    Ok(args.connection)
 }
 
 fn request(text: u64) -> Result<Vec<u8>, String> {
@@ -84,8 +94,7 @@ fn request(text: u64) -> Result<Vec<u8>, String> {
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).map_err(|error| error.message())?;

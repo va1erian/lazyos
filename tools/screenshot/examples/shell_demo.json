@@ -33,7 +33,7 @@
   {"mouse_move": [-204, -288], "note": "back to (134,360), where the root row was"},
   {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.sysmon", "timeout": 60},
   {"wait_for": "SYSMON:UP:PASS", "timeout": 120},
-  {"wait_for": "SHELL:TASKBAR:ADD id=(\\d+) title=(?i:sysmon)", "regex": true, "capture": "sysmon_id", "timeout": 60},
+  {"wait_for": "SHELL:TASKBAR:ADD id=(\\d+) title=System Monitor", "regex": true, "capture": "sysmon_id", "timeout": 60},
   {"wait": 2.0},
   {"shot": "04_launched_taskbar_entry"},
   {"wait": 0.5},

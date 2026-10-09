@@ -35,6 +35,11 @@ pub enum Open {
     Read,
     /// A file for writing, created or truncated.
     Replace,
+    /// An existing file, for reading and writing in place (`smbfuse`).
+    Write,
+    /// A new file for reading and writing; an existing name is
+    /// `OBJECT_NAME_COLLISION`.
+    Create,
     /// An existing directory, for listing.
     Directory,
     /// A new directory.
@@ -53,12 +58,16 @@ impl Open {
                 OPEN,
                 msg::OPTION_NON_DIRECTORY_FILE,
             ),
-            Open::Replace => (
+            Open::Replace | Open::Write | Open::Create => (
                 access::READ_DATA
                     | access::WRITE_DATA
                     | access::APPEND_DATA
                     | access::READ_ATTRIBUTES,
-                OVERWRITE_IF,
+                match self {
+                    Open::Replace => OVERWRITE_IF,
+                    Open::Write => OPEN,
+                    _ => CREATE,
+                },
                 msg::OPTION_NON_DIRECTORY_FILE,
             ),
             Open::Directory => (

@@ -39,8 +39,7 @@ interface os.lazy.messenger.topics.v1 {
     /// parks on the other end beside its own endpoints (`wait_any`) and
     /// drains with expired-deadline `NextEvent`s on each ring, instead of
     /// polling. Owner only; a second bell replaces the first.
-    method Bell(subscription: U64 = 1) -> ()
-        transfers (bell: Channel<os.lazy.messenger.topics.bell.v1>);
+    method Bell(subscription: U64 = 1, bell: Channel<os.lazy.messenger.topics.bell.v1> = 2) -> ();
 
     /// Delivery contract chosen at subscribe time and enforced by the broker:
     /// `Latest` keeps only the newest event, `Buffered` keeps `depth` events and

@@ -5,13 +5,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use xui_app::sysinfo::{decode_words, header, Snapshot, TaskClass, TaskRow, TaskState, WORDS};
-use xui_canvas::snapshot::Gallery;
+use xui_app::sysinfo::{Snapshot, TaskClass, TaskRow, TaskState, WORDS, decode_words, header};
 use xui_canvas::OffscreenBackend;
+use xui_canvas::snapshot::Gallery;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Backend;
 use xui_core::{Rect, Theme};
 
+use super::load::Load;
 use super::view::Widgets;
 use super::{Msg, WINDOW};
 
@@ -39,10 +40,25 @@ fn task(pid: u64, name: &str, state: TaskState, cpu_ticks: u64) -> TaskRow {
     }
 }
 
+/// `snapshot` `seconds` later: the CPU swings between busy and idle, and
+/// `xuid` and `sysmon` are charged most of the busy time.
+fn later(snapshot: &Snapshot, seconds: u64) -> Snapshot {
+    const BUSY: [u64; 10] = [20, 35, 60, 45, 15, 10, 30, 80, 55, 25];
+    let busy: u64 = (1..=seconds).map(|s| BUSY[s as usize % 10]).sum();
+    let mut words = snapshot.raw_words().to_vec();
+    words[header::TICKS] += seconds * 100;
+    words[header::IDLE_TICKS] += seconds * 100 - busy;
+    let mut next = decode_words(&words).expect("a version-5 block");
+    next.tasks = snapshot.tasks.clone();
+    next.tasks[1].cpu_ticks += busy * 2 / 3;
+    next.tasks[3].cpu_ticks += busy / 4;
+    next
+}
+
 fn sample() -> Snapshot {
     let mut words = vec![0u64; WORDS];
     for (index, value) in [
-        (header::VERSION, 4),
+        (header::VERSION, 5),
         (header::TICKS, 360_000),
         (header::IDLE_TICKS, 300_000),
         (header::TASKS_LIVE, 4),
@@ -59,10 +75,12 @@ fn sample() -> Snapshot {
         (header::HEAP_TOTAL, 16 << 20),
         (header::HEAP_USED, 9 << 20),
         (header::HEAP_FREE, 7 << 20),
+        (header::CACHE_FRAMES, 4_000),
+        (header::SLAB_FRAMES, 900),
     ] {
         words[index] = value;
     }
-    let mut snapshot = decode_words(&words).expect("a version-4 block");
+    let mut snapshot = decode_words(&words).expect("a version-5 block");
     for (slot, (name, state)) in [
         ("init", TaskState::Blocked),
         ("xuid", TaskState::Runnable),
@@ -87,30 +105,48 @@ fn the_dashboard_lays_out_and_renders_light_and_dark() {
         .size(WINDOW.0, WINDOW.1)
         .backend(Rc::clone(&backend) as Rc<dyn Backend>)
         .run(move |ui| {
-            let widgets = Widgets::new();
+            let mut widgets = Widgets::new();
             ui.root(widgets.layout())?;
-            widgets.show_snapshot(&sample());
+            let mut load = Load::default();
+            let first = sample();
+            let (cpu, programs) = load.update(&first);
+            assert_eq!(cpu, None, "one snapshot has no interval yet");
+            widgets.show_snapshot(&first, cpu, &programs);
             widgets.show_status(360_000, 3, None);
             widgets.set_compact(ui, false);
             ui.relayout();
-            assert_eq!(widgets.tasks.get().len(), 4, "the sample's live tasks");
+            assert_eq!(
+                widgets.advanced.tasks.get().len(),
+                4,
+                "the sample's live tasks"
+            );
+            assert_eq!(widgets.overview.programs.get().len(), 4);
             widgets.show_unavailable(5);
             assert!(
-                widgets.tasks.get().is_empty(),
-                "a failed read clears the table"
+                widgets.advanced.tasks.get().is_empty()
+                    && widgets.overview.programs.get().is_empty(),
+                "a failed read clears the tables"
             );
-            widgets.show_snapshot(&sample());
+            for second in 1..=40 {
+                let next = later(&first, second);
+                let (cpu, programs) = load.update(&next);
+                widgets.show_snapshot(&next, cpu, &programs);
+            }
             seen.borrow_mut().extend([
                 ui.bounds(widgets.tabs.get().id()),
                 ui.bounds(widgets.status.get().id()),
             ]);
             let ui = ui.clone();
+            let tabs = widgets.tabs.clone();
             capture.set_run_hook(move || {
                 let gallery = Gallery::parse(None, Some("target/snapshots"));
-                for (variant, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
-                    ui.set_theme(theme);
-                    let image = ui.capture().expect("a render");
-                    gallery.save("sysmon", variant, &image).expect("saved");
+                for (tab, name) in [(0, "sysmon"), (2, "sysmon-advanced")] {
+                    tabs.get().select(tab);
+                    for (variant, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+                        ui.set_theme(theme);
+                        let image = ui.capture().expect("a render");
+                        gallery.save(name, variant, &image).expect("saved");
+                    }
                 }
             });
             Ok(Shown)

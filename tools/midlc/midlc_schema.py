@@ -25,15 +25,18 @@ SCHEMA_HEADER = (
     "//\n"
     "// Every Messenger interface as data, for dynamic clients (the Rhai `msg`\n"
     "// module). Each field carries its wire id.\n"
-    "use super::schema::{Enum, Field, Interface, Method, Struct, Topic, Transfer, Ty};\n\n"
+    "use super::schema::{Enum, Field, Interface, Method, Object, Struct, Topic, Ty};\n\n"
 )
 
-# Builtin MIDL type -> `Ty` variant (scalars plus the leaf kinds).
+# Builtin MIDL type -> `Ty` variant (scalars plus the leaf kinds). An object
+# parameter is a `Channel` (the handle number) or a `Buffer` (a ring buffer
+# is one too); a dynamic client cannot build either, so it only names them.
 _LEAF = {name: name for name in SCALARS} | {
     "String": "String",
     "Bytes": "Bytes",
-    "Handle": "Handle",
+    "Channel": "Channel",
     "Buffer": "Buffer",
+    "Ring": "Buffer",
 }
 
 
@@ -64,15 +67,16 @@ def fields_expr(fields: list[Param], interface: Interface) -> str:
     return f"&[{items}]"
 
 
-def transfers_expr(method: Method) -> str:
-    """The `Transfer` list of `method`: a channel names its interface."""
-    if not method.transfers:
+def objects_expr(method: Method) -> str:
+    """The `Object` list of `method`, in object-list order: a channel names
+    its interface."""
+    if not method.objects:
         return "&[]"
     items = ", ".join(
-        f"Transfer {{ name: {rust_str(t.name)}, channel: "
-        + (f"Some({rust_str(t.interface)})" if t.kind == "channel" else "None")
+        f"Object {{ name: {rust_str(o.dotted)}, channel: "
+        + (f"Some({rust_str(o.interface)})" if o.kind == "channel" else "None")
         + " }"
-        for t in method.transfers
+        for o in method.objects
     )
     return f"&[{items}]"
 
@@ -101,7 +105,7 @@ def emit_interface(interface: Interface) -> list[str]:
             f"                doc: {rust_str(method.doc)},",
             f"                params: {fields_expr(method.params, interface)},",
             f"                returns: {fields_expr(method.returns, interface)},",
-            f"                transfers: {transfers_expr(method)},",
+            f"                objects: {objects_expr(method)},",
             "            },",
         ]
     lines += section("methods", methods)

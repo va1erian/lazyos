@@ -63,12 +63,11 @@ pub fn connect(
         txn: None,
         deadline: None,
         bytes: notice,
-        handles: alloc::vec![Transfer {
-            kind: HandleKind::Channel,
+        objects: alloc::vec![Resolved {
+            kind: ObjectKind::Channel,
             rights: rights::ALL,
             object_id: object_id(channel_id, 1),
         }],
-        buffers: Vec::new(),
     };
     // `enqueue` delivers to the peer of the side it is given: the service.
     match enqueue(listen_id, client_side, queued) {

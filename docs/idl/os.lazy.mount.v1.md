@@ -3,7 +3,8 @@
 Interface id: `0x9d456629506ac305`
 
 The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
-supervises one user-space filesystem daemon per mount (`ftpfuse` today),
+supervises one user-space filesystem daemon per mount (`ftpfuse` for an
+FTP server, `smbfuse` for an SMB share),
 each serving `/mnt/<name>` through the FUSE mechanism, so a program that
 may not register a filesystem itself (an installed app has no
 capabilities) can still ask for one.
@@ -23,7 +24,7 @@ use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Mount | 1041399898 | sync | `(name: String, host: String, port: U32, user: String, password: String) -> (path: String)` |
+| Mount | 1041399898 | sync | `(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)` |
 | Unmount | 2047171115 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (mounts: Array<MountInfo>)` |
 
@@ -38,3 +39,4 @@ use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 - `state: String`
 - `detail: String`
 - `owner: U32`
+- `share: String`

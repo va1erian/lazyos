@@ -1,65 +1,26 @@
-//! The `sysmon` window's widgets: the layout, and how each refresh fills it.
+//! The `sysmon` window's widgets: the header with the Help button, the three
+//! tabs (Overview, Services, Advanced), the compact meters and the status bar.
 //!
-//! Everything is a standard xui widget placed by a layout: the memory gauges
-//! are group boxes with a progress bar over a key/value grid, the task and
-//! service tables are list views, and the footer is a status bar. Resizing,
-//! HiDPI and the theme come from the layout and the widgets.
+//! Everything is a standard xui widget placed by a layout, apart from the
+//! Overview's graph, bar and swatches (`paint.rs`). Resizing, HiDPI and the
+//! theme come from the layout and the widgets.
 
-use xui_app::format::{bytes, uptime};
+use xui_app::format::bytes;
 use xui_app::services::Services;
-use xui_app::sysinfo::{Snapshot, MAX_TASKS};
+use xui_app::sys::errno;
+use xui_app::sysinfo::Snapshot;
+use xui_core::Lucide;
 use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
 
+use crate::advanced::{Advanced, GAUGE, share};
+use crate::load::ProgramLoad;
+use crate::overview::{Overview, friendly_uptime};
 use crate::{Msg, View};
 
-/// A gauge's progress bar counts in thousandths.
-const GAUGE: i32 = 1000;
 /// The keys the header reminds of.
-const KEYS: &str = "1 s refresh · [r] refresh  [o] overview  [s] services  [c] compact  [q] quit";
-
-/// A memory gauge: a bar and one value per line under it.
-#[derive(Default)]
-pub(crate) struct Gauge {
-    bar: Handle<ProgressBar<Msg>>,
-    values: Vec<Handle<Label<Msg>>>,
-}
-
-impl Gauge {
-    fn new(lines: usize) -> Gauge {
-        Gauge {
-            bar: Handle::new(),
-            values: (0..lines).map(|_| Handle::new()).collect(),
-        }
-    }
-
-    /// The card titled `title`: the bar over one `key  value` row per line.
-    fn card(&self, title: &str, keys: &[&str]) -> Entry<Msg> {
-        let mut rows = Vec::new();
-        for (key, value) in keys.iter().zip(&self.values) {
-            rows.push(label(*key).into_entry());
-            rows.push(label("").bind(value).into_entry());
-        }
-        group(
-            title,
-            column().gap(8).children((
-                progress(GAUGE).bind(&self.bar),
-                grid([Track::Auto, Track::Fill(1)]).gap(6).children(rows),
-            )),
-        )
-        .into_entry()
-    }
-
-    fn show(&self, fraction: f64, lines: &[String]) {
-        self.bar
-            .get()
-            .set_value((fraction * f64::from(GAUGE)).round() as i32);
-        for (value, text) in self.values.iter().zip(lines) {
-            value.get().set_text(text);
-        }
-    }
-}
+const KEYS: &str = "[o] overview  [s] services  [a] advanced  [c] compact  [F1] help";
 
 /// One line of the compact view: a name, a bar and a value.
 #[derive(Default)]
@@ -98,12 +59,10 @@ impl Meter {
 #[derive(Default)]
 pub(crate) struct Widgets {
     hint: Handle<Label<Msg>>,
+    help: Handle<Button<Msg>>,
     pub(crate) tabs: Handle<Tabs<Msg>>,
-    frames: Gauge,
-    slab: Gauge,
-    heap: Gauge,
-    tasks_heading: Handle<Label<Msg>>,
-    pub(crate) tasks: Handle<ListView<Msg>>,
+    pub(crate) overview: Overview,
+    pub(crate) advanced: Advanced,
     services_heading: Handle<Label<Msg>>,
     services_note: Handle<Label<Msg>>,
     services: Handle<ListView<Msg>>,
@@ -113,29 +72,34 @@ pub(crate) struct Widgets {
 
 impl Widgets {
     pub(crate) fn new() -> Widgets {
-        Widgets {
-            frames: Gauge::new(4),
-            slab: Gauge::new(3),
-            heap: Gauge::new(3),
-            ..Widgets::default()
-        }
+        Widgets::default()
     }
 
     /// The whole window: a header, the tabs (or, when compact, the meters)
     /// and the status bar.
     pub(crate) fn layout(&self) -> Layout<Msg> {
         let mut meters = Vec::new();
-        for (meter, name) in self.compact.iter().zip(["Frames", "Slab", "Heap"]) {
+        for (meter, name) in self
+            .compact
+            .iter()
+            .zip(["Processor", "Memory", "Disk cache"])
+        {
             meters.extend(meter.cells(name));
         }
         column().padding(12).gap(10).children((
-            row()
-                .gap(16)
-                .align(Align::Center)
-                .children((label("sysmon").title(), label(KEYS).bind(&self.hint))),
+            row().gap(16).align(Align::Center).children((
+                label("System Monitor").title(),
+                label(KEYS).bind(&self.hint).fill(1),
+                button("Help")
+                    .icon(Lucide::CircleHelp)
+                    .tooltip("Open the System Monitor guide in Docs (F1)")
+                    .on_click(Msg::Help)
+                    .bind(&self.help),
+            )),
             tabs()
-                .page("Overview", self.overview())
+                .page("Overview", self.overview.layout())
                 .page("Services", self.services_page())
+                .page("Advanced", self.advanced.layout())
                 .on_change(|index| Msg::Show(View::from_index(index)))
                 .bind(&self.tabs)
                 .fill(1),
@@ -143,26 +107,6 @@ impl Widgets {
                 .gap(8)
                 .children(meters),
             status_bar(&["", "", "", ""]).bind(&self.status),
-        ))
-    }
-
-    fn overview(&self) -> Layout<Msg> {
-        column().padding(8).gap(10).children((
-            grid([Track::Fill(1); 3]).gap(16).children((
-                self.frames
-                    .card("Frames", &["live", "free", "reserved", "double frees"]),
-                self.slab.card("Slab", &["live", "peak", "oversized"]),
-                self.heap.card("Kernel heap", &["used", "free", "counters"]),
-            )),
-            label("Tasks").bind(&self.tasks_heading),
-            list()
-                .column_right("pid", 60)
-                .column("state", 90)
-                .column("class", 90)
-                .column_right("cpu ticks", 120)
-                .column("name", Fill)
-                .bind(&self.tasks)
-                .fill(1),
         ))
     }
 
@@ -192,6 +136,7 @@ impl Widgets {
         }
         for id in [
             self.hint.get().id(),
+            self.help.get().id(),
             self.tabs.get().id(),
             self.status.get().id(),
         ] {
@@ -199,109 +144,49 @@ impl Widgets {
         }
     }
 
-    /// Fills the gauges, the task table and the status bar from `snapshot`.
-    pub(crate) fn show_snapshot(&self, snapshot: &Snapshot) {
-        let s = snapshot;
-        let frames = share(s.frames_live, s.frames_total);
-        let slab = share(s.slab_live, s.slab_peak.max(s.slab_live));
-        let heap = share(s.heap_used, s.heap_total);
-        self.frames.show(
-            frames,
-            &[
-                format!(
-                    "{} / {} ({}%)",
-                    s.frames_live,
-                    s.frames_total,
-                    percent(frames)
-                ),
-                s.frames_free.to_string(),
-                s.frames_reserved.to_string(),
-                format!(
-                    "{} · invalid {}",
-                    s.frames_double_frees, s.frames_invalid_frees
-                ),
-            ],
+    /// Fills every tab and the compact meters from one refresh.
+    pub(crate) fn show_snapshot(
+        &mut self,
+        snapshot: &Snapshot,
+        cpu: Option<u32>,
+        programs: &[ProgramLoad],
+    ) {
+        self.overview.show(snapshot, cpu, programs);
+        self.advanced.show(snapshot);
+        let memory = snapshot.memory_use();
+        let [cpu_meter, memory_meter, cache_meter] = &self.compact;
+        let cpu = cpu.unwrap_or(0);
+        cpu_meter.show(f64::from(cpu) / 100.0, format!("{cpu}%"));
+        memory_meter.show(
+            share(memory.used(), memory.total()),
+            format!("{} / {}", bytes(memory.used()), bytes(memory.total())),
         );
-        self.slab.show(
-            slab,
-            &[
-                bytes(s.slab_live),
-                bytes(s.slab_peak),
-                format!(
-                    "{} · peak {}",
-                    bytes(s.slab_oversized),
-                    bytes(s.slab_oversized_peak)
-                ),
-            ],
-        );
-        self.heap.show(
-            heap,
-            &[
-                format!(
-                    "{} / {} ({}%)",
-                    bytes(s.heap_used),
-                    bytes(s.heap_total),
-                    percent(heap)
-                ),
-                bytes(s.heap_free),
-                format!("alloc {} · free {}", s.frames_allocated, s.frames_freed),
-            ],
-        );
-        let [frames_meter, slab_meter, heap_meter] = &self.compact;
-        frames_meter.show(frames, format!("{} / {}", s.frames_live, s.frames_total));
-        slab_meter.show(slab, bytes(s.slab_live));
-        heap_meter.show(heap, bytes(s.heap_used));
-
-        self.tasks_heading.get().set_text(&format!(
-            "Tasks — {} live of {MAX_TASKS} slots (100 Hz ticks)",
-            s.tasks_live
-        ));
-        let rows: Vec<Vec<String>> = s
-            .live_tasks()
-            .map(|task| {
-                vec![
-                    task.pid.to_string(),
-                    task.state.label().to_string(),
-                    task.class.label().to_string(),
-                    format!("{} ({:.1}s)", task.cpu_ticks, task.cpu_ticks as f64 / 100.0),
-                    format!("{} (ppid {})", task.name(), task.ppid),
-                ]
-            })
-            .collect();
-        self.tasks.get().refresh_model(rows);
+        cache_meter.show(share(memory.cache, memory.total()), bytes(memory.cache));
     }
 
-    /// The status bar: uptime, tick, refreshes and the snapshot source (or the
-    /// last refresh's error).
+    /// The status bar: uptime, the refresh rate, refreshes and the snapshot
+    /// source (or the last refresh's error).
     pub(crate) fn show_status(&self, ticks: u64, refreshes: u64, error: Option<i64>) {
         let source = match error {
-            Some(code) => format!("last refresh failed: errno {code}"),
-            None => "snapshot v2 via syscall 14".to_string(),
+            Some(code) => format!("Last update failed (errno {code})"),
+            None => "Kernel statistics (syscall 14)".to_string(),
         };
         let status = self.status.get();
-        status.set_text(0, &format!("uptime {}", uptime(ticks)));
-        status.set_text(1, &format!("tick {ticks}"));
-        status.set_text(2, &format!("{refreshes} refresh(es)"));
+        status.set_text(0, &format!("Up {}", friendly_uptime(ticks)));
+        status.set_text(1, "Updates every second");
+        status.set_text(2, &format!("{refreshes} updates"));
         status.set_text(3, &source);
     }
 
     /// Says the snapshot cannot be read and clears the values it would show,
-    /// so neither view keeps the last successful read; the compact meters
-    /// (shown without the tabs or the status bar) carry the errno.
+    /// so no view keeps the last successful read; the compact meters (shown
+    /// without the tabs or the status bar) carry the errno.
     pub(crate) fn show_unavailable(&self, code: i64) {
-        self.tasks_heading.get().set_text(&format!(
-            "System snapshot unavailable: syscall 14 returned errno {code}"
-        ));
-        for gauge in [&self.frames, &self.slab, &self.heap] {
-            gauge.show(0.0, &[]);
-            for value in &gauge.values {
-                value.get().set_text("");
-            }
-        }
+        self.overview.show_unavailable(code);
+        self.advanced.show_unavailable(code);
         for meter in &self.compact {
             meter.show(0.0, format!("errno {code}"));
         }
-        self.tasks.get().refresh_model(Vec::<Vec<String>>::new());
     }
 
     /// Fills the Services tab. The note line is hidden while there is
@@ -316,17 +201,7 @@ impl Widgets {
             heading.push_str(&format!(" · system: {} {}", summary.status, summary.detail));
         }
         self.services_heading.get().set_text(&heading);
-        let mut notes = Vec::new();
-        if let Some(code) = view.init_error {
-            notes.push(format!("init unavailable (errno {code})"));
-        }
-        if let Some(code) = view.health_error {
-            notes.push(format!("healthd unavailable (errno {code})"));
-        }
-        if view.rows.is_empty() {
-            notes
-                .push("No supervised services (is the image built with LAZYOS_SERVICES=1?)".into());
-        }
+        let notes = service_notes(view);
         let note = self.services_note.get();
         note.set_text(&notes.join(" · "));
         ui.set_visible(note.id(), !notes.is_empty());
@@ -349,15 +224,30 @@ impl Widgets {
     }
 }
 
-/// `part` as a fraction of `total` (zero when there is no total).
-fn share(part: u64, total: u64) -> f64 {
-    if total == 0 {
-        0.0
-    } else {
-        part as f64 / total as f64
+/// What the Services tab says above an incomplete table: a refusal is not an
+/// empty table, so each source's errno is named for what it means.
+pub(crate) fn service_notes(view: &Services) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let Some(code) = view.init_error {
+        notes.push(source_note("init", code));
     }
+    if let Some(code) = view.health_error {
+        notes.push(source_note("healthd", code));
+    }
+    if view.rows.is_empty() && view.init_error.is_none() {
+        notes.push("No supervised services (is the image built with LAZYOS_SERVICES=1?)".into());
+    }
+    notes
 }
 
-fn percent(fraction: f64) -> i64 {
-    (fraction * 100.0).round() as i64
+fn source_note(service: &str, code: i64) -> String {
+    match -code {
+        errno::EACCES | errno::EPERM => {
+            format!("{service} refused the request (errno {code}: not permitted)")
+        }
+        errno::ENOENT => {
+            format!("{service} not found or not visible to this app (errno {code})")
+        }
+        _ => format!("{service} unavailable (errno {code})"),
+    }
 }

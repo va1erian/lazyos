@@ -26,10 +26,20 @@ from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-e
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PY = sys.executable
 
-#: LazyOS-only LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
+#: The LazyRAD sample projects (`lazyrad-os/samples/`), embedded under
 #: `/system/share/lazyrad/` with every LazyRAD image next to any the user lists. Relative
-#: entries resolve against the repo root (`build_support/lazyrad_embed.rs`).
-LAZYOS_LAZYRAD_SAMPLES = ("lazyrad-os/samples/messenger", "lazyrad-os/samples/modplayer")
+#: entries resolve against the repo root (`build_support/lazyrad_embed.rs`). Besides
+#: the LazyOS-only ones (Messenger, the MOD player) they are LazyRAD's own examples,
+#: copied from va1erian/lazyrad's `examples/` at the pinned revision, so the
+#: `lazyrad_hello.json` / `lazyrad_calc.json` sessions need no `--lazyrad-samples`.
+LAZYOS_LAZYRAD_SAMPLES = (
+    "lazyrad-os/samples/messenger",
+    "lazyrad-os/samples/modplayer",
+    "lazyrad-os/samples/hello",
+    "lazyrad-os/samples/calculator",
+    "lazyrad-os/samples/todo",
+    "lazyrad-os/samples/brickbreaker",
+)
 CARGO = shutil.which("cargo") or "cargo"
 IMAGE = os.path.join(ROOT, "target", "lazyos.img")
 # The persistent ext2 home volume (mounted at /home); `run_demo.py` creates it

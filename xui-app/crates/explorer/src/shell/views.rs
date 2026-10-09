@@ -1,13 +1,14 @@
 #![forbid(unsafe_code)]
 
-//! What each open folder window shows, for the platform's drag and drop:
-//! the folder (a drop target copies into it), the icon view's widget (the
-//! only drag source) and the selection as paths.
+//! What each open window shows, for the platform's drag and drop and the
+//! shell's refreshes: the folder (a drop target copies into it), the view on
+//! screen (the drag source) and the selection as paths.
 //!
-//! xui's icon view selects on press, so pressing a tile of a multi-selection
+//! xui's views select on press, so pressing a tile of a multi-selection
 //! collapses it before the drag is recognised. [`ViewState::drag_paths`]
 //! carries the earlier selection when the current one is a single tile of
-//! it, and [`Msg::RestoreSelection`] puts it back on screen.
+//! it, and [`Msg::RestoreSelection`] puts it back on screen
+//! (va1erian/xui#289 asks the views to keep it instead).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -21,9 +22,11 @@ use crate::window::Msg;
 /// One window's state as the platform sees it.
 #[derive(Clone)]
 pub struct ViewState {
+    /// The window's raw id.
+    pub window: u64,
     /// The folder the window shows.
     pub dir: PathBuf,
-    /// The icon view.
+    /// The view on screen: the icon view or the details list.
     pub view: WidgetId,
     /// The selected entries, as paths.
     pub selected: Vec<PathBuf>,
@@ -58,8 +61,8 @@ impl ViewState {
 pub struct Views(RefCell<HashMap<u64, ViewState>>);
 
 impl Views {
-    pub fn publish(&self, window: u64, state: ViewState) {
-        self.0.borrow_mut().insert(window, state);
+    pub fn publish(&self, state: ViewState) {
+        self.0.borrow_mut().insert(state.window, state);
     }
 
     pub fn forget(&self, window: u64) {

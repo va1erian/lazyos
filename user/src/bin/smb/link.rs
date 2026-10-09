@@ -1,4 +1,4 @@
-//! The connection under `smb` (and, in F3, `smbfuse`): `libs/smbwire`'s
+//! The connection under `smb` and `smbfuse`: `libs/smbwire`'s
 //! [`Transport`] over a native TCP stream, the logon, and how a failure reads.
 
 use alloc::format;
@@ -110,16 +110,34 @@ fn filetime() -> (u64, bool) {
     ((unix + FILETIME_UNIX) * 10_000_000, unix >= PLAUSIBLE_UNIX)
 }
 
+/// The step of [`open_step`] that failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// No network stack, sockets or randomness.
+    Network,
+    /// The server's name did not resolve.
+    Resolve,
+    /// The connection or the logon failed.
+    Login,
+}
+
 /// Resolve, connect and log on.
 pub fn open(target: &Target) -> Result<(Client<Tcp>, Logon), String> {
-    let (sockets, stack) = sockets()?;
-    let ip = stack
-        .lookup_host(target.server, 5000)
-        .map_err(|e| format!("{}: cannot resolve ({})", target.server, describe(&e)))?;
+    open_step(target).map_err(|(_, text)| text)
+}
+
+/// [`open`], naming the step that failed (`smbfuse` reports it to `mountd`
+/// as its exit code).
+pub fn open_step(target: &Target) -> Result<(Client<Tcp>, Logon), (Step, String)> {
+    let (sockets, stack) = sockets().map_err(|text| (Step::Network, text))?;
+    let ip = stack.lookup_host(target.server, 5000).map_err(|e| {
+        let text = format!("{}: cannot resolve ({})", target.server, describe(&e));
+        (Step::Resolve, text)
+    })?;
     let stream = TcpStream::connect(&sockets, Addr::new(ip, target.port), CONNECT_MS)
-        .map_err(|e| format!("connect: {}", describe(&e)))?;
+        .map_err(|e| (Step::Login, format!("connect: {}", describe(&e))))?;
     let mut random = [0u8; 24];
-    sys::random(&mut random).map_err(|code| format!("no randomness ({code})"))?;
+    sys::random(&mut random).map_err(|code| (Step::Network, format!("no randomness ({code})")))?;
     let (time, plausible) = filetime();
     let cfg = Config {
         user: target.user,
@@ -136,7 +154,7 @@ pub fn open(target: &Target) -> Result<(Client<Tcp>, Logon), String> {
         if error.status() == Some(status::LOGON_FAILURE) && !plausible {
             text.push_str("; the clock has no real time, which NTLMv2 may refuse");
         }
-        text
+        (Step::Login, text)
     })
 }
 

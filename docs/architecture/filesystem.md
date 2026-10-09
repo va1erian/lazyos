@@ -49,7 +49,12 @@ synthetic paths (`/dev`, `/proc`, `/etc`, `/bin`) stay in `process/linux`.
   restricts `unlink`/`rename` to root, the directory owner, or the entry owner.
 - Caches: `(mount, path) -> ino` dentry map plus `(mount, ino) -> Meta` inode
   map; mutations invalidate the path, its inode, and cached descendants.
-  `cache_stats()` exposes hits/misses for tests.
+  An entry is kept until then, unless its filesystem gives it a lifetime
+  (`Filesystem::cache_deadline`): a user-space filesystem's metadata
+  (`fs/fuse`, a network share other clients change) is believed for 1 s
+  (`fuse::ATTR_TICKS`), so a remote change, or one made through the other
+  mount table, shows within that ([smb-plan.md](../smb-plan.md) §3.1).
+  `cache_stats()` exposes hits/misses/expiries for tests.
 - `Filesystem` trait: `name`, `lookup`/`stat`, `read`, `write`, `truncate`,
   `setattr`, `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`,
   `flush`, `statfs` (`StatFs`: magic, block size, block/inode totals and free;

@@ -80,24 +80,18 @@ impl Client {
     /// `Subscribe(role)`, moving `events` (this task's peer end of a fresh
     /// pair) to the compositor. With `"shell"` this task becomes the shell.
     pub fn subscribe(&self, role: &str, events: u64) -> Result<(), i64> {
-        let body = wire::encode_subscribe_args(&wire::SubscribeArgs {
+        let (body, objects) = wire::encode_subscribe_args(&wire::SubscribeArgs {
             subscriber_role: role.into(),
+            events,
         })
         .map_err(|_| -errno::EINVAL)?;
-        let (handles, buffers) =
-            wire::encode_subscribe_transfers(&wire::SubscribeTransfers { events });
-        self.shell_call(request(wire::METHOD_SUBSCRIBE, body, handles, buffers))
+        self.shell_call(request(wire::METHOD_SUBSCRIBE, body, objects))
             .map(|_| ())
     }
 
     /// `ListSurfaces`: every surface, bottom of the z-order first.
     pub fn list_surfaces(&self) -> Result<Vec<wire::SurfaceRow>, i64> {
-        let parcel = request(
-            wire::METHOD_LISTSURFACES,
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
+        let parcel = request(wire::METHOD_LISTSURFACES, Vec::new(), Vec::new());
         let mut buf = vec![0u8; LIST_BYTES];
         let reply = self.call_into(&parcel, &mut buf, deadline())?;
         wire::decode_list_surfaces_reply(&reply.body)
@@ -107,7 +101,7 @@ impl Client {
 
     /// `GetWorkArea` as `(x, y, w, h)`.
     pub fn get_work_area(&self) -> Result<(i32, i32, i32, i32), i64> {
-        let parcel = request(wire::METHOD_GETWORKAREA, Vec::new(), Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_GETWORKAREA, Vec::new(), Vec::new());
         let reply = self.shell_call(parcel)?;
         let area = wire::decode_get_work_area_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
         Ok((area.x, area.y, area.w, area.h))
@@ -175,7 +169,7 @@ impl Client {
 
     /// A bounded call whose reply carries no fields.
     fn unit(&self, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        self.shell_call(request(method, body, Vec::new(), Vec::new()))
+        self.shell_call(request(method, body, Vec::new()))
             .map(|_| ())
     }
 
@@ -194,7 +188,7 @@ mod tests {
     use super::*;
 
     fn event(method: u32, body: Vec<u8>) -> Parcel {
-        request(method, body, Vec::new(), Vec::new())
+        request(method, body, Vec::new())
     }
 
     #[test]
