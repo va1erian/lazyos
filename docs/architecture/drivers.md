@@ -96,6 +96,10 @@ ones virtio-net used: claim, `cfg_write` (decode, bus master, INTx),
 
 ## The third NIC: Realtek RTL8111H
 
+> **Provisional.** The descriptor, register, FCS and PHY details below are
+> from the family's open drivers and are not yet confirmed on the RTL8111H
+> itself (nothing has run on the chip; see the plan's R0, R3 and R4).
+
 `libs/rtl8168` is the RTL8168-family back end for the same engine, for the
 Kaby Lake box's chip only (XID `541`; every other revision is refused by name,
 `netdrv` parks with `NETDRV:UNSUPPORTED`). Both rings are 16-byte descriptors
