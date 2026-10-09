@@ -26,7 +26,7 @@ use user::messenger::pkgd::{wire, Failure, PkgEvent};
 use user::messenger::{self, router, services};
 use user::sys;
 
-use super::handlers::{fail, read_failure, Pkgd, EINVAL};
+use super::handlers::{fail, read_failure, Pkgd, EINVAL, ENOENT};
 use super::inspect::assess;
 use super::install::{event, one_line, problem_text, Subject};
 use super::store;
@@ -321,8 +321,19 @@ impl Pkgd {
     /// `/system/packages`, described by the image's index or, for a file the
     /// index does not cover, by reading the archive.
     fn shipped_set(&mut self) -> (Vec<Shipped>, Vec<(String, usize)>, u64) {
-        let Ok(entries) = files::list(fhs::SYSTEM_PACKAGES) else {
-            return (Vec::new(), Vec::new(), 0);
+        let entries = match files::list(fhs::SYSTEM_PACKAGES) {
+            Ok(entries) => entries,
+            // An image that ships no core packages.
+            Err(ENOENT) => return (Vec::new(), Vec::new(), 0),
+            // Any other failure hides every package: count it as one, so
+            // the pass does not look like a clean one.
+            Err(errno) => {
+                sys::write_str(&format!(
+                    "PKGD:PROVISION:LIST:FAIL {} errno {errno}\n",
+                    fhs::SYSTEM_PACKAGES
+                ));
+                return (Vec::new(), Vec::new(), 1);
+            }
         };
         let index = files::read_up_to(fhs::system::PACKAGES_INDEX, provision::MAX_INDEX)
             .ok()

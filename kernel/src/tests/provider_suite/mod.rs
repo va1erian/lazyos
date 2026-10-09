@@ -8,6 +8,7 @@ mod hostile;
 mod io;
 mod slow;
 mod sys;
+mod vfs;
 
 use super::*;
 use crate::block::provider::{self, status, test_clock, Op};
@@ -359,6 +360,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "provider_kill_mid_request_releases_slot",
         hostile::kill_mid_request_releases_slot,
+    ),
+    (
+        "provider_never_waits_for_the_vfs",
+        vfs::provider_never_waits_for_the_vfs,
+    ),
+    (
+        "provider_soak_vfs_refusals",
+        vfs::soak_provider_vfs_refusals,
     ),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),

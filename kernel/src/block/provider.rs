@@ -63,8 +63,10 @@ pub const QUEUE_TICKS: u64 = 1000;
 /// up on a request after 45 s of its own (Linux allows a SCSI command 30 s).
 pub const TAKEN_TICKS: u64 = 6000;
 /// The longest a requester waits for the request slot: a holder's whole
-/// queued and taken time.
-pub const SLOT_TICKS: u64 = QUEUE_TICKS + TAKEN_TICKS;
+/// time, which includes waiting up to a [`TAKEN_TICKS`] behind its
+/// provider's work on another disk (`busy_elsewhere`), then its own queued
+/// and taken time.
+pub const SLOT_TICKS: u64 = QUEUE_TICKS + 2 * TAKEN_TICKS;
 /// How often a waiting requester checks that its provider is alive.
 pub const SLICE_TICKS: u64 = 10;
 /// Consecutive timeouts after which a disk is declared dead.
@@ -415,6 +417,15 @@ pub fn is_provider_device(name: &str) -> bool {
     NAMES.iter().any(|disk| {
         name.strip_prefix(disk)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('p'))
+    })
+}
+
+/// Whether task `slot` serves a live disk: such a task must never wait for
+/// the VFS, which a requester may hold while it waits for that task.
+pub fn serves_disk(slot: usize) -> bool {
+    DISKS.iter().any(|disk| {
+        let state = disk.state.lock();
+        state.registered && state.alive && state.owner == slot
     })
 }
 

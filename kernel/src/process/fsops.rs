@@ -31,6 +31,7 @@ use crate::{fs, user_ptr};
 const EPERM: i64 = 1;
 const ENOENT: i64 = 2;
 const EIO: i64 = 5;
+const EAGAIN: i64 = 11;
 const ENOMEM: i64 = 12;
 const EFAULT: i64 = 14;
 const EACCES: i64 = 13;
@@ -94,6 +95,9 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
 /// Dispatch native syscall `nr` (15-22, 28 `append_file`, 30 `read_at` and
 /// 32 `chmod`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    if nr != 21 && provider_would_wait() {
+        return failed(EAGAIN);
+    }
     let outcome = match nr {
         15 => stat(a1, a2, a3),
         16 => readdir(a1, a2, a3),
@@ -111,6 +115,17 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
         _ => return u64::MAX,
     };
     outcome.unwrap_or_else(|code| code)
+}
+
+/// Whether the caller serves a live block device and another task holds
+/// a mount table (a native mutation takes both: `fs::coherence`). That
+/// holder may be waiting for this very caller (a `/home` request parks with
+/// its table held until `usbd` answers), so waiting for it
+/// would stall the disk until its deadline kills it (issue #704). The
+/// caller gets `EAGAIN` and tries later. Syscalls run with interrupts off on
+/// one core, so nothing can take the VFS between this check and the call.
+fn provider_would_wait() -> bool {
+    fs::any_vfs_locked() && crate::block::provider::serves_disk(crate::task::current())
 }
 
 /// `stat`'s third argument: report the capacity of the filesystem holding

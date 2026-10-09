@@ -43,6 +43,8 @@ pub(super) const REQUEST_BUDGET_TICKS: u64 = 4500;
 /// How long one bulk transfer may take during bring-up (5 s): a stick that
 /// does not answer INQUIRY should not hold the other devices up.
 pub(super) const BRING_UP_TRANSFER_TICKS: u64 = 500;
+/// The whole of an idle flush (8 s; see [`Patience::idle_flush`]).
+pub(super) const IDLE_FLUSH_TICKS: u64 = 800;
 
 /// How long the link waits: per transfer, and for everything until `until`
 /// (absolute ticks; a transfer past it fails at once).
@@ -70,6 +72,15 @@ impl Patience {
         }
     }
 
+    /// An idle flush (`msc.rs`): everything, recovery included, within 8 s,
+    /// under the kernel's 10 s for taking a request that queues meanwhile.
+    pub(super) fn idle_flush() -> Patience {
+        Patience {
+            transfer: IDLE_FLUSH_TICKS,
+            until: sys::clock() + IDLE_FLUSH_TICKS,
+        }
+    }
+
     /// The deadline of a transfer starting now.
     fn deadline(&self) -> u64 {
         sys::clock().saturating_add(self.transfer).min(self.until)
@@ -94,6 +105,12 @@ pub(super) struct Link<'a> {
 }
 
 impl Link<'_> {
+    /// Whether this operation's time is spent: transfers and recovery
+    /// steps then fail at once, without touching the bus.
+    pub(super) fn expired(&self) -> bool {
+        sys::clock() >= self.patience.until
+    }
+
     fn pipe(&mut self, inbound: bool) -> &mut Pipe {
         if inbound {
             &mut self.pipes.bulk_in
@@ -235,6 +252,11 @@ impl Transport for Link<'_> {
             index: setup.index,
             length: 0,
         };
+        // Recovery past the budget is put off, not done late: the caller
+        // sees the failure and runs it before the next request (`msc.rs`).
+        if self.expired() {
+            return Err(XferError::Failed);
+        }
         // `Device::control` recovers endpoint 0 itself after a failure.
         match self.device.control_out(self.hc, packet) {
             Ok(()) => Ok(()),
@@ -245,6 +267,11 @@ impl Transport for Link<'_> {
     }
 
     fn reset_host_endpoint(&mut self, inbound: bool) -> Result<(), XferError> {
+        // A failed transfer already recovered the controller's side
+        // (`failed`); past the budget the rest waits with the device side.
+        if self.expired() {
+            return Err(XferError::Failed);
+        }
         self.recover(inbound)
     }
 

@@ -75,8 +75,13 @@ kernel's then 10 s request deadline fired twice. Now (`msc_link.rs`):
 | One kernel request, retries and recovery included | 45 s (`REQUEST_BUDGET_TICKS`) | below the kernel's 60 s `TAKEN_TICKS`, so the driver answers (with an error if it must) before the kernel gives up |
 | One bulk transfer during bring-up | 5 s | a stick that never answers INQUIRY must not stall the other devices |
 
+| An idle flush (SYNCHRONIZE CACHE after a write and a quiet second), recovery included | 8 s (`IDLE_FLUSH_TICKS`) | a request queued meanwhile must be taken within the kernel's 10 s |
+
 Once the budget is spent every further transfer of the request fails at
-once, so its remaining retries end quickly. While `usbd` waits on a stick its
+once, and so do the Bulk-Only reset recovery's control requests: the
+request ends as an I/O error (not a dead stick) and the recovery runs before
+the next request (`reset_pending`), where only a failure with time left
+marks the stick dead. While `usbd` waits on a stick its
 HID devices are not served, so a stalled write pauses the USB mouse too.
 
 Evidence for the next real-hardware run: `USBD:MSC:XFER port=<p> in|out
@@ -148,6 +153,18 @@ Nothing the provider does can hang or crash the kernel:
   (`relax::can_block`), since parking puts the scheduler's frames on top of
   ext2's. Kernel stacks went from 32 to 48 KiB for this: a file created on
   the stick parks about 24 KiB deep, and the first end-to-end run overflowed.
+- **A provider never waits for the VFS.** A requester holds its mount table
+  (the native one, or the Linux ABI one for a BusyBox shell) while it waits
+  for the provider, and a native mutation takes both tables
+  (`fs::coherence`). So a native fs call from `usbd` while a `/home` request
+  waits (its `usb.dump` for `dbgd`, written every 2 s while the bus is
+  busy) blocked until the request's 10 s untaken deadline, twice, and the
+  disk died. That was the real cause of issue #704: the box ran a `dbgd`
+  build. Now a task that serves a live disk gets `EAGAIN` from the native
+  fs syscalls while either table is held (`process::fsops`, checked with
+  interrupts off on one core, so nothing takes a table between the check
+  and the call), and `usbd` writes its dump on a later pass.
+  `tools/boot/persist.py` reproduced it every time before the fix.
 - Slots are never reused within a boot (a dead disk may still be mounted), so
   at most eight sticks are served per boot.
 

@@ -149,6 +149,26 @@ pub fn vfs_locked() -> bool {
     FS.is_locked()
 }
 
+/// Whether a task holds either mount table right now. A native mutation
+/// also takes the Linux ABI table (`coherence`), so a block provider's native
+/// fs call waits if either is held (`process::fsops`).
+pub fn any_vfs_locked() -> bool {
+    FS.is_locked() || ABI_FS.is_locked()
+}
+
+/// Run `f` with the native VFS (or, `abi`, the Linux ABI table) held, as a
+/// task waiting for a block provider holds it (the provider tests).
+#[cfg(lazyos_tests)]
+pub fn hold_vfs<T>(abi: bool, f: impl FnOnce() -> T) -> T {
+    if abi {
+        let _held = ABI_FS.lock();
+        f()
+    } else {
+        let _held = FS.lock();
+        f()
+    }
+}
+
 /// Run `f` against the global VFS, if it is mounted.
 fn with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     FS.lock().as_mut().map(|(vfs, _)| f(vfs))
