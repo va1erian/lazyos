@@ -56,6 +56,18 @@ pub mod op {
     pub const SNAPSHOT: u64 = 0;
     /// Report the snapshot's size in bytes, without touching a buffer.
     pub const SIZE: u64 = 1;
+    /// The boot-log ring (`klog`), built only with `LAZYOS_DBGD=1`
+    /// (`cfg(lazyos_dbgd)`): an 8-byte little-endian total of bytes
+    /// ever logged, then the newest bytes that fit the buffer, oldest first.
+    /// Returns the byte count written, the 8 included. Open to every task,
+    /// like `dmesg` (the ring holds boot and driver messages, never user
+    /// data).
+    #[cfg(lazyos_dbgd)]
+    pub const KLOG: u64 = 2;
+    /// The same shape for what programs wrote to the terminal (the
+    /// services' output), also `cfg(lazyos_dbgd)` only.
+    #[cfg(lazyos_dbgd)]
+    pub const PROGRAM_LOG: u64 = 3;
 }
 
 /// Task state codes in a row's state word. Stable across ABI versions.
@@ -196,7 +208,35 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
     match op {
         op::SIZE => SIZE,
         op::SNAPSHOT => snapshot(a1, a2),
+        #[cfg(lazyos_dbgd)]
+        op::KLOG => log_ring(a1, a2, crate::klog::snapshot_with_total),
+        #[cfg(lazyos_dbgd)]
+        op::PROGRAM_LOG => log_ring(a1, a2, crate::klog::programs_with_total),
         _ => negative(errno::EINVAL),
+    }
+}
+
+#[cfg(lazyos_dbgd)]
+/// ops 2 and 3: a log ring's total and tail (see [`op::KLOG`]); `read` is
+/// the ring's locked snapshot.
+fn log_ring(buf: u64, capacity: u64, read: fn(&mut [u8]) -> (usize, u64)) -> u64 {
+    if buf == 0 {
+        return negative(errno::EFAULT);
+    }
+    let Some(room) = usize::try_from(capacity)
+        .ok()
+        .and_then(|c| c.checked_sub(8))
+        .map(|c| c.min(crate::klog::CAPACITY))
+    else {
+        return negative(errno::EINVAL);
+    };
+    let mut data = alloc::vec![0u8; 8 + room];
+    let (count, total) = read(&mut data[8..]);
+    data[..8].copy_from_slice(&total.to_le_bytes());
+    data.truncate(8 + count);
+    match crate::ipc::syscalls::copy_out(buf, &data) {
+        Ok(()) => data.len() as u64,
+        Err(code) => (code as u64).wrapping_neg(),
     }
 }
 

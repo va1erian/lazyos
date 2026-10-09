@@ -11,6 +11,14 @@ Cargo feature gate described in "Design" are not implemented; phases 3
 (`memory_stats`, partly covered by syscall 14) and 4 (`inspect_vfs_node`) are
 open. CI: `.github/workflows/mcp-bridge.yml`.
 
+## Status update (issue #701)
+
+The bridge also has a TCP transport over `dbgd`
+(`python tools/mcp/debug_bridge.py --connect HOST`, `docs/dbgd-plan.md`):
+the same two tools plus log, device, USB and Messenger tools, against QEMU
+with user networking or a real PC. The virtio-serial design below stays
+unimplemented; `dbgd` supersedes it for anything with a network card.
+
 ## Summary
 
 Add a debug-build-only MCP (Model Context Protocol) server that exposes live

@@ -46,6 +46,12 @@ pub const LEGACY_ACCOUNTS_DB: &str = "/conf/accounts/db";
 /// removed: `<HOME_ARCHIVE>/<name>-<uid>`, 0700 root. Written by `init`.
 pub const HOME_ARCHIVE: &str = "/home/.archived";
 
+/// The snapshot `usbd` keeps of its controllers, ports and enumerated
+/// devices (registers, slot and endpoint 0 state), rewritten as the bus
+/// changes; `dbgd`'s `usb.dump` serves it. On the ramfs: nothing durable.
+/// Written by `usbd`.
+pub const USBD_DUMP: &str = "/transient/usbd.dump";
+
 /// `printd`'s spool: one `<id>.job` record and `<id>.doc` document per print
 /// job until its printer has it, so a queued job survives a restart. Under
 /// [`CONF_SVC`], 0700 root. Written by `printd`.

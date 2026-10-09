@@ -135,6 +135,13 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="networking plus the SMB 2.1 client `smb` (LAZYOS_SMB=1): "
                              "`smb -U USER //SERVER/SHARE ls ; get FILE ! ; put -g N FILE` "
                              "(docs/smb-plan.md F2)")
+    parser.add_argument("--dbgd", action="store_true",
+                        help="networking plus `dbgd`, the remote inspection service "
+                             "(LAZYOS_DBGD=1, docs/dbgd-plan.md): log, tasks, devices, USB and "
+                             "Messenger state as JSON-RPC on guest port 9701, forwarded to host "
+                             "9701 and guarded by the key in target/dbgd.key; read it with "
+                             "`python tools/dbg/dbgctl.py`. LAZYOS_DBGD_KEY/_PORT/_PEER set the "
+                             "key, port and the one peer address")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -196,7 +203,10 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyweb or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
-    args.net = args.net or args.tls or args.smb
+    args.net = args.net or args.tls or args.smb or args.dbgd
+    if args.dbgd and not args.net_forward:
+        # The default forwards plus dbgd's port, so `dbgctl` works at once.
+        args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:

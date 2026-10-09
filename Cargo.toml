@@ -126,6 +126,9 @@ members = [
     # mountd's mount table and argument checks (docs/smb-plan.md §3.4):
     # pure `no_std` + `alloc`, host-tested.
     "libs/mounttable",
+    # dbgd's wire: JSON-RPC lines, the HMAC challenge, config, method table
+    # (docs/dbgd-plan.md, issue #701): pure no_std + alloc, host-tested.
+    "libs/dbgwire",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

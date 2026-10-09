@@ -19,6 +19,8 @@ use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
 pub use crate::os_manifest::{clean_path, Kind, Manifest};
 
+#[path = "dbgd_cfg.rs"]
+pub mod dbgd_cfg;
 #[path = "display_cfg.rs"]
 pub mod display_cfg;
 #[path = "limits_cfg.rs"]

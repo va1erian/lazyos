@@ -21,6 +21,8 @@ passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
 lazyos-crypto = { path = "../../libs/crypto" }
+# What `dbgd` parses from the lines the build writes (`dbgd_cfg.rs`).
+dbgwire = { path = "../../libs/dbgwire" }
 
 [dev-dependencies]
 # The roots the image's CA bundle is built from (the root crate pins it).
