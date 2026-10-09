@@ -119,6 +119,24 @@ def quake_srp() -> Path | None:
     return tree
 
 
+def extract_tar() -> str:
+    """A libarchive `bsdtar`, needed for the LZH archive: Debian's
+    `libarchive-tools` installs it as `bsdtar`, Windows' own `tar` is
+    libarchive too. GNU tar cannot read the format and gets refused with
+    its name, so the failure says what to install."""
+    for name in ("bsdtar", "tar"):
+        found = shutil.which(name)
+        if found is None:
+            continue
+        version = subprocess.run([found, "--version"], capture_output=True, text=True)
+        if "libarchive" in (version.stdout + version.stderr).lower():
+            return found
+    raise ValueError(
+        "no bsdtar (libarchive) on PATH: install libarchive-tools; "
+        "GNU tar cannot read the shareware zip's LZH archive"
+    )
+
+
 def shareware(tree: Path) -> Path | None:
     """`tree/quake-data/` holding `ID1/PAK0.PAK`, the shareware licence
     and id's archive itself."""
@@ -140,9 +158,7 @@ def shareware(tree: Path) -> Path | None:
             for name in ("resource.1",):
                 with zf.open(name) as src, open(staging / name, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-        tar = shutil.which("tar")
-        if tar is None:
-            raise ValueError("tar (bsdtar) is missing: it unpacks the LZH archive")
+        tar = extract_tar()
         extract = subprocess.run(
             [tar, "-xf", "resource.1", "ID1/PAK0.PAK", "SLICNSE.TXT"],
             cwd=staging,
