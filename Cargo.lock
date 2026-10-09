@@ -196,6 +196,7 @@ name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
  "accountdb",
+ "dbgwire",
  "ext2fs",
  "fatfs",
  "fhs",
@@ -282,6 +283,15 @@ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "dbgwire"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "fuzzkit",
+ "lazyos-crypto",
 ]
 
 [[package]]
@@ -1386,6 +1396,7 @@ dependencies = [
  "audioclient",
  "audiomix",
  "confd",
+ "dbgwire",
  "deskmenu",
  "devinspect",
  "devmatch",

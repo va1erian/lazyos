@@ -911,6 +911,32 @@ python tools/smb/licenses.py               # GPLv2-compatible crates only
 (the value of a host environment variable), so no password is in the script;
 it scans the serial log, the capture and the session record for it.
 
+## Remote inspection (`dbgd`, `LAZYOS_DBGD=1`)
+
+`dbgd` (`user/src/bin/dbgd.rs`, wire in `libs/dbgwire`) lets a person or an
+agent read a box over its network card: the kernel boot log live, what the
+services printed, tasks, memory, PCI devices, `devd`'s drivers, a USB
+controller snapshot, Messenger's registry, services and topics, a few files.
+Read-only, authenticated with a pre-shared key, off unless built in and
+configured (`diag.dbg=1` in `lazyos.cfg`); a kernel built without the
+switch has none of its ops. Plan, protocol and threat model:
+[`docs/dbgd-plan.md`](docs/dbgd-plan.md); how to use it:
+[`docs/dbgd.md`](docs/dbgd.md) and the `lazyos-dbg` skill
+(`.claude/skills/lazyos-dbg`).
+
+```bash
+python tools/run_demo.py --dbgd                 # networking + dbgd; key in target/dbgd.key; 9701 forwarded
+python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
+python tools/dbg/run.py [--usb]                 # build, boot, judge every method (shots/dbg)
+python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
+cargo test -p dbgwire                           # protocol, config, allowlist, seeded fuzz
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none
+```
+
+Program output (`sys::write_str`) is not in the boot log; a `LAZYOS_DBGD=1`
+kernel keeps it in its own ring, which is where a service's `USBD:`/`NETDRV:`
+lines can be read back (`log.tail source=programs`).
+
 ## Network tooling
 
 Networking (`docs/networking-plan.md`) is verified like audio: serial markers

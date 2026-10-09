@@ -215,6 +215,8 @@ fn run() -> Result<(), Error> {
         controllers.len()
     ));
     let mut irq_buf = alloc::vec![0u8; 256];
+    let mut dump = Dump::new();
+    dump.write(&mut controllers, true);
     loop {
         // Acknowledge interrupts first: the line stays masked until then,
         // and an event landing after the acknowledgement interrupts again.
@@ -226,9 +228,51 @@ fn run() -> Result<(), Error> {
         }
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
+        dump.write(&mut controllers, busy);
         if !busy && !controllers.iter_mut().any(Controller::wait_storage) {
             irq::park(&controllers);
         }
+    }
+}
+
+/// Where the controller snapshot goes (`dbgd`'s `usb.dump` reads it).
+const DUMP_PATH: &str = fhs::state::USBD_DUMP;
+/// Ticks (100 Hz) between rewrites of it while events keep arriving.
+const DUMP_TICKS: u64 = 200;
+
+/// The `usb.dump` file: rewritten when something happened and the last
+/// write is [`DUMP_TICKS`] old, so a busy bus costs one small write per
+/// two seconds. A failed write (no `/transient`) is not retried hard: the
+/// next event tries again.
+struct Dump {
+    last: u64,
+    dirty: bool,
+}
+
+impl Dump {
+    fn new() -> Dump {
+        Dump {
+            last: 0,
+            dirty: true,
+        }
+    }
+
+    fn write(&mut self, controllers: &mut [Controller], busy: bool) {
+        self.dirty |= busy;
+        let now = sys::clock();
+        if !self.dirty || now < self.last + DUMP_TICKS {
+            return;
+        }
+        let mut text = format!("USBD:DUMP:AT tick={now}\n");
+        for controller in controllers.iter_mut() {
+            for line in controller.dump_lines() {
+                text.push_str(&line);
+                text.push_str("\n");
+            }
+        }
+        let _ = user::files::write_file(DUMP_PATH, text.as_bytes());
+        self.last = now;
+        self.dirty = false;
     }
 }
 

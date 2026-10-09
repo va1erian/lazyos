@@ -79,6 +79,9 @@ usbhid = { path = "../libs/usbhid" }
 usbmsc = { path = "../libs/usbmsc" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
+# `dbgd`'s wire: JSON-RPC lines, the key handshake and the method table
+# (docs/dbgd-plan.md).
+dbgwire = { path = "../libs/dbgwire" }
 # `mountd`'s mount table and argument checks (docs/smb-plan.md).
 mounttable = { path = "../libs/mounttable" }
 usbpolicy = { path = "../libs/usbpolicy" }
@@ -520,6 +523,13 @@ bench = false
 [[bin]]
 name = "mountd"
 path = "src/bin/mountd.rs"
+test = false
+bench = false
+
+# `dbgd` (docs/dbgd-plan.md, `LAZYOS_DBGD=1`): the remote inspection service.
+[[bin]]
+name = "dbgd"
+path = "src/bin/dbgd.rs"
 test = false
 bench = false
 

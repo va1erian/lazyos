@@ -1,0 +1,25 @@
+[package]
+name = "dbgwire"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "dbgd's wire: the newline-delimited JSON-RPC subset, the HMAC challenge, the diag.dbg.* config, the method table and the boot-log line splitter (docs/dbgd-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "dbgwire"
+path = "src/lib.rs"
+
+[features]
+# Kept for symmetry with the other fuzzed libraries: the cargo-fuzz crate
+# enables it. The entry point itself is always built.
+fuzz = []
+
+[dependencies]
+# Well-known paths: the `fs.read` allowlist is built from them.
+fhs = { path = "../fhs" }
+# HMAC-SHA256 (the same vetted primitive keyd uses).
+lazyos-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

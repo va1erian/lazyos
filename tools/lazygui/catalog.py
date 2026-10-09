@@ -233,6 +233,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if cfg.get("dbgd"):
+        # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
+        # stack above; the image build writes its key to target/dbgd.key.
+        env["LAZYOS_DBGD"] = "1"
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
@@ -319,6 +323,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("journal") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_JOURNAL itself.
             argv.append("--journal")
+        if cfg.get("dbgd") and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DBGD, the stack and the 9701 forward itself.
+            argv.append("--dbgd")
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")

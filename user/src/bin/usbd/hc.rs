@@ -23,6 +23,9 @@ use xhci::trb::{self, code, kind, Trb};
 use super::mem::{Bar, Region, PAGE};
 use super::Error;
 
+#[path = "hc/dump.rs"]
+mod dump;
+
 /// PCI class of an xHCI controller: serial bus, USB, xHCI programming
 /// interface.
 const CLASS: (u8, u8, u8) = (0x0C, 0x03, 0x30);

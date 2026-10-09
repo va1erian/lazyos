@@ -76,6 +76,10 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
     if usb {
         add(sink, fhs::bin::USBD, "usbd");
     }
+    assert!(
+        netd || !enabled("LAZYOS_DBGD"),
+        "LAZYOS_DBGD=1 needs LAZYOS_NETD=1 (dbgd listens on TCP)"
+    );
     // `smb` speaks over the socket service: without it the image would carry
     // a client that cannot connect.
     assert!(
@@ -107,6 +111,11 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // `mountd`, which starts `ftpfuse` and `smbfuse` for the Network
         // Drives app.
         add(sink, fhs::bin::MOUNTD, "mountd");
+        // `dbgd`, the remote inspection service, only on request: nothing
+        // of it is in an image built without `LAZYOS_DBGD=1`.
+        if enabled("LAZYOS_DBGD") {
+            add(sink, fhs::bin::DBGD, "dbgd");
+        }
         // `smb`, the SMB 2.1 client (docs/smb-plan.md F2), on request.
         if enabled("LAZYOS_SMB") {
             add(sink, fhs::bin::SMB, "smb");

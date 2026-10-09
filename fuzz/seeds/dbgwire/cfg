@@ -1,0 +1,5 @@
+root=UUID=0b0c8d3a-5b1e-4a53-9d77-0123456789ab
+diag.dbg=1
+diag.dbg.key=00000000000000000000000000000000
+diag.dbg.port=9701
+diag.dbg.peer=10.0.2.2
