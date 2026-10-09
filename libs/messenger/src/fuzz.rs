@@ -7,7 +7,7 @@
 //! agree byte for byte, every field accessor tolerates every payload, and
 //! the object index rule holds whatever the body says.
 
-use std::vec::Vec;
+use alloc::vec::Vec;
 
 use crate::{Decoder, Error, Field, Kind, Object, Parcel, ParcelView};
 
