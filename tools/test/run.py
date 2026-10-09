@@ -357,7 +357,9 @@ def main() -> int:
             "-device", "ide-hd,drive=ahcischratch,bus=ahcis.0",
         ]
     command = build_qemu_command(
-        qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk
+        qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk,
+        # The blank AHCI scratch disk must not become the disk firmware boots.
+        boot_first=args.ahci,
     )
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
