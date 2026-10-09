@@ -74,6 +74,7 @@ pub fn build(
 
     let mut builder = bootloader::DiskImageBuilder::new(kernel.to_path_buf());
     builder.set_ramdisk(ramdisk.clone());
+    builder.set_boot_config(&boot_config());
     builder.set_file_contents(UEFI_BOOT_PATH.into(), uefi_loader(out_dir)?);
     let boot_image = out_dir.join("usb-boot.img");
     builder
@@ -103,6 +104,23 @@ pub fn build(
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// Smallest display mode the stick asks the firmware for. The loader only
+/// changes mode when it is given a minimum, and then takes the last (largest)
+/// listed mode that satisfies it; with none it keeps the firmware's default,
+/// which is 800x600 on some PCs (the Kaby Lake box, docs/compat/kabylake): a
+/// stretched desktop and boot text so large it clips. Anything above 1080p is
+/// cut to a centred 1080p logical screen by the kernel (`display.rs`), so a
+/// large mode is safe. Only the stick image sets it: `lazyos.img` keeps the
+/// default mode its QEMU tests were written against.
+const MIN_FRAMEBUFFER: (u64, u64) = (1280, 720);
+
+fn boot_config() -> bootloader::BootConfig {
+    let mut config = bootloader::BootConfig::default();
+    config.frame_buffer.minimum_framebuffer_width = Some(MIN_FRAMEBUFFER.0);
+    config.frame_buffer.minimum_framebuffer_height = Some(MIN_FRAMEBUFFER.1);
+    config
 }
 
 /// The bootloader's UEFI application. `bootloader` 0.11 embeds it but exposes
