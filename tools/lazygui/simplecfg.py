@@ -27,7 +27,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
-                  pictures: bool = False, emusic: bool = False) -> dict:
+                  pictures: bool = False, emusic: bool = False,
+                  usb_image: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -48,7 +49,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     the Desktop with no account, so the login screen asks for its owner (the
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
     the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
-    the emusic package (Desktop only, like ``doom``). Machine settings
+    the emusic package (Desktop only, like ``doom``); ``usb_image`` also writes
+    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -102,6 +104,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "lazyweb": lazyweb,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
+        "usb_image": desktop and usb_image,
         "autologin": DEFAULT_ACCOUNT if desktop and autologin and not setup else "",
         "setup": desktop and setup,
         "display_mode": HIDPI_MODE if hidpi else "",

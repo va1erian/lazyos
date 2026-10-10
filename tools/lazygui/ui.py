@@ -78,7 +78,8 @@ class Launcher:
                          v["simple_doom"], v["simple_quake"], v["simple_modplayer"],
                          v["simple_net"], self._run,
                          *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
-                                                     "traydemo", "autologin", "setup", "pictures", "emusic")))
+                                                     "traydemo", "autologin", "setup", "pictures", "emusic",
+                                                     "usb_image")))
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
