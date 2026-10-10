@@ -48,6 +48,9 @@ pub struct NotifyService {
     server: Option<Server>,
     next_register: u64,
     init_backoff_until: u64,
+    /// The receive buffer, allocated on the first request and reused: the
+    /// heartbeat would otherwise zero 64 KiB every 30 ms.
+    buf: Vec<u8>,
 }
 
 impl NotifyService {
@@ -62,11 +65,13 @@ impl NotifyService {
         if sys::clock_ticks() < self.init_backoff_until {
             return;
         }
-        let mut buf = vec![0u8; REQUEST_BYTES];
+        if self.buf.is_empty() {
+            self.buf = vec![0u8; REQUEST_BYTES];
+        }
         // One `init.Services` read serves every request of this heartbeat.
         let mut rows: Rows = None;
         for _ in 0..REQUESTS_PER_TICK {
-            let call = match server.poll(&mut buf) {
+            let call = match server.poll(&mut self.buf) {
                 Ok(Some(received)) => received,
                 Ok(None) => break,
                 Err(code) => {

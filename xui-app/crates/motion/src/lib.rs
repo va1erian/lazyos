@@ -212,8 +212,9 @@ impl Tween {
         }
         let elapsed = now.saturating_sub(self.start) as f32;
         let fraction = self.curve.at(elapsed / self.duration as f32);
-        let span = (self.to - self.from) as f32;
-        self.from + (span * fraction).round() as i32
+        // Wide enough that values far apart cannot overflow `i32`.
+        let span = (i64::from(self.to) - i64::from(self.from)) as f32;
+        (i64::from(self.from) + (span * fraction).round() as i64) as i32
     }
 
     /// Whether the value has reached `to` for good by `now`.

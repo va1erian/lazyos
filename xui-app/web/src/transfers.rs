@@ -4,7 +4,10 @@
 //! Serial evidence: `WEB:DOWNLOAD:START:<file>`, then
 //! `WEB:DOWNLOAD:DONE:<file>:<bytes>` or `WEB:DOWNLOAD:FAIL:<reason>`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
+use std::thread;
 
 use lazyweb::downloads::Destinations;
 use lazyweb::marker_text;
@@ -17,8 +20,47 @@ struct Transfer {
     id: DownloadId,
     path: Option<PathBuf>,
     row: DownloadRow,
-    /// The toast telling the user about it, so its end updates it in place.
-    toast: Option<u64>,
+}
+
+/// One toast request for the notifier thread.
+enum Job {
+    /// A download started: show its toast.
+    Start(u64, Notice),
+    /// It ended: update that toast in place (and forget it).
+    End(u64, Notice),
+}
+
+/// Posts the downloads' toasts from a thread of its own: a toast is
+/// best-effort and a slow shell must never delay the window.
+struct Notifier {
+    jobs: Sender<Job>,
+}
+
+impl Notifier {
+    fn spawn() -> Option<Notifier> {
+        let (jobs, inbox) = mpsc::channel::<Job>();
+        thread::Builder::new()
+            .name(String::from("notify"))
+            .spawn(move || {
+                // Download id -> its toast, so the end replaces the start.
+                let mut toasts: HashMap<u64, u64> = HashMap::new();
+                while let Ok(job) = inbox.recv() {
+                    match job {
+                        Job::Start(id, notice) => {
+                            if let Ok(toast) = notify::post(&notice) {
+                                toasts.insert(id, toast);
+                            }
+                        }
+                        Job::End(id, notice) => {
+                            let replaces = toasts.remove(&id);
+                            let _ = notify::post(&Notice { replaces, ..notice });
+                        }
+                    }
+                }
+            })
+            .ok()?;
+        Some(Notifier { jobs })
+    }
 }
 
 /// The downloads, oldest first.
@@ -26,6 +68,7 @@ pub struct Transfers {
     list: Vec<Transfer>,
     destinations: Destinations,
     folder: PathBuf,
+    notifier: Option<Notifier>,
 }
 
 /// What the status bar shows about the running downloads.
@@ -41,6 +84,7 @@ impl Transfers {
             list: Vec::new(),
             destinations,
             folder,
+            notifier: Notifier::spawn(),
         }
     }
 
@@ -62,14 +106,17 @@ impl Transfers {
         println!("WEB:DOWNLOAD:START:{}", marker_text(&name));
         let status = format!("Downloading {name}");
         // Until it ends (then the toast is updated in place).
-        let toast = notify::post(&Notice {
-            icon: Some(String::from("download")),
-            timeout_ms: Some(0),
-            ..Notice::new(Level::Info, "Downloading", &name)
-        })
-        .ok();
+        if let Some(notifier) = &self.notifier {
+            let _ = notifier.jobs.send(Job::Start(
+                info.id.0,
+                Notice {
+                    icon: Some(String::from("download")),
+                    timeout_ms: Some(0),
+                    ..Notice::new(Level::Info, "Downloading", &name)
+                },
+            ));
+        }
         self.list.push(Transfer {
-            toast,
             id: info.id,
             path,
             row: DownloadRow {
@@ -92,6 +139,7 @@ impl Transfers {
     /// A download ended; the status line for it.
     pub fn finished(&mut self, id: DownloadId, error: Option<String>) -> Option<String> {
         let folder = self.folder.display().to_string();
+        let jobs = self.notifier.as_ref().map(|n| n.jobs.clone());
         let t = self.find(id)?;
         let name = t.row.name.clone();
         let notice = match &error {
@@ -102,10 +150,9 @@ impl Transfers {
             ),
             Some(why) => Notice::new(Level::Error, "Download failed", &format!("{name}: {why}")),
         };
-        let _ = notify::post(&Notice {
-            replaces: t.toast,
-            ..notice
-        });
+        if let Some(jobs) = jobs {
+            let _ = jobs.send(Job::End(id.0, notice));
+        }
         Some(match error {
             None => {
                 t.row.state = DownloadState::Done;
