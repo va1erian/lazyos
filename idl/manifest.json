@@ -1926,5 +1926,176 @@
       }
     ],
     "topics": []
+  },
+  {
+    "interface": "os.lazy.net.wifi.hw.v1",
+    "interface_id": "0xa882dc6295ff08bd",
+    "methods": [
+      {
+        "name": "Info",
+        "id": 266462757,
+        "oneway": false
+      },
+      {
+        "name": "Attach",
+        "id": 145305188,
+        "oneway": false,
+        "transfers": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "slot": 0,
+            "interface": "os.lazy.net.wifi.hw.v1"
+          }
+        ]
+      },
+      {
+        "name": "Detach",
+        "id": 475812562,
+        "oneway": false
+      },
+      {
+        "name": "SetCountry",
+        "id": 820455787,
+        "oneway": false
+      },
+      {
+        "name": "Scan",
+        "id": 1830061320,
+        "oneway": false
+      },
+      {
+        "name": "AbortScan",
+        "id": 1659626708,
+        "oneway": false
+      },
+      {
+        "name": "ScanResults",
+        "id": 536623814,
+        "oneway": false
+      },
+      {
+        "name": "Join",
+        "id": 805458841,
+        "oneway": false
+      },
+      {
+        "name": "TxMgmt",
+        "id": 583187128,
+        "oneway": false
+      },
+      {
+        "name": "SetState",
+        "id": 1345327380,
+        "oneway": false
+      },
+      {
+        "name": "SetKey",
+        "id": 1206977594,
+        "oneway": false
+      },
+      {
+        "name": "DelKey",
+        "id": 36584897,
+        "oneway": false
+      },
+      {
+        "name": "Leave",
+        "id": 2049913440,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "ScanDone",
+        "id": 2037373080,
+        "oneway": true
+      },
+      {
+        "name": "RxMgmt",
+        "id": 1961753042,
+        "oneway": true
+      },
+      {
+        "name": "BeaconLoss",
+        "id": 683463118,
+        "oneway": true
+      },
+      {
+        "name": "Deauthenticated",
+        "id": 1135744209,
+        "oneway": true
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.net.wifi.v1",
+    "interface_id": "0x515b536f62b1d272",
+    "methods": [
+      {
+        "name": "Interfaces",
+        "id": 1779791769,
+        "oneway": false
+      },
+      {
+        "name": "Scan",
+        "id": 1830061320,
+        "oneway": false
+      },
+      {
+        "name": "Networks",
+        "id": 413956514,
+        "oneway": false
+      },
+      {
+        "name": "AddNetwork",
+        "id": 69972362,
+        "oneway": false
+      },
+      {
+        "name": "Connect",
+        "id": 1535748249,
+        "oneway": false
+      },
+      {
+        "name": "Disconnect",
+        "id": 1518631179,
+        "oneway": false
+      },
+      {
+        "name": "Forget",
+        "id": 1849666444,
+        "oneway": false
+      },
+      {
+        "name": "Status",
+        "id": 6222351,
+        "oneway": false
+      }
+    ],
+    "topics": [
+      {
+        "name": "system/net/+/wifi/state",
+        "source": "system/net/{ifname}/wifi/state",
+        "payload": "WifiState",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/net/+/wifi/state",
+        "subscribe_permission": "subscribe:system/net/+/wifi/state"
+      },
+      {
+        "name": "system/net/+/wifi/scan",
+        "source": "system/net/{ifname}/wifi/scan",
+        "payload": "ScanEvent",
+        "qos": "latest",
+        "retained": false,
+        "publish_permission": "publish:system/net/+/wifi/scan",
+        "subscribe_permission": "subscribe:system/net/+/wifi/scan"
+      }
+    ]
   }
 ]

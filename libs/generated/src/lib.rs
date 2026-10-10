@@ -17669,6 +17669,1735 @@ pub mod os_lazy_shell_tray_events_v1 {
     }
 }
 
+/// `os.lazy.net.wifi.hw.v1` (interface id `0xa882dc6295ff08bd`).
+#[rustfmt::skip]
+pub mod os_lazy_net_wifi_hw_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xa882dc6295ff08bd;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.net.wifi.hw.v1";
+
+    /// `FrameKind::Mgmt` wire value.
+    pub const FRAME_KIND_MGMT: u32 = 0;
+    /// `FrameKind::Eapol` wire value.
+    pub const FRAME_KIND_EAPOL: u32 = 1;
+
+    /// `Band::Ghz2` wire value.
+    pub const BAND_GHZ2: u32 = 0;
+    /// `Band::Ghz5` wire value.
+    pub const BAND_GHZ5: u32 = 1;
+    /// `Band::Ghz6` wire value.
+    pub const BAND_GHZ6: u32 = 2;
+
+    /// `Width::Mhz20` wire value.
+    pub const WIDTH_MHZ20: u32 = 0;
+    /// `Width::Mhz40` wire value.
+    pub const WIDTH_MHZ40: u32 = 1;
+    /// `Width::Mhz80` wire value.
+    pub const WIDTH_MHZ80: u32 = 2;
+    /// `Width::Mhz160` wire value.
+    pub const WIDTH_MHZ160: u32 = 3;
+
+    /// `Cipher::Ccmp128` wire value.
+    pub const CIPHER_CCMP128: u32 = 0;
+    /// `Cipher::Gcmp256` wire value.
+    pub const CIPHER_GCMP256: u32 = 1;
+    /// `Cipher::BipCmac128` wire value.
+    pub const CIPHER_BIP_CMAC128: u32 = 2;
+
+    /// `KeyKind::Pairwise` wire value.
+    pub const KEY_KIND_PAIRWISE: u32 = 0;
+    /// `KeyKind::Group` wire value.
+    pub const KEY_KIND_GROUP: u32 = 1;
+    /// `KeyKind::Igtk` wire value.
+    pub const KEY_KIND_IGTK: u32 = 2;
+
+    /// `StaState::Idle` wire value.
+    pub const STA_STATE_IDLE: u32 = 0;
+    /// `StaState::Authenticated` wire value.
+    pub const STA_STATE_AUTHENTICATED: u32 = 1;
+    /// `StaState::Associated` wire value.
+    pub const STA_STATE_ASSOCIATED: u32 = 2;
+    /// `StaState::Authorized` wire value.
+    pub const STA_STATE_AUTHORIZED: u32 = 3;
+
+    /// What the radio is.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HwInfo {
+        pub mac: alloc::vec::Vec<u8>,
+        pub interface: alloc::string::String,
+        pub bands: u32,
+        pub ciphers: u32,
+        pub scan_offload: bool,
+        pub max_mgmt: u32,
+        pub max_scan_ssids: u32,
+        pub max_scan_channels: u32,
+        pub key_slots: u32,
+        pub features: u32,
+    }
+
+    pub fn encode_hw_info(value: &HwInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.mac)?;
+        target.string(2, &value.interface)?;
+        target.u32(3, value.bands)?;
+        target.u32(4, value.ciphers)?;
+        target.bool(5, value.scan_offload)?;
+        target.u32(6, value.max_mgmt)?;
+        target.u32(7, value.max_scan_ssids)?;
+        target.u32(8, value.max_scan_channels)?;
+        target.u32(9, value.key_slots)?;
+        target.u32(10, value.features)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hw_info(body: &[u8]) -> Result<HwInfo, Error> {
+        let mut out = HwInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.mac = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.interface = field.as_str()?.into();
+                }
+                3 => {
+                    out.bands = field.as_u32()?;
+                }
+                4 => {
+                    out.ciphers = field.as_u32()?;
+                }
+                5 => {
+                    out.scan_offload = field.as_bool()?;
+                }
+                6 => {
+                    out.max_mgmt = field.as_u32()?;
+                }
+                7 => {
+                    out.max_scan_ssids = field.as_u32()?;
+                }
+                8 => {
+                    out.max_scan_channels = field.as_u32()?;
+                }
+                9 => {
+                    out.key_slots = field.as_u32()?;
+                }
+                10 => {
+                    out.features = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Six octets, network order: the station address (also the NIC's).
+    /// The registry name of the radio's `os.lazy.net.nic.v1` interface
+    /// (`wlan0`): how `wlanmd` names the interface in topics.
+    /// Bands, a `Band` bitmap: bit *n* for the `Band` with ordinal *n*.
+    /// Ciphers the hardware can run, a `Cipher` bitmap.
+    /// Whether the firmware scans on its own (offload) rather than being
+    /// stepped by the host.
+    /// Largest management frame in either direction, in bytes.
+    /// Most SSIDs one scan may probe for.
+    /// Most channels one scan may name.
+    /// Hardware key slots (pairwise and group together).
+    /// Feature bits, zero if none. Reserved bits are zero; a client
+    /// ignores them.
+    /// What to scan. Channel numbers are 802.11 channel numbers within a
+    /// band, with `band` selecting which.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanRequest {
+        pub channels: alloc::vec::Vec<u32>,
+        pub band: u32,
+        pub ssids: alloc::vec::Vec<alloc::vec::Vec<u8>>,
+        pub active: bool,
+        pub dwell_ms: u32,
+    }
+
+    pub fn encode_scan_request(value: &ScanRequest) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.channels {
+            nested.u32(1, *item)?;
+        }
+        target.array(1, &nested)?;
+        target.u32(2, value.band)?;
+        let mut nested = Encoder::new();
+        for item in &value.ssids {
+            nested.bytes(1, item)?;
+        }
+        target.array(3, &nested)?;
+        target.bool(4, value.active)?;
+        target.u32(5, value.dwell_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_request(body: &[u8]) -> Result<ScanRequest, Error> {
+        let mut out = ScanRequest::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.channels.push(item.as_u32()?);
+                    }
+                }
+                2 => {
+                    out.band = field.as_u32()?;
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.ssids.push(item.as_bytes().to_vec());
+                    }
+                }
+                4 => {
+                    out.active = field.as_bool()?;
+                }
+                5 => {
+                    out.dwell_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Channels to visit; empty means every channel the radio and the
+    /// regulatory domain allow.
+    /// A `Band` ordinal, used when `channels` is empty to limit the sweep
+    /// to one band; `U32::MAX` means all bands.
+    /// SSIDs to probe for (hidden networks); empty is a wildcard probe.
+    /// Probe actively where the domain allows; otherwise listen only.
+    /// Milliseconds to stay on each channel, 0 for the driver's default.
+    /// One heard frame: a beacon or probe response, unparsed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanEntry {
+        pub frame: alloc::vec::Vec<u8>,
+        pub channel: u32,
+        pub band: u32,
+        pub rssi_dbm: i32,
+        pub age_ms: u32,
+    }
+
+    pub fn encode_scan_entry(value: &ScanEntry) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.frame)?;
+        target.u32(2, value.channel)?;
+        target.u32(3, value.band)?;
+        target.i32(4, value.rssi_dbm)?;
+        target.u32(5, value.age_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_entry(body: &[u8]) -> Result<ScanEntry, Error> {
+        let mut out = ScanEntry::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.frame = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.channel = field.as_u32()?;
+                }
+                3 => {
+                    out.band = field.as_u32()?;
+                }
+                4 => {
+                    out.rssi_dbm = field.as_i32()?;
+                }
+                5 => {
+                    out.age_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The complete management frame body (without FCS), as received.
+    /// The channel it was heard on (a number within `band`).
+    /// A `Band` ordinal.
+    /// Signal strength in dBm as the radio measured it.
+    /// Milliseconds before the results were read that it was heard.
+    /// Where to go.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct JoinRequest {
+        pub bssid: alloc::vec::Vec<u8>,
+        pub channel: u32,
+        pub band: u32,
+        pub width: u32,
+    }
+
+    pub fn encode_join_request(value: &JoinRequest) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.bssid)?;
+        target.u32(2, value.channel)?;
+        target.u32(3, value.band)?;
+        target.u32(4, value.width)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_join_request(body: &[u8]) -> Result<JoinRequest, Error> {
+        let mut out = JoinRequest::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.bssid = field.as_bytes().to_vec();
+                }
+                2 => {
+                    out.channel = field.as_u32()?;
+                }
+                3 => {
+                    out.band = field.as_u32()?;
+                }
+                4 => {
+                    out.width = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Six octets: the BSSID to authenticate with.
+    /// A `Band` ordinal.
+    /// A `Width` ordinal: the widest channel the client wants.
+    /// Counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HwStats {
+        pub scans: u64,
+        pub mgmt_rx: u64,
+        pub mgmt_tx: u64,
+        pub mgmt_dropped: u64,
+        pub beacon_losses: u64,
+        pub deauths: u64,
+        pub fw_errors: u64,
+        pub resets: u64,
+    }
+
+    pub fn encode_hw_stats(value: &HwStats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.scans)?;
+        target.u64(2, value.mgmt_rx)?;
+        target.u64(3, value.mgmt_tx)?;
+        target.u64(4, value.mgmt_dropped)?;
+        target.u64(5, value.beacon_losses)?;
+        target.u64(6, value.deauths)?;
+        target.u64(7, value.fw_errors)?;
+        target.u64(8, value.resets)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hw_stats(body: &[u8]) -> Result<HwStats, Error> {
+        let mut out = HwStats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scans = field.as_u64()?;
+                }
+                2 => {
+                    out.mgmt_rx = field.as_u64()?;
+                }
+                3 => {
+                    out.mgmt_tx = field.as_u64()?;
+                }
+                4 => {
+                    out.mgmt_dropped = field.as_u64()?;
+                }
+                5 => {
+                    out.beacon_losses = field.as_u64()?;
+                }
+                6 => {
+                    out.deauths = field.as_u64()?;
+                }
+                7 => {
+                    out.fw_errors = field.as_u64()?;
+                }
+                8 => {
+                    out.resets = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Info` method id.
+    pub const METHOD_INFO: u32 = 266462757;
+    /// `Attach` method id.
+    pub const METHOD_ATTACH: u32 = 145305188;
+    /// `Detach` method id.
+    pub const METHOD_DETACH: u32 = 475812562;
+    /// `SetCountry` method id.
+    pub const METHOD_SETCOUNTRY: u32 = 820455787;
+    /// `Scan` method id.
+    pub const METHOD_SCAN: u32 = 1830061320;
+    /// `AbortScan` method id.
+    pub const METHOD_ABORTSCAN: u32 = 1659626708;
+    /// `ScanResults` method id.
+    pub const METHOD_SCANRESULTS: u32 = 536623814;
+    /// `Join` method id.
+    pub const METHOD_JOIN: u32 = 805458841;
+    /// `TxMgmt` method id.
+    pub const METHOD_TXMGMT: u32 = 583187128;
+    /// `SetState` method id.
+    pub const METHOD_SETSTATE: u32 = 1345327380;
+    /// `SetKey` method id.
+    pub const METHOD_SETKEY: u32 = 1206977594;
+    /// `DelKey` method id.
+    pub const METHOD_DELKEY: u32 = 36584897;
+    /// `Leave` method id.
+    pub const METHOD_LEAVE: u32 = 2049913440;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `ScanDone` method id.
+    pub const METHOD_SCANDONE: u32 = 2037373080;
+    /// `RxMgmt` method id.
+    pub const METHOD_RXMGMT: u32 = 1961753042;
+    /// `BeaconLoss` method id.
+    pub const METHOD_BEACONLOSS: u32 = 683463118;
+    /// `Deauthenticated` method id.
+    pub const METHOD_DEAUTHENTICATED: u32 = 1135744209;
+
+    /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
+    /// label policy lets reach the driver may ask, attached or not: it reveals
+    /// only hardware facts.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InfoReply {
+        pub info: HwInfo,
+    }
+
+    pub fn encode_info_reply(value: &InfoReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_hw_info(&value.info)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_info_reply(body: &[u8]) -> Result<InfoReply, Error> {
+        let mut out = InfoReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.info = decode_hw_info(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// What a `Attach` request carries outside its body.
+    pub const ATTACH_TRANSFERS: transfers::Transfers = transfers::Transfers { handles: 1, buffers: 0 };
+
+    /// The objects a `Attach` request transfers, by name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachTransfers {
+        /// `handles[0]`, a channel the receiver sends `os.lazy.net.wifi.hw.v1` on.
+        pub events: u64,
+    }
+
+    /// The parcel's `handles` and `buffers` for a `Attach` request.
+    pub fn encode_attach_transfers(value: &AttachTransfers) -> (Vec<u64>, Vec<libmessenger::BufferDesc>) {
+        (alloc::vec![value.events], Vec::new())
+    }
+
+    /// Tell the radio which regulatory domain applies: an ISO 3166 alpha-2
+    /// code, or `00` for the world domain (passive scanning only on channels
+    /// where transmitting first is not universally allowed, no 6 GHz). The
+    /// driver must not transmit on a channel the domain forbids and may refuse
+    /// to transmit at all before the first call (`EAGAIN` from `Scan` with
+    /// active probing, `Join`, `TxMgmt`). A code it does not know is `EINVAL`.
+    /// The value comes from `wlanmd`, which reads `sys/net/wifi/country`;
+    /// the driver trusts nobody else for it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetCountryArgs {
+        pub alpha2: alloc::string::String,
+    }
+
+    pub fn encode_set_country_args(value: &SetCountryArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.alpha2)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_country_args(body: &[u8]) -> Result<SetCountryArgs, Error> {
+        let mut out = SetCountryArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.alpha2 = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it
+    /// does not wait. Only one scan runs at a time (`EBUSY`). At most
+    /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
+    /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
+    /// the radio or its domain does not have). A scan during an association
+    /// is allowed and may pause traffic for its dwell time.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanArgs {
+        pub request: ScanRequest,
+    }
+
+    pub fn encode_scan_args(value: &ScanArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_scan_request(&value.request)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_args(body: &[u8]) -> Result<ScanArgs, Error> {
+        let mut out = ScanArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.request = decode_scan_request(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanReply {
+        pub scan_id: u32,
+    }
+
+    pub fn encode_scan_reply(value: &ScanReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.scan_id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_reply(body: &[u8]) -> Result<ScanReply, Error> {
+        let mut out = ScanReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.scan_id = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop the running scan early; `ScanDone` follows with `aborted` set.
+    /// Not an error when none runs.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AbortScanArgs {
+        pub scan_id: u32,
+    }
+
+    pub fn encode_abort_scan_args(value: &AbortScanArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.scan_id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_abort_scan_args(body: &[u8]) -> Result<AbortScanArgs, Error> {
+        let mut out = AbortScanArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.scan_id = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// One page of a finished (or running) scan's results, in the order the
+    /// radio heard them, from entry `first`; at most `max` entries (capped at
+    /// 64). `more` says whether a later page holds entries. Each entry is the
+    /// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+    /// An unknown `scan_id` is `ENOENT`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanResultsArgs {
+        pub scan_id: u32,
+        pub first: u32,
+        pub max: u32,
+    }
+
+    pub fn encode_scan_results_args(value: &ScanResultsArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.scan_id)?;
+        target.u32(2, value.first)?;
+        target.u32(3, value.max)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_results_args(body: &[u8]) -> Result<ScanResultsArgs, Error> {
+        let mut out = ScanResultsArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scan_id = field.as_u32()?;
+                }
+                2 => {
+                    out.first = field.as_u32()?;
+                }
+                3 => {
+                    out.max = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanResultsReply {
+        pub results: alloc::vec::Vec<ScanEntry>,
+        pub more: bool,
+    }
+
+    pub fn encode_scan_results_reply(value: &ScanResultsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.results {
+            nested.raw(Kind::Struct, 1, &encode_scan_entry(item)?)?;
+        }
+        target.array(1, &nested)?;
+        target.bool(2, value.more)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_results_reply(body: &[u8]) -> Result<ScanResultsReply, Error> {
+        let mut out = ScanResultsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.results.push(decode_scan_entry(item.payload)?);
+                    }
+                }
+                2 => {
+                    out.more = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
+    /// `RxMgmt` carry the authentication and association exchange. Leaves any
+    /// previous BSS first. The reply means the radio is on the channel, not
+    /// that anything was heard.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct JoinArgs {
+        pub request: JoinRequest,
+    }
+
+    pub fn encode_join_args(value: &JoinArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_join_request(&value.request)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_join_args(body: &[u8]) -> Result<JoinArgs, Error> {
+        let mut out = JoinArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.request = decode_join_request(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a
+    /// `FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11
+    /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
+    /// (the radio adds the 802.11 header and, once keys are installed, the
+    /// encryption). Only while joined (`ENOTCONN`); a frame longer than
+    /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct TxMgmtArgs {
+        pub kind: u32,
+        pub frame: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_tx_mgmt_args(value: &TxMgmtArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.bytes(2, &value.frame)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_tx_mgmt_args(body: &[u8]) -> Result<TxMgmtArgs, Error> {
+        let mut out = TxMgmtArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.frame = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Move the radio's association state: a `StaState` ordinal. `Associated`
+    /// carries the association id the AP assigned; `Authorized` opens the
+    /// controlled port (data frames flow, the NIC's link comes up) and is
+    /// valid only after the pairwise key is installed. Going to a lower state
+    /// is always allowed and takes the link down.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetStateArgs {
+        pub state: u32,
+        pub aid: u32,
+    }
+
+    pub fn encode_set_state_args(value: &SetStateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.state)?;
+        target.u32(2, value.aid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_state_args(body: &[u8]) -> Result<SetStateArgs, Error> {
+        let mut out = SetStateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.state = field.as_u32()?;
+                }
+                2 => {
+                    out.aid = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Install a key in a hardware slot. `kind` is a `KeyKind` ordinal,
+    /// `index` the key id (pairwise 0, group 1 to 3, IGTK 4 to 5), `cipher`
+    /// a `Cipher` ordinal the radio advertised, `key` its exact length,
+    /// `rsc` the receive sequence counter the handshake delivered (little
+    /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
+    /// group key). Replaces a key in the same slot atomically. `EINVAL` for a
+    /// length or index that does not fit, `ENOSPC` for no free slot.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetKeyArgs {
+        pub kind: u32,
+        pub index: u32,
+        pub cipher: u32,
+        pub key: alloc::vec::Vec<u8>,
+        pub rsc: alloc::vec::Vec<u8>,
+        pub addr: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_set_key_args(value: &SetKeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.u32(2, value.index)?;
+        target.u32(3, value.cipher)?;
+        target.bytes(4, &value.key)?;
+        target.bytes(5, &value.rsc)?;
+        target.bytes(6, &value.addr)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_key_args(body: &[u8]) -> Result<SetKeyArgs, Error> {
+        let mut out = SetKeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.index = field.as_u32()?;
+                }
+                3 => {
+                    out.cipher = field.as_u32()?;
+                }
+                4 => {
+                    out.key = field.as_bytes().to_vec();
+                }
+                5 => {
+                    out.rsc = field.as_bytes().to_vec();
+                }
+                6 => {
+                    out.addr = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Remove a key; not an error when the slot is empty.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DelKeyArgs {
+        pub kind: u32,
+        pub index: u32,
+    }
+
+    pub fn encode_del_key_args(value: &DelKeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.u32(2, value.index)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_del_key_args(body: &[u8]) -> Result<DelKeyArgs, Error> {
+        let mut out = DelKeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.index = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code
+    /// is sent if the radio can, every key is deleted, the NIC's link goes
+    /// down and the radio returns to idle. Not an error when not joined.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LeaveArgs {
+        pub reason: u32,
+    }
+
+    pub fn encode_leave_args(value: &LeaveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_leave_args(body: &[u8]) -> Result<LeaveArgs, Error> {
+        let mut out = LeaveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.reason = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Counters since the driver started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: HwStats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_hw_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_hw_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, driver to client: the scan finished (`aborted` false) or was
+    /// stopped (`aborted` true, or the radio could not finish); its results
+    /// are readable with `ScanResults` until the next `Scan`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanDoneArgs {
+        pub scan_id: u32,
+        pub aborted: bool,
+    }
+
+    pub fn encode_scan_done_args(value: &ScanDoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.scan_id)?;
+        target.bool(2, value.aborted)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_done_args(body: &[u8]) -> Result<ScanDoneArgs, Error> {
+        let mut out = ScanDoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scan_id = field.as_u32()?;
+                }
+                2 => {
+                    out.aborted = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, driver to client: a management or EAPOL frame addressed to this
+    /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
+    /// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RxMgmtArgs {
+        pub kind: u32,
+        pub rssi_dbm: i32,
+        pub frame: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_rx_mgmt_args(value: &RxMgmtArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.i32(2, value.rssi_dbm)?;
+        target.bytes(3, &value.frame)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_rx_mgmt_args(body: &[u8]) -> Result<RxMgmtArgs, Error> {
+        let mut out = RxMgmtArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.rssi_dbm = field.as_i32()?;
+                }
+                3 => {
+                    out.frame = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, driver to client: the AP deauthenticated or disassociated us.
+    /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
+    /// firmware (the one field of a frame the driver reports; the frame
+    /// itself is also delivered as `RxMgmt`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeauthenticatedArgs {
+        pub reason: u32,
+    }
+
+    pub fn encode_deauthenticated_args(value: &DeauthenticatedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_deauthenticated_args(body: &[u8]) -> Result<DeauthenticatedArgs, Error> {
+        let mut out = DeauthenticatedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.reason = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        match method {
+            METHOD_ATTACH => ATTACH_TRANSFERS,
+            _ => transfers::Transfers::NONE,
+        }
+    }
+}
+
+/// `os.lazy.net.wifi.v1` (interface id `0x515b536f62b1d272`).
+#[rustfmt::skip]
+pub mod os_lazy_net_wifi_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    use super::transfers;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x515b536f62b1d272;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.net.wifi.v1";
+
+    /// `Security::Open` wire value.
+    pub const SECURITY_OPEN: u32 = 0;
+    /// `Security::Wpa2Psk` wire value.
+    pub const SECURITY_WPA2_PSK: u32 = 1;
+    /// `Security::Unsupported` wire value.
+    pub const SECURITY_UNSUPPORTED: u32 = 2;
+
+    /// `Scope::User` wire value.
+    pub const SCOPE_USER: u32 = 0;
+    /// `Scope::System` wire value.
+    pub const SCOPE_SYSTEM: u32 = 1;
+
+    /// `ConnState::Disabled` wire value.
+    pub const CONN_STATE_DISABLED: u32 = 0;
+    /// `ConnState::Idle` wire value.
+    pub const CONN_STATE_IDLE: u32 = 1;
+    /// `ConnState::Scanning` wire value.
+    pub const CONN_STATE_SCANNING: u32 = 2;
+    /// `ConnState::Authenticating` wire value.
+    pub const CONN_STATE_AUTHENTICATING: u32 = 3;
+    /// `ConnState::Associating` wire value.
+    pub const CONN_STATE_ASSOCIATING: u32 = 4;
+    /// `ConnState::Handshake` wire value.
+    pub const CONN_STATE_HANDSHAKE: u32 = 5;
+    /// `ConnState::Connected` wire value.
+    pub const CONN_STATE_CONNECTED: u32 = 6;
+    /// `ConnState::Failed` wire value.
+    pub const CONN_STATE_FAILED: u32 = 7;
+
+    /// `FailReason::None` wire value.
+    pub const FAIL_REASON_NONE: u32 = 0;
+    /// `FailReason::NotFound` wire value.
+    pub const FAIL_REASON_NOT_FOUND: u32 = 1;
+    /// `FailReason::Rejected` wire value.
+    pub const FAIL_REASON_REJECTED: u32 = 2;
+    /// `FailReason::BadPassphrase` wire value.
+    pub const FAIL_REASON_BAD_PASSPHRASE: u32 = 3;
+    /// `FailReason::Timeout` wire value.
+    pub const FAIL_REASON_TIMEOUT: u32 = 4;
+    /// `FailReason::Deauthenticated` wire value.
+    pub const FAIL_REASON_DEAUTHENTICATED: u32 = 5;
+    /// `FailReason::BeaconLoss` wire value.
+    pub const FAIL_REASON_BEACON_LOSS: u32 = 6;
+    /// `FailReason::PolicyMismatch` wire value.
+    pub const FAIL_REASON_POLICY_MISMATCH: u32 = 7;
+    /// `FailReason::Radio` wire value.
+    pub const FAIL_REASON_RADIO: u32 = 8;
+
+    /// A heard network, merged with what is known about it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Network {
+        pub ssid: alloc::string::String,
+        pub security: u32,
+        pub rssi_dbm: i32,
+        pub freq_mhz: u32,
+        pub bss_count: u32,
+        pub id: alloc::string::String,
+        pub connected: bool,
+    }
+
+    pub fn encode_network(value: &Network) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ssid)?;
+        target.u32(2, value.security)?;
+        target.i32(3, value.rssi_dbm)?;
+        target.u32(4, value.freq_mhz)?;
+        target.u32(5, value.bss_count)?;
+        target.string(6, &value.id)?;
+        target.bool(7, value.connected)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_network(body: &[u8]) -> Result<Network, Error> {
+        let mut out = Network::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ssid = field.as_str()?.into();
+                }
+                2 => {
+                    out.security = field.as_u32()?;
+                }
+                3 => {
+                    out.rssi_dbm = field.as_i32()?;
+                }
+                4 => {
+                    out.freq_mhz = field.as_u32()?;
+                }
+                5 => {
+                    out.bss_count = field.as_u32()?;
+                }
+                6 => {
+                    out.id = field.as_str()?.into();
+                }
+                7 => {
+                    out.connected = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// UTF-8 text sanitised by the service, at most 32 bytes. Empty for a
+    /// hidden network that is not a known profile (shown by BSSID only).
+    /// A `Security` ordinal.
+    /// Signal of the strongest BSS in dBm.
+    /// Frequency in MHz of that BSS.
+    /// How many BSSes of this network were heard.
+    /// The profile id when this is a known network the caller may use;
+    /// empty otherwise.
+    /// Whether this is the network the interface is connected to.
+    /// A network to remember. Non-secret fields only (the passphrase travels
+    /// as `AddNetwork`'s own argument).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Profile {
+        pub id: alloc::string::String,
+        pub ssid: alloc::string::String,
+        pub security: u32,
+        pub hidden: bool,
+        pub autoconnect: bool,
+        pub priority: u32,
+        pub scope: u32,
+    }
+
+    pub fn encode_profile(value: &Profile) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        target.string(2, &value.ssid)?;
+        target.u32(3, value.security)?;
+        target.bool(4, value.hidden)?;
+        target.bool(5, value.autoconnect)?;
+        target.u32(6, value.priority)?;
+        target.u32(7, value.scope)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_profile(body: &[u8]) -> Result<Profile, Error> {
+        let mut out = Profile::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_str()?.into();
+                }
+                2 => {
+                    out.ssid = field.as_str()?.into();
+                }
+                3 => {
+                    out.security = field.as_u32()?;
+                }
+                4 => {
+                    out.hidden = field.as_bool()?;
+                }
+                5 => {
+                    out.autoconnect = field.as_bool()?;
+                }
+                6 => {
+                    out.priority = field.as_u32()?;
+                }
+                7 => {
+                    out.scope = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Empty on `AddNetwork`; set when listed.
+    /// A `Security` ordinal.
+    /// Probe for the SSID even when no beacon shows it.
+    /// Join it automatically when in range.
+    /// Higher wins when several known networks are in range.
+    /// A `Scope` ordinal.
+    /// An interface's connection state: the payload of
+    /// `system/net/{ifname}/wifi/state`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WifiState {
+        pub state: u32,
+        pub ssid: alloc::string::String,
+        pub bssid: alloc::vec::Vec<u8>,
+        pub rssi_dbm: i32,
+        pub freq_mhz: u32,
+        pub id: alloc::string::String,
+        pub reason: u32,
+        pub changes: u32,
+    }
+
+    pub fn encode_wifi_state(value: &WifiState) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.state)?;
+        target.string(2, &value.ssid)?;
+        target.bytes(3, &value.bssid)?;
+        target.i32(4, value.rssi_dbm)?;
+        target.u32(5, value.freq_mhz)?;
+        target.string(6, &value.id)?;
+        target.u32(7, value.reason)?;
+        target.u32(8, value.changes)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wifi_state(body: &[u8]) -> Result<WifiState, Error> {
+        let mut out = WifiState::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.state = field.as_u32()?;
+                }
+                2 => {
+                    out.ssid = field.as_str()?.into();
+                }
+                3 => {
+                    out.bssid = field.as_bytes().to_vec();
+                }
+                4 => {
+                    out.rssi_dbm = field.as_i32()?;
+                }
+                5 => {
+                    out.freq_mhz = field.as_u32()?;
+                }
+                6 => {
+                    out.id = field.as_str()?.into();
+                }
+                7 => {
+                    out.reason = field.as_u32()?;
+                }
+                8 => {
+                    out.changes = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A `ConnState` ordinal.
+    /// The network joined or being joined (empty when none).
+    /// Six octets, the BSSID in use (empty when none).
+    /// Signal of the current BSS in dBm (0 when not connected).
+    /// The profile id in use (empty when none).
+    /// A `FailReason` ordinal; meaningful when `state` is `Failed`,
+    /// `None` otherwise.
+    /// Changes since the service started, so a subscriber can tell a
+    /// repeat from a flap.
+    /// A scan finished: the payload of `system/net/{ifname}/wifi/scan`. It
+    /// carries no networks (those come from `Networks`, which is filtered
+    /// per caller); it only says the list changed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanEvent {
+        pub generation: u32,
+        pub count: u32,
+    }
+
+    pub fn encode_scan_event(value: &ScanEvent) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.generation)?;
+        target.u32(2, value.count)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_event(body: &[u8]) -> Result<ScanEvent, Error> {
+        let mut out = ScanEvent::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.generation = field.as_u32()?;
+                }
+                2 => {
+                    out.count = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Interfaces` method id.
+    pub const METHOD_INTERFACES: u32 = 1779791769;
+    /// `Scan` method id.
+    pub const METHOD_SCAN: u32 = 1830061320;
+    /// `Networks` method id.
+    pub const METHOD_NETWORKS: u32 = 413956514;
+    /// `AddNetwork` method id.
+    pub const METHOD_ADDNETWORK: u32 = 69972362;
+    /// `Connect` method id.
+    pub const METHOD_CONNECT: u32 = 1535748249;
+    /// `Disconnect` method id.
+    pub const METHOD_DISCONNECT: u32 = 1518631179;
+    /// `Forget` method id.
+    pub const METHOD_FORGET: u32 = 1849666444;
+    /// `Status` method id.
+    pub const METHOD_STATUS: u32 = 6222351;
+
+    /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InterfacesReply {
+        pub names: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_interfaces_reply(value: &InterfacesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.names {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_interfaces_reply(body: &[u8]) -> Result<InterfacesReply, Error> {
+        let mut out = InterfacesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.names.push(item.as_str()?.into());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask for a fresh scan; returns at once, the results arrive on
+    /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
+    /// for (at most 4); empty is a wildcard scan. A scan is refused while one
+    /// is under way (`EBUSY`) and may be skipped while the link is busy with
+    /// the handshake.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScanArgs {
+        pub ifname: alloc::string::String,
+        pub ssids: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_scan_args(value: &ScanArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ifname)?;
+        let mut nested = Encoder::new();
+        for item in &value.ssids {
+            nested.string(1, item)?;
+        }
+        target.array(2, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scan_args(body: &[u8]) -> Result<ScanArgs, Error> {
+        let mut out = ScanArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ifname = field.as_str()?.into();
+                }
+                2 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.ssids.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The current scan results merged with the known profiles: one entry per
+    /// network (SSID and security), strongest BSS first, with the profile id
+    /// when the caller may use a known network. Profiles of other users are
+    /// not shown. At most 128 entries.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NetworksArgs {
+        pub ifname: alloc::string::String,
+    }
+
+    pub fn encode_networks_args(value: &NetworksArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ifname)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_networks_args(body: &[u8]) -> Result<NetworksArgs, Error> {
+        let mut out = NetworksArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ifname = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NetworksReply {
+        pub list: alloc::vec::Vec<Network>,
+    }
+
+    pub fn encode_networks_reply(value: &NetworksReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.list {
+            nested.raw(Kind::Struct, 1, &encode_network(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_networks_reply(body: &[u8]) -> Result<NetworksReply, Error> {
+        let mut out = NetworksReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.list.push(decode_network(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Remember a network and its secret. `profile.id` must be empty (the
+    /// service picks one and returns it); `scope` is a `Scope` ordinal. The
+    /// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
+    /// characters, or exactly 64 hex digits for a raw PSK) and must be absent
+    /// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
+    /// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
+    /// `EPERM` for scope `System` from anyone but `elevd`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AddNetworkArgs {
+        pub profile: Profile,
+        pub passphrase: core::option::Option<alloc::string::String>,
+    }
+
+    pub fn encode_add_network_args(value: &AddNetworkArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_profile(&value.profile)?)?;
+        match &value.passphrase {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_add_network_args(body: &[u8]) -> Result<AddNetworkArgs, Error> {
+        let mut out = AddNetworkArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.profile = decode_profile(field.payload)?;
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.passphrase = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.passphrase = Some(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AddNetworkReply {
+        pub id: alloc::string::String,
+    }
+
+    pub fn encode_add_network_reply(value: &AddNetworkReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_add_network_reply(body: &[u8]) -> Result<AddNetworkReply, Error> {
+        let mut out = AddNetworkReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Join the network `id` on `ifname`: leave the current one, scan if the
+    /// SSID is not in the results, pick the best BSS, authenticate, associate
+    /// and run the handshake. Returns when the attempt is started; the
+    /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
+    /// `Failed` with a reason). A user network belongs to its owner: another
+    /// user gets `EPERM`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConnectArgs {
+        pub ifname: alloc::string::String,
+        pub id: alloc::string::String,
+    }
+
+    pub fn encode_connect_args(value: &ConnectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ifname)?;
+        target.string(2, &value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_connect_args(body: &[u8]) -> Result<ConnectArgs, Error> {
+        let mut out = ConnectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ifname = field.as_str()?.into();
+                }
+                2 => {
+                    out.id = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Leave the current network and do not reconnect until asked (auto-
+    /// connect is suspended for this interface until the next `Connect`).
+    /// Not an error when not connected.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DisconnectArgs {
+        pub ifname: alloc::string::String,
+    }
+
+    pub fn encode_disconnect_args(value: &DisconnectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ifname)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_disconnect_args(body: &[u8]) -> Result<DisconnectArgs, Error> {
+        let mut out = DisconnectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ifname = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Delete a profile and its secret. Disconnects first if it is the
+    /// current network. Not an error for an id that is gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ForgetArgs {
+        pub id: alloc::string::String,
+    }
+
+    pub fn encode_forget_args(value: &ForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_forget_args(body: &[u8]) -> Result<ForgetArgs, Error> {
+        let mut out = ForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// The interface's state now: the same value the retained `state` topic
+    /// carries, for a client that does not subscribe.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusArgs {
+        pub ifname: alloc::string::String,
+    }
+
+    pub fn encode_status_args(value: &StatusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.ifname)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_args(body: &[u8]) -> Result<StatusArgs, Error> {
+        let mut out = StatusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ifname = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusReply {
+        pub status: WifiState,
+    }
+
+    pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_wifi_state(&value.status)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_reply(body: &[u8]) -> Result<StatusReply, Error> {
+        let mut out = StatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.status = decode_wifi_state(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The transfers the request `method` declares; `NONE` for a method
+    /// that declares none or an unknown method id.
+    pub fn request_transfers(method: u32) -> transfers::Transfers {
+        let _ = method;
+        transfers::Transfers::NONE
+    }
+
+    /// Scans completed since the service started.
+    /// Networks in the merged list.
+    /// The interface's state, retained so a late subscriber (the tray applet
+    /// after login) sees it at once. `{ifname}` is the radio's interface name.
+    /// The declared `system/net/+/wifi/state` topic (`WifiState`, `latest`, retained).
+    pub const TOPIC_SYSTEM_NET_WIFI_STATE: &str = "system/net/+/wifi/state";
+    /// The `system/net/+/wifi/state` delivery policy.
+    pub const TOPIC_SYSTEM_NET_WIFI_STATE_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/+/wifi/state` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_WIFI_STATE_RETAINED: bool = true;
+
+    /// Build the concrete `system/net/+/wifi/state` name; each wildcard takes one literal segment.
+    pub fn name_system_net_wifi_state(ifname: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_WIFI_STATE, &[ifname], topics::Mode::Publish)
+    }
+
+    /// Encode a `WifiState` payload for `system/net/+/wifi/state`.
+    pub fn encode_system_net_wifi_state(value: &WifiState) -> Result<Vec<u8>, Error> {
+        encode_wifi_state(value)
+    }
+
+    /// Decode a `system/net/+/wifi/state` payload; malformed bytes are an error.
+    pub fn decode_system_net_wifi_state(body: &[u8]) -> Result<WifiState, Error> {
+        decode_wifi_state(body)
+    }
+
+    /// Publish a typed `WifiState` on `system/net/+/wifi/state`.
+    pub fn publish_system_net_wifi_state<P>(publisher: &mut P, ifname: &str, value: &WifiState) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_wifi_state(ifname).map_err(P::Error::from)?;
+        let payload = encode_system_net_wifi_state(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_WIFI_STATE_RETAINED)
+    }
+
+    /// Subscribe to `system/net/+/wifi/state` with its declared QoS.
+    pub fn subscribe_system_net_wifi_state<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_WIFI_STATE, &[ifname], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_WIFI_STATE_QOS)
+    }
+
+    /// A scan completed and `Networks` changed. Not retained: a client that
+    /// arrives later calls `Networks`.
+    /// The declared `system/net/+/wifi/scan` topic (`ScanEvent`, `latest`).
+    pub const TOPIC_SYSTEM_NET_WIFI_SCAN: &str = "system/net/+/wifi/scan";
+    /// The `system/net/+/wifi/scan` delivery policy.
+    pub const TOPIC_SYSTEM_NET_WIFI_SCAN_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/+/wifi/scan` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_WIFI_SCAN_RETAINED: bool = false;
+
+    /// Build the concrete `system/net/+/wifi/scan` name; each wildcard takes one literal segment.
+    pub fn name_system_net_wifi_scan(ifname: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_WIFI_SCAN, &[ifname], topics::Mode::Publish)
+    }
+
+    /// Encode a `ScanEvent` payload for `system/net/+/wifi/scan`.
+    pub fn encode_system_net_wifi_scan(value: &ScanEvent) -> Result<Vec<u8>, Error> {
+        encode_scan_event(value)
+    }
+
+    /// Decode a `system/net/+/wifi/scan` payload; malformed bytes are an error.
+    pub fn decode_system_net_wifi_scan(body: &[u8]) -> Result<ScanEvent, Error> {
+        decode_scan_event(body)
+    }
+
+    /// Publish a typed `ScanEvent` on `system/net/+/wifi/scan`.
+    pub fn publish_system_net_wifi_scan<P>(publisher: &mut P, ifname: &str, value: &ScanEvent) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_wifi_scan(ifname).map_err(P::Error::from)?;
+        let payload = encode_system_net_wifi_scan(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_WIFI_SCAN_RETAINED)
+    }
+
+    /// Subscribe to `system/net/+/wifi/scan` with its declared QoS.
+    pub fn subscribe_system_net_wifi_scan<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_WIFI_SCAN, &[ifname], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_WIFI_SCAN_QOS)
+    }
+}
+
 /// Every topic declared across the compiled `.midl` files (issue #307).
 #[rustfmt::skip]
 pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
@@ -17924,6 +19653,24 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         publish_permission: "publish:session/+/shell/tray",
         subscribe_permission: "subscribe:session/+/shell/tray",
     },
+    topics::TopicDecl {
+        interface: "os.lazy.net.wifi.v1",
+        name: "system/net/+/wifi/state",
+        payload: "WifiState",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/net/+/wifi/state",
+        subscribe_permission: "subscribe:system/net/+/wifi/state",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.wifi.v1",
+        name: "system/net/+/wifi/scan",
+        payload: "ScanEvent",
+        qos: topics::QOS_LATEST,
+        retained: false,
+        publish_permission: "publish:system/net/+/wifi/scan",
+        subscribe_permission: "subscribe:system/net/+/wifi/scan",
+    },
 ];
 
 /// The declared topic whose pattern matches the concrete `topic`.
@@ -17995,6 +19742,12 @@ pub static DECLARED_TRANSFERS: &[transfers::TransferDecl] = &[
         interface: 0x6748c83c2024715b,
         method: 62355614,
         transfers: transfers::Transfers { handles: 1, buffers: 1 },
+    },
+    // os.lazy.net.wifi.hw.v1.Attach
+    transfers::TransferDecl {
+        interface: 0xa882dc6295ff08bd,
+        method: 145305188,
+        transfers: transfers::Transfers { handles: 1, buffers: 0 },
     },
     // os.lazy.input.shell.v1.Attach
     transfers::TransferDecl {
