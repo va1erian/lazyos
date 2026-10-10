@@ -135,14 +135,25 @@ impl ReadCache {
     }
 
     /// A write is about to reach the device: stamps taken before this are
-    /// stale for [`insert`](ReadCache::insert).
-    pub fn begin_write(&mut self) {
+    /// stale for [`insert`](ReadCache::insert). Returns the write's ticket
+    /// for [`wrote`](ReadCache::wrote).
+    pub fn begin_write(&mut self) -> u64 {
         self.epoch += 1;
+        self.epoch
     }
 
     /// A write of `data` at `lba` completed: held pages it overlaps take the
-    /// new bytes.
-    pub fn wrote(&mut self, lba: u64, data: &[u8]) {
+    /// new bytes, but only if no other write began or ended since `ticket`
+    /// (from [`begin_write`](ReadCache::begin_write)). Two overlapping
+    /// writes finish on the device in an order this thread cannot see, and
+    /// the later cache update could be the older bytes; with another write
+    /// in between the pages are dropped instead, and the next read takes
+    /// what the device holds.
+    pub fn wrote(&mut self, ticket: u64, lba: u64, data: &[u8]) {
+        if ticket != self.epoch {
+            self.forget(lba, (data.len() / SECTOR_SIZE) as u64);
+            return;
+        }
         self.epoch += 1;
         for (index, sector) in data.as_chunks::<SECTOR_SIZE>().0.iter().enumerate() {
             let at = lba + index as u64;

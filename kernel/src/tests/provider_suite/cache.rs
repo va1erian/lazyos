@@ -182,10 +182,10 @@ pub fn epoch_and_eviction() -> Result<(), String> {
     let page = vec![7u8; PAGE_SECTORS as usize * SECTOR_SIZE];
     // A reader's stamp, then a write begins and ends before it inserts.
     let stamp = cache.epoch();
-    cache.begin_write();
+    let ticket = cache.begin_write();
     cache.insert(stamp, 0, &page);
     check!(cache.len() == 0, "a stale insert was stored");
-    cache.wrote(0, &page[..SECTOR_SIZE]);
+    cache.wrote(ticket, 0, &page[..SECTOR_SIZE]);
     cache.insert(stamp, 0, &page);
     check!(
         cache.len() == 0,
@@ -202,10 +202,25 @@ pub fn epoch_and_eviction() -> Result<(), String> {
     let mut out = vec![0u8; SECTOR_SIZE];
     check!(cache.read(3, &mut out) && out == [7u8; SECTOR_SIZE], "read");
     // `wrote` updates, `forget` drops.
-    cache.wrote(3, &[9u8; SECTOR_SIZE]);
+    let ticket = cache.begin_write();
+    cache.wrote(ticket, 3, &[9u8; SECTOR_SIZE]);
     check!(
         cache.read(3, &mut out) && out == [9u8; SECTOR_SIZE],
         "wrote"
+    );
+    // Two writes in flight at once: whichever finishes first cannot tell
+    // the device's final order, so neither may leave bytes in the cache.
+    let first = cache.begin_write();
+    let second = cache.begin_write();
+    cache.wrote(first, 3, &[1u8; SECTOR_SIZE]);
+    check!(
+        !cache.read(3, &mut out),
+        "an overlapping write left its bytes in the cache"
+    );
+    cache.wrote(second, 3, &[2u8; SECTOR_SIZE]);
+    check!(
+        !cache.read(3, &mut out),
+        "the second overlapping write left its bytes in the cache"
     );
     cache.forget(0, 1);
     check!(cache.len() == 0, "forget kept the page");

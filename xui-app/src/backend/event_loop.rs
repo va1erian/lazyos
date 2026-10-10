@@ -54,6 +54,11 @@ impl LazyOSBackend {
     /// shell writes, instead of on a poll timer. One descriptor per app;
     /// client mode only (an owner-mode app keeps its own pacing).
     pub fn watch_fd(&self, fd: i32) {
+        // The number may now name a different file than the one registered
+        // under it: drop the registration so the next park adds this one.
+        if let Some(Some(wakeup)) = self.wakeup.get() {
+            wakeup.forget();
+        }
         self.watched_fd.set((fd >= 0).then_some(fd));
     }
 

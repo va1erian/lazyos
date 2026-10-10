@@ -114,6 +114,25 @@ impl Wakeup {
         self.epoll.as_raw_fd()
     }
 
+    /// Forget the registered descriptor, so the next [`Wakeup::watch`] adds
+    /// whatever it is given again: the app closed its file and a new one may
+    /// have taken the same number, which the early return of an unchanged
+    /// number would otherwise leave out of the set.
+    pub(super) fn forget(&self) {
+        if let Some(old) = self.watched.take() {
+            // A closed descriptor already left the set; either way it is gone.
+            // SAFETY: `epoll` is open; the event argument is ignored by DEL.
+            let _ = unsafe {
+                libc::epoll_ctl(
+                    self.epoll.as_raw_fd(),
+                    libc::EPOLL_CTL_DEL,
+                    old,
+                    std::ptr::null_mut(),
+                )
+            };
+        }
+    }
+
     /// Make the set hold `fd` beside the doorbell (`None`: only the
     /// doorbell). A descriptor `epoll` refuses is reported, and left out.
     pub(super) fn watch(&self, fd: Option<RawFd>) -> io::Result<()> {
@@ -209,6 +228,41 @@ mod tests {
         assert!(!readable(wakeup.epoll_fd()));
         wake();
         assert!(readable(wakeup.epoll_fd()));
+    }
+
+    #[test]
+    fn a_reused_descriptor_number_is_registered_again() {
+        let wakeup = Wakeup::new().unwrap();
+        let pipe = || {
+            let mut ends = [0 as libc::c_int; 2];
+            // SAFETY: `ends` holds the two descriptors `pipe` fills in.
+            assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+            (ends[0], ends[1])
+        };
+        let (read, write) = pipe();
+        wakeup.watch(Some(read)).unwrap();
+        // SAFETY: both descriptors are open and owned here.
+        unsafe {
+            libc::close(read);
+            libc::close(write);
+        }
+        // The lowest free numbers come back: a new file with the old number.
+        let (read, write) = pipe();
+        // `watch_fd` is what the app calls for the new file.
+        wakeup.forget();
+        wakeup.watch(Some(read)).unwrap();
+        // SAFETY: `write` is the pipe's open write end; one byte is written.
+        assert_eq!(unsafe { libc::write(write, [1u8].as_ptr().cast(), 1) }, 1);
+        assert!(
+            readable(wakeup.epoll_fd()),
+            "the new file is not in the set"
+        );
+        assert!(wakeup.collect());
+        // SAFETY: both descriptors are open and owned here.
+        unsafe {
+            libc::close(read);
+            libc::close(write);
+        }
     }
 
     #[test]

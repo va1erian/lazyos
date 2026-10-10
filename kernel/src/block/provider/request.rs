@@ -241,7 +241,7 @@ impl BlockDevice for UserDisk {
         // Write through: the device first, the cache as it completes. The
         // epoch moves on both sides, so a reader that was in flight cannot
         // store what it read before the new bytes landed.
-        self.cache.lock().begin_write();
+        let ticket = self.cache.lock().begin_write();
         let mut result = Ok(());
         for (index, chunk) in buf.chunks(MAX_REQUEST_BYTES).enumerate() {
             let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
@@ -252,7 +252,7 @@ impl BlockDevice for UserDisk {
         }
         let mut cache = self.cache.lock();
         match result {
-            Ok(()) => cache.wrote(lba, buf),
+            Ok(()) => cache.wrote(ticket, lba, buf),
             Err(_) => cache.forget(lba, (buf.len() / SECTOR_SIZE) as u64),
         }
         result
