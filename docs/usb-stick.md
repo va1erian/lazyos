@@ -23,7 +23,8 @@ Advanced tab has a "USB stick image too" box). The stick image is opt-in:
 | `LAZYOS_USB_IMAGE=1` | off | also write `target/lazyos-usb.img` |
 | `LAZYOS_USB=1` | off | required with `LAZYOS_USB_IMAGE=1`: ships `usbd` and lists it in `init`'s manifest |
 | `LAZYOS_USB_HOME_SIZE` | `1G` | size of the `lazyhome` partition (`16M` minimum; `K`/`M`/`G` suffixes) |
-| `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written |
+| `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written **and** the core packages are unpacked into `/apps` at first boot (the build adds their unpacked size itself, issue #703) |
+| `LAZYOS_DIAG_HOLD` | unset | seconds (1 to 600): `lazyos.cfg` gets `diag.hold=<n>` and `xuid` keeps the console log panes on screen that long before the desktop opens, so the driver lines (`USBD:*`, `NETDRV:*`) of a PC with no serial port can be read and photographed; the panes wrap long lines |
 
 **USB input is mandatory.** The target PC may have no PS/2 port, so the build
 refuses `LAZYOS_USB_IMAGE=1` unless `LAZYOS_USB=1` and a services session
@@ -54,6 +55,17 @@ USB driver in large blocks, the BIOS loader through INT 13h in small ones.
 Shrinking `LAZYOS_USB_ROOT_FREE` shortens the BIOS load almost linearly (the
 free space is loaded too), at the cost of room for files written to `/`.
 
+**The core packages need their own room.** The desktop's apps ship as `.lzp`
+archives in `/system/packages`, and `pkgd` unpacks every one into `/apps`
+(and its `docs/**.md` into `/docs/apps`) at the first boot; on the stick that
+is every boot, since the root lives in RAM. The ramdisk is therefore sized to
+the files, plus the packages' unpacked size counted from the archives
+(`usb_ramdisk::installed_package_bytes`), plus `LAZYOS_USB_ROOT_FREE`. The
+first real-PC boot had only the 64 MiB and lost 6 of 20 apps to `no space
+left` (issue #703). `pkgd` prints the free space left once it is done
+(`PKGD:PROVISION:DONE ... failed=0 free=<bytes>`), and `tools/boot/run.py`
+fails a desktop boot with a failed package or under 16 MiB free.
+
 ## Write it to a stick
 
 Everything on the stick is erased.
@@ -69,7 +81,7 @@ python tools\boot\stick_gui.py          # Windows, in an Administrator prompt
 
 Its **Build image** button runs `run_demo.py --desktop --usb-image
 --build-only` (release profile by default, with the `/home` size you pick, so
-`LAZYOS_USB_HOME_SIZE`); **Write to stick** asks twice like the command line
+`LAZYOS_USB_HOME_SIZE`); **Write to stick** asks once, like the command line,
 and runs `write_stick.py --yes`, whose checks, write and SHA-256 read-back are
 the same, with a progress bar. Sticks the tool refuses are listed greyed out
 with the reason. On Linux the build runs as you and only the write is
@@ -86,15 +98,25 @@ python tools\boot\write_stick.py --device \\.\PhysicalDrive2   # Windows, in an 
 
 The tool offers and accepts only removable or USB disks, refuses one with a
 mounted partition on Linux (unmount it first) and the system or boot disk on
-Windows (where it takes the chosen disk offline for the write, which dismounts
-its volumes, and brings it back online after). It shows the model and size,
-asks twice (the second time you type the device name back), writes the whole
-image and reads it back to compare SHA-256 digests.
+Windows (where it clears the chosen disk's partition table for the write, which
+removes its volumes, and rescans the disk after; Windows will not take removable
+media offline). It shows the model and size,
+asks once (y/N), writes the whole
+image (the partition table last, so Windows does not mount the stick
+mid-write) and reads it back to compare SHA-256 digests.
 
 On Windows, [Rufus](https://rufus.ie) works too: pick the image and, when Rufus
 asks, choose **DD Image** mode (not ISO mode). balenaEtcher writes raw images
 as they are. Plain `dd if=target/lazyos-usb.img of=/dev/sdX bs=4M conv=fsync`
 is the same thing without the checks.
+
+Before writing, `python3 tools/boot/preflight.py` re-reads the image's bytes
+(MBR, the boot FAT's files, `BOOTX64.EFI` as a PE32+ x86-64 application, the
+ramdisk and its `lazyos.cfg`, both ext2 labels) and prints `PREFLIGHT:PASS`;
+`release.yml` runs it before the boot judge. A first boot on a new PC
+(survey script, firmware settings, what to photograph and save):
+[`compat/kabylake/B0.md`](compat/kabylake/B0.md); results go in
+[`compat/hardware.md`](compat/hardware.md).
 
 ## Boot it (ASUS PRIME Z890M-PLUS WIFI, AMI Aptio UEFI)
 

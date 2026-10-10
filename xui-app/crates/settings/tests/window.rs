@@ -156,12 +156,13 @@ fn the_accounts_page_keeps_you_and_the_last_administrator() {
 }
 
 #[test]
-fn a_keyboard_layout_is_written_once_on_apply_and_never_on_a_refusal() {
+fn a_keyboard_layout_is_the_users_own_and_only_the_default_asks() {
     watchdog(|| {
         let kb = Msg::Keyboard;
         let page = Msg::Section(Section::Keyboard.index());
         let mem = Rc::new(store(Mode::Dark));
         let people = || Rc::new(MemAccounts::default());
+        let own = "user/1000/input/layout";
         // Moving through the list writes nothing.
         let browse = vec![
             page.clone(),
@@ -169,22 +170,42 @@ fn a_keyboard_layout_is_written_once_on_apply_and_never_on_a_refusal() {
             kb(KeyboardMsg::Select(0)),
         ];
         drive(mem.clone(), people(), browse);
-        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        assert!(mem.get(own).is_none() && mem.get(keyboard::KEY_LAYOUT).is_none());
+        // Apply: the account's own layout, the machine's untouched.
         let apply = vec![
             page.clone(),
             kb(KeyboardMsg::Select(1)),
             kb(KeyboardMsg::Apply),
         ];
         drive(mem.clone(), people(), apply);
-        assert_eq!(mem.get(keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
-        // A cancelled prompt leaves the stored layout, and the page shows it.
+        assert_eq!(mem.get(own), Some(Value::Str("fr".into())));
+        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        // A cancelled prompt leaves the machine layout, and the account's.
         *mem.fail_writes.borrow_mut() = Some("cancelled".into());
-        let refused = vec![page, kb(KeyboardMsg::Select(0)), kb(KeyboardMsg::Apply)];
+        let refused = vec![
+            page.clone(),
+            kb(KeyboardMsg::Select(1)),
+            kb(KeyboardMsg::MakeDefault),
+        ];
         save(
             &drive(mem.clone(), people(), refused),
             "settings-keyboard-refused.png",
         );
+        assert_eq!(mem.get(keyboard::KEY_LAYOUT), None);
+        assert_eq!(mem.get(own), Some(Value::Str("fr".into())));
+        // An approved one sets the default and the account follows it.
+        *mem.fail_writes.borrow_mut() = None;
+        let default = vec![
+            page,
+            kb(KeyboardMsg::Select(1)),
+            kb(KeyboardMsg::MakeDefault),
+        ];
+        save(
+            &drive(mem.clone(), people(), default),
+            "settings-keyboard-default.png",
+        );
         assert_eq!(mem.get(keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
+        assert_eq!(mem.get(own), None);
     });
 }
 
@@ -212,5 +233,127 @@ fn menu_edits_are_saved_in_one_write() {
         let saved = deskmenu::from_value(mem.get(deskmenu::KEY).as_ref(), &|_| true);
         let ids: Vec<&str> = saved.iter().map(|e| e.app.as_str()).collect();
         assert_eq!(ids, ["os.lazy.paint", "os.lazy.files"]);
+    });
+}
+
+/// One store several threads share. A machine write (`sys/**`) waits at a
+/// gate, as it does behind an administrator's password prompt, so a test can
+/// tell a window that keeps running from one that stands still.
+struct Gated {
+    map: std::sync::Mutex<std::collections::BTreeMap<String, Value>>,
+    open: (std::sync::Mutex<bool>, std::sync::Condvar),
+    entered: std::sync::atomic::AtomicBool,
+}
+
+struct GatedStore(std::sync::Arc<Gated>);
+
+impl ConfigStore for GatedStore {
+    fn get(&self, key: &str) -> Option<Value> {
+        self.0.map.lock().unwrap().get(key).cloned()
+    }
+
+    fn set(&self, key: &str, value: Value) -> Result<(), String> {
+        if key.starts_with("sys/") {
+            self.0
+                .entered
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let (lock, wake) = &self.0.open;
+            let guard = lock.lock().unwrap();
+            // Bounded, so a window that wrongly runs this on its own thread
+            // fails the timing check instead of hanging the suite.
+            let _ = wake
+                .wait_timeout_while(guard, Duration::from_secs(10), |open| !*open)
+                .unwrap();
+        }
+        self.0.map.lock().unwrap().insert(key.to_owned(), value);
+        Ok(())
+    }
+
+    fn delete(&self, key: &str) -> Result<(), String> {
+        self.0.map.lock().unwrap().remove(key);
+        Ok(())
+    }
+
+    fn uid(&self) -> Option<u32> {
+        Some(1000)
+    }
+
+    fn detached(&self) -> Option<xui_settings::store::Detached> {
+        let shared = std::sync::Arc::clone(&self.0);
+        Some(std::sync::Arc::new(move || {
+            Box::new(GatedStore(std::sync::Arc::clone(&shared))) as Box<dyn ConfigStore>
+        }))
+    }
+}
+
+/// "Make this the default for everyone" waits on the administrator's prompt
+/// on a worker thread: the window answers at once, and the result lands when
+/// the prompt is answered.
+#[test]
+fn making_the_theme_the_default_does_not_stand_the_window_still() {
+    use std::sync::atomic::Ordering;
+    use std::time::Instant;
+    use xui_core::backend::Event;
+
+    watchdog(|| {
+        let own = uitheme::user_key(1000, uitheme::KEY_ACCENT).expect("a personal key");
+        let shared = std::sync::Arc::new(Gated {
+            map: Default::default(),
+            open: Default::default(),
+            entered: Default::default(),
+        });
+        shared
+            .map
+            .lock()
+            .unwrap()
+            .insert(own.clone(), Value::U64(0xAA3232));
+        let build = std::sync::Arc::clone(&shared);
+        let probe = std::sync::Arc::clone(&shared);
+        render_with(
+            Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
+            move |ui| {
+                SettingsApp::build(
+                    ui,
+                    Rc::new(GatedStore(build)),
+                    Rc::new(MemSystem::default()),
+                    Rc::new(MemAccounts::default()),
+                )
+            },
+            move |stage| {
+                let started = Instant::now();
+                stage.emit(Msg::MakeDefault);
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "the message waited for the prompt"
+                );
+                // A second press while the first waits is refused, not queued.
+                stage.emit(Msg::MakeDefault);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !probe.entered.load(Ordering::SeqCst) {
+                    assert!(Instant::now() < deadline, "the worker never asked");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert_eq!(probe.map.lock().unwrap().get(uitheme::KEY_ACCENT), None);
+                // The administrator approves.
+                *probe.open.0.lock().unwrap() = true;
+                probe.open.1.notify_all();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    stage.inject(Event::Wake);
+                    let map = probe.map.lock().unwrap();
+                    if map.get(uitheme::KEY_ACCENT) == Some(&Value::U64(0xAA3232))
+                        && !map.contains_key(&own)
+                    {
+                        break;
+                    }
+                    drop(map);
+                    assert!(Instant::now() < deadline, "the write never finished");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                // The result is handled on this thread without a panic.
+                stage.inject(Event::Wake);
+            },
+        )
+        .expect("the headless render");
     });
 }

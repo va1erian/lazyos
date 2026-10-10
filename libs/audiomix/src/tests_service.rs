@@ -125,8 +125,9 @@ fn a_whole_stream_over_the_wire() {
     let grant = h.open();
     assert_ne!(grant.stream, 0);
     let ring_bytes = (grant.period_bytes * grant.periods) as usize;
-    let attach = audio::encode_attach_ring_args(&audio::AttachRingArgs {
+    let (attach, _) = audio::encode_attach_ring_args(&audio::AttachRingArgs {
         stream: grant.stream,
+        ring: libmessenger::Buffer::whole(1, ring_bytes as u64),
     })
     .unwrap();
     let ring = h.ring(ring_bytes);
@@ -273,8 +274,9 @@ fn rings_on_the_wrong_path_are_dropped_not_kept() {
         Vec::new(),
         Some(ring),
     );
-    let attach = audio::encode_attach_ring_args(&audio::AttachRingArgs {
+    let (attach, _) = audio::encode_attach_ring_args(&audio::AttachRingArgs {
         stream: grant.stream,
+        ring: libmessenger::Buffer::whole(1, 1 << 16),
     })
     .unwrap();
     let ring = h.ring(16);

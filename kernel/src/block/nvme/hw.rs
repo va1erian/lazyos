@@ -1,32 +1,7 @@
 //! The machine side of `libs/nvme`'s `Platform` seam: DMA pages in the
 //! kernel image, BAR0 registers, physical memory and a bring-up clock.
 
-use core::cell::UnsafeCell;
-
 use nvme::Platform;
-use x86_64::VirtAddr;
-
-/// One 4 KiB page of DMA memory in the kernel image.
-#[repr(C, align(4096))]
-pub(super) struct Page(pub(super) UnsafeCell<[u8; 4096]>);
-
-// SAFETY: a page is only touched by its controller's owner, under the
-// device lock (or before the device is published, at attach).
-unsafe impl Sync for Page {}
-
-impl Page {
-    pub(super) const fn new() -> Page {
-        Page(UnsafeCell::new([0; 4096]))
-    }
-
-    pub(super) fn virt(&self) -> u64 {
-        self.0.get() as u64
-    }
-
-    pub(super) fn phys(&self) -> Option<u64> {
-        crate::block::virt_to_phys(VirtAddr::new(self.virt())).map(|phys| phys.as_u64())
-    }
-}
 
 /// The machine side of `libs/nvme`'s seam for one controller.
 pub(super) struct Hw {

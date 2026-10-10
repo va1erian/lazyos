@@ -21,13 +21,12 @@
 // values the hand-written protocol used (1-24), so the numbering stays
 // append-only from here on.
 //
-// Endpoint and buffer transfers ride in the parcel's `handles` and `buffers`
-// vectors, where the kernel moves them; the TLV body has no `Handle`/`Buffer`
-// fields because a raw handle number in the body would be meaningless to the
-// receiver. `CreateSurface` and `Subscribe` transfer one event endpoint
-// (`handles[0]`), `AttachBuffer` shares one pixel buffer (`buffers[0]`, at
-// least `width * height * 4` bytes of RGBA8 for the surface's current
-// content size, rows tightly packed at that width).
+// Endpoints and buffers are object fields of the request (the parcel's
+// object list, which the kernel resolves and installs in the receiver's
+// table): `CreateSurface` and `Subscribe` move one event endpoint
+// (`events`), `AttachBuffer` shares one pixel buffer (`pixels`, at least
+// `width * height * 4` bytes of RGBA8 for the surface's current content
+// size, rows tightly packed at that width).
 //
 // Pointer coordinates in every event are relative to the surface content
 // origin; a move outside the surface (a press-and-drag) reports negative or
@@ -509,7 +508,7 @@ fn tray_keys() {
     msg::connect("os.lazy.display.v1").invoke("TrayKeys", [])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 
 /// A `Rect` with every field at its zero value.

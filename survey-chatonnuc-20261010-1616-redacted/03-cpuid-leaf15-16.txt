@@ -1,0 +1,2 @@
+# cpuid -1 -r
+# not installed: cpuid

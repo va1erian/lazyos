@@ -122,8 +122,7 @@ impl Transport for MessengerTransport {
                 deadline_ns: 0,
             },
             body,
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         let deadline = match wait {
             Wait::Forever => 0,

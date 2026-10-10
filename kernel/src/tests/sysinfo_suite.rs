@@ -9,12 +9,12 @@ use super::*;
 use crate::sysinfo;
 
 /// Two's-complement `-errno`, the syscall error encoding.
-fn failed(code: i64) -> u64 {
+pub(super) fn failed(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
 /// Register the kernel task and empty the table, as a normal boot starts.
-fn fresh() {
+pub(super) fn fresh() {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -23,12 +23,12 @@ fn fresh() {
 /// Scratch user buffer for the snapshot. The syscall validates its
 /// destination against the active CR3 as mapped, writable user memory, so
 /// each call installs a fresh address space with this range mapped.
-const SPACE: u64 = 0x0040_0000;
+pub(super) const SPACE: u64 = 0x0040_0000;
 
 const SPACE_PAGES: u64 = (sysinfo::SIZE + 4095) / 4096;
 
 /// Run `f` with [`SPACE`] mapped into a fresh user address space.
-fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
+pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
     let kernel = mem::kernel_table();
     let table = mem::new_user_table().ok_or("new_user_table failed")?;
     process::map_range(table, SPACE, SPACE + SPACE_PAGES * 4096).map_err(to_string)?;
@@ -85,6 +85,12 @@ pub fn snapshot_abi_contract() -> Result<(), String> {
     check!(
         process::dispatch_for_test(14, 99, 0, 0) == failed(22),
         "an unknown op was not refused with -EINVAL"
+    );
+    // The boot-log op exists only in a `LAZYOS_DBGD=1` kernel.
+    #[cfg(not(lazyos_dbgd))]
+    check!(
+        process::dispatch_for_test(14, 2, SPACE, 4096) == failed(22),
+        "op 2 answered in a kernel built without LAZYOS_DBGD"
     );
 
     let words = snapshot()?;

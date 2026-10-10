@@ -1,0 +1,162 @@
+# name: quake
+
+# Quake as an installable package (docs/quake-port-plan.md D5, quake/README.md).
+# Tests the crate on a Linux host upstream port's own suite (the record protocol,
+# the census) and the port's platform tests, builds the engine and `lazyquake`
+# with zig (quake-srp and id's shareware zip are fetched at pinned SHA-256s and
+# never committed), packs `quake.lzp`, and boots the desktop: the session
+# installs the package through `pkgd`, runs a headless `-headless -frames 200`
+# deterministic checksum from the installed copy, launches the game from the
+# start menu and plays a few seconds of the attract loop. A missing download
+# fails the job (`--require`): an unavailable pak must never look like a pass.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quake/**"
+      - "tools/quake/**"
+      - "tools/pkg/**"
+      - "libs/lazypkg/**"
+      - "user/src/bin/pkgd/**"
+      - "user/src/files.rs"
+      - "xui-app/src/client_window/**"
+      - "xui-app/src/display/**"
+      - "xui-app/src/sys.rs"
+      - "libs/lazyos-sys/**"
+      - "libs/inputmap/**"
+      - "libs/fhs/**"
+      - "tools/screenshot/examples/quake.json"
+      - "build_support/quake_embed.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/quake.yml"
+  pull_request:
+    paths:
+      - "quake/**"
+      - "tools/quake/**"
+      - "tools/pkg/**"
+      - "libs/lazypkg/**"
+      - "user/src/bin/pkgd/**"
+      - "user/src/files.rs"
+      - "xui-app/src/client_window/**"
+      - "xui-app/src/display/**"
+      - "xui-app/src/sys.rs"
+      - "libs/lazyos-sys/**"
+      - "libs/inputmap/**"
+      - "libs/fhs/**"
+      - "tools/screenshot/examples/quake.json"
+      - "build_support/quake_embed.rs"
+      - "kernel/src/process/linux/**"
+      - ".github/workflows/quake.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quake-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quake:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          # `libarchive-tools` runs `bsdtar`: the shareware zip holds an LZH
+          # archive, which it unpacks in the fetcher's one call.
+          packages: qemu-system-x86 musl-tools libarchive-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: quake
+          workspaces: |
+            . -> target
+            xui-app -> target
+
+      - name: Pin and cache the zig global cache
+        shell: bash
+        run: echo "ZIG_GLOBAL_CACHE_DIR=$HOME/.cache/zig" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-0.16.0-${{ runner.os }}
+
+      # The pinned downloads are cached by their pins, so a warm run never
+      # touches the network for them. The shareware zip holds an LZH archive,
+      # which `bsdtar` unpacks in the fetcher's one call.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target/quake/quake-srp-*.tar.gz
+            target/quake/quake106.zip
+          key: quake-inputs-${{ hashFiles('tools/quake/qfetch.py') }}
+
+      - name: Install zig
+        run: python -m pip install ziglang==0.16.0
+
+      # The upstream suite (the record protocol, the census over the shareware)
+      # and the port's platform tests, all on the host: the assembled crate
+      # finds the pak beside itself, as quake-srp's own CI keeps it.
+      - name: Test the crate (upstream + port, host)
+        run: python tools/quake/build.py --test --require
+
+      - name: Build the xui apps, the engine, the bridge and the package
+        run: |
+          set -euo pipefail
+          # The desktop image's apps (LazyShell and friends) go first: the
+          # image build embeds them (#538) as doom.yml does too.
+          python tools/xui/build.py > /dev/null
+          python tools/quake/build.py --require
+          ls -l target/quake/quake.elf target/pkg/quake.lzp
+
+      - uses: ./.github/actions/busybox
+
+      - name: Install, headless checksum, launch and play
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_QUAKE: "1"
+          # quake.json installs and starts the game from the Terminal.
+          LAZYOS_XUI_AUTOSTART: term
+          # quake.json clicks the Terminal and the start menu by name (issue #538).
+          LAZYOS_UI_PROBE: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/quake \
+            --timeout 1800 --script tools/screenshot/examples/quake.json \
+            --fail-on "QUAKE:(PAK|WINDOW|DATA):FAIL" --fail-on "PKGD:INSTALL:FAIL" \
+            --fail-on "user: task [0-9]+ killed by"
+          grep -a "PKGD:INSTALL:PASS org.lazy.quake" shots/quake/serial.log
+          grep -a "TERM:OUT:QUAKE:HEADLESS:PASS" shots/quake/serial.log
+          grep -a "QUAKE:UP:PASS mode=window" shots/quake/serial.log
+
+      - name: Verify the game drew
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/screenshot/pngstats.py shots/quake/shot_05_title.png shots/quake/shot_07_e1m1.png \
+            --min-nonblack 0.3 --min-colors 32
+
+      - name: Upload screenshots and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quake-guest
+          path: |
+            shots/quake/*.png
+            shots/quake/serial.log
+            shots/quake/summary.json
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: quake-package
+          path: target/pkg/quake.lzp

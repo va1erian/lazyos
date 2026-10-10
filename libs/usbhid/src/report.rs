@@ -93,6 +93,13 @@ impl Pointer {
     pub fn absolute(&self) -> bool {
         matches!((self.x, self.y), (Some(x), Some(y)) if !x.relative && !y.relative)
     }
+
+    /// Whether this is a relative pointer that reports a wheel: a boot
+    /// mouse with one must run in report protocol, whose boot report
+    /// (buttons, dx, dy) has no wheel byte.
+    pub fn has_wheel(&self) -> bool {
+        self.wheel.is_some() && !self.absolute()
+    }
 }
 
 /// A report read through a [`Pointer`] layout.

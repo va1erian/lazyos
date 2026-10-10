@@ -241,6 +241,19 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_netd");
     }
 
+    // Remote inspection (docs/dbgd-plan.md, issue #701): `LAZYOS_DBGD=1` adds
+    // the `dbgd` row to `init`'s manifest (the ELF is embedded by the root
+    // build script). It needs the network stack.
+    println!("cargo:rerun-if-env-changed=LAZYOS_DBGD");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_dbgd)");
+    if env::var_os("LAZYOS_DBGD").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        assert!(
+            netd,
+            "LAZYOS_DBGD=1 needs LAZYOS_NETD=1 (dbgd listens on TCP)"
+        );
+        println!("cargo:rustc-cfg=lazyos_dbgd");
+    }
+
     // The device manager (issue #497, docs/driver-plan.md 3.6): whenever the
     // image carries a sound or network driver, `init` starts `devd`, which
     // matches the enumerated devices and asks `init` to start each driver for

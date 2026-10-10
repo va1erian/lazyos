@@ -14,3 +14,4 @@ path = "src/lib.rs"
 # The tests pin the manifest to what each driver accepts.
 e1000 = { path = "../e1000" }
 hda = { path = "../hda" }
+rtl8168 = { path = "../rtl8168" }

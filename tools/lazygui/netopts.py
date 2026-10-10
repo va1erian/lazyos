@@ -18,7 +18,8 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
 
 
 def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=None,
-                lazyweb_var=None, smb_var=None) -> None:
+                lazyweb_var=None, smb_var=None, dbgd_var=None,
+                dbgd_control_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
     browser, the SMB client, the forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
@@ -36,6 +37,14 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=
         ttk.Checkbutton(parent, text="SMB client smb (LAZYOS_SMB; run_demo --smb; implies the stack; "
                                      "docs/smb-plan.md)",
                         variable=smb_var).pack(anchor="w", padx=6)
+    if dbgd_var is not None:
+        ttk.Checkbutton(parent, text="Remote inspection dbgd (LAZYOS_DBGD; run_demo --dbgd; implies the "
+                                     "stack; key in target/dbgd.key; tools/dbg/dbgctl.py)",
+                        variable=dbgd_var).pack(anchor="w", padx=6)
+    if dbgd_control_var is not None:
+        ttk.Checkbutton(parent, text="dbgd control: restart and hot-reload services (LAZYOS_DBGD_CONTROL; "
+                                     "run_demo --dbgd-control; implies dbgd; dbgctl.py reload NAME)",
+                        variable=dbgd_control_var).pack(anchor="w", padx=20)
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
     ttk.Label(row, text="Port forwards:").pack(side="left")

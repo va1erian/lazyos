@@ -86,6 +86,7 @@ delete a canary file, and remove whatever they created.
 | `audit_forge` | rhai: `elevd` `conf.set` of a `str` value holding a line break and a whole forged `ELEVD:REQUEST ... admin=forged outcome=granted` line; BLOCKED when refused before any prompt (`EINVAL`, "control or formatting characters"), and the judge fails the run if a log line ever starts with the forged fields (review of #659) |
 | `core_claim` | rhai: `elevd` `pkg.install` of `corereplace.lzp` (claims the core `os.lazy.counter`); BLOCKED when refused before any prompt (`EPERM`, "core app": only `pkg.update-core` replaces a core app) (review of #659) |
 | `restart_elevd`, `restart_xuid` | rhai (`restart_guarded.rhai <name>`): `elevd` `service.restart` of a service outside `elevpolicy::RESTARTABLE`; BLOCKED when refused before any prompt (`EPERM`, "may not be restarted") (review of #659) |
+| `layout_machine`, `layout_other` | rhai (`layout_write.rhai <target>`): `confd` `set` of the machine keyboard layout (`sys/input/layout`) or admin's own (`user/1001/input/layout`); BLOCKED when `confd` refuses it. The session's own `user/1000/input/layout` needs no prompt |
 | `fork_bomb` | up to 300 background tasks (SUCCEEDED above 150) |
 | `disk_fill` | write 32 MiB into the home |
 

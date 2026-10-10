@@ -277,6 +277,8 @@ pub fn flush() {
 /// order with the kernel's own lines and nothing waits in the ring for a
 /// later writer.
 pub fn mirror(bytes: &[u8]) {
+    #[cfg(lazyos_dbgd)]
+    crate::klog::push_program(bytes);
     match SERIAL1.lock().as_mut() {
         Some(port) => queue(port, bytes),
         None => return,

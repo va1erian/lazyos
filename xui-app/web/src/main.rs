@@ -17,6 +17,7 @@
 
 mod app;
 mod chrome;
+mod context;
 mod fonts;
 mod handoff;
 mod indicators;

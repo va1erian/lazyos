@@ -22,6 +22,31 @@ impl StdPlatform {
     }
 }
 
+/// `path`'s metadata, with a directory's entry count when `count` says so.
+fn stat(path: &Path, count: bool) -> io::Result<Meta> {
+    let attributes = fs::symlink_metadata(path)?;
+    let file_type = attributes.file_type();
+    let kind = if file_type.is_symlink() {
+        Kind::Symlink
+    } else if file_type.is_dir() {
+        Kind::Dir
+    } else {
+        Kind::File
+    };
+    let mut meta = Meta::bare(path, kind);
+    if kind != Kind::Dir {
+        meta.size = Some(attributes.len());
+    } else if count {
+        meta.entries = fs::read_dir(path)
+            .ok()
+            .map(|entries| entries.filter_map(Result::ok).count());
+    }
+    meta.modified = attributes.modified().ok();
+    meta.created = attributes.created().ok();
+    meta.readonly = attributes.permissions().readonly();
+    Ok(meta)
+}
+
 impl Platform for StdPlatform {
     fn list(&self, dir: &Path) -> io::Result<Vec<RawEntry>> {
         let mut entries = Vec::new();
@@ -30,8 +55,11 @@ impl Platform for StdPlatform {
             let name = entry.file_name();
             let path = entry.path();
             // An entry that vanished between the read and the stat is skipped
-            // rather than failing the whole listing.
-            if let Ok(meta) = self.metadata(&path) {
+            // rather than failing the whole listing. A folder's own entries
+            // are not counted here: that is one more directory read per
+            // subfolder (a remote listing on a network mount, on the UI
+            // thread), and only the properties dialog shows the count.
+            if let Ok(meta) = stat(&path, false) {
                 entries.push(RawEntry { name, meta });
             }
         }
@@ -39,27 +67,7 @@ impl Platform for StdPlatform {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<Meta> {
-        let attributes = fs::symlink_metadata(path)?;
-        let file_type = attributes.file_type();
-        let kind = if file_type.is_symlink() {
-            Kind::Symlink
-        } else if file_type.is_dir() {
-            Kind::Dir
-        } else {
-            Kind::File
-        };
-        let mut meta = Meta::bare(path, kind);
-        if kind != Kind::Dir {
-            meta.size = Some(attributes.len());
-        } else {
-            meta.entries = fs::read_dir(path)
-                .ok()
-                .map(|entries| entries.filter_map(Result::ok).count());
-        }
-        meta.modified = attributes.modified().ok();
-        meta.created = attributes.created().ok();
-        meta.readonly = attributes.permissions().readonly();
-        Ok(meta)
+        stat(path, true)
     }
 
     fn remove(&self, path: &Path, recursive: bool) -> io::Result<()> {

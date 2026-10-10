@@ -162,6 +162,7 @@ impl Drop for UserStack {
 }
 
 mod acl_suite;
+mod ahci_suite;
 mod arch_suite;
 mod block_sleep_suite;
 mod block_suite;
@@ -228,6 +229,8 @@ mod spawn_suite;
 mod spurious_fault_suite;
 mod stats_suite;
 mod string_io_suite;
+#[cfg(lazyos_dbgd)]
+mod sysinfo_klog_suite;
 mod sysinfo_suite;
 mod task_suite;
 mod timed_suite;
@@ -291,6 +294,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     virtio_suite::CASES,
     virtio_modern_suite::CASES,
     nvme_suite::CASES,
+    ahci_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
     mount_suite::CASES,
@@ -349,6 +353,8 @@ const SUITE: &[&[(&str, Test)]] = &[
     display_suite::CASES,
     mux_suite::CASES,
     sysinfo_suite::CASES,
+    #[cfg(lazyos_dbgd)]
+    sysinfo_klog_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
     // Runs the tick for ~15 s of real time: after the suites that step a

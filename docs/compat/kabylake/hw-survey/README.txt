@@ -1,0 +1,45 @@
+survey by tools/boot/survey_linux_box.sh on REDACTED-HOST at 20261009-1833
+run as uid 0
+total 368
+-rw-r--r-- 1 root root   433 Oct  9 18:33 00-os-release.txt
+-rw-r--r-- 1 root root   131 Oct  9 18:33 00-uname.txt
+-rw-r--r-- 1 root root  1217 Oct  9 18:33 01-dmi-sysfs.txt
+-rw-r--r-- 1 root root 23968 Oct  9 18:33 01-dmidecode.txt
+-rw-r--r-- 1 root root  2869 Oct  9 18:33 02-efibootmgr.txt
+-rw-r--r-- 1 root root   306 Oct  9 18:33 02-firmware-mode.txt
+-rw-r--r-- 1 root root    76 Oct  9 18:33 02-secureboot.txt
+-rw-r--r-- 1 root root  3948 Oct  9 18:33 03-cpuid-leaf15-16.txt
+-rw-r--r-- 1 root root  6177 Oct  9 18:33 03-cpuinfo.txt
+-rw-r--r-- 1 root root  5564 Oct  9 18:33 03-e820.txt
+-rw-r--r-- 1 root root  2862 Oct  9 18:33 03-interrupts.txt
+-rw-r--r-- 1 root root  1107 Oct  9 18:33 03-ioports.txt
+-rw-r--r-- 1 root root  3500 Oct  9 18:33 03-lscpu.txt
+-rw-r--r-- 1 root root  3285 Oct  9 18:33 03-meminfo.txt
+-rw-r--r-- 1 root root  1805 Oct  9 18:33 03-tsc-and-clock.txt
+-rw-r--r-- 1 root root  2433 Oct  9 18:33 04-acpi-tables.txt
+-rw-r--r-- 1 root root  1751 Oct  9 18:33 04-iommu-groups.txt
+-rw-r--r-- 1 root root  1593 Oct  9 18:33 04-lspci-nn.txt
+-rw-r--r-- 1 root root  1132 Oct  9 18:33 04-lspci-tree.txt
+-rw-r--r-- 1 root root 30318 Oct  9 18:33 04-lspci-vvv.txt
+-rw-r--r-- 1 root root 13063 Oct  9 18:33 04-lspci-xxx.txt
+-rw-r--r-- 1 root root  3035 Oct  9 18:33 05-input-devices.txt
+-rw-r--r-- 1 root root   844 Oct  9 18:33 05-lsusb-tree.txt
+-rw-r--r-- 1 root root 30946 Oct  9 18:33 05-lsusb.txt
+-rw-r--r-- 1 root root  5025 Oct  9 18:33 05-xhci-dmesg.txt
+-rw-r--r-- 1 root root  4514 Oct  9 18:33 06-ata-dmesg.txt
+-rw-r--r-- 1 root root  2474 Oct  9 18:33 06-lsblk.txt
+-rw-r--r-- 1 root root   569 Oct  9 18:33 06-partition-tables.txt
+-rw-r--r-- 1 root root   328 Oct  9 18:33 07-drm.txt
+-rw-r--r-- 1 root root   704 Oct  9 18:33 07-fb.txt
+-rw-r--r-- 1 root root  4316 Oct  9 18:33 07-gpu-dmesg.txt
+-rw-r--r-- 1 root root  1345 Oct  9 18:33 08-asound-cards.txt
+-rw-r--r-- 1 root root   767 Oct  9 18:33 08-snd-dmesg.txt
+-rw-r--r-- 1 root root  1512 Oct  9 18:33 09-ethtool.txt
+-rw-r--r-- 1 root root  2632 Oct  9 18:33 09-ip-link.txt
+-rw-r--r-- 1 root root  1681 Oct  9 18:33 09-nic-dmesg.txt
+-rw-r--r-- 1 root root   252 Oct  9 18:33 09-nic-mac-and-bars.txt
+-rw-r--r-- 1 root root  1835 Oct  9 18:33 10-power-button.txt
+-rw-r--r-- 1 root root   308 Oct  9 18:33 10-thermal.txt
+-rw-r--r-- 1 root root 94095 Oct  9 18:33 99-dmesg.txt
+-rw-r--r-- 1 root root  7475 Oct  9 18:33 99-loaded-modules.txt
+-rw-r--r-- 1 root root    85 Oct  9 18:33 README.txt

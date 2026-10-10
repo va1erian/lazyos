@@ -143,12 +143,16 @@ def build_qemu_command(
     data_disk: str | Path | None = None,
     ide: bool = False,
     home_disk: str | Path | None = None,
+    boot_first: bool = False,
 ) -> list[str]:
     """Build a headless QEMU command line with a QMP socket and serial log.
 
     The boot ``image`` is attached as legacy virtio-blk (``disable-modern=on``,
     the interface the kernel drives), the way every launcher boots LazyOS; pass
     ``ide=True`` to attach it as IDE so the ATA driver is exercised instead.
+    ``boot_first=True`` gives it ``bootindex=0``: firmware boots only the first
+    hard disk it finds, and an extra IDE/AHCI disk (the ``--ahci`` scratch
+    disk) can otherwise be enumerated ahead of the virtio boot disk.
     """
     command = [
         qemu,
@@ -163,8 +167,11 @@ def build_qemu_command(
         if ide:
             command += ["-drive", f"format=raw,file={file}"]
         else:
+            device = "virtio-blk-pci,drive=boot,disable-modern=on"
+            if boot_first:
+                device += ",bootindex=0"
             command += ["-drive", f"if=none,id=boot,format=raw,file={file}",
-                        "-device", "virtio-blk-pci,drive=boot,disable-modern=on"]
+                        "-device", device]
     if data_disk:
         command += data_disk_args(data_disk)
     if home_disk:

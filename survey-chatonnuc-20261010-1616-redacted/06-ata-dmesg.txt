@@ -1,0 +1,47 @@
+# dmesg | grep -i -E "ahci|ata[0-9]|scsi|sd[a-z]|nvme|sata"
+[    0.005991] ACPI: RSDP 0x00000000DD1AC000 000024 (v02 ALASKA)
+[    0.005995] ACPI: XSDT 0x00000000DD1AC0A8 0000D4 (v01 ALASKA A M I    01072009 AMI  00010013)
+[    0.006006] ACPI: DSDT 0x00000000DD1AC210 007CF8 (v02 ALASKA A M I    01072009 INTL 20120913)
+[    0.006021] ACPI: SSDT 0x00000000DD1B41E8 005419 (v02 AMD    AmdTable 00000002 MSFT 02000002)
+[    0.006024] ACPI: MSDM 0x00000000DD1B9608 000055 (v03 ALASKA A M I    01072009 AMI  01000013)
+[    0.006046] ACPI: SSDT 0x00000000DD1C6D70 00119C (v01 AMD    AMD CPU  00000001 AMD  00000001)
+[    0.006054] ACPI: SSDT 0x00000000DD1C8750 000227 (v01 AMD    AmdTable 00000001 INTL 20120913)
+[    0.006057] ACPI: SSDT 0x00000000DD1C8978 000C77 (v01 AMD    AmdTable 00000001 INTL 20120913)
+[    0.006060] ACPI: SSDT 0x00000000DD1C95F0 0010A5 (v01 AMD    AmdTable 00000001 INTL 20120913)
+[    0.006063] ACPI: SSDT 0x00000000DD1CA698 0023FF (v01 AMD    AmdTable 00000001 INTL 20120913)
+[    0.006068] ACPI: SSDT 0x00000000DD1CCAC0 0002FE (v01 AMD    AmdTable 00000001 INTL 20120913)
+[    0.006072] ACPI: Reserving DSDT table memory at [mem 0xdd1ac210-0xdd1b3f07]
+[    0.006076] ACPI: Reserving SSDT table memory at [mem 0xdd1b41e8-0xdd1b9600]
+[    0.006077] ACPI: Reserving MSDM table memory at [mem 0xdd1b9608-0xdd1b965c]
+[    0.006084] ACPI: Reserving SSDT table memory at [mem 0xdd1c6d70-0xdd1c7f0b]
+[    0.006086] ACPI: Reserving SSDT table memory at [mem 0xdd1c8750-0xdd1c8976]
+[    0.006087] ACPI: Reserving SSDT table memory at [mem 0xdd1c8978-0xdd1c95ee]
+[    0.006087] ACPI: Reserving SSDT table memory at [mem 0xdd1c95f0-0xdd1ca694]
+[    0.006088] ACPI: Reserving SSDT table memory at [mem 0xdd1ca698-0xdd1cca96]
+[    0.006090] ACPI: Reserving SSDT table memory at [mem 0xdd1ccac0-0xdd1ccdbd]
+[    0.335623] SCSI subsystem initialized
+[    0.401462] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 242)
+[    1.086482] ahci 0000:05:00.0: AHCI vers 0001.0301, 32 command slots, 6 Gbps, SATA mode
+[    1.086495] ahci 0000:05:00.0: 1/1 ports implemented (port mask 0x1)
+[    1.086500] ahci 0000:05:00.0: flags: 64bit ncq sntf ilck pm led clo only pmp fbs pio slum part 
+[    1.108805] scsi host0: ahci
+[    1.109057] ata1: SATA max UDMA/133 abar m2048@0xfcc00000 port 0xfcc00100 irq 50 lpm-pol 3
+[    1.571795] ata1: SATA link up 6.0 Gbps (SStatus 133 SControl 300)
+[    1.576472] ata1.00: ATA-11: GOFATOO 256GB SSD, SN15551, max UDMA/133
+[    1.576540] ata1.00: 500118192 sectors, multi 1: LBA48 NCQ (depth 32), AA
+[    1.579535] ata1.00: configured for UDMA/133
+[    1.590017] scsi 0:0:0:0: Direct-Access     ATA      GOFATOO 256GB SS 551  PQ: 0 ANSI: 5
+[    1.591034] sd 0:0:0:0: Attached scsi generic sg0 type 0
+[    1.591274] sd 0:0:0:0: [sda] 500118192 512-byte logical blocks: (256 GB/238 GiB)
+[    1.591321] sd 0:0:0:0: [sda] Write Protect is off
+[    1.591341] sd 0:0:0:0: [sda] Mode Sense: 00 3a 00 00
+[    1.591392] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    1.591488] sd 0:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[    1.605799]  sda: sda1 sda2
+[    1.606409] sd 0:0:0:0: [sda] Attached SCSI disk
+[    2.049641] EXT4-fs (sda2): orphan cleanup on readonly fs
+[    2.050300] EXT4-fs (sda2): mounted filesystem REDACTED-GUID ro with ordered data mode. Quota mode: none.
+[    2.975318] EXT4-fs (sda2): re-mounted REDACTED-GUID r/w.
+[    8.837870] amdgpu 0000:04:00.0: detected ip block number 7 <sdma_v4_0_0> (sdma_v4_0)
+[    9.040209] amdgpu 0000:04:00.0: ring sdma0 uses VM inv eng 0 on hub 8
+# exit 0

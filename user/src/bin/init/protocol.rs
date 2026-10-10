@@ -220,6 +220,13 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
             services::init::wire::METHOD_RESTARTSERVICE => {
                 super::homes::restart_service(services, message)
             }
+            // `dbgd` hot-reloads a service (docs/dbgd-plan.md, v2).
+            services::init::wire::METHOD_RELOADSERVICE => super::reload::reload(services, message),
+            services::init::wire::METHOD_REVERTSERVICE => super::reload::revert(services, message),
+            services::init::wire::METHOD_RELOADS => super::reload::list(services),
+            services::init::wire::METHOD_RELAUNCHAPP => {
+                super::relaunch::relaunch(services, broker, installed, message)
+            }
             // `devd` asks for a driver row for the device it matched.
             services::init::wire::METHOD_STARTDRIVER => {
                 super::drivers::start(services, broker, message)

@@ -70,6 +70,11 @@ jobs:
           LAZYOS_USB_IMAGE: "1"
         run: cargo build
 
+      # The image's own bytes, as a strict firmware reads them (MBR, FAT32,
+      # BOOTX64.EFI as PE32+, the ramdisk and its config); tools/boot/preflight.py.
+      - name: Pre-flight the stick image
+        run: python3 tools/boot/preflight.py target/lazyos-usb.img
+
       # The verdict is the guest: UEFI boot from usb-storage alone, the RAM
       # root, USB input bound and the login screen drawn (docs/usb-stick.md).
       # The shipped image has no autologin (docs/accounts-plan.md U0), so it

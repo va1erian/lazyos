@@ -29,7 +29,7 @@ fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
             delta,
         })
         .expect("encodes");
-        let parcel = request(wire::METHOD_POINTERWHEEL, body, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_POINTERWHEEL, body, Vec::new());
         assert_eq!(
             decode_event(&parcel),
             Some(Event::PointerWheel {
@@ -43,18 +43,13 @@ fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
 
 #[test]
 fn a_truncated_wheel_body_is_not_an_event() {
-    let parcel = request(
-        wire::METHOD_POINTERWHEEL,
-        vec![1, 2],
-        Vec::new(),
-        Vec::new(),
-    );
+    let parcel = request(wire::METHOD_POINTERWHEEL, vec![1, 2], Vec::new());
     assert_eq!(decode_event(&parcel), None);
 }
 
 /// A `Configure` event parcel carrying `body`.
 fn configure(body: Vec<u8>) -> Parcel {
-    request(wire::METHOD_CONFIGURE, body, Vec::new(), Vec::new())
+    request(wire::METHOD_CONFIGURE, body, Vec::new())
 }
 
 #[test]

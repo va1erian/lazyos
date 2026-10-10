@@ -14,7 +14,7 @@
 //! | `Option<T>` | `()` for none, else the value |
 //! | struct | object map; missing fields take their zero value, unknown keys are an error |
 //! | enum | the variant name as a string (an `int` index is accepted) |
-//! | `Handle`/`Buffer` | read-only: decoded as `int` / a map, refused when sending |
+//! | `Channel`/`Buffer` | read-only: decoded as `int` (the object index) / a map, refused when sending |
 //!
 //! Decoding follows the compiled codecs: unknown field ids are skipped (a newer
 //! service may add fields), malformed bodies are an error, never a panic.
@@ -109,7 +109,7 @@ pub fn encode_named(iface: &Interface, fields: &[Field], map: &Map, depth: u8) -
 fn zero(ty: Ty, iface: &Interface) -> Dynamic {
     match ty {
         Ty::Bool => Dynamic::FALSE,
-        Ty::I32 | Ty::I64 | Ty::U32 | Ty::U64 | Ty::Handle => Dynamic::from_int(0),
+        Ty::I32 | Ty::I64 | Ty::U32 | Ty::U64 | Ty::Channel => Dynamic::from_int(0),
         Ty::Enum(_) => Dynamic::from_int(0),
         Ty::F64 => Dynamic::from_float(0.0),
         Ty::String => Dynamic::from(String::new()),
@@ -160,9 +160,9 @@ fn encode_value(
         }
         Ty::Bytes => target.bytes(id, &to_bytes(what, value)?),
         Ty::Enum(name) => target.u32(id, enum_index(what, value, iface, name)?),
-        Ty::Handle | Ty::Buffer => {
+        Ty::Channel | Ty::Buffer => {
             return Err(format!(
-                "{what}: scripts cannot send handles or shared buffers"
+                "{what}: scripts cannot send channel ends or shared buffers"
             ))
         }
         Ty::Array(inner) => {
@@ -270,17 +270,19 @@ fn decode_value(tlv: &Tlv<'_>, ty: Ty, iface: &Interface, depth: u8) -> Result<D
         Ty::I32 => Dynamic::from_int(tlv.as_i32().map_err(wire)?.into()),
         Ty::U32 => Dynamic::from_int(tlv.as_u32().map_err(wire)?.into()),
         Ty::I64 => Dynamic::from_int(tlv.as_i64().map_err(wire)?),
-        Ty::U64 | Ty::Handle => Dynamic::from_int(tlv.as_u64().map_err(wire)? as INT),
+        Ty::U64 => Dynamic::from_int(tlv.as_u64().map_err(wire)? as INT),
+        // An object field holds an index into the parcel's object list; a
+        // script sees the index (it never receives installed handles).
+        Ty::Channel => Dynamic::from_int(tlv.object_index().map_err(wire)?.into()),
         Ty::F64 => Dynamic::from_float(tlv.as_f64().map_err(wire)? as FLOAT),
         Ty::String => Dynamic::from(String::from(tlv.as_str().map_err(wire)?)),
         Ty::Bytes => Dynamic::from_blob(tlv.as_bytes().to_vec()),
         Ty::Buffer => {
-            let b = tlv.as_buffer().map_err(wire)?;
+            let (index, offset, len) = tlv.buffer_parts().map_err(wire)?;
             let mut map = Map::new();
-            map.insert("handle".into(), Dynamic::from_int(b.handle as INT));
-            map.insert("offset".into(), Dynamic::from_int(b.offset as INT));
-            map.insert("len".into(), Dynamic::from_int(b.len as INT));
-            map.insert("flags".into(), Dynamic::from_int(b.flags.into()));
+            map.insert("index".into(), Dynamic::from_int(index.into()));
+            map.insert("offset".into(), Dynamic::from_int(offset as INT));
+            map.insert("len".into(), Dynamic::from_int(len as INT));
             Dynamic::from_map(map)
         }
         Ty::Enum(name) => {

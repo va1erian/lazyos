@@ -21,8 +21,9 @@ use user::sys;
 use super::hub::{route_error, Hub};
 
 impl Hub {
-    /// `Open(None)`: the console session, for the console claim's holder.
-    pub(super) fn open_console(&mut self, message: &Message) -> Result<Vec<u8>> {
+    /// `Open(None)`: the console session, for the console claim's holder;
+    /// `events` is the endpoint the request carried.
+    pub(super) fn open_console(&mut self, message: &Message, events: u64) -> Result<Vec<u8>> {
         if sys::input_console_owner() != Ok(message.sender) {
             sys::write_str(&format!("INPUTD:CONSOLE:DENY owner={}\n", message.sender));
             return Err(Error::Errno(-errno::EACCES));
@@ -35,7 +36,7 @@ impl Hub {
             self.forget_endpoint(old);
         }
         self.delivery
-            .insert(opened.session, Endpoint::from_raw(message.first_handle));
+            .insert(opened.session, Endpoint::from_raw(events));
         sys::write_str(&format!(
             "INPUTD:CONSOLE:OPEN session={} owner={} focused={}\n",
             opened.session,

@@ -96,8 +96,7 @@ pub fn post_from_kernel(channel_id: u64, side: usize, parcel_bytes: &[u8]) -> Re
         txn: None,
         deadline: None,
         bytes: parcel_bytes.to_vec(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     // `enqueue` names the *sending* side and delivers to its peer, so name the
     // opposite side of the inbox we want to fill.

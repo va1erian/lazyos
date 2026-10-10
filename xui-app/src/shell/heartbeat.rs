@@ -107,7 +107,11 @@ impl Heartbeat {
     /// Print `SHELL:DESKTOP:PASS` once the desktop and the taskbar have both
     /// committed a frame.
     pub fn report_first_frame(&mut self, ctx: &Ctx, icons: usize) {
-        if !self.reported && ctx.bar.borrow().is_some() && ctx.backend.frames() >= 2 {
+        if !self.reported
+            && ctx.bar.borrow().is_some()
+            && ctx.backend.frames() >= 2
+            && ctx.desktop_loaded()
+        {
             self.reported = true;
             println!("SHELL:DESKTOP:PASS icons={icons}");
         }

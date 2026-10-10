@@ -34,6 +34,12 @@ pub const TEXT_MIME: &str = "text/plain";
 pub const MAX_BYTES: usize = 8 * 1024;
 /// A human-readable owner label for offers from an xui app.
 const OWNER: &str = "xui-app";
+/// How long one call to `clipboardd` may take (PIT ticks, 100 Hz). A copy or
+/// paste key runs on the UI thread (`Backend::clipboard_text` is a plain
+/// getter), so a service that took the request and never answers must cost
+/// half a second, not the window; the callers already fall back to the
+/// in-process copy on any error.
+const CALL_TICKS: u64 = 50;
 
 /// FNV-1a 64, matching `tools/midlc`'s interface-id hash.
 const fn fnv1a64(text: &str) -> u64 {
@@ -81,7 +87,13 @@ impl Transport for MessengerTransport {
         })
         .map_err(|_| -22)?;
         service
-            .call(WRITE_INTERFACE, wire::METHOD_OFFER, ERROR_FIELD, body)
+            .call_within(
+                WRITE_INTERFACE,
+                wire::METHOD_OFFER,
+                ERROR_FIELD,
+                body,
+                CALL_TICKS,
+            )
             .map(|_| ())
     }
 
@@ -92,7 +104,13 @@ impl Transport for MessengerTransport {
             mime: TEXT_MIME.to_owned(),
         })
         .map_err(|_| -22)?;
-        let reply = service.call(READ_INTERFACE, wire::METHOD_REQUEST, ERROR_FIELD, body)?;
+        let reply = service.call_within(
+            READ_INTERFACE,
+            wire::METHOD_REQUEST,
+            ERROR_FIELD,
+            body,
+            CALL_TICKS,
+        )?;
         decode_bytes(&reply)
     }
 }
@@ -115,7 +133,13 @@ pub fn offer(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
         }],
     })
     .map_err(|_| -22)?;
-    let reply = service.call(WRITE_INTERFACE, wire::METHOD_OFFER, ERROR_FIELD, body)?;
+    let reply = service.call_within(
+        WRITE_INTERFACE,
+        wire::METHOD_OFFER,
+        ERROR_FIELD,
+        body,
+        CALL_TICKS,
+    )?;
     let token = wire::decode_offer_reply(&reply.body)
         .map_err(|_| -22)?
         .token;
@@ -134,7 +158,13 @@ pub fn paste(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
         mime: mime.to_owned(),
     })
     .map_err(|_| -22)?;
-    let reply = service.call(READ_INTERFACE, wire::METHOD_REQUEST, ERROR_FIELD, body)?;
+    let reply = service.call_within(
+        READ_INTERFACE,
+        wire::METHOD_REQUEST,
+        ERROR_FIELD,
+        body,
+        CALL_TICKS,
+    )?;
     decode_bytes(&reply)
 }
 

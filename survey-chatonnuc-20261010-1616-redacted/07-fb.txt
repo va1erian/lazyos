@@ -1,0 +1,14 @@
+# for f in /sys/class/graphics/fb*; do echo "== $f"; for a in name virtual_size stride bits_per_pixel modes; do printf "%s: " $a; cat $f/$a 2>&1; done; done
+== /sys/class/graphics/fb0
+name: amdgpudrmfb
+virtual_size: 2560,1440
+stride: 10240
+bits_per_pixel: 32
+modes: U:2560x1440p-0
+== /sys/class/graphics/fbcon
+name: cat: /sys/class/graphics/fbcon/name: No such file or directory
+virtual_size: cat: /sys/class/graphics/fbcon/virtual_size: No such file or directory
+stride: cat: /sys/class/graphics/fbcon/stride: No such file or directory
+bits_per_pixel: cat: /sys/class/graphics/fbcon/bits_per_pixel: No such file or directory
+modes: cat: /sys/class/graphics/fbcon/modes: No such file or directory
+# exit 1

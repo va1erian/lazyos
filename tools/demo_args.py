@@ -46,8 +46,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         choices=["auto", "none", "tcg", "whpx", "kvm"],
                         help="QEMU accelerator; auto uses whpx/kvm when available "
                              "(many times faster than TCG)")
-    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata"],
-                        help="boot disk bus: virtio-blk (DMA, fast) or legacy IDE/ATA PIO")
+    parser.add_argument("--disk", default="virtio", choices=["virtio", "ata", "ahci"],
+                        help="boot disk bus: virtio-blk (DMA, fast), legacy IDE/ATA PIO, "
+                             "or QEMU's AHCI (SATA) controller (docs/ahci-plan.md A3)")
     parser.add_argument("--home-disk", default=str(mkdisk.DEFAULT_HOME_PATH), metavar="PATH",
                         help="persistent ext2 home volume (label lazyhome, mounted at /home), "
                              "attached as a second virtio-blk device and created if missing "
@@ -103,6 +104,13 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "Freedoom): install it with `pkgctl install "
                              "/system/share/samples/doom.lzp` or by opening it in Files, "
                              "then start Doom from the menu")
+    parser.add_argument("--quake", action="store_true",
+                        help="the desktop profile with the Quake package at "
+                             "/system/share/samples/quake.lzp (LAZYOS_QUAKE=1; builds it "
+                             "with tools/quake/build.py, which fetches quake-srp and id's "
+                             "shareware pak): install it with `pkgctl install "
+                             "/system/share/samples/quake.lzp` or by opening it in Files, "
+                             "then start Quake from the menu; docs/quake-port-plan.md")
     parser.add_argument("--emusic", action="store_true",
                         help="the desktop profile with the emusic package at "
                              "/system/share/samples/emusic.lzp (LAZYOS_EMUSIC=1; builds it "
@@ -134,6 +142,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="networking plus the SMB 2.1 client `smb` (LAZYOS_SMB=1): "
                              "`smb -U USER //SERVER/SHARE ls ; get FILE ! ; put -g N FILE` "
                              "(docs/smb-plan.md F2)")
+    parser.add_argument("--dbgd", action="store_true",
+                        help="networking plus `dbgd`, the remote inspection service "
+                             "(LAZYOS_DBGD=1, docs/dbgd-plan.md): log, tasks, devices, USB and "
+                             "Messenger state as JSON-RPC on guest port 9701, forwarded to host "
+                             "9701 and guarded by the key in target/dbgd.key; read it with "
+                             "`python tools/dbg/dbgctl.py`. LAZYOS_DBGD_KEY/_PORT/_PEER set the "
+                             "key, port and the one peer address")
+    parser.add_argument("--dbgd-control", action="store_true",
+                        help="`--dbgd` plus its control tier (LAZYOS_DBGD_CONTROL=1, "
+                             "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
+                             "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
+                             "by design, for development machines only")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -191,11 +211,16 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # as do the desktop-only apps (Doom, LazyWeb, Mail, the Picture Viewer, the
     # tray demo) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
-    args.desktop = (args.desktop or args.devices or args.doom or args.emusic or args.lazyrad
+    args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.emusic
+                    or args.lazyrad
                     or args.lazyweb or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
-    args.net = args.net or args.tls or args.smb
+    args.dbgd = args.dbgd or args.dbgd_control
+    args.net = args.net or args.tls or args.smb or args.dbgd
+    if args.dbgd and not args.net_forward:
+        # The default forwards plus dbgd's port, so `dbgctl` works at once.
+        args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]
     if args.no_data_disk and (args.reset_data or args.data_disk):
         parser.error("--no-data-disk conflicts with --data-disk / --reset-data")
     if args.no_home_disk and args.reset_home:

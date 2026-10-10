@@ -26,3 +26,4 @@ accounts/input_flood.rhai | GPL-3.0-or-later | desktop | LazyOS original: keep i
 accounts/audit_forge.rhai | GPL-3.0-or-later | desktop | LazyOS original: a conf.set value with a line break that would forge an ELEVD:REQUEST line (review of #659)
 accounts/core_claim.rhai | GPL-3.0-or-later | desktop | LazyOS original: pkg.install of a package claiming a core app's system name (review of #659)
 accounts/restart_guarded.rhai | GPL-3.0-or-later | desktop | LazyOS original: service.restart of a service a session may never restart (review of #659)
+accounts/layout_write.rhai | GPL-3.0-or-later | desktop | LazyOS original: a keyboard layout write the session does not own (the machine's, admin's)

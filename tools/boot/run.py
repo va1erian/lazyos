@@ -4,7 +4,8 @@
 Builds ``target/lazyos-usb.img`` (``LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_USB_IMAGE=1 cargo
 build``) unless ``--no-build``, boots it under the chosen firmware from the
 chosen medium, waits for the desktop, takes a screenshot over QMP and judges
-the serial markers and the pixels (``judge.py``):
+the serial markers, the pixels and the first-boot package install
+(``PKGD:PROVISION:DONE ... failed=0 free=<bytes>``, issue #703; ``judge.py``):
 
     python tools/boot/run.py                              # OVMF, USB stick only
     python tools/boot/run.py --firmware bios              # SeaBIOS, USB stick only
@@ -23,6 +24,9 @@ requires ``usbd`` to bind the keyboard (``USBD:HID:KBD``): the target PC may
 have no PS/2 port. ``usbd`` claims the controller once it starts, which is
 fine: the kernel never touches the stick. The drive is opened with ``snapshot=on``
 unless ``--persist``, so a run never changes the image.
+
+``--media ahci`` does the same on QEMU's AHCI controller (docs/ahci-plan.md
+A3; ``--root ahci0p3``).
 
 ``--media nvme`` attaches the image to QEMU's NVMe controller as the only
 disk (docs/nvme-install-plan.md N1); with the dev image and ``--root nvme0p3``
@@ -97,6 +101,11 @@ def media_args(media: str, image: Path, persist: bool) -> list[str]:
         # (docs/nvme-install-plan.md N1). SeaBIOS and OVMF both boot from it.
         return ["-drive", drive,
                 "-device", "nvme,serial=lazyos-nvme0,drive=stick,bootindex=0"]
+    if media == "ahci":
+        # An AHCI controller of its own (docs/ahci-plan.md A3), so it works on
+        # every machine type; the disk is the only one on it.
+        return ["-device", "ahci,id=ahcib", "-drive", drive,
+                "-device", "ide-hd,drive=stick,bus=ahcib.0,bootindex=0"]
     return ["-drive", drive,
             "-device", "virtio-blk-pci,drive=stick,disable-modern=on,bootindex=0"]
 
@@ -117,10 +126,11 @@ def build(env_extra: dict[str, str]) -> None:
     subprocess.run(["cargo", "build"], cwd=ROOT, env=env, check=True)
 
 
-def watch(serial: Path, started: float, ready: str | None, timeout: float,
+def watch(serial: Path, started: float, markers: list[str], timeout: float,
           process: subprocess.Popen) -> list[tuple[float, str]]:
     """Follow the serial log, stamping each new line with the seconds since
-    QEMU started, until the ready marker, a panic, QEMU exiting or the timeout."""
+    QEMU started, until every marker appeared, a panic, QEMU exiting or the
+    timeout."""
     stamped: list[tuple[float, str]] = []
     seen = 0
     while time.time() - started < timeout:
@@ -129,7 +139,8 @@ def watch(serial: Path, started: float, ready: str | None, timeout: float,
         now = time.time() - started
         stamped += [(now, line) for line in lines[seen:]]
         seen = len(lines)
-        if (ready and ready in text) or judge.PANIC.search(text) or process.poll() is not None:
+        done = all(marker in text for marker in markers)
+        if done or judge.PANIC.search(text) or process.poll() is not None:
             break
         time.sleep(0.5)
     return stamped
@@ -139,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--firmware", choices=["uefi", "bios"], default="uefi")
-    parser.add_argument("--media", choices=["usb", "ide", "virtio", "nvme"], default="usb")
+    parser.add_argument("--media", choices=["usb", "ide", "virtio", "nvme", "ahci"], default="usb")
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos-usb.img"))
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--out", help="output directory (default shots/boot/<firmware>-<media>)")
@@ -193,7 +204,11 @@ def main(argv: list[str] | None = None) -> int:
         shot = out / "screen.png"
         try:
             qmp = qemu_qmp.Qmp("127.0.0.1", port, timeout=30)
-            stamped = watch(serial, started, ready, args.timeout, process)
+            # A desktop also installs the core packages (issue #703).
+            markers = [m for m in (ready,) if m]
+            if not args.serial_only:
+                markers.append(judge.PROVISION_MARKER)
+            stamped = watch(serial, started, markers, args.timeout, process)
             if process.poll() is None:
                 time.sleep(args.settle)
                 shot = qmp.screenshot(out / "screen")
@@ -213,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         _, stats, _ = pngstats.analyse_file(str(shot), None, None, None, None, None)
     if not args.serial_only:
         failures += judge.judge_pixels(stats)
+        failures += judge.judge_provision(log)
     report = {
         "firmware": args.firmware,
         "media": args.media,
@@ -221,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         "seconds": judge.milestones(stamped, ready),
         "media_marker": judge.MEDIA.findall(log),
         "root": judge.ROOT.findall(log),
+        "provision": [line for line in log.splitlines() if line.startswith("PKGD:PROVISION:DONE")],
         "screen": stats,
         "failures": failures,
     }

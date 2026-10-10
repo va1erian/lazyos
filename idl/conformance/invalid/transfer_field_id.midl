@@ -1,4 +1,0 @@
-// Conformance case (must be rejected): A transfer has a slot, not a field id.
-interface os.lazy.conformance.bad.v1 {
-    method M() -> () transfers (b: Buffer = 1);
-}

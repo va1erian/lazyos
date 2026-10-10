@@ -1,0 +1,26 @@
+# for f in /sys/class/dmi/id/*; do [ -f "$f" ] && [ -r "$f" ] && printf "%s: " "$(basename $f)" && cat "$f"; done
+bios_date: 04/13/2026
+bios_release: 2.3
+bios_vendor: American Megatrends Inc.
+bios_version: ADB19D 2.03
+board_asset_tag: Default string
+board_name: ADB19D
+board_serial: REDACTED
+board_vendor: MAGICNUC LIMITED
+board_version: Default string
+chassis_asset_tag: Default string
+chassis_serial: Default string
+chassis_type: 35
+chassis_vendor: 
+chassis_version: V1.0
+ec_firmware_release: 2.4
+modalias: dmi:bvnAmericanMegatrendsInc.:bvrADB19D2.03:bd04/13/2026:br2.3:efr2.4:svnMAGICNUCLIMITED:pnAS1:pvrDefaultstring:rvnMAGICNUCLIMITED:rnADB19D:rvrDefaultstring:cvn:ct35:cvrV1.0:sku0003:pfaADB19D:
+product_family: ADB19D
+product_name: AS1
+product_serial: REDACTED
+product_sku: 0003
+product_uuid: REDACTED-GUID
+product_version: Default string
+sys_vendor: MAGICNUC LIMITED
+uevent: MODALIAS=dmi:bvnAmericanMegatrendsInc.:bvrADB19D2.03:bd04/13/2026:br2.3:efr2.4:svnMAGICNUCLIMITED:pnAS1:pvrDefaultstring:rvnMAGICNUCLIMITED:rnADB19D:rvrDefaultstring:cvn:ct35:cvrV1.0:sku0003:pfaADB19D:
+# exit 0

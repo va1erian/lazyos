@@ -5,7 +5,9 @@
 //! controller through the device syscall (23) (a desktop has a chipset one
 //! and often a CPU-side or add-in one), takes each from the BIOS, maps BAR
 //! 0, allocates DMA memory for the rings and contexts, and drives them with
-//! `libs/xhci` by polling. Each connected port, on the root hub or on an
+//! `libs/xhci`, waiting on each controller's interrupt for events (a
+//! bounded poll as the fallback; `irq.rs`, issue #719). Each connected
+//! port, on the root hub or on an
 //! external hub, is reset and its device addressed and bound to its class
 //! (`usbd/class.rs`): a boot keyboard or mouse (any interface of a composite
 //! device) or a report-protocol pointer is published onto the raw input bus
@@ -59,6 +61,8 @@ mod mem;
 mod msc;
 #[path = "usbd/msc_link.rs"]
 mod msc_link;
+#[path = "usbd/names.rs"]
+mod names;
 #[path = "usbd/pipe.rs"]
 mod pipe;
 #[path = "usbd/port.rs"]
@@ -212,7 +216,9 @@ fn run() -> Result<(), Error> {
         "USBD:READY devices={devices} controllers={}\n",
         controllers.len()
     ));
-    let mut irq_buf = alloc::vec![0u8; 256];
+    let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
+    let mut dump = Dump::new();
+    dump.write(&mut controllers, true);
     loop {
         // Acknowledge interrupts first: the line stays masked until then,
         // and an event landing after the acknowledgement interrupts again.
@@ -220,13 +226,63 @@ fn run() -> Result<(), Error> {
         let mut busy = false;
         for controller in &mut controllers {
             busy |= controller.poll(&settings);
-            busy |= controller.serve_storage();
+            busy |= controller.serve_storage(settings.trace);
         }
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
-        if !busy && !controllers.iter_mut().any(Controller::wait_storage) {
+        dump.write(&mut controllers, busy);
+        if !busy
+            && !controllers
+                .iter_mut()
+                .any(|controller| controller.wait_storage(settings.trace))
+        {
             irq::park(&controllers);
         }
+    }
+}
+
+/// Where the controller snapshot goes (`dbgd`'s `usb.dump` reads it).
+const DUMP_PATH: &str = fhs::state::USBD_DUMP;
+/// Ticks (100 Hz) between rewrites of it while events keep arriving.
+const DUMP_TICKS: u64 = 200;
+
+/// The `usb.dump` file: rewritten when something happened and the last
+/// write is [`DUMP_TICKS`] old, so a busy bus costs one small write per
+/// two seconds. A failed write (no `/transient`) is not retried hard: the
+/// next event tries again.
+struct Dump {
+    /// The tick of the last attempt (`None`: none yet, so the first is not
+    /// held back by the interval).
+    last: Option<u64>,
+    dirty: bool,
+}
+
+impl Dump {
+    fn new() -> Dump {
+        Dump {
+            last: None,
+            dirty: true,
+        }
+    }
+
+    fn write(&mut self, controllers: &mut [Controller], busy: bool) {
+        self.dirty |= busy;
+        let now = sys::clock();
+        if !self.dirty || self.last.is_some_and(|last| now < last + DUMP_TICKS) {
+            return;
+        }
+        let mut text = format!("USBD:DUMP:AT tick={now}\n");
+        for controller in controllers.iter_mut() {
+            for line in controller.dump_lines() {
+                text.push_str(&line);
+                text.push('\n');
+            }
+        }
+        // A failed write (the ramfs not there yet) stays pending and is
+        // tried again after the interval, so the file appears without
+        // waiting for another bus event.
+        self.last = Some(now);
+        self.dirty = user::files::write_file(DUMP_PATH, text.as_bytes()).is_err();
     }
 }
 

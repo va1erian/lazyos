@@ -104,8 +104,7 @@ fn parcel(method: u32, parcel_flags: u16, body: Vec<u8>) -> Vec<u8> {
             deadline_ns: 0,
         },
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     let _ = parcel.encode(&mut bytes);

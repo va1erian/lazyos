@@ -93,6 +93,55 @@ interface os.lazy.init.v1 {
     /// `ENOENT`, a row not running `EAGAIN`.
     method RestartService(name: String = 1) -> (pid: U64 = 1);
 
+    /// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
+    /// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`; never `messengerd` or `dbgd`
+    /// (`dbgwire::control::reloadable`). With `binary` empty the row is
+    /// restarted as it is. Otherwise `binary` must be `dbgd`'s staging file
+    /// for `name`: `init` copies it to a root-owned file, checks its SHA-256
+    /// against `sha256` (hex), kills the running task and starts the copy.
+    /// If the new run exits, or cannot be spawned, before `trial_ms` has
+    /// passed, `init` rolls back to the image's binary at once; otherwise it
+    /// commits. A reload lasts until `RevertService` or the next boot.
+    /// `EPERM` for another caller or a refused name, `ENOENT` for no such
+    /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
+    /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
+    method ReloadService(name: String = 1, binary: String = 2, sha256: String = 3, trial_ms: U32 = 4) -> (pid: U64 = 1);
+
+    /// Put the image's binary back for a hot-reloaded service and restart
+    /// it. Same callers and refusals as `ReloadService`; a service that was
+    /// never reloaded is just restarted.
+    method RevertService(name: String = 1) -> (pid: U64 = 1);
+
+    /// Restart a running app after `pkgd.InstallDebug` replaced it
+    /// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
+    /// app `app` (its id, as `Launch` takes it) is killed and launched again
+    /// in its own session with its own argument, from the app's current
+    /// install. Same callers as `ReloadService`. `stopped` counts the
+    /// instances killed, `started` the ones launched again; an app that is
+    /// not running is not an error (both 0).
+    method RelaunchApp(app: String = 1) -> (stopped: U64 = 1, started: U64 = 2);
+
+    /// The hot reloads since boot, one row per service that had one.
+    /// Read-only: any caller.
+    method Reloads() -> (reloads: Array<ReloadState> = 1);
+
+    /// One service's hot-reload state (`Reloads`).
+    struct ReloadState {
+        /// Service name.
+        name: String = 1,
+        /// `trial` (running the new binary, deadline not reached),
+        /// `committed`, `rolled-back` or `reverted`.
+        state: String = 2,
+        /// SHA-256 (hex) of the binary the row runs; empty after a rollback
+        /// or a revert (the image's).
+        sha256: String = 3,
+        /// Task slot of the current run, or 0.
+        pid: U64 = 4,
+        /// Why a rollback happened (`exited status=11`, `spawn failed`).
+        detail: String = 5
+    }
+
     /// What the machine does once userspace is quiesced (`Shutdown`'s `mode`).
     enum PowerMode { PowerOff, Reboot }
 

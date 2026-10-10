@@ -49,7 +49,7 @@ class FieldIdTests(unittest.TestCase):
             ("struct P { a: U32 = 0 }", "outside 1..65535"),
             ("struct P { a: U32 = 70000 }", "outside 1..65535"),
             ("method M() -> (a: U32 = 15);", "reserved for the standard error"),
-            ("method M() -> () transfers (b: Buffer = 1);", "a slot, not a field id"),
+            ("method M() -> () transfers (b: Buffer);", "`transfers (...)` clause is gone"),
             ("struct P { a: U32 = x }", "expected a field id"),
             ("struct P { m: Map<String, U32> }", "no Map type"),
         ]:
@@ -111,8 +111,9 @@ class ErrorFieldTests(unittest.TestCase):
 class WireTests(unittest.TestCase):
     def test_fields_encode_under_their_ids(self) -> None:
         interface, _ = parse(wrap("struct P { a: U32 = 300, o: Option<Bool> = 2 }"))
-        body = encode_message(interface, "P", {"a": 1, "o": None})
+        body, objects = encode_message(interface, "P", {"a": 1, "o": None})
         self.assertEqual(body.hex(), "042c0100" "04000000" "01000000" "0c020000" "00000000")
+        self.assertEqual(objects, [])
 
     def test_a_record_value_must_name_every_field(self) -> None:
         interface, _ = parse(wrap("struct P { a: U32 = 1 }"))

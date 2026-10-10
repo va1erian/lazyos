@@ -283,24 +283,19 @@ fn serve_request(
     }
 }
 
-/// `Bell`: take the transferred channel end as the subscription's doorbell.
-/// A request without exactly that one handle is refused, and whatever it
-/// did carry is closed, so a malformed request cannot leak handles here.
+/// `Bell`: take the channel end the request carried as the subscription's
+/// doorbell. A malformed request leaves the end with the message, which
+/// closes it, so nothing can leak handles here.
 fn serve_bell(endpoint: &messenger::Endpoint, broker: &mut Broker, message: &messenger::Message) {
-    let result = if message.carries(topics_client::BELL_TRANSFERS) {
-        let bell = messenger::Endpoint::from_raw(message.first_handle);
-        let installed = topics_client::decode_bell_args(&message.parcel)
-            .map_err(|_| messenger::Error::Topics(errno::EINVAL))
-            .and_then(|id| broker.set_bell(id, message.sender, bell));
-        if installed.is_err() {
-            let _ = bell.close();
+    let result = match topics_client::decode_bell_args(message) {
+        Ok((id, bell)) => {
+            let installed = broker.set_bell(id, message.sender, bell);
+            if installed.is_err() {
+                let _ = bell.close();
+            }
+            installed
         }
-        installed
-    } else {
-        for offset in 0..message.handles {
-            let _ = messenger::Endpoint::from_raw(message.first_handle + offset).close();
-        }
-        Err(messenger::Error::Topics(errno::EINVAL))
+        Err(_) => Err(messenger::Error::Topics(errno::EINVAL)),
     };
     if let Some(txn) = message.txn {
         let reply = match result {

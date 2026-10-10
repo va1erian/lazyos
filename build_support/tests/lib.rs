@@ -47,6 +47,8 @@ mod accounts_tests;
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
+mod dbgd_tests;
+#[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]
 mod f4_layout_tests;
@@ -70,6 +72,8 @@ mod samples_tests;
 mod state_tests;
 #[cfg(test)]
 mod tls_files_tests;
+#[cfg(test)]
+mod usb_root_tests;
 #[cfg(test)]
 mod usb_tests;
 #[cfg(test)]

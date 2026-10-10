@@ -28,6 +28,7 @@ def make_vars() -> dict:
         "memory": s(value=DEFAULT_MEMORY),
         "limits": s(value=""),
         "display_mode": s(value=""),
+        "display_max": s(value=""),
         "assets": s(value=""),
         # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
         # the image's default (the login screen on the desktop).
@@ -79,6 +80,8 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "simple_doom": b(value=False),
+        "quake": b(value=False),
+        "simple_quake": b(value=False),
         "emusic": b(value=False),
         "simple_emusic": b(value=False),
         "modplayer": b(value=False),
@@ -95,6 +98,12 @@ def make_vars() -> dict:
         "simple_tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
         "smb": b(value=False),
+        # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
+        # implies networking).
+        "dbgd": b(value=False),
+        # Its control tier: restart and hot reload (LAZYOS_DBGD_CONTROL,
+        # run_demo --dbgd-control; implies dbgd).
+        "dbgd_control": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the

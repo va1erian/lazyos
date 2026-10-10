@@ -8,34 +8,32 @@ use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_messenger_topics_bell_v1 as bell;
 use messenger_generated::os_lazy_messenger_topics_v1 as generated;
 
-use super::super::{Error, Message, Result};
+use super::super::{Endpoint, Error, Message, Result};
 use super::header;
 
 /// The bell's interface id (`os.lazy.messenger.topics.bell.v1`).
 pub const BELL_INTERFACE: u64 = bell::INTERFACE_ID;
-/// What a `Bell` request must carry: the bell channel end.
-pub const BELL_TRANSFERS: messenger_generated::transfers::Transfers = generated::BELL_TRANSFERS;
 
-/// A `Bell` request for subscription `id`, transferring `handle` (the end
-/// the broker will send on; the kernel moves it out of the caller's table).
+/// A `Bell` request for subscription `id`, carrying `handle` (the end the
+/// broker will send on; the kernel moves it out of the caller's table).
 pub fn bell_request(id: u64, handle: u64) -> Result<Parcel> {
-    let args = generated::BellArgs { subscription: id };
-    let body = generated::encode_bell_args(&args).map_err(Error::Parcel)?;
-    let (handles, buffers) =
-        generated::encode_bell_transfers(&generated::BellTransfers { bell: handle });
+    let args = generated::BellArgs {
+        subscription: id,
+        bell: handle,
+    };
+    let (body, objects) = generated::encode_bell_args(&args).map_err(Error::Parcel)?;
     Ok(Parcel {
         header: header(generated::METHOD_BELL),
         body,
-        handles,
-        buffers,
+        objects,
     })
 }
 
-/// The subscription a `Bell` request names.
-pub fn decode_bell_args(parcel: &Parcel) -> Result<u64> {
-    Ok(generated::decode_bell_args(&parcel.body)
-        .map_err(Error::Parcel)?
-        .subscription)
+/// The subscription a received `Bell` request names and the end it carried,
+/// claimed from the message (the caller owns it from here).
+pub fn decode_bell_args(message: &Message) -> Result<(u64, Endpoint)> {
+    let args = message.decode(generated::decode_bell_args)?;
+    Ok((args.subscription, Endpoint::from_raw(args.bell)))
 }
 
 /// The one-way `Ready` the broker rings subscription `id`'s bell with.

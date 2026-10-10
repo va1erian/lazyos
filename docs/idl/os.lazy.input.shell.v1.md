@@ -18,7 +18,7 @@ refused (`EINVAL`).
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| Attach | 1 | sync | `() -> () transfers (events: Channel<os.lazy.input.shell.v1>)` |
+| Attach | 1 | sync | `(events: Channel<os.lazy.input.shell.v1>) -> ()` |
 | SetFocus | 2 | sync | `(surface: Option<U64>) -> ()` |
 | RegisterSurface | 3 | sync | `(surface: U64, owner: U64) -> ()` |
 | UnregisterSurface | 4 | sync | `(surface: U64) -> ()` |
@@ -32,6 +32,7 @@ refused (`EINVAL`).
 | ForgetSurface | 12 | oneway | `(surface: U64) -> ()` |
 | NoteInputDone | 13 | oneway | `(seq: U64) -> ()` |
 | NoteKeysHeld | 14 | oneway | `(held: Bool) -> ()` |
+| NoteSessionLayout | 15 | oneway | `(layout: Option<String>) -> ()` |
 | HotkeyFired | 20 | oneway | `(id: U64) -> ()` |
 | GrantRequested | 21 | oneway | `(session: U64, kind: U32, surface: U64) -> ()` |
 | EscapeChord | 22 | oneway | `() -> ()` |
@@ -40,11 +41,11 @@ refused (`EINVAL`).
 | PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
 | GrabChanged | 26 | oneway | `(surface: Option<U64>) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Attach | `events` | `handles[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Attach | `events` | `Channel<os.lazy.input.shell.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.input.shell.v1` on |

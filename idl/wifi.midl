@@ -28,7 +28,7 @@
 /// or its event channel reporting the peer gone, detaches it and leaves the
 /// radio idle: scanning stops, the BSS is left, all keys are deleted.
 ///
-/// **Events.** `Attach` transfers the client's event channel; the driver sends
+/// **Events.** `Attach` carries the client's event channel; the driver sends
 /// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 /// `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 /// at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
@@ -46,10 +46,9 @@ interface os.lazy.net.wifi.hw.v1 {
     /// label policy lets reach the driver may ask, attached or not: it reveals
     /// only hardware facts.
     method Info() -> (info: HwInfo = 1);
-    /// Become the radio's one client. The parcel transfers the event channel
-    /// the driver sends events on. `EBUSY` when attached.
-    method Attach() -> ()
-        transfers (events: Channel<os.lazy.net.wifi.hw.v1>);
+    /// Become the radio's one client. `events` is the channel the driver
+    /// sends events on. `EBUSY` when attached.
+    method Attach(events: Channel<os.lazy.net.wifi.hw.v1> = 1) -> ();
     /// Release the radio (also implied when the owner exits). Leaves the BSS,
     /// aborts a scan and deletes every key.
     method Detach() -> ();

@@ -7,7 +7,7 @@
 //! | Entry | Start | Size | Content |
 //! |---|---|---|---|
 //! | 1 | LBA 2048 (1 MiB) | 1 MiB | FAT12 `/boot`: `lazyos.cfg` only |
-//! | 2 | LBA 4096 (2 MiB) | the OS files plus [`Settings::root_free`] | ext2 OS volume (label `lazyos`) |
+//! | 2 | LBA 4096 (2 MiB) | the OS files, the core packages unpacked ([`installed_package_bytes`]) and [`Settings::root_free`] | ext2 OS volume (label `lazyos`) |
 //!
 //! The kernel registers the ramdisk as `ram0`, scans its MBR (`ram0p1`,
 //! `ram0p2`) and mounts it through the same configured layout as a disk:
@@ -20,7 +20,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ext2fs::{Ext2, Geometry};
 
@@ -60,6 +60,13 @@ pub struct Written {
     pub os_bytes: u64,
 }
 
+/// Where the generated `dbgd` key is kept (`target/dbgd.key`).
+fn dbgd_key_file() -> PathBuf {
+    let root =
+        std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
+    root.join("target").join("dbgd.key")
+}
+
 /// Write the ramdisk image to `path` (replacing it).
 pub fn write(
     path: &Path,
@@ -68,8 +75,13 @@ pub fn write(
     files: &[OsFile],
 ) -> Result<Written, String> {
     let limits = os_image::limits_cfg::from_env();
-    let fat = fat_volume(os_image::boot_cfg(settings.uuid, &limits).as_bytes())?;
-    let mut os_bytes = estimate_os_bytes(dirs, files)? + settings.root_free;
+    let mut cfg = os_image::boot_cfg(settings.uuid, &limits);
+    cfg += &os_image::diag_hold_line(std::env::var("LAZYOS_DIAG_HOLD").ok().as_deref());
+    cfg += &os_image::display_cfg::from_env();
+    cfg += &os_image::dbgd_cfg::from_env(&dbgd_key_file());
+    let fat = fat_volume(cfg.as_bytes())?;
+    let mut os_bytes =
+        estimate_os_bytes(dirs, files)? + installed_package_bytes(files)? + settings.root_free;
     for _ in 0..SIZE_ATTEMPTS {
         match write_once(path, settings, &fat, os_bytes, dirs, files) {
             Ok(written) => return Ok(written),
@@ -162,6 +174,49 @@ pub fn estimate_os_bytes(dirs: &[DirSpec], files: &[OsFile]) -> Result<u64, Stri
     data += (dirs.len() as u64 + files.len() as u64 / 8 + 16) * BLOCK;
     let overhead = data / 50 + (4 << 20);
     Ok(round_up(data + overhead, 1 << 20))
+}
+
+/// What `pkgd` writes to the RAM root at first boot (issue #703): every core
+/// package in `/system/packages` unpacked into `/apps`, and its `docs/**.md`
+/// copied once more to `/docs/apps`. Each file is counted in whole 4 KiB
+/// blocks with its indirect blocks, plus a block per directory, so the
+/// estimate errs on the large side. The archives themselves are already in
+/// [`estimate_os_bytes`].
+pub fn installed_package_bytes(files: &[OsFile]) -> Result<u64, String> {
+    const BLOCK: u64 = 4096;
+    let blocks = |len: u64| {
+        let data = len.div_ceil(BLOCK);
+        (data + data.div_ceil(1024) + 1) * BLOCK
+    };
+    let core = format!("{}/", fhs::SYSTEM_PACKAGES);
+    let mut total = 0u64;
+    for file in files {
+        if !(file.path.starts_with(&core) && file.path.ends_with(".lzp")) {
+            continue;
+        }
+        let bytes = match &file.source {
+            Source::Bytes(bytes) => bytes.clone(),
+            Source::Path(path) => {
+                std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?
+            }
+        };
+        let package = lazypkg::Package::open(&bytes)
+            .map_err(|e| format!("{}: not a package: {e:?}", file.path))?;
+        let mut dirs = std::collections::BTreeSet::new();
+        for entry in package.entries().filter(|entry| !entry.is_dir) {
+            let size = blocks(u64::from(entry.size));
+            let doc = entry.name.starts_with("docs/") && entry.name.ends_with(".md");
+            total += if doc { 2 * size } else { size };
+            let mut parent = entry.name;
+            while let Some((dir, _)) = parent.rsplit_once('/') {
+                dirs.insert(dir.to_string());
+                parent = dir;
+            }
+        }
+        // The install directory, its parents and the docs directory.
+        total += (dirs.len() as u64 + 4) * BLOCK;
+    }
+    Ok(round_up(total, 1 << 20))
 }
 
 /// A 1 MiB FAT12 volume (label `LAZYBOOT`) holding `lazyos.cfg` = `cfg`.

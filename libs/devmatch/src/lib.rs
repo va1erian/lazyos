@@ -54,6 +54,11 @@ pub struct Entry {
 /// keeps the two in step.
 pub const E1000_DEVICES: &[u16] = &[0x100E, 0x100F, 0x1008, 0x1010, 0x1011, 0x1026];
 
+/// The device ids `netdrv`'s Realtek back end accepts (`libs/rtl8168`); a
+/// test keeps the two in step. Whether the revision behind the id is
+/// supported is the driver's answer (it parks on the others).
+pub const RTL8168_DEVICES: &[u16] = &[0x8168];
+
 /// The manifest, in priority order: an entry earlier in the list wins when
 /// two match the same function.
 pub const MANIFEST: &[Entry] = &[
@@ -72,6 +77,14 @@ pub const MANIFEST: &[Entry] = &[
         matches: Match::Ids {
             vendor: 0x8086,
             devices: E1000_DEVICES,
+        },
+    },
+    Entry {
+        driver: "netdrv",
+        model: "Realtek RTL8168",
+        matches: Match::Ids {
+            vendor: 0x10EC,
+            devices: RTL8168_DEVICES,
         },
     },
     Entry {
@@ -149,6 +162,13 @@ mod tests {
             (0x1AF4, 0x1000, 0x02, 0x00, Some(("netdrv", "virtio-net"))),
             (0x1AF4, 0x1041, 0x02, 0x00, Some(("netdrv", "virtio-net"))),
             (0x8086, 0x100E, 0x02, 0x00, Some(("netdrv", "Intel 8254x"))),
+            (
+                0x10EC,
+                0x8168,
+                0x02,
+                0x00,
+                Some(("netdrv", "Realtek RTL8168")),
+            ),
             (0x1AF4, 0x1059, 0x04, 0x01, Some(("sndd", "virtio-sound"))),
             (0x8086, 0x2668, 0x04, 0x03, Some(("sndd", "Intel HDA"))),
             (0x8086, 0x54C8, 0x04, 0x03, Some(("sndd", "Intel HDA"))),
@@ -157,6 +177,8 @@ mod tests {
             (0x1AF4, 0x1001, 0x01, 0x00, None),
             (0x8086, 0x1237, 0x06, 0x00, None),
             (0x8086, 0x10D3, 0x02, 0x00, None),
+            // The Wi-Fi next to the box's Ethernet.
+            (0x10EC, 0xC822, 0x02, 0x80, None),
             (0x1B36, 0x000D, 0x0C, 0x03, None),
         ];
         for (vendor, device, class, subclass, want) in cases {
@@ -191,11 +213,32 @@ mod tests {
         e1000.sort_unstable();
         ours.sort_unstable();
         assert_eq!(e1000, ours);
+        // netdrv's Realtek back end takes exactly these ids.
+        let mut rtl: Vec<u16> = rtl8168::DEVICES.iter().map(|(id, _)| *id).collect();
+        let mut ours = RTL8168_DEVICES.to_vec();
+        rtl.sort_unstable();
+        ours.sort_unstable();
+        assert_eq!(rtl, ours);
         // sndd's HDA back end takes exactly this class.
         assert!(hda::is_controller(0x04, 0x03));
         for entry in MANIFEST {
             assert!(matches!(entry.driver, "netdrv" | "sndd"), "{entry:?}");
         }
+    }
+
+    #[test]
+    fn the_kabylake_box_gets_its_ethernet_driver_and_nothing_for_its_wifi() {
+        let functions = [
+            function(1, 0x8086, 0x5916, 0x03, 0x00),
+            function(2, 0x8086, 0x9d2f, 0x0c, 0x03),
+            function(3, 0x10EC, 0xC822, 0x02, 0x80),
+            function(4, 0x10EC, 0x8168, 0x02, 0x00),
+        ];
+        let plan: Vec<(&str, u16)> = plan(&functions)
+            .into_iter()
+            .map(|(driver, id, _)| (driver, id))
+            .collect();
+        assert_eq!(plan, [("netdrv", 4)]);
     }
 
     #[test]

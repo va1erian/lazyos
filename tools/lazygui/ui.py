@@ -14,6 +14,7 @@ from .runner import Runner, open_path
 from .scriptenv import SCRIPT_ENV
 from .scroll import scrollable
 from .simple import SIMPLE_EXTRAS, build_simple_tab, simple_choice
+from .uidata import advanced_cfg
 from .variables import make_vars
 
 
@@ -49,65 +50,8 @@ class Launcher:
 
     def _advanced_cfg(self) -> dict:
         """Snapshot the Advanced controls into the dict catalog.build_plan expects."""
-        names = [n for n in SCRIPTS if n[1] == self.v["script"].get()]
-        return {
-            "mode": self.v["mode"].get(),
-            "profile": self.v["profile"].get(),
-            "accel": self.v["accel"].get(),
-            "disk": self.v["disk"].get(),
-            "home_path": self.v["home_path"].get().strip(),
-            "home_disk": self.v["home_disk"].get(),
-            "data_path": self.v["data_path"].get().strip(),
-            "data_disk": self.v["data_disk"].get(),
-            "reset_os": self.v["reset_os"].get(),
-            "memory": self.v["memory"].get().strip(),
-            "limits": self.v["limits"].get().strip(),
-            "display_mode": self.v["display_mode"].get().strip(),
-            "assets": self.v["assets"].get().strip(),
-            "autologin": self.v["autologin"].get().strip(), "setup": self.v["setup"].get(),
-            "times": self.v["times"].get().strip(),
-            "timeout": self.v["timeout"].get().strip(),
-            "abi_time": self.v["abi_time"].get().strip(),
-            "abi_only": self.v["abi_only"].get().strip(),
-            "extra": self.v["extra"].get().strip(),
-            "out": self.v["out"].get().strip(),
-            "qemu": self.v["qemu"].get().strip(),
-            "busybox": self.v["busybox"].get().strip(),
-            "skip_build": self.v["skip_build"].get(),
-            "headless": self.v["headless"].get(),
-            "tablet": self.v["tablet"].get(),
-            "sound": self.v["sound"].get(),
-            "sound_card": self.v["sound_card"].get(),
-            "nic": self.v["nic"].get(),
-            **{key: self.v[key].get() for key in ("devd", "irqchip", "msi")},
-            "abi_build": self.v["abi_build"].get(),
-            "desktop": self.v["desktop"].get(),
-            "services": self.v["services"].get(),
-            "xuid": self.v["xuid"].get(),
-            "shellprobe": self.v["shellprobe"].get(),
-            "msgctl": self.v["msgctl"].get(),
-            "msgrd": self.v["msgrd"].get(),
-            "xui_client": self.v["xui_client"].get(),
-            "xui_app": self.v["xui_app"].get(),
-            "xui_autostart": self.v["xui_autostart"].get(),
-            "lazyrad": self.v["lazyrad"].get(),
-            "usb_image": self.v["usb_image"].get(),
-            "shell": self.v["shell"].get(),
-            "lazyrad_samples": self.v["lazyrad_samples"].get().strip(),
-            "devices": self.v["devices"].get(),
-            "doom": self.v["doom"].get(), "emusic": self.v["emusic"].get(),
-            "modplayer": self.v["modplayer"].get(),
-            "net": self.v["net"].get(),
-            "net_forwards": self.v["net_forwards"].get().strip(),
-            "net_restrict": self.v["net_restrict"].get(),
-            "linuxapps": self.v["linuxapps"].get(),
-            "smb": self.v["smb"].get(),
-            # Mail speaks TLS: its switch brings the HTTPS stack and the card.
-            "tls": self.v["tls"].get() or self.v["mail"].get(),
-            "journal": self.v["journal"].get(),
-            **{app: self.v[app].get() for app in ("lazyweb", "mail", "traydemo", "pictures")},
-            "script": SCRIPTS.index(names[0]) if names else 0,
-        }
+        return advanced_cfg(self)
+
 
     # ------------------------------------------------------------------ ui
     def _build(self) -> None:
@@ -131,7 +75,8 @@ class Launcher:
         v = self.v
         build_simple_tab(scrollable(self.tab_simple), v["simple_build"], v["simple_iface"],
                          v["simple_lazyrad"], v["simple_shell"], v["simple_devices"],
-                         v["simple_doom"], v["simple_modplayer"], v["simple_net"], self._run,
+                         v["simple_doom"], v["simple_quake"], v["simple_modplayer"],
+                         v["simple_net"], self._run,
                          *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
                                                      "traydemo", "autologin", "setup", "pictures", "emusic")))
         self._build_left(scrollable(tab_adv))
@@ -157,6 +102,7 @@ class Launcher:
         self._check(g, "Compositor client (+ LAZYOS_XUI_CLIENT)", "xui_client")
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
+        self._check(g, "Quake package in /system/share/samples (LAZYOS_QUAKE)", "quake")
         self._check(g, "emusic package in /system/share/samples (LAZYOS_EMUSIC)", "emusic")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
@@ -185,7 +131,8 @@ class Launcher:
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
-                                                    "lazyweb", "smb")))
+                                                    "lazyweb", "smb", "dbgd",
+                                                    "dbgd_control")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))
@@ -229,6 +176,7 @@ class Launcher:
         self._field(g, "QEMU args:", "extra", 44)
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
+        self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         self._field(g, "Autologin:", "autologin", 12)  # user: no login screen (#623)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

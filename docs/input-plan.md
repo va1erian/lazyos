@@ -146,8 +146,8 @@ service with no window can use input; a display client needs no input rights).
 
 **Client flow.** A display client keeps creating its surface through
 `os.lazy.display.v1` unchanged. To get keys it calls `os.lazy.input.v1`
-`Open(surface: Option<U64>) -> (session: U64)` and transfers an event endpoint
-in the parcel (endpoint transfers stay in `handles`, as in `display.midl`).
+`Open(surface: Option<U64>, events: Channel<...>) -> (session: U64)` and
+passes an event endpoint as a `Channel` parameter (as in `display.midl`).
 `inputd` binds the session to the kernel-stamped sender task, and the shell
 side tells it which session owns which surface (`xuid` already knows the
 surface's creator, so it registers `(surface, owner task)` and `inputd`
@@ -186,8 +186,8 @@ never uses them, and they are removed in I5. No new display method is added by
 this plan.
 
 **Low-latency poll path for games.** Optionally `inputd` (not the compositor)
-hands a focused session a `SHARE_ONLY` shared buffer holding a 256-bit *down
-bitmap* plus a `seq: AtomicU64`. Reading `is_down(HID_W)` is a memory read, no
+hands a focused session a shared buffer holding a 256-bit *down bitmap* plus
+a `seq: AtomicU64` (the plan said `SHARE_ONLY`; see the status note below). Reading `is_down(HID_W)` is a memory read, no
 Messenger round trip and no event queue. The bitmap is cleared and the client
 notified on `KeyboardLeave`. Events still flow for edge-triggered actions.
 
@@ -273,7 +273,7 @@ I0, I1 and I2 are in. Where the code differs from the sketch above:
 |---|---|
 | Kernel bus | `kernel/src/input/{hid,raw_tap,bus,rawsys,sources}.rs`; syscall 25 (`open`/`poll`/`close`) gated by `CAP_INPUT_RAW` (bit 9), driver sources (ops 4-6) by `CAP_INPUT_SOURCE` (bit 10). Records are 24 bytes with `device: u8`, `kind: u8` (see layer 1). Timestamps have PIT-tick (10 ms) resolution; ordering is by `seq`. Pause is reported as an immediate press+release (it has no break code). The legacy `display_input_poll` stream is unchanged and fed in parallel. |
 | Capability | `init` starts `inputd` with `CAP_INPUT_RAW` only and strips the bit from every other manifest service; the kernel strips it from every boot-spawned program except `init` (`credentials::drop_caps`). |
-| `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`. Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
+| `inputd` | `user/src/bin/inputd*`, logic in `libs/inputmap` (host-tested: keymaps cross-checked against the kernel's old tables, modifier/lock state, repeat, hotkeys, resync after `Dropped`, session/focus routing). Compiled-in US and FR keymaps; layout from `confd` key `sys/input/layout`, boot default `LAZYOS_KBD_LAYOUT`, overridden for the logged-in user by the layout `xuid` names (`NoteSessionLayout`: the user's `user/<uid>/input/layout`, which `inputd` cannot read itself; `inputmap::session_layout`, `inputd/layoutsel.rs`). Repeat: 500 ms delay, 30 ms interval, fixed. NumLock starts on; LEDs are not driven. |
 | Keysyms | Unicode scalars for character keys, X11 `0xFFxx` values otherwise. With Ctrl held a letter's `sym` is its unshifted form. `mods` is the state *after* the event. |
 | Interfaces | `idl/input.midl`. `KeyboardEnter.down` is `Array<U32>` (MIDL has no `U16`). `Open` without a surface is the login console's session (issue #396, below); `Attach`, `UnregisterSurface`, `UnregisterHotkey`, `SessionOpened`/`SessionClosed` were added to the shell interface. I3 added `RequestGrant`/`ReleaseGrant`/`Ping`/`AttachKeyState` and the `GrantChanged` event to the client interface, a real `ApproveGrant`, a `surface` field on `GrantRequested` and the `GrabChanged` shell event (below). |
 | Shell authority | `inputd` accepts shell calls only from the task that holds the display grant, which it asks the kernel for (`rawsys` op 3, `display::owner()`; the grant itself needs `CAP_SYS_ADMIN`), so no capability bit beyond `input.raw` was needed yet. (The registry's name list is privileged, and a name is not an identity anyway.) |
@@ -311,10 +311,10 @@ client side in `xui-app/src/input/grab.rs`.
   word, the raw `seq` of the newest edge, a focused flag and a 256-bit bitmap
   of HID usages (`inputmap::keystate::SharedKeys`, 56 bytes). Focus leaving
   clears it *before* `KeyboardLeave` is sent. The plan said `SHARE_ONLY`, but
-  the kernel's `SHARE_ONLY` means nobody but the creator may map a buffer
-  (`kernel/src/ipc/shared.rs`), which is the opposite of what is needed, and
-  buffer flags are per buffer, not per mapping. So the page is an ordinary
-  buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
+  share-only meant nobody but the creator may map a buffer, the opposite of
+  what is needed; ordinary buffers have no flags at all since
+  `messenger-core-plan.md` M1 (only a driver's `dma_alloc(SHARE_ONLY)` keeps
+  that behaviour). So the page is an ordinary buffer the client owns: `inputd` only ever writes it, keeps its own seqlock
   counter (`keystate::Writer`, never reading the page back), and the page
   carries nothing the session's `KeyEvent`s did not already tell it, so a
   client scribbling on it confuses only itself. `Ping(session, token)` returns the newest

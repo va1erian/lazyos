@@ -1,5 +1,5 @@
 //! The driver's tunables from `confd` (`docs/driver-config-plan.md` section 2,
-//! keys `sys/dev/net/virtio-net/*`, or `sys/dev/net/e1000/*` for an 8254x).
+//! keys `sys/dev/net/virtio-net/*`, `sys/dev/net/e1000/*` for an 8254x, or `sys/dev/net/rtl8168/*`).
 //!
 //! `confd` is a **soft** dependency: the driver tries to resolve it for a
 //! second at most, runs on the defaults when it is absent, and looks again
@@ -27,6 +27,7 @@ pub(super) fn prefix(kind: Kind) -> &'static str {
     match kind {
         Kind::Virtio => "sys/dev/net/virtio-net",
         Kind::E1000(_) => "sys/dev/net/e1000",
+        Kind::Rtl8168(_) => "sys/dev/net/rtl8168",
     }
 }
 

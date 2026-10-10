@@ -17,7 +17,7 @@ const IFACE: u64 = 0x6969_6969_6969_6969;
 /// restores the kernel's afterwards.
 const SPACE: u64 = 0x0040_0000;
 
-const SPACE_PAGES: u64 = 8;
+const SPACE_PAGES: u64 = 10;
 
 /// Blocks inside the scratch space, one per page so page-crossing copies
 /// are not a factor in these tests.
@@ -93,8 +93,7 @@ fn parcel(method: u32, parcel_flags: u16, text: &str) -> Result<Vec<u8>, String>
             deadline_ns: 0,
         },
         body: body.finish(),
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     };
     let mut bytes = Vec::new();
     parcel.encode(&mut bytes).map_err(|error| error.message())?;
@@ -133,7 +132,7 @@ fn read_bytes(va: u64, len: usize) -> Vec<u8> {
 fn syscall(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
     write_bytes(ARGS, &args.to_bytes());
     let code = process::dispatch_for_test(5, op, ARGS, RESULT);
-    let result = MsgResult::from_bytes(&read_bytes(RESULT, 64))
+    let result = MsgResult::from_bytes(&read_bytes(RESULT, crate::ipc::syscalls::RESULT_SIZE))
         .expect("the kernel wrote a malformed result block");
     (code, result)
 }

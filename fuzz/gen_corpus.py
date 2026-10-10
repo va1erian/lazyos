@@ -22,12 +22,15 @@ from pathlib import Path
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
 )
+from seeds_dbg import dbgwire_seeds
 from seeds_formats import ipp_seeds, lazypkg_seeds, pwgraster_seeds
+from seeds_messenger import messenger_seeds
 from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
 from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seeds, virtio_net_seeds
 from seeds_smb import smbwire_seeds
 from seeds_storage import (
     acpi_seeds, ext2fs_seeds, mscdesc_seeds, mscreply_seeds, mscsession_seeds, nvme_seeds,
+    ahci_seeds,
 )
 
 ROOT = Path(__file__).resolve().parent / "seeds"
@@ -52,12 +55,15 @@ TARGETS = {
     "ipp": ipp_seeds,
     "pwgraster": pwgraster_seeds,
     "nvme": nvme_seeds,
+    "ahci": ahci_seeds,
     "passwd": passwd_seeds,
     "accountdb": accountdb_seeds,
     "elevpolicy": elevpolicy_seeds,
     "accountwire": accountwire_seeds,
     "pkgstore_rules": pkgstore_rules_seeds,
     "smbwire": smbwire_seeds,
+    "dbgwire": dbgwire_seeds,
+    "messenger": messenger_seeds,
 }
 
 

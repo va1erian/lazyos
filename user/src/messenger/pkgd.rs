@@ -69,8 +69,7 @@ pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: header(method),
         body,
-        handles: Vec::new(),
-        buffers: Vec::new(),
+        objects: Vec::new(),
     }
 }
 
@@ -188,6 +187,24 @@ impl Client {
         .map_err(Error::Parcel)?;
         let reply = self.call(wire::METHOD_INSTALLAPPROVED, body)?;
         Ok(wire::decode_install_approved_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .app)
+    }
+
+    /// `InstallDebug(path, digest)`: `dbgd`'s install of an uploaded package
+    /// (only `dbgd`, on a box with `diag.dbg.control=1`).
+    pub fn install_debug(
+        &self,
+        path: &str,
+        digest: &str,
+    ) -> core::result::Result<Installed, Failure> {
+        let body = wire::encode_install_debug_args(&wire::InstallDebugArgs {
+            path: String::from(path),
+            digest: String::from(digest),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_INSTALLDEBUG, body)?;
+        Ok(wire::decode_install_debug_reply(&reply.body)
             .map_err(Error::Parcel)?
             .app)
     }

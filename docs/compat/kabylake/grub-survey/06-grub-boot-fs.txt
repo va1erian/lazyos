@@ -1,0 +1,4 @@
+# findmnt -no SOURCE,FSTYPE,TARGET /boot 2>&1; findmnt -no SOURCE,FSTYPE,TARGET /boot/efi 2>&1; findmnt -no SOURCE,FSTYPE,TARGET / 2>&1
+/dev/sda1 vfat /boot/efi
+/dev/sda2 ext4 /
+# exit 0

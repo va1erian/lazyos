@@ -7,10 +7,10 @@
 
 Only removable or USB disks are offered or accepted. On Linux a disk with a
 mounted partition is refused (unmount it first); on Windows the system and
-boot disks are refused and the chosen disk is taken offline for the write
-(which dismounts its volumes) and brought back online after. The tool shows
-the disk's model and size and asks twice, the second time for the device name
-typed back, then writes the whole image and reads it back to compare SHA-256
+boot disks are refused and the chosen disk's partition table is cleared for the
+write (which removes its volumes; Windows refuses to take removable media
+offline) and the disk is rescanned after. The tool shows
+the disk's model and size and asks once (y/N), then writes the whole image and reads it back to compare SHA-256
 digests. Everything on the disk is lost.
 
 `tools/boot/stick_gui.py` does the same, and the build, from a window.
@@ -31,6 +31,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHUNK = 4 << 20
+#: Bytes at the start of the image written last: the partition tables (MBR at
+#: LBA 0, GPT header and entries at LBA 1 to 33) and nothing a volume owns.
+HEAD = 1 << 20
 
 
 @dataclass
@@ -93,9 +96,19 @@ POWERSHELL_LIST = (
 )
 
 
+class PowerShellError(RuntimeError):
+    """A PowerShell command failed; the message carries what it said."""
+
+
 def powershell(command: str) -> str:
-    result = subprocess.run(["powershell", "-NoProfile", "-Command", command],
-                            capture_output=True, text=True, check=True)
+    """Run `command` (errors are terminating) and return stdout; on failure raise
+    PowerShellError with PowerShell's own message, not just an exit status."""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", f"$ErrorActionPreference='Stop'; {command}"],
+        capture_output=True, text=True)
+    if result.returncode:
+        said = (result.stderr or result.stdout).strip() or f"exit status {result.returncode}"
+        raise PowerShellError(f"{command}\n{said}")
     return result.stdout
 
 
@@ -115,9 +128,19 @@ def windows_disks() -> list[Disk]:
     return disks
 
 
-def windows_offline(disk: Disk, offline: bool) -> None:
-    state = "$true" if offline else "$false"
-    powershell(f"Set-Disk -Number {disk.number} -IsOffline {state}")
+def windows_release(disk: Disk) -> None:
+    """Free the stick's volumes before the raw write by clearing its partition table.
+
+    Taking the disk offline is not an option: Windows refuses it for removable
+    media ("Removable media cannot be set to offline"), which every USB stick the
+    tool accepts is. The stick is about to be overwritten whole anyway, and the
+    caller has already refused system disks and had the user confirm this one."""
+    powershell(f"Clear-Disk -Number {disk.number} -RemoveData -RemoveOEM -Confirm:$false")
+
+
+def windows_restore(disk: Disk) -> None:
+    """Hand the stick back to Windows after the write: rescan it."""
+    powershell(f"Update-Disk -Number {disk.number}")
 
 
 # ----- Common ------------------------------------------------------------
@@ -143,12 +166,9 @@ def confirm(disk: Disk, image: Path) -> bool:
     print(f"\nAbout to write {image} ({image.stat().st_size >> 20} MiB) to:\n  {disk.describe()}")
     print("EVERYTHING on this disk will be destroyed.")
     if os.name == "nt" and disk.mounted:
-        print(f"Its volumes ({', '.join(disk.mounted)}) are dismounted: the disk goes offline "
-              "for the write.")
-    if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
-        return False
-    typed = input(f"Type the device name ({disk.path}) to confirm: ").strip()
-    return typed == disk.path
+        print(f"Its volumes ({', '.join(disk.mounted)}) are removed: the disk's "
+              "partition table is cleared for the write.")
+    return input("Continue? [y/N] ").strip().lower() in ("y", "yes")
 
 
 def write_and_verify(disk: Disk, image: Path) -> None:
@@ -157,16 +177,38 @@ def write_and_verify(disk: Disk, image: Path) -> None:
     flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
     fd = os.open(disk.path, flags)
     try:
+        # The first HEAD bytes (the MBR, the GPT and its entries) are held back
+        # and written last. Windows mounts a volume as soon as it can read a
+        # partition table, and then refuses writes into that volume's sectors
+        # (PermissionError mid-image, where the boot partition starts): with no
+        # table on the disk until the data is in place, nothing is mounted.
+        head = bytearray()
         with image.open("rb") as source:
             done = 0
             while chunk := source.read(CHUNK):
                 if len(chunk) % 512:
                     chunk += bytes(512 - len(chunk) % 512)  # raw devices take whole sectors
-                os.write(fd, chunk)
                 written.update(chunk)
-                done += len(chunk)
+                if done < HEAD:
+                    keep = chunk[: HEAD - done]
+                    head += keep
+                    chunk = chunk[len(keep):]
+                    if chunk:
+                        os.lseek(fd, done + len(keep), os.SEEK_SET)
+                else:
+                    keep = b""
+                if chunk:
+                    os.write(fd, chunk)
+                done += len(keep) + len(chunk)
                 print(f"\rwrote {done >> 20} / {size >> 20} MiB", end="", flush=True)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, bytes(head))
         os.fsync(fd)
+    except PermissionError as error:
+        raise SystemExit(
+            f"\nwrite refused at {done >> 20} MiB: {error}. Windows holds a volume of "
+            f"{disk.path}: close Explorer windows or anything using the stick, unplug and "
+            "replug it, run as Administrator, and try again") from error
     finally:
         os.close(fd)
     print()
@@ -198,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device", help="the disk to write (/dev/sdX or \\\\.\\PhysicalDriveN)")
     parser.add_argument("--list", action="store_true", help="list removable disks and exit")
     parser.add_argument("--yes", action="store_true",
-                        help="skip the two questions (the GUI, stick_gui.py, asks them itself)")
+                        help="skip the question (the GUI, stick_gui.py, asks it itself)")
     args = parser.parse_args(argv)
 
     image = Path(args.image)
@@ -225,12 +267,12 @@ def main(argv: list[str] | None = None) -> int:
         print("nothing written")
         return 1
     if os.name == "nt":
-        windows_offline(disk, True)
+        windows_release(disk)
     try:
         write_and_verify(disk, image)
     finally:
         if os.name == "nt":
-            windows_offline(disk, False)
+            windows_restore(disk)
     print("done: unplug the stick, plug it into the PC and pick it in the boot menu "
           "(F8 on ASUS boards); see docs/usb-stick.md")
     return 0

@@ -8,9 +8,11 @@
 //! ACL and audit rings, and the kernel services registered so far.
 //!
 //! [`FabricStats`] is also the versioned ABI block behind the native `stats`
-//! syscall op. [`FABRIC_STATS_VERSION`] is 5 (version 2 had 16 per-slot rows,
+//! syscall op. [`FABRIC_STATS_VERSION`] is 6 (version 2 had 16 per-slot rows,
 //! version 3 had 64 after issue #204, version 4 has 256 for the application
-//! package system, version 5 dropped the four fence counters, issue #677);
+//! package system, version 5 dropped the four fence counters, issue #677,
+//! version 6 counts non-blocking polls apart from deadline expiries and adds
+//! per-slot call counters, issue #702);
 //! version 1 was the compact 64-byte
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
@@ -32,14 +34,15 @@ use crate::task::MAX_TASKS;
 /// * `1` — the compact 64-byte [`crate::ipc::syscalls::MsgStats`] counters.
 /// * `2` — this snapshot: every subsystem, per-slot usage included.
 /// * `5` — no fence counters (issue #677).
-pub const FABRIC_STATS_VERSION: u64 = 5;
+/// * `6` — `polls`, and per-slot `calls`/`timeouts`/`polls` (issue #702).
+pub const FABRIC_STATS_VERSION: u64 = 6;
 
 /// Words in one per-slot task usage row (see [`TaskUsage`]).
-const TASK_USAGE_WORDS: usize = 4;
+const TASK_USAGE_WORDS: usize = 7;
 
 /// Words in the snapshot: scalars, the handle table, the ACL/audit block, then
 /// the per-slot rows. Used for [`FabricStats::SIZE`] and the field-order decode.
-const SCALAR_WORDS: usize = 18;
+const SCALAR_WORDS: usize = 19;
 const ACL_AUDIT_WORDS: usize = 8;
 
 /// Words in the [`FabricStats`] block.
@@ -58,6 +61,12 @@ pub struct TaskUsage {
     pub buffers: u64,
     /// Buffer bytes charged to the task.
     pub buffer_bytes: u64,
+    /// Synchronous calls the task started (live channels only).
+    pub calls: u64,
+    /// Its calls that missed a real deadline.
+    pub timeouts: u64,
+    /// Its non-blocking polls that ended unanswered.
+    pub polls: u64,
 }
 
 /// One snapshot of the whole Messenger fabric.
@@ -92,8 +101,12 @@ pub struct FabricStats {
     pub replies: u64,
     /// One-way messages accepted.
     pub one_way: u64,
-    /// Transactions that hit their deadline.
+    /// Transactions that hit a real deadline: nobody answered in time.
     pub timeouts: u64,
+    /// Non-blocking polls that ended unanswered. Every call ends in a reply,
+    /// a timeout, a poll, a cancel or a dead peer; empty polls are routine
+    /// background traffic, not a health signal (issue #702).
+    pub polls: u64,
     /// Transactions canceled by their caller.
     pub cancels: u64,
     /// Messages refused or discarded.
@@ -144,6 +157,7 @@ impl Default for FabricStats {
             replies: 0,
             one_way: 0,
             timeouts: 0,
+            polls: 0,
             cancels: 0,
             drops: 0,
             buffers: 0,
@@ -179,6 +193,7 @@ impl FabricStats {
         let channel_stats = channels::stats();
         let channel_counts = channels::counts();
         let buffer_stats = shared::stats();
+        let slot_totals = channels::slot_totals();
 
         // SAFETY: `FabricStats` is `repr(C)` and made only of `u64`s and arrays
         // of `u64`-only structs, so the all-zero pattern is a valid value.
@@ -196,11 +211,15 @@ impl FabricStats {
         let processes = crate::task::process::process_list();
         for slot in 0..MAX_TASKS {
             let buffer = shared::process_stats(slot);
+            let totals = slot_totals.get(slot).copied().unwrap_or_default();
             stats.tasks[slot] = TaskUsage {
                 live: processes.iter().any(|process| process.slot == slot) as u64,
                 handles: stats.handles_per_task[slot],
                 buffers: buffer.buffers,
                 buffer_bytes: buffer.bytes,
+                calls: totals.calls,
+                timeouts: totals.timeouts,
+                polls: totals.polls,
             };
         }
 
@@ -217,6 +236,7 @@ impl FabricStats {
         stats.replies = channel_stats.replies;
         stats.one_way = channel_stats.one_way;
         stats.timeouts = channel_stats.timeouts;
+        stats.polls = channel_stats.polls;
         stats.cancels = channel_stats.cancels;
         stats.drops = channel_stats.drops;
         stats.buffers = buffer_stats.buffers;
@@ -249,6 +269,7 @@ impl FabricStats {
         words.push(self.replies);
         words.push(self.one_way);
         words.push(self.timeouts);
+        words.push(self.polls);
         words.push(self.cancels);
         words.push(self.drops);
         words.push(self.buffers);
@@ -270,6 +291,9 @@ impl FabricStats {
             words.push(task.handles);
             words.push(task.buffers);
             words.push(task.buffer_bytes);
+            words.push(task.calls);
+            words.push(task.timeouts);
+            words.push(task.polls);
         }
         debug_assert_eq!(words.len(), WORDS);
         let mut bytes = Vec::with_capacity(Self::SIZE);
@@ -302,6 +326,9 @@ impl FabricStats {
                 handles: word(base + 1)?,
                 buffers: word(base + 2)?,
                 buffer_bytes: word(base + 3)?,
+                calls: word(base + 4)?,
+                timeouts: word(base + 5)?,
+                polls: word(base + 6)?,
             };
         }
         stats.version = word(0)?;
@@ -315,13 +342,14 @@ impl FabricStats {
         stats.replies = word(8)?;
         stats.one_way = word(9)?;
         stats.timeouts = word(10)?;
-        stats.cancels = word(11)?;
-        stats.drops = word(12)?;
-        stats.buffers = word(13)?;
-        stats.buffer_bytes = word(14)?;
-        stats.buffer_mappings = word(15)?;
-        stats.handoffs = word(16)?;
-        stats.handles = word(17)?;
+        stats.polls = word(11)?;
+        stats.cancels = word(12)?;
+        stats.drops = word(13)?;
+        stats.buffers = word(14)?;
+        stats.buffer_bytes = word(15)?;
+        stats.buffer_mappings = word(16)?;
+        stats.handoffs = word(17)?;
+        stats.handles = word(18)?;
         stats.acl_rules = word(acl)?;
         stats.acl_loaded = word(acl + 1)?;
         stats.audit_trace = word(acl + 2)?;

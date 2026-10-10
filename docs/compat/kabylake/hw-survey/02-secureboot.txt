@@ -1,0 +1,4 @@
+# mokutil --sb-state
+SecureBoot disabled
+Platform is in Setup Mode
+# exit 0

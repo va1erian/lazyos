@@ -1,0 +1,30 @@
+# for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg; do [ -f "$f" ] && { echo "== $f"; grep -n -E "custom.cfg|menuentry |submenu |chainloader|set default|timeout" "$f" | head -60; }; done; ls -l /boot/grub/custom.cfg /boot/grub2/custom.cfg 2>&1
+== /boot/grub/grub.cfg
+31:   set default="${next_entry}"
+40:   set default="0"
+122:  set timeout=30
+124:  if [ x$feature_timeout_style = xy ] ; then
+125:    set timeout_style=hidden
+126:    set timeout=0
+127:  # Fallback hidden-timeout code in case the timeout_style feature is
+130:    set timeout=0
+171:menuentry 'Kubuntu GNU/Linux' --class kubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-REDACTED-GUID' {
+188:submenu 'Advanced options for Kubuntu GNU/Linux' $menuentry_id_option 'gnulinux-advanced-REDACTED-GUID' {
+189:	menuentry 'Kubuntu GNU/Linux, with Linux 7.0.0-14-generic' --class kubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-7.0.0-14-generic-advanced-REDACTED-GUID' {
+208:	menuentry 'Kubuntu GNU/Linux, with Linux 7.0.0-14-generic (recovery mode)' --class kubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-7.0.0-14-generic-recovery-REDACTED-GUID' {
+239:	menuentry "Memory test (mt86+x64)" --class memtest $menuentry_id_option "memtest86+" {
+250:	menuentry "Memory test (mt86+x64, serial console)" --class memtest $menuentry_id_option "memtest86+-serial" {
+263:	menuentry "Memory test (mt86+ia32)" --class memtest $menuentry_id_option "memtest86+" {
+274:	menuentry "Memory test (mt86+ia32, serial console)" --class memtest $menuentry_id_option "memtest86+-serial" {
+287:	menuentry "Memory test (mt86+x64)" --class memtest $menuentry_id_option "memtest86+" {
+298:	menuentry "Memory test (mt86+x64, serial console)" --class memtest $menuentry_id_option "memtest86+-serial" {
+311:	menuentry "Memory test (mt86+ia32)" --class memtest $menuentry_id_option "memtest86+" {
+322:	menuentry "Memory test (mt86+ia32, serial console)" --class memtest $menuentry_id_option "memtest86+-serial" {
+343:		menuentry 'UEFI Firmware Settings' $menuentry_id_option 'uefi-firmware' {
+360:if [ -f  ${config_directory}/custom.cfg ]; then
+361:  source ${config_directory}/custom.cfg
+362:elif [ -z "${config_directory}" -a -f  $prefix/custom.cfg ]; then
+363:  source $prefix/custom.cfg
+ls: cannot access '/boot/grub/custom.cfg': No such file or directory
+ls: cannot access '/boot/grub2/custom.cfg': No such file or directory
+# exit 2

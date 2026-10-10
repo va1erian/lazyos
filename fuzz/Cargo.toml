@@ -30,12 +30,15 @@ acpi = { path = "../libs/acpi", features = ["fuzz"] }
 ipp = { path = "../libs/ipp", features = ["fuzz"] }
 raster = { path = "../libs/raster", features = ["fuzz"] }
 nvme = { path = "../libs/nvme", features = ["fuzz"] }
+ahci = { path = "../libs/ahci", features = ["fuzz"] }
 passwd = { path = "../libs/passwd", features = ["fuzz"] }
 accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
 elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
 accountwire = { path = "../libs/accountwire", features = ["fuzz"] }
+dbgwire = { path = "../libs/dbgwire", features = ["fuzz"] }
 smbwire = { path = "../libs/smbwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
+libmessenger = { path = "../libs/messenger", features = ["fuzz"] }
 
 [workspace]
 
@@ -166,6 +169,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ahci"
+path = "fuzz_targets/ahci.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "nvme"
 path = "fuzz_targets/nvme.rs"
 test = false
@@ -210,6 +220,20 @@ bench = false
 [[bin]]
 name = "smbwire"
 path = "fuzz_targets/smbwire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "messenger"
+path = "fuzz_targets/messenger.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dbgwire"
+path = "fuzz_targets/dbgwire.rs"
 test = false
 doc = false
 bench = false

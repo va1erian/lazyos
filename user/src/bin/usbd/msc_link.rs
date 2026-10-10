@@ -5,14 +5,25 @@
 //!
 //! Each transfer is one Normal TRB of at most 64 KiB from a window that
 //! never crosses a 64 KiB boundary (`Hc::bulk`), waited for synchronously
-//! with the controller's event timeout; events of other endpoints stay
-//! queued for the dispatcher. A stalled endpoint is reset in the
+//! (parked on the claim's interrupt, `irq::wait_event`, issue #719) up to
+//! the link's [`Patience`]; events of other endpoints stay queued for
+//! the dispatcher. Serving a request, a transfer may take
+//! [`SERVE_TRANSFER_TICKS`] (a real stick stalls a write for seconds while
+//! its flash reorganises; Linux allows a SCSI command 30 s), and the whole
+//! request, retries and recovery included, ends by its budget so the
+//! kernel's 60 s deadline never fires first (issue #704). A failed transfer
+//! prints `USBD:MSC:XFER` with what the controller made of it. A stalled
+//! endpoint is reset in the
 //! controller once the library has cleared it on the device
 //! (`reset_host_endpoint`); one that failed or timed out is stopped and its
 //! ring skipped past the abandoned TRB (`Device::recover`). The Bulk-Only
 //! recovery on the device side is the library's.
 
+use alloc::format;
+use alloc::string::String;
+
 use usbmsc::bot::{Pipe as Transport, Setup, XferError};
+use user::sys;
 use xhci::regs::portsc;
 use xhci::trb::{self, code, kind, SetupPacket};
 
@@ -24,6 +35,58 @@ use super::Error;
 /// Stale events (of transfers abandoned earlier) skipped while waiting for
 /// the current one before it counts as failed.
 const STALE_EVENTS: usize = 8;
+/// How long one bulk transfer may take while a request is served (PIT
+/// ticks, 100 Hz): 30 s, Linux's SCSI command timeout.
+pub(super) const SERVE_TRANSFER_TICKS: u64 = 3000;
+/// The most one kernel request may take, retries included: 45 s, under the
+/// kernel's 60 s (`block::provider::TAKEN_TICKS`).
+pub(super) const REQUEST_BUDGET_TICKS: u64 = 4500;
+/// How long one bulk transfer may take during bring-up (5 s): a stick that
+/// does not answer INQUIRY should not hold the other devices up.
+pub(super) const BRING_UP_TRANSFER_TICKS: u64 = 500;
+/// The whole of an idle flush (8 s; see [`Patience::idle_flush`]).
+pub(super) const IDLE_FLUSH_TICKS: u64 = 800;
+
+/// How long the link waits: per transfer, and for everything until `until`
+/// (absolute ticks; a transfer past it fails at once).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Patience {
+    pub(super) transfer: u64,
+    pub(super) until: u64,
+}
+
+impl Patience {
+    /// Serving one kernel request, starting now.
+    pub(super) fn request() -> Patience {
+        Patience {
+            transfer: SERVE_TRANSFER_TICKS,
+            until: sys::clock() + REQUEST_BUDGET_TICKS,
+        }
+    }
+
+    /// Bringing a stick up: short transfers, no overall bound (the bring-up
+    /// sequence bounds its own loops).
+    pub(super) fn bring_up() -> Patience {
+        Patience {
+            transfer: BRING_UP_TRANSFER_TICKS,
+            until: u64::MAX,
+        }
+    }
+
+    /// An idle flush (`msc.rs`): everything, recovery included, within 8 s,
+    /// under the kernel's 10 s for taking a request that queues meanwhile.
+    pub(super) fn idle_flush() -> Patience {
+        Patience {
+            transfer: IDLE_FLUSH_TICKS,
+            until: sys::clock() + IDLE_FLUSH_TICKS,
+        }
+    }
+
+    /// The deadline of a transfer starting now.
+    fn deadline(&self) -> u64 {
+        sys::clock().saturating_add(self.transfer).min(self.until)
+    }
+}
 
 /// A Bulk-Only interface's two pipes and the addresses the library names.
 pub(super) struct Pipes {
@@ -39,9 +102,16 @@ pub(super) struct Link<'a> {
     pub(super) hc: &'a mut Hc,
     pub(super) device: &'a mut Device,
     pub(super) pipes: &'a mut Pipes,
+    pub(super) patience: Patience,
 }
 
 impl Link<'_> {
+    /// Whether this operation's time is spent: transfers and recovery
+    /// steps then fail at once, without touching the bus.
+    pub(super) fn expired(&self) -> bool {
+        sys::clock() >= self.patience.until
+    }
+
     fn pipe(&mut self, inbound: bool) -> &mut Pipe {
         if inbound {
             &mut self.pipes.bulk_in
@@ -58,12 +128,21 @@ impl Link<'_> {
         };
         let normal = trb::bulk(bus, len as u32).ok_or(XferError::Failed)?;
         let slot = self.device.slot;
-        let pipe = self.pipe(inbound);
-        let dci = pipe.dci;
-        pipe.submit(normal, 0).map_err(|_| XferError::Failed)?;
+        let dci = self.pipe(inbound).dci;
+        let started = sys::clock();
+        let deadline = self.patience.deadline();
+        if started >= deadline {
+            // The request's budget is spent: fail without touching the bus.
+            self.report(inbound, len, "budget", started);
+            return Err(XferError::Failed);
+        }
+        self.pipe(inbound)
+            .submit(normal, 0)
+            .map_err(|_| XferError::Failed)?;
         self.hc.doorbell(slot, dci);
+        let mut outcome = String::from("timeout");
         for _ in 0..STALE_EVENTS {
-            let waited = self.hc.wait(|e| {
+            let waited = self.hc.wait_until(deadline, |e| {
                 e.kind() == kind::TRANSFER_EVENT && e.slot() == slot && e.endpoint() == dci
             });
             let Ok(event) = waited else {
@@ -72,15 +151,41 @@ impl Link<'_> {
             let Some(done) = self.pipe(inbound).complete(&event) else {
                 continue; // an abandoned transfer's late event
             };
-            return match done.code {
-                code::SUCCESS | code::SHORT_PACKET => Ok(len - (done.residual as usize).min(len)),
+            match done.code {
+                code::SUCCESS | code::SHORT_PACKET => {
+                    return Ok(len - (done.residual as usize).min(len))
+                }
                 // Halted until the library clears it on the device and
                 // calls `reset_host_endpoint`.
-                code::STALL => Err(XferError::Stall),
-                _ => Err(self.failed(inbound)),
-            };
+                code::STALL => {
+                    self.report(inbound, len, "stall", started);
+                    return Err(XferError::Stall);
+                }
+                other => {
+                    outcome = format!("{other}");
+                    break;
+                }
+            }
         }
+        self.report(inbound, len, &outcome, started);
         Err(self.failed(inbound))
+    }
+
+    /// One `USBD:MSC:XFER` line for a transfer that did not complete:
+    /// direction and length, the outcome (`timeout`, `stall`, `budget` when
+    /// the request's time was spent, or the completion code), how long it
+    /// was waited for, and the endpoint's state and dequeue pointer as the
+    /// controller recorded them (before recovery).
+    fn report(&mut self, inbound: bool, len: usize, outcome: &str, started: u64) {
+        let dci = self.pipe(inbound).dci;
+        let (state, dequeue) = self.device.endpoint_state(self.hc, dci);
+        sys::write_str(&format!(
+            "USBD:MSC:XFER port={} {} len={len} result={outcome} waited_ms={} epstate={state} epdq={dequeue:#x} {}\n",
+            self.device.name,
+            if inbound { "in" } else { "out" },
+            sys::clock().saturating_sub(started) * 10,
+            self.hc.state_text()
+        ));
     }
 
     /// A transfer that failed or timed out: `Gone` when the device left,
@@ -148,6 +253,11 @@ impl Transport for Link<'_> {
             index: setup.index,
             length: 0,
         };
+        // Recovery past the budget is put off, not done late: the caller
+        // sees the failure and runs it before the next request (`msc.rs`).
+        if self.expired() {
+            return Err(XferError::Failed);
+        }
         // `Device::control` recovers endpoint 0 itself after a failure.
         match self.device.control_out(self.hc, packet) {
             Ok(()) => Ok(()),
@@ -158,6 +268,11 @@ impl Transport for Link<'_> {
     }
 
     fn reset_host_endpoint(&mut self, inbound: bool) -> Result<(), XferError> {
+        // A failed transfer already recovered the controller's side
+        // (`failed`); past the budget the rest waits with the device side.
+        if self.expired() {
+            return Err(XferError::Failed);
+        }
         self.recover(inbound)
     }
 

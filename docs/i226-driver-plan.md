@@ -1,6 +1,9 @@
 # Intel I226-V (and I225) NIC driver — plan
 
-> **Status: draft, revision 2 (2026-10-08): decisions recorded (§8). Nothing here is built.**
+> **Status: deferred (2026-10-09).** The box this plan was for arrived as a
+> Kaby Lake machine with a Realtek NIC ([kabylake-box-plan.md](kabylake-box-plan.md)),
+> so there is no I226 to test on. The plan stands for the next box that has
+> one; nothing here is built. Revision 2 (2026-10-08): decisions recorded (§8).
 > This plan fills stage K2 of [n150-driver-plan.md](n150-driver-plan.md) for
 > the Intel family: one more back end of `netdrv` serving
 > `os.lazy.net.nic.v1` unchanged, so `netd`, sockets and every tool keep

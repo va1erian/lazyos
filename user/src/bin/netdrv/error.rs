@@ -21,6 +21,12 @@ pub(super) enum Error {
     NoMac,
     /// An 8254x did not come out of reset or has no station address.
     Setup(e1000::SetupError),
+    /// A Realtek chip did not come out of reset, has no station address or
+    /// no PHY, or its PHY did not answer.
+    Rtl(rtl8168::SetupError),
+    /// A device of the right id this driver cannot drive (another revision of
+    /// the family): reported once and parked on, never restarted.
+    Unsupported(String),
     /// The Messenger fabric failed (registering the service, receiving).
     Messenger(&'static str),
     /// The self-test did not see its ARP reply.
@@ -49,6 +55,8 @@ impl Error {
             Error::Range => "structure outside its BAR".into(),
             Error::NoMac => "the device has no usable MAC address".into(),
             Error::Setup(error) => format!("e1000 bring-up: {error:?}"),
+            Error::Rtl(error) => format!("rtl8168 bring-up: {error:?}"),
+            Error::Unsupported(reason) => format!("unsupported device: {reason}"),
             Error::Messenger(text) => format!("messenger: {text}"),
             Error::SelfTest(text) => format!("self-test: {text}"),
         }

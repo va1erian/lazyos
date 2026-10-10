@@ -31,6 +31,9 @@ acpi = { path = "../libs/acpi" }
 # NVMe protocol core (docs/nvme-install-plan.md N1): bring-up, queues, PRP
 # planning and Identify parsing behind `block::nvme`'s platform seam.
 nvme = { path = "../libs/nvme" }
+# AHCI protocol core (docs/ahci-plan.md A1): HBA handoff, port bring-up,
+# command tables, PRDT planning and IDENTIFY behind `block::ahci`'s seam.
+ahci = { path = "../libs/ahci" }
 # The modern virtio-PCI transport for the in-kernel virtio-blk (issue #497),
 # shared with the userspace drivers.
 virtio = { path = "../libs/virtio" }

@@ -1,0 +1,4 @@
+# for i in $(ls /sys/class/net | grep -v "^lo$"); do echo "$i $(cat /sys/class/net/$i/address 2>&1) $(readlink /sys/class/net/$i/device 2>&1)"; done
+enp2s0 REDACTED-MAC ../../../0000:02:00.0
+wlp1s0 REDACTED-MAC ../../../0000:01:00.0
+# exit 0

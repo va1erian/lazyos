@@ -9,9 +9,9 @@ pub use waitset::*;
 
 /// Receive the next message without blocking; `Ok(None)` means "try later".
 ///
-/// Delivery installs the message's transferred handles and buffers into the
-/// calling task's handle table and rewrites them to local numbers, so the
-/// returned [`Message`] is immediately usable.
+/// Delivery installs the message's objects into the calling task's handle
+/// table and reports them as local numbers, so the returned [`Message`] is
+/// immediately usable.
 pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     take_or_register(channel_id, side, None)
@@ -38,9 +38,41 @@ fn take_or_register(
             // Delivery takes the message out of the inbox, so the sender's
             // user gets the queue charge back (issue #103).
             release_queued_quota(message.origin.uid, message.bytes.len());
-            Ok(Some(deliver(message)?))
+            let poll = match (message.txn, message.deadline) {
+                (Some(txn), Some(POLL_DEADLINE)) => Some(txn),
+                _ => None,
+            };
+            match deliver(message) {
+                Ok(message) => Ok(Some(message)),
+                Err(error) => {
+                    // The callee never saw the poll: it is not being served.
+                    if let Some(txn) = poll {
+                        unserve_poll(channel_id, side, txn);
+                    }
+                    Err(error)
+                }
+            }
         }
         None => Ok(None),
+    }
+}
+
+/// Undo [`take_locked`]'s receipt of poll `txn` after its delivery failed:
+/// back on the grace deadline, no longer counted as served, so it ends as an
+/// empty poll rather than as a callee that wedged.
+fn unserve_poll(channel_id: u64, side: usize, txn: u64) {
+    let mut channels = CHANNELS.lock();
+    let Ok(channel) = find_channel(&mut channels, channel_id) else {
+        return;
+    };
+    channel.endpoints[side]
+        .serving_polls
+        .retain(|id| *id != txn);
+    if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
+        if entry.state == TxnState::Pending {
+            entry.served = false;
+            entry.deadline = Some(task::ticks() + POLL_GRACE_TICKS);
+        }
     }
 }
 
@@ -68,6 +100,7 @@ fn take_locked(
             // (`await_reply` only expires a deadline that is actually due).
             if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
                 if entry.state == TxnState::Pending {
+                    entry.served = true;
                     entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
                 }
             }
@@ -96,43 +129,40 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
         if channel.txns[index].state != TxnState::Pending {
             continue;
         }
-        channel.txns[index].state = TxnState::TimedOut;
-        channel.timeouts += 1;
-        let caller = channel.txns[index].caller;
-        release_pending(channel, caller);
-        woken.push(caller);
+        // The callee came back to `recv` without answering: "nothing there",
+        // unless the service bound had already passed (a callee that was
+        // slow, like the deadline sweep would have counted it).
+        let overdue = channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline <= task::ticks());
+        woken.push(time_out(channel, index, !overdue));
     }
 }
 
-/// Install a queued message's transfers into the receiving task's handle table
-/// and rewrite them to local numbers.
+/// Install a queued message's objects into the receiving task's handle table,
+/// in object-list order, as local numbers.
 ///
 /// On failure (the receiver is out of handles) everything installed is rolled
 /// back and the references of everything still pending are released, so a
 /// failed delivery cannot leak handles or frames.
 pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
-    let mut handles_out: Vec<u64> = Vec::with_capacity(queued.handles.len());
-    let mut buffers_out: Vec<BufferDesc> = Vec::with_capacity(queued.buffers.len());
-    for transfer in queued.handles.iter() {
-        match handles::open(transfer.kind, transfer.rights, transfer.object_id) {
-            Ok(handle) => handles_out.push(handle),
-            Err(error) => {
-                rollback_delivery(&queued, &handles_out, &buffers_out);
-                return Err(from_handles(error));
+    let mut installed: Vec<u64> = Vec::with_capacity(queued.objects.len());
+    for object in queued.objects.iter() {
+        let opened = match object.kind {
+            ObjectKind::Channel => {
+                handles::open(HandleKind::Channel, object.rights, object.object_id)
+                    .map_err(from_handles)
             }
-        }
-    }
-    for buffer in queued.buffers.iter() {
-        match shared::attach(buffer.object_id, buffer.rights) {
-            Ok(handle) => buffers_out.push(BufferDesc {
-                handle,
-                offset: buffer.offset,
-                len: buffer.len,
-                flags: buffer.flags,
-            }),
+            // The message's reference becomes the receiver's handle.
+            ObjectKind::Buffer => {
+                shared::attach(object.object_id, object.rights).map_err(from_shared)
+            }
+        };
+        match opened {
+            Ok(handle) => installed.push(handle),
             Err(error) => {
-                rollback_delivery(&queued, &handles_out, &buffers_out);
-                return Err(from_shared(error));
+                rollback_delivery(&queued, &installed);
+                return Err(error);
             }
         }
     }
@@ -144,31 +174,25 @@ pub(super) fn deliver(queued: Queued) -> Result<Message, Error> {
         txn: queued.txn,
         deadline: queued.deadline,
         bytes: queued.bytes,
-        handles: handles_out,
-        buffers: buffers_out,
+        objects: installed,
     })
 }
 
-/// Undo a partial [`deliver`]: close the installed handles and release the
+/// Undo a partial [`deliver`]: close the handles installed so far (a buffer
+/// handle's close drops the reference `attach` converted) and release the
 /// message references of every buffer still pending.
-///
-/// Moved objects have no kernel object refcount yet, so releasing a moved
-/// handle whose delivery failed drops the handle but not the object; that is
-/// the documented follow-up for when `HandleEntry` grows a refcount.
-pub(super) fn rollback_delivery(queued: &Queued, handles_out: &[u64], buffers_out: &[BufferDesc]) {
-    for &handle in handles_out {
-        handles::close(handle).ok();
+pub(super) fn rollback_delivery(queued: &Queued, installed: &[u64]) {
+    for (object, &handle) in queued.objects.iter().zip(installed) {
+        match object.kind {
+            ObjectKind::Channel => handles::close(handle).ok(),
+            ObjectKind::Buffer => shared::close(handle).ok(),
+        };
     }
-    for descriptor in buffers_out {
-        // Closing the receiver's buffer handle drops the reference `attach`
-        // converted from the message.
-        shared::close(descriptor.handle).ok();
-    }
-    for buffer in &queued.buffers[buffers_out.len()..] {
+    for buffer in buffers(&queued.objects[installed.len()..]) {
         shared::release(buffer.object_id);
     }
     // A moved channel end nobody received is closed, so its peer learns.
-    close_orphans(channel_transfers(queued.handles.iter()).collect());
+    close_orphans(channel_objects(&queued.objects).collect());
 }
 
 /// Receive the next message, parking until one arrives, the deadline passes, or

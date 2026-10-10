@@ -5,7 +5,7 @@
 //! A surface that has used `Present` refuses the legacy `AttachBuffer`
 //! (`EBUSY`), so an xui window uses these from its first buffer on.
 
-use libmessenger::{flags, BufferDesc, Parcel};
+use libmessenger::{flags, Buffer, Parcel};
 use messenger_generated::os_lazy_display_v1 as wire;
 use xui_core::Rect;
 
@@ -42,19 +42,13 @@ impl Client {
     /// The compositor refuses the slot it is currently reading (`EBUSY`) and a
     /// buffer too small for the surface's current size (`EINVAL`).
     pub fn attach_slot(&self, surface: u64, slot: u32, buffer: u64, len: u64) -> Result<(), i64> {
-        let body =
-            wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs { surface, slot })
-                .map_err(|_| -errno::EINVAL)?;
-        let (handles, buffers) =
-            wire::encode_attach_buffer_slot_transfers(&wire::AttachBufferSlotTransfers {
-                pixels: BufferDesc {
-                    handle: buffer,
-                    offset: 0,
-                    len,
-                    flags: 0,
-                },
-            });
-        let parcel = request(wire::METHOD_ATTACHBUFFERSLOT, body, handles, buffers);
+        let (body, objects) = wire::encode_attach_buffer_slot_args(&wire::AttachBufferSlotArgs {
+            surface,
+            slot,
+            pixels: Buffer::whole(buffer, len),
+        })
+        .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_ATTACHBUFFERSLOT, body, objects);
         self.call(&parcel).map(|_| ())
     }
 
@@ -80,7 +74,7 @@ fn present_parcel(surface: u64, slot: u32, seq: u64, damage: Rect) -> Result<Par
         }],
     })
     .map_err(|_| -errno::EINVAL)?;
-    let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new(), Vec::new());
+    let mut parcel = request(wire::METHOD_PRESENT, body, Vec::new());
     parcel.header.flags |= flags::ONE_WAY;
     Ok(parcel)
 }
@@ -107,20 +101,20 @@ mod tests {
             slot: 1,
         })
         .unwrap();
-        let parcel = request(wire::METHOD_BUFFERRELEASE, release, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_BUFFERRELEASE, release, Vec::new());
         assert_eq!(
             decode_frame_event(&parcel),
             Some(FrameEvent::BufferRelease { slot: 1 })
         );
         let done =
             wire::encode_frame_done_args(&wire::FrameDoneArgs { surface: 2, seq: 7 }).unwrap();
-        let parcel = request(wire::METHOD_FRAMEDONE, done, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_FRAMEDONE, done, Vec::new());
         assert_eq!(
             decode_frame_event(&parcel),
             Some(FrameEvent::FrameDone { seq: 7 })
         );
         let key = wire::encode_key_down_args(&wire::KeyDownArgs { key: 3 }).unwrap();
-        let parcel = request(wire::METHOD_KEYDOWN, key, Vec::new(), Vec::new());
+        let parcel = request(wire::METHOD_KEYDOWN, key, Vec::new());
         assert_eq!(decode_frame_event(&parcel), None);
     }
 }

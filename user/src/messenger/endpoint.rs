@@ -8,6 +8,7 @@
 //! ops are exposed too, because the kernel transaction already supports them
 //! (`channels::begin_call`); the async API builds on the same pair later.
 
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -203,16 +204,13 @@ impl Endpoint {
         }
         let parcel = Parcel::decode(&buf[..len]).map_err(Error::Parcel)?;
         let caller = decode_caller(&block).ok_or(Error::Errno(-errno::EINVAL))?;
-        Ok(Message {
-            sender: result.aux,
+        Message::new(
+            result.aux,
             caller,
-            txn: (result.value != 0).then_some(result.value),
+            (result.value != 0).then_some(result.value),
             parcel,
-            first_handle: result.reserved[0],
-            handles: result.reserved[1],
-            first_buffer: result.reserved[2],
-            buffers: result.reserved[3],
-        })
+            result.delivered(),
+        )
     }
 
     /// Alias for [`Endpoint::recv_into`], kept for the supervisor services.
@@ -347,14 +345,14 @@ pub fn global_totals() -> Result<Stats> {
 ///
 /// Allocates the snapshot buffer per call; a polling loop should use
 /// [`fabric_stats_with`] and reuse one buffer.
-pub fn fabric_stats() -> Result<FabricStats> {
+pub fn fabric_stats() -> Result<Box<FabricStats>> {
     let mut buf = vec![0u8; FabricStats::SIZE];
     fabric_stats_with(&mut buf)
 }
 
 /// [`fabric_stats`] with a caller-owned buffer of at least
 /// [`FabricStats::SIZE`] bytes.
-pub fn fabric_stats_with(buf: &mut [u8]) -> Result<FabricStats> {
+pub fn fabric_stats_with(buf: &mut [u8]) -> Result<Box<FabricStats>> {
     lazyos_sys::msg::fabric_stats_into(buf).map_err(Error::Errno)
 }
 

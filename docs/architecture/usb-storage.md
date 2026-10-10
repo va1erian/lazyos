@@ -60,6 +60,39 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
    events dropped) and `usbmsc` on the device (CLEAR_FEATURE(HALT), CSW
    retried once, then Bulk-Only reset recovery).
 
+### The driver's timeouts
+
+A flash stick does not answer at a steady pace: a write (and especially its
+status) can sit for seconds while the controller inside the stick erases and
+moves blocks. The first real-PC run (a SanDisk 0781:5591 on an Intel 9d2f,
+issue #704) lost `/home` minutes after boot: with a 5 s wait per transfer,
+a slow write was abandoned and reset, retried up to four times, and the
+kernel's then 10 s request deadline fired twice. Now (`msc_link.rs`):
+
+| What | Limit | Why |
+|---|---|---|
+| One bulk transfer while serving a request | 30 s (`SERVE_TRANSFER_TICKS`) | Linux's SCSI command timeout |
+| One kernel request, retries and recovery included | 45 s (`REQUEST_BUDGET_TICKS`) | below the kernel's 60 s `TAKEN_TICKS`, so the driver answers (with an error if it must) before the kernel gives up |
+| One bulk transfer during bring-up | 5 s | a stick that never answers INQUIRY must not stall the other devices |
+
+| An idle flush (SYNCHRONIZE CACHE after a write and a quiet second), recovery included | 8 s (`IDLE_FLUSH_TICKS`) | a request queued meanwhile must be taken within the kernel's 10 s |
+
+Once the budget is spent every further transfer of the request fails at
+once, and so do the Bulk-Only reset recovery's control requests: the
+request ends as an I/O error (not a dead stick) and the recovery runs before
+the next request (`reset_pending`), where only a failure with time left
+marks the stick dead. While `usbd` waits on a stick its
+HID devices are not served, so a stalled write pauses the USB mouse too.
+
+Evidence for the next real-hardware run: `USBD:MSC:XFER port=<p> in|out
+len=<n> result=timeout|stall|budget|<completion code> waited_ms=<ms>
+epstate=<xHCI endpoint state> epdq=<dequeue pointer> usbcmd=.. usbsts=..`
+for every transfer that did not complete (read before recovery changes
+anything), then `USBD:MSC:REQ id=usb<n> op=read|write|flush lba=<n>
+bytes=<n> ms=<ms> result=<..> stalls=<n> resets=<n>` for every request that
+failed or took over 2 s. `USBD:MSC:FAIL ... next errno 3` now says what it
+means: the kernel declared the disk dead, and its own log says why.
+
 ```
   ext2 / VFS ──read_sectors──▶ UserDisk (kernel, usb<n>)
                                   │ request slot + 64 KiB bounce buffer
@@ -91,7 +124,15 @@ providers per boot).
 Nothing the provider does can hang or crash the kernel:
 
 - The requester parks on the disk in **10-tick slices** and checks at each
-  wake that the provider task is alive. A request has **10 s**; a timed-out
+  wake that the provider task is alive. The provider must **take** a queued
+  request within **10 s** (`QUEUE_TICKS`: a provider that does not even look
+  is stuck) and **finish** one it took within **60 s** (`TAKEN_TICKS`). The
+  second deadline is long on purpose: a real stick can stall a write for
+  seconds while its flash reorganises (Linux gives a SCSI command 30 s), and
+  the first real-PC run lost `/home` to a 10 s limit (issue #704). `usbd`
+  bounds its own work on a request below that (45 s, see "The driver's
+  timeouts"). Each timeout prints `block: usb<n>: <op> lba <n> (<bytes>
+  bytes) timed out untaken|in the provider after <s> s`; a timed-out
   request is abandoned (a late `COMPLETE` is `ESTALE`). **Two timeouts in a
   row**, the provider's death (`ipc::teardown_task`), a `GONE` status or a
   `REMOVE` mark the disk **dead**: every pending and future request fails at
@@ -112,6 +153,18 @@ Nothing the provider does can hang or crash the kernel:
   (`relax::can_block`), since parking puts the scheduler's frames on top of
   ext2's. Kernel stacks went from 32 to 48 KiB for this: a file created on
   the stick parks about 24 KiB deep, and the first end-to-end run overflowed.
+- **A provider never waits for the VFS.** A requester holds its mount table
+  (the native one, or the Linux ABI one for a BusyBox shell) while it waits
+  for the provider, and a native mutation takes both tables
+  (`fs::coherence`). So a native fs call from `usbd` while a `/home` request
+  waits (its `usb.dump` for `dbgd`, written every 2 s while the bus is
+  busy) blocked until the request's 10 s untaken deadline, twice, and the
+  disk died. That was the real cause of issue #704: the box ran a `dbgd`
+  build. Now a task that serves a live disk gets `EAGAIN` from the native
+  fs syscalls while either table is held (`process::fsops`, checked with
+  interrupts off on one core, so nothing takes a table between the check
+  and the call), and `usbd` writes its dump on a later pass.
+  `tools/boot/persist.py` reproduced it every time before the fix.
 - Slots are never reused within a boot (a dead disk may still be mounted), so
   at most eight sticks are served per boot.
 
@@ -138,6 +191,33 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
   `usbd` reported its first scan done without it (`ABSENT`), `usbd` is not
   running, or after **60 s** (`INIT:HOME <why>`). Images without `usbd`
   never wait.
+
+## The read cache
+
+The volume on a stick is opened *uncached* (`fs/mounts.rs::open_ext2`): the
+write-back block cache flushes from the kernel task, which must never wait for
+`usbd`, and a stick can be pulled. That left every read, metadata included, as
+a round trip to the polled driver. Measured on a real PC with `/home` on a
+stick, opening a directory or a file cost 0.27-0.33 s each (a desktop shell
+that looked at its folder once a second kept the stick busy for ever).
+
+`UserDisk` therefore keeps a **write-through read cache**
+(`block/provider/readcache.rs`): clean 4 KiB pages of what was read, 512 per
+disk, oldest out first.
+
+- A read of 32 KiB or less is served from the pages when it is wholly there; a
+  miss reads the whole pages around the request in one request and keeps them.
+  Larger reads (file data) bypass it, neither using nor filling it.
+- Writes are untouched in order and timing: each goes to the device before it
+  returns. Pages it overlaps take the new bytes when it completes; a failed
+  write drops them. So a page is never ahead of the device, and the cache
+  holds nothing that needs writing back (nothing for the flusher, nothing to
+  lose when the stick is pulled).
+- A reader that missed stores its pages only if no write started or ended since
+  it began (`ReadCache::epoch`), so a page read before a write landed is not
+  kept.
+- A dead disk answers `Io` before it looks at the cache, and a slot registered
+  again starts empty.
 
 ## Durability
 
@@ -171,7 +251,7 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
 |---|---|---|
 | Host unit | `usbmsc` (41): golden descriptors (HS, SS with burst, composite), CBW/CSW, every recovery path against a fault-injecting model device, SCSI parsers. `xhci`: plus bulk TRBs, bulk contexts with burst, rings abandoned lap after lap | `cargo test -p usbmsc --features fuzz -p xhci` |
 | Fuzz | `mscdesc`, `mscreply`, `mscsession` (seeded tests and cargo-fuzz) | `cargo test -p usbmsc --features fuzz` |
-| Kernel | `provider_suite` (16): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
+| Kernel | `provider_suite` (31): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths; the read cache: repeats stay off the stick, writes go through and update, a failed write forgets, a dead disk fails though cached, streams bypass, the epoch and eviction, a 3000-round random read/write soak against the device | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
 | End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/user`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
 
 ## Not done

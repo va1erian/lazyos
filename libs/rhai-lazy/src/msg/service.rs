@@ -34,7 +34,7 @@ const NO_METHOD: Method = Method {
     doc: "",
     params: &[],
     returns: &[],
-    transfers: &[],
+    objects: &[],
 };
 
 /// Default time a call waits for its reply.
@@ -235,10 +235,10 @@ impl Service {
         wait: Wait,
     ) -> Fallible<Option<Dynamic>> {
         let method = self.method(method)?;
-        if !method.transfers.is_empty() {
-            // The request needs a channel or buffer in the parcel's
-            // `handles`/`buffers`, which a script has no way to create.
-            return Err(self.fail(method, "transfers kernel objects; not callable from a script"));
+        if !method.objects.is_empty() {
+            // The request carries a channel or buffer in the parcel's object
+            // list, which a script has no way to create.
+            return Err(self.fail(method, "carries kernel objects; not callable from a script"));
         }
         let body = self.encode(method, args)?;
         let fabric = &self.fabric;
@@ -299,27 +299,11 @@ pub fn signature(method: &Method) -> String {
     };
     let tail = if method.oneway { " oneway" } else { "" };
     format!(
-        "{}({}) -> ({}){tail}{}",
+        "{}({}) -> ({}){tail}",
         method.name,
         list(method.params),
         list(method.returns),
-        transfers(method.transfers)
     )
-}
-
-/// ` transfers (events: Channel<..>, pixels: Buffer)`, or nothing.
-fn transfers(items: &[super::schema::Transfer]) -> String {
-    if items.is_empty() {
-        return String::new();
-    }
-    let items: Vec<String> = items
-        .iter()
-        .map(|t| match t.channel {
-            Some(interface) => format!("{}: Channel<{interface}>", t.name),
-            None => format!("{}: Buffer", t.name),
-        })
-        .collect();
-    format!(" transfers ({})", items.join(", "))
 }
 
 fn type_name(ty: super::schema::Ty) -> String {

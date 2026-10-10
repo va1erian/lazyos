@@ -2,8 +2,8 @@
 //! first, which replaces whatever was still waiting (a scroll or a zoom makes
 //! the old list stale); the threads take jobs from the front, render them
 //! with their own [`lazypdf::Renderer`], and post the pixels back. The window
-//! drains the results from a timer: LazyOS's backend has no cross-thread
-//! waker (as the Archiver and Net Tools found).
+//! drains the results from a timer. That predates the backend's waker
+//! (`xui-app/src/backend/wakeup.rs`): a `Proxy` would now do.
 
 use std::collections::{HashSet, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};

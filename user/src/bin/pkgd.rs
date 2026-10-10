@@ -36,9 +36,9 @@
 //! # Boot evidence
 //!
 //! `PKGD:UP:PASS`, `PKGD:AUDIT:PASS n=<count>` (or `FAIL`), `PKGD:RECONCILE:PASS`,
-//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (core
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n> free=<bytes>` (core
 //! packages, see `provision`),
-//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n>` (see
+//! `PKGD:PROVISION:DONE installed=<n> upgraded=<n> kept=<n> failed=<n> free=<bytes>` (see
 //! `provision`),
 //! `PKGD:INSTALL:PASS <system_name> <install_dir>` / `PKGD:INSTALL:FAIL <why>`,
 //! `PKGD:REMOVE:PASS <system_name>` / `...:FAIL`, `PKGD:STORE:ABSENT reason=<..>`
@@ -73,6 +73,8 @@ extern crate alloc;
 mod approval;
 #[path = "pkgd/audit.rs"]
 mod audit;
+#[path = "pkgd/debug.rs"]
+mod debug;
 #[path = "pkgd/develop.rs"]
 mod develop;
 #[path = "pkgd/handlers.rs"]

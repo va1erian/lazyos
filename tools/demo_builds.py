@@ -1,9 +1,10 @@
 """The optional build steps `run_demo.py` runs before `cargo build`.
 
 Each runs one tool script quietly and reports a failure in one line; the
-explicitly requested ones (`--lazyrad`, `--doom`, `--emusic`, `--modplayer`, `--pictures`,
-`--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return False so the run stops instead of booting
-an image without what was asked for.
+explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--emusic`, `--modplayer`,
+`--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return
+False so the run stops instead of booting an image without what was asked
+for.
 """
 
 from __future__ import annotations
@@ -58,6 +59,13 @@ def build_doom() -> bool:
     """The Doom package (`tools/doom/build.py`: engine, Freedoom, then
     `target/pkg/doom.lzp`); a missing toolchain or download stops the run."""
     return required("Doom", "doom/build.py", ("--require",))
+
+
+def build_quake() -> bool:
+    """The Quake package (`tools/quake/build.py`: the quake-srp engine and
+    its LazyOS bridge, id's shareware pak, then `target/pkg/quake.lzp`); a
+    missing toolchain or download stops the run."""
+    return required("Quake", "quake/build.py", ("--require",))
 
 
 def build_emusic() -> bool:

@@ -4,9 +4,10 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use super::readcache::{BYPASS_BYTES, PAGE_SECTORS};
 use super::{
     now, park, test_clock, Op, Phase, Request, State, UserDisk, DEAD_AFTER_TIMEOUTS,
-    MAX_REQUEST_BYTES, NAMES, REQUEST_TICKS, SLICE_TICKS,
+    MAX_REQUEST_BYTES, NAMES, QUEUE_TICKS, SLICE_TICKS, SLOT_TICKS, TAKEN_TICKS,
 };
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 use crate::task::{self, wait::WaitQueue};
@@ -24,7 +25,7 @@ impl UserDisk {
             report_unparkable();
             return Err(BlockError::Io);
         }
-        let deadline = now() + REQUEST_TICKS;
+        let slot_deadline = now() + SLOT_TICKS;
         let bytes = read.as_ref().map_or(0, |b| b.len()) + write.map_or(0, |b| b.len());
         // Take the request slot.
         let tag = loop {
@@ -51,13 +52,14 @@ impl UserDisk {
                     break tag;
                 }
             }
-            if now() >= deadline {
+            if now() >= slot_deadline {
                 return Err(BlockError::Io);
             }
-            self.wait(&self.idle, deadline);
+            self.wait(&self.idle, slot_deadline);
         };
+        let queued_at = now();
         self.work.notify_all();
-        let result = self.await_completion(tag, deadline, read);
+        let result = self.await_completion(tag, queued_at, read);
         self.idle.notify_one();
         if result.is_err() {
             self.state.lock().stats.errors += 1;
@@ -65,16 +67,33 @@ impl UserDisk {
         result
     }
 
-    /// Wait for request `tag`, then release the slot.
+    /// Wait for request `tag` (queued at `queued_at`), then release the slot.
     fn await_completion(
         &self,
         tag: u64,
-        deadline: u64,
+        mut queued_at: u64,
         read: Option<&mut [u8]>,
     ) -> Result<(), BlockError> {
+        // Whether an untaken request's deadline may still be pushed back
+        // because its provider is busy with another of its disks, and until
+        // when: one taken request's worth, so with its own queue and taken
+        // time a holder stays within `SLOT_TICKS`.
+        let mut may_defer = true;
+        let defer_until = queued_at + TAKEN_TICKS;
         loop {
+            let deadline;
+            let owner;
             {
                 let mut state = self.state.lock();
+                // Until the provider takes the request it only has to look;
+                // once taken, the device gets its time.
+                let taken = state.phase == Phase::Taken;
+                deadline = if taken {
+                    state.taken_at + TAKEN_TICKS
+                } else {
+                    queued_at + QUEUE_TICKS
+                };
+                owner = state.owner;
                 debug_assert_eq!(state.request.tag, tag);
                 if let Phase::Done(result) = state.phase {
                     if let (Ok(()), Some(buf)) = (result, read) {
@@ -89,22 +108,49 @@ impl UserDisk {
                     release(&mut state);
                     return Err(BlockError::Io);
                 }
-                if now() >= deadline {
-                    state.timeouts += 1;
-                    state.stats.timeouts += 1;
-                    if state.timeouts >= DEAD_AFTER_TIMEOUTS {
-                        state.alive = false;
-                        serial_println!(
-                            "block: {}: provider stopped answering; disk dead",
-                            NAMES[self.index]
-                        );
-                    }
-                    release(&mut state);
+                if now() >= deadline && (taken || !may_defer) {
+                    self.time_out(&mut state, taken);
                     return Err(BlockError::Io);
                 }
             }
+            if now() >= deadline {
+                // Untaken: a provider serving another of its sticks (one
+                // transfer at a time) has not neglected this one. Checked
+                // with this disk's lock dropped: disks are locked one at a time.
+                if now() < defer_until && super::busy_elsewhere(self.index, owner, now()) {
+                    queued_at = now();
+                } else {
+                    may_defer = false;
+                }
+                continue;
+            }
             self.wait(&self.done, (now() + SLICE_TICKS).min(deadline));
         }
+    }
+
+    /// The request in flight timed out (`taken`: in the provider): count
+    /// it, report it, kill the disk after too many in a row, free the slot.
+    fn time_out(&self, state: &mut State, taken: bool) {
+        state.timeouts += 1;
+        state.stats.timeouts += 1;
+        let request = state.request;
+        serial_println!(
+            "block: {}: {:?} lba {} ({} bytes) timed out {} after {} s",
+            NAMES[self.index],
+            request.op,
+            request.lba,
+            request.bytes,
+            if taken { "in the provider" } else { "untaken" },
+            if taken { TAKEN_TICKS } else { QUEUE_TICKS } / 100
+        );
+        if state.timeouts >= DEAD_AFTER_TIMEOUTS {
+            state.alive = false;
+            serial_println!(
+                "block: {}: provider stopped answering; disk dead",
+                NAMES[self.index]
+            );
+        }
+        release(state);
     }
 
     /// Park until `deadline`, or let the test's fake provider run instead.
@@ -131,6 +177,17 @@ fn report_unparkable() {
     }
 }
 
+impl UserDisk {
+    /// Read from the provider, in bounce-buffer pieces, past the cache.
+    fn read_through(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+        for (index, chunk) in buf.chunks_mut(MAX_REQUEST_BYTES).enumerate() {
+            let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
+            self.transact(Op::Read, at, Some(chunk), None)?;
+        }
+        Ok(())
+    }
+}
+
 impl BlockDevice for UserDisk {
     fn name(&self) -> &'static str {
         NAMES[self.index]
@@ -142,10 +199,37 @@ impl BlockDevice for UserDisk {
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
         self.check_range(lba, buf.len())?;
-        for (index, chunk) in buf.chunks_mut(MAX_REQUEST_BYTES).enumerate() {
-            let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
-            self.transact(Op::Read, at, Some(chunk), None)?;
+        if buf.is_empty() || buf.len() > BYPASS_BYTES {
+            return self.read_through(lba, buf);
         }
+        // A dead disk fails at once, whatever it once read.
+        if !self.state.lock().alive {
+            return Err(BlockError::Io);
+        }
+        let epoch = {
+            let mut cache = self.cache.lock();
+            if cache.read(lba, buf) {
+                return Ok(());
+            }
+            cache.epoch()
+        };
+        // A miss reads the whole pages around the request: the next look at
+        // a neighbouring block (a directory's, an inode table's) is free.
+        let sectors = (buf.len() / SECTOR_SIZE) as u64;
+        let first = lba - lba % PAGE_SECTORS;
+        let end = (lba + sectors)
+            .next_multiple_of(PAGE_SECTORS)
+            .min(self.sector_count());
+        let len = (end - first) as usize * SECTOR_SIZE;
+        let mut staging = alloc::vec::Vec::new();
+        if staging.try_reserve_exact(len).is_err() {
+            return self.read_through(lba, buf);
+        }
+        staging.resize(len, 0);
+        self.read_through(first, &mut staging)?;
+        let from = (lba - first) as usize * SECTOR_SIZE;
+        buf.copy_from_slice(&staging[from..from + buf.len()]);
+        self.cache.lock().insert(epoch, first, &staging);
         Ok(())
     }
 
@@ -154,11 +238,24 @@ impl BlockDevice for UserDisk {
         if !self.is_writable() {
             return Err(BlockError::ReadOnly);
         }
+        // Write through: the device first, the cache as it completes. The
+        // epoch moves on both sides, so a reader that was in flight cannot
+        // store what it read before the new bytes landed.
+        let ticket = self.cache.lock().begin_write();
+        let mut result = Ok(());
         for (index, chunk) in buf.chunks(MAX_REQUEST_BYTES).enumerate() {
             let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
-            self.transact(Op::Write, at, None, Some(chunk))?;
+            result = self.transact(Op::Write, at, None, Some(chunk));
+            if result.is_err() {
+                break;
+            }
         }
-        Ok(())
+        let mut cache = self.cache.lock();
+        match result {
+            Ok(()) => cache.wrote(ticket, lba, buf),
+            Err(_) => cache.forget(lba, (buf.len() / SECTOR_SIZE) as u64),
+        }
+        result
     }
 
     fn flush(&self) -> Result<(), BlockError> {

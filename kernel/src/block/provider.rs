@@ -22,8 +22,15 @@
 //!
 //! The requester parks on the disk's `done` queue in slices of
 //! [`SLICE_TICKS`], checking at each wake that the provider task is still
-//! alive, until the request completes or [`REQUEST_TICKS`] pass. A timed-out
-//! request is abandoned (a late completion is refused as stale); after
+//! alive, until the request completes or its deadline passes. The deadline
+//! has two parts: the provider must take a queued request within
+//! [`QUEUE_TICKS`] (a provider that does not even look is stuck), then finish
+//! it within [`TAKEN_TICKS`] (generous: a real USB stick can stall a write
+//! for seconds while its flash reorganises, and the driver retries on top;
+//! issue #704). A queued request whose provider is busy with another of its
+//! disks (it serves them one transfer at a time) is not neglected: its queue
+//! deadline restarts. A timed-out request is abandoned (a late completion is
+//! refused as stale); after
 //! [`DEAD_AFTER_TIMEOUTS`] timeouts in a row, or when the provider dies or
 //! reports the medium gone, the disk is dead and every request, pending and
 //! future, fails at once with [`BlockError::Io`]. A mount on a dead disk
@@ -34,6 +41,7 @@
 //! spinning. A context that holds the task table cannot park at all and its
 //! request fails ([`crate::task::relax::can_block`]).
 
+pub(crate) mod readcache;
 mod request;
 pub mod sys;
 pub mod test_clock;
@@ -49,8 +57,17 @@ use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 pub const MAX_PROVIDERS: usize = 8;
 /// The largest single request, and the size of each disk's bounce buffer.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
-/// How long one request may take (PIT ticks, 100 Hz): 10 s.
-pub const REQUEST_TICKS: u64 = 1000;
+/// How long a queued request may wait for the provider to take it (PIT
+/// ticks, 100 Hz): 10 s. The provider polls at least once a second.
+pub const QUEUE_TICKS: u64 = 1000;
+/// How long the provider may work on a request it took: 60 s. `usbd` gives
+/// up on a request after 45 s of its own (Linux allows a SCSI command 30 s).
+pub const TAKEN_TICKS: u64 = 6000;
+/// The longest a requester waits for the request slot: a holder's whole
+/// time, which includes waiting up to a [`TAKEN_TICKS`] behind its
+/// provider's work on another disk (`busy_elsewhere`), then its own queued
+/// and taken time.
+pub const SLOT_TICKS: u64 = QUEUE_TICKS + 2 * TAKEN_TICKS;
 /// How often a waiting requester checks that its provider is alive.
 pub const SLICE_TICKS: u64 = 10;
 /// Consecutive timeouts after which a disk is declared dead.
@@ -129,6 +146,8 @@ struct State {
     busy: bool,
     phase: Phase,
     request: Request,
+    /// When the provider took the request in flight (`now()`).
+    taken_at: u64,
     bounce: Vec<u8>,
     next_tag: u64,
     timeouts: u32,
@@ -147,6 +166,9 @@ pub struct UserDisk {
     done: WaitQueue,
     /// Requesters waiting for the request slot.
     idle: WaitQueue,
+    /// Clean pages of what was read (`readcache.rs`). Its own lock, never
+    /// held across a request.
+    cache: Mutex<readcache::ReadCache>,
 }
 
 impl UserDisk {
@@ -167,6 +189,7 @@ impl UserDisk {
                     lba: 0,
                     bytes: 0,
                 },
+                taken_at: 0,
                 bounce: Vec::new(),
                 next_tag: 0,
                 timeouts: 0,
@@ -181,6 +204,7 @@ impl UserDisk {
             work: WaitQueue::new(WaitKind::Block),
             done: WaitQueue::new(WaitKind::Block),
             idle: WaitQueue::new(WaitKind::Block),
+            cache: Mutex::new(readcache::ReadCache::new()),
         }
     }
 }
@@ -199,6 +223,27 @@ static DISKS: [UserDisk; MAX_PROVIDERS] = [
 /// The disk with registry index `id`, if it was ever registered.
 fn disk(id: usize) -> Option<&'static UserDisk> {
     DISKS.get(id).filter(|disk| disk.state.lock().registered)
+}
+
+/// Empty every disk's read cache, so a test measuring the heap for leaks
+/// does not count pages the cache is meant to keep.
+#[cfg(lazyos_tests)]
+pub fn drop_caches() {
+    for disk in &DISKS {
+        disk.cache.lock().clear();
+    }
+}
+
+/// `(hits, misses)` of disk `id`'s read cache.
+#[cfg(lazyos_tests)]
+pub fn cache_counters(id: usize) -> Option<(u64, u64)> {
+    disk(id).map(|disk| disk.cache.lock().counters())
+}
+
+/// Pages disk `id`'s read cache holds.
+#[cfg(lazyos_tests)]
+pub fn cache_pages(id: usize) -> Option<usize> {
+    disk(id).map(|disk| disk.cache.lock().len())
 }
 
 /// The clock requests are timed by (a test can move it forward).
@@ -233,6 +278,8 @@ pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, Pro
         state.writable = writable;
         state.alive = true;
         state.scanned = false;
+        // Nothing of a disk that used this slot before may be served.
+        disk.cache.lock().clear();
         // Tags carry the slot, so one disk's tag never matches another's.
         state.next_tag = (disk.index as u64) << 56;
     }
@@ -273,6 +320,7 @@ pub fn next(
                     copy_out(&state.bounce[..request.bytes])?;
                 }
                 state.phase = Phase::Taken;
+                state.taken_at = now();
                 return Ok(Some(request));
             }
         }
@@ -397,6 +445,30 @@ pub fn is_provider_device(name: &str) -> bool {
     NAMES.iter().any(|disk| {
         name.strip_prefix(disk)
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('p'))
+    })
+}
+
+/// Whether task `slot` serves a live disk: such a task must never wait for
+/// the VFS, which a requester may hold while it waits for that task.
+pub fn serves_disk(slot: usize) -> bool {
+    DISKS.iter().any(|disk| {
+        let state = disk.state.lock();
+        state.registered && state.alive && state.owner == slot
+    })
+}
+
+/// Whether `owner` is working, within its deadline, on a request of a disk
+/// other than `index`. A request queued behind it then waits its turn
+/// without counting as neglected; a request past its own deadline is not
+/// work, so the wait stays bounded.
+fn busy_elsewhere(index: usize, owner: usize, now: u64) -> bool {
+    DISKS.iter().filter(|disk| disk.index != index).any(|disk| {
+        let state = disk.state.lock();
+        state.registered
+            && state.alive
+            && state.owner == owner
+            && state.phase == Phase::Taken
+            && now < state.taken_at + TAKEN_TICKS
     })
 }
 

@@ -65,9 +65,9 @@ def module_section(interface: Interface) -> list[str]:
         lines.append(f"| `{snake_case(method.name)}({params})` | `{signature(method)}` | {about} |")
     for struct in interface.structs:
         lines.append(f"| `new_{snake_case(struct.name)}()` | struct `{struct.name}` | a `{struct.name}` at its zero value |")
-    skipped = [m.name for m in interface.methods if m.transfers]
+    skipped = [m.name for m in interface.methods if m.objects]
     if skipped:
-        lines += ["", "Not callable from a script (the request transfers a kernel object): "
+        lines += ["", "Not callable from a script (the request carries a kernel object): "
                   + ", ".join(f"`{m}`" for m in skipped) + "."]
     if interface.enums:
         lines += [""]

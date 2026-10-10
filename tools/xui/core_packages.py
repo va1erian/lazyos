@@ -140,6 +140,8 @@ CORE_APPS: dict[str, CoreApp] = {
     # Network Status, the tray applet over `netd` (docs/tray-plan.md T3):
     # shipped with the other network apps (`LAZYOS_NETD=1`).
     "netstatus": xui_app("xui-netstatus.elf", "netstatus", optional=True),
+    # LazyGolf: Fly over a procedurally generated golf course.
+    "golf": xui_app("xui-golf.elf", "golf"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

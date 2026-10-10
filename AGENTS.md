@@ -71,6 +71,18 @@ IPC, processes, display, etc.) and focused plans for
 Read those for anything about kernel internals, syscall numbers, or
 window/task management rather than assuming from comments elsewhere.
 
+Before touching IPC, read the six concepts and the cheat sheet in
+[`docs/messenger.md`](docs/messenger.md) (sections 1 and 5): a message is a
+header, a TLV body and an object list; an interface's objects are parameters
+of type `Channel<I>` (one end of a channel, which moves) or `Buffer` (shared
+pages with a byte range, which is shared), declared in `.midl` like any other
+field and refused in a reply, a topic, an `Option` or an `Array`. The index
+rule and fixed cardinality apply: an object field's index is its position in
+the method's declared order, the kernel refuses a request whose object list
+is not exactly the declared kinds, and the generated `decode_<m>_args`
+refuses any other index. `midlc` refuses the old `transfers (...)` clause;
+there is no other way to carry a handle.
+
 Boot it with one command:
 
 ```bash
@@ -276,6 +288,27 @@ cargo test --manifest-path xui-app/Cargo.toml -p lazypdf -p xui-pdfview
 FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazypdf --release seeded
 ```
 
+## LazyGolf (`os.lazy.golf`)
+
+`xui-golf` is a core desktop app: a procedural 18-hole course generator and
+a mid-90s indexed-colour software renderer to fly over, both in the portable
+crate `xui-app/crates/golf` (`xui-golf`; the design is
+[`docs/golf-course-generator.md`](docs/golf-course-generator.md)). The bin
+only launches it; the crate's `golf` example runs the same app as a desktop
+window through xui's winit backend. Session:
+`tools/screenshot/examples/xui_golf.json` (`LAZYOS_XUI_AUTOSTART=golf`;
+markers `GOLF:UP:PASS`, `GOLF:READY:<seed>:par=<par>:ms=<ms>:<name>`,
+`GOLF:FPS:<fps>:scale=<n>:<w>x<h>:work=<ms>` once a second while drawing,
+`GOLF:BENCH:frames=<n>:min=<fps>:avg=<fps>` after the `B` flyover).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf   # generator, renderer, window (snapshots in xui-app/target/snapshots)
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator routing_survey -- --ignored --nocapture
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator quality_survey -- --ignored --nocapture   # plain seed vs search
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test render searched_views -- --ignored             # golf-search-*.png
+cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop -- [seed]
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
@@ -319,6 +352,34 @@ before each) and `LAZYOS_UI_PROBE=1`. Markers: `EMUSIC:UP:PASS`,
 prints `EMUSIC:CHECK:DONE` and logs to `~/.apps/org.lazy.emusic/sound-check.log`.
 QEMU's WAV recorder drops the time no stream plays, so the judge splits the
 recording by pitch, not by silence.
+
+## Quake (an installable `.lzp` package)
+
+Quake is `quake/` (the `quake-srp` port of id's WinQuake to Rust, fetched at
+a pinned revision like doomgeneric, plus a Rust platform layer that hosts
+its browser platform over the same record protocol on `xui-app`'s client
+window) shipped as the package `org.lazy.quake` **with id's freely
+redistributable shareware pak inside**; see [`quake/README.md`](quake/README.md)
+and [`docs/quake-port-plan.md`](docs/quake-port-plan.md). Only two upstream
+files are overlaid (`src/main.rs` and `src/common.rs`'s documented data
+directory); everything else is the upstream code.
+
+```bash
+python tools/quake/build.py            # target/quake/quake.elf + target/pkg/quake.lzp (+ id's quake106.zip; zig only links)
+python tools/quake/build.py --test     # the upstream suite (record protocol, census) + the port's own, Linux host
+python tools/quake/build.py --require  # a missing download is an error (CI)
+python tools/run_demo.py --quake       # desktop with /system/share/samples/quake.lzp (a user package)
+cargo test --manifest-path <assembled>/Cargo.toml # host; `--test` assembles and points at it
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/quake \
+    --script tools/screenshot/examples/quake.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1) and LAZYOS_UI_PROBE=1
+```
+
+The launcher asks for the **Classic preset** (`-preset classic`, id's 1996
+game in the 4:3 box); `preset slop` in the console switches a session to the
+2026 look. The headless check (`quake.elf -headless -frames 300`) prints the
+deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/quake-result.txt`); v1 is silent and pointer-free like Doom's (the
+`Pcm` records already ride the bridge).
 
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
@@ -898,6 +959,35 @@ python tools/smb/licenses.py               # GPLv2-compatible crates only
 `run.py` types passwords with the session step `{"type_secret": "VAR"}`
 (the value of a host environment variable), so no password is in the script;
 it scans the serial log, the capture and the session record for it.
+
+## Remote inspection (`dbgd`, `LAZYOS_DBGD=1`)
+
+`dbgd` (`user/src/bin/dbgd.rs`, wire in `libs/dbgwire`) lets a person or an
+agent read a box over its network card: the kernel boot log live, what the
+services printed, tasks, memory, PCI devices, `devd`'s drivers, a USB
+controller snapshot, Messenger's registry, services and topics, a few files.
+Read-only, authenticated with a pre-shared key, off unless built in and
+configured (`diag.dbg=1` in `lazyos.cfg`); a kernel built without the
+switch has none of its ops. Plan, protocol and threat model:
+[`docs/dbgd-plan.md`](docs/dbgd-plan.md); how to use it:
+[`docs/dbgd.md`](docs/dbgd.md) and the `lazyos-dbg` skill
+(`.claude/skills/lazyos-dbg`).
+
+```bash
+python tools/run_demo.py --dbgd                 # networking + dbgd; key in target/dbgd.key; 9701 forwarded
+python tools/run_demo.py --dbgd-control         # ...plus restart and service hot reload (v2)
+python tools/dbg/dbgctl.py reload usbd          # rebuilt /system/bin/usbd from target/lazyos.img, rolled back if it dies
+python tools/dbg/dbgctl.py app-install X.lzp    # install an app package (core too), relaunch its windows
+python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
+python tools/dbg/run.py [--usb] [--no-control]  # build, boot, judge every method and the reloads (shots/dbg)
+python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
+cargo test -p dbgwire                           # protocol, config, allowlist, seeded fuzz
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none
+```
+
+Program output (`sys::write_str`) is not in the boot log; a `LAZYOS_DBGD=1`
+kernel keeps it in its own ring, which is where a service's `USBD:`/`NETDRV:`
+lines can be read back (`log.tail source=programs`).
 
 ## Network tooling
 

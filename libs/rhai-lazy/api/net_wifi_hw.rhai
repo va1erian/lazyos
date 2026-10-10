@@ -34,7 +34,7 @@
 // or its event channel reporting the peer gone, detaches it and leaves the
 // radio idle: scanning stops, the BSS is left, all keys are deleted.
 //
-// **Events.** `Attach` transfers the client's event channel; the driver sends
+// **Events.** `Attach` carries the client's event channel; the driver sends
 // the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 // `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 // at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
@@ -232,7 +232,7 @@ fn deauthenticated(reason) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("Deauthenticated", [reason])
 }
 
-// Not callable from a script (the request transfers a channel, buffer
+// Not callable from a script (the request carries a channel, buffer
 // or ring): Attach.
 
 /// A `HwInfo` with every field at its zero value.

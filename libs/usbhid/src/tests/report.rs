@@ -290,3 +290,51 @@ fn older_qemu_tablet_has_three_buttons() {
         }
     );
 }
+
+/// A wireless mouse's descriptor (the shape of Logitech's receivers, issue
+/// "scroll wheel dead on real hardware"): report id 1, eight buttons, 12-bit
+/// relative X and Y, an 8-bit wheel. It sits on a *boot* mouse interface, whose
+/// 3-byte boot report has no wheel byte, so `usbd` must run it in report
+/// protocol: `has_wheel` is what tells it to.
+const WIRELESS_MOUSE_REPORT: [u8; 60] = [
+    0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x85, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x05, 0x09, 0x19, 0x01,
+    0x29, 0x08, 0x15, 0x00, 0x25, 0x01, 0x95, 0x08, 0x75, 0x01, 0x81, 0x02, 0x05, 0x01, 0x09, 0x30,
+    0x09, 0x31, 0x16, 0x01, 0xf8, 0x26, 0xff, 0x07, 0x75, 0x0c, 0x95, 0x02, 0x81, 0x06, 0x09, 0x38,
+    0x15, 0x81, 0x25, 0x7f, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06, 0xc0, 0xc0,
+];
+
+#[test]
+fn wireless_mouse_wheel_is_in_the_report_layout() {
+    let mouse = parse_pointer(&WIRELESS_MOUSE_REPORT).unwrap();
+    assert!(mouse.has_wheel());
+    assert!(!mouse.absolute());
+    assert_eq!(mouse.report_id, Some(1));
+    // id 1, left button, x = 5, y = -1 (12 bits each), wheel +1.
+    let report = mouse.read(&[0x01, 0x01, 0x05, 0xf0, 0xff, 0x01]).unwrap();
+    assert_eq!(
+        report,
+        PointerReport {
+            x: 5,
+            y: -1,
+            wheel: 1,
+            buttons: 1
+        }
+    );
+    let mut decoder = Decoder::new(mouse);
+    let mut outs = Vec::new();
+    assert!(decoder.feed(&[0x01, 0x00, 0x00, 0x00, 0x00, 0xff], |o| outs.push(o)));
+    assert_eq!(outs, [Out::Mouse(MouseOut::Wheel(-1))]);
+}
+
+#[test]
+fn has_wheel_is_false_without_a_wheel_or_for_a_tablet() {
+    // Boot-style 3-byte layout: buttons, X, Y and no wheel usage.
+    let mut plain = MOUSE_REPORT;
+    plain[38] = 0x09; // Usage (0x31 again) instead of the wheel's 0x38
+    plain[39] = 0x31;
+    plain[47] = 0x02; // Report Count (2)
+    let layout = parse_pointer(&plain).unwrap();
+    assert!(layout.wheel.is_none() && !layout.has_wheel());
+    assert!(!parse_pointer(&TABLET_REPORT).unwrap().has_wheel());
+    assert!(parse_pointer(&MOUSE_REPORT).unwrap().has_wheel());
+}

@@ -46,6 +46,12 @@ pub const LEGACY_ACCOUNTS_DB: &str = "/conf/accounts/db";
 /// removed: `<HOME_ARCHIVE>/<name>-<uid>`, 0700 root. Written by `init`.
 pub const HOME_ARCHIVE: &str = "/home/.archived";
 
+/// The snapshot `usbd` keeps of its controllers, ports and enumerated
+/// devices (registers, slot and endpoint 0 state), rewritten as the bus
+/// changes; `dbgd`'s `usb.dump` serves it. On the ramfs: nothing durable.
+/// Written by `usbd`.
+pub const USBD_DUMP: &str = "/transient/usbd.dump";
+
 /// `printd`'s spool: one `<id>.job` record and `<id>.doc` document per print
 /// job until its printer has it, so a queued job survives a restart. Under
 /// [`CONF_SVC`], 0700 root. Written by `printd`.
@@ -135,11 +141,30 @@ pub const DOOM_TMP: &str = "/tmp/doom";
 /// (`doom/src/headless.rs`).
 pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 
+/// Quake's saves and `config.cfg` when the player has no home (otherwise
+/// its per-user folder, `$HOME/.apps/org.lazy.quake`). Written by the
+/// `org.lazy.quake` package.
+pub const QUAKE_TMP: &str = "/tmp/quake";
+
+/// The verdict line Quake's headless mode writes for a harness to read
+/// (`quake/src/lazy/headless.rs`).
+pub const QUAKE_RESULT: &str = "/tmp/quake-result.txt";
+
 /// The tray demo's lifecycle test hooks (`xui-app/src/bin/traydemo.rs`,
 /// tools/screenshot/examples/tray_resident.json): milliseconds to delay its
 /// `Watch` by, and a marker that makes it ignore `Quit`.
 pub const TRAYDEMO_DELAY: &str = "/tmp/traydemo-delay";
 pub const TRAYDEMO_IGNORE_QUIT: &str = "/tmp/traydemo-ignore-quit";
+
+/// Where `dbgd` assembles a service binary a client uploads for a hot
+/// reload (docs/dbgd-plan.md, v2), on the ramfs: `<dir>/<service>.elf`.
+/// Written by `dbgd`; `init` copies a finished one out before running it.
+pub const DBGD_STAGE: &str = "/transient/dbgd";
+
+/// The hot-reloaded service binaries `init` runs (root-owned, on the
+/// ramfs, so a reboot always comes back to the image's): `<dir>/<service>`.
+/// Written by `init`.
+pub const INIT_RELOAD: &str = "/transient/init-reload";
 
 #[cfg(test)]
 mod tests {
@@ -169,6 +194,8 @@ mod tests {
         assert!(CONF_FALLBACK.starts_with(TRANSIENT));
         assert!(LAZYRAD_TMP.starts_with(TRANSIENT));
         assert!(RESOLV_CONF.starts_with(TRANSIENT));
+        assert!(DBGD_STAGE.starts_with(TRANSIENT));
+        assert!(INIT_RELOAD.starts_with(TRANSIENT));
         for name in [
             APP_DATA_DIR,
             LAZYRAD_APP,

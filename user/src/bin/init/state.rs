@@ -42,6 +42,17 @@ pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 pub(super) const LAUNCH_CAP_PER_SESSION: usize = 256;
 
+/// The remote inspection service's identity (docs/dbgd-plan.md): its own
+/// system uid and no capability at all.
+#[cfg(lazyos_dbgd)]
+const DBGD_CRED: SysCred = SysCred::new(
+    dbgwire::config::DBGD_UID,
+    dbgwire::config::DBGD_UID,
+    0,
+    0,
+    0,
+);
+
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
@@ -74,6 +85,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_netd)]
     if name == "mountd" {
         return Some(MOUNTD_CRED);
+    }
+    #[cfg(lazyos_dbgd)]
+    if name == "dbgd" {
+        return Some(DBGD_CRED);
     }
     #[cfg(lazyos_devd)]
     if name == "devd" {
@@ -327,6 +342,17 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         path: fhs::bin::MOUNTD,
         args: "",
         restart: Restart::Always,
+        deps: &["netd"],
+    },
+    // The remote inspection service (docs/dbgd-plan.md, issue #701), present
+    // only in `LAZYOS_DBGD=1` images. It reads `diag.dbg.*` from
+    // `lazyos.cfg` itself and exits 0 (so is not restarted) when it is off.
+    #[cfg(lazyos_dbgd)]
+    ServiceSpec {
+        name: "dbgd",
+        path: fhs::bin::DBGD,
+        args: "",
+        restart: Restart::OnFailure,
         deps: &["netd"],
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's

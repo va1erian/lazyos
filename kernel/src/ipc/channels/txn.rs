@@ -46,10 +46,9 @@ pub(super) fn expire_transaction(txn_id: u64) {
     {
         return;
     }
-    channel.txns[index].state = TxnState::TimedOut;
-    channel.timeouts += 1;
-    let caller = channel.txns[index].caller;
-    release_pending(channel, caller);
+    let txn = &channel.txns[index];
+    let poll = txn.poll && !txn.served;
+    time_out(channel, index, poll);
 }
 
 /// Test hook (issue #62 harness): run the timer's deadline sweep and mark every
@@ -61,19 +60,14 @@ pub fn expire_deadlines(now: u64) {
     task::harness::expire_deadlines(now);
     let mut channels = CHANNELS.lock();
     for channel in channels.iter_mut() {
-        let mut released = Vec::new();
         for index in 0..channel.txns.len() {
-            let txn = &mut channel.txns[index];
+            let txn = &channel.txns[index];
             if txn.state == TxnState::Pending
                 && txn.deadline.is_some_and(|deadline| deadline <= now)
             {
-                txn.state = TxnState::TimedOut;
-                released.push(txn.caller);
+                let poll = txn.poll && !txn.served;
+                time_out(channel, index, poll);
             }
-        }
-        channel.timeouts += released.len() as u64;
-        for caller in released {
-            release_pending(channel, caller);
         }
     }
     drop(channels);

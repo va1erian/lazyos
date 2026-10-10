@@ -29,6 +29,8 @@ Examples
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
+    python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
+    python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
@@ -75,7 +77,7 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail,
-    build_modplayer, build_pictures, build_rhai, build_tls, build_xui_apps,
+    build_modplayer, build_pictures, build_quake, build_rhai, build_tls, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -100,6 +102,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-calc.elf",
     "xui-pdf.elf",
     "xui-volume.elf",
+    "xui-golf.elf",
 )]
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
@@ -254,6 +257,7 @@ def main(argv: list[str]) -> int:
             env["LAZYRAD_SAMPLES"] = lazyrad_samples(user)
         # Opt-in apps, built before their switch (the MOD player after LazyRAD's).
         for wanted, build, switch in ((args.doom, build_doom, "LAZYOS_DOOM"),
+                                      (args.quake, build_quake, "LAZYOS_QUAKE"),
                                       (args.emusic, build_emusic, "LAZYOS_EMUSIC"),
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
@@ -267,6 +271,12 @@ def main(argv: list[str]) -> int:
             env[switch] = "1"
         if args.journal:
             env["LAZYOS_JOURNAL"] = args.journal
+        if args.dbgd:
+            # The inspection service is a `user` binary; the image build
+            # writes its `diag.dbg.*` lines and the key (target/dbgd.key).
+            env["LAZYOS_DBGD"] = "1"
+            # Its control tier (restart, hot reload) only when asked for.
+            env["LAZYOS_DBGD_CONTROL"] = "1" if args.dbgd_control else "0"
         if args.smb:
             # The SMB client is a `user` binary: no separate build step.
             env["LAZYOS_SMB"] = "1"
@@ -348,6 +358,12 @@ def main(argv: list[str]) -> int:
     if args.disk == "virtio":
         command += ["-drive", f"format=raw,file={image},if=none,id=boot",
                     "-device", "virtio-blk-pci,drive=boot"]
+    elif args.disk == "ahci":
+        # Its own AHCI controller (works on every machine type), the image the
+        # only disk on it: the kernel must find it as ahci0.
+        command += ["-device", "ahci,id=ahcib",
+                    "-drive", f"format=raw,file={image},if=none,id=boot",
+                    "-device", "ide-hd,drive=boot,bus=ahcib.0"]
     else:
         command += ["-drive", f"format=raw,file={image}"]
     # Same order as the screenshot tools: boot, data, then home.

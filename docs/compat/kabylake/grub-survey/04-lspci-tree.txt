@@ -1,0 +1,14 @@
+# lspci -tvnn
+-[0000:00]-+-00.0  Intel Corporation Xeon E3-1200 v6/7th Gen Core Processor Host Bridge/DRAM Registers [8086:5904]
+           +-02.0  Intel Corporation Kaby Lake-U GT2 [HD Graphics 620] [8086:5916]
+           +-14.0  Intel Corporation Sunrise Point-LP USB 3.0 xHCI Controller [8086:9d2f]
+           +-14.2  Intel Corporation Sunrise Point-LP Thermal subsystem [8086:9d31]
+           +-16.0  Intel Corporation Sunrise Point-LP CSME HECI #1 [8086:9d3a]
+           +-17.0  Intel Corporation Sunrise Point-LP SATA Controller [AHCI mode] [8086:9d03]
+           +-1c.0-[01]----00.0  Realtek Semiconductor Co., Ltd. RTL8822CE 802.11ac PCIe Wireless Network Adapter [10ec:c822]
+           +-1c.4-[02]----00.0  Realtek Semiconductor Co., Ltd. RTL8111/8168/8211/8411 PCI Express Gigabit Ethernet Controller [10ec:8168]
+           +-1f.0  Intel Corporation Sunrise Point LPC/eSPI Controller [8086:9d4e]
+           +-1f.2  Intel Corporation Sunrise Point-LP PMC [8086:9d21]
+           +-1f.3  Intel Corporation Sunrise Point-LP HD Audio [8086:9d71]
+           \-1f.4  Intel Corporation Sunrise Point-LP SMBus [8086:9d23]
+# exit 0

@@ -21,7 +21,7 @@
 use std::cell::RefCell;
 use std::ptr;
 
-use audioclient::{Error, Result, RingBuffer, RingRef, Transfers, Transport};
+use audioclient::{Error, Object, Result, RingBuffer, RingRef, Transport};
 use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
 
 use crate::sys::{self, errno};
@@ -100,7 +100,7 @@ impl Transport for Audio {
         interface: u64,
         method: u32,
         body: Vec<u8>,
-        transfers: Transfers,
+        objects: Vec<Object>,
         deadline: Option<u64>,
     ) -> Result<Vec<u8>> {
         let request = Parcel {
@@ -116,8 +116,7 @@ impl Transport for Audio {
                 deadline_ns: 0,
             },
             body,
-            handles: transfers.handles,
-            buffers: transfers.buffers,
+            objects,
         };
         // Never 0 ("forever") nor `EXPIRED_DEADLINE` (a poll the callee may
         // answer only during its own turn).
@@ -231,8 +230,7 @@ mod tests {
                 deadline_ns: 0,
             },
             body,
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         }
     }
 

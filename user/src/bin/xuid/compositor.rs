@@ -12,6 +12,7 @@ use super::cursor::CursorOverlay;
 use super::drag::DragSession;
 use super::held::HeldInput;
 use super::inputlink::InputLink;
+use super::layoutfeed::LayoutFeed;
 use super::loginfeed::LoginFeed;
 use super::opening::Opening;
 use super::origin::OpenHint;
@@ -85,6 +86,8 @@ pub(super) struct Compositor {
     pub(super) scratch: Vec<u8>,
     /// The live `sys/ui/*` theme follower.
     pub(super) themefeed: ThemeFeed,
+    /// The shell user's own keyboard layout, for `inputd`.
+    pub(super) layoutfeed: LayoutFeed,
     /// `init`'s shutdown progress (the shutting-down overlay).
     pub(super) powerfeed: PowerFeed,
     /// `logind`'s logouts (who owns the display next).
@@ -142,6 +145,7 @@ impl Compositor {
             alt_tab: None,
             scratch: Vec::with_capacity(64),
             themefeed,
+            layoutfeed: LayoutFeed::new(),
             powerfeed: PowerFeed::new(),
             loginfeed: LoginFeed::new(),
             input: InputLink::new(),
@@ -173,6 +177,7 @@ impl Compositor {
         if self.themefeed.poll() {
             self.repaint_full();
         }
+        self.layoutfeed.poll(self.themefeed.confd());
     }
 
     /// Follow `init`'s shutdown and repaint everything when the overlay rises.
@@ -186,6 +191,8 @@ impl Compositor {
             if self.display_session == Some(session) {
                 user::sys::write_str(&alloc::format!("XUID:LOGOUT session={session}\n"));
                 self.display_session = None;
+                // The login screen types with the machine's layout.
+                self.layoutfeed.forget_user();
             }
         }
     }

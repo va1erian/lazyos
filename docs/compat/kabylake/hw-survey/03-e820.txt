@@ -1,0 +1,69 @@
+# dmesg | grep -i -E "e820|BIOS-provided|efi: |Memory:"
+[    0.000000] BIOS-provided physical RAM map:
+[    0.000000] BIOS-e820: [mem 0x0000000000000000-0x0000000000057fff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x0000000000058000-0x0000000000058fff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000059000-0x000000000009efff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x000000000009f000-0x00000000000fffff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x0000000000100000-0x00000000b64eafff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000b64eb000-0x00000000b64ebfff]  ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x00000000b64ec000-0x00000000b64ecfff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x00000000b64ed000-0x00000000bbcd8fff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000bbcd9000-0x00000000bc79bfff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x00000000bc79c000-0x00000000bc7cefff]  ACPI data
+[    0.000000] BIOS-e820: [mem 0x00000000bc7cf000-0x00000000bcfe5fff]  ACPI NVS
+[    0.000000] BIOS-e820: [mem 0x00000000bcfe6000-0x00000000bd3fdfff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x00000000bd3fe000-0x00000000bd3fefff]  System RAM
+[    0.000000] BIOS-e820: [mem 0x00000000bd3ff000-0x00000000bfffffff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000c0000000-0x00000000dfffffff]
+[    0.000000] BIOS-e820: [mem 0x00000000e0000000-0x00000000efffffff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000f0000000-0x00000000fdffffff]
+[    0.000000] BIOS-e820: [mem 0x00000000fe000000-0x00000000fe010fff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000fe011000-0x00000000febfffff]
+[    0.000000] BIOS-e820: [mem 0x00000000fec00000-0x00000000fec00fff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000fec01000-0x00000000fecfffff]
+[    0.000000] BIOS-e820: [mem 0x00000000fed00000-0x00000000fed00fff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000fed01000-0x00000000fedfffff]
+[    0.000000] BIOS-e820: [mem 0x00000000fee00000-0x00000000fee00fff]  device reserved
+[    0.000000] BIOS-e820: [gap 0x00000000fee01000-0x00000000feffffff]
+[    0.000000] BIOS-e820: [mem 0x00000000ff000000-0x00000000ffffffff]  device reserved
+[    0.000000] BIOS-e820: [mem 0x0000000100000000-0x000000023effffff]  System RAM
+[    0.000000] efi: EFI v2.5 by American Megatrends
+[    0.000000] efi: TPMFinalLog=0xbcfb6000 ACPI 2.0=0xbcc14000 ACPI=0xbcc14000 SMBIOS=0xbd318000 SMBIOS 3.0=0xbd317000 ESRT=0xbac011d8 MOKvar=0xbd0a5000 INITRD=0xb65aab98 TPMEventLog=0xbc7ca018 
+[    0.000000] efi: Remove mem38: MMIO range=[0xe0000000-0xefffffff] (256MB) from e820 map
+[    0.000000] e820: remove [mem 0xe0000000-0xefffffff] device reserved
+[    0.000000] efi: Not removing mem39: MMIO range=[0xfe000000-0xfe010fff] (68KB) from e820 map
+[    0.000000] efi: Not removing mem40: MMIO range=[0xfec00000-0xfec00fff] (4KB) from e820 map
+[    0.000000] efi: Not removing mem41: MMIO range=[0xfed00000-0xfed00fff] (4KB) from e820 map
+[    0.000000] efi: Not removing mem42: MMIO range=[0xfee00000-0xfee00fff] (4KB) from e820 map
+[    0.000000] efi: Remove mem43: MMIO range=[0xff000000-0xffffffff] (16MB) from e820 map
+[    0.000000] e820: remove [mem 0xff000000-0xffffffff] device reserved
+[    0.001038] e820: update [mem 0x00000000-0x00000fff] System RAM ==> device reserved
+[    0.001042] e820: remove [mem 0x000a0000-0x000fffff] System RAM
+[    0.011535] e820: update [mem 0xbac01000-0xbac01fff] System RAM ==> device reserved
+[    0.013507] e820: update [mem 0xb8237000-0xb8254fff] System RAM ==> device reserved
+[    0.013561] PM: hibernation: Registered nosave memory: [mem 0x00000000-0x00000fff]
+[    0.013564] PM: hibernation: Registered nosave memory: [mem 0x00058000-0x00058fff]
+[    0.013567] PM: hibernation: Registered nosave memory: [mem 0x0009f000-0x000fffff]
+[    0.013569] PM: hibernation: Registered nosave memory: [mem 0xb64eb000-0xb64ecfff]
+[    0.013571] PM: hibernation: Registered nosave memory: [mem 0xb8237000-0xb8254fff]
+[    0.013574] PM: hibernation: Registered nosave memory: [mem 0xbac01000-0xbac01fff]
+[    0.013576] PM: hibernation: Registered nosave memory: [mem 0xbbcd9000-0xbd3fdfff]
+[    0.013578] PM: hibernation: Registered nosave memory: [mem 0xbd3ff000-0xffffffff]
+[    0.198407] Freeing SMP alternatives memory: 56K
+[    0.208507] Memory: 6528844K/8303060K available (23836K kernel code, 4957K rwdata, 16776K rodata, 5304K init, 5840K bss, 1758268K reserved, 0K cma-reserved)
+[    0.222594] efi: Freeing EFI boot services memory: 103876K
+[    0.314648] PCI: Ignoring E820 reservations for host bridge windows
+[    0.421523] e820: register RAM buffer resource [mem 0x00058000-0x0005ffff]
+[    0.421526] e820: register RAM buffer resource [mem 0x0009f000-0x0009ffff]
+[    0.421528] e820: register RAM buffer resource [mem 0xb64eb000-0xb7ffffff]
+[    0.421531] e820: register RAM buffer resource [mem 0xb8237000-0xbbffffff]
+[    0.421533] e820: register RAM buffer resource [mem 0xbac01000-0xbbffffff]
+[    0.421535] e820: register RAM buffer resource [mem 0xbbcd9000-0xbbffffff]
+[    0.421537] e820: register RAM buffer resource [mem 0xbd3ff000-0xbfffffff]
+[    0.421538] e820: register RAM buffer resource [mem 0x23f000000-0x23fffffff]
+[    0.703895] Freeing initrd memory: 90596K
+[    0.772247] Freeing unused decrypted memory: 2028K
+[    0.773674] Freeing unused kernel image (initmem) memory: 5304K
+[    0.774767] Freeing unused kernel image (text/rodata gap) memory: 736K
+[    0.775693] Freeing unused kernel image (rodata/data gap) memory: 1656K
+# exit 0

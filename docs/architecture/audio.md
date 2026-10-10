@@ -28,7 +28,7 @@ are still open.
 | `idl/audio.midl`, `idl/audio_mixer.midl` | The stream interface and the mixer's control panel, compiled by `midlc` into `libs/generated` and `docs/idl/` |
 | `user/src/bin/sndd.rs`, `sndd/` | The driver: `device.rs` claim + BAR mapping, `card.rs` queues and control/transmit paths, `stream.rs` slots and DMA staging, `session.rs` ownership/ring/commit/volume logic, `service.rs` request dispatch |
 | `libs/audiomix/` | The mixer's engine (`mixer.rs`, `stream.rs`: stream table, contract checks, marks), `resample.rs`, `gain.rs`, `grant.rs`, and `service.rs`, the wire layer `audiod` and the host tests share |
-| `user/src/bin/audiod.rs`, `audiod/` | The mixer: `card.rs` paces the card, `server.rs` handles transfers and deferred drains, `ring.rs` maps client rings, `demo.rs` runs the evidence clients |
+| `user/src/bin/audiod.rs`, `audiod/` | The mixer: `card.rs` paces the card, `server.rs` handles requests and deferred drains, `ring.rs` maps client rings, `demo.rs` runs the evidence clients |
 | `libs/audioclient/` | The client library: `Client`, `MixerControl` and the blocking `PlaybackStream` over a `Transport` trait |
 | `user/src/audio.rs` | The native `Transport` (Messenger endpoint + display shared buffers) |
 | `user/src/messenger/audio.rs` | Service names and reply framing shared by the two servers |
@@ -77,7 +77,7 @@ limits and the plan: [`audio-plan.md`](../audio-plan.md).
 
 ## The client protocol
 
-Replies cannot carry buffers (the kernel refuses transfers in a reply,
+Replies cannot carry buffers (the kernel refuses objects in a reply,
 `ipc::channels::reply`), and the driver must not let the device read memory a
 client can rewrite, so **the client owns the ring and the driver copies out of
 it** (`docs/driver-plan.md` section 3.4).

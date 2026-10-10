@@ -9,8 +9,8 @@ description = "OS-wide stable names for xui's Lucide outline icons, with drawing
 # `draw_icon`. Usable by every xui app, LazyShell, `lrplay` and scripting.
 [dependencies]
 # The same revision as every other xui crate here, so one `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "e50e69d64c0b851b89c85b06e3d8f5df891a916a" }
 
 [dev-dependencies]
 # The tiny-skia software surface, only to check `draw` paints real pixels.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e50e69d64c0b851b89c85b06e3d8f5df891a916a", default-features = false }

@@ -17,7 +17,7 @@ const KEYS: &str =
     "syscall 5 · registry list · topics broker · [r] refresh  [f] fabric  [n] names  [c] compact  [q] quit";
 
 /// The counters, in reading order; [`counters`] gives their values.
-const COUNTERS: [&str; 22] = [
+const COUNTERS: [&str; 23] = [
     "channels",
     "endpoints",
     "queued messages",
@@ -27,6 +27,7 @@ const COUNTERS: [&str; 22] = [
     "replies",
     "one-way messages",
     "timeouts",
+    "polls",
     "cancels",
     "drops",
     "handles",
@@ -327,6 +328,7 @@ fn counters(s: &FabricStats) -> [String; COUNTERS.len()] {
         s.replies.to_string(),
         s.one_way.to_string(),
         s.timeouts.to_string(),
+        s.polls.to_string(),
         s.cancels.to_string(),
         s.drops.to_string(),
         s.handles.to_string(),

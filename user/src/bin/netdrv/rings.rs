@@ -6,11 +6,13 @@ use alloc::boxed::Box;
 
 use e1000::{Mmio, Rings};
 use nicdrv::{Fatal, NicRings, Queues, RxError, TxError};
+use rtl8168::{Mmio as RtlMmio, Rings as RtlRings};
 
 pub(super) enum AnyRings {
     // Boxed: the two differ in size by kilobytes, and there is one per driver.
     Virtio(Box<Queues>),
     E1000(Box<Rings<Mmio>>),
+    Rtl8168(Box<RtlRings<RtlMmio>>),
 }
 
 impl NicRings for AnyRings {
@@ -22,6 +24,7 @@ impl NicRings for AnyRings {
         match self {
             AnyRings::Virtio(queues) => NicRings::poll_frames(&mut **queues, max_frame, deliver),
             AnyRings::E1000(rings) => rings.poll_frames(max_frame, deliver),
+            AnyRings::Rtl8168(rings) => rings.poll_frames(max_frame, deliver),
         }
     }
 
@@ -29,6 +32,7 @@ impl NicRings for AnyRings {
         match self {
             AnyRings::Virtio(queues) => NicRings::tx_free(&**queues),
             AnyRings::E1000(rings) => rings.tx_free(),
+            AnyRings::Rtl8168(rings) => rings.tx_free(),
         }
     }
 
@@ -36,6 +40,7 @@ impl NicRings for AnyRings {
         match self {
             AnyRings::Virtio(queues) => NicRings::tx_send(&mut **queues, frame),
             AnyRings::E1000(rings) => rings.tx_send(frame),
+            AnyRings::Rtl8168(rings) => rings.tx_send(frame),
         }
     }
 
@@ -43,6 +48,7 @@ impl NicRings for AnyRings {
         match self {
             AnyRings::Virtio(queues) => NicRings::reap_tx(&mut **queues),
             AnyRings::E1000(rings) => rings.reap_tx(),
+            AnyRings::Rtl8168(rings) => rings.reap_tx(),
         }
     }
 
@@ -50,6 +56,7 @@ impl NicRings for AnyRings {
         match self {
             AnyRings::Virtio(queues) => NicRings::rx_in_flight(&**queues),
             AnyRings::E1000(rings) => rings.rx_in_flight(),
+            AnyRings::Rtl8168(rings) => rings.rx_in_flight(),
         }
     }
 }

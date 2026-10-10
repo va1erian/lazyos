@@ -18,9 +18,9 @@ from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-expor
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
-from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
+from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -106,10 +106,11 @@ SCRIPTS = [
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
     ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
+    ("xui_golf.json", "XUI app: LazyGolf", ("desktop",), "golf"),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -120,7 +121,7 @@ DEVICES_AUTOSTART = "devices"
 # list the embedded apps: `LAZYOS_DESKTOP=1` makes `build.rs` embed its own default set.
 DOCUMENT_APPS = ("editor", "files", "paint", "writer", "archiver")
 ACCELS = ["auto", "none", "tcg", "whpx", "kvm"]
-DISKS = ["virtio", "ata"]
+DISKS = ["virtio", "ata", "ahci"]
 #: Guest RAM the GUI starts with; the same as every CLI launcher's default
 #: (`tools/screenshot/qemu_qmp.py` `DEFAULT_MEMORY`).
 DEFAULT_MEMORY = "1G"
@@ -136,7 +137,7 @@ def check_limits(cfg: dict) -> None:
     skipped = cfg.get("skip_build") and cfg["mode"] in SKIP_BUILD_MODES
     if limit_env(cfg.get("limits", "")) and skipped:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
-    if check_mode(cfg.get("display_mode", "")) and skipped:
+    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))) and skipped:
         raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
     needs_build(cfg.get("assets", ""), skipped)
 
@@ -201,6 +202,11 @@ def build_env(cfg: dict) -> dict[str, str]:
         # Places the Doom package (built by `tools/doom/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
         env["LAZYOS_DOOM"] = "1"
+    if cfg.get("quake"):
+        # Places the Quake package (built by `tools/quake/build.py`, id's
+        # shareware pak inside) in /system/share/samples; a user installs
+        # it through pkgd.
+        env["LAZYOS_QUAKE"] = "1"
     if cfg.get("emusic"):
         # Places the emusic package (built by `tools/emusic/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
@@ -228,11 +234,18 @@ def build_env(cfg: dict) -> dict[str, str]:
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(limit_env(cfg.get("limits", "")))
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
-    env.update(display_env(cfg.get("display_mode", "")) | assets_env(cfg.get("assets", "")))
+    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if wants_dbgd(cfg):
+        # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
+        # stack above; the image build writes its key to target/dbgd.key.
+        env["LAZYOS_DBGD"] = "1"
+        if cfg.get("dbgd_control"):
+            # Its control tier: restart and hot-reload services (v2).
+            env["LAZYOS_DBGD_CONTROL"] = "1"
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
@@ -304,6 +317,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("doom") and not cfg["skip_build"]:
             # run_demo builds the package and sets LAZYOS_DOOM itself.
             argv.append("--doom")
+        if cfg.get("quake") and not cfg["skip_build"]:
+            # run_demo builds the package and sets LAZYOS_QUAKE itself.
+            argv.append("--quake")
         if cfg.get("emusic") and not cfg["skip_build"]:
             # run_demo builds the package, adds a sound card and sets LAZYOS_EMUSIC.
             argv.append("--emusic")
@@ -319,6 +335,10 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("journal") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_JOURNAL itself.
             argv.append("--journal")
+        if wants_dbgd(cfg) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DBGD (and _CONTROL), the stack and the 9701
+            # forward itself.
+            argv.append("--dbgd-control" if cfg.get("dbgd_control") else "--dbgd")
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")
@@ -330,6 +350,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
+        if check_mode(cfg.get("display_max", "")) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DISPLAY_MAX (`display.max`, issue #717).
+            argv += ["--display-max", check_mode(cfg["display_max"])]
         argv += assets_argv(cfg)  # run_demo sets LAZYOS_ASSETS (issue #454)
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.

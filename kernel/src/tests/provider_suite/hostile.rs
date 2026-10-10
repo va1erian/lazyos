@@ -3,7 +3,11 @@
 
 use super::*;
 
+/// One sector read that reaches the provider: the disk's read cache would
+/// answer a repeat of an earlier read, and these tests inject faults into the
+/// provider's answers.
 fn read_one(disk: &dyn BlockDevice) -> Result<(), BlockError> {
+    provider::drop_caches();
     let mut sector = [0u8; SECTOR_SIZE];
     disk.read_sectors(3, &mut sector)
 }
@@ -68,6 +72,7 @@ pub fn error_statuses() -> Result<(), String> {
         );
         // A failed read never hands back the provider's bytes.
         mode(Mode::Status(status::IO));
+        provider::drop_caches();
         let mut sector = [0x77u8; SECTOR_SIZE];
         expect_err(
             disk.read_sectors(3, &mut sector),
@@ -93,7 +98,7 @@ pub fn wrong_tag_times_out() -> Result<(), String> {
         check!(stats.timeouts == 1 && stats.stale >= 1, "stats {stats:?}");
         // The real clock runs too, so the fake one may cover less.
         let waited = test_clock::offset();
-        let bound = provider::REQUEST_TICKS / 2..=provider::REQUEST_TICKS + provider::SLICE_TICKS;
+        let bound = provider::TAKEN_TICKS / 2..=provider::TAKEN_TICKS + provider::SLICE_TICKS;
         check!(bound.contains(&waited), "waited {waited} ticks");
         // A success in between resets the count of timeouts in a row.
         mode(Mode::Normal);

@@ -296,6 +296,8 @@ pub fn hostile_lengths() -> Result<(), String> {
         // Read data the kernel cannot copy: the read fails, the caller's
         // buffer is untouched, the disk lives on.
         trick(Trick::BadData);
+        // Past the read cache, which would answer a sector read before.
+        provider::drop_caches();
         let mut sector = [0x99u8; SECTOR_SIZE];
         expect_err(
             disk.read_sectors(20, &mut sector),

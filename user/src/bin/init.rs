@@ -103,6 +103,10 @@ mod protocol;
 mod provisioning;
 #[path = "init/ready.rs"]
 mod ready;
+#[path = "init/relaunch.rs"]
+mod relaunch;
+#[path = "init/reload.rs"]
+mod reload;
 #[path = "init/residents.rs"]
 mod residents;
 #[path = "init/selftest.rs"]
@@ -182,6 +186,8 @@ fn run() -> messenger::Result<()> {
         .map(Service::from_manifest)
         .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
+    // Before anything else runs: the root-only directory hot reloads use.
+    reload::prepare();
     apps::load();
     if BOOT_SELFTESTS {
         // The packaged apps are checked once `pkgd` provisioned them
@@ -321,12 +327,28 @@ fn run() -> messenger::Result<()> {
         // A logout whose apps are gone, or whose grace ran out, sweeps the
         // rest of its session.
         logouts.step(&services, sys::clock());
+        // A hot-reloaded service still running when its trial ends is kept,
+        // judged only once no exit is waiting to be reaped: a run that died
+        // just before its deadline must reach `child_exited` (and roll back)
+        // before it could be committed. The bell is asked again here, not
+        // read from `ready`, since a child may have exited while requests
+        // were served; it stays ready while exits are queued, so the pass
+        // that reaps them comes at once.
+        if shutdown.is_none() && !child_exit_pending() {
+            reload::sweep(&mut services, sys::clock());
+        }
         if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
             stepped = true;
         }
         residents.sync(&services);
     }
+}
+
+/// Whether a child exit is waiting to be reaped, without parking or reaping.
+fn child_exit_pending() -> bool {
+    wait::wait_any(&[], wait::WAIT_CHILD, Some(messenger::EXPIRED_DEADLINE))
+        .is_ok_and(|ready| ready & wait::CHILD_READY != 0)
 }
 
 /// The pause before a shutdown's first step (see the loop): one 10 ms tick,
@@ -346,6 +368,7 @@ fn next_wake(
     let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
     let late = ready::next_deadline(services);
     let quit = lifecycle::next_deadline(services);
+    let trial = reload::next_deadline(services);
     [
         wake_deadline(services),
         home,
@@ -353,6 +376,7 @@ fn next_wake(
         selftest,
         late,
         quit,
+        trial,
     ]
     .into_iter()
     .flatten()

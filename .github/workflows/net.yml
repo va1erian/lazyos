@@ -48,12 +48,12 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p e1000 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster -p passwd -p accountdb -p elevpolicy -p accountwire -p pkgstore --features ipp/std
+        run: cargo test -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster -p passwd -p accountdb -p elevpolicy -p accountwire -p pkgstore --features ipp/std
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p e1000 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check
@@ -62,6 +62,9 @@ jobs:
         run: |
           python tools/net/test_analyze_pcap.py
           python tools/net/test_analyze_pcap_padded.py
+
+      - name: RTL8168 diagnosis tools (they must fail when they should)
+        run: python tools/net/rtl8168/test_rtl8168_probe.py
 
       - name: Socket evidence checker (TCP, UDP and DNS; it must fail when it should)
         run: python tools/net/test_sockets_pcap.py
@@ -79,7 +82,7 @@ jobs:
         # ext2fs: the F2 filesystem driver's mutate-and-check script target; this
         # is the only cargo-fuzz job in CI, so it lives with the others, as does
         # nvme (the kernel NVMe driver's hostile-controller target).
-        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire]
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire]
     steps:
       - uses: actions/checkout@v4
 

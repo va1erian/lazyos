@@ -27,7 +27,7 @@ interface os.lazy.demo.v1 {
     /// Say hello.
     method Hello(name: String, new: U32) -> (reply: String);
     method Fire(payload: Bytes) -> () oneway;
-    method Attach(slot: U32) -> () transfers (events: Channel<os.lazy.demo.v1>);
+    method Attach(slot: U32, events: Channel<os.lazy.demo.v1>) -> ();
     struct Point { x: I32, y: F64, tag: Option<String>, list: Array<U32>, mode: Mode, inner: Inner }
     struct Inner { on: Bool }
     enum Mode { Fast, VerySlow }
@@ -99,7 +99,7 @@ class ModuleTests(unittest.TestCase):
         self.assertIn("/// `Hello(name: String, new: U32) -> (reply: String)`\n///\n/// Say hello.", text)
         self.assertIn("/// One-way: returns `()` once the message is queued.\nfn fire(payload)", text)
 
-    def test_transferring_methods_are_listed_not_generated(self) -> None:
+    def test_methods_with_objects_are_listed_not_generated(self) -> None:
         text = module()
         self.assertNotIn("fn attach(", text)
         self.assertIn("// or ring): Attach.", text)

@@ -1,0 +1,17 @@
+# dmesg | grep -i -E "power button|sleep button|acpi.*(button|pm|s5|sci)|wdt|iTCO|watchdog"
+[    0.000000] efi: TPMFinalLog=0xdd3f4000 ACPI 2.0=0xdd1ac000 ACPI=0xdd1ac000 SMBIOS=0xddad7000 SMBIOS 3.0=0xddad6000 MEMATTR=0xdb4e5118 ESRT=0xd93d8498 MOKvar=0xddb11000 INITRD=0xd9382998 RNG=0xdd1ab018 TPMEventLog=0xdd19e018 
+[    0.006041] ACPI: TPM2 0x00000000DD1C6BE0 00004C (v04 ALASKA A M I    00000001 AMI  00000000)
+[    0.006082] ACPI: Reserving TPM2 table memory at [mem 0xdd1c6be0-0xdd1c6c2b]
+[    0.006620] ACPI: PM-Timer IO Port: 0x808
+[    0.234974] NMI watchdog: Enabled. Permanently consumes one hw-PMU counter.
+[    0.248902] ACPI: PM: Registering ACPI NVS region [mem 0x0a200000-0x0a20afff] (45056 bytes)
+[    0.248902] ACPI: PM: Registering ACPI NVS region [mem 0xdd210000-0xdd43afff] (2273280 bytes)
+[    0.295208] ACPI: PM: (supports S0 S3 S4 S5)
+[    0.321642] acpi PNP0A08:00: _OSC: OS supports [ExtendedConfig ASPM ClockPM Segments MSI EDR HPX-Type3]
+[    0.322160] acpi PNP0A08:00: _OSC: OS now controls [PCIeHotplug PME AER PCIeCapability]
+[    0.355125] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    0.406587] input: Power Button as /devices/platform/PNP0C0C:00/input/input0
+[    0.406623] ACPI: button: Power Button [PWRB]
+[    0.406679] input: Power Button as /devices/platform/LNXPWRBN:00/input/input1
+[    0.406724] ACPI: button: Power Button [PWRF]
+# exit 0

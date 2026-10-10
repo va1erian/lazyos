@@ -144,6 +144,9 @@ programs! {
     /// `mountd`, the network mount service that starts `ftpfuse` and
     /// `smbfuse` for apps.
     MOUNTD = "mountd";
+    /// `dbgd`, the remote inspection service (`LAZYOS_DBGD=1`,
+    /// docs/dbgd-plan.md).
+    DBGD = "dbgd";
     /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
     /// docs/tls-plan.md §7).
     FETCH = "fetch";

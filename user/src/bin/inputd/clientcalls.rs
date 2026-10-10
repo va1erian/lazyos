@@ -9,7 +9,7 @@ use user::messenger::input::{shell_wire, wire};
 use user::messenger::{errno, Endpoint, Error, Message, Result};
 use user::sys;
 
-use super::hub::{release_transfers, route_error, Hub};
+use super::hub::{route_error, Hub};
 
 /// PIT ticks are 10 ms.
 const TICK_MS: u32 = 10;
@@ -19,10 +19,10 @@ impl Hub {
         let body = &message.parcel.body;
         match message.method() {
             wire::METHOD_OPEN => self.open(message),
-            // It adopts (or releases) the buffer it carries itself.
             wire::METHOD_ATTACHKEYSTATE => self.attach_key_state(message),
+            // The rest carry no objects (a message that claims otherwise
+            // closes them when it drops).
             method => {
-                release_transfers(message);
                 match method {
                     wire::METHOD_CLOSE => self.close(message),
                     wire::METHOD_GETSTATE => wire::encode_get_state_reply(&wire::GetStateReply {
@@ -77,23 +77,21 @@ impl Hub {
     }
 
     /// `Open`: bind a session to a surface the sender owns and adopt the event
-    /// endpoint it transferred.
+    /// endpoint it carried.
     fn open(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let result = self.open_inner(message);
+        let args = message.decode(wire::decode_open_args)?;
+        let result = self.open_inner(message, &args);
         if result.is_err() {
-            release_transfers(message);
+            // Decoded, so the endpoint is ours to close.
+            let _ = Endpoint::from_raw(args.events).release();
         }
         result
     }
 
-    fn open_inner(&mut self, message: &Message) -> Result<Vec<u8>> {
-        let args = wire::decode_open_args(&message.parcel.body).map_err(Error::Parcel)?;
-        if !message.carries(wire::OPEN_TRANSFERS) {
-            return Err(Error::Errno(-errno::EINVAL));
-        }
+    fn open_inner(&mut self, message: &Message, args: &wire::OpenArgs) -> Result<Vec<u8>> {
         // A session without a surface is the login console's (issue #396).
         let Some(surface) = args.surface else {
-            return self.open_console(message);
+            return self.open_console(message, args.events);
         };
         let opened = self
             .router
@@ -103,7 +101,7 @@ impl Hub {
             self.forget_endpoint(old);
         }
         self.delivery
-            .insert(opened.session, Endpoint::from_raw(message.first_handle));
+            .insert(opened.session, Endpoint::from_raw(args.events));
         // Sessions are rare (one per window), so each is worth a boot-log line.
         sys::write_str(&format!(
             "INPUTD:SESSION:OPEN session={} surface={surface} owner={}\n",

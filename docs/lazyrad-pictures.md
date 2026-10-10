@@ -23,6 +23,11 @@ It ships as a core package in images built with `LAZYOS_PICTURES=1`
 Like XP's, turning a picture only changes the view: the viewer never writes
 the file (it may read the picture's folder, not change it).
 
+The toolbar is icons only: Lucide outlines set through the Button's `icon`
+property (LazyRAD's `Button`, a name from the OS-wide set in
+`xui-app/crates/named-icons`). The Slide Show button shows play, then pause
+while the show runs; the keys in the table do the same things.
+
 ## How it is built
 
 The LazyRAD side lives in [va1erian/lazyrad](https://github.com/va1erian/lazyrad)

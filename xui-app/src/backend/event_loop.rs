@@ -38,18 +38,35 @@ impl LazyOSBackend {
         }
     }
 
+    /// The doorbell, created on first use (client mode only).
+    pub(super) fn wakeup(&self) -> Option<&super::wakeup::Wakeup> {
+        if !self.is_client() {
+            return None;
+        }
+        self.wakeup
+            .get_or_init(|| super::wakeup::Wakeup::new().ok())
+            .as_ref()
+    }
+
     /// Wake the loop whenever Linux descriptor `fd` is readable (or hung
     /// up), and tell the primary window with a `Timer` event whose id is
     /// [`FD_TIMER`]: the desktop Terminal reads its pty master the moment the
     /// shell writes, instead of on a poll timer. One descriptor per app;
     /// client mode only (an owner-mode app keeps its own pacing).
     pub fn watch_fd(&self, fd: i32) {
+        // The number may now name a different file than the one registered
+        // under it: drop the registration so the next park adds this one.
+        if let Some(Some(wakeup)) = self.wakeup.get() {
+            wakeup.forget();
+        }
         self.watched_fd.set((fd >= 0).then_some(fd));
     }
 
     /// One event-loop iteration: drain input, flush widget messages, run due
     /// timers, and repaint when something is dirty.
     pub(super) fn tick(&self, window: WindowId) {
+        use crate::stall::{self, SLOW_NS, SLOW_PASS_NS};
+        let began = stall::start();
         match &self.mode {
             Mode::Owner { .. } => self.pump_input(window),
             Mode::Client(_) => {
@@ -69,15 +86,26 @@ impl LazyOSBackend {
                 }
             }
         }
+        stall::finish(began, SLOW_NS, "input", || {
+            format!("window={}", window.raw())
+        });
         // A wake drains the message queue; widget mappers enqueue while an
         // input record is being routed, so this runs after every batch.
+        let began = stall::start();
         self.deliver(window, WidgetId::NONE, &Event::Wake);
         self.fire_timers(window);
         // Timer messages joined the queue after the wake above; drain them in
         // the same pass so a refresh paints without a poll-period delay.
         self.deliver(window, WidgetId::NONE, &Event::Wake);
+        stall::finish(began, SLOW_NS, "update", || {
+            format!("window={}", window.raw())
+        });
         if self.needs_present(window) {
+            let began = stall::start();
             self.present(window);
+            stall::finish(began, SLOW_PASS_NS, "present", || {
+                format!("window={}", window.raw())
+            });
         }
     }
 
@@ -118,9 +146,20 @@ impl LazyOSBackend {
             CLIENT_IDLE_NS
         };
         let deadline = next_timer.unwrap_or(u64::MAX).min(now.saturating_add(idle));
-        let flags = match self.watched_fd.get() {
-            Some(fd) => sys::WAIT_FD | (fd as u64) << sys::WAIT_FD_SHIFT,
-            None => 0,
+        // With a doorbell the wait names the set holding it and the watched
+        // descriptor; without one, the watched descriptor itself.
+        let wakeup = self.wakeup.get().and_then(Option::as_ref);
+        let flags = match wakeup {
+            Some(wakeup) => {
+                if wakeup.watch(self.watched_fd.get()).is_err() {
+                    self.watched_fd.set(None);
+                }
+                sys::WAIT_FD | (wakeup.epoll_fd() as u64) << sys::WAIT_FD_SHIFT
+            }
+            None => match self.watched_fd.get() {
+                Some(fd) => sys::WAIT_FD | (fd as u64) << sys::WAIT_FD_SHIFT,
+                None => 0,
+            },
         };
         if count == 0 && flags == 0 {
             sys::sleep_millis(deadline.saturating_sub(now).div_ceil(1_000_000));
@@ -129,7 +168,13 @@ impl LazyOSBackend {
         match sys::msg_wait_any_ns(&handles[..count], flags, deadline) {
             Ok(mask) => {
                 if mask & sys::FD_READY != 0 {
-                    self.fd_ready.set(true);
+                    // Through the set, the watched descriptor is ready only
+                    // when it says so; a bare doorbell ring needs nothing
+                    // more than the next tick, which drains the proxy.
+                    let watched = wakeup.is_none_or(|wakeup| wakeup.collect());
+                    if watched {
+                        self.fd_ready.set(true);
+                    }
                 }
                 self.reap_closed(&handles[..count], mask);
             }

@@ -68,6 +68,17 @@ class DisplayModeTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=argv):
                 display.build_display(parse(argv))
 
+    def test_display_max_for_real_pcs(self) -> None:
+        self.assertEqual(display.build_display(parse(["--display-max", "2560x1440"])),
+                         {"LAZYOS_DISPLAY_MAX": "2560x1440"})
+        argv = demo_argv(skip_build=False, display_max="2560x1440")
+        self.assertEqual(argv[argv.index("--display-max") + 1], "2560x1440")
+        self.assertNotIn("--display-max", demo_argv())
+        with self.assertRaises(ValueError):
+            catalog.build_plan(demo_config(skip_build=True, display_max="2560x1440"))
+        with self.assertRaises(ValueError):
+            display.build_display(parse(["--display-max", "2560x1440", "--no-build"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,45 @@
+Quake for LazyOS (the `org.lazy.quake` package)
+===============================================
+
+This package combines three works:
+
+1. The game engine: quake-srp
+   (https://github.com/terrapapagalli1516/quake-srp), the browser and
+   native port of id Software's WinQuake source, whose own README credits
+   "id Software, Inc.; ported from the Quake source that id Software
+   released under the GPL". Copyright (C) 1996-1997 id Software, Inc.;
+   the port's own code (C) 2026 its authors. Licensed under the GNU
+   General Public License, version 2 or (at your option) any later
+   version.
+
+2. The LazyOS platform layer (`quake/` in the LazyOS tree): the Rust
+   program that hosts quake-srp's portable (`quake-wasm`) platform over
+   the record protocol on the LazyOS display and input services. Licensed
+   under the GNU General Public License, version 3 or (at your option)
+   any later version.
+
+   The engine is statically linked into `bin/quake.elf`, so the binary as
+   a whole is distributed under the GNU GPL, version 3 or later.
+
+3. The game data: id Software's freely redistributable shareware Quake
+   1.06 (`resources/id1/pak0.pak`), under id's shareware licence
+   (`resources/SLICNSE.TXT`), whose section 6, "Permitted Distribution",
+   grants "the limited right to distribute, free of charge only, the
+   Software as a whole". The package ships the pak unmodified beside
+   id's original archive (`resources/quake106.zip`) as the upstream
+   `quake-srp` project does for its own demo.
+
+Corresponding source
+--------------------
+
+The complete corresponding source of `bin/quake.elf` is:
+
+* the LazyOS tree at the revision this package was built from (`quake/`,
+  `xui-app/`, `libs/messenger/`, `libs/fhs/`, `libs/generated/`,
+  `libs/inputmap/`, `tools/quake/`), and
+* quake-srp at the revision pinned in `tools/quake/qfetch.py`
+  (`QUAKE_SRP_REV`), fetched unmodified.
+
+`python tools/quake/build.py` rebuilds the package from those two
+sources. The same source is available from whoever gave you this
+package, on request, for at least three years.

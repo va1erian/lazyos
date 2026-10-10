@@ -76,35 +76,24 @@ impl Service {
     }
 
     /// Route one request. `Ok` is the reply; `Err` becomes the error reply.
+    /// The ring `AttachRing` carries is the message's until its decoder
+    /// claims it: a refused request's ring closes when the message drops.
     pub(super) fn dispatch(&mut self, message: &Message) -> Result<Parcel> {
-        // Whatever the request transferred lands in this task's handle table
-        // before we look at it, so every path out, success or refusal, must
-        // close what was not adopted: a client that can resolve this service
-        // could otherwise fill the table with malformed requests.
-        let mut adopted = false;
-        let result = self.route(message, &mut adopted);
-        discard_transfers(message, adopted);
-        result
+        self.route(message)
     }
 
-    fn route(&mut self, message: &Message, ring_adopted: &mut bool) -> Result<Parcel> {
+    fn route(&mut self, message: &Message) -> Result<Parcel> {
         if message.interface_id() != api::INTERFACE {
             return Err(err(errno::EINVAL));
         }
         let method = message.method();
-        // Exactly what `audio.midl` declares for the method, or nothing is
-        // adopted (`dispatch` closes the objects).
-        if !message.carries(wire::request_transfers(method)) {
-            return Err(err(errno::EINVAL));
-        }
         let body = &message.parcel.body;
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
             wire::METHOD_OPENSTREAM => self.open_stream(message)?,
             wire::METHOD_ATTACHRING => {
-                let args = wire::decode_attach_ring_args(body).map_err(MsgError::Parcel)?;
-                self.attach_ring(message, args.stream)?;
-                *ring_adopted = true;
+                let args = message.decode(wire::decode_attach_ring_args)?;
+                self.attach_ring(message, &args)?;
                 Vec::new()
             }
             wire::METHOD_COMMIT => {
@@ -207,31 +196,15 @@ impl Service {
         .map_err(MsgError::Parcel)
     }
 
-    fn attach_ring(&mut self, message: &Message, stream: u32) -> Result<()> {
-        // The ring is the request's first transferred buffer; without one there
-        // is nothing to attach.
-        let desc = message
-            .parcel
-            .buffers
-            .first()
-            .ok_or_else(|| err(errno::EINVAL))?;
-        if !message.carries(wire::ATTACH_RING_TRANSFERS) {
-            return Err(err(errno::EINVAL));
+    /// `AttachRing`: the decoded request owns the ring; every way out but
+    /// success closes it.
+    fn attach_ring(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<()> {
+        let outcome = owned(&mut self.session, message, args.stream)
+            .and_then(|session| session.attach(&args.ring));
+        if outcome.is_err() {
+            let _ = sys::buffer_close(args.ring.handle);
         }
-        owned(&mut self.session, message, stream)?.attach(message.first_buffer, desc)
-    }
-}
-
-/// Close whatever a request transferred and the driver did not adopt: the ring
-/// buffer unless `AttachRing` took it, and any endpoint (no method uses one).
-/// The kernel surfaces only the first of each kind, so a request carrying
-/// several still leaves the extras open until the client's own quotas stop it.
-fn discard_transfers(message: &Message, buffer_adopted: bool) {
-    if message.buffers > 0 && !buffer_adopted {
-        let _ = sys::buffer_close(message.first_buffer);
-    }
-    if message.handles > 0 {
-        let _ = user::messenger::Endpoint::from_raw(message.first_handle).close();
+        outcome
     }
 }
 

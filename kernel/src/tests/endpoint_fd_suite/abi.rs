@@ -3,7 +3,9 @@
 use super::*;
 use crate::ipc::endpointfd::OpenError;
 use crate::ipc::handles::{rights, HandleKind};
-use crate::ipc::syscalls::{errno, MsgArgs, MsgResult, ENDPOINT_FD_CLOEXEC, OP_ENDPOINT_FD};
+use crate::ipc::syscalls::{
+    errno, MsgArgs, MsgResult, ENDPOINT_FD_CLOEXEC, OP_ENDPOINT_FD, RESULT_SIZE,
+};
 
 /// A user page for the op's two blocks.
 const SPACE: u64 = 0x0040_0000;
@@ -26,9 +28,9 @@ fn op(handle: u64, flags: u64) -> Result<(u64, MsgResult), String> {
     // SAFETY: the scratch page is mapped writable while installed.
     unsafe { core::ptr::copy_nonoverlapping(args.as_ptr(), ARGS as *mut u8, args.len()) };
     let code = process::dispatch_for_test(5, OP_ENDPOINT_FD, ARGS, RESULT);
-    let mut block = [0u8; 64];
+    let mut block = [0u8; RESULT_SIZE];
     // SAFETY: as above; the kernel wrote the result block there.
-    unsafe { core::ptr::copy_nonoverlapping(RESULT as *const u8, block.as_mut_ptr(), 64) };
+    unsafe { core::ptr::copy_nonoverlapping(RESULT as *const u8, block.as_mut_ptr(), RESULT_SIZE) };
     mem::switch_to(kernel);
     mem::free_user_table(table);
     let result = MsgResult::from_bytes(&block).ok_or("malformed result block")?;

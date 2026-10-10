@@ -24,6 +24,10 @@ reply, so the error field is hand-written next to these stubs.
 | ReportFailure | 425853579 | oneway | `(reason: String) -> ()` |
 | Home | 1391791790 | sync | `(op: String, name: String, uid: U32, gid: U32) -> ()` |
 | RestartService | 726211199 | sync | `(name: String) -> (pid: U64)` |
+| ReloadService | 1203429087 | sync | `(name: String, binary: String, sha256: String, trial_ms: U32) -> (pid: U64)` |
+| RevertService | 1005742662 | sync | `(name: String) -> (pid: U64)` |
+| RelaunchApp | 734382134 | sync | `(app: String) -> (stopped: U64, started: U64)` |
+| Reloads | 930702605 | sync | `() -> (reloads: Array<ReloadState>)` |
 
 ## Topics
 
@@ -33,6 +37,14 @@ reply, so the error field is hand-written next to these stubs.
 | `system/events/service/+` | `ServiceEvent` | latest | yes | `publish:system/events/service/+`, `subscribe:system/events/service/+` |
 | `system/events/app/+` | `AppFailure` | buffered | yes | `publish:system/events/app/+`, `subscribe:system/events/app/+` |
 | `session/+/apps/resident` | `ResidentApps` | latest | yes | `publish:session/+/apps/resident`, `subscribe:session/+/apps/resident` |
+
+## struct `ReloadState`
+
+- `name: String`
+- `state: String`
+- `sha256: String`
+- `pid: U64`
+- `detail: String`
 
 ## struct `PowerState`
 

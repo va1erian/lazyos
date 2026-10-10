@@ -152,6 +152,62 @@ fn restart_service(name) {
     msg::connect("os.lazy.init.v1").invoke("RestartService", [name])
 }
 
+/// `ReloadService(name: String, binary: String, sha256: String, trial_ms: U32) -> (pid: U64)`
+///
+/// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
+/// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
+/// `diag.dbg.control=1`; never `messengerd` or `dbgd`
+/// (`dbgwire::control::reloadable`). With `binary` empty the row is
+/// restarted as it is. Otherwise `binary` must be `dbgd`'s staging file
+/// for `name`: `init` copies it to a root-owned file, checks its SHA-256
+/// against `sha256` (hex), kills the running task and starts the copy.
+/// If the new run exits, or cannot be spawned, before `trial_ms` has
+/// passed, `init` rolls back to the image's binary at once; otherwise it
+/// commits. A reload lasts until `RevertService` or the next boot.
+/// `EPERM` for another caller or a refused name, `ENOENT` for no such
+/// manifest row, `EAGAIN` for a row still waiting for its dependencies or
+/// a shutdown, `EINVAL` for a bad file or a digest that does not match.
+fn reload_service(name, binary, sha256, trial_ms) {
+    msg::connect("os.lazy.init.v1").invoke("ReloadService", [name, binary, sha256, trial_ms])
+}
+
+/// `RevertService(name: String) -> (pid: U64)`
+///
+/// Put the image's binary back for a hot-reloaded service and restart
+/// it. Same callers and refusals as `ReloadService`; a service that was
+/// never reloaded is just restarted.
+fn revert_service(name) {
+    msg::connect("os.lazy.init.v1").invoke("RevertService", [name])
+}
+
+/// `RelaunchApp(app: String) -> (stopped: U64, started: U64)`
+///
+/// Restart a running app after `pkgd.InstallDebug` replaced it
+/// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
+/// app `app` (its id, as `Launch` takes it) is killed and launched again
+/// in its own session with its own argument, from the app's current
+/// install. Same callers as `ReloadService`. `stopped` counts the
+/// instances killed, `started` the ones launched again; an app that is
+/// not running is not an error (both 0).
+fn relaunch_app(app) {
+    msg::connect("os.lazy.init.v1").invoke("RelaunchApp", [app])
+}
+
+/// `Reloads() -> (reloads: Array<ReloadState>)`
+///
+/// The hot reloads since boot, one row per service that had one.
+/// Read-only: any caller.
+fn reloads() {
+    msg::connect("os.lazy.init.v1").invoke("Reloads", [])
+}
+
+/// A `ReloadState` with every field at its zero value.
+///
+/// One service's hot-reload state (`Reloads`).
+fn new_reload_state() {
+    #{ name: "", state: "", sha256: "", pid: 0, detail: "" }
+}
+
 /// A `PowerState` with every field at its zero value.
 ///
 /// The shutdown's progress: the payload of `system/power/state`.

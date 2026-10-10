@@ -1,0 +1,3 @@
+# mokutil --sb-state
+SecureBoot enabled
+# exit 0

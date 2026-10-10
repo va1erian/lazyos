@@ -1,0 +1,10 @@
+# dmesg | grep -i -E "snd|hda|audio|codec"
+[    0.012545] ACPI: SSDT 0x00000000BCC41FD0 000141 (v02 INTEL  HdaDsp   00000000 INTL 20160422)
+[    1.382392] usb 1-4: Product: USB Audio and HID
+[    7.100987] usbcore: registered new interface driver snd-usb-audio
+[    7.542539] snd_hda_intel 0000:00:1f.3: enabling device (0000 -> 0002)
+[    7.542926] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+[    7.586158] input: HDA Intel PCH HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input9
+[    7.586256] input: HDA Intel PCH HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input10
+[    7.586354] input: HDA Intel PCH HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input11
+# exit 0

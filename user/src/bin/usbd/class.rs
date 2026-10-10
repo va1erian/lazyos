@@ -186,6 +186,16 @@ fn bind_hid(
         return Ok(None);
     }
     let layout = if boot {
+        wheel_layout(hc, device, &hid)
+    } else {
+        // Report protocol is the default; SET_PROTOCOL is only for boot
+        // devices (QEMU's tablet stalls it). No pointer: not ours.
+        match read_report_layout(hc, device, &hid) {
+            Ok(layout) => Some(layout),
+            Err(_) => return Ok(None),
+        }
+    };
+    if boot && layout.is_none() {
         // Many keyboards start in report protocol; boot reports are the
         // fixed 8-byte (keyboard) and 3-byte (mouse) layouts the decoders
         // know. A device that refuses is used as it is.
@@ -199,15 +209,7 @@ fn bind_hid(
                 note(device, hid.number, "SET_IDLE", &error);
             }
         }
-        None
-    } else {
-        // Report protocol is the default; SET_PROTOCOL is only for boot
-        // devices (QEMU's tablet stalls it). No pointer: not ours.
-        match read_report_layout(hc, device, &hid) {
-            Ok(layout) => Some(layout),
-            Err(_) => return Ok(None),
-        }
-    };
+    }
     let dci = device.open_reports(&endpoint, super::pipe::REPORTS)?;
     let source = Hid::new(hid.protocol, layout)?;
     let what = match hid.protocol {
@@ -215,17 +217,39 @@ fn bind_hid(
         _ if source.tablet() => "TABLET",
         _ => "MOUSE",
     };
+    let mode = if layout.is_some() { "report" } else { "boot" };
     sys::write_str(&format!(
-        "USBD:HID:{what} port={} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={}\n",
+        "USBD:HID:{what} port={} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={} protocol={}\n",
         device.name,
         device.slot,
         device.descriptor.vendor,
         device.descriptor.product,
         hid.number,
         dci,
-        hc.regions
+        hc.regions,
+        mode
     ));
     Ok(Some(Function::Hid { dci, hid: source }))
+}
+
+/// A boot mouse whose report descriptor has a relative pointer with a wheel:
+/// the 3-byte boot report cannot carry the wheel (QEMU's mouse sends a
+/// fourth byte anyway, real mice do not), so it is driven in report protocol.
+/// `None` keeps the boot protocol: no wheel, unreadable or not a mouse.
+fn wheel_layout(hc: &mut Hc, device: &mut Device, hid: &HidInterface) -> Option<Pointer> {
+    if hid.protocol != Protocol::Mouse {
+        return None;
+    }
+    let layout = read_report_layout(hc, device, hid).ok()?;
+    if !layout.has_wheel() {
+        return None;
+    }
+    // Report protocol is the default after a reset; say so in case the
+    // device kept an earlier boot setting. A stall is fine.
+    if let Err(error) = device.control_out(hc, request::set_protocol(hid.number, false)) {
+        note(device, hid.number, "SET_PROTOCOL(report)", &error);
+    }
+    Some(layout)
 }
 
 fn note(device: &Device, interface: u8, what: &str, error: &Error) {

@@ -9,6 +9,7 @@ mod append;
 mod coherence;
 mod owner;
 mod read_at;
+mod stat_fs;
 
 const ENOENT: i64 = 2;
 const EPERM: i64 = 1;
@@ -447,6 +448,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fsops_soak_append_churn", append::soak_append_churn),
     ("fsops_read_at_semantics", read_at::read_at_semantics),
     ("fsops_soak_read_at_stream", read_at::soak_read_at_stream),
+    ("fsops_stat_fs_semantics", stat_fs::stat_fs_semantics),
+    ("fsops_soak_stat_fs", stat_fs::soak_stat_fs),
     ("fsops_shell_file_lifecycle", shell_file_lifecycle),
     ("fsops_errors_are_reported", errors_are_reported),
     (

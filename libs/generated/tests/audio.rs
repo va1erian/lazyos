@@ -68,7 +68,11 @@ fn attach_ring_declares_a_client_produced_stream() {
     assert_eq!(audio::RING_SAMPLES.producer, Side::Client);
     assert_eq!(audio::RING_SAMPLES.advance, Some(audio::METHOD_COMMIT));
     assert_eq!(
-        audio::request_transfers(audio::METHOD_ATTACHRING),
-        audio::ATTACH_RING_TRANSFERS
+        messenger_generated::declared_objects(audio::INTERFACE_ID, audio::METHOD_ATTACHRING),
+        audio::ATTACH_RING_OBJECTS
+    );
+    assert_eq!(
+        audio::ATTACH_RING_OBJECTS,
+        &[libmessenger::ObjectKind::Buffer]
     );
 }

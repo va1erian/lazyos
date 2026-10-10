@@ -86,6 +86,10 @@ members = [
     # the kernel's NVMe driver (docs/nvme-install-plan.md N1): pure `no_std`
     # logic with host tests against a model controller and seeded fuzz.
     "libs/nvme",
+    # AHCI (SATA) HBA bring-up, command tables, PRDT planning and IDENTIFY
+    # parsing for the kernel's AHCI driver (docs/ahci-plan.md A1): pure
+    # `no_std` logic with host tests against a model HBA and seeded fuzz.
+    "libs/ahci",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
@@ -94,6 +98,9 @@ members = [
     "libs/nicdrv",
     # The Intel 8254x NIC behind the same engine (issue #497, driver-plan D7).
     "libs/e1000",
+    # The Realtek RTL8111H/8168H NIC behind the same engine
+    # (docs/rtl8168-driver-plan.md).
+    "libs/rtl8168",
     # Intel High Definition Audio behind sndd (issue #497, driver-plan D7).
     "libs/hda",
     # devd's static driver manifest (issue #497, driver-plan 3.6).
@@ -119,6 +126,9 @@ members = [
     # mountd's mount table and argument checks (docs/smb-plan.md §3.4):
     # pure `no_std` + `alloc`, host-tested.
     "libs/mounttable",
+    # dbgd's wire: JSON-RPC lines, the HMAC challenge, config, method table
+    # (docs/dbgd-plan.md, issue #701): pure no_std + alloc, host-tested.
+    "libs/dbgwire",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
@@ -166,6 +176,8 @@ kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
 # The user program is built as a static ELF and added to the disk image.
 user = { path = "user", artifact = "bin", target = "x86_64-unknown-none" }
 bootloader = "0.11.17"
+# The OS random source for the generated dbgd key (`build_support/dbgd_cfg.rs`).
+getrandom = "0.4.3"
 # The OS volume is formatted and updated with the same ext2 code the kernel
 # reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
 # a volume that stopped uncleanly (`Ext2::recover`).
@@ -176,6 +188,9 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }
+# The stick's RAM root is sized for the core packages `pkgd` unpacks at
+# first boot, read with the reader `pkgd` installs them with (issue #703).
+lazypkg = { path = "libs/lazypkg" }
 # The image's `/system/etc/passwd` is checked with the parser `accountsd`
 # loads it with, so a file the daemon would refuse never ships (issue #508).
 passwd = { path = "libs/passwd" }

@@ -428,6 +428,7 @@ pub fn stress() -> Result<(), String> {
                 Err(other) => return Err(format!("round {round}: {other:?}")),
             }
         }
+        provider::drop_caches();
         let after = measure();
         let (stats, alive) = provider::stats(with_fake(|fake| fake.disk)).ok_or("no stats")?;
         check!(alive, "the disk died under transient errors");

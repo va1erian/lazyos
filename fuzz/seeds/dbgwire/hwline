@@ -1,0 +1,1 @@
+HW:IRQCHIP:ioapic pins=24 dest=0 pci_lines=0x0fff

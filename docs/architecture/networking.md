@@ -634,8 +634,9 @@ reports a result, so an abandoned one holds a slot until its timeout, at most
 the refused-connection evidence (QEMU's user networking answers a connection to a
 closed host port with a reset on Linux and with silence on Windows, so the
 harness requires only that no such connection was established); a shared module
-for the PCI bring-up that `sndd` and `netdrv` both carry, and `sndd`'s
-`discard_transfers` leaving extra transferred handles open; MSI/MSI-X (INTx only);
+for the PCI bring-up that `sndd` and `netdrv` both carry (`sndd` leaving
+extra received handles open was closed by `messenger-core-plan.md` M3);
+MSI/MSI-X (INTx only);
 checksum/segmentation offload and jumbo frames; a
 fully tickless serve loop (with the line armed the loop wakes every 20 ticks only
 for the link poll, the client's keep-alive and the configuration refresh; the

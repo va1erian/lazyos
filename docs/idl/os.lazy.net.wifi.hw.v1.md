@@ -32,7 +32,7 @@ else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
 or its event channel reporting the peer gone, detaches it and leaves the
 radio idle: scanning stops, the BSS is left, all keys are deleted.
 
-**Events.** `Attach` transfers the client's event channel; the driver sends
+**Events.** `Attach` carries the client's event channel; the driver sends
 the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
@@ -51,7 +51,7 @@ Failures of calls are returned as the shared structured error field
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | Info | 266462757 | sync | `() -> (info: HwInfo)` |
-| Attach | 145305188 | sync | `() -> () transfers (events: Channel<os.lazy.net.wifi.hw.v1>)` |
+| Attach | 145305188 | sync | `(events: Channel<os.lazy.net.wifi.hw.v1>) -> ()` |
 | Detach | 475812562 | sync | `() -> ()` |
 | SetCountry | 820455787 | sync | `(alpha2: String) -> ()` |
 | Scan | 1830061320 | sync | `(request: ScanRequest) -> (scan_id: U32)` |
@@ -69,14 +69,14 @@ Failures of calls are returned as the shared structured error field
 | BeaconLoss | 683463118 | oneway | `() -> ()` |
 | Deauthenticated | 1135744209 | oneway | `(reason: U32) -> ()` |
 
-## Transfers
+## Objects
 
-Objects a request carries outside its body, in the parcel's
-`handles` and `buffers` vectors.
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
 
-| Method | Name | Slot |
-|---|---|---|
-| Attach | `events` | `handles[0]`, a channel the receiver sends `os.lazy.net.wifi.hw.v1` on |
+| Method | Field | Type | Object |
+|---|---|---|---|
+| Attach | `events` | `Channel<os.lazy.net.wifi.hw.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.net.wifi.hw.v1` on |
 
 ## struct `HwInfo`
 

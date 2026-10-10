@@ -17,6 +17,8 @@ use xhci::regs::portsc;
 use xhci::route::Location;
 use xhci::trb::{kind, Trb};
 
+use alloc::string::String;
+
 use super::class::{self, Function};
 use super::device::Device;
 use super::hc::Hc;
@@ -54,6 +56,19 @@ impl Controller {
         }
     }
 
+    /// The controller's registers, ports and every enumerated device, as
+    /// `USBD:DUMP:*` lines.
+    pub(super) fn dump_lines(&mut self) -> Vec<String> {
+        let mut lines = self.hc.dump_lines();
+        for node in &mut self.nodes {
+            lines.push(node.device.dump_line(&self.hc));
+        }
+        if self.dead {
+            lines.push(format!("USBD:DUMP:DEAD hc={}", self.hc.index));
+        }
+        lines
+    }
+
     /// Devices with at least one function bound (hubs included).
     pub(super) fn devices(&self) -> usize {
         self.nodes.len()
@@ -84,7 +99,8 @@ impl Controller {
                 }
             }
             self.dead = true;
-            return false;
+            // The snapshot changed (`USBD:DUMP:DEAD`): report it as an event.
+            return true;
         }
         let mut busy = false;
         while let Some(event) = self.hc.next_event() {
@@ -99,13 +115,14 @@ impl Controller {
     }
 
     /// Serve the kernel's pending requests to this controller's sticks
-    /// (`msc.rs`), one per stick; returns whether any was served.
-    pub(super) fn serve_storage(&mut self) -> bool {
+    /// (`msc.rs`), one per stick; returns whether any was served. `trace`:
+    /// report every request (`USBD:MSC:REQ`), not only the failed and slow.
+    pub(super) fn serve_storage(&mut self, trace: bool) -> bool {
         let mut served = false;
         for node in &mut self.nodes {
             for function in &mut node.functions {
                 if let Function::Msc(msc) = function {
-                    served |= msc.serve(&mut self.hc, &mut node.device, 0);
+                    served |= msc.serve(&mut self.hc, &mut node.device, 0, trace);
                 }
             }
         }
@@ -115,12 +132,12 @@ impl Controller {
     /// Idle: wait up to a tick for a request to this controller's first
     /// live stick (instead of a plain nap, so it is served at once).
     /// Returns whether there was a stick to wait on.
-    pub(super) fn wait_storage(&mut self) -> bool {
+    pub(super) fn wait_storage(&mut self, trace: bool) -> bool {
         for node in &mut self.nodes {
             for function in &mut node.functions {
                 if let Function::Msc(msc) = function {
                     if msc.live() {
-                        msc.serve(&mut self.hc, &mut node.device, sys::clock() + 1);
+                        msc.serve(&mut self.hc, &mut node.device, sys::clock() + 1, trace);
                         return true;
                     }
                 }

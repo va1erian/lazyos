@@ -19,6 +19,8 @@ use crate::os_disk::{self, FileIo, OS_START_LBA, SECTOR};
 use crate::os_layout::{self, DirSpec, MANIFEST_PATH};
 pub use crate::os_manifest::{clean_path, Kind, Manifest};
 
+#[path = "dbgd_cfg.rs"]
+pub mod dbgd_cfg;
 #[path = "display_cfg.rs"]
 pub mod display_cfg;
 #[path = "limits_cfg.rs"]
@@ -149,6 +151,17 @@ pub fn boot_cfg(uuid: [u8; 16], limits: &[(String, String)]) -> String {
         format_uuid(uuid),
         limits_cfg::lines(limits)
     )
+}
+
+/// `diag.hold=<seconds>\n` for `LAZYOS_DIAG_HOLD=<seconds>` (a positive whole
+/// number), else nothing. `xuid` then keeps the boot log panes on screen that
+/// long before the desktop opens, so a PC with no serial port can be read and
+/// photographed (docs/compat/kabylake/B0.md).
+pub fn diag_hold_line(value: Option<&str>) -> String {
+    match value.and_then(|v| v.trim().parse::<u32>().ok()) {
+        Some(seconds) if seconds > 0 => format!("diag.hold={}\n", seconds.min(600)),
+        _ => String::new(),
+    }
 }
 
 /// The 36-character `8-4-4-4-12` form the kernel parses.

@@ -1,0 +1,100 @@
+# cat /proc/meminfo | head -5; echo; cat /proc/iomem
+MemTotal:        8041276 kB
+MemFree:          270272 kB
+MemAvailable:    3010964 kB
+Buffers:           66912 kB
+Cached:          3080904 kB
+
+00000000-00000fff : Reserved
+00001000-00057fff : System RAM
+00058000-00058fff : Reserved
+00059000-0009efff : System RAM
+0009f000-000fffff : Reserved
+  000a0000-000bffff : PCI Bus 0000:00
+  000c0000-000cffff : Video ROM
+  000f0000-000fffff : System ROM
+00100000-b64eafff : System RAM
+b64eb000-b64ebfff : ACPI Non-volatile Storage
+b64ec000-b64ecfff : Reserved
+b64ed000-b8236fff : System RAM
+b8237000-b8254fff : Reserved
+b8255000-bac00fff : System RAM
+bac01000-bac01fff : Reserved
+bac02000-bbcd8fff : System RAM
+bbcd9000-bc79bfff : Reserved
+bc79c000-bc7cefff : ACPI Tables
+bc7cf000-bcfe5fff : ACPI Non-volatile Storage
+bcfe6000-bd3fdfff : Reserved
+bd3fe000-bd3fefff : System RAM
+bd3ff000-bfffffff : Reserved
+  be000000-bfffffff : Graphics Stolen Memory
+c0000000-dfffffff : PCI Bus 0000:00
+  c0000000-cfffffff : 0000:00:02.0
+  de000000-deffffff : 0000:00:02.0
+  df000000-df0fffff : PCI Bus 0000:02
+    df000000-df003fff : 0000:02:00.0
+    df004000-df004fff : 0000:02:00.0
+      df004000-df004fff : r8169
+  df100000-df1fffff : PCI Bus 0000:01
+    df100000-df10ffff : 0000:01:00.0
+      df100000-df10ffff : rtw88_pci
+  df200000-df20ffff : 0000:00:1f.3
+  df210000-df21ffff : 0000:00:14.0
+    df210000-df21ffff : xhci-hcd
+      df218070-df21846f : intel_xhci_usb_sw
+  df220000-df223fff : 0000:00:1f.3
+    df220000-df223fff : ICH HD audio
+  df224000-df227fff : 0000:00:1f.2
+  df228000-df229fff : 0000:00:17.0
+    df228000-df229fff : ahci
+  df22a000-df22a0ff : 0000:00:1f.4
+    df22a000-df22a0ff : i801_smbus
+  df22b000-df22b7ff : 0000:00:17.0
+    df22b000-df22b7ff : ahci
+  df22c000-df22c0ff : 0000:00:17.0
+    df22c000-df22c0ff : ahci
+  df22d000-df22dfff : 0000:00:16.0
+    df22d000-df22dfff : mei_me
+  df22e000-df22efff : 0000:00:14.2
+    df22e000-df22efff : Intel PCH thermal driver
+  dffe0000-dfffffff : PNP0C02:03
+e0000000-efffffff : PCI ECAM 0000 [bus 00-ff]
+  e0000000-efffffff : PNP0C02:03
+fd000000-fe7fffff : PCI Bus 0000:00
+  fd000000-fdabffff : PNP0C02:04
+  fdac0000-fdacffff : PNP0C02:06
+  fdad0000-fdadffff : PNP0C02:04
+  fdae0000-fdaeffff : PNP0C02:06
+  fdaf0000-fdafffff : PNP0C02:06
+  fdb00000-fdffffff : PNP0C02:04
+    fdc6000c-fdc6000f : iTCO_wdt
+  fe000000-fe010fff : Reserved
+  fe028000-fe028fff : PNP0C02:06
+  fe029000-fe029fff : PNP0C02:06
+  fe036000-fe03bfff : PNP0C02:04
+  fe03d000-fe3fffff : PNP0C02:04
+  fe410000-fe7fffff : PNP0C02:04
+fec00000-fec00fff : Reserved
+  fec00000-fec003ff : IOAPIC 0
+fed00000-fed00fff : Reserved
+  fed00000-fed003ff : HPET 0
+    fed00000-fed003ff : PNP0103:00
+fed10000-fed17fff : PNP0C02:03
+fed18000-fed18fff : PNP0C02:03
+fed19000-fed19fff : PNP0C02:03
+fed20000-fed3ffff : PNP0C02:03
+fed40000-fed4087f : MSFT0101:00
+  fed40000-fed4087f : MSFT0101:00
+fed45000-fed8ffff : PNP0C02:03
+fed90000-fed90fff : dmar0
+fed91000-fed91fff : dmar1
+fee00000-fee00fff : Reserved
+ff000000-ffffffff : INT0800:00
+  ff000000-ffffffff : PNP0C02:03
+100000000-23effffff : System RAM
+  182800000-183f470ef : Kernel code
+  184000000-185061fff : Kernel rodata
+  185200000-1856d747f : Kernel data
+  185c4c000-1861fffff : Kernel bss
+23f000000-23fffffff : RAM buffer
+# exit 0

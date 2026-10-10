@@ -11,22 +11,23 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use lazyweb::address::{self, START};
+use lazyweb::address;
 use lazyweb::fetch::trace;
 use lazyweb::history::History;
 use lazyweb::marker_text;
-use lazyweb::pages::{self, Command as PageCommand, ABOUT, DOWNLOADS, HISTORY};
+use lazyweb::pages::{self, ABOUT, DOWNLOADS, HISTORY};
 use lazyweb::visits::Visits;
 use xui_app::backend::LazyOSBackend;
-use xui_app::platform::launcher;
+use xui_blitz::BlitzViewEvent;
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::icon::Lucide;
-use xui_core::widget::{Button, Edit, HasText, Label, Menu, ProgressBar};
-use xui_blitz::BlitzViewEvent;
+use xui_core::widget::{Button, Edit, HasText, Label, Menu, Placeable, ProgressBar};
+
+mod commands;
 
 use crate::chrome::{self, Command, Widgets};
-use crate::handoff;
+use crate::context::Context;
 use crate::indicators::{Badge, Security, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
@@ -69,6 +70,7 @@ pub struct Setup {
 pub struct Browser {
     page: Rc<Page>,
     menu: Rc<Menu<Msg>>,
+    context: Context,
     address: Rc<Edit<Msg>>,
     back: Rc<Button<Msg>>,
     forward: Rc<Button<Msg>>,
@@ -113,7 +115,9 @@ impl Browser {
         let field = address.id();
         ui.on_key(move |key, mods| shortcut(key, mods, backend.focused() == Some(field)));
 
-        let mut browser = Browser::mounted(&widgets, setup.visits, setup.transfers, internal);
+        let context = Context::new(ui);
+        let mut browser =
+            Browser::mounted(&widgets, context, setup.visits, setup.transfers, internal);
         browser.show_url(&first);
         browser.set_loading(true);
         let shown = browser.internal.shown(&first).to_string();
@@ -124,10 +128,17 @@ impl Browser {
         Ok(browser)
     }
 
-    fn mounted(w: &Widgets, visits: Visits, transfers: Transfers, internal: Internal) -> Browser {
+    fn mounted(
+        w: &Widgets,
+        context: Context,
+        visits: Visits,
+        transfers: Transfers,
+        internal: Internal,
+    ) -> Browser {
         Browser {
             page: w.page.get(),
             menu: w.menu.get(),
+            context,
             address: w.address.get(),
             back: w.back.get(),
             forward: w.forward.get(),
@@ -293,6 +304,9 @@ impl Browser {
             }
             // The view only reports Ctrl+C; the app owns the clipboard.
             BlitzViewEvent::CopyRequested(text) => ui.set_clipboard_text(&text),
+            BlitzViewEvent::ContextMenu { x, y, link, image } => {
+                self.show_context(ui, (x, y), link, image);
+            }
             // The view follows links itself (`follow_links(true)`).
             BlitzViewEvent::LinkClicked(_) => {}
             BlitzViewEvent::DownloadStarted(info) => {
@@ -313,6 +327,19 @@ impl Browser {
             }
         }
         self.update_buttons();
+    }
+
+    /// Opens the right-click menu where the page was clicked.
+    fn show_context(
+        &mut self,
+        ui: &Ui<Msg>,
+        at: (i32, i32),
+        link: Option<String>,
+        image: Option<String>,
+    ) {
+        let history = (self.history.can_go_back(), self.history.can_go_forward());
+        let origin = ui.bounds(self.page.id());
+        self.context.show(origin, at, history, link, image);
     }
 
     /// The download list changed: the status bar follows, and so does the
@@ -365,98 +392,6 @@ impl Browser {
         println!("WEB:TIME:{}ms:fail", trace::now_ms());
         println!("WEB:FAIL:{}", marker_text(why));
         self.set_status(&format!("Failed: {why}"));
-    }
-
-    /// A link the view cannot follow: one of our pages' commands, or a URL
-    /// for the app registered for its scheme (`mailto:` opens Mail).
-    fn launch(&mut self, url: &str, by_user: bool) {
-        if let Some(command) = PageCommand::parse(url) {
-            // Only our own pages may ask: a web page linking to a command
-            // gets nothing.
-            if self.internal.name_for(&self.url).is_some() {
-                self.page_command(command);
-            }
-            return;
-        }
-        let status = handoff::open(url, by_user);
-        self.set_status(&status);
-    }
-
-    fn page_command(&mut self, command: PageCommand) {
-        match command {
-            PageCommand::ClearHistory => self.clear_history(),
-            PageCommand::OpenDownload(n) => {
-                let opened = self
-                    .transfers
-                    .saved(n)
-                    .map(|path| path.display().to_string())
-                    .map(|path| (launcher::open_path(&path), path));
-                match opened {
-                    Some((Ok(()), path)) => self.set_status(&format!("Opened {path}")),
-                    Some((Err(e), path)) => self.set_status(&format!("Cannot open {path}: {e}")),
-                    None => {}
-                }
-            }
-            PageCommand::CancelDownload(n) => {
-                if let Some(id) = self.transfers.running(n) {
-                    self.page.view().cancel_download(id);
-                }
-            }
-        }
-    }
-
-    fn clear_history(&mut self) {
-        match self.visits.clear() {
-            Ok(()) => self.set_status("History cleared"),
-            Err(e) => self.set_status(&format!("History not cleared: {e}")),
-        }
-        if self.showing(HISTORY) {
-            self.open(HISTORY);
-        }
-    }
-
-    fn command(&mut self, command: Command, ui: &Ui<Msg>) {
-        match command {
-            Command::OpenLocation => self.focus_address(),
-            Command::SavePage => {
-                if address::is_network(&self.url) {
-                    self.page.view().download(&self.url);
-                } else {
-                    self.set_status("Only pages from the web can be saved");
-                }
-            }
-            Command::Close => ui.close(),
-            Command::Back => {
-                if let Some(url) = self.history.back() {
-                    self.open(&url);
-                }
-            }
-            Command::Forward => {
-                if let Some(url) = self.history.forward() {
-                    self.open(&url);
-                }
-            }
-            Command::Reload => {
-                if let Some(url) = self.history.reload() {
-                    self.open(&url);
-                }
-            }
-            Command::Stop => {
-                self.page.view().stop();
-                self.set_status("Stopped");
-            }
-            Command::Home => self.open(START),
-            Command::ShowHistory => self.open(HISTORY),
-            Command::ClearHistory => self.clear_history(),
-            Command::ShowDownloads => self.open(DOWNLOADS),
-            Command::About => self.open(ABOUT),
-        }
-    }
-
-    fn focus_address(&mut self) {
-        self.address.set_text("");
-        self.address.focus();
-        self.editing = true;
     }
 }
 

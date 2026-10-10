@@ -15,7 +15,7 @@ use super::Parcel;
 // ---------------------------------------------------------------------------
 
 /// One completed operation reported by [`Selector::step`].
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Event {
     /// The call queued at `index` finished with this result.
     Call {

@@ -1,11 +1,11 @@
-//! Find and claim the NIC: a virtio-net function or an Intel 8254x, the
+//! Find and claim the NIC: a virtio-net function, an Intel 8254x or a Realtek RTL8168, the
 //! first one in the device list, or exactly the one `devd` named (`dev=<id>`).
 //!
 //! Everything here is the same for both cards and uses only the `dev_*` ops
 //! every driver uses: claim (interrupts on the channel the kernel makes, the
 //! line shared), the command register for decode and bus mastering, `map_bar`, and
 //! `irq_enable` once the card is described. What differs lives in
-//! `virtio_card.rs` and `e1000_card.rs`.
+//! `virtio_card.rs`, `e1000_card.rs` and `rtl8168_card.rs`.
 
 use user::dev::{self, Row};
 use user::messenger::Endpoint;
@@ -31,6 +31,9 @@ pub(super) enum Kind {
     Virtio,
     /// An 8254x, with its model name.
     E1000(&'static str),
+    /// A Realtek RTL8111/8168 function; whether its revision is supported is
+    /// the back end's answer, at bring-up.
+    Rtl8168(&'static str),
 }
 
 /// The card `row` is, if this driver drives it.
@@ -43,7 +46,9 @@ pub(super) fn kind(row: &Row) -> Option<Kind> {
     {
         return Some(Kind::Virtio);
     }
-    e1000::model(row.vendor, row.device).map(Kind::E1000)
+    e1000::model(row.vendor, row.device)
+        .map(Kind::E1000)
+        .or_else(|| rtl8168::model(row.vendor, row.device).map(Kind::Rtl8168))
 }
 
 /// The card to drive: device `wanted` when `devd` named one (it must be a

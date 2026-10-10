@@ -41,6 +41,7 @@ mod origin;
 mod pointer;
 mod render;
 mod session_input;
+mod wakeup;
 mod zorder;
 
 use std::cell::{Cell, RefCell};
@@ -131,6 +132,12 @@ pub struct LazyOSBackend {
     /// became readable since the primary window last heard of it.
     watched_fd: Cell<Option<i32>>,
     fd_ready: Cell<bool>,
+    /// The doorbell worker threads ring through [`Backend::waker`], and the
+    /// `epoll` set the loop parks on with it. Created by the first `waker`
+    /// call (the first `Ui::proxy`), so an app with no worker thread parks
+    /// exactly as before. Client mode only; `None` inside when the kernel
+    /// refused the descriptors.
+    wakeup: std::cell::OnceCell<Option<wakeup::Wakeup>>,
     /// The window rectangle being repainted while painters run
     /// ([`LazyOSBackend::paint_damage`]).
     paint_damage: Cell<Option<Rect>>,
@@ -297,6 +304,7 @@ impl LazyOSBackend {
             next_timer: Cell::new(1),
             watched_fd: Cell::new(None),
             fd_ready: Cell::new(false),
+            wakeup: std::cell::OnceCell::new(),
             paint_damage: Cell::new(None),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
