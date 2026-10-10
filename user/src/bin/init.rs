@@ -330,9 +330,11 @@ fn run() -> messenger::Result<()> {
         // A hot-reloaded service still running when its trial ends is kept,
         // judged only once no exit is waiting to be reaped: a run that died
         // just before its deadline must reach `child_exited` (and roll back)
-        // before it could be committed. The bell stays ready while exits are
-        // queued, so the next pass comes at once.
-        if shutdown.is_none() && ready & wait::CHILD_READY == 0 {
+        // before it could be committed. The bell is asked again here, not
+        // read from `ready`, since a child may have exited while requests
+        // were served; it stays ready while exits are queued, so the pass
+        // that reaps them comes at once.
+        if shutdown.is_none() && !child_exit_pending() {
             reload::sweep(&mut services, sys::clock());
         }
         if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
@@ -341,6 +343,12 @@ fn run() -> messenger::Result<()> {
         }
         residents.sync(&services);
     }
+}
+
+/// Whether a child exit is waiting to be reaped, without parking or reaping.
+fn child_exit_pending() -> bool {
+    wait::wait_any(&[], wait::WAIT_CHILD, Some(messenger::EXPIRED_DEADLINE))
+        .is_ok_and(|ready| ready & wait::CHILD_READY != 0)
 }
 
 /// The pause before a shutdown's first step (see the loop): one 10 ms tick,
