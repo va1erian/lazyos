@@ -14,7 +14,9 @@ Control (an image built with `LAZYOS_DBGD_CONTROL=1`, docs/dbgd-plan.md v2):
 
     python tools/dbg/dbgctl.py reload usbd             # /system/bin/usbd from target/lazyos.img
     python tools/dbg/dbgctl.py reload usbd path/to/usbd.elf --trial-ms 20000
-    python tools/dbg/dbgctl.py restart usbd | revert usbd | reloads
+    python tools/dbg/dbgctl.py restart usbd
+    python tools/dbg/dbgctl.py revert usbd
+    python tools/dbg/dbgctl.py reloads
     python tools/dbg/dbgctl.py app-install target/pkg/doom.lzp   # install, relaunch what runs
     python tools/dbg/dbgctl.py relaunch os.lazy.writer
 

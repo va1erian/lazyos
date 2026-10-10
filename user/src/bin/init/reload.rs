@@ -19,6 +19,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use dbgwire::control;
 use user::messenger::{self, errno, services, Error, Message, Parcel};
 use user::sys;
@@ -48,6 +50,22 @@ pub(super) struct Hot {
     state: Option<&'static str>,
     /// Why the last rollback happened.
     detail: String,
+}
+
+/// Whether [`prepare`] made the reload directory, root's and 0755.
+static DIR_READY: AtomicBool = AtomicBool::new(false);
+
+/// Make the directory reloaded binaries are copied to, once, before `init`
+/// spawns anything. `/transient` is world-writable (sticky): made later, a
+/// task could have created the name first and own what `init` then runs as
+/// root. At this point `init` is the only task and the ramfs is fresh, so a
+/// `mkdir` that succeeds makes a directory only root owns, and the sticky
+/// bit keeps anyone else from removing or renaming it. If it fails, reloads
+/// are refused for this boot.
+pub(super) fn prepare() {
+    let made = user::files::mkdir(fhs::state::INIT_RELOAD).is_ok()
+        && user::files::chmod(fhs::state::INIT_RELOAD, 0o755).is_ok();
+    DIR_READY.store(made, Ordering::Relaxed);
 }
 
 /// The program a spawn of `service` runs: the reloaded binary, if any.
@@ -140,10 +158,9 @@ fn install(name: &str, staged: &str, sha256: &str) -> messenger::Result<String> 
     if !data.starts_with(b"\x7fELF") {
         return Err(invalid("not an ELF file"));
     }
-    // The directory may exist from an earlier reload; the write says
-    // whether it is usable.
-    let _ = user::files::mkdir(fhs::state::INIT_RELOAD);
-    let _ = user::files::chmod(fhs::state::INIT_RELOAD, 0o755);
+    if !DIR_READY.load(Ordering::Relaxed) {
+        return Err(invalid("the reload directory was not made at boot"));
+    }
     let path = control::reload_path(name);
     user::files::write_large(&path, &data).map_err(|_| invalid("cannot write the copy"))?;
     let _ = user::files::chmod(&path, 0o755);

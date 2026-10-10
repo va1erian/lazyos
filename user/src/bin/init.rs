@@ -186,6 +186,8 @@ fn run() -> messenger::Result<()> {
         .map(Service::from_manifest)
         .collect();
     sys::write_str(&format!("init: manifest: {} service(s)\n", services.len()));
+    // Before anything else runs: the root-only directory hot reloads use.
+    reload::prepare();
     apps::load();
     if BOOT_SELFTESTS {
         // The packaged apps are checked once `pkgd` provisioned them

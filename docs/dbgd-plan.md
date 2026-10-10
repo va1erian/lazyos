@@ -147,7 +147,9 @@ change a driver, `cargo build` with the box's switches, then
 ```bash
 python tools/dbg/dbgctl.py --host <box> reload usbd       # /system/bin/usbd of target/lazyos.img
 python tools/dbg/dbgctl.py --host <box> reload usbd my.elf --trial-ms 20000
-python tools/dbg/dbgctl.py --host <box> restart usbd | revert usbd | reloads
+python tools/dbg/dbgctl.py --host <box> restart usbd
+python tools/dbg/dbgctl.py --host <box> revert usbd
+python tools/dbg/dbgctl.py --host <box> reloads
 ```
 
 with no stick write. `reload` waits for the verdict and exits non-zero on a
@@ -181,8 +183,10 @@ rollback. The MCP bridge has the same as `service_reload`, `service_restart`,
    `EAGAIN`).
 2. Reads exactly `dbgd`'s staging file for that name, checks its SHA-256
    against the one the client computed and that it is an ELF, and copies it
-   to `fhs::state::INIT_RELOAD/<name>` (root-owned, ramfs). `dbgd` cannot
-   swap the file after the check: `init` runs its own copy.
+   to `fhs::state::INIT_RELOAD/<name>` (ramfs; `init` makes the directory
+   before it spawns anything, so only root owns it although `/transient`
+   is world-writable, and a boot where that fails refuses reloads).
+   `dbgd` cannot swap the file after the check: `init` runs its own copy.
 3. Kills the running task; the exit is recognised as the reload's own and
    the row is started again at once from the copy, with its manifest
    arguments and credentials. A row that was `failed` or `stopped` (a driver
