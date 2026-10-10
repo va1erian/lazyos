@@ -44,6 +44,28 @@ pub struct Present {
     pub ifname: String,
     /// The driver's task slot (the kernel-stamped sender of its messages).
     pub driver: u64,
+    /// The identity the kernel holds for that task (`List` reports it; the
+    /// registry only lets a driver identity hold the name, and `netd` checks
+    /// again before it trusts the card).
+    pub owner_uid: u64,
+    pub owner_label: u64,
+    pub owner_session: u64,
+}
+
+impl Present {
+    /// Whether the owner is an identity that may serve a NIC
+    /// (`netpolicy::may_register_nic_name`).
+    pub fn owner_is_driver(&self) -> bool {
+        match (
+            u32::try_from(self.owner_uid),
+            u32::try_from(self.owner_label),
+        ) {
+            (Ok(uid), Ok(label)) => {
+                netpolicy::may_register_nic_name(uid, label, self.owner_session)
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Every card a driver serves at this moment, in name order.
@@ -54,6 +76,9 @@ pub fn present() -> Result<Vec<Present>> {
             Some(Present {
                 ifname: String::from(ifname_of(&entry.name)?),
                 driver: entry.owner_slot,
+                owner_uid: entry.owner_uid,
+                owner_label: entry.owner_label,
+                owner_session: entry.owner_session,
             })
         })
         .collect();

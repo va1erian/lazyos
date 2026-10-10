@@ -315,6 +315,13 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         let Some(message) = message else { continue };
 
         if message.interface_id() == DRIVER_INTERFACE {
+            // Only a driver identity speaks for a card: anyone can send to
+            // this endpoint, and a forged keep-alive would hold a dead
+            // driver's rings open.
+            let caller = message.caller();
+            if !netpolicy::may_register_nic_name(caller.uid, caller.label_id, caller.session) {
+                continue;
+            }
             // A link change is worth a look at the card; everything else in a
             // notice is only a reason to run the loop again.
             let mut link_change = false;

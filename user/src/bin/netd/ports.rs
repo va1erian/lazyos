@@ -41,11 +41,16 @@ pub(super) struct Port {
     missing_since: Option<u64>,
 }
 
+/// Refused registrants remembered so each is logged once, not every scan.
+const REFUSED_LOGGED: usize = 16;
+
 pub(super) struct Ports {
     pub(super) list: Vec<Port>,
     next_scan: u64,
     empty_logged: u32,
     list_errors: u32,
+    /// `(name, owner uid, owner task)` of the refusals already logged.
+    refused: Vec<(String, u64, u64)>,
     /// Times a ring attachment was dropped and made again.
     pub(super) resets: u64,
 }
@@ -57,6 +62,7 @@ impl Ports {
             next_scan: 0,
             empty_logged: 0,
             list_errors: 0,
+            refused: Vec::new(),
             resets: 0,
         }
     }
@@ -86,21 +92,34 @@ impl Ports {
                 return;
             }
         };
+        let present: Vec<_> = present
+            .into_iter()
+            .filter(|card| self.authorized(card))
+            .collect();
         for card in &present {
             let full = self.list.len() >= MAX_INTERFACES;
             match self.list.iter_mut().find(|port| port.ifname == card.ifname) {
                 Some(port) => {
                     port.missing_since = None;
                     port.driver = card.driver;
+                    let uid = card.owner_uid as u32;
+                    if port.nic.owner_uid != uid {
+                        // Another identity serves the name now (it passed the
+                        // check above): nothing of the old attachment stands.
+                        port.nic.owner_uid = uid;
+                        port.nic.forget_attachment("the driver identity changed");
+                    }
                 }
                 // More names than interfaces the stack can hold are ignored
                 // (the registry is shared: anyone may register a name).
                 None if full => {}
                 None => {
                     sys::write_str(&format!("NETD:NIC:FOUND if={}\n", card.ifname));
+                    let mut nic = Nic::new(&card.ifname);
+                    nic.owner_uid = card.owner_uid as u32;
                     self.list.push(Port {
                         mode: config.read(&card.ifname).unwrap_or(Mode::Dhcp),
-                        nic: Nic::new(&card.ifname),
+                        nic,
                         ifname: card.ifname.clone(),
                         slot: None,
                         driver: card.driver,
@@ -122,6 +141,32 @@ impl Ports {
             }
             self.empty_logged += 1;
         }
+    }
+
+    /// Whether the kernel-stamped owner of `card`'s name is a NIC driver
+    /// identity. The registry already refuses anyone else the name; this is
+    /// the second lock, so the rings and the notify channel never go to a
+    /// registrant `netd` has not checked itself. A refusal is logged once.
+    fn authorized(&mut self, card: &nic_api::Present) -> bool {
+        if card.owner_is_driver() {
+            return true;
+        }
+        let key = (card.ifname.clone(), card.owner_uid, card.driver);
+        if !self.refused.contains(&key) {
+            if self.refused.len() >= REFUSED_LOGGED {
+                self.refused.clear();
+            }
+            sys::write_str(&format!(
+                "NETD:NIC:REFUSED name={} uid={} label={} session={}
+",
+                nic_api::service_name(&card.ifname),
+                card.owner_uid,
+                card.owner_label,
+                card.owner_session
+            ));
+            self.refused.push(key);
+        }
+        false
     }
 
     fn drop_gone(&mut self, net: &mut Net, tick: u64) {

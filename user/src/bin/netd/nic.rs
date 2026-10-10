@@ -46,6 +46,9 @@ pub(super) struct Nic {
     client: Option<Client>,
     shared: Option<Shared>,
     pub(super) card: Option<Card>,
+    /// The uid the registry says owns the name, as the kernel stamped it: it
+    /// decides which kind of card the driver may claim.
+    pub(super) owner_uid: u32,
     next_try: u64,
     last_heard: u64,
 }
@@ -57,6 +60,7 @@ impl Nic {
             client: None,
             shared: None,
             card: None,
+            owner_uid: u32::MAX,
             next_try: 0,
             last_heard: 0,
         }
@@ -108,6 +112,15 @@ impl Nic {
         let info = client
             .info()
             .map_err(|e| format!("Info: {}", e.message()))?;
+        // The card's description is the driver's word: a `_net` driver that
+        // says it is wireless is not believed (the kind sets the route
+        // metric), whatever name it holds.
+        if !netpolicy::nic_kind_allowed(self.owner_uid, info.kind) {
+            return Err(format!(
+                "REFUSED kind={} uid={}: not a card this driver identity may serve",
+                info.kind, self.owner_uid
+            ));
+        }
         let mac: [u8; 6] = info
             .mac
             .as_slice()
