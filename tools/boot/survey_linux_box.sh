@@ -106,7 +106,8 @@ runsh 06-grub-boot-fs.txt 'findmnt -no SOURCE,FSTYPE,TARGET /boot 2>&1; findmnt 
 runsh 06-esp-tree.txt 'for e in /boot/efi /efi /boot; do [ -d "$e/EFI" ] && { echo "== $e"; df -h "$e"; find "$e/EFI" -maxdepth 3 | sort; }; done'
 runsh 06-esp-grub-stubs.txt 'for f in /boot/efi/EFI/*/grub.cfg /efi/EFI/*/grub.cfg; do [ -f "$f" ] && { echo "== $f"; cat "$f"; }; done'
 runsh 06-grub-cfg-custom.txt 'for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg; do [ -f "$f" ] && { echo "== $f"; grep -n -E "custom.cfg|menuentry |submenu |chainloader|set default|timeout" "$f" | head -60; }; done; ls -l /boot/grub/custom.cfg /boot/grub2/custom.cfg 2>&1'
-run 06-gdisk.txt sgdisk -p /dev/sda
+# every disk, not an assumed /dev/sda (NVMe boxes, USB sticks plugged in)
+runsh 06-gdisk.txt 'for d in $(lsblk -dno NAME,TYPE 2>/dev/null | while read n t; do [ "$t" = disk ] && echo /dev/$n; done); do echo "== $d"; sgdisk -p "$d" 2>&1 || echo "# sgdisk missing or failed"; done'
 runsh 06-blkid.txt 'blkid 2>&1'
 
 # Graphics and display ------------------------------------------------------------

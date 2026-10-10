@@ -35,6 +35,11 @@ with `tools/boot/redact_survey.py`):
   change `/etc/default/grub`; it prints this, and the trial boot uses
   `grub-reboot`, which works on a hidden menu (`next_entry` is read at
   `grub.cfg` line 31).
+- **The DMI memory size is not trusted.** Type 17 reports a 16 GB module,
+  but the same table's Type 20 mapping is 8 GB and `/proc/meminfo` shows
+  `MemTotal` 8041272 kB (about 7.7 GiB, with the e820 map in `03-e820.txt`).
+  The firmware's DMI module size is wrong on this board; the e820 map and
+  `MemTotal` are what the kernel gets and what LazyOS should size against.
 - **ESP space is ample** (292 MiB free for a kernel and a 1 MiB ramdisk).
 - `sgdisk` is not installed by default; the installer reads GPT itself and
   must not require it.
@@ -176,7 +181,7 @@ sudo ./lazyos-install --system /dev/sda5 --home /dev/sda6 --esp /boot/efi --yes
 ```
 
 `install`, in order, stopping at the first failed check (nothing is written
-before step 6):
+before step 5):
 
 1. **Probe.** UEFI boot (`/sys/firmware/efi`), GRUB present (`grub-install` or
    `grub2-install`, `/boot/grub*/grub.cfg`), the ESP (the mounted
@@ -184,7 +189,12 @@ before step 6):
    Report distro, GRUB version, `/boot` filesystem, Secure Boot state
    (`mokutil --sb-state`; warn, do not fail).
 2. **Validate partitions** (decision 7), sizes, that the system partition
-   holds at least the payload's ext2 volume, and ESP free space.
+   holds at least the payload's ext2 volume, and ESP free space. The three
+   roles must be three distinct partitions (compared by device number, so
+   symlinks and aliases cannot hide a repeat); neither target may be, or
+   hold, the ESP (partition type `C12A7328-...`, or a FAT filesystem), and
+   neither may be the partition the running Linux has mounted as `/` or
+   `/boot`. Any failure stops here, before anything is formatted.
 3. **Plan.** Print what will be written where, the new fs UUIDs, the
    `lazyos.cfg` and the GRUB entry. `--dry-run` stops here.
 4. **Confirm.** Type the system partition's device name back.

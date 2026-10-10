@@ -30,8 +30,10 @@ RULES = [
     # FAT volume id as blkid / grub print it: UUID="B7E9-CC1F", --fs-uuid B7E9CC1F.
     (re.compile(r'(UUID=")[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}(")'), r"\1REDACTED-UUID\2"),
     (re.compile(r"(?i)(fs[-_.]uuid\s+(?:--\S+\s+)*)[0-9A-F]{4}-?[0-9A-F]{4}\b"), r"\1REDACTED-UUID"),
-    # Any FAT volume id left (kernel log, systemd unit names: B7E9-CC1F, B7E9\x2dCC1F).
-    (re.compile(r"(?<![0-9A-Za-z])[0-9A-F]{4}(?:-|\\x2d)[0-9A-F]{4}(?![0-9A-Za-z])"), "REDACTED-UUID"),
+    # A FAT volume id in a by-uuid path or systemd unit name (B7E9-CC1F, B7E9\\x2dCC1F).
+    (re.compile(r"(?i)(by[-\\]x2duuid[-/]|by-uuid/)[0-9A-F]{4}(?:-|\\x2d)[0-9A-F]{4}\b"), r"\1REDACTED-UUID"),
+    # Names derived from a MAC address (altname enx00f1f53de2d7, wlx28cdc403d635).
+    (re.compile(r"\b(?:enx|wlx)[0-9a-f]{12}\b"), "REDACTED-IFNAME"),
     # lspci -vv extended capability: Device Serial Number 00-e0-4c-ff-...
     (re.compile(r"(Device Serial Number )(?:[0-9a-fA-F]{2}-){7}[0-9a-fA-F]{2}"), r"\1REDACTED"),
     # USB string descriptors, in lsusb and the kernel log.
@@ -39,10 +41,40 @@ RULES = [
     (re.compile(r"(\biSerial\s+[1-9]\d*\s+)(?!\d{4}:\d\d:\d\d\.\d).+"), r"\1REDACTED"),
     # efibootmgr -v dumps device paths as raw bytes, partition GUID included
     # (mixed-endian, so the GUID rule cannot see it).
-    (re.compile(r"^(\s+(?:dp|data):)(?: [0-9a-f]{2}| /)+$", re.M), r" REDACTED-BYTES"),
+    (re.compile(r"^(\s+(?:dp|data):)(?: [0-9a-f]{2}| /)+$", re.M), r"\1 REDACTED-BYTES"),
     # fdisk's disk identifier.
     (re.compile(r"(Disk identifier: )\S+"), r"\1REDACTED-GUID"),
 ]
+
+
+IPV6 = re.compile(r"(?<![0-9A-Za-z:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Za-z:])")
+
+
+def ipv6_sub(match):
+    text = match.group(0)
+    # Keep ::1 and ::, which name no machine; drop anything with an interface id.
+    if text in ("::", "::1") or not ("::" in text or text.count(":") == 7):
+        return text
+    return "REDACTED-IPV6"
+
+
+def lsblk_serials(text):
+    """Blank the SERIAL column of an `lsblk -o ...,SERIAL,...` table."""
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith("NAME") and "SERIAL" in line:
+            start = line.index("SERIAL")
+            heads = [m.start() for m in re.finditer(r"\S+", line)]
+            end = next((h for h in heads if h > start), len(line))
+            for j in range(i + 1, len(lines)):
+                row = lines[j]
+                if not row.strip() or row.startswith("#"):
+                    break
+                cell = row[start:end]
+                if cell.strip():
+                    lines[j] = row[:start] + "REDACTED".ljust(len(cell)) + row[end:]
+            break
+    return "\n".join(lines)
 
 
 def mac_sub(match):
@@ -74,6 +106,8 @@ def redact(text, host):
     for pattern, repl in RULES:
         text = pattern.sub(repl, text)
     text = re.sub(MAC, mac_sub, text)
+    text = IPV6.sub(ipv6_sub, text)
+    text = lsblk_serials(text)
     text = DMI.sub(dmi_sub, text)
     if host and host not in ("localhost", "box"):
         text = re.sub(re.escape(host), "REDACTED-HOST", text)
@@ -84,7 +118,9 @@ def redact(text, host):
 # Only values, not the words "serial" or "uuid": those name features too.
 SUSPECT = re.compile(
     GUID + "|" + MAC + r"|(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])"
-    r"|(?<![0-9A-Za-z])[0-9A-F]{4}(?:-|\\x2d)[0-9A-F]{4}(?![0-9A-Za-z])"
+    r"|(?i:by[-\\]x2duuid[-/]|by-uuid/)[0-9A-F]{4}(?:-|\\x2d)[0-9A-F]{4}"
+    r"|\b(?:enx|wlx)[0-9a-f]{12}\b"
+    r"|(?<![0-9A-Za-z:])fe80:[0-9A-Fa-f:]+"
     r"|(?i:serial(?: ?number)?)\s*[:=]\s*"
     r"(?!REDACTED|Default string|To Be Filled|\d{1,2}(?!\d)|8250|\s*$)\S"
 )
