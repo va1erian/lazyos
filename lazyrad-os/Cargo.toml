@@ -62,21 +62,21 @@ audioclient = { path = "../libs/audioclient" }
 # Bump `rev` on EVERY va1erian/lazyrad line below (runtime, player, ide and
 # the dev-dependency packager) and the `testing` dev-dependency together, then
 # regenerate the lockfile.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d", default-features = false }
-lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d", default-features = false }
-lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d", default-features = false }
-lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d", default-features = false }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a", default-features = false }
+lazyrad-ide = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a", default-features = false }
+lazyrad-packager = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a", default-features = false }
+lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a", default-features = false }
 # The form document: the player's UI probe reads control rectangles from it
 # (`probe`, issue #538), and the sample tests read form values back
 # (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
-xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d" }
+xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a" }
 
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.
 modplay = { path = "../libs/modplay", features = ["fuzz"] }
 # LazyRAD's host test kit (`TestApp`), which plays a sample offscreen
 # (`tests/brickbreaker.rs`). Same pin as the dependency above: bump together.
-lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "6af93ece0095932a0e4bb9f13d79d3f75bc2a27d", default-features = false, features = ["testing"] }
+lazyrad-runtime = { git = "https://github.com/va1erian/lazyrad", rev = "9ba409d1edf6cff005b8240fe9403dfef232625a", default-features = false, features = ["testing"] }
 
 [lib]
 name = "lazyrad_os"
