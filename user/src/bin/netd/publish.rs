@@ -15,13 +15,18 @@ use user::sys;
 use super::lists::{interface_infos, text};
 use super::ports::Ports;
 
-/// What was published for one interface slot. A rebuilt stack (a changed
-/// configuration restarts the card) counts its epoch from 0 again, so the
-/// address is part of it: the epoch alone could match the old stack's.
+/// What was announced for one interface slot. A rebuilt stack (a changed
+/// configuration restarts the card) keeps the slot and the name and counts
+/// its epoch from 0 again, so the interface is told apart by its instance
+/// `id`, never by name or epoch.
 struct Seen {
+    id: u64,
     name: String,
     epoch: u64,
     address: Address,
+    /// The retained topic took it; until then it is retried every pass (the
+    /// broker may not be up yet), while the serial line is printed once.
+    published: bool,
 }
 
 /// The address facts an announcement carries.
@@ -48,6 +53,8 @@ impl Address {
 pub(super) struct Publisher {
     bus: Option<central::Bus>,
     seen: Vec<Option<Seen>>,
+    /// Interfaces gone whose retained address is not cleared yet.
+    retiring: Vec<String>,
     list_signature: u64,
     had_address: bool,
 }
@@ -76,6 +83,7 @@ impl Publisher {
         Publisher {
             bus: None,
             seen: Vec::new(),
+            retiring: Vec::new(),
             list_signature: 0,
             had_address: false,
         }
@@ -88,27 +96,31 @@ impl Publisher {
         }
         self.retire_removed(net);
         for (slot, unit) in net.units() {
+            let Some(address) = Address::of(net, slot) else {
+                continue;
+            };
             let epoch = unit.stack.epoch();
             let current = self.seen.get(slot).and_then(Option::as_ref);
-            let address = Address::of(net, slot);
-            if current.is_some_and(|seen| {
-                seen.name == unit.name
-                    && seen.epoch == epoch
-                    && Some(&seen.address) == address.as_ref()
-            }) {
+            let same = current.is_some_and(|seen| {
+                seen.id == unit.id && seen.epoch == epoch && seen.address == address
+            });
+            if same && current.is_some_and(|seen| seen.published) {
                 continue;
             }
-            self.announce(net, slot);
+            if !same {
+                Publisher::print(net, slot);
+            }
+            let published = self.publish_addr(net, slot);
             if self.seen.len() <= slot {
                 self.seen.resize_with(slot + 1, || None);
             }
-            if let Some(address) = address {
-                self.seen[slot] = Some(Seen {
-                    name: unit.name.clone(),
-                    epoch,
-                    address,
-                });
-            }
+            self.seen[slot] = Some(Seen {
+                id: unit.id,
+                name: unit.name.clone(),
+                epoch,
+                address,
+                published,
+            });
         }
         let any_address = net.units().any(|(_, u)| u.stack.state().addr.is_some());
         if any_address && !self.had_address {
@@ -116,13 +128,16 @@ impl Publisher {
         }
         self.had_address = any_address;
         let sig = signature(net);
+        // Recorded only once the broker took it, so a list that changed while
+        // the bus was down is published as soon as it is back.
         if sig != self.list_signature {
-            self.list_signature = sig;
             if let Some(bus) = self.bus.as_mut() {
                 let list = wire::InterfaceList {
                     list: interface_infos(net, ports),
                 };
-                let _ = wire::publish_system_net_interfaces(bus, &list);
+                if wire::publish_system_net_interfaces(bus, &list).is_ok() {
+                    self.list_signature = sig;
+                }
             }
         }
     }
@@ -133,21 +148,38 @@ impl Publisher {
             let Some(seen) = &self.seen[slot] else {
                 continue;
             };
-            if net.unit(slot).is_some_and(|unit| unit.name == seen.name) {
+            // The same instance is still there. A new one in the slot, even
+            // under the same name, retires the old address first; `sync`
+            // then announces the new one.
+            if net.unit(slot).is_some_and(|unit| unit.id == seen.id) {
                 continue;
             }
+            sys::write_str(&format!("NETD:ADDR none if={}\n", seen.name));
+            if !self.retiring.contains(&seen.name) {
+                self.retiring.push(seen.name.clone());
+            }
+            self.seen[slot] = None;
+        }
+        // Clear each retired name's retained address, retried until the
+        // broker takes it. A name that is back (a rebuilt interface) needs
+        // no clearing: its own announcement replaces the old address.
+        let mut retiring = core::mem::take(&mut self.retiring);
+        retiring.retain(|name| {
+            if net.slot_of(name).is_some() {
+                return false;
+            }
+            let Some(bus) = self.bus.as_mut() else {
+                return true;
+            };
             let event = wire::AddressEvent {
-                interface: seen.name.clone(),
+                interface: name.clone(),
                 addr: octets_or_zero(None),
                 prefix_len: 0,
                 gateway: octets_or_zero(None),
             };
-            sys::write_str(&format!("NETD:ADDR none if={}\n", seen.name));
-            if let Some(bus) = self.bus.as_mut() {
-                let _ = wire::publish_system_net_addr(bus, &seen.name, &event);
-            }
-            self.seen[slot] = None;
-        }
+            wire::publish_system_net_addr(bus, name, &event).is_err()
+        });
+        self.retiring = retiring;
     }
 
     fn event(net: &Net, slot: usize) -> Option<wire::AddressEvent> {
@@ -161,8 +193,10 @@ impl Publisher {
         })
     }
 
-    fn announce(&mut self, net: &Net, slot: usize) {
-        let (Some(event), Some(unit)) = (Publisher::event(net, slot), net.unit(slot)) else {
+    /// The serial evidence for a changed address (`NETD:ADDR ...`), once per
+    /// change.
+    fn print(net: &Net, slot: usize) {
+        let Some(unit) = net.unit(slot) else {
             return;
         };
         let state = unit.stack.state();
@@ -183,9 +217,18 @@ impl Publisher {
         } else {
             sys::write_str(&format!("NETD:ADDR none if={}\n", unit.name));
         }
-        if let Some(bus) = self.bus.as_mut() {
-            let _ = wire::publish_system_net_addr(bus, &unit.name, &event);
-        }
+    }
+
+    /// The retained `system/net/<if>/addr`; whether the broker took it.
+    fn publish_addr(&mut self, net: &Net, slot: usize) -> bool {
+        let (Some(event), Some(unit), Some(bus)) = (
+            Publisher::event(net, slot),
+            net.unit(slot),
+            self.bus.as_mut(),
+        ) else {
+            return false;
+        };
+        wire::publish_system_net_addr(bus, &unit.name, &event).is_ok()
     }
 
     /// The first address after none: announce the network is up, with the

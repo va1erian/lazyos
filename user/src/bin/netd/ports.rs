@@ -106,7 +106,13 @@ impl Ports {
                     if port.nic.owner_uid != uid {
                         // Another identity serves the name now (it passed the
                         // check above): nothing of the old attachment stands.
+                        // The interface goes first, as on removal, so no poll
+                        // reaches the old rings and the new card's kind and
+                        // metric come from a fresh stack (`maintain`).
                         port.nic.owner_uid = uid;
+                        if let Some(slot) = port.slot.take() {
+                            net.remove_interface(slot);
+                        }
                         port.nic.forget_attachment("the driver identity changed");
                     }
                 }
