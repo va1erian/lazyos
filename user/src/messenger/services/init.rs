@@ -421,3 +421,58 @@ pub fn restart_service(endpoint: &Endpoint, name: &str, deadline: Option<u64>) -
         .map_err(Error::Parcel)?
         .pid)
 }
+
+/// Call `init`'s `ReloadService` (docs/dbgd-plan.md, v2): restart `name` from
+/// the staged `binary` (empty: as it is), held to a `trial_ms` trial. Only
+/// `dbgd` on a box with `diag.dbg.control=1` is listened to.
+pub fn reload_service(
+    endpoint: &Endpoint,
+    name: &str,
+    binary: &str,
+    sha256: &str,
+    trial_ms: u32,
+    deadline: Option<u64>,
+) -> Result<u64> {
+    let body = wire::encode_reload_service_args(&wire::ReloadServiceArgs {
+        name: alloc::string::String::from(name),
+        binary: alloc::string::String::from(binary),
+        sha256: alloc::string::String::from(sha256),
+        trial_ms,
+    })
+    .map_err(Error::Parcel)?;
+    let reply = call_body(endpoint, wire::METHOD_RELOADSERVICE, body, deadline)?;
+    Ok(wire::decode_reload_service_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .pid)
+}
+
+/// Call `init`'s `RevertService`: the image's binary again, restarted.
+pub fn revert_service(endpoint: &Endpoint, name: &str, deadline: Option<u64>) -> Result<u64> {
+    let body = wire::encode_revert_service_args(&wire::RevertServiceArgs {
+        name: alloc::string::String::from(name),
+    })
+    .map_err(Error::Parcel)?;
+    let reply = call_body(endpoint, wire::METHOD_REVERTSERVICE, body, deadline)?;
+    Ok(wire::decode_revert_service_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .pid)
+}
+
+/// Call `init`'s `RelaunchApp`: `(stopped, started)` instances of `app`.
+pub fn relaunch_app(endpoint: &Endpoint, app: &str, deadline: Option<u64>) -> Result<(u64, u64)> {
+    let body = wire::encode_relaunch_app_args(&wire::RelaunchAppArgs {
+        app: alloc::string::String::from(app),
+    })
+    .map_err(Error::Parcel)?;
+    let reply = call_body(endpoint, wire::METHOD_RELAUNCHAPP, body, deadline)?;
+    let reply = wire::decode_relaunch_app_reply(&reply.body).map_err(Error::Parcel)?;
+    Ok((reply.stopped, reply.started))
+}
+
+/// Call `init`'s `Reloads`: every service's hot-reload state.
+pub fn reloads(endpoint: &Endpoint, deadline: Option<u64>) -> Result<Vec<wire::ReloadState>> {
+    let reply = call_body(endpoint, wire::METHOD_RELOADS, Vec::new(), deadline)?;
+    Ok(wire::decode_reloads_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .reloads)
+}

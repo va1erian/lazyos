@@ -6,7 +6,8 @@
 //! authenticated peer with the state the machine already has: the kernel
 //! boot log (live), the task table, memory and fabric counters, the PCI
 //! inventory and `devd`'s driver view, `usbd`'s controller snapshot, a few
-//! allowlisted files and the `HW:*` verdicts. v1 is read-only.
+//! allowlisted files and the `HW:*` verdicts. With `diag.dbg.control=1` a
+//! session may also restart and hot-reload services (v2, `control.rs`).
 //!
 //! It is **off unless the image turns it on**: the binary is built into an
 //! image only by `LAZYOS_DBGD`, runs only with `diag.dbg=1` in
@@ -15,7 +16,7 @@
 //! are `libs/dbgwire` (host-tested and fuzzed); this crate is the glue to
 //! the system's data sources.
 //!
-//! Serial lines: `DBGD:OFF <why>`, `DBGD:READY port=<p> peer=<ip|any>`,
+//! Serial lines: `DBGD:OFF <why>`, `DBGD:READY port=<p> peer=<ip|any> control=<0|1>`,
 //! `DBGD:AUDIT ...` and `DBGD:SECURITY ...` (`audit.rs`).
 
 #![no_std]
@@ -23,8 +24,12 @@
 
 extern crate alloc;
 
+#[path = "dbgd/apps.rs"]
+mod apps;
 #[path = "dbgd/audit.rs"]
 mod audit;
+#[path = "dbgd/control.rs"]
+mod control;
 #[path = "dbgd/handlers.rs"]
 mod handlers;
 #[path = "dbgd/msg.rs"]
@@ -110,7 +115,14 @@ fn serve(config: &Config) -> u32 {
         Some(ip) => format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3]),
         None => alloc::string::String::from("any"),
     };
-    sys::write_str(&format!("DBGD:READY port={} peer={peer}\n", config.port));
+    if config.control {
+        control::prepare();
+    }
+    sys::write_str(&format!(
+        "DBGD:READY port={} peer={peer} control={}\n",
+        config.port,
+        u8::from(config.control)
+    ));
     let mut shared = session::Shared::new();
     loop {
         match listener.accept(ACCEPT_MS) {

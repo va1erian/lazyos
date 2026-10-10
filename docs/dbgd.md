@@ -4,7 +4,8 @@
 port or a camera: the live boot log, what each service printed, tasks, memory,
 PCI devices, driver state, a USB controller snapshot and Messenger's registry.
 This is the how-to; the design, protocol and threat model are in
-[`dbgd-plan.md`](dbgd-plan.md). v1 is read-only.
+[`dbgd-plan.md`](dbgd-plan.md). Inspection is read-only; an image built with
+`LAZYOS_DBGD_CONTROL=1` can also restart and hot-reload services (section 5).
 
 ## 1. Put it in an image
 
@@ -104,10 +105,62 @@ interface id to its service with `idl/manifest.json`.
 | `-32003 ... LAZYOS_DBGD=1?` | the kernel was built without the switch: rebuild kernel and image together |
 | `usb.dump` unavailable | the image has no `usbd` (`LAZYOS_USB=1`), or no xHCI controller |
 | Second client hangs | one client at a time: close the first (the MCP bridge holds a connection) |
+| `-32002 control is off` | the image was built without `LAZYOS_DBGD_CONTROL=1` |
+| `reload` says `rolled-back` | the new binary exited or did not spawn in its trial: read `log --source programs` (`INIT:RELOAD:ROLLBACK reason=`) |
 
-## 5. Tests
+## 5. Hot-reload a service (control images only)
+
+Build the box with the control tier, once:
 
 ```bash
-python tools/dbg/run.py [--usb]    # builds, boots QEMU, judges every method and refusal
-cargo test -p dbgwire              # protocol, config, allowlist, seeded fuzz
+LAZYOS_DESKTOP=1 LAZYOS_USB_IMAGE=1 LAZYOS_NETD=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONTROL=1 cargo build
+python tools/run_demo.py --dbgd-control      # the same in QEMU
+```
+
+Then, after each change to a service or driver, rebuild with the **same
+switches** (so the binary matches the box) and push it:
+
+```bash
+python tools/dbg/dbgctl.py --host 192.168.1.50 reload usbd
+```
+
+`dbgctl` takes `/system/bin/usbd` from `target/lazyos.img` (or the ELF you
+name), uploads it, and `init` on the box restarts `usbd` from it. If the new
+`usbd` exits or will not start within the trial (10 s, `--trial-ms`), `init`
+puts the stick's `usbd` back by itself and `dbgctl` says `rolled-back` with
+the reason; otherwise `committed`. Reloading `netdrv` drops the connection
+for a moment: `dbgctl` reconnects to read the verdict.
+
+| Command | Does |
+|---|---|
+| `reload NAME [FILE] [--trial-ms N]` | upload and run a new binary for a service |
+| `restart NAME` | restart a service as it is |
+| `revert NAME` | back to the stick's binary |
+| `reloads` | what was reloaded since boot, and how it ended |
+| `app-install FILE.lzp [--no-relaunch]` | install a package (core apps too) and relaunch its windows |
+| `relaunch APP` | close and reopen every window of an app |
+
+A reload lasts until `revert` or a reboot: the stick is never written.
+
+Apps (Calculator, LazyWriter, an installed game) are packages, so they are
+swapped by installing a new `.lzp`, which `init` then relaunches in place:
+
+```bash
+python tools/dbg/dbgctl.py --host 192.168.1.50 app-install target/pkg/core/os.lazy.writer-0.1.0.lzp
+python tools/dbg/dbgctl.py --host 192.168.1.50 relaunch os.lazy.writer
+```
+
+Unlike a service reload this is a real install on the OS volume (it
+survives a reboot), it may replace a core app, and there is no automatic
+rollback: install the previous package to go back. `--no-relaunch` leaves
+running windows alone.
+`messengerd` and `dbgd` cannot be reloaded. This is remote code execution:
+use it only on development machines on a network you trust.
+
+## 6. Tests
+
+```bash
+python tools/dbg/run.py [--usb]        # builds, boots QEMU, judges every method, refusal and reload
+python tools/dbg/run.py --no-control   # an image without the control tier refuses it
+cargo test -p dbgwire                  # protocol, config, allowlist, control rules, seeded fuzz
 ```

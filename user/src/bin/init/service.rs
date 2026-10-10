@@ -13,6 +13,7 @@ use user::sys::Cred as SysCred;
 use super::apps::AppSpec;
 use super::installed::InstalledApp;
 use super::lifecycle::Lifecycle;
+use super::reload::Hot;
 use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE, LINUX_ROWS};
 
 /// Runtime phase of a service; `label` is the word published in events and
@@ -113,6 +114,11 @@ pub(super) struct Service {
     /// A resident app's lifecycle (`os.lazy.init.app.v1`, docs/tray-plan.md
     /// section 5): its event channel, queued `Reopen`s, a requested quit.
     pub(super) life: Lifecycle,
+    /// The `Launch` request's path argument of a launched row, so an app
+    /// swap (`relaunch.rs`) starts the new build on the same document.
+    pub(super) launch_arg: Option<String>,
+    /// A hot reload's binary, trial and outcome (`reload.rs`).
+    pub(super) hot: Hot,
 }
 
 impl Service {
@@ -148,6 +154,8 @@ impl Service {
             title: String::from(spec.name),
             reason: None,
             life: Lifecycle::default(),
+            hot: Hot::default(),
+            launch_arg: None,
         }
     }
 
@@ -158,7 +166,7 @@ impl Service {
             .args
             .iter()
             .map(|arg| String::from(*arg))
-            .chain(path)
+            .chain(path.clone())
             .collect();
         Service {
             name: app.id,
@@ -184,6 +192,8 @@ impl Service {
             title: String::from(app.name),
             reason: None,
             life: Lifecycle::default(),
+            hot: Hot::default(),
+            launch_arg: path,
         }
     }
 
@@ -196,7 +206,7 @@ impl Service {
         path: Option<String>,
         cred: SysCred,
     ) -> Service {
-        let all_args = app.args.iter().cloned().chain(path).collect();
+        let all_args = app.args.iter().cloned().chain(path.clone()).collect();
         Service {
             name: app.id,
             path: app.path,
@@ -221,6 +231,8 @@ impl Service {
             title: app.name.clone(),
             reason: None,
             life: Lifecycle::resident(app.resident),
+            hot: Hot::default(),
+            launch_arg: path,
         }
     }
 }

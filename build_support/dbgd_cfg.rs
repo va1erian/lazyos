@@ -9,7 +9,9 @@
 //!   random one is made once and kept in `target/dbgd.key`, which the host
 //!   tools (`tools/dbg/dbgctl.py`, the MCP bridge) read by default;
 //! * `LAZYOS_DBGD_PORT=<port>`: the TCP port (default 9701);
-//! * `LAZYOS_DBGD_PEER=<a.b.c.d>`: the only address allowed to connect.
+//! * `LAZYOS_DBGD_PEER=<a.b.c.d>`: the only address allowed to connect;
+//! * `LAZYOS_DBGD_CONTROL=1`: the control tier (`diag.dbg.control=1`):
+//!   restart and hot-reload services remotely (docs/dbgd-plan.md, v2).
 //!
 //! The key lands in `/boot/lazyos.cfg` on the unencrypted boot volume: this
 //! is a debug build, not a release image.
@@ -54,8 +56,9 @@ pub fn validate_peer(peer: &str) -> Result<(), String> {
     }
 }
 
-/// The `diag.dbg*` lines for a key, an optional port and an optional peer.
-pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>) -> String {
+/// The `diag.dbg*` lines for a key, an optional port, an optional peer and
+/// the control tier.
+pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>, control: bool) -> String {
     let mut out = format!("diag.dbg=1\ndiag.dbg.key={key}\n");
     if let Some(port) = port {
         out.push_str(&format!("diag.dbg.port={port}\n"));
@@ -63,7 +66,16 @@ pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>) -> String {
     if let Some(peer) = peer {
         out.push_str(&format!("diag.dbg.peer={peer}\n"));
     }
+    if control {
+        out.push_str("diag.dbg.control=1\n");
+    }
     out
+}
+
+/// Whether the build asked for the control tier (`LAZYOS_DBGD_CONTROL=1`).
+fn control() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_DBGD_CONTROL");
+    std::env::var_os("LAZYOS_DBGD_CONTROL").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 /// A new random key (32 bytes as hex) from the operating system's
@@ -130,5 +142,5 @@ pub fn from_env(key_file: &Path) -> String {
     if let Some(peer) = &peer {
         validate_peer(peer).unwrap_or_else(|error| panic!("{error}"));
     }
-    lines(&key(key_file), port, peer.as_deref())
+    lines(&key(key_file), port, peer.as_deref(), control())
 }

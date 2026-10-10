@@ -66,6 +66,10 @@ struct Session<'a> {
     authed: bool,
     nonce: [u8; NONCE_LEN],
     follow: Option<Follow>,
+    /// Whether this session opened the control tier (`control.begin`).
+    control: bool,
+    /// The service binary being uploaded.
+    upload: Option<dbgwire::control::Upload>,
 }
 
 fn now_ms() -> u64 {
@@ -105,6 +109,8 @@ pub(crate) fn run(stream: &TcpStream, peer: Addr, config: &Config, shared: &mut 
         authed: false,
         nonce,
         follow: None,
+        control: false,
+        upload: None,
     };
     let hello = rpc::notification_line(
         "hello",
@@ -211,6 +217,12 @@ fn handle_line(session: &mut Session, line: &[u8], config: &Config, shared: &mut
             "authenticate first (see the hello notification)",
         ));
     }
+    if method.access == Access::Control {
+        if let Err(why) = control_open(session, config) {
+            audit::security(session.peer, &format!("{}: {why}", method.name));
+            return session.send(&rpc::error_line(&id, code::DENIED, why));
+        }
+    }
     if let Err(message) = methods::validate(method, &request.params) {
         audit::note(session.peer, method.name, "bad params");
         return session.send(&rpc::error_line(&id, code::INVALID_PARAMS, &message));
@@ -218,7 +230,7 @@ fn handle_line(session: &mut Session, line: &[u8], config: &Config, shared: &mut
     if method.name == "auth" {
         return authenticate(session, &id, &request.params, config, shared);
     }
-    let result = dispatch(session, method.name, &request.params, shared);
+    let result = dispatch(session, method.name, &request.params, config, shared);
     audit::note(
         session.peer,
         method.name,
@@ -278,10 +290,46 @@ fn authenticate(
     false
 }
 
+/// Why a control method may not run in `session`, if it may not.
+fn control_open(session: &Session, config: &Config) -> Result<(), &'static str> {
+    if !config.control {
+        return Err("control is off on this box (diag.dbg.control=1 in lazyos.cfg)");
+    }
+    if !session.control {
+        return Err("call control.begin {\"confirm\":\"control\"} first");
+    }
+    Ok(())
+}
+
+/// `control.begin`: open the control tier for this session, on purpose.
+fn begin_control(
+    session: &mut Session,
+    params: &Value,
+    config: &Config,
+) -> Result<String, Failure> {
+    if !config.control {
+        audit::security(session.peer, "control.begin with control off");
+        return Err((
+            code::DENIED,
+            String::from("control is off on this box (diag.dbg.control=1 in lazyos.cfg)"),
+        ));
+    }
+    if text_param(params, "confirm") != Some(dbgwire::control::CONFIRM) {
+        return Err((
+            code::INVALID_PARAMS,
+            String::from("control.begin needs {\"confirm\":\"control\"}"),
+        ));
+    }
+    session.control = true;
+    audit::security(session.peer, "control opened");
+    Ok(Object::new().bool("control", true).finish())
+}
+
 fn dispatch(
     session: &mut Session,
     name: &str,
     params: &Value,
+    config: &Config,
     shared: &mut Shared,
 ) -> Result<String, Failure> {
     match name {
@@ -307,6 +355,15 @@ fn dispatch(
         "usb.dump" => handlers::usb_dump(),
         "fs.read" => handlers::fs_read(params),
         "hwreport" => handlers::hwreport(&mut shared.scratch),
+        "control.begin" => begin_control(session, params, config),
+        "service.restart" => super::control::restart(params),
+        "service.upload" => super::control::upload(params, &mut session.upload),
+        "service.reload" => super::control::reload(params, &mut session.upload),
+        "service.revert" => super::control::revert(params),
+        "service.reloads" => super::control::reloads(),
+        "app.upload" => super::apps::upload(params, &mut session.upload),
+        "app.install" => super::apps::install(params, &mut session.upload),
+        "app.relaunch" => super::apps::relaunch(params),
         _ => Err((code::METHOD_NOT_FOUND, format!("no handler for {name}"))),
     }
 }

@@ -68,6 +68,15 @@ interface os.lazy.pkgd.v1 {
     /// replace a core app, `true` (`pkg.update-core`) refuses one that would
     /// not. Plain `Install` never replaces a core app for `elevd`.
     method InstallApproved(path: String = 1, digest: String = 2, core: Bool = 3) -> (app: Installed = 1);
+    /// `dbgd`'s install of a package a developer uploaded to a box built for
+    /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+    /// `dbgd` alone and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+    /// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+    /// the bytes must hash to `digest` (SHA-256, hex), as for
+    /// `InstallApproved`. Unlike every other install it may replace a core
+    /// app, which is what a developer iterating on one needs.
+    method InstallDebug(path: String = 1, digest: String = 2) -> (app: Installed = 1);
 
     /// Where an installed app came from. `Core`: its `system_name` is shipped
     /// in `/system/packages`, so it cannot be removed (a newer version the

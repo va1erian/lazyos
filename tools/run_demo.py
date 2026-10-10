@@ -30,6 +30,7 @@ Examples
     python tools/run_demo.py --linuxapps     # + dash, lua, sqlite3, jq, rg in /system/bin
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
+    python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
@@ -274,6 +275,8 @@ def main(argv: list[str]) -> int:
             # The inspection service is a `user` binary; the image build
             # writes its `diag.dbg.*` lines and the key (target/dbgd.key).
             env["LAZYOS_DBGD"] = "1"
+            # Its control tier (restart, hot reload) only when asked for.
+            env["LAZYOS_DBGD_CONTROL"] = "1" if args.dbgd_control else "0"
         if args.smb:
             # The SMB client is a `user` binary: no separate build step.
             env["LAZYOS_SMB"] = "1"

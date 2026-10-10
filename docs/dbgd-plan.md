@@ -3,7 +3,9 @@
 A PC with no serial port was debugged by filming its screen. `dbgd` answers
 "what is the state of xHCI slot 2?" and "what did `usbd` print in the last
 minute?" over the network card instead: one TCP port, newline-delimited
-JSON-RPC 2.0, behind a pre-shared key. **v1 is read-only.**
+JSON-RPC 2.0, behind a pre-shared key. **v1 is read-only**; the v2 control
+tier (restart and service hot reload) exists only in images built with
+`LAZYOS_DBGD_CONTROL=1`.
 How-to and troubleshooting: [`dbgd.md`](dbgd.md).
 
 ```bash
@@ -27,6 +29,7 @@ NIC driver the box needs), read `target/dbgd.key`, and
 | `LAZYOS_DBGD=1` | The kernel's two log ops (syscall 14 ops 2 and 3, `cfg(lazyos_dbgd)`), the program-output ring, the `dbgd` binary in `/system/bin`, its row in `init`'s manifest (uid 911, no capability), its `diag.dbg.*` lines. Needs `LAZYOS_NETD=1`. |
 | `LAZYOS_DBGD_KEY=<hex>` | The key (16 to 64 bytes of hex). Unset: one is made once and kept in `target/dbgd.key`. |
 | `LAZYOS_DBGD_PORT`, `LAZYOS_DBGD_PEER` | TCP port (9701); the only IPv4 address that may connect. |
+| `LAZYOS_DBGD_CONTROL=1` | `diag.dbg.control=1`: the control tier below. Off by default. |
 
 Without `LAZYOS_DBGD=1` none of it exists: a kernel built without it answers
 syscall 14 op 2 with `-EINVAL` (the kernel suite checks both ways, and the
@@ -136,9 +139,115 @@ python tools/dbg/run.py [--usb]                    # QEMU: every method, the ref
 cd tools/lazygui && python -m unittest test_catalog_dbgd
 ```
 
-## v2 (not started): control and hot reload
+## v2: control and service hot reload
 
-As the issue describes (`diag.control=1`, per-session confirmation, service
-upload with `healthd` rollback, then whole-OS reload). The method table's
-`Access` enum is where a `Control` tier goes, and `libs/dbgwire` has no write
-method for a test to confuse with one.
+Stages 1 (restart only) and 2 of the issue. On a real box the loop becomes:
+change a driver, `cargo build` with the box's switches, then
+
+```bash
+python tools/dbg/dbgctl.py --host <box> reload usbd       # /system/bin/usbd of target/lazyos.img
+python tools/dbg/dbgctl.py --host <box> reload usbd my.elf --trial-ms 20000
+python tools/dbg/dbgctl.py --host <box> restart usbd
+python tools/dbg/dbgctl.py --host <box> revert usbd
+python tools/dbg/dbgctl.py --host <box> reloads
+```
+
+with no stick write. `reload` waits for the verdict and exits non-zero on a
+rollback. The MCP bridge has the same as `service_reload`, `service_restart`,
+`service_revert` and `service_reloads`.
+
+### The switch and the gate
+
+| Layer | What it takes |
+|---|---|
+| Build | `LAZYOS_DBGD_CONTROL=1` writes `diag.dbg.control=1`; without it the line is absent |
+| `dbgd` | `Config::control`; a `Control` method is `-32002` unless the box allows it **and** the session called `control.begin {"confirm":"control"}` (per connection: a reconnect starts read-only; the opening is a `DBGD:SECURITY ... control opened` record) |
+| `init` | `ReloadService`, `RevertService` (`idl/init.midl`) accepted only from `dbgd`'s kernel-stamped identity (uid 911, unlabelled, no session) **and** when `init` itself reads `diag.dbg.control=1` in `lazyos.cfg` |
+| Both | `dbgwire::control::reloadable`: a plain name, never `messengerd` (it claims the bootstrap channel once per boot) or `dbgd` (the connection watching the reload) |
+
+### Methods
+
+| Method | Does |
+|---|---|
+| `control.begin {confirm}` | open control for this connection |
+| `service.restart {name}` | restart a manifest service as it is (`init` kills it and starts it at once) |
+| `service.upload {name, offset, total, data}` | one chunk (6 KiB, base64; its encoding is exactly the JSON reader's longest string) into `fhs::state::DBGD_STAGE/<name>.elf`; chunks in order, offset 0 starts over, 32 MiB at most |
+| `service.reload {name, sha256, trial_ms}` | hand the finished upload to `init`; `trial_ms` 1000..120000, default 10000 |
+| `service.revert {name}` | the image's binary again |
+| `service.reloads` | per service: `trial`, `committed`, `rolled-back` or `reverted`, the sha256, pid, and a rollback's reason (read tier) |
+
+### What `init` does (`user/src/bin/init/reload.rs`)
+
+1. Checks the caller, the box's switch and the name; refuses a row still
+   `pending`, a shutdown in progress, or a launched app (`EPERM`, `ENOENT`,
+   `EAGAIN`).
+2. Reads exactly `dbgd`'s staging file for that name, checks its SHA-256
+   against the one the client computed and that it is an ELF, and copies it
+   to `fhs::state::INIT_RELOAD/<name>` (ramfs; `init` makes the directory
+   before it spawns anything, so only root owns it although `/transient`
+   is world-writable, and a boot where that fails refuses reloads).
+   `dbgd` cannot swap the file after the check: `init` runs its own copy.
+3. Kills the running task; the exit is recognised as the reload's own and
+   the row is started again at once from the copy, with its manifest
+   arguments and credentials. A row that was `failed` or `stopped` (a driver
+   that crashed out of its restarts) is simply started: reloading a fix
+   into a dead driver is the main use.
+4. **Trial**: if the new run exits, or the spawn fails, before `trial_ms`,
+   `init` drops the copy and starts the image's binary at once
+   (`INIT:RELOAD:ROLLBACK reason=...`); still running at the deadline, it
+   commits (`INIT:RELOAD:COMMIT`). The rollback is `init`'s, so it happens
+   even when the reloaded service carried `dbgd`'s connection (`netdrv`,
+   `netd`); the client reconnects and reads `service.reloads`.
+
+A reload lives on the ramfs: a reboot always comes back to the stick's
+image, which is the fallback a bad driver cannot break. "Healthy" is "still
+running at the deadline", not `healthd`'s verdict: a service that runs but
+misbehaves is the developer's to see in the log and `revert`.
+
+### Security
+
+This is remote code execution by design: anyone with the key on a
+control-enabled box can run any program with the credentials of any service
+but the two excluded (the platform services run as root). It is a separate
+build switch, off by default and absent from `--dbgd` images; the switch is
+checked by `init` on the box, not taken from `dbgd`; each connection opens
+control on purpose; every step is a `DBGD:AUDIT` line and an `INIT:RELOAD:*`
+line in the program-output ring. There is still no TLS: the binary crosses
+the network in the clear, and the HMAC handshake authenticates the
+connection's start, not each request. Never build a control image for a
+machine on a network you do not trust.
+
+### Apps: install and relaunch
+
+Apps are not `init` manifest rows: they are packages `pkgd` installs and
+`init` launches into a session. Swapping one is therefore a package install
+and a relaunch, not a binary reload:
+
+```bash
+python tools/dbg/dbgctl.py --host <box> app-install target/pkg/core/os.lazy.calc-0.1.0.lzp
+python tools/dbg/dbgctl.py --host <box> relaunch os.lazy.calc
+```
+
+| Method | Does |
+|---|---|
+| `app.upload {offset, total, data}` | one chunk of an `.lzp` into `dbgwire::control::staged_package_path()` (256 MiB at most) |
+| `app.install {sha256, relaunch}` | `pkgd.InstallDebug`, then (unless `relaunch` is false) `init.RelaunchApp` for the installed `system_name`; answers the name, version, install directory, `stopped`, `started` |
+| `app.relaunch {app}` | `init.RelaunchApp` alone |
+
+`pkgd.InstallDebug` (`idl/pkgd.midl`) takes the same gate as a reload
+(`dbgd`'s identity, `diag.dbg.control=1` read by `pkgd` itself), only the
+staging file, and only bytes that hash to the client's digest; then it is an
+ordinary install (validation, policy, MIME, audit), except that it may
+replace a core app, which is what iterating on one needs.
+`init.RelaunchApp` (`user/src/bin/init/relaunch.rs`) kills every running
+instance and launches each again through `Launch`, in its own session with
+the document it was opened on, so it comes back from the new install with
+its label and policy. There is no trial: `pkgd` refuses an invalid package,
+and a broken build is replaced by installing the previous `.lzp`.
+
+### Not done (stage 3 and the rest of stage 1)
+
+`fs.write` to a scratch area, spawning a program with captured output,
+register writes, and the whole-OS reload (a kexec-style handoff with the PCH
+TCO watchdog): stage 3's feasibility questions (device quiescing, what state
+survives, the bootloader's boot-info) are still open.

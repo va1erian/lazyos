@@ -149,6 +149,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "9701 and guarded by the key in target/dbgd.key; read it with "
                              "`python tools/dbg/dbgctl.py`. LAZYOS_DBGD_KEY/_PORT/_PEER set the "
                              "key, port and the one peer address")
+    parser.add_argument("--dbgd-control", action="store_true",
+                        help="`--dbgd` plus its control tier (LAZYOS_DBGD_CONTROL=1, "
+                             "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
+                             "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
+                             "by design, for development machines only")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -211,6 +216,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyweb or args.mail or args.pictures or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
+    args.dbgd = args.dbgd or args.dbgd_control
     args.net = args.net or args.tls or args.smb or args.dbgd
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.

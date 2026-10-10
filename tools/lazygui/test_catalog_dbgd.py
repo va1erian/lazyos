@@ -45,6 +45,21 @@ class DbgdTests(unittest.TestCase):
         self.assertNotIn("--dbgd", demo_argv(skip_build=False))
         self.assertNotIn("--dbgd", demo_argv(dbgd=True, skip_build=True))
 
+    def test_the_control_tier_implies_dbgd_and_is_off_by_default(self) -> None:
+        plain = catalog.build_env({**self.base(), "desktop": False, "dbgd": True})
+        self.assertNotIn("LAZYOS_DBGD_CONTROL", plain)
+        env = catalog.build_env({**self.base(), "desktop": False, "dbgd_control": True})
+        self.assertEqual(env["LAZYOS_DBGD"], "1", "control implies the service")
+        self.assertEqual(env["LAZYOS_DBGD_CONTROL"], "1")
+        self.assertEqual(env["LAZYOS_NETD"], "1")
+        self.assertIn("9701:9701", catalog.net_flags({"net": False, "dbgd_control": True}))
+
+    def test_the_demo_passes_the_control_flag(self) -> None:
+        argv = demo_argv(dbgd_control=True, skip_build=False)
+        self.assertIn("--dbgd-control", argv)
+        self.assertNotIn("--dbgd", argv, "--dbgd-control implies it")
+        self.assertNotIn("--dbgd-control", demo_argv(dbgd=True, skip_build=False))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -975,8 +975,11 @@ switch has none of its ops. Plan, protocol and threat model:
 
 ```bash
 python tools/run_demo.py --dbgd                 # networking + dbgd; key in target/dbgd.key; 9701 forwarded
+python tools/run_demo.py --dbgd-control         # ...plus restart and service hot reload (v2)
+python tools/dbg/dbgctl.py reload usbd          # rebuilt /system/bin/usbd from target/lazyos.img, rolled back if it dies
+python tools/dbg/dbgctl.py app-install X.lzp    # install an app package (core too), relaunch its windows
 python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
-python tools/dbg/run.py [--usb]                 # build, boot, judge every method (shots/dbg)
+python tools/dbg/run.py [--usb] [--no-control]  # build, boot, judge every method and the reloads (shots/dbg)
 python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
 cargo test -p dbgwire                           # protocol, config, allowlist, seeded fuzz
 LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none

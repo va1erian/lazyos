@@ -346,6 +346,11 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `report_failure(reason)` | `ReportFailure(reason: String) -> () oneway` | A launched app says why it is about to fail (issue #549), so the |
 | `home(op, name, uid, gid)` | `Home(op: String, name: String, uid: U32, gid: U32) -> ()` | Make or retire an account's home (docs/accounts-plan.md U1). Accepted |
 | `restart_service(name)` | `RestartService(name: String) -> (pid: U64)` | Restart the system service `name` (docs/accounts-plan.md U2): its |
+| `reload_service(name, binary, sha256, trial_ms)` | `ReloadService(name: String, binary: String, sha256: String, trial_ms: U32) -> (pid: U64)` | Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted |
+| `revert_service(name)` | `RevertService(name: String) -> (pid: U64)` | Put the image's binary back for a hot-reloaded service and restart |
+| `relaunch_app(app)` | `RelaunchApp(app: String) -> (stopped: U64, started: U64)` | Restart a running app after `pkgd.InstallDebug` replaced it |
+| `reloads()` | `Reloads() -> (reloads: Array<ReloadState>)` | The hot reloads since boot, one row per service that had one. |
+| `new_reload_state()` | struct `ReloadState` | a `ReloadState` at its zero value |
 | `new_power_state()` | struct `PowerState` | a `PowerState` at its zero value |
 | `new_service_status()` | struct `ServiceStatus` | a `ServiceStatus` at its zero value |
 | `new_app_info()` | struct `AppInfo` | a `AppInfo` at its zero value |
@@ -652,6 +657,7 @@ The application package manager (`docs/packages.md`, phase 3 of the
 | `develop(path, confirm)` | `Develop(path: String, confirm: Bool) -> (label: String, approved: Bool)` | Approve a development run of the package at `path` (the same source |
 | `develop_declined(path)` | `DevelopDeclined(path: String) -> ()` | The user declined the development consent for the package at `path` |
 | `install_approved(path, digest, core)` | `InstallApproved(path: String, digest: String, core: Bool) -> (app: Installed)` | `elevd`'s install of a package an administrator approved on the |
+| `install_debug(path, digest)` | `InstallDebug(path: String, digest: String) -> (app: Installed)` | `dbgd`'s install of a package a developer uploaded to a box built for |
 | `new_provision_state()` | struct `ProvisionState` | a `ProvisionState` at its zero value |
 | `new_package_info()` | struct `PackageInfo` | a `PackageInfo` at its zero value |
 | `new_mime_handler()` | struct `MimeHandler` | a `MimeHandler` at its zero value |

@@ -121,6 +121,31 @@ impl Pkgd {
         self.install_from(caller, path, Approval::Approved { digest, core })
     }
 
+    /// `InstallDebug(path, digest)`: `dbgd`'s alone, on a box whose
+    /// `lazyos.cfg` allows remote control, and only its staging file.
+    pub(crate) fn install_debug(
+        &mut self,
+        caller: &Caller,
+        path: &str,
+        digest: &str,
+    ) -> Result<Installed, Failure> {
+        let uid = u64::from(caller.uid);
+        if !super::debug::allowed(caller) {
+            let why = "only dbgd installs uploaded packages, on a box with diag.dbg.control=1";
+            return Err(self.refuse(&Subject::none(), uid, "INSTALL", fail(EPERM, why)));
+        }
+        if path != dbgwire::control::staged_package_path() {
+            let why = "an uploaded package is installed only from dbgd's staging file";
+            return Err(self.refuse(&Subject::none(), uid, "INSTALL", fail(EPERM, why)));
+        }
+        // `dbgd` holds no capability; this one request is a system install.
+        let system = Caller {
+            system: true,
+            ..*caller
+        };
+        self.install_from(&system, path, Approval::Debug { digest })
+    }
+
     /// Read the package at `path` for `caller` and install it.
     fn install_from(
         &mut self,

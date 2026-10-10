@@ -20,7 +20,7 @@ from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-expo
 from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
-from .netplan import net_flags, net_specs, qemu_net, wants_net, wants_tls  # noqa: F401 (re-exported)
+from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -239,10 +239,13 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
-    if cfg.get("dbgd"):
+    if wants_dbgd(cfg):
         # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
         # stack above; the image build writes its key to target/dbgd.key.
         env["LAZYOS_DBGD"] = "1"
+        if cfg.get("dbgd_control"):
+            # Its control tier: restart and hot-reload services (v2).
+            env["LAZYOS_DBGD_CONTROL"] = "1"
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
@@ -332,9 +335,10 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("journal") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_JOURNAL itself.
             argv.append("--journal")
-        if cfg.get("dbgd") and not cfg["skip_build"]:
-            # run_demo sets LAZYOS_DBGD, the stack and the 9701 forward itself.
-            argv.append("--dbgd")
+        if wants_dbgd(cfg) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DBGD (and _CONTROL), the stack and the 9701
+            # forward itself.
+            argv.append("--dbgd-control" if cfg.get("dbgd_control") else "--dbgd")
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")

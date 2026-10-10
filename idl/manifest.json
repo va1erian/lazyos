@@ -729,6 +729,26 @@
         "name": "RestartService",
         "id": 726211199,
         "oneway": false
+      },
+      {
+        "name": "ReloadService",
+        "id": 1203429087,
+        "oneway": false
+      },
+      {
+        "name": "RevertService",
+        "id": 1005742662,
+        "oneway": false
+      },
+      {
+        "name": "RelaunchApp",
+        "id": 734382134,
+        "oneway": false
+      },
+      {
+        "name": "Reloads",
+        "id": 930702605,
+        "oneway": false
       }
     ],
     "topics": [
@@ -1531,6 +1551,11 @@
       {
         "name": "InstallApproved",
         "id": 1599511615,
+        "oneway": false
+      },
+      {
+        "name": "InstallDebug",
+        "id": 1850060999,
         "oneway": false
       }
     ],
