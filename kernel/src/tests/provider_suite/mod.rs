@@ -385,13 +385,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "provider_cache_writes_go_through_and_update",
         cache::writes_go_through_and_update,
     ),
-    ("provider_cache_failed_write_forgets", cache::failed_write_forgets),
+    (
+        "provider_cache_failed_write_forgets",
+        cache::failed_write_forgets,
+    ),
     (
         "provider_cache_dead_disk_fails_even_when_cached",
         cache::dead_disk_fails_even_when_cached,
     ),
     ("provider_cache_streams_bypass", cache::streams_bypass),
-    ("provider_cache_epoch_and_eviction", cache::epoch_and_eviction),
+    (
+        "provider_cache_epoch_and_eviction",
+        cache::epoch_and_eviction,
+    ),
     ("provider_cache_soak_random_io", cache::soak_random_io),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
