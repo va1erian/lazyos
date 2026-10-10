@@ -132,6 +132,11 @@ members = [
     # dbgd's wire: JSON-RPC lines, the HMAC challenge, config, method table
     # (docs/dbgd-plan.md, issue #701): pure no_std + alloc, host-tested.
     "libs/dbgwire",
+    # 802.11 management frames, information elements (RSN) and the scan table,
+    # and the EAPOL-Key supplicant (docs/wifi-prerequisites-plan.md WP3): pure
+    # `no_std` + `alloc`, host-tested and fuzzed.
+    "libs/ieee80211",
+    "libs/eapol",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

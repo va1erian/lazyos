@@ -1,0 +1,19 @@
+[package]
+name = "ieee80211"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "IEEE 802.11 management frames, information elements (RSN) and a scan table for the LazyOS station manager"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "ieee80211"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/ieee80211.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
