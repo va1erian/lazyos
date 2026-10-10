@@ -57,7 +57,7 @@ pub(crate) enum Msg {
 /// The last readings of each view; a failed read keeps the previous value
 /// and records its errno.
 pub(crate) struct State {
-    pub(crate) stats: Option<FabricStats>,
+    pub(crate) stats: Option<Box<FabricStats>>,
     pub(crate) stats_error: Option<i64>,
     pub(crate) registry: Option<Vec<RegistryEntry>>,
     pub(crate) registry_error: Option<i64>,

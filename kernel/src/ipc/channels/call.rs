@@ -125,6 +125,8 @@ pub fn begin_call_owned(
             } else {
                 deadline
             },
+            poll: deadline == Some(POLL_DEADLINE),
+            served: false,
             state: TxnState::Pending,
             reply: Vec::new(),
         });

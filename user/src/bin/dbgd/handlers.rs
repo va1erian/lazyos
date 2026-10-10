@@ -264,6 +264,9 @@ pub(crate) fn fabric_stats() -> Result<String, Failure> {
                 .uint("handles", t.handles)
                 .uint("buffers", t.buffers)
                 .uint("buffer_bytes", t.buffer_bytes)
+                .uint("calls", t.calls)
+                .uint("timeouts", t.timeouts)
+                .uint("polls", t.polls)
                 .finish()
         });
     Ok(Object::new()
@@ -277,6 +280,7 @@ pub(crate) fn fabric_stats() -> Result<String, Failure> {
         .uint("replies", s.replies as u64)
         .uint("one_way", s.one_way as u64)
         .uint("timeouts", s.timeouts as u64)
+        .uint("polls", s.polls as u64)
         .uint("cancels", s.cancels as u64)
         .uint("drops", s.drops as u64)
         .uint("buffers", s.buffers as u64)

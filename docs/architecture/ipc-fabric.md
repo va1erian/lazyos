@@ -51,9 +51,14 @@ syscall surface (including the bootstrap channel).
 
 **Fabric stats** (`stats.rs`)
 
-- `FABRIC_STATS_VERSION = 4`; `FabricStats::SIZE` is 22 scalar words, a
-  `MAX_TASKS` (256) slot handle table, 8 ACL/audit words, then 256 four-word
-  per-slot rows (version 3 had 64 of each, version 2 had 16). `snapshot()`
+- `FABRIC_STATS_VERSION = 6`; `FabricStats::SIZE` is 19 scalar words, a
+  `MAX_TASKS` (256) slot handle table, 8 ACL/audit words, then 256 seven-word
+  per-slot rows (version 3 had 64 of each, version 2 had 16). Every call ends
+  in a reply, a `timeouts` tick (a real deadline missed, or a callee that
+  wedged mid-request), a `polls` tick (a non-blocking `EXPIRED_DEADLINE` call
+  nobody answered: routine background traffic, issue #702), a cancel or a
+  dead peer. Each row also carries the task's `calls`, `timeouts` and `polls`
+  (from the live channels' sender meters), so a poller can be named. `snapshot()`
   returns a `Box` filled in place: the block is ~10 KiB, too much to pass by
   value through a 32 KiB kernel stack. It aggregates
   channels/endpoints/queues, message counters, buffers, handles per slot,

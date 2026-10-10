@@ -38,9 +38,41 @@ fn take_or_register(
             // Delivery takes the message out of the inbox, so the sender's
             // user gets the queue charge back (issue #103).
             release_queued_quota(message.origin.uid, message.bytes.len());
-            Ok(Some(deliver(message)?))
+            let poll = match (message.txn, message.deadline) {
+                (Some(txn), Some(POLL_DEADLINE)) => Some(txn),
+                _ => None,
+            };
+            match deliver(message) {
+                Ok(message) => Ok(Some(message)),
+                Err(error) => {
+                    // The callee never saw the poll: it is not being served.
+                    if let Some(txn) = poll {
+                        unserve_poll(channel_id, side, txn);
+                    }
+                    Err(error)
+                }
+            }
         }
         None => Ok(None),
+    }
+}
+
+/// Undo [`take_locked`]'s receipt of poll `txn` after its delivery failed:
+/// back on the grace deadline, no longer counted as served, so it ends as an
+/// empty poll rather than as a callee that wedged.
+fn unserve_poll(channel_id: u64, side: usize, txn: u64) {
+    let mut channels = CHANNELS.lock();
+    let Ok(channel) = find_channel(&mut channels, channel_id) else {
+        return;
+    };
+    channel.endpoints[side]
+        .serving_polls
+        .retain(|id| *id != txn);
+    if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
+        if entry.state == TxnState::Pending {
+            entry.served = false;
+            entry.deadline = Some(task::ticks() + POLL_GRACE_TICKS);
+        }
     }
 }
 
@@ -68,6 +100,7 @@ fn take_locked(
             // (`await_reply` only expires a deadline that is actually due).
             if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
                 if entry.state == TxnState::Pending {
+                    entry.served = true;
                     entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
                 }
             }
@@ -96,11 +129,13 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
         if channel.txns[index].state != TxnState::Pending {
             continue;
         }
-        channel.txns[index].state = TxnState::TimedOut;
-        channel.timeouts += 1;
-        let caller = channel.txns[index].caller;
-        release_pending(channel, caller);
-        woken.push(caller);
+        // The callee came back to `recv` without answering: "nothing there",
+        // unless the service bound had already passed (a callee that was
+        // slow, like the deadline sweep would have counted it).
+        let overdue = channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline <= task::ticks());
+        woken.push(time_out(channel, index, !overdue));
     }
 }
 
