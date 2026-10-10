@@ -36,6 +36,19 @@ DNS = "10.0.2.3"
 NETDEV_ID = "n0"
 #: The QEMU device of each NIC model (`run_demo.py --nic`, issue #497).
 NIC_DEVICES = {"virtio": "virtio-net-pci", "e1000": "e1000"}
+#: Most cards `--nics` attaches.
+MAX_NICS = 4
+
+
+def card_network(card: int) -> str:
+    """The user network of card `card` (0 is the usual 10.0.2.0/24; every
+    further card gets its own, so its DHCP lease and gateway are its own)."""
+    return f"10.0.{2 + card}.0/24"
+
+
+def card_mac(card: int) -> str:
+    """The card's MAC: QEMU's default for the first, then one up each."""
+    return f"52:54:00:12:34:{0x56 + card:02x}"
 
 
 @dataclass(frozen=True)
@@ -99,10 +112,13 @@ def forwards_from(specs: list[str] | None) -> list[Forward]:
 
 
 def netdev_args(forwards: list[Forward], restrict: bool = False,
-                pcap: str | None = None, nic: str = "virtio") -> list[str]:
+                pcap: str | None = None, nic: str = "virtio", nics: int = 1) -> list[str]:
     """``-netdev user`` with the forwards, the `nic` card (virtio-net unless
-    asked), and an optional packet capture of everything the card sends and
-    receives."""
+    asked), and an optional packet capture of everything the first card sends
+    and receives. With `nics` above 1 (`--nics`), each further card is the
+    same model on a user network of its own (10.0.3.0/24, 10.0.4.0/24, ...):
+    the guest then drives several interfaces (docs/wifi-prerequisites-plan.md
+    WP1). Forwards and the capture belong to the first card."""
     netdev = f"user,id={NETDEV_ID}"
     if restrict:
         # The guest reaches nothing outside; forwards still come in.
@@ -111,6 +127,10 @@ def netdev_args(forwards: list[Forward], restrict: bool = False,
     args = ["-netdev", netdev, "-device", f"{NIC_DEVICES[nic]},netdev={NETDEV_ID}"]
     if pcap:
         args += ["-object", f"filter-dump,id=netdump,netdev={NETDEV_ID},file={pcap}"]
+    for card in range(1, nics):
+        extra = f"user,id=n{card},net={card_network(card)}" + (",restrict=on" if restrict else "")
+        args += ["-netdev", extra, "-device",
+                 f"{NIC_DEVICES[nic]},netdev=n{card},mac={card_mac(card)},id=nic{card}"]
     return args
 
 
@@ -159,6 +179,10 @@ def add_net_options(parser: argparse.ArgumentParser, net_help: str) -> None:
     parser.add_argument("--net-restrict", action="store_true",
                         help="with --net: isolate the guest (QEMU restrict=on): no outbound "
                              "traffic, forwarded ports still reach it")
+    parser.add_argument("--nics", type=int, default=1, metavar="N",
+                        help=f"with --net: attach N network cards (1 to {MAX_NICS}), each on its own "
+                             "user network (10.0.2.0/24, 10.0.3.0/24, ...); the guest names them "
+                             "eth0, eth1, ... and `netd` drives all of them")
     parser.add_argument("--net-pcap", metavar="PATH",
                         help="with --net: record the card's traffic to PATH (pcap; open it "
                              "with Wireshark or tools/net/analyze_pcap.py)")
@@ -168,9 +192,12 @@ def args_from_options(args: argparse.Namespace) -> tuple[list[str], list[Forward
     """The QEMU arguments and forwards ``add_net_options`` asked for (none
     without ``--net``). Raises ValueError for a bad forward."""
     if not args.net:
-        if args.net_forward or args.net_restrict or args.net_pcap:
-            raise ValueError("--net-forward/--net-restrict/--net-pcap need --net")
+        if args.net_forward or args.net_restrict or args.net_pcap or getattr(args, "nics", 1) != 1:
+            raise ValueError("--net-forward/--net-restrict/--net-pcap/--nics need --net")
         return [], []
+    nics = getattr(args, "nics", 1)
+    if not 1 <= nics <= MAX_NICS:
+        raise ValueError(f"--nics {nics}: use 1 to {MAX_NICS}")
     forwards = forwards_from(args.net_forward)
     nic = getattr(args, "nic", "virtio")
-    return netdev_args(forwards, args.net_restrict, args.net_pcap, nic), forwards
+    return netdev_args(forwards, args.net_restrict, args.net_pcap, nic, nics), forwards

@@ -13,6 +13,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use netstack::config::Mode;
+use netstack::net::MAX_INTERFACES;
 use netstack::{Net, RingDevice, Stack};
 use user::messenger::net::{self as nic_api, wire as nic_wire};
 use user::sys;
@@ -86,11 +87,15 @@ impl Ports {
             }
         };
         for card in &present {
+            let full = self.list.len() >= MAX_INTERFACES;
             match self.list.iter_mut().find(|port| port.ifname == card.ifname) {
                 Some(port) => {
                     port.missing_since = None;
                     port.driver = card.driver;
                 }
+                // More names than interfaces the stack can hold are ignored
+                // (the registry is shared: anyone may register a name).
+                None if full => {}
                 None => {
                     sys::write_str(&format!("NETD:NIC:FOUND if={}\n", card.ifname));
                     self.list.push(Port {

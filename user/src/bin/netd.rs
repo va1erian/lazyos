@@ -3,7 +3,7 @@
 //!
 //! `netd` runs smoltcp (through `libs/netstack`) in an ordinary ring-3 process
 //! with **no capabilities**: it holds no device authority and no DMA, it is the
-//! only client of the NIC driver (`os.lazy.net.nic.v1`), and it parses every
+//! only client of the NIC drivers (`os.lazy.net.nic.v1`, one per card), and it parses every
 //! frame the network sends it, so a bug in a parser is a restart of this
 //! process and never a compromise of the device. Under `init` it runs as the
 //! `_netd` user.
@@ -16,9 +16,16 @@
 //! socket activity and timers all come through one place. A `Ping` call is
 //! parked and answered when the result is in.
 //!
-//! **State** lives on retained topics (`system/net/eth0/addr`,
-//! `system/events/network/up`); `confd` supplies the configuration under
-//! `sys/net/eth0/` (DHCP by default) and is a soft dependency.
+//! **Several cards.** The cards are the `os.lazy.net.nic/<ifname>` names in the
+//! registry (`ports.rs`), appearing and vanishing at run time; each gets an
+//! interface in a `netstack::Net` (`eth0`, `eth1`, ...), which picks the
+//! interface for a connection, a datagram, a ping or a lookup by route and
+//! metric (docs/wifi-prerequisites-plan.md section 3.1).
+//!
+//! **State** lives on retained topics (`system/net/<if>/addr`,
+//! `system/net/interfaces`, `system/events/network/up`); `confd` supplies the
+//! configuration under `sys/net/<if>/` (DHCP by default) and is a soft
+//! dependency.
 //!
 //! Boot evidence (`demo=1`): `NETD:ADDR ...` when DHCP completes, then
 //! `netctl`, `ping`, a hostile-input probe and a soak run as real clients. The

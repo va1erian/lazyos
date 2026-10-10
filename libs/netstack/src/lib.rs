@@ -8,7 +8,10 @@
 //! * [`stack`]: the interface, the DHCP client (leases are validated before
 //!   use), the echo path and its bounded ping table;
 //! * [`config`]: DHCP or a static setup, from `confd` values that are parsed
-//!   strictly and fall back to DHCP.
+//!   strictly and fall back to DHCP;
+//! * [`net`]: several interfaces (one [`stack`] each, each with its own socket
+//!   set, because smoltcp cannot share one) under one socket table, with the
+//!   choice of interface by route and metric.
 //!
 //! The service glue (`netd`) owns everything that touches the machine; nothing
 //! here takes a syscall or allocates from a client-supplied size.
@@ -41,7 +44,7 @@ mod tests;
 
 pub use config::Mode;
 pub use device::{DeviceStats, RingDevice};
-pub use net::{IfKind, Net, NetLookupResult, NetPingResult, Route, Unit};
+pub use net::{AddError, IfKind, Net, NetLookupResult, NetPingResult, Route, Unit};
 pub use stack::{
     ready, valid_host_name, Counters, DhcpState, Kind, LookupOutcome, LookupResult, PingError,
     PingOutcome, PingResult, Received, ResolveError, SockAddr, SockError, Source, Stack, State,

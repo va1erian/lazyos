@@ -265,3 +265,7 @@ harness marks with the host clock:
 
 `python tools/net/test_multi_judge.py` shows the judge fails when it should: traffic or DNS on the
 wrong card, a half DHCP exchange, a link that came back without restarting DHCP.
+
+For an interactive or screenshot boot with several cards, `python tools/run_demo.py --net --nics 2` (and
+`qemu_session.py --net --nics 2`) attaches the second card on its own user network (10.0.3.0/24,
+MAC 52:54:00:12:34:57); `qemu_net.py` builds the arguments.

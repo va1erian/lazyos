@@ -60,6 +60,25 @@ class ArgsTests(unittest.TestCase):
         self.assertEqual(args[1], "user,id=n0,restrict=on")
         self.assertEqual(args[-2:], ["-object", "filter-dump,id=netdump,netdev=n0,file=x.pcap"])
 
+    def test_more_cards_each_get_a_network_of_their_own(self) -> None:
+        args, _ = qemu_net.args_from_options(self.parse("--net", "--nics", "2", "--net-forward", "none"))
+        self.assertEqual(args[:4], ["-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0"])
+        self.assertEqual(args[4:], [
+            "-netdev", "user,id=n1,net=10.0.3.0/24",
+            "-device", "virtio-net-pci,netdev=n1,mac=52:54:00:12:34:57,id=nic1",
+        ])
+        args, _ = qemu_net.args_from_options(self.parse("--net", "--nics", "3", "--net-restrict"))
+        self.assertEqual(sum(1 for a in args if a.startswith("user,id=n")), 3)
+        self.assertTrue(all("restrict=on" in a for a in args if a.startswith("user,id=n")))
+        # One card is what it always was, whatever else is asked.
+        one, _ = qemu_net.args_from_options(self.parse("--net", "--nics", "1"))
+        self.assertEqual(len(one), 4)
+        for bad in ("0", "5"):
+            with self.assertRaises(ValueError, msg=bad):
+                qemu_net.args_from_options(self.parse("--net", "--nics", bad))
+        with self.assertRaises(ValueError):
+            qemu_net.args_from_options(self.parse("--nics", "2"))
+
     def test_nothing_without_net_and_options_need_it(self) -> None:
         self.assertEqual(qemu_net.args_from_options(self.parse()), ([], []))
         for argv in (["--net-forward", "1:2"], ["--net-restrict"], ["--net-pcap", "p"]):

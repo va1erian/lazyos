@@ -885,10 +885,13 @@ tab, the *Networking* group on the Advanced tab) builds the stack
 (`LAZYOS_NETD=1`, with `LAZYOS_NETD_ARGS=demo=0` so `netd` runs without the
 harness's evidence clients) and attaches a virtio-net card on QEMU's user
 network, forwarding host `127.0.0.1:8080` to the guest (`--net-forward`,
-`--net-restrict`, `--net-pcap`; the same flags on `qemu_session.py` and
-`qemu_shot.py`, all from `tools/net/qemu_net.py`). A `--net` desktop ships two
-core packages: **Network** (`xui-app/src/bin/network.rs`: status, DHCP or a
-manual address written to `confd`'s `sys/net/eth0/*`) and **Net Tools**
+`--net-restrict`, `--net-pcap`, and `--nics N` for N cards, each on its own
+user network and named `eth0`, `eth1`, ... by `devd`; the same flags on
+`qemu_session.py` and `qemu_shot.py`, all from `tools/net/qemu_net.py`). A
+`--net` desktop ships two core packages: **Network**
+(`xui-app/src/bin/network.rs`: status, DHCP or a manual address written to
+`confd`'s `sys/net/<if>/*` for the card shown, *Next card* to step through
+several) and **Net Tools**
 (`nettools.rs`: ping, lookups, an HTTP fetch and a web server on 8080), sharing
 `xui-app/src/net/`. How to reach the guest from the host:
 [`docs/networking-host-access.md`](docs/networking-host-access.md).
