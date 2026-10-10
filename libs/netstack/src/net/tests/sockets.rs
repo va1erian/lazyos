@@ -64,8 +64,8 @@ fn a_listener_serves_every_interface_and_a_late_one() {
     // A second card appears after the listener exists.
     pair.add(Wireless);
     let mut seen = Vec::new();
-    for n in 0..2 {
-        peer_connect(&mut pair.peers[n], at(MultiPair::net_ip(n), 5000));
+    for (n, peer) in pair.peers.iter_mut().enumerate() {
+        peer_connect(peer, at(MultiPair::net_ip(n), 5000));
     }
     assert!(pair.run_until(3000, |p| {
         while let Some((_, from)) = p.net.socket_accept(listener, ME).unwrap() {
@@ -109,11 +109,10 @@ fn a_datagram_socket_receives_on_all_and_sends_by_route() {
     let id = pair.net.socket_open(ME, Kind::Datagram).unwrap();
     pair.net.socket_bind(id, ME, any(6000)).unwrap();
     let mut peer_ids = Vec::new();
-    for n in 0..2 {
-        let p = pair.peers[n].socket_open(PEER, Kind::Datagram).unwrap();
-        pair.peers[n].socket_bind(p, PEER, any(7000)).unwrap();
-        pair.peers[n]
-            .socket_sendto(p, PEER, at(MultiPair::net_ip(n), 6000), &[n as u8; 4])
+    for (n, peer) in pair.peers.iter_mut().enumerate() {
+        let p = peer.socket_open(PEER, Kind::Datagram).unwrap();
+        peer.socket_bind(p, PEER, any(7000)).unwrap();
+        peer.socket_sendto(p, PEER, at(MultiPair::net_ip(n), 6000), &[n as u8; 4])
             .unwrap();
         peer_ids.push(p);
     }

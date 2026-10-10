@@ -792,6 +792,17 @@ keeps the static rows. `netdrv` drives virtio-net or an Intel 8254x
 Drivers group for all three, and `devctl drivers` shows `devd`'s view. See
 [`docs/architecture/drivers.md`](docs/architecture/drivers.md).
 
+**Several network cards (WP1, `docs/wifi-prerequisites-plan.md`).** Every
+network card gets its own `netdrv`, named `eth0`, `eth1`, ... in enumeration
+order (`devd` picks the name, `StartDriver` carries it as `ifname=`), and
+serves `os.lazy.net.nic/<ifname>`; there is no bare `os.lazy.net.nic`. `netd`
+finds the cards by listing the registry, gives each an interface (own DHCP,
+own `sys/net/<if>/*` configuration), sends new traffic by the lowest-metric
+default route (wired 100, wireless 600) and takes `resolv.conf` from that
+interface. A card that vanishes is a detached interface, not an error. `netctl
+if` lists them; the Network app has a *Next card* button. A new driver for a
+NIC registers `NicInfo.kind` (`wired` or `wireless`).
+
 ## Interrupt routing (I/O APIC, MSI)
 
 The legacy lines go through the I/O APIC when the MADT names one, and a
@@ -1007,6 +1018,8 @@ python tools/net/run.py                                                 # build 
 python tools/net/run.py --services | --poll | --no-device | --machine q35 --virtio-disk   # variants
 python tools/net/run.py --nic e1000                                     # an Intel 8254x instead of virtio-net (issue #497)
 python tools/net/run.py --netd                                          # stages N2+N3: netd, DHCP, ping, nslookup, nc and the socket probe/soak; judged from the pcap and the host echo servers (combines with the variants)
+python tools/net/run.py --nics 2                                        # WP1: two cards on two user networks, one pcap each: DHCP on both, the wired-metric winner carries traffic and DNS, QMP set_link moves it to eth1 and back (DHCP starts over), a removed card is detached (tools/net/multi_run.py)
+python tools/net/test_multi_judge.py                                    # the multi-NIC judge fails when it should
 mkdir -p fuzz/corpus/netstack; cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
 mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)
 cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60  # Linux; CI runs it
