@@ -30,8 +30,9 @@ GPL-3.0-or-later:
 | `MIT OR Apache-2.0` (Rust crates) | MIT |
 
 Refused: **GPL-2.0-only** code (Linux `mac80211`, `cfg80211`, `mt7601u`,
-`mt76x0`, `rtl8xxxu`, ...), Apache-2.0-only code, and anything without a
-licence. The working rule that follows: **never read GPL-2.0-only code "for
+`mt76x0`, `rtl8xxxu`, ...), Apache-2.0-only code (GPLv3-compatible, but not
+GPLv2-compatible, which the TLS stack and LazyWeb require; see
+`tools/nettls/licenses.py`), and anything without a licence. The working rule that follows: **never read GPL-2.0-only code "for
 reference" while writing our own.** Where Linux is the only place a behaviour
 is documented, use the permissive trees (the `mt76` driver, OpenBSD and
 FreeBSD `net80211`, hostap) as the specification.
