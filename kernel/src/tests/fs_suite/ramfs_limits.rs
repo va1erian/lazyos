@@ -138,21 +138,29 @@ pub fn ramfs_node_cap_enospc() -> Result<(), String> {
 /// about 3 MiB): a non-root user must be able to write one, far past the old
 /// 4 MiB filesystem cap and 2 MiB per-user share.
 pub fn ramfs_scratch_stages_a_package() -> Result<(), String> {
+    use crate::limits::{Id as Limit, Source};
     const PACKAGE: usize = 16 * 1024 * 1024;
-    let cap = crate::limits::scratch_max() as usize;
-    check!(
-        cap / 2 >= PACKAGE,
-        "a user's share of scratch_max ({cap}) cannot hold a {PACKAGE}-byte package"
-    );
+    let share = crate::limits::scratch_max() as usize / 2;
+    // The derived default must hold a package. An operator may configure a
+    // smaller `limit.scratch_max` (down to 4 MiB): then the write is sized to
+    // the share, and the behaviour under test is unchanged.
+    if crate::limits::source(Limit::ScratchMax) == Source::Default {
+        check!(
+            share >= PACKAGE,
+            "a user's share of the default scratch_max ({share}) cannot hold a \
+             {PACKAGE}-byte package"
+        );
+    }
+    let size = PACKAGE.min(share);
     let ram = RamFs::scratch();
     let user = Id::new(1000, 1000);
     ram.create("pkg.lzp", 0o644, user).map_err(fs_error)?;
-    let data = alloc::vec![0x5au8; PACKAGE];
+    let data = alloc::vec![0x5au8; size];
     check!(
-        ram.write("pkg.lzp", 0, &data).map_err(fs_error)? == PACKAGE,
+        ram.write("pkg.lzp", 0, &data).map_err(fs_error)? == size,
         "short write staging the package"
     );
-    check!(ram.usage().0 == PACKAGE, "usage {:?}", ram.usage());
+    check!(ram.usage().0 == size, "usage {:?}", ram.usage());
     ram.unlink("pkg.lzp").map_err(fs_error)?;
     check!(ram.usage() == (0, 1), "usage {:?} after unlink", ram.usage());
     Ok(())
