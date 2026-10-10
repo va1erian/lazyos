@@ -8,7 +8,7 @@
 //! or more while no other task got the CPU (a call that parked, a `futex` wait
 //! or a `poll`, lets others run and is not reported):
 //!
-//! `SYS:SLOW nr=<n> <name> ms=<n> task=<slot> a1=<hex> a2=<hex> a3=<hex>`
+//! `SYS:SLOW abi=<linux|native> nr=<n> <name> ms=<n> task=<slot> a1=<hex> a2=<hex> a3=<hex>`
 //!
 //! The first lines are enough to name the call, and its arguments usually its
 //! size; reports stop after [`MAX_REPORTS`] so a pathological loop cannot
@@ -24,12 +24,12 @@ const MAX_REPORTS: u32 = 64;
 static REPORTED: AtomicU32 = AtomicU32::new(0);
 
 /// The clock and switch count at a syscall's start.
-pub(super) struct Probe {
+pub(crate) struct Probe {
     started_ns: u64,
     switches: u64,
 }
 
-pub(super) fn begin() -> Probe {
+pub(crate) fn begin() -> Probe {
     Probe {
         started_ns: crate::arch::clock::monotonic_ns(),
         switches: crate::task::context_switches(),
@@ -37,7 +37,8 @@ pub(super) fn begin() -> Probe {
 }
 
 /// Close the probe: log the call when it was slow and monopolised the CPU.
-pub(super) fn end(probe: Probe, nr: u64, args: [u64; 3]) {
+/// `abi` is `"linux"` (`syscall`) or `"native"` (`int 0x80`).
+pub(crate) fn end(probe: Probe, abi: &str, nr: u64, args: [u64; 3]) {
     let elapsed = crate::arch::clock::monotonic_ns().saturating_sub(probe.started_ns);
     if elapsed < SLOW_NS || crate::task::context_switches() != probe.switches {
         return;
@@ -45,9 +46,13 @@ pub(super) fn end(probe: Probe, nr: u64, args: [u64; 3]) {
     if REPORTED.fetch_add(1, Ordering::Relaxed) >= MAX_REPORTS {
         return;
     }
+    let name = if abi == "linux" {
+        super::names::syscall_name(nr)
+    } else {
+        "native"
+    };
     crate::serial_println!(
-        "SYS:SLOW nr={nr} {} ms={} task={} a1={:#x} a2={:#x} a3={:#x}",
-        super::names::syscall_name(nr),
+        "SYS:SLOW abi={abi} nr={nr} {name} ms={} task={} a1={:#x} a2={:#x} a3={:#x}",
         elapsed / 1_000_000,
         crate::task::current(),
         args[0],

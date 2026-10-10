@@ -82,6 +82,8 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     task::harness::note_entry_flags();
     // From here interrupts-off time is charged to this syscall, and long
     // work (the reclaim below included) may open interrupt windows.
+    let probe = super::linux::slow::begin();
+    let nr = regs.rax;
     crate::arch::irqoff::enter_native(regs.rax);
     // Reclaim slots the scheduler flagged (issue #133): on a syscall entry the
     // current task holds no heap lock, so dropping dead tasks is safe.
@@ -175,6 +177,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     task::signal::deliver_native();
     crate::arch::irqoff::exit();
     crate::perf::syscall_exit();
+    super::linux::slow::end(probe, "native", nr, [regs.rdi, regs.rsi, regs.rdx]);
     // A task this call woke may outrank the caller (P1.1): run it now.
     task::preempt_point();
 }
