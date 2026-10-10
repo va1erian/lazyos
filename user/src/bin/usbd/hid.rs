@@ -43,8 +43,10 @@ impl Hid {
                 source_class::KEYBOARD,
                 Decoder::Keyboard(BootKeyboard::new()),
             ),
-            (Protocol::Mouse, _) => (source_class::POINTER, Decoder::Mouse(BootMouse::new())),
-            (Protocol::None, Some(layout)) => {
+            // A boot mouse left in report protocol (`class::wheel_layout`)
+            // is decoded by its descriptor, like a tablet.
+            (Protocol::Mouse, None) => (source_class::POINTER, Decoder::Mouse(BootMouse::new())),
+            (Protocol::Mouse | Protocol::None, Some(layout)) => {
                 let decoder = report::Decoder::new(layout);
                 let class = if decoder.absolute() {
                     source_class::TABLET
