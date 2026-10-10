@@ -11,7 +11,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic")
+                 "emusic", "usb_image")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -24,7 +24,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
                      autologin_var=None, setup_var=None, pictures_var=None,
-                     emusic_var=None) -> None:
+                     emusic_var=None, usb_image_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -40,7 +40,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     (Desktop); ``autologin_var`` skips the Desktop's login screen (logs in
     ``user``, issue #623); ``setup_var`` starts it with no account, the
     login screen asking for the owner (docs/accounts-plan.md U1);
-    ``pictures_var`` the Picture Viewer (Desktop); ``on_start`` runs the plan.
+    ``pictures_var`` the Picture Viewer (Desktop); ``usb_image_var`` also writes the
+    real-PC USB stick image (Desktop); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -107,6 +108,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(apps, text="Tray demo: a sample app with a taskbar tray icon "
                                    "(docs/tray-plan.md)",
                         variable=traydemo_var).pack(anchor="w", padx=8, pady=4)
+    if usb_image_var is not None:
+        ttk.Checkbutton(apps, text="USB stick image too (target/lazyos-usb.img for a real PC; "
+                                   "write it with tools/boot/stick_gui.py)",
+                        variable=usb_image_var).pack(anchor="w", padx=8, pady=4)
 
     net = ttk.LabelFrame(parent, text="Network")
     net.pack(fill="x", padx=8, pady=6)
