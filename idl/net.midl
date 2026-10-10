@@ -57,6 +57,12 @@
 /// client. A frame shorter than the 14-byte Ethernet header or longer than
 /// `NicInfo.max_frame` is dropped and counted, never truncated.
 ///
+/// **One name per card.** A driver serves one card and registers it as
+/// `os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the
+/// interface name and `init` hands it to the driver as `ifname=<name>`. The
+/// stack lists the registry for that prefix to find the cards, so cards may
+/// appear and vanish while it runs. There is no bare `os.lazy.net.nic`.
+///
 /// Failures of calls are returned as the shared structured error field
 /// (`services::error_field`) instead of the declared reply fields.
 interface os.lazy.net.nic.v1 {
@@ -103,7 +109,11 @@ interface os.lazy.net.nic.v1 {
         /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
         /// bits are reserved: a driver sets them to zero and a client ignores
         /// them.
-        features: U32 = 5
+        features: U32 = 5,
+        /// A `NicKind` ordinal: a cable (`Wired`) or a radio (`Wireless`). The
+        /// stack derives the default-route metric from it (wired 100,
+        /// wireless 600), so a cable wins when both are up.
+        kind: U32 = 6
     }
 
     /// Counters since the driver started.
@@ -150,11 +160,14 @@ interface os.lazy.net.nic.v1 {
 
     /// Which received frames reach the client.
     enum RxMode { Off, Filtered, Promiscuous }
+
+    /// What the card is. Ordinals are append-only.
+    enum NicKind { Wired, Wireless }
 }
 
 /// The network stack service `netd` (docs/networking-plan.md N2): address
-/// configuration, routes, statistics and ping, over the one interface the
-/// stack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no
+/// configuration, routes, statistics and ping, over the interfaces the stack
+/// drives (one per `os.lazy.net.nic.v1` card, however many are present). `netd` runs as the `_netd` user with no
 /// capabilities, is the only client of the NIC driver, and parses every frame
 /// the network sends it: nothing here is authority over a device.
 ///
@@ -172,11 +185,12 @@ interface os.lazy.net.nic.v1 {
 /// multiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes
 /// when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 interface os.lazy.net.stack.v1 {
-    /// The interfaces the stack drives (one today).
+    /// The interfaces the stack drives, one per attached card.
     method Interfaces() -> (list: Array<InterfaceInfo> = 1);
     /// The addresses configured on every interface.
     method Addresses() -> (list: Array<AddressInfo> = 1);
-    /// The routing table.
+    /// The routing table: every interface's on-link route and default route,
+    /// the default routes ordered by metric (the lowest wins).
     method Routes() -> (list: Array<RouteInfo> = 1);
     /// Stack counters since it started.
     method Stats() -> (stats: StackStats = 1);
@@ -215,8 +229,25 @@ interface os.lazy.net.stack.v1 {
         /// A `ConfigMode` ordinal: how the interface is configured.
         mode: U32 = 5,
         /// A `DhcpState` ordinal (`Off` for a static interface).
-        dhcp: U32 = 6
+        dhcp: U32 = 6,
+        /// A `NicKind` ordinal of `os.lazy.net.nic.v1`.
+        kind: U32 = 7,
+        /// The default-route metric (wired 100, wireless 600; the lowest
+        /// usable one carries new traffic).
+        metric: U32 = 8,
+        /// This interface holds the best default route right now: new
+        /// connections and the resolvers come from it.
+        primary: Bool = 9
     }
+
+    /// Every interface at once, retained so a late subscriber sees the set.
+    struct InterfaceList {
+        list: Array<InterfaceInfo> = 1
+    }
+
+    /// The interfaces the stack drives, republished whenever one appears,
+    /// vanishes, changes link or changes which one is primary.
+    topic "system/net/interfaces" : InterfaceList retained qos=latest;
 
     /// One configured IPv4 address.
     struct AddressInfo {
@@ -237,7 +268,10 @@ interface os.lazy.net.stack.v1 {
         dest: Bytes = 2,
         prefix_len: U32 = 3,
         /// Four octets; all zero for an on-link route.
-        gateway: Bytes = 4
+        gateway: Bytes = 4,
+        /// The route's metric: an on-link route is 0, a default route has its
+        /// interface's metric.
+        metric: U32 = 5
     }
 
     /// Stack counters since it started.

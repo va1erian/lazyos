@@ -179,6 +179,8 @@ impl Service {
                 max_frame: engine.max_frame() as u32,
                 link: engine.link(),
                 features: 0,
+                // Every card this driver serves is a cable.
+                kind: wire::NIC_KIND_WIRED,
             },
         })
         .map_err(MsgError::Parcel)

@@ -1403,6 +1403,15 @@
     ],
     "topics": [
       {
+        "name": "system/net/interfaces",
+        "source": "system/net/interfaces",
+        "payload": "InterfaceList",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/net/interfaces",
+        "subscribe_permission": "subscribe:system/net/interfaces"
+      },
+      {
         "name": "system/net/+/addr",
         "source": "system/net/{ifname}/addr",
         "payload": "AddressEvent",

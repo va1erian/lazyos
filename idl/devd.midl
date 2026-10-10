@@ -36,7 +36,11 @@ interface os.lazy.devd.v1 {
         /// The uid holding the claim, or 4294967295 when nobody does.
         owner: U32 = 8,
         /// The driver's task, 0 before `init` started it.
-        pid: U64 = 9
+        pid: U64 = 9,
+        /// The interface name `devd` gave a network card (`eth0`, `eth1`, ...
+        /// in enumeration order), the name its driver serves as
+        /// `os.lazy.net.nic/<ifname>`; empty for every other device.
+        ifname: String = 10
     }
 
     /// One retained topic per device, published whenever its state changes, so

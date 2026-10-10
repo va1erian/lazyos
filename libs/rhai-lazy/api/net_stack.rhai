@@ -5,8 +5,8 @@
 // `sys::net_stack`: the Messenger interface `os.lazy.net.stack.v1`.
 //
 // The network stack service `netd` (docs/networking-plan.md N2): address
-// configuration, routes, statistics and ping, over the one interface the
-// stack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no
+// configuration, routes, statistics and ping, over the interfaces the stack
+// drives (one per `os.lazy.net.nic.v1` card, however many are present). `netd` runs as the `_netd` user with no
 // capabilities, is the only client of the NIC driver, and parses every frame
 // the network sends it: nothing here is authority over a device.
 //
@@ -35,7 +35,7 @@ fn connect() {
 
 /// `Interfaces() -> (list: Array<InterfaceInfo>)`
 ///
-/// The interfaces the stack drives (one today).
+/// The interfaces the stack drives, one per attached card.
 fn interfaces() {
     msg::connect("os.lazy.net.stack.v1").invoke("Interfaces", [])
 }
@@ -49,7 +49,8 @@ fn addresses() {
 
 /// `Routes() -> (list: Array<RouteInfo>)`
 ///
-/// The routing table.
+/// The routing table: every interface's on-link route and default route,
+/// the default routes ordered by metric (the lowest wins).
 fn routes() {
     msg::connect("os.lazy.net.stack.v1").invoke("Routes", [])
 }
@@ -107,16 +108,28 @@ fn reattach() {
 ///
 /// One network interface.
 fn new_interface_info() {
-    #{ name: "", mac: blob(), mtu: 0, link: false, mode: 0, dhcp: 0 }
+    #{ name: "", mac: blob(), mtu: 0, link: false, mode: 0, dhcp: 0, kind: 0, metric: 0, primary: false }
 }
 
-/// A `AddressInfo` with every field at its zero value.
+/// A `InterfaceList` with every field at its zero value.
 ///
 /// The interface name (`eth0`).
 /// Six octets, network order.
 /// The driver reports the link up.
 /// A `ConfigMode` ordinal: how the interface is configured.
 /// A `DhcpState` ordinal (`Off` for a static interface).
+/// A `NicKind` ordinal of `os.lazy.net.nic.v1`.
+/// The default-route metric (wired 100, wireless 600; the lowest
+/// usable one carries new traffic).
+/// This interface holds the best default route right now: new
+/// connections and the resolvers come from it.
+/// Every interface at once, retained so a late subscriber sees the set.
+fn new_interface_list() {
+    #{ list: [] }
+}
+
+/// A `AddressInfo` with every field at its zero value.
+///
 /// One configured IPv4 address.
 fn new_address_info() {
     #{ interface: "", addr: blob(), prefix_len: 0, source: 0, lease_secs: 0 }
@@ -129,13 +142,15 @@ fn new_address_info() {
 /// Seconds of lease left when asked (0 when static or unknown).
 /// One IPv4 route.
 fn new_route_info() {
-    #{ interface: "", dest: blob(), prefix_len: 0, gateway: blob() }
+    #{ interface: "", dest: blob(), prefix_len: 0, gateway: blob(), metric: 0 }
 }
 
 /// A `StackStats` with every field at its zero value.
 ///
 /// Four octets; all zero with `prefix_len` 0 is the default route.
 /// Four octets; all zero for an on-link route.
+/// The route's metric: an on-link route is 0, a default route has its
+/// interface's metric.
 /// Stack counters since it started.
 fn new_stack_stats() {
     #{ rx_frames: 0, tx_frames: 0, rx_bytes: 0, tx_bytes: 0, tx_dropped: 0, rx_bad_length: 0, nic_resets: 0, leases: 0, lease_losses: 0, pings_sent: 0, pings_answered: 0, pings_timed_out: 0, lookups_sent: 0, lookups_answered: 0, lookups_failed: 0 }
@@ -185,6 +200,27 @@ export const DHCP_STATE_OFF = "Off";
 export const DHCP_STATE_DISCOVERING = "Discovering";
 
 export const DHCP_STATE_BOUND = "Bound";
+
+// Filter for every event of the topic `system/net/interfaces` (payload `InterfaceList`, qos latest, retained).
+// The interfaces the stack drives, republished whenever one appears,
+// vanishes, changes link or changes which one is primary.
+export const INTERFACES_PATTERN = "system/net/interfaces";
+
+/// Run `handler(event)` for each event of `system/net/interfaces` (payload `InterfaceList`, qos latest, retained); `event.payload` is
+/// the decoded `InterfaceList`. Returns the `Subscription`.
+fn on_interfaces(handler) {
+    msg::on("system/net/interfaces", handler)
+}
+
+/// Subscribe to `system/net/interfaces` (payload `InterfaceList`, qos latest, retained) to pull events with `sub.next()`.
+fn subscribe_interfaces() {
+    msg::subscribe("system/net/interfaces")
+}
+
+/// Publish `payload` (a `InterfaceList`) on `system/net/interfaces` (payload `InterfaceList`, qos latest, retained).
+fn publish_interfaces(payload) {
+    msg::publish("system/net/interfaces", payload)
+}
 
 // Filter for every event of the topic `system/net/{ifname}/addr` (payload `AddressEvent`, qos latest, retained).
 // Round trip in milliseconds (10 ms resolution).

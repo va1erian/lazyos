@@ -481,7 +481,7 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "DeviceState",
                 doc: "One device as `devd` sees it.",
-                fields: &[Field { name: "id", id: 1, ty: Ty::U64 }, Field { name: "vendor", id: 2, ty: Ty::U32 }, Field { name: "device", id: 3, ty: Ty::U32 }, Field { name: "class", id: 4, ty: Ty::String }, Field { name: "driver", id: 5, ty: Ty::String }, Field { name: "model", id: 6, ty: Ty::String }, Field { name: "state", id: 7, ty: Ty::String }, Field { name: "owner", id: 8, ty: Ty::U32 }, Field { name: "pid", id: 9, ty: Ty::U64 }],
+                fields: &[Field { name: "id", id: 1, ty: Ty::U64 }, Field { name: "vendor", id: 2, ty: Ty::U32 }, Field { name: "device", id: 3, ty: Ty::U32 }, Field { name: "class", id: 4, ty: Ty::String }, Field { name: "driver", id: 5, ty: Ty::String }, Field { name: "model", id: 6, ty: Ty::String }, Field { name: "state", id: 7, ty: Ty::String }, Field { name: "owner", id: 8, ty: Ty::U32 }, Field { name: "pid", id: 9, ty: Ty::U64 }, Field { name: "ifname", id: 10, ty: Ty::String }],
             },
         ],
         enums: &[],
@@ -491,7 +491,7 @@ pub static INTERFACES: &[Interface] = &[
                 payload: "DeviceState",
                 qos: 0,
                 retained: true,
-                doc: "The kernel's device id (the `dev=<id>` a driver is started with).\nPCI vendor and device ids.\nThe device class name (`net`, `audio`, `storage`, ...).\nThe manifest's driver row for it, empty when none matched.\nWhat the match was (`virtio-net`, `Intel 8254x`, ...), empty when\nnone matched.\n`unmatched` (no manifest entry: a device the kernel drives, or one\nnobody does), `starting` (asked of `init`, not claimed yet),\n`claimed`, `released` (its driver let it go), `busy` (its driver\nrow already drives another device), `nodriver` (this image does\nnot ship the driver the manifest names) or `failed` (`init`\nrefused).\nThe uid holding the claim, or 4294967295 when nobody does.\nThe driver's task, 0 before `init` started it.\nOne retained topic per device, published whenever its state changes, so\na subscriber that starts late learns every device at once.",
+                doc: "The kernel's device id (the `dev=<id>` a driver is started with).\nPCI vendor and device ids.\nThe device class name (`net`, `audio`, `storage`, ...).\nThe manifest's driver row for it, empty when none matched.\nWhat the match was (`virtio-net`, `Intel 8254x`, ...), empty when\nnone matched.\n`unmatched` (no manifest entry: a device the kernel drives, or one\nnobody does), `starting` (asked of `init`, not claimed yet),\n`claimed`, `released` (its driver let it go), `busy` (its driver\nrow already drives another device), `nodriver` (this image does\nnot ship the driver the manifest names) or `failed` (`init`\nrefused).\nThe uid holding the claim, or 4294967295 when nobody does.\nThe driver's task, 0 before `init` started it.\nThe interface name `devd` gave a network card (`eth0`, `eth1`, ...\nin enumeration order), the name its driver serves as\n`os.lazy.net.nic/<ifname>`; empty for every other device.\nOne retained topic per device, published whenever its state changes, so\na subscriber that starts late learns every device at once.",
             },
         ],
     },
@@ -1177,8 +1177,8 @@ pub static INTERFACES: &[Interface] = &[
                 name: "StartDriver",
                 id: 1713728693,
                 oneway: false,
-                doc: "Start the driver row `driver` for device `device` (issue #497,\ndocs/driver-plan.md section 3.6). Only the running task of the `devd`\nrow may ask: `init` keeps each driver's program, credentials and\narguments, and `devd` names only the row and the device it matched,\nwhich the driver receives as `dev=<device>`. A row already running for\nthat device is not an error (`started` is false); one running for\nanother device is `EBUSY` (one card per driver); an unknown row is\n`ENOENT`, any other caller `EPERM`, and a request during a shutdown\n`EBUSY`.",
-                params: &[Field { name: "driver", id: 1, ty: Ty::String }, Field { name: "device", id: 2, ty: Ty::U64 }],
+                doc: "Start the driver row `driver` for device `device` (issue #497,\ndocs/driver-plan.md section 3.6). Only the running task of the `devd`\nrow may ask: `init` keeps each driver's program, credentials and\narguments, and `devd` names only the row and the device it matched,\nwhich the driver receives as `dev=<device>`. `ifname` is the name `devd`\ngave the card (`eth0`) for a driver that serves one named card per\ninstance (`netdrv`): the driver receives it as `ifname=<ifname>` and\nthe row may run once per card. Empty for a driver whose Messenger name\nis unique (`sndd`): a row already running for that device is not an\nerror (`started` is false) and one running for another device is\n`EBUSY` (one card per driver). A non-empty `ifname` that is not a\nlower-case letter run followed by digits (at most 15 bytes), or that\nnames an interface another card holds, is `EINVAL`. An unknown row is\n`ENOENT`, any other caller `EPERM`, and a request during a shutdown\n`EBUSY`.",
+                params: &[Field { name: "driver", id: 1, ty: Ty::String }, Field { name: "device", id: 2, ty: Ty::U64 }, Field { name: "ifname", id: 3, ty: Ty::String }],
                 returns: &[Field { name: "started", id: 1, ty: Ty::Bool }, Field { name: "pid", id: 2, ty: Ty::U64 }],
                 objects: &[],
             },
@@ -2128,7 +2128,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.nic.v1",
         id: 0x6748c83c2024715b,
-        doc: "A network interface card, **link layer only** (docs/driver-plan.md §3.8,\ndocs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack\nservice `netd`, which is just another client of this interface and, by\npolicy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and\nnever parses a payload.\n\n**The client owns the rings.** Replies cannot carry buffers or channels (the\nkernel refuses objects in a reply), and the driver must not let its device\nread memory a client can rewrite, so the client creates two shared buffers\nand the driver copies frames between them and its own DMA slots, in both\ndirections (the audio rule, see `os.lazy.audio.v1`). A ring is the\nsingle-producer/single-consumer frame ring of `libs/framering`: fixed\n2048-byte slots, a `u16` length then the frame, a power-of-two slot count,\nfree-running `u32` indices in a header page. Nothing about the wire lives in\na request body except the slot count.\n\n`AttachRing` carries two objects (its `Ring<Rx, Tx>` and `Channel`\nparameters; the ring declarations say the layout):\n\n* `rings`: one shared buffer holding **both rings**, back to back: the\n**receive ring** (driver produces, client consumes) at byte 0 and the\n**transmit ring** (client produces, driver consumes) at byte\n`framering::ring_bytes(slots)`.\n* `notify`: the **notify endpoint**, an endpoint the client holds the\nreceiving side of, to which the driver posts `Notify`.\n\nThe buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two\nheader pages plus `2 * slots` slots) or the call fails with `EINVAL`;\n`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may\nbe attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of\n`AttachRing`, and calls on the ring by anyone else fail with `EACCES`.\n\n**Wake-up.** This interface replaces the draft's `notify: String` topic: a\ntopic would put a broker round trip on the receive path. Instead each\ndirection has one one-way message and one shared flag, so a waiter needs a\nsingle wait on a single endpoint and a burst costs one message, not one per\nframe (the rule the kernel uses for interrupt messages):\n\n* driver to client, `Notify`: posted to the notify endpoint when frames\narrive in the receive ring, when the transmit ring gains space after\nbeing full, or when the link changes;\n* client to driver, `Kick`: sent to the driver's endpoint after the client\nqueues frames in the transmit ring.\n\nA message is sent only when the consumer of that ring has *armed* it: the\nconsumer sets the ring's `armed` flag before it sleeps (after a final look at\nthe ring, so a frame that lands in between is never missed) and the producer\nclears it with one atomic exchange when it sends. That coalesces a burst to\nat most one outstanding message per ring, with no kernel help. A consumer\nthat never arms simply polls; it can only harm itself.\n\nBoth sides treat the other as hostile: every index and length read from\nshared memory is validated and read exactly once, and a frame is copied out\nbefore it is looked at. A ring whose peer breaks the protocol (an index\nthat claims more frames than the ring holds, an oversized length) is\npoisoned: the driver counts it in `NicStats.ring_errors` and detaches the\nclient. A frame shorter than the 14-byte Ethernet header or longer than\n`NicInfo.max_frame` is dropped and counted, never truncated.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
+        doc: "A network interface card, **link layer only** (docs/driver-plan.md §3.8,\ndocs/networking-plan.md §5). No IP, ARP or DHCP: those belong to the stack\nservice `netd`, which is just another client of this interface and, by\npolicy, the only one. A NIC driver (`netdrv`, virtio-net first) serves it and\nnever parses a payload.\n\n**The client owns the rings.** Replies cannot carry buffers or channels (the\nkernel refuses objects in a reply), and the driver must not let its device\nread memory a client can rewrite, so the client creates two shared buffers\nand the driver copies frames between them and its own DMA slots, in both\ndirections (the audio rule, see `os.lazy.audio.v1`). A ring is the\nsingle-producer/single-consumer frame ring of `libs/framering`: fixed\n2048-byte slots, a `u16` length then the frame, a power-of-two slot count,\nfree-running `u32` indices in a header page. Nothing about the wire lives in\na request body except the slot count.\n\n`AttachRing` carries two objects (its `Ring<Rx, Tx>` and `Channel`\nparameters; the ring declarations say the layout):\n\n* `rings`: one shared buffer holding **both rings**, back to back: the\n**receive ring** (driver produces, client consumes) at byte 0 and the\n**transmit ring** (client produces, driver consumes) at byte\n`framering::ring_bytes(slots)`.\n* `notify`: the **notify endpoint**, an endpoint the client holds the\nreceiving side of, to which the driver posts `Notify`.\n\nThe buffer must be exactly `2 * framering::ring_bytes(slots)` bytes (two\nheader pages plus `2 * slots` slots) or the call fails with `EINVAL`;\n`slots` must be a power of two from 16 to 1024 or it fails with `EINVAL`. Only one client may\nbe attached (`EBUSY` otherwise); its owner is the kernel-stamped sender of\n`AttachRing`, and calls on the ring by anyone else fail with `EACCES`.\n\n**Wake-up.** This interface replaces the draft's `notify: String` topic: a\ntopic would put a broker round trip on the receive path. Instead each\ndirection has one one-way message and one shared flag, so a waiter needs a\nsingle wait on a single endpoint and a burst costs one message, not one per\nframe (the rule the kernel uses for interrupt messages):\n\n* driver to client, `Notify`: posted to the notify endpoint when frames\narrive in the receive ring, when the transmit ring gains space after\nbeing full, or when the link changes;\n* client to driver, `Kick`: sent to the driver's endpoint after the client\nqueues frames in the transmit ring.\n\nA message is sent only when the consumer of that ring has *armed* it: the\nconsumer sets the ring's `armed` flag before it sleeps (after a final look at\nthe ring, so a frame that lands in between is never missed) and the producer\nclears it with one atomic exchange when it sends. That coalesces a burst to\nat most one outstanding message per ring, with no kernel help. A consumer\nthat never arms simply polls; it can only harm itself.\n\nBoth sides treat the other as hostile: every index and length read from\nshared memory is validated and read exactly once, and a frame is copied out\nbefore it is looked at. A ring whose peer breaks the protocol (an index\nthat claims more frames than the ring holds, an oversized length) is\npoisoned: the driver counts it in `NicStats.ring_errors` and detaches the\nclient. A frame shorter than the 14-byte Ethernet header or longer than\n`NicInfo.max_frame` is dropped and counted, never truncated.\n\n**One name per card.** A driver serves one card and registers it as\n`os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the\ninterface name and `init` hands it to the driver as `ifname=<name>`. The\nstack lists the registry for that prefix to find the cards, so cards may\nappear and vanish while it runs. There is no bare `os.lazy.net.nic`.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -2198,11 +2198,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "NicInfo",
                 doc: "Card description.",
-                fields: &[Field { name: "mac", id: 1, ty: Ty::Bytes }, Field { name: "mtu", id: 2, ty: Ty::U32 }, Field { name: "max_frame", id: 3, ty: Ty::U32 }, Field { name: "link", id: 4, ty: Ty::Bool }, Field { name: "features", id: 5, ty: Ty::U32 }],
+                fields: &[Field { name: "mac", id: 1, ty: Ty::Bytes }, Field { name: "mtu", id: 2, ty: Ty::U32 }, Field { name: "max_frame", id: 3, ty: Ty::U32 }, Field { name: "link", id: 4, ty: Ty::Bool }, Field { name: "features", id: 5, ty: Ty::U32 }, Field { name: "kind", id: 6, ty: Ty::U32 }],
             },
             Struct {
                 name: "NicStats",
-                doc: "Six octets, network order.\nPayload bytes of the largest frame the card carries.\nLargest complete frame (`mtu` plus the 14-byte Ethernet header),\nthe bound the driver enforces in both directions.\nCapability bitmap, zero if none: bit 0 receive checksum offload,\nbit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other\nbits are reserved: a driver sets them to zero and a client ignores\nthem.\nCounters since the driver started.",
+                doc: "Six octets, network order.\nPayload bytes of the largest frame the card carries.\nLargest complete frame (`mtu` plus the 14-byte Ethernet header),\nthe bound the driver enforces in both directions.\nCapability bitmap, zero if none: bit 0 receive checksum offload,\nbit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other\nbits are reserved: a driver sets them to zero and a client ignores\nthem.\nA `NicKind` ordinal: a cable (`Wired`) or a radio (`Wireless`). The\nstack derives the default-route metric from it (wired 100,\nwireless 600), so a cable wins when both are up.\nCounters since the driver started.",
                 fields: &[Field { name: "rx_frames", id: 1, ty: Ty::U64 }, Field { name: "tx_frames", id: 2, ty: Ty::U64 }, Field { name: "rx_bytes", id: 3, ty: Ty::U64 }, Field { name: "tx_bytes", id: 4, ty: Ty::U64 }, Field { name: "rx_dropped", id: 5, ty: Ty::U64 }, Field { name: "tx_dropped", id: 6, ty: Ty::U64 }, Field { name: "runts", id: 7, ty: Ty::U64 }, Field { name: "oversize", id: 8, ty: Ty::U64 }, Field { name: "ring_errors", id: 9, ty: Ty::U64 }, Field { name: "interrupts", id: 10, ty: Ty::U64 }, Field { name: "link_changes", id: 11, ty: Ty::U32 }],
             },
             Struct {
@@ -2214,6 +2214,7 @@ pub static INTERFACES: &[Interface] = &[
         enums: &[
             Enum { name: "NotifyBit", variants: &["RxReady", "TxSpace", "LinkChange"] },
             Enum { name: "RxMode", variants: &["Off", "Filtered", "Promiscuous"] },
+            Enum { name: "NicKind", variants: &["Wired", "Wireless"] },
         ],
         topics: &[
             Topic {
@@ -2228,13 +2229,13 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.stack.v1",
         id: 0xb80ce5d5fc59627d,
-        doc: "The network stack service `netd` (docs/networking-plan.md N2): address\nconfiguration, routes, statistics and ping, over the one interface the\nstack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no\ncapabilities, is the only client of the NIC driver, and parses every frame\nthe network sends it: nothing here is authority over a device.\n\n**Nothing names a caller.** Who is asking is the kernel-stamped sender of the\ncall; `Renew` and other changes are gated by the ACL (`libs/netpolicy`), not\nby a field in a request. Failures are returned as the shared structured error\nfield (`services::error_field`) instead of the declared reply fields.\n\n**Blocking without threads.** `Ping` is a synchronous call whose reply is\n*parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`\nwhen `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with\nits own deadline (`msg_cancel` and the caller's death clean up). One\ncaller may have up to 4 pings outstanding and all callers together 8; past\neither limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in\nmultiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes\nwhen the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.",
+        doc: "The network stack service `netd` (docs/networking-plan.md N2): address\nconfiguration, routes, statistics and ping, over the interfaces the stack\ndrives (one per `os.lazy.net.nic.v1` card, however many are present). `netd` runs as the `_netd` user with no\ncapabilities, is the only client of the NIC driver, and parses every frame\nthe network sends it: nothing here is authority over a device.\n\n**Nothing names a caller.** Who is asking is the kernel-stamped sender of the\ncall; `Renew` and other changes are gated by the ACL (`libs/netpolicy`), not\nby a field in a request. Failures are returned as the shared structured error\nfield (`services::error_field`) instead of the declared reply fields.\n\n**Blocking without threads.** `Ping` is a synchronous call whose reply is\n*parked*: `netd` answers it when the echo reply arrives, or with `ETIMEDOUT`\nwhen `timeout_ms` passes, and the caller sleeps in the kernel meanwhile with\nits own deadline (`msg_cancel` and the caller's death clean up). One\ncaller may have up to 4 pings outstanding and all callers together 8; past\neither limit the call fails with `EAGAIN`. The stack's clock is the 100 Hz tick, so round trips read in\nmultiples of 10 ms. `Resolve` (N3) parks the same way: the answer comes\nwhen the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.",
         methods: &[
             Method {
                 name: "Interfaces",
                 id: 1779791769,
                 oneway: false,
-                doc: "The interfaces the stack drives (one today).",
+                doc: "The interfaces the stack drives, one per attached card.",
                 params: &[],
                 returns: &[Field { name: "list", id: 1, ty: Ty::Array(&Ty::Struct("InterfaceInfo")) }],
                 objects: &[],
@@ -2252,7 +2253,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Routes",
                 id: 321835703,
                 oneway: false,
-                doc: "The routing table.",
+                doc: "The routing table: every interface's on-link route and default route,\nthe default routes ordered by metric (the lowest wins).",
                 params: &[],
                 returns: &[Field { name: "list", id: 1, ty: Ty::Array(&Ty::Struct("RouteInfo")) }],
                 objects: &[],
@@ -2307,21 +2308,26 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "InterfaceInfo",
                 doc: "One network interface.",
-                fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "mac", id: 2, ty: Ty::Bytes }, Field { name: "mtu", id: 3, ty: Ty::U32 }, Field { name: "link", id: 4, ty: Ty::Bool }, Field { name: "mode", id: 5, ty: Ty::U32 }, Field { name: "dhcp", id: 6, ty: Ty::U32 }],
+                fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "mac", id: 2, ty: Ty::Bytes }, Field { name: "mtu", id: 3, ty: Ty::U32 }, Field { name: "link", id: 4, ty: Ty::Bool }, Field { name: "mode", id: 5, ty: Ty::U32 }, Field { name: "dhcp", id: 6, ty: Ty::U32 }, Field { name: "kind", id: 7, ty: Ty::U32 }, Field { name: "metric", id: 8, ty: Ty::U32 }, Field { name: "primary", id: 9, ty: Ty::Bool }],
+            },
+            Struct {
+                name: "InterfaceList",
+                doc: "The interface name (`eth0`).\nSix octets, network order.\nThe driver reports the link up.\nA `ConfigMode` ordinal: how the interface is configured.\nA `DhcpState` ordinal (`Off` for a static interface).\nA `NicKind` ordinal of `os.lazy.net.nic.v1`.\nThe default-route metric (wired 100, wireless 600; the lowest\nusable one carries new traffic).\nThis interface holds the best default route right now: new\nconnections and the resolvers come from it.\nEvery interface at once, retained so a late subscriber sees the set.",
+                fields: &[Field { name: "list", id: 1, ty: Ty::Array(&Ty::Struct("InterfaceInfo")) }],
             },
             Struct {
                 name: "AddressInfo",
-                doc: "The interface name (`eth0`).\nSix octets, network order.\nThe driver reports the link up.\nA `ConfigMode` ordinal: how the interface is configured.\nA `DhcpState` ordinal (`Off` for a static interface).\nOne configured IPv4 address.",
+                doc: "One configured IPv4 address.",
                 fields: &[Field { name: "interface", id: 1, ty: Ty::String }, Field { name: "addr", id: 2, ty: Ty::Bytes }, Field { name: "prefix_len", id: 3, ty: Ty::U32 }, Field { name: "source", id: 4, ty: Ty::U32 }, Field { name: "lease_secs", id: 5, ty: Ty::U32 }],
             },
             Struct {
                 name: "RouteInfo",
                 doc: "Four octets, network order.\nAn `AddrSource` ordinal.\nSeconds of lease left when asked (0 when static or unknown).\nOne IPv4 route.",
-                fields: &[Field { name: "interface", id: 1, ty: Ty::String }, Field { name: "dest", id: 2, ty: Ty::Bytes }, Field { name: "prefix_len", id: 3, ty: Ty::U32 }, Field { name: "gateway", id: 4, ty: Ty::Bytes }],
+                fields: &[Field { name: "interface", id: 1, ty: Ty::String }, Field { name: "dest", id: 2, ty: Ty::Bytes }, Field { name: "prefix_len", id: 3, ty: Ty::U32 }, Field { name: "gateway", id: 4, ty: Ty::Bytes }, Field { name: "metric", id: 5, ty: Ty::U32 }],
             },
             Struct {
                 name: "StackStats",
-                doc: "Four octets; all zero with `prefix_len` 0 is the default route.\nFour octets; all zero for an on-link route.\nStack counters since it started.",
+                doc: "Four octets; all zero with `prefix_len` 0 is the default route.\nFour octets; all zero for an on-link route.\nThe route's metric: an on-link route is 0, a default route has its\ninterface's metric.\nStack counters since it started.",
                 fields: &[Field { name: "rx_frames", id: 1, ty: Ty::U64 }, Field { name: "tx_frames", id: 2, ty: Ty::U64 }, Field { name: "rx_bytes", id: 3, ty: Ty::U64 }, Field { name: "tx_bytes", id: 4, ty: Ty::U64 }, Field { name: "tx_dropped", id: 5, ty: Ty::U64 }, Field { name: "rx_bad_length", id: 6, ty: Ty::U64 }, Field { name: "nic_resets", id: 7, ty: Ty::U64 }, Field { name: "leases", id: 8, ty: Ty::U64 }, Field { name: "lease_losses", id: 9, ty: Ty::U64 }, Field { name: "pings_sent", id: 10, ty: Ty::U64 }, Field { name: "pings_answered", id: 11, ty: Ty::U64 }, Field { name: "pings_timed_out", id: 12, ty: Ty::U64 }, Field { name: "lookups_sent", id: 13, ty: Ty::U64 }, Field { name: "lookups_answered", id: 14, ty: Ty::U64 }, Field { name: "lookups_failed", id: 15, ty: Ty::U64 }],
             },
             Struct {
@@ -2341,6 +2347,13 @@ pub static INTERFACES: &[Interface] = &[
             Enum { name: "DhcpState", variants: &["Off", "Discovering", "Bound"] },
         ],
         topics: &[
+            Topic {
+                pattern: "system/net/interfaces",
+                payload: "InterfaceList",
+                qos: 0,
+                retained: true,
+                doc: "The interfaces the stack drives, republished whenever one appears,\nvanishes, changes link or changes which one is primary.",
+            },
             Topic {
                 pattern: "system/net/+/addr",
                 payload: "AddressEvent",

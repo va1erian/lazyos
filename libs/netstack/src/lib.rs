@@ -24,6 +24,7 @@ pub mod config;
 pub mod device;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
+pub mod net;
 pub mod resolvconf;
 pub mod stack;
 #[cfg(any(test, feature = "fuzz"))]
@@ -38,6 +39,7 @@ mod tests;
 
 pub use config::Mode;
 pub use device::{DeviceStats, RingDevice};
+pub use net::{IfKind, Net, NetLookupResult, NetPingResult, Route, Unit};
 pub use stack::{
     ready, valid_host_name, Counters, DhcpState, Kind, LookupOutcome, LookupResult, PingError,
     PingOutcome, PingResult, Received, ResolveError, SockAddr, SockError, Source, Stack, State,

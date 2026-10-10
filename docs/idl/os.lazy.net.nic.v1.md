@@ -61,6 +61,12 @@ poisoned: the driver counts it in `NicStats.ring_errors` and detaches the
 client. A frame shorter than the 14-byte Ethernet header or longer than
 `NicInfo.max_frame` is dropped and counted, never truncated.
 
+**One name per card.** A driver serves one card and registers it as
+`os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the
+interface name and `init` hands it to the driver as `ifname=<name>`. The
+stack lists the registry for that prefix to find the cards, so cards may
+appear and vanish while it runs. There is no bare `os.lazy.net.nic`.
+
 Failures of calls are returned as the shared structured error field
 (`services::error_field`) instead of the declared reply fields.
 
@@ -106,6 +112,7 @@ object list (the index each field must hold).
 - `max_frame: U32`
 - `link: Bool`
 - `features: U32`
+- `kind: U32`
 
 ## struct `NicStats`
 
@@ -133,3 +140,7 @@ object list (the index each field must hold).
 ## enum `RxMode`
 
 - Off, Filtered, Promiscuous
+
+## enum `NicKind`
+
+- Wired, Wireless

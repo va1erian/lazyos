@@ -83,19 +83,25 @@ fn shutdown(mode, reason, force) {
     msg::connect("os.lazy.init.v1").invoke("Shutdown", [mode, reason, force])
 }
 
-/// `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)`
+/// `StartDriver(driver: String, device: U64, ifname: String) -> (started: Bool, pid: U64)`
 ///
 /// Start the driver row `driver` for device `device` (issue #497,
 /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
 /// row may ask: `init` keeps each driver's program, credentials and
 /// arguments, and `devd` names only the row and the device it matched,
-/// which the driver receives as `dev=<device>`. A row already running for
-/// that device is not an error (`started` is false); one running for
-/// another device is `EBUSY` (one card per driver); an unknown row is
+/// which the driver receives as `dev=<device>`. `ifname` is the name `devd`
+/// gave the card (`eth0`) for a driver that serves one named card per
+/// instance (`netdrv`): the driver receives it as `ifname=<ifname>` and
+/// the row may run once per card. Empty for a driver whose Messenger name
+/// is unique (`sndd`): a row already running for that device is not an
+/// error (`started` is false) and one running for another device is
+/// `EBUSY` (one card per driver). A non-empty `ifname` that is not a
+/// lower-case letter run followed by digits (at most 15 bytes), or that
+/// names an interface another card holds, is `EINVAL`. An unknown row is
 /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
 /// `EBUSY`.
-fn start_driver(driver, device) {
-    msg::connect("os.lazy.init.v1").invoke("StartDriver", [driver, device])
+fn start_driver(driver, device, ifname) {
+    msg::connect("os.lazy.init.v1").invoke("StartDriver", [driver, device, ifname])
 }
 
 /// `Ready() -> () oneway`

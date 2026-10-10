@@ -63,6 +63,12 @@
 // client. A frame shorter than the 14-byte Ethernet header or longer than
 // `NicInfo.max_frame` is dropped and counted, never truncated.
 //
+// **One name per card.** A driver serves one card and registers it as
+// `os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the
+// interface name and `init` hands it to the driver as `ifname=<name>`. The
+// stack lists the registry for that prefix to find the cards, so cards may
+// appear and vanish while it runs. There is no bare `os.lazy.net.nic`.
+//
 // Failures of calls are returned as the shared structured error field
 // (`services::error_field`) instead of the declared reply fields.
 
@@ -136,7 +142,7 @@ fn notify(ring, events) {
 ///
 /// Card description.
 fn new_nic_info() {
-    #{ mac: blob(), mtu: 0, max_frame: 0, link: false, features: 0 }
+    #{ mac: blob(), mtu: 0, max_frame: 0, link: false, features: 0, kind: 0 }
 }
 
 /// A `NicStats` with every field at its zero value.
@@ -149,6 +155,9 @@ fn new_nic_info() {
 /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
 /// bits are reserved: a driver sets them to zero and a client ignores
 /// them.
+/// A `NicKind` ordinal: a cable (`Wired`) or a radio (`Wireless`). The
+/// stack derives the default-route metric from it (wired 100,
+/// wireless 600), so a cable wins when both are up.
 /// Counters since the driver started.
 fn new_nic_stats() {
     #{ rx_frames: 0, tx_frames: 0, rx_bytes: 0, tx_bytes: 0, rx_dropped: 0, tx_dropped: 0, runts: 0, oversize: 0, ring_errors: 0, interrupts: 0, link_changes: 0 }
@@ -187,6 +196,13 @@ export const RX_MODE_OFF = "Off";
 export const RX_MODE_FILTERED = "Filtered";
 
 export const RX_MODE_PROMISCUOUS = "Promiscuous";
+
+// The variants of `NicKind`, in wire order.
+export const NIC_KIND = ["Wired", "Wireless"];
+
+export const NIC_KIND_WIRED = "Wired";
+
+export const NIC_KIND_WIRELESS = "Wireless";
 
 // Filter for every event of the topic `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained).
 // Link changes since the driver started, so a subscriber can tell a

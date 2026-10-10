@@ -35,7 +35,7 @@ fn devices() {
 ///
 /// One device as `devd` sees it.
 fn new_device_state() {
-    #{ id: 0, vendor: 0, device: 0, class: "", driver: "", model: "", state: "", owner: 0, pid: 0 }
+    #{ id: 0, vendor: 0, device: 0, class: "", driver: "", model: "", state: "", owner: 0, pid: 0, ifname: "" }
 }
 
 // Filter for every event of the topic `system/devices/{id}` (payload `DeviceState`, qos latest, retained).
@@ -53,6 +53,9 @@ fn new_device_state() {
 // refused).
 // The uid holding the claim, or 4294967295 when nobody does.
 // The driver's task, 0 before `init` started it.
+// The interface name `devd` gave a network card (`eth0`, `eth1`, ...
+// in enumeration order), the name its driver serves as
+// `os.lazy.net.nic/<ifname>`; empty for every other device.
 // One retained topic per device, published whenever its state changes, so
 // a subscriber that starts late learns every device at once.
 export const DEVICES_PATTERN = "system/devices/+";

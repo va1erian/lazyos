@@ -69,11 +69,28 @@ pub(super) fn start(
         .find(|spec| spec.name == request.driver)
         .ok_or_else(|| errno_error(errno::ENOENT))?;
     let device_arg = format!("dev={}", request.device);
-    if let Some(row) = services
+    // A driver that names its card runs once per card; any other has a unique
+    // Messenger name and so serves one device.
+    let named = !request.ifname.is_empty();
+    if named && !devmatch::valid_ifname(&request.ifname) {
+        return Err(errno_error(errno::EINVAL));
+    }
+    let ifname_arg = format!("ifname={}", request.ifname);
+    let mut driver_rows = services
         .iter()
-        .find(|row| !row.launched && row.name == spec.name && active(row))
-    {
-        // One device per driver row: the row's Messenger name is unique.
+        .filter(|row| !row.launched && row.name == spec.name && active(row));
+    if named {
+        if let Some(row) = driver_rows
+            .clone()
+            .find(|row| row.args.contains(&device_arg))
+        {
+            return reply(false, row.pid);
+        }
+        // Two cards under one name would register one Messenger name twice.
+        if driver_rows.any(|row| row.args.contains(&ifname_arg)) {
+            return Err(errno_error(errno::EINVAL));
+        }
+    } else if let Some(row) = driver_rows.next() {
         if !row.args.contains(&device_arg) {
             return Err(errno_error(errno::EBUSY));
         }
@@ -81,12 +98,15 @@ pub(super) fn start(
     }
     let mut row = Service::from_manifest(spec);
     row.args.push(String::from(device_arg.as_str()));
+    if named {
+        row.args.push(ifname_arg);
+    }
     services.push(row);
     let index = services.len() - 1;
     spawn_service(services, index, broker);
     sys::write_str(&format!(
-        "INIT:DRIVER:START driver={} {device_arg} pid={}\n",
-        spec.name, services[index].pid
+        "INIT:DRIVER:START driver={} {device_arg} pid={} ifname={}\n",
+        spec.name, services[index].pid, request.ifname
     ));
     reply(true, services[index].pid)
 }

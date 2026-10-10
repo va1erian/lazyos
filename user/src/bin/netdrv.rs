@@ -4,7 +4,7 @@
 //! The driver is an ordinary ring-3 program. It claims a NIC through the
 //! device syscall (23), maps its BARs, allocates one DMA block for its rings
 //! and every packet slot, and serves `os.lazy.net.nic.v1` (`idl/net.midl`)
-//! under [`api::NAME`]. Two cards, one engine: a virtio-net function through
+//! under `os.lazy.net.nic/<ifname>` ([`api::service_name`]). Two cards, one engine: a virtio-net function through
 //! the transport in `libs/virtio` and the wire definitions in `libs/virtio-net`,
 //! or an Intel 8254x (QEMU's `e1000`) through `libs/e1000`, both under the
 //! host-tested core in `libs/nicdrv` (issue #497: the second card needed no new
@@ -13,8 +13,10 @@
 //! dropping and counting anything outside the frame-length policy. The driver
 //! never parses a payload.
 //!
-//! `devd` starts it with `dev=<id>`, the device it matched; without one (the
-//! kernel booting it directly) it takes the first card it knows.
+//! `devd` starts it with `dev=<id>`, the device it matched, and `ifname=<name>`,
+//! the interface name it gave the card (`eth0`, `eth1`, ... in enumeration
+//! order; one driver instance per card). Without them (the kernel booting it
+//! directly) it takes the first card it knows and calls it `eth0`.
 //!
 //! Interrupts: the claim names the service endpoint, so the kernel's interrupt
 //! messages and client calls arrive in the one receive loop. The line may be
@@ -110,6 +112,10 @@ struct Args {
     poll: bool,
     /// `dev=<id>`: the device `devd` matched this driver to.
     dev: Option<u64>,
+    /// `ifname=<name>`: the interface name `devd` gave the card; the service
+    /// is registered as `os.lazy.net.nic/<name>`. Booted without one (the
+    /// kernel starting the driver directly), the card is `eth0`.
+    ifname: String,
 }
 
 impl Args {
@@ -126,6 +132,11 @@ impl Args {
                 .split_whitespace()
                 .find_map(|part| part.strip_prefix("dev="))
                 .and_then(|id| id.parse().ok()),
+            ifname: text
+                .split_whitespace()
+                .find_map(|part| part.strip_prefix("ifname="))
+                .filter(|name| devmatch::valid_ifname(name))
+                .map_or_else(|| String::from("eth0"), String::from),
         }
     }
 }
@@ -204,10 +215,10 @@ fn run(args: &Args) -> Result<(), Error> {
         user::dev::inspect::cross_class_probe("net");
         selftest_and_report(&mut card, &server);
     }
-    registry::register(api::NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
+    let name = api::service_name(&args.ifname);
+    registry::register(&name, &published, &[api::INTERFACE], 0).map_err(fail)?;
     sys::write_str(&format!(
-        "NETDRV:READY name={} interface={:#x}\n",
-        api::NAME,
+        "NETDRV:READY name={name} interface={:#x}\n",
         api::INTERFACE
     ));
     serve(Service::new(card), &server, &mut config, settings, args)
