@@ -264,6 +264,9 @@ class RepositoryTests(unittest.TestCase):
                     ("rings", "rings", None),
                     ("notify", "channel", "os.lazy.net.nic.v1"),
                 ],
+                ("os.lazy.net.wifi.hw.v1", "Attach"): [
+                    ("events", "channel", "os.lazy.net.wifi.hw.v1")
+                ],
                 ("os.lazy.audio.v1", "AttachRing"): [("ring", "rings", None)],
                 ("os.lazy.messenger.topics.v1", "Bell"): [
                     ("bell", "channel", "os.lazy.messenger.topics.bell.v1")

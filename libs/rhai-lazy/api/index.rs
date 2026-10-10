@@ -222,4 +222,16 @@ pub static MODULES: &[ApiModule] = &[
         source: include_str!("shell_tray_events.rhai"),
         topics: &[],
     },
+    ApiModule {
+        alias: "net_wifi_hw",
+        interface: "os.lazy.net.wifi.hw.v1",
+        source: include_str!("net_wifi_hw.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "net_wifi",
+        interface: "os.lazy.net.wifi.v1",
+        source: include_str!("net_wifi.rhai"),
+        topics: &[ApiTopic { helper: "state", pattern: "system/net/+/wifi/state" }, ApiTopic { helper: "scan", pattern: "system/net/+/wifi/scan" }],
+    },
 ];

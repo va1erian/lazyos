@@ -12,10 +12,16 @@
 //! | Tags, `Sign`, PRF | HMAC-SHA256 (RFC 2104) | `hmac` |
 //! | Subkey derivation for `wrap` | HKDF-SHA256 (RFC 5869) | `hkdf` |
 //! | Password verifiers | Argon2id (RFC 9106) | `argon2` |
+//! | Wi-Fi: PSK to PMK | PBKDF2-HMAC-SHA1 (RFC 8018) | `pbkdf2`, `sha1` (`force-soft`) |
+//! | Wi-Fi: PRF, EAPOL MIC | HMAC-SHA1 (RFC 2104) | `hmac`, `sha1` |
+//! | Wi-Fi: AKM 6 MIC | AES-CMAC (RFC 4493) | `cmac`, `aes` |
+//! | Wi-Fi: GTK delivery | AES key wrap (RFC 3394) | `aes-kw`, `aes` |
 //!
-//! All four are pure Rust and build for `x86_64-unknown-none` and the host;
-//! the `force-soft` backend on `sha2` is required by the pinned toolchain (see
-//! `libs/crypto/Cargo.toml` and [`wrap`]).
+//! All are pure Rust and build for `x86_64-unknown-none` and the host;
+//! the `force-soft` backend on `sha2` and `sha1` is required by the pinned
+//! toolchain (see `libs/crypto/Cargo.toml` and [`wrap`]). The Wi-Fi rows are
+//! wrapped by [`wifi`]. `aes` has no such feature; see `Cargo.toml` for how it
+//! is kept off the SIMD path.
 //!
 //! The crate is `no_std` for the freestanding targets and uses `std` only in
 //! `#[cfg(test)]`. Run the known-answer vectors with:
@@ -33,6 +39,7 @@ pub mod hmac;
 pub mod kdf;
 pub mod rng;
 pub mod sha256;
+pub mod wifi;
 pub mod wrap;
 
 /// A crypto operation failed for a caller-visible reason.
@@ -50,6 +57,8 @@ pub enum Error {
     BadTag,
     /// A KDF parameter set or buffer is invalid.
     Kdf,
+    /// An input has a length (or content) the construction does not allow.
+    BadLength,
 }
 
 impl Error {
@@ -60,6 +69,7 @@ impl Error {
             Error::Malformed => "the wrapped value is malformed",
             Error::BadTag => "the wrapped value failed authentication",
             Error::Kdf => "the key-derivation parameters are invalid",
+            Error::BadLength => "an input has an invalid length or content",
         }
     }
 }

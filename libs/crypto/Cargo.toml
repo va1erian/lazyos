@@ -19,3 +19,14 @@ argon2 = { version = "=0.5.3", default-features = false, features = ["alloc"] }
 hkdf = { version = "=0.12.4", default-features = false }
 hmac = { version = "=0.12.1", default-features = false }
 sha2 = { version = "=0.10.8", default-features = false, features = ["force-soft"] }
+# WPA2/WPA3 key handling for Wi-Fi (docs/wifi-prerequisites-plan.md WP0, section 3.2).
+# All `MIT OR Apache-2.0`, taken under MIT (THIRD_PARTY.md). Same digest-0.10
+# generation as `hmac`/`sha2` above, so the tree keeps one `digest`. `sha1`
+# takes `force-soft` like `sha2`; `aes` has no such feature, its equivalent is
+# `--cfg aes_force_soft` for `x86_64-unknown-none` in `.cargo/config.toml`
+# (the AES-NI backend hits the same LLVM legalizer error).
+aes = { version = "=0.8.4", default-features = false }
+aes-kw = { version = "=0.2.1", default-features = false, features = ["alloc"] }
+cmac = { version = "=0.7.2", default-features = false }
+pbkdf2 = { version = "=0.12.2", default-features = false, features = ["hmac"] }
+sha1 = { version = "=0.10.6", default-features = false, features = ["force-soft"] }

@@ -2,3 +2,9 @@
 # bare-metal target and feed it to the bootloader's image builder).
 [unstable]
 bindeps = true
+
+# RustCrypto `aes` has no `force-soft` feature (unlike `sha2`/`sha1`, see
+# libs/crypto/Cargo.toml); this cfg is its equivalent. The pinned nightly's
+# LLVM cannot legalise the AES-NI/SIMD backend on the freestanding target.
+[target.x86_64-unknown-none]
+rustflags = ["--cfg", "aes_force_soft"]

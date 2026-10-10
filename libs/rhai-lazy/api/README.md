@@ -67,6 +67,8 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
 | [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
 | [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
+| [`sys::net_wifi_hw`](#sysnet_wifi_hw) | `os.lazy.net.wifi.hw.v1` |
+| [`sys::net_wifi`](#sysnet_wifi) | `os.lazy.net.wifi.v1` |
 
 ## `sys::accounts`
 
@@ -834,3 +836,74 @@ What the shell sends an app about its item: oneway methods on the channel
 | `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
 | `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
+
+## `sys::net_wifi_hw`
+
+Interface `os.lazy.net.wifi.hw.v1`, source [`net_wifi_hw.rhai`](net_wifi_hw.rhai).
+
+A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md
+
+| Function | IDL | About |
+|---|---|---|
+| `info()` | `Info() -> (info: HwInfo)` | Describe the radio: addresses, bands, ciphers, limits. Any caller the |
+| `detach()` | `Detach() -> ()` | Release the radio (also implied when the owner exits). Leaves the BSS, |
+| `set_country(alpha2)` | `SetCountry(alpha2: String) -> ()` | Tell the radio which regulatory domain applies: an ISO 3166 alpha-2 |
+| `scan(request)` | `Scan(request: ScanRequest) -> (scan_id: U32)` | Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it |
+| `abort_scan(scan_id)` | `AbortScan(scan_id: U32) -> ()` | Stop the running scan early; `ScanDone` follows with `aborted` set. |
+| `scan_results(scan_id, first, max)` | `ScanResults(scan_id: U32, first: U32, max: U32) -> (results: Array<ScanEntry>, more: Bool)` | One page of a finished (or running) scan's results, in the order the |
+| `join(request)` | `Join(request: JoinRequest) -> ()` | Tune to the BSS's channel and filter to its address so `TxMgmt` and |
+| `tx_mgmt(kind, frame)` | `TxMgmt(kind: U32, frame: Bytes) -> ()` | Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a |
+| `set_state(state, aid)` | `SetState(state: U32, aid: U32) -> ()` | Move the radio's association state: a `StaState` ordinal. `Associated` |
+| `set_key(kind, index, cipher, key, rsc, addr)` | `SetKey(kind: U32, index: U32, cipher: U32, key: Bytes, rsc: Bytes, addr: Bytes) -> ()` | Install a key in a hardware slot. `kind` is a `KeyKind` ordinal, |
+| `del_key(kind, index)` | `DelKey(kind: U32, index: U32) -> ()` | Remove a key; not an error when the slot is empty. |
+| `leave(reason)` | `Leave(reason: U32) -> ()` | Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code |
+| `stats()` | `Stats() -> (stats: HwStats)` | Counters since the driver started. |
+| `scan_done(scan_id, aborted)` | `ScanDone(scan_id: U32, aborted: Bool) -> () oneway` | Event, driver to client: the scan finished (`aborted` false) or was |
+| `rx_mgmt(kind, rssi_dbm, frame)` | `RxMgmt(kind: U32, rssi_dbm: I32, frame: Bytes) -> () oneway` | Event, driver to client: a management or EAPOL frame addressed to this |
+| `beacon_loss()` | `BeaconLoss() -> () oneway` | Event, driver to client: the radio stopped hearing the AP (the |
+| `deauthenticated(reason)` | `Deauthenticated(reason: U32) -> () oneway` | Event, driver to client: the AP deauthenticated or disassociated us. |
+| `new_hw_info()` | struct `HwInfo` | a `HwInfo` at its zero value |
+| `new_scan_request()` | struct `ScanRequest` | a `ScanRequest` at its zero value |
+| `new_scan_entry()` | struct `ScanEntry` | a `ScanEntry` at its zero value |
+| `new_join_request()` | struct `JoinRequest` | a `JoinRequest` at its zero value |
+| `new_hw_stats()` | struct `HwStats` | a `HwStats` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `Attach`.
+
+- `FRAME_KIND` = the `FrameKind` variants; `FRAME_KIND_MGMT`, `FRAME_KIND_EAPOL`
+- `BAND` = the `Band` variants; `BAND_GHZ2`, `BAND_GHZ5`, `BAND_GHZ6`
+- `WIDTH` = the `Width` variants; `WIDTH_MHZ20`, `WIDTH_MHZ40`, `WIDTH_MHZ80`, `WIDTH_MHZ160`
+- `CIPHER` = the `Cipher` variants; `CIPHER_CCMP128`, `CIPHER_GCMP256`, `CIPHER_BIP_CMAC128`
+- `KEY_KIND` = the `KeyKind` variants; `KEY_KIND_PAIRWISE`, `KEY_KIND_GROUP`, `KEY_KIND_IGTK`
+- `STA_STATE` = the `StaState` variants; `STA_STATE_IDLE`, `STA_STATE_AUTHENTICATED`, `STA_STATE_ASSOCIATED`, `STA_STATE_AUTHORIZED`
+
+## `sys::net_wifi`
+
+Interface `os.lazy.net.wifi.v1`, source [`net_wifi.rhai`](net_wifi.rhai).
+
+The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisites-plan.md
+
+| Function | IDL | About |
+|---|---|---|
+| `interfaces()` | `Interfaces() -> (names: Array<String>)` | The wireless interfaces `wlanmd` manages, by name (`wlan0`). |
+| `scan(ifname, ssids)` | `Scan(ifname: String, ssids: Array<String>) -> ()` | Ask for a fresh scan; returns at once, the results arrive on |
+| `networks(ifname)` | `Networks(ifname: String) -> (list: Array<Network>)` | The current scan results merged with the known profiles: one entry per |
+| `add_network(profile, passphrase)` | `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)` | Remember a network and its secret. `profile.id` must be empty (the |
+| `connect(ifname, id)` | `Connect(ifname: String, id: String) -> ()` | Join the network `id` on `ifname`: leave the current one, scan if the |
+| `disconnect(ifname)` | `Disconnect(ifname: String) -> ()` | Leave the current network and do not reconnect until asked (auto- |
+| `forget(id)` | `Forget(id: String) -> ()` | Delete a profile and its secret. Disconnects first if it is the |
+| `status(ifname)` | `Status(ifname: String) -> (status: WifiState)` | The interface's state now: the same value the retained `state` topic |
+| `new_network()` | struct `Network` | a `Network` at its zero value |
+| `new_profile()` | struct `Profile` | a `Profile` at its zero value |
+| `new_wifi_state()` | struct `WifiState` | a `WifiState` at its zero value |
+| `new_scan_event()` | struct `ScanEvent` | a `ScanEvent` at its zero value |
+
+- `SECURITY` = the `Security` variants; `SECURITY_OPEN`, `SECURITY_WPA2_PSK`, `SECURITY_UNSUPPORTED`
+- `SCOPE` = the `Scope` variants; `SCOPE_USER`, `SCOPE_SYSTEM`
+- `CONN_STATE` = the `ConnState` variants; `CONN_STATE_DISABLED`, `CONN_STATE_IDLE`, `CONN_STATE_SCANNING`, `CONN_STATE_AUTHENTICATING`, `CONN_STATE_ASSOCIATING`, `CONN_STATE_HANDSHAKE`, `CONN_STATE_CONNECTED`, `CONN_STATE_FAILED`
+- `FAIL_REASON` = the `FailReason` variants; `FAIL_REASON_NONE`, `FAIL_REASON_NOT_FOUND`, `FAIL_REASON_REJECTED`, `FAIL_REASON_BAD_PASSPHRASE`, `FAIL_REASON_TIMEOUT`, `FAIL_REASON_DEAUTHENTICATED`, `FAIL_REASON_BEACON_LOSS`, `FAIL_REASON_POLICY_MISMATCH`, `FAIL_REASON_RADIO`
+
+| Topic | Payload | Helpers |
+|---|---|---|
+| `system/net/{ifname}/wifi/state` | `WifiState` | `state_topic(ifname)`, `on_state(ifname, handler)`, `subscribe_state(ifname)`, `publish_state(ifname, payload)` |
+| `system/net/{ifname}/wifi/scan` | `ScanEvent` | `scan_topic(ifname)`, `on_scan(ifname, handler)`, `subscribe_scan(ifname)`, `publish_scan(ifname, payload)` |
