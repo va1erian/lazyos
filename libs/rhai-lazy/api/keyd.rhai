@@ -118,6 +118,56 @@ fn restore(user, verifier) {
     msg::connect("os.lazy.keyd.v1").invoke("Restore", [user, verifier])
 }
 
+/// `StoreSecret(scope: String, name: String, secret: Bytes) -> ()`
+///
+/// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
+/// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
+/// (docs/wifi-prerequisites-plan.md WP2). `scope` is `user`: the caller's
+/// own, by its kernel-stamped uid; or `system`: available to every user
+/// and before login, accepted only from `elevd` (the `net.wifi.system`
+/// operation, after an administrator approved it on the trusted prompt;
+/// `EPERM` for anyone else). Secrets persist across reboots, sealed under
+/// a machine key (docs/security-model.md section 8). `EINVAL` for a bad
+/// scope, name or secret; `ENOSPC` when the caller (or the table) holds
+/// as many as it may; `EIO` when it could not be made durable (nothing
+/// changed). No method ever returns a secret.
+fn store_secret(scope, name, secret) {
+    msg::connect("os.lazy.keyd.v1").invoke("StoreSecret", [scope, name, secret])
+}
+
+/// `DeleteSecret(scope: String, name: String) -> ()`
+///
+/// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
+/// `ENOENT` when there is none).
+fn delete_secret(scope, name) {
+    msg::connect("os.lazy.keyd.v1").invoke("DeleteSecret", [scope, name])
+}
+
+/// `ListSecrets(scope: String) -> (names: Array<String>)`
+///
+/// The names of the caller's `user` secrets, or of the `system` ones
+/// (any caller may list those: they name the machine's networks). Names
+/// only, never material.
+fn list_secrets(scope) {
+    msg::connect("os.lazy.keyd.v1").invoke("ListSecrets", [scope])
+}
+
+/// `WifiPmk(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)`
+///
+/// The WPA2 pairwise master key of the passphrase `name` of `scope` for
+/// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
+/// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
+/// per (secret, SSID) and cached sealed beside the secret. Answered only
+/// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
+/// everyone else gets `EPERM`. For `user` the secret is the one `owner`
+/// (a uid) owns, so a PMK is never given for another user's secret by
+/// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
+/// secret, `EINVAL` for a secret that is not a valid passphrase or an
+/// SSID outside 1..=32 octets.
+fn wifi_pmk(scope, name, ssid, owner) {
+    msg::connect("os.lazy.keyd.v1").invoke("WifiPmk", [scope, name, ssid, owner])
+}
+
 /// A `KeyInfo` with every field at its zero value.
 ///
 /// One row of the key list: identity and counters only, never material.
