@@ -53,9 +53,7 @@ extern crate alloc;
 #[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
-use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
 pub use accountdb::{ACCOUNTS_UID, ELEVD_UID};
 pub use allow::{restartable, RESTARTABLE};
@@ -66,6 +64,7 @@ pub use values::{parse_value, value_args};
 
 mod allow;
 pub mod approvals;
+mod args;
 pub mod audit;
 pub mod backoff;
 #[cfg(any(test, feature = "fuzz"))]
@@ -460,55 +459,6 @@ impl Operation {
                 Class::View
             }
             _ => Class::Once,
-        }
-    }
-
-    /// The arguments [`Operation::parse`] reads back.
-    pub fn args(&self) -> Vec<String> {
-        let one = |text: &str| alloc::vec![text.to_string()];
-        match self {
-            Operation::PkgInstall { path } | Operation::PkgUpdateCore { path } => one(path),
-            Operation::PkgRemove { system_name } => one(system_name),
-            Operation::ConfSet { path, value } => {
-                let (kind, text) = value_args(value);
-                alloc::vec![path.clone(), kind.to_string(), text]
-            }
-            Operation::ConfDelete { path } | Operation::ConfGet { path } => one(path),
-            Operation::ConfList { prefix } => one(prefix),
-            Operation::ConfElevate => Vec::new(),
-            Operation::TimeSet { unix } => alloc::vec![format!("{unix}")],
-            Operation::AccountCreate {
-                name,
-                secret,
-                admin,
-            } => alloc::vec![
-                name.clone(),
-                secret.clone(),
-                String::from(if *admin { "admin" } else { "user" })
-            ],
-            Operation::AccountDelete { name, home } => {
-                alloc::vec![name.clone(), home.word().to_string()]
-            }
-            Operation::AccountAdmin { name, admin } => {
-                alloc::vec![name.clone(), String::from(if *admin { "1" } else { "0" })]
-            }
-            Operation::AccountPassword { name, secret } => {
-                alloc::vec![name.clone(), secret.clone()]
-            }
-            Operation::PowerPolicy { key, value } => alloc::vec![key.clone(), value.clone()],
-            Operation::NetConfig {
-                card,
-                address,
-                gateway,
-                dns,
-            } => alloc::vec![card.clone(), address.clone(), gateway.clone(), dns.clone()],
-            Operation::ServiceRestart { name } => one(name),
-            Operation::WifiSystem(WifiChange::Store { name, passphrase }) => {
-                alloc::vec![String::from("store"), name.clone(), passphrase.clone()]
-            }
-            Operation::WifiSystem(WifiChange::Delete { name }) => {
-                alloc::vec![String::from("delete"), name.clone()]
-            }
         }
     }
 }
