@@ -272,6 +272,59 @@ def _register_dbgd_tools(server, session) -> None:
         """Any dbgd method by name (see `methods`)."""
         return session.call(method, **(params or {}))
 
+    _register_control_tools(server, session)
+
+
+def _register_control_tools(server, session) -> None:
+    """The control tier (docs/dbgd-plan.md, v2): these change the box, and
+    answer -32002 unless it was built with LAZYOS_DBGD_CONTROL=1."""
+    import hotreload  # tools/dbg, on the path once dbgd_session is loaded
+
+    root = Path(__file__).resolve().parents[2]
+
+    @server.tool()
+    def service_reload(name: str, elf_path: str = "", trial_ms: int = 10000) -> dict:
+        """Hot-reload the service `name` from a rebuilt binary: `elf_path` on
+        this machine, or (empty) /system/bin/<name> of target/lazyos.img,
+        so rebuild the image with the box's switches first. init on the box
+        restarts the service from it and rolls back to the image's binary if
+        it exits within `trial_ms`. Returns the final state: "committed" or
+        "rolled-back" with the reason. Lasts until service_revert or reboot."""
+        if elf_path:
+            data = Path(elf_path).read_bytes()
+        else:
+            data = hotreload.image_binary(root / "target" / "lazyos.img", name)
+        return session.reload(name, data, trial_ms)
+
+    @server.tool()
+    def service_restart(name: str) -> dict:
+        """Restart a supervised service as it is (not messengerd or dbgd)."""
+        return session.control("service.restart", name=name)
+
+    @server.tool()
+    def service_revert(name: str) -> dict:
+        """Put the image's binary back for a hot-reloaded service."""
+        return session.control("service.revert", name=name)
+
+    @server.tool()
+    def app_install(lzp_path: str, relaunch: bool = True) -> dict:
+        """Install an app package (`.lzp` on this machine, e.g. from
+        tools/pkg/build.py or target/pkg/) on the box, core apps included,
+        and relaunch its running instances in their sessions so the new
+        build shows at once. Lasts until replaced (it is a real install)."""
+        return session.install_app(Path(lzp_path).read_bytes(), relaunch)
+
+    @server.tool()
+    def app_relaunch(app: str) -> dict:
+        """Stop every running instance of an app (system_name or built-in
+        id) and start it again in the same session."""
+        return session.control("app.relaunch", app=app)
+
+    @server.tool()
+    def service_reloads() -> dict:
+        """Every hot reload since boot: trial, committed, rolled-back, reverted."""
+        return session.call("service.reloads")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

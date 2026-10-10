@@ -91,6 +91,7 @@ pub(super) fn spawn_service(
             services[index].last_status = None;
             services[index].reason = None;
             services[index].life.respawn();
+            super::reload::spawned(&mut services[index]);
             sys::write_str(&format!(
                 "init: started {} (pid {}, attempt {})\n",
                 services[index].name,
@@ -106,6 +107,12 @@ pub(super) fn spawn_service(
                 0,
                 "",
             );
+        }
+        None if super::reload::spawn_failed(&mut services[index]) => {
+            // The reloaded binary would not start: the image's, at once.
+            services[index].pid = 0;
+            services[index].phase = Phase::Restarting;
+            services[index].next_start = sys::clock();
         }
         None => {
             services[index].pid = 0;
@@ -143,7 +150,7 @@ pub(super) fn spawn_service(
 /// one item as the row holds it, so a path with spaces stays whole.
 pub(super) fn argv(service: &Service, restarts: u64) -> Vec<String> {
     let mut argv = Vec::with_capacity(service.args.len() + 2);
-    argv.push(String::from(service.path));
+    argv.push(String::from(super::reload::program(service)));
     argv.extend(service.args.iter().cloned());
     argv.push(format!("attempt={}", restarts + 1));
     argv
@@ -171,12 +178,13 @@ pub(super) fn spawn_row(service: &Service, restarts: u64, cred: Option<sys::Cred
         (None, _) => sys::SpawnCred::Inherit,
     };
     let env: Vec<&str> = service.env.iter().map(String::as_str).collect();
-    match sys::spawnv(service.path, &argv, &env, personality, stamp) {
+    let program = super::reload::program(service);
+    match sys::spawnv(program, &argv, &env, personality, stamp) {
         Ok(pid) => Some(pid),
         Err(code) => {
             sys::write_str(&alloc::format!(
                 "init: spawnv {} failed: errno {}\n",
-                service.path,
+                program,
                 -code
             ));
             None
@@ -211,6 +219,16 @@ pub(super) fn child_exited(
     }
     let row = &mut services[index];
     let name = row.name;
+    // A hot reload's own kill, or a reloaded binary that failed its trial
+    // (rolled back): start the row again at once.
+    if super::reload::exited(row, status) {
+        row.pid = 0;
+        row.last_status = Some(status);
+        row.phase = Phase::Restarting;
+        row.next_start = sys::clock();
+        publish_state(broker, row, "restarting", 0, row.restarts, status, "reload");
+        return None;
+    }
     let exit = Exit {
         policy: row.restart,
         app: row.launched,

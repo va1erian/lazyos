@@ -7,14 +7,19 @@ const KEY: &str = "00112233445566778899aabbccddeeff";
 
 #[test]
 fn the_lines_are_what_dbgd_reads_back() {
-    let cfg = lines(KEY, Some(9000), Some("192.168.1.20"));
+    let cfg = lines(KEY, Some(9000), Some("192.168.1.20"), false);
     let parsed = dbgwire::config::parse(&cfg).expect("dbgd accepts the build's lines");
     assert_eq!(parsed.port, 9000);
     assert_eq!(parsed.peer, Some([192, 168, 1, 20]));
     assert_eq!(parsed.key.len(), 16);
-    let minimal = dbgwire::config::parse(&lines(KEY, None, None)).unwrap();
+    assert!(!parsed.control, "control is off unless asked for");
+    let minimal = dbgwire::config::parse(&lines(KEY, None, None, false)).unwrap();
     assert_eq!(minimal.port, dbgwire::config::DEFAULT_PORT);
     assert_eq!(minimal.peer, None);
+    let control = lines(KEY, None, None, true);
+    assert!(dbgwire::config::parse(&control).unwrap().control);
+    // `init` reads the same switch on its own before it accepts a reload.
+    assert!(dbgwire::config::control_enabled(&control));
 }
 
 #[test]

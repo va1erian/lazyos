@@ -8,7 +8,8 @@ description: Inspect a running LazyOS machine (QEMU or a real PC) through its db
 `dbgd` (issue #701, `docs/dbgd.md`, `docs/dbgd-plan.md`) is a read-only,
 key-authenticated JSON-RPC service that a `LAZYOS_DBGD=1` image runs on TCP
 9701. Prefer it to screenshots and serial scraping: the data is structured and
-live. It cannot change the machine (v1).
+live. Inspection cannot change the machine; a box built with
+`LAZYOS_DBGD_CONTROL=1` also accepts restarts and service hot reloads (below).
 
 ## Before anything else
 
@@ -48,12 +49,26 @@ live. It cannot change the machine (v1).
 - Everything you do is audited on the box (`DBGD:AUDIT` lines): fine, but do
   not poll in a tight loop.
 
-## Limits (v1)
+## Changing the box (control images only)
 
-Read-only: no restart, no writes, no register poking. `pci.config` and
+On a `LAZYOS_DBGD_CONTROL=1` box a fix to a service or driver needs no re-flash:
+rebuild the image with the box's switches, then `service_reload(name)` (or
+`dbgctl reload NAME`). `init` restarts the service from the new binary and
+rolls back by itself if it exits within the trial; the result says
+`committed` or `rolled-back` with the reason. `service_restart`,
+`service_revert`, `service_reloads` do the rest. An app (a desktop
+package) is swapped with `app_install(lzp_path)`: `pkgd` installs it, core
+apps included, and its open windows are relaunched (`app_relaunch(app)`
+alone restarts them); this one is a real install that survives a reboot. These change a real machine:
+do them when the user asked for a fix to be tried, say which service you
+reload, and read the programs log afterwards. Without the switch they answer
+`-32002`: build a new image and re-flash (`python tools/boot/write_stick.py`).
+
+## Limits
+
+No file writes, no register poking, no kernel reload. `pci.config` and
 `mmio.read` do not exist (drivers own those). No TLS: do not use across an
-untrusted network. If a fix needs the box to change, build a new image and
-re-flash (`python tools/boot/write_stick.py`), then re-inspect.
+untrusted network.
 
 ## Extending it
 

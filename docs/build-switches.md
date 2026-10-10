@@ -77,6 +77,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_DBGD_KEY` | 32 to 128 hex characters; unset generates a key into `target/dbgd.key`. | - |
 | `LAZYOS_DBGD_PORT` | TCP port, 1..65535. | - |
 | `LAZYOS_DBGD_PEER` | The one peer address (`a.b.c.d`) allowed to connect. | - |
+| `LAZYOS_DBGD_CONTROL` | `1`: `dbgd`'s control tier (`diag.dbg.control=1`): restart and hot-reload services remotely (docs/dbgd-plan.md, v2). | `--dbgd-control` (implies `--dbgd`) |
 
 ## Accounts and login
 

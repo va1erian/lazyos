@@ -145,6 +145,12 @@ impl Pkgd {
                 wire::encode_install_approved_reply(&wire::InstallApprovedReply { app })
                     .map_err(malformed)
             }
+            wire::METHOD_INSTALLDEBUG => {
+                let args = wire::decode_install_debug_args(body).map_err(malformed)?;
+                let app = self.install_debug(caller, &args.path, &args.digest)?;
+                wire::encode_install_debug_reply(&wire::InstallDebugReply { app })
+                    .map_err(malformed)
+            }
             wire::METHOD_REMOVE => {
                 let args = wire::decode_remove_args(body).map_err(malformed)?;
                 self.remove(caller, &args.system_name)?;

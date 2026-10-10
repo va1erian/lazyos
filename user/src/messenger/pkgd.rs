@@ -191,6 +191,24 @@ impl Client {
             .app)
     }
 
+    /// `InstallDebug(path, digest)`: `dbgd`'s install of an uploaded package
+    /// (only `dbgd`, on a box with `diag.dbg.control=1`).
+    pub fn install_debug(
+        &self,
+        path: &str,
+        digest: &str,
+    ) -> core::result::Result<Installed, Failure> {
+        let body = wire::encode_install_debug_args(&wire::InstallDebugArgs {
+            path: String::from(path),
+            digest: String::from(digest),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_INSTALLDEBUG, body)?;
+        Ok(wire::decode_install_debug_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .app)
+    }
+
     /// `Remove(system_name)`.
     pub fn remove(&self, system_name: &str) -> core::result::Result<(), Failure> {
         let body = wire::encode_remove_args(&wire::RemoveArgs {

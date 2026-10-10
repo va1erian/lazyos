@@ -226,15 +226,19 @@ fn method_table_is_consistent() {
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), methods::METHODS.len(), "duplicate method name");
-    // Only `auth` is callable before authentication.
+    // Only `auth` is callable before authentication, and nothing that
+    // changes the machine is outside the control tier.
     for m in methods::METHODS {
+        let changes = (m.name.starts_with("service.") && m.name != "service.reloads")
+            || m.name.starts_with("app.");
+        assert_eq!(m.access == Access::Control, changes, "{}", m.name);
         assert_eq!(m.access == Access::Open, m.name == "auth", "{}", m.name);
         assert!(!m.summary.is_empty());
     }
     assert!(methods::lookup("log.tail").is_some());
     assert!(
         methods::lookup("fs.write").is_none(),
-        "v1 has no write method"
+        "no general file write method"
     );
 }
 

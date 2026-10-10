@@ -156,6 +156,16 @@ pub const QUAKE_RESULT: &str = "/tmp/quake-result.txt";
 pub const TRAYDEMO_DELAY: &str = "/tmp/traydemo-delay";
 pub const TRAYDEMO_IGNORE_QUIT: &str = "/tmp/traydemo-ignore-quit";
 
+/// Where `dbgd` assembles a service binary a client uploads for a hot
+/// reload (docs/dbgd-plan.md, v2), on the ramfs: `<dir>/<service>.elf`.
+/// Written by `dbgd`; `init` copies a finished one out before running it.
+pub const DBGD_STAGE: &str = "/transient/dbgd";
+
+/// The hot-reloaded service binaries `init` runs (root-owned, on the
+/// ramfs, so a reboot always comes back to the image's): `<dir>/<service>`.
+/// Written by `init`.
+pub const INIT_RELOAD: &str = "/transient/init-reload";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +194,8 @@ mod tests {
         assert!(CONF_FALLBACK.starts_with(TRANSIENT));
         assert!(LAZYRAD_TMP.starts_with(TRANSIENT));
         assert!(RESOLV_CONF.starts_with(TRANSIENT));
+        assert!(DBGD_STAGE.starts_with(TRANSIENT));
+        assert!(INIT_RELOAD.starts_with(TRANSIENT));
         for name in [
             APP_DATA_DIR,
             LAZYRAD_APP,

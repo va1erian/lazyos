@@ -103,6 +103,10 @@ mod protocol;
 mod provisioning;
 #[path = "init/ready.rs"]
 mod ready;
+#[path = "init/relaunch.rs"]
+mod relaunch;
+#[path = "init/reload.rs"]
+mod reload;
 #[path = "init/residents.rs"]
 mod residents;
 #[path = "init/selftest.rs"]
@@ -226,6 +230,8 @@ fn run() -> messenger::Result<()> {
         if shutdown.is_none() {
             // A quitting app whose grace ended is killed.
             lifecycle::sweep(&mut services, now);
+            // A hot-reloaded service still running when its trial ends is kept.
+            reload::sweep(&mut services, now);
             // A restart whose backoff elapsed.
             for index in 0..services.len() {
                 if services[index].phase == Phase::Restarting && services[index].next_start <= now {
@@ -346,6 +352,7 @@ fn next_wake(
     let selftest = BOOT_EVIDENCE.then(|| selftest.next_due()).flatten();
     let late = ready::next_deadline(services);
     let quit = lifecycle::next_deadline(services);
+    let trial = reload::next_deadline(services);
     [
         wake_deadline(services),
         home,
@@ -353,6 +360,7 @@ fn next_wake(
         selftest,
         late,
         quit,
+        trial,
     ]
     .into_iter()
     .flatten()

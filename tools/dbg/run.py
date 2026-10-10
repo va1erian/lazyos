@@ -10,10 +10,15 @@ user-mode networking (docs/dbgd-plan.md, issue #701).
    before `auth`, the peer lock), every method's shape, a live
    `log.follow`, and the refusals (paths outside the allowlist, bad params,
    unknown methods).
+4. The control tier (`LAZYOS_DBGD_CONTROL=1`, `control_checks.py`):
+   restart, a hot reload committed, two rolled back, a revert, the
+   refusals, and app swapping (`app_checks.py`: a package installed and
+   upgraded through `pkgd`); `--no-control` builds without it and checks it is refused.
 
     python tools/dbg/run.py                 # build, boot, judge
     python tools/dbg/run.py --no-build      # the image already built
     python tools/dbg/run.py --accel none
+    python tools/dbg/run.py --no-control    # an image without the control tier
 
 Exit status is non-zero on any failed check; logs go to `shots/dbg`.
 """
@@ -33,6 +38,8 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 from dbgclient import DbgClient, DbgError, default_key  # noqa: E402
+import app_checks  # noqa: E402
+import control_checks  # noqa: E402
 
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
@@ -40,10 +47,11 @@ PORT = 9701
 HOST_PORT = 19701
 
 
-def build(peer: str | None, usb: bool) -> str | None:
+def build(peer: str | None, usb: bool, control: bool) -> str | None:
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_DBGD="1", LAZYOS_RESET_OS="1")
     env.pop("LAZYOS_DESKTOP", None)
+    env["LAZYOS_DBGD_CONTROL"] = "1" if control else "0"
     if peer:
         env["LAZYOS_DBGD_PEER"] = peer
     if usb:
@@ -251,6 +259,8 @@ def main() -> int:
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--usb", action="store_true",
                         help="LAZYOS_USB=1 and a QEMU xHCI with a keyboard: judge usb.dump")
+    parser.add_argument("--no-control", action="store_true",
+                        help="build without LAZYOS_DBGD_CONTROL and check control is refused")
     parser.add_argument("--accel", default="auto")
     parser.add_argument("--memory")
     parser.add_argument("--qemu")
@@ -261,7 +271,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "serial.log").unlink(missing_ok=True)
     if not args.no_build:
-        error = build("10.0.2.2", args.usb)
+        error = build("10.0.2.2", args.usb, not args.no_control)
         if error:
             print(error)
             return 1
@@ -271,7 +281,7 @@ def main() -> int:
         return 1
     session = out / "session.json"
     session.write_text(json.dumps([{"wait_for": "DBGD:READY", "timeout": args.timeout},
-                                   {"wait": 120}, {"quit": True}]))
+                                   {"wait": 240}, {"quit": True}]))
     command = [PY, str(ROOT / "tools" / "screenshot" / "qemu_session.py"), "--image", str(IMAGE),
                "--out", str(out), "--script", str(session), "--accel", args.accel,
                "--net", "--net-forward", f"{HOST_PORT}:{PORT}",
@@ -291,6 +301,11 @@ def main() -> int:
             return 1
         time.sleep(2)  # the stack's address and the listener settle
         exercise(key, checks, args.usb)
+        if args.no_control:
+            control_checks.exercise_off(key, checks, "127.0.0.1", HOST_PORT)
+        else:
+            control_checks.exercise(key, checks, "127.0.0.1", HOST_PORT, IMAGE)
+            app_checks.exercise(key, checks, "127.0.0.1", HOST_PORT, IMAGE, out / "pkg")
     except (OSError, DbgError, socket.timeout) as error:
         checks.check("the session ran to the end", False, f"({type(error).__name__}: {error})")
     finally:

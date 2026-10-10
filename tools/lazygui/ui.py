@@ -131,7 +131,8 @@ class Launcher:
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
-                                                    "lazyweb", "smb", "dbgd")))
+                                                    "lazyweb", "smb", "dbgd",
+                                                    "dbgd_control")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))

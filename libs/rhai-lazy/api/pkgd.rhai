@@ -128,6 +128,20 @@ fn install_approved(path, digest, core) {
     msg::connect("os.lazy.pkgd.v1").invoke("InstallApproved", [path, digest, core])
 }
 
+/// `InstallDebug(path: String, digest: String) -> (app: Installed)`
+///
+/// `dbgd`'s install of a package a developer uploaded to a box built for
+/// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+/// `dbgd` alone and only when `/boot/lazyos.cfg` says
+/// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+/// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+/// the bytes must hash to `digest` (SHA-256, hex), as for
+/// `InstallApproved`. Unlike every other install it may replace a core
+/// app, which is what a developer iterating on one needs.
+fn install_debug(path, digest) {
+    msg::connect("os.lazy.pkgd.v1").invoke("InstallDebug", [path, digest])
+}
+
 /// A `ProvisionState` with every field at its zero value.
 ///
 /// Core package provisioning progress.

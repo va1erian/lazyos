@@ -16,7 +16,10 @@ open. CI: `.github/workflows/mcp-bridge.yml`.
 The bridge also has a TCP transport over `dbgd`
 (`python tools/mcp/debug_bridge.py --connect HOST`, `docs/dbgd-plan.md`):
 the same two tools plus log, device, USB and Messenger tools, against QEMU
-with user networking or a real PC. The virtio-serial design below stays
+with user networking or a real PC; on a `LAZYOS_DBGD_CONTROL=1` box also
+`service_reload`, `service_restart`, `service_revert`, `service_reloads`,
+`app_install` and `app_relaunch`
+(hot reload with rollback, `docs/dbgd-plan.md` v2). The virtio-serial design below stays
 unimplemented; `dbgd` supersedes it for anything with a network card.
 
 ## Summary

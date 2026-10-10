@@ -10,6 +10,14 @@
     python tools/dbg/dbgctl.py call log.tail '{"lines": 5, "source": "kernel"}'
     python tools/dbg/dbgctl.py methods
 
+Control (an image built with `LAZYOS_DBGD_CONTROL=1`, docs/dbgd-plan.md v2):
+
+    python tools/dbg/dbgctl.py reload usbd             # /system/bin/usbd from target/lazyos.img
+    python tools/dbg/dbgctl.py reload usbd path/to/usbd.elf --trial-ms 20000
+    python tools/dbg/dbgctl.py restart usbd | revert usbd | reloads
+    python tools/dbg/dbgctl.py app-install target/pkg/doom.lzp   # install, relaunch what runs
+    python tools/dbg/dbgctl.py relaunch os.lazy.writer
+
 `--host` defaults to 127.0.0.1 (a QEMU boot with `run_demo.py --dbgd`
 forwards the port there), the key to `target/dbgd.key`. `--json` prints the
 raw result of any command.
@@ -25,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dbgclient import DEFAULT_PORT, DbgClient, DbgError, default_key  # noqa: E402
+import hotreload  # noqa: E402
 
 
 def line_text(record: dict) -> str:
@@ -72,9 +81,44 @@ def run(args, dbg: DbgClient) -> object:
         return dbg.call("msg.topic", topic=args.name)
     if cmd == "cat":
         return dbg.call("fs.read", path=args.name, len=args.len)
+    if cmd in ("restart", "revert"):
+        hotreload.begin(dbg)
+        return dbg.call(f"service.{cmd}", name=args.name)
+    if cmd == "reloads":
+        return dbg.call("service.reloads")
+    if cmd == "reload":
+        return reload_command(args, dbg)
+    if cmd == "app-install":
+        return hotreload.install_app(dbg, Path(args.name).read_bytes(),
+                                     relaunch=not args.no_relaunch)
+    if cmd == "relaunch":
+        hotreload.begin(dbg)
+        return dbg.call("app.relaunch", app=args.name)
     if cmd == "call":
         return dbg.call(args.name, **json.loads(args.params or "{}"))
     raise SystemExit(f"unknown command {cmd}")
+
+
+def reload_command(args, dbg: DbgClient) -> dict:
+    """Upload a service binary and wait for `init`'s verdict."""
+    if args.params:
+        data = Path(args.params).read_bytes()
+    else:
+        print(f"reading /system/bin/{args.name} from {args.image}", file=sys.stderr)
+        data = hotreload.image_binary(Path(args.image), args.name)
+
+    def progress(done: int, total: int) -> None:
+        print(f"\ruploading {args.name}: {done * 100 // total}% of {total} bytes",
+              end="", file=sys.stderr, flush=True)
+
+    def reconnect() -> DbgClient:
+        client = DbgClient(args.host, args.port, args.key or default_key())
+        client.connect()
+        return client
+
+    verdict = hotreload.reload(dbg, args.name, data, args.trial_ms, reconnect, progress)
+    print(file=sys.stderr)
+    return verdict
 
 
 def pretty(cmd: str, result: dict) -> None:
@@ -83,13 +127,18 @@ def pretty(cmd: str, result: dict) -> None:
               "drivers": ("drivers", ["id", "vendor", "device", "class", "driver", "state", "owner"]),
               "msg-registry": ("services", ["name", "owner_slot", "interfaces"]),
               "msg-services": ("services", ["name", "state", "pid", "restarts", "health"]),
-              "msg-topics": ("topics", ["topic", "subscribers", "retained", "payload"])}
+              "msg-topics": ("topics", ["topic", "subscribers", "retained", "payload"]),
+              "reloads": ("reloads", ["name", "state", "pid", "sha256", "detail"])}
     if cmd in tables:
         key, columns = tables[cmd]
         show_table(result[key], columns)
     elif cmd in ("usb", "hw"):
         for record in result.get("lines", result.get("verdicts", [])):
             print(line_text(record))
+    elif cmd == "reload":
+        print(f"{result['name']}: {result['state']} (pid {result.get('pid', 0)}, "
+              f"sha256 {result['uploaded_sha256'][:16]}..., {result['bytes']} bytes)"
+              + (f": {result['detail']}" if result.get("detail") else ""))
     elif cmd == "cat" and result.get("kind") == "file":
         sys.stdout.write(result["text"])
     else:
@@ -109,8 +158,16 @@ def main() -> int:
     parser.add_argument("--source", help="with `log`: a logd journal instead of the kernel log")
     parser.add_argument("--len", type=int, default=4096, help="with `cat`: bytes")
     parser.add_argument("command")
-    parser.add_argument("name", nargs="?", help="topic, path or method")
-    parser.add_argument("params", nargs="?", help="with `call`: params as JSON")
+    parser.add_argument("--image", default=str(Path(__file__).resolve().parents[2]
+                                              / "target" / "lazyos.img"),
+                        help="with `reload` and no FILE: the image to take the binary from")
+    parser.add_argument("--trial-ms", type=int, default=hotreload.DEFAULT_TRIAL_MS,
+                        help="with `reload`: how long the new binary must keep running")
+    parser.add_argument("--no-relaunch", action="store_true",
+                        help="with `app-install`: leave running instances alone")
+    parser.add_argument("name", nargs="?", help="topic, path, method, service, package or app")
+    parser.add_argument("params", nargs="?",
+                        help="with `call`: params as JSON; with `reload`: the ELF to upload")
     args = parser.parse_args()
     key = args.key or default_key()
     if not key:
@@ -124,6 +181,9 @@ def main() -> int:
         return 1
     except OSError as error:
         print(f"dbgctl: cannot reach {args.host}:{args.port}: {error}", file=sys.stderr)
+        return 1
+    if args.command == "reload" and result.get("state") != "committed":
+        pretty(args.command, result)
         return 1
     if result is not None:
         if args.json:

@@ -100,6 +100,9 @@ def make_vars() -> dict:
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
         # implies networking).
         "dbgd": b(value=False),
+        # Its control tier: restart and hot reload (LAZYOS_DBGD_CONTROL,
+        # run_demo --dbgd-control; implies dbgd).
+        "dbgd_control": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the

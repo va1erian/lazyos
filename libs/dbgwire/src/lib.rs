@@ -11,6 +11,7 @@
 //! * [`config`]: the `diag.dbg.*` lines of `/boot/lazyos.cfg`;
 //! * [`fsallow`]: the paths `fs.read` may open;
 //! * [`methods`]: the method table and its parameter checks;
+//! * [`control`]: the control tier's rules (restart, hot reload, v2);
 //! * [`logline`]: a `TAG key=value` log line as a record.
 //!
 //! [`fuzz::run`] is the entry point shared by the in-tree seeded tests and
@@ -24,6 +25,7 @@ extern crate std;
 
 pub mod auth;
 pub mod config;
+pub mod control;
 pub mod fsallow;
 pub mod fuzz;
 pub mod json;
@@ -33,3 +35,5 @@ pub mod rpc;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_control;

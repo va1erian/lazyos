@@ -2,7 +2,7 @@
 
 use alloc::string::String;
 
-use crate::{config, json, logline, methods, rpc};
+use crate::{config, control, json, logline, methods, rpc};
 
 /// Feed `data` to every decoder that sees network or log bytes. Invariants:
 /// nothing panics; a parsed value writes back to JSON that parses to a value
@@ -28,6 +28,17 @@ pub fn run(data: &[u8]) {
     let _ = line.to_json(Some(1));
     let _ = logline::split_complete(text);
     let _ = config::parse(text);
+    let _ = config::control_enabled(text);
+    if let Ok(bytes) = control::base64_decode(text) {
+        assert!(bytes.len() <= text.len());
+    }
+    let _ = control::parse_digest(text);
+    let _ = control::reloadable(text);
+    let _ = control::valid_app_id(text);
+    let mut upload = None;
+    let len = data.len() as u64;
+    let _ = control::Upload::accept(&mut upload, "usbd", 0, len.max(1), len);
+    let _ = control::Upload::accept(&mut upload, text, len, len * 2, len);
     let _ = crate::auth::parse_key(text);
     let _ = crate::auth::verify_client(b"0123456789abcdef", b"nonce", text);
 }

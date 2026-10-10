@@ -5,6 +5,7 @@
 //! diag.dbg.port=9701          # TCP port (default 9701)
 //! diag.dbg.key=<32..128 hex>  # pre-shared key; without one dbgd refuses to run
 //! diag.dbg.peer=192.168.1.20  # only this IPv4 address may connect (optional)
+//! diag.dbg.control=1          # allow the control tier: restart, hot reload (v2)
 //! ```
 //!
 //! The file sits on the unencrypted boot volume: anyone who can read the
@@ -29,6 +30,9 @@ pub struct Config {
     pub key: Vec<u8>,
     /// Only this IPv4 peer may connect; `None` allows any.
     pub peer: Option<[u8; 4]>,
+    /// Whether the control methods (restart, hot reload) may be used at all
+    /// (`diag.dbg.control=1`); off, they answer `DENIED`.
+    pub control: bool,
 }
 
 /// Why `dbgd` will not run.
@@ -75,6 +79,7 @@ pub fn parse(cfg: &str) -> Result<Config, Refusal> {
     let mut port = None;
     let mut key = None;
     let mut peer = None;
+    let control = control_enabled(cfg);
     for line in cfg.lines() {
         let line = line.trim();
         if let Some(value) = line.strip_prefix("diag.dbg=") {
@@ -103,7 +108,30 @@ pub fn parse(cfg: &str) -> Result<Config, Refusal> {
         None | Some("") => None,
         Some(text) => Some(parse_ipv4(text).ok_or(Refusal::BadPeer)?),
     };
-    Ok(Config { port, key, peer })
+    Ok(Config {
+        port,
+        key,
+        peer,
+        control,
+    })
+}
+
+/// Whether `cfg` turns the control tier on: `diag.dbg=1` and
+/// `diag.dbg.control=1` (a later duplicate wins). `init` reads this too
+/// before it accepts a reload from `dbgd`: the switch is the box's, not the
+/// requester's.
+pub fn control_enabled(cfg: &str) -> bool {
+    let mut enabled = false;
+    let mut control = false;
+    for line in cfg.lines() {
+        let line = line.trim();
+        if let Some(value) = line.strip_prefix("diag.dbg=") {
+            enabled = value.trim() == "1";
+        } else if let Some(value) = line.strip_prefix("diag.dbg.control=") {
+            control = value.trim() == "1";
+        }
+    }
+    enabled && control
 }
 
 /// The cfg lines the image build writes for `LAZYOS_DBGD=<key>[,port[,peer]]`

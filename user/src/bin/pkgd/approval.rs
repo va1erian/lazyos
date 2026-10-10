@@ -24,6 +24,10 @@ pub(crate) enum Approval<'a> {
     /// `digest` (what the prompt described), replacing a core app exactly
     /// when `core` (`pkg.update-core`).
     Approved { digest: &'a str, core: bool },
+    /// `InstallDebug` from `dbgd` on a box built for remote control
+    /// (docs/dbgd-plan.md, v2): only the bytes whose SHA-256 is `digest`,
+    /// core app or not (a developer iterates on core apps too).
+    Debug { digest: &'a str },
 }
 
 impl Pkgd {
@@ -45,6 +49,15 @@ impl Pkgd {
                     ));
                 }
                 core
+            }
+            Approval::Debug { digest } => {
+                if info.digest != digest {
+                    return Err(fail(
+                        EINVAL,
+                        "the package is not the one the client uploaded (sha256 differs)",
+                    ));
+                }
+                true
             }
         };
         if core && !replace_core {

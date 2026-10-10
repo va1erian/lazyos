@@ -6292,6 +6292,52 @@ pub mod os_lazy_init_v1 {
     /// `PowerMode::Reboot` wire value.
     pub const POWER_MODE_REBOOT: u32 = 1;
 
+    /// One service's hot-reload state (`Reloads`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReloadState {
+        pub name: alloc::string::String,
+        pub state: alloc::string::String,
+        pub sha256: alloc::string::String,
+        pub pid: u64,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_reload_state(value: &ReloadState) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.state)?;
+        target.string(3, &value.sha256)?;
+        target.u64(4, value.pid)?;
+        target.string(5, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reload_state(body: &[u8]) -> Result<ReloadState, Error> {
+        let mut out = ReloadState::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.state = field.as_str()?.into();
+                }
+                3 => {
+                    out.sha256 = field.as_str()?.into();
+                }
+                4 => {
+                    out.pid = field.as_u64()?;
+                }
+                5 => {
+                    out.detail = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// The shutdown's progress: the payload of `system/power/state`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PowerState {
@@ -6699,6 +6745,14 @@ pub mod os_lazy_init_v1 {
     pub const METHOD_HOME: u32 = 1391791790;
     /// `RestartService` method id.
     pub const METHOD_RESTARTSERVICE: u32 = 726211199;
+    /// `ReloadService` method id.
+    pub const METHOD_RELOADSERVICE: u32 = 1203429087;
+    /// `RevertService` method id.
+    pub const METHOD_REVERTSERVICE: u32 = 1005742662;
+    /// `RelaunchApp` method id.
+    pub const METHOD_RELAUNCHAPP: u32 = 734382134;
+    /// `Reloads` method id.
+    pub const METHOD_RELOADS: u32 = 930702605;
 
     /// Snapshot the supervision table.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -7165,6 +7219,218 @@ pub mod os_lazy_init_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.pid = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Hot-reload the system service `name` (docs/dbgd-plan.md, v2): accepted
+    /// from `dbgd` alone, and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`; never `messengerd` or `dbgd`
+    /// (`dbgwire::control::reloadable`). With `binary` empty the row is
+    /// restarted as it is. Otherwise `binary` must be `dbgd`'s staging file
+    /// for `name`: `init` copies it to a root-owned file, checks its SHA-256
+    /// against `sha256` (hex), kills the running task and starts the copy.
+    /// If the new run exits, or cannot be spawned, before `trial_ms` has
+    /// passed, `init` rolls back to the image's binary at once; otherwise it
+    /// commits. A reload lasts until `RevertService` or the next boot.
+    /// `EPERM` for another caller or a refused name, `ENOENT` for no such
+    /// manifest row, `EAGAIN` for a row still waiting for its dependencies or
+    /// a shutdown, `EINVAL` for a bad file or a digest that does not match.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReloadServiceArgs {
+        pub name: alloc::string::String,
+        pub binary: alloc::string::String,
+        pub sha256: alloc::string::String,
+        pub trial_ms: u32,
+    }
+
+    pub fn encode_reload_service_args(value: &ReloadServiceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.string(2, &value.binary)?;
+        target.string(3, &value.sha256)?;
+        target.u32(4, value.trial_ms)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reload_service_args(body: &[u8]) -> Result<ReloadServiceArgs, Error> {
+        let mut out = ReloadServiceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.binary = field.as_str()?.into();
+                }
+                3 => {
+                    out.sha256 = field.as_str()?.into();
+                }
+                4 => {
+                    out.trial_ms = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReloadServiceReply {
+        pub pid: u64,
+    }
+
+    pub fn encode_reload_service_reply(value: &ReloadServiceReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reload_service_reply(body: &[u8]) -> Result<ReloadServiceReply, Error> {
+        let mut out = ReloadServiceReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pid = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Put the image's binary back for a hot-reloaded service and restart
+    /// it. Same callers and refusals as `ReloadService`; a service that was
+    /// never reloaded is just restarted.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RevertServiceArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_revert_service_args(value: &RevertServiceArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_revert_service_args(body: &[u8]) -> Result<RevertServiceArgs, Error> {
+        let mut out = RevertServiceArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RevertServiceReply {
+        pub pid: u64,
+    }
+
+    pub fn encode_revert_service_reply(value: &RevertServiceReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.pid)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_revert_service_reply(body: &[u8]) -> Result<RevertServiceReply, Error> {
+        let mut out = RevertServiceReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pid = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Restart a running app after `pkgd.InstallDebug` replaced it
+    /// (docs/dbgd-plan.md, v2 app swapping): every running instance of the
+    /// app `app` (its id, as `Launch` takes it) is killed and launched again
+    /// in its own session with its own argument, from the app's current
+    /// install. Same callers as `ReloadService`. `stopped` counts the
+    /// instances killed, `started` the ones launched again; an app that is
+    /// not running is not an error (both 0).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RelaunchAppArgs {
+        pub app: alloc::string::String,
+    }
+
+    pub fn encode_relaunch_app_args(value: &RelaunchAppArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.app)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_relaunch_app_args(body: &[u8]) -> Result<RelaunchAppArgs, Error> {
+        let mut out = RelaunchAppArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RelaunchAppReply {
+        pub stopped: u64,
+        pub started: u64,
+    }
+
+    pub fn encode_relaunch_app_reply(value: &RelaunchAppReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.stopped)?;
+        target.u64(2, value.started)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_relaunch_app_reply(body: &[u8]) -> Result<RelaunchAppReply, Error> {
+        let mut out = RelaunchAppReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.stopped = field.as_u64()?;
+                }
+                2 => {
+                    out.started = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The hot reloads since boot, one row per service that had one.
+    /// Read-only: any caller.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReloadsReply {
+        pub reloads: alloc::vec::Vec<ReloadState>,
+    }
+
+    pub fn encode_reloads_reply(value: &ReloadsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.reloads {
+            nested.raw(Kind::Struct, 1, &encode_reload_state(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reloads_reply(body: &[u8]) -> Result<ReloadsReply, Error> {
+        let mut out = ReloadsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.reloads.push(decode_reload_state(item.payload)?);
+                }
             }
         }
         Ok(out)
@@ -13859,6 +14125,8 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_DEVELOPDECLINED: u32 = 1386916580;
     /// `InstallApproved` method id.
     pub const METHOD_INSTALLAPPROVED: u32 = 1599511615;
+    /// `InstallDebug` method id.
+    pub const METHOD_INSTALLDEBUG: u32 = 1850060999;
 
     /// Open and validate the `.lzp` at `path` without changing anything. Root
     /// may name any absolute path; anyone else a file under `/transient` or
@@ -14258,6 +14526,66 @@ pub mod os_lazy_pkgd_v1 {
 
     pub fn decode_install_approved_reply(body: &[u8]) -> Result<InstallApprovedReply, Error> {
         let mut out = InstallApprovedReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.app = decode_installed(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// `dbgd`'s install of a package a developer uploaded to a box built for
+    /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
+    /// `dbgd` alone and only when `/boot/lazyos.cfg` says
+    /// `diag.dbg.control=1`, refused with `EPERM` otherwise. `path` must be
+    /// `dbgd`'s staging file (`dbgwire::control::staged_package_path`) and
+    /// the bytes must hash to `digest` (SHA-256, hex), as for
+    /// `InstallApproved`. Unlike every other install it may replace a core
+    /// app, which is what a developer iterating on one needs.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallDebugArgs {
+        pub path: alloc::string::String,
+        pub digest: alloc::string::String,
+    }
+
+    pub fn encode_install_debug_args(value: &InstallDebugArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.path)?;
+        target.string(2, &value.digest)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_debug_args(body: &[u8]) -> Result<InstallDebugArgs, Error> {
+        let mut out = InstallDebugArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.path = field.as_str()?.into();
+                }
+                2 => {
+                    out.digest = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InstallDebugReply {
+        pub app: Installed,
+    }
+
+    pub fn encode_install_debug_reply(value: &InstallDebugReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_installed(&value.app)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_install_debug_reply(body: &[u8]) -> Result<InstallDebugReply, Error> {
+        let mut out = InstallDebugReply::default();
         let mut decoder = Decoder::new(body);
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
