@@ -645,6 +645,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ieee80211"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
