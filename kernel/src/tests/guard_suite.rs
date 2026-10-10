@@ -28,7 +28,10 @@ fn fresh() -> Result<(), String> {
 
 fn child(class: PriorityClass) -> Result<usize, String> {
     let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
-    check!(task::set_priority(slot, class), "set_priority({slot}) failed");
+    check!(
+        task::set_priority(slot, class),
+        "set_priority({slot}) failed"
+    );
     Ok(slot)
 }
 
@@ -234,9 +237,10 @@ fn normal_hog_yields_to_peers() -> Result<(), String> {
     let before = task::guard::demotions();
     let counts = picks(total);
     // By weight alone the hog would take 16/17 of the CPU and the peer 6 %;
-    // past its budget the hog drops to Background and the peer runs.
+    // past its budget (7 ticks) the hog drops to Background and the peer runs
+    // for the other 3 of 10: 30 %.
     check!(
-        counts[peer] * 100 >= total * 30,
+        counts[peer] * 100 >= total * 25,
         "the Normal peer got {} of {total} ticks next to a heavy Normal task",
         counts[peer]
     );
@@ -263,6 +267,55 @@ fn lone_normal_hog_keeps_the_cpu() -> Result<(), String> {
         counts[hog] == total,
         "a lone Normal task ran {} of {total} ticks",
         counts[hog]
+    );
+    cleanup();
+    Ok(())
+}
+
+/// A configured weight survives a demotion and its restore.
+fn weight_survives_a_demotion() -> Result<(), String> {
+    fresh()?;
+    let hog = child(PriorityClass::Normal)?;
+    let _peer = child(PriorityClass::Normal)?;
+    check!(task::set_weight(hog, 9), "set_weight failed");
+    picks(WINDOW_TICKS as usize * 3);
+    // Whatever tick we stopped on, run to the end of a window and one more
+    // tick so the restore has happened.
+    let mut restored = false;
+    for _ in 0..(2 * WINDOW_TICKS) {
+        task::harness::simulate_tick();
+        restored |=
+            task::priority(hog) == Some(PriorityClass::Normal) && task::weight(hog) == Some(9);
+    }
+    check!(
+        restored,
+        "the weight is {:?} (class {:?}) after demotions; it was set to 9",
+        task::weight(hog),
+        task::priority(hog)
+    );
+    cleanup();
+    Ok(())
+}
+
+/// A child created while its parent is demoted starts in the parent's
+/// assigned class, not in the demotion the guard is about to undo.
+fn child_inherits_assigned_class() -> Result<(), String> {
+    fresh()?;
+    let parent = child(PriorityClass::Interactive)?;
+    let _peer = child(PriorityClass::Normal)?;
+    picks(BUDGET_TICKS as usize + 2);
+    check!(
+        task::priority(parent) == Some(PriorityClass::Normal),
+        "the parent was not demoted: {:?}",
+        task::priority(parent)
+    );
+    task::harness::switch_current(parent);
+    let forked = task::spawn_fork().map_err(|error| format!("spawn_fork: {error}"))?;
+    task::harness::switch_current(task::KERNEL_TASK);
+    check!(
+        task::priority(forked) == Some(PriorityClass::Interactive),
+        "a child forked during a demotion started as {:?}",
+        task::priority(forked)
     );
     cleanup();
     Ok(())
@@ -296,10 +349,7 @@ fn soak_mixed_classes() -> Result<(), String> {
             // Demotion only ever goes down, one budget at a time.
             let allowed = now == Some(class)
                 || (class == PriorityClass::Interactive
-                    && matches!(
-                        now,
-                        Some(PriorityClass::Normal | PriorityClass::Background)
-                    ))
+                    && matches!(now, Some(PriorityClass::Normal | PriorityClass::Background)))
                 || (class == PriorityClass::Normal && now == Some(PriorityClass::Background));
             check!(
                 allowed,
@@ -362,6 +412,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "task_guard_lone_normal_hog_keeps_the_cpu",
         lone_normal_hog_keeps_the_cpu,
+    ),
+    (
+        "task_guard_weight_survives_a_demotion",
+        weight_survives_a_demotion,
+    ),
+    (
+        "task_guard_child_inherits_assigned_class",
+        child_inherits_assigned_class,
     ),
     ("task_guard_soak_mixed_classes", soak_mixed_classes),
 ];

@@ -46,6 +46,8 @@ pub struct State {
     used: u8,
     /// The class to give back at the window's end while demoted.
     home: Option<PriorityClass>,
+    /// The weight to give back with it (a configured one, `set_weight`).
+    weight: u16,
     /// Demotions since the task started.
     demotions: u32,
     /// Demotions already reported ([`report`]).
@@ -57,6 +59,7 @@ impl State {
         State {
             used: 0,
             home: None,
+            weight: 0,
             demotions: 0,
             reported: 0,
         }
@@ -74,10 +77,22 @@ impl State {
         self.used = 0;
     }
 
-    /// Record a demotion from `from`; the first one in a window fixes the
-    /// class to restore.
-    fn demote(&mut self, from: PriorityClass) {
-        self.home.get_or_insert(from);
+    /// The class and weight a child (`clone`, `fork`) starts with: the
+    /// parent's assigned ones, never a demotion that is about to be undone.
+    pub fn inherited(&self, class: PriorityClass, weight: u16) -> (PriorityClass, u16) {
+        match self.home {
+            Some(home) => (home, self.weight),
+            None => (class, weight),
+        }
+    }
+
+    /// Record a demotion from `from` with `weight`; the first one in a window
+    /// fixes the class and weight to restore.
+    fn demote(&mut self, from: PriorityClass, weight: u16) {
+        if self.home.is_none() {
+            self.home = Some(from);
+            self.weight = weight;
+        }
         self.demotions = self.demotions.saturating_add(1);
     }
 }
@@ -148,7 +163,7 @@ fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
         _ => None,
     };
     if let Some(target) = target {
-        task.guard.demote(class);
+        task.guard.demote(class, task.weight);
         task.class = target;
         task.weight = target.default_weight();
         DEMOTIONS.fetch_add(1, Ordering::Relaxed);
@@ -165,7 +180,7 @@ fn new_window(tasks: &mut [Option<Task>; MAX_TASKS]) {
         task.guard.used = 0;
         if let Some(home) = task.guard.home.take() {
             task.class = home;
-            task.weight = home.default_weight();
+            task.weight = task.guard.weight;
             runq::sync(tasks, slot);
         }
     }

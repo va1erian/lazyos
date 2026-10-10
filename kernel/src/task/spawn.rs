@@ -276,8 +276,8 @@ pub fn spawn_thread_sharing(
     // get a new one), so only a process can create a group or session.
     let (pgid, sid) = (parent.pgid, parent.sid);
     // Threads inherit their creator's scheduling class and weight, like
-    // Linux threads share a nice value.
-    let (class, weight) = (parent.class, parent.weight);
+    // Linux threads share a nice value (the assigned ones, not a guard demotion).
+    let (class, weight) = parent.guard.inherited(parent.class, parent.weight);
     // A thread starts in its creator's directory (later `chdir`s are per task).
     let cwd = parent.cwd.clone();
     let context = crate::arch::linux::user_context();
@@ -363,8 +363,8 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     } else {
         (parent.pgid, parent.sid)
     };
-    // `fork` inherits the parent's scheduling class and weight, like Linux.
-    let (class, weight) = (parent.class, parent.weight);
+    // `fork` inherits the parent's assigned class and weight (not a guard demotion).
+    let (class, weight) = parent.guard.inherited(parent.class, parent.weight);
     let bump = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
     // `fork` inherits the parent's `FD_CLOEXEC` flags (they are per-descriptor,

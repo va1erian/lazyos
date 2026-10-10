@@ -88,9 +88,9 @@ mod fdops;
 mod fdshare;
 mod fdtable;
 mod fdtypes;
-pub mod guard;
 pub mod fpu;
 mod fs_base;
+pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
 #[cfg(lazyos_tests)]
