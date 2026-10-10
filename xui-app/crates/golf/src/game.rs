@@ -48,6 +48,8 @@ pub const MAP_SIZE: usize = 200;
 /// continuous (each step only re-resolves the frame).
 const WATER_PERIOD: Duration = Duration::from_millis(60);
 const BENCH_SECONDS: f32 = 24.0;
+/// A gap between drawn frames longer than this is a pause, not a slow frame.
+const IDLE_GAP: Duration = Duration::from_millis(250);
 /// Frame work above this (ms) coarsens the internal resolution.
 const SLOW_MS: f32 = 40.0;
 /// Fewer frames a second than this coarsens it too (the floor is 20).
@@ -83,6 +85,9 @@ pub struct Running {
 #[derive(Default)]
 struct Stats {
     window_start: Option<Instant>,
+    /// When the last frame was drawn: a pause longer than [`IDLE_GAP`]
+    /// starts a new window, so a still camera never counts as slow frames.
+    last_frame: Option<Instant>,
     frames: u32,
     work: f32,
     /// The last second's numbers, for the HUD.
@@ -358,6 +363,17 @@ impl Running {
     /// Counts a drawn frame; once a second reports and adapts the scale.
     fn count(&mut self, work_ms: f32, now: Instant, reports: &mut Vec<Report>) {
         let stats = &mut self.stats;
+        if stats
+            .last_frame
+            .is_some_and(|last| now.duration_since(last) > IDLE_GAP)
+        {
+            // The camera rested: drop the partial window instead of reading
+            // the pause as a frame rate.
+            stats.window_start = None;
+            stats.frames = 0;
+            stats.work = 0.0;
+        }
+        stats.last_frame = Some(now);
         let start = *stats.window_start.get_or_insert(now);
         stats.frames += 1;
         stats.work += work_ms;

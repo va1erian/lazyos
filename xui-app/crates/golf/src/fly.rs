@@ -78,6 +78,10 @@ pub struct Flyer {
     pub speed: f32,
 }
 
+/// A wheel event's units per notch (Windows' `WHEEL_DELTA`, which every xui
+/// backend uses).
+pub const WHEEL_NOTCH: f32 = 120.0;
+
 /// The lowest the eye may go above the ground, metres.
 pub const EYE: f32 = 1.7;
 const MAX_ALTITUDE: f32 = 700.0;
@@ -117,13 +121,19 @@ impl Flyer {
         let step = forward * (axis(Action::Forward, Action::Back) * speed)
             + right * (axis(Action::Right, Action::Left) * speed)
             + Vec3::new(0.0, axis(Action::Up, Action::Down) * speed, 0.0);
-        let mut eye = cam.eye + step;
+        cam.eye = cam.eye + step;
+        self.keep_in_bounds(size, ground);
+        true
+    }
+
+    /// Holds the eye above the ground, below the ceiling and within reach
+    /// of the course, whatever moved it.
+    fn keep_in_bounds(&mut self, size: f32, ground: impl Fn(f32, f32) -> f32) {
+        let eye = &mut self.camera.eye;
         eye.x = eye.x.clamp(-150.0, size + 150.0);
         eye.z = eye.z.clamp(-150.0, size + 150.0);
         let floor = ground(eye.x.clamp(0.0, size - 1.0), eye.z.clamp(0.0, size - 1.0)) + EYE;
         eye.y = eye.y.clamp(floor, floor.max(MAX_ALTITUDE));
-        cam.eye = eye;
-        true
     }
 
     /// Turns the view by a mouse drag of (`dx`, `dy`) pixels.
@@ -133,14 +143,17 @@ impl Flyer {
     }
 
     /// Slides the camera sideways and up by a drag of (`dx`, `dy`) pixels.
-    pub fn pan(&mut self, dx: f32, dy: f32) {
+    pub fn pan(&mut self, dx: f32, dy: f32, size: f32, ground: impl Fn(f32, f32) -> f32) {
         let k = (self.speed * 0.02).max(0.1);
         let right = Vec3::new(self.camera.yaw.cos(), 0.0, self.camera.yaw.sin());
         self.camera.eye = self.camera.eye + right * (-dx * k) + Vec3::new(0.0, dy * k, 0.0);
+        self.keep_in_bounds(size, ground);
     }
 
-    /// The wheel changes the flying speed, a notch at a time.
-    pub fn wheel(&mut self, notches: f32) {
+    /// The wheel changes the flying speed, a notch at a time (xui reports
+    /// [`WHEEL_NOTCH`] units per notch).
+    pub fn wheel(&mut self, delta: i16) {
+        let notches = f32::from(delta) / WHEEL_NOTCH;
         self.speed = (self.speed * 1.25f32.powf(notches)).clamp(2.0, 400.0);
     }
 
@@ -200,6 +213,15 @@ mod tests {
     }
 
     #[test]
+    fn panning_never_sinks_below_the_ground_or_leaves_the_course() {
+        let mut f = flyer();
+        f.pan(0.0, -100_000.0, 1024.0, |_, _| 5.0);
+        assert!((f.camera.eye.y - (5.0 + EYE)).abs() < 1e-4);
+        f.pan(1e6, 0.0, 1024.0, |_, _| 0.0);
+        assert!(f.camera.eye.x >= -150.0 && f.camera.eye.x <= 1024.0 + 150.0);
+    }
+
+    #[test]
     fn strafing_right_goes_east_when_facing_north() {
         let mut f = flyer();
         let mut held = Held::default();
@@ -216,7 +238,12 @@ mod tests {
         let mut f = flyer();
         f.look(0.0, -100_000.0);
         assert!(f.camera.pitch <= 1.45);
-        f.wheel(100.0);
+        f.wheel(120);
+        assert!(
+            (f.speed - 22.0 * 1.25).abs() < 1e-3,
+            "one notch is one step"
+        );
+        f.wheel(i16::MAX);
         assert_eq!(f.speed, 400.0);
     }
 }

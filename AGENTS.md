@@ -306,7 +306,7 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-golf   # generator, rendere
 cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator routing_survey -- --ignored --nocapture
 cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator quality_survey -- --ignored --nocapture   # plain seed vs search
 cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test render searched_views -- --ignored             # golf-search-*.png
-cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop [seed]
+cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop -- [seed]
 ```
 
 ## Doom (an installable `.lzp` package)

@@ -73,6 +73,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_same_seed_gives_the_same_sequence() {
+        let (mut a, mut b) = (Rng::new(123), Rng::new(123));
+        let sa: Vec<u64> = (0..64).map(|_| a.next_u64()).collect();
+        let sb: Vec<u64> = (0..64).map(|_| b.next_u64()).collect();
+        assert_eq!(sa, sb);
+        assert!(sa.windows(2).all(|w| w[0] != w[1]), "the state advances");
+    }
+
+    #[test]
     fn stages_are_independent_and_repeatable() {
         let a: Vec<u64> = (0..4).map(|_| Rng::stage(7, "trees").next_u64()).collect();
         assert!(a.windows(2).all(|w| w[0] == w[1]));

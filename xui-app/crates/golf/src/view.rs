@@ -195,7 +195,9 @@ fn apply(
             if d.button == MouseButton::Left {
                 run.flyer.look(dx, dy);
             } else {
-                run.flyer.pan(dx, dy);
+                let bake = &run.scene.bake;
+                let size = bake.size as f32;
+                run.flyer.pan(dx, dy, size, |x, z| bake.height_at(x, z));
             }
             run.moved();
             drag.set(Some(Drag { x, y, ..d }));
@@ -211,7 +213,7 @@ fn apply(
             ..
         } => {
             if let Some(run) = game.run.as_mut() {
-                run.flyer.wheel(f32::from(delta));
+                run.flyer.wheel(delta);
                 after.invalidate = true;
             }
         }
@@ -276,7 +278,9 @@ fn teleport(game: &mut Game, b: Rect, s: i32, x: i32, y: i32) -> bool {
         return false;
     };
     let size = run.minimap.width() as i32;
-    let r = hud::minimap_rect(Rect::new(0, 0, b.width(), b.height()), size, s);
+    let Some(r) = hud::minimap_rect(Rect::new(0, 0, b.width(), b.height()), size, s) else {
+        return false;
+    };
     if x < r.left || y < r.top || x >= r.right || y >= r.bottom {
         return false;
     }

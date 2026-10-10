@@ -31,15 +31,18 @@ fn ui_scale(canvas: &dyn Canvas) -> i32 {
     (canvas.dpi() as i32 / 96).max(1)
 }
 
-/// Where the overhead map sits: the bottom-right corner.
-pub fn minimap_rect(bounds: Rect, size: i32, scale: i32) -> Rect {
+/// Where the overhead map sits (the bottom-right corner), or `None` when the
+/// view is too small to show it beside the info panel. Drawing and clicking
+/// both ask this, so a click never lands on a map that is not there.
+pub fn minimap_rect(bounds: Rect, size: i32, scale: i32) -> Option<Rect> {
     let m = MARGIN * scale;
-    Rect::new(
+    let r = Rect::new(
         bounds.right - m - size,
         bounds.bottom - m - size,
         bounds.right - m,
         bounds.bottom - m,
-    )
+    );
+    (r.left >= bounds.left + 340 * scale && r.top >= bounds.top).then_some(r)
 }
 
 /// Paints the whole widget.
@@ -136,10 +139,9 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
 /// The overhead map with the camera's position and heading.
 fn map(canvas: &mut dyn Canvas, run: &crate::game::Running, bounds: Rect, s: i32) {
     let size = run.minimap.width() as i32;
-    let r = minimap_rect(bounds, size, s);
-    if r.left < bounds.left + 340 * s || r.top < bounds.top {
+    let Some(r) = minimap_rect(bounds, size, s) else {
         return;
-    }
+    };
     canvas.draw_image(&run.minimap, r);
     canvas.stroke_rect(r, Color::hex(0x202020), 1.0);
     let k = size as f32 / run.scene.bake.size as f32;
