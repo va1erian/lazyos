@@ -1,0 +1,13 @@
+# [ -d /sys/firmware/efi ] && echo "UEFI (efivars present)" || echo "legacy BIOS (no /sys/firmware/efi)"; ls /sys/firmware/efi 2>&1; cat /sys/firmware/efi/fw_platform_size 2>&1
+UEFI (efivars present)
+config_table
+efivars
+esrt
+fw_platform_size
+fw_vendor
+mok-variables
+runtime
+runtime-map
+systab
+64
+# exit 0

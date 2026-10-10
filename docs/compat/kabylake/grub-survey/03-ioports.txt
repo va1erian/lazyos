@@ -1,0 +1,45 @@
+# cat /proc/ioports
+0000-0cf7 : PCI Bus 0000:00
+  0000-001f : dma1
+  REDACTED-UUID : pic1
+  REDACTED-UUID : timer0
+  REDACTED-UUID : timer1
+  REDACTED-UUID : keyboard
+  REDACTED-UUID : keyboard
+  REDACTED-UUID : rtc0
+  0080-008f : dma page reg
+  00a0-00a1 : pic2
+  00c0-00df : dma2
+  00f0-00ff : fpu
+  0400-041f : iTCO_wdt
+  0680-069f : PNP0C02:01
+  0a00-0a1f : PNP0C02:00
+  0a20-0a2f : PNP0C02:00
+  0a30-0a3f : PNP0C02:00
+0cf8-0cff : PCI conf1
+0d00-ffff : PCI Bus 0000:00
+  164e-164f : PNP0C02:01
+  REDACTED-UUID : ACPI PM1a_EVT_BLK
+  REDACTED-UUID : ACPI PM1a_CNT_BLK
+  1808-180b : ACPI PM_TMR
+  REDACTED-UUID : ACPI PM2_CNT_BLK
+  REDACTED-UUID : INT3F0D:00
+  1880-189f : ACPI GPE0_BLK
+  d000-dfff : PCI Bus 0000:02
+    d000-d0ff : 0000:02:00.0
+  e000-efff : PCI Bus 0000:01
+    e000-e0ff : 0000:01:00.0
+      e000-e0ff : rtw88_pci
+  f000-f03f : 0000:00:02.0
+  f040-f05f : 0000:00:1f.4
+  f060-f07f : 0000:00:17.0
+    f060-f07f : ahci
+  f080-f083 : 0000:00:17.0
+    f080-f083 : ahci
+  f090-f097 : 0000:00:17.0
+    f090-f097 : ahci
+  ff00-fffe : PNP0C02:05
+  ffff-ffff : PNP0C02:01
+    ffff-ffff : PNP0C02:01
+      ffff-ffff : PNP0C02:01
+# exit 0

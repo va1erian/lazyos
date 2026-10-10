@@ -1,0 +1,18 @@
+# for c in /sys/class/drm/card*-*; do echo "== $c"; cat $c/status 2>&1; cat $c/modes 2>&1 | head -12; done
+== /sys/class/drm/card1-HDMI-A-1
+connected
+2560x1440
+2560x1440
+2560x1440
+2048x1280
+1920x1200
+1920x1080
+1920x1080
+1920x1080
+1920x1080i
+1920x1080i
+1920x1080
+1920x1080i
+== /sys/class/drm/card1-HDMI-A-2
+disconnected
+# exit 0

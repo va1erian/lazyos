@@ -1,0 +1,13 @@
+# for d in /dev/sd? /dev/nvme?n?; do [ -b "$d" ] && fdisk -l "$d" 2>&1; done
+Disk /dev/sda: 476,94 GiB, 512110190592 bytes, 1000215216 sectors
+Disk model: SSD 512GB       
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: REDACTED-GUID
+
+Device      Start        End   Sectors   Size Type
+/dev/sda1    4096     618495    614400   300M EFI System
+/dev/sda2  618496 1000215149 999596654 476,6G Linux filesystem
+# exit 1

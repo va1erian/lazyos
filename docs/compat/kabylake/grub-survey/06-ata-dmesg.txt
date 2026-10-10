@@ -1,0 +1,57 @@
+# dmesg | grep -i -E "ahci|ata[0-9]|scsi|sd[a-z]|nvme|sata"
+[    0.012461] ACPI: RSDP 0x00000000BCC14000 000024 (v02 ALASKA)
+[    0.012467] ACPI: XSDT 0x00000000BCC140B0 0000E4 (v01 ALASKA A M I    01072009 AMI  00010013)
+[    0.012481] ACPI: DSDT 0x00000000BCC14230 027EE2 (v02 ALASKA A M I    01072009 INTL 20160422)
+[    0.012502] ACPI: SSDT 0x00000000BCC3C340 000372 (v01 SataRe SataTabl 00001000 INTL 20160422)
+[    0.012510] ACPI: SSDT 0x00000000BCC3C758 003159 (v02 SaSsdt SaSsdt   00003000 INTL 20160422)
+[    0.012519] ACPI: SSDT 0x00000000BCC3F8F0 000DE5 (v02 INTEL  Ther_Rvp 00001000 INTL 20160422)
+[    0.012523] ACPI: SSDT 0x00000000BCC406D8 00090C (v02 INTEL  xh_rvp07 00000000 INTL 20160422)
+[    0.012532] ACPI: SSDT 0x00000000BCC41030 000EDE (v02 CpuRef CpuSsdt  00003000 INTL 20160422)
+[    0.012545] ACPI: SSDT 0x00000000BCC41FD0 000141 (v02 INTEL  HdaDsp   00000000 INTL 20160422)
+[    0.012549] ACPI: SSDT 0x00000000BCC42118 00029F (v02 INTEL  sensrhub 00000000 INTL 20160422)
+[    0.012553] ACPI: SSDT 0x00000000BCC423B8 003002 (v02 INTEL  PtidDevc 00001000 INTL 20160422)
+[    0.012557] ACPI: SSDT 0x00000000BCC453C0 000215 (v02 INTEL  TbtTypeC 00000000 INTL 20160422)
+[    0.012587] ACPI: Reserving DSDT table memory at [mem 0xbcc14230-0xbcc3c111]
+[    0.012593] ACPI: Reserving SSDT table memory at [mem 0xbcc3c340-0xbcc3c6b1]
+[    0.012595] ACPI: Reserving SSDT table memory at [mem 0xbcc3c758-0xbcc3f8b0]
+[    0.012597] ACPI: Reserving SSDT table memory at [mem 0xbcc3f8f0-0xbcc406d4]
+[    0.012598] ACPI: Reserving SSDT table memory at [mem 0xbcc406d8-0xbcc40fe3]
+[    0.012600] ACPI: Reserving SSDT table memory at [mem 0xbcc41030-0xbcc41f0d]
+[    0.012604] ACPI: Reserving SSDT table memory at [mem 0xbcc41fd0-0xbcc42110]
+[    0.012605] ACPI: Reserving SSDT table memory at [mem 0xbcc42118-0xbcc423b6]
+[    0.012606] ACPI: Reserving SSDT table memory at [mem 0xbcc423b8-0xbcc453b9]
+[    0.012607] ACPI: Reserving SSDT table memory at [mem 0xbcc453c0-0xbcc455d4]
+[    0.298640] ACPI: SSDT 0xFFFF8953419F3000 000651 (v02 PmRef  Cpu0Ist  00003000 INTL 20160422)
+[    0.301947] ACPI: SSDT 0xFFFF8953419F2800 00065C (v02 PmRef  ApIst    00003000 INTL 20160422)
+[    0.304699] ACPI: SSDT 0xFFFF8953411BF000 000197 (v02 PmRef  ApHwp    00003000 INTL 20160422)
+[    0.391507] SCSI subsystem initialized
+[    0.505778] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 242)
+[    1.361505] ahci 0000:00:17.0: AHCI vers 0001.0301, 32 command slots, 6 Gbps, SATA mode
+[    1.361516] ahci 0000:00:17.0: 2/2 ports implemented (port mask 0x3)
+[    1.361520] ahci 0000:00:17.0: flags: 64bit ncq pm led clo only pio slum part deso sadm sds apst 
+[    1.385315] scsi host0: ahci
+[    1.421754] scsi host1: ahci
+[    1.423581] ata1: SATA max UDMA/133 abar m2048@0xdf22b000 port 0xdf22b100 irq 128 lpm-pol 3
+[    1.423588] ata2: SATA max UDMA/133 abar m2048@0xdf22b000 port 0xdf22b180 irq 128 lpm-pol 3
+[    1.736433] ata1: SATA link up 6.0 Gbps (SStatus 133 SControl 300)
+[    1.736492] ata2: SATA link down (SStatus 4 SControl 300)
+[    1.744486] ata1.00: ACPI cmd f5/00:00:00:00:00:00(SECURITY FREEZE LOCK) filtered out
+[    1.744497] ata1.00: ACPI cmd b1/c1:00:00:00:00:00(DEVICE CONFIGURATION OVERLAY) filtered out
+[    1.749914] ata1.00: ATA-10: SSD 512GB, VA001CBN, max UDMA/133
+[    1.751301] ata1.00: 1000215216 sectors, multi 16: LBA48 NCQ (depth 32), AA
+[    1.760473] ata1.00: ACPI cmd f5/00:00:00:00:00:00(SECURITY FREEZE LOCK) filtered out
+[    1.760482] ata1.00: ACPI cmd b1/c1:00:00:00:00:00(DEVICE CONFIGURATION OVERLAY) filtered out
+[    1.767318] ata1.00: configured for UDMA/133
+[    1.777645] scsi 0:0:0:0: Direct-Access     ATA      SSD 512GB        1CBN PQ: 0 ANSI: 5
+[    1.778230] sd 0:0:0:0: Attached scsi generic sg0 type 0
+[    1.778318] sd 0:0:0:0: [sda] 1000215216 512-byte logical blocks: (512 GB/477 GiB)
+[    1.778354] sd 0:0:0:0: [sda] Write Protect is off
+[    1.778371] sd 0:0:0:0: [sda] Mode Sense: 00 3a 00 00
+[    1.778425] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    1.778494] sd 0:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[    1.798173]  sda: sda1 sda2
+[    1.798444] sd 0:0:0:0: [sda] Attached SCSI disk
+[    2.415749] EXT4-fs (sda2): orphan cleanup on readonly fs
+[    2.416740] EXT4-fs (sda2): mounted filesystem REDACTED-GUID ro with ordered data mode. Quota mode: none.
+[    3.568671] EXT4-fs (sda2): re-mounted REDACTED-GUID r/w.
+# exit 0

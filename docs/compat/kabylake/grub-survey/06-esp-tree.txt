@@ -1,0 +1,16 @@
+# for e in /boot/efi /efi /boot; do [ -d "$e/EFI" ] && { echo "== $e"; df -h "$e"; find "$e/EFI" -maxdepth 3 | sort; }; done
+== /boot/efi
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       300M  8,1M  292M   3% /boot/efi
+/boot/efi/EFI
+/boot/efi/EFI/BOOT
+/boot/efi/EFI/BOOT/BOOTX64.EFI
+/boot/efi/EFI/BOOT/fbx64.efi
+/boot/efi/EFI/BOOT/mmx64.efi
+/boot/efi/EFI/ubuntu
+/boot/efi/EFI/ubuntu/BOOTX64.CSV
+/boot/efi/EFI/ubuntu/grub.cfg
+/boot/efi/EFI/ubuntu/grubx64.efi
+/boot/efi/EFI/ubuntu/mmx64.efi
+/boot/efi/EFI/ubuntu/shimx64.efi
+# exit 1

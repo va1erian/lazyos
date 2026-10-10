@@ -1,0 +1,2 @@
+# sgdisk -p /dev/sda
+# not installed: sgdisk
