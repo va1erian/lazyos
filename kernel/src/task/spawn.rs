@@ -1,8 +1,8 @@
 //! Task creation: kernel task, spawn, threads, fork and initial frames.
 //!
 //! A program's address space is built (and its image streamed in from disk)
-//! before the task table is locked: loading can take a while and touches the
-//! filesystem, which must never run under `TASKS`. The slot is claimed after.
+//! before the task table is locked: loading touches the filesystem, which must
+//! never run under `TASKS`. The slot is claimed after.
 
 use super::*;
 use crate::process::image::Image;
@@ -36,6 +36,7 @@ pub fn register_kernel() {
         linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
+        guard: guard::State::new(),
     });
     super::runq::sync(&tasks, KERNEL_TASK);
 }
@@ -52,8 +53,7 @@ pub fn spawn<I: Image + ?Sized>(name: &'static str, elf: &I) -> Result<usize, &'
 /// This is the supervision primitive the userspace `init` (issue #93) builds
 /// on: the child's `parent` names the supervisor, so its exit is reaped with
 /// [`reap_child`] and wakes a [`wait_child_exit`] sleeper. The child inherits
-/// the supervisor's process group and session (it is not a session leader),
-/// exactly as a service started by `init` should be.
+/// the supervisor's process group and session (it is not a session leader).
 pub fn spawn_child<I: Image + ?Sized>(name: &'static str, elf: &I) -> Result<usize, &'static str> {
     spawn_in_space(name, elf, Some(current()))
 }
@@ -211,6 +211,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
         linux: LinuxExtras::default(),
         output: Vec::new(),
         input: VecDeque::new(),
+        guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
     Ok(index)
@@ -315,6 +316,7 @@ pub fn spawn_thread_sharing(
         linux,
         output: Vec::new(),
         input: VecDeque::new(),
+        guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
     Ok(index)
@@ -427,6 +429,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         linux,
         output: Vec::new(),
         input: VecDeque::new(),
+        guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
     drop(tasks);

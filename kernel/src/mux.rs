@@ -60,6 +60,8 @@ pub fn run() -> ! {
         // An orderly shutdown that never reached `power` (docs/shutdown.md):
         // past the armed deadline the kernel forces the stop itself.
         crate::process::power::watchdog::service();
+        // Name the tasks the Interactive CPU guard demoted (`task::guard`).
+        without_interrupts(crate::task::guard::report);
         // Report each disk's request counters after a burst of I/O, and
         // write cached filesystem data back every few seconds. Both take
         // spin locks (the serial port, the VFS) that syscalls take with

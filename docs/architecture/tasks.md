@@ -81,6 +81,15 @@ ISR that performs context switches.
 - The signal sweep first collects the address spaces with a deliverable
   signal (one pass over the registry, creating no entries) and does nothing
   when there are none; resume-time delivery checks the same first.
+- Interactive guard (`task/guard.rs`): time is cut into 10-tick windows; once
+  the `Interactive` class has used 5 ticks of a window, each `Interactive`
+  task that runs is demoted to `Normal` until the window's end (`set_priority`
+  and `raise_priority` cancel the pending restore, and a raise compares with
+  the home class). A busy compositor therefore cannot starve the services and
+  apps it waits on for seconds (an AMD NUC stalled a shell 28 s while LazyGolf
+  generated a course); tasks that sleep most of each window are never touched.
+  `SCHED:GUARD:DEMOTED task=... slot=... total=...` names who tripped it
+  (reported at most once a second). Tests: `task_guard_*`.
 - Starvation bound: within a class a peer is selected at most
   `ceil(stride_i/stride_j)+1` times; worst case < 2100 ticks (~21 s at 100 Hz
   with 63 peers; it was < 500 ticks at 16 slots).
