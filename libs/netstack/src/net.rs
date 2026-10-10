@@ -184,14 +184,17 @@ impl Net {
     pub fn remove_interface(&mut self, slot: usize) -> Option<String> {
         let unit = self.units.get_mut(slot)?.take()?;
         self.generation += 1;
-        self.retired.sockets = stats::add_sockets(&self.retired.sockets, &unit.stack.socket_counters());
+        self.retired.sockets =
+            stats::add_sockets(&self.retired.sockets, &unit.stack.socket_counters());
         self.retired.stack = stats::add_counters(&self.retired.stack, unit.stack.counters());
         self.forget_unit(slot);
         Some(unit.name)
     }
 
     pub fn slot_of(&self, name: &str) -> Option<usize> {
-        self.units().find(|(_, unit)| unit.name == name).map(|(slot, _)| slot)
+        self.units()
+            .find(|(_, unit)| unit.name == name)
+            .map(|(slot, _)| slot)
     }
 
     pub fn unit(&self, slot: usize) -> Option<&Unit> {

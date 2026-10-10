@@ -40,7 +40,10 @@ impl Net {
         let only = if local.addr == [0; 4] {
             None
         } else {
-            Some(self.slot_with_addr(local.addr).ok_or(SockError::BadAddress)?)
+            Some(
+                self.slot_with_addr(local.addr)
+                    .ok_or(SockError::BadAddress)?,
+            )
         };
         let requested = self.check_port(kind, local.port)?;
         let entry = self.table.entry(id, owner)?;
@@ -117,10 +120,14 @@ impl Net {
         let entry = self.table.entry(id, owner)?;
         let (bound, shape) = (entry.bound, entry.shape.clone());
         match shape {
-            Shape::Pinned(replica) => self.stack(replica.unit)?.socket_local_addr(replica.sid, owner),
+            Shape::Pinned(replica) => self
+                .stack(replica.unit)?
+                .socket_local_addr(replica.sid, owner),
             Shape::Spread { replicas, .. } => {
                 for replica in replicas {
-                    if let Ok(addr) = self.stack(replica.unit)?.socket_local_addr(replica.sid, owner)
+                    if let Ok(addr) = self
+                        .stack(replica.unit)?
+                        .socket_local_addr(replica.sid, owner)
                     {
                         return Ok(addr);
                     }
@@ -150,7 +157,9 @@ impl Net {
     /// `PeerAddr`: who the socket is connected to.
     pub fn socket_peer_addr(&mut self, id: u32, owner: u64) -> Result<SockAddr, SockError> {
         match self.table.entry(id, owner)?.shape.clone() {
-            Shape::Pinned(replica) => self.stack(replica.unit)?.socket_peer_addr(replica.sid, owner),
+            Shape::Pinned(replica) => self
+                .stack(replica.unit)?
+                .socket_peer_addr(replica.sid, owner),
             Shape::Lost => Err(SockError::Reset),
             Shape::Fresh | Shape::Spread { .. } => Err(SockError::NotConnected),
         }
@@ -249,12 +258,13 @@ impl Net {
             .and_then(Option::as_mut)
             .ok_or(SockError::Unreachable)?
             .stack;
-        let kind = if backlog > 0 { Kind::Stream } else { Kind::Datagram };
-        let sid = stack.socket_open(owner, kind)?;
-        let any = SockAddr {
-            addr: [0; 4],
-            port,
+        let kind = if backlog > 0 {
+            Kind::Stream
+        } else {
+            Kind::Datagram
         };
+        let sid = stack.socket_open(owner, kind)?;
+        let any = SockAddr { addr: [0; 4], port };
         let made = stack.socket_bind(sid, owner, any).and_then(|()| {
             if backlog > 0 {
                 stack.socket_listen(sid, owner, backlog)

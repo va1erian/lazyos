@@ -37,10 +37,9 @@ pub(super) fn add_sockets(a: &SocketCounters, b: &SocketCounters) -> SocketCount
 impl Net {
     /// Stack counters, all interfaces together.
     pub fn counters(&self) -> Counters {
-        self.units()
-            .fold(self.retired.stack, |sum, (_, unit)| {
-                add_counters(&sum, unit.stack.counters())
-            })
+        self.units().fold(self.retired.stack, |sum, (_, unit)| {
+            add_counters(&sum, unit.stack.counters())
+        })
     }
 
     /// Ring counters, all interfaces together.
@@ -76,6 +75,8 @@ impl Net {
 
     /// Streams closed by their owners and still finishing on the wire.
     pub fn socket_closing(&self) -> usize {
-        self.units().map(|(_, unit)| unit.stack.socket_closing()).sum()
+        self.units()
+            .map(|(_, unit)| unit.stack.socket_closing())
+            .sum()
     }
 }

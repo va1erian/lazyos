@@ -226,7 +226,15 @@ impl Gateway {
         let mut payload = std::vec![0u8; dns.buffer_len()];
         dns.emit(&mut DhcpPacket::new_unchecked(&mut payload[..]))
             .expect("emit");
-        udp_frame([0xFF; 6], self.gw_mac, self.gw_ip, [255; 4], 67, 68, &payload)
+        udp_frame(
+            [0xFF; 6],
+            self.gw_mac,
+            self.gw_ip,
+            [255; 4],
+            67,
+            68,
+            &payload,
+        )
     }
 
     /// The frames the gateway sends in answer to one frame from the stack.

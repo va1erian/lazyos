@@ -187,7 +187,8 @@ impl Net {
             return Err(SockError::BadAddress);
         }
         let replica = self.connection(id, owner)?;
-        self.stack(replica.unit)?.socket_send(replica.sid, owner, data)
+        self.stack(replica.unit)?
+            .socket_send(replica.sid, owner, data)
     }
 
     /// `Recv`: up to `max` bytes, an empty vector at the end of the stream,
@@ -206,7 +207,8 @@ impl Net {
             return Ok(self.datagram_recv(id, owner, max)?.map(|(data, _)| data));
         }
         let replica = self.connection(id, owner)?;
-        self.stack(replica.unit)?.socket_recv(replica.sid, owner, max)
+        self.stack(replica.unit)?
+            .socket_recv(replica.sid, owner, max)
     }
 
     /// `Shutdown`: end reading (`read`), writing (`write`) or both.

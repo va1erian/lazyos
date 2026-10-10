@@ -83,7 +83,10 @@ fn a_dead_link_moves_traffic_and_resolvers_and_up_restarts_dhcp() {
     assert_eq!(lan.net.primary(), Some(1));
     assert_eq!(lan.net.dns_servers(), std::vec![[10, 0, 3, 2]]);
     // The lease is kept while the link is down.
-    assert_eq!(lan.net.unit(0).unwrap().stack.state().addr, Some([10, 0, 2, 15]));
+    assert_eq!(
+        lan.net.unit(0).unwrap().stack.state().addr,
+        Some([10, 0, 2, 15])
+    );
     assert!(matches!(
         ping_via(&mut lan, [8, 8, 8, 8]),
         PingOutcome::Reply { .. }
@@ -130,7 +133,10 @@ fn lookups_ask_the_primarys_resolvers() {
     });
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].id, id);
-    assert_eq!(got[0].outcome, LookupOutcome::Found(std::vec![[192, 0, 2, 7]]));
+    assert_eq!(
+        got[0].outcome,
+        LookupOutcome::Found(std::vec![[192, 0, 2, 7]])
+    );
     assert!(lan.seen(0).contains(&"dns") && !lan.seen(1).contains(&"dns"));
 }
 
@@ -145,7 +151,10 @@ fn removing_an_interface_ends_its_probes_and_moves_the_primary() {
     assert_eq!(name.as_deref(), Some("eth0"));
     let results = lan.net.take_ping_results();
     assert_eq!(results.len(), 1);
-    assert_eq!((results[0].seq, results[0].outcome), (seq, PingOutcome::TimedOut));
+    assert_eq!(
+        (results[0].seq, results[0].outcome),
+        (seq, PingOutcome::TimedOut)
+    );
     assert_eq!(lan.net.primary(), Some(1));
     assert_eq!(lan.net.pings_outstanding(), 0);
     assert!(lan.net.unit(0).is_none());

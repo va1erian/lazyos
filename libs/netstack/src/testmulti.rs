@@ -149,10 +149,11 @@ impl MultiLan {
     /// Run until every interface has an address.
     pub fn configure(&mut self) {
         assert!(
-            self.run_until(5000, |lan| lan
-                .net
-                .units()
-                .all(|(_, u)| u.stack.state().addr.is_some())),
+            self.run_until(5000, |lan| lan.net.units().all(|(_, u)| u
+                .stack
+                .state()
+                .addr
+                .is_some())),
             "no lease on every interface"
         );
     }
@@ -228,7 +229,8 @@ impl MultiPair {
             &static_mode(MultiPair::peer_ip(n), None),
         ));
         self._mems.push(w.mem);
-        let name: String = std::format!("{}{n}", if kind == IfKind::Wired { "eth" } else { "wlan" });
+        let name: String =
+            std::format!("{}{n}", if kind == IfKind::Wired { "eth" } else { "wlan" });
         self.net
             .add_interface(&name, kind, stack, true)
             .expect("room for the interface")

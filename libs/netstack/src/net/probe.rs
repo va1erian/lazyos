@@ -118,9 +118,7 @@ impl Net {
             return Err(PingError::Busy);
         }
         let Some(unit) = self.route_for(dst) else {
-            let any_address = self
-                .units()
-                .any(|(_, u)| u.usable());
+            let any_address = self.units().any(|(_, u)| u.usable());
             return Err(if any_address {
                 PingError::NoRoute
             } else {
@@ -150,7 +148,11 @@ impl Net {
         let mut results = core::mem::take(&mut self.probes.orphaned_pings);
         let slots: Vec<usize> = self.units().map(|(slot, _)| slot).collect();
         for slot in slots {
-            let done = self.unit_mut(slot).expect("listed").stack.take_ping_results();
+            let done = self
+                .unit_mut(slot)
+                .expect("listed")
+                .stack
+                .take_ping_results();
             for result in done {
                 let Some(at) = self
                     .probes
@@ -216,7 +218,11 @@ impl Net {
         let mut results = core::mem::take(&mut self.probes.orphaned_lookups);
         let slots: Vec<usize> = self.units().map(|(slot, _)| slot).collect();
         for slot in slots {
-            let done = self.unit_mut(slot).expect("listed").stack.take_lookup_results();
+            let done = self
+                .unit_mut(slot)
+                .expect("listed")
+                .stack
+                .take_lookup_results();
             for result in done {
                 let Some(at) = self
                     .probes

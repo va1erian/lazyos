@@ -98,7 +98,9 @@ impl Publisher {
     /// An interface that is gone: its retained address must not outlive it.
     fn retire_removed(&mut self, net: &Net) {
         for slot in 0..self.seen.len() {
-            let Some(seen) = &self.seen[slot] else { continue };
+            let Some(seen) = &self.seen[slot] else {
+                continue;
+            };
             if net.unit(slot).is_some_and(|unit| unit.name == seen.name) {
                 continue;
             }

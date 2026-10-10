@@ -30,7 +30,10 @@ pub(super) enum Shape {
     Pinned(Replica),
     /// A listener (`backlog` > 0) or a datagram socket serving every
     /// interface, or the one it was bound to: one replica each.
-    Spread { replicas: Vec<Replica>, backlog: u32 },
+    Spread {
+        replicas: Vec<Replica>,
+        backlog: u32,
+    },
     /// The interface under the socket was removed.
     Lost,
 }
@@ -77,7 +80,11 @@ impl Table {
     }
 
     pub fn owned_by(&self, owner: u64) -> usize {
-        self.slots.iter().flatten().filter(|s| s.owner == owner).count()
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|s| s.owner == owner)
+            .count()
     }
 
     /// Every owner of an open socket, each once.

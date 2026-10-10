@@ -77,11 +77,14 @@ fn interface(wire: &mut Wire, mac: [u8; 6], addr: [u8; 4], gateway: [u8; 4]) -> 
     config.random_seed = 7;
     let mut iface = Interface::new(config, wire, Instant::from_millis(0));
     iface.update_ip_addrs(|addrs| {
-        let _ = addrs.push(IpCidr::new(IpAddress::v4(addr[0], addr[1], addr[2], addr[3]), 24));
+        let _ = addrs.push(IpCidr::new(
+            IpAddress::v4(addr[0], addr[1], addr[2], addr[3]),
+            24,
+        ));
     });
-    let _ = iface
-        .routes_mut()
-        .add_default_ipv4_route(Ipv4Address::new(gateway[0], gateway[1], gateway[2], gateway[3]));
+    let _ = iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(
+        gateway[0], gateway[1], gateway[2], gateway[3],
+    ));
     iface
 }
 
@@ -95,10 +98,7 @@ fn udp_socket(local: [u8; 4]) -> udp::Socket<'static> {
         })
         .unwrap();
     socket
-        .send_slice(
-            b"hello",
-            IpEndpoint::new(IpAddress::v4(8, 8, 8, 8), 53),
-        )
+        .send_slice(b"hello", IpEndpoint::new(IpAddress::v4(8, 8, 8, 8), 53))
         .unwrap();
     socket
 }
@@ -123,7 +123,8 @@ fn udp_of(frame: &[u8]) -> Option<([u8; 4], [u8; 4], u16)> {
 
 /// An ARP request's `(target address)`.
 fn arp_request_target(frame: &[u8]) -> Option<[u8; 4]> {
-    (ethertype(frame) == 0x0806 && frame[20..22] == [0, 1]).then(|| frame[38..42].try_into().unwrap())
+    (ethertype(frame) == 0x0806 && frame[20..22] == [0, 1])
+        .then(|| frame[38..42].try_into().unwrap())
 }
 
 /// An ARP reply from `from_mac`/`from_ip` to `to_mac`/`to_ip`.
@@ -204,5 +205,9 @@ fn one_dhcp_socket_in_a_shared_set_serves_one_interface() {
     a.poll(t, &mut wire_a, &mut sockets);
     b.poll(t, &mut wire_b, &mut sockets);
     assert_eq!(discovers(&wire_a), 1);
-    assert_eq!(discovers(&wire_b), 0, "the second interface never got a DISCOVER");
+    assert_eq!(
+        discovers(&wire_b),
+        0,
+        "the second interface never got a DISCOVER"
+    );
 }

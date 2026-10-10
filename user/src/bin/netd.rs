@@ -365,7 +365,13 @@ fn run_demo(netd: &Netd, child: &mut Option<u64>, next: &mut usize, waited_enoug
             sys::write_str(&format!("NETD:DEMO:EXIT pid={pid} status={status}\n"));
             *child = None;
         }
-    } else if *next < DEMO_CLIENTS.len() && (netd.net.units().any(|(_, u)| u.stack.state().addr.is_some()) || waited_enough) {
+    } else if *next < DEMO_CLIENTS.len()
+        && (netd
+            .net
+            .units()
+            .any(|(_, u)| u.stack.state().addr.is_some())
+            || waited_enough)
+    {
         let (linux, program, args) = DEMO_CLIENTS[*next];
         let pid = if linux {
             sys::spawn_linux(program, args)

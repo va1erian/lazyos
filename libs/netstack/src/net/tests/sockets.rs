@@ -49,8 +49,14 @@ fn a_connection_takes_the_interface_that_routes_its_peer() {
             MultiPair::net_ip(n),
             "left by interface {n}"
         );
-        assert_eq!(pair.net.socket_peer_addr(id, ME).unwrap().addr, MultiPair::peer_ip(n));
-        assert!(pair.peers[n].socket_accept(listener, PEER).unwrap().is_some());
+        assert_eq!(
+            pair.net.socket_peer_addr(id, ME).unwrap().addr,
+            MultiPair::peer_ip(n)
+        );
+        assert!(pair.peers[n]
+            .socket_accept(listener, PEER)
+            .unwrap()
+            .is_some());
     }
     assert_eq!(pair.net.socket_counters().connected, 2);
 }
@@ -140,7 +146,11 @@ fn a_datagram_socket_receives_on_all_and_sends_by_route() {
         }));
         let (data, from) = reply.unwrap();
         assert_eq!(data, b"back");
-        assert_eq!(from.addr, MultiPair::net_ip(n), "source address of interface {n}");
+        assert_eq!(
+            from.addr,
+            MultiPair::net_ip(n),
+            "source address of interface {n}"
+        );
     }
 }
 
@@ -168,7 +178,10 @@ fn removing_an_interface_resets_its_connections_and_keeps_wildcard_sockets() {
         accepted
     }));
     pair.net.socket_close(conn, ME, pair.now).unwrap();
-    assert_eq!(pair.net.socket_close(conn, ME, pair.now), Err(SockError::BadSocket));
+    assert_eq!(
+        pair.net.socket_close(conn, ME, pair.now),
+        Err(SockError::BadSocket)
+    );
 }
 
 #[test]
@@ -233,7 +246,10 @@ fn destinations_nothing_routes_are_refused() {
         pair.net.socket_connect(id, ME, at([127, 0, 0, 1], 8080)),
         Err(SockError::BadAddress)
     );
-    assert_eq!(pair.net.socket_recv(id, ME, 10), Err(SockError::NotConnected));
+    assert_eq!(
+        pair.net.socket_recv(id, ME, 10),
+        Err(SockError::NotConnected)
+    );
     let d = pair.net.socket_open(ME, Kind::Datagram).unwrap();
     assert_eq!(
         pair.net.socket_sendto(d, ME, at([10, 0, 0, 2], 9), b"x"),

@@ -267,7 +267,11 @@ mod tests {
             .collect();
         assert_eq!(
             plan,
-            [("netdrv", 5, "eth0"), ("netdrv", 6, "eth1"), ("sndd", 7, "")]
+            [
+                ("netdrv", 5, "eth0"),
+                ("netdrv", 6, "eth1"),
+                ("sndd", 7, "")
+            ]
         );
         assert!(super::plan(&[]).is_empty());
     }
