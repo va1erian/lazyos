@@ -901,6 +901,7 @@ python tools/run_demo.py --desktop --net        # then open Net Tools, and http:
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_apps     --script tools/screenshot/examples/net_apps.json      # ping, lookup, a fetch through the host forward
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_config     --script tools/screenshot/examples/net_config.json    # Manual, back to DHCP, Renew
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --nics 2 --out shots/net_cards     --script tools/screenshot/examples/net_cards.json     # two cards: the Network app on eth0, "Next card", eth1
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 

@@ -123,9 +123,10 @@ fetches are `http://` only.
 
 DHCP is the default and is what QEMU's network expects. The **Network** app
 switches between *Automatic (DHCP)* and *Manual* (address with prefix,
-gateway, DNS server); it writes `confd`'s `sys/net/eth0/{mode,address,gateway,dns}`
-and `netd` picks the change up within a few seconds and restarts itself to
-apply it (`init` brings it straight back; open connections drop). From a
+gateway, DNS server) for the card it shows (*Next card* steps through several);
+it writes `confd`'s `sys/net/<if>/{mode,address,gateway,dns}` and `netd` picks
+the change up within a few seconds and rebuilds that interface with it (its
+open connections drop; other cards and `netd` itself are untouched). From a
 shell, the same keys work with `confctl`:
 
 ```sh

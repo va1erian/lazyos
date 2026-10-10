@@ -14,9 +14,10 @@ the DHCP lease left), the default gateway and how much traffic has passed.
 * *Manual* uses the address (with its prefix, `192.168.1.20/24`), gateway and
   DNS server you type. The gateway must be on the same network as the address.
 
-**Apply** saves the settings (in `confd`, under `sys/net/eth0/`); the network
-stack picks them up within a few seconds and restarts itself to apply them
-(open connections drop). **Renew lease**
+**Apply** saves the settings (in `confd`, under `sys/net/<card>/`, for the card
+the window shows); the network stack picks them up within a few seconds and
+rebuilds that card with them (its open connections drop). **Next card** shows
+the next network card when the machine has several. **Renew lease**
 asks the DHCP server for a fresh address now. **Revert** puts the saved
 settings back into the form.
 

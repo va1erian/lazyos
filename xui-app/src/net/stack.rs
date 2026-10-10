@@ -54,7 +54,7 @@ impl Error {
                 EAGAIN => String::from("busy, try again"),
                 EACCES => String::from("not allowed"),
                 EINVAL => String::from("invalid request"),
-                EPIPE => String::from("the network stack is restarting (applying settings)"),
+                EPIPE => String::from("the network stack is restarting, try again"),
                 ENETUNREACH => String::from("no address or route yet"),
                 ETIMEDOUT => String::from("timed out"),
                 other => format!("error {other}"),
@@ -65,9 +65,9 @@ impl Error {
 
 /// One call on `netd` that may wait `ticks`; the reply body.
 ///
-/// `netd` restarts itself to apply a configuration change, which leaves this
-/// task's endpoint dead (`EPIPE`). The failed call evicts it, so one retry
-/// resolves the new `netd` instead of failing a click.
+/// A `netd` that was restarted (a crash, an update) leaves this task's
+/// endpoint dead (`EPIPE`). The failed call evicts it, so one retry resolves
+/// the new `netd` instead of failing a click.
 fn call(method: u32, body: Vec<u8>, ticks: u64) -> Result<Vec<u8>, Error> {
     match call_once(method, body.clone(), ticks) {
         Err(Error::Code(code)) if -code == EPIPE => call_once(method, body, ticks),

@@ -4,8 +4,8 @@
 //! the configuration `netd` reads from `confd` (`sys/net/<if>/*`, for the
 //! interface shown; "Next card" steps through several): automatic
 //! (DHCP) or a manual address, gateway and DNS server. `netd` re-reads it
-//! every few seconds and restarts itself to apply a change (open connections
-//! drop); "Renew lease" asks for a fresh DHCP lease at once.
+//! every few seconds and rebuilds that interface to apply a change (its open
+//! connections drop); "Renew lease" asks for a fresh DHCP lease at once.
 //!
 //! The form is checked with `netd`'s own parser before anything is written
 //! (`xui_app::net::model::plan`), so a setup the stack would replace with DHCP
@@ -289,9 +289,9 @@ impl Network {
         let mode = if form.manual { "static" } else { "dhcp" };
         println!("NETAPP:APPLY:PASS mode={mode} if={ifname}");
         self.w.message.get().set_text(if form.manual {
-            "Saved. The network stack restarts with the manual address within a few seconds."
+            "Saved. This card restarts with the manual address within a few seconds."
         } else {
-            "Saved. The network stack restarts with DHCP within a few seconds."
+            "Saved. This card restarts with DHCP within a few seconds."
         });
     }
 
