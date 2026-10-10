@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use messenger_generated::os_lazy_files_v1 as files_wire;
 use xui_app::platform::topics::{Broker, PublishError};
 use xui_app::platform::{clipboard, urilist};
-use xui_explorer::platform::{Pasted, Session};
+use xui_explorer::platform::{DetachedSession, Pasted, Session};
 use xui_explorer::std_platform::{copy_into, CopyReport};
 
 /// `-ENOENT`: no service, or no offer carrying the MIME type.
@@ -90,6 +90,14 @@ impl Session for LazySession {
         }
         println!("FILES:PASTE:PASS:{copied}:{}", failed.len());
         Ok(Pasted { copied, failed })
+    }
+
+    /// A paste is a `clipboardd` call and then a file copy: the window runs
+    /// it on a worker thread, which resolves `clipboardd` for itself.
+    fn detached(&self) -> Option<DetachedSession> {
+        Some(std::sync::Arc::new(|| {
+            Box::new(LazySession::new()) as Box<dyn Session>
+        }))
     }
 
     fn selection_changed(&self, dir: &Path, paths: &[PathBuf]) {

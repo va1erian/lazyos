@@ -604,6 +604,25 @@ more pass before the loop parks. With nothing due the park lasts up to 10 s,
 a safety net only. LazyShell has no repeating timer: it wakes for those
 sources and when its clock text next changes (docs/performance-plan.md P7).
 
+**Worker threads and the waker (`backend/wakeup.rs`)**
+
+A UI thread must not wait inside a Messenger call, so work that can take
+long (an `elevd` approval, a paste that copies files) runs on a worker thread
+and returns its answer as an app message through xui's `Proxy`. A proxy send
+rings `Backend::waker`: the first `Ui::proxy` of a client app creates an
+`eventfd` (the doorbell) and an `epoll` set holding it and the `watch_fd`
+descriptor, and `park_client` then parks with `WAIT_FD` on the set. A ring
+from any thread (descriptor tables are shared by `CLONE_FILES` threads) wakes
+the park at once; the next tick's `Wake` drains the proxy inbox. An app that
+never asks for a proxy parks exactly as before. A worker's Messenger handles
+are its own (a thread has its own handle table), so it resolves the services
+it calls; the platform clients cache per thread for that reason. Patterns in
+the tree: `ConfigStore::detached` (Settings' machine-wide changes behind an
+administrator's prompt) and `Session::detached` (Files' paste). The text
+clipboard stays on the UI thread because `Backend::clipboard_text` is a plain
+getter in xui; its calls are bounded (`clipboard::CALL_TICKS`) and fall back
+to the in-process copy.
+
 **Retitling a window (`SetTitle`, method 29)**
 
 `SetTitle(surface, title)` renames a window after creation, so a document app

@@ -186,3 +186,89 @@ fn a_selection_change_is_announced_as_paths() {
         Some(vec![PathBuf::from("/a/b")])
     );
 }
+
+/// A session whose paste waits at a gate on a worker thread, as a large copy
+/// does, and says so through `Session::detached`.
+struct Gate {
+    open: (std::sync::Mutex<bool>, std::sync::Condvar),
+    asked: std::sync::atomic::AtomicBool,
+}
+
+struct Slow(std::sync::Arc<Gate>);
+
+impl Session for Slow {
+    fn paste_into(&self, _dir: &Path) -> io::Result<Pasted> {
+        self.0
+            .asked
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let (lock, wake) = &self.0.open;
+        let guard = lock.lock().unwrap();
+        let _ = wake
+            .wait_timeout_while(guard, std::time::Duration::from_secs(10), |open| !*open)
+            .unwrap();
+        Ok(Pasted {
+            copied: 1,
+            failed: Vec::new(),
+        })
+    }
+
+    fn detached(&self) -> Option<xui_explorer::platform::DetachedSession> {
+        let gate = std::sync::Arc::clone(&self.0);
+        Some(std::sync::Arc::new(move || {
+            Box::new(Slow(std::sync::Arc::clone(&gate))) as Box<dyn Session>
+        }))
+    }
+}
+
+#[test]
+fn a_paste_on_a_worker_leaves_the_window_running() {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    use xui_core::backend::Event;
+
+    let gate = std::sync::Arc::new(Gate {
+        open: Default::default(),
+        asked: Default::default(),
+    });
+    let platform = Rc::new(MemPlatform::new().dir("/a").file("/a/note.txt", 2));
+    let explorer = Explorer::with_session(
+        platform as Rc<dyn Platform>,
+        Rc::new(NoLauncher),
+        Rc::new(Slow(std::sync::Arc::clone(&gate))) as Rc<dyn Session>,
+    );
+    let status: Rc<RefCell<Option<Rc<StatusBar<Msg>>>>> = Rc::default();
+    let (build, run) = (Rc::clone(&status), Rc::clone(&status));
+    let probe = std::sync::Arc::clone(&gate);
+    render_with(
+        Snapshot::new(Dip(420.0), Dip(320.0)),
+        move |ui| {
+            let window = explorer.open_root(ui, PathBuf::from("/a"));
+            *build.borrow_mut() = Some(window.status_bar());
+            Ok::<_, BackendError>(window)
+        },
+        move |stage| {
+            let status = run.borrow().clone().expect("the status bar");
+            let started = Instant::now();
+            stage.emit(Msg::Paste);
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "the paste ran on the UI thread"
+            );
+            assert_eq!(status.text(0).as_deref(), Some("Pasting..."));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !probe.asked.load(Ordering::SeqCst) {
+                assert!(Instant::now() < deadline, "the worker never started");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            *probe.open.0.lock().unwrap() = true;
+            probe.open.1.notify_all();
+            while status.text(0).as_deref() == Some("Pasting...") {
+                stage.inject(Event::Wake);
+                assert!(Instant::now() < deadline, "the paste never finished");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(status.text(0).as_deref(), Some("Pasted 1 item"));
+        },
+    )
+    .expect("the headless render");
+}

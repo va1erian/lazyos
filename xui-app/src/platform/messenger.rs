@@ -74,6 +74,16 @@ impl Service {
         if let Some(endpoint) = cached(name) {
             return Ok(Service { name, endpoint });
         }
+        let began = crate::stall::start();
+        let result = Service::resolve_waiting(name);
+        crate::stall::finish(began, crate::stall::SLOW_NS, "connect", || {
+            format!("name={name} ok={}", result.is_ok())
+        });
+        result
+    }
+
+    /// The retry loop of [`Service::connect`].
+    fn resolve_waiting(name: &'static str) -> Result<Service, i64> {
         let deadline = sys::clock_ticks().saturating_add(CONNECT_TICKS);
         loop {
             match sys::msg_resolve(name) {

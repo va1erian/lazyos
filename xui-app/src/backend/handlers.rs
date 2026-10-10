@@ -36,12 +36,14 @@ impl Backend for LazyOSBackend {
             if windows.is_empty() {
                 break;
             }
+            let pass = crate::stall::start();
             for raw in windows {
                 self.tick(xui_core::backend::WindowId::from_raw(raw));
                 if self.quit.load(Ordering::Relaxed) {
                     break;
                 }
             }
+            crate::stall::finish(pass, crate::stall::SLOW_PASS_NS, "pass", String::new);
             if self.quit.load(Ordering::Relaxed) {
                 break;
             }
@@ -65,8 +67,14 @@ impl Backend for LazyOSBackend {
 
     fn wake(&self, _window: WindowId) {}
 
+    /// A waker any thread may call: it rings the doorbell the park waits on,
+    /// so a worker's `Proxy::send` is seen at once instead of at the next
+    /// timer. Owner mode polls every tick and keeps the no-op.
     fn waker(&self, _window: WindowId) -> Waker {
-        Box::new(|| {})
+        match self.wakeup() {
+            Some(wakeup) => wakeup.waker(),
+            None => Box::new(|| {}),
+        }
     }
 
     fn set_event_sink(&self, window: WindowId, sink: Rc<dyn WidgetHost>) {

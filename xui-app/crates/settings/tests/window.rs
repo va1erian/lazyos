@@ -235,3 +235,125 @@ fn menu_edits_are_saved_in_one_write() {
         assert_eq!(ids, ["os.lazy.paint", "os.lazy.files"]);
     });
 }
+
+/// One store several threads share. A machine write (`sys/**`) waits at a
+/// gate, as it does behind an administrator's password prompt, so a test can
+/// tell a window that keeps running from one that stands still.
+struct Gated {
+    map: std::sync::Mutex<std::collections::BTreeMap<String, Value>>,
+    open: (std::sync::Mutex<bool>, std::sync::Condvar),
+    entered: std::sync::atomic::AtomicBool,
+}
+
+struct GatedStore(std::sync::Arc<Gated>);
+
+impl ConfigStore for GatedStore {
+    fn get(&self, key: &str) -> Option<Value> {
+        self.0.map.lock().unwrap().get(key).cloned()
+    }
+
+    fn set(&self, key: &str, value: Value) -> Result<(), String> {
+        if key.starts_with("sys/") {
+            self.0
+                .entered
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let (lock, wake) = &self.0.open;
+            let guard = lock.lock().unwrap();
+            // Bounded, so a window that wrongly runs this on its own thread
+            // fails the timing check instead of hanging the suite.
+            let _ = wake
+                .wait_timeout_while(guard, Duration::from_secs(10), |open| !*open)
+                .unwrap();
+        }
+        self.0.map.lock().unwrap().insert(key.to_owned(), value);
+        Ok(())
+    }
+
+    fn delete(&self, key: &str) -> Result<(), String> {
+        self.0.map.lock().unwrap().remove(key);
+        Ok(())
+    }
+
+    fn uid(&self) -> Option<u32> {
+        Some(1000)
+    }
+
+    fn detached(&self) -> Option<xui_settings::store::Detached> {
+        let shared = std::sync::Arc::clone(&self.0);
+        Some(std::sync::Arc::new(move || {
+            Box::new(GatedStore(std::sync::Arc::clone(&shared))) as Box<dyn ConfigStore>
+        }))
+    }
+}
+
+/// "Make this the default for everyone" waits on the administrator's prompt
+/// on a worker thread: the window answers at once, and the result lands when
+/// the prompt is answered.
+#[test]
+fn making_the_theme_the_default_does_not_stand_the_window_still() {
+    use std::sync::atomic::Ordering;
+    use std::time::Instant;
+    use xui_core::backend::Event;
+
+    watchdog(|| {
+        let own = uitheme::user_key(1000, uitheme::KEY_ACCENT).expect("a personal key");
+        let shared = std::sync::Arc::new(Gated {
+            map: Default::default(),
+            open: Default::default(),
+            entered: Default::default(),
+        });
+        shared
+            .map
+            .lock()
+            .unwrap()
+            .insert(own.clone(), Value::U64(0xAA3232));
+        let build = std::sync::Arc::clone(&shared);
+        let probe = std::sync::Arc::clone(&shared);
+        render_with(
+            Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
+            move |ui| {
+                SettingsApp::build(
+                    ui,
+                    Rc::new(GatedStore(build)),
+                    Rc::new(MemSystem::default()),
+                    Rc::new(MemAccounts::default()),
+                )
+            },
+            move |stage| {
+                let started = Instant::now();
+                stage.emit(Msg::MakeDefault);
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "the message waited for the prompt"
+                );
+                // A second press while the first waits is refused, not queued.
+                stage.emit(Msg::MakeDefault);
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !probe.entered.load(Ordering::SeqCst) {
+                    assert!(Instant::now() < deadline, "the worker never asked");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert_eq!(probe.map.lock().unwrap().get(uitheme::KEY_ACCENT), None);
+                // The administrator approves.
+                *probe.open.0.lock().unwrap() = true;
+                probe.open.1.notify_all();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                loop {
+                    stage.inject(Event::Wake);
+                    let map = probe.map.lock().unwrap();
+                    if map.get(uitheme::KEY_ACCENT) == Some(&Value::U64(0xAA3232))
+                        && !map.contains_key(&own)
+                    {
+                        break;
+                    }
+                    drop(map);
+                    assert!(Instant::now() < deadline, "the write never finished");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                // The result is handled on this thread without a panic.
+                stage.inject(Event::Wake);
+            },
+        )
+        .expect("the headless render");
+    });
+}

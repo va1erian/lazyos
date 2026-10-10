@@ -11,13 +11,14 @@
 //! through `elevd`.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
 use xui_confd_editor::store::{
     ConfStore, Elevation, StoreError as ConfStoreError, StoreInfo, Value,
 };
-use xui_settings::store::{AppChoice, ConfigStore, StoreError as SettingsError};
+use xui_settings::store::{AppChoice, ConfigStore, Detached, StoreError as SettingsError};
 
 use super::confd_store::ConfdStore;
 use super::messenger::{CallError, Service};
@@ -230,6 +231,15 @@ impl ConfigStore for ElevatingStore {
 
     fn persistent(&self) -> bool {
         ConfigStore::persistent(&self.0)
+    }
+
+    /// A `sys/**` write waits for an administrator to type their password
+    /// (up to [`REQUEST_TICKS`]): the Settings window runs it on a worker,
+    /// which resolves `elevd` for itself.
+    fn detached(&self) -> Option<Detached> {
+        Some(Arc::new(|| {
+            Box::new(ElevatingStore(ConfdStore::new())) as Box<dyn ConfigStore>
+        }))
     }
 }
 

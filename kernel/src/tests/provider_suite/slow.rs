@@ -43,6 +43,7 @@ pub fn slow_device_survives() -> Result<(), String> {
         mode(Mode::Slow(
             provider::TAKEN_TICKS + 10 * provider::SLICE_TICKS,
         ));
+        provider::drop_caches();
         let mut sector = [0u8; SECTOR_SIZE];
         expect_err(
             disk.read_sectors(5, &mut sector),
@@ -206,6 +207,7 @@ pub fn soak_slow_requests() -> Result<(), String> {
             alive && stats.timeouts == 0 && stats.errors == 0 && stats.stale == 0,
             "stats {stats:?} alive {alive}"
         );
+        provider::drop_caches();
         let after = measure();
         check!(
             after <= before + 4096,

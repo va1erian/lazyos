@@ -43,12 +43,7 @@ fn a_wheel_event_decodes_with_its_position_and_signed_delta() {
 
 #[test]
 fn a_truncated_wheel_body_is_not_an_event() {
-    let parcel = request(
-        wire::METHOD_POINTERWHEEL,
-        vec![1, 2],
-        Vec::new(),
-        Vec::new(),
-    );
+    let parcel = request(wire::METHOD_POINTERWHEEL, vec![1, 2], Vec::new());
     assert_eq!(decode_event(&parcel), None);
 }
 

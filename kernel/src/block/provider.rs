@@ -41,6 +41,7 @@
 //! spinning. A context that holds the task table cannot park at all and its
 //! request fails ([`crate::task::relax::can_block`]).
 
+pub(crate) mod readcache;
 mod request;
 pub mod sys;
 pub mod test_clock;
@@ -165,6 +166,9 @@ pub struct UserDisk {
     done: WaitQueue,
     /// Requesters waiting for the request slot.
     idle: WaitQueue,
+    /// Clean pages of what was read (`readcache.rs`). Its own lock, never
+    /// held across a request.
+    cache: Mutex<readcache::ReadCache>,
 }
 
 impl UserDisk {
@@ -200,6 +204,7 @@ impl UserDisk {
             work: WaitQueue::new(WaitKind::Block),
             done: WaitQueue::new(WaitKind::Block),
             idle: WaitQueue::new(WaitKind::Block),
+            cache: Mutex::new(readcache::ReadCache::new()),
         }
     }
 }
@@ -218,6 +223,27 @@ static DISKS: [UserDisk; MAX_PROVIDERS] = [
 /// The disk with registry index `id`, if it was ever registered.
 fn disk(id: usize) -> Option<&'static UserDisk> {
     DISKS.get(id).filter(|disk| disk.state.lock().registered)
+}
+
+/// Empty every disk's read cache, so a test measuring the heap for leaks
+/// does not count pages the cache is meant to keep.
+#[cfg(lazyos_tests)]
+pub fn drop_caches() {
+    for disk in &DISKS {
+        disk.cache.lock().clear();
+    }
+}
+
+/// `(hits, misses)` of disk `id`'s read cache.
+#[cfg(lazyos_tests)]
+pub fn cache_counters(id: usize) -> Option<(u64, u64)> {
+    disk(id).map(|disk| disk.cache.lock().counters())
+}
+
+/// Pages disk `id`'s read cache holds.
+#[cfg(lazyos_tests)]
+pub fn cache_pages(id: usize) -> Option<usize> {
+    disk(id).map(|disk| disk.cache.lock().len())
 }
 
 /// The clock requests are timed by (a test can move it forward).
@@ -252,6 +278,8 @@ pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, Pro
         state.writable = writable;
         state.alive = true;
         state.scanned = false;
+        // Nothing of a disk that used this slot before may be served.
+        disk.cache.lock().clear();
         // Tags carry the slot, so one disk's tag never matches another's.
         state.next_tag = (disk.index as u64) << 56;
     }

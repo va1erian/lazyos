@@ -192,6 +192,33 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
   running, or after **60 s** (`INIT:HOME <why>`). Images without `usbd`
   never wait.
 
+## The read cache
+
+The volume on a stick is opened *uncached* (`fs/mounts.rs::open_ext2`): the
+write-back block cache flushes from the kernel task, which must never wait for
+`usbd`, and a stick can be pulled. That left every read, metadata included, as
+a round trip to the polled driver. Measured on a real PC with `/home` on a
+stick, opening a directory or a file cost 0.27-0.33 s each (a desktop shell
+that looked at its folder once a second kept the stick busy for ever).
+
+`UserDisk` therefore keeps a **write-through read cache**
+(`block/provider/readcache.rs`): clean 4 KiB pages of what was read, 512 per
+disk, oldest out first.
+
+- A read of 32 KiB or less is served from the pages when it is wholly there; a
+  miss reads the whole pages around the request in one request and keeps them.
+  Larger reads (file data) bypass it, neither using nor filling it.
+- Writes are untouched in order and timing: each goes to the device before it
+  returns. Pages it overlaps take the new bytes when it completes; a failed
+  write drops them. So a page is never ahead of the device, and the cache
+  holds nothing that needs writing back (nothing for the flusher, nothing to
+  lose when the stick is pulled).
+- A reader that missed stores its pages only if no write started or ended since
+  it began (`ReadCache::epoch`), so a page read before a write landed is not
+  kept.
+- A dead disk answers `Io` before it looks at the cache, and a slot registered
+  again starts empty.
+
 ## Durability
 
 - ext2's sync paths flush the device; a provider flush is SYNCHRONIZE CACHE
@@ -224,7 +251,7 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
 |---|---|---|
 | Host unit | `usbmsc` (41): golden descriptors (HS, SS with burst, composite), CBW/CSW, every recovery path against a fault-injecting model device, SCSI parsers. `xhci`: plus bulk TRBs, bulk contexts with burst, rings abandoned lap after lap | `cargo test -p usbmsc --features fuzz -p xhci` |
 | Fuzz | `mscdesc`, `mscreply`, `mscsession` (seeded tests and cargo-fuzz) | `cargo test -p usbmsc --features fuzz` |
-| Kernel | `provider_suite` (16): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
+| Kernel | `provider_suite` (31): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths; the read cache: repeats stay off the stick, writes go through and update, a failed write forgets, a dead disk fails though cached, streams bypass, the epoch and eviction, a 3000-round random read/write soak against the device | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
 | End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/user`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
 
 ## Not done

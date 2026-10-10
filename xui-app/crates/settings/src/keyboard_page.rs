@@ -89,6 +89,11 @@ impl KeyboardPage {
         });
     }
 
+    /// The layout row chosen in the list, not yet written.
+    pub fn selected(&self) -> Option<usize> {
+        self.layout.selected()
+    }
+
     /// Handle one message; returns the status line text.
     pub fn update(
         &self,

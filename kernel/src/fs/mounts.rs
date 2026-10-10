@@ -80,10 +80,12 @@ pub(super) fn find_ext2(
 }
 
 /// Open an ext2 volume the way its device suits. A disk served by a
-/// user-space provider (a USB stick, `block::provider`) is opened uncached:
-/// the periodic flusher runs on the kernel task, which must never wait for
-/// `usbd`, and a stick can be pulled out, so its writes go straight through
-/// in the writer's own context. Everything else gets the write-back cache.
+/// user-space provider (a USB stick, `block::provider`) is opened without the
+/// write-back cache: the periodic flusher runs on the kernel task, which must
+/// never wait for `usbd`, and a stick can be pulled out, so its writes go
+/// straight through in the writer's own context. Its reads are cached by the
+/// disk itself, write-through (`block/provider/readcache.rs`). Everything
+/// else gets the write-back cache.
 fn open_ext2(device: &'static dyn BlockDevice) -> Result<ext2::Ext2, super::vfs::FsError> {
     if crate::block::provider::is_provider_device(device.name()) {
         ext2::Ext2::open(device)

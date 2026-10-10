@@ -24,8 +24,10 @@ mod nav;
 mod view;
 
 use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use xui_core::app::{App, Proxy, Ui};
@@ -60,6 +62,10 @@ pub struct ViewOptions {
     pub sort: SortOrder,
 }
 
+/// Where a paste worker leaves its answer: the folder it pasted into and what
+/// it did.
+type PasteSlot = Arc<Mutex<Option<(PathBuf, io::Result<crate::platform::Pasted>)>>>;
+
 /// One explorer window's messages.
 #[derive(Clone, Copy, Debug)]
 pub enum Msg {
@@ -86,6 +92,8 @@ pub enum Msg {
     Copy,
     /// Copy the clipboard's files into this folder (Ctrl+V).
     Paste,
+    /// The paste that ran on a worker thread finished.
+    PasteDone,
     /// The delete confirmation was answered.
     Confirm(TaskDialogAction),
     /// The properties dialog was dismissed.
@@ -146,8 +154,12 @@ pub struct ExplorerWindow {
     arrow_guard: Option<(Instant, Vec<usize>)>,
     /// This window's raw id, under which its view state is published.
     window: u64,
-    /// Reaches this window from the platform's drag hooks.
+    /// Reaches this window from the platform's drag hooks and worker threads.
     proxy: Proxy<Msg>,
+    /// A paste is running on a worker thread, and where it leaves its answer
+    /// (the folder it pasted into, and what it did).
+    pasting: bool,
+    pasted: PasteSlot,
     /// The selection, and the one before its latest change.
     selected: Vec<usize>,
     previous: Vec<usize>,
@@ -198,6 +210,8 @@ impl ExplorerWindow {
             arrow_guard: None,
             window: ui.window().raw(),
             proxy: ui.proxy(),
+            pasting: false,
+            pasted: Arc::default(),
             selected: Vec::new(),
             previous: Vec::new(),
         };
@@ -276,6 +290,7 @@ impl ExplorerWindow {
             Msg::FolderProperties => self.show_folder_properties(ui),
             Msg::Copy => self.copy_selection(),
             Msg::Paste => self.paste(ui),
+            Msg::PasteDone => self.paste_done(ui),
             Msg::Back => self.back(ui),
             Msg::Forward => self.forward(ui),
             Msg::Up => self.up(ui),

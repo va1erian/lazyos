@@ -71,6 +71,28 @@ Start a new Claude Code session so the tools load: `log_tail`, `list_tasks`,
 `dbgd_call`. The `lazyos-dbg` project skill (`.claude/skills/lazyos-dbg`)
 tells an agent how to use them for bring-up and driver debugging.
 
+### A window or the taskbar freezes: `UI:STALL`
+
+`dbgd` cannot see what a task waits on, so every `xui-app` program times the
+work that can hold its UI thread (`xui-app/src/stall.rs`) and prints a line
+for anything over 100 ms (a loop pass or a present, 150 ms):
+
+```
+UI:STALL kind=call ms=1840 at=123456 app=lazyshell thread=main what=iface=0x... method=3 deadline=... result=-110
+```
+
+`kind` is `call` (one Messenger call: interface id and method, so the
+service), `connect` (a service name that would not resolve), `chore` (one
+step of the shell's heartbeat, by name), `input`/`update`/`present` (the
+backend's parts of a pass), `pass` (the whole pass) or `scan` (the shell's
+desktop-folder scan on its worker thread, with the time per filesystem call:
+`open_dir`, `next`, `stat`, `meta`, `open`, `read`, `apps` as sum/worst in
+microseconds, plus the entry count). `at` is the PIT tick
+the work ended at; compare it with `sysinfo`'s `ticks` (100 Hz). Read them
+with `log --source programs --lines 2000 | grep UI:STALL`. At most 40 lines
+per 10 s per thread print, then `UI:STALL:SUPPRESSED n=<count>`. Map an
+interface id to its service with `idl/manifest.json`.
+
 ## 4. Troubleshooting
 
 | Symptom | Likely cause |

@@ -25,6 +25,7 @@
 mod ctx;
 mod deskdir;
 mod deskicons;
+mod deskscan;
 mod desktop;
 mod failures;
 mod heartbeat;
@@ -108,7 +109,9 @@ pub fn run() -> i32 {
         );
     }
     ctx.reload_menu();
-    ctx.reload_desktop(true);
+    // The desktop folder is scanned by the worker `DesktopApp::build` starts:
+    // on a slow volume the first scan (it also seeds the folder) took half a
+    // minute, and the taskbar was missing for all of it.
 
     loop {
         backend.set_next_role(SurfaceRole::Desktop);
