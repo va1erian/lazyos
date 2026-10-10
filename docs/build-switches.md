@@ -68,7 +68,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_NET` | The older, stack-less NIC demo (`netdrv` only). Implied by `LAZYOS_NETD`. | - |
 | `LAZYOS_NET_ARGS` | Build-time `netdrv` boot arguments for `LAZYOS_NET` images. | - |
 | `LAZYOS_NETFIX`, `LAZYOS_NETBULK` | Paths to harness fixtures (`netfix`, `netbulk`) embedded for `tools/net/run.py`. | - |
-| `LAZYOS_SOUND` | Sound driver and `audiod`. Always on in a desktop. | `--sound`, `--sound-card` |
+| `LAZYOS_SOUND` | Sound driver and `audiod`. Always on in a desktop. | `--sound` (`--sound-card` only picks the QEMU card) |
 | `LAZYOS_USB` | The `usbd` HID driver and USB mass storage. | - |
 | `LAZYOS_DEVD` | `0` keeps the static driver rows instead of starting `devd`. | `--no-devd` |
 | `LAZYOS_IRQCHIP` | `pic` keeps the 8259 for legacy lines (default `ioapic`). | `--irqchip` |
@@ -105,7 +105,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | Switch | Meaning | Front end |
 | --- | --- | --- |
 | `LAZYOS_LIMIT_<KEY>` | Kernel ceilings written to `lazyos.cfg`: `HEAP_MAX`, `FD_MAX`, `STACK_SIZE`, `QUOTA_USER_MEMORY`, `QUOTA_KERNEL_MEMORY`, `SHARED_BUFFER_MAX`. Sizes take `K/M/G/T`; `FD_MAX` is a count. See [architecture/limits.md](architecture/limits.md). | `--limit key=value` |
-| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi` |
+| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--display-mode WxH` |
 | `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2`: the default for `sys/ui/scale`. | - |
 | `LAZYOS_KBD_LAYOUT` | `us` (default) or `fr` (AZERTY). | - |
 
