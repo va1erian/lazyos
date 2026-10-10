@@ -237,7 +237,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // scripted session can query the new `services`/`health`/`log`
         // commands against the running supervisor (issue #93).
         #[cfg(all(services_mode, messengerctl_demo))]
-        spawn_program(fhs::bin::MESSENGERCTL, &[]);
+        spawn_program(fhs::bin::MESSENGERCTL, &["selftest"]);
 
         // Issue #89: `LAZYOS_MESSENGERD=1` starts the registry daemon before
         // the demo programs. It claims the bootstrap channel and serves name
@@ -248,7 +248,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         // `LAZYOS_MESSENGERCTL=1` swaps the hello window for the fabric
         // snapshot tool (issue #70); the default demo is unchanged.
         #[cfg(all(messengerctl_demo, not(services_mode)))]
-        spawn_program(fhs::bin::MESSENGERCTL, &[]);
+        spawn_program(fhs::bin::MESSENGERCTL, &["selftest"]);
         #[cfg(all(not(messengerctl_demo), not(services_mode), not(cli_mode)))]
         spawn_program(fhs::bin::HELLO, &[]);
         #[cfg(not(services_mode))]

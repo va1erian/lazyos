@@ -58,7 +58,7 @@ pub fn read_char_follows_redirected_stdin() -> Result<(), String> {
     task::harness::switch_current(child);
     let eof = process::dispatch_for_test(SYS_READ_CHAR, 0, 0, 0);
     check!(
-        eof == u64::from(b'\n'),
+        eof == u64::from(b'\n') | 1 << 8,
         "end of input gave {eof:#x}, wanted a newline"
     );
     Ok(())
@@ -81,7 +81,7 @@ pub fn read_char_leaves_seqpacket_messages_intact() -> Result<(), String> {
 
     let got = process::dispatch_for_test(SYS_READ_CHAR, 0, 0, 0);
     check!(
-        got == u64::from(b'\n'),
+        got == u64::from(b'\n') | 1 << 8,
         "seqpacket stdin gave {got:#x}, wanted the end-of-input newline"
     );
     let mut back = [0u8; 32];
