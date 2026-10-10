@@ -33,6 +33,8 @@ members = [
     "crates/pdfview",
     # The Calculator's engine and window (host-tested); `src/bin/calc.rs` runs it.
     "crates/calc",
+    # LazyGolf's generator, renderer and window; `src/bin/golf.rs` runs it.
+    "crates/golf",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
@@ -115,6 +117,9 @@ uitheme = { path = "../libs/uitheme" }
 xui-confd-editor = { path = "crates/confd-editor" }
 # The Calculator's engine and window; the `xui-calc` binary only launches it.
 xui-calc = { path = "crates/calc" }
+# LazyGolf (docs/golf-course-generator.md): the course generator, the software
+# renderer and the window; the `xui-golf` binary only launches it.
+xui-golf = { path = "crates/golf" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
@@ -209,6 +214,14 @@ opt-level = 3
 [profile.release.package.xui-canvas]
 opt-level = 3
 
+# LazyGolf's generator and 3D software renderer run every frame on one CPU.
+[profile.release.package.xui-golf]
+opt-level = 3
+
+# Its host tests generate whole courses: unoptimised they take minutes.
+[profile.dev.package.xui-golf]
+opt-level = 3
+
 [[bin]]
 name = "xui-settings"
 path = "src/bin/settings.rs"
@@ -271,3 +284,7 @@ path = "src/bin/netstatus.rs"
 [[bin]]
 name = "xui-netdrives"
 path = "src/bin/netdrives.rs"
+
+[[bin]]
+name = "xui-golf"
+path = "src/bin/golf.rs"

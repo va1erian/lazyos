@@ -167,6 +167,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "netstatus",
         // Network Drives: Mount FTP servers as folders under /mnt.
         "netdrives",
+        // LazyGolf: Fly over a procedurally generated golf course.
+        "golf",
     ];
     CORE.contains(&short_of(stem))
 }

@@ -129,6 +129,8 @@ BINS = {
     # workspace, built in the same invocation (`web_packages`).
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",
     WEB_PACKAGE: WEB_ELF,
+    # LazyGolf: Fly over a procedurally generated golf course.
+    "xui-golf": "xui-golf.elf",
 }
 
 

@@ -2,6 +2,49 @@
 
 A design for generating a playable 18-hole course from a seed, and for drawing it in the style of mid-90s PC golf games (Links 386 / Links LS, Microsoft Golf, PGA Tour 96 era): a 256-colour, dithered, painter's-algorithm view that builds up on screen after each shot, on top of the `xui-canvas` primitives.
 
+## Implementation status
+
+Implemented in `xui-app/crates/golf` (crate `xui-golf`) and shipped as the
+LazyGolf app (`os.lazy.golf`): every Part I stage (`src/gen/`) and Part II
+milestones 1-7 (`src/render/`, `src/minimap.rs`), with a free-flying camera
+instead of the shot sequence for now (milestones 8-9: ball physics, swing
+meter and scorecard are still to come). Where the code departs from this
+design:
+
+- **Depth buffer for everything.** Terrain is depth-tested too, so fly mode
+  draws chunks nearest first (hidden pixels are never shaded) and finishes a
+  frame in one step; *authentic* mode keeps the far-to-near progressive build.
+- **Shading per pixel from the 1 m cells.** The mesh gives only the shape;
+  material, light (bilinear within 60 m) and patterns come from one packed
+  word per cell, so low-detail distant chunks keep their detail.
+- **Resolution.** The framebuffer runs at the window's resolution divided by
+  an integer scale that adapts to the frame cost (under QEMU/WHPX a 1024x640
+  window renders at 1x at 30-60 fps).
+- **A seed names a search** (`src/gen/search.rs`, `src/gen/quality.rs`):
+  16 sites of the seed's archetype are scored from quarter-resolution
+  terrain previews (relief, undulation, playable ground), the best 3 are
+  built and routed twice each, and the routing that scores best is
+  finished. The score rewards relief (judged against what is normal for
+  the archetype), vistas from the tees, holes kept apart, variety of
+  directions, shapes and lengths, water in play and a full-length course,
+  and penalises blind shots, side-sloped landing zones and loosened
+  routing constraints. The routing cost itself also steers each hole away
+  from blind shots and side slopes, toward rolling ground with a view, and
+  toward 95 m between holes so trees can stand between them.
+- **Landmarks** (`src/gen/landmarks.rs`): after the land is raised, tall
+  knolls (long dune ridges on a links), rocky crags (a `Rock` material) and
+  stands of old-growth wood are set into it, and their cores are *blocked*:
+  no tee, green or line of play (with 18 m either side) may cross one. A
+  drawn hole that runs into a landmark is bent around it
+  (`src/gen/routing/detour.rs`: a dogleg corner beside the obstacle, the
+  length kept), straight par 4s and 5s cost the routing a little, and the
+  quality score rewards a course whose long holes mostly bend.
+- **Routing** splits the property into a front-nine and a back-nine half
+  around the clubhouse and guides each nine along an out-and-back loop of
+  waypoints; the closing holes pick their green near the clubhouse first.
+  Holes may bend twice (S-shaped par 5s), and fairways meander off the
+  centerline.
+
 ---
 
 ## Part I — Course generation

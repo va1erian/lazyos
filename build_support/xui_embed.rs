@@ -149,6 +149,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     // Volume, the tray applet over the mixer (docs/tray-plan.md T3): every
     // desktop image has the sound stack (`drivers::embed`).
     "xui-volume.elf",
+    // LazyGolf: Fly over a procedurally generated golf course.
+    "xui-golf.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build

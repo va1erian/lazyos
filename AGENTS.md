@@ -288,6 +288,27 @@ cargo test --manifest-path xui-app/Cargo.toml -p lazypdf -p xui-pdfview
 FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazypdf --release seeded
 ```
 
+## LazyGolf (`os.lazy.golf`)
+
+`xui-golf` is a core desktop app: a procedural 18-hole course generator and
+a mid-90s indexed-colour software renderer to fly over, both in the portable
+crate `xui-app/crates/golf` (`xui-golf`; the design is
+[`docs/golf-course-generator.md`](docs/golf-course-generator.md)). The bin
+only launches it; the crate's `golf` example runs the same app as a desktop
+window through xui's winit backend. Session:
+`tools/screenshot/examples/xui_golf.json` (`LAZYOS_XUI_AUTOSTART=golf`;
+markers `GOLF:UP:PASS`, `GOLF:READY:<seed>:par=<par>:ms=<ms>:<name>`,
+`GOLF:FPS:<fps>:scale=<n>:<w>x<h>:work=<ms>` once a second while drawing,
+`GOLF:BENCH:frames=<n>:min=<fps>:avg=<fps>` after the `B` flyover).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf   # generator, renderer, window (snapshots in xui-app/target/snapshots)
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator routing_survey -- --ignored --nocapture
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test generator quality_survey -- --ignored --nocapture   # plain seed vs search
+cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test render searched_views -- --ignored             # golf-search-*.png
+cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop [seed]
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
