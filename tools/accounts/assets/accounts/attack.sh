@@ -74,6 +74,12 @@ read_conf_store)
     out=$(cat /conf/store 2>&1 > /dev/null)
     res $? "$out"
     ;;
+read_keyd_secrets)
+    # keyd's machine key (and the secrets sealed under it) sit in /conf, root's
+    # alone (WP2). The content never reaches the Terminal.
+    out=$(cat /conf/svc/keyd/machine.key 2>&1 > /dev/null)
+    res $? "$out"
+    ;;
 read_home_admin)
     out=$(ls /home/admin 2>&1)
     res $? "$out"

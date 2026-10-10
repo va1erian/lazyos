@@ -61,6 +61,9 @@ delete a canary file, and remove whatever they created.
 | `read_conf_store` | `cat /conf/store`: confd's raw store (`sys/**`, every user's keys) is root's alone (review of #659, H1) |
 | `confd_sys` | rhai `sys::confd::set("sys/...")` |
 | `keyd_provision` | rhai `sys::keyd::provision(...)` |
+| `read_keyd_secrets` | `cat /conf/svc/keyd/machine.key`: keyd's machine key, with the secrets file beside it, is root's alone (WP2) |
+| `wifi_pmk` | rhai: `keyd` `WifiPmk` for admin's secret; the PMK is `wlanmd`'s alone (WP2) |
+| `wifi_system_store` | rhai: `keyd` `StoreSecret` in the `system` scope without `elevd`'s approval (WP2) |
 | `read_home_admin` | `ls /home/admin` |
 | `signal_service` | `kill -CONT` the `logd` service |
 | `autostart_root` | install `org.acct.autoprobe` (a package with `autostart`, as `user`); at the next login it must open in the session as `user`, never as root (judged from the verify boot's `INIT:AUTOSTART:*` lines) |

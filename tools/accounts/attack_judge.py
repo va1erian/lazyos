@@ -61,6 +61,7 @@ U0 = "#623"
 U1 = "#624"
 U2 = "#625"
 U3 = "U3 (brick-proofing, no issue yet)"
+WP2 = "WP2 (docs/wifi-prerequisites-plan.md)"
 #: What an installed package writes: its tree, its docs, confd's record.
 INSTALL_PATHS = ("/apps", "/docs/apps", "/conf")
 #: The detail a probe prints for EPERM with the service's policy text.
@@ -137,6 +138,12 @@ EXPECTATIONS: dict[str, Expect] = {
     # account's own layout is its owner's alone.
     "layout_machine": Expect("blocked", U2, ("/conf",)),
     "layout_other": Expect("blocked", U0, ("/conf",)),
+    # WP2 (docs/wifi-prerequisites-plan.md): keyd's named secrets. The PMK is
+    # wlanmd's alone, a machine-wide secret changes through elevd only, and
+    # the sealed file and its machine key are root's.
+    "wifi_pmk": Expect("blocked", WP2),
+    "wifi_system_store": Expect("blocked", WP2, ("/conf",)),
+    "read_keyd_secrets": Expect("blocked", WP2),
     "fork_bomb": Expect("xfail", U3),
     "disk_fill": Expect("xfail", U3, ("/home",)),
 }
