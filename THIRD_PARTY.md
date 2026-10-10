@@ -53,7 +53,7 @@ image under its own licence text. Every entry below records its origin
 | `cmac` 0.7.2 | RustCrypto, crates.io | MIT OR Apache-2.0, taken under MIT | `libs/crypto` (dependency) |
 | `dbl` 0.3.2 | RustCrypto, crates.io | MIT OR Apache-2.0, taken under MIT | `libs/crypto` (dependency of `cmac`) |
 | MediaTek `mt76` (mt7921/mt7925 family) reference | Linux `drivers/net/wireless/mediatek/mt76`, commit not yet pinned | BSD-3-Clause-Clear | not yet taken: planned for `wifid` (driver half of the Wi-Fi plan) |
-| OpenBSD `net80211` reference | OpenBSD `sys/net80211`, commit not yet pinned | ISC / BSD | not yet taken: planned as the reference for `libs/ieee80211` and `libs/eapol` |
+| OpenBSD `net80211` reference | OpenBSD `sys/net80211`, commit not yet pinned | ISC / BSD | not yet taken: `libs/ieee80211` and `libs/eapol` (WP3) were written from IEEE Std 802.11-2020 alone, with no OpenBSD or hostap file read; if structure is later derived from `ieee80211_input.c`, `ieee80211_pae_input.c`, `ieee80211_pae_output.c` or `ieee80211_crypto.c`, pin the commit here and name the file in a comment at the point of use |
 | `linux-firmware` MediaTek blobs (`WIFI_RAM_CODE_MT7925_*`, `WIFI_MT7925_PATCH_*`) with `LICENCE.mediatek` | `linux-firmware.git`, commit not yet pinned | MediaTek redistribution licence (not open source) | not yet taken: planned at `/system/share/firmware/mediatek/` (WP6), fetched by a hash-pinned tool, never linked into a binary |
 
 A row is updated, with the pinned commit and the file list, in the same
