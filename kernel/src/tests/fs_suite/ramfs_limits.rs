@@ -134,6 +134,30 @@ pub fn ramfs_node_cap_enospc() -> Result<(), String> {
     Ok(())
 }
 
+/// `/transient` stages the `.lzp` LazyRAD builds (its 7 MiB player deflates to
+/// about 3 MiB): a non-root user must be able to write one, far past the old
+/// 4 MiB filesystem cap and 2 MiB per-user share.
+pub fn ramfs_scratch_stages_a_package() -> Result<(), String> {
+    const PACKAGE: usize = 16 * 1024 * 1024;
+    let cap = crate::limits::scratch_max() as usize;
+    check!(
+        cap / 2 >= PACKAGE,
+        "a user's share of scratch_max ({cap}) cannot hold a {PACKAGE}-byte package"
+    );
+    let ram = RamFs::scratch();
+    let user = Id::new(1000, 1000);
+    ram.create("pkg.lzp", 0o644, user).map_err(fs_error)?;
+    let data = alloc::vec![0x5au8; PACKAGE];
+    check!(
+        ram.write("pkg.lzp", 0, &data).map_err(fs_error)? == PACKAGE,
+        "short write staging the package"
+    );
+    check!(ram.usage().0 == PACKAGE, "usage {:?}", ram.usage());
+    ram.unlink("pkg.lzp").map_err(fs_error)?;
+    check!(ram.usage() == (0, 1), "usage {:?} after unlink", ram.usage());
+    Ok(())
+}
+
 /// Soak: fill a default-capped ramfs to `NoSpace` and drain it, over and
 /// over. Accounting must never exceed the cap, and every drain must return
 /// the filesystem to its empty baseline (no stranded bytes or nodes).

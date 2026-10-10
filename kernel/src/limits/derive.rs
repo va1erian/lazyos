@@ -1,7 +1,7 @@
 //! Defaults derived from the machine: pure functions of RAM and screen size,
 //! so the test suite can check them for any machine shape.
 
-use super::{COUNT, KEYS, MIB};
+use super::{COUNT, GIB, KEYS, MIB};
 
 /// One full set of configurable limits, in [`super::Id`] order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +12,7 @@ pub struct Limits {
     pub quota_user_memory: u64,
     pub quota_kernel_memory: u64,
     pub shared_buffer_max: u64,
+    pub scratch_max: u64,
 }
 
 impl Limits {
@@ -24,6 +25,7 @@ impl Limits {
         quota_user_memory: 256 * MIB,
         quota_kernel_memory: 32 * MIB,
         shared_buffer_max: 16 * MIB,
+        scratch_max: 32 * MIB,
     };
 
     /// The defaults for a machine with `ram` usable bytes and a screen whose
@@ -35,11 +37,12 @@ impl Limits {
         // shares round down, screen-driven room rounds up.
         let down = |bytes: u64| bytes & !(MIB - 1);
         let up = |bytes: u64| bytes.saturating_add(MIB - 1) & !(MIB - 1);
+        let heap_max = down(ram / 2).max(heap_initial_bytes(ram));
         let limits = Limits {
             // Half of RAM: the heap holds ramfs files, file snapshots, the
             // console pixmap and every kernel object, but user memory needs
             // the other half. It only grows on demand.
-            heap_max: down(ram / 2).max(heap_initial_bytes(ram)),
+            heap_max,
             // Linux's default soft limit; the table grows on demand, so a
             // high ceiling costs nothing until a task opens that many.
             fd_max: base.fd_max,
@@ -59,6 +62,12 @@ impl Limits {
             shared_buffer_max: up(screen.saturating_mul(3))
                 .max(base.shared_buffer_max)
                 .min(down(ram / 4).max(base.shared_buffer_max)),
+            // A package staged in `/transient` is the largest thing the
+            // scratch area holds (the LazyRAD player alone is 7 MiB), and
+            // the files live in the kernel heap: 1 GiB, but never more than
+            // half the heap ceiling, so a full `/tmp` leaves the kernel
+            // room for its own objects.
+            scratch_max: GIB.min(down(heap_max / 2)).max(base.scratch_max),
         };
         limits.clamped()
     }
@@ -72,6 +81,7 @@ impl Limits {
             self.quota_user_memory,
             self.quota_kernel_memory,
             self.shared_buffer_max,
+            self.scratch_max,
         ]
     }
 
@@ -84,7 +94,7 @@ impl Limits {
                 *value &= !0xfff;
             }
         }
-        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max] =
+        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max, scratch_max] =
             values;
         Limits {
             heap_max,
@@ -93,6 +103,7 @@ impl Limits {
             quota_user_memory,
             quota_kernel_memory,
             shared_buffer_max,
+            scratch_max,
         }
     }
 }

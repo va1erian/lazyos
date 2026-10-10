@@ -57,6 +57,7 @@ off, where a lock could deadlock against a preempted holder (the #382 class).
 | `quota_user_memory` | Per-uid user memory (mappings, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)` | 16 MiB .. 1 TiB |
 | `quota_kernel_memory` | Per-uid kernel memory (shared buffers), non-root | `max(32 MiB, r/8, 8s)`, at most `max(32 MiB, r/2)` | 4 MiB .. 1 TiB |
 | `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 3s)`, at most `max(16 MiB, r/4)` | 8 MiB .. 64 GiB |
+| `scratch_max` | File bytes the in-memory scratch filesystem (`/transient` and `/tmp`, one instance) holds; a non-root uid may hold half | `min(1 GiB, heap_max / 2)`, at least 32 MiB | 4 MiB .. 64 GiB |
 
 What that gives (screen 1280x720 unless stated):
 
