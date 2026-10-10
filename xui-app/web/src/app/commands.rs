@@ -97,7 +97,14 @@ impl Browser {
             Command::About => self.open(ABOUT),
             Command::OpenLink => {
                 if let Some(link) = self.context.link().map(str::to_string) {
-                    self.open(&link);
+                    // As a click does: a page command is run, not navigated
+                    // to; everything else is opened, and the view hands a
+                    // scheme it cannot show to `launch` itself.
+                    if PageCommand::parse(&link).is_some() {
+                        self.launch(&link, true);
+                    } else {
+                        self.open(&link);
+                    }
                 }
             }
             Command::CopyLink => {
