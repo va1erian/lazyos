@@ -115,13 +115,14 @@ impl Controller {
     }
 
     /// Serve the kernel's pending requests to this controller's sticks
-    /// (`msc.rs`), one per stick; returns whether any was served.
-    pub(super) fn serve_storage(&mut self) -> bool {
+    /// (`msc.rs`), one per stick; returns whether any was served. `trace`:
+    /// report every request (`USBD:MSC:REQ`), not only the failed and slow.
+    pub(super) fn serve_storage(&mut self, trace: bool) -> bool {
         let mut served = false;
         for node in &mut self.nodes {
             for function in &mut node.functions {
                 if let Function::Msc(msc) = function {
-                    served |= msc.serve(&mut self.hc, &mut node.device, 0);
+                    served |= msc.serve(&mut self.hc, &mut node.device, 0, trace);
                 }
             }
         }
@@ -131,12 +132,12 @@ impl Controller {
     /// Idle: wait up to a tick for a request to this controller's first
     /// live stick (instead of a plain nap, so it is served at once).
     /// Returns whether there was a stick to wait on.
-    pub(super) fn wait_storage(&mut self) -> bool {
+    pub(super) fn wait_storage(&mut self, trace: bool) -> bool {
         for node in &mut self.nodes {
             for function in &mut node.functions {
                 if let Function::Msc(msc) = function {
                     if msc.live() {
-                        msc.serve(&mut self.hc, &mut node.device, sys::clock() + 1);
+                        msc.serve(&mut self.hc, &mut node.device, sys::clock() + 1, trace);
                         return true;
                     }
                 }

@@ -5,7 +5,9 @@
 //! controller through the device syscall (23) (a desktop has a chipset one
 //! and often a CPU-side or add-in one), takes each from the BIOS, maps BAR
 //! 0, allocates DMA memory for the rings and contexts, and drives them with
-//! `libs/xhci` by polling. Each connected port, on the root hub or on an
+//! `libs/xhci`, waiting on each controller's interrupt for events (a
+//! bounded poll as the fallback; `irq.rs`, issue #719). Each connected
+//! port, on the root hub or on an
 //! external hub, is reset and its device addressed and bound to its class
 //! (`usbd/class.rs`): a boot keyboard or mouse (any interface of a composite
 //! device) or a report-protocol pointer is published onto the raw input bus
@@ -214,7 +216,7 @@ fn run() -> Result<(), Error> {
         "USBD:READY devices={devices} controllers={}\n",
         controllers.len()
     ));
-    let mut irq_buf = alloc::vec![0u8; 256];
+    let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
     let mut dump = Dump::new();
     dump.write(&mut controllers, true);
     loop {
@@ -224,12 +226,16 @@ fn run() -> Result<(), Error> {
         let mut busy = false;
         for controller in &mut controllers {
             busy |= controller.poll(&settings);
-            busy |= controller.serve_storage();
+            busy |= controller.serve_storage(settings.trace);
         }
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
         dump.write(&mut controllers, busy);
-        if !busy && !controllers.iter_mut().any(Controller::wait_storage) {
+        if !busy
+            && !controllers
+                .iter_mut()
+                .any(|controller| controller.wait_storage(settings.trace))
+        {
             irq::park(&controllers);
         }
     }

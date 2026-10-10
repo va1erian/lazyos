@@ -5,7 +5,8 @@
 //!
 //! Each transfer is one Normal TRB of at most 64 KiB from a window that
 //! never crosses a 64 KiB boundary (`Hc::bulk`), waited for synchronously
-//! up to the link's [`Patience`]; events of other endpoints stay queued for
+//! (parked on the claim's interrupt, `irq::wait_event`, issue #719) up to
+//! the link's [`Patience`]; events of other endpoints stay queued for
 //! the dispatcher. Serving a request, a transfer may take
 //! [`SERVE_TRANSFER_TICKS`] (a real stick stalls a write for seconds while
 //! its flash reorganises; Linux allows a SCSI command 30 s), and the whole

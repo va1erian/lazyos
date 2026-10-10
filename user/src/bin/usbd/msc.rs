@@ -16,9 +16,10 @@
 //! Serial evidence: `USBD:MSC:DISK` (registered), `USBD:MSC:SKIP` (a
 //! mass-storage interface this driver does not serve), `USBD:MSC:FAIL`,
 //! `USBD:MSC:GONE`, and for real-hardware diagnosis (issue #704)
-//! `USBD:MSC:REQ` (a request that failed or took over 2 s: its op, range,
-//! time, and the stalls and resets the transport went through) after the
-//! `USBD:MSC:XFER` lines of its failed transfers (`msc_link.rs`).
+//! `USBD:MSC:REQ` (a request that failed or took over 2 s, and with
+//! `trace=1` every request: its op, range, time, and the stalls and resets
+//! the transport went through) after the `USBD:MSC:XFER` lines of its
+//! failed transfers (`msc_link.rs`).
 
 use alloc::format;
 use alloc::vec::Vec;
@@ -38,7 +39,8 @@ use super::Error;
 const BLOCK: usize = 512;
 /// Flush a stick this long (100 Hz) after its last write.
 const FLUSH_IDLE_TICKS: u64 = 100;
-/// A request that took this long (or failed) is reported (`USBD:MSC:REQ`).
+/// A request that took this long (or failed) is reported (`USBD:MSC:REQ`);
+/// `trace=1` reports every one.
 const SLOW_MS: u64 = 2000;
 
 /// One Bulk-Only interface and, once started, the kernel's disk on it.
@@ -151,15 +153,22 @@ impl Msc {
     }
 
     /// Take and run one request, waiting for it until `deadline` (0: not at
-    /// all); then flush if the stick sat written-to and idle. Returns
-    /// whether a request was served.
-    pub(super) fn serve(&mut self, hc: &mut Hc, device: &mut Device, deadline: u64) -> bool {
+    /// all); then flush if the stick sat written-to and idle. `trace`
+    /// reports every request (`USBD:MSC:REQ`), not only the failed and slow.
+    /// Returns whether a request was served.
+    pub(super) fn serve(
+        &mut self,
+        hc: &mut Hc,
+        device: &mut Device,
+        deadline: u64,
+        trace: bool,
+    ) -> bool {
         if !self.live() {
             return false;
         }
         let served = match sys::storage_next(self.id, &mut self.buffer, deadline) {
             Ok(Some(request)) => {
-                self.run(hc, device, request);
+                self.run(hc, device, request, trace);
                 true
             }
             Ok(None) => false,
@@ -179,7 +188,7 @@ impl Msc {
         served
     }
 
-    fn run(&mut self, hc: &mut Hc, device: &mut Device, request: StorageRequest) {
+    fn run(&mut self, hc: &mut Hc, device: &mut Device, request: StorageRequest, trace: bool) {
         let bytes = request.bytes as usize;
         let id = self.id;
         let Msc {
@@ -198,7 +207,7 @@ impl Msc {
             pipes,
             patience: Patience::request(),
         };
-        let started = sys::clock();
+        let started = sys::monotonic_ms();
         let before = disk.bot.stats;
         let result = recover_pending(&mut link, reset_pending).and_then(|()| {
             match (request.op, buffer.get_mut(..bytes)) {
@@ -211,8 +220,8 @@ impl Msc {
         });
         let result = out_of_time(result, &link, reset_pending);
         let after = disk.bot.stats;
-        let ms = sys::clock().saturating_sub(started) * 10;
-        if result.is_err() || ms >= SLOW_MS {
+        let ms = sys::monotonic_ms().saturating_sub(started);
+        if trace || result.is_err() || ms >= SLOW_MS {
             sys::write_str(&format!(
                 "USBD:MSC:REQ id=usb{id} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}\n",
                 op_name(request.op),

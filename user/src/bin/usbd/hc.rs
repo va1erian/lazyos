@@ -3,10 +3,11 @@
 //! 4.2, 4.6, 4.9, 4.22.1).
 //!
 //! The event ring is read on every loop pass and after every doorbell, and
-//! interrupter 0 raises the claim's interrupt line when an event lands, so an
-//! idle driver sleeps until then (`irq.rs`, P3.7). Events nobody is waiting
-//! for yet (a transfer completing while a command runs, a port change) are
-//! kept in a queue and handed out later.
+//! interrupter 0 raises the claim's interrupt line when an event lands, so
+//! an idle driver sleeps until then and an event wait (a command or a
+//! transfer in flight) parks on it (`irq.rs`, P3.7, issue #719). Events
+//! nobody is waiting for yet (a transfer completing while a command runs,
+//! a port change) are kept in a queue and handed out later.
 
 use alloc::collections::VecDeque;
 use alloc::vec;
