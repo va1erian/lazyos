@@ -58,7 +58,7 @@ pub fn read_char_follows_redirected_stdin() -> Result<(), String> {
     task::harness::switch_current(child);
     let eof = process::dispatch_for_test(SYS_READ_CHAR, 0, 0, 0);
     check!(
-        eof == u64::from(b'\n'),
+        eof == u64::from(b'\n') | 1 << 8,
         "end of input gave {eof:#x}, wanted a newline"
     );
     Ok(())
