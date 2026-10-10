@@ -204,8 +204,13 @@ fn each_frame_is_written_into_the_last_frames_buffer() {
     let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
     let (w, h) = (320, 200);
     let mut now = Instant::now();
+    // Generation runs on a worker thread; a failed one must fail the test,
+    // not hang it.
+    let deadline = Instant::now() + Duration::from_secs(120);
     while game.run.is_none() {
+        assert!(Instant::now() < deadline, "generation did not finish");
         game.tick(w, h, now);
+        std::thread::sleep(Duration::from_millis(5));
     }
     now += Duration::from_millis(20);
     game.tick(w, h, now);
