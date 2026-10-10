@@ -124,6 +124,17 @@ interfaces"). Where it differs from the draft above:
   choice* (no per-route "dead" flag is needed). `Reattach`/driver restarts are
   not link changes.
 - *A configuration change rebuilds that interface*, not `netd`.
+- *The Network app's Apply goes through `elevd`* (`net.config`: card, address,
+  gateway, DNS; an empty address is DHCP). A session cannot write `sys/**`
+  (accounts U0-U2), which is why Apply had failed (`NETAPP:APPLY:FAIL`) since
+  then. The operation exists, instead of one `conf.set` per key, so the
+  administrator gets one prompt that names the card and the change, and `elevd`
+  writes the keys in the order `netd` needs (values first, `mode` last).
+  `tools/screenshot/examples/net_config.json` (`--net --nics 2`) approves it as
+  `admin` on both cards, goes back to DHCP on `eth1`, and cancels one prompt.
+  A rebuilt stack restarts its epoch at 0, so `netd`'s publisher also compares
+  the address when deciding to announce (a static address replacing a lease
+  with the same epoch was never announced).
 - *Hot-unplug cannot be shown with QEMU's `device_del` today*: the guest has no
   PCI hot-plug handler, so the eject request is never completed and the card
   stays. The detach path (a name gone from the registry for 3 s removes the

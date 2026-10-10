@@ -76,6 +76,24 @@ impl Operation {
                     text::quoted(value, VALUE_SHOWN)
                 )
             }
+            Operation::NetConfig {
+                card,
+                address,
+                gateway,
+                dns,
+            } => {
+                if address.is_empty() {
+                    return format!("Set the network card {card} to DHCP");
+                }
+                let mut text = format!("Set the network card {card} to {address}");
+                if !gateway.is_empty() {
+                    text.push_str(&format!(", gateway {gateway}"));
+                }
+                if !dns.is_empty() {
+                    text.push_str(&format!(", DNS {dns}"));
+                }
+                text
+            }
             Operation::ServiceRestart { name } => format!("Restart the system service '{name}'"),
         }
     }

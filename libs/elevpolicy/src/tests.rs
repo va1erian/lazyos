@@ -14,7 +14,7 @@ fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
 
 #[test]
 fn every_row_parses_and_round_trips() {
-    let rows: [(&str, &[&str]); 15] = [
+    let rows: [(&str, &[&str]); 17] = [
         ("pkg.install", &["/transient/demo.lzp"]),
         ("pkg.update-core", &["/home/user/counter.lzp"]),
         ("pkg.remove", &["org.lazy.demo"]),
@@ -29,6 +29,11 @@ fn every_row_parses_and_round_trips() {
         ("account.admin", &["bob", "1"]),
         ("account.password", &["bob", "n3w"]),
         ("power.policy", &["button", "shutdown"]),
+        (
+            "net.config",
+            &["eth1", "10.0.3.50/24", "10.0.3.2", "10.0.3.3"],
+        ),
+        ("net.config", &["eth0", "", "", ""]),
         ("service.restart", &["inputd"]),
     ];
     for (name, items) in rows {
@@ -37,12 +42,12 @@ fn every_row_parses_and_round_trips() {
         assert_eq!(Operation::parse(name, &op.args()), Ok(op.clone()), "{name}");
         assert!(!op.summary().is_empty());
     }
-    assert_eq!(NAMES.len(), 15);
+    assert_eq!(NAMES.len(), 16);
 }
 
 #[test]
 fn bad_arguments_are_refused() {
-    let cases: [(&str, &[&str]); 16] = [
+    let cases: [(&str, &[&str]); 21] = [
         ("rm -rf", &[]),
         ("pkg.install", &["relative.lzp"]),
         ("pkg.install", &["/a/../b.lzp"]),
@@ -59,6 +64,11 @@ fn bad_arguments_are_refused() {
         ("account.delete", &["bob", "shred"]),
         ("account.admin", &["bob", "yes"]),
         ("service.restart", &["../init"]),
+        ("net.config", &["Eth0", "", "", ""]),
+        ("net.config", &["eth0", "10.0.0.5", "", ""]),
+        ("net.config", &["eth0", "10.0.0.5/31", "", ""]),
+        ("net.config", &["eth0", "", "10.0.0.1", ""]),
+        ("net.config", &["eth0", "10.0.0.5/24", "gw", ""]),
     ];
     for (name, items) in cases {
         assert!(parse(name, items).is_err(), "{name} {items:?} was accepted");

@@ -90,6 +90,7 @@ def make_vars() -> dict:
         "net": b(value=False),
         "net_forwards": s(value=""),
         "net_restrict": b(value=False),
+        "nics": s(value="1"),
         "simple_net": b(value=False),
         "linuxapps": b(value=False),
         "simple_linuxapps": b(value=False),

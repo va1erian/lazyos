@@ -266,6 +266,14 @@ harness marks with the host clock:
 `python tools/net/test_multi_judge.py` shows the judge fails when it should: traffic or DNS on the
 wrong card, a half DHCP exchange, a link that came back without restarting DHCP.
 
+The Network app's Apply changes one card's `sys/net/<card>/*` through `elevd`'s `net.config` (an
+administrator approves the prompt, which names the card and the address).
+`python tools/screenshot/qemu_session.py --image target/lazyos.img --net --nics 2 --out shots/net_config
+--script tools/screenshot/examples/net_config.json` (image: `LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term
+LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 LAZYOS_UI_PROBE=1 LAZYOS_RESET_OS=1`) drives it: `eth0` and `eth1`
+static (`NETD:ADDR ... source=static if=ethN`), `eth1` back to DHCP and renewed, then a cancelled prompt
+(`NETAPP:APPLY:FAIL`).
+
 For an interactive or screenshot boot with several cards, `python tools/run_demo.py --net --nics 2` (and
 `qemu_session.py --net --nics 2`) attaches the second card on its own user network (10.0.3.0/24,
 MAC 52:54:00:12:34:57); `qemu_net.py` builds the arguments.

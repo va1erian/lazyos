@@ -435,7 +435,7 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   no root, no capability, not even to a child. A program asks `elevd` for one
   **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
   `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
-  `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
+  `net.config`, `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
   no capability) performs it itself once an administrator approved, and the
   services accept that path from its kernel-stamped identity alone.
 - Elevation always prompts: `xuid` draws the prompt over a dimmed screen,
