@@ -579,7 +579,7 @@ Not callable from a script (the request carries a kernel object): `AttachRing`.
 
 | Topic | Payload | Helpers |
 |---|---|---|
-| `system/net/{nic}/link` | `LinkEvent` | `link_topic(nic)`, `on_link(nic, handler)`, `subscribe_link(nic)`, `publish_link(nic, payload)` |
+| `system/net/{ifname}/link` | `LinkEvent` | `link_topic(ifname)`, `on_link(ifname, handler)`, `subscribe_link(ifname)`, `publish_link(ifname, payload)` |
 
 ## `sys::net_stack`
 

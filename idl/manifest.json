@@ -1333,7 +1333,7 @@
     "topics": [
       {
         "name": "system/net/+/link",
-        "source": "system/net/{nic}/link",
+        "source": "system/net/{ifname}/link",
         "payload": "LinkEvent",
         "qos": "latest",
         "retained": true,

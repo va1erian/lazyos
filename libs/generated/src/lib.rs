@@ -11652,7 +11652,7 @@ pub mod os_lazy_net_nic_v1 {
     /// Rings poisoned by a peer that broke the protocol, plus device
     /// used-ring entries the driver rejected.
     /// Interrupt messages the driver handled (0 when polling).
-    /// The payload of `system/net/{nic}/link`.
+    /// The payload of `system/net/{ifname}/link`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LinkEvent {
         pub up: bool,
@@ -11997,7 +11997,9 @@ pub mod os_lazy_net_nic_v1 {
     /// Link changes since the driver started, so a subscriber can tell a
     /// flap from a repeat.
     /// Published by the driver whenever the link changes, and once at start.
-    /// `{nic}` is the driver's card name (`virtio-net0`).
+    /// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
+    /// same name as `system/net/{ifname}/addr`: two cards of one model must
+    /// not share a retained topic.
     /// The declared `system/net/+/link` topic (`LinkEvent`, `latest`, retained).
     pub const TOPIC_SYSTEM_NET_LINK: &str = "system/net/+/link";
     /// The `system/net/+/link` delivery policy.
@@ -12006,8 +12008,8 @@ pub mod os_lazy_net_nic_v1 {
     pub const TOPIC_SYSTEM_NET_LINK_RETAINED: bool = true;
 
     /// Build the concrete `system/net/+/link` name; each wildcard takes one literal segment.
-    pub fn name_system_net_link(nic: &str) -> Result<String, topics::TopicError> {
-        topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Publish)
+    pub fn name_system_net_link(ifname: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Publish)
     }
 
     /// Encode a `LinkEvent` payload for `system/net/+/link`.
@@ -12021,24 +12023,24 @@ pub mod os_lazy_net_nic_v1 {
     }
 
     /// Publish a typed `LinkEvent` on `system/net/+/link`.
-    pub fn publish_system_net_link<P>(publisher: &mut P, nic: &str, value: &LinkEvent) -> Result<u64, P::Error>
+    pub fn publish_system_net_link<P>(publisher: &mut P, ifname: &str, value: &LinkEvent) -> Result<u64, P::Error>
     where
         P: topics::Publish,
         P::Error: From<topics::TopicError>,
     {
-        let topic = name_system_net_link(nic).map_err(P::Error::from)?;
+        let topic = name_system_net_link(ifname).map_err(P::Error::from)?;
         let payload = encode_system_net_link(value)
             .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
         publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_LINK_RETAINED)
     }
 
     /// Subscribe to `system/net/+/link` with its declared QoS.
-    pub fn subscribe_system_net_link<S>(subscriber: &mut S, nic: &str) -> Result<S::Subscription, S::Error>
+    pub fn subscribe_system_net_link<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
     where
         S: topics::Subscribe,
         S::Error: From<topics::TopicError>,
     {
-        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Subscribe)
+        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)
     }

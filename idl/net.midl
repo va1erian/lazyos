@@ -140,7 +140,7 @@ interface os.lazy.net.nic.v1 {
         link_changes: U32 = 11
     }
 
-    /// The payload of `system/net/{nic}/link`.
+    /// The payload of `system/net/{ifname}/link`.
     struct LinkEvent {
         up: Bool = 1,
         /// Link changes since the driver started, so a subscriber can tell a
@@ -149,8 +149,10 @@ interface os.lazy.net.nic.v1 {
     }
 
     /// Published by the driver whenever the link changes, and once at start.
-    /// `{nic}` is the driver's card name (`virtio-net0`).
-    topic "system/net/{nic}/link" : LinkEvent retained qos=latest;
+    /// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
+    /// same name as `system/net/{ifname}/addr`: two cards of one model must
+    /// not share a retained topic.
+    topic "system/net/{ifname}/link" : LinkEvent retained qos=latest;
 
     /// Reasons for a `Notify`; ordinals are the `events` bit numbers, so new
     /// ones are append-only. `RxReady`: frames arrived in the receive ring.

@@ -2207,7 +2207,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "LinkEvent",
-                doc: "Frames dropped on receive for any reason (no ring, ring full, and\nthe invalid frames below).\nFrames dropped on transmit for any reason (queue full, and the\ninvalid frames below).\nFrames shorter than the 14-byte Ethernet header, either direction.\nFrames longer than `max_frame`, either direction.\nRings poisoned by a peer that broke the protocol, plus device\nused-ring entries the driver rejected.\nInterrupt messages the driver handled (0 when polling).\nThe payload of `system/net/{nic}/link`.",
+                doc: "Frames dropped on receive for any reason (no ring, ring full, and\nthe invalid frames below).\nFrames dropped on transmit for any reason (queue full, and the\ninvalid frames below).\nFrames shorter than the 14-byte Ethernet header, either direction.\nFrames longer than `max_frame`, either direction.\nRings poisoned by a peer that broke the protocol, plus device\nused-ring entries the driver rejected.\nInterrupt messages the driver handled (0 when polling).\nThe payload of `system/net/{ifname}/link`.",
                 fields: &[Field { name: "up", id: 1, ty: Ty::Bool }, Field { name: "changes", id: 2, ty: Ty::U32 }],
             },
         ],
@@ -2222,7 +2222,7 @@ pub static INTERFACES: &[Interface] = &[
                 payload: "LinkEvent",
                 qos: 0,
                 retained: true,
-                doc: "Link changes since the driver started, so a subscriber can tell a\nflap from a repeat.\nPublished by the driver whenever the link changes, and once at start.\n`{nic}` is the driver's card name (`virtio-net0`).",
+                doc: "Link changes since the driver started, so a subscriber can tell a\nflap from a repeat.\nPublished by the driver whenever the link changes, and once at start.\n`{ifname}` is the interface name `devd` gave the card (`eth0`), the\nsame name as `system/net/{ifname}/addr`: two cards of one model must\nnot share a retained topic.",
             },
         ],
     },

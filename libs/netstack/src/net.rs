@@ -77,6 +77,10 @@ pub enum AddError {
 
 /// One interface.
 pub struct Unit {
+    /// Never reused, unlike the slot and the name: an interface rebuilt in
+    /// the same slot under the same name (a configuration change) is a new
+    /// instance, and its stack's epoch starts again from zero.
+    pub id: u64,
     pub name: String,
     pub kind: IfKind,
     /// The default-route metric ([`IfKind::metric`] unless changed).
@@ -157,7 +161,10 @@ impl Net {
         if name.is_empty() || name.len() > 15 || self.slot_of(name).is_some() {
             return Err(AddError::BadName);
         }
+        // `generation` only grows, and every add bumps it below, so it
+        // doubles as the instance id.
         let unit = Unit {
+            id: self.generation + 1,
             name: String::from(name),
             kind,
             metric: kind.metric(),

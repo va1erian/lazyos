@@ -270,8 +270,9 @@ fn park_on(card: &Card, server: &Endpoint, deadline: u64) {
     }
 }
 
-/// Publish the retained link topic, connecting to the broker on first use.
-fn publish_link(bus: &mut Option<central::Bus>, service: &Service) {
+/// Publish the retained link topic under the card's interface name (two cards
+/// of one model share `card.name`), connecting to the broker on first use.
+fn publish_link(bus: &mut Option<central::Bus>, service: &Service, ifname: &str) {
     if bus.is_none() {
         *bus = central::Bus::connect().ok();
     }
@@ -280,7 +281,7 @@ fn publish_link(bus: &mut Option<central::Bus>, service: &Service) {
         up: service.card.engine.link(),
         changes: service.card.engine.stats().link_changes,
     };
-    let _ = wire::publish_system_net_link(bus, service.card.name, &event);
+    let _ = wire::publish_system_net_link(bus, ifname, &event);
 }
 
 /// Serve `os.lazy.net.nic.v1` for the life of the driver.
@@ -293,7 +294,7 @@ fn serve(
 ) -> Result<(), Error> {
     let fail = |error: MsgError| Error::Messenger(error.message());
     let mut bus = None;
-    publish_link(&mut bus, &service);
+    publish_link(&mut bus, &service, &args.ifname);
     let mut published_changes = service.card.engine.stats().link_changes;
     let poll_ticks = u64::from(settings.poll_interval_ms).div_ceil(10).max(1);
     let irq = service.card.irq_armed();
@@ -327,7 +328,7 @@ fn serve(
         let changes = service.card.engine.stats().link_changes;
         if changes != published_changes {
             published_changes = changes;
-            publish_link(&mut bus, &service);
+            publish_link(&mut bus, &service, &args.ifname);
         }
         if sys::clock() >= next_refresh {
             next_refresh = sys::clock() + config::REFRESH_TICKS;
