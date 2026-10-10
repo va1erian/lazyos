@@ -73,20 +73,30 @@ real PC with two ports.
 - **Discovery.** `netd` watches the registry (or a `system/devices/*` topic
   from `devd`) and attaches to each NIC that appears, detaches from one
   that vanishes. A dongle pulled out is an interface removed, not an error.
-- **Stack.** One smoltcp `Interface` per NIC, each with its own DHCP
-  socket, sharing one socket set. smoltcp routes by interface only if told
-  to, so `netd` owns the choice: a socket is bound to the interface its
-  route lookup picks at `connect`/first send.
+- **Stack.** One smoltcp `Interface` per NIC, **each with its own socket set**
+  (DHCP, ICMP and DNS sockets included), and a `netstack::Net` above them that
+  owns the socket table and the choice of interface. The first draft shared
+  one socket set; the spike (below, risk 1) showed smoltcp cannot do that.
+  `Net` picks the interface by route when a socket first needs one (TCP
+  `connect`, each UDP `send_to`, a ping, a lookup); a listener or a UDP socket
+  bound to "any" address gets one smoltcp socket per interface (a replica,
+  created again for an interface that appears later) so it serves all of
+  them. The Linux `AF_INET` shim goes through the same `Net` calls.
 - **Routes.** One default route per interface with a metric: wired 100,
   wireless 600 (the NetworkManager convention), so a cable wins when both
   are up and the Wi-Fi takes over when it is pulled. `Routes` already
   exists; it lists all of them.
 - **DNS.** Servers from the interface holding the best default route;
   `/etc/resolv.conf` (`netd/resolvfile.rs`) rewritten when that changes.
-- **Link changes.** Link down: keep the lease, mark the routes dead. Link
-  up: DHCP INIT-REBOOT (RFC 2131 §3.2), because a Wi-Fi link that comes
-  back may be a different network. Wired links do the same, which is also
-  correct for a cable moved between switches.
+- **Link changes.** Link down: keep the lease, mark the interface dead
+  (no routes, no DNS, no new sockets on it). Link up: restart DHCP discovery,
+  because a Wi-Fi link that comes back may be a different network. smoltcp's
+  DHCP client has no INIT-REBOOT (RFC 2131 section 3.2: it only has
+  `reset()`, which drops the lease and broadcasts a DISCOVER), so the address
+  is lost for the moment a DISCOVER/OFFER/REQUEST/ACK takes, and a server that
+  remembers the client re-offers the same address. Static interfaces keep
+  their address. Wired links do the same, which is also correct for a cable
+  moved between switches.
 - **Config and topics.** Already keyed by interface (`sys/net/<if>/*`,
   `system/net/<if>/*`); the work is removing the constant, plus a
   retained `system/net/interfaces` list.
@@ -319,11 +329,18 @@ milestone that matters ("Wi-Fi works in CI except for the radio").
 
 ## 5. Risks and open questions
 
-1. **smoltcp and several interfaces.** smoltcp's `Interface` is per device
-   and the socket set can be shared, but outgoing interface selection is
-   the caller's. If binding sockets to an interface at first send proves
-   awkward for listening sockets and the Linux shim, WP1 grows. Spike it
-   first with two virtio-net cards.
+1. **smoltcp and several interfaces. Spiked 2026-10-10; the answer is no.**
+   `libs/netstack/tests/shared_socket_set.rs` runs two `Interface`s over one
+   `SocketSet` on smoltcp 0.14. There is no binding of a socket to an
+   interface: whichever interface polls first takes a ready socket's packet
+   (`socket_egress` calls `socket.dispatch`, which advances the socket's
+   state, before the interface consults its routes), routes it with its own
+   table and never checks that the source address is its own. A UDP socket
+   bound to A's address left through B with A's source address, and one DHCP
+   socket in a shared set served only one of two interfaces. So the set is per
+   interface and `netstack::Net` selects the interface (section 3.1); the
+   cost is the replicas of wildcard sockets. The tests fail if a smoltcp
+   upgrade ever changes this. smoltcp also has no INIT-REBOOT (section 3.1).
 2. **The simulator's fidelity.** It proves the station stack against an
    independent AP, not against a real chip's firmware quirks (scan offload
    timing, MCU events arriving out of order). The `wifi.hw.v1` contract
