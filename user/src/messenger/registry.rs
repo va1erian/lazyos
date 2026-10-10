@@ -45,6 +45,12 @@ pub struct Entry {
     pub interfaces: Vec<u64>,
     /// Remaining lease ticks; `0` when permanent.
     pub lease_remaining: u64,
+    /// The owner's uid, stamped by the kernel when the list was made.
+    pub owner_uid: u64,
+    /// The owner's label id (`0` unlabelled).
+    pub owner_label: u64,
+    /// The owner's login session (`0` for a system service).
+    pub owner_session: u64,
 }
 
 impl From<wire::Entry> for Entry {
@@ -55,6 +61,9 @@ impl From<wire::Entry> for Entry {
             owner_slot: entry.owner,
             interfaces: entry.interfaces,
             lease_remaining: entry.lease_remaining,
+            owner_uid: entry.owner_uid,
+            owner_label: entry.owner_label,
+            owner_session: entry.owner_session,
         }
     }
 }
@@ -67,6 +76,9 @@ impl From<&Entry> for wire::Entry {
             owner: entry.owner_slot,
             interfaces: entry.interfaces.clone(),
             lease_remaining: entry.lease_remaining,
+            owner_uid: entry.owner_uid,
+            owner_label: entry.owner_label,
+            owner_session: entry.owner_session,
         }
     }
 }

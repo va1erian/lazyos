@@ -2875,7 +2875,7 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "Entry",
                 doc: "One registered name.",
-                fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "object", id: 2, ty: Ty::U64 }, Field { name: "owner", id: 3, ty: Ty::U64 }, Field { name: "interfaces", id: 4, ty: Ty::Array(&Ty::U64) }, Field { name: "lease_remaining", id: 5, ty: Ty::U64 }],
+                fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "object", id: 2, ty: Ty::U64 }, Field { name: "owner", id: 3, ty: Ty::U64 }, Field { name: "interfaces", id: 4, ty: Ty::Array(&Ty::U64) }, Field { name: "lease_remaining", id: 5, ty: Ty::U64 }, Field { name: "owner_uid", id: 6, ty: Ty::U64 }, Field { name: "owner_label", id: 7, ty: Ty::U64 }, Field { name: "owner_session", id: 8, ty: Ty::U64 }],
             },
         ],
         enums: &[],

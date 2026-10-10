@@ -55,6 +55,16 @@ interface os.lazy.messenger.registry.v1 {
         /// Interface ids the service implements.
         interfaces: Array<U64> = 4,
         /// Remaining lease ticks; `0` when permanent.
-        lease_remaining: U64 = 5
+        lease_remaining: U64 = 5,
+        /// uid the owner runs as, as the kernel stamped it. A service that
+        /// trusts what a name's owner says checks this (and the two fields
+        /// below) before it connects: the name alone proves nothing, and
+        /// only a service the policy let register it can own a reserved one
+        /// (`os.lazy.net.nic/*`). Read at the time of the `List`.
+        owner_uid: U64 = 6,
+        /// Label id of the owner (`0` unlabelled; an app has one).
+        owner_label: U64 = 7,
+        /// Login session of the owner (`0` before login: a system service).
+        owner_session: U64 = 8
     }
 }

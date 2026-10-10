@@ -15428,6 +15428,9 @@ pub mod os_lazy_messenger_registry_v1 {
         pub owner: u64,
         pub interfaces: alloc::vec::Vec<u64>,
         pub lease_remaining: u64,
+        pub owner_uid: u64,
+        pub owner_label: u64,
+        pub owner_session: u64,
     }
 
     pub fn encode_entry(value: &Entry) -> Result<Vec<u8>, Error> {
@@ -15441,6 +15444,9 @@ pub mod os_lazy_messenger_registry_v1 {
         }
         target.array(4, &nested)?;
         target.u64(5, value.lease_remaining)?;
+        target.u64(6, value.owner_uid)?;
+        target.u64(7, value.owner_label)?;
+        target.u64(8, value.owner_session)?;
         Ok(target.finish())
     }
 
@@ -15466,6 +15472,15 @@ pub mod os_lazy_messenger_registry_v1 {
                 }
                 5 => {
                     out.lease_remaining = field.as_u64()?;
+                }
+                6 => {
+                    out.owner_uid = field.as_u64()?;
+                }
+                7 => {
+                    out.owner_label = field.as_u64()?;
+                }
+                8 => {
+                    out.owner_session = field.as_u64()?;
                 }
                 _ => {}
             }

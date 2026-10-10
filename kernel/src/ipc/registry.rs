@@ -158,6 +158,10 @@ pub struct EntryInfo {
     pub interfaces: Vec<u64>,
     /// Remaining lease in ticks; `None` when permanent.
     pub lease_remaining: Option<u64>,
+    /// The owner's credentials as the kernel holds them now (never a field
+    /// the owner supplied): what `List` shows so a client can tell a driver
+    /// from an impostor without a privilege of its own.
+    pub owner: credentials::Cred,
 }
 
 /// Live depths plus cumulative counters, for `messengerctl` and tests.
@@ -452,6 +456,7 @@ pub fn list() -> Vec<EntryInfo> {
             owner_slot: entry.owner_slot,
             interfaces: entry.interfaces.clone(),
             lease_remaining: lease_state(entry, now).1,
+            owner: credentials::of(entry.owner_slot),
         })
         .collect()
 }

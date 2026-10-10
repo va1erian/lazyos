@@ -72,5 +72,5 @@ fn list() {
 ///
 /// One registered name.
 fn new_entry() {
-    #{ name: "", object: 0, owner: 0, interfaces: [], lease_remaining: 0 }
+    #{ name: "", object: 0, owner: 0, interfaces: [], lease_remaining: 0, owner_uid: 0, owner_label: 0, owner_session: 0 }
 }
