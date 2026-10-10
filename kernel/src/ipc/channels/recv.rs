@@ -65,7 +65,9 @@ fn unserve_poll(channel_id: u64, side: usize, txn: u64) {
     let Ok(channel) = find_channel(&mut channels, channel_id) else {
         return;
     };
-    channel.endpoints[side].serving_polls.retain(|id| *id != txn);
+    channel.endpoints[side]
+        .serving_polls
+        .retain(|id| *id != txn);
     if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
         if entry.state == TxnState::Pending {
             entry.served = false;
