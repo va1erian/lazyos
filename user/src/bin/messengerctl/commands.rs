@@ -90,8 +90,7 @@ fn read_line(buffer: &mut [u8]) -> Option<usize> {
             if len == 0 {
                 return None;
             }
-            sys::write_str("
-");
+            sys::write_str("\n");
             return Some(len);
         };
         if ch == b'\n' as u64 {
