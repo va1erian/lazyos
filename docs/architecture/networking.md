@@ -696,7 +696,11 @@ choice of interface:
 *primary* interface holds the lowest-metric default route; ties go to the lower
 slot so the choice never flaps. `Routes` lists every interface's on-link route
 and the default routes by metric. The resolvers, and `/transient/net/resolv.conf`
-(rewritten when they change), are those of the primary interface.
+(rewritten when they change), are those of the primary interface; when its DHCP
+gave none (or no interface has a default route), those of the usable interface
+of lowest metric that has a resolver (`Net::dns_slot`). A lookup goes out by
+the interface whose resolver it asks, so it never leaves names unresolvable
+while some card can resolve them.
 
 **Link changes.** Link down keeps the lease and takes the interface out of
 route selection (and out of the resolver choice), so traffic moves to the next

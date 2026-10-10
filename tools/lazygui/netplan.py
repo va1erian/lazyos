@@ -42,9 +42,16 @@ def net_specs(cfg: dict) -> list[str]:
 def net_cards(cfg: dict) -> int:
     """How many network cards QEMU attaches (`--nics`, each on its own user
     network); out of range raises ValueError (a plan error)."""
-    cards = int(cfg.get("nics", 1))
+    message = f"Network cards: use a whole number from 1 to {qemu_net.MAX_NICS}"
+    raw = cfg.get("nics", 1)
+    try:
+        cards = int(str(raw).strip())
+    except ValueError:
+        # A blank or non-numeric entry: say what to type, not int()'s text,
+        # and never read a blank as one card.
+        raise ValueError(message) from None
     if not 1 <= cards <= qemu_net.MAX_NICS:
-        raise ValueError(f"Network cards: use 1 to {qemu_net.MAX_NICS}")
+        raise ValueError(message)
     return cards
 
 

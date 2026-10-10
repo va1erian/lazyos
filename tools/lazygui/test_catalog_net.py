@@ -26,9 +26,10 @@ class NetworkCardTests(unittest.TestCase):
         self.assertIn("--nics", demo_argv(smb=True, nics="2"), "any networked image")
 
     def test_network_cards_are_bounded(self) -> None:
-        for bad in ("0", str(catalog.qemu_net.MAX_NICS + 1), "-1"):
-            with self.assertRaises(ValueError):
+        for bad in ("0", str(catalog.qemu_net.MAX_NICS + 1), "-1", "", "  ", "two", "1.5"):
+            with self.assertRaisesRegex(ValueError, "Network cards: use a whole number"):
                 demo_argv(net=True, nics=bad)
+        self.assertIn("--nics", demo_argv(net=True, nics=" 2 "), "spaces around a number")
 
     def test_network_cards_are_ignored_without_networking(self) -> None:
         self.assertNotIn("--nics", demo_argv(nics="3"))
