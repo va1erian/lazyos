@@ -77,6 +77,7 @@ pub fn write(
     let limits = os_image::limits_cfg::from_env();
     let mut cfg = os_image::boot_cfg(settings.uuid, &limits);
     cfg += &os_image::diag_hold_line(std::env::var("LAZYOS_DIAG_HOLD").ok().as_deref());
+    cfg += &os_image::display_cfg::from_env();
     cfg += &os_image::dbgd_cfg::from_env(&dbgd_key_file());
     let fat = fat_volume(cfg.as_bytes())?;
     let mut os_bytes =
