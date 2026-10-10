@@ -116,7 +116,10 @@ fn packages_have_their_own_name_path_and_limit() {
     assert_eq!(control::reloadable(control::PACKAGE), Err(Refusal::Never));
     assert!(control::staged_package_path().starts_with(fhs::state::DBGD_STAGE));
     assert!(control::staged_package_path().ends_with(".lzp"));
-    assert_eq!(control::staged_path(control::PACKAGE), control::staged_package_path());
+    assert_eq!(
+        control::staged_path(control::PACKAGE),
+        control::staged_package_path()
+    );
     let mut up = None;
     let big = control::MAX_BINARY + 1;
     assert_eq!(
