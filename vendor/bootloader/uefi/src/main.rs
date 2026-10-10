@@ -32,6 +32,7 @@ use x86_64::{
 };
 
 mod memory_descriptor;
+mod mode_pick;
 
 struct BootFile {
     disk: &'static CStr16,
@@ -356,30 +357,22 @@ fn init_logger(config: &BootConfig) -> Option<RawFrameBufferInfo> {
     let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>().ok()?;
     let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle).ok()?;
 
-    let mode = {
-        let modes = gop.modes();
-        match (
-            config
-                .frame_buffer
-                .minimum_framebuffer_height
-                .map(|v| usize::try_from(v).unwrap()),
-            config
-                .frame_buffer
-                .minimum_framebuffer_width
-                .map(|v| usize::try_from(v).unwrap()),
-        ) {
-            (Some(height), Some(width)) => modes
-                .filter(|m| {
-                    let res = m.info().resolution();
-                    res.1 >= height && res.0 >= width
-                })
-                .last(),
-            (Some(height), None) => modes.filter(|m| m.info().resolution().1 >= height).last(),
-            (None, Some(width)) => modes.filter(|m| m.info().resolution().0 >= width).last(),
-            _ => None,
-        }
-    };
-    if let Some(mode) = mode {
+    // LazyOS: largest area among the modes that meet the minimum, not the
+    // last listed one (see `mode_pick`).
+    let min_width = config
+        .frame_buffer
+        .minimum_framebuffer_width
+        .map(|v| usize::try_from(v).unwrap());
+    let min_height = config
+        .frame_buffer
+        .minimum_framebuffer_height
+        .map(|v| usize::try_from(v).unwrap());
+    let picked = mode_pick::pick(
+        gop.modes().map(|m| m.info().resolution()),
+        min_width,
+        min_height,
+    );
+    if let Some(mode) = picked.and_then(|index| gop.modes().nth(index)) {
         gop.set_mode(&mode)
             .expect("Failed to apply the desired display mode");
     }
@@ -410,10 +403,19 @@ fn init_logger(config: &BootConfig) -> Option<RawFrameBufferInfo> {
         config.serial_logging,
     );
 
-    Some(RawFrameBufferInfo {
-        addr: PhysAddr::new(framebuffer.as_mut_ptr() as u64),
-        info,
-    })
+    // Read before the mode list is walked again: `framebuffer` borrows `gop`.
+    let addr = PhysAddr::new(framebuffer.as_mut_ptr() as u64);
+
+    // The firmware's list and the choice, for the screen log (and the
+    // kernel's `HW:` report): which modes a box really offers is otherwise
+    // invisible, and the order is the firmware's.
+    for (index, mode) in gop.modes().enumerate() {
+        let (width, height) = mode.info().resolution();
+        let mark = if picked == Some(index) { " *" } else { "" };
+        log::info!("HW:GOP:{index}:{width}x{height}{mark}");
+    }
+
+    Some(RawFrameBufferInfo { addr, info })
 }
 
 #[cfg(target_os = "uefi")]

@@ -40,6 +40,17 @@ loader reset every time (after a few early-boot markers), the loader with a
 - `kernel_main` also disables interrupts first, so the kernel does not depend
   on how its loader hands over.
 
+## Display: 1280x960 on a 2560x1440 panel (fixed)
+
+GRUB's `videoinfo` shows the AMD GOP lists 2560x1440 (the EDID preferred
+mode) first and eight modes in all: 640x480, 800x600 (firmware default),
+1024x768, 1280x1024, 1400x1050, 1600x1200, 1280x960 follow. The stick asks
+for at least 1280x720 and `bootloader` 0.11.17 takes the *last* match, so
+the kernel reported `framebuffer 1280x960` (read over `dbgd`). The vendored
+loader now takes the largest area among the matches and logs each mode as
+`HW:GOP:<index>:<w>x<h>`; see [`../../display-modeset-plan.md`](../../display-modeset-plan.md).
+Only the modes the GOP lists are reachable without a GPU driver.
+
 ## Still to check on the box
 
 - Which HDA controller `devd` binds (the HDMI one has no analog codec).
