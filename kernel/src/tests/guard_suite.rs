@@ -278,7 +278,12 @@ fn weight_survives_a_demotion() -> Result<(), String> {
     let hog = child(PriorityClass::Normal)?;
     let _peer = child(PriorityClass::Normal)?;
     check!(task::set_weight(hog, 9), "set_weight failed");
-    picks(WINDOW_TICKS as usize * 3);
+    let mut demoted = false;
+    for _ in 0..(3 * WINDOW_TICKS) {
+        task::harness::simulate_tick();
+        demoted |= task::priority(hog) == Some(PriorityClass::Background);
+    }
+    check!(demoted, "the hog was never demoted");
     // Whatever tick we stopped on, run to the end of a window and one more
     // tick so the restore has happened.
     let mut restored = false;
@@ -346,10 +351,11 @@ fn soak_mixed_classes() -> Result<(), String> {
         }
         for &(slot, class) in &slots {
             let now = task::priority(slot);
-            // Demotion only ever goes down, one budget at a time.
+            // Demotion goes down one step per window: an Interactive task
+            // needs more than 5 ticks to become Normal, then more than 6
+            // Normal ones to become Background, which 10 ticks cannot hold.
             let allowed = now == Some(class)
-                || (class == PriorityClass::Interactive
-                    && matches!(now, Some(PriorityClass::Normal | PriorityClass::Background)))
+                || (class == PriorityClass::Interactive && now == Some(PriorityClass::Normal))
                 || (class == PriorityClass::Normal && now == Some(PriorityClass::Background));
             check!(
                 allowed,
