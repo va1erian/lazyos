@@ -399,6 +399,31 @@ capabilities = []
   `Decrypt(handle, ciphertext)`, `Wrap/Unwrap`, `TLS server session`. Key material
   lives in `keyd`'s own memory: no `keyd` method carries a `Buffer`, so no
   client ever maps a page that holds a key.
+- **Named secrets** (docs/wifi-prerequisites-plan.md WP2, `libs/secretstore`):
+  `StoreSecret`, `DeleteSecret` and `ListSecrets` (names only) keep a secret a
+  person chose (a Wi-Fi passphrase) across reboots, in the `user` scope (the
+  caller's kernel-stamped uid) or the `system` scope (every user, and before
+  anyone logs in). A `system` change is accepted from `elevd`'s identity
+  alone (`net.wifi.system`, after an administrator approved it on the
+  trusted prompt), never from uid 0 or a capability. No method returns a
+  stored secret. The one use is `WifiPmk`, the WPA2 pairwise master key for
+  an SSID, answered only to `wlanmd` (the `_wlan` system uid, uid 912,
+  unlabelled, outside any session) and cached sealed beside the secret.
+  Limits: names 1-64 of `[A-Za-z0-9._:-]`, secrets 1-256 bytes, 16 per owner,
+  64 in all.
+  **At rest:** `/conf/svc/keyd/secrets` (0600, root, in the 0700 `/conf`)
+  holds each secret sealed with `wrap` under a random 32-byte machine key in
+  `/conf/svc/keyd/machine.key` (0600), made on `keyd`'s first start, and the
+  whole file carries an HMAC so a record cannot be cut, reordered or flipped
+  unnoticed. The file is written whole, flushed and renamed, so a crash
+  leaves the old file or the new one. A file `keyd` cannot open is refused
+  whole, logged (`KEYD:SECRETS:FAIL`), moved to `secrets.bad` and `keyd`
+  serves on with none. **What this protects:** a copy of the secrets file
+  without the key file (a backup, a disk image of the wrong half). **What it
+  does not:** anyone who can read the volume as root, or both files at once;
+  there is no TPM to hold the machine key, so sealing to one is later work.
+  A secret is also in `keyd`'s memory while it runs, and `wlanmd` holds the
+  PMK and the keys derived from it for a session.
 - **Unlock model:** secrets are sealed per user with a key derived at login
   (Argon2id from the password + machine secret); a locked account's keys are
   unavailable even to the kernel.
@@ -435,7 +460,7 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   no root, no capability, not even to a child. A program asks `elevd` for one
   **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
   `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
-  `net.config`, `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
+  `net.config`, `service.restart`, `net.wifi.system`) with checked arguments; `elevd` (its own `_elev` uid,
   no capability) performs it itself once an administrator approved, and the
   services accept that path from its kernel-stamped identity alone.
 - Elevation always prompts: `xuid` draws the prompt over a dimmed screen,

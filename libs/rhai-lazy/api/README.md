@@ -469,6 +469,10 @@ The secrets and crypto service (issue #102).
 | `provision(user, secret)` | `Provision(user: String, secret: String) -> (verifier: String)` | Install or replace an account's password verifier (docs/accounts-plan.md |
 | `forget(user)` | `Forget(user: String) -> ()` | Drop an account's verifier: it can no longer log in. Accepted only |
 | `restore(user, verifier)` | `Restore(user: String, verifier: String) -> ()` | Put back a verifier the account database holds |
+| `store_secret(scope, name, secret)` | `StoreSecret(scope: String, name: String, secret: Bytes) -> ()` | Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name` |
+| `delete_secret(scope, name)` | `DeleteSecret(scope: String, name: String) -> ()` | Forget the secret `name` of `scope` (the same rules as `StoreSecret`; |
+| `list_secrets(scope)` | `ListSecrets(scope: String) -> (names: Array<String>)` | The names of the caller's `user` secrets, or of the `system` ones |
+| `wifi_pmk(scope, name, ssid, owner)` | `WifiPmk(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)` | The WPA2 pairwise master key of the passphrase `name` of `scope` for |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
 
 ## `sys::lifecycle`

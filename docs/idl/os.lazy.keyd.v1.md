@@ -29,6 +29,10 @@ or a `Channel`, so no client ever maps a page that holds a key.
 | Provision | 1596114784 | sync | `(user: String, secret: String) -> (verifier: String)` |
 | Forget | 1849666444 | sync | `(user: String) -> ()` |
 | Restore | 267943793 | sync | `(user: String, verifier: String) -> ()` |
+| StoreSecret | 491839974 | sync | `(scope: String, name: String, secret: Bytes) -> ()` |
+| DeleteSecret | 212754042 | sync | `(scope: String, name: String) -> ()` |
+| ListSecrets | 1353484194 | sync | `(scope: String) -> (names: Array<String>)` |
+| WifiPmk | 249445660 | sync | `(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)` |
 
 ## struct `KeyInfo`
 

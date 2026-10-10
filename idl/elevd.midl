@@ -4,7 +4,7 @@
 /// privileged *operations* itself (`libs/elevpolicy`), each only after an
 /// administrator typed their name and password on the trusted prompt `xuid`
 /// draws (`os.lazy.display.prompt.v1` below). The services that perform the
-/// operations (accounts, confd, pkgd, timed, init) accept the privileged path
+/// operations (accounts, confd, pkgd, timed, init, keyd) accept the privileged path
 /// from `elevd`'s own identity (its system uid, unlabelled) and nobody else.
 ///
 /// Every request is audited: one `system/events/elevd/request` record per

@@ -185,14 +185,16 @@ in for a network the machine joins at boot.
   `scope` is `user` (the caller's uid) or `system` (stored only through
   `elevd`, the `sys/**` rule). `keyd` never returns a stored secret.
 - **Persistence.** `keyd` writes its secrets to a file it owns
-  (`fhs` path under `/conf`, 0600 `_keyd`), each wrapped under a machine
+  (`fhs` path under `/conf`, 0600; `keyd` runs as root, see WP2 status),
+  each wrapped under a machine
   key with the existing `wrap` construction. Without a TPM the machine key
   is a file of its own beside it, so at rest this protects against reading
   a copied file but not against root on the volume. Say so in
   `security-model.md` rather than imply more; sealing to a TPM is later.
-- **The PSK operation.** `WifiPmk(scope, name, ssid) -> pmk` for
+- **The PSK operation.** `WifiPmk(scope, name, ssid, owner) -> pmk` for
   passphrases (computed once, cached sealed beside the secret). Returned
-  only to the `wlanmd` label; any other caller gets `EPERM`. v1 lets
+  only to `wlanmd` (identified by its kernel-stamped uid 912, unlabelled,
+  outside any session); any other caller gets `EPERM`. v1 lets
   `wlanmd` hold the PMK and the derived KCK/KEK/TK for the session
   (wifi-plan §5.1); moving the MIC and unwrap into `keyd` is a later
   tightening that does not change the wire for anyone else.
@@ -388,6 +390,54 @@ after WP6 and plug into what WP4 proved.
 | **WP4 Station stack on the simulator** | §3.5 + §3.6: `wlanmd`, `wifisim`, `fake_ap.py`, `wifictl`; `netd` gets `wlan0` | WP1–WP3 | `tools/wifi/sim_run.py`: scan lists the fake SSIDs with channel and RSSI; open and WPA2-PSK joins; DHCP and echo over `wlan0`; the AP-side pcap shows EAPOL 1–4 and CCMP data the independent Python side decrypted; wrong passphrase, deauth, beacon loss and group rekey scenarios each end in the expected state; `wlanmd` killed mid-handshake is restarted by `init` and reconnects. `test_judge.py` fails when it should. CI |
 | **WP5 Profiles and front ends** | §3.7 + §3.10: profiles, auto-connect at boot and login, country, Network app page, tray icon and menu, Settings, `rhai`, launchers and GUI, core package permissions | WP4 | a session script against the simulator: connect from the Network app with the password dialog, reboot, auto-connect before login for a system network, a user network dropped at logout; screenshots judged by `pngstats.py`; no `LABEL:DENY` in the traced run; `test_catalog.py` |
 | **WP6 Driver landing pad** | §3.8 + §3.9: firmware path, fetch tool, `libs/fwload`; `os.lazy.usb.device.v1`; USB rows in `devd` | WP0 | a test class driver over the device interface passes its harness (storage or `usb-serial`); `tools/usb/run.py` and `tools/storage/run.py` still green; the fetched firmware lands at its `fhs` path with its licence, and an in-place update replaces it |
+
+**WP2 status (done).** `libs/secretstore` holds everything testable on the
+host: the name and size rules (names 1-64 of `[A-Za-z0-9._:-]`, secrets 1-256
+bytes, 16 per owner, 64 in all, 8 cached PMKs per secret), who may do what
+(`authorize`), the table with the PMK cache, and the sealed file. `keyd`
+(`user/src/bin/keyd/secrets.rs`) adds the disk and the transport. The
+interface gained `StoreSecret`, `DeleteSecret`, `ListSecrets` and
+`WifiPmk(scope, name, ssid, owner)` in `idl/keyd.midl`.
+
+- *Authorization as built.* `user`: store, delete and list act on the caller's
+  kernel-stamped uid. `system`: store and delete only from `elevd`'s identity
+  (uid 909, unlabelled, no session), which performs `net.wifi.system`
+  (`elevpolicy`: `store <name> <passphrase>` with an 8-63 printable ASCII
+  passphrase or 64 hex digits, or `delete <name>`; asks every time; the
+  prompt and the audit record name the secret, never its content); list is
+  open (names only, they name the machine's networks). `WifiPmk` only from uid
+  912 (`_wlan`, `secretstore::WLAN_UID`) unlabelled and outside any session,
+  everyone else `EPERM`, checked before the secret is looked up; for `user`
+  the call names the owner's uid and only that uid's secret answers, for
+  `system` the owner must be 0. A 64-hex-digit secret is a raw PSK and is its
+  own PMK.
+- *Persistence as built.* `/conf/svc/keyd/secrets` and `machine.key`
+  (`fhs::state::KEYD_*`), 0600, in a 0700 directory. Format:
+  `"LZSECRT1"`, record count, then per secret a length and a `wrap` blob
+  (owner, name, secret and cached PMKs), then an HMAC-SHA256 of the whole
+  file under a subkey of the machine key. Opening is all or nothing; a file
+  that fails is moved to `secrets.bad`; a store is answered only after the
+  file is renamed into place and flushed, and undone if that fails (`EIO`).
+- *Evidence.* `cargo test -p secretstore` (23 tests: the Annex J.4 vectors
+  for `password`/`IEEE` and `ThisIsAPassword`/`ThisIsASSID`, the whole
+  authorization table, a bit flipped in every byte, every truncation, the
+  wrong key, caps, hostile bytes, a 3000-step soak); `cargo test -p
+  elevpolicy`; `python tools/keyd/run.py` (three boots: a user secret stored
+  through `rhai`, `WifiPmk` and a `system` store refused as the session user,
+  a `system` store approved on the prompt as `admin`/`nimda`, the list
+  surviving a reboot, deletes surviving the next, the files 0600 and
+  sealed); the attack harness rows `wifi_pmk`, `wifi_system_store` and
+  `read_keyd_secrets`, `blocked`.
+- *Deviations.* `keyd` runs as root (it inherits `init`'s identity; only the
+  account, elevation and driver services have their own uid), so the files are
+  root's, not a `_keyd` uid's; the 0700 `/conf` is what keeps a session out.
+  The machine key comes from the kernel CSPRNG (syscall 26) with `keyd`'s own
+  pool XORed in; with no kernel bytes no key is made and persistence stays off. The positive `WifiPmk`
+  path, answered to uid 912, is host-tested (the same `authorize` and
+  `Store::pmk` code `keyd` calls) and not run in QEMU: nothing in an image
+  runs as `_wlan` until `wlanmd` exists (WP4), and a test binary under that
+  uid would be dead code. The PBKDF2 cost under TCG is not yet measured; it
+  runs inside `keyd`'s serve loop, once per (secret, SSID).
 
 **WP0 status (done).** Licence option A is recorded in the README and
 `THIRD_PARTY.md` (register of the five RustCrypto crates plus `dbl`, and

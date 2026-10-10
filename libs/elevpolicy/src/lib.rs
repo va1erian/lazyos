@@ -26,6 +26,7 @@
 //! | `power.policy` | key, value | `confd` `Set` of `sys/power/<key>` |
 //! | `net.config` | card, address, gateway, dns | `confd` `Set`/`Delete` of `sys/net/<card>/*` |
 //! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
+//! | `net.wifi.system` | `store`, name, passphrase; or `delete`, name | `keyd` `StoreSecret`/`DeleteSecret` in the `system` scope |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -52,9 +53,7 @@ extern crate alloc;
 #[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
-use alloc::format;
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 
 pub use accountdb::{ACCOUNTS_UID, ELEVD_UID};
 pub use allow::{restartable, RESTARTABLE};
@@ -65,6 +64,7 @@ pub use values::{parse_value, value_args};
 
 mod allow;
 pub mod approvals;
+mod args;
 pub mod audit;
 pub mod backoff;
 #[cfg(any(test, feature = "fuzz"))]
@@ -188,6 +188,18 @@ pub enum Operation {
     ServiceRestart {
         name: String,
     },
+    WifiSystem(WifiChange),
+}
+
+/// What `net.wifi.system` does to the machine's own Wi-Fi secrets, the ones
+/// every user can join with and the greeter's machine joins with before
+/// anyone logs in (docs/wifi-prerequisites-plan.md section 3.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WifiChange {
+    /// Keep `passphrase` as the `system` secret `name`.
+    Store { name: String, passphrase: String },
+    /// Forget the `system` secret `name`.
+    Delete { name: String },
 }
 
 /// Whether an approval of the operation may stand for later requests.
@@ -218,6 +230,7 @@ pub const NAMES: &[&str] = &[
     "power.policy",
     "net.config",
     "service.restart",
+    "net.wifi.system",
 ];
 
 impl Operation {
@@ -388,6 +401,25 @@ impl Operation {
                     name: name.to_string(),
                 }
             }
+            "net.wifi.system" => {
+                let change = match arg(0) {
+                    Some("store") => {
+                        want(3)?;
+                        WifiChange::Store {
+                            name: wifi_secret_name(arg(1).unwrap_or(""))?,
+                            passphrase: wifi_passphrase(arg(2).unwrap_or(""))?,
+                        }
+                    }
+                    Some("delete") => {
+                        want(2)?;
+                        WifiChange::Delete {
+                            name: wifi_secret_name(arg(1).unwrap_or(""))?,
+                        }
+                    }
+                    _ => return Err("the change is store or delete"),
+                };
+                Operation::WifiSystem(change)
+            }
             _ => return Err("not an operation elevd performs"),
         };
         Ok(op)
@@ -416,6 +448,7 @@ impl Operation {
             Operation::PowerPolicy { .. } => 13,
             Operation::NetConfig { .. } => 14,
             Operation::ServiceRestart { .. } => 15,
+            Operation::WifiSystem(_) => 16,
         }
     }
 
@@ -426,49 +459,6 @@ impl Operation {
                 Class::View
             }
             _ => Class::Once,
-        }
-    }
-
-    /// The arguments [`Operation::parse`] reads back.
-    pub fn args(&self) -> Vec<String> {
-        let one = |text: &str| alloc::vec![text.to_string()];
-        match self {
-            Operation::PkgInstall { path } | Operation::PkgUpdateCore { path } => one(path),
-            Operation::PkgRemove { system_name } => one(system_name),
-            Operation::ConfSet { path, value } => {
-                let (kind, text) = value_args(value);
-                alloc::vec![path.clone(), kind.to_string(), text]
-            }
-            Operation::ConfDelete { path } | Operation::ConfGet { path } => one(path),
-            Operation::ConfList { prefix } => one(prefix),
-            Operation::ConfElevate => Vec::new(),
-            Operation::TimeSet { unix } => alloc::vec![format!("{unix}")],
-            Operation::AccountCreate {
-                name,
-                secret,
-                admin,
-            } => alloc::vec![
-                name.clone(),
-                secret.clone(),
-                String::from(if *admin { "admin" } else { "user" })
-            ],
-            Operation::AccountDelete { name, home } => {
-                alloc::vec![name.clone(), home.word().to_string()]
-            }
-            Operation::AccountAdmin { name, admin } => {
-                alloc::vec![name.clone(), String::from(if *admin { "1" } else { "0" })]
-            }
-            Operation::AccountPassword { name, secret } => {
-                alloc::vec![name.clone(), secret.clone()]
-            }
-            Operation::PowerPolicy { key, value } => alloc::vec![key.clone(), value.clone()],
-            Operation::NetConfig {
-                card,
-                address,
-                gateway,
-                dns,
-            } => alloc::vec![card.clone(), address.clone(), gateway.clone(), dns.clone()],
-            Operation::ServiceRestart { name } => one(name),
         }
     }
 }

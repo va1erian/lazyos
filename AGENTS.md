@@ -780,6 +780,20 @@ phase is not done until its scenarios are here. CI runs it in `xui.yml`'s
 `accounts` shard. See `tools/accounts/README.md`;
 `python tools/accounts/test_judge.py` is the judges' self-test.
 
+## Named secrets in `keyd` (Wi-Fi prerequisites, WP2)
+
+`keyd` keeps user-chosen secrets (`StoreSecret`, `DeleteSecret`,
+`ListSecrets`, `WifiPmk`; `libs/secretstore`, `docs/security-model.md`
+section 8) sealed under a machine key in `/conf/svc/keyd`. A `system` secret
+changes only through `elevd`'s `net.wifi.system`; the PMK goes to `wlanmd`
+(uid 912) alone.
+
+```bash
+cargo test -p secretstore -p elevpolicy
+python tools/keyd/run.py            # build, three boots, judge (KEYD:SECRETS: PASS)
+python tools/keyd/test_judge.py     # the judge fails when it should
+```
+
 ## Device manager (`devd`) and driver choices
 
 With a sound or network driver in the image, `init` starts `devd` (uid 906, no

@@ -145,6 +145,29 @@ pub(crate) fn net_setup(
     Ok((address.to_string(), gateway.to_string(), dns.to_string()))
 }
 
+/// The name of a `system` Wi-Fi secret (`secretstore`'s rule, which `keyd`
+/// applies again).
+pub(crate) fn wifi_secret_name(name: &str) -> Result<String, &'static str> {
+    if secretstore::valid_name(name) {
+        Ok(name.to_string())
+    } else {
+        Err("a name is 1 to 64 letters, digits, and . _ - :")
+    }
+}
+
+/// A Wi-Fi passphrase (8 to 63 printable ASCII characters) or a raw PSK (64
+/// hex digits), as the standard allows; anything else would only fail later,
+/// when `wlanmd` asks `keyd` for the key.
+pub(crate) fn wifi_passphrase(text: &str) -> Result<String, &'static str> {
+    let printable = text.bytes().all(|byte| (0x20..=0x7e).contains(&byte));
+    let raw_psk = text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if printable && ((8..=63).contains(&text.len()) || raw_psk) {
+        Ok(text.to_string())
+    } else {
+        Err("a Wi-Fi password is 8 to 63 printable characters, or 64 hex digits")
+    }
+}
+
 /// `[a-z0-9_-]{1,32}`: a service name or a power policy key.
 pub(crate) fn word(text: &str) -> bool {
     !text.is_empty()

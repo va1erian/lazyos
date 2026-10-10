@@ -72,6 +72,8 @@ def elevpolicy_seeds():
         "account_password": request("account.password", "admin", "nimda"),
         "power_policy": request("power.policy", "button", "shutdown"),
         "service_restart": request("service.restart", "inputd"),
+        "wifi_system_store": request("net.wifi.system", "store", "office", "correct horse"),
+        "wifi_system_delete": request("net.wifi.system", "delete", "office"),
         "unknown": request("sh", "-c", "rm -rf /"),
         "traversal": request("pkg.install", "/transient/../system/bin/init"),
         "system_account": request("account.create", "_accounts", "x", "admin"),
