@@ -1,16 +1,18 @@
-//! The game's state from one timer tick to the next: generating the course
-//! a stage per tick, then flying over it. Each tick moves the camera,
+//! The game's state from one timer tick to the next: waiting for the course
+//! (generated on a worker thread, `loading.rs`), then flying over it. Each tick moves the camera,
 //! renders when anything changed and turns the frame into the image the
 //! window shows. The internal resolution adapts so frames stay above 20 per
 //! second; *authentic* mode repaints the view progressively once the camera
 //! stops, the way a 486 did.
 
+use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 use xui_core::Image;
 
 use crate::fly::{yaw_of, Flyer, Held, EYE};
-use crate::gen::{Generator, Params};
+use crate::gen::Params;
+use crate::loading::Loading;
 use crate::math::{polyline_at, Vec3};
 use crate::minimap::Minimap;
 use crate::render::{resolve, Camera, Frame, Mode, RenderJob, Scene};
@@ -103,7 +105,7 @@ struct Bench {
 
 pub struct Game {
     params: Params,
-    loading: Option<(Generator, Instant)>,
+    loading: Option<Loading>,
     pub run: Option<Running>,
     pub held: Held,
     pub show_help: bool,
@@ -122,7 +124,7 @@ impl Game {
     pub fn with_params(params: Params, dpi: u32) -> Game {
         Game {
             params,
-            loading: Some((Generator::new(params), Instant::now())),
+            loading: Some(Loading::start(params)),
             run: None,
             held: Held::default(),
             show_help: true,
@@ -134,7 +136,10 @@ impl Game {
 
     /// What the generator is doing and how far along it is, while it runs.
     pub fn loading(&self) -> Option<(String, f32)> {
-        self.loading.as_ref().map(|(g, _)| g.progress())
+        self.loading.as_ref().map(|l| {
+            let (label, done) = l.snapshot();
+            (format!("{label} - {} s", l.started.elapsed().as_secs()), done)
+        })
     }
 
     pub fn seed(&self) -> u64 {
@@ -144,7 +149,7 @@ impl Game {
     /// Starts generating a new course from `seed`.
     pub fn regenerate(&mut self, seed: u64) {
         self.params = Params::new(seed);
-        self.loading = Some((Generator::new(self.params), Instant::now()));
+        self.loading = Some(Loading::start(self.params));
         self.run = None;
     }
 
@@ -155,20 +160,30 @@ impl Game {
     /// One timer tick for a `width` x `height` (device pixels) view.
     /// Returns whether the picture changed.
     pub fn tick(&mut self, width: usize, height: usize, now: Instant) -> bool {
-        if let Some((generator, started)) = self.loading.as_mut() {
-            if let Some(course) = generator.step() {
-                let millis = started.elapsed().as_millis();
-                let scene = Scene::new(course);
-                self.reports.push(Report::Ready {
-                    name: scene.course.name.clone(),
-                    seed: scene.course.seed,
-                    par: scene.course.par,
-                    millis,
-                });
-                self.run = Some(Running::new(scene, self.map_size, width, now));
-                self.loading = None;
+        if let Some(loading) = self.loading.as_mut() {
+            match loading.rx.try_recv() {
+                Ok(course) => {
+                    let millis = loading.started.elapsed().as_millis();
+                    let scene = Scene::new(course);
+                    self.reports.push(Report::Ready {
+                        name: scene.course.name.clone(),
+                        seed: scene.course.seed,
+                        par: scene.course.par,
+                        millis,
+                    });
+                    self.run = Some(Running::new(scene, self.map_size, width, now));
+                    self.loading = None;
+                    return true;
+                }
+                Err(TryRecvError::Disconnected) => loading.failed = true,
+                Err(TryRecvError::Empty) => {}
             }
-            return true;
+            // The elapsed seconds in the label change once a second.
+            let now_shown = self.loading().unwrap_or_default();
+            let loading = self.loading.as_mut().expect("still loading");
+            let changed = loading.shown != now_shown;
+            loading.shown = now_shown;
+            return changed;
         }
         let held = self.held;
         match self.run.as_mut() {

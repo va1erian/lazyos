@@ -85,11 +85,11 @@ fn run(dpi: u32) -> (Image, Seen) {
                 (WINDOW.1 as u32 * stage.dpi() / 96) as usize,
             );
             let mut now = Instant::now();
-            for _ in 0..20 {
+            // Generation runs on a worker thread: wait for it.
+            let deadline = Instant::now() + Duration::from_secs(120);
+            while game.borrow().run.is_none() && Instant::now() < deadline {
                 game.borrow_mut().tick(w, h, now);
-                if game.borrow().run.is_some() {
-                    break;
-                }
+                std::thread::sleep(Duration::from_millis(5));
             }
             let start = game
                 .borrow()

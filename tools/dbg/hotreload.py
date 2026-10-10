@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
+import re
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 from typing import Callable
 
@@ -127,6 +130,25 @@ def reload(dbg, name: str, data: bytes, trial_ms: int = DEFAULT_TRIAL_MS,
             raise
     verdict = wait_verdict(dbg, name, sha, trial_ms / 1000 + 30, reconnect)
     return {**verdict, "uploaded_sha256": sha, "bytes": len(data)}
+
+
+def with_version(package: bytes, version: str) -> bytes:
+    """`package` with its manifest's `version` replaced, everything else
+    copied as it was: `pkgd` refuses an install at the version already on the
+    box, so a rebuilt app needs a new one to be swapped in."""
+    source = zipfile.ZipFile(io.BytesIO(package))
+    out = io.BytesIO()
+    changed = 0
+    with zipfile.ZipFile(out, "w") as target:
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename == "manifest.toml":
+                data, changed = re.subn(rb'(?m)^version\s*=\s*"[^"]*"',
+                                        f'version = "{version}"'.encode(), data, count=1)
+            target.writestr(info, data, compress_type=info.compress_type)
+    if changed != 1:
+        raise ValueError("the package's manifest.toml has no `version = \"...\"` line")
+    return out.getvalue()
 
 
 def install_app(dbg, package: bytes, relaunch: bool = True,
