@@ -1,0 +1,18 @@
+[package]
+name = "secretstore"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "keyd's named secrets: the name and size rules, the per-uid and system scopes, the Wi-Fi PMK cache and the sealed file they persist in (docs/wifi-prerequisites-plan.md WP2, docs/security-model.md section 8)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "secretstore"
+path = "src/lib.rs"
+
+[dependencies]
+# `ELEVD_UID`, the identity a `system` change is accepted from.
+accountdb = { path = "../accountdb" }
+# `wrap` seals each secret, `hmac` seals the file, `wifi::pbkdf2_sha1` derives
+# the PMK.
+lazyos-crypto = { path = "../crypto" }
