@@ -93,6 +93,10 @@ EXPECTATIONS: dict[str, Expect] = {
     "write_conf": Expect("blocked", U0, ("/conf",)),
     "confd_sys": Expect("blocked", U0, ("/conf",)),
     "keyd_provision": Expect("blocked", U0, ("/conf",)),
+    # WP1 review: `os.lazy.net.nic/*` is the NIC drivers' (`netd` hands the
+    # holder its frame rings and believes its card), so a session cannot
+    # register a card name.
+    "nic_register": Expect("blocked", U0),
     "read_home_admin": Expect("blocked", U0),
     "signal_service": Expect("blocked", U0),
     "autostart_root": Expect("blocked", U0, side_effects=INSTALL_PATHS),
