@@ -377,14 +377,18 @@ pub fn set_owner_for_test(slot: usize) {
 }
 
 /// Test-harness hook: run `f` as if firmware had chosen a `width` x `height`
-/// mode (the logical screen follows), then restore the real geometry.
+/// mode (the logical screen follows), then restore the real geometry, the
+/// recorded firmware mode and the logical cap.
 #[cfg(lazyos_tests)]
 pub fn with_mode_for_test<R>(width: usize, height: usize, f: impl FnOnce() -> R) -> R {
     let (screen, fitted) = (*SCREEN.lock(), *LOGICAL.lock());
     let (stride, bpp) = (screen.stride as usize, screen.bytes_per_pixel as usize);
+    let (firmware, cap) = (screen::firmware_for_test(), logical::cap());
     init(width, height, stride.max(width), bpp);
     let result = f();
     *SCREEN.lock() = screen;
     *LOGICAL.lock() = fitted;
+    screen::set_firmware_for_test(firmware);
+    logical::set_cap(cap.0 as u32, cap.1 as u32);
     result
 }

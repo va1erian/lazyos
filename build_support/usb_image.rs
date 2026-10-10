@@ -111,8 +111,8 @@ pub fn build(
 /// listed mode that satisfies it; with none it keeps the firmware's default,
 /// which is 800x600 on some PCs (the Kaby Lake box, docs/compat/kabylake): a
 /// stretched desktop and boot text so large it clips. Anything above 1080p is
-/// cut to a centred 1080p logical screen by the kernel (`display.rs`), so a
-/// large mode is safe. Only the stick image sets it: `lazyos.img` keeps the
+/// cut to a centred 1080p logical screen by the kernel (`display.rs`) unless
+/// `LAZYOS_DISPLAY_MAX` lifts the cap (issue #717), so a large mode is safe. Only the stick image sets it: `lazyos.img` keeps the
 /// default mode its QEMU tests were written against.
 const MIN_FRAMEBUFFER: (u64, u64) = (1280, 720);
 

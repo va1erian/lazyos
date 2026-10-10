@@ -59,6 +59,53 @@ pub fn logical_bind_sizes() -> Result<(), String> {
     Ok(())
 }
 
+/// Same bind sizes under a configured cap (issue #717): `display.max` set to
+/// 2560x1440 lets a 1440p firmware framebuffer bind whole, sizes every
+/// screen buffer by it, and re-derives the limits to cover the shell's
+/// double-buffered desktop.
+pub fn logical_bind_sizes_configured_cap() -> Result<(), String> {
+    for (mode, want) in [
+        ((3840, 2160), (2560, 1440)),
+        ((2560, 1600), (2560, 1440)),
+        ((2560, 1440), (2560, 1440)),
+        ((1920, 1080), (1920, 1080)),
+        ((640, 480), (640, 480)),
+    ] {
+        crate::display::reset();
+        logical::set_cap(2560, 1440);
+        let limits_pre = Limits::for_machine(
+            crate::mem::usable_ram(),
+            logical::fit(mode.0, mode.1).rgba_bytes(),
+        );
+        scratch_task()?;
+        let info = crate::display::with_mode_for_test(mode.0, mode.1, bind);
+        finish();
+        let info = info?;
+        let (width, height, size) = (info[0], info[1], info[6]);
+        check!(
+            (width, height) == (want.0, want.1),
+            "{mode:?}: bound {width}x{height}, want {want:?}"
+        );
+        check!(size == width * height * 4, "{mode:?}: buffer {size}");
+        check!(
+            Limits::for_machine(crate::mem::usable_ram(), size).shared_buffer_max >= size,
+            "{mode:?}: a single buffer over the re-derived cap"
+        );
+        let shell = 2 * size + 2 * width * 32 * 4;
+        check!(
+            shell <= limits_pre.shared_buffer_max,
+            "{mode:?}: desktop plus taskbar {shell} over the re-derived cap"
+        );
+        logical::set_cap(1920, 1080);
+    }
+    check!(
+        logical::cap() == (1920, 1080),
+        "cap not restored: {:?}",
+        logical::cap()
+    );
+    Ok(())
+}
+
 /// Under a pretend 4K mode the logical screen starts at (960, 540), which is
 /// inside QEMU's real 1280x720 framebuffer: a presented pixel lands there,
 /// shifted by the offset, and a border pixel is never written, across a soak

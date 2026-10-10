@@ -25,6 +25,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fw_com1_ring_cases", com1_ring_cases),
     ("fw_syslog_reads_the_ring", syslog_reads_the_ring),
     ("fw_logical_fit_cases", logical_fit_cases),
+    (
+        "fw_logical_fit_configured_cap",
+        logical_fit_configured_cap,
+    ),
+    ("fw_logical_fit_cap_soak", logical_fit_cap_soak),
     ("fw_view_blits_stay_inside", view_blits_stay_inside),
     (
         "fw_framebuffer_geometry_sanitized",

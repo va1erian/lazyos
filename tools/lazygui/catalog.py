@@ -137,7 +137,7 @@ def check_limits(cfg: dict) -> None:
     skipped = cfg.get("skip_build") and cfg["mode"] in SKIP_BUILD_MODES
     if limit_env(cfg.get("limits", "")) and skipped:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
-    if check_mode(cfg.get("display_mode", "")) and skipped:
+    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))) and skipped:
         raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
     needs_build(cfg.get("assets", ""), skipped)
 
@@ -234,7 +234,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(limit_env(cfg.get("limits", "")))
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
-    env.update(display_env(cfg.get("display_mode", "")) | assets_env(cfg.get("assets", "")))
+    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
         # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
@@ -346,6 +346,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
+        if check_mode(cfg.get("display_max", "")) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DISPLAY_MAX (`display.max`, issue #717).
+            argv += ["--display-max", check_mode(cfg["display_max"])]
         argv += assets_argv(cfg)  # run_demo sets LAZYOS_ASSETS (issue #454)
         if cfg.get("devices") and cfg.get("desktop") and not cfg["skip_build"]:
             # run_demo builds the xui apps and opens Devices at boot itself.

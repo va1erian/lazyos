@@ -1,6 +1,8 @@
 //! Display settings for `lazyos.cfg` (docs/hidpi-plan.md, D1):
 //! `LAZYOS_DISPLAY_MODE=<W>x<H>` becomes `display.mode=<W>x<H>` and
-//! `LAZYOS_DISPLAY_SCALE=auto|1|2` becomes `display.scale=...`, read by the
+//! `LAZYOS_DISPLAY_SCALE=auto|1|2` becomes `display.scale=...` and
+//! `LAZYOS_DISPLAY_MAX=<W>x<H>` becomes `display.max=<W>x<H>` (the logical
+//! screen cap for a firmware framebuffer, issue #717), read by the
 //! kernel's `display::modecfg` at boot.
 //!
 //! The kernel re-checks both against the adapter, so the build checks only
@@ -13,6 +15,15 @@ const MODE_MAX: (u32, u32) = (3840, 2160);
 
 /// Whether `value` is a `<W>x<H>` mode inside the kernel's range.
 pub fn validate_mode(value: &str) -> Result<(), String> {
+    validate_size("LAZYOS_DISPLAY_MODE", value)
+}
+
+/// Whether `value` is a `<W>x<H>` logical screen cap inside the kernel's range.
+pub fn validate_max(value: &str) -> Result<(), String> {
+    validate_size("LAZYOS_DISPLAY_MAX", value)
+}
+
+fn validate_size(name: &str, value: &str) -> Result<(), String> {
     let parsed = value.split_once(['x', 'X']).and_then(|(w, h)| {
         let digits = |text: &str| {
             (!text.is_empty() && text.len() <= 5 && text.bytes().all(|b| b.is_ascii_digit()))
@@ -28,7 +39,7 @@ pub fn validate_mode(value: &str) -> Result<(), String> {
             Ok(())
         }
         _ => Err(format!(
-            "LAZYOS_DISPLAY_MODE={value:?}: expected <width>x<height> between {}x{} and {}x{}",
+            "{name}={value:?}: expected <width>x<height> between {}x{} and {}x{}",
             MODE_MIN.0, MODE_MIN.1, MODE_MAX.0, MODE_MAX.1
         )),
     }
@@ -44,8 +55,9 @@ pub fn validate_scale(value: &str) -> Result<(), String> {
     }
 }
 
-/// The `lazyos.cfg` lines for a mode and a scale (either may be absent).
-pub fn lines(mode: Option<&str>, scale: Option<&str>) -> String {
+/// The `lazyos.cfg` lines for a mode, a scale and a logical cap (each may be
+/// absent).
+pub fn lines(mode: Option<&str>, scale: Option<&str>, max: Option<&str>) -> String {
     let mut out = String::new();
     if let Some(mode) = mode {
         out.push_str(&format!("display.mode={mode}\n"));
@@ -53,10 +65,14 @@ pub fn lines(mode: Option<&str>, scale: Option<&str>) -> String {
     if let Some(scale) = scale {
         out.push_str(&format!("display.scale={scale}\n"));
     }
+    if let Some(max) = max {
+        out.push_str(&format!("display.max={max}
+"));
+    }
     out
 }
 
-/// The display lines from the environment. Registers both variables with
+/// The display lines from the environment. Registers all three variables with
 /// cargo, so changing one rebuilds the image. Panics (failing the build) on
 /// a malformed value.
 pub fn from_env() -> String {
@@ -69,11 +85,15 @@ pub fn from_env() -> String {
     };
     let mode = read("LAZYOS_DISPLAY_MODE");
     let scale = read("LAZYOS_DISPLAY_SCALE");
+    let max = read("LAZYOS_DISPLAY_MAX");
     if let Some(mode) = &mode {
         validate_mode(mode).unwrap_or_else(|error| panic!("{error}"));
     }
     if let Some(scale) = &scale {
         validate_scale(scale).unwrap_or_else(|error| panic!("{error}"));
     }
-    lines(mode.as_deref(), scale.as_deref())
+    if let Some(max) = &max {
+        validate_max(max).unwrap_or_else(|error| panic!("{error}"));
+    }
+    lines(mode.as_deref(), scale.as_deref(), max.as_deref())
 }

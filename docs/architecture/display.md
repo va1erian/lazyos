@@ -77,6 +77,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   1920x1080 or 3840x2160 mode binds like a 1280x720 one, given the RAM.
   QEMU's BIOS path still boots at 1280x720 at most: the `bootloader` crate's
   BIOS stage 2 caps the VESA mode at 1280x720 (docs/real-pc-boot-plan.md).
+- **Logical cap** (`display.max=<W>x<H>`, `LAZYOS_DISPLAY_MAX`, issue #717):
+  the firmware framebuffer is exposed as `min(mode, cap)` per axis, centred;
+  the default cap is 1920x1080. `2560x1440` on a 1440p panel gives a
+  1280x720 desktop at scale 2. Refused once a compositor holds the display.
 - **Mode setting** (HiDPI, [hidpi-plan.md](../hidpi-plan.md)): `display.mode=<W>x<H>`
   in `lazyos.cfg` (`LAZYOS_DISPLAY_MODE`) makes the kernel reprogram QEMU's
   std VGA (Bochs DISPI, PCI `1234:1111`, `display/bochs.rs`) while

@@ -21,6 +21,7 @@ pub fn mode_config_parses() -> Result<(), String> {
     check!(problems.is_empty(), "problems {problems:?}");
     check!(cfg.mode == Some((2560, 1440)), "mode {:?}", cfg.mode);
     check!(cfg.scale == Scale::Fixed(2), "scale {:?}", cfg.scale);
+    check!(cfg.max.is_none(), "max {:?}", cfg.max);
     let (cfg, problems) = parse_all("display.scale=AUTO\n");
     check!(
         problems.is_empty() && cfg == DisplayCfg::default(),
@@ -31,6 +32,15 @@ pub fn mode_config_parses() -> Result<(), String> {
         modecfg::parse_mode("3840X2160") == Some((3840, 2160)),
         "upper-case separator"
     );
+    // `display.max` (the logical cap, issue #717): same syntax and range as
+    // a mode, machine-readable defaults absent.
+    let (cfg, problems) = parse_all("# comment\ndisplay.max = 2560x1440 # 1440p panel\n");
+    check!(problems.is_empty(), "problems {problems:?}");
+    check!(cfg.max == Some((2560, 1440)), "max {:?}", cfg.max);
+    check!(cfg.mode.is_none(), "mode {:?}", cfg.mode);
+    let (cfg, problems) = parse_all("display.max=3840X2160\ndisplay.max=2560x1440\n");
+    check!(cfg.max == Some((3840, 2160)), "first max wins {:?}", cfg.max);
+    check!(problems.len() == 1, "duplicate {problems:?}");
     Ok(())
 }
 
@@ -54,6 +64,17 @@ pub fn mode_config_refuses_hostile_lines() -> Result<(), String> {
         "display.scale=1.5",
         "display.scale=-1",
         "display.mode",
+        "display.max=",
+        "display.max=2560",
+        "display.max=x1440",
+        "display.max=2560x",
+        "display.max=-1x1440",
+        "display.max=639x480",
+        "display.max=3841x2160",
+        "display.max=2560x2161",
+        "display.max=2560x1440x2",
+        "display.max=99999999999x1",
+        "display.max",
     ] {
         let (cfg, problems) = parse_all(bad);
         check!(cfg == DisplayCfg::default(), "{bad:?} applied: {cfg:?}");
@@ -70,9 +91,54 @@ pub fn mode_config_refuses_hostile_lines() -> Result<(), String> {
     Ok(())
 }
 
+/// `display.max` through the boot path (`modeset::apply_config`, issue
+/// #717): the config arrives after `screen::init` recorded the 1080p fit, so
+/// the cap re-fits the logical screen, re-derives the limits, and stays
+/// put when the same text is re-read (a USB boot reads `lazyos.cfg` twice).
+/// Everything is restored afterwards.
+pub fn mode_display_max_applied() -> Result<(), String> {
+    let scale = crate::console::scale();
+    crate::display::reset();
+    let result = crate::display::with_mode_for_test(2560, 1440, || -> Result<(), String> {
+        // The hook fits 2560x1440 under the default cap first: the exact
+        // state `lazyos.cfg` arrives at.
+        let before = crate::display::logical();
+        check!(
+            (before.width, before.height) == (1920, 1080),
+            "boot fit {before:?} not the default cap"
+        );
+        crate::display::modeset::apply_config("display.max=2560x1440\n");
+        let after = crate::display::logical();
+        check!(
+            (after.x, after.y, after.width, after.height) == (0, 0, 2560, 1440),
+            "refit {after:?}"
+        );
+        check!(
+            crate::display::screen_bytes() == 2560 * 1440 * 4,
+            "screen bytes {}",
+            crate::display::screen_bytes()
+        );
+        check!(
+            crate::limits::get(crate::limits::Id::SharedBufferMax)
+                >= 2 * 2560 * 1440 * 4,
+            "double-buffered 1440p over the limits"
+        );
+        // Re-read (a second `bootcfg::load`): the logical screen stays.
+        crate::display::modeset::apply_config("# reboot-stage pass\ndisplay.max=2560x1440\n");
+        let again = crate::display::logical();
+        check!(again == after, "re-read changed the logical {after:?} -> {again:?}");
+        Ok(())
+    });
+    crate::console::set_scale(scale);
+    let (width, height, stride, bpp) = crate::display::geometry_for_test();
+    let restored = crate::display::init(width, height, stride, bpp);
+    let _ = restored;
+    crate::limits::init_for_machine(mem::usable_ram(), crate::display::screen_bytes());
+    result
+}
+
 /// The automatic scale keeps a logical screen of at least 1280x720.
-pub fn mode_auto_scale_rule() -> Result<(), String> {
-    for (width, height, scale) in [
+pub fn mode_auto_scale_rule() -> Result<(), String> {    for (width, height, scale) in [
         (2560, 1440, 2),
         (3840, 2160, 2),
         (2560, 1600, 2),

@@ -106,6 +106,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | --- | --- | --- |
 | `LAZYOS_LIMIT_<KEY>` | Kernel ceilings written to `lazyos.cfg`: `HEAP_MAX`, `FD_MAX`, `STACK_SIZE`, `QUOTA_USER_MEMORY`, `QUOTA_KERNEL_MEMORY`, `SHARED_BUFFER_MAX`. Sizes take `K/M/G/T`; `FD_MAX` is a count. See [architecture/limits.md](architecture/limits.md). | `--limit key=value` |
 | `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--display-mode WxH` |
+| `LAZYOS_DISPLAY_MAX` | `<w>x<h>` cap on the logical screen of a firmware (real PC / UEFI) framebuffer; default 1920x1080. `2560x1440` on a 1440p panel gives a 1280x720 desktop at scale 2 (#717). | `--display-max WxH` |
 | `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2`: the default for `sys/ui/scale`. | - |
 | `LAZYOS_KBD_LAYOUT` | `us` (default) or `fr` (AZERTY). | - |
 

@@ -3,7 +3,7 @@
 //! so "never writes outside the framebuffer" is checked byte for byte.
 
 use super::*;
-use crate::display::logical::{self, MAX_HEIGHT, MAX_WIDTH};
+use crate::display::logical::{self, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 use crate::gfx::{self, Color, Framebuffer};
 use crate::klog::{self, Ring};
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
@@ -95,7 +95,83 @@ pub fn logical_fit_cases() -> Result<(), String> {
                 .shared_buffer_max,
         "a double-buffered capped screen does not fit the shared-buffer budget"
     );
-    check!((MAX_WIDTH, MAX_HEIGHT) == (1920, 1080), "cap changed");
+    check!(
+        logical::cap() == (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+        "default cap changed: {:?}",
+        logical::cap()
+    );
+    Ok(())
+}
+
+/// `display.max` (issue #717) raises the cap: a 2560x1440 panel is exposed
+/// whole (so the scale rule gives 2 for a 1280x720 desktop), a 4K panel is
+/// cut to the cap, a panel smaller than the cap is untouched, and every
+/// configured fit stays inside its framebuffer. Restores the default.
+pub fn logical_fit_configured_cap() -> Result<(), String> {
+    logical::set_cap(2560, 1440);
+    let cases = [
+        ((2560, 1440), (0, 0, 2560, 1440)),
+        ((2560, 1600), (0, 80, 2560, 1440)),
+        ((3840, 2160), (640, 360, 2560, 1440)),
+        ((1920, 1080), (0, 0, 1920, 1080)),
+        ((640, 480), (0, 0, 640, 480)),
+        ((7680, 4320), (2560, 1440, 2560, 1440)),
+    ];
+    for ((width, height), (x, y, w, h)) in cases {
+        let got = logical::fit(width, height);
+        check!(
+            (got.x, got.y, got.width, got.height) == (x, y, w, h),
+            "{width}x{height} -> {got:?}"
+        );
+        check!(
+            got.x + got.width <= width && got.y + got.height <= height,
+            "{width}x{height} overflows"
+        );
+    }
+    // The buffers the configured screen sizes stay inside the shared-buffer
+    // budget the same screen derives.
+    for screen in [logical::fit(2560, 1440), logical::fit(3840, 2160)] {
+        let bytes = screen.rgba_bytes();
+        check!(
+            2 * bytes
+                <= crate::limits::Limits::for_machine(crate::mem::usable_ram(), bytes)
+                    .shared_buffer_max,
+            "{}x{} double-buffered over the budget",
+            screen.width,
+            screen.height
+        );
+    }
+    check!(logical::cap() == (2560, 1440), "cap lost");
+    logical::set_cap(DEFAULT_WIDTH as u32, DEFAULT_HEIGHT as u32);
+    check!(
+        logical::cap() == (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+        "cap not restored"
+    );
+    Ok(())
+}
+
+/// Soak: the fit stays inside its framebuffer for many modes and caps.
+pub fn logical_fit_cap_soak() -> Result<(), String> {
+    let mut seed = 0x1234_5678_9ABC_DEF0u64;
+    for round in 0..5000u32 {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        let field = |shift: u32, modulo: u64| ((seed >> shift) % modulo) as usize;
+        let mode = (40 + field(0, 3800), 30 + field(16, 2100));
+        let (w, h) = (field(32, 3840), field(48, 2160));
+        let (w, h) = logical::set_cap(w as u32, h as u32);
+        let got = logical::fit(mode.0, mode.1);
+        check!(
+            got.x + got.width <= mode.0 && got.y + got.height <= mode.1,
+            "round {round}: {mode:?} -> {got:?} overflows"
+        );
+        check!(
+            (got.width, got.height) == (mode.0.min(w), mode.1.min(h)),
+            "round {round}: {mode:?} -> {got:?}, cap {w}x{h}"
+        );
+    }
+    logical::set_cap(DEFAULT_WIDTH as u32, DEFAULT_HEIGHT as u32);
     Ok(())
 }
 

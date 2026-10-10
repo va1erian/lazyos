@@ -28,6 +28,7 @@ def make_vars() -> dict:
         "memory": s(value=DEFAULT_MEMORY),
         "limits": s(value=""),
         "display_mode": s(value=""),
+        "display_max": s(value=""),
         "assets": s(value=""),
         # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
         # the image's default (the login screen on the desktop).

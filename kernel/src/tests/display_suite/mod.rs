@@ -132,6 +132,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("display_wheel_soak_bounded_queue", wheel_soak_bounded_queue),
     ("display_logical_bind_sizes", logical_bind_sizes),
     (
+        "display_logical_bind_sizes_configured_cap",
+        logical_bind_sizes_configured_cap,
+    ),
+    (
         "display_logical_present_offsets_and_clips",
         logical_present_offsets_and_clips,
     ),
