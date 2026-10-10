@@ -81,6 +81,21 @@ ISR that performs context switches.
 - The signal sweep first collects the address spaces with a deliverable
   signal (one pass over the registry, creating no entries) and does nothing
   when there are none; resume-time delivery checks the same first.
+- CPU guard (`task/guard.rs`): time is cut into 10-tick windows. Once the
+  `Interactive` class has used 5 ticks of a window, each `Interactive` task
+  that runs is demoted to `Normal` until the window's end; a `Normal` task
+  that ran more than 6 ticks of a window is demoted to `Background` until its
+  end (every other `Normal` task then outranks it, while it still runs when
+  nothing else wants the CPU, so a lone task loses nothing). `set_priority`
+  and `raise_priority` cancel the pending restore, and a raise compares with
+  the home class. Tasks that sleep most of each window are never touched.
+  On an AMD NUC (Ryzen 5 3501U) a LazyGolf course generation left the shell
+  and the Normal services unserved for up to 25 s; with the guard the longest
+  `UI:STALL` is about 0.5 s and the generation takes the same time.
+  `SCHED:GUARD:DEMOTED task=... slot=... total=...` names who tripped it
+  (reported at most once a second). The test build defaults the guard off so
+  the suites that check the stride shares test the scheduler core; `guard_suite`
+  (`task_guard_*`) turns it on.
 - Starvation bound: within a class a peer is selected at most
   `ceil(stride_i/stride_j)+1` times; worst case < 2100 ticks (~21 s at 100 Hz
   with 63 peers; it was < 500 ticks at 16 slots).

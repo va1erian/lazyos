@@ -247,9 +247,11 @@ pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
             task.cpu_ticks = task.cpu_ticks.saturating_add(1);
             // ...and to its uid's CPU quota (issue #483).
             crate::quota::cpu::charge_ticks(cur, 1);
+            super::guard::on_tick(tasks, cur, true);
         }
         _ => {
             super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+            super::guard::on_tick(tasks, cur, false);
         }
     }
 }

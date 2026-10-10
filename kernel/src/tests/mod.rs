@@ -186,6 +186,7 @@ mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
+mod guard_suite;
 mod hardening_suite;
 mod heap_slab_suite;
 mod heap_suite;
@@ -264,6 +265,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_compat_suite::CASES,
     loader_suite::CASES,
     sched_suite::CASES,
+    guard_suite::CASES,
     runq_suite::CASES,
     preempt_wake_suite::CASES,
     relax_suite::CASES,
