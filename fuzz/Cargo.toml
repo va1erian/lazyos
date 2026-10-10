@@ -39,6 +39,8 @@ dbgwire = { path = "../libs/dbgwire", features = ["fuzz"] }
 smbwire = { path = "../libs/smbwire", features = ["fuzz"] }
 pkgstore = { path = "../libs/pkgstore", features = ["fuzz"] }
 libmessenger = { path = "../libs/messenger", features = ["fuzz"] }
+ieee80211 = { path = "../libs/ieee80211", features = ["fuzz"] }
+eapol = { path = "../libs/eapol", features = ["fuzz"] }
 
 [workspace]
 
@@ -234,6 +236,20 @@ bench = false
 [[bin]]
 name = "dbgwire"
 path = "fuzz_targets/dbgwire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ieee80211"
+path = "fuzz_targets/ieee80211.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "eapol"
+path = "fuzz_targets/eapol.rs"
 test = false
 doc = false
 bench = false

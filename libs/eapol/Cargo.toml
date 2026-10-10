@@ -1,0 +1,23 @@
+[package]
+name = "eapol"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "EAPOL-Key frames and the WPA2-PSK supplicant (4-way and group key handshakes) for the LazyOS station manager"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "eapol"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/eapol.rs`). Needs `std`.
+fuzz = []
+
+[dependencies]
+ieee80211 = { path = "../ieee80211" }
+lazyos-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
