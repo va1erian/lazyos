@@ -162,7 +162,11 @@ pub fn ramfs_scratch_stages_a_package() -> Result<(), String> {
     );
     check!(ram.usage().0 == size, "usage {:?}", ram.usage());
     ram.unlink("pkg.lzp").map_err(fs_error)?;
-    check!(ram.usage() == (0, 1), "usage {:?} after unlink", ram.usage());
+    check!(
+        ram.usage() == (0, 1),
+        "usage {:?} after unlink",
+        ram.usage()
+    );
     Ok(())
 }
 
