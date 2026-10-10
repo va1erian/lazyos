@@ -9,8 +9,10 @@ use crate::fuzz::{script_supplicant, SCRIPT_MIC};
 use crate::{Config, Key, Standard, Supplicant};
 
 mod auth;
+mod capture;
 mod frames;
 mod negative;
+mod real_capture;
 mod transcript;
 mod vectors;
 

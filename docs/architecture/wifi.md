@@ -113,7 +113,11 @@ trips, a test authenticator built from `raw_frame` and `lazyos_crypto` alone,
 every refusal checked for no state change); the Python transcript
 `tools/wifi/make_eapol_vectors.py` (`--check` in CI; `hashlib`, `hmac`,
 `cryptography` only) is the other side of a byte-for-byte comparison of
-messages 2, 4 and group 2 for both AKMs; seeded soaks run with
+messages 2, 4 and group 2 for both AKMs; a handshake recorded by someone else (Wireshark's `wpa-Induction.pcap`, fixture
+`libs/eapol/src/tests/capture.rs`, extracted by
+`tools/wifi/extract_capture_vectors.py`) has its PMK, PTK, three MICs and message 3
+key data verified through the library (its TKIP group cipher is refused by the
+supplicant, so replies are not compared byte for byte); seeded soaks run with
 `FUZZ_CASES=20000 cargo test -p ieee80211 -p eapol --release seeded`; the
 cargo-fuzz targets are `fuzz/fuzz_targets/ieee80211.rs` and `eapol.rs`, with
 seeds from `fuzz/seeds_wifi.py`.
