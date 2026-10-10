@@ -24,6 +24,13 @@ pub const NET_UID: u32 = 902;
 /// The `_netd` system user the network stack runs as: **no** capabilities.
 pub const NETD_UID: u32 = 903;
 
+/// The `_wifi` system user: the Wi-Fi chip driver (`wifid`). Reserved by the
+/// Wi-Fi plan (see `devmatch::DEVD_UID`); the program lands with it.
+pub const WIFI_UID: u32 = 911;
+
+/// The `_wifisim` system user: the simulated Wi-Fi chip the tests run.
+pub const WIFISIM_UID: u32 = 913;
+
 /// Matches any actor (the kernel's `ANY_ACTOR`).
 pub const ANY_ACTOR: u32 = u32::MAX;
 
@@ -40,6 +47,67 @@ pub const NIC_INTERFACE: &str = "os.lazy.net.nic.v1";
 pub const STACK_INTERFACE: &str = "os.lazy.net.stack.v1";
 /// The socket interface `netd` serves next to it (`idl/net.midl`, stage N3).
 pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
+
+/// The registry namespace of the cards: a driver serves its card as
+/// `os.lazy.net.nic/<ifname>`.
+pub const NIC_NAME_PREFIX: &str = "os.lazy.net.nic";
+
+/// `NicInfo.kind` of an Ethernet-class card (`idl/net.midl`).
+pub const NIC_KIND_WIRED: u32 = 0;
+/// `NicInfo.kind` of a Wi-Fi card.
+pub const NIC_KIND_WIRELESS: u32 = 1;
+
+/// Whether `name` lies in the NIC namespace the registry reserves for
+/// drivers: the bare prefix and everything under `os.lazy.net.nic/`, an empty
+/// or invalid interface name included (a reserved name is refused first and
+/// judged for validity later). `os.lazy.net.nicX` is not in it.
+pub fn is_nic_name(name: &str) -> bool {
+    match name.strip_prefix(NIC_NAME_PREFIX) {
+        Some(rest) => rest.is_empty() || rest.starts_with('/'),
+        None => false,
+    }
+}
+
+/// The bit of `kind` in a set of card kinds (`NicInfo.kind`).
+const fn kind_bit(kind: u32) -> u32 {
+    if kind < 32 {
+        1 << kind
+    } else {
+        0
+    }
+}
+
+/// The identities that may register a NIC name, and the card kinds each may
+/// claim. `_net` drives Ethernet only; the Wi-Fi uids drive wireless cards
+/// only. Root is the boot identity of a console image, where the kernel
+/// starts `netdrv` itself with no supervisor (`LAZYOS_NET=1` without
+/// services): it holds every capability anyway and no desktop task runs as
+/// it ("nobody is root").
+const NIC_DRIVERS: &[(u32, u32)] = &[
+    (NET_UID, kind_bit(NIC_KIND_WIRED)),
+    (WIFI_UID, kind_bit(NIC_KIND_WIRELESS)),
+    (WIFISIM_UID, kind_bit(NIC_KIND_WIRELESS)),
+    (
+        ROOT_UID,
+        kind_bit(NIC_KIND_WIRED) | kind_bit(NIC_KIND_WIRELESS),
+    ),
+];
+
+/// Whether a task with these kernel-stamped credentials may hold a name in
+/// the NIC namespace: a driver identity ([`NIC_DRIVERS`]) with no label (an
+/// app or a development run has one) and no login session. The registry
+/// enforces it at `Register`; `netd` checks it again on what it lists.
+pub fn may_register_nic_name(uid: u32, label_id: u32, session: u64) -> bool {
+    label_id == 0 && session == 0 && NIC_DRIVERS.iter().any(|&(driver, _)| driver == uid)
+}
+
+/// Whether the driver identity `uid` may claim a card of `kind`
+/// (`NicInfo.kind`). An unknown kind or uid is refused.
+pub fn nic_kind_allowed(uid: u32, kind: u32) -> bool {
+    NIC_DRIVERS
+        .iter()
+        .any(|&(driver, kinds)| driver == uid && kinds & kind_bit(kind) != 0)
+}
 
 /// One rule. `actor` is a uid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,6 +241,90 @@ pub fn is_stack_topic(topic: &str) -> bool {
 #[cfg(test)]
 mod tests {
     extern crate std;
+
+    #[test]
+    fn only_the_prefix_and_its_subtree_are_nic_names() {
+        assert!(is_nic_name("os.lazy.net.nic"));
+        assert!(is_nic_name("os.lazy.net.nic/eth0"));
+        assert!(is_nic_name("os.lazy.net.nic/"));
+        assert!(is_nic_name("os.lazy.net.nic//x/../y"));
+        let long = std::format!("os.lazy.net.nic/{}", "a".repeat(100_000));
+        assert!(is_nic_name(&long));
+        assert!(!is_nic_name("os.lazy.net.nicX"));
+        assert!(!is_nic_name("os.lazy.net.nicX/eth0"));
+        assert!(!is_nic_name("os.lazy.net.nic.v1"));
+        assert!(!is_nic_name("os.lazy.net.ni"));
+        assert!(!is_nic_name("os.lazy.net"));
+        assert!(!is_nic_name("os.lazy.net.stack"));
+        assert!(!is_nic_name("OS.LAZY.NET.NIC/eth0"));
+        assert!(!is_nic_name(" os.lazy.net.nic/eth0"));
+        assert!(!is_nic_name("app.x.os.lazy.net.nic/eth0"));
+        assert!(!is_nic_name(""));
+    }
+
+    #[test]
+    fn only_the_driver_identities_register_nic_names() {
+        for uid in [NET_UID, WIFI_UID, WIFISIM_UID, ROOT_UID] {
+            assert!(may_register_nic_name(uid, 0, 0), "{uid}");
+        }
+        // The stack itself, every other service uid, the session users.
+        for uid in [
+            1,
+            901,
+            903,
+            904,
+            905,
+            906,
+            907,
+            908,
+            909,
+            910,
+            912,
+            914,
+            999,
+            1000,
+            1001,
+            65_534,
+            u32::MAX,
+        ] {
+            assert!(!may_register_nic_name(uid, 0, 0), "{uid}");
+        }
+    }
+
+    #[test]
+    fn a_driver_uid_with_a_label_or_a_session_is_refused() {
+        assert!(!may_register_nic_name(NET_UID, 1, 0));
+        assert!(!may_register_nic_name(NET_UID, u32::MAX, 0));
+        assert!(!may_register_nic_name(NET_UID, 0, 1));
+        assert!(!may_register_nic_name(ROOT_UID, 0, u64::MAX));
+        assert!(!may_register_nic_name(WIFI_UID, 7, 3));
+    }
+
+    #[test]
+    fn a_driver_may_claim_only_the_kind_of_card_it_drives() {
+        assert!(nic_kind_allowed(NET_UID, NIC_KIND_WIRED));
+        assert!(!nic_kind_allowed(NET_UID, NIC_KIND_WIRELESS));
+        for uid in [WIFI_UID, WIFISIM_UID] {
+            assert!(nic_kind_allowed(uid, NIC_KIND_WIRELESS));
+            assert!(!nic_kind_allowed(uid, NIC_KIND_WIRED));
+        }
+        assert!(nic_kind_allowed(ROOT_UID, NIC_KIND_WIRED));
+        assert!(nic_kind_allowed(ROOT_UID, NIC_KIND_WIRELESS));
+        for kind in [2, 31, 32, 33, u32::MAX] {
+            for uid in [NET_UID, WIFI_UID, WIFISIM_UID, ROOT_UID] {
+                assert!(!nic_kind_allowed(uid, kind), "{uid} kind {kind}");
+            }
+        }
+        assert!(!nic_kind_allowed(1000, NIC_KIND_WIRED));
+        assert!(!nic_kind_allowed(903, NIC_KIND_WIRED));
+    }
+
+    #[test]
+    fn the_kind_constants_match_the_interface() {
+        use messenger_generated::os_lazy_net_nic_v1 as nic;
+        assert_eq!(NIC_KIND_WIRED, nic::NIC_KIND_WIRED);
+        assert_eq!(NIC_KIND_WIRELESS, nic::NIC_KIND_WIRELESS);
+    }
 
     #[test]
     fn the_stack_publishes_its_address_and_the_up_event_only() {
