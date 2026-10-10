@@ -18,8 +18,11 @@ mod pollfd;
 pub use abi::*;
 pub use buffer::{buffer_close, buffer_create, buffer_map};
 #[cfg(feature = "alloc")]
+#[cfg(feature = "alloc")]
 pub use fabric::fabric_stats;
-pub use fabric::{fabric_stats_into, FabricStats, TaskUsage, FABRIC_TASKS};
+#[cfg(feature = "alloc")]
+pub use fabric::fabric_stats_into;
+pub use fabric::{FabricStats, TaskUsage, FABRIC_TASKS};
 pub use handle::{AsRawHandle, OwnedHandle};
 pub use pollfd::endpoint_fd;
 #[cfg(all(feature = "std", unix))]
