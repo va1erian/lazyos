@@ -7,7 +7,8 @@
 
 use alloc::vec::Vec;
 
-use netstack::{LookupOutcome, LookupResult, ResolveError};
+use netstack::stack::{LookupOutcome, ResolveError};
+use netstack::NetLookupResult;
 use user::messenger::netstack::{self as api, wire};
 use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
 
@@ -49,7 +50,7 @@ impl Netd {
             return Err(err(errno::EAGAIN));
         }
         let id = self
-            .stack
+            .net
             .resolve(&args.name, u64::from(args.timeout_ms), now_ms)
             .map_err(|error| match error {
                 ResolveError::BadName => err(errno::EINVAL),
@@ -66,7 +67,7 @@ impl Netd {
 
     /// Answer the lookups the stack has finished with.
     pub(super) fn finish_lookups(&mut self, server: &Endpoint) {
-        for LookupResult { id, outcome } in self.stack.take_lookup_results() {
+        for NetLookupResult { id, outcome } in self.net.take_lookup_results() {
             let Some(at) = self.lookups.iter().position(|l| l.id == id) else {
                 continue;
             };

@@ -23,7 +23,7 @@
 
 use alloc::vec::Vec;
 
-use netstack::{Kind, SockAddr, SockError, Stack};
+use netstack::{Kind, Net, SockAddr, SockError};
 use user::sys::{self, INET_ADDR_BLOCK, INET_REQUEST_BYTES};
 
 use super::sock::errno_of;
@@ -191,7 +191,7 @@ impl Inet {
     /// `true` when bytes moved: the caller passes again at once, because
     /// what is left (a stack buffer with more to read, a ring with more
     /// to send) rings no doorbell and may bring no frame.
-    pub(super) fn pump(&mut self, stack: &mut Stack, tick: u64, now_ms: i64) -> bool {
+    pub(super) fn pump(&mut self, stack: &mut Net, tick: u64, now_ms: i64) -> bool {
         if !self.attached {
             if tick < self.next_attach {
                 return false;
@@ -229,7 +229,7 @@ impl Inet {
         self.stats.moved() != before
     }
 
-    fn request(&mut self, stack: &mut Stack, raw: &[u8; INET_REQUEST_BYTES], now_ms: i64) {
+    fn request(&mut self, stack: &mut Net, raw: &[u8; INET_REQUEST_BYTES], now_ms: i64) {
         let code = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
         let id = u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]);
         let addr = SockAddr {
@@ -252,7 +252,7 @@ impl Inet {
     }
 
     /// The stack socket for `id`, made if it does not exist.
-    fn ensure(&mut self, stack: &mut Stack, id: u32, kind: Kind) -> Result<(u32, u64), SockError> {
+    fn ensure(&mut self, stack: &mut Net, id: u32, kind: Kind) -> Result<(u32, u64), SockError> {
         let entry = self.entry(id, kind);
         let owner = entry.owner();
         if let Some(sid) = entry.stack {
@@ -267,7 +267,7 @@ impl Inet {
         let _ = sys::inet_complete(id, status, &block(local, peer));
     }
 
-    fn bind(&mut self, stack: &mut Stack, id: u32, kind: Kind, addr: SockAddr) {
+    fn bind(&mut self, stack: &mut Net, id: u32, kind: Kind, addr: SockAddr) {
         let result = self
             .ensure(stack, id, kind)
             .and_then(|(sid, owner)| stack.socket_bind(sid, owner, addr).map(|()| (sid, owner)));
@@ -283,7 +283,7 @@ impl Inet {
         }
     }
 
-    fn connect(&mut self, stack: &mut Stack, id: u32, kind: Kind, peer: SockAddr) {
+    fn connect(&mut self, stack: &mut Net, id: u32, kind: Kind, peer: SockAddr) {
         let result = self
             .ensure(stack, id, kind)
             .and_then(|(sid, owner)| stack.socket_connect(sid, owner, peer));
@@ -296,7 +296,7 @@ impl Inet {
         }
     }
 
-    fn listen(&mut self, stack: &mut Stack, id: u32, kind: Kind, backlog: u32) {
+    fn listen(&mut self, stack: &mut Net, id: u32, kind: Kind, backlog: u32) {
         let result = self.ensure(stack, id, kind).and_then(|(sid, owner)| {
             stack.socket_listen(sid, owner, backlog)?;
             Ok((sid, owner))
@@ -312,7 +312,7 @@ impl Inet {
 
     /// Drop a socket the stack could not use again (a refused connection) so
     /// the application's next `connect` starts clean.
-    fn forget_stack(&mut self, stack: &mut Stack, id: u32) {
+    fn forget_stack(&mut self, stack: &mut Net, id: u32) {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
             if let Some(sid) = entry.stack.take() {
                 let _ = stack.socket_close(sid, entry.owner(), 0);
@@ -321,7 +321,7 @@ impl Inet {
         }
     }
 
-    fn close(&mut self, stack: &mut Stack, id: u32, now_ms: i64) {
+    fn close(&mut self, stack: &mut Net, id: u32, now_ms: i64) {
         self.stats.closed += 1;
         let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) else {
             // Never reached the stack: nothing to release.
@@ -339,7 +339,7 @@ impl Inet {
     }
 
     /// One socket's pass; `true` when it is finished and can be forgotten.
-    fn service(&mut self, stack: &mut Stack, at: usize, now_ms: i64) -> bool {
+    fn service(&mut self, stack: &mut Net, at: usize, now_ms: i64) -> bool {
         let phase = self.entries[at].phase;
         match phase {
             Phase::Closing(since) => self.service_closing(stack, at, since, now_ms),
@@ -357,7 +357,7 @@ impl Inet {
         }
     }
 
-    fn service_connecting(&mut self, stack: &mut Stack, at: usize) -> bool {
+    fn service_connecting(&mut self, stack: &mut Net, at: usize) -> bool {
         let (id, sid, owner) = {
             let e = &self.entries[at];
             (e.id, e.stack.unwrap_or(0), e.owner())
@@ -382,7 +382,7 @@ impl Inet {
         false
     }
 
-    fn service_listener(&mut self, stack: &mut Stack, at: usize) -> bool {
+    fn service_listener(&mut self, stack: &mut Net, at: usize) -> bool {
         let (id, sid, owner) = {
             let e = &self.entries[at];
             (e.id, e.stack.unwrap_or(0), e.owner())

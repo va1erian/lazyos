@@ -87,28 +87,35 @@ fn decoded<T, E>(result: Result<T, E>) -> Result<T, Error> {
     result.map_err(|_| Error::Code(-EINVAL))
 }
 
-/// Read interfaces, addresses, routes and counters now.
-pub fn status() -> Result<NetStatus, Error> {
+/// Read interfaces, addresses, routes and counters now, shown for the
+/// interface called `selected` (the primary one, else the first, when `None`
+/// or when that one is gone).
+pub fn status(selected: Option<&str>) -> Result<NetStatus, Error> {
     let body = call(wire::METHOD_INTERFACES, Vec::new(), STATUS_TICKS)?;
-    let interface = decoded(wire::decode_interfaces_reply(&body))?
-        .list
-        .into_iter()
-        .next()
-        .map(interface);
+    let list = decoded(wire::decode_interfaces_reply(&body))?.list;
+    let names: Vec<String> = list.iter().map(|i| clipped(&i.name)).collect();
+    let chosen = selected
+        .and_then(|name| list.iter().position(|i| clipped(&i.name) == name))
+        .or_else(|| list.iter().position(|i| i.primary))
+        .or(if list.is_empty() { None } else { Some(0) });
+    let chosen_name = chosen.map(|at| names[at].clone());
+    let interface = chosen.map(|at| interface(&list[at]));
     let body = call(wire::METHOD_ADDRESSES, Vec::new(), STATUS_TICKS)?;
     let address = decoded(wire::decode_addresses_reply(&body))?
         .list
         .iter()
+        .filter(|a| Some(clipped(&a.interface)) == chosen_name)
         .find_map(address);
     let body = call(wire::METHOD_ROUTES, Vec::new(), STATUS_TICKS)?;
     let gateway = decoded(wire::decode_routes_reply(&body))?
         .list
         .iter()
-        .filter(|route| route.prefix_len == 0)
+        .filter(|route| route.prefix_len == 0 && Some(clipped(&route.interface)) == chosen_name)
         .find_map(|route| model::ipv4(&route.gateway).filter(|gw| *gw != [0; 4]));
     let body = call(wire::METHOD_STATS, Vec::new(), STATUS_TICKS)?;
     let traffic = traffic(&decoded(wire::decode_stats_reply(&body))?.stats);
     Ok(NetStatus {
+        names,
         interface,
         address,
         gateway,
@@ -116,9 +123,14 @@ pub fn status() -> Result<NetStatus, Error> {
     })
 }
 
-fn interface(info: wire::InterfaceInfo) -> Interface {
+/// An interface name from the wire, safe for a label.
+fn clipped(name: &str) -> String {
+    format::clip(&clean(name), 16)
+}
+
+fn interface(info: &wire::InterfaceInfo) -> Interface {
     Interface {
-        name: format::clip(&clean(&info.name), 16),
+        name: clipped(&info.name),
         mac: model::mac(&info.mac),
         mtu: info.mtu,
         link: info.link,
@@ -133,6 +145,9 @@ fn interface(info: wire::InterfaceInfo) -> Interface {
             wire::DHCP_STATE_BOUND => DhcpState::Bound,
             _ => DhcpState::Unknown,
         },
+        wireless: info.kind == messenger_generated::os_lazy_net_nic_v1::NIC_KIND_WIRELESS,
+        metric: info.metric,
+        primary: info.primary,
     }
 }
 

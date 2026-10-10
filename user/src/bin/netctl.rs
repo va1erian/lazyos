@@ -25,6 +25,7 @@ use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
 
+use user::messenger::net::wire as nic_wire;
 use user::messenger::netstack::{wire, Client};
 use user::sys;
 
@@ -106,11 +107,18 @@ fn show_interfaces(client: &Client) -> Result<(), String> {
             _ => "off",
         };
         sys::write_str(&format!(
-            "{}: mac {} mtu {} link {} config {mode} dhcp {dhcp}\n",
+            "{}: mac {} mtu {} link {} config {mode} dhcp {dhcp} {} metric {}{}\n",
             i.name,
             mac_text(&i.mac),
             i.mtu,
-            if i.link { "up" } else { "down" }
+            if i.link { "up" } else { "down" },
+            if i.kind == nic_wire::NIC_KIND_WIRELESS {
+                "wireless"
+            } else {
+                "wired"
+            },
+            i.metric,
+            if i.primary { " primary" } else { "" }
         ));
     }
     Ok(())
@@ -148,9 +156,10 @@ fn show_routes(client: &Client) -> Result<(), String> {
         };
         if gateway {
             sys::write_str(&format!(
-                "{dest} via {} dev {}\n",
+                "{dest} via {} dev {} metric {}\n",
                 ip_text(&r.gateway),
-                r.interface
+                r.interface,
+                r.metric
             ));
         } else {
             sys::write_str(&format!("{dest} dev {} scope link\n", r.interface));

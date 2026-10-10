@@ -1,7 +1,8 @@
 //! `xui-network`: the Network app. The top half shows what the network stack
 //! (`netd`) reports, refreshed every second: the interface, how it is
 //! configured, its address, the gateway and the traffic. The bottom half edits
-//! the configuration `netd` reads from `confd` (`sys/net/eth0/*`): automatic
+//! the configuration `netd` reads from `confd` (`sys/net/<if>/*`, for the
+//! interface shown; "Next card" steps through several): automatic
 //! (DHCP) or a manual address, gateway and DNS server. `netd` re-reads it
 //! every few seconds and restarts itself to apply a change (open connections
 //! drop); "Renew lease" asks for a fresh DHCP lease at once.
@@ -37,6 +38,7 @@ enum Msg {
     Apply,
     Renew,
     Revert,
+    NextCard,
     Close,
 }
 
@@ -101,6 +103,7 @@ impl Widgets {
                             button("Apply").on_click(Msg::Apply).width(90),
                             button("Renew lease").on_click(Msg::Renew).width(120),
                             button("Revert").on_click(Msg::Revert).width(90),
+                            button("Next card").on_click(Msg::NextCard).width(100),
                         )),
                     )),
                 ),
@@ -113,6 +116,9 @@ struct Network {
     w: Widgets,
     store: ConfdStore,
     status: Option<NetStatus>,
+    /// The interface being shown and edited, by name; `None` follows the
+    /// primary one.
+    selected: Option<String>,
     /// The address last reported on serial, so a change is reported once.
     reported: Option<String>,
     /// Whether the form has been filled (it waits for the first status, so
@@ -135,6 +141,7 @@ impl App for Network {
                     .get()
                     .set_text("Form reset to the saved configuration.");
             }
+            Msg::NextCard => self.next_card(),
             Msg::Close => {
                 println!("NETAPP:CLOSE:PASS");
                 ui.quit();
@@ -146,7 +153,7 @@ impl App for Network {
 impl Network {
     /// Read the stack and show it; fill the form once the first answer is in.
     fn refresh(&mut self) {
-        match stack::status() {
+        match stack::status(self.selected.as_deref()) {
             Ok(status) => {
                 let lines = [
                     status.interface_line(),
@@ -188,10 +195,41 @@ impl Network {
         }
     }
 
+    /// The interface the form edits.
+    fn ifname(&self) -> String {
+        self.status
+            .as_ref()
+            .and_then(|status| status.interface.as_ref())
+            .map_or_else(|| String::from(model::DEFAULT_IFNAME), |i| i.name.clone())
+    }
+
+    /// Show the next interface `netd` drives and load its configuration.
+    fn next_card(&mut self) {
+        let Some(status) = self.status.as_ref() else {
+            return;
+        };
+        let current = status.interface.as_ref().map(|i| i.name.clone());
+        let Some(next) = model::next_name(&status.names, current.as_deref()).map(String::from)
+        else {
+            return;
+        };
+        self.selected = Some(next);
+        self.reported = None;
+        self.refresh();
+        self.fill();
+        let name = self.ifname();
+        println!("NETAPP:CARD:PASS if={name}");
+        self.w
+            .message
+            .get()
+            .set_text(&format!("Showing {name}. Apply saves to this card only."));
+    }
+
     /// Put the saved configuration (or the live address) into the form.
     fn fill(&self) {
+        let ifname = self.ifname();
         let stored = ["mode", "address", "gateway", "dns"].map(|name| {
-            match self.store.get(&model::key(name)) {
+            match self.store.get(&model::key(&ifname, name)) {
                 Some(Value::Str(text)) => Some(text),
                 _ => None,
             }
@@ -218,7 +256,8 @@ impl Network {
     /// Check the form and write it to `confd`.
     fn apply(&self) {
         let form = self.form();
-        let writes = match model::plan(&form) {
+        let ifname = self.ifname();
+        let writes = match model::plan(&ifname, &form) {
             Ok(writes) => writes,
             Err(why) => {
                 println!("NETAPP:APPLY:REFUSED");
@@ -248,7 +287,7 @@ impl Network {
             }
         }
         let mode = if form.manual { "static" } else { "dhcp" };
-        println!("NETAPP:APPLY:PASS mode={mode}");
+        println!("NETAPP:APPLY:PASS mode={mode} if={ifname}");
         self.w.message.get().set_text(if form.manual {
             "Saved. The network stack restarts with the manual address within a few seconds."
         } else {
@@ -288,6 +327,7 @@ fn main() {
             w,
             store: ConfdStore::new(),
             status: None,
+            selected: None,
             reported: None,
             filled: false,
         };

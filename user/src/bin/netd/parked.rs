@@ -84,12 +84,12 @@ impl Netd {
             reply(method, body).map(Some)
         };
         match &call.op {
-            Op::Connect => match self.stack.socket_connect_status(sock, owner) {
+            Op::Connect => match self.net.socket_connect_status(sock, owner) {
                 Ok(true) => Ok(Some(api::parcel(method, Vec::new()))),
                 Ok(false) => Ok(None),
                 Err(error) => Err(self.sock_error(error)),
             },
-            Op::Accept => match self.stack.socket_accept(sock, owner) {
+            Op::Accept => match self.net.socket_accept(sock, owner) {
                 Ok(Some((conn, peer))) => ok(wire::encode_accept_reply(&wire::AcceptReply {
                     conn,
                     peer: wire_addr(peer),
@@ -97,19 +97,19 @@ impl Netd {
                 Ok(None) => Ok(None),
                 Err(error) => Err(self.sock_error(error)),
             },
-            Op::Send(data) => match self.stack.socket_send(sock, owner, data) {
+            Op::Send(data) => match self.net.socket_send(sock, owner, data) {
                 Ok(sent) => ok(wire::encode_send_reply(&wire::SendReply {
                     sent: sent as u32,
                 })),
                 Err(SockError::WouldBlock) => Ok(None),
                 Err(error) => Err(self.sock_error(error)),
             },
-            Op::Recv(max) => match self.stack.socket_recv(sock, owner, *max) {
+            Op::Recv(max) => match self.net.socket_recv(sock, owner, *max) {
                 Ok(Some(data)) => ok(wire::encode_recv_reply(&wire::RecvReply { data })),
                 Ok(None) | Err(SockError::WouldBlock) => Ok(None),
                 Err(error) => Err(self.sock_error(error)),
             },
-            Op::RecvFrom(max) => match self.stack.socket_recvfrom(sock, owner, *max) {
+            Op::RecvFrom(max) => match self.net.socket_recvfrom(sock, owner, *max) {
                 Ok(Some((data, from))) => ok(wire::encode_recv_from_reply(&wire::RecvFromReply {
                     data,
                     from: wire_addr(from),
@@ -119,7 +119,7 @@ impl Netd {
             },
             Op::Poll(interest) => {
                 let bits = self
-                    .stack
+                    .net
                     .socket_readiness(sock, owner)
                     .map_err(|e| self.sock_error(e))?;
                 // Closed and error conditions are reported whether asked for or not.
@@ -182,13 +182,13 @@ impl Netd {
     /// Reclaim the sockets of owners that exited. Returns how many sockets.
     pub(super) fn sweep_owners(&mut self, tick: u64, now_ms: i64) -> usize {
         let mut reclaimed = 0;
-        for owner in self.stack.socket_owners() {
+        for owner in self.net.socket_owners() {
             // Sockets of Linux programs have owners of their own (the kernel
             // frees those when the application closes them), not task owners.
             if owner >= super::inet::OWNER_BASE || self.tasks.alive(owner, tick) {
                 continue;
             }
-            let count = self.stack.sockets_close_owner(owner, now_ms);
+            let count = self.net.sockets_close_owner(owner, now_ms);
             self.parked_socks.retain(|p| p.owner != owner);
             reclaimed += count;
             let note: String = alloc::format!("NETD:RECLAIM owner={owner:#x} sockets={count}\n");

@@ -149,7 +149,7 @@ impl Netd {
                     _ => return Err(err(errno::EINVAL)),
                 };
                 let sock = self
-                    .stack
+                    .net
                     .socket_open(owner, kind)
                     .map_err(|e| self.sock_error(e))?;
                 done(reply(
@@ -160,7 +160,7 @@ impl Netd {
             wire::METHOD_BIND => {
                 let args = wire::decode_bind_args(body).map_err(MsgError::Parcel)?;
                 let local = sock_addr(&args.addr)?;
-                self.stack
+                self.net
                     .socket_bind(args.sock, owner, local)
                     .map_err(|e| self.sock_error(e))?;
                 empty()
@@ -171,13 +171,13 @@ impl Netd {
                 let peer = sock_addr(&args.addr)?;
                 // A call that timed out left the handshake running: asking
                 // again waits for the same attempt instead of starting one.
-                match self.stack.socket_connect_status(args.sock, owner) {
+                match self.net.socket_connect_status(args.sock, owner) {
                     Ok(false) => {}
                     Err(error) if error != SockError::NotConnected => {
                         return Err(self.sock_error(error))
                     }
                     _ => self
-                        .stack
+                        .net
                         .socket_connect(args.sock, owner, peer)
                         .map_err(|e| self.sock_error(e))?,
                 }
@@ -185,7 +185,7 @@ impl Netd {
             }
             wire::METHOD_LISTEN => {
                 let args = wire::decode_listen_args(body).map_err(MsgError::Parcel)?;
-                self.stack
+                self.net
                     .socket_listen(args.sock, owner, args.backlog)
                     .map_err(|e| self.sock_error(e))?;
                 empty()
@@ -213,7 +213,7 @@ impl Netd {
                 let args = wire::decode_send_to_args(body).map_err(MsgError::Parcel)?;
                 let to = sock_addr(&args.addr)?;
                 let sent = self
-                    .stack
+                    .net
                     .socket_sendto(args.sock, owner, to, &args.data)
                     .map_err(|e| self.sock_error(e))?;
                 let sent = sent as u32;
@@ -251,7 +251,7 @@ impl Netd {
                     wire::SHUTDOWN_BOTH => (true, true),
                     _ => return Err(err(errno::EINVAL)),
                 };
-                self.stack
+                self.net
                     .socket_shutdown(args.sock, owner, read, write)
                     .map_err(|e| self.sock_error(e))?;
                 empty()
@@ -259,7 +259,7 @@ impl Netd {
             wire::METHOD_LOCALADDR => {
                 let args = wire::decode_local_addr_args(body).map_err(MsgError::Parcel)?;
                 let addr = self
-                    .stack
+                    .net
                     .socket_local_addr(args.sock, owner)
                     .map_err(|e| self.sock_error(e))?;
                 let addr = wire_addr(addr);
@@ -271,7 +271,7 @@ impl Netd {
             wire::METHOD_PEERADDR => {
                 let args = wire::decode_peer_addr_args(body).map_err(MsgError::Parcel)?;
                 let addr = self
-                    .stack
+                    .net
                     .socket_peer_addr(args.sock, owner)
                     .map_err(|e| self.sock_error(e))?;
                 let addr = wire_addr(addr);
@@ -282,7 +282,7 @@ impl Netd {
             }
             wire::METHOD_CLOSE => {
                 let args = wire::decode_close_args(body).map_err(MsgError::Parcel)?;
-                self.stack
+                self.net
                     .socket_close(args.sock, owner, now_ms)
                     .map_err(|e| self.sock_error(e))?;
                 self.drop_calls_on(owner, args.sock);
@@ -308,9 +308,9 @@ impl Netd {
     }
 
     fn socket_stats(&self) -> wire::SocketStats {
-        let c = self.stack.socket_counters();
+        let c = self.net.socket_counters();
         wire::SocketStats {
-            open: self.stack.socket_open_count() as u32,
+            open: self.net.socket_open_count() as u32,
             opened: c.opened,
             closed: c.closed,
             reclaimed: c.reclaimed,

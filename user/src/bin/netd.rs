@@ -34,7 +34,7 @@ use alloc::format;
 use alloc::vec;
 use core::panic::PanicInfo;
 
-use netstack::{RingDevice, Stack};
+use netstack::Net;
 use user::messenger::net::wire as nic_wire;
 use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api};
@@ -45,12 +45,18 @@ use user::sys;
 mod config;
 #[path = "netd/inet.rs"]
 mod inet;
+#[path = "netd/lists.rs"]
+mod lists;
 #[path = "netd/nic.rs"]
 mod nic;
 #[path = "netd/owners.rs"]
 mod owners;
 #[path = "netd/parked.rs"]
 mod parked;
+#[path = "netd/ports.rs"]
+mod ports;
+#[path = "netd/publish.rs"]
+mod publish;
 #[path = "netd/resolve.rs"]
 mod resolve;
 #[path = "netd/resolvfile.rs"]
@@ -60,15 +66,11 @@ mod service;
 #[path = "netd/sock.rs"]
 mod sock;
 
-use nic::{Nic, DRIVER_INTERFACE};
-use service::{Netd, IFNAME};
+use nic::DRIVER_INTERFACE;
+use service::Netd;
 
 /// The registered service name.
 const NAME: &str = api::NAME;
-
-/// A locally administered placeholder until the NIC driver says what the
-/// card's address is.
-const PLACEHOLDER_MAC: [u8; 6] = [0x02, 0x4C, 0x5A, 0x00, 0x00, 0x01];
 
 /// Longest park in the loop with nothing scheduled, ticks.
 const IDLE_TICKS: u64 = 100;
@@ -171,7 +173,7 @@ fn seed() -> Result<u64, alloc::string::String> {
 }
 
 fn run(args: &Args) -> Result<(), alloc::string::String> {
-    let (mut config, mut mode) = config::Config::load(IFNAME);
+    let mut config = config::Config::load();
     let fail = |error: MsgError| alloc::string::String::from(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
     registry::register(NAME, &published, &[api::INTERFACE, sock_api::INTERFACE], 0)
@@ -181,20 +183,11 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         api::INTERFACE
     ));
 
-    let now_ms = sys::monotonic_ms() as i64;
-    let stack = Stack::new(
-        RingDevice::detached(1514),
-        PLACEHOLDER_MAC,
-        seed()?,
-        now_ms,
-        &mode,
-    );
-    let mut netd = Netd::new(stack, Nic::new(), mode);
+    let mut netd = Netd::new(Net::new(seed()?));
     let mut next_refresh = sys::clock() + config::REFRESH_TICKS;
     let started = sys::clock();
     let mut next_demo = if args.demo { 0 } else { DEMO_CLIENTS.len() };
     let mut demo_child: Option<u64> = None;
-    let mut attach_errors = 0u32;
     let mut resolv = resolvfile::ResolvFile::new();
     // One receive buffer for the life of the service (per-call buffers of the
     // bump region are never reclaimed). Room for a full 16 KiB `Send` and its
@@ -207,82 +200,40 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         let tick = sys::clock();
         let now_ms = sys::monotonic_ms() as i64;
 
-        // The NIC: rebuild the attachment when asked to, when the ring broke,
-        // or when the driver went quiet; attach when it is time to.
-        if netd.reattach {
-            netd.reattach = false;
-            netd.nic.detach(&mut netd.stack, "reattach requested");
-            netd.nic_resets += 1;
-        }
-        if netd.nic.attached() && (netd.stack.device().is_poisoned() || netd.nic.silent(tick)) {
-            let why = if netd.stack.device().is_poisoned() {
-                "ring corrupt"
-            } else {
-                "driver silent"
-            };
-            netd.nic.detach(&mut netd.stack, why);
-            netd.nic_resets += 1;
-        }
-        if netd.nic.should_try(tick) {
-            match netd.nic.attach(&mut netd.stack, tick) {
-                Ok(()) => {
-                    attach_errors = 0;
-                    if let Some(card) = netd.nic.card {
-                        sys::write_str(&format!(
-                            "NETD:NIC:ATTACHED mac={} mtu={} link={}\n",
-                            mac_text(&card.mac),
-                            card.mtu,
-                            card.link
-                        ));
-                    }
-                }
-                Err(message) => {
-                    // Say it once, then every tenth time: a missing driver is
-                    // a normal state, not a stream of log lines.
-                    if attach_errors.is_multiple_of(10) {
-                        sys::write_str(&format!("NETD:NIC:WAIT {message}\n"));
-                    }
-                    attach_errors += 1;
-                }
-            }
-        }
+        // The cards: find them, give each an interface, attach the rings,
+        // and rebuild an attachment when asked to, when the ring broke, or
+        // when the driver went quiet.
+        let rebuild = core::mem::take(&mut netd.reattach);
+        netd.ports.scan(&mut netd.net, &mut config, tick);
+        netd.ports
+            .maintain(&mut netd.net, seed_or_clock, tick, now_ms, rebuild);
 
         // The work: the stack, the answers it produced, what it announces.
-        netd.stack.poll(now_ms);
+        netd.net.poll(now_ms);
         netd.finish_pings(&server);
         netd.finish_lookups(&server);
         netd.service_parked(&server, now_ms);
-        let inet_moved = netd.inet.pump(&mut netd.stack, tick, now_ms);
+        let inet_moved = netd.inet.pump(&mut netd.net, tick, now_ms);
         for (txn, parcel) in core::mem::take(&mut netd.outbox) {
             let _ = server.reply_or_drop(txn, &parcel);
         }
         // A client that exited leaves its sockets behind; take them back.
         if tick >= next_sweep {
             next_sweep = tick + sock::SWEEP_TICKS;
-            if netd.stack.socket_open_count() > 0 {
+            if netd.net.socket_open_count() > 0 {
                 netd.sweep_owners(tick, now_ms);
             }
         }
         netd.publish_if_changed();
-        resolv.sync(&netd.stack.state().dns, tick);
-        if netd.stack.device_mut().take_tx_notify() {
-            netd.nic.kick(&mut netd.stack);
-        }
-
-        // Ask the driver to wake us, then look once more so a frame that
-        // landed in between is not missed.
-        netd.stack.device_mut().arm_rx();
-        let pending = netd.stack.device_mut().rx_pending();
+        resolv.sync(&netd.net.dns_servers(), tick);
+        // Tell the drivers about frames queued for them and ask each to wake
+        // us, then look once more so a frame that landed in between is not
+        // missed.
+        let pending = netd.ports.pump(&mut netd.net);
 
         if tick >= next_refresh {
             next_refresh = tick + config::REFRESH_TICKS;
-            if let Some(new) = config.refresh() {
-                if new != mode {
-                    sys::write_str("NETD:RESTART the configuration changed\n");
-                    return Ok(());
-                }
-                mode = new;
-            }
+            netd.ports.refresh_config(&mut netd.net, &mut config);
         }
         run_demo(
             &netd,
@@ -292,14 +243,14 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         );
 
         // The single wait.
-        let mut wait = match netd.stack.poll_delay_ms(now_ms) {
+        let mut wait = match netd.net.poll_delay_ms(now_ms) {
             Some(ms) => ms.div_ceil(10).min(IDLE_TICKS),
             None => IDLE_TICKS,
         };
         if let Some(ms) = netd.parked_delay_ms(now_ms) {
             wait = wait.min(ms.div_ceil(10));
         }
-        if netd.stack.socket_open_count() > 0 {
+        if netd.net.socket_open_count() > 0 {
             wait = wait.min(next_sweep.saturating_sub(tick));
         }
         if demo_child.is_some() {
@@ -347,8 +298,7 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
                 oversize += 1;
                 if oversize.is_power_of_two() {
                     sys::write_str(&format!(
-                        "NETD:OVERSIZE dropped {oversize} oversized request(s)
-"
+                        "NETD:OVERSIZE dropped {oversize} oversized request(s)\n"
                     ));
                 }
                 continue;
@@ -358,16 +308,16 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         let Some(message) = message else { continue };
 
         if message.interface_id() == DRIVER_INTERFACE {
-            netd.nic.heard(sys::clock());
             // A link change is worth a look at the card; everything else in a
             // notice is only a reason to run the loop again.
+            let mut link_change = false;
             if message.method() == nic_wire::METHOD_NOTIFY {
                 if let Ok(args) = nic_wire::decode_notify_args(&message.parcel.body) {
-                    if args.events & (1 << nic_wire::NOTIFY_BIT_LINK_CHANGE) != 0 {
-                        netd.nic.refresh_link();
-                    }
+                    link_change = args.events & ports::LINK_CHANGE != 0;
                 }
             }
+            netd.ports
+                .heard(&mut netd.net, message.sender, link_change, sys::clock());
             continue;
         }
         let reply = netd.dispatch(&message, sys::monotonic_ms() as i64);
@@ -386,6 +336,12 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     }
 }
 
+/// A seed for a new interface's stack: the kernel CSPRNG, or the clock if it
+/// fails (a seed only spreads sequence numbers and ports).
+fn seed_or_clock() -> u64 {
+    seed().unwrap_or_else(|_| sys::clock())
+}
+
 /// `52:54:00:12:34:56`.
 fn mac_text(mac: &[u8; 6]) -> alloc::string::String {
     format!(
@@ -402,7 +358,7 @@ fn run_demo(netd: &Netd, child: &mut Option<u64>, next: &mut usize, waited_enoug
             sys::write_str(&format!("NETD:DEMO:EXIT pid={pid} status={status}\n"));
             *child = None;
         }
-    } else if *next < DEMO_CLIENTS.len() && (netd.stack.state().addr.is_some() || waited_enough) {
+    } else if *next < DEMO_CLIENTS.len() && (netd.net.units().any(|(_, u)| u.stack.state().addr.is_some()) || waited_enough) {
         let (linux, program, args) = DEMO_CLIENTS[*next];
         let pid = if linux {
             sys::spawn_linux(program, args)
