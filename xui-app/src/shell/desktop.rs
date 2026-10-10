@@ -48,6 +48,9 @@ pub enum DeskMsg {
     Launch(usize),
     /// The icon selection changed.
     Selection,
+    /// The scan worker finished a look at the desktop folder
+    /// ([`super::deskdir::Scanner`]).
+    Scanned(Box<super::deskscan::Outcome>),
 }
 
 /// The desktop window's app.
@@ -127,6 +130,10 @@ impl DesktopApp {
         if windows > 0 {
             println!("SHELL:RESTART:PASS windows={windows}");
         }
+        // From here the folder is scanned off this thread (the first load,
+        // above, ran inline so the first frame has its icons).
+        ctx.start_scanner(ui.proxy());
+        ctx.reload_desktop(true);
         ui.on_timer(|_| Some(DeskMsg::Tick));
         ui.set_timer(TICK_MILLIS);
         DesktopApp {
@@ -179,25 +186,32 @@ impl DesktopApp {
 
     /// One heartbeat: events, requests, clock, theme, desktop folder.
     fn tick(&mut self, ui: &Ui<DeskMsg>) {
+        // Each chore is timed (`UI:STALL kind=chore`): the heartbeat runs them
+        // all on the one thread that draws the taskbar and the desktop.
+        use crate::stall::chore;
         if self.ctx.bar.borrow().is_none() && self.beat.retry_bar() {
-            open_bar(&self.ctx, ui);
-            self.ctx.bar_changed();
+            chore("open_bar", || {
+                open_bar(&self.ctx, ui);
+                self.ctx.bar_changed();
+            });
         }
-        link::pump(&self.ctx, ui);
+        chore("link::pump", || link::pump(&self.ctx, ui));
         // `init` gave up on an app of this session: tell the user (#549).
-        let failures = self.ctx.failures.borrow_mut().poll();
+        let failures = chore("failures::poll", || self.ctx.failures.borrow_mut().poll());
         for failure in failures {
             notice::post(&self.ctx, ui, failure);
         }
-        notice::pump(&self.ctx, ui);
-        self.service.pump(&self.ctx, ui, &mut self.beat);
-        super::tray::pump(&self.ctx, ui);
-        if self.beat.clock(&self.ctx) {
-            self.ctx.repaint_bar();
+        chore("notice::pump", || notice::pump(&self.ctx, ui));
+        chore("service::pump", || {
+            self.service.pump(&self.ctx, ui, &mut self.beat)
+        });
+        chore("tray::pump", || super::tray::pump(&self.ctx, ui));
+        if chore("beat::clock", || self.beat.clock(&self.ctx)) {
+            chore("repaint_bar(clock)", || self.ctx.repaint_bar());
         }
-        if self.beat.theme(&self.ctx) {
-            self.retheme(ui);
-            self.rebuild_icons(ui);
+        if chore("beat::theme", || self.beat.theme(&self.ctx)) {
+            chore("retheme", || self.retheme(ui));
+            chore("rebuild_icons(theme)", || self.rebuild_icons(ui));
             // A new clock format (Settings, Time & Date) changes the width
             // the clock reserves, so the entries move.
             if self.ctx.bar.borrow().is_some() && taskbar::measure_clock(&self.ctx, ui) {
@@ -208,10 +222,17 @@ impl DesktopApp {
         }
         let apps_due = self.beat.launchers_due();
         if apps_due || self.beat.folder_due() {
-            self.ctx.reload_desktop(apps_due);
+            chore(
+                if apps_due {
+                    "reload_desktop(apps)"
+                } else {
+                    "reload_desktop"
+                },
+                || self.ctx.reload_desktop(apps_due),
+            );
         }
         if self.ctx.icons_changed.replace(false) {
-            self.rebuild_icons(ui);
+            chore("rebuild_icons", || self.rebuild_icons(ui));
         }
         self.beat.report_first_frame(&self.ctx, self.icons.len());
     }
@@ -278,7 +299,12 @@ fn icons_design(ctx: &Ctx, grid: Grid) -> (i32, i32, i32, i32) {
     let width = columns * (TILE_W + TILE_GAP) - TILE_GAP + COLUMN_SLACK;
     let bottom = ctx.screen.1 - BAR_H - ICONS_INSET;
     let right = (ICONS_INSET + width).min(ctx.screen.0);
-    (ICONS_INSET, ICONS_INSET, right - ICONS_INSET, bottom - ICONS_INSET)
+    (
+        ICONS_INSET,
+        ICONS_INSET,
+        right - ICONS_INSET,
+        bottom - ICONS_INSET,
+    )
 }
 
 /// The same rectangle in screen pixels: where the labels sit.
@@ -299,6 +325,12 @@ impl App for DesktopApp {
                 self.launch(index);
             }
             DeskMsg::Selection => self.selection_changed(),
+            DeskMsg::Scanned(outcome) => {
+                self.ctx.scan_done(*outcome);
+                if self.ctx.icons_changed.replace(false) {
+                    self.rebuild_icons(ui);
+                }
+            }
         }
     }
 }

@@ -8,6 +8,10 @@ pub use confd::Value;
 /// Why a write failed, as text for the status line.
 pub type StoreError = String;
 
+/// Builds another copy of a store on a worker thread: `Send`, because the
+/// store itself (an `Rc` shared by the widgets) is not.
+pub type Detached = std::sync::Arc<dyn Fn() -> Box<dyn ConfigStore> + Send + Sync>;
+
 /// One launchable app in the OS registry (`init`'s app table).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AppChoice {
@@ -45,6 +49,13 @@ pub trait ConfigStore {
     /// Whether values survive a reboot (drives the "not persistent" banner).
     fn persistent(&self) -> bool {
         true
+    }
+    /// How to build a copy of this store on a worker thread, for a store
+    /// whose writes can wait on a person (an administrator's approval) or a
+    /// slow service. `None`, the default, means every call is quick and runs
+    /// on the UI thread.
+    fn detached(&self) -> Option<Detached> {
+        None
     }
 }
 

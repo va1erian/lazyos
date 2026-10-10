@@ -145,6 +145,9 @@ pub struct Pasted {
     pub failed: Vec<(PathBuf, String)>,
 }
 
+/// Builds another [`Session`] on a worker thread (see [`Session::detached`]).
+pub type DetachedSession = std::sync::Arc<dyn Fn() -> Box<dyn Session> + Send + Sync>;
+
 /// What the explorer shares with the rest of the user's session: the
 /// clipboard (copy and paste of files) and the current selection.
 ///
@@ -167,6 +170,15 @@ pub trait Session {
     /// The selection of the window showing `dir` is now `paths` (absolute,
     /// empty when nothing is selected). Best-effort: nothing may fail here.
     fn selection_changed(&self, _dir: &Path, _paths: &[PathBuf]) {}
+
+    /// How to build an equivalent session on a worker thread. A paste asks a
+    /// service and then copies files, which can take as long as the files
+    /// are large, so a session that can be rebuilt there lets the window run
+    /// it on a worker and keep painting. `None`, the default, runs
+    /// [`paste_into`](Session::paste_into) on the UI thread.
+    fn detached(&self) -> Option<DetachedSession> {
+        None
+    }
 }
 
 /// The [`Session`] of a target without one.

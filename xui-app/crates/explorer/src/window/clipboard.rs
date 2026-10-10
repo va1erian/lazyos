@@ -4,12 +4,23 @@
 //! shell's [`Session`](crate::platform::Session).
 
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, PoisonError};
 
-use xui_core::app::Ui;
+use xui_core::app::{Proxy, Ui};
 
 use super::{ExplorerWindow, Msg};
 use crate::platform::Pasted;
+
+/// Sends [`Msg::PasteDone`] when dropped.
+struct Ring(Proxy<Msg>);
+
+impl Drop for Ring {
+    fn drop(&mut self) {
+        let _ = self.0.send(Msg::PasteDone);
+    }
+}
 
 impl ExplorerWindow {
     /// The selection as absolute paths, in view order.
@@ -36,11 +47,71 @@ impl ExplorerWindow {
 
     /// Copies the clipboard's files into this folder, refreshes every window
     /// showing it, and says what happened.
+    ///
+    /// A session that can be rebuilt on a worker thread
+    /// ([`Session::detached`]) pastes there, so a large copy leaves the
+    /// window painting; the answer returns as [`Msg::PasteDone`].
     pub(super) fn paste(&mut self, ui: &mut Ui<Msg>) {
-        let result = self.explorer.session().paste_into(&self.dir);
+        if self.pasting {
+            self.chrome.status.set_parts(&["A paste is still running"]);
+            return;
+        }
+        let Some(detached) = self.explorer.session().detached() else {
+            let result = self.explorer.session().paste_into(&self.dir);
+            let dir = self.dir.clone();
+            return self.show_pasted(&dir, result, ui);
+        };
+        let (dir, slot, proxy) = (
+            self.dir.clone(),
+            Arc::clone(&self.pasted),
+            self.proxy.clone(),
+        );
+        let spawned = std::thread::Builder::new()
+            .name("files-paste".into())
+            .spawn(move || {
+                // Rings on every exit, a panic included, so the window never
+                // waits for an answer that cannot come.
+                let _ring = Ring(proxy);
+                let result = detached().paste_into(&dir);
+                *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir, result));
+            });
+        match spawned {
+            Ok(_) => {
+                self.pasting = true;
+                self.chrome.status.set_parts(&["Pasting..."]);
+            }
+            Err(error) => {
+                let text = format!("Cannot paste: {error}");
+                self.chrome.status.set_parts(&[&text]);
+            }
+        }
+    }
+
+    /// The worker's answer.
+    pub(super) fn paste_done(&mut self, ui: &mut Ui<Msg>) {
+        self.pasting = false;
+        let answer = self
+            .pasted
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        match answer {
+            Some((dir, result)) => self.show_pasted(&dir, result, ui),
+            None => self
+                .chrome
+                .status
+                .set_parts(&["The paste stopped unexpectedly"]),
+        }
+    }
+
+    /// Refresh what a paste into `dir` changed, and say what it did.
+    fn show_pasted(&mut self, dir: &Path, result: io::Result<Pasted>, ui: &mut Ui<Msg>) {
         if result.as_ref().is_ok_and(|pasted| pasted.copied > 0) {
-            self.refresh(ui);
-            self.explorer.refresh_under(&self.dir, Some(ui.window()));
+            // The window may have moved on while the copy ran.
+            if self.dir == dir {
+                self.refresh(ui);
+            }
+            self.explorer.refresh_under(dir, Some(ui.window()));
         }
         self.chrome.status.set_parts(&[&paste_summary(&result)]);
     }

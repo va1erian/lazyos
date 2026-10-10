@@ -15,8 +15,8 @@ pub use lazyos_sys::display::{
 };
 pub use lazyos_sys::errno;
 pub use lazyos_sys::msg::parcel::{
-    call as msg_call, connect as msg_connect, register as msg_register, reply as msg_reply,
-    resolve as msg_resolve, send as msg_send,
+    connect as msg_connect, register as msg_register, reply as msg_reply, resolve as msg_resolve,
+    send as msg_send,
 };
 pub use lazyos_sys::msg::{
     buffer_close, buffer_create, buffer_map, close as msg_close, create_pair as msg_create_pair,
@@ -25,6 +25,32 @@ pub use lazyos_sys::msg::{
     EXPIRED_DEADLINE, FD_READY, REGISTRY_TARGET_SELF, WAIT_FD, WAIT_FD_SHIFT, WAIT_MAX_ENDPOINTS,
 };
 pub use lazyos_sys::time::{clock as clock_ticks, monotonic_ns, wall_centis};
+
+/// One synchronous Messenger call (`lazyos_sys::msg::parcel::call`), timed:
+/// a call that holds the thread longer than [`crate::stall::SLOW_NS`] leaves a
+/// `UI:STALL kind=call` line naming the interface and method, which is how a
+/// frozen window is traced to the service it waited on.
+pub fn msg_call(
+    handle: u64,
+    parcel: &libmessenger::Parcel,
+    buf: &mut [u8],
+    deadline: u64,
+) -> Result<libmessenger::Parcel, i64> {
+    let began = crate::stall::start();
+    let result = lazyos_sys::msg::parcel::call(handle, parcel, buf, deadline);
+    crate::stall::finish(began, crate::stall::SLOW_NS, "call", || {
+        format!(
+            "iface={:#x} method={} deadline={deadline} result={}",
+            parcel.header.interface_id,
+            parcel.header.method,
+            match &result {
+                Ok(_) => String::from("ok"),
+                Err(code) => code.to_string(),
+            }
+        )
+    });
+    result
+}
 
 /// Park until one of `handles` has a message (or a closed peer) or the
 /// absolute PIT `deadline` passes: the ready mask, or `-ETIMEDOUT`.

@@ -6,7 +6,8 @@
 //! that keeps them in place; from then on the folder is the user's. The
 //! heartbeat polls it about once a second: a listing whose names, sizes and
 //! times did not change costs one directory read, and only a change re-reads
-//! the shortcuts and asks `init` for the icons. Without a usable `$HOME` the
+//! the shortcuts and asks `init` for the icons. The reads run on the scan
+//! worker (`deskscan.rs`), never on the thread that draws the desktop. Without a usable `$HOME` the
 //! desktop shows the launchers directly, as it did before the folder.
 //!
 //! Every file here is the user's (or another app's), so it is read with a
@@ -17,21 +18,17 @@
 //! `SHELL:DESKTOP:SEED:FAIL <why>`, `SHELL:DESKTOP:ICONS n=<n>`,
 //! `SHELL:DESKTOP:DROP:<copied>:<moved>:<failed>`.
 
-use std::fs;
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::path::PathBuf;
 
-use lazyshell::desktop::folder::{self, DirEntry, Item, Kind};
+use lazyshell::desktop::folder::{Item, Kind};
 use lazyshell::menu::{listed_hidden, Listed};
-use lazyshell::shortcut;
+use xui_core::app::Proxy;
 use xui_explorer::std_platform::{drop_into, Intent};
 
 use super::ctx::Ctx;
+use super::deskscan::{scan, DirStamp, Job, Outcome, Scanner, Stamp};
+use super::desktop::DeskMsg;
 use super::services;
-
-/// One entry's identity for change detection: name, size, modification time.
-type Stamp = (String, u64, Option<SystemTime>);
 
 /// What the shell last saw of the folder.
 #[derive(Default)]
@@ -44,6 +41,26 @@ pub struct Watch {
     stamps: Vec<Stamp>,
     /// `init`'s registry the icons were last resolved against.
     apps: Vec<services::App>,
+    /// The worker that scans the folder off the UI thread, once the desktop
+    /// window exists (before it, [`Ctx::reload_desktop`] scans inline).
+    scanner: Option<Scanner>,
+    /// A scan is out; its answer arrives as [`DeskMsg::Scanned`].
+    busy: bool,
+    /// A registry re-read was asked for while a scan ran: run it when the
+    /// answer is in.
+    again: Option<bool>,
+    /// A scan has answered at least once (the icons are the folder's, not
+    /// the empty first view).
+    loaded: bool,
+    /// The folder's own stamp at the last full listing, and its tick: a
+    /// poll that finds the stamp unchanged does not list the folder again.
+    dir_stamp: Option<DirStamp>,
+    last_full: u64,
+    /// The items of the last listing, before the hidden apps are removed,
+    /// so a registry change can be applied without reading the folder.
+    items: Vec<Item>,
+    /// A forced listing was asked for while a scan ran.
+    again_force: bool,
 }
 
 impl Watch {
@@ -62,84 +79,123 @@ impl Watch {
 
 impl Ctx {
     /// Bring the desktop icons up to date; `refresh_apps` also asks `init`
-    /// again (for hidden apps and package icons). Returns whether the icons
-    /// changed (and sets `icons_changed`).
+    /// again (for hidden apps and package icons). With the scan worker
+    /// running this only hands it the job (the answer is folded in by
+    /// [`Ctx::scan_done`], and a request made while one runs is queued);
+    /// without it the scan runs here. Returns whether the icons changed
+    /// (and sets `icons_changed`), which only an inline scan can know.
     pub fn reload_desktop(&self, refresh_apps: bool) -> bool {
-        let dir = self.desk.borrow().dir.clone();
-        let Some(dir) = dir else {
-            return self.show_launchers(refresh_apps);
-        };
-        if !self.desk.borrow().seeded && !self.seed(&dir) {
-            return false;
-        }
-        let Ok(stamps) = stamps(&dir) else {
-            // The folder vanished or cannot be read: try the seed again next
-            // time rather than show nothing forever.
-            self.desk.borrow_mut().seeded = false;
-            return false;
-        };
-        let moved = self.desk.borrow().stamps != stamps;
-        if !moved && !refresh_apps {
-            return false;
-        }
-        if refresh_apps || self.desk.borrow().apps.is_empty() {
-            if let Ok(apps) = services::list_apps() {
-                self.desk.borrow_mut().apps = apps;
-            }
-        }
-        let entries = read_entries(&dir, &stamps);
-        let order = read_capped(&dir.join(folder::ORDER_FILE));
-        let items = folder::items(&entries, order.as_deref());
-        self.desk.borrow_mut().stamps = stamps;
-        self.set_icons(items)
+        self.submit(refresh_apps, false)
     }
 
-    /// No desktop folder: show `sys/ui/desktop` itself.
-    fn show_launchers(&self, refresh_apps: bool) -> bool {
-        if !refresh_apps {
-            return false;
-        }
-        let Ok(stored) = services::confd_get(lazyshell::desktop::KEY) else {
-            return false;
-        };
-        if let Ok(apps) = services::list_apps() {
-            self.desk.borrow_mut().apps = apps;
-        }
-        let items = lazyshell::desktop::from_value(stored.as_ref())
-            .iter()
-            .map(Item::launcher)
-            .collect();
-        self.set_icons(items)
+    /// [`Ctx::reload_desktop`] listing the folder whatever its stamp says:
+    /// right after the shell itself changed it (a drop).
+    pub fn reload_desktop_now(&self) -> bool {
+        self.submit(false, true)
     }
 
-    /// Create and fill a missing folder from `sys/ui/desktop`; `true` once
-    /// the folder exists. Waits for `confd` so a configured list is not
-    /// replaced by the defaults just because `confd` was late.
-    fn seed(&self, dir: &Path) -> bool {
-        if dir.is_dir() {
-            self.desk.borrow_mut().seeded = true;
-            return true;
-        }
-        let Ok(stored) = services::confd_get(lazyshell::desktop::KEY) else {
-            return false;
+    fn submit(&self, refresh_apps: bool, force: bool) -> bool {
+        let job = {
+            let desk = self.desk.borrow();
+            Job {
+                dir: desk.dir.clone(),
+                seeded: desk.seeded,
+                refresh_apps,
+                stamps: desk.stamps.clone(),
+                have_apps: !desk.apps.is_empty(),
+                force,
+                dir_stamp: desk.dir_stamp,
+                last_full: desk.last_full,
+            }
         };
-        let launchers = lazyshell::desktop::from_value(stored.as_ref());
-        let files = folder::seed(&launchers);
-        match write_seed(dir, &files) {
-            Ok(()) => {
-                println!(
-                    "SHELL:DESKTOP:SEEDED dir={} n={}",
-                    dir.display(),
-                    files.len() - 1
-                );
-                self.desk.borrow_mut().seeded = true;
-                true
+        {
+            let mut desk = self.desk.borrow_mut();
+            if desk.busy {
+                // A plain folder look is skipped (the next heartbeat asks
+                // again); a registry refresh or a forced listing is not lost.
+                if refresh_apps {
+                    desk.again = Some(true);
+                }
+                if force {
+                    desk.again_force = true;
+                }
+                return false;
             }
-            Err(error) => {
-                self.note("desk-seed", || format!("SHELL:DESKTOP:SEED:FAIL {error}"));
-                false
+            if let Some(scanner) = &desk.scanner {
+                if scanner.jobs.send(job).is_ok() {
+                    desk.busy = true;
+                } else {
+                    // The worker is gone: scan here from the next call on.
+                    desk.scanner = None;
+                }
+                return false;
             }
         }
+        self.apply_scan(scan(job))
+    }
+
+    /// The worker's answer: fold it in, then run a reload that was asked for
+    /// meanwhile.
+    pub fn scan_done(&self, outcome: Outcome) {
+        self.apply_scan(outcome);
+        let (again, force) = {
+            let mut desk = self.desk.borrow_mut();
+            desk.busy = false;
+            (desk.again.take(), std::mem::take(&mut desk.again_force))
+        };
+        if again.is_some() || force {
+            self.submit(again.unwrap_or(false), force);
+        }
+    }
+
+    /// Put a scan's findings in the watch and the icons.
+    fn apply_scan(&self, outcome: Outcome) -> bool {
+        {
+            let mut desk = self.desk.borrow_mut();
+            desk.loaded = true;
+            desk.seeded = outcome.seeded;
+            if let Some(stamps) = outcome.stamps {
+                desk.stamps = stamps;
+            }
+            if let Some(apps) = outcome.apps {
+                desk.apps = apps;
+            }
+            if let Some(stamp) = outcome.dir_stamp {
+                desk.dir_stamp = Some(stamp);
+            }
+            if let Some(at) = outcome.full_at {
+                desk.last_full = at;
+            }
+        }
+        if let Some((key, line)) = outcome.note {
+            self.note(key, || line);
+        }
+        let items = match outcome.items {
+            Some(items) => {
+                self.desk.borrow_mut().items = items.clone();
+                Some(items)
+            }
+            None if outcome.reapply => Some(self.desk.borrow().items.clone()),
+            None => None,
+        };
+        match items {
+            Some(items) => self.set_icons(items),
+            None => false,
+        }
+    }
+
+    /// Start the scan worker on the desktop window's proxy.
+    pub fn start_scanner(&self, proxy: Proxy<DeskMsg>) {
+        let mut desk = self.desk.borrow_mut();
+        desk.scanner = Scanner::start(proxy);
+        // A scan the previous worker never answered (the window was rebuilt).
+        desk.busy = false;
+        desk.again = None;
+    }
+
+    /// Whether a scan has answered, so the icon count is the folder's.
+    pub fn desktop_loaded(&self) -> bool {
+        self.desk.borrow().loaded
     }
 
     /// Replace the icons with `items`, minus the apps this user hides, with
@@ -202,87 +258,8 @@ impl Ctx {
             report.moved,
             report.failed.len()
         );
-        self.reload_desktop(false);
+        self.reload_desktop_now();
     }
-}
-
-/// Write the seed into a new folder `dir`. `create_dir` (not `_all`) and
-/// `create_new` files: a folder something else made meanwhile is left as is.
-/// If a write fails, the files this call created are removed and then the
-/// folder if nothing else was put in it meanwhile, so the next poll seeds
-/// again instead of counting a half-written folder as done.
-fn write_seed(dir: &Path, files: &[(String, String)]) -> io::Result<()> {
-    fs::create_dir(dir)?;
-    let mut created = Vec::new();
-    let written = files.iter().try_for_each(|(name, text)| {
-        let path = dir.join(name);
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
-        created.push(path);
-        file.write_all(text.as_bytes())
-    });
-    if written.is_err() {
-        for path in &created {
-            let _ = fs::remove_file(path);
-        }
-        // Fails, and keeps the folder, when someone else's file is in it.
-        let _ = fs::remove_dir(dir);
-    }
-    written
-}
-
-/// The folder's visible entries and the order file, stamped, sorted by name.
-fn stamps(dir: &Path) -> io::Result<Vec<Stamp>> {
-    let mut stamps = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let Ok(name) = entry.file_name().into_string() else {
-            continue;
-        };
-        if name.starts_with('.') && name != folder::ORDER_FILE {
-            continue;
-        }
-        let meta = entry.metadata().ok();
-        let size = meta.as_ref().map_or(0, fs::Metadata::len);
-        let modified = meta.and_then(|meta| meta.modified().ok());
-        stamps.push((name, size, modified));
-    }
-    stamps.sort();
-    Ok(stamps)
-}
-
-/// The entries the stamps list, with each shortcut's text read.
-fn read_entries(dir: &Path, stamps: &[Stamp]) -> Vec<DirEntry> {
-    stamps
-        .iter()
-        .filter(|(name, _, _)| name != folder::ORDER_FILE)
-        .map(|(name, _, _)| {
-            let path = dir.join(name);
-            let is_dir = fs::metadata(&path).is_ok_and(|meta| meta.is_dir());
-            let text = (!is_dir && shortcut::is_shortcut_name(name))
-                .then(|| read_capped(&path))
-                .flatten();
-            DirEntry {
-                name: name.clone(),
-                is_dir,
-                text,
-            }
-        })
-        .collect()
-}
-
-/// A small text file's contents: `None` when missing, unreadable, not UTF-8
-/// or longer than a shortcut may be.
-fn read_capped(path: &Path) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
-    let mut text = String::new();
-    let read = file
-        .take(shortcut::MAX_BYTES + 1)
-        .read_to_string(&mut text)
-        .ok()?;
-    (read as u64 <= shortcut::MAX_BYTES).then_some(text)
 }
 
 /// What opening `item` does: launch its app, browse its folder in Files, or

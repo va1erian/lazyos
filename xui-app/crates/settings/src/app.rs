@@ -35,7 +35,7 @@ use crate::accounts::Accounts;
 use crate::accounts_page::{AccountsMsg, AccountsPage};
 use crate::appearance_page::AppearancePage;
 use crate::hidden_page::{HiddenMsg, HiddenPage};
-use crate::keyboard_page::{KeyboardMsg, KeyboardPage};
+use crate::keyboard_page::{self, KeyboardMsg, KeyboardPage};
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::store::ConfigStore;
@@ -45,6 +45,9 @@ use crate::time_page::{TimeMsg, TimePage};
 use crate::user_theme::{self, UserTheme};
 use crate::wallpaper_ops;
 use crate::windows_page::WindowsPage;
+
+mod elevated;
+pub use elevated::Done;
 
 /// Window size (DIP) the app asks for: tall enough for every section row in
 /// the sidebar without scrolling.
@@ -90,6 +93,8 @@ pub enum Msg {
     Time(TimeMsg),
     Accounts(AccountsMsg),
     AboutRefresh,
+    /// A change that ran on a worker thread finished.
+    Done(Done),
     /// The compositor asked the window to close.
     Close,
 }
@@ -130,6 +135,9 @@ pub struct SettingsApp {
     target: usize,
     /// The desktop pictures listed, in row order after "None".
     pictures: Vec<String>,
+    /// A machine-wide change is waiting on a worker thread; another is
+    /// refused until it answers (one prompt at a time).
+    busy: bool,
 }
 
 impl SettingsApp {
@@ -219,6 +227,7 @@ impl SettingsApp {
             _sidebar: sidebar,
             target: 0,
             pictures,
+            busy: false,
         };
         app.show(ui, Section::Appearance);
         app.load_state();
@@ -296,31 +305,6 @@ impl SettingsApp {
             Ok(()) => self.status.set_text(ok),
             Err(error) => self.status.set_text(&format!("Could not save: {error}")),
         }
-    }
-
-    /// Publish the user's theme as the machine default.
-    fn make_default(&mut self, ui: &Ui<Msg>) {
-        let Some(uid) = self.store.uid() else {
-            return self.status.set_text("Your account is unknown.");
-        };
-        let text = match user_theme::make_default(self.machine.as_ref(), uid) {
-            Ok(done) if done.written == 0 => {
-                String::from("Your theme already is the default for everyone.")
-            }
-            Ok(done) => {
-                println!("SETTINGS:THEME:DEFAULT:PASS keys={}", done.written);
-                let note = if done.kept_picture {
-                    " Your own picture stays yours."
-                } else {
-                    ""
-                };
-                format!("Your theme is now the default for everyone.{note}")
-            }
-            Err(error) => format!("The default theme was not changed: {error}"),
-        };
-        self.status.set_text(&text);
-        self.load_state();
-        self.retheme(ui);
     }
 }
 
@@ -415,6 +399,13 @@ impl App for SettingsApp {
                 self.retheme(ui);
             }
             Msg::MakeDefault => self.make_default(ui),
+            Msg::Keyboard(KeyboardMsg::MakeDefault) => {
+                let selected = self.pages.keyboard.selected();
+                self.elevated(ui, move |store, machine| {
+                    Done::Keyboard(keyboard_page::make_default(store, machine, selected))
+                });
+            }
+            Msg::Done(done) => self.finish(done, ui),
             Msg::Keyboard(msg) => say(
                 &self.status,
                 self.pages
