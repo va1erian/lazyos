@@ -1,12 +1,17 @@
 //! The controller's event queue: waiting for one event while keeping the
 //! others for later takers, and moving new events off the event ring
 //! (xHCI 4.9.4). Split out of `hc.rs`.
+//!
+//! A wait parks on the claim's interrupt between looks at the ring
+//! (`irq::wait_event`, issue #719), so a command or a bulk transfer in
+//! flight completes at the device's latency rather than at the next tick;
+//! the bounded poll inside covers a lost interrupt.
 
 use user::sys;
 use xhci::regs::{rt, Mmio};
 use xhci::trb::{kind, Trb};
 
-use super::{nap, Hc, PENDING_CAP, TIMEOUT_TICKS};
+use super::{Hc, PENDING_CAP, TIMEOUT_TICKS};
 use crate::Error;
 
 impl Hc {
@@ -30,7 +35,10 @@ impl Hc {
             if sys::clock() > deadline {
                 return Err(Error::Timeout("event"));
             }
-            nap();
+            // Parked on the interrupt, not napping a tick: a stick request
+            // is several transfers, and each now ends when the device says
+            // so instead of at the next tick (issue #719).
+            crate::irq::wait_event(self, deadline);
         }
     }
 
