@@ -9,7 +9,7 @@ from __future__ import annotations
 
 #: The kernel limits `lazyos.cfg` can set; `KEY=VALUE` becomes `LAZYOS_LIMIT_<KEY>`.
 LIMIT_KEYS = ("heap_max", "fd_max", "stack_size", "quota_user_memory",
-              "quota_kernel_memory", "shared_buffer_max")
+              "quota_kernel_memory", "shared_buffer_max", "scratch_max")
 
 
 def limit_env(entries) -> dict[str, str]:

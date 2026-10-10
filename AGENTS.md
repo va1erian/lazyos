@@ -199,7 +199,9 @@ python tools/run_demo.py --limit heap_max=768M --limit stack_size=16M
 
 Keys: `heap_max` (kernel heap ceiling; the heap grows on demand), `fd_max`
 (descriptors per task, 1024), `stack_size` (Linux main stack, 8 MiB,
-demand-zero), `quota_user_memory`, `quota_kernel_memory`, `shared_buffer_max`.
+demand-zero), `quota_user_memory`, `quota_kernel_memory`, `shared_buffer_max`,
+`scratch_max` (`/transient` and `/tmp`, one ramfs in the kernel heap; 1 GiB, at most half of
+`heap_max`; a LazyRAD `.lzp` staged there is several MiB).
 The boot log prints the table (`limits: ...`). `task::MAX_TASKS` (256) stays a
 compile-time constant. The kernel image runs at `0xffff_8000_0000_0000`
 (`mem::layout`): symbolize with `addr2line -e <kernel> <rip - 0xffff800000000000>`.

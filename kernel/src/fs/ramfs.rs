@@ -26,9 +26,10 @@ pub use space::Usage;
 /// The root directory's inode. Inodes are allocated upward from here.
 const ROOT_INO: u64 = 1;
 
-/// Default cap on the file bytes one ramfs holds (4 MiB of the 16 MiB kernel
-/// heap). `/tmp` is shared by every user and backed by that heap, so without a
-/// cap one process could exhaust it and abort the kernel.
+/// Default cap on the file bytes one ramfs holds. The scratch filesystem has
+/// its own, `limit.scratch_max`; this is the cap of the ramfs the kernel makes
+/// for itself (the legacy `/tmp`, tests). A ramfs is backed by the kernel
+/// heap, so without a cap one process could exhaust it and abort the kernel.
 pub const DEFAULT_MAX_BYTES: usize = 4 * 1024 * 1024;
 /// Default cap on live nodes (files, directories and the root).
 pub const DEFAULT_MAX_NODES: usize = 4096;
@@ -66,10 +67,12 @@ impl RamFs {
         RamFs::build(max_bytes, max_nodes, 0o755)
     }
 
-    /// A scratch filesystem for `/tmp`-style use: the default caps, and a
+    /// The scratch filesystem behind `/transient` and `/tmp`: `limit.scratch_max`
+    /// bytes (a staged `.lzp` is several MiB), the default node cap, and a
     /// sticky world-writable root (`1777`) so users keep to their own files.
     pub fn scratch() -> RamFs {
-        RamFs::build(DEFAULT_MAX_BYTES, DEFAULT_MAX_NODES, 0o1777)
+        let bytes = usize::try_from(crate::limits::scratch_max()).unwrap_or(usize::MAX);
+        RamFs::build(bytes, DEFAULT_MAX_NODES, 0o1777)
     }
 
     /// Replace the per-owner caps (bytes and nodes one non-root uid may own).

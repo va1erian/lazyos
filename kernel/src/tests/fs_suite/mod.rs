@@ -80,6 +80,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_ramfs_byte_cap_enospc", ramfs_byte_cap_enospc),
     ("fs_ramfs_node_cap_enospc", ramfs_node_cap_enospc),
     ("fs_ramfs_soak_fill_and_drain", ramfs_soak_fill_and_drain),
+    (
+        "fs_ramfs_scratch_stages_a_package",
+        ramfs_scratch_stages_a_package,
+    ),
     ("fs_ramfs_per_uid_caps", ramfs_per_uid_caps),
     (
         "fs_ramfs_chown_moves_the_charge",

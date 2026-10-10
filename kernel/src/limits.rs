@@ -65,10 +65,13 @@ pub enum Id {
     QuotaKernelMemory,
     /// Shared-buffer bytes one process may hold at once.
     SharedBufferMax,
+    /// File bytes the in-memory scratch filesystem (`/transient`, `/tmp`)
+    /// may hold.
+    ScratchMax,
 }
 
 /// Number of configurable limits.
-pub const COUNT: usize = 6;
+pub const COUNT: usize = 7;
 
 /// Every configurable limit. The ranges are the sanity bounds a config value
 /// is clamped into, not the defaults (see [`Limits::for_machine`]).
@@ -118,6 +121,14 @@ pub const KEYS: [Key; COUNT] = [
         max: 64 * GIB,
         bytes: true,
     },
+    // A ramfs file is a heap allocation: below 4 MiB `/transient` cannot stage
+    // a package, and 64 GiB is far past any `heap_max` a machine reaches.
+    Key {
+        name: "scratch_max",
+        min: 4 * MIB,
+        max: 64 * GIB,
+        bytes: true,
+    },
 ];
 
 /// Where the live value of a limit came from.
@@ -143,6 +154,7 @@ static VALUES: [AtomicU64; COUNT] = {
         AtomicU64::new(base.quota_user_memory),
         AtomicU64::new(base.quota_kernel_memory),
         AtomicU64::new(base.shared_buffer_max),
+        AtomicU64::new(base.scratch_max),
     ]
 };
 static SOURCES: [AtomicU8; COUNT] = [const { AtomicU8::new(Source::Default as u8) }; COUNT];
@@ -189,6 +201,11 @@ pub fn stack_size() -> u64 {
 /// Shared-buffer bytes one process may hold at once.
 pub fn shared_buffer_max() -> u64 {
     get(Id::SharedBufferMax)
+}
+
+/// File bytes the scratch filesystem (`/transient`, `/tmp`) may hold.
+pub fn scratch_max() -> u64 {
+    get(Id::ScratchMax)
 }
 
 /// Install the machine-derived defaults: `ram` is the usable RAM the memory
