@@ -166,8 +166,13 @@ members = [
 # host-testable bindings crate and must not pull Rhai into the OS workspace.
 # `fuzz` holds the cargo-fuzz targets (libFuzzer, Linux CI only).
 # `lazyrad-os` is the same shape, built by `tools/lazyrad/build.py`.
-exclude = ["xui-app", "rhai-host", "nettls", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
+exclude = ["vendor/bootloader", "xui-app", "rhai-host", "nettls", "libs/rhai-lazy", "fuzz", "lazyrad-os"]
 resolver = "2"
+
+# The UEFI stage is built from vendor/bootloader/uefi: the 0.11.17 sources plus
+# a `cli` after ExitBootServices (vendor/bootloader/uefi/src/main.rs).
+[patch.crates-io]
+bootloader = { path = "vendor/bootloader" }
 
 [build-dependencies]
 # The kernel is built for the bare-metal target and handed to the bootloader
