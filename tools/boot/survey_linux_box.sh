@@ -98,6 +98,17 @@ run 06-lsblk.txt lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,SERIAL,FSTYPE,LABEL,UUID,PTT
 runsh 06-ata-dmesg.txt 'dmesg | grep -i -E "ahci|ata[0-9]|scsi|sd[a-z]|nvme|sata"'
 runsh 06-partition-tables.txt 'for d in /dev/sd? /dev/nvme?n?; do [ -b "$d" ] && fdisk -l "$d" 2>&1; done'
 
+# GRUB and the ESP (docs/grub-install-plan.md I0) ---------------------------------
+# Read-only: what an installer beside this Linux would have to register with.
+runsh 06-grub-version.txt 'grub-install --version 2>&1 || grub2-install --version 2>&1'
+runsh 06-grub-default.txt 'cat /etc/default/grub 2>&1; echo; ls -l /etc/grub.d 2>&1'
+runsh 06-grub-boot-fs.txt 'findmnt -no SOURCE,FSTYPE,TARGET /boot 2>&1; findmnt -no SOURCE,FSTYPE,TARGET /boot/efi 2>&1; findmnt -no SOURCE,FSTYPE,TARGET / 2>&1'
+runsh 06-esp-tree.txt 'for e in /boot/efi /efi /boot; do [ -d "$e/EFI" ] && { echo "== $e"; df -h "$e"; find "$e/EFI" -maxdepth 3 | sort; }; done'
+runsh 06-esp-grub-stubs.txt 'for f in /boot/efi/EFI/*/grub.cfg /efi/EFI/*/grub.cfg; do [ -f "$f" ] && { echo "== $f"; cat "$f"; }; done'
+runsh 06-grub-cfg-custom.txt 'for f in /boot/grub/grub.cfg /boot/grub2/grub.cfg; do [ -f "$f" ] && { echo "== $f"; grep -n -E "custom.cfg|menuentry |submenu |chainloader|set default|timeout" "$f" | head -60; }; done; ls -l /boot/grub/custom.cfg /boot/grub2/custom.cfg 2>&1'
+run 06-gdisk.txt sgdisk -p /dev/sda
+runsh 06-blkid.txt 'blkid 2>&1'
+
 # Graphics and display ------------------------------------------------------------
 runsh 07-fb.txt 'for f in /sys/class/graphics/fb*; do echo "== $f"; for a in name virtual_size stride bits_per_pixel modes; do printf "%s: " $a; cat $f/$a 2>&1; done; done'
 runsh 07-drm.txt 'for c in /sys/class/drm/card*-*; do echo "== $c"; cat $c/status 2>&1; cat $c/modes 2>&1 | head -12; done'
