@@ -9,7 +9,7 @@
 > Decisions taken: read-write **FAT32 and exFAT are in scope** (a stock stick
 > must work); `/home` moves into `storaged` and `fs/late.rs` is deleted;
 > volumes **automount** with a notice from a **tray applet**; the
-> real-hardware target is the **AMD NUC**.
+> real-hardware target is the **AMD NUC** ([compat/amd-nuc](compat/amd-nuc/README.md)).
 
 ## Goal
 
@@ -295,7 +295,7 @@ phases ship correctness **and** stress tests (AGENTS.md) and must pass
 | **P6** `fatfuse` and raw block access (F) | The raw-block syscall and capability, `fatfuse`, the `mountd` block-volume request and `mounttable` kinds, `storaged` choosing the path by filesystem. | Kernel suite for the syscall gate (uid, capability, generation, bounds) and a stress run; a `tools/fuse/ui_run.py`-style judge: mount a FAT32 and an exFAT stick, copy a 1 GiB file both ways with a checksum, unplug mid-copy (daemon exits, mount goes, nothing hangs), re-plug; throughput recorded against the FUSE round-trip cost (the trigger for a kernel adapter, risk 8). |
 | **P7** Eject and integrity (D) | `Eject`, forced eject, unclean-volume policy, journal replay for removable ext2, dirty-flag handling for FAT/exFAT. | Harness: eject then pull (volume clean, on all three filesystems), pull without eject (notice, recovers on next mount), eject refused with a file open, unclean FAT mounts read-only. |
 | **P8** Tray applet and desktop (G, E) | The `removable` applet and its package, Files "Devices" section with an eject button, Settings -> Devices pane; `run_demo.py --usb-stick PATH` (a hot-pluggable stick plus a QMP socket) and the matching GUI launcher control in `tools/lazygui/catalog.py` with `test_catalog.py` cases. | `core_apps.json` shows no `LABEL:DENY`; `removable.json` session: plug, `Attention` and tooltip, Open in Files, eject, unsafe pull; screenshots read, not only judged. |
-| **P9** The AMD NUC | See below. | A log per scenario under `docs/compat`; failures filed against the phase that owns them. |
+| **P9** The AMD NUC | See below. | The six scenarios below, each with its `dbgctl` log under `docs/compat/amd-nuc/usb/` and the `hardware.md` row filled in; failures filed against the phase that owns them. |
 
 Order: P0 first. P1, P2, P3 and P5 are independent of each other. P4 needs
 P2; P6 needs P2, P4 and P5; P7 needs P4 and P6; P8 needs P3 and P4 (its Eject
@@ -305,31 +305,46 @@ waits on).
 
 ### P9: the AMD NUC
 
-This is the first non-Intel machine: the repo's xHCI notes (Arrow Lake, Kaby
-Lake, the 9d2f of #704) are all Intel, and nothing in `libs/xhci` or `usbd`
-is vendor-specific (a controller is claimed by class `0C/03/30`). So the
-plan treats the NUC as a validation target with open questions, not as a
-list of known fixes:
+The machine is documented in [compat/amd-nuc](compat/amd-nuc/README.md): a
+MAGICNUC AS1 (Ryzen 5 3501U, Raven2), booting the stick image to the desktop,
+with both RTL8168 ports and `dbgd` working. It is the only AMD box in
+[compat/hardware.md](compat/hardware.md), and that row records no USB result
+yet ("Input: not yet recorded", "xHCI behaviour" under *Still to check*). Its
+Linux survey (`hw-survey/05-*`) already tells us what to expect:
 
-- Record per machine: firmware version and USB settings (legacy USB / xHCI
-  handoff), how many xHCI controllers there are and which ports each owns
-  (`USBD:XHCI` lines), the USB 2 / USB 3 split, and what hangs off internal
-  ports (Bluetooth, Wi-Fi, card reader), which is the real-world test of the
-  `removable` flag.
-- Read the AMD entries of Linux's `xhci-pci` quirk table and decide for each
-  whether it applies without suspend and resume (we have neither). Nothing is
-  assumed necessary until a scenario shows it.
-- Type-C ports are expected to look like ordinary xHCI ports; whatever else
-  shows up (a USB4 router, a port-role controller) is recorded, not driven.
-- Scenarios: repeated plug and unplug on every external port; keyboard,
-  mouse and a wireless-dongle composite device hot-plugged; a stick yanked
-  under load (the SanDisk 0781:5591 of #704 and an exFAT stick of 64 GB or
-  more); keyboard, mouse and stick behind a USB 2 hub and a USB 3 hub (the
-  high-speed and SuperSpeed hub paths QEMU cannot exercise); FAT32 and exFAT
-  copies with a checksum; `/home` on the boot stick unplugged and returned.
-- Evidence comes off the box with `dbgd` over the network
-  (`run_demo.py --dbgd`, the `lazyos-dbg` skill) or the `diag.hold` panes
-  when there is no network, since the NUC may have no serial port.
+| Fact (from the survey) | Why it matters here |
+|---|---|
+| Two xHCI controllers, `04:00.3` (`1022:15e0`: 4 USB 2 + 4 USB 3 ports) and `04:00.4` (`1022:15e1`: 2 USB 2 + 1 USB 3), both xHCI 1.1 | The first real test of two controllers with a device on each: per-controller DMA budget, slot pool and event ring (QEMU only has `--controllers 2`). |
+| `HCCPARAMS1` = `0x0270ffe5` / `0x0260ffe5`: **`CSZ` set, so 64-byte contexts** | The 64-byte context layout is proven only by host tests today (usb.md "Not done"). Every enumeration on this box runs it. A 64-byte bug shows up as P9's very first failure. |
+| Linux applies quirk mask `0x0004000840000010` to both controllers | Decode it against the survey kernel's `xhci.h` before deciding which quirks `usbd` needs; nothing is assumed necessary until a scenario fails. |
+| A Realtek Bluetooth radio, `0bda:c822`, full speed, directly on port 2 of controller 2 | A real internal device that must be `unsupported` in the inventory and silent in the applet; also the check that a root-port `PORTSC.DR` (Device Removable) is set or not by this firmware. If it is not, "arrived after login" alone keeps it quiet. |
+| A DREVO BladeMaster TE 87K keyboard (`1a2c:b51f`): **two HID interfaces**, both keyboards to Linux, one also exposing a mouse | A composite device of exactly the kind usb-hid-plan risk 8 left open: which interface `usbd` binds and whether every key (NKRO, media keys) arrives. Unplug and replug it. |
+| A Logitech receiver, `046d:c542`, full speed | A second HID device on the other controller; the pair of them is the multi-controller hot-plug scenario. |
+| No hub in the survey | Hub paths (high-speed and SuperSpeed, transaction translators) need a hub supplied for the test. |
+
+- **How the evidence comes off the box:** `dbgd` over the network
+  (`run_demo.py --dbgd`, `--dbgd-control`). `dbgctl.py usb` dumps
+  `USBD:DUMP:HC/PORT/DEV` (controller registers, `PORTSC`, slot and endpoint
+  0 state), `log --follow` and `log --source programs` carry `USBD:*`, and
+  `reload usbd` hot-loads a rebuilt driver for the session without writing
+  the stick. That makes P1 iterable on the NUC without reflashing.
+  Caveat until P2 and P4 land: the reloaded `usbd` is a new provider task, so
+  a `/home` on the boot stick dies with the old one; use a session that
+  does not need `/home`, or accept a reboot per reload.
+- **Scenarios** (each a documented `dbgctl` command sequence and its log,
+  written to `docs/compat/amd-nuc/usb/`):
+  1. Boot with the keyboard and receiver in: `USBD:XHCI hc=0|1`, `csz64=1`,
+     the descriptors, which interfaces bind, every key and button arrives.
+  2. Hot-plug the keyboard and receiver on every external port, and swap
+     them between the two controllers; key held across the unplug.
+  3. The boot stick on the second controller and a second stick on the first:
+     two disks, `--replug`-style churn, yank under write load (P1's
+     measurement of what this controller posts on disconnect).
+  4. A SanDisk 0781:5591 (#704) and an exFAT stick of 64 GB or more
+     (P6, P7): copy with a checksum, yank mid-copy, return.
+  5. Keyboard, mouse and stick behind a USB 2 hub and a USB 3 hub, once a hub
+     is supplied.
+  6. `/home` on the boot stick unplugged and returned (P4).
 
 ## Risks
 
@@ -378,6 +393,11 @@ list of known fixes:
    ejecting", the options are to build `os.lazy.notify` first or to pull tray
    T4 (a flyout the applet opens itself on arrival). The plan proceeds
    without either.
-2. **Which NUC.** Model, CPU generation and firmware, and whether it has a
-   serial port or network for `dbgd`, decide how much of P9 can be done
-   remotely.
+2. **Hubs for P9.** The NUC survey has none. A USB 2 hub and a USB 3 hub
+   (ideally a high-speed one with a multi-TT or a single-TT) are needed
+   for scenario 5; until then hub behaviour is QEMU and host tests only.
+3. **What firmware does with `DR`.** Whether the NUC's root ports set Device
+   Removable for the internal Bluetooth radio is unknown until P3 reads
+   `PORTSC` over `dbgd`. If they do not, the `removable` flag is only as good
+   as "present at login", and an ACPI `_UPC`/`_PLD` lookup (`libs/acpi`)
+   becomes a follow-up.
