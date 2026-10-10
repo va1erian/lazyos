@@ -272,7 +272,7 @@ inside a native service rather than a bundled program.
 Mirror the `netdrv`/`netd` split: the process that holds DMA parses nothing
 from the air; the process that parses hostile input holds no capabilities.
 
-- **`wifid`** (uid `_wifi` = 906, `CAP_DEV_CLAIM`, class `os.kernel.dev.usb`
+- **`wifid`** (uid `_wifi` = 911, `CAP_DEV_CLAIM`, class `os.kernel.dev.usb`
   in W1, `os.kernel.dev.net` for the M.2 card later, since PCI class 0x0280
   already maps to `net`). Owns the bus, firmware download, the MCU command
   and event protocol, hardware key slots and the TX/RX rings. Serves
@@ -280,7 +280,7 @@ from the air; the process that parses hostile input holds no capabilities.
   frames Ethernet) and a thin `os.lazy.net.wifi.hw.v1` towards `wlanmd`
   (start scan, raw management frame in/out, set key, set BSS/channel,
   firmware events). It never looks inside a beacon.
-- **`wlanmd`** (uid 907, no caps). The station MLME: scan-result parsing
+- **`wlanmd`** (uid `_wlan` = 912, no caps). The station MLME: scan-result parsing
   (beacons, probe responses, information elements), BSS selection, the
   auth/assoc state machine, the EAPOL 4-way and group handshakes, roaming
   and reconnect timers. Serves **`os.lazy.net.wifi.v1`** to the system:
