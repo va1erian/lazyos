@@ -37,6 +37,8 @@ mod probe;
 mod route;
 mod stats;
 mod table;
+#[cfg(test)]
+mod tests;
 
 pub use probe::{NetLookupResult, NetPingResult};
 pub use route::Route;

@@ -30,6 +30,8 @@ pub mod stack;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod testdns;
 #[cfg(any(test, feature = "fuzz"))]
+pub mod testmulti;
+#[cfg(any(test, feature = "fuzz"))]
 pub mod testnet;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod testpair;
