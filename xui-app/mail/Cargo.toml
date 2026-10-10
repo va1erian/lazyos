@@ -21,9 +21,9 @@ cc = { version = "1", features = ["parallel"] }
 xui-app = { path = ".." }
 fhs = { path = "../../libs/fhs" }
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 webfonts = { path = "../crates/webfonts" }
-xui-blitz = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0", default-features = false }
+xui-blitz = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
 # The mail core and its frontend-independent glue, with the `rustls` backend:
 # no OpenSSL, ring or D-Bus, and the crypto provider is the one installed below.
 esmail = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006969c6cc5cfe734fae71b6e6656a", default-features = false, features = ["rustls"] }
@@ -40,4 +40,4 @@ secrecy = "0.10"
 
 [dev-dependencies]
 # Offscreen renders of the window (`app/window_tests.rs`).
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }

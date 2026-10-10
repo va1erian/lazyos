@@ -12,13 +12,13 @@ description = "LazyWriter, a word processor on xui-rich-text"
 publish = false
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0" }
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0", features = ["serde"] }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", features = ["serde"] }
 
 # Printing (docs/printing-plan.md): sheets are painted offscreen, encoded
 # as PWG Raster and handed to the print spooler (`printd`), which sends them
 # over IPP.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "7477a371a3f606e3c88e429674e7feb09fdceac0", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
 ipp = { path = "../../../libs/ipp", features = ["std"] }
 raster = { path = "../../../libs/raster" }
 printd = { path = "../printd" }
