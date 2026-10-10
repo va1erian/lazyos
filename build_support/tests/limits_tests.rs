@@ -83,9 +83,18 @@ fn display_mode_and_scale_lines() {
     for scale in ["0", "3", "1.5", "AUTO "] {
         assert!(display_cfg::validate_scale(scale).is_err(), "{scale}");
     }
-    assert_eq!(display_cfg::lines(None, None), "");
+    assert_eq!(display_cfg::lines(None, None, None), "");
+    assert_eq!(display_cfg::validate_max("2560x1440"), Ok(()));
+    assert!(display_cfg::validate_max("5000x3000")
+        .unwrap_err()
+        .contains("LAZYOS_DISPLAY_MAX"));
     assert_eq!(
-        display_cfg::lines(Some("2560x1440"), Some("2")),
+        display_cfg::lines(None, None, Some("2560x1440")),
+        "display.max=2560x1440
+"
+    );
+    assert_eq!(
+        display_cfg::lines(Some("2560x1440"), Some("2"), None),
         "display.mode=2560x1440\ndisplay.scale=2\n"
     );
 }

@@ -176,6 +176,7 @@ class Launcher:
         self._field(g, "QEMU args:", "extra", 44)
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
+        self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         self._field(g, "Autologin:", "autologin", 12)  # user: no login screen (#623)
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)

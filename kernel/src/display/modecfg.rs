@@ -3,6 +3,7 @@
 //! ```text
 //! display.mode=2560x1440   # ask the adapter for this mode after boot
 //! display.scale=auto       # console scale: auto, 1 or 2
+//! display.max=2560x1440    # logical screen cap (firmware modes): issue #717
 //! ```
 //!
 //! The file is untrusted input. [`parse`] is pure so the test suite can
@@ -51,6 +52,9 @@ impl Scale {
 pub struct DisplayCfg {
     pub mode: Option<(u32, u32)>,
     pub scale: Scale,
+    /// `display.max`: the logical screen cap for a mode firmware chose
+    /// ([`super::logical`]). Absent: the built-in 1920x1080 default.
+    pub max: Option<(u32, u32)>,
 }
 
 /// What became of one `display.*` line, for the boot log.
@@ -75,7 +79,7 @@ pub fn auto_scale(width: u32, height: u32) -> u32 {
 /// line that is ignored. Other lines are not this module's business.
 pub fn parse<'a>(text: &'a str, mut report: impl FnMut(Problem<'a>)) -> DisplayCfg {
     let mut cfg = DisplayCfg::default();
-    let (mut seen_mode, mut seen_scale) = (false, false);
+    let (mut seen_mode, mut seen_scale, mut seen_max) = (false, false, false);
     for line in text.lines() {
         let Some(rest) = line.trim().strip_prefix(PREFIX) else {
             continue;
@@ -90,6 +94,7 @@ pub fn parse<'a>(text: &'a str, mut report: impl FnMut(Problem<'a>)) -> DisplayC
         let seen = match key {
             "mode" => &mut seen_mode,
             "scale" => &mut seen_scale,
+            "max" => &mut seen_max,
             _ => {
                 report(Problem::Unknown(key));
                 continue;
@@ -101,6 +106,7 @@ pub fn parse<'a>(text: &'a str, mut report: impl FnMut(Problem<'a>)) -> DisplayC
         }
         let parsed = match key {
             "mode" => parse_mode(value).map(|mode| cfg.mode = Some(mode)),
+            "max" => parse_mode(value).map(|max| cfg.max = Some(max)),
             _ => parse_scale(value).map(|scale| cfg.scale = scale),
         };
         if parsed.is_none() {

@@ -23,6 +23,7 @@ def advanced_cfg(ui) -> dict:
         "memory": ui.v["memory"].get().strip(),
         "limits": ui.v["limits"].get().strip(),
         "display_mode": ui.v["display_mode"].get().strip(),
+        "display_max": ui.v["display_max"].get().strip(),
         "assets": ui.v["assets"].get().strip(),
         "autologin": ui.v["autologin"].get().strip(), "setup": ui.v["setup"].get(),
         "times": ui.v["times"].get().strip(),

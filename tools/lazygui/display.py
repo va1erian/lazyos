@@ -36,20 +36,29 @@ def check_mode(text: str) -> str:
                      f"{MODE_MIN[0]}x{MODE_MIN[1]} and {MODE_MAX[0]}x{MODE_MAX[1]}")
 
 
-def display_env(mode: str) -> dict[str, str]:
-    """`LAZYOS_DISPLAY_MODE` for ``mode`` (none for an empty mode)."""
-    mode = check_mode(mode)
-    return {"LAZYOS_DISPLAY_MODE": mode} if mode else {}
+def display_env(mode: str, max_size: str = "") -> dict[str, str]:
+    """`LAZYOS_DISPLAY_MODE` for ``mode`` and `LAZYOS_DISPLAY_MAX` for
+    ``max_size`` (none for an empty one)."""
+    env = {}
+    if mode := check_mode(mode):
+        env["LAZYOS_DISPLAY_MODE"] = mode
+    if max_size := check_mode(max_size):
+        env["LAZYOS_DISPLAY_MAX"] = max_size
+    return env
 
 
 def add_display_options(parser) -> None:
-    """`--hidpi` and `--display-mode WxH` on an argparse parser."""
+    """`--hidpi`, `--display-mode WxH` and `--display-max WxH` on an argparse parser."""
     parser.add_argument("--hidpi", action="store_true",
                         help=f"HiDPI: a {HIDPI_MODE} screen showing a 1280x720 desktop at 2x "
                              f"(same as --display-mode {HIDPI_MODE})")
     parser.add_argument("--display-mode", default="", metavar="WxH",
                         help="screen mode the kernel sets after boot (LAZYOS_DISPLAY_MODE, "
                              "written to lazyos.cfg); the desktop scale follows it")
+    parser.add_argument("--display-max", default="", metavar="WxH",
+                        help="logical screen cap for a firmware framebuffer on a real PC "
+                             "(LAZYOS_DISPLAY_MAX, display.max; default 1920x1080): "
+                             f"{HIDPI_MODE} gives a 1280x720 desktop at 2x")
 
 
 def build_display(args) -> dict[str, str]:
@@ -57,8 +66,8 @@ def build_display(args) -> dict[str, str]:
     skipped build could never apply (it lives in `lazyos.cfg`)."""
     if args.hidpi and args.display_mode and check_mode(args.display_mode) != HIDPI_MODE:
         raise ValueError(f"--hidpi means --display-mode {HIDPI_MODE}")
-    env = display_env(HIDPI_MODE if args.hidpi else args.display_mode)
+    env = display_env(HIDPI_MODE if args.hidpi else args.display_mode, args.display_max)
     if env and args.no_build:
-        raise ValueError("--hidpi/--display-mode need a build: the mode is written "
+        raise ValueError("--hidpi/--display-mode/--display-max need a build: they are written "
                          "into lazyos.cfg")
     return env
