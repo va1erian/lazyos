@@ -202,7 +202,7 @@ fn probe(dir: Option<&Path>) -> String {
         since_us(began)
     };
     let passwd = time(&|| {
-        let _ = fs::File::open("/system/etc/passwd");
+        let _ = fs::File::open(fhs::etc::PASSWD);
     });
     let (home, desk) = match dir {
         Some(dir) => (
