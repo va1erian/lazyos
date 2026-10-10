@@ -21,6 +21,7 @@ fn fresh() -> Result<(), String> {
             }),
         "the kernel was not parked for the simulation"
     );
+    task::guard::set_enabled(true);
     task::guard::reset_window();
     Ok(())
 }
@@ -41,6 +42,7 @@ fn cleanup() {
     while task::reap_child().is_some() {}
     task::set_blocked(false);
     task::harness::reset();
+    task::guard::set_enabled(false);
 }
 
 /// Run `ticks` simulated ticks and return how many each slot was picked for.
@@ -118,8 +120,7 @@ fn light_interactive_tasks_are_not_demoted() -> Result<(), String> {
         wait: task::WaitKind::Sleep,
         deadline: None,
     };
-    let before = task::guard::demotions();
-    for _ in 0..200 {
+    for window in 0..200 {
         // Each window: both run for a tick or two, then block until the next.
         task::harness::set_state(a, TaskState::Runnable);
         task::harness::set_state(b, TaskState::Runnable);
@@ -131,20 +132,15 @@ fn light_interactive_tasks_are_not_demoted() -> Result<(), String> {
                 task::harness::set_state(b, asleep);
             }
             task::harness::simulate_tick();
+            check!(
+                task::priority(a) == Some(PriorityClass::Interactive)
+                    && task::priority(b) == Some(PriorityClass::Interactive),
+                "window {window} tick {tick}: a light task was demoted: {:?} {:?}",
+                task::priority(a),
+                task::priority(b)
+            );
         }
     }
-    check!(
-        task::priority(a) == Some(PriorityClass::Interactive)
-            && task::priority(b) == Some(PriorityClass::Interactive),
-        "a light task was demoted: {:?} {:?}",
-        task::priority(a),
-        task::priority(b)
-    );
-    check!(
-        task::guard::demotions() == before,
-        "{} demotions for tasks using 3 ticks of 10 between them",
-        task::guard::demotions() - before
-    );
     cleanup();
     Ok(())
 }
@@ -224,6 +220,54 @@ fn raise_to_home_class_is_a_noop() -> Result<(), String> {
     Ok(())
 }
 
+/// A `Normal` task that takes most of every window is demoted below its
+/// peers, so a light `Normal` peer is not left with its tiny fair share.
+fn normal_hog_yields_to_peers() -> Result<(), String> {
+    fresh()?;
+    let hog = child(PriorityClass::Normal)?;
+    let peer = child(PriorityClass::Normal)?;
+    check!(
+        task::set_weight(hog, 16) && task::set_weight(peer, 1),
+        "set_weight failed"
+    );
+    let total = 100 * WINDOW_TICKS as usize;
+    let before = task::guard::demotions();
+    let counts = picks(total);
+    // By weight alone the hog would take 16/17 of the CPU and the peer 6 %;
+    // past its budget the hog drops to Background and the peer runs.
+    check!(
+        counts[peer] * 100 >= total * 30,
+        "the Normal peer got {} of {total} ticks next to a heavy Normal task",
+        counts[peer]
+    );
+    check!(
+        counts[hog] * 100 >= total * 50,
+        "the heavy task got only {} of {total}: Background still runs when it can",
+        counts[hog]
+    );
+    check!(
+        task::guard::demotions() > before,
+        "a task using most of every window was not demoted"
+    );
+    cleanup();
+    Ok(())
+}
+
+/// A lone `Normal` hog loses nothing: Background runs when nothing else does.
+fn lone_normal_hog_keeps_the_cpu() -> Result<(), String> {
+    fresh()?;
+    let hog = child(PriorityClass::Normal)?;
+    let total = 50 * WINDOW_TICKS as usize;
+    let counts = picks(total);
+    check!(
+        counts[hog] == total,
+        "a lone Normal task ran {} of {total} ticks",
+        counts[hog]
+    );
+    cleanup();
+    Ok(())
+}
+
 /// Soak: mixed tasks over thousands of windows. After every window a class is
 /// its original one or, for an `Interactive` task, Normal (demoted); the
 /// Normal tasks keep their share.
@@ -249,8 +293,14 @@ fn soak_mixed_classes() -> Result<(), String> {
         }
         for &(slot, class) in &slots {
             let now = task::priority(slot);
+            // Demotion only ever goes down, one budget at a time.
             let allowed = now == Some(class)
-                || (class == PriorityClass::Interactive && now == Some(PriorityClass::Normal));
+                || (class == PriorityClass::Interactive
+                    && matches!(
+                        now,
+                        Some(PriorityClass::Normal | PriorityClass::Background)
+                    ))
+                || (class == PriorityClass::Normal && now == Some(PriorityClass::Background));
             check!(
                 allowed,
                 "window {window}: slot {slot} ({}) is {:?}",
@@ -304,6 +354,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "task_guard_raise_to_home_class_is_a_noop",
         raise_to_home_class_is_a_noop,
+    ),
+    (
+        "task_guard_normal_hog_yields_to_peers",
+        normal_hog_yields_to_peers,
+    ),
+    (
+        "task_guard_lone_normal_hog_keeps_the_cpu",
+        lone_normal_hog_keeps_the_cpu,
     ),
     ("task_guard_soak_mixed_classes", soak_mixed_classes),
 ];

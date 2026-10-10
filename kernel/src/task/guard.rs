@@ -1,36 +1,49 @@
-//! The Interactive-class CPU guard.
+//! The CPU guard: strict classes with a bound on how long any task can sit in
+//! one.
 //!
-//! Classes are strict: a runnable `Interactive` task beats every `Normal` one,
-//! so an `Interactive` task that stays busy (a compositor repainting a big
-//! window on a slow CPU) starves the services and apps it is waiting on, and
-//! the desktop freezes for seconds. The guard bounds that: time is cut into
-//! windows of [`WINDOW_TICKS`] ticks; once the `Interactive` class has used
-//! [`BUDGET_TICKS`] of one window, each `Interactive` task that runs is
-//! demoted to `Normal` for the rest of the window, where it shares fairly with
-//! its peers, and gets its class back at the window's end.
+//! Classes are strict: a runnable task beats every task in a lower class, and
+//! inside a class the stride scheduler shares by weight. That leaves two ways
+//! for the desktop to freeze for seconds under load:
 //!
-//! The budget is the whole class's, not each task's: three tasks each under a
-//! third of the CPU would otherwise still starve everything below. Tasks that
-//! sleep through most of a window (input drivers, a compositor at rest) never
-//! run past the budget and are never touched.
+//! * an `Interactive` task that stays busy (a compositor repainting a big
+//!   window on a slow CPU) starves every `Normal` service and app it waits on;
+//! * a `Normal` task that takes most of the CPU (a course generator, a
+//!   package install) starves its peers whenever the fair share fails to hold
+//!   them to their turn, and nothing below it can ever run first.
 //!
-//! `Interactive` work therefore holds the top class for at most 60 % of any
-//! window while anything else wants the CPU, then competes as `Normal`; with
-//! nothing else runnable the class makes no difference. Only `Interactive` is
-//! guarded; `Realtime` is left to its callers.
+//! The guard bounds both. Time is cut into windows of [`WINDOW_TICKS`] ticks
+//! (100 ms):
+//!
+//! * once the `Interactive` class has used [`BUDGET_TICKS`] of a window, each
+//!   `Interactive` task that runs is demoted to `Normal` for the rest of it
+//!   (the budget is the class's, so several small tasks are bounded too);
+//! * a `Normal` task that has run [`NORMAL_BUDGET_TICKS`] of a window is
+//!   demoted to `Background` for the rest of it: every other `Normal` task
+//!   now outranks it, while it still gets the CPU whenever nothing else wants
+//!   it, so an otherwise idle machine loses nothing.
+//!
+//! A demoted task gets its class back at the window's end, so a priority
+//! inversion (a demoted task holding what a higher one waits for) lasts at
+//! most one window. Tasks that sleep through most of each window (input
+//! drivers, a compositor at rest, a service answering requests) never reach a
+//! budget and are never touched. `Realtime` is left to its callers.
 
 use super::*;
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Ticks (100 Hz) in one accounting window.
 pub const WINDOW_TICKS: u64 = 10;
 /// Ticks of a window the `Interactive` class may use, all its tasks together,
 /// before the task that is running is demoted.
 pub const BUDGET_TICKS: u64 = 5;
+/// Ticks of a window one `Normal` task may use before it is demoted.
+pub const NORMAL_BUDGET_TICKS: u8 = 6;
 
 /// Per-task guard state, kept in [`Task`].
 #[derive(Clone, Copy, Debug)]
 pub struct State {
+    /// Ticks run this window while `Normal`.
+    used: u8,
     /// The class to give back at the window's end while demoted.
     home: Option<PriorityClass>,
     /// Demotions since the task started.
@@ -42,6 +55,7 @@ pub struct State {
 impl State {
     pub const fn new() -> State {
         State {
+            used: 0,
             home: None,
             demotions: 0,
             reported: 0,
@@ -57,6 +71,14 @@ impl State {
     /// A class was assigned explicitly: forget any pending restore.
     pub(super) fn assigned(&mut self) {
         self.home = None;
+        self.used = 0;
+    }
+
+    /// Record a demotion from `from`; the first one in a window fixes the
+    /// class to restore.
+    fn demote(&mut self, from: PriorityClass) {
+        self.home.get_or_insert(from);
+        self.demotions = self.demotions.saturating_add(1);
     }
 }
 
@@ -66,10 +88,20 @@ static POSITION: AtomicU64 = AtomicU64::new(0);
 static CLASS_USED: AtomicU64 = AtomicU64::new(0);
 /// Demotions since boot.
 static DEMOTIONS: AtomicU64 = AtomicU64::new(0);
+/// Whether the guard acts. Always on, except that the kernel test suites
+/// that check the stride scheduler's own shares switch it off.
+static ENABLED: AtomicBool = AtomicBool::new(cfg!(not(lazyos_tests)));
 
 /// Demotions since boot (the `SCHED:GUARD` report and the tests).
 pub fn demotions() -> u64 {
     DEMOTIONS.load(Ordering::Relaxed)
+}
+
+/// Switch the guard on or off (test builds only: the production guard is
+/// always on).
+#[cfg(lazyos_tests)]
+pub fn set_enabled(on: bool) {
+    ENABLED.store(on, Ordering::Relaxed);
 }
 
 /// Start a fresh window, so a test counts whole windows from tick one.
@@ -84,20 +116,11 @@ pub fn reset_window() {
 /// (`schedule::charge_tick`), so a simulated tick and a real one run the same
 /// rules.
 pub(super) fn on_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, ran: bool) {
+    if !ENABLED.load(Ordering::Relaxed) {
+        return;
+    }
     if ran {
-        if let Some(task) = tasks[cur].as_mut() {
-            if task.class == PriorityClass::Interactive {
-                let used = CLASS_USED.fetch_add(1, Ordering::Relaxed) + 1;
-                if used > BUDGET_TICKS {
-                    task.guard.home = Some(PriorityClass::Interactive);
-                    task.guard.demotions = task.guard.demotions.saturating_add(1);
-                    task.class = PriorityClass::Normal;
-                    task.weight = PriorityClass::Normal.default_weight();
-                    DEMOTIONS.fetch_add(1, Ordering::Relaxed);
-                    runq::sync(tasks, cur);
-                }
-            }
-        }
+        charge(tasks, cur);
     }
     let position = POSITION.fetch_add(1, Ordering::Relaxed) + 1;
     if position >= WINDOW_TICKS {
@@ -107,12 +130,39 @@ pub(super) fn on_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, ran: bo
     }
 }
 
-/// A window ended: give demoted tasks their class back.
+/// Book one run tick to `cur` and demote it if it is past a budget.
+fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
+    let Some(task) = tasks[cur].as_mut() else {
+        return;
+    };
+    let class = task.class;
+    let target = match class {
+        PriorityClass::Interactive => {
+            let used = CLASS_USED.fetch_add(1, Ordering::Relaxed) + 1;
+            (used > BUDGET_TICKS).then_some(PriorityClass::Normal)
+        }
+        PriorityClass::Normal => {
+            task.guard.used = task.guard.used.saturating_add(1);
+            (task.guard.used > NORMAL_BUDGET_TICKS).then_some(PriorityClass::Background)
+        }
+        _ => None,
+    };
+    if let Some(target) = target {
+        task.guard.demote(class);
+        task.class = target;
+        task.weight = target.default_weight();
+        DEMOTIONS.fetch_add(1, Ordering::Relaxed);
+        runq::sync(tasks, cur);
+    }
+}
+
+/// A window ended: clear every budget and give demoted tasks their class back.
 fn new_window(tasks: &mut [Option<Task>; MAX_TASKS]) {
     for slot in 0..MAX_TASKS {
         let Some(task) = tasks[slot].as_mut() else {
             continue;
         };
+        task.guard.used = 0;
         if let Some(home) = task.guard.home.take() {
             task.class = home;
             task.weight = home.default_weight();
