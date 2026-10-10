@@ -97,8 +97,13 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
         if channel.txns[index].state != TxnState::Pending {
             continue;
         }
-        // The callee came back to `recv` without answering: "nothing there".
-        woken.push(time_out(channel, index, true));
+        // The callee came back to `recv` without answering: "nothing there",
+        // unless the service bound had already passed (a callee that was
+        // slow, like the deadline sweep would have counted it).
+        let overdue = channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline <= task::ticks());
+        woken.push(time_out(channel, index, !overdue));
     }
 }
 
