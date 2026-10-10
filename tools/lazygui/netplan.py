@@ -39,6 +39,22 @@ def net_specs(cfg: dict) -> list[str]:
     return [spec for spec in cfg.get("net_forwards", "").replace(",", " ").split() if spec]
 
 
+def net_cards(cfg: dict) -> int:
+    """How many network cards QEMU attaches (`--nics`, each on its own user
+    network); out of range raises ValueError (a plan error)."""
+    message = f"Network cards: use a whole number from 1 to {qemu_net.MAX_NICS}"
+    raw = cfg.get("nics", 1)
+    try:
+        cards = int(str(raw).strip())
+    except ValueError:
+        # A blank or non-numeric entry: say what to type, not int()'s text,
+        # and never read a blank as one card.
+        raise ValueError(message) from None
+    if not 1 <= cards <= qemu_net.MAX_NICS:
+        raise ValueError(message)
+    return cards
+
+
 def net_flags(cfg: dict) -> list[str]:
     """The `--net` flags run_demo and the screenshot tools share, or none.
     A malformed forward raises ValueError (shown as a plan error)."""
@@ -54,4 +70,7 @@ def net_flags(cfg: dict) -> list[str]:
         flags += ["--net-forward", spec]
     if cfg.get("net_restrict"):
         flags.append("--net-restrict")
+    cards = net_cards(cfg)
+    if cards != 1:
+        flags += ["--nics", str(cards)]
     return flags

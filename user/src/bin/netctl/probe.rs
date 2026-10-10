@@ -161,15 +161,17 @@ pub(super) fn run() -> Result<u32, String> {
     // --- Reads are honest. ---------------------------------------------------
     let interfaces = client.interfaces().map_err(fail("interfaces"))?;
     checks.expect(
-        "one interface, eth0, with a six-byte MAC",
-        interfaces.len() == 1 && interfaces[0].name == "eth0" && interfaces[0].mac.len() == 6,
+        "eth0 first, every interface with a six-byte MAC and a metric",
+        interfaces.first().is_some_and(|i| i.name == "eth0")
+            && interfaces.iter().all(|i| i.mac.len() == 6 && i.metric > 0),
     )?;
     let addresses = client.addresses().map_err(fail("addresses"))?;
     checks.expect(
-        "one IPv4 address with a /1../30 prefix",
-        addresses.len() == 1
-            && addresses[0].addr.len() == 4
-            && (1..=30).contains(&addresses[0].prefix_len),
+        "an IPv4 address with a /1../30 prefix on every interface that has one",
+        !addresses.is_empty()
+            && addresses
+                .iter()
+                .all(|a| a.addr.len() == 4 && (1..=30).contains(&a.prefix_len)),
     )?;
     let routes = client.routes().map_err(fail("routes"))?;
     checks.expect(

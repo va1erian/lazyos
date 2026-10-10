@@ -138,6 +138,16 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
         .is_some_and(|(named, own)| named == own);
     match op {
         NameOp::Register => {
+            // The NIC namespace is the drivers' alone, whatever the uid rules
+            // or capabilities say: `netd` hands whoever holds a name there its
+            // frame rings and trusts its card description.
+            if netpolicy::is_nic_name(name) {
+                return if netpolicy::may_register_nic_name(cred.uid, cred.label_id, cred.session) {
+                    Ok(reason::ALLOWED_BY_NAMESPACE)
+                } else {
+                    Err(reason::RESERVED_NAMESPACE)
+                };
+            }
             if name.starts_with(SYSTEM_NAMES) {
                 let system = labels::kind_of(cred.label_id) == Some(Kind::System);
                 if system || unlabelled_admin(cred) {

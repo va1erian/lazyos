@@ -3105,6 +3105,7 @@ pub mod os_lazy_devd_v1 {
         pub state: alloc::string::String,
         pub owner: u32,
         pub pid: u64,
+        pub ifname: alloc::string::String,
     }
 
     pub fn encode_device_state(value: &DeviceState) -> Result<Vec<u8>, Error> {
@@ -3118,6 +3119,7 @@ pub mod os_lazy_devd_v1 {
         target.string(7, &value.state)?;
         target.u32(8, value.owner)?;
         target.u64(9, value.pid)?;
+        target.string(10, &value.ifname)?;
         Ok(target.finish())
     }
 
@@ -3152,6 +3154,9 @@ pub mod os_lazy_devd_v1 {
                 }
                 9 => {
                     out.pid = field.as_u64()?;
+                }
+                10 => {
+                    out.ifname = field.as_str()?.into();
                 }
                 _ => {}
             }
@@ -3211,6 +3216,9 @@ pub mod os_lazy_devd_v1 {
     /// refused).
     /// The uid holding the claim, or 4294967295 when nobody does.
     /// The driver's task, 0 before `init` started it.
+    /// The interface name `devd` gave a network card (`eth0`, `eth1`, ...
+    /// in enumeration order), the name its driver serves as
+    /// `os.lazy.net.nic/<ifname>`; empty for every other device.
     /// One retained topic per device, published whenever its state changes, so
     /// a subscriber that starts late learns every device at once.
     /// The declared `system/devices/+` topic (`DeviceState`, `latest`, retained).
@@ -7032,21 +7040,29 @@ pub mod os_lazy_init_v1 {
     /// docs/driver-plan.md section 3.6). Only the running task of the `devd`
     /// row may ask: `init` keeps each driver's program, credentials and
     /// arguments, and `devd` names only the row and the device it matched,
-    /// which the driver receives as `dev=<device>`. A row already running for
-    /// that device is not an error (`started` is false); one running for
-    /// another device is `EBUSY` (one card per driver); an unknown row is
+    /// which the driver receives as `dev=<device>`. `ifname` is the name `devd`
+    /// gave the card (`eth0`) for a driver that serves one named card per
+    /// instance (`netdrv`): the driver receives it as `ifname=<ifname>` and
+    /// the row may run once per card. Empty for a driver whose Messenger name
+    /// is unique (`sndd`): a row already running for that device is not an
+    /// error (`started` is false) and one running for another device is
+    /// `EBUSY` (one card per driver). A non-empty `ifname` that is not a
+    /// lower-case letter run followed by digits (at most 15 bytes), or that
+    /// names an interface another card holds, is `EINVAL`. An unknown row is
     /// `ENOENT`, any other caller `EPERM`, and a request during a shutdown
     /// `EBUSY`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StartDriverArgs {
         pub driver: alloc::string::String,
         pub device: u64,
+        pub ifname: alloc::string::String,
     }
 
     pub fn encode_start_driver_args(value: &StartDriverArgs) -> Result<Vec<u8>, Error> {
         let mut target = Encoder::new();
         target.string(1, &value.driver)?;
         target.u64(2, value.device)?;
+        target.string(3, &value.ifname)?;
         Ok(target.finish())
     }
 
@@ -7060,6 +7076,9 @@ pub mod os_lazy_init_v1 {
                 }
                 2 => {
                     out.device = field.as_u64()?;
+                }
+                3 => {
+                    out.ifname = field.as_str()?.into();
                 }
                 _ => {}
             }
@@ -11481,6 +11500,11 @@ pub mod os_lazy_net_nic_v1 {
     /// `RxMode::Promiscuous` wire value.
     pub const RX_MODE_PROMISCUOUS: u32 = 2;
 
+    /// `NicKind::Wired` wire value.
+    pub const NIC_KIND_WIRED: u32 = 0;
+    /// `NicKind::Wireless` wire value.
+    pub const NIC_KIND_WIRELESS: u32 = 1;
+
     /// Card description.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NicInfo {
@@ -11489,6 +11513,7 @@ pub mod os_lazy_net_nic_v1 {
         pub max_frame: u32,
         pub link: bool,
         pub features: u32,
+        pub kind: u32,
     }
 
     pub fn encode_nic_info(value: &NicInfo) -> Result<Vec<u8>, Error> {
@@ -11498,6 +11523,7 @@ pub mod os_lazy_net_nic_v1 {
         target.u32(3, value.max_frame)?;
         target.bool(4, value.link)?;
         target.u32(5, value.features)?;
+        target.u32(6, value.kind)?;
         Ok(target.finish())
     }
 
@@ -11521,6 +11547,9 @@ pub mod os_lazy_net_nic_v1 {
                 5 => {
                     out.features = field.as_u32()?;
                 }
+                6 => {
+                    out.kind = field.as_u32()?;
+                }
                 _ => {}
             }
         }
@@ -11535,6 +11564,9 @@ pub mod os_lazy_net_nic_v1 {
     /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
     /// bits are reserved: a driver sets them to zero and a client ignores
     /// them.
+    /// A `NicKind` ordinal: a cable (`Wired`) or a radio (`Wireless`). The
+    /// stack derives the default-route metric from it (wired 100,
+    /// wireless 600), so a cable wins when both are up.
     /// Counters since the driver started.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NicStats {
@@ -11620,7 +11652,7 @@ pub mod os_lazy_net_nic_v1 {
     /// Rings poisoned by a peer that broke the protocol, plus device
     /// used-ring entries the driver rejected.
     /// Interrupt messages the driver handled (0 when polling).
-    /// The payload of `system/net/{nic}/link`.
+    /// The payload of `system/net/{ifname}/link`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LinkEvent {
         pub up: bool,
@@ -11965,7 +11997,9 @@ pub mod os_lazy_net_nic_v1 {
     /// Link changes since the driver started, so a subscriber can tell a
     /// flap from a repeat.
     /// Published by the driver whenever the link changes, and once at start.
-    /// `{nic}` is the driver's card name (`virtio-net0`).
+    /// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
+    /// same name as `system/net/{ifname}/addr`: two cards of one model must
+    /// not share a retained topic.
     /// The declared `system/net/+/link` topic (`LinkEvent`, `latest`, retained).
     pub const TOPIC_SYSTEM_NET_LINK: &str = "system/net/+/link";
     /// The `system/net/+/link` delivery policy.
@@ -11974,8 +12008,8 @@ pub mod os_lazy_net_nic_v1 {
     pub const TOPIC_SYSTEM_NET_LINK_RETAINED: bool = true;
 
     /// Build the concrete `system/net/+/link` name; each wildcard takes one literal segment.
-    pub fn name_system_net_link(nic: &str) -> Result<String, topics::TopicError> {
-        topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Publish)
+    pub fn name_system_net_link(ifname: &str) -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Publish)
     }
 
     /// Encode a `LinkEvent` payload for `system/net/+/link`.
@@ -11989,24 +12023,24 @@ pub mod os_lazy_net_nic_v1 {
     }
 
     /// Publish a typed `LinkEvent` on `system/net/+/link`.
-    pub fn publish_system_net_link<P>(publisher: &mut P, nic: &str, value: &LinkEvent) -> Result<u64, P::Error>
+    pub fn publish_system_net_link<P>(publisher: &mut P, ifname: &str, value: &LinkEvent) -> Result<u64, P::Error>
     where
         P: topics::Publish,
         P::Error: From<topics::TopicError>,
     {
-        let topic = name_system_net_link(nic).map_err(P::Error::from)?;
+        let topic = name_system_net_link(ifname).map_err(P::Error::from)?;
         let payload = encode_system_net_link(value)
             .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
         publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_LINK_RETAINED)
     }
 
     /// Subscribe to `system/net/+/link` with its declared QoS.
-    pub fn subscribe_system_net_link<S>(subscriber: &mut S, nic: &str) -> Result<S::Subscription, S::Error>
+    pub fn subscribe_system_net_link<S>(subscriber: &mut S, ifname: &str) -> Result<S::Subscription, S::Error>
     where
         S: topics::Subscribe,
         S::Error: From<topics::TopicError>,
     {
-        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[nic], topics::Mode::Subscribe)
+        let filter = topics::build(TOPIC_SYSTEM_NET_LINK, &[ifname], topics::Mode::Subscribe)
             .map_err(S::Error::from)?;
         subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_LINK_QOS)
     }
@@ -12063,6 +12097,9 @@ pub mod os_lazy_net_stack_v1 {
         pub link: bool,
         pub mode: u32,
         pub dhcp: u32,
+        pub kind: u32,
+        pub metric: u32,
+        pub primary: bool,
     }
 
     pub fn encode_interface_info(value: &InterfaceInfo) -> Result<Vec<u8>, Error> {
@@ -12073,6 +12110,9 @@ pub mod os_lazy_net_stack_v1 {
         target.bool(4, value.link)?;
         target.u32(5, value.mode)?;
         target.u32(6, value.dhcp)?;
+        target.u32(7, value.kind)?;
+        target.u32(8, value.metric)?;
+        target.bool(9, value.primary)?;
         Ok(target.finish())
     }
 
@@ -12099,6 +12139,15 @@ pub mod os_lazy_net_stack_v1 {
                 6 => {
                     out.dhcp = field.as_u32()?;
                 }
+                7 => {
+                    out.kind = field.as_u32()?;
+                }
+                8 => {
+                    out.metric = field.as_u32()?;
+                }
+                9 => {
+                    out.primary = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -12110,6 +12159,41 @@ pub mod os_lazy_net_stack_v1 {
     /// The driver reports the link up.
     /// A `ConfigMode` ordinal: how the interface is configured.
     /// A `DhcpState` ordinal (`Off` for a static interface).
+    /// A `NicKind` ordinal of `os.lazy.net.nic.v1`.
+    /// The default-route metric (wired 100, wireless 600; the lowest
+    /// usable one carries new traffic).
+    /// This interface holds the best default route right now: new
+    /// connections and the resolvers come from it.
+    /// Every interface at once, retained so a late subscriber sees the set.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InterfaceList {
+        pub list: alloc::vec::Vec<InterfaceInfo>,
+    }
+
+    pub fn encode_interface_list(value: &InterfaceList) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.list {
+            nested.raw(Kind::Struct, 1, &encode_interface_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_interface_list(body: &[u8]) -> Result<InterfaceList, Error> {
+        let mut out = InterfaceList::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.list.push(decode_interface_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// One configured IPv4 address.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AddressInfo {
@@ -12166,6 +12250,7 @@ pub mod os_lazy_net_stack_v1 {
         pub dest: alloc::vec::Vec<u8>,
         pub prefix_len: u32,
         pub gateway: alloc::vec::Vec<u8>,
+        pub metric: u32,
     }
 
     pub fn encode_route_info(value: &RouteInfo) -> Result<Vec<u8>, Error> {
@@ -12174,6 +12259,7 @@ pub mod os_lazy_net_stack_v1 {
         target.bytes(2, &value.dest)?;
         target.u32(3, value.prefix_len)?;
         target.bytes(4, &value.gateway)?;
+        target.u32(5, value.metric)?;
         Ok(target.finish())
     }
 
@@ -12194,6 +12280,9 @@ pub mod os_lazy_net_stack_v1 {
                 4 => {
                     out.gateway = field.as_bytes().to_vec();
                 }
+                5 => {
+                    out.metric = field.as_u32()?;
+                }
                 _ => {}
             }
         }
@@ -12202,6 +12291,8 @@ pub mod os_lazy_net_stack_v1 {
 
     /// Four octets; all zero with `prefix_len` 0 is the default route.
     /// Four octets; all zero for an on-link route.
+    /// The route's metric: an on-link route is 0, a default route has its
+    /// interface's metric.
     /// Stack counters since it started.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StackStats {
@@ -12400,7 +12491,7 @@ pub mod os_lazy_net_stack_v1 {
     /// `Reattach` method id.
     pub const METHOD_REATTACH: u32 = 60999493;
 
-    /// The interfaces the stack drives (one today).
+    /// The interfaces the stack drives, one per attached card.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InterfacesReply {
         pub list: alloc::vec::Vec<InterfaceInfo>,
@@ -12460,7 +12551,8 @@ pub mod os_lazy_net_stack_v1 {
         Ok(out)
     }
 
-    /// The routing table.
+    /// The routing table: every interface's on-link route and default route,
+    /// the default routes ordered by metric (the lowest wins).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RoutesReply {
         pub list: alloc::vec::Vec<RouteInfo>,
@@ -12647,6 +12739,53 @@ pub mod os_lazy_net_stack_v1 {
     /// and the declared kinds, in object-list order.
     pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
     ];
+
+    /// The interfaces the stack drives, republished whenever one appears,
+    /// vanishes, changes link or changes which one is primary.
+    /// The declared `system/net/interfaces` topic (`InterfaceList`, `latest`, retained).
+    pub const TOPIC_SYSTEM_NET_INTERFACES: &str = "system/net/interfaces";
+    /// The `system/net/interfaces` delivery policy.
+    pub const TOPIC_SYSTEM_NET_INTERFACES_QOS: u32 = topics::QOS_LATEST;
+    /// Whether `system/net/interfaces` publishes are retained.
+    pub const TOPIC_SYSTEM_NET_INTERFACES_RETAINED: bool = true;
+
+    /// Build the concrete `system/net/interfaces` name; each wildcard takes one literal segment.
+    pub fn name_system_net_interfaces() -> Result<String, topics::TopicError> {
+        topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Publish)
+    }
+
+    /// Encode a `InterfaceList` payload for `system/net/interfaces`.
+    pub fn encode_system_net_interfaces(value: &InterfaceList) -> Result<Vec<u8>, Error> {
+        encode_interface_list(value)
+    }
+
+    /// Decode a `system/net/interfaces` payload; malformed bytes are an error.
+    pub fn decode_system_net_interfaces(body: &[u8]) -> Result<InterfaceList, Error> {
+        decode_interface_list(body)
+    }
+
+    /// Publish a typed `InterfaceList` on `system/net/interfaces`.
+    pub fn publish_system_net_interfaces<P>(publisher: &mut P, value: &InterfaceList) -> Result<u64, P::Error>
+    where
+        P: topics::Publish,
+        P::Error: From<topics::TopicError>,
+    {
+        let topic = name_system_net_interfaces().map_err(P::Error::from)?;
+        let payload = encode_system_net_interfaces(value)
+            .map_err(|error| P::Error::from(topics::TopicError::Encode(error)))?;
+        publisher.publish_topic(&topic, &payload, TOPIC_SYSTEM_NET_INTERFACES_RETAINED)
+    }
+
+    /// Subscribe to `system/net/interfaces` with its declared QoS.
+    pub fn subscribe_system_net_interfaces<S>(subscriber: &mut S) -> Result<S::Subscription, S::Error>
+    where
+        S: topics::Subscribe,
+        S::Error: From<topics::TopicError>,
+    {
+        let filter = topics::build(TOPIC_SYSTEM_NET_INTERFACES, &[], topics::Mode::Subscribe)
+            .map_err(S::Error::from)?;
+        subscriber.subscribe_topic(&filter, TOPIC_SYSTEM_NET_INTERFACES_QOS)
+    }
 
     /// Round trip in milliseconds (10 ms resolution).
     /// Four octets: who answered.
@@ -15291,6 +15430,9 @@ pub mod os_lazy_messenger_registry_v1 {
         pub owner: u64,
         pub interfaces: alloc::vec::Vec<u64>,
         pub lease_remaining: u64,
+        pub owner_uid: u64,
+        pub owner_label: u64,
+        pub owner_session: u64,
     }
 
     pub fn encode_entry(value: &Entry) -> Result<Vec<u8>, Error> {
@@ -15304,6 +15446,9 @@ pub mod os_lazy_messenger_registry_v1 {
         }
         target.array(4, &nested)?;
         target.u64(5, value.lease_remaining)?;
+        target.u64(6, value.owner_uid)?;
+        target.u64(7, value.owner_label)?;
+        target.u64(8, value.owner_session)?;
         Ok(target.finish())
     }
 
@@ -15329,6 +15474,15 @@ pub mod os_lazy_messenger_registry_v1 {
                 }
                 5 => {
                     out.lease_remaining = field.as_u64()?;
+                }
+                6 => {
+                    out.owner_uid = field.as_u64()?;
+                }
+                7 => {
+                    out.owner_label = field.as_u64()?;
+                }
+                8 => {
+                    out.owner_session = field.as_u64()?;
                 }
                 _ => {}
             }
@@ -20086,6 +20240,15 @@ pub static DECLARED_TOPICS: &[topics::TopicDecl] = &[
         retained: true,
         publish_permission: "publish:system/net/+/link",
         subscribe_permission: "subscribe:system/net/+/link",
+    },
+    topics::TopicDecl {
+        interface: "os.lazy.net.stack.v1",
+        name: "system/net/interfaces",
+        payload: "InterfaceList",
+        qos: topics::QOS_LATEST,
+        retained: true,
+        publish_permission: "publish:system/net/interfaces",
+        subscribe_permission: "subscribe:system/net/interfaces",
     },
     topics::TopicDecl {
         interface: "os.lazy.net.stack.v1",

@@ -45,11 +45,33 @@ fn holdings() -> Result<Vec<(String, TaskUsage)>, String> {
     Ok(out)
 }
 
+/// [`holdings`] once two looks a short while apart agree: a service that has
+/// just served a client (the probe that ran before this soak) may still be
+/// tidying up, and the baseline is what it holds at rest.
+fn settled_holdings() -> Result<Vec<(String, TaskUsage)>, String> {
+    let mut last = holdings()?;
+    for _ in 0..20 {
+        for _ in 0..30 {
+            nap();
+        }
+        let now = holdings()?;
+        let same = now.len() == last.len()
+            && now.iter().zip(&last).all(|((_, a), (_, b))| {
+                (a.handles, a.buffers, a.buffer_bytes) == (b.handles, b.buffers, b.buffer_bytes)
+            });
+        if same {
+            return Ok(now);
+        }
+        last = now;
+    }
+    Ok(last)
+}
+
 /// Run `iterations` rounds; returns how many completed.
 pub(super) fn run(iterations: u32) -> Result<u32, String> {
     let client = connect()?;
     wait_for_address(&client)?;
-    let before = holdings()?;
+    let before = settled_holdings()?;
     if before.len() != 2 {
         return Err(format!(
             "expected netd and netdrv in the task table, found {}",
@@ -98,8 +120,17 @@ pub(super) fn run(iterations: u32) -> Result<u32, String> {
             if was == now {
                 Ok(())
             } else {
+                let held = |tasks: &[(String, TaskUsage)]| {
+                    tasks
+                        .iter()
+                        .map(|(n, u)| format!("{n}={}/{}/{}", u.handles, u.buffers, u.buffer_bytes))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                };
                 Err(format!(
-                    "{name}: {what} went from {was} to {now} over {iterations} rounds"
+                    "{name}: {what} went from {was} to {now} over {iterations} rounds (handles/buffers/bytes before [{}] after [{}])",
+                    held(&before),
+                    held(&after)
                 ))
             }
         };

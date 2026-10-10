@@ -43,3 +43,6 @@ object list (the index each field must hold).
 - `owner: U64`
 - `interfaces: Array<U64>`
 - `lease_remaining: U64`
+- `owner_uid: U64`
+- `owner_label: U64`
+- `owner_session: U64`

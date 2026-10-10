@@ -4,7 +4,8 @@
 //! At start it reads the kernel's read-only device inventory, matches every
 //! function against the static driver manifest (`libs/devmatch`), and asks
 //! `init` to start each matched driver row for the device it found
-//! (`os.lazy.init.v1.StartDriver`; the driver gets `dev=<id>`). It then serves
+//! (`os.lazy.init.v1.StartDriver`; the driver gets `dev=<id>`, and a network
+//! card also `ifname=<name>`: `eth0`, `eth1`, ... in enumeration order). It then serves
 //! `os.lazy.devd.v1` (`idl/devd.midl`) and keeps one retained topic per device,
 //! `system/devices/<id>`, current: each device's match, its driver, who holds
 //! the claim and whether its driver let it go. A driver that crashes is
@@ -24,7 +25,7 @@
 extern crate alloc;
 
 use alloc::format;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
@@ -98,32 +99,34 @@ fn run() -> Result<(), &'static str> {
     serve(&server, &mut bus, &mut tracked)
 }
 
-/// Ask `init` for each driver row the manifest picks; every other matched
-/// device of the same row is `busy`.
+/// Ask `init` for each driver start the manifest plans; a device of a driver
+/// row that serves one device only, after the first, is `busy`.
 fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
     let functions: Vec<_> = tracked.iter().map(Tracked::function).collect();
     let plan = devmatch::plan(&functions);
     for item in tracked.iter_mut().filter(|t| t.entry.is_some()) {
         let id = item.device.id;
-        let Some((driver, _, entry)) = plan.iter().find(|(_, chosen, _)| *chosen == id) else {
+        let Some(planned) = plan.iter().find(|planned| planned.id == id) else {
             item.state = State::Busy;
             continue;
         };
+        let (driver, ifname) = (planned.driver, planned.ifname.as_str());
         sys::write_str(&format!(
-            "DEVD:MATCH id={id} {:04x}:{:04x} class={} driver={driver} model={}\n",
+            "DEVD:MATCH id={id} {:04x}:{:04x} class={} driver={driver} model={} ifname={ifname}\n",
             item.device.vendor,
             item.device.device,
             item.device.class_name(),
-            entry.model
+            planned.entry.model
         ));
-        match drivers::start_driver(init, driver, u64::from(id)) {
+        item.ifname = String::from(ifname);
+        match drivers::start_driver(init, driver, u64::from(id), ifname) {
             Ok(started) => {
                 item.pid = started.pid;
                 if item.device.owner.is_none() {
                     item.state = State::Starting;
                 }
                 sys::write_str(&format!(
-                    "DEVD:START driver={driver} dev={id} pid={} new={}\n",
+                    "DEVD:START driver={driver} dev={id} ifname={ifname} pid={} new={}\n",
                     started.pid, started.started
                 ));
             }

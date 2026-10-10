@@ -792,6 +792,17 @@ keeps the static rows. `netdrv` drives virtio-net or an Intel 8254x
 Drivers group for all three, and `devctl drivers` shows `devd`'s view. See
 [`docs/architecture/drivers.md`](docs/architecture/drivers.md).
 
+**Several network cards (WP1, `docs/wifi-prerequisites-plan.md`).** Every
+network card gets its own `netdrv`, named `eth0`, `eth1`, ... in enumeration
+order (`devd` picks the name, `StartDriver` carries it as `ifname=`), and
+serves `os.lazy.net.nic/<ifname>`; there is no bare `os.lazy.net.nic`. `netd`
+finds the cards by listing the registry, gives each an interface (own DHCP,
+own `sys/net/<if>/*` configuration), sends new traffic by the lowest-metric
+default route (wired 100, wireless 600) and takes `resolv.conf` from that
+interface. A card that vanishes is a detached interface, not an error. `netctl
+if` lists them; the Network app has a *Next card* button. A new driver for a
+NIC registers `NicInfo.kind` (`wired` or `wireless`).
+
 ## Interrupt routing (I/O APIC, MSI)
 
 The legacy lines go through the I/O APIC when the MADT names one, and a
@@ -874,10 +885,13 @@ tab, the *Networking* group on the Advanced tab) builds the stack
 (`LAZYOS_NETD=1`, with `LAZYOS_NETD_ARGS=demo=0` so `netd` runs without the
 harness's evidence clients) and attaches a virtio-net card on QEMU's user
 network, forwarding host `127.0.0.1:8080` to the guest (`--net-forward`,
-`--net-restrict`, `--net-pcap`; the same flags on `qemu_session.py` and
-`qemu_shot.py`, all from `tools/net/qemu_net.py`). A `--net` desktop ships two
-core packages: **Network** (`xui-app/src/bin/network.rs`: status, DHCP or a
-manual address written to `confd`'s `sys/net/eth0/*`) and **Net Tools**
+`--net-restrict`, `--net-pcap`, and `--nics N` for N cards, each on its own
+user network and named `eth0`, `eth1`, ... by `devd`; the same flags on
+`qemu_session.py` and `qemu_shot.py`, all from `tools/net/qemu_net.py`). A
+`--net` desktop ships two core packages: **Network**
+(`xui-app/src/bin/network.rs`: status, DHCP or a manual address written to
+`confd`'s `sys/net/<if>/*` for the card shown, *Next card* to step through
+several) and **Net Tools**
 (`nettools.rs`: ping, lookups, an HTTP fetch and a web server on 8080), sharing
 `xui-app/src/net/`. How to reach the guest from the host:
 [`docs/networking-host-access.md`](docs/networking-host-access.md).
@@ -887,6 +901,7 @@ python tools/run_demo.py --desktop --net        # then open Net Tools, and http:
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_apps     --script tools/screenshot/examples/net_apps.json      # ping, lookup, a fetch through the host forward
 python tools/screenshot/qemu_session.py --image target/lazyos.img --net --out shots/net_config     --script tools/screenshot/examples/net_config.json    # Manual, back to DHCP, Renew
+python tools/screenshot/qemu_session.py --image target/lazyos.img --net --nics 2 --out shots/net_cards     --script tools/screenshot/examples/net_cards.json     # two cards: the Network app on eth0, "Next card", eth1
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 
@@ -1007,6 +1022,8 @@ python tools/net/run.py                                                 # build 
 python tools/net/run.py --services | --poll | --no-device | --machine q35 --virtio-disk   # variants
 python tools/net/run.py --nic e1000                                     # an Intel 8254x instead of virtio-net (issue #497)
 python tools/net/run.py --netd                                          # stages N2+N3: netd, DHCP, ping, nslookup, nc and the socket probe/soak; judged from the pcap and the host echo servers (combines with the variants)
+python tools/net/run.py --nics 2                                        # WP1: two cards on two user networks, one pcap each: DHCP on both, the wired-metric winner carries traffic and DNS, QMP set_link moves it to eth1 and back (DHCP starts over), a removed card is detached (tools/net/multi_run.py)
+python tools/net/test_multi_judge.py                                    # the multi-NIC judge fails when it should
 mkdir -p fuzz/corpus/netstack; cargo fuzz run netstack --fuzz-dir fuzz fuzz/corpus/netstack fuzz/seeds/netstack -- -max_total_time=60   # Linux
 mkdir -p fuzz/corpus/framering                                          # once; libFuzzer's working corpus (git-ignored)
 cargo fuzz run framering --fuzz-dir fuzz fuzz/corpus/framering fuzz/seeds/framering -- -max_total_time=60  # Linux; CI runs it

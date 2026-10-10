@@ -13,7 +13,7 @@
 
 use alloc::vec::Vec;
 
-use netstack::{Kind, Received, SockAddr, SockError, Stack};
+use netstack::{Kind, Net, Received, SockAddr, SockError};
 use user::sys::{self, InetIo};
 
 use super::{net_errno, Inet, CLOSE_LINGER_MS, FRAME};
@@ -40,7 +40,7 @@ fn from_app(id: u32, buf: &mut [u8], end: &mut bool) -> usize {
 
 impl Inet {
     /// Move stream bytes both ways for the entry at `at`.
-    pub(super) fn service_stream(&mut self, stack: &mut Stack, at: usize) {
+    pub(super) fn service_stream(&mut self, stack: &mut Net, at: usize) {
         let entry = &mut self.entries[at];
         let (id, owner) = (entry.id, entry.owner());
         let Some(sid) = entry.stack else { return };
@@ -101,7 +101,7 @@ impl Inet {
     }
 
     /// Move datagrams both ways for the entry at `at`.
-    pub(super) fn service_datagrams(&mut self, stack: &mut Stack, at: usize) {
+    pub(super) fn service_datagrams(&mut self, stack: &mut Net, at: usize) {
         let entry = &mut self.entries[at];
         let (id, owner) = (entry.id, entry.owner());
         let Some(sid) = entry.stack else { return };
@@ -152,7 +152,7 @@ impl Inet {
     /// Flush what the application wrote, close the stack socket, acknowledge.
     pub(super) fn service_closing(
         &mut self,
-        stack: &mut Stack,
+        stack: &mut Net,
         at: usize,
         since: i64,
         now_ms: i64,

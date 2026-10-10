@@ -12,8 +12,8 @@
 
 Related: [wifi-plan.md](wifi-plan.md) (the hardware, licence and driver
 plan; §3 and §5 are the starting point here),
-[networking-plan.md](networking-plan.md) (N0–N6; multi-NIC is a §12
-non-goal there and becomes WP1 here),
+[networking-plan.md](networking-plan.md) (N0–N6; multi-NIC was a §12
+non-goal there and is WP1 here, built),
 [architecture/networking.md](architecture/networking.md),
 [security-model.md](security-model.md) §8 (`keyd`),
 [accounts-plan.md](accounts-plan.md) (`elevd`, who may change what),
@@ -73,25 +73,75 @@ real PC with two ports.
 - **Discovery.** `netd` watches the registry (or a `system/devices/*` topic
   from `devd`) and attaches to each NIC that appears, detaches from one
   that vanishes. A dongle pulled out is an interface removed, not an error.
-- **Stack.** One smoltcp `Interface` per NIC, each with its own DHCP
-  socket, sharing one socket set. smoltcp routes by interface only if told
-  to, so `netd` owns the choice: a socket is bound to the interface its
-  route lookup picks at `connect`/first send.
+- **Stack.** One smoltcp `Interface` per NIC, **each with its own socket set**
+  (DHCP, ICMP and DNS sockets included), and a `netstack::Net` above them that
+  owns the socket table and the choice of interface. The first draft shared
+  one socket set; the spike (below, risk 1) showed smoltcp cannot do that.
+  `Net` picks the interface by route when a socket first needs one (TCP
+  `connect`, each UDP `send_to`, a ping, a lookup); a listener or a UDP socket
+  bound to "any" address gets one smoltcp socket per interface (a replica,
+  created again for an interface that appears later) so it serves all of
+  them. The Linux `AF_INET` shim goes through the same `Net` calls.
 - **Routes.** One default route per interface with a metric: wired 100,
   wireless 600 (the NetworkManager convention), so a cable wins when both
   are up and the Wi-Fi takes over when it is pulled. `Routes` already
   exists; it lists all of them.
 - **DNS.** Servers from the interface holding the best default route;
   `/etc/resolv.conf` (`netd/resolvfile.rs`) rewritten when that changes.
-- **Link changes.** Link down: keep the lease, mark the routes dead. Link
-  up: DHCP INIT-REBOOT (RFC 2131 §3.2), because a Wi-Fi link that comes
-  back may be a different network. Wired links do the same, which is also
-  correct for a cable moved between switches.
+- **Link changes.** Link down: keep the lease, mark the interface dead
+  (no routes, no DNS, no new sockets on it). Link up: restart DHCP discovery,
+  because a Wi-Fi link that comes back may be a different network. smoltcp's
+  DHCP client has no INIT-REBOOT (RFC 2131 section 3.2: it only has
+  `reset()`, which drops the lease and broadcasts a DISCOVER), so the address
+  is lost for the moment a DISCOVER/OFFER/REQUEST/ACK takes, and a server that
+  remembers the client re-offers the same address. Static interfaces keep
+  their address. Wired links do the same, which is also correct for a cable
+  moved between switches.
 - **Config and topics.** Already keyed by interface (`sys/net/<if>/*`,
   `system/net/<if>/*`); the work is removing the constant, plus a
   retained `system/net/interfaces` list.
 - **Clients.** `netctl`, the Network app, Net Tools and the tray applet
   list interfaces instead of assuming one.
+
+**Built (WP1, 2026-10-10)**, as described in
+[architecture/networking.md](architecture/networking.md) ("Several
+interfaces"). Where it differs from the draft above:
+
+- *One socket set per interface under `netstack::Net`*, not a shared set
+  (risk 1, spiked). Wildcard listeners and datagram sockets are replicated per
+  interface; connections, pings and lookups pick an interface by route.
+- *Discovery lists the registry* (`registry::list`, a second apart) rather than
+  watching `devd`'s topics: it is what exists, it is cheap, and it sees a card
+  the moment its driver registers. A name missing for 3 s is a removed card.
+  `devd` also publishes the name (`DeviceState.ifname`). Listing the registry
+  as an unprivileged task had never worked (`registry::list` left the target
+  slot at 0, which needs `CAP_IPC_CONTROL`); it targets the caller now.
+- *`StartDriver` carries the interface name* (`ifname`, a third argument);
+  `init` runs one `netdrv` row per card, the driver registers
+  `os.lazy.net.nic/<ifname>`, and the bare name is gone.
+- *DHCP restarts, it does not confirm*: smoltcp's client has no INIT-REBOOT.
+- *Link down keeps the lease and the interface drops out of route and resolver
+  choice* (no per-route "dead" flag is needed). `Reattach`/driver restarts are
+  not link changes.
+- *A configuration change rebuilds that interface*, not `netd`.
+- *The Network app's Apply goes through `elevd`* (`net.config`: card, address,
+  gateway, DNS; an empty address is DHCP). A session cannot write `sys/**`
+  (accounts U0-U2), which is why Apply had failed (`NETAPP:APPLY:FAIL`) since
+  then. The operation exists, instead of one `conf.set` per key, so the
+  administrator gets one prompt that names the card and the change, and `elevd`
+  writes the keys in the order `netd` needs (values first, `mode` last).
+  `tools/screenshot/examples/net_config.json` (`--net --nics 2`) approves it as
+  `admin` on both cards, goes back to DHCP on `eth1`, and cancels one prompt.
+  A rebuilt stack restarts its epoch at 0, so `netd`'s publisher also compares
+  the address when deciding to announce (a static address replacing a lease
+  with the same epoch was never announced).
+- *Hot-unplug cannot be shown with QEMU's `device_del` today*: the guest has no
+  PCI hot-plug handler, so the eject request is never completed and the card
+  stays. The detach path (a name gone from the registry for 3 s removes the
+  interface, sockets on it are reset, wildcard sockets keep serving the rest)
+  has host tests only (`cargo test -p netstack net::`). A kernel that
+  completes the eject (poll the PIIX4 hot-plug registers, write `PCI_EJ`) would
+  let `--nics 2` check it.
 
 ### 3.2 Cryptography
 
@@ -332,7 +382,7 @@ after WP6 and plug into what WP4 proved.
 | Stage | Deliverable | Depends on | Evidence |
 |---|---|---|---|
 | **WP0 Groundwork** (done, see below) | Licence decision recorded, `THIRD_PARTY.md`; §3.2 crypto with KATs; fresh uids allocated; `idl/wifi.midl` drafted and reviewed | nothing | `cargo test -p lazyos-crypto` (Annex J, RFC 3394, RFC 4493); `midlc` output |
-| **WP1 Multi-NIC `netd`** | §3.1: per-interface registry names and `kind`, `devd` naming, N interfaces, metrics, DNS choice, INIT-REBOOT on link up, runtime attach/detach; `netctl`, Network app and applet list interfaces | nothing | `tools/net/run.py --nics 2`: DHCP on both cards (pcap per card); the wired default route wins; link of `eth0` set down over QMP (`set_link`) moves traffic and DNS to `eth1` and back; a card hot-unplugged (`device_del`) is detached cleanly; existing `--netd` run unchanged |
+| **WP1 Multi-NIC `netd`** (**built**) | §3.1: per-interface registry names and `kind`, `devd` naming, N interfaces, metrics, DNS choice, DHCP restart on link up (no INIT-REBOOT in smoltcp), runtime attach/detach; `netctl`, Network app and applet list interfaces | nothing | `tools/net/run.py --nics 2`: DHCP on both cards (pcap per card); the wired default route wins; link of `eth0` set down over QMP (`set_link`) moves traffic and DNS to `eth1` and back, with the re-DHCP visible; `netd` is never restarted. `device_del` is not honoured by the guest (see §3.1), so detach is covered by host tests; existing `--netd` run unchanged |
 | **WP2 Secrets** | §3.3: named secrets, persistence under `/conf`, `WifiPmk`, scope rules, `elevd` action `net.wifi.system` | WP0 | `keyd` host tests; a session stores a secret, reboots, and a `WifiPmk` from `wlanmd`'s label matches the Annex J PMK while the same call from the Terminal gets `EPERM`; the accounts attack harness gains "read another user's Wi-Fi secret" as `blocked` |
 | **WP3 Protocol libraries** | §3.4: `libs/ieee80211`, `libs/eapol`, fuzz targets and seeds | WP0 | `cargo test -p ieee80211 -p eapol`; seeded fuzz soak; `python fuzz/gen_corpus.py --check` |
 | **WP4 Station stack on the simulator** | §3.5 + §3.6: `wlanmd`, `wifisim`, `fake_ap.py`, `wifictl`; `netd` gets `wlan0` | WP1–WP3 | `tools/wifi/sim_run.py`: scan lists the fake SSIDs with channel and RSSI; open and WPA2-PSK joins; DHCP and echo over `wlan0`; the AP-side pcap shows EAPOL 1–4 and CCMP data the independent Python side decrypted; wrong passphrase, deauth, beacon loss and group rekey scenarios each end in the expected state; `wlanmd` killed mid-handshake is restarted by `init` and reconnects. `test_judge.py` fails when it should. CI |
@@ -358,11 +408,18 @@ milestone that matters ("Wi-Fi works in CI except for the radio").
 
 ## 5. Risks and open questions
 
-1. **smoltcp and several interfaces.** smoltcp's `Interface` is per device
-   and the socket set can be shared, but outgoing interface selection is
-   the caller's. If binding sockets to an interface at first send proves
-   awkward for listening sockets and the Linux shim, WP1 grows. Spike it
-   first with two virtio-net cards.
+1. **smoltcp and several interfaces. Spiked 2026-10-10; the answer is no.**
+   `libs/netstack/tests/shared_socket_set.rs` runs two `Interface`s over one
+   `SocketSet` on smoltcp 0.14. There is no binding of a socket to an
+   interface: whichever interface polls first takes a ready socket's packet
+   (`socket_egress` calls `socket.dispatch`, which advances the socket's
+   state, before the interface consults its routes), routes it with its own
+   table and never checks that the source address is its own. A UDP socket
+   bound to A's address left through B with A's source address, and one DHCP
+   socket in a shared set served only one of two interfaces. So the set is per
+   interface and `netstack::Net` selects the interface (section 3.1); the
+   cost is the replicas of wildcard sockets. The tests fail if a smoltcp
+   upgrade ever changes this. smoltcp also has no INIT-REBOOT (section 3.1).
 2. **The simulator's fidelity.** It proves the station stack against an
    independent AP, not against a real chip's firmware quirks (scan offload
    timing, MCU events arriving out of order). The `wifi.hw.v1` contract
@@ -378,7 +435,19 @@ milestone that matters ("Wi-Fi works in CI except for the radio").
    adds a copy and a wake per burst; at polled USB rates that is noise, but
    measure it in WP6 with the storage driver before Wi-Fi depends on it.
 6. **One `wlanmd` or one per interface?** Decided in WP4; one is assumed.
-7. **Captive portals, enterprise (802.1X/EAP), WPA3, hotspot mode** stay
+7. **Who may register a NIC name. Fixed (review of WP1, 2026-10-10).**
+   `netd` attaches to whatever holds `os.lazy.net.nic/<ifname>` and trusts its
+   `NicInfo`, and the registry let anyone register a name: a session user or
+   app could have received `netd`'s frames (DNS, traffic) by claiming
+   `kind = wired` with a lower slot. Now the registry reserves the namespace
+   to the NIC driver identities (`netpolicy`: `_net` 902, `_wifi` 911,
+   `_wifisim` 913, unlabelled, no session; root only as the console image's
+   boot identity), `List` reports each owner's kernel-stamped identity, and
+   `netd` checks it again, refuses a `kind` the uid may not claim and drops
+   `Notify` from non-drivers (`NETD:NIC:REFUSED`). Wireless drivers register
+   `wlan*` under their own uids with no further change. Attack row
+   `nic_register`; see architecture/networking.md "Who may be a card".
+8. **Captive portals, enterprise (802.1X/EAP), WPA3, hotspot mode** stay
    out, as in wifi-plan §7 and §10.
 
 ## 6. Decisions requested

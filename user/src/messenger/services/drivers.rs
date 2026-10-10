@@ -32,10 +32,16 @@ pub fn start_driver_reply(started: bool, pid: u64) -> Result<Parcel> {
 
 /// Call `init`'s `StartDriver`; a supervisor refusal is [`Error::Init`] with
 /// its errno.
-pub fn start_driver(endpoint: &Endpoint, driver: &str, device: u64) -> Result<Started> {
+pub fn start_driver(
+    endpoint: &Endpoint,
+    driver: &str,
+    device: u64,
+    ifname: &str,
+) -> Result<Started> {
     let body = wire::encode_start_driver_args(&wire::StartDriverArgs {
         driver: String::from(driver),
         device,
+        ifname: String::from(ifname),
     })
     .map_err(Error::Parcel)?;
     let request = Parcel {

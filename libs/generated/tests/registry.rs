@@ -11,6 +11,9 @@ fn entry(name: &str, interfaces: Vec<u64>, lease: u64) -> Entry {
         owner: 7,
         interfaces,
         lease_remaining: lease,
+        owner_uid: 902,
+        owner_label: 0,
+        owner_session: u64::MAX,
     }
 }
 

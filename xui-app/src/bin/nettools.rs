@@ -167,7 +167,7 @@ impl NetTools {
     }
 
     fn refresh_status(&mut self) {
-        match stack::status() {
+        match stack::status(None) {
             Ok(status) => {
                 self.w.headline.get().set_text(&status.headline());
                 self.status = Some(status);

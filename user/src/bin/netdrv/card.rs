@@ -63,8 +63,6 @@ pub(super) struct Card {
     pub(super) mtu: u16,
     /// What the card is, for the log (`virtio-net`, `e1000 82540EM`).
     pub(super) model: &'static str,
-    /// The card name in the link topic (`system/net/{nic}/link`).
-    pub(super) name: &'static str,
 }
 
 impl Card {
@@ -76,23 +74,18 @@ impl Card {
         kind: Kind,
     ) -> Result<Card, Error> {
         let mut claimed = device::claim(row, settings.irq_mode == IrqMode::Auto)?;
-        let (backend, brought, model, name) = match kind {
+        let (backend, brought, model) = match kind {
             Kind::Virtio => {
                 let (virtio, brought) = virtio_card::open(&claimed, settings)?;
-                (
-                    Backend::Virtio(virtio),
-                    brought,
-                    "virtio-net",
-                    "virtio-net0",
-                )
+                (Backend::Virtio(virtio), brought, "virtio-net")
             }
             Kind::E1000(model) => {
                 let brought = e1000_card::open(&claimed, settings)?;
-                (Backend::E1000, brought, model, "e1000-0")
+                (Backend::E1000, brought, model)
             }
             Kind::Rtl8168(model) => {
                 let (brought, state) = rtl8168_card::open(&claimed, settings)?;
-                (Backend::Rtl8168(state), brought, model, "rtl8168-0")
+                (Backend::Rtl8168(state), brought, model)
             }
         };
         device::arm(&mut claimed)?;
@@ -127,7 +120,6 @@ impl Card {
             queue_sizes: brought.queue_sizes,
             mtu: brought.mtu,
             model,
-            name,
         })
     }
 

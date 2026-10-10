@@ -63,6 +63,12 @@
 // client. A frame shorter than the 14-byte Ethernet header or longer than
 // `NicInfo.max_frame` is dropped and counted, never truncated.
 //
+// **One name per card.** A driver serves one card and registers it as
+// `os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`): `devd` picks the
+// interface name and `init` hands it to the driver as `ifname=<name>`. The
+// stack lists the registry for that prefix to find the cards, so cards may
+// appear and vanish while it runs. There is no bare `os.lazy.net.nic`.
+//
 // Failures of calls are returned as the shared structured error field
 // (`services::error_field`) instead of the declared reply fields.
 
@@ -136,7 +142,7 @@ fn notify(ring, events) {
 ///
 /// Card description.
 fn new_nic_info() {
-    #{ mac: blob(), mtu: 0, max_frame: 0, link: false, features: 0 }
+    #{ mac: blob(), mtu: 0, max_frame: 0, link: false, features: 0, kind: 0 }
 }
 
 /// A `NicStats` with every field at its zero value.
@@ -149,6 +155,9 @@ fn new_nic_info() {
 /// bit 1 transmit checksum offload, bit 2 VLAN tag insert/strip. Other
 /// bits are reserved: a driver sets them to zero and a client ignores
 /// them.
+/// A `NicKind` ordinal: a cable (`Wired`) or a radio (`Wireless`). The
+/// stack derives the default-route metric from it (wired 100,
+/// wireless 600), so a cable wins when both are up.
 /// Counters since the driver started.
 fn new_nic_stats() {
     #{ rx_frames: 0, tx_frames: 0, rx_bytes: 0, tx_bytes: 0, rx_dropped: 0, tx_dropped: 0, runts: 0, oversize: 0, ring_errors: 0, interrupts: 0, link_changes: 0 }
@@ -165,7 +174,7 @@ fn new_nic_stats() {
 /// Rings poisoned by a peer that broke the protocol, plus device
 /// used-ring entries the driver rejected.
 /// Interrupt messages the driver handled (0 when polling).
-/// The payload of `system/net/{nic}/link`.
+/// The payload of `system/net/{ifname}/link`.
 fn new_link_event() {
     #{ up: false, changes: 0 }
 }
@@ -188,43 +197,52 @@ export const RX_MODE_FILTERED = "Filtered";
 
 export const RX_MODE_PROMISCUOUS = "Promiscuous";
 
-// Filter for every event of the topic `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained).
+// The variants of `NicKind`, in wire order.
+export const NIC_KIND = ["Wired", "Wireless"];
+
+export const NIC_KIND_WIRED = "Wired";
+
+export const NIC_KIND_WIRELESS = "Wireless";
+
+// Filter for every event of the topic `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained).
 // Link changes since the driver started, so a subscriber can tell a
 // flap from a repeat.
 // Published by the driver whenever the link changes, and once at start.
-// `{nic}` is the driver's card name (`virtio-net0`).
+// `{ifname}` is the interface name `devd` gave the card (`eth0`), the
+// same name as `system/net/{ifname}/addr`: two cards of one model must
+// not share a retained topic.
 export const LINK_PATTERN = "system/net/+/link";
 
-/// The topic name of `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained) for these placeholder values.
-fn link_topic(nic) {
-    `system/net/${nic}/link`
+/// The topic name of `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained) for these placeholder values.
+fn link_topic(ifname) {
+    `system/net/${ifname}/link`
 }
 
-/// Run `handler(event)` for each event of `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained); `event.payload` is
 /// the decoded `LinkEvent`. Returns the `Subscription`.
 fn on_link(handler) {
     msg::on("system/net/+/link", handler)
 }
 
-/// Subscribe to `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained) to pull events with `sub.next()`.
 fn subscribe_link() {
     msg::subscribe("system/net/+/link")
 }
 
-/// Run `handler(event)` for each event of `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained); `event.payload` is
+/// Run `handler(event)` for each event of `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained); `event.payload` is
 /// the decoded `LinkEvent`. Returns the `Subscription`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
-fn on_link(nic, handler) {
-    msg::on(`system/net/${nic}/link`, handler)
+fn on_link(ifname, handler) {
+    msg::on(`system/net/${ifname}/link`, handler)
 }
 
-/// Subscribe to `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained) to pull events with `sub.next()`.
+/// Subscribe to `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained) to pull events with `sub.next()`.
 /// Placeholder values narrow the filter (`+` or `#` keep a wildcard).
-fn subscribe_link(nic) {
-    msg::subscribe(`system/net/${nic}/link`)
+fn subscribe_link(ifname) {
+    msg::subscribe(`system/net/${ifname}/link`)
 }
 
-/// Publish `payload` (a `LinkEvent`) on `system/net/{nic}/link` (payload `LinkEvent`, qos latest, retained).
-fn publish_link(nic, payload) {
-    msg::publish(`system/net/${nic}/link`, payload)
+/// Publish `payload` (a `LinkEvent`) on `system/net/{ifname}/link` (payload `LinkEvent`, qos latest, retained).
+fn publish_link(ifname, payload) {
+    msg::publish(`system/net/${ifname}/link`, payload)
 }

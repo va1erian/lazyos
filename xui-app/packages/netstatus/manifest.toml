@@ -31,4 +31,8 @@ resident = true
 # No interface beyond the implied ones: the state comes from the retained
 # address and link topics.
 interfaces = []
-topics = ["subscribe:system/net/+/addr", "subscribe:system/net/+/link"]
+topics = [
+    "subscribe:system/net/+/addr",
+    "subscribe:system/net/+/link",
+    "subscribe:system/net/interfaces",
+]

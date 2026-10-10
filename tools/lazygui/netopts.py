@@ -10,6 +10,7 @@ from __future__ import annotations
 from tkinter import ttk
 
 from .catalog import qemu_net
+from .netplan import wants_net
 
 HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. Forwards: "
         "[tcp:|udp:][HOSTADDR:]HOSTPORT:GUESTPORT, space-separated; empty = "
@@ -17,7 +18,7 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
         f"http://localhost:{qemu_net.NETTOOLS_PORT}); `none` = no forwards.")
 
 
-def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=None,
+def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var, tls_var=None,
                 lazyweb_var=None, smb_var=None, dbgd_var=None,
                 dbgd_control_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
@@ -49,6 +50,28 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, tls_var=
     row.pack(fill="x", padx=6, pady=2)
     ttk.Label(row, text="Port forwards:").pack(side="left")
     ttk.Entry(row, textvariable=forwards_var).pack(side="left", fill="x", expand=True, padx=6)
+    cards = ttk.Frame(parent)
+    cards.pack(fill="x", padx=6, pady=2)
+    ttk.Label(cards, text="Network cards:").pack(side="left")
+    spin = ttk.Spinbox(cards, from_=1, to=qemu_net.MAX_NICS, width=4, textvariable=nics_var)
+    spin.pack(side="left", padx=6)
+    ttk.Label(cards, text="(run_demo --nics; each on its own user network, eth0, eth1, ...)",
+              foreground="#666").pack(side="left")
+
+    def sync(*_args) -> None:
+        # Only a networked image has cards to count.
+        spin.state(["!disabled"] if wants_net(
+            {"net": net_var.get(), "tls": tls_var.get() if tls_var else False,
+             "lazyweb": lazyweb_var.get() if lazyweb_var else False,
+             "smb": smb_var.get() if smb_var else False,
+             "dbgd": dbgd_var.get() if dbgd_var else False,
+             "dbgd_control": dbgd_control_var.get() if dbgd_control_var else False}
+        ) else ["disabled"])
+
+    for var in (net_var, tls_var, lazyweb_var, smb_var, dbgd_var, dbgd_control_var):
+        if var is not None:
+            var.trace_add("write", sync)
+    sync()
     ttk.Checkbutton(parent, text="Isolate the guest (no outbound traffic; forwards still work)",
                     variable=restrict_var).pack(anchor="w", padx=6)
     ttk.Label(parent, text=HINT, wraplength=520, foreground="#666"

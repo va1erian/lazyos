@@ -115,6 +115,36 @@ pub(crate) fn secret(text: &str) -> Result<String, &'static str> {
     Ok(text.to_string())
 }
 
+/// The address setup `net.config` takes: `("", "", "")` is DHCP; otherwise a
+/// CIDR address (prefix 1 to 30) with an optional gateway and DNS server,
+/// each a dotted IPv4 address. `netd` judges the rest (a gateway off the
+/// subnet makes it fall back to DHCP).
+pub(crate) fn net_setup(
+    address: &str,
+    gateway: &str,
+    dns: &str,
+) -> Result<(String, String, String), &'static str> {
+    use core::net::Ipv4Addr;
+    let ip = |text: &str| text.parse::<Ipv4Addr>().is_ok();
+    if address.is_empty() {
+        if !gateway.is_empty() || !dns.is_empty() {
+            return Err("DHCP takes no gateway or DNS server");
+        }
+        return Ok((String::new(), String::new(), String::new()));
+    }
+    let (host, prefix) = address.split_once('/').ok_or("the address is a.b.c.d/n")?;
+    let prefix: u8 = prefix.parse().map_err(|_| "the address is a.b.c.d/n")?;
+    if !ip(host) || !(1..=30).contains(&prefix) {
+        return Err("the address is a.b.c.d/n, with n from 1 to 30");
+    }
+    for server in [gateway, dns] {
+        if !server.is_empty() && !ip(server) {
+            return Err("the gateway and DNS server are a.b.c.d");
+        }
+    }
+    Ok((address.to_string(), gateway.to_string(), dns.to_string()))
+}
+
 /// `[a-z0-9_-]{1,32}`: a service name or a power policy key.
 pub(crate) fn word(text: &str) -> bool {
     !text.is_empty()

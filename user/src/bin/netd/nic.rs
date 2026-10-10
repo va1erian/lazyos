@@ -16,7 +16,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use netstack::Stack;
+use netstack::{IfKind, Stack};
 use user::messenger::net::{self as nic, Client, Shared};
 use user::messenger::registry;
 use user::sys;
@@ -37,22 +37,30 @@ pub(super) struct Card {
     pub(super) mac: [u8; 6],
     pub(super) mtu: u32,
     pub(super) link: bool,
+    pub(super) kind: IfKind,
 }
 
 pub(super) struct Nic {
+    /// The card this attachment talks to (`eth0`): `os.lazy.net.nic/<ifname>`.
+    ifname: String,
     client: Option<Client>,
     shared: Option<Shared>,
     pub(super) card: Option<Card>,
+    /// The uid the registry says owns the name, as the kernel stamped it: it
+    /// decides which kind of card the driver may claim.
+    pub(super) owner_uid: u32,
     next_try: u64,
     last_heard: u64,
 }
 
 impl Nic {
-    pub(super) fn new() -> Nic {
+    pub(super) fn new(ifname: &str) -> Nic {
         Nic {
+            ifname: String::from(ifname),
             client: None,
             shared: None,
             card: None,
+            owner_uid: u32::MAX,
             next_try: 0,
             last_heard: 0,
         }
@@ -77,6 +85,21 @@ impl Nic {
         self.attached() && now.saturating_sub(self.last_heard) > SILENCE_TICKS
     }
 
+    /// [`Nic::probe`], paced: the next try is [`RETRY_TICKS`] away whatever
+    /// happens.
+    pub(super) fn try_probe(&mut self, now: u64) -> Result<Card, String> {
+        self.next_try = now + RETRY_TICKS;
+        self.probe()
+    }
+
+    /// Give back the handle to the driver (the card is gone for good).
+    pub(super) fn release(&mut self) {
+        if let Some(client) = self.client.take() {
+            client.release();
+        }
+        self.card = None;
+    }
+
     /// Resolve the driver and read the card, without attaching (so the stack
     /// can be built with the right MAC).
     pub(super) fn probe(&mut self) -> Result<Card, String> {
@@ -84,10 +107,20 @@ impl Nic {
         if let Some(old) = self.client.take() {
             old.release();
         }
-        let client = Client::connect().map_err(|e| format!("no NIC driver: {}", e.message()))?;
+        let client = Client::connect(&self.ifname)
+            .map_err(|e| format!("no NIC driver {}: {}", self.ifname, e.message()))?;
         let info = client
             .info()
             .map_err(|e| format!("Info: {}", e.message()))?;
+        // The card's description is the driver's word: a `_net` driver that
+        // says it is wireless is not believed (the kind sets the route
+        // metric), whatever name it holds.
+        if !netpolicy::nic_kind_allowed(self.owner_uid, info.kind) {
+            return Err(format!(
+                "REFUSED kind={} uid={}: not a card this driver identity may serve",
+                info.kind, self.owner_uid
+            ));
+        }
         let mac: [u8; 6] = info
             .mac
             .as_slice()
@@ -97,6 +130,11 @@ impl Nic {
             mac,
             mtu: info.mtu,
             link: info.link,
+            kind: if info.kind == nic::wire::NIC_KIND_WIRELESS {
+                IfKind::Wireless
+            } else {
+                IfKind::Wired
+            },
         };
         self.client = Some(client);
         self.card = Some(card);
@@ -136,15 +174,24 @@ impl Nic {
     /// Drop the rings (the device first, so nothing reads the memory), tell
     /// the driver if it is still there, and release the shared buffer.
     pub(super) fn detach(&mut self, stack: &mut Stack, why: &str) {
+        if self.shared.is_none() {
+            return;
+        }
+        stack.device_mut().detach();
+        self.forget_attachment(why);
+    }
+
+    /// [`Nic::detach`] for a caller whose device is already gone (its
+    /// interface was removed, which dropped the ring endpoints).
+    pub(super) fn forget_attachment(&mut self, why: &str) {
         let Some(shared) = self.shared.take() else {
             return;
         };
-        stack.device_mut().detach();
         if let Some(client) = self.client.as_ref() {
             let _ = client.detach(shared.ring);
         }
         shared.close();
-        sys::write_str(&format!("NETD:NIC:DETACH {why}\n"));
+        sys::write_str(&format!("NETD:NIC:DETACH if={} {why}\n", self.ifname));
     }
 
     /// Tell the driver the transmit ring has frames. A dead driver makes the

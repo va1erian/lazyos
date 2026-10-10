@@ -284,6 +284,15 @@ unless the profile is privileged.
   that is missing or does not hash to its id (`UNNAMED_INTERFACE`), so an app
   cannot pose as an implementation of a platform or another app's interface.
   Details: `docs/architecture/ipc-security.md`.
+- **Reserved service names beyond `os.lazy.*`**: a name in the NIC namespace
+  (`os.lazy.net.nic`, `os.lazy.net.nic/<ifname>`) may be registered only by a
+  NIC driver identity (`_net`, `_wifi`, `_wifisim`; unlabelled, no session),
+  whatever capabilities the caller holds, because `netd` hands the holder its
+  frame rings and believes the card it describes (`libs/netpolicy`,
+  `docs/architecture/networking.md` "Who may be a card"). `List` reports every
+  owner's kernel-stamped uid, label and session so a client that trusts what a
+  name's owner says can check it without `CAP_SETUID`. Attack row:
+  `tools/accounts` `nic_register`.
 - **Label assignment**: `init` stamps a label when it spawns a task: `pkgd`
   asks for `app:<system_name>` after it has loaded the package's rules. Before a
   package is installed (development mode) an IDE with `develop = true` spawns
@@ -426,7 +435,7 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   no root, no capability, not even to a child. A program asks `elevd` for one
   **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
   `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
-  `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
+  `net.config`, `service.restart`) with checked arguments; `elevd` (its own `_elev` uid,
   no capability) performs it itself once an administrator approved, and the
   services accept that path from its kernel-stamped identity alone.
 - Elevation always prompts: `xuid` draws the prompt over a dimmed screen,

@@ -158,6 +158,9 @@ pub(super) fn registry_list(args: &MsgArgs) -> Result<MsgResult, i64> {
             owner: entry.owner_slot as u64,
             interfaces: entry.interfaces,
             lease_remaining: entry.lease_remaining.unwrap_or(0),
+            owner_uid: u64::from(entry.owner.uid),
+            owner_label: u64::from(entry.owner.label_id),
+            owner_session: entry.owner.session,
         })
         .collect();
     let body = registry::wire::encode_list_reply(&registry::wire::ListReply { entries })

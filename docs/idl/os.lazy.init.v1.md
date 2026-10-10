@@ -19,7 +19,7 @@ reply, so the error field is hand-written next to these stubs.
 | ListApps | 1009359625 | sync | `() -> (apps: Array<AppInfo>)` |
 | Stop | 1266644741 | sync | `(app: String) -> (stopped: U64)` |
 | Shutdown | 1911669355 | sync | `(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` |
-| StartDriver | 1713728693 | sync | `(driver: String, device: U64) -> (started: Bool, pid: U64)` |
+| StartDriver | 1713728693 | sync | `(driver: String, device: U64, ifname: String) -> (started: Bool, pid: U64)` |
 | Ready | 197800596 | oneway | `() -> ()` |
 | ReportFailure | 425853579 | oneway | `(reason: String) -> ()` |
 | Home | 1391791790 | sync | `(op: String, name: String, uid: U32, gid: U32) -> ()` |

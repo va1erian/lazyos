@@ -7,7 +7,7 @@ networking: a userspace NIC driver serves `os.lazy.net.nic.v1` over Messenger,
 and a userspace stack service is its only client, exactly as `sndd` and
 `os.lazy.audio.v1` split audio ([`audio.md`](audio.md)).
 
-**Status: stages N0 to N5.** The interface, the frame ring, the virtio-net
+**Status: stages N0 to N5, and WP1 (several interfaces, below).** The interface, the frame ring, the virtio-net
 wire definitions, the `netdrv` driver, `nicctl`, the packet-capture harness, the
 stack library `netstack`, the stack service `netd`, `netctl` and `ping` are built
 and verified: `ping 10.0.2.2` is answered and the replies are in the capture. N3
@@ -32,7 +32,9 @@ static musl program using only `std::net` talks through the same stack.
 | `user/src/bin/nicctl.rs`, `nicctl/` | The control tool and evidence client: show, `arp`, `probe=1` (+ `role=intruder`), `soak=<n>` |
 | `libs/netstack/` | The stack over a frame ring, host tested: `device.rs` (smoltcp `Device` over the two rings), `stack.rs` (interface, DHCP, the echo socket and the ping table), `config.rs` (static configuration, address validation), `testnet.rs` (a scripted gateway and LAN), `tests.rs`, `fuzz.rs` |
 | `idl/net.midl` (second interface) | `os.lazy.net.stack.v1`, compiled into `docs/idl/os.lazy.net.stack.v1.md` |
-| `user/src/bin/netd.rs`, `netd/` | The stack service: `nic.rs` (finds the driver, attaches rings, re-attaches), `config.rs` (`confd` keys), `service.rs` (`stack.v1`, parked `Ping` calls, address topics) |
+| `user/src/bin/netd.rs`, `netd/` | The stack service: `ports.rs` (one port per `os.lazy.net.nic/<ifname>` in the registry: discovery, interface per card, rings, loss), `nic.rs` (one card's driver client and rings), `config.rs` (`confd` keys per interface), `service.rs` (`stack.v1`, parked `Ping` calls), `lists.rs` (`Interfaces`, `Addresses`, `Routes`, `Stats`), `publish.rs` (address topics, `system/net/interfaces`) |
+| `libs/netstack/src/net/` (WP1) | `Net`: several interfaces under one socket table (routes and metrics, replicas of wildcard sockets, pings and lookups across interfaces); `testmulti.rs` the multi-interface test networks |
+| `tools/net/multi_run.py`, `multi_judge.py` | `run.py --nics 2`: two cards, a capture each, judged from frames; `test_multi_judge.py` its self-test |
 | `user/src/messenger/netstack.rs` | Blocking client of `stack.v1` |
 | `user/src/bin/netctl.rs`, `netctl/`, `ping.rs` | `netctl` (show, `sockets`, `renew`, `probe=1`, `soak=<n>`, `sockprobe=1`, `socksoak=<n>`) and the native `ping` (names resolve) |
 | `libs/netstack/src/stack/` (N3) | `sockets.rs`, `tcp.rs`, `udp.rs`, `dns.rs`, `observe.rs`: the socket table and its operations, name lookups; `testpair.rs` (two stacks back to back) and `testdns.rs` for the tests |
@@ -243,7 +245,8 @@ send its own `Notify` wake-up; on `stack.v1` everyone may
 read and `Ping`, only `_netd` and root may `Renew` or `Reattach`. Unlike the N1
 class rules these call rules refuse nothing today (no Messenger policy
 loader), so the driver's own owner
-check is what stops a second client.
+check is what stops a second client. Who may *register* a card name is a
+different, enforced rule (see "Who may be a card").
 
 **Clock.** The kernel tick is 100 Hz, so the stack's clock is 10 ms and a ping
 reports 0 or 10 ms (the first, which waits for ARP, about 90 ms). The plan
@@ -616,6 +619,133 @@ to `netd`'s 10 ms clock until P2 gives it a finer one.
   through a port forward and echoes 100 000 bytes. The capture is judged with the same checks as
   the native tools: the extra TCP flows and datagrams are in the server's record byte for byte, and
   the inbound connection carries the harness's bytes both ways.
+
+## Several interfaces (WP1)
+
+`netd` drives any number of cards, appearing and vanishing while it runs
+([`../wifi-prerequisites-plan.md`](../wifi-prerequisites-plan.md) section 3.1:
+two virtio-net cards, an e1000 and a virtio-net, a two-port PC, and later a
+`wlan0` beside `eth0`).
+
+**Naming.** A card has a name, and the name is the registry entry:
+`os.lazy.net.nic/<ifname>` (`os.lazy.net.nic/eth0`). `devd` assigns `eth0`,
+`eth1`, ... to the network cards it matches in enumeration order
+(`libs/devmatch` `plan`: a driver row with an interface prefix starts once per
+card; a row without one, `sndd`, still serves the first device only) and
+passes the name to `init` in `StartDriver(driver, device, ifname)`; `init`
+checks it (`devmatch::valid_ifname`: lower-case letters then digits, 15 bytes),
+runs one `netdrv` row per card and hands the driver `dev=<id> ifname=<name>`.
+`NicInfo.kind` (`wired`, `wireless`) says what the card is. The bare
+`os.lazy.net.nic` is gone. `devd` publishes the name in `DeviceState.ifname`.
+
+**Discovery and loss.** `netd/ports.rs` lists the registry once a second and
+keeps one `Port` per `os.lazy.net.nic/<ifname>`: a driver client, the rings and
+the interface. A new name gets a port, a card read for the first time gets an
+interface in the `Net`, and a driver that restarts keeps its interface and
+lease (only the rings are rebuilt). A name missing for 3 seconds
+(`GONE_TICKS`) is a removed card: its interface is removed and `NETD:NIC:GONE
+if=<name>` is logged. That is a normal event, never an error, and `netd`
+stays up. Driver `Notify` messages land in `netd`'s one inbox as before; the
+kernel-stamped sender identifies the card (the registry entry's owner slot).
+
+**Who may be a card.** `netd` gives whoever holds `os.lazy.net.nic/<ifname>`
+its frame rings and a notify channel, and believes its `NicInfo` (`kind` sets
+the route metric), so the name is guarded twice (`libs/netpolicy`). The
+registry refuses `Register` of anything in the namespace (the bare prefix, the
+empty name, any `os.lazy.net.nic/...`; not `os.lazy.net.nicX`) unless the
+caller's kernel-stamped credentials are a driver identity: uid `_net` 902,
+`_wifi` 911, `_wifisim` 913 (or root, the boot identity of a console image
+whose kernel starts `netdrv` itself), **no label and no session**. It
+runs before the uid rules and whatever capabilities the caller holds
+(`kernel/src/ipc/policy.rs`, `RESERVED_NAMESPACE` in the audit ring), so a
+session user or an app cannot take `eth9`, nor race a restarting driver for
+`eth0`. Second, `List` reports each entry's `owner_uid`, `owner_label` and
+`owner_session` from the kernel's credential table, and `netd` ignores a name
+whose owner fails the same check (logging `NETD:NIC:REFUSED name=... uid=...`
+once), refuses a `kind` the owner's uid may not claim (`_net` only wired, the
+Wi-Fi uids only wireless), and drops a `Notify` whose sender is not a driver
+identity. `netd` has no `CAP_SETUID`, which is why the identity travels in
+`List` instead of a credential read. Tests: `cargo test -p netpolicy`,
+kernel `label_nic_names_*` (refusals by uid, label, session and capability,
+edges, a 4000-cycle soak) and the accounts attack `nic_register`.
+
+**The stack: one smoltcp interface and socket set per card, a `Net` above
+them** (`libs/netstack/src/net/`, `stack.rs` is unchanged and still the unit
+of one interface). smoltcp cannot share a socket set between interfaces: the
+interface that polls first takes any ready socket's packet, routes it with its
+own table and never checks the source address
+(`libs/netstack/tests/shared_socket_set.rs` shows a UDP socket bound to
+interface A leaving through B with A's address, and one DHCP socket serving only
+one of two interfaces). So `Net` owns the socket table that callers see and the
+choice of interface:
+
+* a stream socket takes an interface when it connects (the usable interface
+  whose subnet holds the peer, lowest metric first, else the lowest-metric
+  default route), a datagram socket for every datagram it sends, a ping and a
+  lookup when they start;
+* a listener and a datagram socket bound to any address have one smoltcp socket
+  per interface (a replica, added for an interface that appears later and
+  dropped with one that goes), so they serve all of them; a socket bound to an
+  interface's address, or connected, has one;
+* ids, owners, quotas (64 sockets, 8 per owner) and counters are `Net`'s, a
+  wildcard socket counts once; pings and lookups carry `Net` tokens;
+* the Linux `AF_INET` pump (`netd/inet.rs`) calls the same `Net` methods.
+
+**Routes and metrics.** Wired default routes have metric 100 and wireless 600
+(the NetworkManager convention), so a cable wins when both are up. The
+*primary* interface holds the lowest-metric default route; ties go to the lower
+slot so the choice never flaps. `Routes` lists every interface's on-link route
+and the default routes by metric. The resolvers, and `/transient/net/resolv.conf`
+(rewritten when they change), are those of the primary interface; when its DHCP
+gave none (or no interface has a default route), those of the usable interface
+of lowest metric that has a resolver (`Net::dns_slot`). A lookup goes out by
+the interface whose resolver it asks, so it never leaves names unresolvable
+while some card can resolve them.
+
+**Link changes.** Link down keeps the lease and takes the interface out of
+route selection (and out of the resolver choice), so traffic moves to the next
+interface at once; connections on it time out. Link up restarts DHCP discovery
+on a DHCP interface: smoltcp's client has no INIT-REBOOT (RFC 2131 section
+3.2), only `reset()`, so the address is dropped and a DISCOVER/OFFER/REQUEST/ACK
+follows (a server that remembers the client re-offers the same address). A
+static interface keeps its address. A driver that restarts is not a link
+change: the interface is only marked detached until the rings are back.
+
+**Configuration and topics.** Each interface reads `sys/net/<if>/{mode,address,
+gateway,dns}`; a change to one interface rebuilds that interface only (its
+sockets end, the others are untouched), not `netd`. Retained topics:
+`system/net/<if>/addr` (cleared when the interface goes), the new
+`system/net/interfaces` (an `InterfaceList`: name, MAC, MTU, link, mode, DHCP
+state, kind, metric, primary) and `system/events/network/up` when the first
+address appears. `InterfaceInfo` gained `kind`, `metric` and `primary`,
+`RouteInfo` a `metric`.
+
+**Clients.** `netctl` prints kind, metric and the primary mark (`netctl if`);
+the Network app shows one card at a time with a *Next card* button and writes
+`sys/net/<that card>/*`; the Network Status tray applet follows
+`system/net/interfaces` and shows the primary card's address and "(+n more)";
+Net Tools headlines the primary card.
+
+**Limits and notes.** At most 8 interfaces (`MAX_INTERFACES`); the registry
+holds 64 names in all. The listener backlog is allocated per interface (a
+backlog of 8 on two cards holds 16 connection buffers). The stack counters in
+`Stats` add up all interfaces.
+
+**Evidence.** Host: `cargo test -p netstack` (`net::tests`: routes, metrics,
+link failover, DHCP restart, probes, replicas, interfaces added and removed
+under open sockets), `cargo test -p devmatch`. Guest:
+`python tools/net/run.py --nics 2` boots two virtio-net cards on two user
+networks with a capture each and judges only frames (`tools/net/multi_judge.py`,
+self-test `tools/net/test_multi_judge.py`): DHCP on both cards; an off-link
+ping and a DNS lookup leave by `eth0` and by nothing else; after QMP
+`set_link eth0 down` the same traffic leaves by `eth1` and the lease is kept;
+after link up `eth0` starts DHCP over and wins again; `netd` is never
+restarted. The harness also issues QMP `device_del` on the second card, but
+the guest has no PCI hot-plug handler (nothing completes QEMU's eject
+request), so the card stays and the harness only notes it; detaching a card
+whose driver went away is covered by the host tests (interfaces removed under
+open sockets) and the code in `netd/ports.rs`, and awaits a guest that
+completes the eject.
 
 ## Not done
 

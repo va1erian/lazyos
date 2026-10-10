@@ -19,6 +19,7 @@ is done; the verdict comes from the capture.
     python tools/net/run.py --nic e1000          # an Intel 8254x instead of virtio-net (issue #497)
     python tools/net/run.py --netd               # stage N2: netd, DHCP and ping (plus any variant above)
     python tools/net/run.py --tls                # stage T3: curl/wget/fetch over HTTPS (tls_run.py)
+    python tools/net/run.py --nics 2             # WP1: two cards, routes, link failover (multi_run.py)
 
 The image must be built with `LAZYOS_NET=1` (`--netd`: `LAZYOS_NETD=1`, which adds
 the stack service `netd` and its tools); this script does it unless `--no-build`. Exit status is non-zero on any failure.
@@ -42,9 +43,7 @@ import analyze_pcap  # noqa: E402
 from devd_markers import DEVD_FAIL_MARKERS, devd_enabled, devd_left_idle, devd_markers  # noqa: E402
 from harness_io import stop_qemu, wait_for_marker  # noqa: E402
 from ftp_judge import FTP_FILES, judge_ftp  # noqa: E402
-import hostpeers  # noqa: E402
-import pcap  # noqa: E402
-import sockets_pcap  # noqa: E402
+import hostpeers, pcap, sockets_pcap  # noqa: E401,E402
 sys.path.insert(0, str(ROOT / "tools"))
 import irqpath  # noqa: E402
 
@@ -275,6 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     if "--tls" in argv:  # stage T3: its own harness, `tls_run.py` (same options)
         import tls_run
         return tls_run.main([a for a in argv if a != "--tls"])
+    if "--nics" in argv:  # WP1: its own harness, `multi_run.py`
+        import multi_run
+        return multi_run.main(argv)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
     parser.add_argument("--out", default="shots/net", help="output dir (serial.log, net.pcap)")

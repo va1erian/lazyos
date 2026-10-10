@@ -3,6 +3,7 @@
 //!
 //! * [`model`]: a stack snapshot as display lines, and the configuration form
 //!   checked with `netd`'s own parser (pure, host tested);
+//! * [`apply`]: the form as `elevd`'s `net.config` arguments (pure, host tested);
 //! * [`stack`]: the typed, bounded client of `os.lazy.net.stack.v1`;
 //! * [`http`]: URL parsing, the request, the response summary and the served
 //!   page (pure, host tested);
@@ -10,6 +11,7 @@
 //! * [`drives`]: the Network Drives form and table (pure, host tested);
 //! * [`mounts`]: the typed, bounded client of `os.lazy.mount.v1`.
 
+pub mod apply;
 pub mod drives;
 pub mod http;
 pub mod model;

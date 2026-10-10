@@ -50,6 +50,8 @@ pub(super) struct Tracked {
     pub(super) entry: Option<&'static Entry>,
     pub(super) state: State,
     pub(super) pid: u64,
+    /// The interface name given to a network card, empty otherwise.
+    pub(super) ifname: String,
     /// What was last published, so only changes go out.
     pub(super) published: Option<DeviceState>,
     /// What was last logged (a publish may fail and be retried; the log line
@@ -82,6 +84,7 @@ impl Tracked {
             state: String::from(self.state.label()),
             owner: self.device.owner.unwrap_or(NO_OWNER),
             pid: self.pid,
+            ifname: self.ifname.clone(),
         }
     }
 
@@ -110,6 +113,7 @@ pub(super) fn track(rows: Vec<Device>) -> Vec<Tracked> {
                 entry: None,
                 state: State::Unmatched,
                 pid: 0,
+                ifname: String::new(),
                 published: None,
                 logged: None,
                 publish_failed: false,

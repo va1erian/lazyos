@@ -69,6 +69,7 @@ delete a canary file, and remove whatever they created.
 | `acct_delete` | rhai: `accountsd` `Delete("admin")` (U1) |
 | `acct_promote` | rhai: `accountsd` `SetAdmin("user", true)` (U1) |
 | `acct_password` | rhai: `accountsd` `SetPassword("admin", ...)`, someone else's (U1) |
+| `nic_register` | rhai: `messenger_registry` `Register` of `os.lazy.net.nic/eth9`, `eth0` and the bare prefix; the registry reserves them to the NIC driver identities (`netpolicy`), else `netd` would hand the session its frame rings and DNS queries (review of the Wi-Fi WP1) |
 | `keyd_forget` | rhai: `keyd` `Forget("admin")`, `accountsd`'s alone (U1) |
 | `keyd_verify` | rhai: `keyd` `Verify("admin", ...)` directly, around `accountsd`'s brake; `accountsd`'s alone (review of #659, H2) |
 | `admin_lockout` | `attack.sh admin_lockout`: the session floods `Authenticate("admin", ...)` in the background (`auth_hammer.rhai`) while `elevd` asks for an administrator (`conf.elevate`); the harness types admin's right password and the request must be granted: a session's failures count against its own uid, never lock a name for `logind`/`elevd` (review of #659, H5) |

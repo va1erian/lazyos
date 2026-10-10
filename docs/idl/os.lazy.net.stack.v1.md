@@ -3,8 +3,8 @@
 Interface id: `0xb80ce5d5fc59627d`
 
 The network stack service `netd` (docs/networking-plan.md N2): address
-configuration, routes, statistics and ping, over the one interface the
-stack drives (`os.lazy.net.nic.v1`). `netd` runs as the `_netd` user with no
+configuration, routes, statistics and ping, over the interfaces the stack
+drives (one per `os.lazy.net.nic.v1` card, however many are present). `netd` runs as the `_netd` user with no
 capabilities, is the only client of the NIC driver, and parses every frame
 the network sends it: nothing here is authority over a device.
 
@@ -39,6 +39,7 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 
 | Topic | Payload | QoS | Retained | Permissions |
 |---|---|---|---|---|
+| `system/net/interfaces` | `InterfaceList` | latest | yes | `publish:system/net/interfaces`, `subscribe:system/net/interfaces` |
 | `system/net/+/addr` | `AddressEvent` | latest | yes | `publish:system/net/+/addr`, `subscribe:system/net/+/addr` |
 | `system/events/network/up` | `AddressEvent` | latest | no | `publish:system/events/network/up`, `subscribe:system/events/network/up` |
 
@@ -50,6 +51,13 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 - `link: Bool`
 - `mode: U32`
 - `dhcp: U32`
+- `kind: U32`
+- `metric: U32`
+- `primary: Bool`
+
+## struct `InterfaceList`
+
+- `list: Array<InterfaceInfo>`
 
 ## struct `AddressInfo`
 
@@ -65,6 +73,7 @@ when the resolver replies, `ETIMEDOUT` when `timeout_ms` passes.
 - `dest: Bytes`
 - `prefix_len: U32`
 - `gateway: Bytes`
+- `metric: U32`
 
 ## struct `StackStats`
 

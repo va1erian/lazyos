@@ -23,6 +23,7 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
     TrayDemoTests,
 )
 from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
+from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
@@ -431,7 +432,7 @@ class NetworkTests(unittest.TestCase):
                                         interface, net=True)
             self.assertTrue(cfg["net"])
             # Stale Advanced forwards never leak into a Simple boot.
-            self.assertEqual((cfg["net_forwards"], cfg["net_restrict"]), ("", False))
+            self.assertEqual((cfg["net_forwards"], cfg["net_restrict"], cfg["nics"]), ("", False, "1"))
         self.assertFalse(catalog.simple_config(demo_config(net=True), "dev", "CLI")["net"])
 
 

@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use elevpolicy::{value_args, Operation, Value, POWER_PREFIX};
+use elevpolicy::{value_args, Operation, Value, NET_PREFIX, POWER_PREFIX};
 use user::messenger::{accounts, confd, errno, pkgd, services, timed};
 use user::sys;
 
@@ -114,6 +114,15 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
                 .map_err(Refusal::of)?;
             done(format!("Set {path}"))
         }
+        Operation::NetConfig {
+            card,
+            address,
+            gateway,
+            dns,
+        } => {
+            net_config(card, address, gateway, dns)?;
+            done(format!("Configured {card}"))
+        }
         Operation::ServiceRestart { name } => {
             let init = services::resolve_service(services::INIT_NAME).map_err(Refusal::of)?;
             let pid =
@@ -122,6 +131,34 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             done(format!("Restarted {name} (was pid {pid})"))
         }
     }
+}
+
+/// `netd` re-reads `sys/net/<card>/*` every few seconds, so the values go in
+/// first and `mode` last: it never sees `static` with the old address. This is
+/// the order of `xui_app::net::model::plan`.
+fn net_config(card: &str, address: &str, gateway: &str, dns: &str) -> Result<(), Refusal> {
+    let client = conf()?;
+    let key = |name: &str| format!("{NET_PREFIX}{card}/{name}");
+    let set = |name: &str, value: &str| {
+        client
+            .set(&key(name), &Value::Str(value.to_string()))
+            .map_err(Refusal::of)
+    };
+    if address.is_empty() {
+        return set("mode", "dhcp");
+    }
+    set("address", address)?;
+    for (name, value) in [("gateway", gateway), ("dns", dns)] {
+        if !value.is_empty() {
+            set(name, value)?;
+        } else if let Err(error) = client.delete(&key(name)) {
+            // Clearing a value that was never set is fine.
+            if error.errno() != Some(-errno::ENOENT) {
+                return Err(Refusal::of(error));
+            }
+        }
+    }
+    set("mode", "static")
 }
 
 fn done(detail: String) -> Result<Done, Refusal> {

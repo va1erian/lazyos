@@ -343,7 +343,7 @@ The userspace service supervisor (issues #93, #158): the supervision table,
 | `list_apps()` | `ListApps() -> (apps: Array<AppInfo>)` | Enumerate the app registry: the built-in apps first, then the apps the |
 | `stop(app)` | `Stop(app: String) -> (stopped: U64)` | Stop every running instance of the app `app` (the app id, as `Launch` |
 | `shutdown(mode, reason, force)` | `Shutdown(mode: U32, reason: String, force: Bool) -> (accepted: Bool, phase: String)` | Begin an orderly shutdown (docs/shutdown.md): `mode` is a `PowerMode` |
-| `start_driver(driver, device)` | `StartDriver(driver: String, device: U64) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
+| `start_driver(driver, device, ifname)` | `StartDriver(driver: String, device: U64, ifname: String) -> (started: Bool, pid: U64)` | Start the driver row `driver` for device `device` (issue #497, |
 | `ready()` | `Ready() -> () oneway` | A supervised service tells `init` it is serving (docs/performance-plan.md |
 | `report_failure(reason)` | `ReportFailure(reason: String) -> () oneway` | A launched app says why it is about to fail (issue #549), so the |
 | `home(op, name, uid, gid)` | `Home(op: String, name: String, uid: U32, gid: U32) -> ()` | Make or retire an account's home (docs/accounts-plan.md U1). Accepted |
@@ -575,10 +575,11 @@ Not callable from a script (the request carries a kernel object): `AttachRing`.
 
 - `NOTIFY_BIT` = the `NotifyBit` variants; `NOTIFY_BIT_RX_READY`, `NOTIFY_BIT_TX_SPACE`, `NOTIFY_BIT_LINK_CHANGE`
 - `RX_MODE` = the `RxMode` variants; `RX_MODE_OFF`, `RX_MODE_FILTERED`, `RX_MODE_PROMISCUOUS`
+- `NIC_KIND` = the `NicKind` variants; `NIC_KIND_WIRED`, `NIC_KIND_WIRELESS`
 
 | Topic | Payload | Helpers |
 |---|---|---|
-| `system/net/{nic}/link` | `LinkEvent` | `link_topic(nic)`, `on_link(nic, handler)`, `subscribe_link(nic)`, `publish_link(nic, payload)` |
+| `system/net/{ifname}/link` | `LinkEvent` | `link_topic(ifname)`, `on_link(ifname, handler)`, `subscribe_link(ifname)`, `publish_link(ifname, payload)` |
 
 ## `sys::net_stack`
 
@@ -588,15 +589,16 @@ The network stack service `netd` (docs/networking-plan.md N2): address
 
 | Function | IDL | About |
 |---|---|---|
-| `interfaces()` | `Interfaces() -> (list: Array<InterfaceInfo>)` | The interfaces the stack drives (one today). |
+| `interfaces()` | `Interfaces() -> (list: Array<InterfaceInfo>)` | The interfaces the stack drives, one per attached card. |
 | `addresses()` | `Addresses() -> (list: Array<AddressInfo>)` | The addresses configured on every interface. |
-| `routes()` | `Routes() -> (list: Array<RouteInfo>)` | The routing table. |
+| `routes()` | `Routes() -> (list: Array<RouteInfo>)` | The routing table: every interface's on-link route and default route, |
 | `stats()` | `Stats() -> (stats: StackStats)` | Stack counters since it started. |
 | `ping(dst, payload_len, timeout_ms)` | `Ping(dst: Bytes, payload_len: U32, timeout_ms: U32) -> (result: EchoResult)` | Send one ICMP echo request to `dst` (four octets) with `payload_len` |
 | `resolve(name, timeout_ms)` | `Resolve(name: String, timeout_ms: U32) -> (addrs: Array<Bytes>)` | Look `name` up (A records) at the resolvers DHCP or the static |
 | `renew()` | `Renew() -> ()` | Ask for a fresh DHCP lease (drops the current one). Gated by the ACL. |
 | `reattach()` | `Reattach() -> ()` | Drop the attachment to the NIC driver and establish it again, as after |
 | `new_interface_info()` | struct `InterfaceInfo` | a `InterfaceInfo` at its zero value |
+| `new_interface_list()` | struct `InterfaceList` | a `InterfaceList` at its zero value |
 | `new_address_info()` | struct `AddressInfo` | a `AddressInfo` at its zero value |
 | `new_route_info()` | struct `RouteInfo` | a `RouteInfo` at its zero value |
 | `new_stack_stats()` | struct `StackStats` | a `StackStats` at its zero value |
@@ -609,6 +611,7 @@ The network stack service `netd` (docs/networking-plan.md N2): address
 
 | Topic | Payload | Helpers |
 |---|---|---|
+| `system/net/interfaces` | `InterfaceList` | `on_interfaces(handler)`, `subscribe_interfaces()`, `publish_interfaces(payload)` |
 | `system/net/{ifname}/addr` | `AddressEvent` | `addr_topic(ifname)`, `on_addr(ifname, handler)`, `subscribe_addr(ifname)`, `publish_addr(ifname, payload)` |
 | `system/events/network/up` | `AddressEvent` | `on_network_up(handler)`, `subscribe_network_up()`, `publish_network_up(payload)` |
 

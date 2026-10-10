@@ -47,6 +47,12 @@ pub struct Gateway {
     pub answer_dns: bool,
     pub dns_records: Vec<(&'static str, [u8; 4])>,
     pub requests_seen: Vec<&'static str>,
+    /// The gateway's own address and hardware address (a second network
+    /// needs its own).
+    pub gw_ip: [u8; 4],
+    pub gw_mac: [u8; 6],
+    /// The stack's hardware address, for unicast DNS answers.
+    pub stack_mac: [u8; 6],
 }
 
 impl Default for Gateway {
@@ -66,6 +72,9 @@ impl Default for Gateway {
             answer_dns: true,
             dns_records: Vec::new(),
             requests_seen: Vec::new(),
+            gw_ip: GW_IP,
+            gw_mac: GW_MAC,
+            stack_mac: STACK_MAC,
         }
     }
 }
@@ -191,14 +200,14 @@ impl Gateway {
             client_hardware_address: request.client_hardware_address,
             client_ip: Ipv4Address::UNSPECIFIED,
             your_ip: Ipv4Address::from(self.offer_ip),
-            server_ip: Ipv4Address::from(GW_IP),
+            server_ip: Ipv4Address::from(self.gw_ip),
             router: self.router.map(Ipv4Address::from),
             subnet_mask: Some(Ipv4Address::from(self.mask)),
             relay_agent_ip: Ipv4Address::UNSPECIFIED,
             broadcast: true,
             requested_ip: None,
             client_identifier: None,
-            server_identifier: Some(Ipv4Address::from(GW_IP)),
+            server_identifier: Some(Ipv4Address::from(self.gw_ip)),
             parameter_request_list: None,
             dns_servers: Some(
                 self.dns
@@ -217,7 +226,15 @@ impl Gateway {
         let mut payload = std::vec![0u8; dns.buffer_len()];
         dns.emit(&mut DhcpPacket::new_unchecked(&mut payload[..]))
             .expect("emit");
-        udp_frame([0xFF; 6], GW_MAC, GW_IP, [255; 4], 67, 68, &payload)
+        udp_frame(
+            [0xFF; 6],
+            self.gw_mac,
+            self.gw_ip,
+            [255; 4],
+            67,
+            68,
+            &payload,
+        )
     }
 
     /// The frames the gateway sends in answer to one frame from the stack.
@@ -228,13 +245,13 @@ impl Gateway {
         match eth_frame.ethertype() {
             EthernetProtocol::Arp if frame.len() >= 42 => {
                 self.requests_seen.push("arp");
-                let asks_for_gateway = frame[38..42] == GW_IP;
+                let asks_for_gateway = frame[38..42] == self.gw_ip;
                 if self.answer_arp && frame[20..22] == [0, 1] && asks_for_gateway {
                     let mut mac = [0u8; 6];
                     mac.copy_from_slice(&frame[22..28]);
                     let mut ip = [0u8; 4];
                     ip.copy_from_slice(&frame[28..32]);
-                    return std::vec![arp_reply(mac, GW_MAC, GW_IP, ip)];
+                    return std::vec![arp_reply(mac, self.gw_mac, self.gw_ip, ip)];
                 }
                 Vec::new()
             }
@@ -295,8 +312,8 @@ impl Gateway {
         from.copy_from_slice(&packet.dst_addr().octets());
         // The stack learned our MAC from the ARP exchange; unicast back to it.
         std::vec![udp_frame(
-            STACK_MAC,
-            GW_MAC,
+            self.stack_mac,
+            self.gw_mac,
             from,
             to,
             53,
@@ -338,7 +355,7 @@ impl Gateway {
             .unwrap_or_else(|| packet.dst_addr().octets());
         std::vec![echo_frame(
             stack_mac,
-            GW_MAC,
+            self.gw_mac,
             from,
             stack_ip,
             true,

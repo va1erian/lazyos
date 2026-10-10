@@ -36,3 +36,4 @@ credentials and its arguments. Failures are a structured error field
 - `state: String`
 - `owner: U32`
 - `pid: U64`
+- `ifname: String`

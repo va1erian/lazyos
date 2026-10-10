@@ -1333,7 +1333,7 @@
     "topics": [
       {
         "name": "system/net/+/link",
-        "source": "system/net/{nic}/link",
+        "source": "system/net/{ifname}/link",
         "payload": "LinkEvent",
         "qos": "latest",
         "retained": true,
@@ -1402,6 +1402,15 @@
       }
     ],
     "topics": [
+      {
+        "name": "system/net/interfaces",
+        "source": "system/net/interfaces",
+        "payload": "InterfaceList",
+        "qos": "latest",
+        "retained": true,
+        "publish_permission": "publish:system/net/interfaces",
+        "subscribe_permission": "subscribe:system/net/interfaces"
+      },
       {
         "name": "system/net/+/addr",
         "source": "system/net/{ifname}/addr",

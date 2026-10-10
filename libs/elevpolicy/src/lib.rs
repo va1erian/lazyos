@@ -24,6 +24,7 @@
 //! | `account.admin` | name, `1`/`0` | `accountsd` `SetAdmin` |
 //! | `account.password` | name, password | `accountsd` `SetPassword` |
 //! | `power.policy` | key, value | `confd` `Set` of `sys/power/<key>` |
+//! | `net.config` | card, address, gateway, dns | `confd` `Set`/`Delete` of `sys/net/<card>/*` |
 //! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
@@ -94,6 +95,8 @@ pub const MAX_ARG: usize = 1024;
 pub const MAX_SECRET: usize = 64;
 /// The confd subtree `power.policy` writes.
 pub const POWER_PREFIX: &str = "sys/power/";
+/// The confd subtree `net.config` writes (`sys/net/<card>/...`).
+pub const NET_PREFIX: &str = "sys/net/";
 /// Latest clock `time.set` accepts (2200-01-01, as `timed`).
 const MAX_TIME: i64 = 7_258_118_400;
 
@@ -173,6 +176,15 @@ pub enum Operation {
         key: String,
         value: String,
     },
+    /// One card's address setup: an empty `address` is DHCP, otherwise a
+    /// static `a.b.c.d/n` with an optional gateway and DNS server (empty
+    /// removes the stored one).
+    NetConfig {
+        card: String,
+        address: String,
+        gateway: String,
+        dns: String,
+    },
     ServiceRestart {
         name: String,
     },
@@ -204,6 +216,7 @@ pub const NAMES: &[&str] = &[
     "account.admin",
     "account.password",
     "power.policy",
+    "net.config",
     "service.restart",
 ];
 
@@ -347,6 +360,24 @@ impl Operation {
                     value: value.to_string(),
                 }
             }
+            "net.config" => {
+                want(4)?;
+                let card = arg(0).unwrap_or("");
+                if !word(card) {
+                    return Err("not a network card name");
+                }
+                let (address, gateway, dns) = net_setup(
+                    arg(1).unwrap_or(""),
+                    arg(2).unwrap_or(""),
+                    arg(3).unwrap_or(""),
+                )?;
+                Operation::NetConfig {
+                    card: card.to_string(),
+                    address,
+                    gateway,
+                    dns,
+                }
+            }
             "service.restart" => {
                 want(1)?;
                 let name = arg(0).unwrap_or("");
@@ -383,7 +414,8 @@ impl Operation {
             Operation::AccountAdmin { .. } => 11,
             Operation::AccountPassword { .. } => 12,
             Operation::PowerPolicy { .. } => 13,
-            Operation::ServiceRestart { .. } => 14,
+            Operation::NetConfig { .. } => 14,
+            Operation::ServiceRestart { .. } => 15,
         }
     }
 
@@ -430,6 +462,12 @@ impl Operation {
                 alloc::vec![name.clone(), secret.clone()]
             }
             Operation::PowerPolicy { key, value } => alloc::vec![key.clone(), value.clone()],
+            Operation::NetConfig {
+                card,
+                address,
+                gateway,
+                dns,
+            } => alloc::vec![card.clone(), address.clone(), gateway.clone(), dns.clone()],
             Operation::ServiceRestart { name } => one(name),
         }
     }

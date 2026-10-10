@@ -11,9 +11,8 @@ use netstack::config::{is_usable_unicast, parse_cidr, parse_ipv4, same_subnet};
 
 use crate::format;
 
-/// The one interface `netd` drives today, and the `confd` namespace of its
-/// configuration (`sys/net/<if>/{mode,address,gateway,dns}`).
-pub const IFNAME: &str = "eth0";
+/// The interface shown when `netd` lists none (no card yet).
+pub const DEFAULT_IFNAME: &str = "eth0";
 
 /// How the interface gets its address (`os.lazy.net.stack.v1` `ConfigMode`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +40,11 @@ pub struct Interface {
     pub link: bool,
     pub mode: ConfigMode,
     pub dhcp: DhcpState,
+    pub wireless: bool,
+    /// Its default-route metric (the lowest usable one wins).
+    pub metric: u32,
+    /// It holds the best default route: new connections leave by it.
+    pub primary: bool,
 }
 
 /// The address the interface holds.
@@ -66,9 +70,12 @@ pub struct Traffic {
     pub lookups_answered: u64,
 }
 
-/// One snapshot of the stack.
+/// One snapshot of the stack, shown for one interface of the several `netd`
+/// may drive (its `confd` namespace is `sys/net/<if>/{mode,address,gateway,dns}`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NetStatus {
+    /// Every interface's name, in the order `netd` lists them.
+    pub names: Vec<String>,
     pub interface: Option<Interface>,
     pub address: Option<Address>,
     /// The default route's gateway.
@@ -112,15 +119,28 @@ impl NetStatus {
             .map(|a| format!("{}/{}", dotted(a.addr), a.prefix_len))
     }
 
-    /// "eth0 · MAC 52:54:00:12:34:56 · link up · MTU 1500".
+    /// "eth0 (primary) · MAC 52:54:00:12:34:56 · link up · MTU 1500", with
+    /// "· 1 of 2" when `netd` drives several interfaces.
     pub fn interface_line(&self) -> String {
         match &self.interface {
             Some(i) => format!(
-                "{} · MAC {} · link {} · MTU {}",
+                "{}{}{} · MAC {} · link {} · MTU {}{}",
                 format::clip(&i.name, 16),
+                if i.wireless { " (wireless)" } else { "" },
+                if i.primary && self.names.len() > 1 {
+                    " (primary)"
+                } else {
+                    ""
+                },
                 i.mac,
                 if i.link { "up" } else { "down" },
-                i.mtu
+                i.mtu,
+                match self.names.iter().position(|n| *n == i.name) {
+                    Some(at) if self.names.len() > 1 => {
+                        format!(" · {} of {}", at + 1, self.names.len())
+                    }
+                    _ => String::new(),
+                }
             ),
             None => String::from("no interface (is a network card attached?)"),
         }
@@ -172,7 +192,10 @@ impl NetStatus {
 
     /// One line for a header: "eth0 10.0.2.15/24 via 10.0.2.2 · link up".
     pub fn headline(&self) -> String {
-        let name = self.interface.as_ref().map_or("eth0", |i| i.name.as_str());
+        let name = self
+            .interface
+            .as_ref()
+            .map_or(DEFAULT_IFNAME, |i| i.name.as_str());
         let link = match &self.interface {
             Some(i) if i.link => "link up",
             Some(_) => "link down",
@@ -204,9 +227,17 @@ pub enum Write {
     Delete(String),
 }
 
-/// The `confd` path of one configuration value.
-pub fn key(name: &str) -> String {
-    format!("sys/net/{IFNAME}/{name}")
+/// The `confd` path of one configuration value of interface `ifname`.
+pub fn key(ifname: &str, name: &str) -> String {
+    format!("sys/net/{ifname}/{name}")
+}
+
+/// The interface after `current` in `names`, wrapping; the first when
+/// `current` is not listed.
+pub fn next_name<'a>(names: &'a [String], current: Option<&str>) -> Option<&'a str> {
+    let at = current.and_then(|c| names.iter().position(|n| n == c));
+    let next = at.map_or(0, |at| (at + 1) % names.len().max(1));
+    names.get(next).map(String::as_str)
 }
 
 /// The form filled from stored values (`None`: absent), falling back to what
@@ -223,12 +254,14 @@ pub fn form_from(stored: [Option<String>; 4], now: &NetStatus) -> Form {
     }
 }
 
-/// The `confd` writes that store `form`, or why `netd` would not take it.
+/// The `confd` writes that store `form` for interface `ifname`, or why
+/// `netd` would not take it.
 ///
 /// DHCP keeps the typed values (for the next switch to Manual) and only sets
 /// `mode`. Manual writes the values first and `mode` last: `netd` re-reads
 /// every few seconds, and must never see `static` with the old address.
-pub fn plan(form: &Form) -> Result<Vec<Write>, String> {
+pub fn plan(ifname: &str, form: &Form) -> Result<Vec<Write>, String> {
+    let key = |name: &str| key(ifname, name);
     let set = |name: &str, value: &str| Write::Set(key(name), value.to_string());
     if !form.manual {
         return Ok(vec![set("mode", "dhcp")]);
@@ -275,6 +308,8 @@ mod tests {
     use super::*;
     use netstack::config::{Mode, Raw};
 
+    const IF: &str = "eth1";
+
     fn manual(address: &str, gateway: &str, dns: &str) -> Form {
         Form {
             manual: true,
@@ -288,8 +323,8 @@ mod tests {
     fn applied(writes: &[Write]) -> Mode {
         let get = |name: &str| {
             writes.iter().rev().find_map(|w| match w {
-                Write::Set(k, v) if *k == key(name) => Some(Some(v.as_str())),
-                Write::Delete(k) if *k == key(name) => Some(None),
+                Write::Set(k, v) if *k == key(IF, name) => Some(Some(v.as_str())),
+                Write::Delete(k) if *k == key(IF, name) => Some(None),
                 _ => None,
             })?
         };
@@ -303,10 +338,10 @@ mod tests {
 
     #[test]
     fn a_saved_static_setup_is_exactly_what_netd_applies() {
-        let writes = plan(&manual("10.0.2.20/24", "10.0.2.2", "10.0.2.3")).unwrap();
+        let writes = plan(IF, &manual("10.0.2.20/24", "10.0.2.2", "10.0.2.3")).unwrap();
         assert_eq!(
             writes.last(),
-            Some(&Write::Set(key("mode"), "static".into()))
+            Some(&Write::Set(key(IF, "mode"), "static".into()))
         );
         match applied(&writes) {
             Mode::Static(cfg) => {
@@ -318,9 +353,9 @@ mod tests {
             other => panic!("netd would apply {other:?}"),
         }
         // Optional values left empty are removed, not left stale.
-        let writes = plan(&manual(" 192.168.7.9/16 ", "", "")).unwrap();
-        assert!(writes.contains(&Write::Delete(key("gateway"))));
-        assert!(writes.contains(&Write::Delete(key("dns"))));
+        let writes = plan(IF, &manual(" 192.168.7.9/16 ", "", "")).unwrap();
+        assert!(writes.contains(&Write::Delete(key(IF, "gateway"))));
+        assert!(writes.contains(&Write::Delete(key(IF, "dns"))));
         assert!(matches!(applied(&writes), Mode::Static(c) if c.gateway.is_none()));
     }
 
@@ -332,8 +367,8 @@ mod tests {
             ..Form::default()
         };
         assert_eq!(
-            plan(&form).unwrap(),
-            vec![Write::Set(key("mode"), "dhcp".into())]
+            plan(IF, &form).unwrap(),
+            vec![Write::Set(key(IF, "mode"), "dhcp".into())]
         );
     }
 
@@ -350,7 +385,7 @@ mod tests {
             ("10.0.2.20/24", "", "0.0.0.0"),
         ] {
             assert!(
-                plan(&manual(address, gateway, dns)).is_err(),
+                plan(IF, &manual(address, gateway, dns)).is_err(),
                 "{address} {gateway} {dns}"
             );
         }
@@ -406,6 +441,9 @@ mod tests {
                 link: true,
                 mode: ConfigMode::Dhcp,
                 dhcp: DhcpState::Bound,
+                wireless: false,
+                metric: 100,
+                primary: true,
             }),
             address: Some(Address {
                 addr: [10, 0, 2, 15],
@@ -415,6 +453,7 @@ mod tests {
             }),
             gateway: Some([10, 0, 2, 2]),
             traffic: Traffic::default(),
+            names: vec![String::from("eth0")],
         };
         assert_eq!(
             status.headline(),
@@ -427,5 +466,20 @@ mod tests {
         assert_eq!(status.mode_line(), "Automatic (DHCP): lease held");
         status.gateway = None;
         assert_eq!(status.gateway_line(), "none (local network only)");
+        // With several interfaces the line says which one this is.
+        status.names = vec![String::from("eth0"), String::from("wlan0")];
+        assert!(status
+            .interface_line()
+            .starts_with("eth0 (primary) · MAC 52:54:00:12:34:56 · link up · MTU 1500 · 1 of 2"));
+    }
+
+    #[test]
+    fn interfaces_are_stepped_through_in_a_ring() {
+        let names = vec![String::from("eth0"), String::from("eth1")];
+        assert_eq!(next_name(&names, None), Some("eth0"));
+        assert_eq!(next_name(&names, Some("eth0")), Some("eth1"));
+        assert_eq!(next_name(&names, Some("eth1")), Some("eth0"));
+        assert_eq!(next_name(&names, Some("gone")), Some("eth0"));
+        assert_eq!(next_name(&[], None), None);
     }
 }

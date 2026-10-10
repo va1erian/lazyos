@@ -4,37 +4,33 @@
 //! identity, used here for one thing, the per-caller cap on parked pings (the
 //! ACL, not this code, decides who may call which method). A `Ping` is *parked*:
 //! the transaction id is kept and the reply is sent when the stack reports the
-//! result, so one thread serves any number of waiting callers.
+//! result, so one thread serves any number of waiting callers. The listing
+//! calls are in `lists.rs`; what is announced is in `publish.rs`.
 
-use alloc::format;
-use alloc::string::String;
 use alloc::vec::Vec;
 
-use netstack::config::Mode;
-use netstack::{DhcpState, PingError, PingOutcome, PingResult, Source, Stack};
-use user::central;
+use netstack::stack::{PingError, PingOutcome};
+use netstack::{Net, NetPingResult};
 use user::messenger::netsock as sock_api;
 use user::messenger::netstack::{self as api, wire};
 use user::messenger::{errno, services, Endpoint, Error as MsgError, Message, Parcel};
-use user::sys;
 
 use super::inet::Inet;
-use super::nic::Nic;
 use super::owners::Tasks;
 use super::parked::Parked as ParkedSock;
+use super::ports::Ports;
+use super::publish::Publisher;
 use super::resolve::ParkedLookup;
 use super::sock::SockStats;
 
-type Result<T> = core::result::Result<T, MsgError>;
+pub(super) type Result<T> = core::result::Result<T, MsgError>;
 
-/// The interface name clients see.
-pub(super) const IFNAME: &str = "eth0";
 /// Pings one caller may have waiting at once.
 const PER_CALLER_PINGS: usize = 4;
 /// `ENETUNREACH`: no address or no route yet.
-const ENETUNREACH: i64 = 101;
+pub(super) const ENETUNREACH: i64 = 101;
 
-fn err(code: i64) -> MsgError {
+pub(super) fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
 }
 
@@ -45,9 +41,10 @@ struct Parked {
 }
 
 pub(super) struct Netd {
-    pub(super) stack: Stack,
-    pub(super) nic: Nic,
-    pub(super) mode: Mode,
+    /// Every interface and the socket table over them.
+    pub(super) net: Net,
+    /// The cards behind the interfaces.
+    pub(super) ports: Ports,
     parked: Vec<Parked>,
     pub(super) lookups: Vec<ParkedLookup>,
     pub(super) parked_socks: Vec<ParkedSock>,
@@ -57,36 +54,16 @@ pub(super) struct Netd {
     pub(super) inet: Inet,
     /// Replies the event loop sends before it waits again.
     pub(super) outbox: Vec<(u64, Parcel)>,
-    /// Times the NIC attachment was dropped and made again.
-    pub(super) nic_resets: u64,
-    /// A `Reattach` call asked for the attachment to be rebuilt.
+    /// A `Reattach` call asked for every attachment to be rebuilt.
     pub(super) reattach: bool,
-    bus: Option<central::Bus>,
-    published_epoch: u64,
-    had_address: bool,
-}
-
-fn octets_or_zero(value: Option<[u8; 4]>) -> Vec<u8> {
-    value.unwrap_or([0; 4]).to_vec()
-}
-
-fn network_of(addr: [u8; 4], prefix_len: u8) -> [u8; 4] {
-    let mask = u32::MAX
-        .checked_shl(32 - u32::from(prefix_len))
-        .unwrap_or(0);
-    (u32::from_be_bytes(addr) & mask).to_be_bytes()
-}
-
-fn text(addr: [u8; 4]) -> String {
-    format!("{}.{}.{}.{}", addr[0], addr[1], addr[2], addr[3])
+    publisher: Publisher,
 }
 
 impl Netd {
-    pub(super) fn new(stack: Stack, nic: Nic, mode: Mode) -> Netd {
+    pub(super) fn new(net: Net) -> Netd {
         Netd {
-            stack,
-            nic,
-            mode,
+            net,
+            ports: Ports::new(),
             parked: Vec::new(),
             lookups: Vec::new(),
             parked_socks: Vec::new(),
@@ -94,11 +71,8 @@ impl Netd {
             tasks: Tasks::new(),
             inet: Inet::new(),
             outbox: Vec::new(),
-            nic_resets: 0,
             reattach: false,
-            bus: None,
-            published_epoch: 0,
-            had_address: false,
+            publisher: Publisher::new(),
         }
     }
 
@@ -120,7 +94,7 @@ impl Netd {
             wire::METHOD_PING => return self.ping(message, now_ms),
             wire::METHOD_RESOLVE => return self.resolve(message, now_ms),
             wire::METHOD_RENEW => {
-                self.stack.renew();
+                self.net.renew();
                 Vec::new()
             }
             wire::METHOD_REATTACH => {
@@ -130,98 +104,6 @@ impl Netd {
             _ => return Err(err(errno::EINVAL)),
         };
         Ok(Some(api::parcel(method, body)))
-    }
-
-    fn interfaces(&self) -> Result<Vec<u8>> {
-        let card = self.nic.card;
-        let state = self.stack.state();
-        wire::encode_interfaces_reply(&wire::InterfacesReply {
-            list: alloc::vec![wire::InterfaceInfo {
-                name: String::from(IFNAME),
-                mac: self.stack.mac().to_vec(),
-                mtu: card.map_or(0, |c| c.mtu),
-                link: card.is_some_and(|c| c.link) && self.nic.attached(),
-                mode: match self.mode {
-                    Mode::Dhcp => wire::CONFIG_MODE_DHCP,
-                    Mode::Static(_) => wire::CONFIG_MODE_STATIC,
-                },
-                dhcp: match state.dhcp {
-                    DhcpState::Off => wire::DHCP_STATE_OFF,
-                    DhcpState::Discovering => wire::DHCP_STATE_DISCOVERING,
-                    DhcpState::Bound => wire::DHCP_STATE_BOUND,
-                },
-            }],
-        })
-        .map_err(MsgError::Parcel)
-    }
-
-    fn addresses(&self) -> Result<Vec<u8>> {
-        let state = self.stack.state();
-        let now_ms = sys::monotonic_ms() as i64;
-        let list = state
-            .addr
-            .map(|addr| wire::AddressInfo {
-                interface: String::from(IFNAME),
-                addr: addr.to_vec(),
-                prefix_len: u32::from(state.prefix_len),
-                source: match state.source {
-                    Source::Dhcp => wire::ADDR_SOURCE_DHCP,
-                    Source::Static => wire::ADDR_SOURCE_STATIC,
-                },
-                lease_secs: state
-                    .lease_ends_ms
-                    .map_or(0, |end| ((end - now_ms).max(0) / 1000) as u32),
-            })
-            .into_iter()
-            .collect();
-        wire::encode_addresses_reply(&wire::AddressesReply { list }).map_err(MsgError::Parcel)
-    }
-
-    fn routes(&self) -> Result<Vec<u8>> {
-        let state = self.stack.state();
-        let mut list = Vec::new();
-        if let Some(addr) = state.addr {
-            list.push(wire::RouteInfo {
-                interface: String::from(IFNAME),
-                dest: network_of(addr, state.prefix_len).to_vec(),
-                prefix_len: u32::from(state.prefix_len),
-                gateway: octets_or_zero(None),
-            });
-            if let Some(gateway) = state.gateway {
-                list.push(wire::RouteInfo {
-                    interface: String::from(IFNAME),
-                    dest: octets_or_zero(None),
-                    prefix_len: 0,
-                    gateway: gateway.to_vec(),
-                });
-            }
-        }
-        wire::encode_routes_reply(&wire::RoutesReply { list }).map_err(MsgError::Parcel)
-    }
-
-    fn stats(&self) -> Result<Vec<u8>> {
-        let d = self.stack.device_stats();
-        let c = self.stack.counters();
-        wire::encode_stats_reply(&wire::StatsReply {
-            stats: wire::StackStats {
-                rx_frames: d.rx_frames,
-                tx_frames: d.tx_frames,
-                rx_bytes: d.rx_bytes,
-                tx_bytes: d.tx_bytes,
-                tx_dropped: d.tx_dropped,
-                rx_bad_length: d.rx_bad_length,
-                nic_resets: self.nic_resets,
-                leases: c.leases,
-                lease_losses: c.lease_losses,
-                pings_sent: c.pings_sent,
-                pings_answered: c.pings_answered,
-                pings_timed_out: c.pings_timed_out,
-                lookups_sent: c.lookups_sent,
-                lookups_answered: c.lookups_answered,
-                lookups_failed: c.lookups_failed,
-            },
-        })
-        .map_err(MsgError::Parcel)
     }
 
     /// Start a ping and park the call. Every argument is validated before
@@ -252,7 +134,7 @@ impl Netd {
             return Err(err(errno::EAGAIN));
         }
         let seq = self
-            .stack
+            .net
             .ping(
                 dst,
                 args.payload_len as usize,
@@ -274,7 +156,7 @@ impl Netd {
 
     /// Answer the parked pings the stack has finished with.
     pub(super) fn finish_pings(&mut self, server: &Endpoint) {
-        for PingResult { seq, outcome } in self.stack.take_ping_results() {
+        for NetPingResult { seq, outcome } in self.net.take_ping_results() {
             let Some(at) = self.parked.iter().position(|p| p.seq == seq) else {
                 continue;
             };
@@ -303,46 +185,8 @@ impl Netd {
         }
     }
 
-    /// Publish the address state if it changed, and announce the network the
-    /// first time there is an address.
+    /// Publish what changed: addresses, the interface list, the up event.
     pub(super) fn publish_if_changed(&mut self) {
-        let epoch = self.stack.epoch();
-        if epoch == self.published_epoch {
-            return;
-        }
-        self.published_epoch = epoch;
-        let state = self.stack.state();
-        let event = wire::AddressEvent {
-            interface: String::from(IFNAME),
-            addr: octets_or_zero(state.addr),
-            prefix_len: u32::from(state.prefix_len),
-            gateway: octets_or_zero(state.gateway),
-        };
-        if let Some(addr) = state.addr {
-            sys::write_str(&format!(
-                "NETD:ADDR {}/{} gw={} dns={} source={}\n",
-                text(addr),
-                state.prefix_len,
-                state.gateway.map_or(String::from("none"), text),
-                state.dns.first().map_or(String::from("none"), |d| text(*d)),
-                if state.source == Source::Dhcp {
-                    "dhcp"
-                } else {
-                    "static"
-                }
-            ));
-        } else {
-            sys::write_str("NETD:ADDR none\n");
-        }
-        if self.bus.is_none() {
-            self.bus = central::Bus::connect().ok();
-        }
-        let up = state.addr.is_some() && !self.had_address;
-        self.had_address = state.addr.is_some();
-        let Some(bus) = self.bus.as_mut() else { return };
-        let _ = wire::publish_system_net_addr(bus, IFNAME, &event);
-        if up {
-            let _ = wire::publish_system_events_network_up(bus, &event);
-        }
+        self.publisher.sync(&self.net, &self.ports);
     }
 }

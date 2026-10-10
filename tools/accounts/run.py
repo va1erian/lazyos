@@ -74,6 +74,8 @@ SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",
+    # Wi-Fi prerequisites WP1: only a NIC driver identity names a card.
+    "nic_register",
     # U1 (#624): accounts change only through elevd; Authenticate is slowed.
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",

@@ -7,6 +7,8 @@
 //! to the driver with a notify endpoint, and then moves frames through the
 //! rings, waking the driver with `Kick` and being woken by `Notify`.
 
+use alloc::format;
+use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -20,8 +22,69 @@ use crate::sys;
 /// The generated `os.lazy.net.nic.v1` stubs.
 pub use messenger_generated::os_lazy_net_nic_v1 as wire;
 
-/// Registered service name.
-pub const NAME: &str = "os.lazy.net.nic";
+/// The registry namespace of the cards: a driver serves its card as
+/// `os.lazy.net.nic/<ifname>` ([`service_name`]). There is no bare name.
+pub const NAME_PREFIX: &str = "os.lazy.net.nic";
+
+/// The registered name of the card called `ifname` (`os.lazy.net.nic/eth0`).
+pub fn service_name(ifname: &str) -> String {
+    format!("{NAME_PREFIX}/{ifname}")
+}
+
+/// The interface name inside a registered NIC service name, if `name` is one.
+pub fn ifname_of(name: &str) -> Option<&str> {
+    name.strip_prefix(NAME_PREFIX)?
+        .strip_prefix('/')
+        .filter(|ifname| devmatch::valid_ifname(ifname))
+}
+
+/// A NIC service that is registered right now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Present {
+    pub ifname: String,
+    /// The driver's task slot (the kernel-stamped sender of its messages).
+    pub driver: u64,
+    /// The identity the kernel holds for that task (`List` reports it; the
+    /// registry only lets a driver identity hold the name, and `netd` checks
+    /// again before it trusts the card).
+    pub owner_uid: u64,
+    pub owner_label: u64,
+    pub owner_session: u64,
+}
+
+impl Present {
+    /// Whether the owner is an identity that may serve a NIC
+    /// (`netpolicy::may_register_nic_name`).
+    pub fn owner_is_driver(&self) -> bool {
+        match (
+            u32::try_from(self.owner_uid),
+            u32::try_from(self.owner_label),
+        ) {
+            (Ok(uid), Ok(label)) => {
+                netpolicy::may_register_nic_name(uid, label, self.owner_session)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Every card a driver serves at this moment, in name order.
+pub fn present() -> Result<Vec<Present>> {
+    let mut cards: Vec<Present> = registry::list()?
+        .into_iter()
+        .filter_map(|entry| {
+            Some(Present {
+                ifname: String::from(ifname_of(&entry.name)?),
+                driver: entry.owner_slot,
+                owner_uid: entry.owner_uid,
+                owner_label: entry.owner_label,
+                owner_session: entry.owner_session,
+            })
+        })
+        .collect();
+    cards.sort_by(|a, b| a.ifname.cmp(&b.ifname));
+    Ok(cards)
+}
 
 /// The interface id every NIC parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
@@ -60,10 +123,14 @@ pub struct Client {
 }
 
 impl Client {
-    /// Resolve [`NAME`]; the endpoint is opened in this task's handle table.
-    pub fn connect() -> Result<Client> {
+    /// Resolve the card `ifname`; the endpoint is opened in this task's handle
+    /// table.
+    pub fn connect(ifname: &str) -> Result<Client> {
+        if !devmatch::valid_ifname(ifname) {
+            return Err(Error::Errno(-super::errno::EINVAL));
+        }
         Ok(Client {
-            endpoint: registry::resolve(NAME)?,
+            endpoint: registry::resolve(&service_name(ifname))?,
         })
     }
 

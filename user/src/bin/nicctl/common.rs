@@ -41,11 +41,23 @@ pub(super) fn mac_text(mac: &[u8]) -> String {
     text
 }
 
+/// The card to talk to: `if=<name>` in the arguments, `eth0` without one.
+pub(super) fn ifname() -> String {
+    let mut buffer = [0u8; 128];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    text.split_whitespace()
+        .find_map(|part| part.strip_prefix("if="))
+        .filter(|name| devmatch::valid_ifname(name))
+        .map_or_else(|| String::from("eth0"), String::from)
+}
+
 /// Resolve the driver, retrying while it is still starting up.
 pub(super) fn connect() -> Result<api::Client, String> {
     let deadline = sys::clock() + CONNECT_TICKS;
+    let ifname = ifname();
     loop {
-        match api::Client::connect() {
+        match api::Client::connect(&ifname) {
             Ok(client) => return Ok(client),
             Err(error) if sys::clock() >= deadline => {
                 return Err(format!("no NIC service: {}", error.message()))

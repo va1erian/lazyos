@@ -125,6 +125,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   (a provisioned driver); any other unlabelled task falls back to the uid rules
   (bootstrap-allow until a uid policy is loaded), so `init`'s capability-less
   services such as `netd` still register. No labelled app can claim `os.lazy.*`.
+  One namespace inside it is stricter than any of that: `os.lazy.net.nic` and
+  `os.lazy.net.nic/*` go only to a NIC driver identity (`netpolicy`: `_net`,
+  `_wifi`, `_wifisim`, no label, no session), whatever the caller's uid rules or
+  capabilities, because `netd` hands the holder its frame rings
+  (`docs/architecture/networking.md`, "Who may be a card").
   `app.<id>.<name>` needs label `app:<id>` (`<name>` is
   one dot-free segment so a name names exactly one id); a labelled task may
   register nothing else. A topic at or under `app/<id>/` (publish or subscribe)

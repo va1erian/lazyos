@@ -154,7 +154,7 @@ pub static MODULES: &[ApiModule] = &[
         alias: "net_stack",
         interface: "os.lazy.net.stack.v1",
         source: include_str!("net_stack.rhai"),
-        topics: &[ApiTopic { helper: "addr", pattern: "system/net/+/addr" }, ApiTopic { helper: "network_up", pattern: "system/events/network/up" }],
+        topics: &[ApiTopic { helper: "interfaces", pattern: "system/net/interfaces" }, ApiTopic { helper: "addr", pattern: "system/net/+/addr" }, ApiTopic { helper: "network_up", pattern: "system/events/network/up" }],
     },
     ApiModule {
         alias: "net_socket",

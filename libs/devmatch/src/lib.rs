@@ -5,10 +5,14 @@
 //! A row names a program `init` knows (`netdrv`, `sndd`); the program's path,
 //! uid, arguments and restart policy are `init`'s, never `devd`'s. Matching is
 //! by exact vendor and device ids, or by PCI class for a register interface
-//! that is the same on every vendor's part (HDA). A driver row serves one
-//! device: its Messenger name (`os.lazy.net.nic`, `os.lazy.audio.card`) is
-//! unique, so the first matching device in the kernel's enumeration order
-//! wins and later ones are reported `busy`.
+//! that is the same on every vendor's part (HDA).
+//!
+//! A driver whose card has a name of its own runs once per card: every
+//! network card gets an interface name (`eth0`, `eth1`, ... in the kernel's
+//! enumeration order) and serves `os.lazy.net.nic/<name>`. A driver row whose
+//! Messenger name is unique (`os.lazy.audio.card`) serves one device: the
+//! first matching device in enumeration order wins and later ones are
+//! reported `busy`.
 //!
 //! Pure data and logic, `no_std`, host tested.
 
@@ -16,6 +20,8 @@
 
 extern crate alloc;
 
+use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 /// The `_devd` system user `devd` runs as: **no** capabilities. It reads the
@@ -48,6 +54,10 @@ pub struct Entry {
     /// What the match is, for logs and the `DeviceState.model` field.
     pub model: &'static str,
     pub matches: Match,
+    /// The interface-name prefix of a driver that runs once per card
+    /// (`eth` gives `eth0`, `eth1`, ...); `None` for a driver with one
+    /// device only.
+    pub ifname_prefix: Option<&'static str>,
 }
 
 /// The device ids `netdrv`'s 8254x back end accepts (`libs/e1000`); a test
@@ -70,6 +80,7 @@ pub const MANIFEST: &[Entry] = &[
             vendor: 0x1AF4,
             devices: &[0x1000, 0x1041],
         },
+        ifname_prefix: Some("eth"),
     },
     Entry {
         driver: "netdrv",
@@ -78,6 +89,7 @@ pub const MANIFEST: &[Entry] = &[
             vendor: 0x8086,
             devices: E1000_DEVICES,
         },
+        ifname_prefix: Some("eth"),
     },
     Entry {
         driver: "netdrv",
@@ -86,6 +98,7 @@ pub const MANIFEST: &[Entry] = &[
             vendor: 0x10EC,
             devices: RTL8168_DEVICES,
         },
+        ifname_prefix: Some("eth"),
     },
     Entry {
         driver: "sndd",
@@ -94,6 +107,7 @@ pub const MANIFEST: &[Entry] = &[
             vendor: 0x1AF4,
             devices: &[0x1059],
         },
+        ifname_prefix: None,
     },
     Entry {
         driver: "sndd",
@@ -102,6 +116,7 @@ pub const MANIFEST: &[Entry] = &[
             class: 0x04,
             subclass: 0x03,
         },
+        ifname_prefix: None,
     },
 ];
 
@@ -127,19 +142,67 @@ pub fn entry_for(function: &Function) -> Option<&'static Entry> {
     })
 }
 
-/// The driver rows to start: `(driver, device id, entry)`, one per driver
-/// row, for the first matching function in `functions`' order.
-pub fn plan(functions: &[Function]) -> Vec<(&'static str, u16, &'static Entry)> {
-    let mut chosen: Vec<(&'static str, u16, &'static Entry)> = Vec::new();
+/// One driver start the manifest asks for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Planned {
+    pub driver: &'static str,
+    /// The enumerated function's id.
+    pub id: u16,
+    pub entry: &'static Entry,
+    /// The interface name for a driver that runs once per card; empty
+    /// otherwise.
+    pub ifname: String,
+}
+
+/// The driver starts to ask for, in enumeration order. A driver with an
+/// interface prefix starts for every matching function and names them
+/// `<prefix>0`, `<prefix>1`, ... (one counter per prefix, so a virtio-net and
+/// an 8254x count together); any other driver row starts for the first
+/// matching function only.
+pub fn plan(functions: &[Function]) -> Vec<Planned> {
+    let mut chosen: Vec<Planned> = Vec::new();
+    let mut named: Vec<(&'static str, usize)> = Vec::new();
     for function in functions {
         let Some(entry) = entry_for(function) else {
             continue;
         };
-        if chosen.iter().all(|(driver, ..)| *driver != entry.driver) {
-            chosen.push((entry.driver, function.id, entry));
-        }
+        let ifname = match entry.ifname_prefix {
+            Some(prefix) => {
+                let at = match named.iter().position(|(p, _)| *p == prefix) {
+                    Some(at) => at,
+                    None => {
+                        named.push((prefix, 0));
+                        named.len() - 1
+                    }
+                };
+                let number = named[at].1;
+                named[at].1 += 1;
+                format!("{prefix}{number}")
+            }
+            None if chosen.iter().any(|p| p.driver == entry.driver) => continue,
+            None => String::new(),
+        };
+        chosen.push(Planned {
+            driver: entry.driver,
+            id: function.id,
+            entry,
+            ifname,
+        });
     }
     chosen
+}
+
+/// Whether `name` is an interface name `init` accepts for a driver: lower-case
+/// letters then at least one digit, at most 15 bytes (the length Linux's
+/// `IFNAMSIZ` allows), so it is safe inside a registry name, a topic and an
+/// argument.
+pub fn valid_ifname(name: &str) -> bool {
+    let letters = name.bytes().take_while(u8::is_ascii_lowercase).count();
+    let digits = &name[letters..];
+    letters > 0
+        && !digits.is_empty()
+        && name.len() <= 15
+        && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -189,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn one_device_per_driver_row_first_in_enumeration_order() {
+    fn every_network_card_is_named_and_a_sound_card_is_unique() {
         let functions = [
             function(3, 0x8086, 0x1237, 0x06, 0x00),
             function(5, 0x8086, 0x100E, 0x02, 0x00),
@@ -197,12 +260,40 @@ mod tests {
             function(7, 0x8086, 0x2668, 0x04, 0x03),
             function(8, 0x1AF4, 0x1059, 0x04, 0x01),
         ];
-        let plan: Vec<(&str, u16)> = plan(&functions)
-            .into_iter()
-            .map(|(driver, id, _)| (driver, id))
+        let planned = plan(&functions);
+        let plan: Vec<(&str, u16, &str)> = planned
+            .iter()
+            .map(|p| (p.driver, p.id, p.ifname.as_str()))
             .collect();
-        assert_eq!(plan, [("netdrv", 5), ("sndd", 7)]);
+        assert_eq!(
+            plan,
+            [
+                ("netdrv", 5, "eth0"),
+                ("netdrv", 6, "eth1"),
+                ("sndd", 7, "")
+            ]
+        );
         assert!(super::plan(&[]).is_empty());
+    }
+
+    #[test]
+    fn interface_names_are_checked() {
+        for good in ["eth0", "eth12", "wlan0", "en1"] {
+            assert!(valid_ifname(good), "{good}");
+        }
+        for bad in [
+            "",
+            "eth",
+            "0",
+            "Eth0",
+            "eth0/x",
+            "eth0 ",
+            "e-th0",
+            "eth0a",
+            "abcdefghijklmnop1",
+        ] {
+            assert!(!valid_ifname(bad), "{bad:?}");
+        }
     }
 
     #[test]
@@ -234,11 +325,12 @@ mod tests {
             function(3, 0x10EC, 0xC822, 0x02, 0x80),
             function(4, 0x10EC, 0x8168, 0x02, 0x00),
         ];
-        let plan: Vec<(&str, u16)> = plan(&functions)
-            .into_iter()
-            .map(|(driver, id, _)| (driver, id))
+        let planned = plan(&functions);
+        let plan: Vec<(&str, u16, &str)> = planned
+            .iter()
+            .map(|p| (p.driver, p.id, p.ifname.as_str()))
             .collect();
-        assert_eq!(plan, [("netdrv", 4)]);
+        assert_eq!(plan, [("netdrv", 4, "eth0")]);
     }
 
     #[test]

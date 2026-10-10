@@ -24,6 +24,13 @@ pub const NET_UID: u32 = 902;
 /// The `_netd` system user the network stack runs as: **no** capabilities.
 pub const NETD_UID: u32 = 903;
 
+/// The `_wifi` system user: the Wi-Fi chip driver (`wifid`). Reserved by the
+/// Wi-Fi plan (see `devmatch::DEVD_UID`); the program lands with it.
+pub const WIFI_UID: u32 = 911;
+
+/// The `_wifisim` system user: the simulated Wi-Fi chip the tests run.
+pub const WIFISIM_UID: u32 = 913;
+
 /// Matches any actor (the kernel's `ANY_ACTOR`).
 pub const ANY_ACTOR: u32 = u32::MAX;
 
@@ -40,6 +47,12 @@ pub const NIC_INTERFACE: &str = "os.lazy.net.nic.v1";
 pub const STACK_INTERFACE: &str = "os.lazy.net.stack.v1";
 /// The socket interface `netd` serves next to it (`idl/net.midl`, stage N3).
 pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
+
+mod nic;
+pub use nic::{
+    is_nic_name, may_register_nic_name, nic_kind_allowed, NIC_KIND_WIRED, NIC_KIND_WIRELESS,
+    NIC_NAME_PREFIX,
+};
 
 /// One rule. `actor` is a uid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,15 +171,16 @@ pub const SOCKET_CLIENT_RULES: &[RuleSpec] = &[
 
 /// Whether `topic` is one the stack (`netd`, [`NETD_UID`]) publishes under
 /// the reserved `system/` root: an interface's retained address
-/// (`system/net/<if>/addr`) and the network-up event
-/// (`system/events/network/up`), both declared in `idl/net.midl`. Nothing
+/// (`system/net/<if>/addr`), the list of interfaces (`system/net/interfaces`)
+/// and the network-up event (`system/events/network/up`), all declared in
+/// `idl/net.midl`. Nothing
 /// else under `system/` is the stack's (a NIC's link is its driver's).
 pub fn is_stack_topic(topic: &str) -> bool {
     let addr = topic
         .strip_prefix("system/net/")
         .and_then(|rest| rest.strip_suffix("/addr"))
         .is_some_and(|name| !name.is_empty() && !name.contains('/'));
-    addr || topic == "system/events/network/up"
+    addr || topic == "system/net/interfaces" || topic == "system/events/network/up"
 }
 
 #[cfg(test)]
@@ -174,10 +188,96 @@ mod tests {
     extern crate std;
 
     #[test]
+    fn only_the_prefix_and_its_subtree_are_nic_names() {
+        assert!(is_nic_name("os.lazy.net.nic"));
+        assert!(is_nic_name("os.lazy.net.nic/eth0"));
+        assert!(is_nic_name("os.lazy.net.nic/"));
+        assert!(is_nic_name("os.lazy.net.nic//x/../y"));
+        let long = std::format!("os.lazy.net.nic/{}", "a".repeat(100_000));
+        assert!(is_nic_name(&long));
+        assert!(!is_nic_name("os.lazy.net.nicX"));
+        assert!(!is_nic_name("os.lazy.net.nicX/eth0"));
+        assert!(!is_nic_name("os.lazy.net.nic.v1"));
+        assert!(!is_nic_name("os.lazy.net.ni"));
+        assert!(!is_nic_name("os.lazy.net"));
+        assert!(!is_nic_name("os.lazy.net.stack"));
+        assert!(!is_nic_name("OS.LAZY.NET.NIC/eth0"));
+        assert!(!is_nic_name(" os.lazy.net.nic/eth0"));
+        assert!(!is_nic_name("app.x.os.lazy.net.nic/eth0"));
+        assert!(!is_nic_name(""));
+    }
+
+    #[test]
+    fn only_the_driver_identities_register_nic_names() {
+        for uid in [NET_UID, WIFI_UID, WIFISIM_UID, ROOT_UID] {
+            assert!(may_register_nic_name(uid, 0, 0), "{uid}");
+        }
+        // The stack itself, every other service uid, the session users.
+        for uid in [
+            1,
+            901,
+            903,
+            904,
+            905,
+            906,
+            907,
+            908,
+            909,
+            910,
+            912,
+            914,
+            999,
+            1000,
+            1001,
+            65_534,
+            u32::MAX,
+        ] {
+            assert!(!may_register_nic_name(uid, 0, 0), "{uid}");
+        }
+    }
+
+    #[test]
+    fn a_driver_uid_with_a_label_or_a_session_is_refused() {
+        assert!(!may_register_nic_name(NET_UID, 1, 0));
+        assert!(!may_register_nic_name(NET_UID, u32::MAX, 0));
+        assert!(!may_register_nic_name(NET_UID, 0, 1));
+        assert!(!may_register_nic_name(ROOT_UID, 0, u64::MAX));
+        assert!(!may_register_nic_name(WIFI_UID, 7, 3));
+    }
+
+    #[test]
+    fn a_driver_may_claim_only_the_kind_of_card_it_drives() {
+        assert!(nic_kind_allowed(NET_UID, NIC_KIND_WIRED));
+        assert!(!nic_kind_allowed(NET_UID, NIC_KIND_WIRELESS));
+        for uid in [WIFI_UID, WIFISIM_UID] {
+            assert!(nic_kind_allowed(uid, NIC_KIND_WIRELESS));
+            assert!(!nic_kind_allowed(uid, NIC_KIND_WIRED));
+        }
+        assert!(nic_kind_allowed(ROOT_UID, NIC_KIND_WIRED));
+        assert!(nic_kind_allowed(ROOT_UID, NIC_KIND_WIRELESS));
+        for kind in [2, 31, 32, 33, u32::MAX] {
+            for uid in [NET_UID, WIFI_UID, WIFISIM_UID, ROOT_UID] {
+                assert!(!nic_kind_allowed(uid, kind), "{uid} kind {kind}");
+            }
+        }
+        assert!(!nic_kind_allowed(1000, NIC_KIND_WIRED));
+        assert!(!nic_kind_allowed(903, NIC_KIND_WIRED));
+    }
+
+    #[test]
+    fn the_kind_constants_match_the_interface() {
+        use messenger_generated::os_lazy_net_nic_v1 as nic;
+        assert_eq!(NIC_KIND_WIRED, nic::NIC_KIND_WIRED);
+        assert_eq!(NIC_KIND_WIRELESS, nic::NIC_KIND_WIRELESS);
+    }
+
+    #[test]
     fn the_stack_publishes_its_address_and_the_up_event_only() {
         use super::is_stack_topic;
         assert!(is_stack_topic("system/net/eth0/addr"));
         assert!(is_stack_topic("system/events/network/up"));
+        assert!(is_stack_topic("system/net/interfaces"));
+        assert!(!is_stack_topic("system/net/interfaces/x"));
         assert!(!is_stack_topic("system/net/eth0/link"));
         assert!(!is_stack_topic("system/net//addr"));
         assert!(!is_stack_topic("system/net/a/b/addr"));

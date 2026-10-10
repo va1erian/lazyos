@@ -82,6 +82,7 @@ pub struct Counters {
 mod dns;
 mod observe;
 mod ping;
+mod route;
 mod sockets;
 mod stream_io;
 mod tcp;
@@ -91,10 +92,11 @@ use dns::{dns_socket, Lookup};
 pub use dns::{valid_host_name, LookupOutcome, LookupResult, ResolveError, MAX_LOOKUPS};
 use ping::{icmp_socket, Pending};
 pub use ping::{PingError, PingOutcome, PingResult};
+pub use route::RouteClass;
 pub use sockets::{ready, Kind, SockAddr, SockError, SocketCounters, Sockets};
 pub use sockets::{
-    EPHEMERAL_FIRST, MAX_BACKLOG, MAX_CHUNK, MAX_CLOSING, MAX_PER_OWNER, MAX_SOCKETS, TCP_BUFFER,
-    UDP_PAYLOAD,
+    EPHEMERAL_FIRST, MAX_BACKLOG, MAX_CHUNK, MAX_CLOSING, MAX_PER_OWNER, MAX_SOCKETS,
+    PRIVILEGED_PORTS, TCP_BUFFER, UDP_PAYLOAD,
 };
 pub use stream_io::Received;
 
