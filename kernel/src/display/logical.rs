@@ -15,8 +15,8 @@
 //! clipped view, so nothing ever writes outside the framebuffer. The boot
 //! console keeps the full mode.
 
-use spin::Mutex;
 use super::modecfg;
+use spin::Mutex;
 
 /// Widest logical screen exposed to the desktop by default.
 pub const DEFAULT_WIDTH: usize = 1920;
@@ -26,8 +26,7 @@ pub const DEFAULT_HEIGHT: usize = 1080;
 /// The live cap per axis, `(width, height)`. Written once at boot, before
 /// anything sizes itself from the logical screen; read through copies ever
 /// after.
-static CAP: Mutex<(usize, usize)> =
-    Mutex::new((DEFAULT_WIDTH, DEFAULT_HEIGHT));
+static CAP: Mutex<(usize, usize)> = Mutex::new((DEFAULT_WIDTH, DEFAULT_HEIGHT));
 
 /// The screen cap currently in force, `(width, height)`.
 pub fn cap() -> (usize, usize) {

@@ -39,7 +39,11 @@ pub fn mode_config_parses() -> Result<(), String> {
     check!(cfg.max == Some((2560, 1440)), "max {:?}", cfg.max);
     check!(cfg.mode.is_none(), "mode {:?}", cfg.mode);
     let (cfg, problems) = parse_all("display.max=3840X2160\ndisplay.max=2560x1440\n");
-    check!(cfg.max == Some((3840, 2160)), "first max wins {:?}", cfg.max);
+    check!(
+        cfg.max == Some((3840, 2160)),
+        "first max wins {:?}",
+        cfg.max
+    );
     check!(problems.len() == 1, "duplicate {problems:?}");
     Ok(())
 }
@@ -119,14 +123,16 @@ pub fn mode_display_max_applied() -> Result<(), String> {
             crate::display::screen_bytes()
         );
         check!(
-            crate::limits::get(crate::limits::Id::SharedBufferMax)
-                >= 2 * 2560 * 1440 * 4,
+            crate::limits::get(crate::limits::Id::SharedBufferMax) >= 2 * 2560 * 1440 * 4,
             "double-buffered 1440p over the limits"
         );
         // Re-read (a second `bootcfg::load`): the logical screen stays.
         crate::display::modeset::apply_config("# reboot-stage pass\ndisplay.max=2560x1440\n");
         let again = crate::display::logical();
-        check!(again == after, "re-read changed the logical {after:?} -> {again:?}");
+        check!(
+            again == after,
+            "re-read changed the logical {after:?} -> {again:?}"
+        );
         Ok(())
     });
     crate::console::set_scale(scale);
@@ -138,7 +144,8 @@ pub fn mode_display_max_applied() -> Result<(), String> {
 }
 
 /// The automatic scale keeps a logical screen of at least 1280x720.
-pub fn mode_auto_scale_rule() -> Result<(), String> {    for (width, height, scale) in [
+pub fn mode_auto_scale_rule() -> Result<(), String> {
+    for (width, height, scale) in [
         (2560, 1440, 2),
         (3840, 2160, 2),
         (2560, 1600, 2),

@@ -66,8 +66,10 @@ pub fn lines(mode: Option<&str>, scale: Option<&str>, max: Option<&str>) -> Stri
         out.push_str(&format!("display.scale={scale}\n"));
     }
     if let Some(max) = max {
-        out.push_str(&format!("display.max={max}
-"));
+        out.push_str(&format!(
+            "display.max={max}
+"
+        ));
     }
     out
 }
