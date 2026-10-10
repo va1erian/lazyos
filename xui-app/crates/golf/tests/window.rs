@@ -195,3 +195,51 @@ fn a_scale_change_never_shows_a_mis_scaled_frame() {
         );
     }
 }
+
+/// A window-sized frame every tick used to be a new allocation (an `mmap`
+/// and a page fault per page, freed again): each picture must be written
+/// into the buffer the previous one gave back, until the window changes size.
+#[test]
+fn each_frame_is_written_into_the_last_frames_buffer() {
+    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (w, h) = (320, 200);
+    let mut now = Instant::now();
+    // Generation runs on a worker thread; a failed one must fail the test,
+    // not hang it.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while game.run.is_none() {
+        assert!(Instant::now() < deadline, "generation did not finish");
+        game.tick(w, h, now);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    now += Duration::from_millis(20);
+    game.tick(w, h, now);
+    let buffer = |game: &Game| {
+        let image = game
+            .run
+            .as_ref()
+            .unwrap()
+            .image
+            .as_ref()
+            .expect("a picture");
+        (image.pixels().as_ptr(), image.pixels().to_vec())
+    };
+    let (at, mut last) = buffer(&game);
+    for _ in 0..4 {
+        let run = game.run.as_mut().unwrap();
+        run.flyer.camera.yaw += 0.2;
+        run.moved();
+        now += Duration::from_millis(20);
+        assert!(game.tick(w, h, now), "the camera moved: a new frame");
+        let (now_at, pixels) = buffer(&game);
+        assert_eq!(now_at, at, "a new buffer was allocated for the frame");
+        assert_ne!(pixels, last, "the picture did not change");
+        last = pixels;
+    }
+
+    // A different window size is a different buffer, sized to it.
+    now += Duration::from_millis(20);
+    game.tick(w / 2, h / 2, now);
+    let image = game.run.as_ref().unwrap().image.as_ref().unwrap();
+    assert_eq!(image.size(), ((w / 2) as u32, (h / 2) as u32));
+}

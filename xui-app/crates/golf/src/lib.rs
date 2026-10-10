@@ -20,6 +20,7 @@ pub mod minimap;
 pub mod noise;
 pub mod render;
 pub mod rng;
+mod scale;
 pub mod view;
 
 pub use app::{GolfApp, Msg, WINDOW};

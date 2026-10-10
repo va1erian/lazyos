@@ -196,26 +196,32 @@ impl RenderJob {
 }
 
 /// Index buffer to opaque RGBA, nearest-neighbour upscaled by `scale` and
-/// cropped to `width` x `height` (the window), ready for `Image::from_rgba`.
-pub fn resolve(
+/// cropped to `width` x `height` (the window), written into `out` (resized to
+/// `width * height * 4`) for `Image::from_rgba`. Handing back the buffer of the
+/// last image (`Image::into_pixels`) makes a frame allocate nothing.
+pub fn resolve_into(
     frame: &Frame,
     words: &[u32; 256],
     scale: usize,
     width: usize,
     height: usize,
-) -> Vec<u8> {
-    let mut out = vec![0u8; width * height * 4];
-    let mut row = vec![0u8; width * 4];
+    out: &mut Vec<u8>,
+) {
+    let stride = width * 4;
+    out.resize(stride * height, 0);
     for y in 0..height {
-        if y % scale == 0 || y == 0 {
-            let src_y = (y / scale).min(frame.height - 1);
-            let src = &frame.index[src_y * frame.width..(src_y + 1) * frame.width];
-            for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                let i = src[(x / scale).min(frame.width - 1)];
-                px.copy_from_slice(&words[usize::from(i)].to_le_bytes());
-            }
+        let (done, rest) = out.split_at_mut(y * stride);
+        let row = &mut rest[..stride];
+        if y % scale != 0 {
+            // The same source row as the one above: one `scale`-tall band.
+            row.copy_from_slice(&done[(y - 1) * stride..]);
+            continue;
         }
-        out[y * width * 4..(y + 1) * width * 4].copy_from_slice(&row);
+        let src_y = (y / scale).min(frame.height - 1);
+        let src = &frame.index[src_y * frame.width..(src_y + 1) * frame.width];
+        for (x, px) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+            let i = src[(x / scale).min(frame.width - 1)];
+            px.copy_from_slice(&words[usize::from(i)].to_le_bytes());
+        }
     }
-    out
 }

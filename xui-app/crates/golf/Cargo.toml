@@ -6,17 +6,17 @@ publish = false
 description = "LazyGolf: a procedural golf course generator, a mid-90s software renderer and its xui window (portable, host-testable)"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "e50e69d64c0b851b89c85b06e3d8f5df891a916a" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 # Only for the `desktop` runner: xui's winit backend, so the same app runs
 # as a window on Windows, Linux and macOS. LazyOS builds never turn it on.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e50e69d64c0b851b89c85b06e3d8f5df891a916a", default-features = false, optional = true }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false, optional = true }
 
 [features]
 # `cargo run --release -p xui-golf --example golf --features desktop`
 desktop = ["dep:xui-canvas", "xui-canvas/winit-backend"]
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e50e69d64c0b851b89c85b06e3d8f5df891a916a", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
 
 [[example]]
 name = "golf"

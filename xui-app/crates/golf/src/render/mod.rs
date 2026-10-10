@@ -16,7 +16,7 @@ use crate::course::Course;
 
 pub use bake::Bake;
 pub use camera::Camera;
-pub use job::{resolve, Mode, RenderJob};
+pub use job::{resolve_into, Mode, RenderJob};
 pub use palette::Palette;
 pub use raster::Frame;
 
