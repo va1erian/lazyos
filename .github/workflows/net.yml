@@ -72,6 +72,9 @@ jobs:
       - name: QEMU network arguments (run_demo --net, the launcher, the screenshot tools)
         run: python tools/net/test_qemu_net.py
 
+      - name: Multi-NIC judge (it must fail when it should)
+        run: python tools/net/test_multi_judge.py
+
   fuzz:
     name: fuzz (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -167,6 +170,11 @@ jobs:
             args: "--netd --poll"
           - name: netd-no-device
             args: "--netd --no-device"
+          # WP1: two cards, a capture each: DHCP on both, the wired-metric
+          # winner carries traffic and DNS, QMP set_link moves it, a removed
+          # card is detached (tools/net/multi_run.py).
+          - name: nics-2
+            args: "--nics 2"
     steps:
       - uses: actions/checkout@v4
 

@@ -242,3 +242,26 @@ shell. Each prints `TLS:<check>:PASS|FAIL`; the verdict also needs:
 `python tools/net/test_tls_pcap.py` shows the wire judge fails when it should. `--live` runs `curl`
 against real sites (default Google and Wikipedia; `--live-url`) on a normal image, so only the Mozilla
 roots are trusted; it is manual, never CI. Behind a proxy that re-signs TLS add `--extra-ca PEM`.
+
+## WP1: several network cards (`--nics 2`)
+
+`python tools/net/run.py --nics 2` (or `multi_run.py`) is the harness of
+[docs/wifi-prerequisites-plan.md](../../docs/wifi-prerequisites-plan.md) WP1. It builds a console image
+with `LAZYOS_NET=1 LAZYOS_NETD=1 LAZYOS_SERVICES=1` (no demo clients: `LAZYOS_NETD_ARGS=demo=0`), boots
+it with two virtio-net cards, each on its own user network (10.0.2.0/24 and 10.0.3.0/24) and its own
+`filter-dump` capture (`net0.pcap`, `net1.pcap`), and types into the guest's shell over QMP. `devd`
+names the cards `eth0` and `eth1`. The verdict is only frames (`multi_judge.py`), in time windows the
+harness marks with the host clock:
+
+1. both captures hold a complete DHCP exchange (DISCOVER, OFFER, REQUEST, ACK);
+2. an echo request to the off-link address 192.0.2.55 and a DNS lookup leave by `eth0` (the wired
+   default route, metric 100), and by no other card;
+3. QMP `set_link nic0 down`: the same traffic leaves by `eth1` only, the DNS query goes to 10.0.3.3 and
+   `eth0` keeps its lease (no address dropped);
+4. `set_link nic0 up`: `eth0` sends a new DISCOVER, completes a DHCP exchange and carries the traffic
+   again (smoltcp has no INIT-REBOOT, so the lease is re-acquired rather than confirmed);
+5. QMP `device_del nic1`: see below; `netd` is never restarted (one `NETD:READY`) and traffic still
+   leaves by `eth0`.
+
+`python tools/net/test_multi_judge.py` shows the judge fails when it should: traffic or DNS on the
+wrong card, a half DHCP exchange, a link that came back without restarting DHCP.

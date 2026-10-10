@@ -194,6 +194,8 @@ An IOMMU (a driver with `DMA` is still trusted like the kernel): issue #615.
 MSI/MSI-X and the I/O APIC landed with #616 ([interrupts.md](interrupts.md)):
 `netdrv` and `sndd` take MSI-X on virtio, `sndd` MSI on HDA. `devd` does not apply the `confd` device policy of
 [driver-config-plan.md](../driver-config-plan.md) (enable/disable, binding
-overrides) and does not watch for hot-plug; one device per driver row; the
+overrides) and does not watch for hot-plug; one device per driver row, except
+that every network card gets its own `netdrv` named `eth0`, `eth1`, ... (WP1,
+[networking.md](networking.md) "Several interfaces"); the
 `e1000e`/`igc` families, HDA capture, HDMI codecs and a DSP-mode (SOF)
 controller.

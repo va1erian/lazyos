@@ -26,6 +26,24 @@ def window(frames: list[pcap.Frame], since: float = 0.0, until: float = FOREVER)
     return [f for f in frames if since <= f.time <= until]
 
 
+def clock_offset(frames: list[pcap.Frame], mac: bytes, dst: str, host_mark: float) -> float | None:
+    """How far this capture's clock is from the host's, from the first echo
+    request the card `mac` sent to `dst` after the host noted `host_mark`
+    (the harness types the ping at that moment). QEMU stamps captures with
+    its own clock, which is not always the host's UTC (it was an hour off on
+    a Windows host), so frames are never compared with host time directly.
+    The error is the time the typed command took to reach the guest."""
+    target = pcap.parse_ip(dst)
+    for frame in frames:
+        packet = pcap.parse_ipv4(frame.data)
+        if packet is None or packet.eth_src != mac or packet.dst != target:
+            continue
+        icmp = pcap.parse_icmp_echo(packet)
+        if icmp is not None and icmp.type == 8:
+            return frame.time - host_mark
+    return None
+
+
 def dhcp_kinds(frames: list[pcap.Frame], mac: bytes) -> list[tuple[int, int, bool]]:
     """`(xid, message type, sent by the guest)` of the DHCP messages that
     belong to the client `mac`, in capture order."""

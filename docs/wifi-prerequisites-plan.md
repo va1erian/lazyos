@@ -12,8 +12,8 @@
 
 Related: [wifi-plan.md](wifi-plan.md) (the hardware, licence and driver
 plan; §3 and §5 are the starting point here),
-[networking-plan.md](networking-plan.md) (N0–N6; multi-NIC is a §12
-non-goal there and becomes WP1 here),
+[networking-plan.md](networking-plan.md) (N0–N6; multi-NIC was a §12
+non-goal there and is WP1 here, built),
 [architecture/networking.md](architecture/networking.md),
 [security-model.md](security-model.md) §8 (`keyd`),
 [accounts-plan.md](accounts-plan.md) (`elevd`, who may change what),
@@ -102,6 +102,35 @@ real PC with two ports.
   retained `system/net/interfaces` list.
 - **Clients.** `netctl`, the Network app, Net Tools and the tray applet
   list interfaces instead of assuming one.
+
+**Built (WP1, 2026-10-10)**, as described in
+[architecture/networking.md](architecture/networking.md) ("Several
+interfaces"). Where it differs from the draft above:
+
+- *One socket set per interface under `netstack::Net`*, not a shared set
+  (risk 1, spiked). Wildcard listeners and datagram sockets are replicated per
+  interface; connections, pings and lookups pick an interface by route.
+- *Discovery lists the registry* (`registry::list`, a second apart) rather than
+  watching `devd`'s topics: it is what exists, it is cheap, and it sees a card
+  the moment its driver registers. A name missing for 3 s is a removed card.
+  `devd` also publishes the name (`DeviceState.ifname`). Listing the registry
+  as an unprivileged task had never worked (`registry::list` left the target
+  slot at 0, which needs `CAP_IPC_CONTROL`); it targets the caller now.
+- *`StartDriver` carries the interface name* (`ifname`, a third argument);
+  `init` runs one `netdrv` row per card, the driver registers
+  `os.lazy.net.nic/<ifname>`, and the bare name is gone.
+- *DHCP restarts, it does not confirm*: smoltcp's client has no INIT-REBOOT.
+- *Link down keeps the lease and the interface drops out of route and resolver
+  choice* (no per-route "dead" flag is needed). `Reattach`/driver restarts are
+  not link changes.
+- *A configuration change rebuilds that interface*, not `netd`.
+- *Hot-unplug cannot be shown with QEMU's `device_del` today*: the guest has no
+  PCI hot-plug handler, so the eject request is never completed and the card
+  stays. The detach path (a name gone from the registry for 3 s removes the
+  interface, sockets on it are reset, wildcard sockets keep serving the rest)
+  has host tests only (`cargo test -p netstack net::`). A kernel that
+  completes the eject (poll the PIIX4 hot-plug registers, write `PCI_EJ`) would
+  let `--nics 2` check it.
 
 ### 3.2 Cryptography
 
@@ -342,7 +371,7 @@ after WP6 and plug into what WP4 proved.
 | Stage | Deliverable | Depends on | Evidence |
 |---|---|---|---|
 | **WP0 Groundwork** (done, see below) | Licence decision recorded, `THIRD_PARTY.md`; §3.2 crypto with KATs; fresh uids allocated; `idl/wifi.midl` drafted and reviewed | nothing | `cargo test -p lazyos-crypto` (Annex J, RFC 3394, RFC 4493); `midlc` output |
-| **WP1 Multi-NIC `netd`** | §3.1: per-interface registry names and `kind`, `devd` naming, N interfaces, metrics, DNS choice, INIT-REBOOT on link up, runtime attach/detach; `netctl`, Network app and applet list interfaces | nothing | `tools/net/run.py --nics 2`: DHCP on both cards (pcap per card); the wired default route wins; link of `eth0` set down over QMP (`set_link`) moves traffic and DNS to `eth1` and back; a card hot-unplugged (`device_del`) is detached cleanly; existing `--netd` run unchanged |
+| **WP1 Multi-NIC `netd`** (**built**) | §3.1: per-interface registry names and `kind`, `devd` naming, N interfaces, metrics, DNS choice, DHCP restart on link up (no INIT-REBOOT in smoltcp), runtime attach/detach; `netctl`, Network app and applet list interfaces | nothing | `tools/net/run.py --nics 2`: DHCP on both cards (pcap per card); the wired default route wins; link of `eth0` set down over QMP (`set_link`) moves traffic and DNS to `eth1` and back, with the re-DHCP visible; `netd` is never restarted. `device_del` is not honoured by the guest (see §3.1), so detach is covered by host tests; existing `--netd` run unchanged |
 | **WP2 Secrets** | §3.3: named secrets, persistence under `/conf`, `WifiPmk`, scope rules, `elevd` action `net.wifi.system` | WP0 | `keyd` host tests; a session stores a secret, reboots, and a `WifiPmk` from `wlanmd`'s label matches the Annex J PMK while the same call from the Terminal gets `EPERM`; the accounts attack harness gains "read another user's Wi-Fi secret" as `blocked` |
 | **WP3 Protocol libraries** | §3.4: `libs/ieee80211`, `libs/eapol`, fuzz targets and seeds | WP0 | `cargo test -p ieee80211 -p eapol`; seeded fuzz soak; `python fuzz/gen_corpus.py --check` |
 | **WP4 Station stack on the simulator** | §3.5 + §3.6: `wlanmd`, `wifisim`, `fake_ap.py`, `wifictl`; `netd` gets `wlan0` | WP1–WP3 | `tools/wifi/sim_run.py`: scan lists the fake SSIDs with channel and RSSI; open and WPA2-PSK joins; DHCP and echo over `wlan0`; the AP-side pcap shows EAPOL 1–4 and CCMP data the independent Python side decrypted; wrong passphrase, deauth, beacon loss and group rekey scenarios each end in the expected state; `wlanmd` killed mid-handshake is restarted by `init` and reconnects. `test_judge.py` fails when it should. CI |

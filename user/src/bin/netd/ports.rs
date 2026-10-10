@@ -44,6 +44,7 @@ pub(super) struct Ports {
     pub(super) list: Vec<Port>,
     next_scan: u64,
     empty_logged: u32,
+    list_errors: u32,
     /// Times a ring attachment was dropped and made again.
     pub(super) resets: u64,
 }
@@ -54,6 +55,7 @@ impl Ports {
             list: Vec::new(),
             next_scan: 0,
             empty_logged: 0,
+            list_errors: 0,
             resets: 0,
         }
     }
@@ -69,8 +71,19 @@ impl Ports {
             return;
         }
         self.next_scan = tick + SCAN_TICKS;
-        let Ok(present) = nic_api::present() else {
-            return;
+        let present = match nic_api::present() {
+            Ok(present) => present,
+            Err(error) => {
+                // Said once, then every tenth time; the next scan tries again.
+                if self.list_errors.is_multiple_of(10) {
+                    sys::write_str(&format!(
+                        "NETD:NIC:LIST:FAIL the registry cannot be listed: {}\n",
+                        error.message()
+                    ));
+                }
+                self.list_errors += 1;
+                return;
+            }
         };
         for card in &present {
             match self.list.iter_mut().find(|port| port.ifname == card.ifname) {

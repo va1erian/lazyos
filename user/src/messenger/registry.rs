@@ -219,6 +219,9 @@ pub fn unregister(name: &str) -> Result<()> {
 pub fn list() -> Result<Vec<Entry>> {
     let mut buf = vec![0u8; LIST_BUFFER];
     let args = MsgArgs {
+        // Like every registry op, the target is this task: a zero would name
+        // slot 0, which only a task holding `CAP_IPC_CONTROL` may do.
+        txn_id: REGISTRY_TARGET_SELF,
         buf_ptr: buf.as_mut_ptr() as u64,
         buf_cap: buf.len() as u64,
         ..MsgArgs::default()

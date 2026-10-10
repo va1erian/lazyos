@@ -122,6 +122,17 @@ class MultiJudge(unittest.TestCase):
         frames = capture(first)
         self.assertEqual(len(mj.phase_dhcp("up", frames, MAC0, 2000.0, restarted=True)), 2)
 
+    def test_the_capture_clock_is_found_from_a_known_ping(self):
+        # The capture runs an hour behind the host and the ping lands 0.4 s
+        # after the host noted the time.
+        raw = [b"x" * 60, echo(MAC0, GW0, NET0, NET0["gw"])]
+        frames = pcap.read_pcap(pcap.write_pcap(raw, start=5000.0, step=0.4))
+        offset = mj.clock_offset(frames, MAC0, "10.0.2.2", host_mark=8600.0)
+        self.assertAlmostEqual(offset, 5000.4 - 8600.0, places=3)
+        # No such ping from that card: no clock.
+        self.assertIsNone(mj.clock_offset(frames, MAC1, "10.0.2.2", 8600.0))
+        self.assertIsNone(mj.clock_offset(frames, MAC0, "10.0.3.2", 8600.0))
+
     def test_counting_helpers_ignore_other_cards_and_frames(self):
         frames = capture([echo(MAC1, GW1, NET1, TARGET), b"\0" * 8, query(MAC1, GW1, NET1)])
         self.assertEqual(mj.echo_requests(frames, MAC0, "192.0.2.55"), 0)
