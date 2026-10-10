@@ -431,8 +431,8 @@ interface gained `StoreSecret`, `DeleteSecret`, `ListSecrets` and
 - *Deviations.* `keyd` runs as root (it inherits `init`'s identity; only the
   account, elevation and driver services have their own uid), so the files are
   root's, not a `_keyd` uid's; the 0700 `/conf` is what keeps a session out.
-  The machine key comes from `keyd`'s own entropy pool (RDRAND plus timing
-  jitter, as for its other keys), not `getrandom`. The positive `WifiPmk`
+  The machine key comes from the kernel CSPRNG (syscall 26) with `keyd`'s own
+  pool XORed in; with no kernel bytes no key is made and persistence stays off. The positive `WifiPmk`
   path, answered to uid 912, is host-tested (the same `authorize` and
   `Store::pmk` code `keyd` calls) and not run in QEMU: nothing in an image
   runs as `_wlan` until `wlanmd` exists (WP4), and a test binary under that

@@ -8,9 +8,9 @@
 //! flushed again, so a crash leaves the old file or the new one.
 //!
 //! The machine key is a 0600 file beside the secrets file, drawn from the
-//! entropy pool on first start. That stops a copied secrets file being read;
-//! it does not stop root on the volume (no TPM; docs/security-model.md
-//! section 8).
+//! kernel CSPRNG (mixed with keyd's pool) on first start. That stops a
+//! copied secrets file being read; it does not stop root on the volume (no
+//! TPM; docs/security-model.md section 8).
 //!
 //! Failing safe: a secrets file `keyd` cannot open (damaged, truncated,
 //! sealed under another key) is refused whole, logged, and moved aside to
@@ -93,12 +93,10 @@ impl Secrets {
             Ok(bytes) => <[u8; MACHINE_KEY_LEN]>::try_from(bytes.as_slice())
                 .map_err(|_| String::from("the machine key file is not 32 bytes")),
             Err(ENOENT) => {
+                let key = new_machine_key(entropy)?;
                 if files::stat(fhs::state::KEYD_SECRETS).is_ok() {
                     let _ = files::rename(fhs::state::KEYD_SECRETS, fhs::state::KEYD_SECRETS_BAD);
                 }
-                let mut key = [0u8; MACHINE_KEY_LEN];
-                entropy.try_rdrand();
-                entropy.fill(&mut key);
                 write_atomic(
                     fhs::state::KEYD_MACHINE_KEY_NEW,
                     fhs::state::KEYD_MACHINE_KEY,
@@ -111,7 +109,26 @@ impl Secrets {
             Err(code) => Err(format!("the machine key is unreadable errno={code}")),
         }
     }
+}
 
+/// A fresh machine key: the kernel CSPRNG (syscall 26), with `keyd`'s own
+/// pool XORed in so neither source alone decides the key. Without kernel
+/// bytes no key is made and persistence stays off: a key from the pool alone
+/// would be weaker than refusing to store.
+fn new_machine_key(entropy: &mut Entropy) -> Result<[u8; MACHINE_KEY_LEN], String> {
+    let mut key = [0u8; MACHINE_KEY_LEN];
+    sys::random(&mut key)
+        .map_err(|code| format!("no kernel randomness for the machine key errno={code}"))?;
+    let mut pool = [0u8; MACHINE_KEY_LEN];
+    entropy.try_rdrand();
+    entropy.fill(&mut pool);
+    for (byte, mix) in key.iter_mut().zip(pool) {
+        *byte ^= mix;
+    }
+    Ok(key)
+}
+
+impl Secrets {
     /// `StoreSecret`.
     pub(crate) fn put(
         &mut self,
