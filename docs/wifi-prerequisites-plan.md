@@ -56,7 +56,7 @@ for the non-driver rows.
 | Firmware files | None. `assets/manifest.txt` (`path \| licence \| install \| provenance`, landing at `/system/share/<path>`) and `tools/doom/fetch.py` (hash-pinned fetch) are the precedents | An `fhs` firmware path, a fetch-and-pin tool, a licence kept beside each file |
 | UI | Network app (`xui-app/src/bin/network.rs`) and Network Status tray applet (`netstatus.rs`), both `eth0`-shaped | A wireless page, a scan list, a password prompt, a signal icon |
 | Test radio | QEMU has no wireless device | A simulated radio (WP4), or nothing above the driver is testable in CI |
-| uids | wifi-plan proposed `_wifi` = 906, `_wlan` = 907; **906 is `_devd`** (`libs/devmatch`) | Fresh system uids |
+| uids | wifi-plan proposed `_wifi` = 906, `_wlan` = 907; **906 is `_devd`** and **907 is `_greeter`** (`user/src/messenger/logind.rs`); 901-910 are all taken | **Reserved (WP0): `_wifi` 911 (`wifid`), `_wlan` 912 (`wlanmd`), `_wifisim` 913 (`wifisim`).** Defined with their programs; the reservation is the comment on `DEVD_UID` in `libs/devmatch/src/lib.rs` |
 
 ## 3. The pieces
 
@@ -115,9 +115,18 @@ the `nettls` stack. New entry points:
 |---|---|---|
 | `pbkdf2_sha1(pass, ssid, 4096) -> PMK[32]` | WPA2-PSK passphrase → PMK | IEEE 802.11-2020 Annex J.4 |
 | `prf_sha1(key, label, data, bits)` | PTK derivation (AKM 2) | Annex J.3 |
-| `hmac_sha1_128` (MIC, AKM 2), `aes_cmac_128` (MIC, AKM 6) | EAPOL-Key MIC | Annex J; RFC 4493 |
-| `aes_unwrap(kek, data)` | GTK/IGTK delivery in message 3 and group key handshake | RFC 3394 §4 |
-| `kdf_sha256` (802.11 KDF) | PTK for AKM 6 (PSK-SHA256) | Annex J |
+| `hmac_sha1_128` (MIC, AKM 2), `aes_cmac_128` (MIC, AKM 6) | EAPOL-Key MIC | RFC 2202; RFC 4493 (Annex J has no MIC vector independent of a full handshake) |
+| `aes_wrap` / `aes_unwrap(kek, data)` | GTK/IGTK delivery in message 3 and group key handshake | RFC 3394 §4.1, §4.6 |
+| `kdf_sha256` (802.11 KDF) | PTK for AKM 6 (PSK-SHA256) | none published; cross-checked against an independent Python implementation, and again by `fake_ap.py` in WP4 |
+
+WP0 status: these are in `libs/crypto/src/wifi.rs` as `Result`-returning,
+length-checked functions (`pbkdf2_sha1` also enforces the standard's 8..=63
+printable-ASCII passphrase and 1..=32-byte SSID; `aes_wrap`/`aes_unwrap`
+take a 16- or 32-byte KEK; `mic_eq` is the constant-time compare). The
+RustCrypto `aes` crate has no `force-soft` feature, unlike `sha1`/`sha2`;
+the pinned toolchain's LLVM cannot legalise its SIMD backend on
+`x86_64-unknown-none`, so `.cargo/config.toml` sets `--cfg aes_force_soft`
+for that target.
 
 Measure PBKDF2's 4096 iterations on the guest early (8192 SHA-1 compressions
 per block, two blocks): it runs once per new network, but under TCG it may
@@ -190,8 +199,9 @@ every other (AGENTS.md rule).
   contract a driver implements; the simulator of §3.6 is its first
   implementation.
 - **`os.lazy.net.wifi.v1`** (system-facing, served by `wlanmd`): `Scan`,
-  `Networks` (scan results, merged with known profiles), `Connect(profile)`,
-  `Disconnect`, `Forget`, `Status`; retained topics
+  `Networks` (scan results, merged with known profiles), `AddNetwork`
+  (the one call that takes a passphrase, handed straight to `keyd`),
+  `Connect(id)`, `Disconnect`, `Forget`, `Status`, `Interfaces`; retained topics
   `system/net/<if>/wifi/state` and `system/net/<if>/wifi/scan`, added to
   [topics-catalog.md](topics-catalog.md).
 - **`wlanmd`** (no capabilities, fresh system uid): one instance per
@@ -201,6 +211,21 @@ every other (AGENTS.md rule).
   scan), BSS selection (known SSID, best RSSI, band preference), reconnect
   back-off, the auto-connect policy of §3.7, and calls `keyd` for the PMK.
   Roaming between BSSes of one ESS is a later refinement.
+
+WP0 status: both interfaces are drafted in `idl/wifi.midl` (generated stubs,
+manifest, Rhai API and `docs/idl/os.lazy.net.wifi*.md` are checked in; no
+server exists). Shape decisions worth knowing: `hw.v1` has one owner
+(`Attach` transfers the event channel, like `nic.v1`'s notify endpoint) and
+events are `oneway` methods on it (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+`Deauthenticated`); scan results are paged raw frames (`ScanResults`);
+EAPOL travels as `TxMgmt`/`RxMgmt` with a `FrameKind` of `Eapol`; the
+association state is pushed by `wlanmd` with `SetState` (the NIC's link
+follows `Authorized`); `SetCountry` is a `hw.v1` call so the driver can
+refuse to transmit without a domain. Temporal keys cross `hw.v1` in `SetKey`
+because the chip needs them; `wifi.v1` carries no secret except the
+passphrase argument of `AddNetwork`. `wifi.v1` takes an interface name on
+every call (one `wlanmd` serving all radios, the §5 item 6 assumption). Uids
+are reserved in §2.
 
 ### 3.6 A simulated radio for CI
 
@@ -305,8 +330,8 @@ The driver's landing pad on the bus; no chip code in it.
   `tools/lazygui/catalog.py` with tests; core package permissions for the
   Network app derived from a `LAZYOS_LABEL_TRACE=1` run.
 - Licence groundwork from wifi-plan §4 (option A recorded in `README.md`,
-  `THIRD_PARTY.md` created), and a `tools/wifi/licenses.py` like
-  `tools/nettls/licenses.py` over the new crates.
+  `THIRD_PARTY.md` created: done in WP0), and a `tools/wifi/licenses.py` like
+  `tools/nettls/licenses.py` over the new crates (still to do).
 
 ## 4. Stages
 
@@ -316,13 +341,27 @@ after WP6 and plug into what WP4 proved.
 
 | Stage | Deliverable | Depends on | Evidence |
 |---|---|---|---|
-| **WP0 Groundwork** | Licence decision recorded, `THIRD_PARTY.md`; §3.2 crypto with KATs; fresh uids allocated; `idl/wifi.midl` drafted and reviewed | nothing | `cargo test -p lazyos-crypto` (Annex J, RFC 3394, RFC 4493); `midlc` output |
+| **WP0 Groundwork** (done, see below) | Licence decision recorded, `THIRD_PARTY.md`; §3.2 crypto with KATs; fresh uids allocated; `idl/wifi.midl` drafted and reviewed | nothing | `cargo test -p lazyos-crypto` (Annex J, RFC 3394, RFC 4493); `midlc` output |
 | **WP1 Multi-NIC `netd`** | §3.1: per-interface registry names and `kind`, `devd` naming, N interfaces, metrics, DNS choice, INIT-REBOOT on link up, runtime attach/detach; `netctl`, Network app and applet list interfaces | nothing | `tools/net/run.py --nics 2`: DHCP on both cards (pcap per card); the wired default route wins; link of `eth0` set down over QMP (`set_link`) moves traffic and DNS to `eth1` and back; a card hot-unplugged (`device_del`) is detached cleanly; existing `--netd` run unchanged |
 | **WP2 Secrets** | §3.3: named secrets, persistence under `/conf`, `WifiPmk`, scope rules, `elevd` action `net.wifi.system` | WP0 | `keyd` host tests; a session stores a secret, reboots, and a `WifiPmk` from `wlanmd`'s label matches the Annex J PMK while the same call from the Terminal gets `EPERM`; the accounts attack harness gains "read another user's Wi-Fi secret" as `blocked` |
 | **WP3 Protocol libraries** | §3.4: `libs/ieee80211`, `libs/eapol`, fuzz targets and seeds | WP0 | `cargo test -p ieee80211 -p eapol`; seeded fuzz soak; `python fuzz/gen_corpus.py --check` |
 | **WP4 Station stack on the simulator** | §3.5 + §3.6: `wlanmd`, `wifisim`, `fake_ap.py`, `wifictl`; `netd` gets `wlan0` | WP1–WP3 | `tools/wifi/sim_run.py`: scan lists the fake SSIDs with channel and RSSI; open and WPA2-PSK joins; DHCP and echo over `wlan0`; the AP-side pcap shows EAPOL 1–4 and CCMP data the independent Python side decrypted; wrong passphrase, deauth, beacon loss and group rekey scenarios each end in the expected state; `wlanmd` killed mid-handshake is restarted by `init` and reconnects. `test_judge.py` fails when it should. CI |
 | **WP5 Profiles and front ends** | §3.7 + §3.10: profiles, auto-connect at boot and login, country, Network app page, tray icon and menu, Settings, `rhai`, launchers and GUI, core package permissions | WP4 | a session script against the simulator: connect from the Network app with the password dialog, reboot, auto-connect before login for a system network, a user network dropped at logout; screenshots judged by `pngstats.py`; no `LABEL:DENY` in the traced run; `test_catalog.py` |
 | **WP6 Driver landing pad** | §3.8 + §3.9: firmware path, fetch tool, `libs/fwload`; `os.lazy.usb.device.v1`; USB rows in `devd` | WP0 | a test class driver over the device interface passes its harness (storage or `usb-serial`); `tools/usb/run.py` and `tools/storage/run.py` still green; the fetched firmware lands at its `fhs` path with its licence, and an in-place update replaces it |
+
+**WP0 status (done).** Licence option A is recorded in the README and
+`THIRD_PARTY.md` (register of the five RustCrypto crates plus `dbl`, and
+"not yet taken" rows for mt76, OpenBSD `net80211` and the MediaTek blobs).
+`libs/crypto` gained `sha1 0.10.6`, `pbkdf2 0.12.2`, `aes 0.8.4`,
+`aes-kw 0.2.1`, `cmac 0.7.2` (all `MIT OR Apache-2.0`, pinned like the rest)
+and the `wifi` module of §3.2 with known-answer tests (Annex J.3/J.4, RFC
+2202, 3394, 4493, 6070); it builds for `x86_64-unknown-none` with
+`aes_force_soft` set in `.cargo/config.toml`. Uids 911-913 are reserved (§2).
+`idl/wifi.midl` is drafted and `midlc --check` passes. Deviations: the old
+plan's `906/907` were both taken (fixed above); Annex J has no EAPOL-Key MIC
+or KDF-SHA256 vector, so those use RFC 2202/4493 and a cross-check; the
+uid reservation is a comment, not a table, because
+this code base defines a uid next to the program that uses it.
 
 WP1, WP2, WP3 and WP6 are independent and can run in parallel; WP4 is the
 milestone that matters ("Wi-Fi works in CI except for the radio").

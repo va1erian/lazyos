@@ -11,6 +11,7 @@ fn info_roundtrips() {
         max_frame: 1514,
         link: true,
         features: 0,
+        kind: NIC_KIND_WIRED,
     };
     let body = encode_nic_info(&info).unwrap();
     assert_eq!(decode_nic_info(&body).unwrap(), info);
@@ -143,6 +144,7 @@ fn truncated_bodies_are_rejected() {
         max_frame: 1514,
         link: true,
         features: 0,
+        kind: NIC_KIND_WIRED,
     })
     .unwrap();
     assert!(decode_nic_info(&body[..body.len() - 3]).is_err());

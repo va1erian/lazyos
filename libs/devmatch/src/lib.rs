@@ -26,7 +26,12 @@ use alloc::vec::Vec;
 
 /// The `_devd` system user `devd` runs as: **no** capabilities. It reads the
 /// kernel's read-only device inventory and talks to `init`; it never claims a
-/// device. (901 `_snd`, 902 `_net`, 903 `_netd`, 904 `_usb`, 905 `_audio`.)
+/// device. (901 `_snd`, 902 `_net`, 903 `_netd`, 904 `_usb`, 905 `_audio`,
+/// 907 `_greeter`, 908 `_accounts`, 909 `_elev`, 910 `_mountd`. Reserved for
+/// the Wi-Fi plan, defined with their programs: 911 `_wifi` (`wifid`, the
+/// chip driver), 912 `_wlan` (`wlanmd`, the station manager), 913 `_wifisim`
+/// (`wifisim`, the CI simulator); docs/wifi-prerequisites-plan.md section 2.
+/// The next free uid after those is 914.)
 pub const DEVD_UID: u32 = 906;
 
 /// How a manifest entry recognises a function.

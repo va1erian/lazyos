@@ -1,0 +1,425 @@
+/// A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md
+/// section 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid
+/// `_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is
+/// `wlanmd` (uid `_wlan`, no capabilities). The simulator `wifisim` (`_wifisim`)
+/// serves the same interface in CI and is its first implementation, which is
+/// why nothing here is shaped by one chip.
+///
+/// **Trust.** The side that holds DMA parses nothing from the air and the side
+/// that parses the air holds no capabilities. So this interface moves
+/// *opaque management frames* in both directions: the driver hands over raw
+/// beacon, probe-response, authentication and association bodies exactly as
+/// the radio received them (with the radio's own metadata: channel, signal,
+/// age) and transmits frames `wlanmd` built, and it never looks inside an
+/// information element. Everything the driver does decide is a hardware
+/// matter: which channels it may tune (it enforces the country it was
+/// given), key slots, and the association state its firmware needs.
+///
+/// **The data path is not here.** Once the station is authorized, payload
+/// frames travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same
+/// driver serves to `netd` (the chip does the 802.3 to 802.11 conversion and
+/// the encryption). The NIC's link state follows this interface: it is down
+/// until `SetState(Authorized)`. A driver whose chip cannot convert frames is
+/// out of scope for v1.
+///
+/// **One client.** The first caller of `Attach` owns the radio; its identity
+/// is the kernel-stamped sender, and every later call or `Detach` by anyone
+/// else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
+/// or its event channel reporting the peer gone, detaches it and leaves the
+/// radio idle: scanning stops, the BSS is left, all keys are deleted.
+///
+/// **Events.** `Attach` carries the client's event channel; the driver sends
+/// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
+/// `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
+/// at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
+/// partially; one that does not fit is dropped and counted.
+///
+/// **Keys cross this interface.** `SetKey` is the one place secret material
+/// (a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is
+/// accepted only from the owner, the driver never logs or stores it beyond
+/// the key slot, and it is cleared by `DelKey`, `Leave` and `Detach`.
+///
+/// Failures of calls are returned as the shared structured error field
+/// (`services::error_field`) instead of the declared reply fields.
+interface os.lazy.net.wifi.hw.v1 {
+    /// Describe the radio: addresses, bands, ciphers, limits. Any caller the
+    /// label policy lets reach the driver may ask, attached or not: it reveals
+    /// only hardware facts.
+    method Info() -> (info: HwInfo = 1);
+    /// Become the radio's one client. `events` is the channel the driver
+    /// sends events on. `EBUSY` when attached.
+    method Attach(events: Channel<os.lazy.net.wifi.hw.v1> = 1) -> ();
+    /// Release the radio (also implied when the owner exits). Leaves the BSS,
+    /// aborts a scan and deletes every key.
+    method Detach() -> ();
+    /// Tell the radio which regulatory domain applies: an ISO 3166 alpha-2
+    /// code, or `00` for the world domain (passive scanning only on channels
+    /// where transmitting first is not universally allowed, no 6 GHz). The
+    /// driver must not transmit on a channel the domain forbids and may refuse
+    /// to transmit at all before the first call (`EAGAIN` from `Scan` with
+    /// active probing, `Join`, `TxMgmt`). A code it does not know is `EINVAL`.
+    /// The value comes from `wlanmd`, which reads `sys/net/wifi/country`;
+    /// the driver trusts nobody else for it.
+    method SetCountry(alpha2: String = 1) -> ();
+    /// Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it
+    /// does not wait. Only one scan runs at a time (`EBUSY`). At most
+    /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
+    /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
+    /// the radio or its domain does not have). A scan during an association
+    /// is allowed and may pause traffic for its dwell time.
+    method Scan(request: ScanRequest = 1) -> (scan_id: U32 = 1);
+    /// Stop the running scan early; `ScanDone` follows with `aborted` set.
+    /// Not an error when none runs.
+    method AbortScan(scan_id: U32 = 1) -> ();
+    /// One page of a finished (or running) scan's results, in the order the
+    /// radio heard them, from entry `first`; at most `max` entries (capped at
+    /// 64). `more` says whether a later page holds entries. Each entry is the
+    /// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+    /// An unknown `scan_id` is `ENOENT`.
+    method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2);
+    /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
+    /// `RxMgmt` carry the authentication and association exchange. Leaves any
+    /// previous BSS first. The reply means the radio is on the channel, not
+    /// that anything was heard.
+    method Join(request: JoinRequest = 1) -> ();
+    /// Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a
+    /// `FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11
+    /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
+    /// (the radio adds the 802.11 header and, once keys are installed, the
+    /// encryption). Only while joined (`ENOTCONN`); a frame longer than
+    /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+    method TxMgmt(kind: U32 = 1, frame: Bytes = 2) -> ();
+    /// Move the radio's association state: a `StaState` ordinal. `Associated`
+    /// carries the association id the AP assigned; `Authorized` opens the
+    /// controlled port (data frames flow, the NIC's link comes up) and is
+    /// valid only after the pairwise key is installed. Going to a lower state
+    /// is always allowed and takes the link down.
+    method SetState(state: U32 = 1, aid: U32 = 2) -> ();
+    /// Install a key in a hardware slot. `kind` is a `KeyKind` ordinal,
+    /// `index` the key id (pairwise 0, group 1 to 3, IGTK 4 to 5), `cipher`
+    /// a `Cipher` ordinal the radio advertised, `key` its exact length,
+    /// `rsc` the receive sequence counter the handshake delivered (little
+    /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
+    /// group key). Replaces a key in the same slot atomically. `EINVAL` for a
+    /// length or index that does not fit, `ENOSPC` for no free slot.
+    method SetKey(kind: U32 = 1, index: U32 = 2, cipher: U32 = 3, key: Bytes = 4, rsc: Bytes = 5, addr: Bytes = 6) -> ();
+    /// Remove a key; not an error when the slot is empty.
+    method DelKey(kind: U32 = 1, index: U32 = 2) -> ();
+    /// Leave the BSS: a `Deauthentication` with this IEEE 802.11 reason code
+    /// is sent if the radio can, every key is deleted, the NIC's link goes
+    /// down and the radio returns to idle. Not an error when not joined.
+    method Leave(reason: U32 = 1) -> ();
+    /// Counters since the driver started.
+    method Stats() -> (stats: HwStats = 1);
+
+    /// Event, driver to client: the scan finished (`aborted` false) or was
+    /// stopped (`aborted` true, or the radio could not finish); its results
+    /// are readable with `ScanResults` until the next `Scan`.
+    method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () oneway;
+    /// Event, driver to client: a management or EAPOL frame addressed to this
+    /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
+    /// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+    method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () oneway;
+    /// Event, driver to client: the radio stopped hearing the AP (the
+    /// firmware's missed-beacon threshold). The client decides what to do.
+    method BeaconLoss() -> () oneway;
+    /// Event, driver to client: the AP deauthenticated or disassociated us.
+    /// `reason` is the IEEE 802.11 reason code, taken from the frame by the
+    /// firmware (the one field of a frame the driver reports; the frame
+    /// itself is also delivered as `RxMgmt`).
+    method Deauthenticated(reason: U32 = 1) -> () oneway;
+
+    /// What the radio is.
+    struct HwInfo {
+        /// Six octets, network order: the station address (also the NIC's).
+        mac: Bytes = 1,
+        /// The registry name of the radio's `os.lazy.net.nic.v1` interface
+        /// (`wlan0`): how `wlanmd` names the interface in topics.
+        interface: String = 2,
+        /// Bands, a `Band` bitmap: bit *n* for the `Band` with ordinal *n*.
+        bands: U32 = 3,
+        /// Ciphers the hardware can run, a `Cipher` bitmap.
+        ciphers: U32 = 4,
+        /// Whether the firmware scans on its own (offload) rather than being
+        /// stepped by the host.
+        scan_offload: Bool = 5,
+        /// Largest management frame in either direction, in bytes.
+        max_mgmt: U32 = 6,
+        /// Most SSIDs one scan may probe for.
+        max_scan_ssids: U32 = 7,
+        /// Most channels one scan may name.
+        max_scan_channels: U32 = 8,
+        /// Hardware key slots (pairwise and group together).
+        key_slots: U32 = 9,
+        /// Feature bits, zero if none. Reserved bits are zero; a client
+        /// ignores them.
+        features: U32 = 10
+    }
+
+    /// What to scan. Channel numbers are 802.11 channel numbers within a
+    /// band, with `band` selecting which.
+    struct ScanRequest {
+        /// Channels to visit; empty means every channel the radio and the
+        /// regulatory domain allow.
+        channels: Array<U32> = 1,
+        /// A `Band` ordinal, used when `channels` is empty to limit the sweep
+        /// to one band; `U32::MAX` means all bands.
+        band: U32 = 2,
+        /// SSIDs to probe for (hidden networks); empty is a wildcard probe.
+        ssids: Array<Bytes> = 3,
+        /// Probe actively where the domain allows; otherwise listen only.
+        active: Bool = 4,
+        /// Milliseconds to stay on each channel, 0 for the driver's default.
+        dwell_ms: U32 = 5
+    }
+
+    /// One heard frame: a beacon or probe response, unparsed.
+    struct ScanEntry {
+        /// The complete management frame body (without FCS), as received.
+        frame: Bytes = 1,
+        /// The channel it was heard on (a number within `band`).
+        channel: U32 = 2,
+        /// A `Band` ordinal.
+        band: U32 = 3,
+        /// Signal strength in dBm as the radio measured it.
+        rssi_dbm: I32 = 4,
+        /// Milliseconds before the results were read that it was heard.
+        age_ms: U32 = 5
+    }
+
+    /// Where to go.
+    struct JoinRequest {
+        /// Six octets: the BSSID to authenticate with.
+        bssid: Bytes = 1,
+        channel: U32 = 2,
+        /// A `Band` ordinal.
+        band: U32 = 3,
+        /// A `Width` ordinal: the widest channel the client wants.
+        width: U32 = 4
+    }
+
+    /// Counters since the driver started.
+    struct HwStats {
+        scans: U64 = 1,
+        mgmt_rx: U64 = 2,
+        mgmt_tx: U64 = 3,
+        /// Frames dropped because the client's queue was full or a frame was
+        /// over `max_mgmt`.
+        mgmt_dropped: U64 = 4,
+        beacon_losses: U64 = 5,
+        deauths: U64 = 6,
+        /// Firmware errors and timeouts the driver recovered from.
+        fw_errors: U64 = 7,
+        /// Times the radio was reset.
+        resets: U64 = 8
+    }
+
+    /// Frame classes for `TxMgmt` and `RxMgmt`. `Mgmt`: an 802.11 management
+    /// frame (authentication, association, deauthentication, action). `Eapol`:
+    /// an EAPOL frame as 802.3 (the handshake runs before the port opens).
+    enum FrameKind { Mgmt, Eapol }
+
+    /// Bands; ordinals are the `bands` bit numbers, so new ones are
+    /// append-only.
+    enum Band { Ghz2, Ghz5, Ghz6 }
+
+    /// Channel widths.
+    enum Width { Mhz20, Mhz40, Mhz80, Mhz160 }
+
+    /// Ciphers; ordinals are the `ciphers` bit numbers. IEEE 802.11 suite
+    /// selectors: `Ccmp128` is 00-0F-AC:4, `Gcmp256` 00-0F-AC:9, `BipCmac128`
+    /// 00-0F-AC:6 (the IGTK cipher).
+    enum Cipher { Ccmp128, Gcmp256, BipCmac128 }
+
+    /// Key classes.
+    enum KeyKind { Pairwise, Group, Igtk }
+
+    /// The radio's association state, in order: each state implies the ones
+    /// before it. `Idle`: not joined. `Authenticated` and `Associated` mirror
+    /// the 802.11 state machine. `Authorized`: the 4-way handshake finished
+    /// and the controlled port is open.
+    enum StaState { Idle, Authenticated, Associated, Authorized }
+}
+
+/// The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisites-plan.md
+/// sections 3.5 and 3.7). `wlanmd` (uid `_wlan`, no capabilities) serves it
+/// under the registry name `os.lazy.net.wifi` and runs the station state
+/// machine over `os.lazy.net.wifi.hw.v1` and `keyd`. Front ends (the Network
+/// app, the tray applet, `wifictl`, `rhai`) are its clients.
+///
+/// **Who may do what** (the caller is the kernel-stamped sender; `elevd` is a
+/// recognised identity, never a claim in a request):
+///
+/// * Reading (`Networks`, `Status`) and `Scan`: any logged-in session user.
+/// * `Connect`, `Disconnect`, `AddNetwork` with scope `User`, and `Forget` of
+///   the caller's own network: any session user, for networks they own.
+/// * `AddNetwork` with scope `System`, `Forget` of a system network: only the
+///   `elevd` identity, after the administrator approved the prompt (action
+///   `net.wifi.system`); a session user gets `EPERM`. `Connect` to a system
+///   network is allowed to anyone (the secret never leaves `keyd`).
+///
+/// **Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`;
+/// `wlanmd` passes it to `keyd` at once, keeps nothing and never logs it, and
+/// no method ever returns one. Everything else here is non-secret: SSIDs,
+/// BSSIDs, security type, signal. A profile is stored in `confd` (system
+/// networks under `sys/net/wifi/networks/<id>`, a user's under
+/// `user/<uid>/net/wifi/networks/<id>`); the secret lives in `keyd` under the
+/// same `<id>` and scope.
+///
+/// **Hostile input.** `Networks` and the scan topic show the result of parsing
+/// beacons that any radio in range can send. Names are length-capped and
+/// stripped of control characters by `wlanmd` before they get here, but a
+/// client still treats an SSID as untrusted text (never as markup, never as a
+/// path or command).
+///
+/// Every method takes the interface name (`wlan0`) the registry gave the
+/// radio; a name `wlanmd` does not manage is `ENODEV`. Failures reply with the
+/// shared structured error field (`services::error_field`).
+interface os.lazy.net.wifi.v1 {
+    /// The wireless interfaces `wlanmd` manages, by name (`wlan0`).
+    method Interfaces() -> (names: Array<String> = 1);
+    /// Ask for a fresh scan; returns at once, the results arrive on
+    /// `system/net/{ifname}/wifi/scan`. `ssids` are hidden networks to probe
+    /// for (at most 4); empty is a wildcard scan. A scan is refused while one
+    /// is under way (`EBUSY`) and may be skipped while the link is busy with
+    /// the handshake.
+    method Scan(ifname: String = 1, ssids: Array<String> = 2) -> ();
+    /// The current scan results merged with the known profiles: one entry per
+    /// network (SSID and security), strongest BSS first, with the profile id
+    /// when the caller may use a known network. Profiles of other users are
+    /// not shown. At most 128 entries.
+    method Networks(ifname: String = 1) -> (list: Array<Network> = 1);
+    /// Remember a network and its secret. `profile.id` must be empty (the
+    /// service picks one and returns it); `scope` is a `Scope` ordinal. The
+    /// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
+    /// characters, or exactly 64 hex digits for a raw PSK) and must be absent
+    /// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
+    /// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
+    /// `EPERM` for scope `System` from anyone but `elevd`.
+    method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1);
+    /// Join the network `id` on `ifname`: leave the current one, scan if the
+    /// SSID is not in the results, pick the best BSS, authenticate, associate
+    /// and run the handshake. Returns when the attempt is started; the
+    /// outcome is on `system/net/{ifname}/wifi/state` (`Connected` or
+    /// `Failed` with a reason). A user network belongs to its owner: another
+    /// user gets `EPERM`.
+    method Connect(ifname: String = 1, id: String = 2) -> ();
+    /// Leave the current network and do not reconnect until asked (auto-
+    /// connect is suspended for this interface until the next `Connect`).
+    /// Not an error when not connected.
+    method Disconnect(ifname: String = 1) -> ();
+    /// Delete a profile and its secret. Disconnects first if it is the
+    /// current network. Not an error for an id that is gone.
+    method Forget(id: String = 1) -> ();
+    /// The interface's state now: the same value the retained `state` topic
+    /// carries, for a client that does not subscribe.
+    method Status(ifname: String = 1) -> (status: WifiState = 1);
+
+    /// A heard network, merged with what is known about it.
+    struct Network {
+        /// UTF-8 text sanitised by the service, at most 32 bytes. Empty for a
+        /// hidden network that is not a known profile (shown by BSSID only).
+        ssid: String = 1,
+        /// A `Security` ordinal.
+        security: U32 = 2,
+        /// Signal of the strongest BSS in dBm.
+        rssi_dbm: I32 = 3,
+        /// Frequency in MHz of that BSS.
+        freq_mhz: U32 = 4,
+        /// How many BSSes of this network were heard.
+        bss_count: U32 = 5,
+        /// The profile id when this is a known network the caller may use;
+        /// empty otherwise.
+        id: String = 6,
+        /// Whether this is the network the interface is connected to.
+        connected: Bool = 7
+    }
+
+    /// A network to remember. Non-secret fields only (the passphrase travels
+    /// as `AddNetwork`'s own argument).
+    struct Profile {
+        /// Empty on `AddNetwork`; set when listed.
+        id: String = 1,
+        ssid: String = 2,
+        /// A `Security` ordinal.
+        security: U32 = 3,
+        /// Probe for the SSID even when no beacon shows it.
+        hidden: Bool = 4,
+        /// Join it automatically when in range.
+        autoconnect: Bool = 5,
+        /// Higher wins when several known networks are in range.
+        priority: U32 = 6,
+        /// A `Scope` ordinal.
+        scope: U32 = 7
+    }
+
+    /// An interface's connection state: the payload of
+    /// `system/net/{ifname}/wifi/state`.
+    struct WifiState {
+        /// A `ConnState` ordinal.
+        state: U32 = 1,
+        /// The network joined or being joined (empty when none).
+        ssid: String = 2,
+        /// Six octets, the BSSID in use (empty when none).
+        bssid: Bytes = 3,
+        /// Signal of the current BSS in dBm (0 when not connected).
+        rssi_dbm: I32 = 4,
+        freq_mhz: U32 = 5,
+        /// The profile id in use (empty when none).
+        id: String = 6,
+        /// A `FailReason` ordinal; meaningful when `state` is `Failed`,
+        /// `None` otherwise.
+        reason: U32 = 7,
+        /// Changes since the service started, so a subscriber can tell a
+        /// repeat from a flap.
+        changes: U32 = 8
+    }
+
+    /// A scan finished: the payload of `system/net/{ifname}/wifi/scan`. It
+    /// carries no networks (those come from `Networks`, which is filtered
+    /// per caller); it only says the list changed.
+    struct ScanEvent {
+        /// Scans completed since the service started.
+        generation: U32 = 1,
+        /// Networks in the merged list.
+        count: U32 = 2
+    }
+
+    /// The interface's state, retained so a late subscriber (the tray applet
+    /// after login) sees it at once. `{ifname}` is the radio's interface name.
+    topic "system/net/{ifname}/wifi/state" : WifiState retained qos=latest;
+
+    /// A scan completed and `Networks` changed. Not retained: a client that
+    /// arrives later calls `Networks`.
+    topic "system/net/{ifname}/wifi/scan" : ScanEvent qos=latest;
+
+    /// Security types. `Wpa2Psk` is WPA2-Personal with CCMP (AKM 2, or AKM 6
+    /// when the AP offers PSK-SHA256 and management-frame protection).
+    /// Ordinals are append-only: WPA3-SAE and enterprise are not offered yet,
+    /// and a scan result of a type the service cannot join is reported as
+    /// `Unsupported` rather than hidden.
+    enum Security { Open, Wpa2Psk, Unsupported }
+
+    /// Who owns a profile. `User`: the caller, available while they are logged
+    /// in. `System`: everyone, including before login (needs `elevd`).
+    enum Scope { User, System }
+
+    /// The connection state machine. `Disabled`: no radio or the service is
+    /// stopped. `Idle`: nothing to do. `Scanning`, `Authenticating`,
+    /// `Associating`, `Handshake`: the steps of a join. `Connected`: the port
+    /// is open and the NIC's link is up. `Failed`: the last attempt ended,
+    /// see `FailReason`; the service retries with back-off unless the user
+    /// disconnected.
+    enum ConnState { Disabled, Idle, Scanning, Authenticating, Associating, Handshake, Connected, Failed }
+
+    /// Why an attempt failed. `None`: no failure. `NotFound`: no BSS of the
+    /// SSID was heard. `Rejected`: the AP refused authentication or
+    /// association. `BadPassphrase`: the handshake's MIC did not verify
+    /// (indistinguishable from an attack on the air, so the message is
+    /// worded as a probable wrong passphrase). `Timeout`: an expected frame
+    /// never came. `Deauthenticated`: the AP ended an established link.
+    /// `BeaconLoss`: the AP went silent. `PolicyMismatch`: the AP's security
+    /// settings differ between its beacon and the handshake. `Radio`: the
+    /// driver reported an error.
+    enum FailReason { None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio }
+}

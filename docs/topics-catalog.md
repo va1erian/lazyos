@@ -38,6 +38,8 @@ Declared and published since this snapshot:
 | `system/audio/mixer/event` | audiod (`_audio`) | apps on `os.lazy.audio` (`beep starve=1`) | no | `AudioEvent {stream, kind, frames}`: `Underrun` once per dry spell, `Drained`, `Period` (rate-limited, only while subscribed) | `idl/audio.midl` (#453) |
 | `system/audio/virtio-snd0/event` | sndd (`_snd`) | the mixer, diagnostics | no | `AudioEvent`: the card stream's `Underrun`, `Drained`, `DeviceError` | `idl/audio.midl` (#453) |
 | `system/events/app/<id>` | init (central broker) | LazyShell (`system/events/app/+`) | yes | `AppFailure {name, status, summary, reason, session, startup, at}` | `idl/init.midl` (#549) |
+| `system/net/<ifname>/wifi/state` (planned) | wlanmd (`_wlan`) | Network app, tray applet, `wifictl` | yes | `WifiState {state, ssid, bssid, rssi_dbm, freq_mhz, id, reason, changes}` | `idl/wifi.midl` (WP0 draft; no publisher yet) |
+| `system/net/<ifname>/wifi/scan` (planned) | wlanmd (`_wlan`) | Network app, tray applet | no | `ScanEvent {generation, count}` | `idl/wifi.midl` (WP0 draft; no publisher yet) |
 | `system/events/elevd/request` | elevd (`_elev`) | logd (journalled to `/logs/elevd.log`) | no | `Record`: one per request, whatever came of it (granted, refused, cancelled, held, busy, ...) | `idl/elevd.midl` (docs/accounts-plan.md U2, #625) |
 | `session/<id>/apps/resident` | init (central broker) | LazyShell (default tray items) | yes | `ResidentApps {apps: [ResidentApp {app, pid}]}`: the session's running resident apps | `idl/init.midl` (docs/tray-plan.md, #633) |
 | `session/<id>/shell/tray` | LazyShell | `xui_app::tray`, `libs/trayclient` (call `Set` again on a new generation) | yes | `Generation {generation}` | `idl/tray.midl` (docs/tray-plan.md, #633) |
