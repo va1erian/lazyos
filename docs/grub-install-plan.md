@@ -13,6 +13,32 @@
 > [`nvme-install-plan.md`](nvme-install-plan.md), which takes the whole disk
 > and owns its own layout and GPT work, and [`update-plan.md`](update-plan.md).
 
+## I0 results (the Kaby Lake box, survey of 2026-10-10)
+
+From [`compat/kabylake/grub-survey/`](compat/kabylake/grub-survey) (redacted
+with `tools/boot/redact_survey.py`):
+
+- **UEFI, Secure Boot off** (`mokutil`: disabled, Setup Mode). GRUB 2.14
+  (Ubuntu), shim chain `\EFI\ubuntu\shimx64.efi`.
+- **Disk:** one 512 GB SATA SSD, GPT, 512 B sectors, two partitions today:
+  `sda1` 300 MiB FAT32 ESP (292 MiB free) and `sda2` ext4 `/` (476.6 GiB, with
+  `/boot` on it). **The two LazyOS partitions do not exist yet**: the Linux
+  side must shrink `sda2` first.
+- **`/boot/grub` is on ext4**, reached through the ESP stub
+  `EFI/ubuntu/grub.cfg` (`search.fs_uuid` then `configfile`): confirms
+  decision 1, LazyOS cannot write GRUB's config.
+- **`custom.cfg` is sourced** by the generated `grub.cfg` (lines 400-403), so
+  the fallback in step 7 works here; `/etc/grub.d` has `40_custom`,
+  `41_custom` and `30_os-prober` (our `40_lazyos` coexists).
+- **The menu is hidden** (`GRUB_TIMEOUT_STYLE=hidden`, `GRUB_TIMEOUT=0`): the
+  entry will not show without Shift/Esc at power-on. The installer does not
+  change `/etc/default/grub`; it prints this, and the trial boot uses
+  `grub-reboot`, which works on a hidden menu (`next_entry` is read at
+  `grub.cfg` line 31).
+- **ESP space is ample** (292 MiB free for a kernel and a 1 MiB ramdisk).
+- `sgdisk` is not installed by default; the installer reads GPT itself and
+  must not require it.
+
 ## Goal and scope
 
 A Linux install (done by the person, with its own tools) has already
