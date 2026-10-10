@@ -108,6 +108,13 @@ pub fn logical_fit_cases() -> Result<(), String> {
 /// cut to the cap, a panel smaller than the cap is untouched, and every
 /// configured fit stays inside its framebuffer. Restores the default.
 pub fn logical_fit_configured_cap() -> Result<(), String> {
+    let result = logical_fit_configured_cap_inner();
+    // Restore the default on every exit path, a failed check included.
+    logical::set_cap(DEFAULT_WIDTH as u32, DEFAULT_HEIGHT as u32);
+    result
+}
+
+fn logical_fit_configured_cap_inner() -> Result<(), String> {
     logical::set_cap(2560, 1440);
     let cases = [
         ((2560, 1440), (0, 0, 2560, 1440)),
@@ -152,6 +159,13 @@ pub fn logical_fit_configured_cap() -> Result<(), String> {
 
 /// Soak: the fit stays inside its framebuffer for many modes and caps.
 pub fn logical_fit_cap_soak() -> Result<(), String> {
+    let result = logical_fit_cap_soak_inner();
+    // Restore the default on every exit path, a failed check included.
+    logical::set_cap(DEFAULT_WIDTH as u32, DEFAULT_HEIGHT as u32);
+    result
+}
+
+fn logical_fit_cap_soak_inner() -> Result<(), String> {
     let mut seed = 0x1234_5678_9ABC_DEF0u64;
     for round in 0..5000u32 {
         seed ^= seed << 13;

@@ -64,6 +64,13 @@ pub fn logical_bind_sizes() -> Result<(), String> {
 /// screen buffer by it, and re-derives the limits to cover the shell's
 /// double-buffered desktop.
 pub fn logical_bind_sizes_configured_cap() -> Result<(), String> {
+    let result = logical_bind_sizes_configured_cap_inner();
+    // Restore the default on every exit path, a failed check included.
+    logical::set_cap(1920, 1080);
+    result
+}
+
+fn logical_bind_sizes_configured_cap_inner() -> Result<(), String> {
     for (mode, want) in [
         ((3840, 2160), (2560, 1440)),
         ((2560, 1600), (2560, 1440)),
