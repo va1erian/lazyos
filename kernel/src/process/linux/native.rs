@@ -393,7 +393,19 @@ pub(crate) fn read_redirected() -> Option<u64> {
                 }
             }))
         }
-        FdKind::Pty => Some(super::tty::read_pty_char(0).unwrap_or(EOF_CHAR)),
+        FdKind::Pty => Some(task::poll_until(|| {
+            use crate::tty::pty::Error;
+            if task::signal::killed(task::current()) {
+                return Some(EOF_CHAR);
+            }
+            match super::tty::read_pty_char(0) {
+                Ok(Some(byte)) => Some(byte),
+                Ok(None) => Some(EOF_CHAR),
+                // Nothing yet, or a signal that did not kill us: try again.
+                Err(Error::WouldBlock | Error::Interrupted) => None,
+                Err(_) => Some(EOF_CHAR),
+            }
+        })),
         FdKind::File => Some(match task::fd_read(0, 1) {
             Some(chunk) if !chunk.is_empty() => u64::from(chunk[0]),
             _ => EOF_CHAR,

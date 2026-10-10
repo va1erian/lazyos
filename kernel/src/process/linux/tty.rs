@@ -131,10 +131,12 @@ pub(super) fn read_pty(fd: u64, ptr: u64, len: u64) -> u64 {
 }
 
 /// One byte from pty descriptor `fd` (a native `read_char` whose stdin the
-/// shell pointed at its pty slave); `None` at end of input or on an error.
-pub(super) fn read_pty_char(fd: u64) -> Option<u64> {
+/// shell pointed at its pty slave): `Ok(Some)` a byte, `Ok(None)` end of
+/// input, `Err(WouldBlock | Interrupted)` for the caller to poll or retry.
+pub(super) fn read_pty_char(fd: u64) -> Result<Option<u64>, crate::tty::pty::Error> {
+    use crate::tty::pty::Error;
     let Ok(Tty::Pty { pty, master }) = tty_of(fd) else {
-        return None;
+        return Ok(None);
     };
     let mut byte = [0u8; 1];
     let nonblock = pty.nonblock(master);
@@ -143,7 +145,12 @@ pub(super) fn read_pty_char(fd: u64) -> Option<u64> {
     } else {
         pty.slave_read(&mut byte, nonblock)
     };
-    matches!(got, Ok(1)).then(|| u64::from(byte[0]))
+    match got {
+        Ok(1) => Ok(Some(u64::from(byte[0]))),
+        Err(error @ (Error::WouldBlock | Error::Interrupted)) => Err(error),
+        // Zero bytes or a hung-up peer: nothing more will arrive.
+        _ => Ok(None),
+    }
 }
 
 /// `write` on a pty descriptor: typed input on the master, program output on

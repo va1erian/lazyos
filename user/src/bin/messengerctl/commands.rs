@@ -85,7 +85,15 @@ pub(crate) fn commands() -> ! {
 fn read_line(buffer: &mut [u8]) -> Option<usize> {
     let mut len = 0;
     loop {
-        let ch = sys::read_char_or_eof()?;
+        let Some(ch) = sys::read_char_or_eof() else {
+            // End of input after a partial command still runs it.
+            if len == 0 {
+                return None;
+            }
+            sys::write_str("
+");
+            return Some(len);
+        };
         if ch == b'\n' as u64 {
             sys::write_str("\n");
             return Some(len);
