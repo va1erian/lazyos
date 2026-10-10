@@ -15,6 +15,7 @@ use libmessenger::{Header, Parcel, VERSION};
 mod calls;
 mod identity;
 mod names;
+mod nic_names;
 mod session_topics;
 mod soak;
 
@@ -251,6 +252,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("label_session_topics_soak", session_topics::session_soak),
     ("label_calls_default_deny", calls::calls_default_deny),
     ("label_denial_audit_and_message", calls::denial_audit),
+    (
+        "label_nic_names_only_drivers_register",
+        nic_names::only_drivers_register,
+    ),
+    ("label_nic_names_edges", nic_names::namespace_edges),
+    (
+        "label_nic_names_soak",
+        nic_names::soak_drivers_and_impostors,
+    ),
     (
         "label_soak_register_load_cycles",
         soak::register_load_cycles,
