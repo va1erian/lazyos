@@ -1,0 +1,24 @@
+# dmesg | grep -i -E "r8169|rtl_nic|realtek|igc|e1000|eth[0-9]|enp|firmware|iwlwifi|rtw|link is"
+[    0.082546] Spectre V2 : Enabling Speculation Barrier for firmware calls
+[    0.288949] ACPI: [Firmware Bug]: BIOS _OSI(Linux) query ignored
+[    0.322179] acpi PNP0A08:00: [Firmware Info]: ECAM [mem 0xf8000000-0xfbffffff] for domain 0000 [bus 00-3f] only partially covers this bridge
+[    0.632115] PM: genpd: Disabling unused power domains
+[    1.089548] usb 3-2: Manufacturer: Realtek
+[    1.111672] r8169 0000:02:00.0 eth0: RTL8168h/8111h, REDACTED-MAC, XID 541, IRQ 51
+[    1.111682] r8169 0000:02:00.0 eth0: jumbo features [frames: 9194 bytes, tx checksumming: ko]
+[    1.149551] r8169 0000:03:00.0 eth1: RTL8168h/8111h, REDACTED-MAC, XID 541, IRQ 53
+[    1.149561] r8169 0000:03:00.0 eth1: jumbo features [frames: 9194 bytes, tx checksumming: ko]
+[    1.615626] r8169 0000:03:00.0 enp3s0: renamed from eth1
+[    1.616060] r8169 0000:02:00.0 eno1: renamed from eth0
+[    2.946461] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-REDACTED-GUID
+[    4.063650] rtw88_8822ce 0000:01:00.0: enabling device (0000 -> 0003)
+[    4.071517] rtw88_8822ce 0000:01:00.0: Firmware version 9.9.15, H2C version 15
+[    4.071660] rtw88_8822ce 0000:01:00.0: WOW Firmware version 9.9.4, H2C version 15
+[    4.127568] rtw88_8822ce 0000:01:00.0 wlp1s0: renamed from wlan0
+[    8.868235] amdgpu 0000:04:00.0: [VCN instance 0] Found VCN firmware Version ENC: 1.15 DEC: 3 VEP: 0 Revision: 0
+[   11.876354] Generic FE-GE Realtek PHY r8169-0-200:00: attached PHY driver (mii_bus:phy_addr=r8169-0-200:00, irq=MAC)
+[   12.009445] r8169 0000:02:00.0 eno1: Link is Down
+[   12.036516] Generic FE-GE Realtek PHY r8169-0-300:00: attached PHY driver (mii_bus:phy_addr=r8169-0-300:00, irq=MAC)
+[   12.167467] r8169 0000:03:00.0 enp3s0: Link is Down
+[   15.308917] r8169 0000:03:00.0 enp3s0: Link is Up - 1Gbps/Full - flow control rx/tx
+# exit 0

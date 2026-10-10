@@ -1,0 +1,89 @@
+# cat /proc/meminfo | head -5; echo; cat /proc/iomem
+MemTotal:        4966104 kB
+MemFree:          220488 kB
+MemAvailable:    1931620 kB
+Buffers:          142872 kB
+Cached:          1405896 kB
+
+00000000-00000fff : Reserved
+00001000-0009ffff : System RAM
+000a0000-000fffff : Reserved
+  000a0000-000dffff : PCI Bus 0000:00
+  000f0000-000fffff : System ROM
+00100000-09601fff : System RAM
+09602000-097fffff : Reserved
+09800000-0a1fffff : System RAM
+0a200000-0a20afff : ACPI Non-volatile Storage
+0a20b000-d8bb2fff : System RAM
+  69200000-6a936cef : Kernel code
+  6aa00000-6ba5afff : Kernel rodata
+  6bc00000-6c0d557f : Kernel data
+  6c647000-6cbfffff : Kernel bss
+d8bb3000-d91a1fff : Reserved
+d91a2000-d93d7fff : System RAM
+d93d8000-d93d8fff : Reserved
+d93d9000-dc665fff : System RAM
+dc666000-dd192fff : Reserved
+  dd167000-dd16afff : MSFT0101:00
+    dd167000-dd16afff : MSFT0101:00
+  dd16b000-dd16efff : MSFT0101:00
+    dd16b000-dd16efff : MSFT0101:00
+dd193000-dd20ffff : ACPI Tables
+dd210000-dd43afff : ACPI Non-volatile Storage
+dd43b000-ddcc3fff : Reserved
+ddcc4000-deffffff : System RAM
+df000000-dfffffff : Reserved
+e0000000-febfffff : PCI Bus 0000:00
+  e0000000-f01fffff : PCI Bus 0000:04
+    e0000000-efffffff : 0000:04:00.0
+    f0000000-f01fffff : 0000:04:00.0
+  f8000000-fbffffff : PCI ECAM 0000 [bus 00-3f]
+    f8000000-fbffffff : PNP0C01:00
+  fc800000-fcbfffff : PCI Bus 0000:04
+    fc800000-fc8fffff : 0000:04:00.4
+      fc800000-fc8fffff : xhci-hcd
+    fc900000-fc9fffff : 0000:04:00.3
+      fc900000-fc9fffff : xhci-hcd
+    fca00000-fcafffff : 0000:04:00.2
+      fca00000-fcafffff : ccp
+    fcb00000-fcb7ffff : 0000:04:00.0
+    fcb80000-fcb87fff : 0000:04:00.6
+      fcb80000-fcb87fff : ICH HD audio
+    fcb88000-fcb8bfff : 0000:04:00.1
+      fcb88000-fcb8bfff : ICH HD audio
+    fcb8c000-fcb8dfff : 0000:04:00.2
+      fcb8c000-fcb8dfff : ccp
+  fcc00000-fccfffff : PCI Bus 0000:05
+    fcc00000-fcc007ff : 0000:05:00.0
+      fcc00000-fcc007ff : ahci
+  fcd00000-fcdfffff : PCI Bus 0000:03
+    fcd00000-fcd03fff : 0000:03:00.0
+    fcd04000-fcd04fff : 0000:03:00.0
+      fcd04000-fcd04fff : r8169
+  fce00000-fcefffff : PCI Bus 0000:02
+    fce00000-fce03fff : 0000:02:00.0
+    fce04000-fce04fff : 0000:02:00.0
+      fce04000-fce04fff : r8169
+  fcf00000-fcffffff : PCI Bus 0000:01
+    fcf00000-fcf0ffff : 0000:01:00.0
+      fcf00000-fcf0ffff : rtw88_pci
+  fd000000-fdffffff : PNP0C02:01
+    fd110510-fd11053f : MSFT0101:00
+  feb80000-febfffff : amd_iommu
+fec00000-fec003ff : IOAPIC 0
+fec01000-fec013ff : IOAPIC 1
+fec10000-fec10fff : PNP0C02:02
+fed00000-fed003ff : HPET 0
+  fed00000-fed003ff : PNP0103:00
+fed81500-fed818ff : AMDI0030:00
+  fed81500-fed818ff : AMDI0030:00 AMDI0030:00
+fedc0000-fedc0fff : PNP0C02:02
+fee00000-ffffffff : PCI Bus 0000:00
+  fee00000-fee00fff : PNP0C02:02
+  ff000000-ffffffff : PNP0C02:02
+100000000-15effffff : System RAM
+15f000000-21effffff : Reserved
+21f000000-21f33ffff : System RAM
+21f340000-21fffffff : Reserved
+7ff40000000-7ffffffffff : 0000:04:00.0
+# exit 0

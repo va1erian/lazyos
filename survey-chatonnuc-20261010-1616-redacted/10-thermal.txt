@@ -1,0 +1,3 @@
+# for z in /sys/class/thermal/thermal_zone*; do echo "$z $(cat $z/type 2>&1) $(cat $z/temp 2>&1)"; done
+/sys/class/thermal/thermal_zone* cat: '/sys/class/thermal/thermal_zone*/type': No such file or directory cat: '/sys/class/thermal/thermal_zone*/temp': No such file or directory
+# exit 0

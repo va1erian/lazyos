@@ -1,0 +1,13 @@
+# for d in /dev/sd? /dev/nvme?n?; do [ -b "$d" ] && fdisk -l "$d" 2>&1; done
+Disk /dev/sda: 238,47 GiB, 256060514304 bytes, 500118192 sectors
+Disk model: GOFATOO 256GB SS
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: REDACTED-GUID
+
+Device      Start       End   Sectors   Size Type
+/dev/sda1    4096    618495    614400   300M EFI System
+/dev/sda2  618496 500118125 499499630 238,2G Linux filesystem
+# exit 1

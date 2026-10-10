@@ -1,0 +1,60 @@
+# dmesg | grep -i -E "i915|drm|efifb|simpledrm|fb0|framebuffer|vgaarb|BAR"
+[    0.006721] Booting paravirtualized kernel on bare hardware
+[    0.082542] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.082546] Spectre V2 : Enabling Speculation Barrier for firmware calls
+[    0.082556] Spectre V2 : mitigation: Enabling conditional Indirect Branch Prediction Barrier
+[    0.326800] pci 0000:01:00.0: BAR 0 [io  0xf000-0xf0ff]
+[    0.326809] pci 0000:01:00.0: BAR 2 [mem 0xfcf00000-0xfcf0ffff 64bit]
+[    0.327569] pci 0000:02:00.0: BAR 0 [io  0xe000-0xe0ff]
+[    0.327577] pci 0000:02:00.0: BAR 2 [mem 0xfce04000-0xfce04fff 64bit]
+[    0.327584] pci 0000:02:00.0: BAR 4 [mem 0xfce00000-0xfce03fff 64bit]
+[    0.328232] pci 0000:03:00.0: BAR 0 [io  0xd000-0xd0ff]
+[    0.328240] pci 0000:03:00.0: BAR 2 [mem 0xfcd04000-0xfcd04fff 64bit]
+[    0.328247] pci 0000:03:00.0: BAR 4 [mem 0xfcd00000-0xfcd03fff 64bit]
+[    0.328934] pci 0000:04:00.0: BAR 0 [mem 0xe0000000-0xefffffff 64bit pref]
+[    0.328939] pci 0000:04:00.0: BAR 2 [mem 0xf0000000-0xf01fffff 64bit pref]
+[    0.328943] pci 0000:04:00.0: BAR 4 [io  0xc000-0xc0ff]
+[    0.328947] pci 0000:04:00.0: BAR 5 [mem 0xfcb00000-0xfcb7ffff]
+[    0.329359] pci 0000:04:00.1: BAR 0 [mem 0xfcb88000-0xfcb8bfff]
+[    0.329632] pci 0000:04:00.2: BAR 2 [mem 0xfca00000-0xfcafffff]
+[    0.329638] pci 0000:04:00.2: BAR 5 [mem 0xfcb8c000-0xfcb8dfff]
+[    0.329895] pci 0000:04:00.3: BAR 0 [mem 0xfc900000-0xfc9fffff 64bit]
+[    0.330186] pci 0000:04:00.4: BAR 0 [mem 0xfc800000-0xfc8fffff 64bit]
+[    0.330467] pci 0000:04:00.6: BAR 0 [mem 0xfcb80000-0xfcb87fff]
+[    0.330879] pci 0000:05:00.0: BAR 5 [mem 0xfcc00000-0xfcc007ff]
+[    0.340386] pci 0000:04:00.0: vgaarb: setting as boot VGA device
+[    0.340386] pci 0000:04:00.0: vgaarb: bridge control possible
+[    0.340386] pci 0000:04:00.0: vgaarb: VGA device added: decodes=io+mem,owns=none,locks=none
+[    0.340386] vgaarb: loaded
+[    0.427171] ACPI: bus type drm_connector registered
+[    0.441503] simple-framebuffer simple-framebuffer.0: [drm] Registered 1 planes with drm panic
+[    0.441524] [drm] Initialized simpledrm 1.0.0 for simple-framebuffer.0 on minor 0
+[    0.444364] simple-framebuffer simple-framebuffer.0: [drm] fb0: simpledrmdrmfb frame buffer device
+[    1.109057] ata1: SATA max UDMA/133 abar m2048@0xfcc00000 port 0xfcc00100 irq 50 lpm-pol 3
+[    2.576415] systemd[1]: systemd 259.5-0ubuntu3 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[    2.940497] systemd[1]: modprobe@drm.service - Load Kernel Module drm skipped, unmet condition check ConditionKernelModuleLoaded=!drm
+[    8.838461] amdgpu 0000:04:00.0: [drm] ATOM BIOS: 113-PICASSO-117
+[    8.865083] amdgpu 0000:04:00.0: vgaarb: deactivate vga console
+[    8.865184] amdgpu 0000:04:00.0: [drm] Detected VRAM RAM=3072M, BAR=3072M
+[    8.865188] amdgpu 0000:04:00.0: [drm] RAM width 64bits DDR4
+[    8.865523] amdgpu 0000:04:00.0: [drm] GART: num cpu pages 262144, num gpu pages 262144
+[    8.865778] amdgpu 0000:04:00.0: [drm] PCIE GART of 1024M enabled.
+[    8.865784] amdgpu 0000:04:00.0: [drm] PTB located at 0x000000F400A00000
+[    8.981624] [drm] DM_PPLIB: values for F clock
+[    8.981633] [drm] DM_PPLIB:	 400000 in kHz, 2874 in mV
+[    8.981637] [drm] DM_PPLIB:	 933000 in kHz, 3224 in mV
+[    8.981640] [drm] DM_PPLIB:	 1067000 in kHz, 3924 in mV
+[    8.981644] [drm] DM_PPLIB:	 1200000 in kHz, 4074 in mV
+[    8.981648] [drm] DM_PPLIB: values for DCF clock
+[    8.981650] [drm] DM_PPLIB:	 300000 in kHz, 2874 in mV
+[    8.981653] [drm] DM_PPLIB:	 600000 in kHz, 3224 in mV
+[    8.981656] [drm] DM_PPLIB:	 626000 in kHz, 3924 in mV
+[    8.981659] [drm] DM_PPLIB:	 654000 in kHz, 4074 in mV
+[    8.982653] amdgpu 0000:04:00.0: [drm] Display Core v3.2.369 initialized on DCN 1.0
+[    9.087581] amdgpu 0000:04:00.0: [drm] Registered 4 planes with drm panic
+[    9.098396] [drm] Initialized amdgpu 3.64.0 for 0000:04:00.0 on minor 1
+[    9.109298] amdgpu 0000:04:00.0: [drm] Failed to setup vendor infoframe on connector HDMI-A-1: -22
+[    9.125465] fbcon: amdgpudrmfb (fb0) is primary device
+[    9.125722] amdgpu 0000:04:00.0: [drm] fb0: amdgpudrmfb frame buffer device
+[  482.574953] systemd[1]: systemd 259.5-0ubuntu3.4 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+# exit 0

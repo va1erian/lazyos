@@ -1,0 +1,22 @@
+# dmesg | grep -i -E "tsc|hpet|clocksource|lapic|apic timer|pmtmr|mwait|c-state|intel_idle"
+[    0.000000] tsc: Fast TSC calibration using PIT
+[    0.000000] tsc: Detected 2099.977 MHz processor
+[    0.006029] ACPI: HPET 0x00000000DD1B96A0 000038 (v01 ALASKA A M I    01072009 AMI  00000005)
+[    0.006079] ACPI: Reserving HPET table memory at [mem 0xdd1b96a0-0xdd1b96d7]
+[    0.006627] ACPI: LAPIC_NMI (acpi_id[0xff] high edge lint[0x1])
+[    0.006656] ACPI: HPET id: 0x10228201 base: 0xfed00000
+[    0.006723] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1910969940391419 ns
+[    0.076285] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 133484873504 ns
+[    0.082317] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x1e451abd656, max_idle_ns: 440795222232 ns
+[    0.082526] process: using mwait in idle threads
+[    0.248902] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.340409] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0
+[    0.340418] hpet0: 3 comparators, 32-bit 14.318180 MHz counter
+[    0.346217] clocksource: Switched to clocksource tsc-early
+[    0.355125] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    0.406770] Monitor-Mwait will be used to enter C-1 state
+[    1.387353] tsc: Refined TSC clocksource calibration: 2099.999 MHz
+[    1.387367] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x1e452fc488e, max_idle_ns: 440795307124 ns
+[    1.387412] clocksource: Switched to clocksource tsc
+[    4.100369] kvm_amd: TSC scaling supported
+# exit 0

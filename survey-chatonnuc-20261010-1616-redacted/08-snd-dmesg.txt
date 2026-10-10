@@ -1,0 +1,19 @@
+# dmesg | grep -i -E "snd|hda|audio|codec"
+[    4.166452] snd_hda_intel 0000:04:00.1: enabling device (0000 -> 0002)
+[    4.166672] snd_hda_intel 0000:04:00.1: Handle vga_switcheroo audio client
+[    4.166799] snd_hda_intel 0000:04:00.6: enabling device (0000 -> 0002)
+[    4.209004] input: HD-Audio Generic HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input11
+[    4.209182] input: HD-Audio Generic HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input12
+[    4.210038] input: HD-Audio Generic HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input13
+[    4.210038] snd_hda_codec_conexant hdaudioC1D0: SN6140: BIOS auto-probing.
+[    4.210751] snd_hda_codec_conexant hdaudioC1D0: autoconfig for SN6140: line_outs=1 (0x16/0x0/0x0/0x0/0x0) type:hp
+[    4.210759] snd_hda_codec_conexant hdaudioC1D0:    speaker_outs=0 (0x0/0x0/0x0/0x0/0x0)
+[    4.210765] snd_hda_codec_conexant hdaudioC1D0:    hp_outs=0 (0x0/0x0/0x0/0x0/0x0)
+[    4.210770] snd_hda_codec_conexant hdaudioC1D0:    mono: mono_out=0x0
+[    4.210774] snd_hda_codec_conexant hdaudioC1D0:    inputs:
+[    4.210778] snd_hda_codec_conexant hdaudioC1D0:      Mic=0x19
+[    4.210782] snd_hda_codec_conexant hdaudioC1D0:      Internal Mic=0x1a
+[    4.217450] input: HD-Audio Generic Mic as /devices/pci0000:00/0000:00:08.1/0000:04:00.6/sound/card1/input14
+[    4.217595] input: HD-Audio Generic Headphone as /devices/pci0000:00/0000:00:08.1/0000:04:00.6/sound/card1/input15
+[    8.992909] snd_hda_intel 0000:04:00.1: bound 0000:04:00.0 (ops amdgpu_dm_audio_component_bind_ops [amdgpu])
+# exit 0

@@ -1,0 +1,108 @@
+# lsmod
+Module                  Size  Used by
+cpuid                  12288  0
+udp_diag               12288  0
+ib_core               552960  0
+tcp_diag               20480  0
+inet_diag              24576  2 tcp_diag,udp_diag
+rfcomm                110592  6
+snd_seq_dummy          12288  0
+snd_hrtimer            12288  1
+qrtr                   53248  2
+cmac                   12288  3
+algif_hash             20480  1
+algif_skcipher         12288  1
+af_alg                 32768  6 algif_hash,algif_skcipher
+bnep                   32768  2
+binfmt_misc            24576  1
+amdgpu              21549056  57
+snd_hda_codec_conexant    36864  1
+snd_hda_codec_atihdmi    24576  1
+snd_hda_codec_generic   126976  1 snd_hda_codec_conexant
+snd_hda_codec_hdmi     65536  1 snd_hda_codec_atihdmi
+amd_atl                77824  1
+snd_hda_intel          65536  2
+intel_rapl_msr         20480  0
+intel_rapl_common      57344  1 intel_rapl_msr
+snd_hda_codec         212992  5 snd_hda_codec_generic,snd_hda_codec_conexant,snd_hda_codec_hdmi,snd_hda_intel,snd_hda_codec_atihdmi
+snd_hda_core          151552  6 snd_hda_codec_generic,snd_hda_codec_conexant,snd_hda_codec_hdmi,snd_hda_intel,snd_hda_codec,snd_hda_codec_atihdmi
+snd_intel_dspcfg       45056  1 snd_hda_intel
+edac_mce_amd           28672  0
+snd_intel_sdw_acpi     16384  1 snd_intel_dspcfg
+snd_hwdep              24576  1 snd_hda_codec
+snd_pcm               212992  4 snd_hda_codec_hdmi,snd_hda_intel,snd_hda_codec,snd_hda_core
+kvm_amd               258048  0
+rtw88_8822ce           12288  0
+amdxcp                 12288  1 amdgpu
+snd_seq_midi           24576  0
+drm_panel_backlight_quirks    12288  1 amdgpu
+nls_iso8859_1          12288  1
+ee1004                 16384  0
+snd_seq_midi_event     16384  1 snd_seq_midi
+rtw88_8822c           512000  1 rtw88_8822ce
+gpu_sched              69632  1 amdgpu
+drm_buddy              28672  1 amdgpu
+kvm                  1527808  1 kvm_amd
+btusb                  81920  0
+drm_ttm_helper         20480  2 amdgpu
+snd_rawmidi            57344  1 snd_seq_midi
+btmtk                  36864  1 btusb
+rtw88_pci              40960  1 rtw88_8822ce
+btrtl                  36864  1 btusb
+ttm                   135168  2 amdgpu,drm_ttm_helper
+irqbypass              16384  1 kvm
+snd_seq               126976  9 snd_seq_midi,snd_seq_midi_event,snd_seq_dummy
+rtw88_core            376832  2 rtw88_pci,rtw88_8822c
+drm_exec               12288  1 amdgpu
+btbcm                  24576  1 btusb
+drm_suballoc_helper    24576  1 amdgpu
+i2c_piix4              36864  0
+btintel                69632  1 btusb
+drm_display_helper    303104  1 amdgpu
+snd_seq_device         16384  3 snd_seq,snd_seq_midi,snd_rawmidi
+rapl                   20480  0
+k10temp                16384  0
+i2c_smbus              20480  1 i2c_piix4
+mac80211             1933312  2 rtw88_pci,rtw88_core
+bluetooth            1130496  34 btrtl,btmtk,btintel,btbcm,bnep,btusb,rfcomm
+snd_timer              53248  3 snd_seq,snd_hrtimer,snd_pcm
+cec                   106496  2 drm_display_helper,amdgpu
+snd                   147456  17 snd_hda_codec_generic,snd_seq,snd_hda_codec_conexant,snd_seq_device,snd_hda_codec_hdmi,snd_hwdep,snd_hda_intel,snd_hda_codec,snd_timer,snd_pcm,snd_rawmidi
+rc_core                81920  1 cec
+soundcore              16384  1 snd
+i2c_algo_bit           16384  1 amdgpu
+ccp                   192512  1 kvm_amd
+cfg80211             1536000  2 rtw88_core,mac80211
+libarc4                12288  1 mac80211
+input_leds             12288  0
+mac_hid                12288  0
+sch_fq_codel           28672  3
+lp                     32768  0
+ppdev                  24576  0
+parport_pc             53248  0
+parport                81920  3 parport_pc,lp,ppdev
+msr                    12288  0
+efi_pstore             12288  0
+nfnetlink              20480  0
+dmi_sysfs              28672  0
+autofs4                61440  1
+btrfs                2314240  0
+libblake2b             20480  1 btrfs
+xor                    24576  1 btrfs
+raid6_pq              126976  1 btrfs
+video                  77824  1 amdgpu
+wmi                    36864  1 video
+ghash_clmulni_intel    12288  0
+psmouse               225280  0
+serio_raw              20480  0
+i2c_hid_acpi           12288  0
+i2c_hid                40960  1 i2c_hid_acpi
+ahci                   53248  2
+r8169                 151552  0
+libahci                57344  1 ahci
+realtek                57344  2
+hid_generic            12288  0
+usbhid                 86016  0
+hid                   278528  3 i2c_hid,usbhid,hid_generic
+aesni_intel            98304  1
+# exit 0

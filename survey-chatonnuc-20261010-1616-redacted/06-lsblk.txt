@@ -1,0 +1,17 @@
+# lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,SERIAL,FSTYPE,LABEL,UUID,PTTYPE,PHY-SEC,LOG-SEC,ROTA,MOUNTPOINT
+NAME     SIZE TYPE TRAN   MODEL             SERIAL         FSTYPE   LABEL        UUID                                 PTTYPE PHY-SEC LOG-SEC ROTA MOUNTPOINT
+loop0      4K loop                                         squashfs                                                              512     512    0 /snap/bare/5
+loop1   66,8M loop                                         squashfs                                                              512     512    0 /snap/core24/1587
+loop2  273,7M loop                                         squashfs                                                              512     512    0 /snap/firefox/8107
+loop3  606,1M loop                                         squashfs                                                              512     512    0 /snap/gnome-46-2404/153
+loop4   91,7M loop                                         squashfs                                                              512     512    0 /snap/gtk-common-themes/1535
+loop5    264K loop                                         squashfs                                                              512     512    0 /snap/gtk-theme-breeze/8
+loop6   13,2M loop                                         squashfs                                                              512     512    0 /snap/icon-theme-breeze/5
+loop7    395M loop                                         squashfs                                                              512     512    0 /snap/mesa-2404/1165
+loop8   49,3M loop                                         squashfs                                                              512     512    0 /snap/snapd/26865
+loop9  227,6M loop                                         squashfs                                                              512     512    0 /snap/thunderbird/1057
+loop10  66,8M loop                                         squashfs                                                              512     512    0 /snap/core24/2124
+sda    238,5G disk sata   GOFATOO 256GB SSD REDACTED                                                                  gpt        512     512    0 
+├─sda1   300M part                                         vfat                  5192-0597                            gpt        512     512    0 /boot/efi
+└─sda2 238,2G part                                         ext4     kubuntu_2604 REDACTED-GUID gpt        512     512    0 /
+# exit 0

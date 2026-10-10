@@ -1,0 +1,5 @@
+# for d in $(lsblk -dno NAME,TYPE 2>/dev/null | while read n t; do [ "$t" = disk ] && echo /dev/$n; done); do echo "== $d"; sgdisk -p "$d" 2>&1 || echo "# sgdisk missing or failed"; done
+== /dev/sda
+sh: 1: sgdisk: not found
+# sgdisk missing or failed
+# exit 0

@@ -1,0 +1,75 @@
+# dmesg | grep -i -E "xhci|usb |usbhid|hid-|input:"
+[    0.335637] ACPI: bus type USB registered
+[    0.406587] input: Power Button as /devices/platform/PNP0C0C:00/input/input0
+[    0.406679] input: Power Button as /devices/platform/LNXPWRBN:00/input/input1
+[    0.428583] xhci_hcd 0000:04:00.3: xHCI Host Controller
+[    0.428594] xhci_hcd 0000:04:00.3: new USB bus registered, assigned bus number 1
+[    0.428789] xhci_hcd 0000:04:00.3: hcc params 0x0270ffe5 hci version 0x110 quirks 0x0004000840000010
+[    0.429291] xhci_hcd 0000:04:00.3: xHCI Host Controller
+[    0.429296] xhci_hcd 0000:04:00.3: new USB bus registered, assigned bus number 2
+[    0.429301] xhci_hcd 0000:04:00.3: Host supports USB 3.1 Enhanced SuperSpeed
+[    0.429413] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 7.00
+[    0.429417] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.429421] usb usb1: Product: xHCI Host Controller
+[    0.429423] usb usb1: Manufacturer: Linux 7.0.0-14-generic xhci-hcd
+[    0.429426] usb usb1: SerialNumber: REDACTED
+[    0.429645] hub 1-0:1.0: USB hub found
+[    0.431224] usb usb2: We don't know the algorithms for LPM for this host, disabling LPM.
+[    0.431270] usb usb2: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 7.00
+[    0.431274] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.431277] usb usb2: Product: xHCI Host Controller
+[    0.431280] usb usb2: Manufacturer: Linux 7.0.0-14-generic xhci-hcd
+[    0.431282] usb usb2: SerialNumber: REDACTED
+[    0.431433] hub 2-0:1.0: USB hub found
+[    0.433382] xhci_hcd 0000:04:00.4: xHCI Host Controller
+[    0.433395] xhci_hcd 0000:04:00.4: new USB bus registered, assigned bus number 3
+[    0.433687] xhci_hcd 0000:04:00.4: hcc params 0x0260ffe5 hci version 0x110 quirks 0x0004000840000010
+[    0.434293] xhci_hcd 0000:04:00.4: xHCI Host Controller
+[    0.434299] xhci_hcd 0000:04:00.4: new USB bus registered, assigned bus number 4
+[    0.434304] xhci_hcd 0000:04:00.4: Host supports USB 3.1 Enhanced SuperSpeed
+[    0.434481] usb usb3: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 7.00
+[    0.434486] usb usb3: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.434489] usb usb3: Product: xHCI Host Controller
+[    0.434492] usb usb3: Manufacturer: Linux 7.0.0-14-generic xhci-hcd
+[    0.434494] usb usb3: SerialNumber: REDACTED
+[    0.434716] hub 3-0:1.0: USB hub found
+[    0.435691] usb usb4: We don't know the algorithms for LPM for this host, disabling LPM.
+[    0.435736] usb usb4: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 7.00
+[    0.435740] usb usb4: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.435743] usb usb4: Product: xHCI Host Controller
+[    0.435746] usb usb4: Manufacturer: Linux 7.0.0-14-generic xhci-hcd
+[    0.435748] usb usb4: SerialNumber: REDACTED
+[    0.435910] hub 4-0:1.0: USB hub found
+[    0.447179] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input2
+[    0.667597] usb 1-1: new full-speed USB device number 2 using xhci_hcd
+[    0.675586] usb 3-1: new full-speed USB device number 2 using xhci_hcd
+[    0.810618] usb 1-1: New USB device found, idVendor=046d, idProduct=c542, bcdDevice= 3.08
+[    0.810636] usb 1-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    0.810646] usb 1-1: Product: Wireless Receiver
+[    0.810655] usb 1-1: Manufacturer: Logitech
+[    0.822461] usb 3-1: New USB device found, idVendor=1a2c, idProduct=b51f, bcdDevice= 1.00
+[    0.822478] usb 3-1: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    0.822488] usb 3-1: Product: BladeMaster TE 87K
+[    0.822498] usb 3-1: Manufacturer: DREVO.Inc
+[    0.865976] usbcore: registered new interface driver usbhid
+[    0.865985] usbhid: USB HID core driver
+[    0.896272] input: Logitech Wireless Receiver Mouse as /devices/pci0000:00/0000:00:08.1/0000:04:00.3/usb1/1-1/1-1:1.0/0003:046D:C542.0001/input/input4
+[    0.896541] hid-generic 0003:046D:C542.0001: input,hidraw0: USB HID v1.11 Mouse [Logitech Wireless Receiver] on usb-0000:04:00.3-1/input0
+[    0.897047] input: DREVO.Inc BladeMaster TE 87K Keyboard as /devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb3/3-1/3-1:1.0/0003:1A2C:B51F.0002/input/input5
+[    0.944594] usb 3-2: new full-speed USB device number 3 using xhci_hcd
+[    0.948605] input: DREVO.Inc BladeMaster TE 87K Mouse as /devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb3/3-1/3-1:1.0/0003:1A2C:B51F.0002/input/input6
+[    0.948897] hid-generic 0003:1A2C:B51F.0002: input,hiddev0,hidraw1: USB HID v1.10 Keyboard [DREVO.Inc BladeMaster TE 87K] on usb-0000:04:00.4-1/input0
+[    0.949271] input: DREVO.Inc BladeMaster TE 87K as /devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb3/3-1/3-1:1.1/0003:1A2C:B51F.0003/input/input8
+[    1.000623] hid-generic 0003:1A2C:B51F.0003: input,hidraw2: USB HID v1.10 Keyboard [DREVO.Inc BladeMaster TE 87K] on usb-0000:04:00.4-1/input1
+[    1.089529] usb 3-2: New USB device found, idVendor=0bda, idProduct=c822, bcdDevice= 0.00
+[    1.089540] usb 3-2: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+[    1.089545] usb 3-2: Product: Bluetooth Radio
+[    1.089548] usb 3-2: Manufacturer: Realtek
+[    1.089552] usb 3-2: SerialNumber: REDACTED
+[    1.612594] input: Video Bus as /devices/pci0000:00/0000:00:08.1/acpi.video_bus.0/input/input10
+[    4.209004] input: HD-Audio Generic HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input11
+[    4.209182] input: HD-Audio Generic HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input12
+[    4.210038] input: HD-Audio Generic HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:08.1/0000:04:00.1/sound/card0/input13
+[    4.217450] input: HD-Audio Generic Mic as /devices/pci0000:00/0000:00:08.1/0000:04:00.6/sound/card1/input14
+[    4.217595] input: HD-Audio Generic Headphone as /devices/pci0000:00/0000:00:08.1/0000:04:00.6/sound/card1/input15
+# exit 0

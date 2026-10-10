@@ -1,0 +1,40 @@
+# ls -l /sys/firmware/acpi/tables/ /sys/firmware/acpi/tables/dynamic 2>&1; dmesg | grep -i -E "ACPI: (RSDP|XSDT|FACP|APIC|HPET|DMAR|MCFG)"
+/sys/firmware/acpi/tables/:
+total 0
+-r-------- 1 root root   222 Oct 10 16:16 APIC
+-r-------- 1 root root    56 Oct 10 16:16 BGRT
+-r-------- 1 root root    41 Oct 10 16:16 CDIT
+-r-------- 1 root root  2064 Oct 10 16:16 CRAT
+-r-------- 1 root root 31992 Oct 10 16:16 DSDT
+-r-------- 1 root root   276 Oct 10 16:16 FACP
+-r-------- 1 root root    64 Oct 10 16:16 FACS
+-r-------- 1 root root   156 Oct 10 16:16 FIDT
+-r-------- 1 root root    68 Oct 10 16:16 FPDT
+-r-------- 1 root root    56 Oct 10 16:16 HPET
+-r-------- 1 root root   318 Oct 10 16:16 IVRS
+-r-------- 1 root root    60 Oct 10 16:16 MCFG
+-r-------- 1 root root    85 Oct 10 16:16 MSDM
+-r-------- 1 root root 21529 Oct 10 16:16 SSDT1
+-r-------- 1 root root  4508 Oct 10 16:16 SSDT2
+-r-------- 1 root root   551 Oct 10 16:16 SSDT3
+-r-------- 1 root root  3191 Oct 10 16:16 SSDT4
+-r-------- 1 root root  4261 Oct 10 16:16 SSDT5
+-r-------- 1 root root  9215 Oct 10 16:16 SSDT6
+-r-------- 1 root root   766 Oct 10 16:16 SSDT7
+-r-------- 1 root root    76 Oct 10 16:16 TPM2
+-r-------- 1 root root    66 Oct 10 16:16 UEFI
+-r-------- 1 root root 54404 Oct 10 16:16 VFCT
+-r-------- 1 root root    40 Oct 10 16:16 WSMT
+drwxr-xr-x 2 root root     0 Oct 10 16:16 data
+drwxr-xr-x 2 root root     0 Oct 10 16:16 dynamic
+
+/sys/firmware/acpi/tables/dynamic:
+total 0
+[    0.005991] ACPI: RSDP 0x00000000DD1AC000 000024 (v02 ALASKA)
+[    0.005995] ACPI: XSDT 0x00000000DD1AC0A8 0000D4 (v01 ALASKA A M I    01072009 AMI  00010013)
+[    0.006001] ACPI: FACP 0x00000000DD1B3F08 000114 (v06 ALASKA A M I    01072009 AMI  00010013)
+[    0.006012] ACPI: APIC 0x00000000DD1B4020 0000DE (v04 ALASKA A M I    01072009 AMI  00010013)
+[    0.006027] ACPI: MCFG 0x00000000DD1B9660 00003C (v01 ALASKA A M I    01072009 MSFT 00010013)
+[    0.006029] ACPI: HPET 0x00000000DD1B96A0 000038 (v01 ALASKA A M I    01072009 AMI  00000005)
+[    0.006656] ACPI: HPET id: 0x10228201 base: 0xfed00000
+# exit 0
