@@ -93,7 +93,7 @@ pub fn wrong_tag_times_out() -> Result<(), String> {
         check!(stats.timeouts == 1 && stats.stale >= 1, "stats {stats:?}");
         // The real clock runs too, so the fake one may cover less.
         let waited = test_clock::offset();
-        let bound = provider::REQUEST_TICKS / 2..=provider::REQUEST_TICKS + provider::SLICE_TICKS;
+        let bound = provider::TAKEN_TICKS / 2..=provider::TAKEN_TICKS + provider::SLICE_TICKS;
         check!(bound.contains(&waited), "waited {waited} ticks");
         // A success in between resets the count of timeouts in a row.
         mode(Mode::Normal);

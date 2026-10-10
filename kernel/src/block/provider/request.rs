@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use super::{
     now, park, test_clock, Op, Phase, Request, State, UserDisk, DEAD_AFTER_TIMEOUTS,
-    MAX_REQUEST_BYTES, NAMES, REQUEST_TICKS, SLICE_TICKS,
+    MAX_REQUEST_BYTES, NAMES, QUEUE_TICKS, SLICE_TICKS, SLOT_TICKS, TAKEN_TICKS,
 };
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 use crate::task::{self, wait::WaitQueue};
@@ -24,7 +24,7 @@ impl UserDisk {
             report_unparkable();
             return Err(BlockError::Io);
         }
-        let deadline = now() + REQUEST_TICKS;
+        let slot_deadline = now() + SLOT_TICKS;
         let bytes = read.as_ref().map_or(0, |b| b.len()) + write.map_or(0, |b| b.len());
         // Take the request slot.
         let tag = loop {
@@ -51,13 +51,14 @@ impl UserDisk {
                     break tag;
                 }
             }
-            if now() >= deadline {
+            if now() >= slot_deadline {
                 return Err(BlockError::Io);
             }
-            self.wait(&self.idle, deadline);
+            self.wait(&self.idle, slot_deadline);
         };
+        let queued_at = now();
         self.work.notify_all();
-        let result = self.await_completion(tag, deadline, read);
+        let result = self.await_completion(tag, queued_at, read);
         self.idle.notify_one();
         if result.is_err() {
             self.state.lock().stats.errors += 1;
@@ -65,16 +66,33 @@ impl UserDisk {
         result
     }
 
-    /// Wait for request `tag`, then release the slot.
+    /// Wait for request `tag` (queued at `queued_at`), then release the slot.
     fn await_completion(
         &self,
         tag: u64,
-        deadline: u64,
+        mut queued_at: u64,
         read: Option<&mut [u8]>,
     ) -> Result<(), BlockError> {
+        // Whether an untaken request's deadline may still be pushed back
+        // because its provider is busy with another of its disks, and until
+        // when: one taken request's worth, so with its own queue and taken
+        // time a holder stays within `SLOT_TICKS`.
+        let mut may_defer = true;
+        let defer_until = queued_at + TAKEN_TICKS;
         loop {
+            let deadline;
+            let owner;
             {
                 let mut state = self.state.lock();
+                // Until the provider takes the request it only has to look;
+                // once taken, the device gets its time.
+                let taken = state.phase == Phase::Taken;
+                deadline = if taken {
+                    state.taken_at + TAKEN_TICKS
+                } else {
+                    queued_at + QUEUE_TICKS
+                };
+                owner = state.owner;
                 debug_assert_eq!(state.request.tag, tag);
                 if let Phase::Done(result) = state.phase {
                     if let (Ok(()), Some(buf)) = (result, read) {
@@ -89,22 +107,49 @@ impl UserDisk {
                     release(&mut state);
                     return Err(BlockError::Io);
                 }
-                if now() >= deadline {
-                    state.timeouts += 1;
-                    state.stats.timeouts += 1;
-                    if state.timeouts >= DEAD_AFTER_TIMEOUTS {
-                        state.alive = false;
-                        serial_println!(
-                            "block: {}: provider stopped answering; disk dead",
-                            NAMES[self.index]
-                        );
-                    }
-                    release(&mut state);
+                if now() >= deadline && (taken || !may_defer) {
+                    self.time_out(&mut state, taken);
                     return Err(BlockError::Io);
                 }
             }
+            if now() >= deadline {
+                // Untaken: a provider serving another of its sticks (one
+                // transfer at a time) has not neglected this one. Checked
+                // with this disk's lock dropped: disks are locked one at a time.
+                if now() < defer_until && super::busy_elsewhere(self.index, owner, now()) {
+                    queued_at = now();
+                } else {
+                    may_defer = false;
+                }
+                continue;
+            }
             self.wait(&self.done, (now() + SLICE_TICKS).min(deadline));
         }
+    }
+
+    /// The request in flight timed out (`taken`: in the provider): count
+    /// it, report it, kill the disk after too many in a row, free the slot.
+    fn time_out(&self, state: &mut State, taken: bool) {
+        state.timeouts += 1;
+        state.stats.timeouts += 1;
+        let request = state.request;
+        serial_println!(
+            "block: {}: {:?} lba {} ({} bytes) timed out {} after {} s",
+            NAMES[self.index],
+            request.op,
+            request.lba,
+            request.bytes,
+            if taken { "in the provider" } else { "untaken" },
+            if taken { TAKEN_TICKS } else { QUEUE_TICKS } / 100
+        );
+        if state.timeouts >= DEAD_AFTER_TIMEOUTS {
+            state.alive = false;
+            serial_println!(
+                "block: {}: provider stopped answering; disk dead",
+                NAMES[self.index]
+            );
+        }
+        release(state);
     }
 
     /// Park until `deadline`, or let the test's fake provider run instead.

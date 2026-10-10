@@ -403,6 +403,16 @@ impl Device {
         ));
     }
 
+    /// Endpoint `dci`'s state as the controller recorded it (xHCI 6.2.3: 1
+    /// running, 2 halted, 3 stopped, 4 error) and its dequeue pointer.
+    pub(super) fn endpoint_state(&mut self, hc: &Hc, dci: u8) -> (u32, u64) {
+        let stride = if hc.info.context_64 { 16 } else { 8 };
+        let at = usize::from(dci) * stride;
+        let words = self.mem.dwords(OUTPUT, at + stride);
+        let dequeue = u64::from(words[at + 2]) | u64::from(words[at + 3]) << 32;
+        (words[at] & 7, dequeue & !0xF)
+    }
+
     /// Bring endpoint `dci` back after a failure: Reset Endpoint (a halted
     /// one) or Stop Endpoint (one still running), then point it past
     /// everything queued, and drop the stale events.

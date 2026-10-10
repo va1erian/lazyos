@@ -199,8 +199,12 @@ fn the_done_line_is_the_documented_marker() {
         failed: 0,
     };
     assert_eq!(
-        tally.done_line(),
+        tally.done_line(None),
         "PKGD:PROVISION:DONE installed=12 upgraded=0 kept=1 failed=0\n"
+    );
+    assert_eq!(
+        tally.done_line(Some(67_108_864)),
+        "PKGD:PROVISION:DONE installed=12 upgraded=0 kept=1 failed=0 free=67108864\n"
     );
 }
 

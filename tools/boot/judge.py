@@ -101,6 +101,38 @@ def milestones(stamped: list[tuple[float, str]], ready: str | None = READY) -> d
     return found
 
 
+#: ``pkgd`` finished installing the core packages (issue #703).
+PROVISION_DONE = re.compile(
+    r"^PKGD:PROVISION:DONE installed=\d+ upgraded=\d+ kept=\d+ failed=(\d+)(?: free=(\d+))?\s*$",
+    re.M)
+PROVISION_FAIL = re.compile(r"^PKGD:PROVISION:FAIL sn=(\S+)", re.M)
+#: The marker the desktop runs wait for besides the ready one.
+PROVISION_MARKER = "PKGD:PROVISION:DONE"
+#: Free bytes the root must keep once every core package is unpacked: room
+#: for the session's logs, settings and an app or two.
+MIN_ROOT_FREE = 16 << 20
+
+
+def judge_provision(log: str, min_free: int = MIN_ROOT_FREE) -> list[str]:
+    """Failures of ``pkgd``'s first-boot install of the core packages: every
+    package installed, and enough room left on the root (``free=``). On the
+    stick the root is the RAM disk, sized at build time for exactly this."""
+    done = PROVISION_DONE.findall(log)
+    if not done:
+        return [f"{PROVISION_MARKER} never appeared (the core packages were not installed)"]
+    failed, free = done[-1]
+    failures = []
+    if int(failed):
+        names = ", ".join(PROVISION_FAIL.findall(log)) or "?"
+        failures.append(f"{failed} core packages failed to install: {names}")
+    if not free:
+        failures.append(f"{PROVISION_MARKER} does not report free=<bytes>")
+    elif int(free) < min_free:
+        failures.append(f"only {int(free) >> 20} MiB free on the root after installing "
+                        f"the core packages (< {min_free >> 20} MiB)")
+    return failures
+
+
 #: The kernel mounted the stick's own home partition late (USB storage).
 LATE_HOME = re.compile(r"fs: mounted (usb\d+)p\d+ at /home \(late, home volume lazyhome\)")
 

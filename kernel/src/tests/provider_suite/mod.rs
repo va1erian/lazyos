@@ -6,7 +6,9 @@
 
 mod hostile;
 mod io;
+mod slow;
 mod sys;
+mod vfs;
 
 use super::*;
 use crate::block::provider::{self, status, test_clock, Op};
@@ -27,6 +29,14 @@ enum Mode {
     Status(u64),
     /// Take a request and never answer (the clock moves on).
     Silent,
+    /// Never take a request (a provider stuck elsewhere; the clock moves on).
+    Absent,
+    /// Never take a request of this disk, and keep one of disk `n` (this
+    /// provider's too) always freshly taken: busy elsewhere forever.
+    BusyElsewhere(usize),
+    /// Take a request and answer it correctly this many ticks later (a USB
+    /// stick stalling a write while its flash reorganises, issue #704).
+    Slow(u64),
     /// Complete with a tag that is not the request's.
     WrongTag,
     /// Take the request, then die (`teardown_task`).
@@ -115,6 +125,9 @@ struct Fake {
     last: Option<provider::Request>,
     /// What [`Mode::KillRequester`] saw when it killed the requester.
     killed: Option<Result<(), String>>,
+    /// [`Mode::Slow`]: the request being worked on, its write data and the
+    /// fake-clock tick it is answered at.
+    holding: Option<(provider::Request, Vec<u8>, u64)>,
 }
 
 static FAKE: Mutex<Option<Fake>> = Mutex::new(None);
@@ -151,6 +164,7 @@ fn setup(mode: Mode) -> Result<&'static dyn BlockDevice, String> {
         flushes: 0,
         last: None,
         killed: None,
+        holding: None,
     });
     test_clock::set_server(Some(serve));
     crate::block::device(&alloc::format!("usb{disk}"))
@@ -188,6 +202,23 @@ fn serve(index: usize) {
     if fake.disk != index {
         return;
     }
+    if let Some((request, written, at)) = fake.holding.take() {
+        if test_clock::offset() < at {
+            fake.holding = Some((request, written, at));
+            test_clock::advance(provider::SLICE_TICKS);
+        } else {
+            // Stale when the requester gave up first: that is its business.
+            let _ = answer(fake, index, request, &written, status::OK);
+        }
+        return;
+    }
+    if let Mode::BusyElsewhere(other) = fake.mode {
+        test_clock::hold_taken(other);
+    }
+    if matches!(fake.mode, Mode::Absent | Mode::BusyElsewhere(_)) {
+        test_clock::advance(provider::SLICE_TICKS);
+        return;
+    }
     let mut written = Vec::new();
     let taken = provider::next(index, fake.owner, 0, &mut |bytes| {
         written.extend_from_slice(bytes);
@@ -201,7 +232,12 @@ fn serve(index: usize) {
     fake.last = Some(request);
     fake.served += 1;
     let code = match fake.mode {
-        Mode::Silent => {
+        Mode::Silent | Mode::Absent | Mode::BusyElsewhere(_) => {
+            test_clock::advance(provider::SLICE_TICKS);
+            return;
+        }
+        Mode::Slow(ticks) => {
+            fake.holding = Some((request, written, test_clock::offset() + ticks));
             test_clock::advance(provider::SLICE_TICKS);
             return;
         }
@@ -227,20 +263,31 @@ fn serve(index: usize) {
         Mode::FlakyEvery(n) if fake.served % n == 0 => status::IO,
         Mode::Normal | Mode::FlakyEvery(_) => status::OK,
     };
+    let result = answer(fake, index, request, &written, code);
+    assert!(result.is_ok(), "completion refused: {result:?}");
+}
+
+/// Apply `request` to the backing store (when `code` is OK) and complete it.
+fn answer(
+    fake: &mut Fake,
+    index: usize,
+    request: provider::Request,
+    written: &[u8],
+    code: u64,
+) -> Result<(), provider::ProviderError> {
     let start = request.lba as usize * SECTOR_SIZE;
     if code == status::OK {
         match request.op {
-            Op::Write => fake.data.write(start, &written),
+            Op::Write => fake.data.write(start, written),
             Op::Flush => fake.flushes += 1,
             Op::Read => {}
         }
     }
     let data = &fake.data;
-    let result = provider::complete(index, fake.owner, request.tag, code, &mut |bounce| {
+    provider::complete(index, fake.owner, request.tag, code, &mut |bounce| {
         data.read(start, bounce);
         Ok(())
-    });
-    assert!(result.is_ok(), "completion refused: {result:?}");
+    })
 }
 
 /// `SIGKILL` `requester` from the kernel task while it waits, parked, for
@@ -306,9 +353,28 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("provider_dead_owner_detected", hostile::dead_owner_detected),
     ("provider_medium_gone", hostile::medium_gone),
     ("provider_stale_completion", hostile::stale_completion),
+    ("provider_slow_device_survives", slow::slow_device_survives),
+    (
+        "provider_stuck_provider_dies_fast",
+        slow::stuck_provider_dies_fast,
+    ),
+    (
+        "provider_queued_behind_another_disk",
+        slow::queued_behind_another_disk,
+    ),
+    ("provider_deferral_is_bounded", slow::deferral_is_bounded),
+    ("provider_soak_slow_requests", slow::soak_slow_requests),
     (
         "provider_kill_mid_request_releases_slot",
         hostile::kill_mid_request_releases_slot,
+    ),
+    (
+        "provider_never_waits_for_the_vfs",
+        vfs::provider_never_waits_for_the_vfs,
+    ),
+    (
+        "provider_soak_vfs_refusals",
+        vfs::soak_provider_vfs_refusals,
     ),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),

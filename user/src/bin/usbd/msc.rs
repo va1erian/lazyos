@@ -15,25 +15,31 @@
 //!
 //! Serial evidence: `USBD:MSC:DISK` (registered), `USBD:MSC:SKIP` (a
 //! mass-storage interface this driver does not serve), `USBD:MSC:FAIL`,
-//! `USBD:MSC:GONE`.
+//! `USBD:MSC:GONE`, and for real-hardware diagnosis (issue #704)
+//! `USBD:MSC:REQ` (a request that failed or took over 2 s: its op, range,
+//! time, and the stalls and resets the transport went through) after the
+//! `USBD:MSC:XFER` lines of its failed transfers (`msc_link.rs`).
 
 use alloc::format;
 use alloc::vec::Vec;
 
 use usbhid::desc::{Interface, Transfer};
+use usbmsc::bot::{reset_recovery, XferError};
 use usbmsc::desc::{PROTOCOL_BOT, SUBCLASS_SCSI};
 use usbmsc::disk::{Disk, DiskError};
 use user::sys::{self, storage_op, storage_status, StorageRequest};
 
 use super::device::Device;
 use super::hc::{Hc, BULK_WINDOW};
-use super::msc_link::{Link, Pipes};
+use super::msc_link::{Link, Patience, Pipes};
 use super::Error;
 
 /// The only block size served (the kernel's sector).
 const BLOCK: usize = 512;
 /// Flush a stick this long (100 Hz) after its last write.
 const FLUSH_IDLE_TICKS: u64 = 100;
+/// A request that took this long (or failed) is reported (`USBD:MSC:REQ`).
+const SLOW_MS: u64 = 2000;
 
 /// One Bulk-Only interface and, once started, the kernel's disk on it.
 pub(super) struct Msc {
@@ -47,6 +53,9 @@ pub(super) struct Msc {
     dirty_since: Option<u64>,
     /// The kernel's disk is dead (gone or failed): nothing more to serve.
     dead: bool,
+    /// A request ran out of time before the stick's Bulk-Only reset
+    /// recovery finished: run it before the next request.
+    reset_pending: bool,
 }
 
 impl Msc {
@@ -81,6 +90,7 @@ impl Msc {
             buffer: Vec::new(),
             dirty_since: None,
             dead: false,
+            reset_pending: false,
         }))
     }
 
@@ -93,12 +103,14 @@ impl Msc {
         &'a mut self,
         hc: &'a mut Hc,
         device: &'a mut Device,
+        patience: Patience,
     ) -> (Link<'a>, &'a mut Option<Disk>) {
         (
             Link {
                 hc,
                 device,
                 pipes: &mut self.pipes,
+                patience,
             },
             &mut self.disk,
         )
@@ -110,7 +122,7 @@ impl Msc {
         let name = device.name.clone();
         let (vendor, product) = (device.descriptor.vendor, device.descriptor.product);
         let slot = device.slot;
-        let (mut link, _) = self.link(hc, device);
+        let (mut link, _) = self.link(hc, device, Patience::bring_up());
         let disk = match Disk::bring_up(&mut link, 0) {
             Ok(disk) if disk.block_len() == BLOCK => disk,
             Ok(disk) => return skip(&name, &format!("{}-byte blocks", disk.block_len())),
@@ -152,10 +164,12 @@ impl Msc {
             }
             Ok(None) => false,
             Err(errno) => {
-                // The kernel no longer serves this disk (it timed us out).
+                // The kernel no longer serves this disk; its own log says
+                // why (`block: usb<n>: ... timed out`).
                 sys::write_str(&format!(
-                    "USBD:MSC:FAIL id=usb{} next errno {errno}\n",
-                    self.id
+                    "USBD:MSC:FAIL id=usb{} next errno {errno} ({})\n",
+                    self.id,
+                    next_errno_text(errno)
                 ));
                 self.dead = true;
                 false
@@ -172,19 +186,41 @@ impl Msc {
             pipes,
             disk,
             buffer,
+            reset_pending,
             ..
         } = self;
         let Some(disk) = disk.as_mut() else {
             return;
         };
-        let mut link = Link { hc, device, pipes };
-        let result = match (request.op, buffer.get_mut(..bytes)) {
-            (_, None) => Err(DiskError::Range),
-            (storage_op::READ, Some(data)) => disk.read(&mut link, request.lba, data),
-            (storage_op::WRITE, Some(data)) => disk.write(&mut link, request.lba, data),
-            (storage_op::FLUSH, _) => disk.flush(&mut link),
-            _ => Err(DiskError::Unsupported),
+        let mut link = Link {
+            hc,
+            device,
+            pipes,
+            patience: Patience::request(),
         };
+        let started = sys::clock();
+        let before = disk.bot.stats;
+        let result = recover_pending(&mut link, reset_pending).and_then(|()| {
+            match (request.op, buffer.get_mut(..bytes)) {
+                (_, None) => Err(DiskError::Range),
+                (storage_op::READ, Some(data)) => disk.read(&mut link, request.lba, data),
+                (storage_op::WRITE, Some(data)) => disk.write(&mut link, request.lba, data),
+                (storage_op::FLUSH, _) => disk.flush(&mut link),
+                _ => Err(DiskError::Unsupported),
+            }
+        });
+        let result = out_of_time(result, &link, reset_pending);
+        let after = disk.bot.stats;
+        let ms = sys::clock().saturating_sub(started) * 10;
+        if result.is_err() || ms >= SLOW_MS {
+            sys::write_str(&format!(
+                "USBD:MSC:REQ id=usb{id} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}\n",
+                op_name(request.op),
+                request.lba,
+                after.stalls - before.stalls,
+                after.resets - before.resets,
+            ));
+        }
         let status = match result {
             Ok(()) => storage_status::OK,
             Err(DiskError::WriteProtected) => storage_status::READ_ONLY,
@@ -221,10 +257,18 @@ impl Msc {
         }
         self.dirty_since = None;
         let id = self.id;
-        let (mut link, disk) = self.link(hc, device);
-        if let Some(Err(error)) = disk.as_mut().map(|disk| disk.flush(&mut link)) {
+        let mut pending = self.reset_pending;
+        let (mut link, disk) = self.link(hc, device, Patience::idle_flush());
+        let result = match disk.as_mut() {
+            Some(disk) => {
+                recover_pending(&mut link, &mut pending).and_then(|()| disk.flush(&mut link))
+            }
+            None => Ok(()),
+        };
+        if let Err(error) = out_of_time(result, &link, &mut pending) {
             sys::write_str(&format!("USBD:MSC:FAIL id=usb{id} idle flush {error:?}\n"));
         }
+        self.reset_pending = pending;
     }
 
     /// The stick went away (or its device is being given up on): the
@@ -237,6 +281,58 @@ impl Msc {
             let _ = sys::storage_remove(self.id);
         }
         sys::write_str(&format!("USBD:MSC:GONE id=usb{} (detached)\n", self.id));
+    }
+}
+
+/// Run the Bulk-Only reset recovery an earlier operation ran out of time
+/// for. If it fails with time left the stick is unusable (`Dead`).
+fn recover_pending(link: &mut Link<'_>, pending: &mut bool) -> Result<(), DiskError> {
+    if !*pending {
+        return Ok(());
+    }
+    match reset_recovery(link) {
+        Ok(()) => {
+            *pending = false;
+            Ok(())
+        }
+        Err(XferError::Gone) => Err(DiskError::Gone),
+        Err(_) if link.expired() => Err(DiskError::Io),
+        Err(_) => Err(DiskError::Dead),
+    }
+}
+
+/// An operation whose recovery was cut short by its time limit is an I/O
+/// error, not a dead stick: the recovery runs before the next request.
+fn out_of_time(
+    result: Result<(), DiskError>,
+    link: &Link<'_>,
+    pending: &mut bool,
+) -> Result<(), DiskError> {
+    match result {
+        Err(DiskError::Dead) if link.expired() => {
+            *pending = true;
+            Err(DiskError::Io)
+        }
+        other => other,
+    }
+}
+
+/// What the kernel's refusal of `NEXT` means (`block/provider/sys.rs`).
+fn next_errno_text(errno: i64) -> &'static str {
+    match errno {
+        3 => "the kernel declared the disk dead",
+        14 => "bad buffer",
+        22 => "bad request",
+        _ => "unexpected",
+    }
+}
+
+fn op_name(op: u64) -> &'static str {
+    match op {
+        storage_op::READ => "read",
+        storage_op::WRITE => "write",
+        storage_op::FLUSH => "flush",
+        _ => "?",
     }
 }
 

@@ -202,6 +202,7 @@ dependencies = [
  "fhs",
  "getrandom",
  "lazyos-crypto",
+ "lazypkg",
  "passwd",
  "webpki-root-certs",
 ]
@@ -672,6 +673,7 @@ dependencies = [
  "getrandom",
  "kernel",
  "lazyos-crypto",
+ "lazypkg",
  "passwd",
  "user",
  "webpki-root-certs",

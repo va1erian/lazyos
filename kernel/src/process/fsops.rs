@@ -3,7 +3,7 @@
 //!
 //! | nr | call | `rdi` | `rsi` | `rdx` | result |
 //! |----|------|-------|-------|-------|--------|
-//! | 15 | `stat` | path | out `[size, kind]` (2 x u64) | - | 0 |
+//! | 15 | `stat` | path | out `[size, kind]` (2 x u64) | 0, or [`STAT_FS`]: out `[total, free]` bytes of its filesystem | 0 |
 //! | 16 | `readdir` | path | buffer | buffer length | bytes written |
 //! | 17 | `write_file` | path | data | data length | bytes written |
 //! | 18 | `mkdir` | path | - | - | 0 |
@@ -31,6 +31,7 @@ use crate::{fs, user_ptr};
 const EPERM: i64 = 1;
 const ENOENT: i64 = 2;
 const EIO: i64 = 5;
+const EAGAIN: i64 = 11;
 const ENOMEM: i64 = 12;
 const EFAULT: i64 = 14;
 const EACCES: i64 = 13;
@@ -94,8 +95,11 @@ fn path_arg(ptr: u64) -> Result<String, u64> {
 /// Dispatch native syscall `nr` (15-22, 28 `append_file`, 30 `read_at` and
 /// 32 `chmod`).
 pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
+    if nr != 21 && provider_would_wait() {
+        return failed(EAGAIN);
+    }
     let outcome = match nr {
-        15 => stat(a1, a2),
+        15 => stat(a1, a2, a3),
         16 => readdir(a1, a2, a3),
         17 => write_file(a1, a2, a3),
         18 => path_arg(a1).and_then(|path| mkdir(&path)),
@@ -113,11 +117,46 @@ pub fn dispatch(nr: u64, a1: u64, a2: u64, a3: u64) -> u64 {
     outcome.unwrap_or_else(|code| code)
 }
 
-fn stat(path_ptr: u64, out: u64) -> Result<u64, u64> {
+/// Whether the caller serves a live block device and another task holds
+/// a mount table (a native mutation takes both: `fs::coherence`). That
+/// holder may be waiting for this very caller (a `/home` request parks with
+/// its table held until `usbd` answers), so waiting for it
+/// would stall the disk until its deadline kills it (issue #704). The
+/// caller gets `EAGAIN` and tries later. Syscalls run with interrupts off on
+/// one core, so nothing can take the VFS between this check and the call.
+fn provider_would_wait() -> bool {
+    fs::any_vfs_locked() && crate::block::provider::serves_disk(crate::task::current())
+}
+
+/// `stat`'s third argument: report the capacity of the filesystem holding
+/// the path instead of the path itself (`pkgd`'s `free=`, issue #703).
+pub const STAT_FS: u64 = 1;
+
+fn stat(path_ptr: u64, out: u64, flags: u64) -> Result<u64, u64> {
     let path = path_arg(path_ptr)?;
+    match flags {
+        0 => {}
+        STAT_FS => return stat_fs(&path, out),
+        _ => return Err(failed(EINVAL)),
+    }
     let meta = fs::vfs_stat(Id::current(), &path).map_err(|e| failed(errno_of(e)))?;
     let kind = u64::from(meta.kind == FileKind::Dir);
     user_ptr::try_copy_words(out, &[meta.size, kind]).map_err(|_| failed(EFAULT))?;
+    Ok(0)
+}
+
+/// `[total, free]` bytes of the filesystem holding `path` (the path must
+/// exist and be reachable by the caller, as for `stat`).
+fn stat_fs(path: &str, out: u64) -> Result<u64, u64> {
+    let id = Id::current();
+    fs::vfs_stat(id, path).map_err(|e| failed(errno_of(e)))?;
+    let capacity = fs::vfs_statfs(id, path).map_err(|e| failed(errno_of(e)))?;
+    let block = u64::from(capacity.block_size);
+    let words = [
+        capacity.blocks.saturating_mul(block),
+        capacity.blocks_free.saturating_mul(block),
+    ];
+    user_ptr::try_copy_words(out, &words).map_err(|_| failed(EFAULT))?;
     Ok(0)
 }
 
