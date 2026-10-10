@@ -41,6 +41,9 @@ members = [
     "crates/named-icons",
     # Registers the Liberation fonts with xui-blitz for LazyWeb, Mail and Docs.
     "crates/webfonts",
+    # Easing, a damped spring and tweens; the toast presenter and later window
+    # animation use them (docs/notify-plan.md).
+    "crates/motion",
 ]
 
 [dependencies]
@@ -123,6 +126,8 @@ xui-golf = { path = "crates/golf" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
+# Easing, the toast spring and the `sys/ui/motion` setting (docs/notify-plan.md).
+lazymotion = { path = "crates/motion" }
 # Named Lucide outlines (docs/icons.md): the tray draws `lucide` icons by name.
 lazyicons = { path = "crates/named-icons" }
 # One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).

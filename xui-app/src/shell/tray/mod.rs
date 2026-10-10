@@ -94,6 +94,9 @@ pub struct TrayState {
     pub pictures: RefCell<icon::Pictures>,
     /// The cells last printed for the UI probe.
     probed: RefCell<Vec<(String, Rect)>>,
+    /// The app a toast just landed in and the tick it started: its cell
+    /// pulses once ([`landed`], [`paint::landing`]).
+    landing: RefCell<Option<(String, u64)>>,
 }
 
 impl TrayState {
@@ -113,6 +116,7 @@ impl TrayState {
             keys: Cell::new(None),
             pictures: RefCell::new(icon::Pictures::default()),
             probed: RefCell::new(Vec::new()),
+            landing: RefCell::new(None),
         }
     }
 
@@ -191,7 +195,7 @@ impl TrayState {
     }
 
     /// Re-read the registry rows of the apps in the tray (names, icons).
-    fn refresh_known(&self, ctx: &Ctx) {
+    pub(in crate::shell) fn refresh_known(&self, ctx: &Ctx) {
         let Ok(apps) = super::services::list_apps() else {
             ctx.note("tray-apps", || String::from("SHELL:TRAY:APPS:FAIL"));
             return;
@@ -213,9 +217,26 @@ pub fn pump<M: 'static>(ctx: &std::rc::Rc<Ctx>, ui: &xui_core::app::Ui<M>) {
         ctx.bar_changed();
     }
     tooltip::pump(ctx, ui);
+    // The landing pulse repaints each beat until it is over.
+    let landing = tray.landing.borrow().clone();
+    if let Some((_, since)) = landing {
+        if crate::sys::clock_ticks().saturating_sub(since) > paint::LANDING_TICKS {
+            tray.landing.borrow_mut().take();
+        }
+        ctx.repaint_bar();
+    }
     // The attention pulse: repaint twice a second while an item asks for it.
     let beat = crate::sys::clock_ticks() / paint::PULSE_TICKS;
     if tray.beat.replace(beat) != beat && paint::any_attention(&tray.model.borrow()) {
+        ctx.repaint_bar();
+    }
+}
+
+/// A toast of `app` appeared: its tray item (if it has one) pulses once, so
+/// the toast visibly lands in its source (docs/notify-plan.md).
+pub fn landed(ctx: &Ctx, app: &str) {
+    if ctx.tray.model.borrow().get(app).is_some() {
+        *ctx.tray.landing.borrow_mut() = Some((app.to_owned(), crate::sys::clock_ticks()));
         ctx.repaint_bar();
     }
 }

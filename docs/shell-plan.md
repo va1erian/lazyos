@@ -283,8 +283,8 @@ session-check path touched.
 ### S5.3 — Polish: icons, notifications, multi-window (M)
 **Goal:** the desktop feels finished.
 **Deliverables:** desktop icons and an icon registry (16/32 px classic look);
-tray and notifications via `os.lazy.notify` (the spec shape in
-`messenger.md` section 11; the tray and resident apps are planned in
+tray and notifications via `os.lazy.notify` (implemented, shell-owned toasts:
+[`notify-plan.md`](notify-plan.md); the tray and resident apps are planned in
 [`tray-plan.md`](tray-plan.md)); window affordances (maximize/snap,
 minimize-to-taskbar consistency, the Alt+Tab overlay, window menu); Editor,
 Terminal, Paint, Task Manager, and Help registered open-with; keyboard
@@ -333,8 +333,9 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
   is the S5.0 preference.
 - Desktop icon layout persistence: a per-user file first, the configuration
   registry when it exists ([`confd-plan.md`](confd-plan.md)).
-- Notifications: a shell-owned toast path versus a separate `notifyd`; the spec
-  allows either, S5 starts in the shell.
+- Notifications: decided, a shell-owned toast path (issue #747,
+  [`notify-plan.md`](notify-plan.md)); a separate `notifyd` can still take the
+  interface over without touching senders.
 
 *See also:* [Platform plan](platform-plan.md) - [XUI plan](xui-plan.md) -
 [Messenger spec](messenger.md) - [Security model](security-model.md) -

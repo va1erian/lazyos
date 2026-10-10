@@ -51,6 +51,8 @@ interfaces = [
     # Links LazyWeb cannot open itself (`mailto:`) and finished downloads go
     # to their app through `mimed.Open`.
     "os.lazy.mimed.v1",
+    # A toast when a download starts and ends (docs/notify-plan.md).
+    "os.lazy.notify.v1",
 ]
 network = ["outbound"]
 # The history in the app's own folder; downloads in the user's Downloads.

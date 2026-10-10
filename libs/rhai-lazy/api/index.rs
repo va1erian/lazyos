@@ -163,6 +163,18 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "notify",
+        interface: "os.lazy.notify.v1",
+        source: include_str!("notify.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "notify_events",
+        interface: "os.lazy.notify.events.v1",
+        source: include_str!("notify_events.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "pkgd",
         interface: "os.lazy.pkgd.v1",
         source: include_str!("pkgd.rhai"),

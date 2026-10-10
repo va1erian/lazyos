@@ -17,6 +17,7 @@ pub mod dirs;
 pub mod elevd;
 pub mod launcher;
 pub mod messenger;
+pub mod notify;
 pub mod pkg;
 pub mod print;
 pub mod storage;

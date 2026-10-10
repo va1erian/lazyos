@@ -38,8 +38,9 @@ Related: [`shell-plan.md`](shell-plan.md) (LazyShell, one owner per concern),
 
 **Non-goals (here)**
 
-- Notifications/toasts: `os.lazy.notify` stays its own plan (S5.3). This plan
-  only leaves room for it (§10).
+- Notifications/toasts: `os.lazy.notify` is its own plan,
+  [`notify-plan.md`](notify-plan.md) (issue #747). This plan only leaves room
+  for it (§10).
 - System services drawing UI. A service with state worth showing (`audiod`,
   `netd`) gets a small session **applet** app that talks to it; services stay
   headless and session-less.
@@ -527,10 +528,14 @@ kernel correctness and soak tests per AGENTS.md.
 
 ## 10. Fit with notifications
 
-`os.lazy.notify` (S5.3) stays separate but shares identity rules: a
-notification is attributed by label the same way, and since an app has one
-item, a notification of an app with an item can set its `Attention` state or
-open its flyout when clicked.
+`os.lazy.notify` ([`notify-plan.md`](notify-plan.md), implemented) stays
+separate but shares identity rules: a notification is attributed by label the
+same way (the verified registry name in the toast header, never app text),
+and since an app has one item, a toast of an app with an item makes the item
+pulse once as it lands, and the app sets `Attention` alongside a Warn or
+Error toast, which stays until the user looks (nothing is kept, so a missed
+toast is gone and the tray state is the durable signal). A click on a toast
+reaches the app as `Activated`; opening its flyout is T4's.
 
 ## 11. Decisions and open questions
 

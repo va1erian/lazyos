@@ -15,6 +15,9 @@ use super::icon::Drawn;
 
 /// Ticks per half period of the attention pulse (two flashes a second).
 pub const PULSE_TICKS: u64 = 50;
+/// How long the landing pulse lasts (ticks), and its peak mix (eighths).
+pub const LANDING_TICKS: u64 = 60;
+const LANDING_PEAK: u64 = 6;
 /// The badge's text size and height in design pixels.
 const BADGE_TEXT: Dip = Dip(8.0);
 const BADGE_H: i32 = 10;
@@ -25,6 +28,23 @@ pub fn any_attention(model: &Tray) -> bool {
         .entries()
         .iter()
         .any(|entry| entry.status() == Status::Attention)
+}
+
+/// How strongly `app`'s cell glows from a toast landing in it, in eighths
+/// (`None` when it does not): up to the peak and back down over the pulse.
+fn landing(tray: &super::TrayState, app: &str) -> Option<u32> {
+    let landing = tray.landing.borrow();
+    let (owner, since) = landing.as_ref()?;
+    if owner != app {
+        return None;
+    }
+    let age = crate::sys::clock_ticks().saturating_sub(*since);
+    if age >= LANDING_TICKS {
+        return None;
+    }
+    let half = LANDING_TICKS / 2;
+    let rise = if age < half { age } else { LANDING_TICKS - age };
+    Some(((rise * LANDING_PEAK) / half).max(1) as u32)
 }
 
 /// A design-pixel rectangle at scale `s`.
@@ -49,7 +69,15 @@ pub fn paint(canvas: &mut dyn Canvas, ctx: &Ctx, hover: Option<usize>, chevron: 
             continue;
         };
         let area = rect(cell.rect, s);
-        if entry.status() == Status::Attention && pulse_on {
+        if let Some(strength) = landing(tray, &cell.app) {
+            let glow = uitheme::mix(
+                palette.taskbar_bg,
+                palette.taskbar_entry_focus,
+                strength,
+                8,
+            );
+            canvas.fill_rounded_rect(area.shrink(s), 4.0 * s as f32, color(glow));
+        } else if entry.status() == Status::Attention && pulse_on {
             let glow = uitheme::mix(palette.taskbar_entry_focus, palette.taskbar_bg, 1, 4);
             canvas.fill_rounded_rect(area.shrink(s), 4.0 * s as f32, color(glow));
         } else if hover == Some(index) {

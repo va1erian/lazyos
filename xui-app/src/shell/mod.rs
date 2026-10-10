@@ -20,7 +20,8 @@
 //! `SHELL:RESTART:PASS windows=<n>`, `SHELL:WALLPAPER:PASS path=<path>
 //! size=<w>x<h>` / `FAIL path=<path> <why>` / `NONE`, and the power rows'
 //! `SHELL:POWER:*` ([`power`]), and the app-failure notice's
-//! `SHELL:FAILURE`/`SHELL:NOTICE:*` ([`failures`], [`notice`]).
+//! `SHELL:FAILURE` ([`failures`]) and the toasts' `SHELL:NOTIFY:*` / `SHELL:NOTICE:*`
+//! ([`notify`]).
 
 mod ctx;
 mod deskdir;
@@ -33,7 +34,7 @@ mod icons;
 mod keys;
 mod link;
 mod menu;
-mod notice;
+mod notify;
 mod power;
 mod probe;
 mod service;

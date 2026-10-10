@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use lazyweb::downloads::Destinations;
 use lazyweb::marker_text;
 use lazyweb::pages::{self, DownloadRow, DownloadState};
+use xui_app::platform::notify::{self, Level, Notice};
 use xui_blitz::{DownloadId, DownloadInfo};
 
 /// One download this window started.
@@ -16,6 +17,8 @@ struct Transfer {
     id: DownloadId,
     path: Option<PathBuf>,
     row: DownloadRow,
+    /// The toast telling the user about it, so its end updates it in place.
+    toast: Option<u64>,
 }
 
 /// The downloads, oldest first.
@@ -58,7 +61,15 @@ impl Transfers {
         );
         println!("WEB:DOWNLOAD:START:{}", marker_text(&name));
         let status = format!("Downloading {name}");
+        // Until it ends (then the toast is updated in place).
+        let toast = notify::post(&Notice {
+            icon: Some(String::from("download")),
+            timeout_ms: Some(0),
+            ..Notice::new(Level::Info, "Downloading", &name)
+        })
+        .ok();
         self.list.push(Transfer {
+            toast,
             id: info.id,
             path,
             row: DownloadRow {
@@ -80,8 +91,21 @@ impl Transfers {
 
     /// A download ended; the status line for it.
     pub fn finished(&mut self, id: DownloadId, error: Option<String>) -> Option<String> {
+        let folder = self.folder.display().to_string();
         let t = self.find(id)?;
         let name = t.row.name.clone();
+        let notice = match &error {
+            None => Notice::new(
+                Level::Success,
+                "Download complete",
+                &format!("{name} was saved to {folder}"),
+            ),
+            Some(why) => Notice::new(Level::Error, "Download failed", &format!("{name}: {why}")),
+        };
+        let _ = notify::post(&Notice {
+            replaces: t.toast,
+            ..notice
+        });
         Some(match error {
             None => {
                 t.row.state = DownloadState::Done;
@@ -90,7 +114,7 @@ impl Transfers {
                     marker_text(&name),
                     t.row.received
                 );
-                format!("Saved {name} to {}", self.folder.display())
+                format!("Saved {name} to {folder}")
             }
             Some(why) => {
                 println!("WEB:DOWNLOAD:FAIL:{}", marker_text(&why));
