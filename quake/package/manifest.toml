@@ -1,0 +1,32 @@
+# Quake as an installable package (docs/packages.md, docs/quake-port-plan.md).
+#
+# Only this manifest, the icons and the docs are checked in: `tools/quake/build.py`
+# adds `bin/quake.elf` (the quake-srp engine and its LazyOS record bridge),
+# `resources/id1/pak0.pak` (id's freely redistributable shareware Quake 1.06,
+# fetched with a pinned SHA-256), the shareware licence, id's archive itself
+# and the licence files before it builds `target/pkg/quake.lzp`.
+
+[app]
+name = "Quake"
+system_name = "org.lazy.quake"
+author = "LazyOS (engine: id Software, quake-srp; data: id Software)"
+version = "0.1.0"
+description = "Quake running the freely redistributable shareware, on the quake-srp engine. Arrows move, Ctrl fires, Space jumps, Shift runs, Alt strafes. Maximized, the game keeps every key (Alt+Tab and Ctrl+Esc included); Ctrl+Alt+Esc gives the keyboard back."
+category = "games"
+
+[entry]
+binary = "bin/quake.elf"
+# A desktop app is a client of the `xuid` compositor. The game opens its
+# shareware pak from its own resources (`<install>/resources/id1/pak0.pak`),
+# and writes its saves and `config.cfg` to `$HOME/.apps/org.lazy.quake`.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+
+[permissions]
+# The compositor for its window and `inputd` for its keyboard session. The
+# game opens everything else from its own package (its shareware pak under
+# its resources); its config and saves go to its own folder in the player's
+# home (`$HOME/.apps/org.lazy.quake`).
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+files = ["write:$HOME/.apps/org.lazy.quake"]

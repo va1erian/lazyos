@@ -332,6 +332,34 @@ prints `EMUSIC:CHECK:DONE` and logs to `~/.apps/org.lazy.emusic/sound-check.log`
 QEMU's WAV recorder drops the time no stream plays, so the judge splits the
 recording by pitch, not by silence.
 
+## Quake (an installable `.lzp` package)
+
+Quake is `quake/` (the `quake-srp` port of id's WinQuake to Rust, fetched at
+a pinned revision like doomgeneric, plus a Rust platform layer that hosts
+its browser platform over the same record protocol on `xui-app`'s client
+window) shipped as the package `org.lazy.quake` **with id's freely
+redistributable shareware pak inside**; see [`quake/README.md`](quake/README.md)
+and [`docs/quake-port-plan.md`](docs/quake-port-plan.md). Only two upstream
+files are overlaid (`src/main.rs` and `src/common.rs`'s documented data
+directory); everything else is the upstream code.
+
+```bash
+python tools/quake/build.py            # target/quake/quake.elf + target/pkg/quake.lzp (+ id's quake106.zip; zig only links)
+python tools/quake/build.py --test     # the upstream suite (record protocol, census) + the port's own, Linux host
+python tools/quake/build.py --require  # a missing download is an error (CI)
+python tools/run_demo.py --quake       # desktop with /system/share/samples/quake.lzp (a user package)
+cargo test --manifest-path <assembled>/Cargo.toml # host; `--test` assembles and points at it
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/quake \
+    --script tools/screenshot/examples/quake.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1) and LAZYOS_UI_PROBE=1
+```
+
+The launcher asks for the **Classic preset** (`-preset classic`, id's 1996
+game in the 4:3 box); `preset slop` in the console switches a session to the
+2026 look. The headless check (`quake.elf -headless -frames 300`) prints the
+deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/quake-result.txt`); v1 is silent and pointer-free like Doom's (the
+`Pcm` records already ride the bridge).
+
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
 `python tools/linuxapps/build.py` builds unmodified dash, lua, sqlite3, jq and

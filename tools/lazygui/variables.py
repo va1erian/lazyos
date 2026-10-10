@@ -79,6 +79,8 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "simple_doom": b(value=False),
+        "quake": b(value=False),
+        "simple_quake": b(value=False),
         "emusic": b(value=False),
         "simple_emusic": b(value=False),
         "modplayer": b(value=False),

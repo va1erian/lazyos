@@ -1,0 +1,59 @@
+# Quake on LazyOS (docs/quake-port-plan.md): the `quake-srp` port of id's
+# Quake (Rust, GPL-2.0-or-later, fetched at the revision pinned in
+# `tools/quake/qfetch.py`, never committed) with its browser platform layer
+# (`quake-wasm`: menus, console, mixer, saves) driven over the same record
+# protocol, and this crate's LazyOS bridge in front of it: a worker-free
+# process whose main thread pumps the `xuid` window, feeds Quake key records
+# in, and presents the frames it writes back.
+#
+# This file is the template `tools/quake/build.py` writes into the assembled
+# crate (`target/quake/quake-srp-<rev>/lazyos/Cargo.toml`); {ROOT} becomes the
+# LazyOS workspace root. The assembled crate sits beside the fetched
+# `quake-rs`, so its `{ path = "../quake-rs" }` dependency resolves, and
+# beside `quake-data/` (id's shareware pak), which the upstream tests read
+# from the manifest's parent directory exactly as quake-srp's CI keeps it.
+
+[package]
+name = "lazyquake"
+version = "0.1.0"
+edition = "2024"
+publish = false
+# The bridge is GPL-3.0-or-later like the rest of the tree; the engine is
+# GPL-2.0-or-later, so the combined binary is distributed under GPL-3 (see
+# NOTICE).
+license = "GPL-3.0-or-later"
+description = "Quake (quake-srp + id's shareware pak) as a LazyOS desktop app"
+
+# A standalone workspace, like `xui-app`: a static-musl `std` program built by
+# `tools/quake/build.py`. The OS workspace never builds it.
+[workspace]
+resolver = "2"
+
+[[bin]]
+name = "lazyquake"
+path = "src/main.rs"
+
+[dependencies]
+# The engine and its browser platform layer. Every module of `src/` is
+# declared by `src/main.rs`, whose `mod` block is quake-wasm's, unchanged.
+quake-rs = { path = "../quake-rs" }
+# The platform layer's paths (`fhs` compiles anywhere; host tests use it in
+# `lazy::launch`/`headless` too).
+fhs = { path = "{ROOT}/libs/fhs", features = ["alloc"] }
+
+# The platform layer's LazyOS half (`src/lazy/`'s window and bridge) only
+# exists on the OS: a host build (the upstream tests over the record
+# protocol, `cargo test` without `--target`) has no `xuid` to talk to.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+# The client-mode display/input plumbing (surfaces, buffer slots, the input
+# session, the syscall shim); xui is pinned to the same revision `doom` uses,
+# so one `xui_core` links across the apps.
+xui-app = { path = "{ROOT}/xui-app" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "bcdde8c859c017067505de082582c8fc02b3932b" }
+libmessenger = { path = "{ROOT}/libs/messenger" }
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+codegen-units = 1

@@ -51,6 +51,8 @@ mod os_manifest;
 mod os_recover;
 #[path = "build_support/pictures_embed.rs"]
 mod pictures_embed;
+#[path = "build_support/quake_embed.rs"]
+mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
 #[path = "build_support/samples_embed.rs"]
@@ -438,6 +440,8 @@ fn main() {
     doom_embed::embed(&mut files, &manifest_dir);
     // The emusic package (`LAZYOS_EMUSIC=1`), a sample user package too.
     emusic_embed::embed(&mut files, &manifest_dir);
+    // The Quake package (`LAZYOS_QUAKE=1`), a sample user package too.
+    quake_embed::embed(&mut files, &manifest_dir);
     // The LazyRAD MOD player package (`LAZYOS_MODPLAYER=1`) in /system/share/samples.
     modplayer_embed::embed(&mut files, &manifest_dir);
     builder
