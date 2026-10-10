@@ -23,10 +23,12 @@ autostart = false
 
 [permissions]
 # Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`):
-# the window, `netd`'s status and Renew, and `confd` for `sys/net/eth0/*`.
+# the window, `netd`'s status and Renew, `confd` to read `sys/net/<card>/*`, and
+# `elevd`, through which an administrator approves a change (`net.config`).
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.input.v1",
     "os.lazy.confd.v1",
     "os.lazy.net.stack.v1",
+    "os.lazy.elevd.v1",
 ]
