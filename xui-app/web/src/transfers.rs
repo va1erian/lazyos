@@ -52,8 +52,17 @@ impl Notifier {
                             }
                         }
                         Job::End(id, notice) => {
-                            let replaces = toasts.remove(&id);
-                            let _ = notify::post(&Notice { replaces, ..notice });
+                            let start = toasts.remove(&id);
+                            let ended = notify::post(&Notice {
+                                replaces: start,
+                                ..notice
+                            });
+                            // The start toast is sticky: if its replacement
+                            // did not go, take it down rather than leave
+                            // "Downloading" on screen for a finished file.
+                            if let (Err(_), Some(start)) = (ended, start) {
+                                let _ = notify::close(start);
+                            }
                         }
                     }
                 }

@@ -214,7 +214,9 @@ impl Tween {
         let fraction = self.curve.at(elapsed / self.duration as f32);
         // Wide enough that values far apart cannot overflow `i32`.
         let span = (i64::from(self.to) - i64::from(self.from)) as f32;
-        (i64::from(self.from) + (span * fraction).round() as i64) as i32
+        // A spring overshoots, so an endpoint near the limits can pass them.
+        (i64::from(self.from) + (span * fraction).round() as i64)
+            .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
     /// Whether the value has reached `to` for good by `now`.

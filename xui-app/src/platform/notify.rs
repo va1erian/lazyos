@@ -80,6 +80,22 @@ fn fit(text: &str, max: usize) -> String {
     format!("{}...", kept.trim_end())
 }
 
+/// Close toast `id` (one [`post`] returned) at once. Not an error when it
+/// is already gone.
+pub fn close(id: u64) -> Result<(), i64> {
+    let service = Service::try_connect(NAME).ok_or(-errno::ENOENT)?;
+    let body = wire::encode_close_args(&wire::CloseArgs { id }).map_err(|_| -errno::EINVAL)?;
+    service
+        .call_within(
+            wire::INTERFACE_ID,
+            wire::METHOD_CLOSE,
+            ERROR_FIELD,
+            body,
+            POST_TICKS,
+        )
+        .map(|_| ())
+}
+
 /// Show `notice`; the toast's id (for [`Notice::replaces`]) or the negative
 /// errno (`-ENOENT` when there is no shell, `-EBUSY` when rate limited).
 pub fn post(notice: &Notice) -> Result<u64, i64> {

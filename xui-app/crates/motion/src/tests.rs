@@ -88,6 +88,23 @@ fn a_tween_holds_its_ends_and_moves_between() {
 }
 
 #[test]
+fn a_spring_between_extreme_values_stays_in_range() {
+    let spring = Curve::Spring(Spring::TOAST);
+    let tween = Tween::new(i32::MIN, i32::MAX, 0, 300, spring);
+    let mut last = tween.value(0);
+    for ms in 1..=300 {
+        let value = tween.value(ms);
+        // Overshoot clamps at the limit; a wrap would jump to the far end.
+        assert!(
+            i64::from(value) >= i64::from(last) - (1 << 30),
+            "{ms}: {last} -> {value}"
+        );
+        last = value;
+    }
+    assert_eq!(tween.value(300), i32::MAX);
+}
+
+#[test]
 fn a_zero_duration_tween_is_already_there() {
     let tween = Tween::new(5, 9, 77, 0, Curve::EaseOut);
     assert!(tween.done(0));
