@@ -232,8 +232,6 @@ fn run() -> messenger::Result<()> {
         if shutdown.is_none() {
             // A quitting app whose grace ended is killed.
             lifecycle::sweep(&mut services, now);
-            // A hot-reloaded service still running when its trial ends is kept.
-            reload::sweep(&mut services, now);
             // A restart whose backoff elapsed.
             for index in 0..services.len() {
                 if services[index].phase == Phase::Restarting && services[index].next_start <= now {
@@ -329,6 +327,14 @@ fn run() -> messenger::Result<()> {
         // A logout whose apps are gone, or whose grace ran out, sweeps the
         // rest of its session.
         logouts.step(&services, sys::clock());
+        // A hot-reloaded service still running when its trial ends is kept,
+        // judged only once no exit is waiting to be reaped: a run that died
+        // just before its deadline must reach `child_exited` (and roll back)
+        // before it could be committed. The bell stays ready while exits are
+        // queued, so the next pass comes at once.
+        if shutdown.is_none() && ready & wait::CHILD_READY == 0 {
+            reload::sweep(&mut services, sys::clock());
+        }
         if let Some(running) = shutdown.as_mut().filter(|_| stepping) {
             running.step(&mut services, &mut broker);
             stepped = true;
