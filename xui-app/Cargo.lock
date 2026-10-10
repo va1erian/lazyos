@@ -6856,7 +6856,7 @@ dependencies = [
 [[package]]
 name = "xui-gpu"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=51bded370a5174ab43a33be56991807ae5b2be93#51bded370a5174ab43a33be56991807ae5b2be93"
+source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
 dependencies = [
  "glow",
  "xui-core",
