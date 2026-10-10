@@ -38,7 +38,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_MESSENGERCTL` | Boot `messengerctl` in the hello window instead of `hello`. | - |
 | `LAZYOS_SHELLPROBE` | Embed the shell probe client (with `LAZYOS_XUID`). | `-` |
 | `LAZYOS_BUSYBOX` | Path to a BusyBox ELF to embed (default: the one `tools/` builds). | - |
-| `LAZYOS_RHAI` | Path to the `rhai` command to embed; `run_demo.py` builds it for you. | `--no-rhai` skips it |
+| `LAZYOS_RHAI` | Path to the `rhai` command to embed (default: `target/rhai/rhai.elf`, embedded when present; skipped under `LAZYOS_INIT`). `run_demo.py` rebuilds it first. | `--no-rhai` skips only that rebuild; an existing `rhai.elf` is still embedded |
 
 ## Optional apps and packages
 
@@ -96,7 +96,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |
 | `LAZYOS_BLOCK_CACHE_KB` | Block-cache size in KiB; `0` mounts uncached. | - |
 | `LAZYOS_RAMDISK` | Path to a FAT image loaded as the bootloader ramdisk (registered as the `ram0` fallback block device). | - |
-| `LAZYOS_USB_IMAGE` | Build the image as a USB stick (`/home` on the stick). Needs `LAZYOS_USB` and services. | `--usb-image` |
+| `LAZYOS_USB_IMAGE` | Build the image as a USB stick (`/home` on the stick). Needs `LAZYOS_USB` and either `LAZYOS_SERVICES` or `LAZYOS_DESKTOP`. | `--usb-image` |
 | `LAZYOS_USB_HOME_SIZE`, `LAZYOS_USB_ROOT_FREE` | Sizes for the stick's home volume and spare root space. | - |
 | `LAZYOS_DIAG_HOLD` | Seconds (1..600) `xuid` keeps the boot-log panes on screen before the desktop opens, for PCs with no serial port (`diag.hold` in `lazyos.cfg`). | - |
 
@@ -139,7 +139,7 @@ The build refuses combinations that cannot work and says why:
   `run_demo.py --modplayer` sets both so the package has a player to run on.
 - `LAZYOS_DOOM=1`, `LAZYOS_EMUSIC=1`: their `.lzp` must exist (run the
   tool's `build.py` first).
-- `LAZYOS_DESKTOP=1` needs the xui apps built (`python tools/xui/build.py`).
+- `LAZYOS_DESKTOP=1` needs the default xui apps built (`python tools/xui/build.py`); optional ones such as `xui-docs.elf` are skipped with a warning when missing.
 - A desktop with `LAZYOS_NETD=1` also needs the print spooler built.
 
 See also: [AGENTS.md](../AGENTS.md) for how each feature is run and verified,
