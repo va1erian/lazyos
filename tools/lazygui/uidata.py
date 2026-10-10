@@ -62,6 +62,7 @@ def advanced_cfg(ui) -> dict:
         "net": ui.v["net"].get(),
         "net_forwards": ui.v["net_forwards"].get().strip(),
         "net_restrict": ui.v["net_restrict"].get(),
+        "nics": ui.v["nics"].get().strip(),
         "linuxapps": ui.v["linuxapps"].get(),
         **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control")},
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.

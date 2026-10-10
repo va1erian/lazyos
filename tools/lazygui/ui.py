@@ -130,7 +130,7 @@ class Launcher:
                                                            expand=True, padx=6)
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
-                            *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "tls",
+                            *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "nics", "tls",
                                                     "lazyweb", "smb", "dbgd",
                                                     "dbgd_control")))
 
