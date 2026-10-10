@@ -19,6 +19,9 @@ M.2 card needs a real PC), [security-model.md](security-model.md) §8 and
 [driver-config-plan.md](driver-config-plan.md) §1 (passphrases belong to
 `keyd`), [doom-port-plan.md](doom-port-plan.md) (the precedent for
 fetch-at-build third-party code and firmware-sized assets).
+Everything here that is not the chip driver is planned in
+[wifi-prerequisites-plan.md](wifi-prerequisites-plan.md) (WP0–WP6), which
+also corrects §3 for what has landed since.
 
 ## 1. Question and short answer
 
