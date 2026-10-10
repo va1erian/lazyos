@@ -245,7 +245,8 @@ send its own `Notify` wake-up; on `stack.v1` everyone may
 read and `Ping`, only `_netd` and root may `Renew` or `Reattach`. Unlike the N1
 class rules these call rules refuse nothing today (no Messenger policy
 loader), so the driver's own owner
-check is what stops a second client.
+check is what stops a second client. Who may *register* a card name is a
+different, enforced rule (see "Who may be a card").
 
 **Clock.** The kernel tick is 100 Hz, so the stack's clock is 10 ms and a ping
 reports 0 or 10 ms (the first, which waits for ARP, about 90 ms). The plan
@@ -646,6 +647,27 @@ lease (only the rings are rebuilt). A name missing for 3 seconds
 if=<name>` is logged. That is a normal event, never an error, and `netd`
 stays up. Driver `Notify` messages land in `netd`'s one inbox as before; the
 kernel-stamped sender identifies the card (the registry entry's owner slot).
+
+**Who may be a card.** `netd` gives whoever holds `os.lazy.net.nic/<ifname>`
+its frame rings and a notify channel, and believes its `NicInfo` (`kind` sets
+the route metric), so the name is guarded twice (`libs/netpolicy`). The
+registry refuses `Register` of anything in the namespace (the bare prefix, the
+empty name, any `os.lazy.net.nic/...`; not `os.lazy.net.nicX`) unless the
+caller's kernel-stamped credentials are a driver identity: uid `_net` 902,
+`_wifi` 911, `_wifisim` 913 (or root, the boot identity of a console image
+whose kernel starts `netdrv` itself), **no label and no session**. It
+runs before the uid rules and whatever capabilities the caller holds
+(`kernel/src/ipc/policy.rs`, `RESERVED_NAMESPACE` in the audit ring), so a
+session user or an app cannot take `eth9`, nor race a restarting driver for
+`eth0`. Second, `List` reports each entry's `owner_uid`, `owner_label` and
+`owner_session` from the kernel's credential table, and `netd` ignores a name
+whose owner fails the same check (logging `NETD:NIC:REFUSED name=... uid=...`
+once), refuses a `kind` the owner's uid may not claim (`_net` only wired, the
+Wi-Fi uids only wireless), and drops a `Notify` whose sender is not a driver
+identity. `netd` has no `CAP_SETUID`, which is why the identity travels in
+`List` instead of a credential read. Tests: `cargo test -p netpolicy`,
+kernel `label_nic_names_*` (refusals by uid, label, session and capability,
+edges, a 4000-cycle soak) and the accounts attack `nic_register`.
 
 **The stack: one smoltcp interface and socket set per card, a `Net` above
 them** (`libs/netstack/src/net/`, `stack.rs` is unchanged and still the unit

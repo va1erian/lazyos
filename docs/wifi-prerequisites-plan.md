@@ -424,7 +424,19 @@ milestone that matters ("Wi-Fi works in CI except for the radio").
    adds a copy and a wake per burst; at polled USB rates that is noise, but
    measure it in WP6 with the storage driver before Wi-Fi depends on it.
 6. **One `wlanmd` or one per interface?** Decided in WP4; one is assumed.
-7. **Captive portals, enterprise (802.1X/EAP), WPA3, hotspot mode** stay
+7. **Who may register a NIC name. Fixed (review of WP1, 2026-10-10).**
+   `netd` attaches to whatever holds `os.lazy.net.nic/<ifname>` and trusts its
+   `NicInfo`, and the registry let anyone register a name: a session user or
+   app could have received `netd`'s frames (DNS, traffic) by claiming
+   `kind = wired` with a lower slot. Now the registry reserves the namespace
+   to the NIC driver identities (`netpolicy`: `_net` 902, `_wifi` 911,
+   `_wifisim` 913, unlabelled, no session; root only as the console image's
+   boot identity), `List` reports each owner's kernel-stamped identity, and
+   `netd` checks it again, refuses a `kind` the uid may not claim and drops
+   `Notify` from non-drivers (`NETD:NIC:REFUSED`). Wireless drivers register
+   `wlan*` under their own uids with no further change. Attack row
+   `nic_register`; see architecture/networking.md "Who may be a card".
+8. **Captive portals, enterprise (802.1X/EAP), WPA3, hotspot mode** stay
    out, as in wifi-plan §7 and §10.
 
 ## 6. Decisions requested
