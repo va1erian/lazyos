@@ -106,10 +106,11 @@ SCRIPTS = [
     ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
     ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
+    ("xui_golf.json", "XUI app: LazyGolf", ("desktop",), "golf"),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.

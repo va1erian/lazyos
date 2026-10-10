@@ -114,6 +114,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/netdrives",
         Art::Lucide(Lucide::FolderOpen, Tone::Cobalt),
     ),
+    // LazyGolf: a ball (Lucide `disc`) on a teal tile, the nearest to golf
+    // either icon set has.
+    (
+        "xui-app/packages/golf",
+        Art::Lucide(Lucide::Disc, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.
