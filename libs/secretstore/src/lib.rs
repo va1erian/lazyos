@@ -38,6 +38,8 @@ mod file;
 mod rules;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_file;
 
 pub use file::{FileError, FILE_MAX, MACHINE_KEY_LEN};
 pub use rules::{authorize, Caller, Denied, Op};
