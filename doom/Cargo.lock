@@ -1298,6 +1298,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 name = "trayclient"
 version = "0.1.0"
 dependencies = [
+ "libmessenger",
  "messenger-generated",
 ]
 
@@ -1423,6 +1424,7 @@ dependencies = [
  "xui-confd-editor",
  "xui-core",
  "xui-explorer",
+ "xui-golf",
  "xui-icons",
  "xui-paint",
  "xui-pdfview",
@@ -1491,6 +1493,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-golf"
+version = "0.1.0"
+dependencies = [
+ "xui-core",
+]
+
+[[package]]
 name = "xui-icons"
 version = "0.1.0"
 source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
@@ -1533,6 +1542,7 @@ dependencies = [
  "confd",
  "deskmenu",
  "fhs",
+ "inputmap",
  "timezone",
  "uitheme",
  "xui-core",

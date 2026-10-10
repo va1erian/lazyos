@@ -103,6 +103,7 @@ pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
 mod scatter;
 mod sendfile;
 mod sig;
+mod slow;
 mod socket;
 mod sockopt;
 mod stat;
@@ -225,6 +226,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     super::gate::LAST_SYSCALL.store(nr, core::sync::atomic::Ordering::Relaxed);
     crate::perf::syscall_entry(nr);
     trace_syscall(nr);
+    let probe = slow::begin();
     let result = match nr {
         0 => io::sys_read(a1, a2, a3),
         1 => io::sys_write(a1, a2, a3),
@@ -376,6 +378,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     let result = task::signal::deliver_linux_restartable(result, restart);
     crate::arch::irqoff::exit();
     crate::perf::syscall_exit();
+    slow::end(probe, nr, [a1, a2, a3]);
     result
 }
 
