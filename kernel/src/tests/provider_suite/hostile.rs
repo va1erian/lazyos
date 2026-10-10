@@ -3,7 +3,11 @@
 
 use super::*;
 
+/// One sector read that reaches the provider: the disk's read cache would
+/// answer a repeat of an earlier read, and these tests inject faults into the
+/// provider's answers.
 fn read_one(disk: &dyn BlockDevice) -> Result<(), BlockError> {
+    provider::drop_caches();
     let mut sector = [0u8; SECTOR_SIZE];
     disk.read_sectors(3, &mut sector)
 }
@@ -68,6 +72,7 @@ pub fn error_statuses() -> Result<(), String> {
         );
         // A failed read never hands back the provider's bytes.
         mode(Mode::Status(status::IO));
+        provider::drop_caches();
         let mut sector = [0x77u8; SECTOR_SIZE];
         expect_err(
             disk.read_sectors(3, &mut sector),

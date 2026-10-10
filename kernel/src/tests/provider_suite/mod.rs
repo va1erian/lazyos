@@ -4,6 +4,7 @@
 //! the late `/home` mount on top of it, hostile replies, a provider that
 //! dies or stops answering mid-request, and the syscall 33 gate.
 
+mod cache;
 mod hostile;
 mod io;
 mod slow;
@@ -376,6 +377,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "provider_soak_vfs_refusals",
         vfs::soak_provider_vfs_refusals,
     ),
+    (
+        "provider_cache_repeated_reads_stay_off_the_stick",
+        cache::repeated_reads_stay_off_the_stick,
+    ),
+    (
+        "provider_cache_writes_go_through_and_update",
+        cache::writes_go_through_and_update,
+    ),
+    ("provider_cache_failed_write_forgets", cache::failed_write_forgets),
+    (
+        "provider_cache_dead_disk_fails_even_when_cached",
+        cache::dead_disk_fails_even_when_cached,
+    ),
+    ("provider_cache_streams_bypass", cache::streams_bypass),
+    ("provider_cache_epoch_and_eviction", cache::epoch_and_eviction),
+    ("provider_cache_soak_random_io", cache::soak_random_io),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
     ("provider_sys_hostile_lengths", sys::hostile_lengths),
