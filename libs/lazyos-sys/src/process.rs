@@ -28,9 +28,23 @@ pub fn write_str(text: &str) {
     write(text.as_bytes());
 }
 
-/// Block until a key is pressed; returns its character code.
+/// Flag the kernel sets on [`nr::READ_CHAR`]'s result at end of input (a
+/// redirected stdin that will never deliver another byte); the low byte is
+/// then a newline, so a caller that casts to `u8` ends its line.
+pub const READ_CHAR_EOF: u64 = 1 << 8;
+
+/// Block until a key is pressed; returns its character code. At end of input
+/// on a redirected stdin this is a newline; use [`read_char_or_eof`] to tell
+/// that from a typed one.
 pub fn read_char() -> u64 {
-    crate::raw::syscall0(nr::READ_CHAR) as u64
+    crate::raw::syscall0(nr::READ_CHAR) as u64 & !READ_CHAR_EOF
+}
+
+/// Like [`read_char`], but `None` at end of input (stdin closed, Ctrl-D, or a
+/// descriptor that cannot be read).
+pub fn read_char_or_eof() -> Option<u64> {
+    let raw = crate::raw::syscall0(nr::READ_CHAR) as u64;
+    (raw & READ_CHAR_EOF == 0).then_some(raw)
 }
 
 /// Read the file named by the **NUL-terminated** `name_z` into `buf`.

@@ -130,6 +130,22 @@ pub(super) fn read_pty(fd: u64, ptr: u64, len: u64) -> u64 {
     }
 }
 
+/// One byte from pty descriptor `fd` (a native `read_char` whose stdin the
+/// shell pointed at its pty slave); `None` at end of input or on an error.
+pub(super) fn read_pty_char(fd: u64) -> Option<u64> {
+    let Ok(Tty::Pty { pty, master }) = tty_of(fd) else {
+        return None;
+    };
+    let mut byte = [0u8; 1];
+    let nonblock = pty.nonblock(master);
+    let got = if master {
+        pty.master_read(&mut byte, nonblock)
+    } else {
+        pty.slave_read(&mut byte, nonblock)
+    };
+    matches!(got, Ok(1)).then(|| u64::from(byte[0]))
+}
+
 /// `write` on a pty descriptor: typed input on the master, program output on
 /// the slave.
 pub(super) fn write_pty(fd: u64, ptr: u64, len: u64) -> u64 {

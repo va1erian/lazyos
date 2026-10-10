@@ -32,7 +32,10 @@
 //! to the probe identity and exit; the console keeps its own credentials.
 //!
 //! Boot it with `LAZYOS_MESSENGERCTL=1` (see the kernel build script): the
-//! demo then runs this program in the hello window. With `LAZYOS_SERVICES=1`
+//! demo then runs this program in the hello window, passing `selftest` so the
+//! boot-time self-tests above run; started any other way (the desktop
+//! Terminal, the app list) it goes straight to the prompt, and it exits at
+//! end of input. With `LAZYOS_SERVICES=1`
 //! the supervisor's services provide targets for the new commands.
 
 #![no_std]
@@ -89,10 +92,15 @@ pub extern "C" fn _start() -> ! {
         Ok(stats) => print_report(&stats),
         Err(error) => report(error.message()),
     }
-    topic_selftest();
-    objects_selftest();
-    keyd_selftest();
-    app_selftest();
+    // The conformance self-tests publish on the live broker and spawn probe
+    // children, so they run only when the boot demo asks (`selftest`): from
+    // a shell on a running desktop they only print FAIL lines.
+    if has_arg("selftest") {
+        topic_selftest();
+        objects_selftest();
+        keyd_selftest();
+        app_selftest();
+    }
     commands()
 }
 
@@ -102,6 +110,14 @@ fn is_probe_role() -> bool {
     let mut buffer = [0u8; 16];
     let len = sys::service_args(&mut buffer).min(buffer.len());
     core::str::from_utf8(&buffer[..len]).unwrap_or("").trim() == "probe"
+}
+
+/// Whether the program was started with the bare argument `word`.
+fn has_arg(word: &str) -> bool {
+    let mut buffer = [0u8; 128];
+    let len = sys::service_args(&mut buffer).min(buffer.len());
+    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
+    text.split_whitespace().any(|part| part == word)
 }
 
 /// Whether this service's argument string carries `key=value`.

@@ -27,7 +27,12 @@ pub(crate) fn commands() -> ! {
     let mut line = [0u8; 256];
     loop {
         sys::write_str("> ");
-        let len = read_line(&mut line);
+        // End of input (stdin closed, Ctrl-D): nothing more will arrive, so
+        // leave instead of printing prompts forever.
+        let Some(len) = read_line(&mut line) else {
+            sys::write_str("\n");
+            sys::exit(0)
+        };
         let text = core::str::from_utf8(&line[..len]).unwrap_or("").trim();
         match text {
             "" => continue,
@@ -75,14 +80,15 @@ pub(crate) fn commands() -> ! {
     }
 }
 
-/// Read a line with basic backspace editing. Returns the byte length.
-fn read_line(buffer: &mut [u8]) -> usize {
+/// Read a line with basic backspace editing. Returns the byte length, or
+/// `None` at end of input.
+fn read_line(buffer: &mut [u8]) -> Option<usize> {
     let mut len = 0;
     loop {
-        let ch = sys::read_char();
+        let ch = sys::read_char_or_eof()?;
         if ch == b'\n' as u64 {
             sys::write_str("\n");
-            return len;
+            return Some(len);
         }
         if ch == 8 {
             if len > 0 {

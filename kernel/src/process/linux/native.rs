@@ -355,10 +355,11 @@ pub(crate) fn write_redirected(ptr: u64, len: u64) -> Option<u64> {
     Some(done)
 }
 
-/// The byte a native `read_char` (syscall 2) returns at end of input on a
+/// What a native `read_char` (syscall 2) returns at end of input on a
 /// redirected stdin: a newline, so a program reading a line ends it instead of
-/// spinning on a stream that will never deliver another key.
-const EOF_CHAR: u64 = b'\n' as u64;
+/// spinning on a stream that will never deliver another key, with bit 8 set
+/// (`lazyos_sys::process::READ_CHAR_EOF`) so one that cares can stop.
+const EOF_CHAR: u64 = b'\n' as u64 | 1 << 8;
 
 /// Native syscall 2 (`read_char`) for a task whose descriptor 0 is not the
 /// terminal: one byte from the pipe, socket or file the shell installed, so a
@@ -392,6 +393,7 @@ pub(crate) fn read_redirected() -> Option<u64> {
                 }
             }))
         }
+        FdKind::Pty => Some(super::tty::read_pty_char(0).unwrap_or(EOF_CHAR)),
         FdKind::File => Some(match task::fd_read(0, 1) {
             Some(chunk) if !chunk.is_empty() => u64::from(chunk[0]),
             _ => EOF_CHAR,
