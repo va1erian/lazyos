@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use xui_golf::math::Vec3;
-use xui_golf::render::{resolve, Camera, Frame, Mode, RenderJob, Scene};
+use xui_golf::render::{resolve_into, Camera, Frame, Mode, RenderJob, Scene};
 use xui_golf::{Archetype, Params};
 
 const W: usize = 640;
@@ -41,11 +41,42 @@ fn fairway_camera(scene: &Scene, n: usize, along: f32) -> Camera {
 }
 
 fn save(scene: &Scene, frame: &Frame, name: &str) {
-    let rgba = resolve(frame, &scene.palette.words(), 2, W * 2, H * 2);
+    let mut rgba = Vec::new();
+    resolve_into(frame, &scene.palette.words(), 2, W * 2, H * 2, &mut rgba);
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/snapshots");
     std::fs::create_dir_all(&dir).unwrap();
     let image = xui_core::Image::from_rgba((W * 2) as u32, (H * 2) as u32, rgba).unwrap();
     image.save_png(dir.join(name)).unwrap();
+}
+
+/// The index buffer expands nearest-neighbour and crops, into a buffer that
+/// is written over (not appended to) whatever size it had.
+#[test]
+fn resolve_into_scales_crops_and_reuses_the_buffer() {
+    let mut frame = Frame::new(2, 2);
+    frame.index.copy_from_slice(&[1, 2, 3, 4]);
+    let mut words = [0u32; 256];
+    for (i, w) in words.iter_mut().enumerate() {
+        *w = u32::from_le_bytes([i as u8, 0, 0, 255]);
+    }
+    let reds = |rgba: &[u8]| rgba.chunks(4).map(|p| p[0]).collect::<Vec<_>>();
+
+    // 2x scale, cropped to 3x3 (an odd window): the last column and row
+    // are cut off the 4x4 expansion.
+    let mut out = vec![0xEE; 1000];
+    resolve_into(&frame, &words, 2, 3, 3, &mut out);
+    assert_eq!(out.len(), 3 * 3 * 4);
+    assert_eq!(reds(&out), [1, 1, 2, 1, 1, 2, 3, 3, 4]);
+    assert!(out.chunks(4).all(|p| p[3] == 255));
+
+    // A bigger window fills the same allocation, not the old bytes.
+    out.reserve(8 * 8 * 4);
+    let capacity = out.capacity();
+    resolve_into(&frame, &words, 4, 8, 8, &mut out);
+    assert_eq!(out.capacity(), capacity, "no new allocation");
+    assert_eq!(out.len(), 8 * 8 * 4);
+    assert_eq!(out[0], 1);
+    assert_eq!(out[(7 * 8 + 7) * 4], 4);
 }
 
 /// How many distinct palette indices a frame uses.

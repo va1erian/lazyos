@@ -6748,7 +6748,7 @@ dependencies = [
 [[package]]
 name = "xui-blitz"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -6779,7 +6779,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "arboard",
  "cosmic-text",
@@ -6817,7 +6817,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -6856,7 +6856,7 @@ dependencies = [
 [[package]]
 name = "xui-gpu"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "glow",
  "xui-core",
@@ -6865,7 +6865,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "xui-core",
 ]
@@ -6910,7 +6910,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=e50e69d64c0b851b89c85b06e3d8f5df891a916a#e50e69d64c0b851b89c85b06e3d8f5df891a916a"
+source = "git+https://github.com/va1erian/xui?rev=7477a371a3f606e3c88e429674e7feb09fdceac0#7477a371a3f606e3c88e429674e7feb09fdceac0"
 dependencies = [
  "serde",
  "serde_json",

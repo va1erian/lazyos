@@ -15,7 +15,7 @@ use crate::gen::Params;
 use crate::loading::Loading;
 use crate::math::{polyline_at, Vec3};
 use crate::minimap::Minimap;
-use crate::render::{resolve, Camera, Frame, Mode, RenderJob, Scene};
+use crate::render::{resolve_into, Camera, Frame, Mode, RenderJob, Scene};
 
 /// What the game tells its host (the LazyOS binary prints it as serial
 /// evidence).
@@ -362,15 +362,23 @@ impl Running {
         true
     }
 
-    /// Turns the framebuffer into the window-sized image.
+    /// Turns the framebuffer into the window-sized image. The last image's
+    /// pixels are filled again in place: a window-sized buffer is big enough
+    /// to be an `mmap` and a page fault per page each frame otherwise.
     fn present(&mut self) {
         let (w, h) = self.size;
-        let rgba = resolve(
+        let mut rgba = self
+            .image
+            .take()
+            .map(Image::into_pixels)
+            .unwrap_or_default();
+        resolve_into(
             &self.frame,
             &self.scene.palette.words(),
             self.frame_scale,
             w,
             h,
+            &mut rgba,
         );
         self.image = Image::from_rgba(w as u32, h as u32, rgba).ok();
     }
