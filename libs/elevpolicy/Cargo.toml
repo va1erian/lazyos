@@ -20,6 +20,8 @@ fuzz = []
 accountdb = { path = "../accountdb" }
 # The confd path rule and value type a `conf.*` operation carries.
 confd = { path = "../confd" }
+# The rule for a Wi-Fi secret's name (`net.wifi.system`).
+secretstore = { path = "../secretstore" }
 # The civil date a `time.set` prompt shows.
 timezone = { path = "../timed" }
 

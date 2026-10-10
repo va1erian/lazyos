@@ -26,6 +26,7 @@
 //! | `power.policy` | key, value | `confd` `Set` of `sys/power/<key>` |
 //! | `net.config` | card, address, gateway, dns | `confd` `Set`/`Delete` of `sys/net/<card>/*` |
 //! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
+//! | `net.wifi.system` | `store`, name, passphrase; or `delete`, name | `keyd` `StoreSecret`/`DeleteSecret` in the `system` scope |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -188,6 +189,18 @@ pub enum Operation {
     ServiceRestart {
         name: String,
     },
+    WifiSystem(WifiChange),
+}
+
+/// What `net.wifi.system` does to the machine's own Wi-Fi secrets, the ones
+/// every user can join with and the greeter's machine joins with before
+/// anyone logs in (docs/wifi-prerequisites-plan.md section 3.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WifiChange {
+    /// Keep `passphrase` as the `system` secret `name`.
+    Store { name: String, passphrase: String },
+    /// Forget the `system` secret `name`.
+    Delete { name: String },
 }
 
 /// Whether an approval of the operation may stand for later requests.
@@ -218,6 +231,7 @@ pub const NAMES: &[&str] = &[
     "power.policy",
     "net.config",
     "service.restart",
+    "net.wifi.system",
 ];
 
 impl Operation {
@@ -388,6 +402,25 @@ impl Operation {
                     name: name.to_string(),
                 }
             }
+            "net.wifi.system" => {
+                let change = match arg(0) {
+                    Some("store") => {
+                        want(3)?;
+                        WifiChange::Store {
+                            name: wifi_secret_name(arg(1).unwrap_or(""))?,
+                            passphrase: wifi_passphrase(arg(2).unwrap_or(""))?,
+                        }
+                    }
+                    Some("delete") => {
+                        want(2)?;
+                        WifiChange::Delete {
+                            name: wifi_secret_name(arg(1).unwrap_or(""))?,
+                        }
+                    }
+                    _ => return Err("the change is store or delete"),
+                };
+                Operation::WifiSystem(change)
+            }
             _ => return Err("not an operation elevd performs"),
         };
         Ok(op)
@@ -416,6 +449,7 @@ impl Operation {
             Operation::PowerPolicy { .. } => 13,
             Operation::NetConfig { .. } => 14,
             Operation::ServiceRestart { .. } => 15,
+            Operation::WifiSystem(_) => 16,
         }
     }
 
@@ -469,6 +503,12 @@ impl Operation {
                 dns,
             } => alloc::vec![card.clone(), address.clone(), gateway.clone(), dns.clone()],
             Operation::ServiceRestart { name } => one(name),
+            Operation::WifiSystem(WifiChange::Store { name, passphrase }) => {
+                alloc::vec![String::from("store"), name.clone(), passphrase.clone()]
+            }
+            Operation::WifiSystem(WifiChange::Delete { name }) => {
+                alloc::vec![String::from("delete"), name.clone()]
+            }
         }
     }
 }

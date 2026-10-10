@@ -14,7 +14,7 @@ fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
 
 #[test]
 fn every_row_parses_and_round_trips() {
-    let rows: [(&str, &[&str]); 17] = [
+    let rows: [(&str, &[&str]); 19] = [
         ("pkg.install", &["/transient/demo.lzp"]),
         ("pkg.update-core", &["/home/user/counter.lzp"]),
         ("pkg.remove", &["org.lazy.demo"]),
@@ -35,6 +35,8 @@ fn every_row_parses_and_round_trips() {
         ),
         ("net.config", &["eth0", "", "", ""]),
         ("service.restart", &["inputd"]),
+        ("net.wifi.system", &["store", "office", "correct horse"]),
+        ("net.wifi.system", &["delete", "office"]),
     ];
     for (name, items) in rows {
         let op = parse(name, items).unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -42,7 +44,7 @@ fn every_row_parses_and_round_trips() {
         assert_eq!(Operation::parse(name, &op.args()), Ok(op.clone()), "{name}");
         assert!(!op.summary().is_empty());
     }
-    assert_eq!(NAMES.len(), 16);
+    assert_eq!(NAMES.len(), 17);
 }
 
 #[test]
@@ -88,6 +90,47 @@ fn summaries_say_what_changes_and_never_the_password() {
     assert_eq!(op.summary(), "Set the clock to 1970-01-01 00:00 UTC");
     let op = parse("conf.set", &["sys/ui/demo", "bytes", "00ff"]).unwrap();
     assert_eq!(op.summary(), "Set the setting sys/ui/demo to 2 bytes");
+}
+
+#[test]
+fn wifi_system_changes_are_checked_and_never_show_the_passphrase() {
+    let raw = "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e";
+    for good in [
+        &["store", "office", "correct horse"][..],
+        &["store", "raw.psk", raw][..],
+        &["delete", "office"][..],
+    ] {
+        let op = parse("net.wifi.system", good).unwrap();
+        assert_eq!(op.class(), Class::Once, "a change asks every time");
+        assert!(op.permitted().is_ok());
+        assert!(!op.summary().contains("correct horse") && !op.summary().contains(raw));
+    }
+    let op = parse("net.wifi.system", &["store", "office", "correct horse"]).unwrap();
+    assert_eq!(
+        op.summary(),
+        "Save the Wi-Fi password 'office' for all users, before login too"
+    );
+    let too_long = "x".repeat(64);
+    for bad in [
+        &[][..],
+        &["store"][..],
+        &["store", "office"][..],
+        &["store", "office", "short"][..],
+        &["store", "office", &too_long][..],
+        &["store", "office", "caf\u{e9} au lait"][..],
+        &["store", "of fice", "correct horse"][..],
+        &["store", "", "correct horse"][..],
+        &["store", "office", "correct horse", "extra"][..],
+        &["delete"][..],
+        &["delete", "office", "extra"][..],
+        &["delete", "a/b"][..],
+        &["list", "office"][..],
+    ] {
+        assert!(
+            parse("net.wifi.system", bad).is_err(),
+            "{bad:?} was accepted"
+        );
+    }
 }
 
 #[test]

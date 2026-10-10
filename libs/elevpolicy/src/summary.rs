@@ -14,7 +14,7 @@ use alloc::string::String;
 
 use crate::text::{self, elide, elide_path};
 use crate::values::{civil, value_args};
-use crate::{HomeFate, Operation, Value};
+use crate::{HomeFate, Operation, Value, WifiChange};
 
 /// Longest summary (characters); the prompt has room for all of it.
 pub const MAX_SUMMARY: usize = 300;
@@ -95,6 +95,14 @@ impl Operation {
                 text
             }
             Operation::ServiceRestart { name } => format!("Restart the system service '{name}'"),
+            // Never the passphrase: the prompt and the audit trail show only
+            // what is changed, and who can then join.
+            Operation::WifiSystem(WifiChange::Store { name, .. }) => {
+                format!("Save the Wi-Fi password '{name}' for all users, before login too")
+            }
+            Operation::WifiSystem(WifiChange::Delete { name }) => {
+                format!("Delete the Wi-Fi password '{name}' kept for all users")
+            }
         }
     }
 }
