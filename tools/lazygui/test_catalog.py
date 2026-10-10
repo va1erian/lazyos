@@ -23,6 +23,7 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
     TrayDemoTests,
 )
 from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
+from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
@@ -411,29 +412,6 @@ class NetworkTests(unittest.TestCase):
         self.assertIn("udp:5353:53", argv)
         self.assertIn("--net-restrict", argv)
         self.assertNotIn("--net", demo_argv(net_forwards="1:2"))
-
-    def test_network_cards_are_run_demos_nics_flag(self) -> None:
-        self.assertNotIn("--nics", demo_argv(net=True), "one card is the default")
-        argv = demo_argv(net=True, nics="2")
-        self.assertEqual(argv[argv.index("--nics") + 1], "2")
-        top = str(catalog.qemu_net.MAX_NICS)
-        self.assertIn("--nics", demo_argv(net=True, nics=top))
-        self.assertIn("--nics", demo_argv(smb=True, nics="2"), "any networked image")
-
-    def test_network_cards_are_bounded(self) -> None:
-        for bad in ("0", str(catalog.qemu_net.MAX_NICS + 1), "-1"):
-            with self.assertRaises(ValueError):
-                demo_argv(net=True, nics=bad)
-
-    def test_network_cards_are_ignored_without_networking(self) -> None:
-        self.assertNotIn("--nics", demo_argv(nics="3"))
-        self.assertEqual(catalog.net_flags({"nics": "99"}), [], "not even validated")
-
-    def test_network_cards_reach_the_screenshot_and_session_modes(self) -> None:
-        common = {"profile": "dev", "skip_build": True, "accel": "auto", "memory": "256M",
-                  "qemu": "", "out": "shots", "net": True, "nics": "2"}
-        shot = catalog.build_plan({**common, "mode": "Headless screenshots", "times": "5"})
-        self.assertIn("--nics", shot[-1]["argv"])
 
     def test_a_bad_forward_is_a_plan_error(self) -> None:
         with self.assertRaises(ValueError):
