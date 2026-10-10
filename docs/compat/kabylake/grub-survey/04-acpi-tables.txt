@@ -1,0 +1,46 @@
+# ls -l /sys/firmware/acpi/tables/ /sys/firmware/acpi/tables/dynamic 2>&1; dmesg | grep -i -E "ACPI: (RSDP|XSDT|FACP|APIC|HPET|DMAR|MCFG)"
+/sys/firmware/acpi/tables/:
+total 0
+-r-------- 1 root root    132 Oct 10 15:21 APIC
+-r-------- 1 root root    160 Oct 10 15:21 ASF!
+-r-------- 1 root root     56 Oct 10 15:21 BGRT
+-r-------- 1 root root     84 Oct 10 15:21 DBG2
+-r-------- 1 root root     52 Oct 10 15:21 DBGP
+-r-------- 1 root root    168 Oct 10 15:18 DMAR
+-r-------- 1 root root 163554 Oct 10 15:21 DSDT
+-r-------- 1 root root    276 Oct 10 15:18 FACP
+-r-------- 1 root root     64 Oct 10 15:21 FACS
+-r-------- 1 root root    156 Oct 10 15:21 FIDT
+-r-------- 1 root root     68 Oct 10 15:21 FPDT
+-r-------- 1 root root     56 Oct 10 15:21 HPET
+-r-------- 1 root root    148 Oct 10 15:21 LPIT
+-r-------- 1 root root     60 Oct 10 15:21 MCFG
+-r-------- 1 root root    882 Oct 10 15:21 SSDT1
+-r-------- 1 root root  12633 Oct 10 15:21 SSDT2
+-r-------- 1 root root   3557 Oct 10 15:21 SSDT3
+-r-------- 1 root root   2316 Oct 10 15:21 SSDT4
+-r-------- 1 root root   3806 Oct 10 15:21 SSDT5
+-r-------- 1 root root    321 Oct 10 15:21 SSDT6
+-r-------- 1 root root    671 Oct 10 15:21 SSDT7
+-r-------- 1 root root  12290 Oct 10 15:21 SSDT8
+-r-------- 1 root root    533 Oct 10 15:21 SSDT9
+-r-------- 1 root root     52 Jul 27 22:44 TPM2
+-r-------- 1 root root     66 Oct 10 15:18 UEFI
+-r-------- 1 root root     40 Oct 10 15:21 WSMT
+drwxr-xr-x 2 root root      0 Oct 10 15:21 data
+drwxr-xr-x 2 root root      0 Oct 10 15:21 dynamic
+
+/sys/firmware/acpi/tables/dynamic:
+total 0
+-r-------- 1 root root 1617 Oct 10  2026 SSDT10
+-r-------- 1 root root 1628 Oct 10  2026 SSDT11
+-r-------- 1 root root  407 Oct 10  2026 SSDT12
+[    0.012461] ACPI: RSDP 0x00000000BCC14000 000024 (v02 ALASKA)
+[    0.012467] ACPI: XSDT 0x00000000BCC140B0 0000E4 (v01 ALASKA A M I    01072009 AMI  00010013)
+[    0.012474] ACPI: FACP 0x00000000BCC3C118 000114 (v06 ALASKA A M I    01072009 AMI  00010013)
+[    0.012490] ACPI: APIC 0x00000000BCC3C230 000084 (v03 ALASKA A M I    01072009 AMI  00010013)
+[    0.012498] ACPI: MCFG 0x00000000BCC3C300 00003C (v01 ALASKA A M I    01072009 MSFT 00000097)
+[    0.012515] ACPI: HPET 0x00000000BCC3F8B8 000038 (v01 INTEL  KBL-ULT  00000001 MSFT 0000005F)
+[    0.012573] ACPI: DMAR 0x00000000BCC456A0 0000A8 (v01 INTEL  KBL      00000001 INTL 00000001)
+[    0.013338] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+# exit 0

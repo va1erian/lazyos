@@ -1,0 +1,24 @@
+# dmesg | grep -i -E "tsc|hpet|clocksource|lapic|apic timer|pmtmr|mwait|c-state|intel_idle"
+[    0.000000] tsc: Detected 2400.000 MHz processor
+[    0.012515] ACPI: HPET 0x00000000BCC3F8B8 000038 (v01 INTEL  KBL-ULT  00000001 MSFT 0000005F)
+[    0.012596] ACPI: Reserving HPET table memory at [mem 0xbcc3f8b8-0xbcc3f8ef]
+[    0.013294] ACPI: LAPIC_NMI (acpi_id[0x01] high edge lint[0x1])
+[    0.013296] ACPI: LAPIC_NMI (acpi_id[0x02] high edge lint[0x1])
+[    0.013297] ACPI: LAPIC_NMI (acpi_id[0x03] high edge lint[0x1])
+[    0.013298] ACPI: LAPIC_NMI (acpi_id[0x04] high edge lint[0x1])
+[    0.013338] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.013362] TSC deadline timer available
+[    0.013424] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1910969940391419 ns
+[    0.127613] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.128122] clocksource: hpet: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 79635855245 ns
+[    0.128240] DMAR-IR: HPET id 0 under DRHD base 0xfed91000
+[    0.139163] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x22983777dd9, max_idle_ns: 440795300422 ns
+[    0.139286] process: using mwait in idle threads
+[    0.421292] hpet0: at MMIO 0xfed00000, IRQs 2, 8, 0, 0, 0, 0, 0, 0
+[    0.421292] hpet0: 8 comparators, 64-bit 24.000000 MHz counter
+[    0.429182] clocksource: Switched to clocksource tsc-early
+[    0.442098] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    1.506688] tsc: Refined TSC clocksource calibration: 2399.999 MHz
+[    1.506700] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x2298364cab5, max_idle_ns: 440795214892 ns
+[    1.506722] clocksource: Switched to clocksource tsc
+# exit 0
