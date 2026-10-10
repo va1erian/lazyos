@@ -116,6 +116,16 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         HIGH,
         "Open network connections to other computers",
     ),
+    (
+        "os.lazy.net.wifi.hw.v1",
+        HIGH,
+        "Control the Wi-Fi radio directly",
+    ),
+    (
+        "os.lazy.net.wifi.v1",
+        HIGH,
+        "Scan for Wi-Fi networks and join or leave them",
+    ),
     ("os.lazy.pkgd.v1", HIGH, "Install and remove applications"),
     (
         "os.lazy.print.v1",

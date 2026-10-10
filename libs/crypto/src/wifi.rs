@@ -125,19 +125,26 @@ pub fn mic_eq(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
-    let diff = left.iter().zip(right).fold(0u8, |acc, (a, b)| acc | (a ^ b));
+    let diff = left
+        .iter()
+        .zip(right)
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b));
     diff == 0
 }
 
 /// AES key wrap (RFC 3394) of `plain` under `kek` (16 or 32 bytes). The output
 /// is 8 bytes longer. `plain` must be a multiple of 8 bytes, at least 16.
 pub fn aes_wrap(kek: &[u8], plain: &[u8]) -> Result<Vec<u8>, Error> {
-    if plain.len() < 16 || plain.len() % 8 != 0 {
+    if plain.len() < 16 || !plain.len().is_multiple_of(8) {
         return Err(Error::BadLength);
     }
     let wrapped = match kek.len() {
-        16 => KekAes128::try_from(kek).map_err(|_| Error::BadLength)?.wrap_vec(plain),
-        32 => KekAes256::try_from(kek).map_err(|_| Error::BadLength)?.wrap_vec(plain),
+        16 => KekAes128::try_from(kek)
+            .map_err(|_| Error::BadLength)?
+            .wrap_vec(plain),
+        32 => KekAes256::try_from(kek)
+            .map_err(|_| Error::BadLength)?
+            .wrap_vec(plain),
         _ => return Err(Error::BadLength),
     };
     wrapped.map_err(|_| Error::BadLength)
@@ -148,12 +155,16 @@ pub fn aes_wrap(kek: &[u8], plain: &[u8]) -> Result<Vec<u8>, Error> {
 /// integrity check (wrong KEK or tampering) is [`Error::BadTag`]; the partial
 /// plaintext is never returned.
 pub fn aes_unwrap(kek: &[u8], data: &[u8]) -> Result<Vec<u8>, Error> {
-    if data.len() < 24 || data.len() % 8 != 0 {
+    if data.len() < 24 || !data.len().is_multiple_of(8) {
         return Err(Error::BadLength);
     }
     let plain = match kek.len() {
-        16 => KekAes128::try_from(kek).map_err(|_| Error::BadLength)?.unwrap_vec(data),
-        32 => KekAes256::try_from(kek).map_err(|_| Error::BadLength)?.unwrap_vec(data),
+        16 => KekAes128::try_from(kek)
+            .map_err(|_| Error::BadLength)?
+            .unwrap_vec(data),
+        32 => KekAes256::try_from(kek)
+            .map_err(|_| Error::BadLength)?
+            .unwrap_vec(data),
         _ => return Err(Error::BadLength),
     };
     plain.map_err(|_| Error::BadTag)

@@ -9,7 +9,10 @@ use super::*;
 use crate::hex::encode;
 
 fn h(text: &str) -> Vec<u8> {
-    let digits: Vec<u8> = text.bytes().filter(|byte| !byte.is_ascii_whitespace()).collect();
+    let digits: Vec<u8> = text
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect();
     digits
         .chunks(2)
         .map(|pair| u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap())
@@ -43,15 +46,24 @@ fn psk_matches_rfc6070_prefix() {
     // RFC 6070 section 2: PBKDF2-HMAC-SHA1("password", "salt", 4096, 20) is
     // the first 20 bytes of our 32-byte output (PBKDF2 blocks are independent).
     let pmk = pbkdf2_sha1(b"password", b"salt").unwrap();
-    assert_eq!(encode(&pmk[..20]), "4b007901b765489abead49d926f721d065a429c1");
+    assert_eq!(
+        encode(&pmk[..20]),
+        "4b007901b765489abead49d926f721d065a429c1"
+    );
 }
 
 #[test]
 fn psk_refuses_bad_passphrase_and_ssid() {
     assert_eq!(pbkdf2_sha1(b"short", b"net"), Err(Error::BadLength));
     assert_eq!(pbkdf2_sha1(&[b'a'; 64], b"net"), Err(Error::BadLength));
-    assert_eq!(pbkdf2_sha1(b"has\x00control", b"net"), Err(Error::BadLength));
-    assert_eq!(pbkdf2_sha1("pässword1".as_bytes(), b"net"), Err(Error::BadLength));
+    assert_eq!(
+        pbkdf2_sha1(b"has\x00control", b"net"),
+        Err(Error::BadLength)
+    );
+    assert_eq!(
+        pbkdf2_sha1("pässword1".as_bytes(), b"net"),
+        Err(Error::BadLength)
+    );
     assert_eq!(pbkdf2_sha1(b"password", b""), Err(Error::BadLength));
     assert_eq!(pbkdf2_sha1(b"password", &[b's'; 33]), Err(Error::BadLength));
     // The bounds themselves are legal.
@@ -67,10 +79,22 @@ fn prf_sha1_ieee_annex_j3_vectors() {
     // Case 1: key 0x0b * 20, "prefix", "Hi There", 192 bits.
     let mut out = [0u8; 24];
     prf_sha1(&[0x0b; 20], b"prefix", b"Hi There", &mut out).unwrap();
-    assert_eq!(encode(&out), "bcd4c650b30b9684951829e0d75f9d54b862175ed9f00606");
+    assert_eq!(
+        encode(&out),
+        "bcd4c650b30b9684951829e0d75f9d54b862175ed9f00606"
+    );
     // Case 2: key "Jefe", "prefix-2", "what do ya want for nothing?".
-    prf_sha1(b"Jefe", b"prefix-2", b"what do ya want for nothing?", &mut out).unwrap();
-    assert_eq!(encode(&out), "47c4908e30c947521ad20be9053450ecbea23d3aa604b773");
+    prf_sha1(
+        b"Jefe",
+        b"prefix-2",
+        b"what do ya want for nothing?",
+        &mut out,
+    )
+    .unwrap();
+    assert_eq!(
+        encode(&out),
+        "47c4908e30c947521ad20be9053450ecbea23d3aa604b773"
+    );
 }
 
 #[test]
@@ -87,7 +111,10 @@ fn prf_sha1_output_is_a_prefix_family() {
 fn prf_sha1_refuses_bad_output_sizes() {
     assert_eq!(prf_sha1(b"k", b"l", b"d", &mut []), Err(Error::BadLength));
     let mut too_long = alloc::vec![0u8; PRF_MAX + 1];
-    assert_eq!(prf_sha1(b"k", b"l", b"d", &mut too_long), Err(Error::BadLength));
+    assert_eq!(
+        prf_sha1(b"k", b"l", b"d", &mut too_long),
+        Err(Error::BadLength)
+    );
     let mut max = alloc::vec![0u8; PRF_MAX];
     assert!(prf_sha1(b"k", b"l", b"d", &mut max).is_ok());
 }
@@ -121,7 +148,10 @@ fn kdf_sha256_cross_checked_vectors() {
 fn kdf_sha256_refuses_bad_output_sizes() {
     assert_eq!(kdf_sha256(b"k", b"l", b"c", &mut []), Err(Error::BadLength));
     let mut too_long = alloc::vec![0u8; KDF_MAX + 1];
-    assert_eq!(kdf_sha256(b"k", b"l", b"c", &mut too_long), Err(Error::BadLength));
+    assert_eq!(
+        kdf_sha256(b"k", b"l", b"c", &mut too_long),
+        Err(Error::BadLength)
+    );
     let mut max = alloc::vec![0u8; KDF_MAX];
     assert!(kdf_sha256(b"k", b"l", b"c", &mut max).is_ok());
 }
@@ -166,7 +196,11 @@ fn aes_cmac_rfc4493_examples() {
         (64, "51f0bebf7e3b9d92fc49741779363cfe"),
     ];
     for (len, expected) in cases {
-        assert_eq!(encode(&aes_cmac_128(&key, &msg[..len])), expected, "length {len}");
+        assert_eq!(
+            encode(&aes_cmac_128(&key, &msg[..len])),
+            expected,
+            "length {len}"
+        );
     }
 }
 
@@ -189,7 +223,10 @@ fn key_wrap_rfc3394_section_4_1() {
     let kek = h("000102030405060708090A0B0C0D0E0F");
     let plain = h("00112233445566778899AABBCCDDEEFF");
     let wrapped = aes_wrap(&kek, &plain).unwrap();
-    assert_eq!(encode(&wrapped), "1fa68b0a8112b447aef34bd8fb5a7b829d3e862371d2cfe5");
+    assert_eq!(
+        encode(&wrapped),
+        "1fa68b0a8112b447aef34bd8fb5a7b829d3e862371d2cfe5"
+    );
     assert_eq!(aes_unwrap(&kek, &wrapped).unwrap(), plain);
 }
 
@@ -215,7 +252,11 @@ fn key_unwrap_fails_on_integrity_error() {
         for bit in 0..8 {
             let mut bad = wrapped.clone();
             bad[byte] ^= 1 << bit;
-            assert_eq!(aes_unwrap(&kek, &bad), Err(Error::BadTag), "byte {byte} bit {bit}");
+            assert_eq!(
+                aes_unwrap(&kek, &bad),
+                Err(Error::BadTag),
+                "byte {byte} bit {bit}"
+            );
         }
     }
     // A wrong KEK is the same answer.
@@ -228,18 +269,37 @@ fn key_wrap_refuses_bad_lengths() {
     let kek = [7u8; 16];
     // Wrap: payload must be a multiple of 8 and at least 16.
     for len in [0, 8, 15, 17, 23] {
-        assert_eq!(aes_wrap(&kek, &alloc::vec![0u8; len]), Err(Error::BadLength), "{len}");
+        assert_eq!(
+            aes_wrap(&kek, &alloc::vec![0u8; len]),
+            Err(Error::BadLength),
+            "{len}"
+        );
     }
     // Unwrap: at least 24, a multiple of 8, however hostile the length.
     for len in [0, 1, 8, 16, 23, 25, 31] {
-        assert_eq!(aes_unwrap(&kek, &alloc::vec![0u8; len]), Err(Error::BadLength), "{len}");
+        assert_eq!(
+            aes_unwrap(&kek, &alloc::vec![0u8; len]),
+            Err(Error::BadLength),
+            "{len}"
+        );
     }
     // KEK sizes: 16 and 32 only.
     for len in [0, 15, 17, 24, 31, 33, 64] {
         let bad = alloc::vec![1u8; len];
-        assert_eq!(aes_wrap(&bad, &[0u8; 16]), Err(Error::BadLength), "kek {len}");
-        assert_eq!(aes_unwrap(&bad, &[0u8; 24]), Err(Error::BadLength), "kek {len}");
+        assert_eq!(
+            aes_wrap(&bad, &[0u8; 16]),
+            Err(Error::BadLength),
+            "kek {len}"
+        );
+        assert_eq!(
+            aes_unwrap(&bad, &[0u8; 24]),
+            Err(Error::BadLength),
+            "kek {len}"
+        );
     }
     // A large, well-formed all-zero blob is a clean integrity failure.
-    assert_eq!(aes_unwrap(&kek, &alloc::vec![0u8; 4096]), Err(Error::BadTag));
+    assert_eq!(
+        aes_unwrap(&kek, &alloc::vec![0u8; 4096]),
+        Err(Error::BadTag)
+    );
 }

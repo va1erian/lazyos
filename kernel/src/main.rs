@@ -80,6 +80,8 @@ entry_point!(kernel_main, config = &CONFIG);
 // In test builds `tests::run()` diverges before the normal boot path.
 #[cfg_attr(lazyos_tests, allow(unreachable_code))]
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    // No IDT until `arch::init`: an interrupt taken now triple-faults (docs/compat/amd-nuc).
+    x86_64::instructions::interrupts::disable();
     serial::init();
     serial_println!("LazyOS: kernel entered");
     boot_phase!("kernel_entered");
