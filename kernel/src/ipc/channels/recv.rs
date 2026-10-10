@@ -68,6 +68,7 @@ fn take_locked(
             // (`await_reply` only expires a deadline that is actually due).
             if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
                 if entry.state == TxnState::Pending {
+                    entry.served = true;
                     entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
                 }
             }
@@ -96,11 +97,8 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
         if channel.txns[index].state != TxnState::Pending {
             continue;
         }
-        channel.txns[index].state = TxnState::TimedOut;
-        channel.timeouts += 1;
-        let caller = channel.txns[index].caller;
-        release_pending(channel, caller);
-        woken.push(caller);
+        // The callee came back to `recv` without answering: "nothing there".
+        woken.push(time_out(channel, index, true));
     }
 }
 

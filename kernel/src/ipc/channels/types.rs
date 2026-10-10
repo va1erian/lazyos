@@ -183,8 +183,11 @@ pub struct Stats {
     pub replies: u64,
     /// One-way messages accepted (sent minus calls, from the sender meters).
     pub one_way: u64,
-    /// Transactions that hit their deadline.
+    /// Transactions that hit a real deadline (nobody answered in time).
     pub timeouts: u64,
+    /// Non-blocking polls (see [`POLL_DEADLINE`]) that ended unanswered:
+    /// "is anything there?" asked and answered "no", not a failure.
+    pub polls: u64,
     /// Transactions canceled by their caller.
     pub cancels: u64,
     /// Messages refused or discarded (full queue, dead peer, late reply).
@@ -195,6 +198,17 @@ pub struct Stats {
     pub queued_bytes: u64,
     /// Transactions currently awaiting a reply.
     pub outstanding: u64,
+}
+
+/// One task slot's call counters, from [`slot_totals`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SlotTotals {
+    /// Synchronous calls the task started.
+    pub calls: u64,
+    /// Its calls that missed a real deadline.
+    pub timeouts: u64,
+    /// Its polls that ended unanswered.
+    pub polls: u64,
 }
 
 /// Live registry sizes, for the fabric snapshot (issue #70).
@@ -217,6 +231,10 @@ pub struct SenderMeter {
     pub calls: u64,
     /// Calls still awaiting a reply.
     pub outstanding: u64,
+    /// Calls that ended by a real deadline.
+    pub timeouts: u64,
+    /// Polls that ended unanswered.
+    pub polls: u64,
 }
 
 /// How a transaction ended. Only [`TxnState::Pending`] accepts a reply.
@@ -239,6 +257,13 @@ pub(super) struct Transaction {
     /// Endpoint the request was delivered to.
     pub(super) callee_side: usize,
     pub(super) deadline: Option<u64>,
+    /// A non-blocking poll ([`POLL_DEADLINE`]): ending unanswered is a
+    /// `polls` tick, not a `timeouts` one.
+    pub(super) poll: bool,
+    /// The callee received this poll: its service-turn bound replaced the
+    /// grace deadline, so expiring on it means a wedged callee, a real
+    /// `timeouts` tick.
+    pub(super) served: bool,
     pub(super) state: TxnState,
     /// Reply parcel bytes, valid while `state == Replied`.
     pub(super) reply: Vec<u8>,
@@ -311,6 +336,7 @@ pub(super) struct Channel {
     pub(super) calls: u64,
     pub(super) replies: u64,
     pub(super) timeouts: u64,
+    pub(super) polls: u64,
     pub(super) cancels: u64,
     pub(super) drops: u64,
 }

@@ -17,7 +17,7 @@ const IFACE: u64 = 0x6969_6969_6969_6969;
 /// restores the kernel's afterwards.
 const SPACE: u64 = 0x0040_0000;
 
-const SPACE_PAGES: u64 = 8;
+const SPACE_PAGES: u64 = 10;
 
 /// Blocks inside the scratch space, one per page so page-crossing copies
 /// are not a factor in these tests.

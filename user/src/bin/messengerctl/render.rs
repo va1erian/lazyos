@@ -26,8 +26,9 @@ pub(crate) fn print_report_json(stats: &FabricStats) {
         }
         first = false;
         tasks.push_str(&format!(
-            "{{\"slot\":{slot},\"handles\":{},\"buffers\":{},\"buffer_bytes\":{}}}",
-            task.handles, task.buffers, task.buffer_bytes
+            "{{\"slot\":{slot},\"handles\":{},\"buffers\":{},\"buffer_bytes\":{},\
+             \"calls\":{},\"timeouts\":{},\"polls\":{}}}",
+            task.handles, task.buffers, task.buffer_bytes, task.calls, task.timeouts, task.polls
         ));
     }
     tasks.push(']');
@@ -36,7 +37,7 @@ pub(crate) fn print_report_json(stats: &FabricStats) {
         "MCP:FABRIC_STATS:{{\"services\":{},\"endpoints\":{},\"channels\":{},\
          \"queued\":{},\"queued_bytes\":{},\"outstanding\":{},\
          \"calls\":{},\"replies\":{},\"one_way\":{},\
-         \"timeouts\":{},\"cancels\":{},\"drops\":{},\
+         \"timeouts\":{},\"polls\":{},\"cancels\":{},\"drops\":{},\
          \"buffers\":{},\"buffer_bytes\":{},\"buffer_mappings\":{},\"handoffs\":{},\
          \"acl_loaded\":{},\"acl_rules\":{},\"audit_trace\":{},\
          \"audit_denies\":{},\"audit_allows\":{},\"audit_count\":{},\"audit_total\":{},\
@@ -51,6 +52,7 @@ pub(crate) fn print_report_json(stats: &FabricStats) {
         stats.replies,
         stats.one_way,
         stats.timeouts,
+        stats.polls,
         stats.cancels,
         stats.drops,
         stats.buffers,
@@ -130,7 +132,7 @@ pub(crate) fn print_report(stats: &FabricStats) {
     sys::write_str(&format!(
         "[channels]\n  queued {} msgs ({} bytes)  outstanding {}\n  \
          calls {}  replies {}  one-way {}\n  \
-         timeouts {}  cancels {}  drops {}\n",
+         timeouts {}  polls {}  cancels {}  drops {}\n",
         stats.queued,
         stats.queued_bytes,
         stats.outstanding,
@@ -138,6 +140,7 @@ pub(crate) fn print_report(stats: &FabricStats) {
         stats.replies,
         stats.one_way,
         stats.timeouts,
+        stats.polls,
         stats.cancels,
         stats.drops
     ));

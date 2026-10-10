@@ -23,7 +23,7 @@ pub fn poll_answered_in_service_turn() -> Result<(), String> {
     let got = channels::await_reply(txn).map_err(reason)?;
     check!(got == answer, "the poll did not return the callee's reply");
     check!(
-        channels::stats().timeouts == 0,
+        channels::stats().timeouts == 0 && channels::stats().polls == 0,
         "an answered poll was counted as timed out"
     );
     fresh()
@@ -60,7 +60,7 @@ pub fn poll_unanswered_ends_on_next_recv() -> Result<(), String> {
     );
     let stats = channels::stats();
     check!(
-        stats.timeouts == 1 && stats.outstanding == 0,
+        stats.polls == 1 && stats.timeouts == 0 && stats.outstanding == 0,
         "counters after an abandoned poll: {stats:?}"
     );
     fresh()
@@ -83,6 +83,11 @@ pub fn poll_grace_bounds_unreceived() -> Result<(), String> {
     check!(
         channels::await_reply(txn) == Err(ChannelError::TimedOut),
         "an unreceived poll outlived its grace period"
+    );
+    let stats = channels::stats();
+    check!(
+        stats.polls == 1 && stats.timeouts == 0,
+        "an unreceived poll was not counted as a poll: {stats:?}"
     );
     fresh()
 }
@@ -121,7 +126,10 @@ pub fn poll_soak() -> Result<(), String> {
     }
     let stats = channels::stats();
     check!(
-        stats.timeouts == rounds / 2 && stats.outstanding == 0 && stats.queued == 0,
+        stats.polls == rounds / 2
+            && stats.timeouts == 0
+            && stats.outstanding == 0
+            && stats.queued == 0,
         "counters after the poll soak: {stats:?}"
     );
     fresh()
@@ -159,6 +167,12 @@ pub fn poll_received_outlives_grace() -> Result<(), String> {
     check!(
         channels::await_reply(txn) == Err(ChannelError::TimedOut),
         "a wedged callee held its poller past the service bound"
+    );
+    // A wedged callee is a real deadline expiry, not a routine empty poll.
+    let stats = channels::stats();
+    check!(
+        stats.timeouts == 1 && stats.polls == 0,
+        "a wedged callee was not counted as a timeout: {stats:?}"
     );
     fresh()
 }

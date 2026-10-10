@@ -94,6 +94,7 @@ pub(super) fn fresh_channel(id: u64) -> Channel {
         calls: 0,
         replies: 0,
         timeouts: 0,
+        polls: 0,
         cancels: 0,
         drops: 0,
     }

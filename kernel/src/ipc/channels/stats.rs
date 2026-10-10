@@ -7,6 +7,7 @@ pub(super) fn accumulate(stats: &mut Stats, channel: &Channel) {
     stats.calls += channel.calls;
     stats.replies += channel.replies;
     stats.timeouts += channel.timeouts;
+    stats.polls += channel.polls;
     stats.cancels += channel.cancels;
     stats.drops += channel.drops;
     // Every accepted message is metered as `sent`; a synchronous call also
@@ -44,6 +45,23 @@ pub fn stats() -> Stats {
         accumulate(&mut stats, channel);
     }
     stats
+}
+
+/// Calls, deadline expiries and polls per task slot, summed over the live
+/// channels' sender meters: names the task behind a counter (issue #702).
+pub fn slot_totals() -> Vec<SlotTotals> {
+    let channels = CHANNELS.lock();
+    let mut totals = alloc::vec![SlotTotals::default(); crate::task::MAX_TASKS];
+    for channel in channels.iter() {
+        for meter in &channel.senders {
+            if let Some(slot) = totals.get_mut(meter.slot) {
+                slot.calls += meter.calls;
+                slot.timeouts += meter.timeouts;
+                slot.polls += meter.polls;
+            }
+        }
+    }
+    totals
 }
 
 /// Counters and depths for the channel `handle` names.

@@ -32,6 +32,8 @@ pub(super) fn meter(channel: &mut Channel, slot: usize) -> &mut SenderMeter {
         sent: 0,
         calls: 0,
         outstanding: 0,
+        timeouts: 0,
+        polls: 0,
     });
     let last = channel.senders.len() - 1;
     &mut channel.senders[last]
@@ -46,6 +48,28 @@ pub(super) fn release_pending(channel: &mut Channel, caller: usize) {
     {
         meter.outstanding = meter.outstanding.saturating_sub(1);
     }
+}
+
+/// End the pending transaction at `index` as `TimedOut` and count why: an
+/// unanswered poll (`poll`) ticks `polls`, a missed real deadline ticks
+/// `timeouts` (channel and caller's meter alike). Returns the caller to wake.
+pub(super) fn time_out(channel: &mut Channel, index: usize, poll: bool) -> usize {
+    let txn = &mut channel.txns[index];
+    txn.state = TxnState::TimedOut;
+    let caller = txn.caller;
+    if poll {
+        channel.polls += 1;
+    } else {
+        channel.timeouts += 1;
+    }
+    let sender = meter(channel, caller);
+    if poll {
+        sender.polls += 1;
+    } else {
+        sender.timeouts += 1;
+    }
+    release_pending(channel, caller);
+    caller
 }
 
 /// Validate a parcel at the kernel boundary, in place (P6.3: the bytes are
