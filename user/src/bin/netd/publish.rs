@@ -15,10 +15,34 @@ use user::sys;
 use super::lists::{interface_infos, text};
 use super::ports::Ports;
 
-/// What was published for one interface slot.
+/// What was published for one interface slot. A rebuilt stack (a changed
+/// configuration restarts the card) counts its epoch from 0 again, so the
+/// address is part of it: the epoch alone could match the old stack's.
 struct Seen {
     name: String,
     epoch: u64,
+    address: Address,
+}
+
+/// The address facts an announcement carries.
+#[derive(PartialEq, Eq)]
+struct Address {
+    addr: Option<[u8; 4]>,
+    prefix_len: u8,
+    gateway: Option<[u8; 4]>,
+    source: Source,
+}
+
+impl Address {
+    fn of(net: &Net, slot: usize) -> Option<Address> {
+        let state = net.unit(slot)?.stack.state();
+        Some(Address {
+            addr: state.addr,
+            prefix_len: state.prefix_len,
+            gateway: state.gateway,
+            source: state.source,
+        })
+    }
 }
 
 pub(super) struct Publisher {
@@ -66,17 +90,25 @@ impl Publisher {
         for (slot, unit) in net.units() {
             let epoch = unit.stack.epoch();
             let current = self.seen.get(slot).and_then(Option::as_ref);
-            if current.is_some_and(|seen| seen.name == unit.name && seen.epoch == epoch) {
+            let address = Address::of(net, slot);
+            if current.is_some_and(|seen| {
+                seen.name == unit.name
+                    && seen.epoch == epoch
+                    && Some(&seen.address) == address.as_ref()
+            }) {
                 continue;
             }
             self.announce(net, slot);
             if self.seen.len() <= slot {
                 self.seen.resize_with(slot + 1, || None);
             }
-            self.seen[slot] = Some(Seen {
-                name: unit.name.clone(),
-                epoch,
-            });
+            if let Some(address) = address {
+                self.seen[slot] = Some(Seen {
+                    name: unit.name.clone(),
+                    epoch,
+                    address,
+                });
+            }
         }
         let any_address = net.units().any(|(_, u)| u.stack.state().addr.is_some());
         if any_address && !self.had_address {
