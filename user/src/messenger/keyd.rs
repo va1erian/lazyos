@@ -163,6 +163,56 @@ impl Client {
         self.call(wire::METHOD_RESTORE, body).map(|_| ())
     }
 
+    /// Keep a named secret (`scope` is `user` or `system`; `system` is
+    /// accepted from `elevd` alone). The secret is never readable back.
+    pub fn store_secret(&self, scope: &str, name: &str, secret: &[u8]) -> Result<()> {
+        let body = wire::encode_store_secret_args(&wire::StoreSecretArgs {
+            scope: String::from(scope),
+            name: String::from(name),
+            secret: secret.to_vec(),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_STORESECRET, body).map(|_| ())
+    }
+
+    /// Forget a named secret (the rules of [`Client::store_secret`]).
+    pub fn delete_secret(&self, scope: &str, name: &str) -> Result<()> {
+        let body = wire::encode_delete_secret_args(&wire::DeleteSecretArgs {
+            scope: String::from(scope),
+            name: String::from(name),
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_DELETESECRET, body).map(|_| ())
+    }
+
+    /// The names of the caller's `user` secrets, or of the `system` ones.
+    pub fn list_secrets(&self, scope: &str) -> Result<Vec<String>> {
+        let body = wire::encode_list_secrets_args(&wire::ListSecretsArgs {
+            scope: String::from(scope),
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_LISTSECRETS, body)?;
+        Ok(wire::decode_list_secrets_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .names)
+    }
+
+    /// The WPA2 PMK of a stored passphrase for `ssid`; `wlanmd` only
+    /// (`-EPERM` for anyone else).
+    pub fn wifi_pmk(&self, scope: &str, name: &str, ssid: &[u8], owner: u32) -> Result<Vec<u8>> {
+        let body = wire::encode_wifi_pmk_args(&wire::WifiPmkArgs {
+            scope: String::from(scope),
+            name: String::from(name),
+            ssid: ssid.to_vec(),
+            owner,
+        })
+        .map_err(Error::Parcel)?;
+        let reply = self.call(wire::METHOD_WIFIPMK, body)?;
+        Ok(wire::decode_wifi_pmk_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .pmk)
+    }
+
     /// HMAC-SHA256 `digest` under the stored key; returns the tag.
     pub fn sign(&self, key: u64, digest: &[u8]) -> Result<Vec<u8>> {
         let body = wire::encode_sign_args(&wire::SignArgs {

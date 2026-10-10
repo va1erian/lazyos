@@ -49,6 +49,37 @@ interface os.lazy.keyd.v1 {
     /// Accepted only from the accounts service, like `Provision`.
     method Restore(user: String = 1, verifier: String = 2) -> ();
 
+    /// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
+    /// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
+    /// (docs/wifi-prerequisites-plan.md WP2). `scope` is `user`: the caller's
+    /// own, by its kernel-stamped uid; or `system`: available to every user
+    /// and before login, accepted only from `elevd` (the `net.wifi.system`
+    /// operation, after an administrator approved it on the trusted prompt;
+    /// `EPERM` for anyone else). Secrets persist across reboots, sealed under
+    /// a machine key (docs/security-model.md section 8). `EINVAL` for a bad
+    /// scope, name or secret; `ENOSPC` when the caller (or the table) holds
+    /// as many as it may; `EIO` when it could not be made durable (nothing
+    /// changed). No method ever returns a secret.
+    method StoreSecret(scope: String = 1, name: String = 2, secret: Bytes = 3) -> ();
+    /// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
+    /// `ENOENT` when there is none).
+    method DeleteSecret(scope: String = 1, name: String = 2) -> ();
+    /// The names of the caller's `user` secrets, or of the `system` ones
+    /// (any caller may list those: they name the machine's networks). Names
+    /// only, never material.
+    method ListSecrets(scope: String = 1) -> (names: Array<String> = 1);
+    /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
+    /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
+    /// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
+    /// per (secret, SSID) and cached sealed beside the secret. Answered only
+    /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
+    /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
+    /// (a uid) owns, so a PMK is never given for another user's secret by
+    /// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
+    /// secret, `EINVAL` for a secret that is not a valid passphrase or an
+    /// SSID outside 1..=32 octets.
+    method WifiPmk(scope: String = 1, name: String = 2, ssid: Bytes = 3, owner: U32 = 4) -> (pmk: Bytes = 1);
+
     /// One row of the key list: identity and counters only, never material.
     struct KeyInfo {
         /// Opaque key id clients pass back in `Sign`/`Wrap`/`Unwrap`.

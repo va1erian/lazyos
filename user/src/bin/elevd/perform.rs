@@ -9,8 +9,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use elevpolicy::{value_args, Operation, Value, NET_PREFIX, POWER_PREFIX};
-use user::messenger::{accounts, confd, errno, pkgd, services, timed};
+use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX};
+use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
 use user::sys;
 
 use super::package::Approved;
@@ -129,6 +129,25 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
                 services::init::restart_service(&init, name, Some(sys::clock() + CONFD_TICKS))
                     .map_err(Refusal::of)?;
             done(format!("Restarted {name} (was pid {pid})"))
+        }
+        Operation::WifiSystem(change) => {
+            // `keyd` takes a `system` secret from `elevd`'s identity alone,
+            // so this call is what the approval bought. The detail names the
+            // secret, never what it holds.
+            let client = keyd::Client::connect()
+                .map_err(|_| Refusal::new(errno::ENOENT, "the key service is not running"))?;
+            match change {
+                WifiChange::Store { name, passphrase } => {
+                    client
+                        .store_secret("system", name, passphrase.as_bytes())
+                        .map_err(Refusal::of)?;
+                    done(format!("Saved the Wi-Fi password {name}"))
+                }
+                WifiChange::Delete { name } => {
+                    client.delete_secret("system", name).map_err(Refusal::of)?;
+                    done(format!("Deleted the Wi-Fi password {name}"))
+                }
+            }
         }
     }
 }

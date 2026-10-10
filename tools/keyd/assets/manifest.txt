@@ -1,0 +1,2 @@
+# The keyd secrets check's guest script (tools/keyd/run.py).
+keyd/secrets.rhai | GPL-3.0-or-later | desktop | LazyOS original: one step of the keyd named-secrets check per call, prints one KEYD:T line

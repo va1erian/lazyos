@@ -37,6 +37,9 @@ members = [
     # elevd's operation table, standing approvals and trusted identity
     # (docs/accounts-plan.md U2), host-tested and fuzzed.
     "libs/elevpolicy",
+    # keyd's named secrets: rules, scopes, the PMK cache and the sealed file
+    # (docs/wifi-prerequisites-plan.md WP2), host-tested.
+    "libs/secretstore",
     # Fuzz entry point for the accounts/keyd wire decoders (issue #626).
     "libs/accountwire",
     # Buffer-slot state machines for the pipelined display present (#361).

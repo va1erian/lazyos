@@ -212,7 +212,9 @@ What exists, and the decisions taken on the way:
   replaces a core app for `elevd`, and only for `pkg.update-core`;
   replacing a core app is refused from a session: `core_replace` is
   blocked), `timed` (`SetTime`, `SetZone`), `init` (`RestartService`, the
-  services in `elevpolicy::RESTARTABLE` only). `keyd` takes
+  services in `elevpolicy::RESTARTABLE` only), `keyd` (`StoreSecret` and
+  `DeleteSecret` in the `system` scope, for `net.wifi.system`; WP2 of
+  docs/wifi-prerequisites-plan.md). `keyd` takes
   `Provision`/`Forget` from `accountsd` alone. A refusal of `timed` and
   `init` carries a policy text (`services::refusal`), like `accountsd`'s,
   which the attack harness requires.

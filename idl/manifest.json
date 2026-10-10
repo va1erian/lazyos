@@ -1097,6 +1097,26 @@
         "name": "Restore",
         "id": 267943793,
         "oneway": false
+      },
+      {
+        "name": "StoreSecret",
+        "id": 491839974,
+        "oneway": false
+      },
+      {
+        "name": "DeleteSecret",
+        "id": 212754042,
+        "oneway": false
+      },
+      {
+        "name": "ListSecrets",
+        "id": 1353484194,
+        "oneway": false
+      },
+      {
+        "name": "WifiPmk",
+        "id": 249445660,
+        "oneway": false
       }
     ],
     "topics": []

@@ -37,6 +37,8 @@ passwd = { path = "../libs/passwd" }
 # The account database `/accounts/db` (docs/accounts-plan.md U1): owned
 # by `accountsd`, its verifiers read by `keyd`.
 accountdb = { path = "../libs/accountdb" }
+# keyd's named secrets (docs/wifi-prerequisites-plan.md WP2).
+secretstore = { path = "../libs/secretstore" }
 # elevd's operation table and the identity every privileged service path
 # trusts (docs/accounts-plan.md U2).
 elevpolicy = { path = "../libs/elevpolicy" }

@@ -9332,6 +9332,14 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_FORGET: u32 = 1849666444;
     /// `Restore` method id.
     pub const METHOD_RESTORE: u32 = 267943793;
+    /// `StoreSecret` method id.
+    pub const METHOD_STORESECRET: u32 = 491839974;
+    /// `DeleteSecret` method id.
+    pub const METHOD_DELETESECRET: u32 = 212754042;
+    /// `ListSecrets` method id.
+    pub const METHOD_LISTSECRETS: u32 = 1353484194;
+    /// `WifiPmk` method id.
+    pub const METHOD_WIFIPMK: u32 = 249445660;
 
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
@@ -9783,6 +9791,210 @@ pub mod os_lazy_keyd_v1 {
                     out.verifier = field.as_str()?.into();
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Keep `secret` (1..=256 bytes, a Wi-Fi passphrase) under `name`
+    /// (1..=64 of letters, digits and `. _ - :`), replacing one of that name
+    /// (docs/wifi-prerequisites-plan.md WP2). `scope` is `user`: the caller's
+    /// own, by its kernel-stamped uid; or `system`: available to every user
+    /// and before login, accepted only from `elevd` (the `net.wifi.system`
+    /// operation, after an administrator approved it on the trusted prompt;
+    /// `EPERM` for anyone else). Secrets persist across reboots, sealed under
+    /// a machine key (docs/security-model.md section 8). `EINVAL` for a bad
+    /// scope, name or secret; `ENOSPC` when the caller (or the table) holds
+    /// as many as it may; `EIO` when it could not be made durable (nothing
+    /// changed). No method ever returns a secret.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StoreSecretArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub secret: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_store_secret_args(value: &StoreSecretArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.bytes(3, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_store_secret_args(body: &[u8]) -> Result<StoreSecretArgs, Error> {
+        let mut out = StoreSecretArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.secret = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the secret `name` of `scope` (the same rules as `StoreSecret`;
+    /// `ENOENT` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteSecretArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_delete_secret_args(value: &DeleteSecretArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_secret_args(body: &[u8]) -> Result<DeleteSecretArgs, Error> {
+        let mut out = DeleteSecretArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The names of the caller's `user` secrets, or of the `system` ones
+    /// (any caller may list those: they name the machine's networks). Names
+    /// only, never material.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListSecretsArgs {
+        pub scope: alloc::string::String,
+    }
+
+    pub fn encode_list_secrets_args(value: &ListSecretsArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_secrets_args(body: &[u8]) -> Result<ListSecretsArgs, Error> {
+        let mut out = ListSecretsArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.scope = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListSecretsReply {
+        pub names: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_list_secrets_reply(value: &ListSecretsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.names {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_secrets_reply(body: &[u8]) -> Result<ListSecretsReply, Error> {
+        let mut out = ListSecretsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.names.push(item.as_str()?.into());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The WPA2 pairwise master key of the passphrase `name` of `scope` for
+    /// `ssid` (PBKDF2-HMAC-SHA1, 4096 rounds, IEEE 802.11 Annex J.4; a
+    /// 64-hex-digit secret is a raw PSK and is its own PMK). Computed once
+    /// per (secret, SSID) and cached sealed beside the secret. Answered only
+    /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
+    /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
+    /// (a uid) owns, so a PMK is never given for another user's secret by
+    /// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
+    /// secret, `EINVAL` for a secret that is not a valid passphrase or an
+    /// SSID outside 1..=32 octets.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WifiPmkArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub ssid: alloc::vec::Vec<u8>,
+        pub owner: u32,
+    }
+
+    pub fn encode_wifi_pmk_args(value: &WifiPmkArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.bytes(3, &value.ssid)?;
+        target.u32(4, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wifi_pmk_args(body: &[u8]) -> Result<WifiPmkArgs, Error> {
+        let mut out = WifiPmkArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.ssid = field.as_bytes().to_vec();
+                }
+                4 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WifiPmkReply {
+        pub pmk: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_wifi_pmk_reply(value: &WifiPmkReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.pmk)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wifi_pmk_reply(body: &[u8]) -> Result<WifiPmkReply, Error> {
+        let mut out = WifiPmkReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pmk = field.as_bytes().to_vec();
             }
         }
         Ok(out)

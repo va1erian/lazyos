@@ -90,6 +90,7 @@ mod fdtable;
 mod fdtypes;
 pub mod fpu;
 mod fs_base;
+pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
 #[cfg(lazyos_tests)]
@@ -298,6 +299,8 @@ pub struct Task {
     pub linux: LinuxExtras,
     pub output: Vec<u8>,
     pub input: VecDeque<Key>,
+    /// Interactive-class CPU guard state ([`guard`]).
+    pub guard: guard::State,
 }
 
 static TASKS: Mutex<[Option<Task>; MAX_TASKS]> = Mutex::new([const { None }; MAX_TASKS]);

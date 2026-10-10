@@ -57,6 +57,31 @@ pub const USBD_DUMP: &str = "/transient/usbd.dump";
 /// [`CONF_SVC`], 0700 root. Written by `printd`.
 pub const PRINT_SPOOL: &str = "/conf/svc/printd";
 
+/// `keyd`'s directory for the named secrets it keeps (docs/security-model.md
+/// section 8, docs/wifi-prerequisites-plan.md WP2), under [`CONF_SVC`], 0700.
+/// Written by `keyd`.
+pub const KEYD_DIR: &str = "/conf/svc/keyd";
+
+/// The named secrets, each sealed under the machine key (`libs/secretstore`),
+/// 0600. Written by `keyd` (a temporary file renamed over it).
+pub const KEYD_SECRETS: &str = "/conf/svc/keyd/secrets";
+
+/// The temporary file `keyd` writes before renaming it over [`KEYD_SECRETS`].
+/// Written by `keyd`.
+pub const KEYD_SECRETS_NEW: &str = "/conf/svc/keyd/secrets.new";
+
+/// Where `keyd` moves a [`KEYD_SECRETS`] it refused (damaged, or sealed under
+/// another key), so the next write never destroys it. Written by `keyd`.
+pub const KEYD_SECRETS_BAD: &str = "/conf/svc/keyd/secrets.bad";
+
+/// The machine key the secrets are sealed under: 32 random bytes, 0600,
+/// generated on `keyd`'s first start. Written by `keyd`.
+pub const KEYD_MACHINE_KEY: &str = "/conf/svc/keyd/machine.key";
+
+/// The temporary file `keyd` writes before renaming it over
+/// [`KEYD_MACHINE_KEY`]. Written by `keyd`.
+pub const KEYD_MACHINE_KEY_NEW: &str = "/conf/svc/keyd/machine.key.new";
+
 /// The marker `confd` writes in [`CONF_ROOT`] once it has seeded the store
 /// from [`LEGACY_DATA_CONFD`], so a setting deleted after the migration does
 /// not come back. Written by `confd`.
@@ -183,6 +208,16 @@ mod tests {
         }
         assert!(CONF_SVC.starts_with(CONF_ROOT));
         assert!(PRINT_SPOOL.starts_with(CONF_SVC));
+        for path in [
+            KEYD_SECRETS,
+            KEYD_SECRETS_NEW,
+            KEYD_SECRETS_BAD,
+            KEYD_MACHINE_KEY,
+            KEYD_MACHINE_KEY_NEW,
+        ] {
+            assert!(path.starts_with(KEYD_DIR), "{path}");
+        }
+        assert!(KEYD_DIR.starts_with(CONF_SVC));
         assert!(CONF_SEEDED_MARKER.starts_with(CONF_ROOT));
         assert!(ACCOUNTS_DB.starts_with(ACCOUNTS_DIR));
         assert!(ACCOUNTS_DB_NEW.starts_with(ACCOUNTS_DIR));

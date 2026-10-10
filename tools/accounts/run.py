@@ -70,7 +70,7 @@ GUEST = "/system/share/accounts"
 
 #: The attack session's commands, in order (attack.sh or a rhai script each).
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_store",
-                 "read_home_admin",
+                 "read_keyd_secrets", "read_home_admin",
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",
@@ -79,6 +79,8 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     # U1 (#624): accounts change only through elevd; Authenticate is slowed.
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",
+    # WP2: keyd's named secrets (the Wi-Fi PMK is wlanmd's, system secrets elevd's).
+    "wifi_pmk", "wifi_system_store",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
     "direct_time", "direct_zone", "direct_restart", "prompt_spoof", "input_focus",
     "display_read",

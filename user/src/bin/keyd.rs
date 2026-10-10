@@ -72,11 +72,15 @@ use user::messenger::keyd::wire as api;
 use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parcel};
 use user::sys;
 
+#[path = "keyd/secrets.rs"]
+mod secrets;
 #[path = "keyd/selftest.rs"]
 mod selftest;
 #[path = "keyd/state.rs"]
 mod state;
 
+use secrets::{denied_error, Secrets};
+use secretstore::{authorize, Caller, Op, Owner};
 use selftest::{self_test, SELF_TEST_OWNER};
 use state::{Keyd, MAX_BYTES, MAX_TEXT};
 
@@ -101,6 +105,7 @@ fn run() -> messenger::Result<()> {
         sys::exit(1);
     }
     load_db(&mut keyd);
+    let mut secrets = Secrets::load(&mut keyd.entropy);
     match self_test(&mut keyd) {
         Ok(()) => sys::write_str("KEYD:SELFTEST:PASS\n"),
         // Keep serving: some operations may still be usable, and `init` would
@@ -128,7 +133,7 @@ fn run() -> messenger::Result<()> {
     loop {
         let message = server.recv_with(&mut buffer, None)?;
         let method = message.method();
-        let reply = match dispatch(&mut keyd, &message) {
+        let reply = match dispatch(&mut keyd, &mut secrets, &message) {
             Ok(reply) => reply,
             Err(error) => wire::error_reply(method, error),
         };
@@ -166,7 +171,11 @@ fn from_accountsd(message: &Message) -> bool {
 }
 
 /// Dispatch one request; errors become error replies at the call site.
-fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
+fn dispatch(
+    keyd: &mut Keyd,
+    secrets: &mut Secrets,
+    message: &Message,
+) -> messenger::Result<Parcel> {
     if message.interface_id() != wire::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -279,6 +288,48 @@ fn dispatch(keyd: &mut Keyd, message: &Message) -> messenger::Result<Parcel> {
                 api::encode_list_reply(&api::ListReply { keys }),
             )
         }
+        api::METHOD_STORESECRET => {
+            let args = api::decode_store_secret_args(body).map_err(parse)?;
+            let owner = secret_owner(message, &args.scope, Op::Store)?;
+            let name = bounded_text(args.name)?;
+            let secret = bounded_bytes(args.secret, MAX_BYTES)?;
+            secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
+            Ok(wire::ok_reply(api::METHOD_STORESECRET))
+        }
+        api::METHOD_DELETESECRET => {
+            let args = api::decode_delete_secret_args(body).map_err(parse)?;
+            let owner = secret_owner(message, &args.scope, Op::Delete)?;
+            let name = bounded_text(args.name)?;
+            secrets.delete(&mut keyd.entropy, owner, &name)?;
+            Ok(wire::ok_reply(api::METHOD_DELETESECRET))
+        }
+        api::METHOD_LISTSECRETS => {
+            let args = api::decode_list_secrets_args(body).map_err(parse)?;
+            let owner = secret_owner(message, &args.scope, Op::List)?;
+            reply(
+                api::METHOD_LISTSECRETS,
+                api::encode_list_secrets_reply(&api::ListSecretsReply {
+                    names: secrets.names(owner),
+                }),
+            )
+        }
+        api::METHOD_WIFIPMK => {
+            let args = api::decode_wifi_pmk_args(body).map_err(parse)?;
+            let owner = secret_owner(
+                message,
+                &args.scope,
+                Op::Pmk {
+                    owner_uid: args.owner,
+                },
+            )?;
+            let name = bounded_text(args.name)?;
+            let ssid = bounded_bytes(args.ssid, secretstore::MAX_SSID)?;
+            let pmk = secrets.pmk(&mut keyd.entropy, owner, &name, &ssid)?;
+            reply(
+                api::METHOD_WIFIPMK,
+                api::encode_wifi_pmk_reply(&api::WifiPmkReply { pmk }),
+            )
+        }
         api::METHOD_PING => Ok(wire::ok_reply(api::METHOD_PING)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
@@ -296,6 +347,19 @@ fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::
 /// must never end up owned by (or usable by) the wrong uid.
 fn caller_uid(message: &Message) -> messenger::Result<u32> {
     Ok(message.caller().uid)
+}
+
+/// Whose secret `op` on `scope` is about, if the sender may do it
+/// (`secretstore::authorize`: the sender's kernel-stamped uid, label and
+/// session decide, never uid 0 or a capability).
+fn secret_owner(message: &Message, scope: &str, op: Op) -> messenger::Result<Owner> {
+    let caller = message.caller();
+    let caller = Caller {
+        uid: caller.uid,
+        label_id: caller.label_id,
+        session: caller.session,
+    };
+    authorize(caller, scope, op).map_err(denied_error)
 }
 
 /// A text field within the accepted length.

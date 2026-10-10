@@ -157,6 +157,7 @@ pub fn set_priority(slot: usize, class: PriorityClass) -> bool {
         Some(task) => {
             task.class = class;
             task.weight = class.default_weight();
+            task.guard.assigned();
             runq::sync(&tasks, slot);
             true
         }
@@ -171,9 +172,11 @@ pub fn raise_priority(slot: usize, class: PriorityClass) -> bool {
     let mut tasks = TASKS.lock();
     match tasks.get_mut(slot).and_then(|task| task.as_mut()) {
         Some(task) => {
-            if task.class.rank() < class.rank() {
+            // A task the guard demoted holds its home class, not Normal.
+            if task.guard.home(task.class).rank() < class.rank() {
                 task.class = class;
                 task.weight = class.default_weight();
+                task.guard.assigned();
                 runq::sync(&tasks, slot);
             }
             true
