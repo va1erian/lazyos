@@ -14,6 +14,13 @@ design:
 - **Depth buffer for everything.** Terrain is depth-tested too, so fly mode
   draws chunks nearest first (hidden pixels are never shaded) and finishes a
   frame in one step; *authentic* mode keeps the far-to-near progressive build.
+- **Generation runs on a worker thread** (`src/loading.rs`). The search is
+  tens of seconds on a weak CPU (an i3-7100U took 40-60 s), and each step
+  used to run on the UI thread, which froze the window and the compositor's
+  frame pacing for seconds at a time. The thread publishes its stage and
+  progress, the timer tick only polls for the course, and the loading card
+  shows the elapsed seconds. A superseded search (a new seed, or the window
+  closing) stops at its next step.
 - **Shading per pixel from the 1 m cells.** The mesh gives only the shape;
   material, light (bilinear within 60 m) and patterns come from one packed
   word per cell, so low-detail distant chunks keep their detail.

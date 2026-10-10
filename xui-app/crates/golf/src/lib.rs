@@ -14,6 +14,7 @@ pub mod fly;
 pub mod game;
 pub mod gen;
 mod hud;
+mod loading;
 pub mod math;
 pub mod minimap;
 pub mod noise;

@@ -137,7 +137,7 @@ for a moment: `dbgctl` reconnects to read the verdict.
 | `restart NAME` | restart a service as it is |
 | `revert NAME` | back to the stick's binary |
 | `reloads` | what was reloaded since boot, and how it ended |
-| `app-install FILE.lzp [--no-relaunch]` | install a package (core apps too) and relaunch its windows |
+| `app-install FILE.lzp [--version V] [--no-relaunch]` | install a package (core apps too) and relaunch its windows; `--version` rewrites the manifest's version first |
 | `relaunch APP` | close and reopen every window of an app |
 
 A reload lasts until `revert` or a reboot: the stick is never written.
@@ -153,7 +153,10 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 relaunch os.lazy.writer
 Unlike a service reload this is a real install on the OS volume (it
 survives a reboot), it may replace a core app, and there is no automatic
 rollback: install the previous package to go back. `--no-relaunch` leaves
-running windows alone.
+running windows alone. `pkgd` refuses a package at the version already
+installed, so while iterating on an app install each rebuild with a new one:
+`app-install FILE.lzp --version 0.1.1` (then `0.1.2`, ...) rewrites only the
+manifest's `version` line in memory; the file on disk is not touched.
 `messengerd` and `dbgd` cannot be reloaded. This is remote code execution:
 use it only on development machines on a network you trust.
 

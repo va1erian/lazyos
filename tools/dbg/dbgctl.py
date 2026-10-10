@@ -18,6 +18,7 @@ Control (an image built with `LAZYOS_DBGD_CONTROL=1`, docs/dbgd-plan.md v2):
     python tools/dbg/dbgctl.py revert usbd
     python tools/dbg/dbgctl.py reloads
     python tools/dbg/dbgctl.py app-install target/pkg/doom.lzp   # install, relaunch what runs
+    python tools/dbg/dbgctl.py app-install X.lzp --version 0.1.1 # a rebuilt app at a new version
     python tools/dbg/dbgctl.py relaunch os.lazy.writer
 
 `--host` defaults to 127.0.0.1 (a QEMU boot with `run_demo.py --dbgd`
@@ -91,8 +92,13 @@ def run(args, dbg: DbgClient) -> object:
     if cmd == "reload":
         return reload_command(args, dbg)
     if cmd == "app-install":
-        return hotreload.install_app(dbg, Path(args.name).read_bytes(),
-                                     relaunch=not args.no_relaunch)
+        package = Path(args.name).read_bytes()
+        if args.version:
+            try:
+                package = hotreload.with_version(package, args.version)
+            except ValueError as error:
+                raise SystemExit(f"dbgctl: {error}") from error
+        return hotreload.install_app(dbg, package, relaunch=not args.no_relaunch)
     if cmd == "relaunch":
         hotreload.begin(dbg)
         return dbg.call("app.relaunch", app=args.name)
@@ -167,6 +173,8 @@ def main() -> int:
                         help="with `reload`: how long the new binary must keep running")
     parser.add_argument("--no-relaunch", action="store_true",
                         help="with `app-install`: leave running instances alone")
+    parser.add_argument("--version", help="with `app-install`: install the package as this version "
+                                          "(pkgd refuses the one already installed)")
     parser.add_argument("name", nargs="?", help="topic, path, method, service, package or app")
     parser.add_argument("params", nargs="?",
                         help="with `call`: params as JSON; with `reload`: the ELF to upload")
