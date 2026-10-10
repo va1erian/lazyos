@@ -23,7 +23,7 @@ pub fn parses_values() -> Result<(), String> {
     let got = sets(
         "# limits\nlimit.heap_max=512M\nlimit.fd_max = 4096 \nlimit.stack_size=16m # big\n\
          limit.quota_user_memory=2G\nlimit.quota_kernel_memory=262144K\n\
-         limit.shared_buffer_max=1t\nroot=UUID=ignored-here\n",
+         limit.shared_buffer_max=1t\nlimit.scratch_max=2G\nroot=UUID=ignored-here\n",
     );
     let want = [
         (Id::HeapMax, 512 * MIB),
@@ -32,6 +32,7 @@ pub fn parses_values() -> Result<(), String> {
         (Id::QuotaUserMemory, 2 * GIB),
         (Id::QuotaKernelMemory, 256 * MIB),
         (Id::SharedBufferMax, 64 * GIB),
+        (Id::ScratchMax, 2 * GIB),
     ];
     check!(got.len() == want.len(), "parsed {got:?}");
     for (set, (id, value)) in got.iter().zip(want) {
@@ -236,6 +237,22 @@ pub fn derived_defaults_scale() -> Result<(), String> {
         Limits::for_machine(256 * MIB, 0).quota_user_memory == 256 * MIB,
         "256 MiB guest quota"
     );
+    // The scratch area stages a LazyRAD package (7 MiB player): 1 GiB on a
+    // machine whose heap ceiling allows it, never more than half that ceiling.
+    for ram in rams {
+        let limits = Limits::for_machine(ram, 0);
+        check!(
+            limits.scratch_max <= limits.heap_max / 2 || limits.scratch_max == 32 * MIB,
+            "scratch_max {} over half of heap_max {} at {ram}",
+            limits.scratch_max,
+            limits.heap_max
+        );
+        check!(
+            ram < 4 * GIB || limits.scratch_max == GIB,
+            "scratch_max {} below 1 GiB at {ram}",
+            limits.scratch_max
+        );
+    }
     Ok(())
 }
 
