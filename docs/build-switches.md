@@ -45,7 +45,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | Switch | Meaning | Requires | Front end |
 | --- | --- | --- | --- |
 | `LAZYOS_LAZYRAD` | LazyRAD IDE and player as the core package `os.lazy.lazyrad`. | desktop | `--lazyrad` |
-| `LAZYOS_MODPLAYER` | `modplayer.lzp` in `/system/share/samples`. | `LAZYOS_LAZYRAD` | `--modplayer` |
+| `LAZYOS_MODPLAYER` | `modplayer.lzp` in `/system/share/samples`. | `target/pkg/modplayer.lzp` (`tools/lazyrad/package.py`); the player needs LazyRAD, which `--modplayer` turns on | `--modplayer` |
 | `LAZYOS_PICTURES` | Picture Viewer core package. | desktop | `--pictures` |
 | `LAZYOS_DOOM` | `doom.lzp` sample package. | `tools/doom/build.py` | `--doom` |
 | `LAZYOS_EMUSIC` | `emusic.lzp` sample package. | `tools/emusic/build.py` | `--emusic` |
@@ -134,7 +134,9 @@ The build refuses combinations that cannot work and says why:
 - `LAZYOS_DBGD=1` and `LAZYOS_SMB=1` need `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
-- `LAZYOS_MODPLAYER=1` needs `LAZYOS_LAZYRAD=1`.
+- `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
+  `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;
+  `run_demo.py --modplayer` sets both so the package has a player to run on.
 - `LAZYOS_DOOM=1`, `LAZYOS_EMUSIC=1`: their `.lzp` must exist (run the
   tool's `build.py` first).
 - `LAZYOS_DESKTOP=1` needs the xui apps built (`python tools/xui/build.py`).
