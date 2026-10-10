@@ -73,7 +73,6 @@ fn build_uefi_bootloader() -> PathBuf {
         // local build
         cmd.arg("--path").arg("uefi");
         println!("cargo:rerun-if-changed=uefi");
-        println!("cargo:rerun-if-changed=common");
         cmd.arg("--target-dir").arg("target/uefi_target");
     } else {
         cmd.arg("--version").arg(BOOTLOADER_VERSION);
