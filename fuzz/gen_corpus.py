@@ -28,6 +28,7 @@ from seeds_messenger import messenger_seeds
 from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
 from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seeds, virtio_net_seeds
 from seeds_smb import smbwire_seeds
+from seeds_wifi import eapol_seeds, ieee80211_seeds
 from seeds_storage import (
     acpi_seeds, ext2fs_seeds, mscdesc_seeds, mscreply_seeds, mscsession_seeds, nvme_seeds,
     ahci_seeds,
@@ -64,6 +65,8 @@ TARGETS = {
     "smbwire": smbwire_seeds,
     "dbgwire": dbgwire_seeds,
     "messenger": messenger_seeds,
+    "ieee80211": ieee80211_seeds,
+    "eapol": eapol_seeds,
 }
 
 

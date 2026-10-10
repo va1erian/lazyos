@@ -423,6 +423,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eapol"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "ieee80211",
+ "lazyos-crypto",
+]
+
+[[package]]
 name = "elevpolicy"
 version = "0.1.0"
 dependencies = [
