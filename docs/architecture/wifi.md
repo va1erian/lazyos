@@ -2,17 +2,19 @@
 
 The plan is [wifi-prerequisites-plan.md](../wifi-prerequisites-plan.md) (the
 stack above the driver) and [wifi-plan.md](../wifi-plan.md) (the hardware and
-licence). This page describes what is built, stage by stage. Only WP3 is here
-so far.
+licence), with the RTL8822CE driver plan in `wifi-rtw88-plan.md`. This page
+describes what is built: the protocol libraries (WP3) and the radio side of
+WP4, the soft-MAC and the simulated radio.
 
 ## WP3: the 802.11 protocol libraries
 
 Two host-tested, fuzzed, `no_std` + `alloc` libraries with no `unsafe`, used by
 the station manager `wlanmd` (WP4) and cross-checked by the simulator's access
-point (`tools/wifi/fake_ap.py`, WP4). They never see the data path: the chip
-hands the data path to `netd` as Ethernet, and the chip handles the 802.11
-data header and CCMP, so only management frames and EAPOL are parsed. Both are
-written from IEEE Std 802.11-2020 alone (`THIRD_PARTY.md`).
+point (`tools/wifi/fake_ap.py`, WP4). As first written they parsed only
+management frames and EAPOL, on the assumption that the chip converts the data
+path; the RTL8822CE does not, so `ieee80211` gained data frames and CCMP
+framing for the soft-MAC (WP4, below). Both are written from IEEE Std
+802.11-2020 alone (`THIRD_PARTY.md`).
 
 ### `libs/ieee80211`
 
@@ -121,3 +123,197 @@ supplicant, so replies are not compared byte for byte); seeded soaks run with
 `FUZZ_CASES=20000 cargo test -p ieee80211 -p eapol --release seeded`; the
 cargo-fuzz targets are `fuzz/fuzz_targets/ieee80211.rs` and `eapol.rs`, with
 seeds from `fuzz/seeds_wifi.py`.
+
+## WP4, radio side: the soft-MAC and the simulated radio
+
+The RTL8822CE converts nothing between 802.3 and 802.11 and leaves the CCMP
+packet number to software, so the radio programs do in software what the old
+plan expected of firmware. Both radio programs (`wifid` over `libs/rtw88`,
+`wifisim` over a simulated air) share one soft-MAC and differ only in their
+`Radio`:
+
+```
+ netd   ◄── nic.v1  os.lazy.net.nic/wlan0 (kind wireless) ──┐
+ wlanmd ◄── wifi.hw.v1  os.lazy.net.wifi.hw/wlan0 ──────────┤  user::wifi (server, hw, nic)
+                                                            │  libs/wifimac SoftMac
+                                                       Radio trait
+                         wifid: libs/rtw88 ────────────┴──────── wifisim: libs/simair over air0
+```
+
+### `libs/ieee80211` additions
+
+| Item | What it does |
+|---|---|
+| `data::DataHeader::parse` | The MAC header of a data frame: three or four addresses, QoS Control, the HT Control length, To-DS/From-DS, BSSID, source and destination |
+| `data::encap(eth, &Encap)` | Ethernet II to a To-DS (station) or From-DS (AP) data frame, QoS with a TID or plain, an optional security header, RFC 1042 or 802.1H bridge tunnel (AARP, IPX) |
+| `data::decap(header, body, out)` | One MSDU or every A-MSDU subframe to Ethernet II; refuses a non-SNAP body, fragments, a malformed A-MSDU and the injected first subframe of CVE-2020-24588; a refused A-MSDU delivers nothing |
+| `data::{user_priority, is_eapol, amsdu_body}` | The TID from a VLAN tag, IPv4 TOS or IPv6 traffic class (EAPOL is 7); EAPOL by EtherType 0x888E; an A-MSDU body (tests, simulator) |
+| `ccmp::{header, parse_header, framing, Replay, rsc_from_bytes}` | The 8-octet CCMP header and its 48-bit PN; the CCM nonce and AAD of a data or management frame (12.5.3.3, the Annex J.6.4 vector); a replay window per TID plus one for non-QoS, seeded with the key's RSC |
+| `class::{classify, classify_msdu}` | Management (subtype, protected), data, null data, control or ignore; EAPOL or other for a decapsulated frame |
+
+The fuzz entry decapsulates and re-encapsulates every data frame it can parse
+(the Ethernet frames must come back equal), builds its CCMP framing and runs
+a replay-window script; `fuzz/seeds_wifi.py` has data, A-MSDU, injected
+A-MSDU, CCMP, four-address and null seeds.
+
+### `libs/wifimac`: the `Radio` trait and the `SoftMac`
+
+```rust
+pub trait Radio {
+    fn info(&self) -> RadioInfo;                 // mac, bands, ciphers, max_frame, key_slots
+    fn set_address(&mut self, mac: Mac) -> Result<(), RadioError>;
+    fn tune(&mut self, channel: Channel) -> Result<(), RadioError>;
+    fn set_bssid(&mut self, bssid: Option<Mac>, aid: u16) -> Result<(), RadioError>;
+    fn set_scan_filter(&mut self, scanning: bool) -> Result<(), RadioError>;
+    fn set_state(&mut self, state: StaState) -> Result<(), RadioError>;
+    fn set_key(&mut self, key: &KeyInstall<'_>) -> Result<(), RadioError>;
+    fn del_key(&mut self, kind: KeyKind, index: u8) -> Result<(), RadioError>;
+    fn transmit(&mut self, frame: &[u8], options: &TxOptions) -> Result<(), RadioError>;
+    fn tx_ready(&self) -> bool;
+    fn receive(&mut self) -> Option<Received>;
+}
+```
+
+Frames cross it from the MAC header, without FCS. **Transmit:** a frame with
+`TxOptions::protected` already carries its CCMP header (the soft-MAC picked
+the PN) and the plaintext after it; the radio encrypts that body with the key
+the key id and the receiver address name and appends the MIC (on the
+RTL8822CE: hardware encryption, software IV). `basic_rate` marks management,
+EAPOL and probes; `priority` is the TID for the access-category queue.
+**Receive:** the radio decrypts with its keys and hands the frame over with
+the MAC header and the CCMP header kept (`Received::decrypted`) and any MIC
+it kept counted in `Received::trailer`, so the soft-MAC checks the PN for
+replays and strips the trailer; a frame it could not decrypt it drops (or
+passes undecrypted, which the soft-MAC drops). The radio never parses a body:
+it filters by address (`set_bssid`, `set_scan_filter`) and picks a key by key
+id and receiver.
+
+`SoftMac<R: Radio>` is `hw.v1` as pure logic with the clock injected:
+
+* **Owner.** `attach(sender)` (`Busy` when owned); every other call from
+  anyone else is `Denied`; `detach` and `release` (the owner exited or its
+  channel broke) stop the scan, deauthenticate, delete every key and forget
+  the country and the queued events.
+* **Country.** Nothing transmits before `SetCountry` (`Again` from an active
+  scan, `Join`, `TxMgmt`); a passive scan runs in the world domain. The
+  domain table (`regdom`) is coarse: the world domain probes only on 1-11,
+  the FCC group stops at 11, other countries get 12-13; UNII-1 and UNII-3 are
+  active for a named country, DFS channels always passive, no 6 GHz.
+* **Scan.** Software stepping: tune, one probe request per SSID (or a
+  wildcard) where the domain allows probing, dwell 50 ms active / 120 ms
+  passive (or the request's 10-1000 ms), next. Beacons and probe responses
+  heard meanwhile are kept raw, the latest per BSSID and kind, at most 256
+  and 256 KiB; `ScanResults` pages them with their age (64 entries and 12 KiB
+  of frames per page). A scan while joined returns to the BSS's channel and
+  pauses the beacon watch.
+* **Join** tunes and filters to the BSS and learns from its scan entry (then
+  its beacons) the beacon interval and whether it speaks QoS (HT or WMM):
+  data goes as QoS data with the TID from the user priority, or plain data.
+* **TxMgmt.** A management frame must be a station subtype (association,
+  reassociation, probe, disassociation, authentication, deauthentication,
+  action) with no flags and our own transmitter address; the soft-MAC sets
+  its sequence number. EAPOL (802.3, from our address) goes as a data frame
+  to the BSS, in the clear before the pairwise key and protected after it.
+* **SetState** drives the network card's link: up only in `Authorized`,
+  which needs the pairwise key once any key exists (an open network has
+  none). Below `Authorized` the receive queue is emptied.
+* **Keys.** CCMP-128 only: pairwise id 0-1, group id 1-3, for the joined
+  BSSID; IGTKs are refused (no management frame protection). A key's TX PN
+  starts at 1 and is never wrapped; each key has its replay window.
+* **Events** (at most 64 queued, the rest dropped and counted): `ScanDone`;
+  `RxMgmt` (authentication, (re)association responses, deauthentication,
+  disassociation and action frames from the joined BSS to us, and EAPOL as
+  802.3); `BeaconLoss` (no beacon from the BSS on its channel for ten
+  intervals, at least a second, once per silence); `Deauthenticated` (which
+  also closes the port and deletes the keys).
+* **Data path.** Received data must come From-DS from the BSSID to us or a
+  group; a protected frame needs `decrypted` and a fresh PN in its key's
+  window; plaintext is refused once the BSS is protected; our own reflected
+  group frames are dropped; EAPOL goes to the owner, never to `netd`; the rest
+  waits (at most 256 frames) for `netd` only while authorized. Transmit
+  refuses EAPOL and foreign source addresses from `netd`. The MTU is what
+  fits a QoS frame with a CCMP header in the radio's largest frame (1442 on
+  the simulator's air).
+
+### `user::wifi`: serving it
+
+`user::wifi::run(radio, ifname, own_uid)` registers
+`os.lazy.net.wifi.hw/<ifname>` and `os.lazy.net.nic/<ifname>` and serves both
+from one loop that also waits on the radio's wake-up endpoint
+(`Hardware::wake_endpoint`) and pumps it (`Hardware::pump`). The card side is
+`netdrv`'s engine (`libs/nicdrv`) over `MacRings`, the soft-MAC's data path
+as the engine's card, so `netd` sees the same rings and the same hostile-client
+rules. The owner's events go on the channel it passed in `Attach`; a dead
+channel (or one the once-a-second probe finds dead) releases the radio. Who
+may attach: an unlabelled system service outside any session running as
+`_wlan` (912), root (console diagnostics) or the radio program's own uid (a
+probe it spawned). `netd` sizes an interface's frames by the card's MTU.
+
+### `wifisim` and the simulated air
+
+`wifisim` (uid `_wifisim` 913, no capability; `LAZYOS_WIFI_SIM=1`, which
+needs `LAZYOS_NETD=1`) is the simulator's `Radio`: 802.11 frames inside
+Ethernet frames on a second virtio-net card, with software CCMP (`libs/simair`
+over RustCrypto `ccm` through `lazyos_crypto::wifi::ccm`; its test is the
+whole Annex J.6.4 MPDU). The wire format (`libs/simair`,
+`tools/wifi/fakeap/air.py`):
+
+```
+Ethernet  dst ff:ff:ff:ff:ff:ff  src <card>  type 0x88B5 (IEEE Local Experimental 1)
+air       version 1 | band (0 2.4 GHz, 1 5 GHz) | channel | rssi i8 | flags (bit 0 basic rate) | 0 | length u16 BE
+802.11 frame (MAC header to MIC, no FCS), at most 1492 octets
+```
+
+The radio hears a frame only on the band and channel it is tuned to, to its
+address or (group-addressed) from its BSS, and every beacon or probe response
+while scanning.
+
+**The air card** must not become a network interface. The harness gives it
+the MAC `02:57:53:49:4d:00` (`netpolicy::SIM_AIR_MAC`); in a
+`LAZYOS_WIFI_SIM=1` image `netdrv` serves that card as `os.lazy.net.nic/air0`
+instead of the `eth` name `devd` counted, without its ARP self-test
+(`NETDRV:AIR ifname=air0`), and `netd` never attaches a card whose name starts
+with `air` (`netpolicy::stack_attaches`). The name stays in the registry's
+driver-only NIC namespace, `netpolicy` lets `_wifisim` be its client, and
+`wifisim` checks that a NIC driver identity holds it.
+
+`wifiprobe` (embedded with the simulator; `wifisim probe=<mode>` through
+`LAZYOS_WIFI_SIM_ARGS`) is a test client of `hw.v1` for images without
+`wlanmd`: `scan`, `open:<ssid>`, `wpa2:<ssid>:<passphrase>` and the harness's
+`suite`, which runs the 4-way handshake through `libs/eapol` with a PMK it
+derives itself.
+
+### The fake access points and the harness
+
+`tools/wifi/fake_ap.py` is the other end of the air (QEMU
+`-netdev socket,udp=...,localaddr=...`): LazyOpen (open, ch 1), LazyWPA2
+(WPA2-PSK, ch 6), LazyHidden (hidden, ch 11), LazyRoam (WPA2 on ch 1 and 11)
+and LazyWrong (a passphrase no station has). It beacons, answers probes,
+authenticates, associates, runs the WPA2 authenticator written from the
+standard with `hashlib`, `hmac` and `cryptography` (PRF-384, HMAC-SHA1 MIC,
+AES key wrap, AES-CCM; nothing shared with `libs/eapol` or `ieee80211`), and
+serves DHCP (192.168.77.0/24), ARP and ICMP behind every BSS, pinging the
+station after its lease. Faults on its control port or `--schedule`:
+`deauth`, `silence` (beacon loss), `rekey` (group key handshake). Every frame
+goes to a pcap (link type 105), every action is an `AP:` line.
+
+```bash
+cargo test -p ieee80211 -p wifimac -p simair -p lazyos-crypto -p netpolicy
+python tools/wifi/test_fake_ap.py         # the AP against a scripted station
+python tools/wifi/test_judge.py           # the judge fails when it should
+python tools/wifi/sim_run.py              # build, boot, judge (shots/wifi_sim/)
+python tools/run_demo.py --wifi-sim       # interactive: wlan0 against the fake APs
+python tools/run_demo.py --wifi-probe open:LazyOpen
+```
+
+`sim_run.py` judges from the AP's log, the pcap and the serial log: the air
+card is `air0` and `netd` leaves it alone; the scan lists the networks (both
+LazyRoam BSSes, the hidden one through a directed probe); the wrong passphrase
+is refused at message 2; the open join gives `netd` a DHCP lease on `wlan0`
+and the AP's pings are answered; the WPA2 join shows messages 1-4 in the
+capture, CCMP data the AP decrypted with its own code, a lease and pings; a
+group rekey, beacon loss and a deauthentication each reach the radio's
+client. With `--station wlanmd` (once `wlanmd` is in the tree) the image has
+no probe and the harness types `wifictl scan`, `wifictl connect LazyWPA2`
+(answering the passphrase prompt) and `wifictl status` on the console; the
+AP-side checks are the same.
