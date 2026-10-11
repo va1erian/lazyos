@@ -10,11 +10,16 @@ impl LazySkyApp {
                 self.login.set_busy(false);
                 self.login.say("");
                 self.home.set_account(&account.handle);
+                if self.settings.remember_handle {
+                    self.settings.handle = Some(account.handle.clone());
+                    self.save_settings();
+                }
                 self.account = Some(account);
                 self.clear_everything();
                 self.apply_visibility(ui);
                 self.home.view.focus();
-                self.request_timeline(None);
+                self.last_unread_poll = None;
+                self.refresh_timeline();
             }
             Event::LoginFailed { reason, .. } => {
                 self.pending = self.pending.saturating_sub(1);
@@ -45,6 +50,7 @@ impl LazySkyApp {
                 self.pending = self.pending.saturating_sub(1);
                 if let Some(Route::Thread { generation }) = self.routes.remove(&seq) {
                     if self.panes[DETAIL as usize].generation == generation {
+                        self.detail.set_title("Thread");
                         let items = thread
                             .rows()
                             .into_iter()
@@ -63,6 +69,7 @@ impl LazySkyApp {
                     if self.panes[DETAIL as usize].generation == generation {
                         let title = match self.nav.last() {
                             Some(Nav::People { title, .. }) => title.clone(),
+                            Some(Nav::Search { query, .. }) => format!("Search: {query}"),
                             _ => String::new(),
                         };
                         let lines: Vec<String> = actors
@@ -73,6 +80,54 @@ impl LazySkyApp {
                         self.people_lines = actors;
                     }
                 }
+            }
+            Event::Profile { seq, profile } => {
+                self.pending = self.pending.saturating_sub(1);
+                if let Some(Route::Profile { generation }) = self.routes.remove(&seq) {
+                    if self.panes[DETAIL as usize].generation == generation {
+                        self.detail.set_title(profile.actor.name());
+                        let about = profile.description.lines().next().unwrap_or("");
+                        self.detail.set_subtitle(&format!(
+                            "@{}  {} posts  {} followers  {} following   {about}",
+                            profile.actor.handle, profile.posts, profile.followers, profile.follows,
+                        ));
+                    }
+                }
+            }
+            Event::Notifications { seq, items, .. } => {
+                self.pending = self.pending.saturating_sub(1);
+                if let Some(Route::Notifications { generation }) = self.routes.remove(&seq) {
+                    if self.panes[DETAIL as usize].generation == generation {
+                        let lines: Vec<String> = items
+                            .iter()
+                            .map(|n| {
+                                let first = n.text.lines().next().unwrap_or("");
+                                if first.is_empty() {
+                                    n.summary()
+                                } else {
+                                    format!("{}: {first}", n.summary())
+                                }
+                            })
+                            .collect();
+                        self.people.show("Notifications", &lines);
+                        self.notifications = items;
+                        // Opening the list marks them seen.
+                        let seq = self.seq();
+                        self.ask(seq, Request::MarkSeen { seq }, Route::Ignore);
+                        self.unread = 0;
+                        self.home.set_unread(0);
+                    }
+                }
+            }
+            Event::Unread { seq, count } => {
+                self.pending = self.pending.saturating_sub(1);
+                self.routes.remove(&seq);
+                self.unread = count;
+                self.home.set_unread(count);
+            }
+            Event::Done { seq } => {
+                self.pending = self.pending.saturating_sub(1);
+                self.routes.remove(&seq);
             }
             Event::Raw { seq, text } => {
                 self.pending = self.pending.saturating_sub(1);
@@ -95,7 +150,7 @@ impl LazySkyApp {
                         self.pop(ui);
                         self.home.say("Posted.");
                         // The new post appears at the top of a fresh timeline.
-                        self.request_timeline(None);
+                        self.refresh_timeline();
                     }
                     _ => {}
                 }
@@ -112,14 +167,20 @@ impl LazySkyApp {
                 signed_out,
             } => {
                 self.pending = self.pending.saturating_sub(1);
-                match self.routes.remove(&seq) {
+                let route = self.routes.remove(&seq);
+                // Background requests fail quietly (an offline unread poll
+                // must not keep writing to the status line).
+                let quiet = matches!(route, Some(Route::Unread | Route::Ignore));
+                match route {
                     Some(Route::Toggle { uri, before, .. }) => {
                         self.patch_everywhere(&uri, move |p| before.restore(p));
                     }
                     Some(Route::Compose) => self.composer.set_busy(false),
                     _ => {}
                 }
-                self.say(&reason);
+                if !quiet || signed_out {
+                    self.say(&reason);
+                }
                 if signed_out {
                     self.account = None;
                     self.clear_everything();

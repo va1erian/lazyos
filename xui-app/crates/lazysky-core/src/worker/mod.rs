@@ -109,6 +109,39 @@ fn handle(
                 Err(error) => failed(seq, &error),
             }
         }
+        Request::Profile { seq, actor } => match feeds::profile(api, &actor, &notes) {
+            Ok(profile) => Event::Profile { seq, profile },
+            Err(error) => failed(seq, &error),
+        },
+        Request::Notifications { seq, cursor } => {
+            match feeds::notifications(api, cursor.as_deref(), &notes) {
+                Ok((items, cursor)) => Event::Notifications { seq, items, cursor },
+                Err(error) => failed(seq, &error),
+            }
+        }
+        Request::UnreadCount { seq } => match feeds::unread(api, &notes) {
+            Ok(count) => Event::Unread { seq, count },
+            Err(error) => failed(seq, &error),
+        },
+        Request::MarkSeen { seq } => match writes::mark_seen(api, &notes) {
+            Ok(()) => Event::Done { seq },
+            Err(error) => failed(seq, &error),
+        },
+        Request::Configure { seq, service } => {
+            api.set_service(&service);
+            Event::Done { seq }
+        }
+        Request::SaveSettings { seq, settings } => match settings.save(&platform.app_dir()) {
+            Ok(path) => {
+                platform.log(&format!("SKY:SETTINGS:SAVED:{}", path.display()));
+                Event::Done { seq }
+            }
+            Err(reason) => Event::Failed {
+                seq,
+                reason: format!("settings not saved: {reason}"),
+                signed_out: false,
+            },
+        },
         Request::Raw { seq, json } => Event::Raw {
             seq,
             text: serde_json::to_string_pretty(&*json).unwrap_or_default(),

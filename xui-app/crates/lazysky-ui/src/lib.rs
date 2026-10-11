@@ -68,8 +68,26 @@ pub enum Msg {
     ComposerPost,
     /// A command of a post's "..." menu.
     PostMenu(MenuId),
-    /// A row of the people list.
+    /// A row of the people list (accounts, or notifications).
     PersonSelected(usize),
+    /// The search box changed.
+    SearchText(String),
+    /// Search for what the box holds.
+    SearchGo,
+    /// Switch a search between accounts and posts.
+    SearchToggle,
+    OpenNotifications,
+    OpenBookmarks,
+    /// A profile: `None` is the signed-in user's own.
+    OpenProfile(Option<String>),
+    /// A profile tab: 0 posts, 1 media, 2 likes.
+    ProfileTab(usize),
+    OpenSettings,
+    /// The theme choice: 0 system, 1 light, 2 dark.
+    SettingsTheme(usize),
+    SettingsMaxHeight(i32),
+    SettingsApplyService,
+    SettingsRemember(bool),
     Report(Report),
     Quit,
 }

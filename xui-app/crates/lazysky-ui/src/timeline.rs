@@ -11,7 +11,7 @@ use lazysky_core::ImageKey;
 
 use crate::feedview::ViewState;
 use crate::layouts::{Done, Job, Layouts, Work};
-use crate::prepare::{Context, Prepared, DEFAULT_MAX_IMAGE_H};
+use crate::prepare::{Context, Prepared};
 
 /// Rows farther than this many view heights from the view are dehydrated
 /// (§6.4); rows within [`REPREPARE`] are kept (or made) ready.
@@ -136,7 +136,7 @@ pub fn context(state: &ViewState, now: u64) -> Context {
         width: state.content_width(),
         dpi: state.dpi,
         now,
-        max_image_h: DEFAULT_MAX_IMAGE_H,
+        max_image_h: state.max_image_h,
     }
 }
 

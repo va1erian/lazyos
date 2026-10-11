@@ -139,6 +139,7 @@ fn the_core_signs_in_over_tls_with_a_trusted_ca() {
     let (port, seen) = serve(&pki, answer);
     let settings = Settings {
         service: format!("https://localhost:{port}"),
+        ..Settings::default()
     };
     let (core, events) = Core::start(Arc::new(Testing(pki.roots())), settings);
     core.send(Request::Login {

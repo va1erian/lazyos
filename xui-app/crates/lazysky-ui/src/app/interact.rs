@@ -124,8 +124,16 @@ impl LazySkyApp {
                         self.show_menu(ui, pane, &post, at);
                     }
                 }
-                // Profiles, pictures and tags arrive with their phases.
-                Target::Mention(_) | Target::Tag(_) | Target::Image(_) => {}
+                Target::Mention(did) => self.push(ui, Nav::Profile { actor: did, tab: 0 }),
+                Target::Tag(tag) => self.push(
+                    ui,
+                    Nav::Search {
+                        query: format!("#{tag}"),
+                        posts: true,
+                    },
+                ),
+                // Pictures arrive with their phase (P7).
+                Target::Image(_) => {}
             },
         }
     }
@@ -226,5 +234,147 @@ impl LazySkyApp {
             .iter()
             .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .collect()
+    }
+}
+
+impl LazySkyApp {
+    /// A row of the people list: an account opens its profile; a
+    /// notification opens what it is about.
+    pub(super) fn person_selected(&mut self, ui: &mut Ui<Msg>, index: usize) {
+        if matches!(self.nav.last(), Some(Nav::Notifications)) {
+            let Some(n) = self.notifications.get(index).cloned() else {
+                return;
+            };
+            use lazysky_core::proto::NotificationKind as Kind;
+            match n.kind {
+                Kind::Follow => self.push(
+                    ui,
+                    Nav::Profile {
+                        actor: n.author.did,
+                        tab: 0,
+                    },
+                ),
+                Kind::Like | Kind::Repost => {
+                    if let Some(subject) = n.subject {
+                        self.push(ui, Nav::Thread(subject));
+                    }
+                }
+                _ => self.push(ui, Nav::Thread(n.uri)),
+            }
+            return;
+        }
+        if let Some(actor) = self.people_lines.get(index) {
+            let did = actor.did.clone();
+            self.push(ui, Nav::Profile { actor: did, tab: 0 });
+        }
+    }
+
+    pub(super) fn search(&mut self, ui: &mut Ui<Msg>) {
+        let query = self.search_text.trim().to_string();
+        if query.is_empty() {
+            self.home.say("Type something to search for.");
+            return;
+        }
+        // Posts first for a hashtag, accounts otherwise.
+        let posts = query.starts_with('#');
+        self.push(ui, Nav::Search { query, posts });
+    }
+
+    pub(super) fn search_toggle(&mut self, ui: &mut Ui<Msg>) {
+        if let Some(Nav::Search { query, posts }) = self.nav.last().cloned() {
+            self.nav.pop();
+            self.push(
+                ui,
+                Nav::Search {
+                    query,
+                    posts: !posts,
+                },
+            );
+        }
+    }
+
+    pub(super) fn profile_tab(&mut self, ui: &mut Ui<Msg>, tab: usize) {
+        if let Some(Nav::Profile { actor, .. }) = self.nav.last().cloned() {
+            self.nav.pop();
+            self.push(ui, Nav::Profile { actor, tab });
+        }
+    }
+
+    // ---- settings -----------------------------------------------------
+
+    /// Writes `settings.toml` on the api thread.
+    pub(super) fn save_settings(&mut self) {
+        let seq = self.seq();
+        let settings = self.settings.clone();
+        self.ask(seq, Request::SaveSettings { seq, settings }, Route::Ignore);
+    }
+
+    pub(super) fn apply_theme(&self, ui: &Ui<Msg>) {
+        let theme = match self.settings.theme {
+            lazysky_core::ThemeChoice::System => self.system_theme,
+            lazysky_core::ThemeChoice::Light => Theme::light(),
+            lazysky_core::ThemeChoice::Dark => Theme::dark(),
+        };
+        ui.set_theme(theme);
+    }
+
+    /// Hands the picture height setting to both feeds and re-lays their
+    /// rows out.
+    pub(super) fn apply_max_image_height(&mut self) {
+        let height = self.settings.max_image_height as i32;
+        for pane in [HOME, DETAIL] {
+            let mut s = self.view(pane).state.borrow_mut();
+            if s.max_image_h != height {
+                s.max_image_h = height;
+                for i in 0..s.feed.len() {
+                    if let Some(row) = s.feed.row_mut(i) {
+                        row.dirty = true;
+                    }
+                }
+                s.moved = true;
+            }
+        }
+    }
+
+    pub(super) fn settings_theme(&mut self, ui: &Ui<Msg>, index: usize) {
+        self.settings.theme = match index {
+            1 => lazysky_core::ThemeChoice::Light,
+            2 => lazysky_core::ThemeChoice::Dark,
+            _ => lazysky_core::ThemeChoice::System,
+        };
+        self.apply_theme(ui);
+        self.save_settings();
+    }
+
+    pub(super) fn settings_max_height(&mut self, height: i32) {
+        let range = lazysky_core::settings::MAX_IMAGE_HEIGHT;
+        let height = u32::try_from(height).unwrap_or(0);
+        self.settings.max_image_height = height.clamp(*range.start(), *range.end());
+        self.apply_max_image_height();
+        self.save_settings();
+    }
+
+    pub(super) fn settings_remember(&mut self, on: bool) {
+        self.settings.remember_handle = on;
+        self.settings.handle = if on {
+            self.account.as_ref().map(|a| a.handle.clone())
+        } else {
+            None
+        };
+        self.save_settings();
+    }
+
+    pub(super) fn settings_service(&mut self) {
+        let typed = self.settings_page.typed_service();
+        let mut next = self.settings.clone();
+        next.service = typed;
+        next.normalise();
+        self.settings.service = next.service.clone();
+        let seq = self.seq();
+        let service = self.settings.service.clone();
+        self.ask(seq, Request::Configure { seq, service }, Route::Ignore);
+        self.save_settings();
+        self.settings_page
+            .say(&format!("Signing in will use {}.", self.settings.service));
     }
 }

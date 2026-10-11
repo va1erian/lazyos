@@ -2756,7 +2756,9 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
+ "serde",
  "serde_json",
+ "toml 0.8.23",
  "ureq",
 ]
 

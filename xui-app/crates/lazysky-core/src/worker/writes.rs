@@ -170,3 +170,10 @@ pub(super) fn post(
         Err(error) => failed(seq, &error),
     }
 }
+
+/// `updateSeen`: everything up to now has been seen.
+pub(super) fn mark_seen(api: &mut Api, notes: &dyn Notes) -> Result<(), ApiError> {
+    let body = serde_json::json!({"seenAt": record::now_rfc3339()});
+    api.post("app.bsky.notification.updateSeen", &body, notes)?;
+    Ok(())
+}

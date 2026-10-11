@@ -5,18 +5,18 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lazysky_core::feed::{RowId, RowKind};
-use lazysky_core::proto::{Actor, FeedItem, Post, StrongRef};
+use lazysky_core::proto::{Actor, FeedItem, Notification, Post, StrongRef};
 use lazysky_core::{
-    Account, ActorList, Bitmap, Core, Event, Events, FeedSource, ImageKey, Platform, Request,
-    Secret, Settings,
+    Account, ActorList, AuthorFilter, Bitmap, Core, Event, Events, FeedSource, ImageKey, Platform,
+    Request, Secret, Settings,
 };
 use xui_core::arrange::{column, panel, Handle, LayoutExt};
 use xui_core::backend::{Result, TimerId, WidgetId};
 use xui_core::widget::{FileDialog, Menu, MenuId, Panel};
-use xui_core::{App, Ui};
+use xui_core::{App, Theme, Ui};
 
 use crate::actions::{self, Before, Toggle, PENDING};
 use crate::drain;
@@ -24,7 +24,7 @@ use crate::feedview::{FeedAction, FeedView};
 use crate::images::ImageCache;
 use crate::layouts::Layouts;
 use crate::login::LoginPage;
-use crate::pages::{Composer, Detail, Home, People, RawPage, DETAIL, HOME};
+use crate::pages::{Composer, Detail, Home, People, RawPage, SettingsPage, DETAIL, HOME};
 use crate::prepare::{Action, Target};
 use crate::timeline::{self, Staging};
 use crate::{Msg, Report};
@@ -45,10 +45,28 @@ const MENU_DELETE: MenuId = MenuId::new(4);
 enum Nav {
     Timeline,
     Thread(String),
-    People { list: ActorList, title: String },
+    People {
+        list: ActorList,
+        title: String,
+    },
     Raw,
     Composer,
+    Profile {
+        actor: String,
+        tab: usize,
+    },
+    Bookmarks,
+    Notifications,
+    /// A search: accounts (`posts: false`) or posts.
+    Search {
+        query: String,
+        posts: bool,
+    },
+    Settings,
 }
+
+/// How often the unread count is asked for.
+const UNREAD_EVERY: Duration = Duration::from_secs(60);
 
 /// What an answer from the core is for.
 enum Route {
@@ -70,6 +88,15 @@ enum Route {
     },
     Delete,
     Compose,
+    Profile {
+        generation: u64,
+    },
+    Notifications {
+        generation: u64,
+    },
+    Unread,
+    /// An answer nobody waits for (seen, configured, saved).
+    Ignore,
 }
 
 /// A feed pane's loading state.
@@ -96,7 +123,8 @@ pub struct LazySkyApp {
     people: People,
     raw: RawPage,
     composer: Composer,
-    /// `[login, home, detail, people, raw, composer]`.
+    settings_page: SettingsPage,
+    /// `[login, home, detail, people, raw, composer, settings]`.
     panels: Vec<Rc<Panel<Msg>>>,
     account: Option<Account>,
     nav: Vec<Nav>,
@@ -119,6 +147,15 @@ pub struct LazySkyApp {
     /// What the composer's text field holds (kept from its change events).
     draft: String,
     reply: Option<(StrongRef, StrongRef)>,
+    settings: Settings,
+    /// The notifications on the page, for opening one.
+    notifications: Vec<Notification>,
+    unread: u64,
+    last_unread_poll: Option<Instant>,
+    /// What the search box holds.
+    search_text: String,
+    /// The theme the host gave the window (restored by "Follow the system").
+    system_theme: Theme,
     timer: Option<(TimerId, u32)>,
     report: Box<dyn Fn(&Msg)>,
 }
@@ -144,7 +181,7 @@ impl LazySkyApp {
         settings: Settings,
         report: impl Fn(&Msg) + 'static,
     ) -> Result<LazySkyApp> {
-        let frames: Vec<Handle<Panel<Msg>>> = (0..6).map(|_| Handle::new()).collect();
+        let frames: Vec<Handle<Panel<Msg>>> = (0..7).map(|_| Handle::new()).collect();
         let mut root = column();
         for frame in &frames {
             root = root.child(panel(column()).plain().bind(frame).fill(1));
@@ -159,6 +196,8 @@ impl LazySkyApp {
         let people = People::build(ui, id(3))?;
         let raw = RawPage::build(ui, id(4))?;
         let composer = Composer::build(ui, id(5))?;
+        let settings_page = SettingsPage::build(ui, id(6))?;
+        let system_theme = ui.theme_handle().get();
         ui.on_close(|| Some(Msg::Quit));
         ui.on_timer(|_| Some(Msg::Tick));
         let menu = Menu::context(ui)
@@ -179,7 +218,7 @@ impl LazySkyApp {
             .on_accept(|path| Some(Msg::ComposerPicture(path)))
             .on_cancel(|| None);
         picker.set_initial_dir(platform.pictures_dir());
-        let (core, events) = Core::start(Arc::clone(&platform), settings);
+        let (core, events) = Core::start(Arc::clone(&platform), settings.clone());
         // The shaper is taken once, here, and lives on the layout thread.
         let layouts = Layouts::start(ui.text_shaper());
         let mut app = LazySkyApp {
@@ -194,6 +233,7 @@ impl LazySkyApp {
             people,
             raw,
             composer,
+            settings_page,
             panels,
             account: None,
             nav: vec![Nav::Timeline],
@@ -210,9 +250,20 @@ impl LazySkyApp {
             pictures: Vec::new(),
             draft: String::new(),
             reply: None,
+            settings: settings.clone(),
+            notifications: Vec::new(),
+            unread: 0,
+            last_unread_poll: None,
+            search_text: String::new(),
+            system_theme,
             timer: None,
             report: Box::new(report),
         };
+        app.apply_theme(ui);
+        app.apply_max_image_height();
+        if let Some(handle) = &app.settings.handle {
+            app.login.set_handle(handle);
+        }
         app.apply_visibility(ui);
         app.login.focus();
         app.set_interval(ui, drain::IDLE_MS);
@@ -250,6 +301,7 @@ impl LazySkyApp {
         match self.nav.last() {
             Some(Nav::Timeline) | None => self.home.say(line),
             Some(Nav::Composer) => self.composer.say(line),
+            Some(Nav::Settings) => self.settings_page.say(line),
             Some(_) => self.detail.say(line),
         }
     }
@@ -332,7 +384,24 @@ impl App for LazySkyApp {
                 self.post_menu(ui, id);
                 self.set_interval(ui, drain::BUSY_MS);
             }
-            Msg::PersonSelected(_) => {}
+            Msg::PersonSelected(index) => self.person_selected(ui, index),
+            Msg::SearchText(text) => self.search_text = text,
+            Msg::SearchGo => self.search(ui),
+            Msg::SearchToggle => self.search_toggle(ui),
+            Msg::OpenNotifications => self.push(ui, Nav::Notifications),
+            Msg::OpenBookmarks => self.push(ui, Nav::Bookmarks),
+            Msg::OpenProfile(actor) => {
+                if let Some(actor) = actor.or_else(|| self.account.as_ref().map(|a| a.did.clone()))
+                {
+                    self.push(ui, Nav::Profile { actor, tab: 0 });
+                }
+            }
+            Msg::ProfileTab(tab) => self.profile_tab(ui, tab),
+            Msg::OpenSettings => self.push(ui, Nav::Settings),
+            Msg::SettingsTheme(index) => self.settings_theme(ui, index),
+            Msg::SettingsMaxHeight(height) => self.settings_max_height(height),
+            Msg::SettingsApplyService => self.settings_service(),
+            Msg::SettingsRemember(on) => self.settings_remember(on),
             Msg::Report(_) => (self.report)(&msg),
             Msg::Quit => {
                 let total = self.home.view.perf.borrow().total_fields();

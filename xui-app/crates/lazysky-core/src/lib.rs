@@ -12,6 +12,7 @@ pub mod images;
 pub mod net;
 pub mod platform;
 pub mod proto;
+pub mod settings;
 mod worker;
 
 use std::fmt;
@@ -25,6 +26,7 @@ pub use images::{Bitmap, ImageKey, Shape};
 pub use net::{Http, HttpOptions, Response};
 pub use platform::{Platform, Roots};
 pub use proto::{Page, Post};
+pub use settings::{Settings, ThemeChoice};
 
 /// Installs `nettls-crypto` as the process's default rustls provider (the
 /// GPLv2-compatible one, docs/tls-plan.md §3.2). Call it once, before any
@@ -33,21 +35,6 @@ pub use proto::{Page, Post};
 /// matters to other rustls users in the same process.
 pub fn install_tls_provider() -> bool {
     rustls::crypto::CryptoProvider::install_default(nettls_crypto::provider()).is_ok()
-}
-
-/// What the user can change (more of it arrives with the settings page).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Settings {
-    /// The login service; the account's PDS is read from its answer.
-    pub service: String,
-}
-
-impl Default for Settings {
-    fn default() -> Settings {
-        Settings {
-            service: "https://bsky.social".to_string(),
-        }
-    }
 }
 
 /// A password. It has no `Debug` output of its own worth reading and is
@@ -141,6 +128,18 @@ pub enum Request {
     /// Deletes one of the signed-in user's own records (a post, or the
     /// record of a like or repost to undo it).
     DeleteRecord { seq: u64, uri: String },
+    /// One account's profile (a handle or a DID).
+    Profile { seq: u64, actor: String },
+    /// A page of notifications.
+    Notifications { seq: u64, cursor: Option<String> },
+    /// How many notifications are unread.
+    UnreadCount { seq: u64 },
+    /// Marks every notification seen up to now.
+    MarkSeen { seq: u64 },
+    /// Points sign-in at another service (while signed out).
+    Configure { seq: u64, service: String },
+    /// Writes `settings.toml` (on the api thread, never the UI's).
+    SaveSettings { seq: u64, settings: Settings },
     /// Writes a post, uploading up to four picture files first.
     CreatePost {
         seq: u64,
@@ -188,6 +187,26 @@ pub enum Event {
     /// Something worth a status line that is not an answer.
     Status {
         line: String,
+    },
+    /// One account's profile.
+    Profile {
+        seq: u64,
+        profile: proto::Profile,
+    },
+    /// A page of notifications.
+    Notifications {
+        seq: u64,
+        items: Vec<proto::Notification>,
+        cursor: Option<String>,
+    },
+    /// The unread notification count.
+    Unread {
+        seq: u64,
+        count: u64,
+    },
+    /// A request with nothing to return finished (seen, configured, saved).
+    Done {
+        seq: u64,
     },
     /// A thread.
     Thread {

@@ -63,6 +63,8 @@ pub struct ViewState {
     /// Pictures ready to draw (shared by every pane).
     pub images: Rc<RefCell<ImageCache>>,
     pub dpi: u32,
+    /// The tallest a lone picture is laid out, in design pixels (a setting).
+    pub max_image_h: i32,
     /// The view in device pixels.
     pub width: i32,
     pub height: i32,
@@ -87,6 +89,7 @@ impl ViewState {
             feed: Feed::new(),
             images,
             dpi: 96,
+            max_image_h: crate::prepare::DEFAULT_MAX_IMAGE_H,
             width: 0,
             height: 0,
             relayout: false,

@@ -72,6 +72,7 @@ impl Server {
     fn settings(&self) -> Settings {
         Settings {
             service: format!("http://127.0.0.1:{}", self.port),
+            ..Settings::default()
         }
     }
 

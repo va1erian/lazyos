@@ -7,6 +7,7 @@ impl LazySkyApp {
     /// prepared, report timings.
     pub(super) fn tick(&mut self, ui: &mut Ui<Msg>) {
         let started = Instant::now();
+        self.poll_unread(started);
         let drained = drain::drain(&self.events, drain::BUDGET);
         for event in drained.events {
             self.on_event(ui, event);
@@ -108,5 +109,23 @@ impl LazySkyApp {
             }
         }
         self.set_interval(ui, drain::interval(0, more));
+    }
+}
+
+impl LazySkyApp {
+    /// Asks for the unread count now and then while signed in (60 s).
+    fn poll_unread(&mut self, now: Instant) {
+        if self.account.is_none() {
+            return;
+        }
+        let due = self
+            .last_unread_poll
+            .is_none_or(|at| now.duration_since(at) >= UNREAD_EVERY);
+        if !due {
+            return;
+        }
+        self.last_unread_poll = Some(now);
+        let seq = self.seq();
+        self.ask(seq, Request::UnreadCount { seq }, Route::Unread);
     }
 }

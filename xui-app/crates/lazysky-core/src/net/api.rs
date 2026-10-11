@@ -78,6 +78,11 @@ impl Api {
         self.session = None;
     }
 
+    /// Points the next sign-in at `service`.
+    pub fn set_service(&mut self, service: &str) {
+        self.service = service.trim_end_matches('/').to_string();
+    }
+
     /// `com.atproto.server.createSession`. The handle may carry a leading
     /// `@`; the password is an app password.
     pub fn sign_in(&mut self, handle: &str, password: &str) -> Result<&Session, ApiError> {

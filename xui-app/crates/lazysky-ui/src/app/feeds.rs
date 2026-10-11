@@ -3,24 +3,36 @@
 use super::*;
 
 impl LazySkyApp {
-    pub(super) fn request_timeline(&mut self, cursor: Option<String>) {
-        let pane = &mut self.panes[HOME as usize];
-        pane.generation += 1;
-        pane.source = Some(FeedSource::Timeline);
-        let generation = pane.generation;
+    /// Starts a pane over: answers for what it showed are dropped.
+    pub(super) fn reset_pane(&mut self, pane: u8) {
+        let state = &mut self.panes[pane as usize];
+        state.generation += 1;
+        state.staging = None;
+        state.focus = None;
+        state.source = None;
+    }
+
+    /// Asks for a page of `source` for `pane` (a first page when `cursor` is
+    /// `None`); "Load more" asks again from the same source.
+    pub(super) fn request_feed(&mut self, pane: u8, source: FeedSource, cursor: Option<String>) {
+        let generation = self.panes[pane as usize].generation;
+        self.panes[pane as usize].source = Some(source.clone());
         let seq = self.seq();
         self.ask(
             seq,
             Request::Feed {
                 seq,
-                source: FeedSource::Timeline,
+                source,
                 cursor,
             },
-            Route::Feed {
-                pane: HOME,
-                generation,
-            },
+            Route::Feed { pane, generation },
         );
+    }
+
+    /// The first page of the timeline, replacing what the home pane shows.
+    pub(super) fn refresh_timeline(&mut self) {
+        self.reset_pane(HOME);
+        self.request_feed(HOME, FeedSource::Timeline, None);
     }
 
     pub(super) fn stage(
@@ -97,7 +109,7 @@ impl LazySkyApp {
     }
 
     pub(super) fn load_more(&mut self, pane: u8) {
-        if self.panes[pane as usize].staging.is_some() || pane != HOME {
+        if self.panes[pane as usize].staging.is_some() {
             return;
         }
         let cursor = {
@@ -107,9 +119,10 @@ impl LazySkyApp {
                 _ => None,
             }
         };
-        if let Some(cursor) = cursor {
-            self.home.say("Loading...");
-            self.request_timeline(Some(cursor));
+        let source = self.panes[pane as usize].source.clone();
+        if let (Some(cursor), Some(source)) = (cursor, source) {
+            self.say("Loading...");
+            self.request_feed(pane, source, Some(cursor));
         }
     }
 

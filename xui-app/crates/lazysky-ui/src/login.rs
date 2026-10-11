@@ -64,6 +64,11 @@ impl LoginPage {
         (handle, password)
     }
 
+    /// Puts `handle` in the handle field (a remembered one).
+    pub fn set_handle(&self, handle: &str) {
+        self.handle.set_text(handle);
+    }
+
     /// Shows a line under the button.
     pub fn say(&self, line: &str) {
         self.message.set_text(line);

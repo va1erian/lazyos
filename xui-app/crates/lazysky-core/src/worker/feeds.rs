@@ -1,7 +1,7 @@
 //! Reading: feeds, threads and people lists.
 
 use crate::net::api::{Api, ApiError, Notes};
-use crate::proto::{actors, Actor, Page, Thread};
+use crate::proto::{actors, notifications, Actor, Notification, Page, Profile, Thread};
 use crate::{ActorList, AuthorFilter, FeedSource};
 
 /// A page is this many posts.
@@ -100,4 +100,27 @@ pub(super) fn actors(
         .filter(|c| !c.is_empty())
         .map(str::to_owned);
     Ok((found(&v), next))
+}
+
+pub(super) fn profile(api: &mut Api, actor: &str, notes: &dyn Notes) -> Result<Profile, ApiError> {
+    let v = api.get("app.bsky.actor.getProfile", &[("actor", actor)], notes)?;
+    Profile::from_json(&v).ok_or_else(|| ApiError::Transport("that account cannot be shown".into()))
+}
+
+pub(super) fn notifications(
+    api: &mut Api,
+    cursor: Option<&str>,
+    notes: &dyn Notes,
+) -> Result<(Vec<Notification>, Option<String>), ApiError> {
+    let mut query: Vec<(&str, &str)> = vec![("limit", PAGE_SIZE)];
+    if let Some(cursor) = cursor {
+        query.push(("cursor", cursor));
+    }
+    let v = api.get("app.bsky.notification.listNotifications", &query, notes)?;
+    Ok(notifications::parse(&v))
+}
+
+pub(super) fn unread(api: &mut Api, notes: &dyn Notes) -> Result<u64, ApiError> {
+    let v = api.get("app.bsky.notification.getUnreadCount", &[], notes)?;
+    Ok(notifications::unread_count(&v))
 }
