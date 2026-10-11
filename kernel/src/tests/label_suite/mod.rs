@@ -16,6 +16,7 @@ mod calls;
 mod identity;
 mod names;
 mod nic_names;
+mod wifi_names;
 mod session_topics;
 mod soak;
 
@@ -260,6 +261,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "label_nic_names_soak",
         nic_names::soak_drivers_and_impostors,
+    ),
+    (
+        "label_wifi_names_only_owners_register",
+        wifi_names::only_owners_register,
+    ),
+    (
+        "label_wifi_names_soak",
+        wifi_names::soak_owners_and_impostors,
     ),
     (
         "label_soak_register_load_cycles",

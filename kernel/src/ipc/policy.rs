@@ -131,6 +131,26 @@ fn uid_verdict(cred: &Cred, method: u32) -> Result<u32, u32> {
 }
 
 /// Decide a name operation without auditing it: `Ok(reason)` or `Err(reason)`.
+/// For a name in a Wi-Fi namespace, whether `cred` may register it; `None`
+/// for any other name.
+fn wifi_name_verdict(cred: &Cred, name: &str) -> Option<bool> {
+    if netpolicy::is_wifi_hw_name(name) {
+        return Some(netpolicy::may_register_wifi_hw_name(
+            cred.uid,
+            cred.label_id,
+            cred.session,
+        ));
+    }
+    if netpolicy::is_wifi_service_name(name) {
+        return Some(netpolicy::may_register_wifi_service_name(
+            cred.uid,
+            cred.label_id,
+            cred.session,
+        ));
+    }
+    None
+}
+
 fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
     let own_app = app_id_of(cred.label_id);
     let namespaced = app_name_id(name)
@@ -143,6 +163,16 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
             // frame rings and trusts its card description.
             if netpolicy::is_nic_name(name) {
                 return if netpolicy::may_register_nic_name(cred.uid, cred.label_id, cred.session) {
+                    Ok(reason::ALLOWED_BY_NAMESPACE)
+                } else {
+                    Err(reason::RESERVED_NAMESPACE)
+                };
+            }
+            // The radios and the station manager likewise (`netpolicy::wifi`):
+            // `wlanmd` gives a radio's holder its frames and temporal keys,
+            // and `os.lazy.net.wifi` is where passphrases are sent.
+            if let Some(allowed) = wifi_name_verdict(cred, name) {
+                return if allowed {
                     Ok(reason::ALLOWED_BY_NAMESPACE)
                 } else {
                     Err(reason::RESERVED_NAMESPACE)
