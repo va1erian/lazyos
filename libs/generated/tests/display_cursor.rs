@@ -67,9 +67,6 @@ fn the_shape_values_are_the_wire_numbering() {
 }
 
 #[test]
-fn the_method_declares_no_transfers() {
-    assert_eq!(
-        request_transfers(METHOD_SETCURSOR),
-        messenger_generated::transfers::Transfers::NONE
-    );
+fn the_method_declares_no_objects() {
+    assert!(DECLARED_OBJECTS.is_empty());
 }
