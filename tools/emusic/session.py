@@ -85,15 +85,31 @@ def app_session() -> list[dict]:
 def theme_session() -> list[dict]:
     """emusic paints in the desktop's theme and follows it live.
 
-    The desktop is switched to light (and a blue accent) from a background
-    job started in the Terminal before emusic's window covers it."""
+    The desktop starts dark; a background job in the Terminal waits for
+    `/tmp/go` and then switches it to light. The session creates that file
+    only after the dark screenshot, from the strip of the Terminal that
+    emusic's window leaves visible."""
     steps = install()
-    steps += command("(sleep 40;confctl set user/1000/ui/mode str light) &")
+    steps += command("confctl set user/1000/ui/mode str dark")
+    steps += command("(while ! test -f /tmp/go;do sleep 1;done;"
+                     "confctl set user/1000/ui/mode str light)&")
     steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
                      "EMUSIC:UP:PASS", 300)
+    # The PS/2 mouse is relative: park it in the top-left corner, then move.
+    park = [{"mouse_move": [-300, -300]}] * 4
     steps += [
         {"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
         {"at": 1.0, "shot": "02_dark_follows_desktop"},
+        *park,
+        {"mouse_move": [80, 400]},
+        {"wait": 0.3},
+        {"mouse_click": "left", "note": "focus the Terminal's visible strip"},
+    ]
+    steps += command("touch /tmp/go")
+    steps += [
+        {"mouse_move": [820, -345], "note": "raise emusic again (its title bar)"},
+        {"wait": 0.3},
+        {"mouse_click": "left"},
         {"wait_for": "THEME:APPLIED", "timeout": 120},
         {"at": 3.0, "shot": "03_light_follows_desktop"},
         {"at": 1.5, "quit": True},
