@@ -17,7 +17,8 @@ from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-expor
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
-from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
+from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
+                        SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)

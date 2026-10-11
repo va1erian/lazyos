@@ -11,7 +11,7 @@ import shutil
 import tkinter as tk
 
 from .catalog import (DATA_IMAGE, DEFAULT_MEMORY, HOME_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS,
-                      SIMPLE_INTERFACES)
+                      SIMPLE_GROUPS, SIMPLE_INTERFACES)
 
 
 def make_vars() -> dict:
@@ -74,29 +74,21 @@ def make_vars() -> dict:
         # LazyShell on the desktop profile (issue #157); unchecked = LAZYOS_SHELL=0.
         "shell": b(value=True),
         "lazyrad_samples": s(value=""),
-        "simple_lazyrad": b(value=False),
         "simple_shell": b(value=True),
         "devices": b(value=False),
         "simple_devices": b(value=False),
         "doom": b(value=False),
-        "simple_doom": b(value=False),
         "quake": b(value=False),
-        "simple_quake": b(value=False),
         "emusic": b(value=False),
-        "simple_emusic": b(value=False),
         "modplayer": b(value=False),
-        "simple_modplayer": b(value=False),
         # Networking (LAZYOS_NETD + a QEMU user-mode card, run_demo --net).
         "net": b(value=False),
         "net_forwards": s(value=""),
         "net_restrict": b(value=False),
         "nics": s(value="1"),
-        "simple_net": b(value=False),
         "linuxapps": b(value=False),
-        "simple_linuxapps": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
-        "simple_tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
         "smb": b(value=False),
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
@@ -110,21 +102,19 @@ def make_vars() -> dict:
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
         # desktop, networking and HTTPS).
         "lazyweb": b(value=False),
-        "simple_lazyweb": b(value=False),
         # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
         "mail": b(value=False),
-        "simple_mail": b(value=False),
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).
         "traydemo": b(value=False),
-        "simple_traydemo": b(value=False),
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
-        "simple_pictures": b(value=False),
         "simple_usb_image": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
+        # The Simple tab's feature groups (`simplecfg.SIMPLE_GROUPS`).
+        **{f"simple_group_{key}": b(value=False) for key, *_ in SIMPLE_GROUPS},
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
     }
