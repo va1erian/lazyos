@@ -6,6 +6,7 @@ pub mod bake;
 pub mod camera;
 pub mod job;
 mod objects;
+pub mod overlay;
 pub mod palette;
 pub mod raster;
 pub mod sky;
@@ -17,6 +18,7 @@ use crate::course::Course;
 pub use bake::Bake;
 pub use camera::Camera;
 pub use job::{resolve_into, Mode, RenderJob};
+pub use overlay::{AimMark, BallMark, GridArrow, Overlay};
 pub use palette::Palette;
 pub use raster::Frame;
 
