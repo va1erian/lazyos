@@ -1,0 +1,18 @@
+[package]
+name = "rtw88"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Realtek RTL8822CE (rtw88) Wi-Fi chip logic, host testable: power sequences, firmware download, MAC/BB/RF bring-up, PCIe rings and descriptors"
+# Derived from Linux drivers/net/wireless/realtek/rtw88, which is
+# "GPL-2.0 OR BSD-3-Clause"; taken under BSD-3-Clause (THIRD_PARTY.md).
+license = "GPL-3.0-or-later AND BSD-3-Clause"
+
+[lib]
+name = "rtw88"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

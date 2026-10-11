@@ -140,6 +140,8 @@ members = [
     # `no_std` + `alloc`, host-tested and fuzzed.
     "libs/ieee80211",
     "libs/eapol",
+    # The RTL8822CE Wi-Fi chip logic (docs/wifi-rtw88-plan.md).
+    "libs/rtw88",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

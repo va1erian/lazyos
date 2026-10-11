@@ -17,10 +17,11 @@
 ///
 /// **The data path is not here.** Once the station is authorized, payload
 /// frames travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same
-/// driver serves to `netd` (the chip does the 802.3 to 802.11 conversion and
-/// the encryption). The NIC's link state follows this interface: it is down
-/// until `SetState(Authorized)`. A driver whose chip cannot convert frames is
-/// out of scope for v1.
+/// driver serves to `netd`. The 802.3 to 802.11 conversion happens below this
+/// interface: in the chip's firmware where it offers that, else in the
+/// driver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on
+/// the RTL8822CE. The NIC's link state follows this interface: it is down
+/// until `SetState(Authorized)`.
 ///
 /// **One client.** The first caller of `Attach` owns the radio; its identity
 /// is the kernel-stamped sender, and every later call or `Detach` by anyone
