@@ -89,5 +89,9 @@
   {"shot": "10_turned"},
   {"key_up": "a"},
   {"wait": 1.0},
+  {"click_at": [1269, 59], "note": "the window's close button: the engine quits cleanly"},
+  {"wait_for": "SRB2KART:QUIT:PASS", "timeout": 120},
+  {"wait": 2.0},
+  {"shot": "11_closed"},
   {"quit": true}
 ]
