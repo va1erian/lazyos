@@ -38,7 +38,7 @@
 
 extern crate alloc;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
 pub mod bringup;
