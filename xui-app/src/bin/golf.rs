@@ -12,7 +12,8 @@
 //! Playing: `GOLF:SHOT:<hole>:<stroke>:<club>:power=<p>` at impact,
 //! `GOLF:LAND:<hole>:<stroke>:<material>:carry=<m>` at the first touch,
 //! `GOLF:PENALTY:<hole>:<stroke>:<kind>` and
-//! `GOLF:HOLED:<hole>:<strokes>:par=<par>`.
+//! `GOLF:HOLED:<hole>:<strokes>:par=<par>`, or `GOLF:PICKUP:` with the same
+//! fields when the hole is given up at the stroke limit.
 //! A first argument that is a number picks the course seed.
 
 use xui_app::launch;
@@ -79,6 +80,9 @@ fn main() {
             }
             Msg::Report(Report::Holed { hole, strokes, par }) => {
                 println!("GOLF:HOLED:{hole}:{strokes}:par={par}");
+            }
+            Msg::Report(Report::PickedUp { hole, strokes, par }) => {
+                println!("GOLF:PICKUP:{hole}:{strokes}:par={par}");
             }
             Msg::Quit => println!("GOLF:QUIT:PASS"),
         })

@@ -136,6 +136,9 @@ impl Running {
                     kind: kind.into(),
                 },
                 PlayEvent::Holed { hole, strokes, par } => Report::Holed { hole, strokes, par },
+                PlayEvent::PickedUp { hole, strokes, par } => {
+                    Report::PickedUp { hole, strokes, par }
+                }
             });
         }
     }

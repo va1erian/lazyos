@@ -63,6 +63,12 @@ pub enum PlayEvent {
         strokes: u32,
         par: u8,
     },
+    /// The hole was given up at [`MAX_STROKES`] without holing out.
+    PickedUp {
+        hole: u8,
+        strokes: u32,
+        par: u8,
+    },
 }
 
 /// The name of a score against par.
@@ -314,6 +320,11 @@ impl Play {
         if self.stroke >= MAX_STROKES {
             self.scores[self.hole] = Some(self.stroke);
             self.message = Some(("Pick up".into(), MESSAGE_TIME));
+            self.events.push(PlayEvent::PickedUp {
+                hole: self.hole as u8 + 1,
+                strokes: self.stroke,
+                par: course.holes.get(self.hole).map_or(4, |h| h.par),
+            });
             self.phase = Phase::Holed { wait: 1.5 };
             return;
         }
@@ -349,9 +360,12 @@ impl Play {
     /// Starts `hole` from its tee, keeping the card.
     pub fn start_hole(&mut self, course: &Course, bake: &Bake, hole: usize) {
         let scores = std::mem::take(&mut self.scores);
+        // What has happened and not yet been read goes with the player.
+        let events = std::mem::take(&mut self.events);
         let (wind, seed) = (self.wind, self.seed);
         *self = Play::tee_off(&course.holes, bake, hole);
         self.scores = scores;
+        self.events = events;
         self.wind = wind;
         self.seed = seed;
         self.set_up(course, bake);

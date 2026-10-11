@@ -65,6 +65,8 @@ pub enum Report {
     Penalty { hole: u8, stroke: u32, kind: String },
     /// The ball is in the cup.
     Holed { hole: u8, strokes: u32, par: u8 },
+    /// The hole was given up at the stroke limit.
+    PickedUp { hole: u8, strokes: u32, par: u8 },
 }
 
 /// The overhead map's size, pixels at 96 DPI.

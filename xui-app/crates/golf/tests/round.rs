@@ -135,6 +135,7 @@ fn holes_are_played_to_the_cup_with_the_ball_in_view() {
     );
     assert!(stats.putts > 0 && stats.cuts > 0, "putts and cuts happened");
     // The ball stays in the picture for nearly all of every flight.
+    assert!(stats.frames > 0, "no flight frames were recorded");
     let share = stats.ball_visible as f32 / stats.frames as f32;
     assert!(
         share > 0.9,
@@ -244,19 +245,6 @@ fn picture(scene: &Scene, play: &Play, name: &str) {
         let white = (0..frame.width * frame.height)
             .filter(|&i| frame.index[i] == xui_golf::render::palette::WHITE)
             .count();
-        if name.contains("landing") {
-            for dy in -3i64..=3 {
-                let row: Vec<String> = (-4i64..=4)
-                    .map(|dx| {
-                        let (px, py) = (xi + dx, yi + dy);
-                        let i = py as usize * W + px as usize;
-                        format!("{:3}/{:.4}", frame.index[i], frame.depth[i])
-                    })
-                    .collect();
-                eprintln!("   {}", row.join(" "));
-            }
-            eprintln!("   ball iz would be ~{:.4} (z {:.1})", 1.0 / c.z, c.z);
-        }
         eprintln!(
             "{name}: ball {:.0} m away at ({x:.0}, {y:.0}) of {W}x{H}, pixel {:?}, {white} white pixels, eye y {:.1} yaw {:.2} pitch {:.2} fov {:.0}",
             c.z,
@@ -361,4 +349,34 @@ fn skipping_a_flight_still_reports_the_landing() {
         .count();
     assert_eq!(landed, 1, "events: {:?}", play.events);
     assert!(play.message.is_some(), "and the player is told");
+}
+
+/// A hole given up at the stroke limit says so to the host, once.
+#[test]
+fn a_picked_up_hole_is_reported() {
+    use xui_golf::play::MAX_STROKES;
+    let scenes = scenes();
+    let scene = &scenes[0];
+    let (course, bake) = (&scene.course, &scene.bake);
+    let mut play = Play::tee_off(&course.holes, bake, 6);
+    play.seed = course.seed;
+    play.set_up(course, bake);
+    // The last stroke allowed, and a feeble one: it cannot hole out.
+    play.stroke = MAX_STROKES - 1;
+    play.hit(course, bake, ASPECT, 0.2, 0.0);
+    play.skip(course, bake);
+    let picked: Vec<_> = play
+        .events
+        .iter()
+        .filter(|e| matches!(e, PlayEvent::PickedUp { .. }))
+        .collect();
+    assert_eq!(picked.len(), 1, "events: {:?}", play.events);
+    assert!(!play
+        .events
+        .iter()
+        .any(|e| matches!(e, PlayEvent::Holed { .. })));
+    assert!(matches!(
+        picked[0],
+        PlayEvent::PickedUp { hole: 7, strokes, .. } if *strokes == MAX_STROKES
+    ));
 }
