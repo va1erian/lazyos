@@ -10,6 +10,9 @@ use xui_core::message::{Key, MouseButton};
 
 use super::paint::thumb;
 use super::{FeedAction, Grab, ViewState, BAR_96, WHEEL_96};
+
+/// The `MouseWheel` delta of one notch.
+const WHEEL_DELTA: i32 = 120;
 use crate::Msg;
 
 pub(super) fn handle(
@@ -65,7 +68,9 @@ fn route(ui: &Ui<Msg>, id: WidgetId, s: &mut ViewState, event: &Event) -> Outcom
         Event::MouseWheel {
             delta, horizontal, ..
         } if !horizontal => {
-            let step = -i32::from(delta) * s.scaled(WHEEL_96);
+            // `delta` is in 120ths of a notch (Windows' WHEEL_DELTA, which the
+            // LazyOS backend also reports): one notch is `WHEEL_96` pixels.
+            let step = -i32::from(delta) * s.scaled(WHEEL_96) / WHEEL_DELTA;
             scrolled(s, step)
         }
         Event::KeyDown {

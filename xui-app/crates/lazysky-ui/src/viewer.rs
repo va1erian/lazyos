@@ -211,7 +211,9 @@ fn paint(canvas: &mut dyn Canvas, state: &mut ViewerState, images: &ImageCache, 
         let mut style = xui_core::TextStyle::new(theme.text_secondary, xui_core::Dip(14.0));
         style.align = xui_core::backend::TextAlign::Center;
         style.valign = xui_core::backend::TextVAlign::Middle;
-        canvas.draw_text("Loading...", bounds, &style);
+        let failed = state.wanted().is_some_and(|key| images.has_failed(&key));
+        let text = if failed { "This picture could not be shown" } else { "Loading..." };
+        canvas.draw_text(text, bounds, &style);
         return;
     };
     let (iw, ih) = (image.width() as i32, image.height() as i32);

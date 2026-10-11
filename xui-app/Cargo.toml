@@ -222,6 +222,38 @@ strip = "symbols"
 # Size first, except the software rasteriser: every frame is painted by
 # tiny-skia through xui-canvas, and at "z" a full HiDPI repaint costs 3-4x
 # more (issue #604). Only performance-critical crates get 3; keep it that way.
+# LazySky decodes and resizes every picture on its own threads: at "z" a
+# photo takes seconds on the guest and the viewer sat on "Loading...".
+[profile.release.package.image]
+opt-level = 3
+
+[profile.release.package.zune-jpeg]
+opt-level = 3
+
+[profile.release.package.zune-core]
+opt-level = 3
+
+[profile.release.package.png]
+opt-level = 3
+
+[profile.release.package.fdeflate]
+opt-level = 3
+
+[profile.release.package.miniz_oxide]
+opt-level = 3
+
+[profile.release.package.image-webp]
+opt-level = 3
+
+[profile.release.package.gif]
+opt-level = 3
+
+[profile.release.package.weezl]
+opt-level = 3
+
+[profile.release.package.lazysky-core]
+opt-level = 3
+
 [profile.release.package.tiny-skia]
 opt-level = 3
 

@@ -83,6 +83,15 @@ fn service_arg() -> Option<String> {
 }
 
 fn main() {
+    // `panic = "abort"`: a panic on any thread ends the app, so say where on
+    // the serial line first (the default hook writes to a stderr nobody reads).
+    std::panic::set_hook(Box::new(|info| {
+        let place = info.location().map_or(String::new(), |l| format!(" at {}:{}", l.file(), l.line()));
+        let text = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        println!("SKY:PANIC:{text}{place}");
+    }));
     // The TLS provider is `nettls-crypto` (GPLv2-compatible), installed
     // before any thread starts, as Mail does.
     lazysky_core::install_tls_provider();

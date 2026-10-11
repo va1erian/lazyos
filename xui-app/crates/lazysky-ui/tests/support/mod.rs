@@ -258,7 +258,7 @@ pub fn sign_in_and_load(stage: &Stage<'_, Msg>, heard: &Heard) {
 
 pub fn wheel(stage: &Stage<'_, Msg>, notches: i16) {
     stage.inject(Event::MouseWheel {
-        delta: notches,
+        delta: notches * 120,
         horizontal: false,
         x: 300,
         y: 300,
