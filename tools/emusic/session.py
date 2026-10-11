@@ -82,6 +82,72 @@ def app_session() -> list[dict]:
     return steps
 
 
+def theme_session() -> list[dict]:
+    """emusic paints in the desktop's theme and follows it live.
+
+    The desktop starts dark; a background job in the Terminal waits for
+    `/tmp/go` and then switches it to light. The session creates that file
+    only after the dark screenshot, from the strip of the Terminal that
+    emusic's window leaves visible."""
+    steps = install()
+    steps += command("confctl set user/1000/ui/mode str dark")
+    steps += command("(while ! test -f /tmp/go;do sleep 1;done;"
+                     "confctl set user/1000/ui/mode str light)&")
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    # The PS/2 mouse is relative: park it in the top-left corner, then move.
+    park = [{"mouse_move": [-300, -300]}] * 4
+    steps += [
+        {"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+        {"at": 1.0, "shot": "02_dark_follows_desktop"},
+        *park,
+        {"mouse_move": [80, 400]},
+        {"wait": 0.3},
+        {"mouse_click": "left", "note": "focus the Terminal's visible strip"},
+    ]
+    steps += command("touch /tmp/go")
+    steps += [
+        {"mouse_move": [820, -345], "note": "raise emusic again (its title bar)"},
+        {"wait": 0.3},
+        {"mouse_click": "left"},
+        {"wait_for": "THEME:APPLIED", "timeout": 120},
+        {"at": 3.0, "shot": "03_light_follows_desktop"},
+        {"at": 1.5, "quit": True},
+    ]
+    return steps
+
+
+def resize_session() -> list[dict]:
+    """The frame resizes emusic: shrink it from the bottom-right corner,
+    then grow it, and watch the views re-flow."""
+    steps = install()
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    # The PS/2 mouse is relative: park it in the top-left corner, then move.
+    park = [{"mouse_move": [-300, -300]}] * 4
+    steps += [
+        {"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+        {"at": 1.0, "shot": "02_default"},
+        *park,
+        {"mouse_move": [1154, 687]},
+        {"wait": 0.3},
+        {"mouse_down": "left"},
+        {"mouse_move": [-100, -60]},
+        {"wait": 0.4},
+        {"mouse_up": "left"},
+        {"wait": 1.5},
+        {"shot": "03_shrunk"},
+        {"mouse_down": "left"},
+        {"mouse_move": [216, 85]},
+        {"wait": 0.4},
+        {"mouse_up": "left"},
+        {"wait": 1.5},
+        {"shot": "04_grown"},
+        {"at": 1.0, "quit": True},
+    ]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -94,7 +160,12 @@ def sound_session() -> list[dict]:
     return steps
 
 
-SESSIONS = {"emusic.json": app_session, "emusic_sound.json": sound_session}
+SESSIONS = {
+    "emusic.json": app_session,
+    "emusic_sound.json": sound_session,
+    "emusic_theme.json": theme_session,
+    "emusic_resize.json": resize_session,
+}
 
 
 def render(steps: list[dict]) -> str:
