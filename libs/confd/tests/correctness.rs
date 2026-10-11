@@ -324,7 +324,8 @@ fn caller_field_constructs_directly() {
         caller(7),
         confd::Caller {
             uid: 7,
-            system: false
+            system: false,
+            wifi: false
         }
     );
 }
