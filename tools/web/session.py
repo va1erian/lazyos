@@ -124,6 +124,20 @@ def _shortcut(key: str, until: str, step_timeout: float) -> list[dict]:
             {"key_up": "ctrl"}]
 
 
+#: Where the stand-in example.com page's "Learn more" link is, in a 1280x720
+#: screen with the browser's first window (see `01_example` in `shots/web`).
+LINK_AT = (470, 457)
+
+
+def _hover_link() -> list[dict]:
+    """Park the pointer on the link and take a look: the pointer is drawn by
+    the compositor, so the screenshot shows the hand NetSurf asked for
+    (docs/cursor-plan.md). Not a `shot_0*` picture: the judge compares those."""
+    park = [{"mouse_move": [-2000, -2000]}] * 3
+    return [*park, {"mouse_move": list(LINK_AT)}, {"mouse_move": [1, 0]},
+            {"wait": 1.0}, {"shot": "hover_link"}]
+
+
 def _browser_steps(step_timeout: float, title: str | None) -> list[dict]:
     opener = f"rhai {OPEN_SCRIPT} {judge.EXAMPLE_URL} >/dev/console 2>&1"
     return [
@@ -132,6 +146,7 @@ def _browser_steps(step_timeout: float, title: str | None) -> list[dict]:
         {"wait_for": f"WEB:LOAD:{judge.EXAMPLE_URL}", "timeout": step_timeout},
         {"wait_for": f"WEB:TITLE:{judge.EXAMPLE_TITLE}", "timeout": step_timeout},
         {"at": 5.0, "shot": "01_example"},
+        *_hover_link(),
         *_address(judge.OLDNET_URL, f"WEB:LOAD:{judge.OLDNET_URL}", step_timeout),
         {**_title(title), "timeout": step_timeout},
         # Time for the pictures, then a second look (the animated GIF moves).

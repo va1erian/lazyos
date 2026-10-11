@@ -140,6 +140,26 @@ pub struct ClientWindow {
 }
 
 impl ClientWindow {
+    /// A window bookkeeping record for host tests: `surface`, no buffers worth
+    /// the name and no keyboard session.
+    #[cfg(test)]
+    pub(crate) fn for_tests(surface: u64) -> ClientWindow {
+        let buffers = [
+            Box::leak(vec![0u8; 16].into_boxed_slice()),
+            Box::leak(vec![0u8; 16].into_boxed_slice()),
+        ];
+        ClientWindow {
+            events: 0,
+            surface,
+            slots: Slots::for_tests(buffers, 2, 2),
+            rect: (2, 2),
+            title: String::new(),
+            input: None,
+            pending_configure: None,
+            pending_events: Vec::new(),
+        }
+    }
+
     /// Create the window's surface bound to `client` with its own buffer and
     /// event channel. A panel is placed before anything is committed, so it
     /// never flashes at the compositor's default `(0, 0)`.

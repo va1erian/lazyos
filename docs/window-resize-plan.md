@@ -22,8 +22,9 @@ libraries (`user/src/messenger/display/`, `xui-app/src/display.rs`,
 ## Non-goals
 
 - Live re-rendering while the pointer drags an edge.
-- Cursor shape changes over edges (there is one cursor sprite today). A
-  follow-up can add resize cursors.
+- Cursor shape changes over edges. Done since: the compositor shows the
+  resize cursors over a resizable window's border and while a resize runs
+  ([`cursor-plan.md`](cursor-plan.md); session `cursor_shapes.json`).
 - Snapping/tiling, keyboard-driven move/resize, app-requested maximize.
 - Multi-monitor or screen-mode changes.
 

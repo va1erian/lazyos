@@ -38,6 +38,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::confd`](#sysconfd) | `os.lazy.confd.v1` |
 | [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
 | [`sys::display`](#sysdisplay) | `os.lazy.display.v1` |
+| [`sys::display_cursor`](#sysdisplay_cursor) | `os.lazy.display.cursor.v1` |
 | [`sys::echo`](#sysecho) | `os.lazy.echo.v1` |
 | [`sys::elevd`](#syselevd) | `os.lazy.elevd.v1` |
 | [`sys::display_prompt`](#sysdisplay_prompt) | `os.lazy.display.prompt.v1` |
@@ -257,6 +258,18 @@ Not callable from a script (the request carries a kernel object): `CreateSurface
 - `ROLE` = the `Role` variants; `ROLE_WINDOW`, `ROLE_DESKTOP`, `ROLE_PANEL`, `ROLE_POPUP`
 - `CHANGE` = the `Change` variants; `CHANGE_UNSPECIFIED`, `CHANGE_CREATED`, `CHANGE_DESTROYED`, `CHANGE_MOVED`, `CHANGE_MINIMIZED`, `CHANGE_RESTORED`, `CHANGE_TITLE`, `CHANGE_RESIZED`, `CHANGE_MAXIMIZED`, `CHANGE_UNMAXIMIZED`
 - `WINDOW_STATE` = the `WindowState` variants; `WINDOW_STATE_NORMAL`, `WINDOW_STATE_MAXIMIZED`
+
+## `sys::display_cursor`
+
+Interface `os.lazy.display.cursor.v1`, source [`display_cursor.rhai`](display_cursor.rhai).
+
+The mouse pointer's shape over an app's own windows (`docs/cursor-plan.md`).
+
+| Function | IDL | About |
+|---|---|---|
+| `set_cursor(surface, shape)` | `SetCursor(surface: U64, shape: CursorShape) -> ()` | Set the shape shown while the pointer is over `surface`'s content. The |
+
+- `CURSOR_SHAPE` = the `CursorShape` variants; `CURSOR_SHAPE_DEFAULT`, `CURSOR_SHAPE_BUSY`, `CURSOR_SHAPE_TEXT`, `CURSOR_SHAPE_HAND`, `CURSOR_SHAPE_RESIZE_H`, `CURSOR_SHAPE_RESIZE_V`, `CURSOR_SHAPE_RESIZE_NWSE`, `CURSOR_SHAPE_RESIZE_NESW`
 
 ## `sys::echo`
 

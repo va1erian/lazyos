@@ -25,5 +25,5 @@ abi = "linux"
 # The compositor for its window and `inputd` for its keyboard session; nothing
 # else. Its config and saves go to its own folder in the player's home
 # (`$HOME/.apps/org.lazy.doom`).
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
 files = ["write:$HOME/.apps/org.lazy.doom"]

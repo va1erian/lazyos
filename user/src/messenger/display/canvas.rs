@@ -95,7 +95,7 @@ pub struct Canvas {
     base: *mut u8,
     width: i32,
     height: i32,
-    layout: PixelLayout,
+    pub(super) layout: PixelLayout,
 }
 
 impl Canvas {
@@ -143,7 +143,7 @@ impl Canvas {
     /// `rect` clipped to `clip` and the canvas bounds; empty when nothing of
     /// it is visible. Every drawing routine clips once through here, so the
     /// per-row loops below never need a bounds check per pixel.
-    fn visible(&self, rect: Rect, clip: Rect) -> Rect {
+    pub(super) fn visible(&self, rect: Rect, clip: Rect) -> Rect {
         let bounds = Rect::new(0, 0, self.width, self.height);
         let r = clip_to(clip_to(rect, clip), bounds);
         if r.is_empty() {
@@ -156,7 +156,7 @@ impl Canvas {
     /// The bytes of `w` pixels starting at `(x, y)`, or an empty slice when
     /// the span is not entirely inside the canvas. Callers pass spans from
     /// [`Canvas::visible`], so the check is a backstop, not the fast path.
-    fn row_mut(&mut self, x: i32, y: i32, w: i32) -> &mut [u8] {
+    pub(super) fn row_mut(&mut self, x: i32, y: i32, w: i32) -> &mut [u8] {
         if w <= 0 || x < 0 || y < 0 || y >= self.height || x.saturating_add(w) > self.width {
             return &mut [];
         }
@@ -168,7 +168,7 @@ impl Canvas {
     }
 
     /// [`Canvas::row_mut`] for reading.
-    fn row(&self, x: i32, y: i32, w: i32) -> &[u8] {
+    pub(super) fn row(&self, x: i32, y: i32, w: i32) -> &[u8] {
         if w <= 0 || x < 0 || y < 0 || y >= self.height || x.saturating_add(w) > self.width {
             return &[];
         }
@@ -401,42 +401,6 @@ impl Canvas {
             }
         }
     }
-
-    /// Draw the mouse cursor sprite with its top-left at `(x, y)`.
-    ///
-    /// A black outline surrounds the white body, so the cursor stays
-    /// visible over both bright and dark pixels. The 10x10 sprite (body
-    /// plus one pixel of outline on every side) is composed per row from bit
-    /// masks and written with a single clip.
-    pub fn cursor(&mut self, x: i32, y: i32, clip: Rect) {
-        self.cursor_scaled(x, y, 1, clip);
-    }
-
-    /// [`cursor`](Self::cursor) with every sprite pixel drawn as a
-    /// `scale x scale` block (HiDPI, docs/hidpi-plan.md), so the arrow keeps
-    /// its size on a 2x screen and stays crisp.
-    pub fn cursor_scaled(&mut self, x: i32, y: i32, scale: i32, clip: Rect) {
-        const SIZE: i32 = 10;
-        let scale = scale.clamp(1, 4);
-        // Saturate so an extreme pointer position cannot overflow; such a
-        // sprite lies off the canvas and `visible` returns an empty rect.
-        let (ox, oy) = (x.saturating_sub(scale), y.saturating_sub(scale));
-        let r = self.visible(Rect::new(ox, oy, SIZE * scale, SIZE * scale), clip);
-        for py in r.y..r.y + r.h {
-            let sy = ((py - oy) / scale) as usize;
-            let (outline, body) = cursor_masks(sy);
-            let first = r.x - ox;
-            let row = self.row_mut(r.x, py, r.w);
-            for (i, dst) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-                let bit = 1u16 << ((first + i as i32) / scale);
-                if body & bit != 0 {
-                    dst.copy_from_slice(&[240, 240, 240, 0xff]);
-                } else if outline & bit != 0 {
-                    dst.copy_from_slice(&[0, 0, 0, 0xff]);
-                }
-            }
-        }
-    }
 }
 
 /// `rect` intersected with `clip`, without overflowing on extreme extents.
@@ -457,36 +421,6 @@ fn clip_to(rect: Rect, clip: Rect) -> Rect {
         x1.saturating_sub(x0).max(0),
         y1.saturating_sub(y0).max(0),
     )
-}
-
-/// The `(outline, body)` column masks of row `sy` (0..10) of the 10x10
-/// cursor sprite; bit `c` is sprite column `c`. The body is the 8x8
-/// [`font::CURSOR`] shifted one pixel in; the outline is that body dilated
-/// by one pixel in every direction.
-fn cursor_masks(sy: usize) -> (u16, u16) {
-    let body_row = |r: usize| -> u16 {
-        // Sprite column c (1..=8) holds CURSOR bit 0x80 >> (c - 1).
-        let bits = font::CURSOR[r] as u16;
-        (0..8).fold(0, |m, col| {
-            if bits & (0x80 >> col) != 0 {
-                m | 1 << (col + 1)
-            } else {
-                m
-            }
-        })
-    };
-    let body = if (1..=8).contains(&sy) {
-        body_row(sy - 1)
-    } else {
-        0
-    };
-    let mut outline = 0u16;
-    // Cursor row `r` spreads its outline over sprite rows r..=r+2.
-    for r in sy.saturating_sub(2)..=sy.min(7) {
-        let b = body_row(r);
-        outline |= b | (b << 1) | (b >> 1);
-    }
-    (outline, body)
 }
 
 #[path = "font5x7.rs"]

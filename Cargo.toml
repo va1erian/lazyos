@@ -53,6 +53,8 @@ members = [
     "libs/timed",
     # Desktop theme schema + palette resolution shared by xuid and Settings.
     "libs/uitheme",
+    # Antialiased vector cursor sprites rendered by xuid (docs/cursor-plan.md).
+    "libs/cursorgfx",
     # Desktop context-menu schema (sys/ui/menu) shared by xuid and Settings.
     "libs/deskmenu",
     # Modern virtio-PCI transport + split virtqueues, and the virtio-sound

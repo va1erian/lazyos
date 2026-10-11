@@ -16,6 +16,7 @@
 pub mod backend;
 pub mod client_window;
 pub mod compact;
+pub mod cursor;
 pub mod dashboard;
 pub mod devinfo;
 pub mod display;

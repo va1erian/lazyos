@@ -5317,6 +5317,92 @@ pub mod os_lazy_display_v1 {
     ];
 }
 
+/// `os.lazy.display.cursor.v1` (interface id `0x17e8a175efe87bc6`).
+#[rustfmt::skip]
+pub mod os_lazy_display_cursor_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x17e8a175efe87bc6;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.display.cursor.v1";
+
+    /// `CursorShape::Default` wire value.
+    pub const CURSOR_SHAPE_DEFAULT: u32 = 0;
+    /// `CursorShape::Busy` wire value.
+    pub const CURSOR_SHAPE_BUSY: u32 = 1;
+    /// `CursorShape::Text` wire value.
+    pub const CURSOR_SHAPE_TEXT: u32 = 2;
+    /// `CursorShape::Hand` wire value.
+    pub const CURSOR_SHAPE_HAND: u32 = 3;
+    /// `CursorShape::ResizeH` wire value.
+    pub const CURSOR_SHAPE_RESIZE_H: u32 = 4;
+    /// `CursorShape::ResizeV` wire value.
+    pub const CURSOR_SHAPE_RESIZE_V: u32 = 5;
+    /// `CursorShape::ResizeNwse` wire value.
+    pub const CURSOR_SHAPE_RESIZE_NWSE: u32 = 6;
+    /// `CursorShape::ResizeNesw` wire value.
+    pub const CURSOR_SHAPE_RESIZE_NESW: u32 = 7;
+
+    /// `SetCursor` method id.
+    pub const METHOD_SETCURSOR: u32 = 1;
+
+    /// Set the shape shown while the pointer is over `surface`'s content. The
+    /// caller must own the surface (`EACCES` otherwise); an unknown surface is
+    /// `ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.
+    /// The shape stays until the next call or until the surface goes away;
+    /// `Default` restores the arrow.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetCursorArgs {
+        pub surface: u64,
+        pub shape: u32,
+    }
+
+    pub fn encode_set_cursor_args(value: &SetCursorArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.u32(2, value.shape)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_cursor_args(body: &[u8]) -> Result<SetCursorArgs, Error> {
+        let mut out = SetCursorArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.shape = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
+}
+
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
 #[rustfmt::skip]
 pub mod os_lazy_echo_v1 {

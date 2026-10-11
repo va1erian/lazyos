@@ -27,6 +27,7 @@ autostart = false
 # server, plain `std::net`) are the `outbound` network permission.
 interfaces = [
     "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
     "os.lazy.net.stack.v1",
 ]

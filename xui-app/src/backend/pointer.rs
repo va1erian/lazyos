@@ -59,6 +59,10 @@ impl LazyOSBackend {
         };
         self.deliver_pointer(window, target, event);
         self.drag_motion(window, x, y);
+        // After delivery: the widget may have just asked for a shape.
+        // The captured node's shape, on purpose: a drag keeps its pointer (a
+        // splitter its arrow, a selection its I-beam) over whatever it crosses.
+        self.update_cursor(window, target.map(|(id, _)| id));
     }
 
     /// Tell the hovered node it was left: when the pointer moves onto another

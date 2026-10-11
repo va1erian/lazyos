@@ -317,6 +317,40 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   zoom frames, the resize wireframe) lifts the sprite first and stamps it
   after, which keeps the saved pixels exact. Boot self-test
   `XUID:CURSOR:PASS`.
+- **The cursor sprite** ([`cursor-plan.md`](../cursor-plan.md)). The pointer
+  is an antialiased vector drawing (`libs/cursorgfx`: polygons on a 32x32
+  design grid, 4x4 subsamples per pixel, premultiplied ARGB), rendered at
+  `sys/ui/cursor/size` (16, 24, 32 or 48 design pixels) times the UI scale,
+  so a 2x desktop gets a real 32 to 96 pixel drawing and never doubled
+  blocks. `CursorOverlay` caches the rendered sprites per shape (and per busy
+  frame), sizes the save-under buffer from `cursorgfx::max_extent`, and blits
+  with `Canvas::blit_premultiplied`; a sprite rectangle is placed by the
+  sprite's hotspot (the arrow's tip, the hand's fingertip, the centre of
+  the others). A size change re-renders and re-stamps the cursor without a
+  repaint of the scene.
+  - **Shapes**: `Default`, `Busy`, `Text`, `Hand`, `ResizeH`, `ResizeV`,
+    `ResizeNwse`, `ResizeNesw`. The effective shape is resolved on every
+    pointer move (`xuid/cursor_shape.rs`): a resize in progress shows the
+    grabbed edges' shape; a window or drag-and-drop move, the title bar and
+    anything else show the arrow; over a resizable window's border (`hit_edges`,
+    also on a plain move) the matching resize shape; otherwise the surface
+    under the pointer (panel, topmost window content, desktop) decides with
+    the shape its owner set. The busy spinner advances a frame every 100 ms
+    from the main loop's idle wake, only while the effective shape is busy.
+  - **`SetCursor`** (`os.lazy.display.cursor.v1`, `idl/display_cursor.midl`,
+    method 1): `surface`, `shape`. A separate interface rather than a method
+    of `display.v1`, because it is also the *ACL scope* the parcel travels on
+    (the kernel's label rules decide whether a package may change the pointer;
+    listed in a manifest's `interfaces`, never implied by `display.v1`). It is
+    served on the display endpoint, and the name `os.lazy.display.cursor.v1`
+    resolves to the same endpoint for scripts. `xuid` refuses an unknown
+    surface (`ENOENT`), a sender that does not own it (`EACCES`) and an
+    unknown shape (`EINVAL`) (`xuid/cursor_request.rs`, boot self-test
+    `XUID:CURSORREQ:PASS`). Clients: `user::messenger::display::Client::set_cursor`
+    and `xui_app::display::Client::set_cursor`; `LazyOSBackend` sends a node's
+    `Backend::set_cursor` request after pointer moves, only when it changed,
+    and stops after a refusal. An app shows the busy pointer with
+    `xui_app::cursor::set_busy(backend, window, true)`.
 
 **Resize and maximize**
 

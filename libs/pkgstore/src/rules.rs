@@ -72,6 +72,9 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
     // `audiod` serves its control interface on the mixer's own name (the
     // Volume tray applet, docs/tray-plan.md T3).
     ("os.lazy.audio.mixer.v1", "os.lazy.audio"),
+    // The pointer scope travels on the display service's endpoint
+    // (`idl/display_cursor.midl`).
+    ("os.lazy.display.cursor.v1", "os.lazy.display.v1"),
 ];
 
 /// Why a manifest cannot be compiled.

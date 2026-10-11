@@ -219,6 +219,13 @@ The wire stays in physical pixels. Code laid out in pixel constants uses
 `xui_app::hidpi` (`design_bounds`, `rect`, `design_rect`). Plan and status:
 [`docs/hidpi-plan.md`](docs/hidpi-plan.md).
 
+The mouse pointer is an antialiased vector sprite (`libs/cursorgfx`) drawn at
+`sys/ui/cursor/size` x the scale, with shapes (arrow, busy, I-beam, hand, four
+resize arrows) that the compositor picks over window borders and apps set with
+`SetCursor` (`os.lazy.display.cursor.v1`, a scope a package lists in its
+manifest); see [`docs/cursor-plan.md`](docs/cursor-plan.md). Sessions:
+`cursor_shapes.json`, `cursor_docs.json`, `cursor_xdemo.json`.
+
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json

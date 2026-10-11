@@ -13,6 +13,8 @@ use libmessenger::{flags, Decoder, Encoder, Header, Kind, Object, Parcel, VERSIO
 
 mod canvas;
 mod client;
+mod cursor_blit;
+mod cursor_call;
 mod events;
 mod typeface;
 
@@ -29,6 +31,10 @@ pub use messenger_generated::os_lazy_display_v1 as wire;
 
 /// Well-known compositor name.
 pub const NAME: &str = "os.lazy.display.v1";
+/// The pointer-shape scope (`idl/display_cursor.midl`) is served on the same
+/// endpoint; it also resolves by its own name, which is what a script
+/// connecting to that interface (the generated Rhai module) asks for.
+pub const CURSOR_NAME: &str = "os.lazy.display.cursor.v1";
 /// Interface id every display parcel carries: the hash of [`NAME`].
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 

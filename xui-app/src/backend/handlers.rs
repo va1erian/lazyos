@@ -145,12 +145,23 @@ impl Backend for LazyOSBackend {
 
     fn close_window(&self, window: WindowId) {
         let removed = self.windows.borrow_mut().remove(&window.raw());
+        if let Some(client) = removed.as_ref().and_then(|w| w.client.as_ref()) {
+            self.cursors.borrow_mut().forget_surface(client.surface);
+        }
         if let (Some(surface), Mode::Client(state)) = (removed.and_then(|w| w.client), &self.mode) {
             surface.close(state.borrow().client);
         }
-        self.nodes
-            .borrow_mut()
-            .retain(|(_, node)| node.window != window);
+        {
+            let mut nodes = self.nodes.borrow_mut();
+            let mut cursors = self.cursors.borrow_mut();
+            cursors.forget_window(window.raw());
+            for (id, node) in nodes.iter() {
+                if node.window == window {
+                    cursors.forget(*id);
+                }
+            }
+            nodes.retain(|(_, node)| node.window != window);
+        }
         // Drop any pending damage and timers for the closed window.
         self.damage.borrow_mut().remove(&window.raw());
         self.timers
@@ -219,6 +230,7 @@ impl Backend for LazyOSBackend {
         if let Some((window, bounds)) = damage {
             self.add_damage(window, bounds);
         }
+        self.cursors.borrow_mut().forget(id);
         let mut nodes = self.nodes.borrow_mut();
         nodes.retain(|(node_id, _)| *node_id != id);
         if self.focused.get() == Some(id) {
@@ -238,6 +250,11 @@ impl Backend for LazyOSBackend {
             if gone.is_empty() {
                 break;
             }
+            let mut cursors = self.cursors.borrow_mut();
+            for id in &gone {
+                cursors.forget(*id);
+            }
+            drop(cursors);
             nodes.retain(|(id, _)| !gone.contains(id));
         }
         // A capture or pending click on a node the cascade removed is stale.
@@ -300,6 +317,11 @@ impl Backend for LazyOSBackend {
 
     fn set_clip(&self, id: WidgetId, rect: Option<Rect>) {
         self.with_node(id, |node| node.clip = rect);
+    }
+
+    fn set_cursor(&self, id: WidgetId, cursor: xui_core::backend::Cursor) {
+        self.cursors.borrow_mut().ask(id, cursor);
+        self.refresh_cursor();
     }
 
     fn set_capture(&self, id: WidgetId) {

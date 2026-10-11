@@ -9,9 +9,6 @@ pub const H: i32 = 7;
 /// Advance per character (five glyph columns plus one pixel gap).
 pub const ADVANCE: i32 = 6;
 
-/// The cursor sprite, one bit per pixel (MSB = leftmost).
-pub const CURSOR: [u8; 8] = [0x80, 0xC0, 0xA0, 0x90, 0x88, 0x84, 0xFC, 0xC0];
-
 /// Look up a glyph, upper-casing lower-case ASCII first.
 pub fn glyph(ch: char) -> Option<&'static [u8; 5]> {
     let ch = ch.to_ascii_uppercase();

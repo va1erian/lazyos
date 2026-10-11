@@ -98,6 +98,10 @@ mod anim;
 mod compositor;
 #[path = "xuid/cursor.rs"]
 mod cursor;
+#[path = "xuid/cursor_request.rs"]
+mod cursor_request;
+#[path = "xuid/cursor_shape.rs"]
+mod cursor_shape;
 #[path = "xuid/drag.rs"]
 mod drag;
 #[path = "xuid/event.rs"]
@@ -254,6 +258,15 @@ fn run() -> ! {
         fail("register", errno_code(error));
     }
     sys::write_str("xuid: display bound, os.lazy.display.v1 published\n");
+    // The same endpoint under the cursor scope's name, for scripts.
+    let cursor_scope = messenger_generated::os_lazy_display_cursor_v1::INTERFACE_ID;
+    match registry::register(display::CURSOR_NAME, &published, &[cursor_scope], 0) {
+        Ok(()) => sys::write_str("xuid: os.lazy.display.cursor.v1 published\n"),
+        Err(error) => sys::write_str(&alloc::format!(
+            "xuid: cursor scope name not published ({})\n",
+            errno_code(error)
+        )),
+    }
 
     let (screen_w, screen_h) = (info.width as i32, info.height as i32);
     // Safety: `va`/`size` come from the display bind and describe an RGBA8
@@ -298,6 +311,7 @@ fn run() -> ! {
         pointer_feed::selftest_pointer_feed,
         held::selftest_held,
         cursor::selftest_cursor,
+        cursor_request::selftest_cursor_request,
         shellcalls::selftest_shell_calls,
         prompt::selftest_prompt,
         wm::selftest_wm,
@@ -336,6 +350,7 @@ fn run() -> ! {
         comp.tick_spinner();
         comp.tick_prompt();
         comp.pump_prompt_keys();
+        comp.tick_cursor();
         comp.reap_dead_surfaces(sys::clock());
 
         // 2. Park until a request, a shell event from `inputd` (pointer

@@ -2,6 +2,7 @@
 //! the title-bar [`Drag`] session, split out of `xuid.rs` unchanged.
 
 use alloc::string::String;
+use cursorgfx::Shape;
 use surfbuf::SlotTable;
 use user::messenger::display::{wire, Rect};
 
@@ -61,6 +62,9 @@ pub(super) struct Surface {
     /// Keys reach this surface's client through an `inputd` session, so the
     /// legacy `KeyDown`/`KeyUp` synthesis must skip it (`docs/input-plan.md`).
     pub(super) input_session: bool,
+    /// The cursor shown while the pointer is over this surface's content
+    /// (`SetCursor`, docs/cursor-plan.md).
+    pub(super) cursor: Shape,
 }
 
 impl Surface {

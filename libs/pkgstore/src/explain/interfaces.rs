@@ -32,6 +32,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Show its own windows on the desktop",
     ),
     (
+        "os.lazy.display.cursor.v1",
+        LOW,
+        "Change the mouse pointer over its own windows",
+    ),
+    (
         "os.lazy.display.prompt.v1",
         HIGH,
         "Show the administrator prompt, which only the elevation service may do",

@@ -178,6 +178,7 @@ impl Compositor {
             self.repaint_full();
         }
         self.layoutfeed.poll(self.themefeed.confd());
+        self.apply_cursor_size();
     }
 
     /// Follow `init`'s shutdown and repaint everything when the overlay rises.

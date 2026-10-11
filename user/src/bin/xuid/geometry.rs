@@ -3,6 +3,7 @@
 //! validation. None of it touches compositor state, so the boot self-test can
 //! exercise every rule directly.
 
+use cursorgfx::Shape;
 use user::messenger::display::Rect;
 
 use super::theme::{
@@ -29,6 +30,26 @@ impl Edges {
     /// Whether no edge is grabbed.
     pub(super) fn is_empty(self) -> bool {
         self.0 == 0
+    }
+
+    /// The resize cursor for these edges: horizontal for a side, vertical for
+    /// top or bottom, a diagonal for a corner. [`Shape::Default`] for none.
+    pub(super) fn cursor_shape(self) -> Shape {
+        let horizontal = self.has(Self::LEFT) != self.has(Self::RIGHT);
+        let vertical = self.has(Self::TOP) != self.has(Self::BOTTOM);
+        match (horizontal, vertical) {
+            (true, true) => {
+                // Top-left and bottom-right share a diagonal.
+                if self.has(Self::LEFT) == self.has(Self::TOP) {
+                    Shape::ResizeNwse
+                } else {
+                    Shape::ResizeNesw
+                }
+            }
+            (true, false) => Shape::ResizeH,
+            (false, true) => Shape::ResizeV,
+            (false, false) => Shape::Default,
+        }
     }
 
     /// Whether `edge` (one of the private bits) is grabbed.

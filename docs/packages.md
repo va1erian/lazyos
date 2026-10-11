@@ -664,6 +664,15 @@ as `bin/archiver.elf`. It declares the archive types `mimed` maps from `.zip`,
 clipboard, which carries its drag-and-drop payloads. It is listed in the
 start menu's Accessories submenu.
 
+**The pointer scope.** Every core package (and Doom) lists
+`os.lazy.display.cursor.v1` next to `os.lazy.display.v1`. It is the ACL scope
+of `SetCursor`, the call that sets the mouse pointer's shape over an app's own
+windows (`idl/display_cursor.midl`, [`cursor-plan.md`](cursor-plan.md)). It is
+declared, not implied by the display interface; the consent screen says
+"Change the mouse pointer over its own windows" (low risk). An app without it
+keeps the arrow: xui apps stop asking after the first refusal, and a traced
+run (`LAZYOS_LABEL_TRACE=1`) shows one `LABEL:DENY` for it.
+
 * **Sources.** `xui-app/packages/<short>/`: `manifest.toml`
   (`system_name = "os.lazy.<short>"`, `bin/<short>.elf`, `abi = "linux"`,
   `args = ["--client"]`, a `category`, `[[mime]]` mirroring `mimed`'s defaults,
