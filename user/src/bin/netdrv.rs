@@ -161,8 +161,8 @@ pub extern "C" fn _start() -> ! {
         )),
         Err(errno) => sys::write_str(&format!("NETDRV:CRED unavailable (errno {errno})\n")),
     }
-    let args = Args::from_service();
-    match run(&args) {
+    let mut args = Args::from_service();
+    match run(&mut args) {
         Ok(()) => sys::exit(0),
         Err(Error::Unsupported(reason)) => {
             // A device this driver cannot drive will not become drivable by a
@@ -190,7 +190,22 @@ fn idle() -> ! {
     }
 }
 
-fn run(args: &Args) -> Result<(), Error> {
+/// The simulated radio's air card (`LAZYOS_WIFI_SIM=1` images only): the
+/// card the harness gave [`netpolicy::SIM_AIR_MAC`] is served as
+/// `os.lazy.net.nic/air0`, which `netd` leaves to `wifisim`
+/// (docs/wifi-prerequisites-plan.md section 3.6), whatever `eth` name `devd`
+/// counted it as.
+#[cfg(lazyos_wifi_sim)]
+fn air_card(mac: [u8; 6]) -> bool {
+    mac == netpolicy::SIM_AIR_MAC
+}
+
+#[cfg(not(lazyos_wifi_sim))]
+fn air_card(_mac: [u8; 6]) -> bool {
+    false
+}
+
+fn run(args: &mut Args) -> Result<(), Error> {
     let (row, kind) = device::find(args.dev)?;
     let (mut config, mut settings) = config::Config::load(config::prefix(kind));
     if args.poll {
@@ -210,6 +225,13 @@ fn run(args: &Args) -> Result<(), Error> {
         card.queue_sizes.1,
         if card.irq_armed() { "armed" } else { "polling" }
     ));
+    if air_card(card.engine.mac()) {
+        args.ifname = String::from(netpolicy::SIM_AIR_IFNAME);
+        // Nothing answers ARP on the air: no self-test, no evidence clients.
+        args.selftest = false;
+        args.demo = false;
+        sys::write_str(&format!("NETDRV:AIR ifname={}\n", args.ifname));
+    }
     if args.selftest {
         // Boot evidence (issue #481): `_net` cannot claim another class.
         user::dev::inspect::cross_class_probe("net");

@@ -29,4 +29,6 @@ pub mod messenger_async;
 
 pub mod task_snapshot;
 
+pub mod wifi;
+
 mod heap;

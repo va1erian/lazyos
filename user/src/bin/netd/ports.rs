@@ -29,6 +29,8 @@ const GONE_TICKS: u64 = 300;
 /// The largest frame the stack builds for a card (`Info` carries the real
 /// one, which the ring clamps anyway).
 const MAX_FRAME: usize = 1514;
+/// The Ethernet header a card's MTU does not count.
+const ETH_HEADER: usize = 14;
 
 pub(super) struct Port {
     pub(super) ifname: String,
@@ -92,9 +94,11 @@ impl Ports {
                 return;
             }
         };
+        // An air card carries the simulated radio's frames, not traffic: it
+        // belongs to `wifisim`, which serves the radio as `wlan0`.
         let present: Vec<_> = present
             .into_iter()
-            .filter(|card| self.authorized(card))
+            .filter(|card| netpolicy::stack_attaches(&card.ifname) && self.authorized(card))
             .collect();
         for card in &present {
             let full = self.list.len() >= MAX_INTERFACES;
@@ -330,8 +334,11 @@ impl Port {
                 return false;
             }
         };
+        // The card's MTU bounds the frames the stack builds (a radio whose
+        // 802.11 framing must fit a smaller frame reports a smaller one).
+        let max_frame = (card.mtu as usize).saturating_add(ETH_HEADER).min(MAX_FRAME);
         let stack = Stack::new(
-            RingDevice::detached(MAX_FRAME),
+            RingDevice::detached(max_frame),
             card.mac,
             seed(),
             now_ms,

@@ -94,6 +94,21 @@ pub(super) const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
 #[cfg(lazyos_netd)]
 pub(super) const NETD_UID: u32 = netpolicy::NETD_UID;
 
+/// The simulated Wi-Fi radio's identity (docs/wifi-prerequisites-plan.md
+/// section 3.6): `_wifisim` with **no capability**. It claims no device: its
+/// air is a ring with `netdrv`, its radio two Messenger services.
+#[cfg(lazyos_wifi_sim)]
+pub(super) const WIFISIM_CRED: SysCred =
+    SysCred::new(netpolicy::WIFISIM_UID, netpolicy::WIFISIM_UID, 0, 0, 0);
+
+/// `wifisim`'s arguments: `LAZYOS_WIFI_SIM_ARGS` at build time (the harness
+/// passes `probe=<mode>` to start its test client), nothing by default.
+#[cfg(lazyos_wifi_sim)]
+pub(super) const WIFISIM_ARGS: &str = match option_env!("LAZYOS_WIFI_SIM_ARGS") {
+    Some(args) => args,
+    None => "",
+};
+
 /// The account database service's identity (docs/accounts-plan.md U1): the
 /// `_accounts` system uid, owner of `/accounts`, and **no capability**.
 /// Whatever it needs done as root (a home) it asks this supervisor for, and
@@ -125,7 +140,7 @@ pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 10] = [
+const SYSTEM_UIDS: [u32; 11] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
@@ -136,6 +151,7 @@ const SYSTEM_UIDS: [u32; 10] = [
     accountdb::ACCOUNTS_UID,
     accountdb::ELEVD_UID,
     mounttable::MOUNTD_UID,
+    netpolicy::WIFISIM_UID,
 ];
 
 const _: () = {
