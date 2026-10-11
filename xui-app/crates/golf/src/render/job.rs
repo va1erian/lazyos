@@ -12,6 +12,7 @@ use crate::math::Vec3;
 use super::bake::CHUNK;
 use super::camera::{Camera, View};
 use super::objects;
+use super::overlay::{self, Overlay};
 use super::raster::Frame;
 use super::terrain::{draw_chunk, lod, Scratch, Shading};
 use super::Scene;
@@ -44,6 +45,7 @@ pub struct RenderJob {
     pending: Vec<(f32, u32)>,
     scratch: Scratch,
     time: f32,
+    overlay: Overlay,
 }
 
 impl RenderJob {
@@ -100,7 +102,14 @@ impl RenderJob {
             pending: Vec::new(),
             scratch: Scratch::default(),
             time,
+            overlay: Overlay::default(),
         }
+    }
+
+    /// Draws `overlay` (the ball) over the finished view.
+    pub fn with_overlay(mut self, overlay: Overlay) -> RenderJob {
+        self.overlay = overlay;
+        self
     }
 
     pub fn view(&self) -> &View {
@@ -172,6 +181,7 @@ impl RenderJob {
                         );
                     }
                     self.pending.clear();
+                    overlay::draw(frame, &self.view, &self.overlay);
                     self.phase = Phase::Done;
                 }
                 Phase::Done => return true,
