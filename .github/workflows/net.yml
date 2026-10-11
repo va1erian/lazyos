@@ -65,6 +65,13 @@ jobs:
           python -m pip install cryptography
           python tools/wifi/make_eapol_vectors.py --check
 
+      # libs/rtw88's generated RTL8822C register tables (docs/wifi-rtw88-plan.md):
+      # regenerated from Linux's rtw8822c_table.c at the pinned commit.
+      - name: RTL8822C tables are current (upstream fetched at the pinned commit)
+        run: |
+          python tools/wifi/test_gen_rtw88_tables.py
+          python tools/wifi/gen_rtw88_tables.py --check --fetch "$RUNNER_TEMP/rtw88-upstream"
+
       - name: Pcap analyzer (it must fail when it should)
         run: |
           python tools/net/test_analyze_pcap.py

@@ -89,3 +89,33 @@ built with `LAZYOS_WIFI=1 LAZYOS_NETD=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONTROL=1`
 new binary and rolls it back if it dies. `log --follow` shows `WIFID:*`.
 `wifid` prints a register dump of the MAC's key registers on any bring-up
 failure so a failed boot is diagnosable from the log alone.
+
+## 6. The chip package (R1)
+
+`libs/rtw88/src/{phy,coex,rtw8822c}` translate `phy.c`, `coex.c` and
+`rtw8822c.c`/`rtw8822c_table.c`.
+
+- **Tables.** `tools/wifi/gen_rtw88_tables.py` turns `rtw8822c_table.c` (pinned
+  commit, `--fetch DIR` downloads it) into `rtw8822c/tables/gen_*.rs`
+  (`@generated`, about 790 KB of source, about 400 KiB of statics, almost all
+  the two RF tables). The condition headers stay in the word stream and are
+  evaluated at load time like `rtw_parse_tbl_phy_cond`; `--check` runs in
+  `net.yml`. Host tests compare the parser with an independent Python model
+  of upstream's for several cut/RFE combinations.
+- **TX power.** By-rate and limit tables per RFE type; only the world-wide
+  limit set is kept (the minimum over every domain), since LazyOS has no
+  country yet. No SAR.
+- **Calibration.** DACK (with upstream's save/restore), IQK (firmware, H2C),
+  DPK: ported. **TXGAPK is not ported** (as upstream with
+  `RTW_DM_CAP_TXGAPK` set); thermal power tracking, DIG, CFO tracking and
+  CCK PD (dynamic mechanisms) are later steps: the IGI stays at the BB
+  table's value except during scans (`dig_set_max_coverage`/`dig_reset`).
+- **Coexistence.** Bring-up calls `coex::init_hw_config(dev, true)`, not
+  upstream's `!btcoex`: with no Bluetooth stack and no coexistence mechanism,
+  GNT_WL is forced high and GNT_BT low for good (`coex` module docs list the
+  end state). Upstream's choice would leave Wi-Fi without the antenna while
+  Bluetooth reports itself on.
+- **To read on the NUC** (`dbgd`): the efuse RFE type (0xca; tables exist
+  for 0 to 6), the chip cut (`REG_SYS_CFG1`), `share_ant`/`btcoex` (0xc3,
+  0xc1), whether the IQK done code 0xaa arrives, and the DACK/DPK results
+  (`DmState`).

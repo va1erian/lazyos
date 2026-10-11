@@ -75,6 +75,16 @@ pub fn blank_efuse() -> Vec<u8> {
     vec![0xff; 512]
 }
 
+/// A blank efuse except for the RFE type (logical 0xca): one 2-byte-header
+/// record for block 25, word 1 only (`word_en` 0xd: words 0, 2, 3 unset).
+/// Upstream refuses a card whose RFE type it has no tables for, as a blank
+/// one (0xff) is.
+pub fn rfe_efuse(rfe: u8) -> Vec<u8> {
+    let mut e = blank_efuse();
+    e[..4].copy_from_slice(&[0x2f, 0x3d, rfe, 0xff]);
+    e
+}
+
 /// A firmware image with the given section sizes (checksums excluded),
 /// version 9.9.15, signed, the 8822C's load addresses.
 pub fn synth_fw(dmem: usize, imem: usize, emem: Option<usize>) -> Vec<u8> {

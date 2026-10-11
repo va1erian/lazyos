@@ -226,8 +226,7 @@ impl<H: Hci> Dev<H> {
             fw::scan_notify(self, true)?;
         }
         self.hal.flags.scanning = true;
-        // contract: rtw88-chip `phy::dig_set_max_coverage(dev)` (upstream
-        // `rtw_phy_dig_set_max_coverage`) belongs here once it exists.
+        crate::phy::dig_set_max_coverage(self);
         self.set_filter_scan(true);
         Ok(())
     }
@@ -237,7 +236,7 @@ impl<H: Hci> Dev<H> {
     /// `C2H_SCAN_RESULT`; upstream waits 10 ms for it, here it simply
     /// arrives on the RX ring.
     pub fn scan_complete(&mut self) -> Result<()> {
-        // contract: rtw88-chip `phy::dig_reset(dev)` (upstream `rtw_phy_dig_reset`).
+        crate::phy::dig_reset(self);
         self.hal.flags.scanning = false;
         if self.fw.has(fw::feature::NOTIFY_SCAN) {
             fw::scan_notify(self, false)?;
@@ -252,11 +251,8 @@ impl<H: Hci> Dev<H> {
     /// with width `bw` centred on `center` (equal to `primary` for 20 MHz).
     pub fn set_channel(&mut self, primary: u8, bw: Bw, center: u8) -> Result<()> {
         let idx = ra::update_channel(&mut self.hal, center, primary, bw)?;
-        // contract: rtw88-chip `rtw8822c::set_channel(dev, channel, bw, primary_chan_idx)`.
-        crate::bringup::chip_calls::set_channel(self, center, bw, idx);
-        // contract: rtw88-chip `phy::set_tx_power_level(dev, channel)` (upstream
-        // `rtw_phy_set_tx_power_level`, which ends in `set_tx_power_index`).
-        crate::bringup::chip_calls::set_tx_power_level(self, center);
+        crate::rtw8822c::set_channel(self, center, bw, idx);
+        crate::phy::set_tx_power_level(self, center);
         // Calibrating on every scan channel takes too long; upstream defers
         // it to the first transmission on an operating channel.
         if !self.hal.flags.scanning {
@@ -271,8 +267,7 @@ impl<H: Hci> Dev<H> {
     pub fn prepare_tx(&mut self) {
         if self.hal.need_rfk {
             self.hal.need_rfk = false;
-            // contract: rtw88-chip `rtw8822c::phy_calibration(dev)`.
-            crate::bringup::chip_calls::phy_calibration(self);
+            crate::rtw8822c::phy_calibration(self);
         }
     }
 

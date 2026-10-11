@@ -127,6 +127,8 @@ pub struct Pci<M: Mmio, D: DmaAlloc> {
     /// Private copy of the RX slot being parsed.
     scratch: Vec<u8>,
     stats: PciStats,
+    /// From [`Hci::set_phy_status_ctx`], for the PHY status parser.
+    phy_ctx: crate::rtw8822c::PhyStatusCtx,
 }
 
 // SAFETY: the raw pointers in the three `DmaBuf`s are the only handles to
@@ -185,6 +187,7 @@ impl<M: Mmio, D: DmaAlloc> Pci<M, D> {
             cut_version: None,
             scratch: vec![0; ring::RX_BUF_SIZE],
             stats: PciStats::default(),
+            phy_ctx: crate::rtw8822c::PhyStatusCtx::default(),
         };
         pci.arm_all_rx();
         Ok(pci)
@@ -397,5 +400,8 @@ impl<M: Mmio, D: DmaAlloc> Hci for Pci<M, D> {
         self.kick_off_queue(TxQueue::H2c);
         self.tx_queued &= !(1 << TxQueue::H2c as u8);
         Ok(())
+    }
+    fn set_phy_status_ctx(&mut self, ctx: crate::rtw8822c::PhyStatusCtx) {
+        self.phy_ctx = ctx;
     }
 }

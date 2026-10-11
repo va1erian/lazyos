@@ -9,13 +9,13 @@ use super::*;
 use crate::dev::{Band, Bw, Dev, Hal, RF_2T2R};
 use crate::fake::FakeHci;
 use crate::mac::regs::{HMEBOX, RCR};
-use crate::testmodel::{blank_efuse, healthy_chip};
+use crate::testmodel::{healthy_chip, rfe_efuse};
 
 const MAC: [u8; 6] = [0x02, 0x4c, 0x5a, 0x00, 0x00, 0x01];
 const BSSID: [u8; 6] = [0x10, 0x20, 0x30, 0x40, 0x50, 0x60];
 
 fn dev() -> Dev<FakeHci> {
-    let mut d = Dev::new(healthy_chip(blank_efuse()));
+    let mut d = Dev::new(healthy_chip(rfe_efuse(1)));
     crate::bringup::core_init(&mut d);
     crate::mac::set_trx_fifo_info(&mut d.hal.fifo).unwrap();
     d.hal.rf_type = RF_2T2R;

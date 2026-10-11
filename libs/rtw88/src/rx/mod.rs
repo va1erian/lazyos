@@ -18,6 +18,7 @@ mod tests;
 use crate::dev::RF_PATH_MAX;
 use crate::error::{Error, Result};
 use crate::rtw8822c::spec::RX_PKT_DESC_SZ;
+use crate::rtw8822c::PhyStatusCtx;
 use crate::tx::DESC_RATE_MAX;
 
 /// What a received packet's descriptor and PHY status say (upstream
@@ -131,9 +132,13 @@ pub fn rx_desc_extent(desc: &[u8]) -> Result<usize> {
 
 /// Upstream `rtw_rx_query_rx_desc`: fill `stat` from the buffer `buf`
 /// (descriptor first) and say where its payload is. The PHY status, when
-/// present, goes to the chip's `query_phy_status`.
-pub fn query_rx_desc(buf: &[u8], stat: &mut RxPktStat) -> Result<RxLayout> {
-    query_rx_desc_with(buf, stat, query_phy_status)
+/// present, goes to the chip's `query_phy_status` with `ctx` (a PHY
+/// status the chip does not recognise leaves the PHY fields at their
+/// defaults; upstream warns and keeps the frame too).
+pub fn query_rx_desc(ctx: &PhyStatusCtx, buf: &[u8], stat: &mut RxPktStat) -> Result<RxLayout> {
+    query_rx_desc_with(buf, stat, |ps, st| {
+        let _ = crate::rtw8822c::query_phy_status(ctx, ps, st);
+    })
 }
 
 /// [`query_rx_desc`] with the PHY status parser given (tests, fuzzing).
@@ -210,8 +215,3 @@ pub fn query_rx_desc_with(
     }
     Ok(layout)
 }
-
-/// STAND-IN for `crate::rtw8822c::query_phy_status` (owned by the chip work
-/// package, not in this tree yet): leaves the PHY fields at their defaults.
-/// At merge, delete this and call the chip's function in [`query_rx_desc`].
-fn query_phy_status(_phy_status: &[u8], _stat: &mut RxPktStat) {}

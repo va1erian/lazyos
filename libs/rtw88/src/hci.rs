@@ -84,6 +84,13 @@ pub trait Hci {
     /// Send one H2C packet on the H2C queue (upstream `write_data_h2c`;
     /// `pkt` is descriptor + payload).
     fn write_data_h2c(&mut self, pkt: &[u8]) -> Result<()>;
+
+    /// What the RX path needs to parse PHY status (the CCK gain window
+    /// read after `phy_set_param`, the current width), handed over by the
+    /// chip code whenever it changes. Upstream's RX path reads `rtwdev`
+    /// directly; a bus that parses RX without the device keeps a copy. The
+    /// default ignores it.
+    fn set_phy_status_ctx(&mut self, _ctx: crate::rtw8822c::PhyStatusCtx) {}
 }
 
 /// The register helpers upstream keeps as inline functions in `main.h` and

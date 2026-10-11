@@ -12,7 +12,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{HwCap, HW_CAP_IGNORE, HW_CAP_SUPP_BW40, HW_CAP_SUPP_BW80};
-use crate::bringup::chip_calls;
 use crate::dev::{Dev, BB_PATH_A, RF_1T1R};
 use crate::error::{Error, Result};
 use crate::fw::c2h::id::{HW_FEATURE_DUMP, HW_FEATURE_REPORT};
@@ -77,7 +76,7 @@ fn dump_physical_efuse_map<H: Hci>(dev: &mut Dev<H>) -> Result<Vec<u8>> {
     // The 8822C has no efuse_grant op. switch_efuse_bank: the Wi-Fi bank.
     dev.hci.write32_mask(LDO_EFUSE_CTRL, MASK_EFUSE_BANK_SEL, 0);
     // disable 2.5V LDO
-    chip_calls::cfg_ldo25(dev, false);
+    crate::rtw8822c::cfg_ldo25(dev, false);
 
     let mut ctl = dev.hci.read32(EFUSE_CTRL);
     for (addr, byte) in map.iter_mut().enumerate() {
@@ -119,8 +118,7 @@ pub fn parse_efuse_map<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     let phy = dump_physical_efuse_map(dev)?;
     let e = &dev.efuse;
     let log = logical_map(&phy, e.physical_size, e.protect_size, e.logical_size)?;
-    // contract: rtw88-chip `rtw8822c::read_efuse(&mut Efuse, log_map: &[u8]) -> Result<()>`.
-    chip_calls::read_efuse(&mut dev.efuse, &log)
+    crate::rtw8822c::read_efuse(&mut dev.efuse, &log)
 }
 
 /// Upstream `hw_bw_cap_to_bitamp`.

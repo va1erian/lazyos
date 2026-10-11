@@ -94,7 +94,7 @@ impl<M: Mmio, D: DmaAlloc> Pci<M, D> {
             base + RX_PKT_DESC_SZ,
             &mut scratch[RX_PKT_DESC_SZ..total],
         );
-        rx::query_rx_desc(&scratch[..total], stat).ok()
+        rx::query_rx_desc(&self.phy_ctx, &scratch[..total], stat).ok()
     }
 
     /// Upstream `rtw_pci_rx_napi`: hand at most `limit` buffers to `f`,
