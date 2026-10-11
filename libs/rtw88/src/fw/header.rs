@@ -168,7 +168,9 @@ impl<'a> Firmware<'a> {
         let hdr = FwHeader::read(image);
         let dmem = u64::from(hdr.dmem_size) + u64::from(FW_HDR_CHKSUM_SIZE);
         let imem = u64::from(hdr.imem_size) + u64::from(FW_HDR_CHKSUM_SIZE);
-        let emem = if hdr.has_emem() {
+        // Upstream `check_firmware_size`: `emem_size += emem_size ?
+        // FW_HDR_CHKSUM_SIZE : 0`, so an EMEM flag with size 0 is no section.
+        let emem = if hdr.has_emem() && hdr.emem_size != 0 {
             u64::from(hdr.emem_size) + u64::from(FW_HDR_CHKSUM_SIZE)
         } else {
             0
@@ -192,7 +194,7 @@ impl<'a> Firmware<'a> {
                 addr: hdr.imem_addr & !(1 << 31),
                 data: &image[i0..e0],
             },
-            emem: if hdr.has_emem() {
+            emem: if emem != 0 {
                 Some(FwSection {
                     addr: hdr.emem_addr & !(1 << 31),
                     data: &image[e0..e0 + emem],

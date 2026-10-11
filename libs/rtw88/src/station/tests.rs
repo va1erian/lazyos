@@ -73,6 +73,15 @@ fn scan_filter_toggles_bssid_checks() {
         1 << 7,
         "only CBSSID_BCN comes back, as upstream"
     );
+    // Review finding: a scan must not touch the other filter bits; RCR_AM
+    // (multicast, bit 2) stays as rtw_core_init set it.
+    let am = crate::mac::regs::RCR_AM;
+    assert_eq!(d.hci.peek32(RCR) & am, d.hal.rcr & am);
+    let mut m = dev();
+    m.hal.rcr |= am;
+    m.set_filter_scan(true);
+    m.set_filter_scan(false);
+    assert_eq!(m.hci.peek32(RCR) & am, am, "multicast still accepted after a scan");
     d.set_rx_filter(RxFilter {
         control: true,
         other_bss: true,

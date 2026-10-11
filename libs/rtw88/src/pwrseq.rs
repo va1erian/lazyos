@@ -33,7 +33,8 @@ pub mod intf {
     pub const SDIO: u8 = 1 << 0;
     pub const USB: u8 = 1 << 1;
     pub const PCI: u8 = 1 << 2;
-    pub const ALL: u8 = SDIO | USB | PCI;
+    /// Upstream `RTW_PWR_INTF_ALL_MSK` is BIT(0) to BIT(3).
+    pub const ALL: u8 = 0x0F;
 }
 
 /// Cut (chip revision) mask bits (upstream `RTW_PWR_CUT_*_MSK`).

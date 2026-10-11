@@ -211,11 +211,19 @@ impl<H: Hci> Dev<H> {
 
     /// Scanning (`true`: every BSS's beacons and probe responses) or
     /// associated (`false`: our BSS's beacons only).
+    /// Only `FIF_BCN_PRBRESP_PROMISC` changes here (upstream
+    /// `rtw_ops_configure_filter` touches a bit only when its flag changed):
+    /// going through [`Dev::set_rx_filter`] would also clear `RCR_AM` and
+    /// drop all multicast (IPv6 ND, mDNS) after the first scan.
     pub fn set_filter_scan(&mut self, scanning: bool) {
-        self.set_rx_filter(RxFilter {
-            bcn_prbresp_promisc: scanning,
-            ..RxFilter::default()
-        });
+        let mut rcr = self.hal.rcr;
+        if scanning {
+            rcr &= !(RCR_CBSSID_BCN | RCR_CBSSID_DATA);
+        } else {
+            rcr |= RCR_CBSSID_BCN;
+        }
+        self.hal.rcr = rcr;
+        self.hci.write32(RCR, rcr);
     }
 
     /// Upstream `rtw_core_scan_start` (software scan): leave power save, use
