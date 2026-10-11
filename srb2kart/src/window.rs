@@ -149,6 +149,15 @@ impl Window {
         self.window.close(self.client);
     }
 
+    /// Ask the compositor for a `width` x `height` content size (the engine
+    /// changed video mode); the `Configure` that follows resizes the frame.
+    pub fn request_size(&mut self, width: usize, height: usize) {
+        let (w, h) = (width as u32, height as u32);
+        if self.window.rect != (w as i32, h as i32) {
+            let _ = self.client.request_size(self.window.surface, w, h);
+        }
+    }
+
     pub fn set_title(&mut self, title: &str) {
         if self.window.title != title && self.client.set_title(self.window.surface, title).is_ok() {
             self.window.title = title.to_owned();

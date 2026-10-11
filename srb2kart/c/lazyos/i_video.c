@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "doomdef.h"
+#include "g_state.h"
 #include "command.h"
 #include "d_event.h"
 #include "d_main.h"
@@ -180,10 +181,38 @@ void I_SetPalette(RGBA_t *palette)
 
 void I_UpdateNoBlit(void) {}
 
+/* One log line per game state change, for session scripts and frame-rate
+ * work: "GAMESTATE:<name>". */
+static void report_gamestate(void)
+{
+	static gamestate_t last = (gamestate_t)-1;
+	const char *name;
+	char line[48];
+
+	if (gamestate == last)
+		return;
+	last = gamestate;
+	switch (gamestate)
+	{
+	case GS_LEVEL:       name = "level"; break;
+	case GS_INTERMISSION: name = "intermission"; break;
+	case GS_VOTING:      name = "voting"; break;
+	case GS_TITLESCREEN: name = "title"; break;
+	case GS_TIMEATTACK:  name = "timeattack"; break;
+	case GS_INTRO:       name = "intro"; break;
+	case GS_CREDITS:     name = "credits"; break;
+	default:             name = "other"; break;
+	}
+	snprintf(line, sizeof line, "GAMESTATE:%s", name);
+	lz_log(line);
+}
+
 void I_FinishUpdate(void)
 {
 	if (rendermode == render_none || !window_open)
 		return;
+
+	report_gamestate();
 
 	SCR_CalculateFPS();
 

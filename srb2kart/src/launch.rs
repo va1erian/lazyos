@@ -19,6 +19,10 @@ pub const DATA_DIR: &str = fhs::share::SRB2KART_DATA;
 pub const TMP_HOME: &str = fhs::state::SRB2KART_TMP;
 /// The headless verdict line is also written here.
 pub const RESULT_FILE: &str = fhs::state::SRB2KART_RESULT;
+/// The video mode (`width`, `height`) a headless run asks for.
+pub const HEADLESS_SIZE: (&str, &str) = ("320", "200");
+/// The video mode a window opens at (the 16:10 step that fits 1280x720).
+pub const WINDOW_SIZE: (&str, &str) = ("640", "400");
 /// The package's `system_name`: its per-user folder is named after it.
 pub const SYSTEM_NAME: &str = "org.lazy.srb2kart";
 /// The file whose presence marks a data directory.
@@ -29,6 +33,9 @@ pub const IWAD: &str = "srb2.srb";
 pub const MAX_ARG_BYTES: usize = 4096;
 /// Most arguments handed to the engine.
 pub const MAX_ARGS: usize = 64;
+
+/// Arguments kept free for the video size the wrapper may append.
+const SIZE_ARGS: usize = 4;
 
 /// How the wrapper runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,16 +87,21 @@ pub fn parse(args: &[String], home: Option<&str>, cwd: &str) -> Launch {
             "-data" => data = rest.next().cloned(),
             "-home" => home_dir = rest.next().cloned(),
             other if other.starts_with("attempt=") => {}
-            other if other.len() <= MAX_ARG_BYTES && engine_args.len() < MAX_ARGS => {
+            other if other.len() <= MAX_ARG_BYTES && engine_args.len() < MAX_ARGS - SIZE_ARGS => {
                 engine_args.push(other.to_string());
             }
             _ => {}
         }
     }
-    // Headless runs are checks, not play: the smallest mode (the engine's own
-    // default is 1280x800) keeps them fast, unless the caller chose one.
-    if matches!(mode, Mode::Headless { .. }) && !engine_args.iter().any(|a| a == "-width") {
-        engine_args.extend(["-width", "320", "-height", "200"].map(String::from));
+    // The engine's own default is 1280x800, which does not fit a 720p desktop
+    // and is slow to draw: headless runs (checks, not play) take the smallest
+    // mode, a window 640x400, unless the caller chose one.
+    if !engine_args.iter().any(|a| a == "-width") {
+        let (w, h) = match mode {
+            Mode::Headless { .. } => (HEADLESS_SIZE.0, HEADLESS_SIZE.1),
+            Mode::Window => (WINDOW_SIZE.0, WINDOW_SIZE.1),
+        };
+        engine_args.extend(["-width", w, "-height", h].map(String::from));
     }
     let data_dir = absolute(data, cwd).unwrap_or_else(|| DATA_DIR.to_string());
     let home_dir = absolute(home_dir, cwd).unwrap_or_else(|| config_dir(home));
@@ -147,7 +159,7 @@ mod tests {
         assert_eq!(launch.home_dir, "/home/ana/.apps/org.lazy.srb2kart");
         assert_eq!(
             launch.engine_args,
-            args(&["/apps/org.lazy.srb2kart/1/bin/srb2kart.elf"])
+            args(&["/apps/org.lazy.srb2kart/1/bin/srb2kart.elf", "-width", "640", "-height", "400"])
         );
     }
 
@@ -181,7 +193,12 @@ mod tests {
         );
         assert_eq!(chosen.engine_args[1..], args(&["-width", "640", "-height", "400"]));
         let window = parse(&args(&["k.elf"]), None, "/");
-        assert_eq!(window.engine_args, args(&["k.elf"]));
+        assert_eq!(
+            window.engine_args,
+            args(&["k.elf", "-width", "640", "-height", "400"])
+        );
+        let own = parse(&args(&["k.elf", "-width", "960", "-height", "600"]), None, "/");
+        assert_eq!(own.engine_args[1..], args(&["-width", "960", "-height", "600"]));
     }
 
     #[test]
