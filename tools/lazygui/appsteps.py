@@ -1,5 +1,6 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail),
+player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail,
+the Wi-Fi firmware),
 run before `cargo build`, and the switches of the opt-in desktop apps (the tray demo, the
 Picture Viewer).
 `catalog` re-exports them; they live apart to keep it small."""
@@ -70,6 +71,15 @@ def tls_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/nettls/build.py", "--require"]}]
 
 
+def wifi_step(cfg: dict) -> list[dict]:
+    """The step that fetches the Wi-Fi firmware (pinned, hash-checked), when
+    the image carries Wi-Fi; the build fails without it."""
+    if not cfg.get("wifi"):
+        return []
+    return [{"label": "Fetch the Wi-Fi firmware (linux-firmware, pinned)",
+             "argv": [PY, "tools/firmware/fetch.py", "--switch", "wifi"]}]
+
+
 def lazyweb_step(cfg: dict) -> list[dict]:
     """The step that builds the LazyWeb browser (with the other xui apps and
     their core packages), when the image embeds it."""
@@ -133,4 +143,4 @@ def app_steps(cfg: dict) -> list[dict]:
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + emusic_step(cfg)
             + linuxapps_step(cfg)
-            + tls_step(cfg) + lazyweb_step(cfg) + mail_step(cfg))
+            + tls_step(cfg) + lazyweb_step(cfg) + mail_step(cfg) + wifi_step(cfg))

@@ -55,6 +55,11 @@ macro_rules! class {
 
 pub static STORAGE: Class = class!("storage");
 pub static NET: Class = class!("net");
+/// Wireless network controllers: PCI `02/80` (what every Wi-Fi card reports,
+/// the RTL8822CE among them) and base class `0D`. Apart from `net` so the
+/// Wi-Fi driver's rule (`netpolicy::WIFI_DRIVER_CLASS_RULES`) grants the
+/// radio and never the wired card, and `_net`'s never the radio.
+pub static WIRELESS: Class = class!("wireless");
 pub static DISPLAY: Class = class!("display");
 pub static AUDIO: Class = class!("audio");
 pub static MULTIMEDIA: Class = class!("multimedia");
@@ -75,6 +80,7 @@ pub const PCI_CLASS_BRIDGE: u8 = 0x06;
 pub fn class_of(info: &DeviceInfo) -> &'static Class {
     match (info.class, info.subclass) {
         (0x01, _) => &STORAGE,
+        (0x02, 0x80) | (0x0D, _) => &WIRELESS,
         (0x02, _) => &NET,
         (0x03, _) => &DISPLAY,
         (0x04, 0x01 | 0x03) => &AUDIO,

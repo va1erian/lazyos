@@ -32,6 +32,8 @@ Examples
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
+    python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
+    python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
@@ -77,7 +79,8 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_lazyrad, build_lazyweb, build_linuxapps, build_mail,
-    build_modplayer, build_pictures, build_quake, build_rhai, build_tls, build_xui_apps,
+    build_modplayer, build_pictures, build_quake, build_rhai, build_tls, build_wifi,
+    build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -264,7 +267,8 @@ def main(argv: list[str]) -> int:
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
-                                      (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB")):
+                                      (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
+                                      (args.wifi, build_wifi, "LAZYOS_WIFI")):
             if not wanted:
                 continue
             if not build():

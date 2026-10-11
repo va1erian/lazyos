@@ -218,6 +218,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "fwload",
  "getrandom",
  "lazyos-crypto",
  "lazypkg",
@@ -406,6 +407,7 @@ dependencies = [
  "e1000",
  "hda",
  "rtl8168",
+ "rtw88",
 ]
 
 [[package]]
@@ -570,6 +572,13 @@ dependencies = [
 [[package]]
 name = "fuzzkit"
 version = "0.1.0"
+
+[[package]]
+name = "fwload"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+]
 
 [[package]]
 name = "generic-array"
@@ -751,6 +760,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "fwload",
  "getrandom",
  "kernel",
  "lazyos-crypto",
@@ -1542,6 +1552,7 @@ dependencies = [
  "framering",
  "ftpwire",
  "fused",
+ "fwload",
  "hda",
  "inputmap",
  "lazyos-crypto",
@@ -1559,6 +1570,7 @@ dependencies = [
  "pcm",
  "pkgstore",
  "rtl8168",
+ "rtw88",
  "secretstore",
  "smbfs",
  "smbwire",

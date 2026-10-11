@@ -870,6 +870,27 @@ python tools/keyd/run.py            # build, three boots, judge (KEYD:SECRETS: P
 python tools/keyd/test_judge.py     # the judge fails when it should
 ```
 
+## Wi-Fi on the AMD NUC (`LAZYOS_WIFI=1`)
+
+`LAZYOS_WIFI=1` (needs `LAZYOS_NETD=1`; `run_demo.py --wifi`, the launcher's
+*Wi-Fi* checkboxes) ships `wifid`, the RTL8822CE driver `devd` starts as
+`wlan0` for `10ec:c822` (uid 911 `_wifi`, the kernel's `wireless` device
+class only), and its firmware at `fhs::FIRMWARE`
+(`/system/share/firmware/rtw88/`), downloaded and hash-checked by
+`tools/firmware/fetch.py` from `tools/firmware/manifest.txt`, never
+committed or `include_bytes!`'d; drivers read it through `libs/fwload`.
+QEMU has no such card: the loop is a stick and `dbgd`
+([`docs/wifi-rtw88-plan.md`](docs/wifi-rtw88-plan.md) section 5).
+
+```bash
+python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only   # the NUC stick
+python tools/dbg/dbgctl.py --host <ip> log --source programs --follow              # WIFID:*
+python tools/dbg/dbgctl.py --host <ip> reload wifid                                # after a rebuild
+cargo test -p fwload -p devmatch -p netpolicy
+python tools/firmware/fetch.py --check && python tools/firmware/test_fetch.py
+python tools/wifi/licenses.py           # Wi-Fi crates' licences, THIRD_PARTY.md rows
+```
+
 ## Device manager (`devd`) and driver choices
 
 With a sound or network driver in the image, `init` starts `devd` (uid 906, no

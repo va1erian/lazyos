@@ -80,12 +80,133 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 | **R4** Scan on the NUC | channel switching, RX of beacons | `wifictl scan` lists the home networks |
 | **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data | DHCP lease and `ping` over `wlan0` |
 
+
 ## 5. The test loop on the NUC
 
-There is no serial port and no emulated RTL8822CE. The loop is a stick image
-built with `LAZYOS_WIFI=1 LAZYOS_NETD=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONTROL=1`
-(wired Ethernet stays up through the RTL8168 for `dbgd`), booted once, then
-`dbgctl reload wifid` after each rebuild: `init` restarts the driver from the
-new binary and rolls it back if it dies. `log --follow` shows `WIFID:*`.
-`wifid` prints a register dump of the MAC's key registers on any bring-up
-failure so a failed boot is diagnosable from the log alone.
+There is no serial port on the NUC and no emulated RTL8822CE in QEMU. The
+loop is a USB stick built with Wi-Fi and `dbgd`'s control tier, booted once;
+wired Ethernet (the RTL8168, `eth0`) carries `dbgd`, and every change to
+`wifid` or `libs/rtw88` after that is a rebuild and `dbgctl reload wifid`.
+
+### 5.1 What R0 put in place
+
+| Piece | Where |
+|---|---|
+| `LAZYOS_WIFI=1` (needs `LAZYOS_NETD=1`, refused with `LAZYOS_DEVD=0`) | `build_support/wifi_embed.rs` (image), `user/build.rs` (`cfg(lazyos_wifi)`: `init`'s `wifid` driver row) |
+| Firmware at `fhs::FIRMWARE` = `/system/share/firmware/<vendor>/<file>`, licence beside it | `tools/firmware/manifest.txt` (pinned: linux-firmware `afabaf773c4c`, SHA-256, size), `tools/firmware/fetch.py` (into `target/firmware/`, `--check` re-downloads and verifies), placed by the image build after a second hash check and tracked by `/system/.image-manifest` |
+| `libs/fwload` | vendor-relative names only (`[A-Za-z0-9._-]` segments, no `..`, nothing absolute), size cap checked before reading |
+| `devd` match | `libs/devmatch`: `10ec:c822` -> `wifid`, prefix `wlan` (one counter per prefix: `wlan0`, `wlan1`, ... apart from `eth0`, `eth1`, ...); a test keeps it equal to `rtw88::DEVICES` |
+| Identity | `_wifi` (uid 911, `netpolicy::WIFI_UID`) with only `CAP_DEV_CLAIM`; the kernel's class rules give it the new **wireless** device class (PCI `02/80` and base class `0D`, `dev::class::WIRELESS`) and nothing else, and `_net` no longer gets Wi-Fi cards. `dbgd` moved from 911 to 914 (`_dbgd`): 911 had been given to both |
+| Front ends | `python tools/run_demo.py --wifi` (implies `--net`, fetches the firmware); the launcher's Simple tab *Wi-Fi* group and the Advanced tab's Networking checkbox |
+| Licences | `THIRD_PARTY.md` (rtw88 at `d6d3455d8751` with the BSD-3-Clause notice, the firmware blob and its licence file), `python tools/wifi/licenses.py` |
+
+In QEMU (no RTL8822CE) `devd` never asks for `wifid`, so a Wi-Fi image boots
+exactly like a `--net` one; started by hand without the card, `wifid` prints
+`WIFID:FAIL:no-device` once and exits 0, which the `OnFailure` row does not
+restart.
+
+### 5.2 Build and write the stick
+
+On the development machine:
+
+```bash
+python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only
+python tools/boot/write_stick.py --list
+python tools/boot/write_stick.py --device \\.\PhysicalDriveN --yes      # Windows (Administrator)
+python3 tools/boot/write_stick.py --device /dev/sdX --yes               # Linux (root)
+```
+
+`run_demo` fetches the firmware (`tools/firmware/fetch.py --switch wifi`),
+builds the desktop apps and sets `LAZYOS_DESKTOP=1 LAZYOS_NETD=1
+LAZYOS_NETD_ARGS=demo=0 LAZYOS_WIFI=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONTROL=1
+LAZYOS_USB_IMAGE=1 LAZYOS_USB=1`; drop `--desktop` for a console image (it
+then boots `init` with `LAZYOS_SERVICES=1`). The same build by hand:
+
+```bash
+python tools/firmware/fetch.py --switch wifi
+LAZYOS_DESKTOP=1 LAZYOS_USB_IMAGE=1 LAZYOS_USB=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0 \
+    LAZYOS_WIFI=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONTROL=1 cargo build
+```
+
+In the launcher: Advanced tab, tick *Desktop*, *USB stick image too*,
+*Wi-Fi* and *dbgd control*, then *Build image*; write the stick with
+`python tools/boot/stick_gui.py`. The `dbgd` key is in `target/dbgd.key`
+(`LAZYOS_DBGD_PEER=<your ip>` restricts who may connect).
+
+### 5.3 Boot and read it
+
+Plug the NUC's Ethernet in, boot the stick, and wait for `DBGD:READY` (the
+NUC's address comes from DHCP; the console shows it, or ask the router).
+
+```bash
+python tools/dbg/dbgctl.py --host <ip> log --source programs --follow   # WIFID:*, DEVD:*, INIT:*
+python tools/dbg/dbgctl.py --host <ip> log --follow                     # the kernel's DEV: lines
+python tools/dbg/dbgctl.py --host <ip> drivers                          # devd: wifid on 10ec:c822, wlan0
+python tools/dbg/dbgctl.py --host <ip> devices                          # owner 911, class wireless
+```
+
+First light looks like this (`wifid.rs` documents every line):
+
+```text
+DEVD:MATCH id=7 10ec:c822 class=... driver=wifid model=Realtek RTL8822CE ifname=wlan0
+INIT:DRIVER:START driver=wifid dev=7 pid=... ifname=wlan0
+WIFID:CRED uid=911 caps=256
+WIFID:UP dev=7 ifname=wlan0 model=RTL8822CE
+WIFID:PCI vendor=10ec device=c822 rev=0 subsystem=xxxx:xxxx bar2_bytes=65536
+WIFID:CHIP sys_cfg1=0x........ cut=? rf=2T2R production=1
+WIFID:REGS boot 0000=0x........ 0004=0x........ ...      (three lines: the always-on registers)
+WIFID:IRQ mode=msi
+WIFID:FW:FILE name=rtw88/rtw8822c_fw.bin bytes=202600 signature=0x8822 version=9.9.15 h2c=15 built="2023-03-16 13:49" dmem=19328 imem=54064 emem=129120
+WIFID:RADIO:PENDING firmware_bytes=202600 dma_blocks=0 reason="chip bring-up not in this build (libs/rtw88 R1)"
+WIFID:IDLE serving="nothing yet"
+```
+
+| Line | Means |
+|---|---|
+| `DEVD:NODRIVER driver=wifid` | the image was built without `LAZYOS_WIFI=1` |
+| `WIFID:FAIL:claim errno=13` | the class rules refused `_wifi` (a kernel older than the image: rebuild both) |
+| `WIFID:FAIL:map errno=19` | BAR 2 is missing or not memory (the survey says 64 KiB MMIO) |
+| `WIFID:FAIL:chip REG_SYS_CFG1 reads 0xffffffff` | the card does not decode (D3, link down, ASPM): compare `WIFID:PCI` with `docs/compat/amd-nuc` |
+| `WIFID:FAIL:firmware ... errno=2` | no firmware file (the build refuses this, so: a hand-copied binary) |
+| `WIFID:FAIL:<step>` then `WIFID:REGS fail ...` | a bring-up step failed (once `libs/rtw88` is in): the system and MAC registers at that moment |
+
+After any `WIFID:FAIL` the driver parks with the claim held, so `devices`,
+`drivers` and the log stay readable and `init` does not restart-loop it.
+
+### 5.4 Iterate: reload `wifid`
+
+Change `wifid` or `libs/rtw88`, rebuild with **the same switches** (so the
+binary matches the box; no `--reset-os`, the stick is not rewritten), and
+push the new binary:
+
+```bash
+python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only
+python tools/dbg/dbgctl.py --host <ip> reload wifid            # /system/bin/wifid from target/lazyos.img
+python tools/dbg/dbgctl.py --host <ip> reload wifid --trial-ms 30000
+python tools/dbg/dbgctl.py --host <ip> reloads                 # trial, committed or rolled back
+python tools/dbg/dbgctl.py --host <ip> revert wifid            # back to the stick's binary
+```
+
+`wifid` is a driver row of `init` named `wifid` (started by `devd`, keeping
+its `dev=` and `ifname=` arguments across restarts), not on `dbgwire`'s
+never-reload list, so `init` kills it, runs the uploaded binary in its place
+and rolls back if the new run exits within the trial. A run that parks after
+a `WIFID:FAIL` is alive, so it commits: read its dump, fix, reload again.
+The kill ends the claim (the kernel stops the card's DMA and frees the
+blocks), so the new run finds the chip as the old one left it: the bring-up
+must power the chip off before powering it on, as upstream's
+`rtw_power_on` does.
+
+### 5.5 What the full driver assembly needs
+
+- `radio::bring_up` (`user/src/bin/wifid/radio.rs`) is the seam: build
+  `rtw88::pci::Pci` from `bus.regs` (`Mmio`), `bus.dma` (`DmaAlloc`, blocks
+  below 4 GiB, at most 16 of 4 MiB) and `bus.delay_us`, run the bring-up with
+  the firmware bytes, print `WIFID:FW:READY` and `WIFID:MAC:<addr>`, and
+  return the failing step on error (`wifid.rs` prints it and
+  `radio::failure_dump`).
+- `Radio::interrupt` is called for each MSI message, after which the serve
+  loop acknowledges it (`irq_ack`); it must read and clear `HISR` there.
+- Register `os.lazy.net.nic/<ifname>` (and `os.lazy.net.wifi.hw.v1`) from
+  the serve loop once the radio is up: `netpolicy` already lets `_wifi`
+  register `wlan*` names with `kind = wireless`.

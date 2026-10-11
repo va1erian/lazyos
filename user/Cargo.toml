@@ -75,6 +75,10 @@ rtl8168 = { path = "../libs/rtl8168" }
 hda = { path = "../libs/hda" }
 # `devd`'s driver manifest (issue #497, driver-plan 3.6).
 devmatch = { path = "../libs/devmatch" }
+# The RTL8822CE chip logic and the firmware loader for `wifid`
+# (docs/wifi-rtw88-plan.md).
+rtw88 = { path = "../libs/rtw88" }
+fwload = { path = "../libs/fwload" }
 # USB for `usbd` (docs/usb-hid-plan.md U2): xHCI rings and contexts, and the
 # descriptor and boot-report parsers for hostile device input.
 xhci = { path = "../libs/xhci" }
@@ -425,6 +429,14 @@ bench = false
 [[bin]]
 name = "netdrv"
 path = "src/bin/netdrv.rs"
+test = false
+bench = false
+
+# The RTL8822CE Wi-Fi driver (docs/wifi-rtw88-plan.md): `devd` starts it as
+# `wlan0` for the card it found, under `_wifi`. Embedded with `LAZYOS_WIFI=1`.
+[[bin]]
+name = "wifid"
+path = "src/bin/wifid.rs"
 test = false
 bench = false
 

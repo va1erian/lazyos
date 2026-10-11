@@ -16,9 +16,11 @@ use alloc::vec::Vec;
 
 use crate::auth;
 
-/// The system uid `init` runs `dbgd` as: no capabilities, nothing but what
-/// any task may read.
-pub const DBGD_UID: u32 = 911;
+/// The system uid `init` runs `dbgd` as (`_dbgd`): no capabilities, nothing
+/// but what any task may read. Not 911: that is `_wifi`, the Wi-Fi driver's
+/// (`netpolicy::WIFI_UID`), which may register `wlan*` NIC names; the kernel
+/// keeps its own copy of this number (`kernel/src/sysinfo.rs`).
+pub const DBGD_UID: u32 = 914;
 
 /// The default TCP port.
 pub const DEFAULT_PORT: u16 = 9701;

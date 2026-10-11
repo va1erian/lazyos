@@ -64,6 +64,9 @@ programs! {
     AUDIOD = "audiod";
     /// `netdrv`, the NIC driver (virtio-net, Intel 8254x).
     NETDRV = "netdrv";
+    /// `wifid`, the RTL8822CE Wi-Fi driver (`LAZYOS_WIFI=1` images,
+    /// docs/wifi-rtw88-plan.md).
+    WIFID = "wifid";
     /// `netd`, the network stack service.
     NETD = "netd";
     /// `sysmond`, the system monitor service.

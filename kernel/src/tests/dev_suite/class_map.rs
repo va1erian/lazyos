@@ -40,6 +40,9 @@ pub fn usb_controllers_are_usb() -> Result<(), String> {
     for (code, sub, want) in [
         (0x04, 0x03, class::AUDIO.name),
         (0x02, 0x00, class::NET.name),
+        // A Wi-Fi card (the RTL8822CE) and a wireless controller: not `net`.
+        (0x02, 0x80, class::WIRELESS.name),
+        (0x0D, 0x21, class::WIRELESS.name),
         (0x01, 0x06, class::STORAGE.name),
         (0xFF, 0x00, class::OTHER.name),
     ] {

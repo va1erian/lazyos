@@ -198,9 +198,10 @@ pub const WORDS: usize = HEADER_WORDS + task::MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.
 pub const SIZE: u64 = (WORDS * 8) as u64;
 
-/// `dbgd`'s uid (`libs/dbgwire::config::DBGD_UID`).
+/// `dbgd`'s uid (`libs/dbgwire::config::DBGD_UID`, `_dbgd`; the kernel does
+/// not link `dbgwire`, so keep the two equal).
 #[cfg(lazyos_dbgd)]
-const DBGD_UID: u32 = 911;
+const DBGD_UID: u32 = 914;
 
 /// Errno values, matching the Linux numbering the native ABI uses.
 mod errno {

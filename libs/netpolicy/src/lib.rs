@@ -24,8 +24,9 @@ pub const NET_UID: u32 = 902;
 /// The `_netd` system user the network stack runs as: **no** capabilities.
 pub const NETD_UID: u32 = 903;
 
-/// The `_wifi` system user: the Wi-Fi chip driver (`wifid`). Reserved by the
-/// Wi-Fi plan (see `devmatch::DEVD_UID`); the program lands with it.
+/// The `_wifi` system user the Wi-Fi chip driver (`wifid`,
+/// docs/wifi-rtw88-plan.md) runs as: only `CAP_DEV_CLAIM`, and only the
+/// wireless device class ([`WIFI_DRIVER_CLASS_RULES`]).
 pub const WIFI_UID: u32 = 911;
 
 /// The `_wifisim` system user: the simulated Wi-Fi chip the tests run.
@@ -89,6 +90,16 @@ pub const NET_DRIVER_CLASS_RULES: &[RuleSpec] = &[
     allow(NET_UID, "os.kernel.dev.net", "claim"),
     allow(NET_UID, "os.kernel.dev.net", "map"),
     allow(NET_UID, "os.kernel.dev.net", "dma"),
+];
+
+/// What `_wifi` may do to a device: the same three rights, on the *wireless*
+/// class only (PCI `02/80` and base class `0D`, the kernel's
+/// `dev::class::WIRELESS`), so `wifid` cannot claim the wired card `dbgd`
+/// talks through, and `netdrv` cannot claim the radio.
+pub const WIFI_DRIVER_CLASS_RULES: &[RuleSpec] = &[
+    allow(WIFI_UID, "os.kernel.dev.wireless", "claim"),
+    allow(WIFI_UID, "os.kernel.dev.wireless", "map"),
+    allow(WIFI_UID, "os.kernel.dev.wireless", "dma"),
 ];
 
 /// Who may call the NIC driver. `_netd` is the stack and the only real client;
@@ -307,6 +318,17 @@ mod tests {
             );
             assert_ne!(rule.method, ANY_METHOD, "no wildcard grants");
         }
+    }
+
+    #[test]
+    fn the_wifi_driver_gets_the_same_rights_on_the_wireless_class_only() {
+        let methods: std::vec::Vec<_> = WIFI_DRIVER_CLASS_RULES.iter().map(|r| r.method).collect();
+        assert_eq!(methods, ["claim", "map", "dma"]);
+        for rule in WIFI_DRIVER_CLASS_RULES {
+            assert!(rule.allow && rule.actor == WIFI_UID);
+            assert_eq!(rule.interface, "os.kernel.dev.wireless");
+        }
+        const { assert!(WIFI_UID < 1000 && WIFI_UID != NET_UID && WIFI_UID != NETD_UID) };
     }
 
     #[test]
