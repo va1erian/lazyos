@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--emusic`, `--modplayer`,
-`--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return
+`--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
 """
@@ -91,6 +91,13 @@ def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""
     return required("the HTTPS tools", "nettls/build.py", ("--require",))
+
+
+def build_wifi() -> bool:
+    """The Wi-Fi firmware (`--wifi`): `tools/firmware/fetch.py` downloads the
+    pinned linux-firmware files into `target/firmware` (cached once
+    verified); `wifid` itself is a `user` binary the image build compiles."""
+    return required("the Wi-Fi firmware", "firmware/fetch.py", ("--switch", "wifi"))
 
 
 #: LazyWeb's browser binary (`tools/xui/build.py` builds it with the other apps).

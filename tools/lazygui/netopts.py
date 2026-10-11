@@ -20,7 +20,7 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
 
 def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var, tls_var=None,
                 lazyweb_var=None, smb_var=None, dbgd_var=None,
-                dbgd_control_var=None) -> None:
+                dbgd_control_var=None, wifi_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
     browser, the SMB client, the forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
@@ -46,6 +46,10 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
         ttk.Checkbutton(parent, text="dbgd control: restart and hot-reload services (LAZYOS_DBGD_CONTROL; "
                                      "run_demo --dbgd-control; implies dbgd; dbgctl.py reload NAME)",
                         variable=dbgd_control_var).pack(anchor="w", padx=20)
+    if wifi_var is not None:
+        ttk.Checkbutton(parent, text="Wi-Fi: wifid + RTL8822CE firmware (LAZYOS_WIFI; run_demo --wifi; "
+                                     "implies the stack; for the AMD NUC, QEMU has no such card)",
+                        variable=wifi_var).pack(anchor="w", padx=6)
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
     ttk.Label(row, text="Port forwards:").pack(side="left")
@@ -65,10 +69,11 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
              "lazyweb": lazyweb_var.get() if lazyweb_var else False,
              "smb": smb_var.get() if smb_var else False,
              "dbgd": dbgd_var.get() if dbgd_var else False,
-             "dbgd_control": dbgd_control_var.get() if dbgd_control_var else False}
+             "dbgd_control": dbgd_control_var.get() if dbgd_control_var else False,
+             "wifi": wifi_var.get() if wifi_var else False}
         ) else ["disabled"])
 
-    for var in (net_var, tls_var, lazyweb_var, smb_var, dbgd_var, dbgd_control_var):
+    for var in (net_var, tls_var, lazyweb_var, smb_var, dbgd_var, dbgd_control_var, wifi_var):
         if var is not None:
             var.trace_add("write", sync)
     sync()

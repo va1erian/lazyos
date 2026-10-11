@@ -154,6 +154,12 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
                              "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
                              "by design, for development machines only")
+    parser.add_argument("--wifi", action="store_true",
+                        help="networking plus Wi-Fi (LAZYOS_WIFI=1, docs/wifi-rtw88-plan.md): "
+                             "`wifid`, the RTL8822CE driver devd starts as wlan0, and its "
+                             "firmware at /system/share/firmware (fetched and hash-checked by "
+                             "tools/firmware/fetch.py). QEMU has no such card, so it matters on "
+                             "the AMD NUC: add --usb-image --dbgd-control --build-only for its stick")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -217,7 +223,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
     args.dbgd = args.dbgd or args.dbgd_control
-    args.net = args.net or args.tls or args.smb or args.dbgd
+    args.net = args.net or args.tls or args.smb or args.dbgd or args.wifi
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

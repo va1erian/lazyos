@@ -73,6 +73,21 @@ class NetTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertIn("virtio-net-pci,netdev=n0", command)
 
+    def test_wifi_fetches_the_firmware_and_brings_the_network(self) -> None:
+        with mock.patch.object(run_demo, "build_wifi", return_value=True) as firmware:
+            code, command = self.run_net("--wifi")
+        self.assertEqual(code, 0)
+        firmware.assert_called_once()
+        self.assertEqual(self.builds[-1].get("LAZYOS_WIFI"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+
+    def test_wifi_stops_when_the_firmware_is_unavailable(self) -> None:
+        with mock.patch.object(run_demo, "build_wifi", return_value=False):
+            code, command = self.run_net("--wifi")
+        self.assertEqual(code, 1)
+        self.assertEqual(command, [])
+
     def test_tls_stops_when_the_tools_do_not_build(self) -> None:
         with mock.patch.object(run_demo, "build_tls", return_value=False):
             code, command = self.run_net("--tls")

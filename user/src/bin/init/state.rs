@@ -82,6 +82,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "netd" {
         return Some(NETD_CRED);
     }
+    #[cfg(lazyos_wifi)]
+    if name == "wifid" {
+        return Some(WIFI_CRED);
+    }
     #[cfg(lazyos_netd)]
     if name == "mountd" {
         return Some(MOUNTD_CRED);

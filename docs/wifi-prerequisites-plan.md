@@ -379,6 +379,15 @@ Chip-agnostic, so it belongs here even though only a driver reads it.
   bytes. Tested on the host.
 - `THIRD_PARTY.md` lists each blob, its origin commit and licence.
 
+**Built (docs/wifi-rtw88-plan.md R0, 2026-10-11).** As above, with two
+choices made on landing: the licence text keeps linux-firmware's own name
+(`rtw88/LICENCE.rtlwifi_firmware.txt`), and the blobs do not go through
+`assets/manifest.txt` (its licences are free ones only) but through
+`tools/firmware/manifest.txt`, whose files the image build hash-checks again
+and adds to the OS file list (`build_support/wifi_embed.rs`), so
+`/system/.image-manifest` tracks and an update replaces them.
+`tools/wifi/licenses.py` is the licence check of the Wi-Fi crates.
+
 ### 3.9 USB device access for a second process
 
 The driver's landing pad on the bus; no chip code in it.

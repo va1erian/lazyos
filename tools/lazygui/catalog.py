@@ -21,7 +21,7 @@ from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa
                         SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
-from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
+from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -251,6 +251,9 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
+    if wants_wifi(cfg):
+        # `wifid` and its fetched firmware (docs/wifi-rtw88-plan.md), over the stack.
+        env["LAZYOS_WIFI"] = "1"
     if wants_tls(cfg):
         # `fetch`, `curl` and `wget` (built by `tools/nettls/build.py`) in
         # /system/bin; HTTPS needs the network stack above.
@@ -344,6 +347,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")
+        if wants_wifi(cfg) and not cfg["skip_build"]:
+            # run_demo fetches the firmware and sets LAZYOS_WIFI and the stack.
+            argv.append("--wifi")
         if cfg.get("lazyweb") and not cfg["skip_build"]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.

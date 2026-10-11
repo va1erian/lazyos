@@ -75,6 +75,7 @@ pub const fn fnv1a32(text: &str) -> u32 {
 pub const CLASSES: &[(&str, u64)] = &[
     ("storage", fnv1a64("os.kernel.dev.storage")),
     ("net", fnv1a64("os.kernel.dev.net")),
+    ("wireless", fnv1a64("os.kernel.dev.wireless")),
     ("display", fnv1a64("os.kernel.dev.display")),
     ("audio", fnv1a64("os.kernel.dev.audio")),
     ("multimedia", fnv1a64("os.kernel.dev.multimedia")),
@@ -116,6 +117,7 @@ pub fn uid_name(uid: u32) -> Option<&'static str> {
         sndpolicy::SND_UID => Some("_snd"),
         netpolicy::NET_UID => Some("_net"),
         netpolicy::NETD_UID => Some("_netd"),
+        netpolicy::WIFI_UID => Some("_wifi"),
         usbpolicy::USB_UID => Some("_usb"),
         devmatch::DEVD_UID => Some("_devd"),
         mounttable::MOUNTD_UID => Some("_mountd"),

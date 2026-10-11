@@ -142,6 +142,8 @@ members = [
     "libs/eapol",
     # The RTL8822CE Wi-Fi chip logic (docs/wifi-rtw88-plan.md).
     "libs/rtw88",
+    # Device firmware files by vendor-relative name (wifi-prerequisites-plan 3.8).
+    "libs/fwload",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
@@ -225,6 +227,9 @@ lazyos-crypto = { path = "libs/crypto" }
 # (docs/tls-plan.md §5.2): Mozilla's root program (CCADB), pinned exactly so
 # the root set changes only with a deliberate bump.
 webpki-root-certs = "=1.0.9"
+# Firmware names are checked with the rules `wifid` loads them by
+# (`build_support/wifi_embed.rs`).
+fwload = { path = "libs/fwload" }
 
 [profile.dev]
 panic = "abort"

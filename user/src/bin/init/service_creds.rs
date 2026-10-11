@@ -57,6 +57,19 @@ pub(super) const NET_CRED: SysCred = SysCred::new(NET_UID, NET_UID, user::dev::C
 #[cfg(lazyos_net)]
 pub(super) const NET_UID: u32 = netpolicy::NET_UID;
 
+/// The Wi-Fi driver's identity (docs/wifi-rtw88-plan.md): `_wifi` holding
+/// only `CAP_DEV_CLAIM`, which the kernel's class rules narrow to wireless
+/// cards (`netpolicy::WIFI_DRIVER_CLASS_RULES`), and the only uid besides
+/// `_wifisim` that may register a `wlan*` NIC name.
+#[cfg(lazyos_wifi)]
+pub(super) const WIFI_CRED: SysCred = SysCred::new(
+    netpolicy::WIFI_UID,
+    netpolicy::WIFI_UID,
+    user::dev::CAP_DEV_CLAIM,
+    0,
+    0,
+);
+
 /// The device manager's identity (issue #497): its own system uid and **no
 /// capabilities**. It reads the kernel's read-only inventory and asks this
 /// supervisor to start drivers; it never claims a device.
@@ -125,10 +138,12 @@ pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 10] = [
+const SYSTEM_UIDS: [u32; 12] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
+    netpolicy::WIFI_UID,
+    dbgwire::config::DBGD_UID,
     usbpolicy::USB_UID,
     sndpolicy::AUDIO_UID,
     devmatch::DEVD_UID,

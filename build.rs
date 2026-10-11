@@ -71,6 +71,8 @@ mod usb_ramdisk;
 mod usb_stick;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
+#[path = "build_support/wifi_embed.rs"]
+mod wifi_embed;
 
 use os_image::Sink;
 
@@ -347,6 +349,7 @@ fn main() {
     // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
     // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
     drivers::embed(&mut files, desktop);
+    wifi_embed::embed(&mut files, &manifest_dir); // `LAZYOS_WIFI=1`: wifid + firmware
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default

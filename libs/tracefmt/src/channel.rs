@@ -134,6 +134,7 @@ channels! {
     Volume => "VOLUME",
     Web => "WEB",
     Widget => "WIDGET",
+    Wifid => "WIFID",
     Writer => "WRITER",
     Xdemo => "XDEMO",
     Xuiapp => "XUIAPP",

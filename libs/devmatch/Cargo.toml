@@ -15,3 +15,4 @@ path = "src/lib.rs"
 e1000 = { path = "../e1000" }
 hda = { path = "../hda" }
 rtl8168 = { path = "../rtl8168" }
+rtw88 = { path = "../rtw88" }
