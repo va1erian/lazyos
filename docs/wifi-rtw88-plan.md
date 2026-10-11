@@ -105,6 +105,15 @@ exactly like a `--net` one; started by hand without the card, `wifid` prints
 `WIFID:FAIL:no-device` once and exits 0, which the `OnFailure` row does not
 restart.
 
+The path past the card was checked once in QEMU with a throwaway patch (not
+committed) that let QEMU's `e1000` pose as the card: `devd` matched it as
+`wlan0`, `init` started `wifid` as uid 911 with `caps=256`, the kernel put
+the function in the `wireless` class and granted the claim (owner 911),
+`wifid` mapped the BAR, printed `CHIP`, `REGS`, `IRQ mode=intx`,
+`FW:FILE ... version=9.9.15` read from the OS volume, `RADIO:PENDING` and
+`IDLE`, and `dbgctl reload wifid` committed a new binary that claimed the
+card again with the same `dev=` and `ifname=`.
+
 ### 5.2 Build and write the stick
 
 On the development machine:
