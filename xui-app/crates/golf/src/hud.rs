@@ -12,7 +12,19 @@ use crate::game::Game;
 const MARGIN: i32 = 10;
 const LINE: i32 = 17;
 
-const HELP: [(&str, &str); 11] = [
+const HELP_PLAY: [(&str, &str); 8] = [
+    ("Left / Right", "aim (Shift: fast)"),
+    ("Up Down / wheel", "longer, shorter club"),
+    ("N / P / Home", "next, previous hole, first"),
+    ("F", "free camera"),
+    ("T / R / M", "authentic, resolution, map"),
+    ("G / B", "new course, benchmark"),
+    ("H", "hide this help"),
+    ("Esc", "quit"),
+];
+
+const HELP_FLY: [(&str, &str); 12] = [
+    ("F", "back to the shot camera"),
     ("W A S D, arrows", "fly, turn"),
     ("Space E / C Q", "up / down"),
     ("Shift", "fast"),
@@ -67,7 +79,7 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
         None => canvas.fill_rect(bounds, Color::hex(0x000000)),
     }
     let course = &run.scene.course;
-    let eye = run.flyer.camera.eye;
+    let eye = run.camera().eye;
     let mut lines = vec![
         course.name.clone(),
         format!(
@@ -80,11 +92,24 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
             course.quality
         ),
     ];
-    let index = course.hole_of.at(eye.x, eye.z) as usize;
+    let index = if run.free {
+        course.hole_of.at(eye.x, eye.z) as usize
+    } else {
+        run.play.hole
+    };
     if let Some(hole) = course.holes.get(index) {
         lines.push(format!(
             "Hole {}  par {}  {:.0} m  stroke index {}",
             hole.number, hole.par, hole.length_m, hole.handicap_index
+        ));
+    }
+    if !run.free {
+        let play = &run.play;
+        lines.push(format!(
+            "{}  aim {:.0} m  pin {:.0} m",
+            play.club().name,
+            play.distance,
+            play.distance_to_pin(&course.holes)
         ));
     }
     let (fps, work) = run.fps();
@@ -95,12 +120,14 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
         format!("x{}", run.scale)
     };
     lines.push(format!("{fps} fps  {work:.1} ms  {w}x{h} {scale}"));
-    let ground = run.scene.bake.height_at(eye.x, eye.z);
-    lines.push(format!(
-        "{:.0} m/s  {:.0} m up",
-        run.flyer.speed,
-        eye.y - ground
-    ));
+    if run.free {
+        let ground = run.scene.bake.height_at(eye.x, eye.z);
+        lines.push(format!(
+            "{:.0} m/s  {:.0} m up",
+            run.flyer.speed,
+            eye.y - ground
+        ));
+    }
     if run.authentic {
         lines.push("Authentic mode: the view paints itself in".into());
     }
@@ -116,16 +143,17 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
     bevel_panel(canvas, panel);
     text_lines(canvas, panel, &lines, s, true);
     if game.show_help {
+        let help: &[(&str, &str)] = if run.free { &HELP_FLY } else { &HELP_PLAY };
         let panel = Rect::new(
             bounds.left + MARGIN * s,
-            bounds.bottom - MARGIN * s - (LINE * HELP.len() as i32 + 10) * s,
+            bounds.bottom - MARGIN * s - (LINE * help.len() as i32 + 10) * s,
             bounds.left + MARGIN * s + 330 * s,
             bounds.bottom - MARGIN * s,
         );
         if panel.top > bounds.top + 140 * s {
             bevel_panel(canvas, panel);
-            let keys: Vec<String> = HELP.iter().map(|(k, _)| k.to_string()).collect();
-            let what: Vec<String> = HELP.iter().map(|(_, w)| w.to_string()).collect();
+            let keys: Vec<String> = help.iter().map(|(k, _)| k.to_string()).collect();
+            let what: Vec<String> = help.iter().map(|(_, w)| w.to_string()).collect();
             text_lines(canvas, panel, &keys, s, false);
             let right = Rect::new(panel.left + 118 * s, panel.top, panel.right, panel.bottom);
             text_lines(canvas, right, &what, s, false);

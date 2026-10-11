@@ -91,6 +91,14 @@ fn run(dpi: u32) -> (Image, Seen) {
                 game.borrow_mut().tick(w, h, now);
                 std::thread::sleep(Duration::from_millis(5));
             }
+            drive_seen.borrow_mut().ready = true;
+            // The game opens on the shot camera; F frees it to fly.
+            stage.inject(Event::KeyDown {
+                key: Key::F,
+                modifiers: Modifiers::default(),
+                repeat: 1,
+                system: false,
+            });
             let start = game
                 .borrow()
                 .run
@@ -99,7 +107,6 @@ fn run(dpi: u32) -> (Image, Seen) {
                 .flyer
                 .camera
                 .eye;
-            drive_seen.borrow_mut().ready = true;
             stage.inject(Event::KeyDown {
                 key: Key::W,
                 modifiers: Modifiers::default(),
@@ -227,6 +234,9 @@ fn each_frame_is_written_into_the_last_frames_buffer() {
     let (at, mut last) = buffer(&game);
     for _ in 0..4 {
         let run = game.run.as_mut().unwrap();
+        if !run.free {
+            run.toggle_free();
+        }
         run.flyer.camera.yaw += 0.2;
         run.moved();
         now += Duration::from_millis(20);
@@ -242,4 +252,50 @@ fn each_frame_is_written_into_the_last_frames_buffer() {
     game.tick(w / 2, h / 2, now);
     let image = game.run.as_ref().unwrap().image.as_ref().unwrap();
     assert_eq!(image.size(), ((w / 2) as u32, (h / 2) as u32));
+}
+
+/// The game opens on the shot camera: the ball on the tee, the aim marker
+/// out along the hole; turning the aim or changing the club redraws.
+#[test]
+fn the_game_opens_on_the_shot_camera_and_aiming_changes_the_view() {
+    use xui_golf::fly::Action;
+
+    let mut game = Game::with_params(xui_golf::Params::quick(4), 96);
+    let (w, h) = (640, 360);
+    let mut now = Instant::now();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while game.run.is_none() {
+        assert!(Instant::now() < deadline, "generation did not finish");
+        game.tick(w, h, now);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    now += Duration::from_millis(20);
+    game.tick(w, h, now);
+    let run = game.run.as_ref().unwrap();
+    assert!(!run.free, "starts on the shot camera");
+    assert_eq!(run.play.hole, 0);
+    let (yaw, club, flyer) = (run.camera().yaw, run.play.club, run.flyer.camera.eye);
+    let first = run.image.as_ref().unwrap().pixels().to_vec();
+
+    // Hold Right for a second: the aim and the camera turn right.
+    game.held.press(Action::TurnRight);
+    for _ in 0..10 {
+        now += Duration::from_millis(100);
+        game.tick(w, h, now);
+    }
+    game.held.release(Action::TurnRight);
+    let run = game.run.as_mut().unwrap();
+    assert!(
+        run.camera().yaw > yaw + 0.1,
+        "yaw {yaw} -> {}",
+        run.camera().yaw
+    );
+    assert_eq!(run.flyer.camera.eye, flyer, "the free camera did not move");
+    assert_ne!(run.image.as_ref().unwrap().pixels(), &first[..]);
+
+    // A shorter club shortens the marker's distance.
+    let before = run.play.distance;
+    run.play.step_club(1);
+    run.sync_play();
+    assert!(run.play.club >= club && run.play.distance <= before + 1e-3);
 }

@@ -18,6 +18,7 @@ mod loading;
 pub mod math;
 pub mod minimap;
 pub mod noise;
+pub mod play;
 pub mod render;
 pub mod rng;
 mod scale;
