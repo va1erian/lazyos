@@ -70,11 +70,11 @@
   {"at": 26.0, "key": "enter"},
   {"at": 28.0, "key": "enter"},
   {"at": 45.0, "shot": "08_race_start"},
-  {"at": 46.0, "key_down": "up"},
+  {"at": 46.0, "key_down": "a"},
   {"at": 52.0, "shot": "09_driving"},
   {"at": 52.5, "key_down": "left"},
   {"at": 54.0, "key_up": "left"},
-  {"at": 55.0, "key_up": "up"},
+  {"at": 55.0, "key_up": "a"},
   {"at": 57.0, "shot": "10_turned"},
   {"at": 58.0, "quit": true}
 ]

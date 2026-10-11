@@ -94,7 +94,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SMBFUSE` | `Smbfuse` | `smbfuse` | user | tools/fuse, tools/smb | programs |
 | `SND` | `Snd` | `snd` | user | tools/sound | programs |
 | `SNDD` | `Sndd` | `sndd` | user | tools/irqpath.py, tools/sound, tools/test_irqpath.py | programs |
-| `SRB2KART` | `Srb2kart` | `srb2kart` | - | sessions | programs |
+| `SRB2KART` | `Srb2kart` | `srb2kart` | srb2kart | sessions | programs |
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
