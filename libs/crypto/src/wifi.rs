@@ -15,6 +15,7 @@
 //! | [`hmac_sha1_128`] | 802.11-2020 12.7.2 | EAPOL-Key MIC, AKM 2 |
 //! | [`aes_cmac_128`] | RFC 4493 | EAPOL-Key MIC, AKM 6 |
 //! | [`aes_wrap`], [`aes_unwrap`] | RFC 3394 | GTK / IGTK in message 3 |
+//! | [`ccm::ccm_seal`], [`ccm::ccm_open`] | 802.11-2020 12.5.3 (CCMP-128) | the simulated radio's data encryption |
 
 use alloc::vec::Vec;
 
@@ -169,6 +170,8 @@ pub fn aes_unwrap(kek: &[u8], data: &[u8]) -> Result<Vec<u8>, Error> {
     };
     plain.map_err(|_| Error::BadTag)
 }
+
+pub mod ccm;
 
 #[cfg(test)]
 mod tests;
