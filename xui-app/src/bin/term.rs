@@ -302,8 +302,13 @@ fn main() {
     backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
-        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
-            .expect("root node");
+        // `wants_tab`: Tab must reach the shell (completion), not move the
+        // widget focus, which is all a Tab does for a node without it.
+        let root = Control::new(
+            ui,
+            &NodeSpec::new(NodeKind::Custom, ui.client_rect()).wants_tab(),
+        )
+        .expect("root node");
         {
             let grid = Rc::clone(&grid);
             let theme = ui.theme_handle();
