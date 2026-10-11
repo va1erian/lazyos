@@ -696,10 +696,10 @@ bulk download exactly as §7.6, with sanitize tests.
   first and launches only once the file reads back (so a typed password can
   never reach the real service). `xui-lazysky` therefore loads
   `settings.toml` at start; `--service` still overrides it.
-* BusyBox `mkdir -p` asks for `/home` first and is refused on LazyOS (it
-  reports EACCES where the directory exists); the session makes one level at a
-  time. Worth a kernel look: `mkdir` of an existing directory should say
-  `EEXIST`.
+* BusyBox `mkdir -p ~/.apps/x` was answered "can't create directory '/home/':
+  Permission denied" in the guest although `/home/user` exists, so the
+  session makes one level at a time. Not investigated; a kernel look at
+  `mkdir` of an existing directory (it should be `EEXIST`) is worth it.
 * The package's file rules take `$HOME/<dir>`, not the home itself, so
   the composer's picker is allowed `read:$HOME/Pictures` and
   `read:$HOME/Downloads`.
