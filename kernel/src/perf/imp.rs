@@ -379,7 +379,9 @@ fn print(name: &str, summary: &Summary, per_tick: u64) {
 /// Print with interrupts off: an interrupt handler that prints uses
 /// `try_print`, and must find the port free rather than held by this task.
 pub(super) fn line(args: core::fmt::Arguments) {
-    x86_64::instructions::interrupts::without_interrupts(|| crate::serial::_print(args));
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        crate::trace::emit_str(tracefmt::Channel::Perf, &alloc::fmt::format(args));
+    });
 }
 
 /// Nanoseconds shown as microseconds with one decimal.

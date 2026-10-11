@@ -162,7 +162,7 @@ pub fn ns_deadline() -> Result<(), String> {
     channels::send(rig.senders[0], &parcel_bytes()?).map_err(|e| format!("{e:?}"))?;
     let mask = rig.finish_wait(before)?;
     check!(mask == 1, "a send to a ns-deadline wait gave {mask:#x}");
-    serial_println!("TEST:ipc_waitset_ns_deadline:INFO:2ms_wait_ns median={median} worst={worst}");
+    crate::trace::test!("ipc_waitset_ns_deadline:INFO:2ms_wait_ns median={median} worst={worst}");
     rig.teardown()
 }
 
@@ -306,8 +306,8 @@ pub fn fd_soak() -> Result<(), String> {
         sys(3, [r, 0, 0]);
         sys(3, [w, 0, 0]);
     });
-    serial_println!(
-        "TEST:ipc_waitset_fd_soak:INFO:rounds={ROUNDS} writes={writes} sends={sends} \
+    crate::trace::test!(
+        "ipc_waitset_fd_soak:INFO:rounds={ROUNDS} writes={writes} sends={sends} \
          timeouts={timeouts}"
     );
     rig.teardown()

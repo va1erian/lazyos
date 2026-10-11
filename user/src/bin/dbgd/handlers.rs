@@ -112,7 +112,7 @@ fn lines_json(lines: &[(u64, &str)]) -> String {
     json::array(
         lines
             .iter()
-            .map(|(pos, text)| logline::parse(text).to_json(Some(*pos))),
+            .map(|(pos, text)| logline::to_json(&logline::parse(text), Some(*pos))),
     )
 }
 
@@ -240,11 +240,22 @@ pub(crate) fn sysinfo(memory_only: bool) -> Result<String, Failure> {
     if memory_only {
         return Ok(memory);
     }
+    // The channels the kernel's trace prints (empty with `LAZYOS_TRACE=0`):
+    // a masked channel and a silent one look the same in the log.
+    let mask = tracefmt::Mask::from_words(s.trace_mask);
+    let mut channels = String::new();
+    for channel in tracefmt::Channel::ALL.iter().filter(|c| mask.allows(**c)) {
+        if !channels.is_empty() {
+            channels.push(',');
+        }
+        channels.push_str(&format!("{}", channel.name()));
+    }
     Ok(Object::new()
         .uint("version", s.version)
         .uint("ticks", s.ticks)
         .uint("idle_ticks", s.idle_ticks)
         .uint("tasks_live", s.tasks_live)
+        .str("trace_channels", &channels)
         .raw("memory", &memory)
         .finish())
 }

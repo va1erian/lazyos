@@ -1,6 +1,6 @@
 //! Boot-phase timestamps for the boot-time benchmark (`tools/bench/boot_time.py`).
 //!
-//! Each [`mark`] prints one stable serial line, `BOOT:PHASE:<name>:tsc=<n>`,
+//! Each [`mark`] prints one stable trace line (`trace.rs`, channel `boot`), `BOOT:PHASE:<name>:tsc=<n>`,
 //! carrying the CPU time-stamp counter. The TSC is read straight from the CPU,
 //! so the deltas mean the same thing under TCG and under WHPX/KVM and need no
 //! calibration (the PIT tick counter does not exist before `arch::init`, which
@@ -11,6 +11,8 @@
 //! `/proc`-style consumer) can read phases back without parsing serial.
 
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+use tracefmt::Channel;
 
 /// How many recent stamps the ring keeps.
 const RING: usize = 32;
@@ -54,7 +56,7 @@ pub fn stamp(index: usize) -> Option<u64> {
 pub fn mark(args: core::fmt::Arguments) {
     let stamp = tsc();
     record(stamp);
-    serial_println!("BOOT:PHASE:{}:tsc={}", args, stamp);
+    crate::trace::line!(Channel::Boot, "PHASE:{}:tsc={}", args, stamp);
 }
 
 /// `boot_phase!("name")` or `boot_phase!("read_{}", file)`.

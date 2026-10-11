@@ -74,10 +74,11 @@ pub fn selfcheck() {
 fn check_dma() {
     let stats = crate::mem::dma_stats();
     if stats.total_pages == 0 {
-        serial_println!("DEV:DMA:INFO:no DMA pool reserved");
+        crate::trace::line!(tracefmt::Channel::Dev, "DMA:INFO:no DMA pool reserved");
     } else {
-        serial_println!(
-            "DEV:DMA:PASS:{} pages, largest run {}",
+        crate::trace::line!(
+            tracefmt::Channel::Dev,
+            "DMA:PASS:{} pages, largest run {}",
             stats.total_pages,
             stats.largest_run
         );
@@ -104,13 +105,16 @@ fn check_irq() {
         .filter(|info| info.resources.message_capable())
         .count();
     if missing == 0 {
-        serial_println!(
-            "DEV:IRQ:PASS:{LINES} vectors installed, {routed}/{wired} INTx-wired PCI functions on routable lines; {} MSI vectors ({}), {capable} message-capable functions",
+        crate::trace::line!(
+            tracefmt::Channel::Dev, "IRQ:PASS:{LINES} vectors installed, {routed}/{wired} INTx-wired PCI functions on routable lines; {} MSI vectors ({}), {capable} message-capable functions",
             super::msi::VECTORS,
             if super::msi::enabled() { "on" } else { "off" }
         );
     } else {
-        serial_println!("DEV:IRQ:FAIL:{missing} line or MSI vectors have no handler");
+        crate::trace::line!(
+            tracefmt::Channel::Dev,
+            "IRQ:FAIL:{missing} line or MSI vectors have no handler"
+        );
     }
 }
 
@@ -144,11 +148,20 @@ fn check_syscall() {
     let failed = checks.iter().find(|(_, got, want)| got != want);
     match failed {
         None if syscall::claim_count() == 0 => {
-            serial_println!("DEV:SYSCALL:PASS:syscall 23 gates refuse, 0 claims");
+            crate::trace::line!(
+                tracefmt::Channel::Dev,
+                "SYSCALL:PASS:syscall 23 gates refuse, 0 claims"
+            );
         }
-        None => serial_println!("DEV:SYSCALL:FAIL:a claim exists at boot"),
+        None => crate::trace::line!(
+            tracefmt::Channel::Dev,
+            "SYSCALL:FAIL:a claim exists at boot"
+        ),
         Some((name, got, want)) => {
-            serial_println!("DEV:SYSCALL:FAIL:{name}: got {got:#x}, want {want:#x}");
+            crate::trace::line!(
+                tracefmt::Channel::Dev,
+                "SYSCALL:FAIL:{name}: got {got:#x}, want {want:#x}"
+            );
         }
     }
 }

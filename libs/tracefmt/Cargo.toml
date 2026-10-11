@@ -1,0 +1,16 @@
+[package]
+name = "tracefmt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The trace line grammar, the channel catalogue, the mask and the rate budget shared by the kernel, the services and the apps (docs/tracing-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "tracefmt"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

@@ -732,6 +732,28 @@ is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
+## Tracing (`LAZYOS_TRACE`)
+
+Evidence lines (`UP`/`QUIT`, `TEST:`, `DEV:`, `LABEL:DENY`, ...) go through
+`libs/tracefmt` and a sink per runtime, never a bare print
+([`docs/tracing-plan.md`](docs/tracing-plan.md); the kernel's is
+`kernel/src/trace.rs`: `trace::pass!`, `fail!`, `event!`, `line!`). Stage T1
+migrated the kernel; `python tools/trace/check_adhoc.py` counts the prints
+left in the services and apps (T2, T3). `LAZYOS_TRACE=0` compiles the macros
+out, `LAZYOS_TRACE_MASK=init,pkgd,-shell` (`trace.mask=` in `lazyos.cfg`)
+chooses channels, and `LAZYOS_LABEL_TRACE`, `LAZYOS_USB_TRACE` and
+`LAZYOS_UI_PROBE` add theirs. Diagnostics an operator needs on a PC with no
+serial port (`HW:`, `EXCEPTION:`, `IRQOFF:`, `DBGD:AUDIT`) stay on
+`serial_println!`. The channel list is generated into
+[`docs/trace/channels.md`](docs/trace/channels.md)
+(`python tools/trace/catalog.py`, `--check` in CI).
+
+```bash
+cargo test -p tracefmt -p dbgwire
+LAZYOS_TEST_FILTER=trace python tools/test/run.py --accel none
+python tools/trace/test_check_adhoc.py
+```
+
 ## Interrupt latency
 
 Syscalls run with interrupts off. Long kernel work calls

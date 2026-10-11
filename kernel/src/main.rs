@@ -53,13 +53,13 @@ mod task;
 #[cfg(lazyos_tests)]
 mod tests;
 mod text;
+mod trace;
 mod tty;
 mod user_ptr;
 mod wallclock;
 
 use bootloader_api::config::{BootloaderConfig, Mapping};
-use bootloader_api::info::Optional;
-use bootloader_api::{entry_point, BootInfo};
+use bootloader_api::{entry_point, info::Optional, BootInfo};
 use core::panic::PanicInfo;
 
 /// Request a full physical-memory mapping so the kernel can manage page tables,
@@ -210,18 +210,18 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     rm -f /data/cwdprobe; echo ABI:busybox:END";
                 match task::spawn_linux_args("sh", &bytes, &["sh", "-c", script]) {
                     Ok(index) => serial_println!("LazyOS: spawned busybox as task {index}"),
-                    Err(err) => serial_println!("ABI:busybox:FAIL:{err}"),
+                    Err(err) => trace::line!(tracefmt::Channel::Abi, "busybox:FAIL:{err}"),
                 }
             }
-            None => serial_println!("ABI:busybox:FAIL:no {} on image", fhs::bin::BUSYBOX),
+            None => trace::line!(tracefmt::Channel::Abi, "busybox:FAIL:no busybox on image"),
         }
     } else if let Some(bytes) = open_program(fhs::bin::ABI_INIT) {
         // The ABI bench's injected fixture owns the boot. Checked before the
         // demo profile so a stray BusyBox on an image cannot shadow a fixture.
-        serial_println!("ABI:INIT:START");
+        trace::line!(tracefmt::Channel::Abi, "INIT:START");
         match task::spawn_linux("init", &bytes, "init") {
             Ok(index) => serial_println!("LazyOS: spawned init as task {index}"),
-            Err(err) => serial_println!("ABI:INIT:FAIL:{err}"),
+            Err(err) => trace::line!(tracefmt::Channel::Abi, "INIT:FAIL:{err}"),
         }
     } else {
         // Issue #93: `LAZYOS_SERVICES=1` boots the userspace supervisor

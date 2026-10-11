@@ -183,6 +183,6 @@ pub fn entry_direction_flag_soak() -> Result<(), String> {
         seen == 0,
         "{seen} of {checked} kernel entries ran with DF set"
     );
-    serial_println!("TEST:task_entry_direction_flag_soak:INFO:entries={checked}");
+    crate::trace::test!("task_entry_direction_flag_soak:INFO:entries={checked}");
     Ok(())
 }

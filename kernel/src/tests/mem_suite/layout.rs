@@ -213,7 +213,7 @@ pub fn user_window_spans_many_entries() -> Result<(), String> {
 pub fn high_frames_reachable() -> Result<(), String> {
     const FOUR_GIB: u64 = 1 << 32;
     if mem::usable_ram() <= 4 * GIB {
-        serial_println!("TEST:mem_high_frames_reachable:INFO:no RAM above 4 GiB to test");
+        crate::trace::test!("mem_high_frames_reachable:INFO:no RAM above 4 GiB to test");
         return Ok(());
     }
     // Frames come out in address order, so drain the low ones until a high

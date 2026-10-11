@@ -386,7 +386,7 @@ pub fn transfer_gate_soak_leaks_nothing() -> Result<(), String> {
         channel.drops == 0,
         "refusals reached the channel: {channel:?}"
     );
-    serial_println!("TEST:transfer_gate_soak_leaks_nothing:INFO:rounds={ROUNDS} refused={ROUNDS}");
+    crate::trace::test!("transfer_gate_soak_leaks_nothing:INFO:rounds={ROUNDS} refused={ROUNDS}");
     channels::reset();
     shared::reset();
     Ok(())

@@ -268,6 +268,20 @@ pub fn flush() {
     }
 }
 
+/// Write one finished trace line (`trace.rs`): the serial port and, in a
+/// `LAZYOS_DBGD=1` kernel, the program-output ring. Not the boot log: a chatty
+/// trace must not push the boot diagnostics out of it. The line is queued
+/// whole under the port lock, so no other task's output lands inside it.
+pub fn write_trace(line: &[u8]) {
+    #[cfg(lazyos_dbgd)]
+    crate::klog::push_program(line);
+    if let Some(port) = SERIAL1.lock().as_mut() {
+        let before = port.tx.queued();
+        queue(port, line);
+        port.drain_own(before);
+    }
+}
+
 /// Mirror a program's terminal output (`write` to the terminal, `sendfile`).
 /// The bytes are queued whole first, so `bytes` may be user memory: it is
 /// read only here, before any window opens. Then the ring is drained in

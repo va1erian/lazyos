@@ -46,7 +46,7 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 usb              # xHCI regs, por
 
 | Command | Shows |
 |---|---|
-| `log [--follow] [--lines N] [--source kernel\|programs\|<logd journal>]` | the boot log; what services (`usbd`, `netdrv`, ...) printed |
+| `log [--follow] [--lines N] [--source kernel\|programs\|<logd journal>]` | the boot log; what services, apps and the kernel's traces (`DEV:`, `BOOT:PHASE`, `LABEL:DENY`, `TEST:`) printed |
 | `tasks`, `sysinfo`, `mem`, `fabric` | scheduler, kernel statistics, memory, Messenger counters |
 | `devices`, `drivers` | PCI inventory with owner and rights; `devd`'s match and driver state |
 | `usb` | `USBD:DUMP:HC` / `PORT` / `DEV`: controller registers, port status, slot and endpoint 0 state |
@@ -57,7 +57,14 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 usb              # xHCI regs, por
 
 Every log line is a record: `tag` (`USBD:DIAG`), `fields` (`port=1`,
 `ep0dq=0x1f000`), `text` and `pos` (byte offset). Filter on tags instead of
-scraping text.
+scraping text. The line grammar is `libs/tracefmt`'s (the emitters build
+lines with it, `dbgd` parses with it), and [`trace/channels.md`](trace/channels.md)
+lists every tag prefix, which tree emits it and which harness judges it.
+
+A trace can be compiled out (`LAZYOS_TRACE=0`) or masked (`trace.mask=` in
+`lazyos.cfg`, `LAZYOS_TRACE_MASK`); `sysinfo` shows the channels the kernel
+prints as `trace_channels`, so a masked channel can be told from a silent one
+([`tracing-plan.md`](tracing-plan.md)).
 
 ## 3. Let an agent use it (MCP)
 

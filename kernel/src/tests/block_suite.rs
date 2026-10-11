@@ -227,7 +227,7 @@ pub(super) fn ata_or_skip(test: &str) -> Result<Option<&'static dyn BlockDevice>
     if block::boot_device().is_none() {
         return Err(String::from("no block device is registered at all"));
     }
-    serial_println!("TEST:{test}:INFO:no ATA disk on this machine type; skipped");
+    crate::trace::test!("{test}:INFO:no ATA disk on this machine type; skipped");
     Ok(None)
 }
 

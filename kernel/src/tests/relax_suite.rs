@@ -193,8 +193,8 @@ pub fn contender_outranking_holder_lets_it_run() -> Result<(), String> {
     let elapsed_ms = (monotonic_ns() - started) / 1_000_000;
     let work = *LOCK.lock();
     let parked = task::relax::parks() - parks;
-    serial_println!(
-        "TEST:relax_contender_outranking_holder_lets_it_run:INFO:ms={elapsed_ms} \
+    crate::trace::test!(
+        "relax_contender_outranking_holder_lets_it_run:INFO:ms={elapsed_ms} \
          contender_parks={parked}"
     );
     check!(work == 2, "the lock saw {work} of 2 critical sections");
@@ -217,8 +217,8 @@ pub fn soak_every_class_one_lock() -> Result<(), String> {
     let elapsed_ms = (monotonic_ns() - started) / 1_000_000;
     let work = *LOCK.lock();
     let parked = task::relax::parks() - parks;
-    serial_println!(
-        "TEST:relax_soak_every_class_one_lock:INFO:sections={work} ms={elapsed_ms} \
+    crate::trace::test!(
+        "relax_soak_every_class_one_lock:INFO:sections={work} ms={elapsed_ms} \
          contender_parks={parked}"
     );
     let expected = SOAK_THREADS as u64 * SOAK_ROUNDS;

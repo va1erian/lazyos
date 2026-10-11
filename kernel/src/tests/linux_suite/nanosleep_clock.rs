@@ -139,8 +139,8 @@ pub fn clock_nanosleep_soak_absolute() -> Result<(), String> {
         elapsed <= (ITERATIONS as u64) * 5,
         "soak sleeps took far longer than requested: elapsed={elapsed} ticks"
     );
-    serial_println!(
-        "TEST:linux_clock_nanosleep_soak_absolute:INFO:iterations={ITERATIONS} elapsed_ticks={elapsed}"
+    crate::trace::test!(
+        "linux_clock_nanosleep_soak_absolute:INFO:iterations={ITERATIONS} elapsed_ticks={elapsed}"
     );
     Ok(())
 }

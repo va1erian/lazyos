@@ -63,7 +63,7 @@ fn source() -> &'static str {
 /// Over four RTC seconds the tick advances 400 within tolerance.
 pub fn tick_matches_rtc() -> Result<(), String> {
     if rtc::read_unix().is_none() {
-        serial_println!("TEST:timer_tick_matches_rtc:INFO:no RTC; skipped");
+        crate::trace::test!("timer_tick_matches_rtc:INFO:no RTC; skipped");
         return Ok(());
     }
     kernel_only();
@@ -72,8 +72,8 @@ pub fn tick_matches_rtc() -> Result<(), String> {
     let (ticks, _) = with_lines(&[0], || measure(SECONDS))?;
     let expected = SECONDS as u64 * HZ;
     // Caught-up periods tell a late or miscounted tick from a doubled one.
-    serial_println!(
-        "TEST:timer_tick_matches_rtc:INFO:{} ticks in {SECONDS} RTC seconds ({}), {} caught up",
+    crate::trace::test!(
+        "timer_tick_matches_rtc:INFO:{} ticks in {SECONDS} RTC seconds ({}), {} caught up",
         ticks,
         source(),
         crate::arch::clock::missed_ticks() - missed

@@ -439,7 +439,7 @@ pub fn com1_ring_cases() -> Result<(), String> {
         if text.len() > 8192 {
             serial::mirror(&text);
             text.clear();
-            serial_println!("TEST:fw_com1_ring_cases:INFO:kernel line between mirrors");
+            crate::trace::test!("fw_com1_ring_cases:INFO:kernel line between mirrors");
         }
     }
     serial::mirror(&text);

@@ -1,6 +1,29 @@
 # Tracing plan: one evidence API instead of ad hoc prints
 
-Status: draft (stage T0). Owner: whoever picks up the tracking issue.
+Status: T0 and T1 landed (the inventory and lint, `libs/tracefmt`, the kernel
+sink); T2 (no_std services) next. Owner: whoever picks up the tracking issue.
+
+What T0/T1 settled while landing, where it differs from the text below:
+
+- The mask has 128 bits (two words), not 64: the catalogue is already 100
+  channels. `sysinfo` (version 6) carries the two words; `dbgd`'s `sysinfo`
+  lists the names as `trace_channels`.
+- A channel can be **opt-in**: `label` is not in the default mask, so an image
+  built with `LAZYOS_TRACE=1` alone does not print every refusal; the old
+  `LAZYOS_LABEL_TRACE=1` adds it (`default,label`). `trace.mask=` accepts
+  `default` as well as `all` and `none`.
+- `LAZYOS_TRACE` defaults on (section 4.4); `LAZYOS_TRACE=0` compiles the
+  macros out, and the old switches imply it back on.
+- Kernel call sites moved: `DEV:`, `FS:`, `MSG:`, `ABI:` (the kernel's own),
+  `BOOT:PHASE`/`BOOT:MEDIA`, `LABEL:DENY`, `PERF:` report lines and every
+  `TEST:` line (79 sites; `trace::test!`). `SCHED:GUARD:DEMOTED` stays a
+  `serial_println!` (a task being demoted is something an operator wants on a
+  PC with no `dbgd`; class 2) and `KLOGOP:` is the klog suite's own marker.
+- `tools/trace/check_adhoc.py` also greps the arguments of the channels that
+  carry a secret (`LOGIN`, `GREETER`, `KEYD`, `ELEVD`, `SMB`, `ACCOUNTS`).
+  Counts at T0 (`python tools/trace/check_adhoc.py`): 846 sites in 224 files
+  and 92 prefixes: kernel 27, user 408, xui-app 374, lazyrad-os 5, doom 12,
+  emusic 6, quake 13, other 1.
 
 ## 1. Why
 

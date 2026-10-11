@@ -287,8 +287,8 @@ pub fn object_move_share_soak() -> Result<(), String> {
         channels::try_recv(kept) == Ok(None),
         "the moved end's peer saw a close"
     );
-    serial_println!(
-        "TEST:ipc_object_move_share_soak:INFO:moves={} shares={ROUNDS}",
+    crate::trace::test!(
+        "ipc_object_move_share_soak:INFO:moves={} shares={ROUNDS}",
         2 * ROUNDS
     );
     shared::close(buffer).map_err(buffer_reason)?;

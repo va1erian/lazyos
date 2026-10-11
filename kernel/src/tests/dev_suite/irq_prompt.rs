@@ -208,8 +208,8 @@ pub fn irq_prompt_idle_claimant() -> Result<(), String> {
     let mut values: Vec<u64> = LATENCY.iter().map(|v| v.load(Ordering::Relaxed)).collect();
     values.sort_unstable();
     let crossed = CROSSED.load(Ordering::Relaxed);
-    serial_println!(
-        "TEST:dev_irq_prompt_idle_claimant:INFO:samples={SAMPLES} p50_us={} p99_us={} max_us={} crossed_tick={crossed}",
+    crate::trace::test!(
+        "dev_irq_prompt_idle_claimant:INFO:samples={SAMPLES} p50_us={} p99_us={} max_us={} crossed_tick={crossed}",
         micros(values[SAMPLES / 2]),
         micros(values[SAMPLES * 99 / 100]),
         micros(values[SAMPLES - 1]),
@@ -272,8 +272,8 @@ pub fn irq_prompt_storm_slow_claimant() -> Result<(), String> {
         check!(left == 0, "{left} interrupt messages were left queued");
         Ok((elapsed, acks))
     })?;
-    serial_println!(
-        "TEST:dev_irq_prompt_storm_slow_claimant:INFO:sleeps={SLEEPS} elapsed_ticks={elapsed} interrupts_handled={acks} raised={}",
+    crate::trace::test!(
+        "dev_irq_prompt_storm_slow_claimant:INFO:sleeps={SLEEPS} elapsed_ticks={elapsed} interrupts_handled={acks} raised={}",
         RAISED_DELTA.load(Ordering::Relaxed),
     );
     check!(

@@ -12,7 +12,8 @@
 //! * [`fsallow`]: the paths `fs.read` may open;
 //! * [`methods`]: the method table and its parameter checks;
 //! * [`control`]: the control tier's rules (restart, hot reload, v2);
-//! * [`logline`]: a `TAG key=value` log line as a record.
+//! * [`logline`]: a `TAG key=value` log line as a record
+//!   (the grammar is `tracefmt`'s, docs/tracing-plan.md).
 //!
 //! [`fuzz::run`] is the entry point shared by the in-tree seeded tests and
 //! the cargo-fuzz target.

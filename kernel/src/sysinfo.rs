@@ -13,12 +13,14 @@
 //! [`WORDS`] little-endian `u64`s are written in one fixed order: a
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
-//! is `4` (version 1 carried 16 rows, version 2 had 64 after issue #204,
+//! is `6` (version 1 carried 16 rows, version 2 had 64 after issue #204,
 //! version 3 has 256 for the application package system, version 4
 //! appends the idle tick counter to the header so a monitor can tell idle
 //! time from CPU time charged to tasks, and version 5 appends the frames the
 //! block cache and the typed-object slabs hold, so a monitor can split memory
-//! into programs, the kernel, the disk cache and free); a caller must reject a
+//! into programs, the kernel, the disk cache and free, and version 6 appends
+//! the trace mask (two words, docs/tracing-plan.md), so an agent can tell a
+//! masked channel from a silent one); a caller must reject a
 //! header version it does not know. A buffer
 //! smaller than [`SIZE`] is refused with `-E2BIG` (like the Messenger stats
 //! op), a null buffer with `-EFAULT`, an unknown op with `-EINVAL`. The
@@ -48,7 +50,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 5;
+pub const SYSTEM_STATS_VERSION: u64 = 6;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {
@@ -160,8 +162,13 @@ pub const H_CACHE_FRAMES: usize = 24;
 /// Part of `H_FRAMES_LIVE`, separate from the heap's `H_HEAP_TOTAL`. Version 5.
 pub const H_SLAB_FRAMES: usize = 25;
 
+/// The trace mask, low and high word (bit = `tracefmt::Channel` index; both
+/// zero when the macros are compiled out with `LAZYOS_TRACE=0`). Version 6.
+pub const H_TRACE_MASK_LO: usize = 26;
+pub const H_TRACE_MASK_HI: usize = 27;
+
 /// Words in the header.
-pub const HEADER_WORDS: usize = 26;
+pub const HEADER_WORDS: usize = 28;
 /// Words in one task row.
 pub const TASK_ROW_WORDS: usize = 10;
 
@@ -320,6 +327,9 @@ pub fn snapshot_words(words: &mut [u64; WORDS]) {
     words[H_IDLE_TICKS] = task::idle_ticks();
     words[H_CACHE_FRAMES] = crate::fs::ext2::cache_frames() as u64;
     words[H_SLAB_FRAMES] = slab.classes.iter().map(|class| class.slabs as u64).sum();
+    let [low, high] = crate::trace::mask_words();
+    words[H_TRACE_MASK_LO] = low;
+    words[H_TRACE_MASK_HI] = high;
 
     for (slot, row) in tasks.rows.iter().enumerate() {
         if !row.present {

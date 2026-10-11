@@ -209,6 +209,6 @@ pub fn soak_kill_parked() -> Result<(), String> {
     signal::harness::reset();
     let after = crate::mem::frame_stats().live();
     check!(after <= before + 8, "frames leaked: {before} -> {after}");
-    serial_println!("TEST:task_signal_soak_kill_parked:INFO:1000 park/kill/reap cycles");
+    crate::trace::test!("task_signal_soak_kill_parked:INFO:1000 park/kill/reap cycles");
     Ok(())
 }

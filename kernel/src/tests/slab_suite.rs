@@ -478,8 +478,8 @@ pub fn soak_bounded_live() -> Result<(), String> {
             baseline.classes[class].live
         );
     }
-    serial_println!(
-        "TEST:slab_soak_bounded_live:INFO:rounds={ROUNDS} ops={} cycles={cycles} peak_bytes={}",
+    crate::trace::test!(
+        "slab_soak_bounded_live:INFO:rounds={ROUNDS} ops={} cycles={cycles} peak_bytes={}",
         ROUNDS * 2,
         after.peak_bytes.saturating_sub(baseline.live_bytes)
     );
