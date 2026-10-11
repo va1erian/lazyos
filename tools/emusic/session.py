@@ -189,14 +189,18 @@ def library_session() -> list[dict]:
     steps = install()
     steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
                      "EMUSIC:UP:PASS", 300)
-    steps += [{"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120}, {"wait": 1.0}]
+    # The opening playback (A4, C5) must be over before Shuffle all, so the
+    # recording holds its two tones and then Shuffle all's.
+    steps += [{"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+              {"wait_for": "EMUSIC:END:tones.mp3", "timeout": 60}, {"wait": 1.0}]
     steps += [{"shot": "02_empty_library"}]
     steps += click_at(604, 543, 1.5)   # Add music folder...
     steps += [{"shot": "03_folder_browser"}]
     steps += click_at(437, 584, 4.0)   # Choose
     steps += [{"shot": "04_library"}]
     steps += click_at(814, 344, 1.5)   # Shuffle all: plays the track
-    steps += [{"shot": "05_playing"}, {"at": 1.0, "quit": True}]
+    # Let the second playback run to its end: the judge counts its tones.
+    steps += [{"shot": "05_playing"}, {"wait": 4.5}, {"at": 1.0, "quit": True}]
     return steps
 
 

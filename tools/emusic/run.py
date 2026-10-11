@@ -12,7 +12,7 @@
 With ``--app`` it also runs ``emusic.json`` (the app opening the track through
 ``mimed`` and playing it to the end) and judges that recording: A4 for 2 s,
 then C5 for 2 s; and ``emusic_library.json`` (the empty-library prompt, the
-folder browser, a library scan and Shuffle all), which must record sound.
+folder browser, a library scan and Shuffle all), which must play the track a second time.
 
     python tools/emusic/run.py                          # everything
     python tools/emusic/run.py --emusic-src ../emusic   # a local emusic clone
@@ -130,8 +130,14 @@ def main() -> int:
                 failures.append("the library session failed")
             else:
                 recording = judge.read_wav(wav.read_bytes())
-                if not judge.segments(recording.samples, recording.rate):
-                    failures.append("library: Shuffle all played no sound")
+                found = judge.segments(recording.samples, recording.rate)
+                # The opening playback is two tones (A4, C5); Shuffle all
+                # plays the track again, so a library that was not scanned
+                # leaves only two.
+                if len(found) < 4:
+                    failures.append(
+                        f"library: expected 4 tone segments (open + Shuffle all), "
+                        f"found {len(found)}")
     for failure in failures:
         print(f"EMUSIC:RUN:FAIL:{failure}")
     if failures:
