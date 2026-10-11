@@ -1,6 +1,6 @@
 # emusic: native look and a working Add folder
 
-Status: phases 0 and 1 are done in this change; phases 2 to 4 are open.
+Status: phases 0, 1 and 2 are done; phases 3 and 4 are open.
 Context: [`media-plan.md`](media-plan.md), [`../emusic/README.md`](../emusic/README.md).
 
 ## Findings
@@ -74,19 +74,26 @@ smallest size at which emusic's own layout does not overlap (Now Playing over
 the track table below it); fixing that lets the minimum come down (phase 3).
 Session: `tools/screenshot/examples/emusic_resize.json`.
 
-### 2. A working Add folder
+### 2. A working Add folder (done)
 
-1. xui: a folder mode for `FileDialog` (`FileDialogMode::Folder`).
-2. emusic: a non-blocking in-window request. Keep `folder_picker::request()`
-   and its channel (the library backend already drains it); let the portable
-   shell register a UI-thread requester, show the `FileDialog` on the main
-   window and send the result into the same channel. Route the other
-   `pick_folder()`/`pick_file()` calls made on the UI thread through the same
-   path or hide them on LazyOS, so none blocks the UI thread.
-3. The dialog starts in `~/Music` with shortcuts to Music and Downloads and
-   says why a folder outside the granted ones will not scan.
-4. Stop-gap if (1) is slow: a typed-path field and an Add button on the
-   Library page.
+Decided against a folder mode in xui's `FileDialog`: it would touch xui's
+Win32 backend dialog request and need a pin bump across every xui consumer, for
+one dialog. Instead emusic's portable frontend carries a small folder browser
+(`crates/frontend-portable/src/dialogs/folder_picker.rs`) built from existing
+xui widgets in a secondary window, like its other dialogs:
+
+- Add folder opens it where there is no platform dialog
+  (`file_picker::native_available()` is false: no `rfd`, no installed
+  `FilePicker`); hosts with one are unchanged.
+- It starts in `~/Music` (else `$HOME`), lists subfolders with `..` first,
+  Enter/double-click enters a folder, **Choose** takes the selected or current
+  one and dispatches `Command::LibraryAddFolder`, so it reaches the state, the
+  config and the library, like Remove does.
+- Verified by `tools/screenshot/examples/emusic_add_folder.json` (the folder
+  appears in Settings -> Library and the status bar counts its track).
+- Open: the other synchronous `pick_folder()`/`pick_file()` calls (MIDI,
+  SID, visualization presets) still answer "cancelled" on LazyOS; they are
+  off the music path.
 
 ### 3. Usability and glitch pass
 
