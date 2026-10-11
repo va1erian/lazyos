@@ -119,6 +119,7 @@ channels! {
     Smbfuse => "SMBFUSE",
     Snd => "SND",
     Sndd => "SNDD",
+    Srb2kart => "SRB2KART",
     Sys => "SYS",
     Sysmon => "SYSMON",
     Sysmond => "SYSMOND",

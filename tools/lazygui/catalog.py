@@ -19,7 +19,7 @@ from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
@@ -209,6 +209,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # shareware pak inside) in /system/share/samples; a user installs
         # it through pkgd.
         env["LAZYOS_QUAKE"] = "1"
+    if cfg.get("srb2kart"):
+        # Places the SRB2Kart package and its fetched game data
+        # (`tools/srb2kart/build.py`); the OS volume then defaults to 1G.
+        env["LAZYOS_SRB2KART"] = "1"
     if cfg.get("emusic"):
         # Places the emusic package (built by `tools/emusic/build.py`) in
         # /system/share/samples; a user installs it through pkgd.
@@ -326,6 +330,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("quake") and not cfg["skip_build"]:
             # run_demo builds the package and sets LAZYOS_QUAKE itself.
             argv.append("--quake")
+        if cfg.get("srb2kart") and not cfg["skip_build"]:
+            # run_demo builds the package and data and sets LAZYOS_SRB2KART itself.
+            argv.append("--srb2kart")
         if cfg.get("emusic") and not cfg["skip_build"]:
             # run_demo builds the package, adds a sound card and sets LAZYOS_EMUSIC.
             argv.append("--emusic")

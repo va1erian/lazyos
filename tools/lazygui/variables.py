@@ -79,6 +79,7 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "quake": b(value=False),
+        "srb2kart": b(value=False),
         "emusic": b(value=False),
         "modplayer": b(value=False),
         # Networking (LAZYOS_NETD + a QEMU user-mode card, run_demo --net).
@@ -112,6 +113,7 @@ def make_vars() -> dict:
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
         "simple_usb_image": b(value=False),
+        "simple_srb2kart": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),

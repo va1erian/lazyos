@@ -40,7 +40,7 @@ SIMPLE_GROUPS = (
      ("lazyweb", "mail", "lazysky")),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
-SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
+SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image", "srb2kart")
 
 
 def group_switches(selected: set[str]) -> dict[str, bool]:
@@ -59,7 +59,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
-                  usb_image: bool = False, lazysky: bool = False) -> dict:
+                  usb_image: bool = False, lazysky: bool = False,
+                  srb2kart: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -126,6 +127,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devices": desktop and devices,
         "doom": desktop and doom,
         "quake": desktop and quake,
+        "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
         "net": net or tls or lazysky,

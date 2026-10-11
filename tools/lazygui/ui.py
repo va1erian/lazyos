@@ -98,6 +98,7 @@ class Launcher:
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "Quake package in /system/share/samples (LAZYOS_QUAKE)", "quake")
+        self._check(g, "SRB2Kart package + game data (LAZYOS_SRB2KART; 1G OS volume)", "srb2kart")
         self._check(g, "emusic package in /system/share/samples (LAZYOS_EMUSIC)", "emusic")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")

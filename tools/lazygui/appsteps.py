@@ -37,6 +37,15 @@ def quake_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/quake/build.py", "--require"]}]
 
 
+def srb2kart_step(cfg: dict) -> list[dict]:
+    """The step that builds SRB2Kart (engine package + Kart Krew's game data),
+    when the image embeds it."""
+    if not cfg.get("srb2kart"):
+        return []
+    return [{"label": "Build SRB2Kart (engine package + fetched game data)",
+             "argv": [PY, "tools/srb2kart/build.py", "--require"]}]
+
+
 def emusic_step(cfg: dict) -> list[dict]:
     """The step that builds the emusic package, when the image embeds it."""
     if not cfg.get("emusic"):
@@ -139,6 +148,6 @@ def desktop_app_argv(cfg: dict) -> list[str]:
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
-            + emusic_step(cfg)
+            + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg))

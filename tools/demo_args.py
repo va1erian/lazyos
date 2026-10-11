@@ -111,6 +111,14 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "shareware pak): install it with `pkgctl install "
                              "/system/share/samples/quake.lzp` or by opening it in Files, "
                              "then start Quake from the menu; docs/quake-port-plan.md")
+    parser.add_argument("--srb2kart", action="store_true",
+                        help="the desktop profile with SRB2Kart: the engine package at "
+                             "/system/share/samples/srb2kart.lzp and its game data in "
+                             "/system/share/srb2kart (LAZYOS_SRB2KART=1; builds them with "
+                             "tools/srb2kart/build.py, which fetches Kart-Public v1.6 and "
+                             "Kart Krew's ~220 MB data release; the OS volume defaults to 1G, "
+                             "an existing smaller one needs --reset-os). Never publish the "
+                             "image: docs/srb2kart-port-plan.md")
     parser.add_argument("--emusic", action="store_true",
                         help="the desktop profile with the emusic package at "
                              "/system/share/samples/emusic.lzp (LAZYOS_EMUSIC=1; builds it "
@@ -215,7 +223,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # as do the desktop-only apps (Doom, LazyWeb, Mail, the Picture Viewer, the
     # tray demo) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
-    args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.emusic
+    args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
                     or args.lazyweb or args.lazysky or args.mail or args.pictures
                     or args.traydemo or args.setup)

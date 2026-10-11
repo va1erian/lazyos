@@ -65,6 +65,18 @@ pub const EMUSIC_LZP: &str = "/system/share/samples/emusic.lzp";
 /// [`DOOM_LZP`]. Written by the image build.
 pub const QUAKE_LZP: &str = "/system/share/samples/quake.lzp";
 
+/// The SRB2Kart package (`org.lazy.srb2kart`, `LAZYOS_SRB2KART=1` images):
+/// the engine only, a user package copied to the user's home and installed
+/// from there with `pkgctl install`, like [`DOOM_LZP`]. Written by the image
+/// build.
+pub const SRB2KART_LZP: &str = "/system/share/samples/srb2kart.lzp";
+
+/// SRB2Kart's game data (`srb2.srb`, `*.kart`) and `CREDITS.txt`
+/// (`LAZYOS_SRB2KART=1` images): fetched from Kart Krew's release at build
+/// time, one read-only copy shared by every user, not part of the package.
+/// Written by the image build (`build_support/srb2kart_embed.rs`).
+pub const SRB2KART_DATA: &str = "/system/share/srb2kart";
+
 /// The development-run test package (`org.lazy.test.lrdev`, issue #529): the
 /// LazyRAD IDE with `develop = true`, built by `tools/lazyrad/devtest.py` and
 /// embedded in `LAZYOS_LAZYRAD=1` images when it was built.
@@ -98,6 +110,7 @@ mod tests {
             FONTS_LIBERATION,
             SAMPLES,
             LAZYRAD_SAMPLES,
+            SRB2KART_DATA,
             LUCIDE_LICENSE,
         ] {
             assert!(path.starts_with(crate::SYSTEM_SHARE), "{path}");
@@ -113,6 +126,7 @@ mod tests {
             DOOM_LZP,
             EMUSIC_LZP,
             QUAKE_LZP,
+            SRB2KART_LZP,
             LRDEV_TEST_LZP,
             MODPLAYER_LZP,
         ] {
