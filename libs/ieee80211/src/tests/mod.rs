@@ -3,6 +3,7 @@
 
 use std::vec::Vec;
 
+mod data;
 mod elements;
 mod frames;
 mod rsn;
