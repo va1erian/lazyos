@@ -34,6 +34,23 @@ class LineEditingTests(unittest.TestCase):
         for key, value in busybox.LINE_EDITING.items():
             self.assertEqual(out.count(f"CONFIG_{key}={value}"), 1, key)
 
+    def test_native_configure_applies_line_editing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp)
+            (source / ".config").write_text(
+                "# CONFIG_STATIC is not set\n# CONFIG_FEATURE_TAB_COMPLETION is not set\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(busybox, "SOURCE", source), \
+                    mock.patch.object(busybox.subprocess, "run") as run:
+                self.assertTrue(busybox._configure())
+            config = (source / ".config").read_text(encoding="utf-8").splitlines()
+            self.assertIn("CONFIG_STATIC=y", config)
+            for key, value in busybox.LINE_EDITING.items():
+                self.assertIn(f"CONFIG_{key}={value}", config)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertEqual(commands, [["make", "defconfig"], ["make", "oldconfig"]])
+
     def test_tab_completion_is_requested(self) -> None:
         self.assertEqual(busybox.LINE_EDITING["FEATURE_TAB_COMPLETION"], "y")
         self.assertEqual(busybox.LINE_EDITING["FEATURE_EDITING"], "y")
