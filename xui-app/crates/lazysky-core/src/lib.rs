@@ -71,11 +71,36 @@ impl fmt::Debug for Secret {
     }
 }
 
+/// Which posts of an account a [`FeedSource::Author`] lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorFilter {
+    /// Posts, without replies.
+    Posts,
+    /// Posts with pictures or video.
+    Media,
+}
+
 /// Which list of posts a [`Request::Feed`] fetches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedSource {
     /// The signed-in user's home timeline.
     Timeline,
+    /// An account's posts (`actor` is a handle or a DID).
+    Author { actor: String, filter: AuthorFilter },
+    /// The posts an account liked.
+    ActorLikes { actor: String },
+    /// The signed-in user's bookmarks.
+    Bookmarks,
+    /// Posts matching `query`.
+    SearchPosts { query: String },
+}
+
+/// Which list of accounts a [`Request::Actors`] fetches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActorList {
+    LikedBy(String),
+    RepostedBy(String),
+    Search(String),
 }
 
 /// What a front end asks for. Every request carries a `seq`, echoed in its
@@ -95,6 +120,34 @@ pub enum Request {
         seq: u64,
         source: FeedSource,
         cursor: Option<String>,
+    },
+    /// A post with its ancestors and replies.
+    Thread { seq: u64, uri: String },
+    /// A page of accounts.
+    Actors {
+        seq: u64,
+        list: ActorList,
+        cursor: Option<String>,
+    },
+    /// Pretty-prints a post's JSON (the Raw view).
+    Raw {
+        seq: u64,
+        json: Arc<serde_json::Value>,
+    },
+    /// Likes `subject`.
+    Like { seq: u64, subject: proto::StrongRef },
+    /// Reposts `subject`.
+    Repost { seq: u64, subject: proto::StrongRef },
+    /// Deletes one of the signed-in user's own records (a post, or the
+    /// record of a like or repost to undo it).
+    DeleteRecord { seq: u64, uri: String },
+    /// Writes a post, uploading up to four picture files first.
+    CreatePost {
+        seq: u64,
+        text: String,
+        /// `(root, parent)` when it is a reply.
+        reply: Option<(proto::StrongRef, proto::StrongRef)>,
+        pictures: Vec<std::path::PathBuf>,
     },
 }
 
@@ -135,6 +188,33 @@ pub enum Event {
     /// Something worth a status line that is not an answer.
     Status {
         line: String,
+    },
+    /// A thread.
+    Thread {
+        seq: u64,
+        thread: proto::Thread,
+    },
+    /// A page of accounts.
+    Actors {
+        seq: u64,
+        actors: Vec<proto::Actor>,
+        cursor: Option<String>,
+    },
+    /// A post's JSON, indented.
+    Raw {
+        seq: u64,
+        text: String,
+    },
+    /// A like, repost or post was written; `uri` is its record.
+    Created {
+        seq: u64,
+        uri: String,
+        cid: String,
+    },
+    /// A record was deleted.
+    Deleted {
+        seq: u64,
+        uri: String,
     },
     /// A picture, at the size asked for, or why there is none.
     Image {

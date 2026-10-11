@@ -1,16 +1,15 @@
 //! The `api` thread: requests in order, one HTTP client, one session.
 
+mod feeds;
+mod writes;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 use crate::net::api::{Api, ApiError, Notes};
 use crate::net::{Http, HttpOptions};
-use crate::proto::Page;
-use crate::{Account, Event, FeedSource, Platform, Request, Settings};
-
-/// A page is this many posts.
-const PAGE_SIZE: &str = "30";
+use crate::{Account, Event, Platform, Request, Settings};
 
 pub(crate) enum Message {
     Request(Request),
@@ -80,47 +79,67 @@ fn handle(
             seq,
             source,
             cursor,
-        } => {
-            let result = fetch_feed(api, &source, cursor.as_deref(), &notes);
-            match result {
-                Ok(page) => {
-                    platform.log(&format!(
-                        "SKY:FEED:PAGE:{}:{}",
-                        page.items.len(),
-                        page.skipped
-                    ));
-                    Event::Feed {
-                        seq,
-                        source,
-                        cursor,
-                        page,
-                    }
+        } => match feeds::feed(api, &source, cursor.as_deref(), &notes) {
+            Ok(page) => {
+                platform.log(&format!(
+                    "SKY:FEED:PAGE:{}:{}",
+                    page.items.len(),
+                    page.skipped
+                ));
+                Event::Feed {
+                    seq,
+                    source,
+                    cursor,
+                    page,
                 }
+            }
+            Err(error) => failed(seq, &error),
+        },
+        Request::Thread { seq, uri } => match feeds::thread(api, &uri, &notes) {
+            Ok(thread) => Event::Thread { seq, thread },
+            Err(error) => failed(seq, &error),
+        },
+        Request::Actors { seq, list, cursor } => {
+            match feeds::actors(api, &list, cursor.as_deref(), &notes) {
+                Ok((actors, cursor)) => Event::Actors {
+                    seq,
+                    actors,
+                    cursor,
+                },
                 Err(error) => failed(seq, &error),
             }
         }
+        Request::Raw { seq, json } => Event::Raw {
+            seq,
+            text: serde_json::to_string_pretty(&*json).unwrap_or_default(),
+        },
+        Request::Like { seq, subject } => writes::react(
+            api,
+            platform,
+            &notes,
+            seq,
+            crate::proto::record::LIKE,
+            &subject,
+        ),
+        Request::Repost { seq, subject } => writes::react(
+            api,
+            platform,
+            &notes,
+            seq,
+            crate::proto::record::REPOST,
+            &subject,
+        ),
+        Request::DeleteRecord { seq, uri } => writes::delete(api, platform, &notes, seq, &uri),
+        Request::CreatePost {
+            seq,
+            text,
+            reply,
+            pictures,
+        } => writes::post(api, platform, &notes, seq, &text, reply, &pictures),
     }
 }
 
-fn fetch_feed(
-    api: &mut Api,
-    source: &FeedSource,
-    cursor: Option<&str>,
-    notes: &dyn Notes,
-) -> Result<Page, ApiError> {
-    let mut query = vec![("limit", PAGE_SIZE)];
-    if let Some(cursor) = cursor {
-        query.push(("cursor", cursor));
-    }
-    match source {
-        FeedSource::Timeline => {
-            let value = api.get("app.bsky.feed.getTimeline", &query, notes)?;
-            Ok(Page::from_feed(&value))
-        }
-    }
-}
-
-fn failed(seq: u64, error: &ApiError) -> Event {
+pub(crate) fn failed(seq: u64, error: &ApiError) -> Event {
     Event::Failed {
         seq,
         reason: error.describe(),

@@ -114,14 +114,32 @@ impl Api {
 
     /// `POST <pds>/xrpc/<nsid>` with a JSON body and the bearer token.
     pub fn post(&mut self, nsid: &str, body: &Value, notes: &dyn Notes) -> Result<Value, ApiError> {
-        self.call(nsid, &[], Some(body.to_string().into_bytes()), notes)
+        let bytes = body.to_string().into_bytes();
+        self.call(nsid, &[], Some(("application/json", bytes)), notes)
+    }
+
+    /// `POST <pds>/xrpc/<nsid>` with a raw body of `content_type` (a blob
+    /// upload).
+    pub fn post_bytes(
+        &mut self,
+        nsid: &str,
+        content_type: &str,
+        bytes: Vec<u8>,
+        notes: &dyn Notes,
+    ) -> Result<Value, ApiError> {
+        self.call(nsid, &[], Some((content_type, bytes)), notes)
+    }
+
+    /// Who is signed in (the repo records are written to).
+    pub fn did(&self) -> Option<&str> {
+        self.session.as_ref().map(|s| s.did.as_str())
     }
 
     fn call(
         &mut self,
         nsid: &str,
         query: &[(&str, &str)],
-        body: Option<Vec<u8>>,
+        body: Option<(&str, Vec<u8>)>,
         notes: &dyn Notes,
     ) -> Result<Value, ApiError> {
         let mut refreshed = false;
@@ -132,12 +150,9 @@ impl Api {
             let bearer = format!("Bearer {}", session.access_jwt);
             let response = match &body {
                 None => self.http.get(&url, &[("authorization", &bearer)]),
-                Some(bytes) => self.http.post(
+                Some((content_type, bytes)) => self.http.post(
                     &url,
-                    &[
-                        ("authorization", &bearer),
-                        ("content-type", "application/json"),
-                    ],
+                    &[("authorization", &bearer), ("content-type", content_type)],
                     bytes,
                 ),
             }
