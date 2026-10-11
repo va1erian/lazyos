@@ -3,6 +3,7 @@ name = "lazysky-ui"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "GPL-3.0-or-later"
 description = "LazySky's portable xui window (docs/lazysky-plan.md): host-tested offscreen, run on LazyOS by `xui-lazysky` and on a desktop by the `desktop` example"
 
 [dependencies]

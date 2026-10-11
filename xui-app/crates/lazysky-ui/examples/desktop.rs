@@ -86,11 +86,16 @@ fn main() {
         .size(WINDOW.0, WINDOW.1)
         .backend(Rc::new(WinitBackend::new()))
         .run(|ui| {
-            LazySkyApp::build(ui, Arc::new(Desktop), Settings::default(), |msg| {
-                if let Msg::Report(report) = msg {
-                    println!("{report:?}");
-                }
-            })
+            LazySkyApp::build(
+                ui,
+                Arc::new(Desktop),
+                Settings::load(&Desktop.app_dir()),
+                |msg| {
+                    if let Msg::Report(report) = msg {
+                        println!("{report:?}");
+                    }
+                },
+            )
         });
     if let Err(error) = outcome {
         eprintln!("lazysky: {error}");

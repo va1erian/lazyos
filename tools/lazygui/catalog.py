@@ -18,7 +18,7 @@ from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-expor
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
@@ -152,7 +152,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     env: dict[str, str] = {}
     # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if cfg.get("desktop") or cfg.get("lazyweb") or cfg.get("setup"):
+    if cfg.get("desktop") or cfg.get("lazyweb") or cfg.get("lazysky") or cfg.get("setup"):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
@@ -260,6 +260,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # The LazyWeb browser's core package (`tools/xui/build.py` builds it
         # with the other apps); with the desktop, the stack and HTTPS set above.
         env["LAZYOS_LAZYWEB"] = "1"
+    if cfg.get("lazysky"):
+        # The LazySky Bluesky client's core package; with the desktop and the
+        # stack set above.
+        env["LAZYOS_LAZYSKY"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)
     return env
@@ -346,6 +350,10 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.
             argv.append("--lazyweb")
+        if cfg.get("lazysky") and not cfg["skip_build"]:
+            # run_demo builds the client and sets the desktop, the stack and
+            # LAZYOS_LAZYSKY itself.
+            argv.append("--lazysky")
         argv += desktop_app_argv(cfg) + login_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).

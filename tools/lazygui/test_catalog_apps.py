@@ -487,3 +487,4 @@ class SmbTests(unittest.TestCase):
         self.assertIn("--smb", demo_argv(smb=True, skip_build=False))
         self.assertNotIn("--smb", demo_argv(skip_build=False))
         self.assertNotIn("--smb", demo_argv(smb=True, skip_build=True))
+

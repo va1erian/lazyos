@@ -50,6 +50,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_DOOM` | `doom.lzp` sample package. | `tools/doom/build.py` | `--doom` |
 | `LAZYOS_EMUSIC` | `emusic.lzp` sample package. | `tools/emusic/build.py` | `--emusic` |
 | `LAZYOS_LAZYWEB` | LazyWeb browser core package. | desktop, `LAZYOS_NETD` | `--lazyweb` |
+| `LAZYOS_LAZYSKY` | LazySky Bluesky client core package. | desktop, `LAZYOS_NETD` | `--lazysky` |
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, lua, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |

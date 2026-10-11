@@ -54,6 +54,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazyweb",
         Art::Lucide(Lucide::Link, Tone::Amber),
     ),
+    // LazySky: a paper plane, Lucide `send`, on a cobalt tile.
+    (
+        "xui-app/packages/lazysky",
+        Art::Lucide(Lucide::Send, Tone::Cobalt),
+    ),
     // Mail: Lucide `mail`, the envelope, on a rose tile.
     (
         "xui-app/packages/mail",

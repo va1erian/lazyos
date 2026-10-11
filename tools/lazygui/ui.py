@@ -79,7 +79,7 @@ class Launcher:
                          v["simple_net"], self._run,
                          *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
                                                      "traydemo", "autologin", "setup", "pictures", "emusic",
-                                                     "usb_image")))
+                                                     "usb_image", "lazysky")))
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -133,7 +133,7 @@ class Launcher:
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "nics", "tls",
                                                     "lazyweb", "smb", "dbgd",
-                                                    "dbgd_control")))
+                                                    "dbgd_control", "lazysky")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))

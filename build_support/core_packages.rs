@@ -154,6 +154,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "nettools",
         // LazyWeb, only with `LAZYOS_LAZYWEB=1` (`lazyweb_embed`).
         "lazyweb",
+        // LazySky, only with `LAZYOS_LAZYSKY=1` (`lazysky_embed`).
+        "lazysky",
         // Calculator: A basic calculator.
         "calc",
         // PDF Viewer: Read PDF documents.

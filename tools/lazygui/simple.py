@@ -11,7 +11,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_INTERFACES
 #: each is the Tk variable `simple_<name>`.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic", "usb_image")
+                 "emusic", "usb_image", "lazysky")
 
 
 def simple_choice(build_label: str, iface_label: str) -> tuple[str, str]:
@@ -24,7 +24,7 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
                      linuxapps_var=None, hidpi_var=None, tls_var=None,
                      lazyweb_var=None, mail_var=None, traydemo_var=None,
                      autologin_var=None, setup_var=None, pictures_var=None,
-                     emusic_var=None, usb_image_var=None) -> None:
+                     emusic_var=None, usb_image_var=None, lazysky_var=None) -> None:
     """Populate ``parent`` with the two choices and the Start button.
 
     ``build_var``/``iface_var`` are Tk string variables holding a
@@ -41,7 +41,8 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
     ``user``, issue #623); ``setup_var`` starts it with no account, the
     login screen asking for the owner (docs/accounts-plan.md U1);
     ``pictures_var`` the Picture Viewer (Desktop); ``usb_image_var`` also writes the
-    real-PC USB stick image (Desktop); ``on_start`` runs the plan.
+    real-PC USB stick image (Desktop); ``lazysky_var`` the LazySky Bluesky
+    client (Desktop; with networking); ``on_start`` runs the plan.
     """
     ttk.Label(parent, text="Start LazyOS", font=("TkDefaultFont", 14, "bold")
               ).pack(anchor="w", padx=10, pady=(12, 2))
@@ -129,6 +130,10 @@ def build_simple_tab(parent: ttk.Frame, build_var, iface_var, lazyrad_var, shell
         ttk.Checkbutton(net, text="LazyWeb browser (Desktop; turns "
                                   "networking and HTTPS on)",
                         variable=lazyweb_var).pack(anchor="w", padx=8, pady=4)
+    if lazysky_var is not None:
+        ttk.Checkbutton(net, text="LazySky (Bluesky) client (Desktop; turns "
+                                  "networking on)",
+                        variable=lazysky_var).pack(anchor="w", padx=8, pady=4)
 
     if linuxapps_var is not None:
         extra = ttk.LabelFrame(parent, text="Extras (CLI or Desktop)")

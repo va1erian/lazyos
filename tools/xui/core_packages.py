@@ -106,6 +106,10 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
+    # The Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1` image
+    # ships it (`build_support/lazysky_embed.rs`, which fails that build when
+    # it is missing).
+    "lazysky": xui_app("xui-lazysky.elf", "lazysky", optional=True),
     # esMail (docs/mail.md): links SQLite's C (zig), built only on request
     # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
     "mail": xui_app("xui-mail.elf", "mail", optional=True),

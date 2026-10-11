@@ -164,6 +164,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
                              "a core package; NetSurf compiled with zig by tools/xui/build.py), "
                              "networking and the HTTPS tools (docs/lazyweb.md)")
+    parser.add_argument("--lazysky", action="store_true",
+                        help="the desktop profile with the LazySky Bluesky client "
+                             "(LAZYOS_LAZYSKY=1, a core package) and networking "
+                             "(docs/lazysky.md)")
     parser.add_argument("--mail", action="store_true",
                         help="the desktop with HTTPS and Mail, esMail's IMAP/SMTP client "
                              "(LAZYOS_MAIL=1, docs/mail.md)")
@@ -213,11 +217,14 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.mail or args.pictures or args.traydemo or args.setup)
+                    or args.lazyweb or args.lazysky or args.mail or args.pictures
+                    or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
     args.dbgd = args.dbgd or args.dbgd_control
-    args.net = args.net or args.tls or args.smb or args.dbgd
+    # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
+    # in every image.
+    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

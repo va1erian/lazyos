@@ -111,6 +111,10 @@ def make_vars() -> dict:
         # desktop, networking and HTTPS).
         "lazyweb": b(value=False),
         "simple_lazyweb": b(value=False),
+        # The LazySky Bluesky client (LAZYOS_LAZYSKY, run_demo --lazysky;
+        # implies the desktop and networking).
+        "lazysky": b(value=False),
+        "simple_lazysky": b(value=False),
         # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
         "mail": b(value=False),
         "simple_mail": b(value=False),

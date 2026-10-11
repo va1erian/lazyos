@@ -107,6 +107,19 @@ def build_lazyweb() -> bool:
     return False
 
 
+#: LazySky's client binary (`tools/xui/build.py` builds it with the other apps).
+LAZYSKY_ELF = ROOT / "target" / "xui" / "xui-lazysky.elf"
+
+
+def build_lazysky() -> bool:
+    """LazySky (`--lazysky`): the xui apps when its binary is missing."""
+    if LAZYSKY_ELF.is_file() or (build_xui_apps() and LAZYSKY_ELF.is_file()):
+        return True
+    print(f"error: {LAZYSKY_ELF} was not built "
+          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
+    return False
+
+
 def build_xui_apps() -> bool:
     """The desktop's xui apps, which include the Devices app (`--devices`)."""
     return required("the xui apps", "xui/build.py")

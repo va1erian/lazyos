@@ -5,7 +5,9 @@
 //! LazyOS [`Platform`] and launches the window.
 //!
 //! `xui-lazysky [--service URL]`: `--service` points the login at another
-//! Bluesky server (the test harness's mock; default `https://bsky.social`).
+//! Bluesky server (default: the `service` of `settings.toml` in
+//! `$HOME/.apps/os.lazy.lazysky`, else `https://bsky.social`). `init` can pass
+//! an app one absolute path only, so the harness writes the settings file.
 //!
 //! Serial evidence: `SKY:UP:PASS` after the first frame, `SKY:LOGIN:PASS:<handle>`
 //! / `SKY:LOGIN:FAIL:<reason>` and `SKY:FEED:PAGE:<posts>:<skipped>` from the
@@ -88,7 +90,9 @@ fn main() {
     launch::run("SKY", "LazySky", WINDOW, move |ui, backend| {
         backend.on_first_frame(|| println!("SKY:UP:PASS"));
         backend.set_size_hints(480, 360, 0, 0);
-        let mut settings = Settings::default();
+        // The user's settings (read once, before the first frame); a
+        // `--service` argument wins for this run.
+        let mut settings = Settings::load(&LazyOs.app_dir());
         if let Some(service) = &service {
             settings.service = service.clone();
         }

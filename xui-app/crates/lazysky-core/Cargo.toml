@@ -3,6 +3,7 @@ name = "lazysky-core"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "GPL-3.0-or-later"
 description = "LazySky's headless core: Bluesky protocol, session, HTTPS, images and the feed model (no xui, no LazyOS crate; docs/lazysky-plan.md)"
 
 [dependencies]
