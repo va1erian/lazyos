@@ -55,8 +55,7 @@ impl Client {
                 deadline_ns: 0,
             },
             body,
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         self.call(&parcel).map(|_| ())
     }
