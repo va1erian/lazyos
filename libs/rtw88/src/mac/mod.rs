@@ -20,7 +20,9 @@ mod power;
 mod tests;
 
 pub use fwdl::{ddma_to_fw_fifo, download_firmware};
-pub use init::{flush_queues, is_ch_5g_band, mac_init, mac_postinit, set_channel_mac, set_trx_fifo_info};
+pub use init::{
+    flush_queues, is_ch_5g_band, mac_init, mac_postinit, set_channel_mac, set_trx_fifo_info,
+};
 pub use power::{power_off, power_on, pwr_seq_parser};
 
 use crate::error::{Error, Result};

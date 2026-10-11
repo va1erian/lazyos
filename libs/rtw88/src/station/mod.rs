@@ -44,7 +44,10 @@ use crate::dev::{Band, Bw, Dev};
 use crate::error::{Error, Result};
 use crate::fw::{self, C2h, C2hEvent};
 use crate::hci::{Hci, RegExt};
-use crate::mac::regs::{BCN_CTRL, EN_BCN_FUNCTION, RCR, RCR_AAP, RCR_ACRC32, RCR_AM, RCR_CBSSID_BCN, RCR_CBSSID_DATA, RXFLTMAP1};
+use crate::mac::regs::{
+    BCN_CTRL, EN_BCN_FUNCTION, RCR, RCR_AAP, RCR_ACRC32, RCR_AM, RCR_CBSSID_BCN, RCR_CBSSID_DATA,
+    RXFLTMAP1,
+};
 
 /// Upstream `enum rtw_net_type`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -145,15 +148,26 @@ impl<H: Hci> Dev<H> {
         if self.hal.vif.added {
             return Err(Error::Invalid("station interface already added"));
         }
-        self.hal.vif = Vif { added: true, mac_addr: mac, bcn_ctrl: EN_BCN_FUNCTION, ..Vif::default() };
-        port_config(self, port_set::MAC_ADDR | port_set::NET_TYPE | port_set::BCN_CTRL);
+        self.hal.vif = Vif {
+            added: true,
+            mac_addr: mac,
+            bcn_ctrl: EN_BCN_FUNCTION,
+            ..Vif::default()
+        };
+        port_config(
+            self,
+            port_set::MAC_ADDR | port_set::NET_TYPE | port_set::BCN_CTRL,
+        );
         Ok(())
     }
 
     /// Upstream `rtw_ops_remove_interface`.
     pub fn remove_station(&mut self) -> Result<()> {
         self.hal.vif = Vif::default();
-        port_config(self, port_set::MAC_ADDR | port_set::NET_TYPE | port_set::BCN_CTRL);
+        port_config(
+            self,
+            port_set::MAC_ADDR | port_set::NET_TYPE | port_set::BCN_CTRL,
+        );
         Ok(())
     }
 
@@ -174,10 +188,15 @@ impl<H: Hci> Dev<H> {
     /// Upstream `rtw_ops_configure_filter` with every flag "changed".
     /// Turning promiscuous beacons off sets `CBSSID_BCN` only, as upstream.
     pub fn set_rx_filter(&mut self, f: RxFilter) {
-        let ctl = if f.control { 0xffff } else { self.hal.rxfltmap1 };
+        let ctl = if f.control {
+            0xffff
+        } else {
+            self.hal.rxfltmap1
+        };
         self.hci.write16(RXFLTMAP1, ctl);
         let mut rcr = self.hal.rcr;
-        let set = |rcr: &mut u32, on: bool, bits: u32| if on { *rcr |= bits } else { *rcr &= !bits };
+        let set =
+            |rcr: &mut u32, on: bool, bits: u32| if on { *rcr |= bits } else { *rcr &= !bits };
         set(&mut rcr, f.all_multi, RCR_AM);
         set(&mut rcr, f.fcs_fail, RCR_ACRC32);
         set(&mut rcr, f.other_bss, RCR_AAP);
@@ -193,7 +212,10 @@ impl<H: Hci> Dev<H> {
     /// Scanning (`true`: every BSS's beacons and probe responses) or
     /// associated (`false`: our BSS's beacons only).
     pub fn set_filter_scan(&mut self, scanning: bool) {
-        self.set_rx_filter(RxFilter { bcn_prbresp_promisc: scanning, ..RxFilter::default() });
+        self.set_rx_filter(RxFilter {
+            bcn_prbresp_promisc: scanning,
+            ..RxFilter::default()
+        });
     }
 
     /// Upstream `rtw_core_scan_start` (software scan): leave power save, use
@@ -264,8 +286,12 @@ impl<H: Hci> Dev<H> {
         self.hal.vif.aid = aid;
         self.hal.vif.net_type = NetType::MgdLinked;
         self.hal.vif.basic_rates = peer.basic_rates;
-        let (mac, bssid, mac_id, port) =
-            (self.hal.vif.mac_addr, self.hal.vif.bssid, self.hal.vif.mac_id, self.hal.vif.port);
+        let (mac, bssid, mac_id, port) = (
+            self.hal.vif.mac_addr,
+            self.hal.vif.bssid,
+            self.hal.vif.mac_id,
+            self.hal.vif.port,
+        );
         fw::rsvd::download_sta_rsvd_page(self, &mac, &bssid, aid)?;
         fw::default_port(self, port, mac_id)?;
         port_config(self, port_set::NET_TYPE | port_set::AID);
@@ -305,7 +331,13 @@ impl<H: Hci> Dev<H> {
             return Err(Error::Unsupported("firmware has no beacon filter"));
         }
         let vif = &self.hal.vif;
-        let cfg = fw::BcnFilter { bssid: vif.bssid, mac_id: vif.mac_id, beacon_int, thold: -70, hyst: 4 };
+        let cfg = fw::BcnFilter {
+            bssid: vif.bssid,
+            mac_id: vif.mac_id,
+            beacon_int,
+            thold: -70,
+            hyst: 4,
+        };
         fw::beacon_filter_config(self, enable.then_some(&cfg))?;
         self.hal.vif.beacon_filter = enable;
         Ok(())
@@ -326,7 +358,13 @@ impl<H: Hci> Dev<H> {
     /// returned for the caller (TX reports, beacon filter news).
     pub fn handle_c2h<'a>(&mut self, pkt: &'a [u8]) -> Result<C2h<'a>> {
         let c2h = fw::parse_c2h(pkt)?;
-        if let C2hEvent::RaReport { mac_id, rate, sgi, bw } = c2h.event {
+        if let C2hEvent::RaReport {
+            mac_id,
+            rate,
+            sgi,
+            bw,
+        } = c2h.event
+        {
             if let Some(si) = self.hal.vif.sta.as_mut().filter(|si| si.mac_id == mac_id) {
                 si.tx_rate = rate;
                 si.tx_sgi = sgi;

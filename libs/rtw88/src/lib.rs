@@ -87,7 +87,10 @@ pub fn model(vendor: u16, device: u16) -> Option<&'static str> {
     if vendor != VENDOR {
         return None;
     }
-    DEVICES.iter().find(|(id, _)| *id == device).map(|(_, name)| *name)
+    DEVICES
+        .iter()
+        .find(|(id, _)| *id == device)
+        .map(|(_, name)| *name)
 }
 
 /// The firmware file, relative to the firmware tree (`fhs::FIRMWARE`).

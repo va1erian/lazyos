@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 
 use super::{HwCap, HW_CAP_IGNORE, HW_CAP_SUPP_BW40, HW_CAP_SUPP_BW80};
 use crate::bringup::chip_calls;
-use crate::dev::{Dev, RF_1T1R, BB_PATH_A};
+use crate::dev::{Dev, BB_PATH_A, RF_1T1R};
 use crate::error::{Error, Result};
 use crate::fw::c2h::id::{HW_FEATURE_DUMP, HW_FEATURE_REPORT};
 use crate::hci::{Hci, RegExt};
@@ -25,7 +25,12 @@ const HW_FEATURE_LEN: usize = 13;
 /// Upstream `rtw_dump_logical_efuse_map`: replay the physical log `phy`
 /// (`physical_size` bytes of which the last `protect_size` are not log)
 /// into a `logical_size` map that starts all `0xff`.
-pub fn logical_map(phy: &[u8], physical_size: u32, protect_size: u32, logical_size: u32) -> Result<Vec<u8>> {
+pub fn logical_map(
+    phy: &[u8],
+    physical_size: u32,
+    protect_size: u32,
+    logical_size: u32,
+) -> Result<Vec<u8>> {
     let limit = (physical_size.saturating_sub(protect_size) as usize).min(phy.len());
     let mut log = vec![0xffu8; logical_size as usize];
     let mut idx = 0usize;
@@ -39,7 +44,10 @@ pub fn logical_map(phy: &[u8], physical_size: u32, protect_size: u32, logical_si
         let (blk, word_en) = if (hdr1 & 0x1f) == 0xf {
             // 2-byte header: block[2:0] in hdr1[7:5], block[6:3] in hdr2[7:4].
             idx += 2;
-            ((((hdr2 & 0xf0) >> 1) | ((hdr1 >> 5) & 0x07)) as usize, hdr2 & 0xf)
+            (
+                (((hdr2 & 0xf0) >> 1) | ((hdr1 >> 5) & 0x07)) as usize,
+                hdr2 & 0xf,
+            )
         } else {
             idx += 1;
             (((hdr1 & 0xf0) >> 4) as usize, hdr1 & 0xf)
@@ -82,7 +90,10 @@ fn dump_physical_efuse_map<H: Hci>(dev: &mut Dev<H>) -> Result<Vec<u8>> {
             ctl = dev.hci.read32(EFUSE_CTRL);
             cnt -= 1;
             if cnt == 0 {
-                return Err(Error::Timeout { step: "efuse read", addr: EFUSE_CTRL });
+                return Err(Error::Timeout {
+                    step: "efuse read",
+                    addr: EFUSE_CTRL,
+                });
             }
             if ctl & EF_FLAG != 0 {
                 break;

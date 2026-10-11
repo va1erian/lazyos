@@ -168,7 +168,11 @@ impl<'a> Firmware<'a> {
         let hdr = FwHeader::read(image);
         let dmem = u64::from(hdr.dmem_size) + u64::from(FW_HDR_CHKSUM_SIZE);
         let imem = u64::from(hdr.imem_size) + u64::from(FW_HDR_CHKSUM_SIZE);
-        let emem = if hdr.has_emem() { u64::from(hdr.emem_size) + u64::from(FW_HDR_CHKSUM_SIZE) } else { 0 };
+        let emem = if hdr.has_emem() {
+            u64::from(hdr.emem_size) + u64::from(FW_HDR_CHKSUM_SIZE)
+        } else {
+            0
+        };
         let real = FW_HDR_SIZE as u64 + dmem + imem + emem;
         if real != image.len() as u64 {
             return Err(Error::BadFirmware("section sizes do not match the file"));
@@ -180,10 +184,19 @@ impl<'a> Firmware<'a> {
         let e0 = i0 + imem;
         Ok(Firmware {
             hdr,
-            dmem: FwSection { addr: hdr.dmem_addr & !(1 << 31), data: &image[d0..i0] },
-            imem: FwSection { addr: hdr.imem_addr & !(1 << 31), data: &image[i0..e0] },
+            dmem: FwSection {
+                addr: hdr.dmem_addr & !(1 << 31),
+                data: &image[d0..i0],
+            },
+            imem: FwSection {
+                addr: hdr.imem_addr & !(1 << 31),
+                data: &image[i0..e0],
+            },
             emem: if hdr.has_emem() {
-                Some(FwSection { addr: hdr.emem_addr & !(1 << 31), data: &image[e0..e0 + emem] })
+                Some(FwSection {
+                    addr: hdr.emem_addr & !(1 << 31),
+                    data: &image[e0..e0 + emem],
+                })
             } else {
                 None
             },

@@ -1,7 +1,10 @@
 //! The H2C commands a station needs (upstream `fw.c`: one function each,
 //! same names without the `rtw_fw_` prefix; field layouts from `fw.h`).
 
-use super::h2c::{send_h2c_cmd, send_h2c_packet, send_h2c_register, set_cmd_id, set_field, set_pkt_header, H2C_PKT_SIZE};
+use super::h2c::{
+    send_h2c_cmd, send_h2c_packet, send_h2c_register, set_cmd_id, set_field, set_pkt_header,
+    H2C_PKT_SIZE,
+};
 use crate::dev::Dev;
 use crate::error::Result;
 use crate::hci::Hci;
@@ -159,7 +162,14 @@ pub struct PwrMode {
 
 impl PwrMode {
     /// What `rtw_leave_lps_core` sends: active, everything on.
-    pub const ACTIVE: PwrMode = PwrMode { mode: 0, rlbm: 0, smart_ps: 0, awake_interval: 1, port_id: 0, state: 0xc };
+    pub const ACTIVE: PwrMode = PwrMode {
+        mode: 0,
+        rlbm: 0,
+        smart_ps: 0,
+        awake_interval: 1,
+        port_id: 0,
+        state: 0xc,
+    };
 }
 
 /// Upstream `rtw_fw_set_pwr_mode`.
@@ -191,7 +201,13 @@ pub fn default_port<H: Hci>(dev: &mut Dev<H>, port: u8, mac_id: u8) -> Result<()
 }
 
 /// Upstream `rtw_send_rsvd_page_h2c`: the page of each reserved packet.
-pub fn send_rsvd_page_h2c<H: Hci>(dev: &mut Dev<H>, probe_resp: u8, ps_poll: u8, null: u8, qos_null: u8) -> Result<()> {
+pub fn send_rsvd_page_h2c<H: Hci>(
+    dev: &mut Dev<H>,
+    probe_resp: u8,
+    ps_poll: u8,
+    null: u8,
+    qos_null: u8,
+) -> Result<()> {
     let mut h2c = [0u8; 8];
     set_cmd_id(&mut h2c, id::RSVD_PAGE);
     h2c[1] = probe_resp;
@@ -231,7 +247,12 @@ pub fn bt_ignore_wlan_action<H: Hci>(dev: &mut Dev<H>, enable: bool) -> Result<(
 pub fn force_bt_tx_power<H: Hci>(dev: &mut Dev<H>, bt_pwr_dec_lvl: u8) -> Result<()> {
     let mut h2c = [0u8; 8];
     set_cmd_id(&mut h2c, id::FORCE_BT_TX_POWER);
-    set_field(&mut h2c, 0, 0x0000_FF00, u32::from(0u8.wrapping_sub(bt_pwr_dec_lvl)));
+    set_field(
+        &mut h2c,
+        0,
+        0x0000_FF00,
+        u32::from(0u8.wrapping_sub(bt_pwr_dec_lvl)),
+    );
     send_h2c_cmd(dev, &h2c)
 }
 

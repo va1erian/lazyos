@@ -37,32 +37,36 @@ pub fn healthy_chip(efuse_phy: Vec<u8>) -> FakeHci {
 
     // The power sequences: APFM_ONMAC (0x05 bit 0) leaves "card disabled",
     // APFM_OFFMAC (0x05 bit 1) returns to it.
-    f.hooks.push(std::boxed::Box::new(|regs: &mut [u8], width, addr, val| {
-        if width == 1 && addr == 0x05 {
-            if val & 0x01 != 0 {
-                regs[0x100] = 0x00;
+    f.hooks
+        .push(std::boxed::Box::new(|regs: &mut [u8], width, addr, val| {
+            if width == 1 && addr == 0x05 {
+                if val & 0x01 != 0 {
+                    regs[0x100] = 0x00;
+                }
+                if val & 0x02 != 0 {
+                    regs[0x100] = 0xEA;
+                }
             }
-            if val & 0x02 != 0 {
-                regs[0x100] = 0xEA;
-            }
-        }
-    }));
+        }));
     // The efuse: a read command (flag clear) makes the byte and the flag
     // appear.
-    f.hooks.push(std::boxed::Box::new(move |regs: &mut [u8], width, addr, val| {
-        if width == 4 && addr == 0x30 && val & (1 << 31) == 0 {
-            let a = ((val >> 8) & 0x3ff) as usize;
-            regs[0x30] = efuse_phy.get(a).copied().unwrap_or(0xff);
-            regs[0x33] |= 0x80;
-        }
-    }));
+    f.hooks.push(std::boxed::Box::new(
+        move |regs: &mut [u8], width, addr, val| {
+            if width == 4 && addr == 0x30 && val & (1 << 31) == 0 {
+                let a = ((val >> 8) & 0x3ff) as usize;
+                regs[0x30] = efuse_phy.get(a).copied().unwrap_or(0xff);
+                regs[0x33] |= 0x80;
+            }
+        },
+    ));
     // The firmware answers a feature dump request at once.
-    f.hooks.push(std::boxed::Box::new(|regs: &mut [u8], width, addr, val| {
-        if width == 1 && addr == 0x1A0 && val == 0xfd {
-            regs[0x1A0] = 0x19;
-            regs[0x1A2 + 4..0x1A2 + 8].copy_from_slice(&HW_FEATURE_W1.to_le_bytes());
-        }
-    }));
+    f.hooks
+        .push(std::boxed::Box::new(|regs: &mut [u8], width, addr, val| {
+            if width == 1 && addr == 0x1A0 && val == 0xfd {
+                regs[0x1A0] = 0x19;
+                regs[0x1A2 + 4..0x1A2 + 8].copy_from_slice(&HW_FEATURE_W1.to_le_bytes());
+            }
+        }));
     f
 }
 
@@ -89,7 +93,11 @@ pub fn synth_fw(dmem: usize, imem: usize, emem: Option<usize>) -> Vec<u8> {
     h[0x38..0x3C].copy_from_slice(&0x8010_0000u32.to_le_bytes());
     h[0x3C..0x40].copy_from_slice(&0x8003_0000u32.to_le_bytes());
     let mut img = h;
-    for (n, len) in [Some(dmem), Some(imem), emem].into_iter().flatten().enumerate() {
+    for (n, len) in [Some(dmem), Some(imem), emem]
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
         img.extend((0..len + 8).map(|i| (i as u8).wrapping_add(n as u8 * 0x40)));
     }
     img

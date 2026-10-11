@@ -16,7 +16,10 @@ use fuzzkit::Rng;
 fn parses_a_synthetic_image() {
     let img = synth_fw(0x4b80, 0xd330, Some(0x1f860));
     let fw = Firmware::parse(&img).unwrap();
-    assert_eq!((fw.hdr.version, fw.hdr.subversion, fw.hdr.subindex), (9, 9, 15));
+    assert_eq!(
+        (fw.hdr.version, fw.hdr.subversion, fw.hdr.subindex),
+        (9, 9, 15)
+    );
     assert_eq!(fw.dmem.addr, 0x0020_0000);
     assert_eq!(fw.dmem.data.len(), 0x4b88);
     assert_eq!(fw.imem.addr, 0x0003_0000);
@@ -35,7 +38,10 @@ fn parses_a_synthetic_image() {
 fn rejects_images_whose_sizes_do_not_add_up() {
     let img = synth_fw(0x100, 0x100, None);
     assert!(Firmware::parse(&img).is_ok());
-    assert_eq!(Firmware::parse(&img[..img.len() - 1]).unwrap_err(), Error::BadFirmware("section sizes do not match the file"));
+    assert_eq!(
+        Firmware::parse(&img[..img.len() - 1]).unwrap_err(),
+        Error::BadFirmware("section sizes do not match the file")
+    );
     assert!(Firmware::parse(&img[..63]).is_err());
     assert!(Firmware::parse(&[]).is_err());
 
@@ -69,7 +75,10 @@ fn legacy_header() {
     h[0x0C] = 0x34;
     h[0x0D] = 0x12;
     let l = FwHeaderLegacy::parse(&h).unwrap();
-    assert_eq!((l.version, l.subversion1, l.subversion2, l.size), (0x24, 1, 2, 0x1234));
+    assert_eq!(
+        (l.version, l.subversion1, l.subversion2, l.size),
+        (0x24, 1, 2, 0x1234)
+    );
     assert!(FwHeaderLegacy::parse(&h[..31]).is_err());
 }
 
@@ -92,7 +101,11 @@ fn fuzzed_images_and_c2h_never_panic() {
     let base = synth_fw(0x40, 0x40, Some(0x20));
     for _ in 0..20_000 {
         let n = rng.below(300) as usize;
-        let mut img = if rng.one_in(2) { base.clone() } else { rng.bytes(n) };
+        let mut img = if rng.one_in(2) {
+            base.clone()
+        } else {
+            rng.bytes(n)
+        };
         for _ in 0..rng.below(4) {
             if !img.is_empty() {
                 let at = rng.below(img.len() as u64) as usize;
@@ -100,7 +113,8 @@ fn fuzzed_images_and_c2h_never_panic() {
             }
         }
         if let Ok(fw) = Firmware::parse(&img) {
-            let total = 64 + fw.dmem.data.len() + fw.imem.data.len() + fw.emem.map_or(0, |e| e.data.len());
+            let total =
+                64 + fw.dmem.data.len() + fw.imem.data.len() + fw.emem.map_or(0, |e| e.data.len());
             assert_eq!(total, img.len());
         }
         let _ = parse_c2h(&img[..img.len().min(rng.below(20) as usize)]);
@@ -132,8 +146,17 @@ fn h2c_waits_for_a_busy_box() {
     let mut d = Dev::new(FakeHci::default());
     d.fw.last_box_num = 2;
     d.hci.force.push((HMETFR, 1 << 2, 1 << 2));
-    assert!(matches!(send_h2c_cmd(&mut d, &[0; 8]), Err(Error::Timeout { step: "h2c mailbox", .. })));
-    assert_eq!(d.fw.last_box_num, 2, "a failed command does not use up the box");
+    assert!(matches!(
+        send_h2c_cmd(&mut d, &[0; 8]),
+        Err(Error::Timeout {
+            step: "h2c mailbox",
+            ..
+        })
+    ));
+    assert_eq!(
+        d.fw.last_box_num, 2,
+        "a failed command does not use up the box"
+    );
     assert!(d.hci.writes().is_empty());
 }
 
@@ -148,7 +171,14 @@ fn h2c_packets_carry_sequence_and_descriptor() {
     d.hal.antenna_rx = 3;
     d.efuse.rfe_option = 5;
     send_phydm_info(&mut d).unwrap();
-    do_iqk(&mut d, &IqkPara { clear: 1, segment_iqk: 0 }).unwrap();
+    do_iqk(
+        &mut d,
+        &IqkPara {
+            clear: 1,
+            segment_iqk: 0,
+        },
+    )
+    .unwrap();
 
     assert_eq!(d.hci.h2c.len(), 3);
     for (seq, p) in d.hci.h2c.iter().enumerate() {
@@ -191,7 +221,10 @@ fn command_layouts() {
     default_port(&mut d, 0, 0).unwrap();
     let w = box_writes(&d.hci);
     assert_eq!(w[0], (HMEBOX_EX[0], 0x2345_6789), "low 32 bits of the mask");
-    assert_eq!(w[1].1, 0x40 | (9 << 16) | (1 << 21) | (1 << 23) | (2 << 24) | (1 << 26) | (1 << 28) | (1 << 30));
+    assert_eq!(
+        w[1].1,
+        0x40 | (9 << 16) | (1 << 21) | (1 << 23) | (2 << 24) | (1 << 26) | (1 << 28) | (1 << 30)
+    );
     assert_eq!(w[3].1, 0x01 | (1 << 8) | (3 << 16));
     assert_eq!((w[4].1, w[5].1), (0xC << 8, 0x20 | (1 << 24)));
     assert_eq!(w[7].1, 0x2c);
@@ -200,21 +233,61 @@ fn command_layouts() {
 #[test]
 fn c2h_events_decode_and_short_ones_are_refused() {
     let ra = parse_c2h(&[0x0c, 7, 0x80 | 0x35, 0, 0, 0, 0, 0, 2]).unwrap();
-    assert_eq!(ra.event, C2hEvent::RaReport { mac_id: 0, rate: 0x35, sgi: true, bw: Some(2) });
+    assert_eq!(
+        ra.event,
+        C2hEvent::RaReport {
+            mac_id: 0,
+            rate: 0x35,
+            sgi: true,
+            bw: Some(2)
+        }
+    );
     assert!(parse_c2h(&[0x0c, 7, 0x35, 0]).is_err());
 
     let ccx = parse_c2h(&[0x03, 0, 0x00, 0, 0, 0, 0, 0, 0x14]).unwrap();
-    assert_eq!(ccx.event, C2hEvent::TxReport { sn: 0x14, acked: true });
+    assert_eq!(
+        ccx.event,
+        C2hEvent::TxReport {
+            sn: 0x14,
+            acked: true
+        }
+    );
     let ext = parse_c2h(&[0xff, 1, 0x0f, 0, 0, 0, 0, 0, 0, 0, 0x08, 0x40]).unwrap();
-    assert_eq!(ext.event, C2hEvent::TxReport { sn: 0x08, acked: false });
+    assert_eq!(
+        ext.event,
+        C2hEvent::TxReport {
+            sn: 0x08,
+            acked: false
+        }
+    );
     let sw = parse_c2h(&[0xff, 1, 0x22, 0, 36, 1, 0]).unwrap();
-    assert_eq!(sw.event, C2hEvent::ChanSwitch { central_ch: 36, id: 1, status: 0 });
+    assert_eq!(
+        sw.event,
+        C2hEvent::ChanSwitch {
+            central_ch: 36,
+            id: 1,
+            status: 0
+        }
+    );
     assert!(parse_c2h(&[0xff, 1]).is_err());
     assert!(parse_c2h(&[0xff, 1, 0x22, 0]).is_err());
     let bcn = parse_c2h(&[0x36, 0, 0, 0x11, 40]).unwrap();
-    assert_eq!(bcn.event, C2hEvent::BcnFilter { kind: 1, high: true, rssi: -60 });
-    assert!(matches!(parse_c2h(&[0x09, 0, 1, 2]).unwrap().event, C2hEvent::Coex { id: 0x09, .. }));
-    assert!(matches!(parse_c2h(&[0x77, 0]).unwrap().event, C2hEvent::Other { id: 0x77, .. }));
+    assert_eq!(
+        bcn.event,
+        C2hEvent::BcnFilter {
+            kind: 1,
+            high: true,
+            rssi: -60
+        }
+    );
+    assert!(matches!(
+        parse_c2h(&[0x09, 0, 1, 2]).unwrap().event,
+        C2hEvent::Coex { id: 0x09, .. }
+    ));
+    assert!(matches!(
+        parse_c2h(&[0x77, 0]).unwrap().event,
+        C2hEvent::Other { id: 0x77, .. }
+    ));
     assert!(parse_c2h(&[0x0c]).is_err());
 }
 
@@ -229,7 +302,10 @@ fn rsvd_page_write_restores_the_beacon_registers() {
     assert_eq!(d.hci.rsvd.len(), 1);
     assert_eq!(&d.hci.rsvd[0][48..], &[1, 2, 3]);
     // Restored: the beacon head back at the boundary, BCN_CTRL as before.
-    assert_eq!(d.hci.peek32(FIFOPAGE_CTRL_2) & 0xffff, 1938 | u32::from(BCN_VALID_V1));
+    assert_eq!(
+        d.hci.peek32(FIFOPAGE_CTRL_2) & 0xffff,
+        1938 | u32::from(BCN_VALID_V1)
+    );
     assert_eq!(d.hci.regs[BCN_CTRL as usize], 0x18);
     assert!(rsvd::write_data_rsvd_page(&mut d, 0, &[]).is_err());
 }
@@ -239,7 +315,14 @@ fn station_reserved_pages_are_page_aligned() {
     let mac = [2, 0, 0, 0, 0, 1];
     let bssid = [0x10, 0, 0, 0, 0, 2];
     let (buf, loc) = rsvd::build_sta_rsvd_page(&mac, &bssid, 5, crate::dev::Band::Ghz2);
-    assert_eq!(loc, rsvd::RsvdLocations { ps_poll: 1, qos_null: 2, null: 3 });
+    assert_eq!(
+        loc,
+        rsvd::RsvdLocations {
+            ps_poll: 1,
+            qos_null: 2,
+            null: 3
+        }
+    );
     assert_eq!(buf.len(), 3 * 128 + 80);
     // Page p >= 1 starts at 80 + 128 * (p - 1): its descriptor, then the frame.
     let ps = &buf[80..80 + 48 + 16];

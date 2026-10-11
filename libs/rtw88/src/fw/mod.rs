@@ -15,17 +15,16 @@ pub mod cmds;
 pub mod h2c;
 pub mod header;
 pub mod rsvd;
-pub(crate) mod txdesc;
 
 #[cfg(test)]
 mod tests;
 
 pub use c2h::{c2h_isr, parse_c2h, C2h, C2hEvent};
 pub use cmds::{
-    bt_ignore_wlan_action, bt_wifi_control, coex_tdma_type, default_port, do_iqk, force_bt_tx_power,
-    inform_rfk_status, leave_lps, media_status_report, query_bt_info, send_general_info, send_phydm_info,
-    beacon_filter_config, scan_notify, send_ra_info, send_rssi_info, send_rsvd_page_h2c, set_pwr_mode, wl_ch_info,
-    BcnFilter, IqkPara, PwrMode, RaInfo,
+    beacon_filter_config, bt_ignore_wlan_action, bt_wifi_control, coex_tdma_type, default_port,
+    do_iqk, force_bt_tx_power, inform_rfk_status, leave_lps, media_status_report, query_bt_info,
+    scan_notify, send_general_info, send_phydm_info, send_ra_info, send_rssi_info,
+    send_rsvd_page_h2c, set_pwr_mode, wl_ch_info, BcnFilter, IqkPara, PwrMode, RaInfo,
 };
 pub use h2c::{send_h2c_cmd, send_h2c_packet, send_h2c_register};
 pub use header::{feature, Firmware, FwHeader, FwHeaderLegacy};

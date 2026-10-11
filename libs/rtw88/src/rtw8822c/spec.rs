@@ -97,11 +97,41 @@ pub struct PrioqAddr {
 /// `page_table_8822c`; upstream indexes it by bus (0 SDIO, 1 PCIe, 2-4 USB
 /// by bulk-out count).
 pub const PAGE_TABLE_8822C: [PageTable; 5] = [
-    PageTable { hq_num: 64, nq_num: 64, lq_num: 64, exq_num: 64, gapq_num: 1 },
-    PageTable { hq_num: 64, nq_num: 64, lq_num: 64, exq_num: 64, gapq_num: 1 },
-    PageTable { hq_num: 64, nq_num: 64, lq_num: 0, exq_num: 0, gapq_num: 1 },
-    PageTable { hq_num: 64, nq_num: 64, lq_num: 64, exq_num: 0, gapq_num: 1 },
-    PageTable { hq_num: 64, nq_num: 64, lq_num: 64, exq_num: 64, gapq_num: 1 },
+    PageTable {
+        hq_num: 64,
+        nq_num: 64,
+        lq_num: 64,
+        exq_num: 64,
+        gapq_num: 1,
+    },
+    PageTable {
+        hq_num: 64,
+        nq_num: 64,
+        lq_num: 64,
+        exq_num: 64,
+        gapq_num: 1,
+    },
+    PageTable {
+        hq_num: 64,
+        nq_num: 64,
+        lq_num: 0,
+        exq_num: 0,
+        gapq_num: 1,
+    },
+    PageTable {
+        hq_num: 64,
+        nq_num: 64,
+        lq_num: 64,
+        exq_num: 0,
+        gapq_num: 1,
+    },
+    PageTable {
+        hq_num: 64,
+        nq_num: 64,
+        lq_num: 64,
+        exq_num: 64,
+        gapq_num: 1,
+    },
 ];
 
 /// The PCIe row of [`PAGE_TABLE_8822C`] (`priority_queue_cfg`, PCIe case).
@@ -109,8 +139,22 @@ pub const PAGE_TABLE_PCIE: PageTable = PAGE_TABLE_8822C[1];
 
 use DmaMapping::{Extra, High, Low, Normal};
 
-const fn rqpn(vo: DmaMapping, vi: DmaMapping, be: DmaMapping, bk: DmaMapping, mg: DmaMapping, hi: DmaMapping) -> Rqpn {
-    Rqpn { dma_map_vo: vo, dma_map_vi: vi, dma_map_be: be, dma_map_bk: bk, dma_map_mg: mg, dma_map_hi: hi }
+const fn rqpn(
+    vo: DmaMapping,
+    vi: DmaMapping,
+    be: DmaMapping,
+    bk: DmaMapping,
+    mg: DmaMapping,
+    hi: DmaMapping,
+) -> Rqpn {
+    Rqpn {
+        dma_map_vo: vo,
+        dma_map_vi: vi,
+        dma_map_be: be,
+        dma_map_bk: bk,
+        dma_map_mg: mg,
+        dma_map_hi: hi,
+    }
 }
 
 /// `rqpn_table_8822c`, indexed like [`PAGE_TABLE_8822C`].
@@ -128,10 +172,22 @@ pub const RQPN_PCIE: Rqpn = RQPN_TABLE_8822C[1];
 /// `prioq_addrs_8822c`, indexed by [`DmaMapping`]; the counters are 16 bits
 /// wide (`wsize = true`).
 pub const PRIOQ_ADDRS_8822C: [PrioqAddr; DMA_MAPPING_MAX] = [
-    PrioqAddr { rsvd: 0x023C, avail: 0x023C + 2 }, // Extra: FIFOPAGE_INFO_4
-    PrioqAddr { rsvd: 0x0234, avail: 0x0234 + 2 }, // Low: FIFOPAGE_INFO_2
-    PrioqAddr { rsvd: 0x0238, avail: 0x0238 + 2 }, // Normal: FIFOPAGE_INFO_3
-    PrioqAddr { rsvd: 0x0230, avail: 0x0230 + 2 }, // High: FIFOPAGE_INFO_1
+    PrioqAddr {
+        rsvd: 0x023C,
+        avail: 0x023C + 2,
+    }, // Extra: FIFOPAGE_INFO_4
+    PrioqAddr {
+        rsvd: 0x0234,
+        avail: 0x0234 + 2,
+    }, // Low: FIFOPAGE_INFO_2
+    PrioqAddr {
+        rsvd: 0x0238,
+        avail: 0x0238 + 2,
+    }, // Normal: FIFOPAGE_INFO_3
+    PrioqAddr {
+        rsvd: 0x0230,
+        avail: 0x0230 + 2,
+    }, // High: FIFOPAGE_INFO_1
 ];
 pub const PRIOQ_ADDRS_WSIZE: bool = true;
 
@@ -141,11 +197,27 @@ const USB: u8 = intf::USB;
 const SDIO: u8 = intf::SDIO;
 
 const fn w(offset: u16, intf_mask: u8, base: PwrBase, mask: u8, value: u8) -> PwrSeqCmd {
-    PwrSeqCmd { offset, cut_mask: cut::ALL, intf_mask, base, cmd: PwrCmd::Write, mask, value }
+    PwrSeqCmd {
+        offset,
+        cut_mask: cut::ALL,
+        intf_mask,
+        base,
+        cmd: PwrCmd::Write,
+        mask,
+        value,
+    }
 }
 
 const fn p(offset: u16, intf_mask: u8, base: PwrBase, mask: u8, value: u8) -> PwrSeqCmd {
-    PwrSeqCmd { offset, cut_mask: cut::ALL, intf_mask, base, cmd: PwrCmd::Polling, mask, value }
+    PwrSeqCmd {
+        offset,
+        cut_mask: cut::ALL,
+        intf_mask,
+        base,
+        cmd: PwrCmd::Polling,
+        mask,
+        value,
+    }
 }
 
 use PwrBase::{Mac, Sdio};

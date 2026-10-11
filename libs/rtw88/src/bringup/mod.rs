@@ -11,12 +11,16 @@
 //! ```text
 //! let mut dev = Dev::new(pci);
 //! dev.chip_info_setup(&fw_image)?;   // chip id, efuse (MAC address), RF type
+//! dev.hci.phy_cfg(dev.hal.cut_version, dev.efuse.rfe_option)?; // PCIe PHY, as upstream's probe
 //! dev.core_start(&fw_image)?;        // power, firmware, MAC/BB/RF init, DMA on
 //! dev.add_station(dev.mac_addr())?;  // then crate::station
 //! ```
 //!
-//! and [`Dev::core_stop`] on the way out. The firmware image is passed in
-//! each time rather than kept: the binary owns the file's bytes.
+//! and [`Dev::core_stop`] on the way out. `Pci::phy_cfg` (the bus package)
+//! is the binary's call, between the two: upstream's `rtw_pci_probe` runs
+//! `rtw_pci_phy_cfg` after `rtw_chip_info_setup` and before the first
+//! `rtw_core_start`. The firmware image is passed in each time rather than
+//! kept: the binary owns the file's bytes.
 
 pub(crate) mod chip_calls;
 

@@ -18,7 +18,12 @@ fn dev() -> Dev<FakeHci> {
 
 /// Byte writes to the power-sequence registers, in order.
 fn byte_writes(d: &Dev<FakeHci>) -> Vec<(u32, u32)> {
-    d.hci.writes().into_iter().filter(|w| w.0 == 1).map(|w| (w.1, w.2)).collect()
+    d.hci
+        .writes()
+        .into_iter()
+        .filter(|w| w.0 == 1)
+        .map(|w| (w.1, w.2))
+        .collect()
 }
 
 #[test]
@@ -61,9 +66,16 @@ fn power_on_cold_chip() {
     power_on(&mut d).unwrap();
     assert!(d.hal.flags.power_on);
     let w = d.hci.writes();
-    assert_eq!(w[0], (1, RSV_CTRL, 0), "pre_system_cfg starts with REG_RSV_CTRL");
+    assert_eq!(
+        w[0],
+        (1, RSV_CTRL, 0),
+        "pre_system_cfg starts with REG_RSV_CTRL"
+    );
     // init_system_cfg: DDMA on, the chip's function enables, CR_EXT.
-    assert_eq!(d.hci.peek32(CPU_DMEM_CON) & (WL_PLATFORM_RST | DDMA_EN), WL_PLATFORM_RST | DDMA_EN);
+    assert_eq!(
+        d.hci.peek32(CPU_DMEM_CON) & (WL_PLATFORM_RST | DDMA_EN),
+        WL_PLATFORM_RST | DDMA_EN
+    );
     assert_eq!(d.hci.regs[SYS_FUNC_EN as usize + 1] & 0xD8, 0xD8);
     assert_eq!(d.hci.regs[CR_EXT as usize + 3] & 0x0F, 0x0C);
     // BB/RF held in reset.
@@ -76,8 +88,14 @@ fn power_on_a_powered_chip_cycles_it() {
     d.hci.regs[0x100] = 0x00; // left on by a previous driver
     power_on(&mut d).unwrap();
     let w = byte_writes(&d);
-    let first_disable = w.iter().position(|&(a, _)| a == 0x93).expect("disable flow ran");
-    let first_enable = w.iter().position(|&(a, _)| a == 0x2E).expect("enable flow ran");
+    let first_disable = w
+        .iter()
+        .position(|&(a, _)| a == 0x93)
+        .expect("disable flow ran");
+    let first_enable = w
+        .iter()
+        .position(|&(a, _)| a == 0x2E)
+        .expect("enable flow ran");
     assert!(first_disable < first_enable);
     assert!(d.hal.flags.power_on);
 }
@@ -87,8 +105,18 @@ fn power_poll_timeout_retries_with_pfm_wowl_then_fails() {
     let mut d = dev();
     d.hci.force.retain(|f| f.0 != 0x0004);
     let err = power_on(&mut d).unwrap_err();
-    assert_eq!(err, Error::Timeout { step: "pwr seq poll", addr: 0x06 });
-    let toggles: Vec<u32> = byte_writes(&d).into_iter().filter(|&(a, _)| a == SYS_PW_CTRL).map(|w| w.1).collect();
+    assert_eq!(
+        err,
+        Error::Timeout {
+            step: "pwr seq poll",
+            addr: 0x06
+        }
+    );
+    let toggles: Vec<u32> = byte_writes(&d)
+        .into_iter()
+        .filter(|&(a, _)| a == SYS_PW_CTRL)
+        .map(|w| w.1)
+        .collect();
     assert_eq!(toggles, [u32::from(PFM_WOWL), 0]);
     assert!(!d.hal.flags.power_on);
 }
@@ -137,7 +165,13 @@ fn mac_init_fails_on_a_busy_h2c_queue_or_llt() {
 
     let mut d = dev();
     d.hci.force.retain(|f| f.0 != AUTO_LLT_V1);
-    assert!(matches!(mac_init(&mut d), Err(Error::Timeout { step: "auto llt init", .. })));
+    assert!(matches!(
+        mac_init(&mut d),
+        Err(Error::Timeout {
+            step: "auto llt init",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -159,7 +193,11 @@ fn ddma_programs(f: &FakeHci) -> Vec<(u32, u32, u32)> {
     let w = f.writes();
     let mut out = Vec::new();
     for (i, x) in w.iter().enumerate() {
-        if x.1 == DDMA_CH0SA && i + 2 < w.len() && w[i + 1].1 == DDMA_CH0DA && w[i + 2].1 == DDMA_CH0CTRL {
+        if x.1 == DDMA_CH0SA
+            && i + 2 < w.len()
+            && w[i + 1].1 == DDMA_CH0DA
+            && w[i + 2].1 == DDMA_CH0CTRL
+        {
             out.push((x.2, w[i + 1].2, w[i + 2].2));
         }
     }
@@ -205,21 +243,40 @@ fn firmware_download_failures() {
     // A checksum the DDMA rejects.
     let mut d = dev();
     d.hci.force.retain(|f| f.0 != DDMA_CH0CTRL);
-    d.hci.force.push((DDMA_CH0CTRL, (1 << 31) | (1 << 27), 1 << 27));
-    assert_eq!(download_firmware(&mut d, &fw), Err(Error::FirmwareDownload("invalid fw checksum")));
+    d.hci
+        .force
+        .push((DDMA_CH0CTRL, (1 << 31) | (1 << 27), 1 << 27));
+    assert_eq!(
+        download_firmware(&mut d, &fw),
+        Err(Error::FirmwareDownload("invalid fw checksum"))
+    );
     assert!(!d.hal.flags.fw_running);
-    assert_eq!(d.hci.regs[MCUFW_CTRL as usize] & MCUFWDL_EN as u8, 0, "dlfw_fail clears FWDL_EN");
+    assert_eq!(
+        d.hci.regs[MCUFW_CTRL as usize] & MCUFWDL_EN as u8,
+        0,
+        "dlfw_fail clears FWDL_EN"
+    );
 
     // A firmware that never reports ready, with the key of a wrong image.
     let mut d = dev();
     d.hci.force.retain(|f| f.0 != MCUFW_CTRL);
-    d.hci.regs[FW_DBG7 as usize..FW_DBG7 as usize + 4].copy_from_slice(&ILLEGAL_KEY_GROUP.to_le_bytes());
-    assert_eq!(download_firmware(&mut d, &fw), Err(Error::FirmwareDownload("invalid fw key")));
+    d.hci.regs[FW_DBG7 as usize..FW_DBG7 as usize + 4]
+        .copy_from_slice(&ILLEGAL_KEY_GROUP.to_le_bytes());
+    assert_eq!(
+        download_firmware(&mut d, &fw),
+        Err(Error::FirmwareDownload("invalid fw key"))
+    );
 
     // The LTE coex window never ready.
     let mut d = dev();
     d.hci.force.retain(|f| f.0 != 0x1700);
-    assert!(matches!(download_firmware(&mut d, &fw), Err(Error::Timeout { step: "ltecoex read", .. })));
+    assert!(matches!(
+        download_firmware(&mut d, &fw),
+        Err(Error::Timeout {
+            step: "ltecoex read",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -230,5 +287,12 @@ fn flush_waits_for_pages_then_gives_up() {
     d.hci.regs[0x0230] = 5;
     flush_queues(&mut d, false);
     assert_eq!(d.hci.delayed_us, 5 * 20_000);
-    assert!(d.hci.log.iter().any(|a| matches!(a, Access::Read { width: 2, addr: 0x0232, .. })));
+    assert!(d.hci.log.iter().any(|a| matches!(
+        a,
+        Access::Read {
+            width: 2,
+            addr: 0x0232,
+            ..
+        }
+    )));
 }

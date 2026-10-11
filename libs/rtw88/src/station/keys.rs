@@ -44,18 +44,34 @@ impl<H: Hci> Dev<H> {
     /// AP) takes the first free CAM entry past the default keys; a group key
     /// (`peer` `None`) takes entry `key_idx`. Returns the CAM entry, which
     /// [`Dev::del_key`] takes back.
-    pub fn set_key(&mut self, cipher: Cipher, key_idx: u8, peer: Option<[u8; 6]>, key: &[u8]) -> Result<u8> {
+    pub fn set_key(
+        &mut self,
+        cipher: Cipher,
+        key_idx: u8,
+        peer: Option<[u8; 6]>,
+        key: &[u8],
+    ) -> Result<u8> {
         if key_idx > 3 {
             return Err(Error::Invalid("key index"));
         }
         let pairwise = peer.is_some();
-        let hw_key_idx = if pairwise { self.sec.get_free_cam() } else { usize::from(key_idx) };
+        let hw_key_idx = if pairwise {
+            self.sec.get_free_cam()
+        } else {
+            usize::from(key_idx)
+        };
         // Upstream compares with `>`, letting index 32 through when the CAM
         // is full; `>=` keeps the write inside the table.
         if hw_key_idx >= usize::from(self.sec.total_cam_num) {
             return Err(Error::Full("security cam"));
         }
-        let conf = KeyConf { hw_key_type: cipher.hw_key_type(), key_idx, pairwise, peer, key };
+        let conf = KeyConf {
+            hw_key_type: cipher.hw_key_type(),
+            key_idx,
+            pairwise,
+            peer,
+            key,
+        };
         self.sec.write_cam(&mut self.hci, &conf, hw_key_idx)?;
         Ok(hw_key_idx as u8)
     }

@@ -6,7 +6,9 @@ use crate::dev::Dev;
 use crate::error::{Error, Result};
 use crate::hci::{Hci, RegExt};
 use crate::pwrseq::{intf, PwrBase, PwrCmd, PwrSeqCmd};
-use crate::rtw8822c::spec::{CARD_DISABLE_FLOW_8822C, CARD_ENABLE_FLOW_8822C, RPWM_ADDR, SYS_FUNC_EN as CHIP_SYS_FUNC_EN};
+use crate::rtw8822c::spec::{
+    CARD_DISABLE_FLOW_8822C, CARD_ENABLE_FLOW_8822C, RPWM_ADDR, SYS_FUNC_EN as CHIP_SYS_FUNC_EN,
+};
 
 /// Upstream `cut_version_to_mask`.
 fn cut_version_to_mask(cut: u8) -> u8 {
@@ -34,7 +36,14 @@ fn pre_system_cfg<H: Hci>(hci: &mut H) {
 
 /// Upstream `do_pwr_poll_cmd`: 50 us steps, `RTW_PWR_POLLING_CNT` of them.
 fn do_pwr_poll<H: Hci>(hci: &mut H, addr: u32, mask: u8, target: u8) -> Result<()> {
-    hci.poll8("pwr seq poll", addr, mask, target & mask, 50, 50 * PWR_POLLING_CNT)
+    hci.poll8(
+        "pwr seq poll",
+        addr,
+        mask,
+        target & mask,
+        50,
+        50 * PWR_POLLING_CNT,
+    )
 }
 
 /// Upstream `rtw_pwr_cmd_polling`: on PCIe a failed poll is retried once
@@ -51,7 +60,12 @@ fn pwr_cmd_polling<H: Hci>(hci: &mut H, cmd: &PwrSeqCmd) -> Result<()> {
 }
 
 /// Upstream `rtw_sub_pwr_seq_parser`: run one transition.
-fn sub_pwr_seq_parser<H: Hci>(hci: &mut H, intf_mask: u8, cut_mask: u8, cmds: &[PwrSeqCmd]) -> Result<()> {
+fn sub_pwr_seq_parser<H: Hci>(
+    hci: &mut H,
+    intf_mask: u8,
+    cut_mask: u8,
+    cmds: &[PwrSeqCmd],
+) -> Result<()> {
     for cmd in cmds {
         if cmd.cmd == PwrCmd::End {
             break;
@@ -108,7 +122,8 @@ fn power_switch<H: Hci>(dev: &mut Dev<H>, pwr_on: bool) -> Result<Switch> {
     let rpwm = dev.hci.read8(RPWM_ADDR);
     // Firmware still alive: toggle RPWM so it lets go of the power state.
     if dev.hci.read16(MCUFW_CTRL) == 0xC078 {
-        dev.hci.write8(RPWM_ADDR, (rpwm ^ RPWM_TOGGLE) & RPWM_TOGGLE);
+        dev.hci
+            .write8(RPWM_ADDR, (rpwm ^ RPWM_TOGGLE) & RPWM_TOGGLE);
     }
 
     let cur_pwr = dev.hci.read8(CR) != 0xea;
@@ -118,7 +133,11 @@ fn power_switch<H: Hci>(dev: &mut Dev<H>, pwr_on: bool) -> Result<Switch> {
     if !pwr_on {
         dev.hal.flags.power_on = false;
     }
-    let seq: &[&[PwrSeqCmd]] = if pwr_on { &CARD_ENABLE_FLOW_8822C } else { &CARD_DISABLE_FLOW_8822C };
+    let seq: &[&[PwrSeqCmd]] = if pwr_on {
+        &CARD_ENABLE_FLOW_8822C
+    } else {
+        &CARD_DISABLE_FLOW_8822C
+    };
     pwr_seq_parser(dev, seq)?;
     if pwr_on {
         dev.hal.flags.power_on = true;

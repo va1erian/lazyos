@@ -70,6 +70,10 @@ pub fn cfg_ldo25<H: Hci>(dev: &mut Dev<H>, enable: bool) {
     const REG_ANAPARLDO_POW_MAC: u32 = 0x0029;
     const BIT_LDOE25_PON: u8 = 1 << 0;
     let v = dev.hci.read8(REG_ANAPARLDO_POW_MAC);
-    let v = if enable { v | BIT_LDOE25_PON } else { v & !BIT_LDOE25_PON };
+    let v = if enable {
+        v | BIT_LDOE25_PON
+    } else {
+        v & !BIT_LDOE25_PON
+    };
     dev.hci.write8(REG_ANAPARLDO_POW_MAC, v);
 }

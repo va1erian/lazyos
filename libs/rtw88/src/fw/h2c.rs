@@ -8,10 +8,9 @@
 
 use crate::dev::Dev;
 use crate::error::{Error, Result};
-use crate::fw::txdesc::{self, QSEL_H2C};
 use crate::hci::{Hci, RegExt};
 use crate::mac::regs::{HMEBOX, HMEBOX_EX, HMETFR};
-use crate::tx::{TxPktInfo, TX_PKT_DESC_SZ};
+use crate::tx;
 
 /// Bytes of an H2C packet (`H2C_PKT_SIZE`).
 pub const H2C_PKT_SIZE: usize = 32;
@@ -51,10 +50,14 @@ pub fn set_pkt_header(pkt: &mut [u8; H2C_PKT_SIZE], sub_id: u8, payload_len: u16
 /// is what raises the interrupt to the firmware.
 fn send_box<H: Hci>(dev: &mut Dev<H>, w0: u32, w1: u32) -> Result<()> {
     let box_num = dev.fw.last_box_num;
-    let (Some(&box_reg), Some(&box_ex_reg)) = (HMEBOX.get(box_num as usize), HMEBOX_EX.get(box_num as usize)) else {
+    let (Some(&box_reg), Some(&box_ex_reg)) = (
+        HMEBOX.get(box_num as usize),
+        HMEBOX_EX.get(box_num as usize),
+    ) else {
         return Err(Error::Invalid("invalid h2c mail box number"));
     };
-    dev.hci.poll8("h2c mailbox", HMETFR, 1 << box_num, 0, 100, 3000)?;
+    dev.hci
+        .poll8("h2c mailbox", HMETFR, 1 << box_num, 0, 100, 3000)?;
     dev.hci.write32(box_ex_reg, w1);
     dev.hci.write32(box_reg, w0);
     dev.fw.last_box_num = (box_num + 1) % 4;
@@ -81,11 +84,7 @@ pub fn send_h2c_register<H: Hci>(dev: &mut Dev<H>, w0: u32, w1: u32) -> Result<(
 /// has exactly those two fields.
 pub fn send_h2c_packet<H: Hci>(dev: &mut Dev<H>, pkt: &mut [u8; H2C_PKT_SIZE]) -> Result<()> {
     set_field(pkt, 1, 0xFFFF_0000, u32::from(dev.fw.seq));
-    let info = TxPktInfo { tx_pkt_size: H2C_PKT_SIZE as u32, qsel: QSEL_H2C, ..TxPktInfo::default() };
-    let mut buf = [0u8; TX_PKT_DESC_SZ + H2C_PKT_SIZE];
-    txdesc::fill_tx_desc(&info, &mut buf[..TX_PKT_DESC_SZ]);
-    buf[TX_PKT_DESC_SZ..].copy_from_slice(pkt);
-    let ret = dev.hci.write_data_h2c(&buf);
+    let ret = dev.hci.write_data_h2c(&tx::h2c_pkt(pkt));
     // Upstream advances the sequence even when the bus refused the packet.
     dev.fw.seq = dev.fw.seq.wrapping_add(1);
     ret

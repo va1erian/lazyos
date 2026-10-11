@@ -34,21 +34,45 @@ fn wlan_cpu_enable<H: Hci>(hci: &mut H, enable: bool) {
 /// high DMA channel, give it 0x200 pages, stop beacons; return what to put
 /// back.
 fn reg_backup<H: Hci>(hci: &mut H) -> [Backup; 6] {
-    let b0 = Backup { len: 1, reg: TXDMA_PQ_MAP + 1, val: u32::from(hci.read8(TXDMA_PQ_MAP + 1)) };
+    let b0 = Backup {
+        len: 1,
+        reg: TXDMA_PQ_MAP + 1,
+        val: u32::from(hci.read8(TXDMA_PQ_MAP + 1)),
+    };
     hci.write8(TXDMA_PQ_MAP + 1, (DmaMapping::High as u8) << 6);
 
-    let b1 = Backup { len: 1, reg: CR, val: u32::from(hci.read8(CR)) };
-    let b2 = Backup { len: 4, reg: H2CQ_CSR, val: H2CQ_FULL };
+    let b1 = Backup {
+        len: 1,
+        reg: CR,
+        val: u32::from(hci.read8(CR)),
+    };
+    let b2 = Backup {
+        len: 4,
+        reg: H2CQ_CSR,
+        val: H2CQ_FULL,
+    };
     hci.write8(CR, HCI_TXDMA_EN | TXDMA_EN);
     hci.write32(H2CQ_CSR, H2CQ_FULL);
 
-    let b3 = Backup { len: 2, reg: FIFOPAGE_INFO[0], val: u32::from(hci.read16(FIFOPAGE_INFO[0])) };
-    let b4 = Backup { len: 4, reg: RQPN_CTRL_2, val: hci.read32(RQPN_CTRL_2) | LD_RQPN };
+    let b3 = Backup {
+        len: 2,
+        reg: FIFOPAGE_INFO[0],
+        val: u32::from(hci.read16(FIFOPAGE_INFO[0])),
+    };
+    let b4 = Backup {
+        len: 4,
+        reg: RQPN_CTRL_2,
+        val: hci.read32(RQPN_CTRL_2) | LD_RQPN,
+    };
     hci.write16(FIFOPAGE_INFO[0], 0x200);
     hci.write32(RQPN_CTRL_2, b4.val);
 
     let tmp = hci.read8(BCN_CTRL);
-    let b5 = Backup { len: 1, reg: BCN_CTRL, val: u32::from(tmp) };
+    let b5 = Backup {
+        len: 1,
+        reg: BCN_CTRL,
+        val: u32::from(tmp),
+    };
     hci.write8(BCN_CTRL, (tmp & !EN_BCN_FUNCTION) | DIS_TSF_UDT);
     [b0, b1, b2, b3, b4, b5]
 }
@@ -71,7 +95,13 @@ fn iddma_enable<H: Hci>(hci: &mut H, src: u32, dst: u32, ctrl: u32) -> Result<()
 
 /// Upstream `iddma_download_firmware`: one chunk, checksum continued after
 /// the first.
-fn iddma_download_firmware<H: Hci>(hci: &mut H, src: u32, dst: u32, len: u32, first: bool) -> Result<()> {
+fn iddma_download_firmware<H: Hci>(
+    hci: &mut H,
+    src: u32,
+    dst: u32,
+    len: u32,
+    first: bool,
+) -> Result<()> {
     check_hw_ready(hci, "ddma idle", DDMA_CH0CTRL, DDMACH0_OWN, 0)?;
     let mut ctrl = DDMACH0_CHKSUM_EN | DDMACH0_OWN | (len & MASK_DDMACH0_DLEN);
     if !first {
@@ -93,8 +123,11 @@ pub fn ddma_to_fw_fifo<H: Hci>(hci: &mut H, ocp_src: u32, size: u32) -> Result<(
 fn check_fw_checksum<H: Hci>(hci: &mut H, addr: u32) -> Result<()> {
     let mut fw_ctrl = hci.read8(MCUFW_CTRL);
     let imem = addr < OCPBASE_DMEM_88XX;
-    let (dw_ok, chksum_ok) =
-        if imem { (IMEM_DW_OK as u8, IMEM_CHKSUM_OK as u8) } else { (DMEM_DW_OK as u8, DMEM_CHKSUM_OK as u8) };
+    let (dw_ok, chksum_ok) = if imem {
+        (IMEM_DW_OK as u8, IMEM_CHKSUM_OK as u8)
+    } else {
+        (DMEM_DW_OK as u8, DMEM_CHKSUM_OK as u8)
+    };
     if hci.read32(DDMA_CH0CTRL) & DDMACH0_CHKSUM_STS != 0 {
         fw_ctrl = (fw_ctrl | dw_ok) & !chksum_ok;
         hci.write8(MCUFW_CTRL, fw_ctrl);
@@ -140,7 +173,10 @@ fn end_flow<H: Hci>(hci: &mut H) {
     if u32::from(fw_ctrl) & CHECK_SUM_OK != CHECK_SUM_OK {
         return;
     }
-    hci.write16(MCUFW_CTRL, (fw_ctrl | FW_DW_RDY as u16) & !(MCUFWDL_EN as u16));
+    hci.write16(
+        MCUFW_CTRL,
+        (fw_ctrl | FW_DW_RDY as u16) & !(MCUFWDL_EN as u16),
+    );
 }
 
 /// Upstream `download_firmware_validate`: wait for the firmware to report

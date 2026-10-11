@@ -122,13 +122,24 @@ impl Cam {
     /// default-key entries when default key search is on.
     /// `MAX_SEC_CAM_NUM` when full.
     pub fn get_free_cam(&self) -> usize {
-        let start = if self.default_key_search { SEC_DEFAULT_KEY_NUM as usize } else { 0 };
-        (start..MAX_SEC_CAM_NUM).find(|&i| self.used & (1 << i) == 0).unwrap_or(MAX_SEC_CAM_NUM)
+        let start = if self.default_key_search {
+            SEC_DEFAULT_KEY_NUM as usize
+        } else {
+            0
+        };
+        (start..MAX_SEC_CAM_NUM)
+            .find(|&i| self.used & (1 << i) == 0)
+            .unwrap_or(MAX_SEC_CAM_NUM)
     }
 
     /// Upstream `rtw_sec_write_cam`: program entry `hw_key_idx` (bounds
     /// checked here; upstream trusts its caller).
-    pub fn write_cam<H: Hci>(&mut self, hci: &mut H, key: &KeyConf<'_>, hw_key_idx: usize) -> Result<()> {
+    pub fn write_cam<H: Hci>(
+        &mut self,
+        hci: &mut H,
+        key: &KeyConf<'_>,
+        hw_key_idx: usize,
+    ) -> Result<()> {
         if hw_key_idx >= MAX_SEC_CAM_NUM || hw_key_idx >= usize::from(self.total_cam_num) {
             return Err(Error::Full("security cam"));
         }
@@ -214,7 +225,10 @@ mod tests {
     /// The (data, command) pairs written to the CAM, in order.
     fn cam_writes(f: &FakeHci) -> std::vec::Vec<(u32, u32)> {
         let w = f.writes();
-        w.chunks(2).filter(|p| p.len() == 2).map(|p| (p[0].2, p[1].2)).collect()
+        w.chunks(2)
+            .filter(|p| p.len() == 2)
+            .map(|p| (p[0].2, p[1].2))
+            .collect()
     }
 
     #[test]
@@ -225,7 +239,13 @@ mod tests {
         f.log.clear();
         let key: std::vec::Vec<u8> = (0x10..0x20).collect();
         let peer = [0x02, 0x11, 0x22, 0x33, 0x44, 0x55];
-        let kc = KeyConf { hw_key_type: HwKeyType::Aes, key_idx: 0, pairwise: true, peer: Some(peer), key: &key };
+        let kc = KeyConf {
+            hw_key_type: HwKeyType::Aes,
+            key_idx: 0,
+            pairwise: true,
+            peer: Some(peer),
+            key: &key,
+        };
         let idx = cam.get_free_cam();
         assert_eq!(idx, 4, "pairwise keys go past the default-key entries");
         cam.write_cam(&mut f, &kc, idx).unwrap();
@@ -241,7 +261,7 @@ mod tests {
         assert_eq!(w[2].0, 0x1F1E_1D1C); // word 5: key[12..16]
         assert_eq!(w[5].0, 0x1312_1110); // word 2: key[0..4]
         assert_eq!(w[6].0, 0x5544_3322); // word 1: addr[2..6]
-        // word 0: keyidx 0 | AES (4) << 2 | group 0 | valid << 15 | addr[0..2] << 16
+                                         // word 0: keyidx 0 | AES (4) << 2 | group 0 | valid << 15 | addr[0..2] << 16
         assert_eq!(w[7].0, (4 << 2) | (1 << 15) | (0x02 << 16) | (0x11 << 24));
         assert_eq!(cam.used, 1 << 4);
     }
@@ -251,10 +271,19 @@ mod tests {
         let mut f = FakeHci::default();
         let mut cam = Cam::default();
         let key = [0xAAu8; 16];
-        let kc = KeyConf { hw_key_type: HwKeyType::Aes, key_idx: 1, pairwise: false, peer: None, key: &key };
+        let kc = KeyConf {
+            hw_key_type: HwKeyType::Aes,
+            key_idx: 1,
+            pairwise: false,
+            peer: None,
+            key: &key,
+        };
         cam.write_cam(&mut f, &kc, 1).unwrap();
         let w0 = cam_writes(&f)[7].0;
-        assert_eq!(w0, 1 | (4 << 2) | (1 << 6) | (1 << 15) | (0xff << 16) | (0xff << 24));
+        assert_eq!(
+            w0,
+            1 | (4 << 2) | (1 << 6) | (1 << 15) | (0xff << 16) | (0xff << 24)
+        );
         assert!(cam.entries[1].group);
     }
 
@@ -264,20 +293,41 @@ mod tests {
         let mut cam = Cam::default();
         cam.enable_sec_engine(&mut f);
         let key = [1u8; 16];
-        let kc = KeyConf { hw_key_type: HwKeyType::Aes, key_idx: 0, pairwise: true, peer: Some([2; 6]), key: &key };
+        let kc = KeyConf {
+            hw_key_type: HwKeyType::Aes,
+            key_idx: 0,
+            pairwise: true,
+            peer: Some([2; 6]),
+            key: &key,
+        };
         for _ in 4..MAX_SEC_CAM_NUM {
             let i = cam.get_free_cam();
             cam.write_cam(&mut f, &kc, i).unwrap();
         }
         assert_eq!(cam.get_free_cam(), MAX_SEC_CAM_NUM);
-        assert!(matches!(cam.write_cam(&mut f, &kc, MAX_SEC_CAM_NUM), Err(Error::Full(_))));
+        assert!(matches!(
+            cam.write_cam(&mut f, &kc, MAX_SEC_CAM_NUM),
+            Err(Error::Full(_))
+        ));
         f.log.clear();
         cam.clear_cam(&mut f, 9).unwrap();
-        assert_eq!(f.writes(), std::vec![(4, SEC_WRITE_REG, 0), (4, SEC_CMD_REG, 0x8001_0000 | (9 << 3))]);
+        assert_eq!(
+            f.writes(),
+            std::vec![
+                (4, SEC_WRITE_REG, 0),
+                (4, SEC_CMD_REG, 0x8001_0000 | (9 << 3))
+            ]
+        );
         assert_eq!(cam.get_free_cam(), 9);
         assert!(cam.clear_cam(&mut f, 99).is_err());
-        let short = KeyConf { key: &key[..5], ..kc };
-        assert!(matches!(cam.write_cam(&mut f, &short, 9), Err(Error::Invalid(_))));
+        let short = KeyConf {
+            key: &key[..5],
+            ..kc
+        };
+        assert!(matches!(
+            cam.write_cam(&mut f, &short, 9),
+            Err(Error::Invalid(_))
+        ));
     }
 
     #[test]

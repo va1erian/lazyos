@@ -10,8 +10,8 @@ use crate::dev::{Bw, Dev};
 use crate::error::{Error, Result};
 use crate::hci::{Hci, RegExt};
 use crate::rtw8822c::spec::{
-    DMA_MAPPING_MAX, PAGE_TABLE_PCIE, PRIOQ_ADDRS_8822C, RQPN_PCIE, RSVD_DRV_PG_NUM, RXFF_SIZE, CSI_BUF_PG_NUM,
-    TXFF_SIZE, TX_PAGE_SIZE, TX_PAGE_SIZE_SHIFT,
+    CSI_BUF_PG_NUM, DMA_MAPPING_MAX, PAGE_TABLE_PCIE, PRIOQ_ADDRS_8822C, RQPN_PCIE,
+    RSVD_DRV_PG_NUM, RXFF_SIZE, TXFF_SIZE, TX_PAGE_SIZE, TX_PAGE_SIZE_SHIFT,
 };
 
 /// Upstream `txdma_queue_mapping`, PCIe row: map every queue to its DMA
@@ -105,7 +105,13 @@ fn priority_queue_cfg<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     hci.write32(RXFF_BNDY, RXFF_SIZE - C2H_PKT_BUF - 1);
 
     hci.set8(AUTO_LLT_V1, AUTO_INIT_LLT_V1);
-    check_hw_ready(hci, "auto llt init", AUTO_LLT_V1, u32::from(AUTO_INIT_LLT_V1), 0)?;
+    check_hw_ready(
+        hci,
+        "auto llt init",
+        AUTO_LLT_V1,
+        u32::from(AUTO_INIT_LLT_V1),
+        0,
+    )?;
 
     hci.write8(CR + 3, 0);
     Ok(())
@@ -134,7 +140,11 @@ fn init_h2c<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
 
     let wp = hci.read32(H2C_PKT_WRITEADDR) & 0x3FFFF;
     let rp = hci.read32(H2C_PKT_READADDR) & 0x3FFFF;
-    let free = if wp >= rp { h2cq_size.wrapping_sub(wp - rp) } else { rp - wp };
+    let free = if wp >= rp {
+        h2cq_size.wrapping_sub(wp - rp)
+    } else {
+        rp - wp
+    };
     if free != h2cq_size {
         return Err(Error::Invalid("H2C queue mismatch"));
     }
@@ -181,7 +191,11 @@ pub fn set_channel_mac<H: Hci>(hci: &mut H, channel: u8, bw: Bw, primary_ch_idx:
     let txsc20 = primary_ch_idx;
     let mut txsc40 = 0u8;
     if bw == Bw::Mhz80 {
-        txsc40 = if txsc20 == SC_20_UPPER || txsc20 == SC_20_UPMOST { SC_40_UPPER } else { SC_40_LOWER };
+        txsc40 = if txsc20 == SC_20_UPPER || txsc20 == SC_20_UPMOST {
+            SC_40_UPPER
+        } else {
+            SC_40_LOWER
+        };
     }
     hci.write8(DATA_SC, (txsc20 & 0xf) | ((txsc40 & 0xf) << 4));
 

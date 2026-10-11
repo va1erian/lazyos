@@ -44,20 +44,46 @@ pub mod ext_id {
 pub enum C2hEvent<'a> {
     /// A TX report for a frame sent with `report` set: its sequence number
     /// (`TxPktInfo::sn`) and whether the peer acknowledged it.
-    TxReport { sn: u8, acked: bool },
+    TxReport {
+        sn: u8,
+        acked: bool,
+    },
     /// The firmware's rate adaptation picked a new rate for `mac_id`.
-    RaReport { mac_id: u8, rate: u8, sgi: bool, bw: Option<u8> },
+    RaReport {
+        mac_id: u8,
+        rate: u8,
+        sgi: bool,
+        bw: Option<u8>,
+    },
     /// Beacon filter offload news (signal change, connection lost, ...).
-    BcnFilter { kind: u8, high: bool, rssi: i8 },
+    BcnFilter {
+        kind: u8,
+        high: bool,
+        rssi: i8,
+    },
     /// End of a firmware-assisted scan step, with the channel density.
-    ScanResult { density: u8 },
+    ScanResult {
+        density: u8,
+    },
     /// The RF is back on after leaving power save.
     WlanRfon,
-    ScanStatus { code: u8 },
-    ChanSwitch { central_ch: u8, id: u8, status: u8 },
-    Coex { id: u8, payload: &'a [u8] },
+    ScanStatus {
+        code: u8,
+    },
+    ChanSwitch {
+        central_ch: u8,
+        id: u8,
+        status: u8,
+    },
+    Coex {
+        id: u8,
+        payload: &'a [u8],
+    },
     /// An event this driver does not act on.
-    Other { id: u8, payload: &'a [u8] },
+    Other {
+        id: u8,
+        payload: &'a [u8],
+    },
 }
 
 /// A C2H packet: its id, sequence number and decoded event.
@@ -86,7 +112,10 @@ pub fn parse_c2h(pkt: &[u8]) -> Result<C2h<'_>> {
         id::CCX_TX_RPT => {
             // GET_CCX_REPORT_SEQNUM_V0 / STATUS_V0
             need(payload, 7, "ccx tx report too short")?;
-            C2hEvent::TxReport { sn: payload[6] & 0xfc, acked: payload[0] & 0xc0 == 0 }
+            C2hEvent::TxReport {
+                sn: payload[6] & 0xfc,
+                acked: payload[0] & 0xc0 == 0,
+            }
         }
         id::RA_RPT => {
             // struct rtw_c2h_ra_rpt: rate_sgi, mac_id, ..., bw at 6.
@@ -108,14 +137,26 @@ pub fn parse_c2h(pkt: &[u8]) -> Result<C2h<'_>> {
         }
         id::SCAN_RESULT => {
             need(payload, 1, "scan result too short")?;
-            C2hEvent::ScanResult { density: payload[0] }
+            C2hEvent::ScanResult {
+                density: payload[0],
+            }
         }
         id::WLAN_RFON => C2hEvent::WlanRfon,
         id::HALMAC => parse_halmac(payload)?,
-        id::BT_INFO | id::BT_MP_INFO | id::BT_HID_INFO | id::WLAN_INFO => C2hEvent::Coex { id: c2h_id, payload },
-        _ => C2hEvent::Other { id: c2h_id, payload },
+        id::BT_INFO | id::BT_MP_INFO | id::BT_HID_INFO | id::WLAN_INFO => C2hEvent::Coex {
+            id: c2h_id,
+            payload,
+        },
+        _ => C2hEvent::Other {
+            id: c2h_id,
+            payload,
+        },
     };
-    Ok(C2h { id: c2h_id, seq, event })
+    Ok(C2h {
+        id: c2h_id,
+        seq,
+        event,
+    })
 }
 
 /// Upstream `rtw_fw_c2h_cmd_handle_ext`: the sub-id is the first payload byte.
@@ -125,7 +166,10 @@ fn parse_halmac(payload: &[u8]) -> Result<C2hEvent<'_>> {
         ext_id::CCX_RPT => {
             // GET_CCX_REPORT_SEQNUM_V1 / STATUS_V1
             need(payload, 10, "ccx report too short")?;
-            C2hEvent::TxReport { sn: payload[8] & 0xfc, acked: payload[9] & 0xc0 == 0 }
+            C2hEvent::TxReport {
+                sn: payload[8] & 0xfc,
+                acked: payload[9] & 0xc0 == 0,
+            }
         }
         ext_id::SCAN_STATUS_RPT => {
             need(payload, 3, "scan status too short")?;
@@ -133,9 +177,16 @@ fn parse_halmac(payload: &[u8]) -> Result<C2hEvent<'_>> {
         }
         ext_id::CHAN_SWITCH => {
             need(payload, 5, "channel switch too short")?;
-            C2hEvent::ChanSwitch { central_ch: payload[2], id: payload[3], status: payload[4] }
+            C2hEvent::ChanSwitch {
+                central_ch: payload[2],
+                id: payload[3],
+                status: payload[4],
+            }
         }
-        _ => C2hEvent::Other { id: id::HALMAC, payload },
+        _ => C2hEvent::Other {
+            id: id::HALMAC,
+            payload,
+        },
     })
 }
 

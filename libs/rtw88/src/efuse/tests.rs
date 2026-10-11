@@ -66,7 +66,10 @@ fn logical_map_stops_at_the_end_marker() {
 fn malformed_logs_are_errors() {
     // Block 127 is past a 768-byte logical map.
     let p = phys(&[rec2(127, 0b1110, &[1, 2])]);
-    assert_eq!(logical_map(&p, 512, 124, 768), Err(Error::Efuse("efuse record past the end of a map")));
+    assert_eq!(
+        logical_map(&p, 512, 124, 768),
+        Err(Error::Efuse("efuse record past the end of a map"))
+    );
     // A record running past the readable part (512 - 124 bytes).
     let mut p = vec![0u8; 512];
     p[386] = 0x00; // block 0, all four words, at the very end
@@ -103,7 +106,11 @@ fn physical_read_goes_through_efuse_ctrl() {
     d.hci.regs[0x29] = 0x01; // LDO25 on
     parse_efuse_map(&mut d).unwrap();
     assert_eq!(d.hci.regs[0x29] & 1, 0, "2.5V LDO off for reading");
-    assert_eq!(d.hci.peek32(crate::mac::regs::LDO_EFUSE_CTRL) & 0x300, 0, "Wi-Fi bank");
+    assert_eq!(
+        d.hci.peek32(crate::mac::regs::LDO_EFUSE_CTRL) & 0x300,
+        0,
+        "Wi-Fi bank"
+    );
     // Every byte asked for with the flag clear, at its address.
     let reads: Vec<u32> = d
         .hci
@@ -122,7 +129,13 @@ fn physical_read_goes_through_efuse_ctrl() {
 fn physical_read_times_out_without_the_flag() {
     let mut d = Dev::new(FakeHci::default());
     d.efuse.physical_size = 1;
-    assert!(matches!(parse_efuse_map(&mut d), Err(Error::Timeout { step: "efuse read", .. })));
+    assert!(matches!(
+        parse_efuse_map(&mut d),
+        Err(Error::Timeout {
+            step: "efuse read",
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -131,7 +144,16 @@ fn hw_feature_report() {
     d.hal.rf_path_num = 2;
     read::request_hw_feature(&mut d.hci);
     dump_hw_feature(&mut d).unwrap();
-    assert_eq!(d.efuse.hw_cap, HwCap { hci: 0, bw: 0b111, ptcl: 3, nss: 2, ant_num: 2 });
+    assert_eq!(
+        d.efuse.hw_cap,
+        HwCap {
+            hci: 0,
+            bw: 0b111,
+            ptcl: 3,
+            nss: 2,
+            ant_num: 2
+        }
+    );
     assert_eq!(d.hci.regs[0x1A0], 0, "report consumed");
     assert!(dump_hw_feature(&mut d).is_err(), "no second report");
 
@@ -142,7 +164,10 @@ fn hw_feature_report() {
     let w1 = (HW_FEATURE_W1 & !(7 << 21)) | (1 << 21);
     d.hci.regs[0x1A6..0x1AA].copy_from_slice(&w1.to_le_bytes());
     dump_hw_feature(&mut d).unwrap();
-    assert_eq!((d.hal.rf_path_num, d.hal.rf_type, d.efuse.hw_cap.nss), (1, crate::dev::RF_1T1R, 1));
+    assert_eq!(
+        (d.hal.rf_path_num, d.hal.rf_type, d.efuse.hw_cap.nss),
+        (1, crate::dev::RF_1T1R, 1)
+    );
 }
 
 #[test]

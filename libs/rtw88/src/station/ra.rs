@@ -77,7 +77,8 @@ const RA_MASK_HT_RATES: u64 = RA_MASK_HT_RATES_1SS | RA_MASK_HT_RATES_2SS | RA_M
 const RA_MASK_VHT_RATES_1SS: u64 = 0x3ff000;
 const RA_MASK_VHT_RATES_2SS: u64 = 0x3ff000 << 10;
 const RA_MASK_VHT_RATES_3SS: u64 = 0x3ff000 << 20;
-const RA_MASK_VHT_RATES: u64 = RA_MASK_VHT_RATES_1SS | RA_MASK_VHT_RATES_2SS | RA_MASK_VHT_RATES_3SS;
+const RA_MASK_VHT_RATES: u64 =
+    RA_MASK_VHT_RATES_1SS | RA_MASK_VHT_RATES_2SS | RA_MASK_VHT_RATES_3SS;
 const RA_MASK_CCK_IN_BG: u64 = 0x00005;
 const RA_MASK_CCK_IN_HT: u64 = 0x00005;
 const RA_MASK_CCK_IN_VHT: u64 = 0x00005;
@@ -175,7 +176,9 @@ pub fn get_rate_id(wireless_set: u8, bw: Bw, tx_num: u8) -> u8 {
             Bw::Mhz40 => by_nss([BGN_40M_1SS, BGN_40M_2SS, ARFR5_N_3SS, ARFR7_N_4SS]),
             _ => by_nss([BGN_20M_1SS, BGN_20M_2SS, ARFR5_N_3SS, ARFR7_N_4SS]),
         },
-        x if x == W_OFDM | W_VHT => by_nss([ARFR1_AC_1SS, ARFR0_AC_2SS, ARFR4_AC_3SS, ARFR6_AC_4SS]),
+        x if x == W_OFDM | W_VHT => {
+            by_nss([ARFR1_AC_1SS, ARFR0_AC_2SS, ARFR4_AC_3SS, ARFR6_AC_4SS])
+        }
         x if x == W_CCK | W_OFDM | W_VHT => match bw {
             Bw::Mhz80 => by_nss([ARFR1_AC_1SS, ARFR0_AC_2SS, ARFR4_AC_3SS, ARFR6_AC_4SS]),
             _ => by_nss([ARFR2_AC_2G_1SS, ARFR3_AC_2G_2SS, ARFR4_AC_3SS, ARFR6_AC_4SS]),
@@ -224,19 +227,38 @@ pub fn update_sta_info<H: Hci>(dev: &Dev<H>, mac_id: u8, peer: &PeerCaps) -> Sta
     let (mut ra_mask, mut stbc_en, mut ldpc_en) = (0u64, 0u8, 0u8);
     if let Some(vht) = &peer.vht {
         ra_mask |= get_vht_ra_mask(vht.rx_mcs_map);
-        stbc_en = if vht.cap & VHT_CAP_RXSTBC_MASK != 0 { VHT_STBC_EN } else { 0 };
-        ldpc_en = if vht.cap & VHT_CAP_RXLDPC != 0 { VHT_LDPC_EN } else { 0 };
+        stbc_en = if vht.cap & VHT_CAP_RXSTBC_MASK != 0 {
+            VHT_STBC_EN
+        } else {
+            0
+        };
+        ldpc_en = if vht.cap & VHT_CAP_RXLDPC != 0 {
+            VHT_LDPC_EN
+        } else {
+            0
+        };
     } else if let Some(ht) = &peer.ht {
         let m = ht.rx_mask.map(u64::from);
         ra_mask |= (m[3] << 36) | (m[2] << 28) | (m[1] << 20) | (m[0] << 12);
-        stbc_en = if ht.cap & HT_CAP_RX_STBC != 0 { HT_STBC_EN } else { 0 };
-        ldpc_en = if ht.cap & HT_CAP_LDPC_CODING != 0 { HT_LDPC_EN } else { 0 };
+        stbc_en = if ht.cap & HT_CAP_RX_STBC != 0 {
+            HT_STBC_EN
+        } else {
+            0
+        };
+        ldpc_en = if ht.cap & HT_CAP_LDPC_CODING != 0 {
+            HT_LDPC_EN
+        } else {
+            0
+        };
     }
 
     if nss_cap == 1 || hal.txrx_1ss {
         ra_mask &= RA_MASK_VHT_RATES_1SS | RA_MASK_HT_RATES_1SS;
     } else if nss_cap == 2 {
-        ra_mask &= RA_MASK_VHT_RATES_2SS | RA_MASK_HT_RATES_2SS | RA_MASK_VHT_RATES_1SS | RA_MASK_HT_RATES_1SS;
+        ra_mask &= RA_MASK_VHT_RATES_2SS
+            | RA_MASK_HT_RATES_2SS
+            | RA_MASK_VHT_RATES_1SS
+            | RA_MASK_HT_RATES_1SS;
     }
 
     let supp = u64::from(peer.supp_rates);
@@ -275,11 +297,18 @@ pub fn update_sta_info<H: Hci>(dev: &Dev<H>, mac_id: u8, peer: &PeerCaps) -> Sta
 
     let ht_cap = peer.ht.map_or(0, |h| h.cap);
     let (bw_mode, sgi) = match peer.bw {
-        Bw::Mhz80 => (Bw::Mhz80, peer.vht.is_some_and(|v| v.cap & VHT_CAP_SHORT_GI_80 != 0)),
+        Bw::Mhz80 => (
+            Bw::Mhz80,
+            peer.vht.is_some_and(|v| v.cap & VHT_CAP_SHORT_GI_80 != 0),
+        ),
         Bw::Mhz40 => (Bw::Mhz40, peer.ht.is_some() && ht_cap & HT_CAP_SGI_40 != 0),
         Bw::Mhz20 => (Bw::Mhz20, peer.ht.is_some() && ht_cap & HT_CAP_SGI_20 != 0),
     };
-    let tx_num = if peer.vht.is_some() || peer.ht.is_some() { nss_cap } else { 1 };
+    let tx_num = if peer.vht.is_some() || peer.ht.is_some() {
+        nss_cap
+    } else {
+        1
+    };
     let rate_id = get_rate_id(wireless_set, bw_mode, tx_num);
 
     let rssi_level = 0;
@@ -326,7 +355,10 @@ pub fn update_channel(hal: &mut Hal, center: u8, primary: u8, bw: Bw) -> Result<
     const SC_20_LOWEST: u8 = 4;
 
     let band = if center > 14 { Band::Ghz5 } else { Band::Ghz2 };
-    let (Some(center_freq), Some(primary_freq)) = (channel_to_freq(center, band), channel_to_freq(primary, band)) else {
+    let (Some(center_freq), Some(primary_freq)) = (
+        channel_to_freq(center, band),
+        channel_to_freq(primary, band),
+    ) else {
         return Err(Error::Invalid("channel"));
     };
     hal.cch_by_bw[Bw::Mhz20 as usize] = primary;
