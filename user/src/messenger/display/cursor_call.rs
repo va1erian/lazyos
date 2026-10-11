@@ -30,8 +30,7 @@ impl Client {
                 deadline_ns: 0,
             },
             body,
-            handles: Vec::new(),
-            buffers: Vec::new(),
+            objects: Vec::new(),
         };
         let mut buf = [0u8; 128];
         let reply = self.endpoint().call_with(&parcel, &mut buf, None)?;
