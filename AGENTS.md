@@ -297,6 +297,26 @@ cargo test --manifest-path xui-app/Cargo.toml -p lazypdf -p xui-pdfview
 FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazypdf --release seeded
 ```
 
+## Video Player (`os.lazy.video`)
+
+`xui-video` is a core desktop app in every desktop image: a player thread
+that demuxes, decodes and paces frames against a media clock
+(`xui-app/crates/video`, `lazyvideo`, portable and host-tested), under an
+xui window with a toolbar, seek bar and status bar (`xui-app/crates/videoview`).
+It plays Motion JPEG in AVI today; H.264, MP4, audio, HTTPS and YouTube are
+the phases of [`docs/video-player-plan.md`](docs/video-player-plan.md), which
+also holds the feasibility numbers. The sample is
+`/system/share/samples/lazyos-sample.avi` (`tools/video/make_sample.py`).
+Session: `tools/screenshot/examples/xui_video.json` (`LAZYOS_XUI_AUTOSTART=video`;
+markers `VIDEO:UP:PASS`, `VIDEO:OPEN:PASS:<path>:<w>x<h>:<fps>:<frames>:<codec>`,
+`VIDEO:POS:<ms>:shown=<n>:dropped=<n>:fps=<n>`, `VIDEO:END:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyvideo -p xui-videoview
+python tools/video/make_sample.py --check
+cargo run --release --manifest-path xui-app/Cargo.toml -p lazyvideo --example decode_bench -- clip.avi
+```
+
 ## LazyGolf (`os.lazy.golf`)
 
 `xui-golf` is a core desktop app: a procedural 18-hole course generator and

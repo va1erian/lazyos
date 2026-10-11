@@ -1,0 +1,23 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "VIDEO:UP:PASS", "timeout": 240},
+  {"at": 2.0, "shot": "01_empty"},
+  {"at": 3.0, "key_down": "ctrl"},
+  {"at": 3.3, "key": "o"},
+  {"at": 3.6, "key_up": "ctrl"},
+  {"at": 5.0, "type": "/system/share/samples/lazyos-sample.avi"},
+  {"at": 11.0, "key": "enter"},
+  {"wait_for": "VIDEO:OPEN:PASS:/system/share/samples/lazyos-sample.avi:320x180:25.00:125:MJPG", "timeout": 60},
+  {"wait_for": "VIDEO:POS:", "timeout": 60},
+  {"at": 0.5, "shot": "02_playing"},
+  {"at": 1.0, "key": "space"},
+  {"wait_for": "VIDEO:PAUSE", "timeout": 30},
+  {"at": 1.0, "shot": "03_paused"},
+  {"at": 1.5, "key": "right"},
+  {"wait_for": "VIDEO:SEEK:", "timeout": 30},
+  {"at": 1.0, "shot": "04_seeked"},
+  {"at": 1.5, "key": "space"},
+  {"wait_for": "VIDEO:END:PASS", "timeout": 60},
+  {"at": 1.0, "shot": "05_ended"},
+  {"quit": true}
+]

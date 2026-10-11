@@ -131,6 +131,8 @@ BINS = {
     WEB_PACKAGE: WEB_ELF,
     # LazyGolf: Fly over a procedurally generated golf course.
     "xui-golf": "xui-golf.elf",
+    # Video Player: Play video files.
+    "xui-video": "xui-video.elf",
 }
 
 
