@@ -96,6 +96,50 @@ pub struct CoexState {
     /// `coex_rfe.rfe_module_type` and `wlg_at_btg`.
     pub rfe_module_type: u8,
     pub wlg_at_btg: bool,
+    /// Indirect-window reads or writes that failed (the LTE coex block was
+    /// not ready); upstream only logs them.
+    pub indirect_errors: u32,
+    /// What [`check_wifi_grant`] found after the last `init_hw_config`.
+    pub grant: Option<GrantCheck>,
+}
+
+/// Whether Wi-Fi holds the shared antenna after a Wi-Fi-only init: the
+/// grant bits read back from the LTE coex window and the path owner. Not in
+/// upstream (it trusts its writes); a write that silently failed here would
+/// leave the radio deaf with nothing in the log, so `wifid` prints this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GrantCheck {
+    /// LTE coex indirect 0x38 as read back (`None`: the read failed).
+    pub lte_ctrl: Option<u32>,
+    /// 0x70 bit 26 (`BIT_LTE_MUX_CTRL_PATH`): the path is Wi-Fi's.
+    pub path_is_wifi: bool,
+    pub indirect_errors: u32,
+}
+
+impl GrantCheck {
+    /// GNT_BT forced low and GNT_WL forced high (bits 15:8 = 0x77), the
+    /// path owned by Wi-Fi, and no failed indirect access on the way.
+    pub fn ok(&self) -> bool {
+        self.lte_ctrl.is_some_and(|v| v & 0xff00 == 0x7700)
+            && self.path_is_wifi
+            && self.indirect_errors == 0
+    }
+}
+
+/// Read the grants back after `init_hw_config(dev, true)`.
+pub fn check_wifi_grant<H: Hci>(dev: &mut Dev<H>) -> GrantCheck {
+    let lte_ctrl =
+        crate::mac::ltecoex_read_reg(&mut dev.hci, crate::rtw8822c::regs::LTE_COEX_CTRL).ok();
+    let path_is_wifi = dev.hci.read32(crate::rtw8822c::regs::REG_SYS_SDIO_CTRL)
+        & crate::rtw8822c::regs::BIT_LTE_MUX_CTRL_PATH
+        != 0;
+    let check = GrantCheck {
+        lte_ctrl,
+        path_is_wifi,
+        indirect_errors: dev.coex.indirect_errors,
+    };
+    dev.coex.grant = Some(check);
+    check
 }
 
 /// Upstream `rtw_coex_read_scbd`.

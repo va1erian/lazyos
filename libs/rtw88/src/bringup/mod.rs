@@ -149,6 +149,9 @@ fn power_on_steps<H: Hci>(dev: &mut Dev<H>, fw: &Firmware<'_>) -> Result<()> {
     let wifi_only = true;
     crate::coex::power_on_setting(dev);
     crate::coex::init_hw_config(dev, wifi_only);
+    // Evidence, not a gate: `dev.coex.grant` says whether the antenna is
+    // Wi-Fi's (review of the chip package); `wifid` prints it.
+    crate::coex::check_wifi_grant(dev);
     Ok(())
 }
 

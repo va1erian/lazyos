@@ -140,3 +140,24 @@ fn a_dead_indirect_window_drops_the_writes() {
     init_hw_config(&mut d, true);
     assert!(map.borrow().is_empty());
 }
+
+#[test]
+fn the_grant_check_reads_back_a_wifi_only_init() {
+    let (mut d, _map) = dev(true, 0);
+    power_on_setting(&mut d);
+    init_hw_config(&mut d, true);
+    let check = check_wifi_grant(&mut d);
+    assert!(check.ok(), "{check:?}");
+    assert_eq!(d.coex.grant, Some(check));
+}
+
+#[test]
+fn a_coex_window_that_never_answers_is_counted_not_hidden() {
+    // A bare fake: LTECOEX_READY never sets, so every indirect access fails.
+    let mut d = crate::Dev::new(crate::fake::FakeHci::default());
+    init_hw_config(&mut d, true);
+    assert!(d.coex.indirect_errors > 0);
+    let check = check_wifi_grant(&mut d);
+    assert!(!check.ok());
+    assert_eq!(check.lte_ctrl, None);
+}

@@ -8,9 +8,17 @@ use crate::hci::Hci;
 use crate::mac::{ltecoex_read_reg, ltecoex_reg_write};
 
 /// Upstream `rtw_coex_read_indirect_reg`: 0 if the block is not ready
-/// (upstream logs "failed to read indirect register").
+/// (upstream logs "failed to read indirect register"; here the failure is
+/// counted in `CoexState::indirect_errors`, which [`super::check_wifi_grant`]
+/// reports, since the antenna grants live behind this window).
 pub fn read_indirect_reg<H: Hci>(dev: &mut Dev<H>, addr: u16) -> u32 {
-    ltecoex_read_reg(&mut dev.hci, addr).unwrap_or(0)
+    match ltecoex_read_reg(&mut dev.hci, addr) {
+        Ok(v) => v,
+        Err(_) => {
+            dev.coex.indirect_errors = dev.coex.indirect_errors.saturating_add(1);
+            0
+        }
+    }
 }
 
 /// Upstream `rtw_coex_write_indirect_reg`: read-modify-write of the field
@@ -19,5 +27,7 @@ pub fn write_indirect_reg<H: Hci>(dev: &mut Dev<H>, addr: u16, mask: u32, val: u
     let shift = mask.trailing_zeros();
     let tmp = read_indirect_reg(dev, addr);
     let tmp = (tmp & !mask) | (val.wrapping_shl(shift) & mask);
-    let _ = ltecoex_reg_write(&mut dev.hci, addr, tmp);
+    if ltecoex_reg_write(&mut dev.hci, addr, tmp).is_err() {
+        dev.coex.indirect_errors = dev.coex.indirect_errors.saturating_add(1);
+    }
 }

@@ -81,7 +81,11 @@ fn scan_filter_toggles_bssid_checks() {
     m.hal.rcr |= am;
     m.set_filter_scan(true);
     m.set_filter_scan(false);
-    assert_eq!(m.hci.peek32(RCR) & am, am, "multicast still accepted after a scan");
+    assert_eq!(
+        m.hci.peek32(RCR) & am,
+        am,
+        "multicast still accepted after a scan"
+    );
     d.set_rx_filter(RxFilter {
         control: true,
         other_bss: true,

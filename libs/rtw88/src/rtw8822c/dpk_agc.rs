@@ -363,7 +363,7 @@ pub(super) fn cal_coef1<H: Hci>(dev: &mut Dev<H>) {
     h.write32_mask(REG_NCTL0, BIT_SUBPAGE, 0xc);
     for path in 0..usize::from(dev.hal.rf_path_num).min(2) {
         let off = [0u32, 0x58][path];
-        // dpk_gs is never 0 here (result_reset sets 0x5b); guard anyway.
+        // cal_gs can store 0 (a small DGAIN report); upstream would divide by zero here.
         let i_scaling = 0x16c00 / u32::from(dev.dm.dpk.dpk_gs[path]).max(1);
         let h = &mut dev.hci;
         h.write32_mask(0x1b18 + off, MASKHWORD, i_scaling);
