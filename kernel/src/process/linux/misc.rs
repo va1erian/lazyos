@@ -97,9 +97,18 @@ pub(super) fn sys_sched_getaffinity(mask: u64, len: u64) -> u64 {
 pub(super) fn sys_uname(buf: u64) -> u64 {
     // struct utsname: six 65-byte fields.
     let mut data = [0u8; 6 * 65];
-    let fields = ["LazyOS", "lazyos", "0.1.0", "0.1.0", "x86_64", "unknown"];
+    // The version field carries the source revision (`kernel/build.rs`).
+    let fields = [
+        "LazyOS",
+        "lazyos",
+        "0.1.0",
+        env!("LAZYOS_REVISION"),
+        "x86_64",
+        "unknown",
+    ];
     for (i, field) in fields.iter().enumerate() {
-        let bytes = field.as_bytes();
+        // A field is at most 64 bytes plus its NUL.
+        let bytes = &field.as_bytes()[..field.len().min(64)];
         data[i * 65..i * 65 + bytes.len()].copy_from_slice(bytes);
     }
     // Safety: user buffer of at least 390 bytes (musl's utsname, the
