@@ -37,9 +37,7 @@ impl<R: Radio> SoftMac<R> {
     pub(crate) fn on_receive(&mut self, rx: Received, now: u64) {
         match classify(&rx.frame) {
             // No management frame protection: a protected one is unreadable.
-            FrameClass::Mgmt { subtype, protected } if !protected => {
-                self.on_mgmt(subtype, rx, now)
-            }
+            FrameClass::Mgmt { subtype, protected } if !protected => self.on_mgmt(subtype, rx, now),
             FrameClass::Data { protected } => self.on_data(protected, rx),
             _ => {}
         }
@@ -107,7 +105,12 @@ impl<R: Radio> SoftMac<R> {
 
     /// Where the payload of a received data frame starts, after the replay
     /// check of a protected frame; `None` drops it.
-    fn payload_start(&mut self, header: &DataHeader, protected: bool, rx: &Received) -> Option<usize> {
+    fn payload_start(
+        &mut self,
+        header: &DataHeader,
+        protected: bool,
+        rx: &Received,
+    ) -> Option<usize> {
         if !protected {
             // A plaintext frame has nothing for the radio to have kept.
             return (!rx.decrypted && rx.trailer == 0).then_some(header.len);
@@ -141,7 +144,12 @@ impl<R: Radio> SoftMac<R> {
         let Some(start) = self.payload_start(&header, protected, &rx) else {
             return self.drop_data();
         };
-        let Some(end) = rx.frame.len().checked_sub(rx.trailer).filter(|&e| e >= start) else {
+        let Some(end) = rx
+            .frame
+            .len()
+            .checked_sub(rx.trailer)
+            .filter(|&e| e >= start)
+        else {
             return self.drop_data();
         };
         let mut frames = Vec::new();

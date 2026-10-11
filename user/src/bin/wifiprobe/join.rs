@@ -45,7 +45,12 @@ fn wait_mgmt(client: &mut HwClient, subtype: u8) -> Result<Vec<u8>, String> {
 
 /// Authenticate and associate with `bss`; returns the AID. `rsn_ie` is the
 /// RSN element to send (a WPA2 join), if any.
-pub fn associate(client: &mut HwClient, sta: &[u8; 6], bss: &Bss, rsn_ie: Option<&[u8]>) -> Result<u16, String> {
+pub fn associate(
+    client: &mut HwClient,
+    sta: &[u8; 6],
+    bss: &Bss,
+    rsn_ie: Option<&[u8]>,
+) -> Result<u16, String> {
     client.join(&bss.bssid, u32::from(bss.channel), wire::BAND_GHZ2)?;
     let auth = build::auth(&bss.bssid, sta, &bss.bssid, 0, (AUTH_OPEN, 1, 0), &[]);
     client.tx(wire::FRAME_KIND_MGMT, auth)?;
@@ -105,17 +110,33 @@ fn eapol_frame(bssid: &[u8; 6], sta: &[u8; 6], pdu: &[u8]) -> Vec<u8> {
 pub type Sup = Supplicant<Standard<fn() -> [u8; 32]>>;
 
 /// Run one supplicant step's actions. Returns whether the port opened.
-pub fn perform(client: &HwClient, sta: &[u8; 6], bss: &Bss, aid: u16, actions: Vec<Action>) -> Result<bool, String> {
+pub fn perform(
+    client: &HwClient,
+    sta: &[u8; 6],
+    bss: &Bss,
+    aid: u16,
+    actions: Vec<Action>,
+) -> Result<bool, String> {
     let mut authorized = false;
     for action in actions {
         match action {
-            Action::Send(pdu) => client.tx(wire::FRAME_KIND_EAPOL, eapol_frame(&bss.bssid, sta, &pdu))?,
+            Action::Send(pdu) => {
+                client.tx(wire::FRAME_KIND_EAPOL, eapol_frame(&bss.bssid, sta, &pdu))?
+            }
             Action::InstallPtk { tk, .. } => {
                 client.set_key(wire::KEY_KIND_PAIRWISE, 0, tk.expose(), &[], &bss.bssid)?;
                 sys::write_str("WIFIPROBE:KEYS:PTK\n");
             }
-            Action::InstallGtk { index, key, rsc, .. } => {
-                client.set_key(wire::KEY_KIND_GROUP, u32::from(index), key.expose(), &rsc, &bss.bssid)?;
+            Action::InstallGtk {
+                index, key, rsc, ..
+            } => {
+                client.set_key(
+                    wire::KEY_KIND_GROUP,
+                    u32::from(index),
+                    key.expose(),
+                    &rsc,
+                    &bss.bssid,
+                )?;
                 sys::write_str(&format!("WIFIPROBE:KEYS:GTK index={index}\n"));
             }
             Action::Authorized => {
@@ -129,7 +150,12 @@ pub fn perform(client: &HwClient, sta: &[u8; 6], bss: &Bss, aid: u16, actions: V
 
 /// A WPA2-PSK network: associate with our RSN element, then the 4-way
 /// handshake with the PMK from `passphrase`.
-pub fn join_wpa2(client: &mut HwClient, sta: &[u8; 6], bss: &Bss, passphrase: &str) -> Result<(u16, Sup), String> {
+pub fn join_wpa2(
+    client: &mut HwClient,
+    sta: &[u8; 6],
+    bss: &Bss,
+    passphrase: &str,
+) -> Result<(u16, Sup), String> {
     let ap_rsn_ie = bss.rsn_ie.clone().ok_or("no RSN element")?;
     let ours = Rsn::wpa2_psk().to_ie().map_err(|e| format!("{e:?}"))?;
     let pmk = lazyos_crypto::wifi::pbkdf2_sha1(passphrase.as_bytes(), &bss.ssid)
@@ -149,7 +175,9 @@ pub fn join_wpa2(client: &mut HwClient, sta: &[u8; 6], bss: &Bss, passphrase: &s
     let aid = associate(client, sta, bss, Some(&ours))?;
     let deadline = sys::monotonic_ms() + HANDSHAKE_MS;
     while let Some(event) = client.next_event(deadline)? {
-        let Event::RxMgmt { kind, frame, .. } = event else { continue };
+        let Event::RxMgmt { kind, frame, .. } = event else {
+            continue;
+        };
         if kind != wire::FRAME_KIND_EAPOL || frame.len() < 14 {
             continue;
         }

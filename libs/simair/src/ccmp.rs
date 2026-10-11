@@ -125,8 +125,8 @@ impl SoftCcmp {
     pub fn seal(&self, frame: &[u8]) -> Result<Vec<u8>, CcmpError> {
         let i = self.inputs(frame)?;
         let mut out = Vec::from(frame);
-        let mic =
-            ccm_seal(&i.key, &i.nonce, &i.aad, &mut out[i.start..]).map_err(|_| CcmpError::Malformed)?;
+        let mic = ccm_seal(&i.key, &i.nonce, &i.aad, &mut out[i.start..])
+            .map_err(|_| CcmpError::Malformed)?;
         out.extend_from_slice(&mic);
         Ok(out)
     }
@@ -160,7 +160,8 @@ mod tests {
     const HEADER: &str = "08 48 c3 2c 0f d2 e1 28 a5 7c 50 30 f1 84 44 08 ab ae a5 b8 fc ba 80 33";
     const CCMP: &str = "0c e7 00 20 76 97 03 b5";
     const PLAIN: &str = "f8 ba 1a 55 d0 2f 85 ae 96 7b b6 2f b6 cd a8 eb 7e 78 a0 50";
-    const SEALED: &str = "f3 d0 a2 fe 9a 3d bf 23 42 a6 43 e4 32 46 e8 0c 3c 04 d0 19 78 45 ce 0b 16 f9 76 23";
+    const SEALED: &str =
+        "f3 d0 a2 fe 9a 3d bf 23 42 a6 43 e4 32 46 e8 0c 3c 04 d0 19 78 45 ce 0b 16 f9 76 23";
 
     /// The vector's Address 1 (`0f:d2:...`) is a group address, so its key
     /// (id 0) is looked up as a group key.

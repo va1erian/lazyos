@@ -69,7 +69,11 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
         let now = sys::monotonic_ms();
-        let wake = nic.mac().next_deadline().unwrap_or(now + IDLE_MS).min(now + IDLE_MS);
+        let wake = nic
+            .mac()
+            .next_deadline()
+            .unwrap_or(now + IDLE_MS)
+            .min(now + IDLE_MS);
         let deadline = lazyos_sys::time::deadline_after_ms(wake.saturating_sub(now));
         let extra = nic.mac().radio().wake_endpoint();
         let _ = match extra {

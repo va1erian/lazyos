@@ -48,14 +48,14 @@ mod tx;
 #[cfg(test)]
 mod tests;
 
-pub use events::{Event, FrameKind, Stats};
 pub use assoc::{JoinRequest, KeyRequest};
+pub use events::{Event, FrameKind, Stats};
 pub use mac::{HwFacts, SoftMac};
-pub use scanning::ScanRequest;
 pub use radio::{
     Band, Channel, KeyInstall, KeyKind, Radio, RadioError, RadioInfo, Received, StaState,
     TxOptions, Width,
 };
+pub use scanning::ScanRequest;
 pub use tx::DataDrop;
 
 /// Why a `hw.v1` call was refused. [`Error::errno`] is the code the service

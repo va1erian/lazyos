@@ -10,9 +10,7 @@ use ieee80211::build;
 use ieee80211::ccmp;
 use ieee80211::class::{classify, FrameClass};
 use ieee80211::data::{encap, is_eapol, user_priority, Direction, Encap, ETH_HEADER};
-use ieee80211::frame::{
-    SUB_ASSOC_REQ, SUB_AUTH, SUB_DEAUTH, SUB_DISASSOC, SUB_PROBE_REQ,
-};
+use ieee80211::frame::{SUB_ASSOC_REQ, SUB_AUTH, SUB_DEAUTH, SUB_DISASSOC, SUB_PROBE_REQ};
 use ieee80211::ie::IeBuilder;
 use ieee80211::Mac;
 
@@ -71,12 +69,10 @@ const MGMT_OPTIONS: TxOptions = TxOptions {
 impl<R: Radio> SoftMac<R> {
     /// Queue `frame` on the radio, counting a hardware failure.
     fn transmit(&mut self, frame: &[u8], options: &TxOptions) -> Result<(), Error> {
-        self.radio
-            .transmit(frame, options)
-            .map_err(|e| match e {
-                RadioError::Full => Error::Busy,
-                other => self.radio_failed(other),
-            })
+        self.radio.transmit(frame, options).map_err(|e| match e {
+            RadioError::Full => Error::Busy,
+            other => self.radio_failed(other),
+        })
     }
 
     /// A management frame the soft-MAC built: sequence it and send it.

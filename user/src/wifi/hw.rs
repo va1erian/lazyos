@@ -104,10 +104,20 @@ impl HwService {
     }
 
     /// Answer one request: the reply, or the structured error reply.
-    pub fn dispatch<R: Radio>(&mut self, mac: &mut SoftMac<R>, message: &Message, now: u64) -> Parcel {
+    pub fn dispatch<R: Radio>(
+        &mut self,
+        mac: &mut SoftMac<R>,
+        message: &Message,
+        now: u64,
+    ) -> Parcel {
         let method = message.method();
         if message.interface_id() != INTERFACE {
-            return services::refusal(message.interface_id(), method, errno::EINVAL, "wrong interface");
+            return services::refusal(
+                message.interface_id(),
+                method,
+                errno::EINVAL,
+                "wrong interface",
+            );
         }
         match self.route(mac, message, now) {
             Ok(body) => parcel(method, body, false),
@@ -115,7 +125,12 @@ impl HwService {
         }
     }
 
-    fn route<R: Radio>(&mut self, mac: &mut SoftMac<R>, message: &Message, now: u64) -> Result<Vec<u8>, Refusal> {
+    fn route<R: Radio>(
+        &mut self,
+        mac: &mut SoftMac<R>,
+        message: &Message,
+        now: u64,
+    ) -> Result<Vec<u8>, Refusal> {
         let body = &message.parcel.body;
         let sender = message.sender;
         let empty = Ok(Vec::new());
@@ -185,12 +200,14 @@ impl HwService {
             }
             wire::METHOD_TXMGMT => {
                 let args = wire::decode_tx_mgmt_args(body).map_err(parcel_err)?;
-                mac.tx_mgmt(sender, args.kind, &args.frame).map_err(mac_err)?;
+                mac.tx_mgmt(sender, args.kind, &args.frame)
+                    .map_err(mac_err)?;
                 empty
             }
             wire::METHOD_SETSTATE => {
                 let args = wire::decode_set_state_args(body).map_err(parcel_err)?;
-                mac.set_state(sender, args.state, args.aid).map_err(mac_err)?;
+                mac.set_state(sender, args.state, args.aid)
+                    .map_err(mac_err)?;
                 empty
             }
             wire::METHOD_SETKEY => {
@@ -211,7 +228,8 @@ impl HwService {
             }
             wire::METHOD_DELKEY => {
                 let args = wire::decode_del_key_args(body).map_err(parcel_err)?;
-                mac.del_key(sender, args.kind, args.index).map_err(mac_err)?;
+                mac.del_key(sender, args.kind, args.index)
+                    .map_err(mac_err)?;
                 empty
             }
             wire::METHOD_LEAVE => {
@@ -242,7 +260,11 @@ impl HwService {
 
     /// `Attach`: the decoded request owns the event channel; every way out
     /// but success gives it back.
-    fn attach<R: Radio>(&mut self, mac: &mut SoftMac<R>, message: &Message) -> Result<Vec<u8>, Refusal> {
+    fn attach<R: Radio>(
+        &mut self,
+        mac: &mut SoftMac<R>,
+        message: &Message,
+    ) -> Result<Vec<u8>, Refusal> {
         let args = message
             .decode(wire::decode_attach_args)
             .map_err(|_| (errno::EINVAL, "malformed request"))?;
@@ -294,7 +316,9 @@ impl HwService {
         }
         while let Some(event) = mac.next_event() {
             let Some(events) = self.events else { return };
-            let Ok(parcel) = event_parcel(&event) else { continue };
+            let Ok(parcel) = event_parcel(&event) else {
+                continue;
+            };
             if let Err(error) = events.send(&parcel) {
                 if gone(&error) {
                     return self.owner_gone(mac, "owner gone (send failed)");

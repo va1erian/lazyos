@@ -336,7 +336,9 @@ impl Port {
         };
         // The card's MTU bounds the frames the stack builds (a radio whose
         // 802.11 framing must fit a smaller frame reports a smaller one).
-        let max_frame = (card.mtu as usize).saturating_add(ETH_HEADER).min(MAX_FRAME);
+        let max_frame = (card.mtu as usize)
+            .saturating_add(ETH_HEADER)
+            .min(MAX_FRAME);
         let stack = Stack::new(
             RingDevice::detached(max_frame),
             card.mac,

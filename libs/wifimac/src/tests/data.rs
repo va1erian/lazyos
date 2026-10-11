@@ -43,7 +43,8 @@ fn a_bss_without_qos_gets_plain_data() {
     let mut m = joined(false);
     m.set_state(OWNER, 2, 1).unwrap();
     m.set_state(OWNER, 3, 1).unwrap();
-    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0])).unwrap();
+    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0]))
+        .unwrap();
     let (frame, _) = last_sent(&m);
     assert_eq!(frame[0], 0x08);
     // A beacon that shows WMM switches it to QoS data.
@@ -51,7 +52,8 @@ fn a_bss_without_qos_gets_plain_data() {
     ies.extend_from_slice(&[221, 7, 0x00, 0x50, 0xF2, 0x02, 0x00, 0x01, 0x00]);
     hear(&mut m, ies, 6);
     m.poll(50);
-    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0])).unwrap();
+    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0]))
+        .unwrap();
     assert_eq!(last_sent(&m).0[0], 0x88);
 }
 
@@ -90,7 +92,8 @@ fn the_port_is_closed_until_authorized() {
         m.send_ethernet(&ethernet(&GW, &STA, IP, &[0; 1443])),
         Err(DataDrop::TooLong)
     );
-    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0; 1442])).unwrap();
+    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0; 1442]))
+        .unwrap();
     m.radio_mut().queue_full = true;
     assert_eq!(m.send_ethernet(&eth), Err(DataDrop::Full));
 }
@@ -132,7 +135,8 @@ fn protected_data_uses_one_packet_number_sequence_per_key() {
     let mut m = wpa2_authorized();
     let mut pns = Vec::new();
     for tos in [0x00u8, 0xE0, 0x20] {
-        m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, tos])).unwrap();
+        m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, tos]))
+            .unwrap();
         let (frame, options) = last_sent(&m);
         assert!(options.protected);
         let h = DataHeader::parse(&frame).unwrap();
@@ -141,7 +145,8 @@ fn protected_data_uses_one_packet_number_sequence_per_key() {
     assert_eq!(pns, [1, 2, 3]);
     // A new pairwise key starts again at 1.
     m.set_key(OWNER, &key(KeyKind::Pairwise, 0, &[])).unwrap();
-    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0])).unwrap();
+    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0]))
+        .unwrap();
     let (frame, _) = last_sent(&m);
     let h = DataHeader::parse(&frame).unwrap();
     assert_eq!(ccmp::parse_header(&frame[h.len..]).unwrap().0, 1);
@@ -152,7 +157,11 @@ fn received_protected_data_is_checked_for_replays() {
     let mut m = wpa2_authorized();
     let eth = ethernet(&STA, &GW, IP, b"payload");
     receive(&mut m, from_ap(&eth, Some(0), Some(10), 0), 100);
-    assert_eq!(m.next_ethernet(), Some(eth.clone()), "the kept MIC is stripped");
+    assert_eq!(
+        m.next_ethernet(),
+        Some(eth.clone()),
+        "the kept MIC is stripped"
+    );
     for (tid, pn) in [(Some(0), 10), (Some(0), 9)] {
         receive(&mut m, from_ap(&eth, tid, Some(pn), 0), 110);
         assert_eq!(m.next_ethernet(), None);

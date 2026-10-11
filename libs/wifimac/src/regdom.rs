@@ -25,8 +25,8 @@ pub enum Use {
 
 /// Countries that follow the FCC's 2.4 GHz plan (channels 1-11).
 const FCC: &[[u8; 2]] = &[
-    *b"US", *b"CA", *b"MX", *b"PR", *b"TW", *b"CO", *b"DO", *b"GT", *b"PA", *b"GU", *b"AS",
-    *b"VI", *b"UM", *b"MP",
+    *b"US", *b"CA", *b"MX", *b"PR", *b"TW", *b"CO", *b"DO", *b"GT", *b"PA", *b"GU", *b"AS", *b"VI",
+    *b"UM", *b"MP",
 ];
 
 const UNII1: [u8; 4] = [36, 40, 44, 48];

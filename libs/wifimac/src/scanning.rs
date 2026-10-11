@@ -170,5 +170,4 @@ impl<R: Radio> SoftMac<R> {
             aborted,
         });
     }
-
 }

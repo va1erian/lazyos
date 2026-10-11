@@ -22,9 +22,9 @@
 use std::vec::Vec;
 
 use crate::bss::{Bss, Security};
+use crate::build::{self, BeaconFields};
 use crate::ccmp::{self, Replay};
 use crate::data::{self, DataHeader, Direction, Encap};
-use crate::build::{self, BeaconFields};
 use crate::frame::{Body, Mgmt};
 use crate::ie::{ElementIter, Elements, MAX_SSID, MAX_VENDOR};
 use crate::rsn::Rsn;
@@ -60,7 +60,10 @@ fn data_checks(frame: &[u8]) {
         return;
     }
     let total: usize = out.iter().map(Vec::len).sum();
-    assert!(total <= body.len() + 6 * out.len(), "decap grew the payload");
+    assert!(
+        total <= body.len() + 6 * out.len(),
+        "decap grew the payload"
+    );
     if h.amsdu() {
         return;
     }
@@ -276,14 +279,19 @@ mod seeded {
         for_seeds("ieee80211_data_frames", |_, rng| {
             let n = rng.below(60) as usize;
             let mut eth = rng.bytes(12);
-            eth.extend_from_slice(&rng.pick(&[0x0800u16, 0x86DD, 0x888E, 0x8137, 0x0806]).to_be_bytes());
+            eth.extend_from_slice(
+                &rng.pick(&[0x0800u16, 0x86DD, 0x888E, 0x8137, 0x0806])
+                    .to_be_bytes(),
+            );
             eth.extend_from_slice(&rng.bytes(n));
             let how = Encap {
                 direction: *rng.pick(&[Direction::ToDs, Direction::FromDs]),
                 bssid: [2, 1, 1, 1, 1, 1],
                 tid: rng.one_in(2).then(|| rng.below(16) as u8),
                 sequence: rng.next_u32() as u16,
-                security: rng.one_in(3).then(|| ccmp::header(rng.next_u64(), rng.byte())),
+                security: rng
+                    .one_in(3)
+                    .then(|| ccmp::header(rng.next_u64(), rng.byte())),
             };
             let mut frame = data::encap(&eth, &how).unwrap();
             if how.tid.is_some() && how.security.is_none() && rng.one_in(2) {

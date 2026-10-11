@@ -130,11 +130,18 @@ fn results_are_raw_deduplicated_aged_and_paged() {
     hear(&mut m, build::deauth(&STA, &AP, &AP, 1, 1), 6);
     m.poll(70);
     let page = m.scan_results(OWNER, id, 0, 10, 1 << 16, 100).unwrap();
-    assert_eq!(page.entries.len(), 3, "beacon and probe response of AP, AP2");
+    assert_eq!(
+        page.entries.len(),
+        3,
+        "beacon and probe response of AP, AP2"
+    );
     assert!(!page.more);
     let (first, age) = page.entries[0];
     assert_eq!(first.frame, beacon(&AP, b"one", 1, false));
-    assert_eq!((first.channel, first.band, first.rssi_dbm, age), (1, Band::Ghz2, -40, 90));
+    assert_eq!(
+        (first.channel, first.band, first.rssi_dbm, age),
+        (1, Band::Ghz2, -40, 90)
+    );
     let (last, age) = page.entries[2];
     assert_eq!((last.channel, age), (6, 40));
 
@@ -143,14 +150,24 @@ fn results_are_raw_deduplicated_aged_and_paged() {
     let page = m.scan_results(OWNER, id, 2, 5, 1 << 16, 100).unwrap();
     assert_eq!((page.entries.len(), page.more), (1, false));
     let page = m.scan_results(OWNER, id, 0, 10, 10, 100).unwrap();
-    assert_eq!(page.entries.len(), 1, "a byte budget still advances one entry");
-    assert!(m.scan_results(OWNER, id, 9, 10, 1 << 16, 100).unwrap().entries.is_empty());
     assert_eq!(
-        m.scan_results(OWNER, id + 1, 0, 10, 1 << 16, 100).map(|p| p.entries.len()),
+        page.entries.len(),
+        1,
+        "a byte budget still advances one entry"
+    );
+    assert!(m
+        .scan_results(OWNER, id, 9, 10, 1 << 16, 100)
+        .unwrap()
+        .entries
+        .is_empty());
+    assert_eq!(
+        m.scan_results(OWNER, id + 1, 0, 10, 1 << 16, 100)
+            .map(|p| p.entries.len()),
         Err(Error::NotFound)
     );
     assert_eq!(
-        m.scan_results(OTHER, id, 0, 10, 1 << 16, 100).map(|p| p.entries.len()),
+        m.scan_results(OTHER, id, 0, 10, 1 << 16, 100)
+            .map(|p| p.entries.len()),
         Err(Error::Denied)
     );
     // The next scan starts empty.
@@ -158,10 +175,15 @@ fn results_are_raw_deduplicated_aged_and_paged() {
     let next = m.scan(OWNER, &request(&[1], false), 2000).unwrap();
     assert_ne!(next, id);
     assert_eq!(
-        m.scan_results(OWNER, id, 0, 10, 1 << 16, 2000).map(|p| p.entries.len()),
+        m.scan_results(OWNER, id, 0, 10, 1 << 16, 2000)
+            .map(|p| p.entries.len()),
         Err(Error::NotFound)
     );
-    assert!(m.scan_results(OWNER, next, 0, 10, 1 << 16, 2000).unwrap().entries.is_empty());
+    assert!(m
+        .scan_results(OWNER, next, 0, 10, 1 << 16, 2000)
+        .unwrap()
+        .entries
+        .is_empty());
 }
 
 #[test]

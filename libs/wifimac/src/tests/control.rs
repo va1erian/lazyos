@@ -36,7 +36,11 @@ fn facts_and_mtu() {
 #[test]
 fn one_owner_at_a_time() {
     let mut m = softmac();
-    assert_eq!(m.set_country(OWNER, "FR"), Err(Error::Denied), "nobody attached");
+    assert_eq!(
+        m.set_country(OWNER, "FR"),
+        Err(Error::Denied),
+        "nobody attached"
+    );
     m.attach(OWNER).unwrap();
     assert_eq!(m.attach(OTHER), Err(Error::Busy));
     assert_eq!(m.attach(OWNER), Err(Error::Busy));
@@ -86,7 +90,10 @@ fn join_validates_and_tunes() {
     ] {
         assert_eq!(m.join(OWNER, &bad, 0), Err(Error::Invalid), "{bad:?}");
     }
-    assert_eq!(m.tx_mgmt(OWNER, 0, &auth_from_sta()), Err(Error::NotConnected));
+    assert_eq!(
+        m.tx_mgmt(OWNER, 0, &auth_from_sta()),
+        Err(Error::NotConnected)
+    );
     m.join(OWNER, &join_request(&AP, 6), 0).unwrap();
     assert_eq!(m.radio().tuned.last(), Some(&Channel::new(Band::Ghz2, 6)));
     assert_eq!(m.radio().bssid, Some((AP, 0)));
@@ -96,8 +103,10 @@ fn join_validates_and_tunes() {
 #[test]
 fn management_frames_out_are_checked_and_sequenced() {
     let mut m = joined(false);
-    m.tx_mgmt(OWNER, FrameKind::Mgmt as u32, &auth_from_sta()).unwrap();
-    m.tx_mgmt(OWNER, FrameKind::Mgmt as u32, &auth_from_sta()).unwrap();
+    m.tx_mgmt(OWNER, FrameKind::Mgmt as u32, &auth_from_sta())
+        .unwrap();
+    m.tx_mgmt(OWNER, FrameKind::Mgmt as u32, &auth_from_sta())
+        .unwrap();
     let sent = &m.radio().sent;
     assert_eq!(sent.len(), 2);
     let seq = |f: &Vec<u8>| u16::from_le_bytes([f[22], f[23]]) >> 4;
@@ -109,7 +118,13 @@ fn management_frames_out_are_checked_and_sequenced() {
     let mut flagged = auth_from_sta();
     flagged[1] = 0x40;
     let probe_resp = probe_response(&STA, b"x", 6);
-    for bad in [spoofed, flagged, probe_resp, vec![0xB0, 0, 0], vec![0x08; 30]] {
+    for bad in [
+        spoofed,
+        flagged,
+        probe_resp,
+        vec![0xB0, 0, 0],
+        vec![0x08; 30],
+    ] {
         assert_eq!(m.tx_mgmt(OWNER, 0, &bad), Err(Error::Invalid));
     }
     assert_eq!(m.tx_mgmt(OWNER, 2, &auth_from_sta()), Err(Error::Invalid));
@@ -191,7 +206,11 @@ fn keys_are_validated_and_installed() {
         },
     ];
     for request in bad {
-        assert_eq!(m.set_key(OWNER, &request), Err(Error::Invalid), "{request:?}");
+        assert_eq!(
+            m.set_key(OWNER, &request),
+            Err(Error::Invalid),
+            "{request:?}"
+        );
     }
     m.radio_mut().slots_full = true;
     assert_eq!(
@@ -234,7 +253,10 @@ fn leave_deauthenticates_and_forgets_everything() {
     assert!(m.radio().keys.is_empty());
     assert_eq!(m.radio().bssid, None);
     assert!(!m.link_up());
-    assert_eq!(m.tx_mgmt(OWNER, 0, &auth_from_sta()), Err(Error::NotConnected));
+    assert_eq!(
+        m.tx_mgmt(OWNER, 0, &auth_from_sta()),
+        Err(Error::NotConnected)
+    );
     m.leave(OWNER, 3).unwrap();
     // Not authenticated: leaving sends nothing.
     let mut m = joined(false);

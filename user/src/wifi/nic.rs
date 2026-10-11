@@ -275,7 +275,11 @@ impl<R: Radio> NicService<R> {
         outcome
     }
 
-    fn attach_inner(&mut self, message: &Message, args: &wire::AttachRingArgs) -> Result<u32, MsgError> {
+    fn attach_inner(
+        &mut self,
+        message: &Message,
+        args: &wire::AttachRingArgs,
+    ) -> Result<u32, MsgError> {
         if self.engine.attached().is_some() {
             return Err(err(errno::EBUSY));
         }

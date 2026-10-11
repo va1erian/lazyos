@@ -106,7 +106,10 @@ fn encap_refusals() {
 #[test]
 fn priorities() {
     assert_eq!(user_priority(&ethernet(&GW, &STA, ETHERTYPE_EAPOL, &[])), 7);
-    assert_eq!(user_priority(&ethernet(&GW, &STA, 0x0800, &[0x45, 0x20])), 1);
+    assert_eq!(
+        user_priority(&ethernet(&GW, &STA, 0x0800, &[0x45, 0x20])),
+        1
+    );
     assert_eq!(user_priority(&ethernet(&GW, &STA, 0x8100, &[0xA0, 0])), 5);
     assert_eq!(user_priority(&ethernet(&GW, &STA, 0x0806, &[0; 28])), 0);
     assert_eq!(user_priority(&ethernet(&GW, &STA, 0x0800, &[])), 0);
@@ -147,10 +150,7 @@ fn amsdu_decap_and_injection() {
     let mut flipped = plain.clone();
     flipped[24] |= QOS_AMSDU_PRESENT as u8;
     let h = DataHeader::parse(&flipped).unwrap();
-    assert_eq!(
-        decap(&h, &flipped[h.len..], &mut out),
-        Err(Error::BadAmsdu)
-    );
+    assert_eq!(decap(&h, &flipped[h.len..], &mut out), Err(Error::BadAmsdu));
 
     // Truncated and over-long subframes drop the whole A-MSDU.
     let mut cut = from_ds_header(QOS_AMSDU_PRESENT);
@@ -245,7 +245,10 @@ fn ccmp_qos_and_management_framing() {
 #[test]
 fn ccmp_header_refusals() {
     assert_eq!(ccmp::parse_header(&[0; 7]), Err(Error::BadCcmp));
-    assert_eq!(ccmp::parse_header(&[1, 0, 0, 0, 0, 0, 0, 0]), Err(Error::BadCcmp));
+    assert_eq!(
+        ccmp::parse_header(&[1, 0, 0, 0, 0, 0, 0, 0]),
+        Err(Error::BadCcmp)
+    );
     assert_eq!(
         ccmp::parse_header(&ccmp::header(ccmp::PN_MAX, 3)),
         Ok((ccmp::PN_MAX, 3))

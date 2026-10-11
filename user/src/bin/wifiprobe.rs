@@ -71,7 +71,10 @@ fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, S
     let deadline = sys::monotonic_ms() + 10_000;
     loop {
         match client.next_event(deadline)? {
-            Some(Event::ScanDone { scan_id: id, aborted }) if id == scan_id => {
+            Some(Event::ScanDone {
+                scan_id: id,
+                aborted,
+            }) if id == scan_id => {
                 if aborted {
                     return Err(String::from("the radio aborted the scan"));
                 }
@@ -84,8 +87,11 @@ fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, S
     let entries = client.scan_results(scan_id)?;
     let now = sys::monotonic_ms();
     for entry in &entries {
-        let Ok(frame) = Mgmt::parse(&entry.frame) else { continue };
-        let Some(bss) = Bss::from_frame(&frame, entry.channel as u8, entry.rssi_dbm as i8, now) else {
+        let Ok(frame) = Mgmt::parse(&entry.frame) else {
+            continue;
+        };
+        let Some(bss) = Bss::from_frame(&frame, entry.channel as u8, entry.rssi_dbm as i8, now)
+        else {
             continue;
         };
         let security = match bss.security {
@@ -100,7 +106,11 @@ fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, S
             entry.channel,
             entry.rssi_dbm,
             entry.age_ms,
-            if bss.from_probe_response { "probe" } else { "beacon" }
+            if bss.from_probe_response {
+                "probe"
+            } else {
+                "beacon"
+            }
         ));
     }
     sys::write_str(&format!("WIFIPROBE:SCAN:DONE count={}\n", entries.len()));
@@ -119,7 +129,13 @@ fn find(client: &mut HwClient, ssid: &str) -> Result<Bss, String> {
 }
 
 /// After a join: report what the radio says, answer group rekeys.
-fn stay(client: &mut HwClient, sta: &[u8; 6], bss: &Bss, aid: u16, mut sup: Option<join::Sup>) -> ! {
+fn stay(
+    client: &mut HwClient,
+    sta: &[u8; 6],
+    bss: &Bss,
+    aid: u16,
+    mut sup: Option<join::Sup>,
+) -> ! {
     loop {
         let event = client.next_event(sys::monotonic_ms() + 60_000);
         match event {
@@ -169,7 +185,10 @@ fn suite(client: &mut HwClient, sta: &[u8; 6], args: &[String]) -> ! {
         scan(client, &[])?;
         let directed = scan(client, &[hidden])?;
         match join::pick(&directed, hidden, sys::monotonic_ms()) {
-            Some(bss) => sys::write_str(&format!("WIFIPROBE:HIDDEN:FOUND ssid={hidden} ch={}\n", bss.channel)),
+            Some(bss) => sys::write_str(&format!(
+                "WIFIPROBE:HIDDEN:FOUND ssid={hidden} ch={}\n",
+                bss.channel
+            )),
             None => sys::write_str(&format!("WIFIPROBE:HIDDEN:MISSING ssid={hidden}\n")),
         }
         let bss = find(client, wrong)?;
@@ -180,13 +199,17 @@ fn suite(client: &mut HwClient, sta: &[u8; 6], args: &[String]) -> ! {
         client.leave(REASON_LEAVING)?;
         let bss = find(client, open)?;
         let aid = join::join_open(client, sta, &bss)?;
-        sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={open} security=open aid={aid}\n"));
+        sys::write_str(&format!(
+            "WIFIPROBE:CONNECTED ssid={open} security=open aid={aid}\n"
+        ));
         hold(client, HOLD_MS)?;
         client.leave(REASON_LEAVING)?;
         sys::write_str(&format!("WIFIPROBE:LEAVE ssid={open}\n"));
         let bss = find(client, wpa2)?;
         let (aid, sup) = join::join_wpa2(client, sta, &bss, passphrase)?;
-        sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={wpa2} security=wpa2 aid={aid}\n"));
+        sys::write_str(&format!(
+            "WIFIPROBE:CONNECTED ssid={wpa2} security=wpa2 aid={aid}\n"
+        ));
         Ok((bss, aid, sup))
     })();
     match outcome {
@@ -221,7 +244,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let ssid = args.get(1).ok_or("open needs an SSID")?;
             let bss = find(&mut client, ssid)?;
             let aid = join::join_open(&mut client, &sta, &bss)?;
-            sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={ssid} security=open aid={aid}\n"));
+            sys::write_str(&format!(
+                "WIFIPROBE:CONNECTED ssid={ssid} security=open aid={aid}\n"
+            ));
             stay(&mut client, &sta, &bss, aid, None)
         }
         Some("wpa2") => {
@@ -229,7 +254,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let passphrase = args.get(2).ok_or("wpa2 needs a passphrase")?;
             let bss = find(&mut client, ssid)?;
             let (aid, sup) = join::join_wpa2(&mut client, &sta, &bss, passphrase)?;
-            sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={ssid} security=wpa2 aid={aid}\n"));
+            sys::write_str(&format!(
+                "WIFIPROBE:CONNECTED ssid={ssid} security=wpa2 aid={aid}\n"
+            ));
             stay(&mut client, &sta, &bss, aid, Some(sup))
         }
         Some(other) => Err(format!("unknown mode {other}")),

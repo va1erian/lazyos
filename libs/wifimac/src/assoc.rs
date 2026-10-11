@@ -31,7 +31,8 @@ pub struct KeyRequest<'a> {
     pub addr: &'a [u8],
 }
 
-impl<R: Radio> SoftMac<R> {    /// `Join`: tune to the BSS and filter to it, leaving any previous one.
+impl<R: Radio> SoftMac<R> {
+    /// `Join`: tune to the BSS and filter to it, leaving any previous one.
     pub fn join(&mut self, caller: u64, request: &JoinRequest, now: u64) -> Result<(), Error> {
         self.owned(caller)?;
         let domain = self.domain.ok_or(Error::Again)?;
@@ -132,8 +133,7 @@ impl<R: Radio> SoftMac<R> {    /// `Join`: tune to the BSS and filter to it, lea
             KeyKind::Igtk => false,
         };
         let supported = self.info.ciphers & (1 << CIPHER_CCMP128) != 0;
-        if !index_ok || request.cipher != CIPHER_CCMP128 || !supported || request.key.len() != 16
-        {
+        if !index_ok || request.cipher != CIPHER_CCMP128 || !supported || request.key.len() != 16 {
             return Err(Error::Invalid);
         }
         let rsc = rsc_from_bytes(request.rsc).map_err(|_| Error::Invalid)?;

@@ -23,8 +23,7 @@ use user::messenger::{self, errno, Endpoint};
 use user::wifi::Hardware;
 use wifimac::radio::CIPHER_CCMP128;
 use wifimac::{
-    Band, Channel, KeyInstall, KeyKind, Radio, RadioError, RadioInfo, Received, StaState,
-    TxOptions,
+    Band, Channel, KeyInstall, KeyKind, Radio, RadioError, RadioInfo, Received, StaState, TxOptions,
 };
 
 /// Ring slots on the air card.
@@ -67,16 +66,22 @@ impl AirRadio {
             .find(|card| card.ifname == ifname)
             .ok_or_else(|| format!("no air card {ifname} yet"))?;
         if !card.owner_is_driver() {
-            return Err(format!("{ifname} is not held by a NIC driver (uid {})", card.owner_uid));
+            return Err(format!(
+                "{ifname} is not held by a NIC driver (uid {})",
+                card.owner_uid
+            ));
         }
         let client = Client::connect(ifname).map_err(|e| format!("connect: {}", e.message()))?;
-        let info = client.info().map_err(|e| format!("Info: {}", e.message()))?;
+        let info = client
+            .info()
+            .map_err(|e| format!("Info: {}", e.message()))?;
         let station: Mac = info
             .mac
             .as_slice()
             .try_into()
             .map_err(|_| String::from("the air card reported a bad MAC"))?;
-        let (mine, theirs) = messenger::create_pair().map_err(|e| format!("pair: {}", e.message()))?;
+        let (mine, theirs) =
+            messenger::create_pair().map_err(|e| format!("pair: {}", e.message()))?;
         let attachment = match client.attach_notifying(SLOTS, theirs) {
             Ok(attachment) => attachment,
             Err(error) => {
@@ -111,7 +116,8 @@ impl AirRadio {
     /// address; a group frame of the joined BSS; any beacon or probe response
     /// while scanning.
     fn hears(&self, frame: &[u8]) -> bool {
-        let (Some(a1), Some(a2), Some(a3)) = (frame.get(4..10), frame.get(10..16), frame.get(16..22))
+        let (Some(a1), Some(a2), Some(a3)) =
+            (frame.get(4..10), frame.get(10..16), frame.get(16..22))
         else {
             return false;
         };
@@ -134,7 +140,11 @@ impl AirRadio {
         let Ok((air, frame)) = simair::decode(eth) else {
             return;
         };
-        let band = if air.band == 0 { Band::Ghz2 } else { Band::Ghz5 };
+        let band = if air.band == 0 {
+            Band::Ghz2
+        } else {
+            Band::Ghz5
+        };
         if band != self.tuned.band || air.channel != self.tuned.number || !self.hears(frame) {
             return;
         }
@@ -153,7 +163,11 @@ impl AirRadio {
             band,
             channel: air.channel,
             decrypted: protected,
-            trailer: if protected { ieee80211::ccmp::MIC_LEN } else { 0 },
+            trailer: if protected {
+                ieee80211::ccmp::MIC_LEN
+            } else {
+                0
+            },
         });
     }
 }
@@ -285,7 +299,12 @@ impl Hardware for AirRadio {
                 }
                 Ok(None) => {
                     self.rx.arm();
-                    if self.rx.pending().map_err(|_| String::from("air receive ring corrupt"))? == 0 {
+                    if self
+                        .rx
+                        .pending()
+                        .map_err(|_| String::from("air receive ring corrupt"))?
+                        == 0
+                    {
                         break;
                     }
                 }

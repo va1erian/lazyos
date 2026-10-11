@@ -74,7 +74,8 @@ impl Radio for FakeRadio {
         if self.slots_full {
             return Err(RadioError::Full);
         }
-        self.keys.retain(|(k, i, _)| (*k, *i) != (key.kind, key.index));
+        self.keys
+            .retain(|(k, i, _)| (*k, *i) != (key.kind, key.index));
         self.keys.push((key.kind, key.index, key.key.to_vec()));
         Ok(())
     }

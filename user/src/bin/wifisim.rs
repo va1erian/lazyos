@@ -56,7 +56,10 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("wifisim: simulated Wi-Fi radio\n");
     let uid = match sys::cred_get(None) {
         Ok(cred) => {
-            sys::write_str(&format!("WIFISIM:CRED uid={} caps={:#x}\n", cred.uid, cred.caps));
+            sys::write_str(&format!(
+                "WIFISIM:CRED uid={} caps={:#x}\n",
+                cred.uid, cred.caps
+            ));
             cred.uid
         }
         Err(_) => netpolicy::WIFISIM_UID,

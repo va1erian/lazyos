@@ -90,7 +90,8 @@ impl HwClient {
     }
 
     pub fn scan(&self, request: wire::ScanRequest) -> Result<u32, String> {
-        let body = wire::encode_scan_args(&wire::ScanArgs { request }).map_err(|e| format!("{e:?}"))?;
+        let body =
+            wire::encode_scan_args(&wire::ScanArgs { request }).map_err(|e| format!("{e:?}"))?;
         let reply = self.simple(wire::METHOD_SCAN, body)?;
         Ok(wire::decode_scan_reply(&reply.body)
             .map_err(|e| format!("{e:?}"))?
@@ -108,7 +109,8 @@ impl HwClient {
             })
             .map_err(|e| format!("{e:?}"))?;
             let reply = self.simple(wire::METHOD_SCANRESULTS, body)?;
-            let page = wire::decode_scan_results_reply(&reply.body).map_err(|e| format!("{e:?}"))?;
+            let page =
+                wire::decode_scan_results_reply(&reply.body).map_err(|e| format!("{e:?}"))?;
             let more = page.more && !page.results.is_empty();
             all.extend(page.results);
             if !more {
@@ -124,7 +126,8 @@ impl HwClient {
             band,
             width: wire::WIDTH_MHZ20,
         };
-        let body = wire::encode_join_args(&wire::JoinArgs { request }).map_err(|e| format!("{e:?}"))?;
+        let body =
+            wire::encode_join_args(&wire::JoinArgs { request }).map_err(|e| format!("{e:?}"))?;
         self.simple(wire::METHOD_JOIN, body).map(|_| ())
     }
 
@@ -141,11 +144,19 @@ impl HwClient {
     }
 
     pub fn leave(&self, reason: u32) -> Result<(), String> {
-        let body = wire::encode_leave_args(&wire::LeaveArgs { reason }).map_err(|e| format!("{e:?}"))?;
+        let body =
+            wire::encode_leave_args(&wire::LeaveArgs { reason }).map_err(|e| format!("{e:?}"))?;
         self.simple(wire::METHOD_LEAVE, body).map(|_| ())
     }
 
-    pub fn set_key(&self, kind: u32, index: u32, key: &[u8], rsc: &[u8], addr: &[u8; 6]) -> Result<(), String> {
+    pub fn set_key(
+        &self,
+        kind: u32,
+        index: u32,
+        key: &[u8],
+        rsc: &[u8],
+        addr: &[u8; 6],
+    ) -> Result<(), String> {
         let args = wire::SetKeyArgs {
             kind,
             index,
@@ -167,7 +178,9 @@ impl HwClient {
         let deadline = lazyos_sys::time::deadline_after_ms(deadline_ms - now);
         let message = match self.events.recv_with(&mut self.buf, Some(deadline)) {
             Ok(message) => message,
-            Err(error) if error.errno() == Some(-user::messenger::errno::ETIMEDOUT) => return Ok(None),
+            Err(error) if error.errno() == Some(-user::messenger::errno::ETIMEDOUT) => {
+                return Ok(None)
+            }
             Err(error) => return Err(String::from(error.message())),
         };
         let body = &message.parcel.body;
