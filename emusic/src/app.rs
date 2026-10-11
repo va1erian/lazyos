@@ -17,7 +17,7 @@ use xui_core::backend::Backend;
 use crate::audiod::Audiod;
 use crate::markers::{MarkingBackend, Sink};
 use crate::soundcheck;
-use crate::{WINDOW_SIZE, data_dir};
+use crate::{MIN_WINDOW_SIZE, WINDOW_SIZE, data_dir};
 
 /// The argument that runs the sound check instead of the app.
 const SOUND_CHECK: &str = "--sound-check";
@@ -52,6 +52,9 @@ pub fn run() -> ! {
             std::process::exit(1);
         }
     };
+    // Resizable from the compositor's frame; emusic's views re-flow on
+    // `Event::Resize`.
+    backend.set_size_hints(MIN_WINDOW_SIZE.0, MIN_WINDOW_SIZE.1, 0, 0);
     backend.on_first_frame(|| println!("EMUSIC:UP:PASS"));
 
     let config_path = data.join("config.toml");

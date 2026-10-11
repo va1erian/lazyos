@@ -65,6 +65,15 @@ after `confctl set user/1000/ui/mode str light`.
 - Verified by: `cargo test -p emusic-ui -p emusic-frontend-portable`, and the
   `emusic_theme.json` session.
 
+### 1b. Resizable window (done)
+
+`lazyemusic` declares size hints (`LazyOSBackend::set_size_hints`, minimum
+900x540 design pixels, no maximum), so the compositor's frame resizes and
+maximizes it and emusic's views re-flow on `Event::Resize`. The minimum is the
+smallest size at which emusic's own layout does not overlap (Now Playing over
+the track table below it); fixing that lets the minimum come down (phase 3).
+Session: `tools/screenshot/examples/emusic_resize.json`.
+
 ### 2. A working Add folder
 
 1. xui: a folder mode for `FileDialog` (`FileDialogMode::Folder`).

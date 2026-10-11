@@ -20,6 +20,12 @@ pub const SYSTEM_NAME: &str = "org.lazy.emusic";
 /// the taskbar.
 pub const WINDOW_SIZE: (f32, f32) = (1040.0, 620.0);
 
+/// The smallest the window may be resized to, in design pixels. Below this
+/// emusic's Now Playing panel overlaps the track table (a layout bug in
+/// emusic's portable frontend, docs/emusic-native-styling-plan.md phase 3);
+/// the default is 1040x620 and there is no largest size (the screen).
+pub const MIN_WINDOW_SIZE: (u32, u32) = (900, 540);
+
 /// Where emusic keeps its config, library database and thumbnails: the
 /// package's folder in the user's home, `$HOME/.apps/org.lazy.emusic` (the one
 /// place its manifest may write), or `/tmp/emusic` without a home.

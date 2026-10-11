@@ -101,6 +101,37 @@ def theme_session() -> list[dict]:
     return steps
 
 
+def resize_session() -> list[dict]:
+    """The frame resizes emusic: shrink it from the bottom-right corner,
+    then grow it, and watch the views re-flow."""
+    steps = install()
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    # The PS/2 mouse is relative: park it in the top-left corner, then move.
+    park = [{"mouse_move": [-300, -300]}] * 4
+    steps += [
+        {"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+        {"at": 1.0, "shot": "02_default"},
+        *park,
+        {"mouse_move": [1154, 687]},
+        {"wait": 0.3},
+        {"mouse_down": "left"},
+        {"mouse_move": [-314, -187]},
+        {"wait": 0.4},
+        {"mouse_up": "left"},
+        {"wait": 1.5},
+        {"shot": "03_shrunk"},
+        {"mouse_down": "left"},
+        {"mouse_move": [430, 212]},
+        {"wait": 0.4},
+        {"mouse_up": "left"},
+        {"wait": 1.5},
+        {"shot": "04_grown"},
+        {"at": 1.0, "quit": True},
+    ]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -117,6 +148,7 @@ SESSIONS = {
     "emusic.json": app_session,
     "emusic_sound.json": sound_session,
     "emusic_theme.json": theme_session,
+    "emusic_resize.json": resize_session,
 }
 
 
