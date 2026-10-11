@@ -148,6 +148,13 @@ members = [
     # scan, selection, join, handshake, timers and profiles; pure `no_std` +
     # `alloc`, host-tested and fuzzed.
     "libs/wlansta",
+    # The soft-MAC both Wi-Fi radio programs share (`wifid`, `wifisim`;
+    # docs/wifi-rtw88-plan.md section 3): pure `no_std` + `alloc`, host-tested
+    # against a fake radio.
+    "libs/wifimac",
+    # The simulated radio's air (802.11 in Ethernet) and software CCMP, for
+    # `wifisim` and the host's `tools/wifi/fake_ap.py`.
+    "libs/simair",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

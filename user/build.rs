@@ -266,6 +266,23 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_wifi");
     }
 
+    // The simulated Wi-Fi radio (docs/wifi-prerequisites-plan.md section 3.6):
+    // `LAZYOS_WIFI_SIM=1` adds the `wifisim` row to `init`'s manifest and lets
+    // `netdrv` serve the air card (`netpolicy::SIM_AIR_MAC`) as `air0`. The
+    // ELFs are embedded by the root build script. It needs the stack.
+    // `LAZYOS_WIFI_SIM_ARGS` sets `wifisim`'s arguments (`probe=...` starts the
+    // `wifiprobe` test client, `tools/wifi/sim_run.py`).
+    println!("cargo:rerun-if-env-changed=LAZYOS_WIFI_SIM");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WIFI_SIM_ARGS");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_wifi_sim)");
+    if env::var_os("LAZYOS_WIFI_SIM").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        assert!(
+            netd,
+            "LAZYOS_WIFI_SIM=1 needs LAZYOS_NETD=1 (the radio is a card of the stack)"
+        );
+        println!("cargo:rustc-cfg=lazyos_wifi_sim");
+    }
+
     // The device manager (issue #497, docs/driver-plan.md 3.6): whenever the
     // image carries a sound or network driver, `init` starts `devd`, which
     // matches the enumerated devices and asks `init` to start each driver for

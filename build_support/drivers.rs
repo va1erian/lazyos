@@ -90,6 +90,10 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         netd || !enabled("LAZYOS_WIFI"),
         "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (Wi-Fi is a network interface)"
     );
+    assert!(
+        netd || !enabled("LAZYOS_WIFI_SIM"),
+        "LAZYOS_WIFI_SIM=1 needs LAZYOS_NETD=1 (the radio is a card of the stack)"
+    );
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
         add(sink, fhs::bin::NETDRV, "netdrv");
@@ -124,6 +128,12 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // `smb`, the SMB 2.1 client (docs/smb-plan.md F2), on request.
         if enabled("LAZYOS_SMB") {
             add(sink, fhs::bin::SMB, "smb");
+        }
+        // The simulated Wi-Fi radio and its test client
+        // (docs/wifi-prerequisites-plan.md section 3.6), on request.
+        if enabled("LAZYOS_WIFI_SIM") {
+            add(sink, fhs::bin::WIFISIM, "wifisim");
+            add(sink, fhs::bin::WIFIPROBE, "wifiprobe");
         }
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);

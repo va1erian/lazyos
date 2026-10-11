@@ -91,6 +91,9 @@ def make_vars() -> dict:
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
         "smb": b(value=False),
+        # The simulated Wi-Fi radio against fake access points (LAZYOS_WIFI_SIM,
+        # run_demo --wifi-sim; implies the stack).
+        "wifi_sim": b(value=False),
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
         # implies networking).
         "dbgd": b(value=False),

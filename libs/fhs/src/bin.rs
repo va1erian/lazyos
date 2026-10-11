@@ -155,6 +155,12 @@ programs! {
     WLANMD = "wlanmd";
     /// `wifictl`, the Wi-Fi command line (`LAZYOS_WIFI=1`).
     WIFICTL = "wifictl";
+    /// `wifisim`, the simulated Wi-Fi radio (`LAZYOS_WIFI_SIM=1`,
+    /// docs/wifi-prerequisites-plan.md section 3.6).
+    WIFISIM = "wifisim";
+    /// `wifiprobe`, the test client `wifisim` runs to drive
+    /// `os.lazy.net.wifi.hw.v1` when no station manager is present.
+    WIFIPROBE = "wifiprobe";
     /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
     /// docs/tls-plan.md §7).
     FETCH = "fetch";

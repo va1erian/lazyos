@@ -94,6 +94,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "dbgd" {
         return Some(DBGD_CRED);
     }
+    #[cfg(lazyos_wifi_sim)]
+    if name == "wifisim" {
+        return Some(WIFISIM_CRED);
+    }
     #[cfg(lazyos_devd)]
     if name == "devd" {
         return Some(DEVD_CRED);
@@ -374,6 +378,17 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::OnFailure,
         deps: &["netd"],
+    },
+    // The simulated Wi-Fi radio (docs/wifi-prerequisites-plan.md 3.6), only
+    // in `LAZYOS_WIFI_SIM=1` images: `wlan0` over the air card `air0`. It
+    // waits for that card's driver itself, so it has no start dependency.
+    #[cfg(lazyos_wifi_sim)]
+    ServiceSpec {
+        name: "wifisim",
+        path: fhs::bin::WIFISIM,
+        args: WIFISIM_ARGS,
+        restart: Restart::Always,
+        deps: &[],
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained

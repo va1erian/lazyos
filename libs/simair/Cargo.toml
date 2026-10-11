@@ -1,0 +1,15 @@
+[package]
+name = "simair"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The simulated Wi-Fi air of wifisim: 802.11 frames in Ethernet (EtherType 0x88B5) and software CCMP-128"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "simair"
+path = "src/lib.rs"
+
+[dependencies]
+ieee80211 = { path = "../ieee80211" }
+lazyos-crypto = { path = "../crypto" }

@@ -56,8 +56,8 @@ pub const SOCKET_INTERFACE: &str = "os.lazy.net.socket.v1";
 
 mod nic;
 pub use nic::{
-    is_nic_name, may_register_nic_name, nic_kind_allowed, NIC_KIND_WIRED, NIC_KIND_WIRELESS,
-    NIC_NAME_PREFIX,
+    is_nic_name, may_register_nic_name, nic_kind_allowed, stack_attaches, NIC_KIND_WIRED,
+    NIC_KIND_WIRELESS, NIC_NAME_PREFIX, SIM_AIR_IFNAME, SIM_AIR_MAC,
 };
 mod wifi;
 pub use wifi::{
@@ -116,17 +116,21 @@ pub const WIFI_DRIVER_CLASS_RULES: &[RuleSpec] = &[
 /// Who may call the NIC driver. `_netd` is the stack and the only real client;
 /// anyone may read the card (`Info`, `Stats`); root is named for the diagnostic
 /// tools (and cannot displace an attached `_netd`: the driver accepts one
-/// client and refuses a second). Everything else, `Kick` and `Notify` included,
-/// is refused, which is what stops an application from attaching to the card or
-/// feeding the driver frames.
+/// client and refuses a second). `_wifisim` is the client of the simulated
+/// radio's air card (`air0`, which `netd` never attaches). Everything else,
+/// `Kick` and `Notify` included, is refused, which is what stops an
+/// application from attaching to the card or feeding the driver frames.
 pub const NIC_CLIENT_RULES: &[RuleSpec] = &[
     allow(NETD_UID, NIC_INTERFACE, ANY_METHOD),
     allow(ROOT_UID, NIC_INTERFACE, ANY_METHOD),
+    allow(WIFISIM_UID, NIC_INTERFACE, ANY_METHOD),
     allow(ANY_ACTOR, NIC_INTERFACE, "Info"),
     allow(ANY_ACTOR, NIC_INTERFACE, "Stats"),
-    // The driver's own wake-up to the client: `Notify` is sent *by* `_net`, to
-    // the notify endpoint the client handed it, and is judged like any call.
+    // The driver's own wake-up to the client: `Notify` is sent *by* the
+    // driver (`_net`, or a Wi-Fi radio serving `wlan0`), to the notify
+    // endpoint the client handed it, and is judged like any call.
     allow(NET_UID, NIC_INTERFACE, "Notify"),
+    allow(WIFI_UID, NIC_INTERFACE, "Notify"),
     deny(ANY_ACTOR, NIC_INTERFACE, ANY_METHOD),
 ];
 
@@ -284,6 +288,17 @@ mod tests {
         }
         assert!(!nic_kind_allowed(1000, NIC_KIND_WIRED));
         assert!(!nic_kind_allowed(903, NIC_KIND_WIRED));
+    }
+
+    #[test]
+    fn the_stack_leaves_air_cards_to_the_simulator() {
+        for name in ["eth0", "eth12", "wlan0", "wl0"] {
+            assert!(stack_attaches(name), "{name}");
+        }
+        for name in [SIM_AIR_IFNAME, "air1", "air"] {
+            assert!(!stack_attaches(name), "{name}");
+        }
+        assert_eq!(SIM_AIR_MAC[0] & 0x03, 0x02, "locally administered unicast");
     }
 
     #[test]

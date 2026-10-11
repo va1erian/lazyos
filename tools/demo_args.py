@@ -160,6 +160,15 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "firmware at /system/share/firmware (fetched and hash-checked by "
                              "tools/firmware/fetch.py). QEMU has no such card, so it matters on "
                              "the AMD NUC: add --usb-image --dbgd-control --build-only for its stick")
+    parser.add_argument("--wifi-sim", action="store_true",
+                        help="the simulated Wi-Fi radio (LAZYOS_WIFI_SIM=1, needs the stack: "
+                             "LAZYOS_NETD=1): `wifisim` serves wlan0 over a second virtio-net "
+                             "card connected to fake access points (tools/wifi/fake_ap.py, started "
+                             "here; docs/wifi-prerequisites-plan.md 3.6)")
+    parser.add_argument("--wifi-probe", metavar="MODE",
+                        help="with the simulator, start the hw.v1 test client `wifiprobe MODE` "
+                             "(LAZYOS_WIFI_SIM_ARGS=probe=MODE): scan, open:SSID, "
+                             "wpa2:SSID:PASSPHRASE; implies --wifi-sim")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -224,6 +233,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.tls = args.tls or args.lazyweb or args.mail
     args.dbgd = args.dbgd or args.dbgd_control
     args.net = args.net or args.tls or args.smb or args.dbgd or args.wifi
+    args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

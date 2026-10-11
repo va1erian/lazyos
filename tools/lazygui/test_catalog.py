@@ -23,6 +23,7 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
     TrayDemoTests,
 )
 from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
+from lazygui.test_catalog_wifisim import WifiSimTests  # noqa: E402,F401
 from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_wifi import WifiTests  # noqa: E402,F401
 from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401

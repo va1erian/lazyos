@@ -889,6 +889,26 @@ python tools/dbg/dbgctl.py --host <ip> reload wifid                             
 cargo test -p fwload -p devmatch -p netpolicy
 python tools/firmware/fetch.py --check && python tools/firmware/test_fetch.py
 python tools/wifi/licenses.py           # Wi-Fi crates' licences, THIRD_PARTY.md rows
+
+## Wi-Fi soft-MAC and simulator (`LAZYOS_WIFI_SIM=1`)
+
+Both radio programs (`wifid` on the RTL8822CE, `wifisim` in CI) are a
+`wifimac::Radio` under one soft-MAC (`libs/wifimac`: `hw.v1` semantics,
+scanning, keys, 802.3/802.11 and CCMP packet numbers) served by
+`user::wifi::run` as `os.lazy.net.wifi.hw/wlan0` and `os.lazy.net.nic/wlan0`
+(kind wireless); see [`docs/architecture/wifi.md`](docs/architecture/wifi.md).
+`wifisim` (uid 913) carries 802.11 in Ethernet (EtherType 0x88B5,
+`libs/simair`) over a second virtio-net card the harness gives the MAC
+`02:57:53:49:4d:00`: `netdrv` serves it as `air0`, which `netd` never attaches.
+`tools/wifi/fake_ap.py` is the other end (open, WPA2, hidden, two-BSS
+networks, an independent authenticator, DHCP, faults); `wifiprobe` drives
+`hw.v1` when `wlanmd` is absent.
+
+```bash
+cargo test -p ieee80211 -p wifimac -p simair
+python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP, ping, faults
+python tools/wifi/test_judge.py; python tools/wifi/test_fake_ap.py
+python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
 ```
 
 ## Device manager (`devd`) and driver choices

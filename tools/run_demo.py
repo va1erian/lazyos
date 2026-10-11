@@ -34,6 +34,7 @@ Examples
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
     python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
+    python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
@@ -89,6 +90,9 @@ import busybox  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
 import qemu_net  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "wifi"))
+import simnet  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
@@ -295,6 +299,11 @@ def main(argv: list[str]) -> int:
             # talk to host servers only `tools/net/run.py` starts.
             env["LAZYOS_NETD"] = "1"
             env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
+        if args.wifi_sim:
+            # The simulated radio and the stack it is a card of; no harness
+            # clients (`demo=0`), as for `--net`.
+            env.update(simnet.build_env(args.wifi_probe))
+            env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
             # One build for every missing app: the desktop's own, and the
@@ -386,6 +395,12 @@ def main(argv: list[str]) -> int:
             return 1
         command += net_qemu
         print(qemu_net.describe(forwards, args.net_restrict), flush=True)
+    fake_ap = None
+    if args.wifi_sim:
+        log = ROOT / "target" / "wifi-sim-ap.log"
+        fake_ap, air = simnet.start(log=log)
+        command += air
+        print(simnet.describe(log), flush=True)
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]
@@ -396,7 +411,10 @@ def main(argv: list[str]) -> int:
     command += extra
 
     print("running:", " ".join(command), flush=True)
-    return subprocess.call(command)
+    try:
+        return subprocess.call(command)
+    finally:
+        simnet.stop(fake_ap)
 
 
 if __name__ == "__main__":

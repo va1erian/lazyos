@@ -65,3 +65,23 @@ pub fn nic_kind_allowed(uid: u32, kind: u32) -> bool {
         .iter()
         .any(|&(driver, kinds)| driver == uid && kinds & kind_bit(kind) != 0)
 }
+
+/// The interface name of the simulated radio's air card
+/// (docs/wifi-prerequisites-plan.md section 3.6): a virtio-net card whose
+/// frames are `wifisim`'s 802.11-in-Ethernet air, not traffic. `netdrv`
+/// serves it under this name (in `LAZYOS_WIFI_SIM=1` images, for the card
+/// with [`SIM_AIR_MAC`]) and `netd` never attaches it ([`stack_attaches`]).
+pub const SIM_AIR_IFNAME: &str = "air0";
+
+/// The MAC the harness (`tools/wifi/sim_run.py`, `run_demo.py --wifi-sim`)
+/// gives the air card: locally administered, "WSIM".
+pub const SIM_AIR_MAC: [u8; 6] = [0x02, 0x57, 0x53, 0x49, 0x4D, 0x00];
+
+/// The interface-name prefix of carrier cards the stack must leave alone.
+const CARRIER_PREFIX: &str = "air";
+
+/// Whether the network stack attaches the card `ifname`: every card but an
+/// air card (`air0`, ...), which belongs to the simulated radio.
+pub fn stack_attaches(ifname: &str) -> bool {
+    !ifname.starts_with(CARRIER_PREFIX)
+}
