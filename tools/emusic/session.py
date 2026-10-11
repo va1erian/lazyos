@@ -180,6 +180,30 @@ def add_folder_session() -> list[dict]:
     return steps
 
 
+def library_session() -> list[dict]:
+    """An empty library shows the "Add music folder" prompt; the button opens
+    the folder browser, Choose scans `~/Music` and the track table fits its
+    columns, with a star icon on the row and a play icon once it plays.
+    Needs a sound card (`--extra-arg=-device --extra-arg=virtio-sound-pci,...`,
+    as `tools/emusic/run.py` attaches), or the track cannot play."""
+    steps = install()
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    # The opening playback (A4, C5) must be over before Shuffle all, so the
+    # recording holds its two tones and then Shuffle all's.
+    steps += [{"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+              {"wait_for": "EMUSIC:END:tones.mp3", "timeout": 60}, {"wait": 1.0}]
+    steps += [{"shot": "02_empty_library"}]
+    steps += click_at(604, 543, 1.5)   # Add music folder...
+    steps += [{"shot": "03_folder_browser"}]
+    steps += click_at(437, 584, 4.0)   # Choose
+    steps += [{"shot": "04_library"}]
+    steps += click_at(814, 344, 1.5)   # Shuffle all: plays the track
+    # Let the second playback run to its end: the judge counts its tones.
+    steps += [{"shot": "05_playing"}, {"wait": 4.5}, {"at": 1.0, "quit": True}]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -198,6 +222,7 @@ SESSIONS = {
     "emusic_theme.json": theme_session,
     "emusic_resize.json": resize_session,
     "emusic_add_folder.json": add_folder_session,
+    "emusic_library.json": library_session,
 }
 
 

@@ -11,7 +11,8 @@
 
 With ``--app`` it also runs ``emusic.json`` (the app opening the track through
 ``mimed`` and playing it to the end) and judges that recording: A4 for 2 s,
-then C5 for 2 s.
+then C5 for 2 s; and ``emusic_library.json`` (the empty-library prompt, the
+folder browser, a library scan and Shuffle all), which must play the track a second time.
 
     python tools/emusic/run.py                          # everything
     python tools/emusic/run.py --emusic-src ../emusic   # a local emusic clone
@@ -118,6 +119,25 @@ def main() -> int:
         else:
             wav = session("emusic.json", args.out / "emusic", args)
             failures += ["the app session failed"] if wav is None else judge_app(wav)
+        # The library session (empty prompt, folder browser, fitted table, a
+        # playing row) also needs a fresh volume and the sound card; the
+        # Shuffle all it clicks must have played the track.
+        if not image():
+            failures.append("rebuilding the image failed")
+        else:
+            wav = session("emusic_library.json", args.out / "emusic_library", args)
+            if wav is None:
+                failures.append("the library session failed")
+            else:
+                recording = judge.read_wav(wav.read_bytes())
+                found = judge.segments(recording.samples, recording.rate)
+                # The opening playback is two tones (A4, C5); Shuffle all
+                # plays the track again, so a library that was not scanned
+                # leaves only two.
+                if len(found) < 4:
+                    failures.append(
+                        f"library: expected 4 tone segments (open + Shuffle all), "
+                        f"found {len(found)}")
     for failure in failures:
         print(f"EMUSIC:RUN:FAIL:{failure}")
     if failures:
