@@ -22,7 +22,7 @@ error field (id 15) like the display interface's.
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| SetCursor | 1 | sync | `(surface: U64, shape: U32) -> ()` |
+| SetCursor | 1 | sync | `(surface: U64, shape: CursorShape) -> ()` |
 
 ## enum `CursorShape`
 

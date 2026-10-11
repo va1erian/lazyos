@@ -49,6 +49,11 @@ impl Cursors {
         self.sent.remove(&surface);
     }
 
+    /// A window went away: its busy mark goes with it.
+    pub(super) fn forget_window(&mut self, window: u64) {
+        self.busy.remove(&window);
+    }
+
     /// The `CursorShape` for a pointer over `target` of `window`.
     fn shape(&self, nodes: &[(WidgetId, Node)], window: WindowId, target: Option<WidgetId>) -> u32 {
         if self.busy.contains(&window.raw()) {

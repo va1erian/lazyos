@@ -953,7 +953,7 @@ pub static INTERFACES: &[Interface] = &[
                 id: 1,
                 oneway: false,
                 doc: "Set the shape shown while the pointer is over `surface`'s content. The\ncaller must own the surface (`EACCES` otherwise); an unknown surface is\n`ENOENT` and a `shape` that is not a `CursorShape` value is `EINVAL`.\nThe shape stays until the next call or until the surface goes away;\n`Default` restores the arrow.",
-                params: &[Field { name: "surface", id: 1, ty: Ty::U64 }, Field { name: "shape", id: 2, ty: Ty::U32 }],
+                params: &[Field { name: "surface", id: 1, ty: Ty::U64 }, Field { name: "shape", id: 2, ty: Ty::Enum("CursorShape") }],
                 returns: &[],
                 objects: &[],
             },

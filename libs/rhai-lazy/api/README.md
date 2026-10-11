@@ -267,7 +267,7 @@ The mouse pointer's shape over an app's own windows (`docs/cursor-plan.md`).
 
 | Function | IDL | About |
 |---|---|---|
-| `set_cursor(surface, shape)` | `SetCursor(surface: U64, shape: U32) -> ()` | Set the shape shown while the pointer is over `surface`'s content. The |
+| `set_cursor(surface, shape)` | `SetCursor(surface: U64, shape: CursorShape) -> ()` | Set the shape shown while the pointer is over `surface`'s content. The |
 
 - `CURSOR_SHAPE` = the `CursorShape` variants; `CURSOR_SHAPE_DEFAULT`, `CURSOR_SHAPE_BUSY`, `CURSOR_SHAPE_TEXT`, `CURSOR_SHAPE_HAND`, `CURSOR_SHAPE_RESIZE_H`, `CURSOR_SHAPE_RESIZE_V`, `CURSOR_SHAPE_RESIZE_NWSE`, `CURSOR_SHAPE_RESIZE_NESW`
 

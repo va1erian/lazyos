@@ -29,7 +29,7 @@ fn connect() {
     msg::connect("os.lazy.display.cursor.v1")
 }
 
-/// `SetCursor(surface: U64, shape: U32) -> ()`
+/// `SetCursor(surface: U64, shape: CursorShape) -> ()`
 ///
 /// Set the shape shown while the pointer is over `surface`'s content. The
 /// caller must own the surface (`EACCES` otherwise); an unknown surface is

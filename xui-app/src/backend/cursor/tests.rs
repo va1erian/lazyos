@@ -197,3 +197,13 @@ fn every_widget_cursor_maps_to_a_distinct_wire_shape() {
         .iter()
         .all(|s| cursorgfx::Shape::from_wire(*s).is_some()));
 }
+
+#[test]
+fn closing_a_window_forgets_its_busy_mark_and_its_nodes_requests() {
+    let backend = rig();
+    backend.set_busy(W, true);
+    backend.close_window(W);
+    let cursors = backend.cursors.borrow();
+    assert!(!cursors.busy.contains(&W.raw()));
+    assert!(cursors.asked.is_empty());
+}

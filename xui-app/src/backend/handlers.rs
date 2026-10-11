@@ -151,9 +151,17 @@ impl Backend for LazyOSBackend {
         if let (Some(surface), Mode::Client(state)) = (removed.and_then(|w| w.client), &self.mode) {
             surface.close(state.borrow().client);
         }
-        self.nodes
-            .borrow_mut()
-            .retain(|(_, node)| node.window != window);
+        {
+            let mut nodes = self.nodes.borrow_mut();
+            let mut cursors = self.cursors.borrow_mut();
+            cursors.forget_window(window.raw());
+            for (id, node) in nodes.iter() {
+                if node.window == window {
+                    cursors.forget(*id);
+                }
+            }
+            nodes.retain(|(_, node)| node.window != window);
+        }
         // Drop any pending damage and timers for the closed window.
         self.damage.borrow_mut().remove(&window.raw());
         self.timers
@@ -242,6 +250,11 @@ impl Backend for LazyOSBackend {
             if gone.is_empty() {
                 break;
             }
+            let mut cursors = self.cursors.borrow_mut();
+            for id in &gone {
+                cursors.forget(*id);
+            }
+            drop(cursors);
             nodes.retain(|(id, _)| !gone.contains(id));
         }
         // A capture or pending click on a node the cascade removed is stale.
