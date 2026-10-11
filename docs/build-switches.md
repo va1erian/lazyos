@@ -137,6 +137,7 @@ The build refuses combinations that cannot work and says why:
 
 - `LAZYOS_DBGD=1` and `LAZYOS_SMB=1` need `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
+- `LAZYOS_LAZYSKY=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
 - `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
   `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;

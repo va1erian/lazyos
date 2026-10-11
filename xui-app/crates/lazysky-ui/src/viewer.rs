@@ -26,6 +26,8 @@ use crate::Msg;
 const STEP: f32 = 1.25;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 8.0;
+/// The most pixels the viewer asks for (16 Mpx is 64 MB of RGBA).
+const MAX_PIXELS: u64 = 16 * 1000 * 1000;
 
 /// What the viewer shows and how.
 pub struct ViewerState {
@@ -67,12 +69,21 @@ impl ViewerState {
         if w <= 0 || h <= 0 {
             return None;
         }
-        // Whole-pixel boxes, never past the decoder's side limit.
+        // Whole-pixel boxes, never past the decoder's side limit and never
+        // past a pixel budget: a zoomed `Fit` bitmap is RGBA in the image
+        // thread and again in the cache, and zoom steps are cached keys.
         let side = |n: i32| ((n as f32 * self.zoom).round() as u32).clamp(1, 8192);
+        let (mut width, mut height) = (side(w), side(h));
+        let area = u64::from(width) * u64::from(height);
+        if area > MAX_PIXELS {
+            let shrink = (MAX_PIXELS as f32 / area as f32).sqrt();
+            width = ((width as f32 * shrink) as u32).max(1);
+            height = ((height as f32 * shrink) as u32).max(1);
+        }
         Some(ImageKey {
             url,
-            width: side(w),
-            height: side(h),
+            width,
+            height,
             shape: Shape::Fit,
         })
     }
@@ -342,5 +353,20 @@ mod tests {
         assert!(s.wanted().is_none());
         s.open("https://c.test/p".into());
         assert!(s.wanted().is_none(), "no size yet");
+    }
+
+    #[test]
+    fn a_zoomed_request_stays_within_the_pixel_budget() {
+        let mut state = ViewerState::new();
+        state.open("https://cdn.test/a.jpg".into());
+        state.size = (960, 640);
+        state.zoom = MAX_ZOOM;
+        let key = state.wanted().unwrap();
+        assert!(u64::from(key.width) * u64::from(key.height) <= MAX_PIXELS, "{key:?}");
+        // The proportions of the window are kept.
+        assert!((key.width as f32 / key.height as f32 - 1.5).abs() < 0.01, "{key:?}");
+        state.zoom = 1.0;
+        let fit = state.wanted().unwrap();
+        assert_eq!((fit.width, fit.height), (960, 640));
     }
 }

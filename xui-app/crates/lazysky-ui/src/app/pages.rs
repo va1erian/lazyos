@@ -90,6 +90,8 @@ impl LazySkyApp {
                 self.profile_handle = None;
                 self.reset_detail("Profile");
                 self.detail.set_extras(ui, true, false, "");
+                // Back on a profile while a download runs: Cancel, not Download.
+                self.detail.set_bulk_running(ui, self.bulk_seq.is_some());
                 let generation = self.panes[DETAIL as usize].generation;
                 let seq = self.seq();
                 self.ask(

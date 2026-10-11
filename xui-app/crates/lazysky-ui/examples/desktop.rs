@@ -49,12 +49,18 @@ impl Platform for Desktop {
     }
 
     fn open_url(&self, url: &str) -> Result<(), String> {
-        if !(url.starts_with("https://") || url.starts_with("http://")) {
+        if !(url.starts_with("https://") || url.starts_with("http://"))
+            || url.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
             return Err(format!("not a web link: {url}"));
         }
         let status = if cfg!(windows) {
-            // `start` takes the first quoted argument as a window title.
-            Command::new("cmd").args(["/c", "start", "", url]).status()
+            // Never through `cmd /c start`: cmd parses the line again, so a
+            // link with `&` in it would run a second command. rundll32 gets
+            // the URL as one argument and no shell sees it.
+            Command::new("rundll32")
+                .args(["url.dll,FileProtocolHandler", url])
+                .status()
         } else if cfg!(target_os = "macos") {
             Command::new("open").arg(url).status()
         } else {

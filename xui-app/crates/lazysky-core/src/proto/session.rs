@@ -40,7 +40,7 @@ impl Session {
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| format!("the session answer has no {key}"))
         };
-        let pds = pds_endpoint(v).unwrap_or_else(|| service.trim_end_matches('/').to_string());
+        let pds = pds_endpoint(v, service).unwrap_or_else(|| service.trim_end_matches('/').to_string());
         Ok(Session {
             access_jwt: need("accessJwt")?,
             refresh_jwt: need("refreshJwt")?,
@@ -56,15 +56,21 @@ impl Session {
     }
 }
 
-/// The `#atproto_pds` service endpoint of the answer's DID document. Only an
-/// `https:` (or, for a local harness, `http:`) endpoint is believed.
-fn pds_endpoint(v: &Value) -> Option<String> {
+/// The `#atproto_pds` service endpoint of the answer's DID document. An
+/// `https:` endpoint is always believed; an `http:` one only when the
+/// sign-in `service` itself is `http:` (a local harness), so a DID document
+/// can never move the bearer token from TLS to cleartext.
+fn pds_endpoint(v: &Value, service: &str) -> Option<String> {
     let services = v.get("didDoc")?.get("service")?.as_array()?;
     let endpoint = services
         .iter()
         .find(|s| text(s, "id").is_some_and(|id| id.ends_with("#atproto_pds")))
         .and_then(|s| text(s, "serviceEndpoint"))?;
-    let ok = endpoint.starts_with("https://") || endpoint.starts_with("http://");
+    let scheme = |u: &str, name: &str| {
+        u.get(..name.len() + 3)
+            .is_some_and(|p| p.eq_ignore_ascii_case(&format!("{name}://")))
+    };
+    let ok = scheme(&endpoint, "https") || (scheme(&endpoint, "http") && scheme(service, "http"));
     ok.then(|| endpoint.trim_end_matches('/').to_string())
 }
 
@@ -82,6 +88,17 @@ mod tests {
             .unwrap()
             .extend(extra.as_object().unwrap().clone());
         v
+    }
+
+    #[test]
+    fn an_http_pds_is_refused_unless_the_sign_in_service_is_http() {
+        let v = answer(json!({"didDoc": {"service": [
+            {"id": "#atproto_pds", "serviceEndpoint": "http://pds.example.test"}
+        ]}}));
+        let secure = Session::from_json(&v, "https://bsky.social").unwrap();
+        assert_eq!(secure.pds, "https://bsky.social", "kept the service");
+        let local = Session::from_json(&v, "http://127.0.0.1:9").unwrap();
+        assert_eq!(local.pds, "http://pds.example.test");
     }
 
     #[test]

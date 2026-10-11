@@ -39,6 +39,9 @@ pub struct Done {
     pub prepared: Prepared,
     pub tag: u64,
     pub urgent: bool,
+    /// The post this was laid out from (`None` for the "Load more" row): a
+    /// result is only good while the row still holds this same item.
+    pub item: Option<Arc<FeedItem>>,
 }
 
 #[derive(Default)]
@@ -153,12 +156,17 @@ fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sender<Done>) {
             Work::Post(item) => prepare(shaper, item, job.ctx),
             Work::LoadMore => prepare_load_more(shaper, job.ctx),
         };
+        let item = match &job.work {
+            Work::Post(item) => Some(Arc::clone(item)),
+            Work::LoadMore => None,
+        };
         let sent = results.send(Done {
             pane: job.pane,
             id: job.id,
             prepared,
             tag: job.tag,
             urgent,
+            item,
         });
         shared.running.fetch_sub(1, Ordering::SeqCst);
         if sent.is_err() {

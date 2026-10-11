@@ -208,6 +208,14 @@ pub fn apply_refresh(state: &mut ViewState, done: Vec<Done>) -> bool {
             continue;
         };
         if let Some(row) = state.feed.row_mut(i) {
+            // Laid out from a post the row no longer holds (a like that was
+            // refused restored the old one meanwhile): drop it and leave the
+            // row dirty, so maintenance lays the current post out.
+            if let (RowKind::Post(current), Some(laid_out)) = (&row.kind, &d.item) {
+                if !Arc::ptr_eq(current, laid_out) {
+                    continue;
+                }
+            }
             heights.push((d.id, d.prepared.height));
             row.prepared = Some(d.prepared);
             row.dirty = false;

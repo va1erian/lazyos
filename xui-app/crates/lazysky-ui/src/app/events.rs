@@ -160,7 +160,11 @@ impl LazySkyApp {
                 self.pending = self.pending.saturating_sub(1);
                 if self.bulk_seq == Some(seq) {
                     self.bulk_seq = None;
-                    self.detail.set_bulk_running(ui, false);
+                    // The header is shared by Thread, Search and Profile: the
+                    // Download button belongs to the profile page only.
+                    if matches!(self.nav.last(), Some(Nav::Profile { .. })) {
+                        self.detail.set_bulk_running(ui, false);
+                    }
                     let how = if cancelled { "Cancelled" } else { "Done" };
                     self.detail.say(&format!(
                         "{how}: {saved} saved, {skipped} already there, {errors} failed."
