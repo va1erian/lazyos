@@ -224,7 +224,7 @@ The mouse pointer is an antialiased vector sprite (`libs/cursorgfx`) drawn at
 resize arrows) that the compositor picks over window borders and apps set with
 `SetCursor` (`os.lazy.display.cursor.v1`, a scope a package lists in its
 manifest); see [`docs/cursor-plan.md`](docs/cursor-plan.md). Sessions:
-`cursor_shapes.json`, `cursor_docs.json`, `cursor_size.json`, `cursor_xdemo.json`.
+`cursor_shapes.json`, `cursor_docs.json`, `cursor_xdemo.json`.
 
 ```bash
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build

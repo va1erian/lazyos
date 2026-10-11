@@ -29,7 +29,7 @@ Status: C1-C8 landed on `claude/high-dpi-cursor-api-aeff76`, except the xui revi
 - Kernel `kernel/src/cursor.rs` is only the mux fallback (no compositor). Out
   of scope, except fixing its inverted doc comment if touched.
 - `idl/display.midl`: next free method id is **44**. No cursor method.
-- xui (`va1erian/xui`, pinned `c0007e4…`, local clone `E:\repos\xui`) already
+- xui (`va1erian/xui`, pinned `c0007e4…` at planning time, now `93592fd`, local clone `E:\repos\xui`) already
   has `xui_core::backend::Cursor { Default, Hand, Text, SizeHorizontal,
   SizeVertical, SizeNwSe, SizeNeSw }` and `Backend::set_cursor(id, cursor)`;
   widgets (hyperlink, edit, split, litehtml links…) call it. **LazyOSBackend
@@ -212,7 +212,7 @@ has other work in progress; do not touch it).
    `ui.set_cursor(control.id(), cursor)` only on change. Test the mapping.
 3. Push the branch and open a PR on `va1erian/xui`; **ask the user before
    merging**. Then bump the pinned rev everywhere it appears (`grep -rn
-   c0007e478c090651767efe9253ab4691b14d4bb1` over `*.toml`, `docs/xui-plan.md`);
+   8ac63a0a769726f2d66b758cce9092587292e9f7` over `*.toml`, `docs/xui-plan.md`);
    LazyRAD (`lazyrad-os`) pins `va1erian/lazyrad` which pins xui too — keep one
    xui revision in every graph (`cargo tree -d` shows duplicates) or LazyRAD
    must be bumped as well (see #602). Until merged, a temporary `[patch]` is
@@ -289,8 +289,8 @@ the kernel mux cursor.
 | C3 | done | `cursor_shapes.json` (every border and corner, a resize in progress), `window_resize.json` |
 | C4 | done | `core_apps.json` under `LAZYOS_LABEL_TRACE=1`: no `LABEL:DENY`; `cargo test -p messenger-generated -p pkgstore` |
 | C5 | done | `cursor_docs.json` (hand over a link, I-beam over text, arrow over a button); `cursor_xdemo.json` (all eight shapes through `SetCursor`, busy animating); host tests in `xui-app/src/backend/cursor/tests.rs` |
-| C6 | xui PR open, **not merged, pin not bumped** | `va1erian/xui` PR 279 (`Cursor::Busy`, NetSurf pointer shapes). Verified in LazyOS with an uncommitted `[patch]`: `python tools/web/run.py` passes and `shot_hover_link.png` shows the hand. After the PR merges: bump the rev everywhere it is pinned (`grep -rn c0007e478c090651767efe9253ab4691b14d4bb1`; LazyRAD's pin moves with it, #602), then add `Cursor::Busy => wire::CURSOR_SHAPE_BUSY` to `wire_shape` in `xui-app/src/backend/cursor.rs` (the arm cannot compile against the old rev) |
-| C7 | done | `xui_settings`-style session `cursor_size.json` (Large, Extra large, reset: the pointer resizes live); `cargo test -p xui-settings` |
+| C6 | done | `va1erian/xui#279` (`Cursor::Busy`, NetSurf pointer shapes) is in the pinned xui (`93592fd`, which contains `8ac63a0`); `wire_shape` maps `Cursor::Busy`. `python tools/web/run.py` passes and `shot_hover_link.png` shows the hand |
+| C7 | not landed | The Mouse pointer group on the Appearance page and the `cursor_size.json` session. They were written against `sys/ui/*` keys that Settings edited directly; Appearance is now each account's own `user/<uid>/ui/*` copy (`user_theme`), so the size key needs a `user_key` mapping and a Make-default path first. Until then the size is `sys/ui/cursor/size` set by hand (`confd`) |
 | C8 | done | this file, `docs/architecture/display.md`, `docs/hidpi-plan.md`, `docs/window-resize-plan.md`, `docs/packages.md`, `docs/settings-app-plan.md`, `docs/lazyweb.md`, `AGENTS.md` |
 
 Deviations from the design above:

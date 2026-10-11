@@ -27,7 +27,7 @@ trusted prompt (docs/accounts-plan.md U2), one approval per write.
 | `sys/ui/mode` | string `dark` / `light` |
 | `sys/ui/bg`, `sys/ui/accent`, `sys/ui/title_active`, `sys/ui/title_inactive`, `sys/ui/taskbar` | u64 0xRRGGBB |
 | `sys/ui/anim` | bool |
-| `sys/ui/cursor/size` | u64: the mouse pointer's design size, one of 16, 24, 32, 48 (Small, Medium, Large, Extra large; absent: 16); followed live by `xuid`, which draws it at size x UI scale, see `docs/cursor-plan.md`. Set on the Appearance page's Mouse pointer group |
+| `sys/ui/cursor/size` | u64: the mouse pointer's design size, one of 16, 24, 32, 48 (Small, Medium, Large, Extra large; absent: 16); followed live by `xuid`, which draws it at size x UI scale, see `docs/cursor-plan.md`. Not yet on the Appearance page (`docs/cursor-plan.md`, C7) |
 | `sys/ui/wallpaper` | string: absolute path of a PNG or JPEG desktop picture (absent: the plain `sys/ui/bg` colour); read by LazyShell, see `docs/shell-plan.md` |
 | `sys/input/layout` | string `us` / `fr`: the machine default (login screen, console, accounts without their own); `user/<uid>/input/layout` overrides it for that account |
 | `sys/time/zone` | string (existing) |

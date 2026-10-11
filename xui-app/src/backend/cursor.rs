@@ -103,6 +103,7 @@ fn wire_shape(cursor: Cursor) -> u32 {
         Cursor::SizeVertical => wire::CURSOR_SHAPE_RESIZE_V,
         Cursor::SizeNwSe => wire::CURSOR_SHAPE_RESIZE_NWSE,
         Cursor::SizeNeSw => wire::CURSOR_SHAPE_RESIZE_NESW,
+        Cursor::Busy => wire::CURSOR_SHAPE_BUSY,
     }
 }
 
