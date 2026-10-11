@@ -7,8 +7,10 @@ On a desktop image with a Terminal (`LAZYOS_XUI_AUTOSTART=term`,
 
 1. the Terminal writes `settings.toml` into LazySky's folder, pointing the
    login at the mock (`init` hands an app one absolute path at most, so the
-   server cannot be an argument), and launches the app through `init.Launch`
-   from a `rhai` script (as `mail_tls.json` does);
+   server cannot be an argument), waits until the file says so, and only
+   then launches the app through `init.Launch` from a `rhai` script (as
+   `mail_tls.json` does), so a typed password can never reach the real
+   service;
 2. the handle is typed, Tab, the app password (`{"type_secret":
    "LAZYSKY_PASSWORD"}`: never written to the script), Tab, Space on the
    Sign in button;
@@ -52,12 +54,19 @@ def steps(timeout: float = 300.0) -> list[dict]:
         {"wait_for": "TERM:UP:PASS", "timeout": 600},
         {"wait_for": "NETD:ADDR 10.0.2.15", "timeout": 300},
     ]
-    out += typed("mkdir -p ~/.apps/os.lazy.lazysky", 1.0)
-    out += typed("cd ~/.apps/os.lazy.lazysky", 2.5)
-    out += typed(f"echo 'service = \"{SERVICE}\"' > settings.toml", 4.0)
-    out += typed("echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai", 5.5)
-    out += typed("echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai", 7.0)
-    out += typed(f"clear; rhai /tmp/l.rhai {APP}", 8.5)
+    # BusyBox `mkdir -p` asks for `/home` first and is refused on LazyOS, so
+    # one level at a time (the first may exist).
+    out += typed("mkdir ~/.apps", 1.0)
+    out += typed("mkdir ~/.apps/os.lazy.lazysky", 2.5)
+    out += typed("cd ~/.apps/os.lazy.lazysky", 4.0)
+    out += typed(f"echo 'service = \"{SERVICE}\"' > settings.toml", 5.5)
+    # The app is launched only once the file says the mock: otherwise the
+    # typed app password would go to the real service.
+    out += typed("echo SKYH:settings:$(grep -c bsky.test settings.toml)", 7.0)
+    out += [{"wait_for": "SKYH:settings:1", "timeout": 60}]
+    out += typed("echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai", 1.0)
+    out += typed("echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai", 2.5)
+    out += typed(f"clear; rhai /tmp/l.rhai {APP}", 4.0)
     out += [
         {"wait_for": "SKY:UP:PASS", "timeout": timeout},
         {"wait": 2.0},

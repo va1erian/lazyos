@@ -151,6 +151,15 @@ class SessionTests(unittest.TestCase):
         for marker in ("SKY:UP:PASS", "SKY:LOGIN:PASS:me.test", "SKY:FEED:ROWS:30"):
             self.assertIn(marker, gates)
 
+    def test_the_app_is_launched_only_after_the_settings_are_confirmed(self) -> None:
+        steps = session.steps()
+        gate = next(i for i, s in enumerate(steps) if s.get("wait_for") == "SKYH:settings:1")
+        launch = next(i for i, s in enumerate(steps)
+                      if "rhai /tmp/l.rhai" in str(s.get("type", "")))
+        secret = next(i for i, s in enumerate(steps) if "type_secret" in s)
+        self.assertLess(gate, launch)
+        self.assertLess(launch, secret)
+
 
 if __name__ == "__main__":
     unittest.main()

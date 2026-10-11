@@ -1,8 +1,11 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0 to P7 (§9) are implemented and their
-host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
-under QEMU wait for P8's packaging and harness. P8 is next.
+**Status:** revision 4 (2026-10-11). P0 to P8 (§9) are implemented and
+verified: host tests, the paint bench, and the QEMU harness
+(`python tools/lazysky/run.py`, passing on WHPX with and without
+`LAZYOS_LABEL_TRACE=1`). Not done: P9 (stay signed in with `keyd`, optional)
+and the Windows packaging step (optional); `tools/xui/build.py` has no
+`--no-lazysky` (the crates are small and build with the other apps).
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -679,6 +682,29 @@ bulk download exactly as §7.6, with sanitize tests.
 * Icon (`xui-app/crates/app-icons` `PACKAGES`), `docs/lazysky.md`, package
   README, `docs/build-switches.md` row, an AGENTS.md section like LazyWeb's,
   and `python tools/nettls/licenses.py` over the tree (no `ring`/`aws-lc`).
+
+*P8 findings (2026-10-11).*
+* LazySky runs on LazyOS under QEMU: sign-in over TLS against the mock with
+  the harness CA, the timeline with decoded JPEG pictures and avatars,
+  scrolling, an unread count, a thread by click. The first QEMU run printed
+  `SKY:UP:PASS` from a bin with the P0 spike; the full harness (WHPX) reports
+  six `SKY:PERF` lines inside R7 and the mock saw the sign-in body, a bearer
+  token on every XRPC call, SNI `bsky.test` and `cdn.bsky.test` and the
+  pictures. The host-side opt-in bench (p99 2.9 ms) and these numbers agree.
+* `init.Launch` hands an app **one absolute path at most**, so the harness
+  cannot pass `--service`; it writes `settings.toml` into the app's folder
+  first and launches only once the file reads back (so a typed password can
+  never reach the real service). `xui-lazysky` therefore loads
+  `settings.toml` at start; `--service` still overrides it.
+* BusyBox `mkdir -p` asks for `/home` first and is refused on LazyOS (it
+  reports EACCES where the directory exists); the session makes one level at a
+  time. Worth a kernel look: `mkdir` of an existing directory should say
+  `EEXIST`.
+* The package's file rules take `$HOME/<dir>`, not the home itself, so
+  the composer's picker is allowed `read:$HOME/Pictures` and
+  `read:$HOME/Downloads`.
+* Permissions: window, cursor, input, `mimed` and `clipboard`; `network =
+  ["outbound"]`.
 
 **P9 (optional): stay signed in** with `keyd` (§7.4), LazyOS only.
 

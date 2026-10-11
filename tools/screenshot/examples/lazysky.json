@@ -13,7 +13,7 @@
  },
  {
   "at": 1.0,
-  "type": "mkdir -p ~/.apps/os.lazy.lazysky"
+  "type": "mkdir ~/.apps"
  },
  {
   "at": 1.5,
@@ -21,7 +21,7 @@
  },
  {
   "at": 2.5,
-  "type": "cd ~/.apps/os.lazy.lazysky"
+  "type": "mkdir ~/.apps/os.lazy.lazysky"
  },
  {
   "at": 3.0,
@@ -29,7 +29,7 @@
  },
  {
   "at": 4.0,
-  "type": "echo 'service = \"https://bsky.test:8443\"' > settings.toml"
+  "type": "cd ~/.apps/os.lazy.lazysky"
  },
  {
   "at": 4.5,
@@ -37,7 +37,7 @@
  },
  {
   "at": 5.5,
-  "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"
+  "type": "echo 'service = \"https://bsky.test:8443\"' > settings.toml"
  },
  {
   "at": 6.0,
@@ -45,18 +45,38 @@
  },
  {
   "at": 7.0,
-  "type": "echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai"
+  "type": "echo SKYH:settings:$(grep -c bsky.test settings.toml)"
  },
  {
   "at": 7.5,
   "key": "enter"
  },
  {
-  "at": 8.5,
+  "wait_for": "SKYH:settings:1",
+  "timeout": 60
+ },
+ {
+  "at": 1.0,
+  "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"
+ },
+ {
+  "at": 1.5,
+  "key": "enter"
+ },
+ {
+  "at": 2.5,
+  "type": "echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai"
+ },
+ {
+  "at": 3.0,
+  "key": "enter"
+ },
+ {
+  "at": 4.0,
   "type": "clear; rhai /tmp/l.rhai os.lazy.lazysky"
  },
  {
-  "at": 9.0,
+  "at": 4.5,
   "key": "enter"
  },
  {

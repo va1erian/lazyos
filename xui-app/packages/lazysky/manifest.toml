@@ -26,15 +26,17 @@ abi = "linux"
 autostart = false
 
 [permissions]
-# Provisional, modelled on LazyWeb: the window, sockets (plain `std::net`,
-# the `outbound` network permission) and `mimed` for links the client hands
-# to the browser. Derive the final list from a run under its label
-# (`LAZYOS_LABEL_TRACE=1`, docs/packages.md): there must be no `LABEL:DENY`.
+# The window, sockets (plain `std::net`, the `outbound` network permission),
+# `mimed` for links the client hands to the browser and the clipboard
+# ("Copy link to post", "Copy image address", pasting into the composer).
+# Derived from `python tools/lazysky/run.py --label-trace`: no `LABEL:DENY`
+# (docs/packages.md).
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
     "os.lazy.mimed.v1",
+    "os.lazy.clipboard.v1",
 ]
 network = ["outbound"]
 # Settings in the app's own folder; saved pictures in the user's Pictures;
