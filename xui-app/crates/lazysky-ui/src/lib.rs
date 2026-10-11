@@ -12,6 +12,7 @@ mod app;
 pub mod drain;
 pub mod feedview;
 mod home;
+pub mod images;
 pub mod layouts;
 mod login;
 pub mod perf;
@@ -30,6 +31,8 @@ pub const WINDOW: (i32, i32) = (960, 640);
 pub enum Report {
     /// The timeline now holds this many posts.
     FeedRows(usize),
+    /// The picture cache holds this many pictures.
+    Pictures(usize),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

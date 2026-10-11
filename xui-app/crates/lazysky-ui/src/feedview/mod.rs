@@ -21,6 +21,7 @@ use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 
+use crate::images::ImageCache;
 use crate::perf::Perf;
 use crate::prepare::{Prepared, Target};
 use crate::Msg;
@@ -54,6 +55,8 @@ pub(crate) struct Grab {
 
 pub struct ViewState {
     pub feed: Feed<Prepared>,
+    /// Pictures ready to draw.
+    pub images: ImageCache,
     pub dpi: u32,
     /// The view in device pixels.
     pub width: i32,
@@ -73,6 +76,7 @@ impl ViewState {
     pub fn new() -> ViewState {
         ViewState {
             feed: Feed::new(),
+            images: ImageCache::default(),
             dpi: 96,
             width: 0,
             height: 0,

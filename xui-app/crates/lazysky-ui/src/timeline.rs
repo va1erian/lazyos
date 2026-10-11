@@ -203,3 +203,49 @@ pub fn apply_refresh(state: &mut ViewState, done: Vec<Done>) -> bool {
     }
     changed
 }
+
+/// How many pictures one list asks the core for.
+const MAX_WANTED: usize = 64;
+
+/// The pictures to ask for, nearest the view's centre first, and which the
+/// cache should keep: those of the rows near the view that are neither held
+/// nor known to have failed. `visible` is filled with what is on screen.
+pub fn wanted_images(
+    state: &ViewState,
+) -> (
+    Vec<lazysky_core::ImageKey>,
+    std::collections::HashSet<lazysky_core::ImageKey>,
+) {
+    let centre = state.feed.scroll_top() + state.height / 2;
+    let mut rows: Vec<(i32, usize)> = state
+        .feed
+        .near(REPREPARE)
+        .map(|i| {
+            let row_h = state.feed.row(i).map_or(0, |r| r.height);
+            ((state.feed.row_top(i) + row_h / 2 - centre).abs(), i)
+        })
+        .collect();
+    rows.sort_unstable();
+    let mut wanted = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (_, i) in rows {
+        let Some(prepared) = state.feed.row(i).and_then(|r| r.prepared.as_ref()) else {
+            continue;
+        };
+        for key in prepared.image_keys() {
+            if state.images.wants(key) && seen.insert(key.clone()) {
+                wanted.push(key.clone());
+            }
+        }
+        if wanted.len() >= MAX_WANTED {
+            break;
+        }
+    }
+    let visible = state
+        .feed
+        .visible()
+        .filter_map(|i| state.feed.row(i)?.prepared.as_ref())
+        .flat_map(|p| p.image_keys().cloned())
+        .collect();
+    (wanted, visible)
+}

@@ -70,9 +70,8 @@ fn watchdog<T: Send + 'static>(test: impl FnOnce() -> T + Send + 'static) -> T {
     }
 }
 
-/// A plain-HTTP server: `answer(path)` is `(status, JSON body)`. Returns its
-/// port.
-fn serve(answer: impl Fn(&str) -> (u16, String) + Send + Sync + 'static) -> u16 {
+/// A plain-HTTP server: `answer(path)` is `(status, body)`. Returns its port.
+fn serve(answer: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'static) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let answer = Arc::new(answer);
@@ -108,7 +107,7 @@ fn serve(answer: impl Fn(&str) -> (u16, String) + Send + Sync + 'static) -> u16 
                 );
                 let out = reader.get_mut();
                 let _ = out.write_all(head.as_bytes());
-                let _ = out.write_all(text.as_bytes());
+                let _ = out.write_all(&text);
                 let _ = out.flush();
             });
         }
@@ -116,9 +115,31 @@ fn serve(answer: impl Fn(&str) -> (u16, String) + Send + Sync + 'static) -> u16 
     port
 }
 
+/// A PNG with a colour gradient and a diagonal stripe, tinted by `n`, so a
+/// snapshot shows the crop and the scale.
+fn picture(w: u32, h: u32, n: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_fn(w, h, |x, y| {
+        let stripe = (x + y) % 64 < 8;
+        let (r, g, b) = (
+            (x * 255 / w) as u8,
+            (y * 255 / h) as u8,
+            (n.wrapping_mul(53) % 200) as u8,
+        );
+        if stripe {
+            image::Rgba([255, 255, 255, 255])
+        } else {
+            image::Rgba([r, g, b, 255])
+        }
+    });
+    let mut out = Vec::new();
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .unwrap();
+    out
+}
+
 /// One post of the mock timeline: variety in length, links, pictures,
 /// quotes and reposts, so the rows have different heights.
-fn post(n: usize) -> String {
+fn post(n: usize, base: &str) -> String {
     let words = "the quick brown fox jumps over the lazy dog ";
     let text = words.repeat(1 + n % 5);
     let text = format!("Post number {n}: {}", text.trim());
@@ -130,7 +151,9 @@ fn post(n: usize) -> String {
         );
     }
     let embed = match n % 6 {
-        1 => r#","embed":{"$type":"app.bsky.embed.images#view","images":[{"thumb":"https://cdn.test/t","fullsize":"https://cdn.test/f","aspectRatio":{"width":4,"height":3}}]}"#.to_string(),
+        1 => format!(
+            r#","embed":{{"$type":"app.bsky.embed.images#view","images":[{{"thumb":"{base}/img/{n}.png","fullsize":"{base}/img/{n}.png","aspectRatio":{{"width":4,"height":3}}}}]}}"#
+        ),
         3 => r#","embed":{"$type":"app.bsky.embed.record#view","record":{"$type":"app.bsky.embed.record#viewRecord","uri":"at://did:plc:q/app.bsky.feed.post/1","cid":"c","author":{"did":"did:plc:q","handle":"q.test","displayName":"Quentin"},"value":{"text":"an older thought worth quoting"}}}"#.to_string(),
         _ => String::new(),
     };
@@ -140,7 +163,7 @@ fn post(n: usize) -> String {
         ""
     };
     format!(
-        r#"{{"post":{{"uri":"at://did:plc:a/app.bsky.feed.post/{n}","cid":"c{n}","author":{{"did":"did:plc:a","handle":"alice.test","displayName":"Alice"}},{record},"likeCount":{},"repostCount":{}{embed}}}{reason}}}"#,
+        r#"{{"post":{{"uri":"at://did:plc:a/app.bsky.feed.post/{n}","cid":"c{n}","author":{{"did":"did:plc:a","handle":"alice.test","displayName":"Alice","avatar":"{base}/avatar.png"}},{record},"likeCount":{},"repostCount":{}{embed}}}{reason}}}"#,
         n % 40,
         n % 9
     )
@@ -152,26 +175,39 @@ fn bluesky() -> u16 {
     let port = Arc::new(std::sync::Mutex::new(0u16));
     let shared = Arc::clone(&port);
     let actual = serve(move |path| {
+        if path.starts_with("/avatar.png") {
+            return (200, picture(96, 96, 7));
+        }
+        if let Some(n) = path.strip_prefix("/img/") {
+            let n: u32 = n.trim_end_matches(".png").parse().unwrap_or(0);
+            return (200, picture(400, 300, n));
+        }
         if path.contains("createSession") {
             let pds = format!("http://127.0.0.1:{}", shared.lock().unwrap());
             let session = format!(
                 r##"{{"accessJwt":"a.b.c","refreshJwt":"d.e.f","did":"did:plc:me","handle":"me.test",
                     "didDoc":{{"service":[{{"id":"#atproto_pds","serviceEndpoint":"{pds}"}}]}}}}"##
             );
-            return (200, session);
+            return (200, session.into_bytes());
         }
         let page: usize = path
             .split("cursor=page-")
             .nth(1)
             .and_then(|rest| rest.split('&').next()?.parse().ok())
             .unwrap_or(0);
-        let posts: Vec<String> = (page * 30..page * 30 + 30).map(post).collect();
+        let base = format!("http://127.0.0.1:{}", shared.lock().unwrap());
+        let posts: Vec<String> = (page * 30..page * 30 + 30)
+            .map(|n| post(n, &base))
+            .collect();
         let next = if page + 1 < 10 {
             format!(r#""cursor":"page-{}","#, page + 1)
         } else {
             String::new()
         };
-        (200, format!(r#"{{{next}"feed":[{}]}}"#, posts.join(",")))
+        (
+            200,
+            format!(r#"{{{next}"feed":[{}]}}"#, posts.join(",")).into_bytes(),
+        )
     });
     *port.lock().unwrap() = actual;
     actual
@@ -262,10 +298,18 @@ fn signing_in_loads_a_prepared_timeline_and_it_scrolls() {
                 tick_until(stage, Duration::from_secs(30), || {
                     heard.borrow().contains(&Report::FeedRows(30))
                 });
-                // Scroll down 40 notches; rows there are prepared by the
-                // layout thread while the ticks run.
-                wheel(stage, -40);
-                tick_until(stage, Duration::from_millis(400), || false);
+                // Pictures near the view are fetched, decoded and cropped on
+                // the image threads, then drawn.
+                tick_until(stage, Duration::from_secs(30), || {
+                    heard
+                        .borrow()
+                        .iter()
+                        .any(|r| matches!(r, Report::Pictures(n) if *n >= 3))
+                });
+                // Scroll down 20 notches; rows there are prepared by the
+                // layout thread and their pictures fetched while ticking.
+                wheel(stage, -20);
+                tick_until(stage, Duration::from_millis(1500), || false);
             });
             assert!(shot.reports.contains(&Report::FeedRows(30)), "{tag}");
             save(&shot.image, &format!("lazysky-feed-{tag}.png"));
@@ -291,7 +335,12 @@ fn load_more_appends_the_next_page() {
                 });
             },
         );
-        assert_eq!(shot.reports, [Report::FeedRows(30), Report::FeedRows(60)]);
+        let rows: Vec<&Report> = shot
+            .reports
+            .iter()
+            .filter(|r| matches!(r, Report::FeedRows(_)))
+            .collect();
+        assert_eq!(rows, [&Report::FeedRows(30), &Report::FeedRows(60)]);
     });
 }
 
@@ -302,7 +351,8 @@ fn a_refused_password_is_shown_on_the_sign_in_page() {
             (
                 401,
                 r#"{"error":"AuthenticationRequired","message":"Invalid identifier or password"}"#
-                    .to_string(),
+                    .as_bytes()
+                    .to_vec(),
             )
         });
         let shot = render(

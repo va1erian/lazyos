@@ -13,6 +13,9 @@ serde_json = "1"
 rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
 nettls-crypto = { path = "../../../nettls/crypto" }
 rustls-pki-types = { version = "1.15", features = ["std"] }
+# Decoding and the cover crop run on the image threads. Pure Rust codecs only;
+# the limits (§7.5) are enforced before any pixel buffer is allocated.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 # Blocking HTTP/1.1 without its own TLS, roots or gzip: `net::tls` is the
 # only TLS path.
 ureq = { version = "=3.4.2", default-features = false }

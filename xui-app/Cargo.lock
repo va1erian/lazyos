@@ -2750,6 +2750,7 @@ dependencies = [
 name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
+ "image",
  "nettls-crypto",
  "rcgen",
  "rustls",
@@ -2763,6 +2764,7 @@ dependencies = [
 name = "lazysky-ui"
 version = "0.1.0"
 dependencies = [
+ "image",
  "lazysky-core",
  "serde_json",
  "xui-canvas",

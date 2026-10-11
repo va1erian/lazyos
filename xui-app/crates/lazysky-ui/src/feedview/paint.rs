@@ -6,17 +6,21 @@ use xui_core::geometry::{Point, Rect};
 use xui_core::Theme;
 
 use super::{ViewState, BAR_96};
+use crate::images::ImageCache;
 use crate::prepare::{Piece, Prepared, Tone};
 
 /// Paints the visible rows of `state` on `canvas`, a scroll bar over them.
+///
+/// Clips are the one expensive thing here: while any is active every draw
+/// applies a mask (five rows measured 6 ms a frame under a clip each and
+/// 0.7 ms with none). So only the rows that stick out of the view (the
+/// first and the last) and rows with a layout for another width are drawn
+/// under a clip; every row wholly inside is drawn bare.
 pub fn paint(canvas: &mut dyn Canvas, state: &ViewState, theme: &Theme) {
-    // No clip is pushed on the normal path: the canvas is already clipped to
-    // its bounds, and any active clip makes every later draw several times
-    // dearer (a mask is applied per operation; measured at 6 ms a frame for
-    // five rows against 0.7 ms without).
     let bounds = canvas.bounds();
     canvas.clear(theme.background);
     let feed = &state.feed;
+    let content_w = state.content_width();
     for i in feed.visible() {
         let Some(row) = feed.row(i) else { continue };
         let top = bounds.top + feed.screen_top(i);
@@ -26,18 +30,32 @@ pub fn paint(canvas: &mut dyn Canvas, state: &ViewState, theme: &Theme) {
             bounds.left + state.width,
             top + row.height,
         );
-        match &row.prepared {
-            Some(prepared) if prepared.width == state.content_width() => {
-                draw_row(canvas, prepared, (rect.left, rect.top), state.width, theme);
+        let sticks_out = rect.top < bounds.top || rect.bottom > bounds.bottom;
+        let Some(prepared) = &row.prepared else {
+            if sticks_out {
+                canvas.push_clip(within(rect, bounds));
             }
-            Some(prepared) => {
-                // A layout for another width is still drawn, clipped to its
-                // row, until the new one arrives (rare: after a resize).
-                canvas.push_clip(rect);
-                draw_row(canvas, prepared, (rect.left, rect.top), state.width, theme);
+            skeleton(canvas, rect, state, theme);
+            if sticks_out {
                 canvas.pop_clip();
             }
-            None => skeleton(canvas, rect, state, theme),
+            continue;
+        };
+        let clipped = sticks_out || prepared.width != content_w;
+        if clipped {
+            let visible = within(rect, bounds);
+            canvas.push_clip(visible);
+        }
+        draw_row(
+            canvas,
+            prepared,
+            (rect.left, rect.top),
+            state.width,
+            theme,
+            &state.images,
+        );
+        if clipped {
+            canvas.pop_clip();
         }
     }
     if feed.is_empty() && !state.note.is_empty() {
@@ -59,7 +77,14 @@ fn colour(theme: &Theme, tone: Tone) -> Rgba {
     })
 }
 
-fn draw_row(canvas: &mut dyn Canvas, p: &Prepared, origin: (i32, i32), width: i32, theme: &Theme) {
+fn draw_row(
+    canvas: &mut dyn Canvas,
+    p: &Prepared,
+    origin: (i32, i32),
+    width: i32,
+    theme: &Theme,
+    images: &ImageCache,
+) {
     let at = |x: i32, y: i32| Point::new(origin.0 + x, origin.1 + y);
     let shift = |r: &Rect| {
         Rect::new(
@@ -85,18 +110,28 @@ fn draw_row(canvas: &mut dyn Canvas, p: &Prepared, origin: (i32, i32), width: i3
             } => {
                 canvas.draw_layout(&**layout, at(pos.0, pos.1), colour(theme, *tone));
             }
-            Piece::Avatar { rect } => {
+            Piece::Avatar { rect, key } => {
                 let r = shift(rect);
-                let radius = (r.width() / 2) as f32;
-                canvas.fill_ellipse(
-                    Point::new(r.left + r.width() / 2, r.top + r.height() / 2),
-                    radius,
-                    radius,
-                    theme.track,
-                );
+                match key.as_ref().and_then(|key| images.get(key)) {
+                    // Already a circle, at the box's size: one draw.
+                    Some(image) => canvas.draw_image(image, r),
+                    None => {
+                        let radius = (r.width() / 2) as f32;
+                        canvas.fill_ellipse(
+                            Point::new(r.left + r.width() / 2, r.top + r.height() / 2),
+                            radius,
+                            radius,
+                            theme.track,
+                        );
+                    }
+                }
             }
-            Piece::Media { rect, .. } => {
-                canvas.fill_rounded_rect(shift(rect), 6.0, theme.track);
+            Piece::Media { rect, key, .. } => {
+                let r = shift(rect);
+                match key.as_ref().and_then(|key| images.get(key)) {
+                    Some(image) => canvas.draw_image(image, r),
+                    None => canvas.fill_rounded_rect(r, 6.0, theme.track),
+                }
             }
             Piece::Frame { rect } => {
                 canvas.stroke_rect(shift(rect), theme.border, 1.0);
@@ -167,4 +202,14 @@ fn scroll_bar(canvas: &mut dyn Canvas, bounds: Rect, state: &ViewState, theme: &
         bounds.top + at + len - 2,
     );
     canvas.fill_rounded_rect(thumb, 3.0, theme.scrollbar);
+}
+
+/// `r` cut to `bounds`.
+fn within(r: Rect, bounds: Rect) -> Rect {
+    Rect::new(
+        r.left.max(bounds.left),
+        r.top.max(bounds.top),
+        r.right.min(bounds.right),
+        r.bottom.min(bounds.bottom),
+    )
 }

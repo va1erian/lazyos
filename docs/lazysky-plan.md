@@ -1,8 +1,8 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0 to P3 (§9) are implemented and their
+**Status:** revision 3 (2026-10-11). P0 to P4 (§9) are implemented and their
 host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
-under QEMU wait for P8's packaging and harness. P4 is next.
+under QEMU wait for P8's packaging and harness. P5 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -558,13 +558,15 @@ with Load more; `app/perf.rs` (§10.3). *Done when:* offscreen snapshots of a
 paints 1,000 frames of a 2,000-row feed with p99 ≤ 4 ms.
 
 *P3 findings (2026-10-11).*
-* **A pushed clip makes every later draw expensive.** With any clip active
-  each operation applies a mask: five rows cost 6 ms a frame with a clip per
-  row and 0.7 ms without. FeedView therefore pushes none on its normal path
-  (the canvas is already clipped to its bounds) and clips only a row whose
-  layout is for another width. Any new painter code follows this; the bench
-  catches a regression (p50 0.72 ms, p99 0.82 ms over 1,000 frames of a
-  2,000-row feed, release, host).
+* **A pushed clip makes every later draw expensive, and the canvas is not
+  clipped to the widget's bounds for you.** With any clip active each
+  operation applies a mask: five rows cost 6 ms a frame with a clip per row
+  and 0.7 ms with none, but without any clip a row scrolled partly above the
+  view paints over the header. FeedView clips only the rows that stick out of
+  the view (the first and the last) and rows whose layout is for another
+  width, and draws every other row bare (bench: p50 2.4 ms, p99 2.9 ms over
+  1,000 frames of a 2,000-row feed, release, host, against the 4 ms budget).
+  Any new painter code follows this; the bench catches a regression.
 * **Link runs are tinted, not recoloured.** `Canvas::draw_layout` draws one
   colour, so facet ranges get an accent-tinted box behind the text
   (`TextLayout::selection_rects`) and a hit region each.
@@ -580,6 +582,19 @@ stale drop, decode limits, cover-crop, circle avatars), UI cache and
 dehydration (§6.4). *Done when:* tests cover crop sizes, circle mask, a
 decode-bomb refusal, LRU never evicting visible entries, queue replacement;
 the bench still holds with images.
+
+*P4 findings (2026-10-11).*
+* Pictures are fetched, decoded under limits (8192 px a side, 64 Mpx, read
+  from the header before any allocation), cover-cropped to the box and, for
+  avatars, masked to a circle on four image threads; the UI turns each into
+  an `xui_core::Image` at most six per tick and draws it with one
+  `draw_image`. `Core::want_images` replaces the waiting list (R6): a picture
+  that waited and is no longer wanted is never fetched
+  (`tests/images.rs::a_new_list_drops_what_waited...`).
+* The decoded-picture cache is a 64 MiB LRU that never evicts what the view
+  shows; failures are remembered until a refresh.
+* The UI's layout thread and the core's image threads each build their own
+  `Http` on their own thread, as the socket rule requires.
 
 **P5: actions.** Like/unlike/repost/unrepost (optimistic, rolled back with a
 status error), composer (up to 4 images via `FileDialog::open_file`, reply),

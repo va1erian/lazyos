@@ -8,6 +8,7 @@
 //! [`Core::send`] nor [`Events::try_next`] ever blocks.
 
 pub mod feed;
+pub mod images;
 pub mod net;
 pub mod platform;
 pub mod proto;
@@ -20,6 +21,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+pub use images::{Bitmap, ImageKey, Shape};
 pub use net::{Http, HttpOptions, Response};
 pub use platform::{Platform, Roots};
 pub use proto::{Page, Post};
@@ -134,6 +136,11 @@ pub enum Event {
     Status {
         line: String,
     },
+    /// A picture, at the size asked for, or why there is none.
+    Image {
+        key: ImageKey,
+        result: Result<Bitmap, String>,
+    },
 }
 
 /// The core's handle: a request sender and the worker threads behind it.
@@ -141,6 +148,7 @@ pub struct Core {
     requests: Sender<worker::Message>,
     closing: Arc<AtomicBool>,
     api: Option<thread::JoinHandle<()>>,
+    images: images::ImagePool,
 }
 
 /// The receiving end of the core's events.
@@ -169,6 +177,8 @@ impl Core {
         let (event_tx, rx) = mpsc::channel();
         let closing = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&closing);
+        let images =
+            images::ImagePool::start(platform.ca_roots(), event_tx.clone(), images::THREADS);
         let api = thread::Builder::new()
             .name("sky-api".into())
             .spawn(move || worker::run(platform, settings, request_rx, event_tx, flag))
@@ -178,6 +188,7 @@ impl Core {
                 requests,
                 closing,
                 api: Some(api),
+                images,
             },
             Events { rx },
         )
@@ -186,6 +197,13 @@ impl Core {
     /// Queues `request`; never blocks.
     pub fn send(&self, request: Request) {
         let _ = self.requests.send(worker::Message::Request(request));
+    }
+
+    /// Replaces the pictures the image threads work through (nearest first):
+    /// what still waits and is not listed is dropped (R6). Answers arrive as
+    /// [`Event::Image`]. Never blocks.
+    pub fn want_images(&self, keys: Vec<ImageKey>) {
+        self.images.set_wanted(keys);
     }
 }
 

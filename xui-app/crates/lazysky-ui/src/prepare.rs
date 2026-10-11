@@ -6,6 +6,7 @@
 //! how a row is drawn beyond its geometry: the painter (`feedview/paint.rs`)
 //! turns [`Piece`]s into pixels.
 
+use lazysky_core::images::{ImageKey, Shape};
 use lazysky_core::proto::embed::{Embed, ImageRef, Quoted};
 use lazysky_core::proto::facets::Feature;
 use lazysky_core::proto::time::{parse_rfc3339, short_age};
@@ -70,10 +71,14 @@ pub enum Piece {
         at: (i32, i32),
         tone: Tone,
     },
-    /// The box a picture will fill (P4): drawn grey until it does.
-    Media { rect: Rect, label: &'static str },
+    /// The box a picture fills: grey until it arrives (or when it cannot).
+    Media {
+        rect: Rect,
+        label: &'static str,
+        key: Option<ImageKey>,
+    },
     /// The author's avatar circle.
-    Avatar { rect: Rect },
+    Avatar { rect: Rect, key: Option<ImageKey> },
     /// A quote or link-card frame.
     Frame { rect: Rect },
     /// A tint behind a link or mention.
@@ -112,6 +117,26 @@ pub struct Context {
     pub now: u64,
     /// The tallest a lone image box gets, in design pixels.
     pub max_image_h: i32,
+}
+
+/// The picture `url` at `width` x `height` pixels.
+fn picture_key(url: &str, width: i32, height: i32, shape: Shape) -> ImageKey {
+    ImageKey {
+        url: url.to_string(),
+        width: width.max(1) as u32,
+        height: height.max(1) as u32,
+        shape,
+    }
+}
+
+impl Prepared {
+    /// The pictures this row draws, in paint order.
+    pub fn image_keys(&self) -> impl Iterator<Item = &ImageKey> {
+        self.pieces.iter().filter_map(|piece| match piece {
+            Piece::Media { key, .. } | Piece::Avatar { key, .. } => key.as_ref(),
+            _ => None,
+        })
+    }
 }
 
 fn shape(
@@ -163,8 +188,17 @@ pub fn prepare(shaper: &dyn TextShaper, item: &FeedItem, ctx: Context) -> Prepar
     }
 
     let avatar_bottom = y + m.px(AVATAR);
+    let avatar_rect = Rect::new(pad_x, y, pad_x + m.px(AVATAR), y + m.px(AVATAR));
     pieces.push(Piece::Avatar {
-        rect: Rect::new(pad_x, y, pad_x + m.px(AVATAR), y + m.px(AVATAR)),
+        rect: avatar_rect,
+        key: post.author.avatar.as_ref().map(|url| {
+            picture_key(
+                url,
+                avatar_rect.width(),
+                avatar_rect.height(),
+                Shape::Circle,
+            )
+        }),
     });
     hits.push(Hit {
         rect: Rect::new(pad_x, y, pad_x + m.px(AVATAR), y + m.px(AVATAR)),
@@ -321,9 +355,14 @@ fn embed_box(
             let (aw, ah) = video.aspect.unwrap_or((16, 9));
             let h = (w as i64 * ah as i64 / aw.max(1) as i64) as i32;
             let h = h.clamp(m.px(60), m.px(ctx.max_image_h));
+            let rect = Rect::new(x, y, x + w, y + h);
             pieces.push(Piece::Media {
-                rect: Rect::new(x, y, x + w, y + h),
+                rect,
                 label: "Video",
+                key: video
+                    .thumbnail
+                    .as_ref()
+                    .map(|url| picture_key(url, rect.width(), rect.height(), Shape::Cover)),
             });
             y + h + m.px(6)
         }
@@ -411,10 +450,16 @@ fn images_box(
         y + ((images.len().min(4) as i32 + 1) / 2) * h
             + ((images.len().min(4) as i32 - 1) / 2) * gap
     };
-    for (i, rect) in rects.into_iter().enumerate() {
+    for (i, (rect, image)) in rects.into_iter().zip(images).enumerate() {
         pieces.push(Piece::Media {
             rect,
             label: "Picture",
+            key: Some(picture_key(
+                &image.thumb,
+                rect.width(),
+                rect.height(),
+                Shape::Cover,
+            )),
         });
         hits.push(Hit {
             rect,

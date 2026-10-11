@@ -21,6 +21,8 @@ use crate::{Msg, Report};
 
 /// Layout results applied per tick (R5): more wait for the next one.
 const REFRESH_PER_TICK: usize = 24;
+/// New pictures made drawable per tick (R5).
+const IMAGES_PER_TICK: usize = 6;
 
 pub struct LazySkyApp {
     core: Core,
@@ -39,6 +41,13 @@ pub struct LazySkyApp {
     feed_seq: u64,
     /// The cursor `Load more` will use.
     staging: Option<Staging>,
+    /// Decoded pictures that arrived and wait their turn (R5).
+    image_inbox: std::collections::VecDeque<(
+        lazysky_core::ImageKey,
+        std::result::Result<lazysky_core::Bitmap, String>,
+    )>,
+    /// The wanted pictures may have changed.
+    images_dirty: bool,
     timer: Option<(TimerId, u32)>,
     report: Box<dyn Fn(&Msg)>,
 }
@@ -86,6 +95,8 @@ impl LazySkyApp {
             next_seq: 1,
             feed_seq: 0,
             staging: None,
+            image_inbox: std::collections::VecDeque::new(),
+            images_dirty: false,
             timer: None,
             report: Box::new(report),
         };
@@ -188,6 +199,7 @@ impl LazySkyApp {
                 }
             }
             Event::Status { line } => self.home.say(&line),
+            Event::Image { key, result } => self.image_inbox.push_back((key, result)),
         }
     }
 
@@ -213,6 +225,8 @@ impl LazySkyApp {
             let mut s = self.home.view.state.borrow_mut();
             if replace {
                 s.feed.replace_all(rows);
+                // A refresh asks for the pictures that failed again.
+                s.images.retry_failed();
             } else {
                 s.feed.append(rows);
             }
@@ -227,6 +241,7 @@ impl LazySkyApp {
                 .count()
         };
         self.home.say("");
+        self.images_dirty = true;
         self.home.view.invalidate();
         (self.report)(&Msg::Report(Report::FeedRows(total)));
     }
@@ -260,14 +275,39 @@ impl LazySkyApp {
         }
         self.finish_staging_if_ready();
         let mut changed = false;
+        let mut pictures = None;
         {
             let mut s = self.home.view.state.borrow_mut();
             if !refreshed.is_empty() {
-                changed |= timeline::apply_refresh(&mut s, refreshed);
+                let refreshed_rows = timeline::apply_refresh(&mut s, refreshed);
+                changed |= refreshed_rows;
+                self.images_dirty |= refreshed_rows;
             }
             if s.moved || s.relayout {
                 timeline::maintain(&mut s, &self.layouts, now_unix());
+                self.images_dirty = true;
             }
+            // Pictures that arrived become drawable, a few per tick (R5).
+            for _ in 0..IMAGES_PER_TICK {
+                let Some((key, result)) = self.image_inbox.pop_front() else {
+                    break;
+                };
+                match result {
+                    Ok(bitmap) => s.images.insert(key, bitmap),
+                    Err(_) => s.images.fail(key),
+                }
+                changed = true;
+                pictures = Some(s.images.len());
+            }
+            if std::mem::take(&mut self.images_dirty) {
+                let (wanted, visible) = timeline::wanted_images(&s);
+                self.core.want_images(wanted);
+                let protect: std::collections::HashSet<_> = visible.iter().collect();
+                s.images.evict(&protect);
+            }
+        }
+        if let Some(count) = pictures {
+            (self.report)(&Msg::Report(Report::Pictures(count)));
         }
         self.home.view.autoscroll_step();
         if changed {
@@ -276,6 +316,7 @@ impl LazySkyApp {
         let busy = self.pending > 0
             || self.layouts.pending() > 0
             || self.staging.is_some()
+            || !self.image_inbox.is_empty()
             || self.home.view.autoscrolling()
             || taken == REFRESH_PER_TICK;
         let more = drained.cut_short || busy;

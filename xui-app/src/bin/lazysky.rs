@@ -9,7 +9,8 @@
 //!
 //! Serial evidence: `SKY:UP:PASS` after the first frame, `SKY:LOGIN:PASS:<handle>`
 //! / `SKY:LOGIN:FAIL:<reason>` and `SKY:FEED:PAGE:<posts>:<skipped>` from the
-//! core, `SKY:FEED:ROWS:<n>` as the timeline grows, `SKY:QUIT:PASS`. From
+//! core, `SKY:FEED:ROWS:<n>` as the timeline grows, `SKY:IMAGES:<n>` as pictures become
+//! drawable, `SKY:PERF:...` frame times, `SKY:QUIT:PASS`. From
 //! `launch::run`: `SKY:BIND:FAIL:<code>` and `SKY:RUN:FAIL:<error>`.
 
 use std::path::PathBuf;
@@ -93,6 +94,7 @@ fn main() {
         }
         LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
             Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
+            Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
             Msg::Quit => println!("SKY:QUIT:PASS"),
             _ => {}
         })
