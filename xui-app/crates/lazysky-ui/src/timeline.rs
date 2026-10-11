@@ -1,12 +1,13 @@
-//! Getting rows into the FeedView prepared (R2, R6): a page is staged until
+//! Getting rows into a FeedView prepared (R2, R6): a page is staged until
 //! the layout thread has shaped every row, then inserted at once; rows far
 //! from the view are dehydrated and come back nearest first.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use lazysky_core::feed::{FeedRow, RowId, LOAD_MORE_ID};
-use lazysky_core::proto::{FeedItem, Page};
+use lazysky_core::feed::{FeedRow, RowId, RowKind, LOAD_MORE_ID};
+use lazysky_core::proto::FeedItem;
+use lazysky_core::ImageKey;
 
 use crate::feedview::ViewState;
 use crate::layouts::{Done, Job, Layouts, Work};
@@ -16,9 +17,12 @@ use crate::prepare::{Context, Prepared, DEFAULT_MAX_IMAGE_H};
 /// (§6.4); rows within [`REPREPARE`] are kept (or made) ready.
 const DEHYDRATE: i32 = 3;
 const REPREPARE: i32 = 2;
+/// How many pictures one list asks the core for.
+const MAX_WANTED: usize = 64;
 
 /// A page waiting for its rows to be shaped.
 pub struct Staging {
+    pub pane: u8,
     pub seq: u64,
     pub replace: bool,
     pub cursor: Option<String>,
@@ -30,31 +34,40 @@ pub struct Staging {
 }
 
 impl Staging {
-    /// Stages `page` (the answer to request `seq`) and sends its rows to
-    /// the layout thread.
-    pub fn start(layouts: &Layouts, seq: u64, replace: bool, page: Page, ctx: Context) -> Staging {
-        let mut items = Vec::new();
+    /// Stages `items` (the answer to request `seq`, for `pane`) and sends
+    /// its rows to the layout thread. `cursor` is what "Load more" would use.
+    pub fn start(
+        layouts: &Layouts,
+        pane: u8,
+        seq: u64,
+        replace: bool,
+        items: Vec<FeedItem>,
+        cursor: Option<String>,
+        ctx: Context,
+    ) -> Staging {
+        let mut unique = Vec::new();
         let mut index = HashMap::new();
-        for item in page.items {
+        for item in items {
             let id = item.row_id();
             if index.contains_key(&id) {
                 continue;
             }
-            index.insert(id, items.len());
-            items.push(Arc::new(item));
+            index.insert(id, unique.len());
+            unique.push(Arc::new(item));
         }
-        let want_more = page.cursor.is_some();
-        let mut jobs: Vec<Job> = items
+        let mut jobs: Vec<Job> = unique
             .iter()
             .map(|item| Job {
+                pane,
                 id: item.row_id(),
                 work: Work::Post(Arc::clone(item)),
                 ctx,
                 tag: seq,
             })
             .collect();
-        if want_more {
+        if cursor.is_some() {
             jobs.push(Job {
+                pane,
                 id: LOAD_MORE_ID,
                 work: Work::LoadMore,
                 ctx,
@@ -64,11 +77,12 @@ impl Staging {
         let remaining = jobs.len();
         layouts.submit(jobs);
         Staging {
+            pane,
             seq,
             replace,
-            cursor: page.cursor,
-            done: items.iter().map(|_| None).collect(),
-            items,
+            cursor,
+            done: unique.iter().map(|_| None).collect(),
+            items: unique,
             load_more: None,
             index,
             remaining,
@@ -77,7 +91,7 @@ impl Staging {
 
     /// Takes a finished row. `true` when it was this page's.
     pub fn accept(&mut self, done: Done) -> bool {
-        if !done.urgent || done.tag != self.seq {
+        if !done.urgent || done.tag != self.seq || done.pane != self.pane {
             return false;
         }
         if done.id == LOAD_MORE_ID {
@@ -128,7 +142,7 @@ pub fn context(state: &ViewState, now: u64) -> Context {
 
 /// Keeps the rows near the view prepared at the right width and drops the
 /// shaped text of rows far away. Returns how many jobs it queued.
-pub fn maintain(state: &mut ViewState, layouts: &Layouts, now: u64) -> usize {
+pub fn maintain(state: &mut ViewState, layouts: &Layouts, now: u64, pane: u8) -> usize {
     state.moved = false;
     state.relayout = false;
     if state.feed.is_empty() || state.height <= 0 {
@@ -152,18 +166,19 @@ pub fn maintain(state: &mut ViewState, layouts: &Layouts, now: u64) -> usize {
         let Some(row) = state.feed.row(i) else {
             continue;
         };
-        let fresh = row.prepared.as_ref().is_some_and(|p| p.width == width);
+        let fresh = !row.dirty && row.prepared.as_ref().is_some_and(|p| p.width == width);
         if fresh {
             continue;
         }
         let work = match &row.kind {
-            lazysky_core::feed::RowKind::Post(item) => Work::Post(Arc::clone(item)),
-            lazysky_core::feed::RowKind::LoadMore { .. } => Work::LoadMore,
+            RowKind::Post(item) => Work::Post(Arc::clone(item)),
+            RowKind::LoadMore { .. } => Work::LoadMore,
         };
         let distance = (state.feed.row_top(i) + row.height / 2 - centre).abs();
         wanted.push((
             distance,
             Job {
+                pane,
                 id: row.id,
                 work,
                 ctx,
@@ -195,6 +210,7 @@ pub fn apply_refresh(state: &mut ViewState, done: Vec<Done>) -> bool {
         if let Some(row) = state.feed.row_mut(i) {
             heights.push((d.id, d.prepared.height));
             row.prepared = Some(d.prepared);
+            row.dirty = false;
             changed = true;
         }
     }
@@ -204,18 +220,11 @@ pub fn apply_refresh(state: &mut ViewState, done: Vec<Done>) -> bool {
     changed
 }
 
-/// How many pictures one list asks the core for.
-const MAX_WANTED: usize = 64;
-
-/// The pictures to ask for, nearest the view's centre first, and which the
-/// cache should keep: those of the rows near the view that are neither held
-/// nor known to have failed. `visible` is filled with what is on screen.
-pub fn wanted_images(
-    state: &ViewState,
-) -> (
-    Vec<lazysky_core::ImageKey>,
-    std::collections::HashSet<lazysky_core::ImageKey>,
-) {
+/// The pictures to ask for, nearest the view's centre first (those of the
+/// rows near the view that are neither held nor known to have failed), and
+/// the set the view shows right now (the cache must keep these).
+pub fn wanted_images(state: &ViewState) -> (Vec<ImageKey>, HashSet<ImageKey>) {
+    let cache = state.images.borrow();
     let centre = state.feed.scroll_top() + state.height / 2;
     let mut rows: Vec<(i32, usize)> = state
         .feed
@@ -227,13 +236,13 @@ pub fn wanted_images(
         .collect();
     rows.sort_unstable();
     let mut wanted = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     for (_, i) in rows {
         let Some(prepared) = state.feed.row(i).and_then(|r| r.prepared.as_ref()) else {
             continue;
         };
         for key in prepared.image_keys() {
-            if state.images.wants(key) && seen.insert(key.clone()) {
+            if cache.wants(key) && seen.insert(key.clone()) {
                 wanted.push(key.clone());
             }
         }

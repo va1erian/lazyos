@@ -8,20 +8,24 @@
 //! thread, and a timer drains both within a budget (R5), fast while work is
 //! pending and slow when idle (R8).
 
+mod actions;
 mod app;
 pub mod drain;
 pub mod feedview;
-mod home;
 pub mod images;
 pub mod layouts;
 mod login;
+mod pages;
 pub mod perf;
 pub mod prepare;
 mod timeline;
 
+use std::path::PathBuf;
+
 pub use app::LazySkyApp;
 pub use feedview::FeedAction;
 use lazysky_core::Secret;
+use xui_core::widget::MenuId;
 
 /// The window's design size when a compositor lays the app out.
 pub const WINDOW: (i32, i32) = (960, 640);
@@ -31,6 +35,8 @@ pub const WINDOW: (i32, i32) = (960, 640);
 pub enum Report {
     /// The timeline now holds this many posts.
     FeedRows(usize),
+    /// The detail page (a thread) holds this many posts.
+    DetailRows(usize),
     /// The picture cache holds this many pictures.
     Pictures(usize),
 }
@@ -48,9 +54,22 @@ pub enum Msg {
         password: Secret,
     },
     SignOut,
-    LoadMore,
-    /// A click in the feed.
-    Feed(FeedAction),
+    /// A click in the feed of pane `.0`.
+    Feed(u8, FeedAction),
+    /// Back out of the page on top (also Alt+Left).
+    Back,
+    /// Open the composer: a new post (`None`) or a reply to the post with
+    /// this URI.
+    Compose(Option<String>),
+    ComposerText(String),
+    ComposerAddPicture,
+    ComposerPicture(PathBuf),
+    ComposerRemovePicture,
+    ComposerPost,
+    /// A command of a post's "..." menu.
+    PostMenu(MenuId),
+    /// A row of the people list.
+    PersonSelected(usize),
     Report(Report),
     Quit,
 }

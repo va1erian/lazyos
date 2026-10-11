@@ -1,8 +1,8 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0 to P4 (§9) are implemented and their
+**Status:** revision 3 (2026-10-11). P0 to P5 (§9) are implemented and their
 host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
-under QEMU wait for P8's packaging and harness. P5 is next.
+under QEMU wait for P8's packaging and harness. P6 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -600,6 +600,23 @@ the bench still holds with images.
 status error), composer (up to 4 images via `FileDialog::open_file`, reply),
 delete own post, thread page, likers/reposters (`list()` `ListView`, fixed
 rows), Raw view. Markers `SKY:LIKE:<ok|fail>`, `SKY:POST:PASS:<uri>`.
+
+*P5 findings (2026-10-11).*
+* The core exposes likes, reposts, deletes (own records only, checked
+  client-side), posts with up to four pictures (read and uploaded on the api
+  thread; refused above Bluesky's 1 MB), threads, people lists and the Raw
+  view. `SKY:LIKE:ok|fail`, `SKY:REPOST:ok|fail`, `SKY:POST:PASS:<uri>` come
+  from the core through `Platform::log`.
+* The window is a stack of pages over the timeline (`Nav`): timeline, thread,
+  people, raw, composer; Back and Alt+Left pop. A row opens its thread; the
+  "..." menu has Raw view, Copy link, Liked by, Reposted by, Delete (own
+  posts only).
+* Likes and reposts are optimistic: the post is patched at once (its old
+  layout is drawn until the new one arrives, `FeedRow::dirty`), confirmed
+  with the record URI the server returns, and rolled back with a status
+  line when it refuses (`actions.rs`, `tests/interact.rs`).
+* The composer keeps its text from the field's change events (the model
+  holds it, not the widget), which also makes it testable headlessly.
 
 **P6: profile, bookmarks, notifications, search, settings.** Nav stack with
 Back and `Alt+Left`; Profile (Posts/Media/Likes, counts); Bookmarks;

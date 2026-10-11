@@ -16,6 +16,7 @@ pub(super) fn handle(
     ui: &Ui<Msg>,
     id: WidgetId,
     state: &Rc<RefCell<ViewState>>,
+    pane: u8,
     event: &Event,
 ) -> Option<Msg> {
     let outcome = {
@@ -33,7 +34,8 @@ pub(super) fn handle(
             ui.invalidate(id);
             None
         }
-        Outcome::Action(action) => Some(Msg::Feed(action)),
+        Outcome::Action(action) => Some(Msg::Feed(pane, action)),
+        Outcome::Back => Some(Msg::Back),
     }
 }
 
@@ -44,6 +46,8 @@ enum Outcome {
     /// Only the picture changed.
     Repaint,
     Action(FeedAction),
+    /// Alt+Left: back out of this page.
+    Back,
 }
 
 fn scrolled(s: &mut ViewState, dy: i32) -> Outcome {
@@ -64,6 +68,11 @@ fn route(ui: &Ui<Msg>, id: WidgetId, s: &mut ViewState, event: &Event) -> Outcom
             let step = -i32::from(delta) * s.scaled(WHEEL_96);
             scrolled(s, step)
         }
+        Event::KeyDown {
+            key: Key::LEFT,
+            modifiers,
+            ..
+        } if modifiers.alt => Outcome::Back,
         Event::KeyDown { key, modifiers, .. } if !modifiers.ctrl && !modifiers.alt => {
             let page = (s.height * 9 / 10).max(1);
             let line = s.scaled(WHEEL_96);
@@ -190,6 +199,7 @@ fn click(s: &ViewState, x: i32, y: i32) -> Outcome {
         Some(hit) => Outcome::Action(FeedAction::Target {
             row: row.id,
             target: hit.target.clone(),
+            at: (x, y),
         }),
         None => Outcome::Action(FeedAction::Row(row.id)),
     }

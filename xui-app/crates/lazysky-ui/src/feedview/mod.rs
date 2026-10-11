@@ -39,7 +39,12 @@ pub const GAIN: f32 = 0.1;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FeedAction {
     /// A hit region of a row (a link, a picture, a button).
-    Target { row: RowId, target: Target },
+    Target {
+        row: RowId,
+        target: Target,
+        /// Where in the view it was clicked (view-local pixels).
+        at: (i32, i32),
+    },
     /// Elsewhere in a row.
     Row(RowId),
 }
@@ -55,8 +60,8 @@ pub(crate) struct Grab {
 
 pub struct ViewState {
     pub feed: Feed<Prepared>,
-    /// Pictures ready to draw.
-    pub images: ImageCache,
+    /// Pictures ready to draw (shared by every pane).
+    pub images: Rc<RefCell<ImageCache>>,
     pub dpi: u32,
     /// The view in device pixels.
     pub width: i32,
@@ -74,9 +79,13 @@ pub struct ViewState {
 
 impl ViewState {
     pub fn new() -> ViewState {
+        ViewState::with_images(Rc::default())
+    }
+
+    pub fn with_images(images: Rc<RefCell<ImageCache>>) -> ViewState {
         ViewState {
             feed: Feed::new(),
-            images: ImageCache::default(),
+            images,
             dpi: 96,
             width: 0,
             height: 0,
@@ -124,12 +133,12 @@ pub struct FeedView {
 }
 
 impl FeedView {
-    pub fn new(ui: &Ui<Msg>) -> Result<FeedView> {
+    pub fn new(ui: &Ui<Msg>, images: Rc<RefCell<ImageCache>>, pane: u8) -> Result<FeedView> {
         let control = Control::new(
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
-        let state = Rc::new(RefCell::new(ViewState::new()));
+        let state = Rc::new(RefCell::new(ViewState::with_images(images)));
         let perf = Rc::new(RefCell::new(Perf::default()));
         {
             let (state, perf, theme) = (Rc::clone(&state), Rc::clone(&perf), ui.theme_handle());
@@ -147,7 +156,7 @@ impl FeedView {
         }
         {
             let (state, ui, id) = (Rc::clone(&state), ui.clone(), control.id());
-            control.on_events(move |event| events::handle(&ui, id, &state, event));
+            control.on_events(move |event| events::handle(&ui, id, &state, pane, event));
         }
         Ok(FeedView {
             control,

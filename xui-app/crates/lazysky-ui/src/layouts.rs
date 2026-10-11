@@ -24,6 +24,8 @@ pub enum Work {
 }
 
 pub struct Job {
+    /// Which pane the row belongs to.
+    pub pane: u8,
     pub id: RowId,
     pub work: Work,
     pub ctx: Context,
@@ -32,6 +34,7 @@ pub struct Job {
 }
 
 pub struct Done {
+    pub pane: u8,
     pub id: RowId,
     pub prepared: Prepared,
     pub tag: u64,
@@ -151,6 +154,7 @@ fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sender<Done>) {
             Work::LoadMore => prepare_load_more(shaper, job.ctx),
         };
         let sent = results.send(Done {
+            pane: job.pane,
             id: job.id,
             prepared,
             tag: job.tag,

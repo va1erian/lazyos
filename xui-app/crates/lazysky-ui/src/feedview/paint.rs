@@ -20,6 +20,7 @@ pub fn paint(canvas: &mut dyn Canvas, state: &ViewState, theme: &Theme) {
     let bounds = canvas.bounds();
     canvas.clear(theme.background);
     let feed = &state.feed;
+    let images = state.images.borrow();
     let content_w = state.content_width();
     for i in feed.visible() {
         let Some(row) = feed.row(i) else { continue };
@@ -52,7 +53,7 @@ pub fn paint(canvas: &mut dyn Canvas, state: &ViewState, theme: &Theme) {
             (rect.left, rect.top),
             state.width,
             theme,
-            &state.images,
+            &images,
         );
         if clipped {
             canvas.pop_clip();

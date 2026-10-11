@@ -38,6 +38,9 @@ pub struct FeedRow<P> {
     pub kind: RowKind,
     /// What the front end shaped for this row; `None` while dehydrated.
     pub prepared: Option<P>,
+    /// `prepared` is out of date (the post changed under it) and is drawn
+    /// until a new one arrives.
+    pub dirty: bool,
 }
 
 impl<P> FeedRow<P> {
@@ -47,6 +50,7 @@ impl<P> FeedRow<P> {
             height: height.max(1),
             kind: RowKind::Post(item),
             prepared,
+            dirty: false,
         }
     }
 
@@ -56,6 +60,7 @@ impl<P> FeedRow<P> {
             height: height.max(1),
             kind: RowKind::LoadMore { cursor },
             prepared: None,
+            dirty: false,
         }
     }
 }

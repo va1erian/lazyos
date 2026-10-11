@@ -94,6 +94,7 @@ fn main() {
         }
         LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
             Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
+            Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
             Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
             Msg::Quit => println!("SKY:QUIT:PASS"),
             _ => {}
