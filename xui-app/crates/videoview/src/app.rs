@@ -126,9 +126,16 @@ impl VideoApp {
     fn open_path(&mut self, path: PathBuf) {
         // The old player stops first: it holds the file and the decoder.
         self.player = None;
-        match lazyvideo::open(&path) {
-            Ok(media) => {
-                let i = media.info.clone();
+        let opened = lazyvideo::open(&path).and_then(|media| {
+            let player = Player::start(media);
+            match player.status().error {
+                Some(why) => Err(lazyvideo::Error::Decode(why)),
+                None => Ok(player),
+            }
+        });
+        match opened {
+            Ok(player) => {
+                let i = player.info().clone();
                 self.log(&format!(
                     "VIDEO:OPEN:PASS:{}:{}x{}:{:.2}:{}:{}",
                     path.display(),
@@ -139,7 +146,7 @@ impl VideoApp {
                     i.codec_name()
                 ));
                 self.w.view.set_note("", false);
-                self.player = Some(Player::start(media));
+                self.player = Some(player);
                 self.w.seek.set_enabled(true);
                 self.path = Some(path);
                 self.ended_logged = false;

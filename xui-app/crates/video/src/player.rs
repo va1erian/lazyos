@@ -81,7 +81,16 @@ impl Player {
         let thread = thread::Builder::new()
             .name("video-player".into())
             .spawn(move || worker.run())
-            .ok();
+            .map(Some)
+            .unwrap_or_else(|error| {
+                // No worker means nothing will ever play: say so in the
+                // status instead of looking like a video that never starts.
+                shared.playing.store(false, Ordering::Relaxed);
+                if let Ok(mut slot) = shared.error.lock() {
+                    *slot = Some(format!("could not start the video worker: {error}"));
+                }
+                None
+            });
         Player {
             commands,
             shared,

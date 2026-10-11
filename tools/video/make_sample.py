@@ -8,7 +8,10 @@
 (`/system/share/samples/lazyos-sample.avi`); the player's session opens it.
 It is a Motion JPEG AVI drawn here with Pillow (colour bars sliding, a
 bouncing square, a frame counter and a progress bar), so it needs no other
-tool, depends on no encoder version and is the same bytes on every run.
+tool. The text uses the bundled Droid Sans, not Pillow's default font; the
+JPEG bytes still come from the host's libjpeg, so `--check` validates the
+checked-in clip's structure (size, rate, frame count, every frame a JPEG)
+instead of comparing bytes.
 
 A host tool only; nothing it links ends up in the image.
 """
@@ -81,22 +84,47 @@ def avi(frames: list[bytes]) -> bytes:
     return chunk(b"RIFF", b"AVI " + hdrl + movi + chunk(b"idx1", index))
 
 
+def check(data: bytes) -> str | None:
+    """Why `data` is not the expected clip, or None when it is."""
+    if data[:4] != b"RIFF" or data[8:12] != b"AVI ":
+        return "not an AVI"
+    movi = data.find(b"movi")
+    if movi < 0:
+        return "no movi list"
+    u32 = lambda at: struct.unpack_from("<I", data, at)[0]  # noqa: E731
+    avih = data.find(b"avih") + 8  # the chunk's body
+    if (u32(avih + 32), u32(avih + 36)) != (WIDTH, HEIGHT):
+        return f"not {WIDTH}x{HEIGHT}"
+    if u32(data.find(b"strh") + 8 + 24) != FPS:
+        return f"not {FPS} fps"
+    frames, pos = 0, movi + 4
+    while pos + 8 <= len(data) and data[pos : pos + 4] == b"00dc":
+        size = u32(pos + 4)
+        body = data[pos + 8 : pos + 8 + size]
+        if body[:2] != b"\xff\xd8" or body[-2:] != b"\xff\xd9":
+            return f"frame {frames} is not a JPEG"
+        frames += 1
+        pos += 8 + size + (size & 1)
+    return None if frames == FRAMES else f"{frames} frames, expected {FRAMES}"
+
+
 def build() -> bytes:
-    font = ImageFont.load_default()
+    font = ImageFont.truetype(str(ROOT / "assets" / "fonts" / "DroidSans.ttf"), 11)
     return avi([frame(i, font) for i in range(FRAMES)])
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="fail if the checked-in clip is stale")
+    parser.add_argument("--check", action="store_true", help="fail if the checked-in clip is not the expected video")
     args = parser.parse_args()
-    data = build()
     if args.check:
-        if not SAMPLE.exists() or SAMPLE.read_bytes() != data:
-            print(f"{SAMPLE.relative_to(ROOT)} is stale: run tools/video/make_sample.py", file=sys.stderr)
+        problem = check(SAMPLE.read_bytes() if SAMPLE.exists() else b"")
+        if problem:
+            print(f"{SAMPLE.relative_to(ROOT)}: {problem}; run tools/video/make_sample.py", file=sys.stderr)
             return 1
-        print(f"{SAMPLE.relative_to(ROOT)}: current ({len(data)} bytes)")
+        print(f"{SAMPLE.relative_to(ROOT)}: ok ({SAMPLE.stat().st_size} bytes)")
         return 0
+    data = build()
     SAMPLE.parent.mkdir(parents=True, exist_ok=True)
     SAMPLE.write_bytes(data)
     print(f"wrote {SAMPLE.relative_to(ROOT)} ({len(data)} bytes, {FRAMES} frames)")
