@@ -151,13 +151,24 @@ fn draw_aim(frame: &mut Frame, view: &View, aim: &AimMark) {
     // A post standing on the ring: the ring alone is a dash seen from a
     // low camera, and the post shows over a rise.
     let top = Vec3::new(t.x, t.y + aim.radius * 2.5, t.z);
-    if let (Some((x, y0, z)), Some((_, y1, _))) = (screen(view, t), screen(view, top)) {
+    if let (Some((x, y0, z0)), Some((_, y1, z1))) = (screen(view, t), screen(view, top)) {
+        // Depth is tested where each pixel of the post is, not at its
+        // foot: from a high camera the top is nearer than the base, and a
+        // rise between the two would otherwise hide the part that shows.
+        // 1/z is linear along a line on the screen.
+        let (iz0, iz1) = (1.0 / z0, 1.0 / z1);
         for y in y1.min(y0)..=y1.max(y0) {
-            plot(frame, x, y, ON_GROUND / z, pal::YELLOW);
-            plot(frame, x + 1, y, ON_GROUND / z, pal::YELLOW);
+            let k = if y1 == y0 {
+                0.0
+            } else {
+                (y - y0) as f32 / (y1 - y0) as f32
+            };
+            let iz = (iz0 + (iz1 - iz0) * k) * ON_GROUND;
+            plot(frame, x, y, iz, pal::YELLOW);
+            plot(frame, x + 1, y, iz, pal::YELLOW);
         }
         for d in -2..=3 {
-            plot(frame, x + d, y1, ON_GROUND / z, pal::YELLOW);
+            plot(frame, x + d, y1, iz1 * ON_GROUND, pal::YELLOW);
         }
     }
     // Cross-hair ticks at the centre.
