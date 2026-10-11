@@ -7,6 +7,7 @@
 //! channels, so any front end (xui, a terminal, a test) can use it. Neither
 //! [`Core::send`] nor [`Events::try_next`] ever blocks.
 
+pub mod feed;
 pub mod net;
 pub mod platform;
 pub mod proto;

@@ -1,8 +1,8 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0, P1 and P2 (§9) are implemented and their
+**Status:** revision 3 (2026-10-11). P0 to P3 (§9) are implemented and their
 host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
-under QEMU wait for P8's packaging and harness. P3 is next.
+under QEMU wait for P8's packaging and harness. P4 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -556,6 +556,24 @@ resize, delete); UI `prepare`, `paint`, `events`, `view`; the Timeline tab
 with Load more; `app/perf.rs` (§10.3). *Done when:* offscreen snapshots of a
 300-post feed in both themes (Read them) and an `#[ignore]` release bench
 paints 1,000 frames of a 2,000-row feed with p99 ≤ 4 ms.
+
+*P3 findings (2026-10-11).*
+* **A pushed clip makes every later draw expensive.** With any clip active
+  each operation applies a mask: five rows cost 6 ms a frame with a clip per
+  row and 0.7 ms without. FeedView therefore pushes none on its normal path
+  (the canvas is already clipped to its bounds) and clips only a row whose
+  layout is for another width. Any new painter code follows this; the bench
+  catches a regression (p50 0.72 ms, p99 0.82 ms over 1,000 frames of a
+  2,000-row feed, release, host).
+* **Link runs are tinted, not recoloured.** `Canvas::draw_layout` draws one
+  colour, so facet ranges get an accent-tinted box behind the text
+  (`TextLayout::selection_rects`) and a hit region each.
+* **The row model found a real bug in its own random walk** (a removed anchor
+  row was reset to the first row before the "move to the next" rule ran);
+  `feed/tests.rs` keeps the walk, with the invariants checked after every
+  operation.
+* Heights are final at insertion: a page is staged until the layout thread
+  has shaped every row (`timeline::Staging`), then inserted at once.
 
 **P4: images.** Core image pool (nearest-first, queue replaced on scroll,
 stale drop, decode limits, cover-crop, circle avatars), UI cache and

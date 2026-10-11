@@ -17,6 +17,7 @@ xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3b
 desktop = ["dep:xui-canvas", "xui-canvas/winit-backend", "lazysky-core/native-roots"]
 
 [dev-dependencies]
+serde_json = "1"
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
 
 [[example]]

@@ -15,6 +15,7 @@ pub mod notifications;
 pub mod record;
 pub mod session;
 pub mod thread;
+pub mod time;
 
 use serde_json::Value;
 
