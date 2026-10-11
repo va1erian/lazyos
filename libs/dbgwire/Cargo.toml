@@ -18,6 +18,8 @@ fuzz = []
 [dependencies]
 # Well-known paths: the `fs.read` allowlist is built from them.
 fhs = { path = "../fhs" }
+# The line grammar (docs/tracing-plan.md): `logline` re-exports it.
+tracefmt = { path = "../tracefmt" }
 # HMAC-SHA256 (the same vetted primitive keyd uses).
 lazyos-crypto = { path = "../crypto" }
 

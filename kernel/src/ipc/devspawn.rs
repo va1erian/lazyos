@@ -131,7 +131,6 @@ pub fn recheck(actor: &Cred, requested: &Cred) -> Result<(), Refusal> {
 /// Audit one refusal (and trace it when the label trace is on).
 fn record_refusal(actor_slot: usize, actor: &Cred, label: &str, refusal: Refusal) {
     let method = fnv1a32(label);
-    #[cfg(lazyos_label_trace)]
     super::label_trace::denied(
         actor.label_id,
         format_args!("iface={SPAWN_SCOPE:#018x} method={method} spawn={label}"),

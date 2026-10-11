@@ -103,8 +103,8 @@ pub fn threads_and_a_spinner() -> Result<(), String> {
         Ok(())
     })?;
     let slept = test_hooks::PARKS.load(Ordering::Relaxed) - parks;
-    serial_println!(
-        "TEST:block_sleep_virtio_threads:INFO:{} round trips, {slept} parks, {spins} spinning round trips",
+    crate::trace::test!(
+        "block_sleep_virtio_threads:INFO:{} round trips, {slept} parks, {spins} spinning round trips",
         THREADS * ROUNDS
     );
     check!(slept > 0, "no request ever slept");

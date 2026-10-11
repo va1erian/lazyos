@@ -130,7 +130,7 @@ pub fn reclaim_pipe_close_soak() -> Result<(), String> {
     exit_and_reclaim(reader)?;
     drop(pipe);
     check!(Pipe::live() == 0, "the pipe was not freed");
-    serial_println!("TEST:task_reclaim_pipe_close_soak:INFO:rounds={ROUNDS}");
+    crate::trace::test!("task_reclaim_pipe_close_soak:INFO:rounds={ROUNDS}");
     task::harness::reset();
     Ok(())
 }

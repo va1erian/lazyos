@@ -134,6 +134,7 @@ members = [
     # dbgd's wire: JSON-RPC lines, the HMAC challenge, config, method table
     # (docs/dbgd-plan.md, issue #701): pure no_std + alloc, host-tested.
     "libs/dbgwire",
+    "libs/tracefmt",
     # 802.11 management frames, information elements (RSN) and the scan table,
     # and the EAPOL-Key supplicant (docs/wifi-prerequisites-plan.md WP3): pure
     # `no_std` + `alloc`, host-tested and fuzzed.
@@ -203,6 +204,9 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }
+# The `trace.mask=` line is checked with the parser the kernel reads it with
+# (`build_support/trace_cfg.rs`, docs/tracing-plan.md).
+tracefmt = { path = "libs/tracefmt" }
 # The stick's RAM root is sized for the core packages `pkgd` unpacks at
 # first boot, read with the reader `pkgd` installs them with (issue #703).
 lazypkg = { path = "libs/lazypkg" }

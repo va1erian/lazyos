@@ -21,7 +21,7 @@ fn scratch(test: &str) -> Option<&'static dyn BlockDevice> {
             && device.sector_count() == SCRATCH_SECTORS
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch NVMe disk; skipped");
+        crate::trace::test!("{test}:INFO:no scratch NVMe disk; skipped");
     }
     found
 }
@@ -61,8 +61,8 @@ pub fn nvme_attached() -> Result<(), String> {
         "sector size {}",
         disk.sector_size()
     );
-    serial_println!(
-        "TEST:nvme_attached:INFO:{} {} sectors",
+    crate::trace::test!(
+        "nvme_attached:INFO:{} {} sectors",
         disk.name(),
         disk.sector_count()
     );
@@ -227,7 +227,7 @@ pub fn nvme_soak() -> Result<(), String> {
             }
         }
     }
-    serial_println!("TEST:nvme_soak:INFO:{OPS} random operations matched the shadow copy");
+    crate::trace::test!("nvme_soak:INFO:{OPS} random operations matched the shadow copy");
     Ok(())
 }
 

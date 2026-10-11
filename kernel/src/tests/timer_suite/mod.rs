@@ -72,8 +72,8 @@ fn info() -> Result<&'static timer::Info, String> {
 /// APIC source runs periodically with a sane count.
 fn boot_choice() -> Result<(), String> {
     let info = info()?;
-    serial_println!(
-        "TEST:timer_boot_choice:INFO:lapic={} source={} clock_hz={} pit={:?} reference={}",
+    crate::trace::test!(
+        "timer_boot_choice:INFO:lapic={} source={} clock_hz={} pit={:?} reference={}",
         info.lapic,
         info.source,
         info.clock_hz,

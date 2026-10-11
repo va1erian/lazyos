@@ -53,7 +53,7 @@ pub fn run(mut record: impl FnMut(u64)) {
         return;
     };
     let Ok((client, server)) = channels::create() else {
-        crate::serial_println!("PERF:ipc_rt:SKIP no channel");
+        crate::trace::line!(tracefmt::Channel::Perf, "ipc_rt:SKIP no channel");
         return;
     };
     let mut failed = false;
@@ -75,6 +75,6 @@ pub fn run(mut record: impl FnMut(u64)) {
     let _ = channels::close_endpoint(client);
     let _ = channels::close_endpoint(server);
     if failed {
-        crate::serial_println!("PERF:ipc_rt:SKIP a round trip failed");
+        crate::trace::line!(tracefmt::Channel::Perf, "ipc_rt:SKIP a round trip failed");
     }
 }

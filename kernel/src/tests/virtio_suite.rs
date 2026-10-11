@@ -30,7 +30,7 @@ pub(super) fn scratch_of(test: &str, sectors: u64) -> Option<&'static dyn BlockD
             && device.sector_count() == sectors
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch virtio disk of {sectors} sectors; skipped");
+        crate::trace::test!("{test}:INFO:no scratch virtio disk of {sectors} sectors; skipped");
     }
     found
 }
@@ -126,8 +126,8 @@ pub fn virtio_read_throughput() -> Result<(), String> {
     let kib = (lba - WINDOW_START) * SECTOR_SIZE as u64 / 1024;
     // Tests run with interrupts off, so the tick counter does not move; the
     // TSC does. Cycles are host-relative, which is all a before/after needs.
-    serial_println!(
-        "TEST:virtio_read_throughput:INFO:{} KiB/Gcycle",
+    crate::trace::test!(
+        "virtio_read_throughput:INFO:{} KiB/Gcycle",
         kib * 1_000_000_000 / cycles
     );
     Ok(())

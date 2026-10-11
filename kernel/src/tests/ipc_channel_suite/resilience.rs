@@ -237,8 +237,8 @@ pub fn concurrent_clients_soak() -> Result<(), String> {
     }
     task::harness::switch_current(task::KERNEL_TASK);
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!(
-        "TEST:ipc_channel_concurrent_clients_soak:INFO:clients={CLIENTS} rounds={ROUNDS} cycles={cycles}"
+    crate::trace::test!(
+        "ipc_channel_concurrent_clients_soak:INFO:clients={CLIENTS} rounds={ROUNDS} cycles={cycles}"
     );
     let stats = channels::stats();
     let expected = (CLIENTS * ROUNDS) as u64;

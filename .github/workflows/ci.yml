@@ -46,6 +46,22 @@ jobs:
       - run: python tools/check_file_length.py
       - run: python tools/test_check_file_length.py
 
+  trace:
+    # Evidence lines go through the `trace` API (docs/tracing-plan.md): the
+    # lint reports the ad hoc prints left (it enforces from T4), the channel
+    # catalogue is generated from the enum, and the shared crate is tested.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+      - run: python tools/trace/check_adhoc.py
+      - run: python tools/trace/catalog.py --check
+      - run: python tools/trace/test_check_adhoc.py
+      - run: cargo test -p tracefmt -p dbgwire
+      - run: cargo test -p build-support-tests trace
+
   fhs:
     # Well-known paths come from libs/fhs, never string literals (F0).
     runs-on: ubuntu-latest

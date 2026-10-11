@@ -391,7 +391,7 @@ fn follow(session: &mut Session, params: &Value, shared: &mut Shared) -> Result<
     let backlog = json::array(
         all[from..]
             .iter()
-            .map(|(pos, text)| logline::parse(text).to_json(Some(*pos))),
+            .map(|(pos, text)| logline::to_json(&logline::parse(text), Some(*pos))),
     );
     // A partial last line is delivered by the stream once its newline
     // arrives: start the cursor at that line's start.
@@ -446,7 +446,7 @@ fn push_log(session: &mut Session, shared: &mut Shared) -> bool {
         let array = json::array(
             chunk
                 .iter()
-                .map(|(p, t)| logline::parse(t).to_json(Some(*p))),
+                .map(|(p, t)| logline::to_json(&logline::parse(t), Some(*p))),
         );
         let params = Object::new()
             .raw("lines", &array)

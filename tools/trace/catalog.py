@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""Generate docs/trace/channels.md from the `Channel` enum.
+
+docs/tracing-plan.md (stages T0 and T1): the catalogue of who can say what is
+the enum in `libs/tracefmt/src/channel.rs`; this document lists, for each
+channel, its wire prefix and mask name, the tree that emits it today, the
+harnesses that judge it and where `dbgd` serves it from. It is generated, and
+`--check` fails when the committed file is stale (like
+`fuzz/gen_corpus.py --check`):
+
+    python tools/trace/catalog.py            # rewrite docs/trace/channels.md
+    python tools/trace/catalog.py --check    # CI: it is current
+"""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+CHANNEL_RS = "libs/tracefmt/src/channel.rs"
+OUT = "docs/trace/channels.md"
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_adhoc  # noqa: E402  (same directory)
+
+ROW = re.compile(r'^\s+([A-Z][A-Za-z0-9]*)\s*=>\s*"([A-Z][A-Z0-9_]*)",\s*$')
+
+# Every trace ends in a terminal write the kernel mirrors to the
+# program-output ring (docs/tracing-plan.md section 4.3).
+SOURCE = "programs"
+
+
+def parse_channels(text: str) -> list[tuple[str, str]]:
+    """`(variant, prefix)` rows of the `channels! { ... }` invocation."""
+    start = text.index("\nchannels! {\n") + len("\nchannels! {\n")
+    end = text.index("\n}\n", start)
+    rows = []
+    for line in text[start:end].splitlines():
+        match = ROW.match(line)
+        if not match:
+            raise ValueError(f"{CHANNEL_RS}: not a channel row: {line!r}")
+        rows.append((match.group(1), match.group(2)))
+    return rows
+
+
+def check_rows(rows: list[tuple[str, str]]) -> None:
+    prefixes = [prefix for _, prefix in rows]
+    variants = [variant for variant, _ in rows]
+    for name, seen in (("prefix", prefixes), ("variant", variants)):
+        dupes = sorted({x for x in seen if seen.count(x) > 1})
+        if dupes:
+            raise ValueError(f"duplicate channel {name}: {', '.join(dupes)}")
+    if len(rows) > 128:
+        raise ValueError(f"{len(rows)} channels do not fit the 128-bit mask")
+
+
+def emitters(root: Path, rows: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """The trees whose sources name each channel: a literal that starts with
+    `PREFIX:` (or is exactly `"PREFIX"`, a marker passed to a launcher), or
+    `Channel::Variant` (a call through the API)."""
+    found: dict[str, set[str]] = {prefix: set() for _, prefix in rows}
+    literal = {
+        prefix: re.compile(r'"' + re.escape(prefix) + r'(?::|")') for _, prefix in rows
+    }
+    api = {
+        prefix: re.compile(r"\bChannel::" + re.escape(variant) + r"\b")
+        for variant, prefix in rows
+    }
+    for path in check_adhoc.tracked_rust_files(root):
+        if path.startswith("libs/tracefmt/"):
+            continue
+        file = root / path
+        if not file.is_file():
+            continue
+        text = file.read_text(encoding="utf-8", errors="replace")
+        tree = check_adhoc.tree_of(path)
+        if path.startswith("kernel/src/tests/"):
+            tree = "kernel suite"
+        for prefix in found:
+            if literal[prefix].search(text) or api[prefix].search(text):
+                found[prefix].add(tree)
+    return found
+
+
+def judges(root: Path, rows: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """The harnesses that mention each channel: `tools/<dir>` for a script,
+    `sessions` for a screenshot session script."""
+    out = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "tools/*.py", "tools/*.json"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    found: dict[str, set[str]] = {prefix: set() for _, prefix in rows}
+    patterns = {
+        prefix: re.compile(r"(?<![A-Z0-9_])" + re.escape(prefix) + r":[A-Z]")
+        for _, prefix in rows
+    }
+    for path in out:
+        parts = path.split("/")
+        if parts[:2] == ["tools", "trace"]:
+            continue  # the lint and the catalogue are not judges
+        if parts[:3] == ["tools", "screenshot", "examples"]:
+            label = "sessions"
+        elif len(parts) > 2:
+            label = f"tools/{parts[1]}"
+        else:
+            label = path
+        file = root / path
+        if not file.is_file():
+            continue
+        text = file.read_text(encoding="utf-8", errors="replace")
+        for prefix, pattern in patterns.items():
+            if pattern.search(text):
+                found[prefix].add(label)
+    return found
+
+
+def render(root: Path) -> str:
+    text = (root / CHANNEL_RS).read_text(encoding="utf-8")
+    rows = parse_channels(text)
+    check_rows(rows)
+    trees = emitters(root, rows)
+    harnesses = judges(root, rows)
+    out = [
+        "# Trace channels",
+        "",
+        "Generated by `python tools/trace/catalog.py` from the `Channel` enum in",
+        f"[`{CHANNEL_RS}`](../../{CHANNEL_RS}); do not edit. The design is",
+        "[`docs/tracing-plan.md`](../tracing-plan.md).",
+        "",
+        f"{len(rows)} channels. A line is `PREFIX:STAGE:PASS`, `PREFIX:STAGE:FAIL:detail`",
+        "or `PREFIX:NAME key=value`; its tag in `dbgd` is the first token. The *mask*",
+        "name is what `LAZYOS_TRACE_MASK` and `trace.mask=` spell (`init,pkgd,-shell`,",
+        "`all`, `none`, `default`); *Emitted by* lists the trees whose sources name the",
+        "channel, *Judged by* the harnesses and session scripts that mention it, and",
+        "*dbgd source* the `log.tail` source it is read from.",
+        "",
+        "| Prefix | Variant | Mask | Emitted by | Judged by | dbgd source |",
+        "|---|---|---|---|---|---|",
+    ]
+    for variant, prefix in rows:
+        emitted = ", ".join(sorted(trees[prefix])) or "-"
+        judged = ", ".join(sorted(harnesses[prefix])) or "-"
+        out.append(
+            f"| `{prefix}` | `{variant}` | `{prefix.lower()}` | {emitted} | {judged} | {SOURCE} |"
+        )
+    out.append("")
+    return "\n".join(out)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--check", action="store_true", help="fail when stale")
+    parser.add_argument("--root", type=Path, default=ROOT)
+    args = parser.parse_args(argv)
+
+    try:
+        text = render(args.root)
+    except ValueError as error:
+        print(f"catalog: {error}", file=sys.stderr)
+        return 1
+    target = args.root / OUT
+    if args.check:
+        current = target.read_text(encoding="utf-8") if target.is_file() else ""
+        if current == text:
+            return 0
+        diff = difflib.unified_diff(
+            current.splitlines(), text.splitlines(), OUT, "generated", lineterm="", n=0
+        )
+        print("\n".join(list(diff)[:40]), file=sys.stderr)
+        print(f"catalog: {OUT} is stale: python tools/trace/catalog.py", file=sys.stderr)
+        return 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {OUT}: {text.count(chr(10) + '| `')} channels")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

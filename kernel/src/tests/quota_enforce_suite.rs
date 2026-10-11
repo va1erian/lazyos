@@ -180,8 +180,8 @@ pub fn quota_fds_soak_open_close() -> Result<(), String> {
         stats.usage[Resource::Fds.index()] == 0 && stats.over_releases == 0,
         "after the soak: {stats:?}"
     );
-    serial_println!(
-        "TEST:quota_fds_soak_open_close:INFO:rounds={ROUNDS} peak={}",
+    crate::trace::test!(
+        "quota_fds_soak_open_close:INFO:rounds={ROUNDS} peak={}",
         stats.peak[Resource::Fds.index()]
     );
     Ok(())
@@ -257,8 +257,8 @@ pub fn quota_cpu_capped_uid_gets_fewer_ticks() -> Result<(), String> {
         capped_runs > 0 && capped_runs * 4 < free_runs,
         "capped uid ran {capped_runs} ticks, uncapped peer {free_runs}"
     );
-    serial_println!(
-        "TEST:quota_cpu_capped_uid_gets_fewer_ticks:INFO:capped={capped_runs} free={free_runs}"
+    crate::trace::test!(
+        "quota_cpu_capped_uid_gets_fewer_ticks:INFO:capped={capped_runs} free={free_runs}"
     );
     Ok(())
 }

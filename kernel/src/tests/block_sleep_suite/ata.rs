@@ -31,7 +31,7 @@ fn ata(test: &str) -> Option<&'static dyn BlockDevice> {
         .into_iter()
         .find(|device| device.name() == "ata0");
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no IDE disk (run with --ide-disk); skipped");
+        crate::trace::test!("{test}:INFO:no IDE disk (run with --ide-disk); skipped");
     }
     found
 }
@@ -107,8 +107,8 @@ pub fn threads_and_a_spinner() -> Result<(), String> {
     run_threads(THREADS, reader, LIMIT_NS, || Ok(()))?;
     let slept = test_hooks::PARKS.load(Ordering::Relaxed) - parks;
     let spins = SPINS.load(Ordering::Relaxed);
-    serial_println!(
-        "TEST:block_sleep_ata_threads:INFO:{} round trips, {slept} parks, {spins} spinning round trips",
+    crate::trace::test!(
+        "block_sleep_ata_threads:INFO:{} round trips, {slept} parks, {spins} spinning round trips",
         THREADS * ROUNDS
     );
     check!(slept > 0, "no ATA request ever slept");

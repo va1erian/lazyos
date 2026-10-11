@@ -192,8 +192,8 @@ pub fn soak() -> Result<(), String> {
             );
         }
     }
-    serial_println!(
-        "TEST:deadline_queue_soak:INFO:{OPS} ops: {armed} armed, {cancelled} cancelled, {expired} expired"
+    crate::trace::test!(
+        "deadline_queue_soak:INFO:{OPS} ops: {armed} armed, {cancelled} cancelled, {expired} expired"
     );
     let left = drain_in_order(&mut queue)?;
     let modelled = model.iter().filter(|d| d.is_some()).count();

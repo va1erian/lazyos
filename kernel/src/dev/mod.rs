@@ -175,19 +175,21 @@ pub fn init() {
     let attached = probe();
     selfcheck::log_irq_routes();
     if found.dropped > 0 {
-        serial_println!(
-            "DEV:ENUM:FAIL:device table full, {} PCI function(s) dropped ({} recorded)",
+        crate::trace::line!(
+            tracefmt::Channel::Dev,
+            "ENUM:FAIL:device table full, {} PCI function(s) dropped ({} recorded)",
             found.dropped,
             pci_count
         );
     } else if pci_count > 0 {
-        serial_println!(
-            "DEV:ENUM:PASS:{} devices ({} PCI, {} drivers attached)",
+        crate::trace::line!(
+            tracefmt::Channel::Dev,
+            "ENUM:PASS:{} devices ({} PCI, {} drivers attached)",
             total,
             pci_count,
             attached
         );
     } else {
-        serial_println!("DEV:ENUM:FAIL:no PCI devices enumerated");
+        crate::trace::fail!(tracefmt::Channel::Dev, "ENUM", "no PCI devices enumerated");
     }
 }

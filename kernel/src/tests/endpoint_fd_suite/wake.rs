@@ -322,8 +322,8 @@ pub fn epoll_soak() -> Result<(), String> {
         channels::close_endpoint(receiver).map_err(|e| format!("{e:?}"))?;
     }
     close(epfd)?;
-    serial_println!(
-        "TEST:ipc_endpoint_fd_epoll_soak:INFO:rounds={ROUNDS} sends={sends} takes={takes} \
+    crate::trace::test!(
+        "ipc_endpoint_fd_epoll_soak:INFO:rounds={ROUNDS} sends={sends} takes={takes} \
          reopens={reopens}"
     );
     nothing_left("epoll_soak")
@@ -365,8 +365,8 @@ pub fn blocking_soak() -> Result<(), String> {
         wakes += 1;
     }
     check!(chan::total_waiters() == 0, "endpoint registrations leaked");
-    serial_println!(
-        "TEST:ipc_endpoint_fd_blocking_soak:INFO:rounds={ROUNDS} wakes={wakes} timeouts={timeouts}"
+    crate::trace::test!(
+        "ipc_endpoint_fd_blocking_soak:INFO:rounds={ROUNDS} wakes={wakes} timeouts={timeouts}"
     );
     rig.teardown()
 }

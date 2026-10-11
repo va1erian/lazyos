@@ -12,6 +12,9 @@ license = "GPL-3.0-or-later"
 unused_dependencies = "allow"
 
 [dependencies]
+# The trace line grammar, channel catalogue, mask and budget
+# (docs/tracing-plan.md); `trace.rs` is the kernel's sink.
+tracefmt = { path = "../libs/tracefmt" }
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
 # The slab and frame allocators' bookkeeping (issue #485), host- and

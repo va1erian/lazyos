@@ -135,7 +135,7 @@ pub fn sys_cfg_live_function() -> Result<(), String> {
             && info.subclass == 0
     });
     let Some(info) = bridge else {
-        serial_println!("TEST:dev_sys_cfg_live_function:INFO:no host bridge to exercise");
+        crate::trace::test!("dev_sys_cfg_live_function:INFO:no host bridge to exercise");
         return Ok(());
     };
     let BusId::Pci(address) = info.bus else {
@@ -147,8 +147,8 @@ pub fn sys_cfg_live_function() -> Result<(), String> {
     let device = expect_ok(sys(OP_CFG_READ, handle, 2, 2, 0), "read device")?;
     let class_word = expect_ok(sys(OP_CFG_READ, handle, 8, 4, 0), "read class dword")?;
     let quiet = pci::command(address);
-    serial_println!(
-        "TEST:dev_sys_cfg_live_function:INFO:host bridge {:04x}:{:04x} command {saved:#x} -> {quiet:#x} after claim",
+    crate::trace::test!(
+        "dev_sys_cfg_live_function:INFO:host bridge {:04x}:{:04x} command {saved:#x} -> {quiet:#x} after claim",
         info.vendor,
         info.device
     );

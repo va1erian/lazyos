@@ -51,15 +51,27 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_perf");
     }
 
-    // Label-policy trace (issue #509): `LAZYOS_LABEL_TRACE=1` prints every
-    // call a labelled (installed) app is refused, with the label, the
-    // interface or name and the method, so a package's permissions can be
-    // derived from a run instead of by hand. Diagnostic only: off, nothing is
-    // printed and nothing else changes.
-    println!("cargo:rerun-if-env-changed=LAZYOS_LABEL_TRACE");
-    println!("cargo:rustc-check-cfg=cfg(lazyos_label_trace)");
-    if env::var_os("LAZYOS_LABEL_TRACE").as_deref() == Some(std::ffi::OsStr::new("1")) {
-        println!("cargo:rustc-cfg=lazyos_label_trace");
+    // Tracing (docs/tracing-plan.md, T1): every evidence line goes through
+    // `kernel/src/trace.rs`. `LAZYOS_TRACE=0` compiles the macros out (their
+    // arguments stay type-checked); unset or `1` keeps them. The old switches
+    // are aliases that imply it: `LAZYOS_LABEL_TRACE=1` (issue #509: every
+    // call a labelled task is refused, so a package's permissions can be
+    // derived from a run) adds the `label` channel to the mask the image
+    // build writes (`build_support/trace_cfg.rs`), and so do
+    // `LAZYOS_USB_TRACE` and `LAZYOS_UI_PROBE`. Diagnostics an operator needs
+    // (`HW:`, `EXCEPTION:`, `IRQOFF:`) never go through it.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TRACE");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_trace)");
+    let flag = |name: &str| {
+        println!("cargo:rerun-if-env-changed={name}");
+        env::var_os(name).as_deref() == Some(std::ffi::OsStr::new("1"))
+    };
+    // Every switch is read (each registers its rerun trigger), so no `any`.
+    let switches = ["LAZYOS_LABEL_TRACE", "LAZYOS_USB_TRACE", "LAZYOS_UI_PROBE"].map(flag);
+    let aliased = switches.contains(&true);
+    let trace_off = env::var_os("LAZYOS_TRACE").as_deref() == Some(std::ffi::OsStr::new("0"));
+    if aliased || !trace_off {
+        println!("cargo:rustc-cfg=lazyos_trace");
     }
 
     // Tick source (docs/real-pc-boot-plan.md H2): `LAZYOS_TIMER=lapic` uses the

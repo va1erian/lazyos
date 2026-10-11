@@ -119,8 +119,8 @@ pub fn irq_wake_idle_latency() -> Result<(), String> {
     let mut values: Vec<u64> = LATENCY.iter().map(|v| v.load(Ordering::Relaxed)).collect();
     values.sort_unstable();
     let crossed = CROSSED.load(Ordering::Relaxed);
-    serial_println!(
-        "TEST:task_preempt_irq_wake_idle_latency:INFO:samples={SAMPLES} p50_us={} p99_us={} max_us={} crossed_tick={crossed}",
+    crate::trace::test!(
+        "task_preempt_irq_wake_idle_latency:INFO:samples={SAMPLES} p50_us={} p99_us={} max_us={} crossed_tick={crossed}",
         micros(values[SAMPLES / 2]),
         micros(values[SAMPLES * 99 / 100]),
         micros(values[SAMPLES - 1]),

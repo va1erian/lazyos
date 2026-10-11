@@ -273,7 +273,7 @@ fn log_lines_become_records() {
     assert_eq!(l.field("ep0dq"), Some("0x1f000"));
     assert_eq!(l.field("note"), Some("two words"));
     assert_eq!(l.field("tail"), None);
-    let json_text = l.to_json(Some(3));
+    let json_text = logline::to_json(&l, Some(3));
     let v = json::parse(&json_text).unwrap();
     assert_eq!(v.get("pos"), Some(&Value::Int(3)));
     assert_eq!(

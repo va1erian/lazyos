@@ -193,7 +193,6 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
     // policy rule: it is what keeps one user's events from another.
     if !private::allows(cred.uid, name) {
         private::deny(actor_slot, &cred, interface, txn_id);
-        #[cfg(lazyos_label_trace)]
         crate::ipc::label_trace::denied(
             cred.label_id,
             format_args!("topic={name} mode={mode} private"),
@@ -223,7 +222,6 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
         let decision =
             crate::ipc::authorize(actor_slot, interface, segment_method(checked), txn_id);
         if decision.denied() {
-            #[cfg(lazyos_label_trace)]
             crate::ipc::label_trace::denied(
                 cred.label_id,
                 format_args!("topic={name} mode={mode} segment={segment}"),

@@ -57,7 +57,7 @@ fn scratch(test: &str) -> Option<&'static dyn BlockDevice> {
             && device.sector_count() == SCRATCH_SECTORS
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch virtio disk; skipped");
+        crate::trace::test!("{test}:INFO:no scratch virtio disk; skipped");
     }
     found
 }

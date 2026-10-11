@@ -100,8 +100,8 @@ pub fn same_class_wake_bounded() -> Result<(), String> {
     let switches = task::context_switches() - switches;
     let per_s = |count: u64| count * 1_000_000_000 / elapsed.max(1);
     let mean_late = LATE_SUM.load(Ordering::Relaxed) / WAKES.load(Ordering::Relaxed).max(1);
-    serial_println!(
-        "TEST:task_preempt_same_class_wake_bounded:INFO:wakes_per_s={} switches_per_s={} \
+    crate::trace::test!(
+        "task_preempt_same_class_wake_bounded:INFO:wakes_per_s={} switches_per_s={} \
          hog_a={} hog_b={} late_mean_us={} late_max_us={}",
         per_s(wakes),
         per_s(switches),

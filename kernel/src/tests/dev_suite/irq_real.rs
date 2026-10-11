@@ -48,7 +48,7 @@ unsafe impl Sync for Region {}
 static REGION: Region = Region(UnsafeCell::new([0; 16384]));
 
 fn info(msg: &str) {
-    serial_println!("TEST:dev_irq_real_device_end_to_end:INFO:{msg}");
+    crate::trace::test!("dev_irq_real_device_end_to_end:INFO:{msg}");
 }
 
 fn find_nic() -> Option<DeviceInfo> {
