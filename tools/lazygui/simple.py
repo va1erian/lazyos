@@ -20,8 +20,6 @@ _OPTION_TEXT = {
              "for the owner (recreates the OS volume)",
     "devices": "Open the Devices app at boot (device owners and driver rules)",
     "hidpi": "HiDPI: 2560x1440 at 2x (a sharp 720p desktop for a 4K monitor)",
-    "srb2kart": "SRB2Kart (fetches Kart Krew's ~220 MB game data; 1G OS volume; "
-                "never publish the image)",
     "usb_image": "USB stick image too (target/lazyos-usb.img for a real PC; "
                  "write it with tools/boot/stick_gui.py)",
 }

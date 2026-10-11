@@ -56,10 +56,14 @@ class Srb2kartTests(unittest.TestCase):
                          ["tools/doom/build.py", "tools/srb2kart/build.py",
                           "tools/emusic/build.py"])
 
-    def test_simple_tab_has_an_option_for_it(self) -> None:
-        self.assertIn("srb2kart", catalog.SIMPLE_OPTIONS)
-        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", srb2kart=True)
+    def test_the_games_group_turns_it_on(self) -> None:
+        self.assertNotIn("srb2kart", catalog.SIMPLE_OPTIONS)
+        switches = catalog.group_switches({"games"})
+        self.assertTrue(switches["srb2kart"])
+        self.assertFalse(catalog.group_switches(set())["srb2kart"])
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", **switches)
         self.assertEqual(catalog.build_env(cfg)["LAZYOS_SRB2KART"], "1")
+        self.assertEqual(catalog.build_env(cfg)["LAZYOS_DOOM"], "1")
 
 
 if __name__ == "__main__":

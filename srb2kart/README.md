@@ -18,8 +18,8 @@ the game data at `/system/share/srb2kart/` (`LAZYOS_SRB2KART=1`,
 `1G` (`LAZYOS_OS_SIZE` still wins; an existing smaller volume needs
 `run_demo.py --reset-os`). Like Doom it is a user package: in the Terminal,
 `cp /system/share/samples/srb2kart.lzp ~/ && pkgctl install ~/srb2kart.lzp`,
-then start SRB2Kart from the Games menu. The launcher's Simple tab has an
-"SRB2Kart" option and the Advanced tab a checkbox.
+then start SRB2Kart from the Games menu. In the launcher it comes with the
+Simple tab's Games group, and the Advanced tab has its own checkbox.
 
 ## The data rule
 

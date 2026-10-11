@@ -25,8 +25,9 @@ SIMPLE_INTERFACES = [
 #: Games (the brickbreaker sample and the player), Multimedia (the MOD player is
 #: a LazyRAD app) and Dev; the Picture Viewer is always in a Desktop image.
 SIMPLE_GROUPS = (
-    ("games", "Games", "LazyGolf, Doom, Quake and the LazyRAD brickbreaker.",
-     ("doom", "quake", "lazyrad")),
+    ("games", "Games", "LazyGolf, Doom, Quake, SRB2Kart (fetches Kart Krew's ~220 MB game data; "
+                       "1G OS volume; never publish the image) and the LazyRAD brickbreaker.",
+     ("doom", "quake", "srb2kart", "lazyrad")),
     ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
      ("emusic", "modplayer")),
     ("dev", "Dev", "The LazyRAD IDE and its samples, the Linux command-line programs "
@@ -40,7 +41,7 @@ SIMPLE_GROUPS = (
      ("lazyweb", "mail", "lazysky")),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
-SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image", "srb2kart")
+SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
 
 
 def group_switches(selected: set[str]) -> dict[str, bool]:
