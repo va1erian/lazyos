@@ -142,6 +142,8 @@ CORE_APPS: dict[str, CoreApp] = {
     "netstatus": xui_app("xui-netstatus.elf", "netstatus", optional=True),
     # LazyGolf: Fly over a procedurally generated golf course.
     "golf": xui_app("xui-golf.elf", "golf"),
+    # Video Player: Play video files.
+    "video": xui_app("xui-video.elf", "video"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

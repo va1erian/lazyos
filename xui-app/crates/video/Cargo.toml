@@ -1,0 +1,16 @@
+# The Video Player's media library (docs/video-player-plan.md): the AVI
+# demuxer, the codecs, the pacing clock and the player thread. Pure Rust and
+# free of xui, so it builds and is tested on the host; `crates/videoview` is
+# the window over it.
+[package]
+name = "lazyvideo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Video container demuxing, decoding and playback pacing for the LazyOS Video Player"
+
+[dependencies]
+# Motion JPEG frames. Already in the lockfile through `image`; its SIMD paths
+# are picked at run time from `cpuid`, which reports no AVX on LazyOS.
+zune-core = "0.5"
+zune-jpeg = "0.5"
