@@ -33,6 +33,8 @@ mod evidence_embed;
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/lazysky_embed.rs"]
+mod lazysky_embed;
 #[path = "build_support/lazyweb_embed.rs"]
 mod lazyweb_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -384,6 +386,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/lazysky_embed.rs");
     println!("cargo:rerun-if-changed=build_support/pictures_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);

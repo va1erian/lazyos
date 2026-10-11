@@ -17,6 +17,8 @@ mod core_packages;
 mod docs_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
+#[path = "../lazysky_embed.rs"]
+mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
 #[path = "../os_disk.rs"]
@@ -58,6 +60,8 @@ mod f5_layout_tests;
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
+#[cfg(test)]
+mod lazysky_tests;
 #[cfg(test)]
 mod lazyweb_tests;
 #[cfg(test)]

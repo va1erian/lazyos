@@ -1,0 +1,173 @@
+{
+ "thread": {
+  "$type": "app.bsky.feed.defs#threadViewPost",
+  "post": {
+   "uri": "at://did:plc:bob/app.bsky.feed.post/3",
+   "cid": "bafyrei0003",
+   "author": {
+    "did": "did:plc:bob",
+    "handle": "bob.bsky.test",
+    "displayName": "Bob 🦀",
+    "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:bob/b@jpeg"
+   },
+   "record": {
+    "$type": "app.bsky.feed.post",
+    "text": "thread post 3",
+    "createdAt": "2026-10-10T12:00:00.000Z",
+    "langs": [
+     "en"
+    ]
+   },
+   "replyCount": 1,
+   "repostCount": 2,
+   "likeCount": 3,
+   "quoteCount": 0,
+   "indexedAt": "2026-10-10T12:00:01.000Z",
+   "labels": []
+  },
+  "replies": [
+   {
+    "$type": "app.bsky.feed.defs#threadViewPost",
+    "post": {
+     "uri": "at://did:plc:alice/app.bsky.feed.post/4",
+     "cid": "bafyrei0004",
+     "author": {
+      "did": "did:plc:alice",
+      "handle": "alice.bsky.test",
+      "displayName": "Alice",
+      "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:alice/a@jpeg"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "text": "thread post 4",
+      "createdAt": "2026-10-10T12:00:00.000Z",
+      "langs": [
+       "en"
+      ]
+     },
+     "replyCount": 1,
+     "repostCount": 2,
+     "likeCount": 3,
+     "quoteCount": 0,
+     "indexedAt": "2026-10-10T12:00:01.000Z",
+     "labels": []
+    },
+    "replies": [
+     {
+      "$type": "app.bsky.feed.defs#threadViewPost",
+      "post": {
+       "uri": "at://did:plc:bob/app.bsky.feed.post/5",
+       "cid": "bafyrei0005",
+       "author": {
+        "did": "did:plc:bob",
+        "handle": "bob.bsky.test",
+        "displayName": "Bob 🦀",
+        "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:bob/b@jpeg"
+       },
+       "record": {
+        "$type": "app.bsky.feed.post",
+        "text": "thread post 5",
+        "createdAt": "2026-10-10T12:00:00.000Z",
+        "langs": [
+         "en"
+        ]
+       },
+       "replyCount": 1,
+       "repostCount": 2,
+       "likeCount": 3,
+       "quoteCount": 0,
+       "indexedAt": "2026-10-10T12:00:01.000Z",
+       "labels": []
+      },
+      "replies": []
+     }
+    ]
+   },
+   {
+    "$type": "app.bsky.feed.defs#blockedPost",
+    "uri": "at://did:plc:evil/app.bsky.feed.post/9",
+    "blocked": true
+   },
+   {
+    "$type": "app.bsky.feed.defs#threadViewPost",
+    "post": {
+     "uri": "at://did:plc:carol/app.bsky.feed.post/6",
+     "cid": "bafyrei0006",
+     "author": {
+      "did": "did:plc:carol",
+      "handle": "carol.bsky.test"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "text": "thread post 6",
+      "createdAt": "2026-10-10T12:00:00.000Z",
+      "langs": [
+       "en"
+      ]
+     },
+     "replyCount": 1,
+     "repostCount": 2,
+     "likeCount": 3,
+     "quoteCount": 0,
+     "indexedAt": "2026-10-10T12:00:01.000Z",
+     "labels": []
+    },
+    "replies": []
+   }
+  ],
+  "parent": {
+   "$type": "app.bsky.feed.defs#threadViewPost",
+   "post": {
+    "uri": "at://did:plc:alice/app.bsky.feed.post/2",
+    "cid": "bafyrei0002",
+    "author": {
+     "did": "did:plc:alice",
+     "handle": "alice.bsky.test",
+     "displayName": "Alice",
+     "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:alice/a@jpeg"
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "text": "thread post 2",
+     "createdAt": "2026-10-10T12:00:00.000Z",
+     "langs": [
+      "en"
+     ]
+    },
+    "replyCount": 1,
+    "repostCount": 2,
+    "likeCount": 3,
+    "quoteCount": 0,
+    "indexedAt": "2026-10-10T12:00:01.000Z",
+    "labels": []
+   },
+   "replies": [],
+   "parent": {
+    "$type": "app.bsky.feed.defs#threadViewPost",
+    "post": {
+     "uri": "at://did:plc:carol/app.bsky.feed.post/1",
+     "cid": "bafyrei0001",
+     "author": {
+      "did": "did:plc:carol",
+      "handle": "carol.bsky.test"
+     },
+     "record": {
+      "$type": "app.bsky.feed.post",
+      "text": "thread post 1",
+      "createdAt": "2026-10-10T12:00:00.000Z",
+      "langs": [
+       "en"
+      ]
+     },
+     "replyCount": 1,
+     "repostCount": 2,
+     "likeCount": 3,
+     "quoteCount": 0,
+     "indexedAt": "2026-10-10T12:00:01.000Z",
+     "labels": []
+    },
+    "replies": []
+   }
+  }
+ }
+}

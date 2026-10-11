@@ -1,0 +1,51 @@
+# LazySky: a core LazyOS app, packaged by `tools/xui/build.py`.
+#
+# A Bluesky client (docs/lazysky.md): the headless core is
+# `xui-app/crates/lazysky-core`, the window `lazysky-ui`, and
+# `xui-app/src/bin/lazysky.rs` launches them. It is not checked in as a binary:
+# the build copies the built xui app (`target/xui/xui-lazysky.elf`) into a
+# scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`. Only a desktop image
+# with the network stack ships it (`LAZYOS_LAZYSKY=1`,
+# `python tools/run_demo.py --lazysky`).
+
+[app]
+name = "LazySky"
+system_name = "os.lazy.lazysky"
+author = "LazyOS"
+version = "0.1.0"
+description = "A Bluesky client: timeline, posts, pictures, notifications and search"
+category = "internet"
+
+[entry]
+binary = "bin/lazysky.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# The window, sockets (plain `std::net`, the `outbound` network permission),
+# `mimed` for links the client hands to the browser and the clipboard
+# ("Copy link to post", "Copy image address", pasting into the composer).
+# Derived from `python tools/lazysky/run.py --label-trace`: no `LABEL:DENY`
+# (docs/packages.md).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.mimed.v1",
+    "os.lazy.clipboard.v1",
+]
+network = ["outbound"]
+# Settings in the app's own folder; saved pictures in the user's Pictures;
+# the composer's file picker reads pictures from the user's Pictures and
+# Downloads (the rules are consent only today, docs/packages.md; the package
+# format takes `$HOME/<dir>`, not the home itself).
+files = [
+    "write:$HOME/.apps/os.lazy.lazysky",
+    "write:$HOME/Pictures",
+    "read:$HOME/Pictures",
+    "read:$HOME/Downloads",
+]
