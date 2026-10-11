@@ -109,6 +109,7 @@ fn main() {
             Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
             Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
             Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
+            Msg::Report(Report::SignedOut) => println!("SKY:SIGNEDOUT"),
             Msg::Quit => println!("SKY:QUIT:PASS"),
             _ => {}
         })

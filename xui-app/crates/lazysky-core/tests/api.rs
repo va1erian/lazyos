@@ -320,6 +320,35 @@ fn an_expired_token_is_refreshed_once_and_the_call_retried() {
 }
 
 #[test]
+fn a_refresh_that_fails_for_the_moment_keeps_the_session() {
+    for (status, body) in [(503, "upstream down"), (429, "{}"), (200, "<html>proxy</html>")] {
+        let (login, pds) = pair("a", "r", move |seen, _| {
+            if seen.path.contains("refreshSession") {
+                json(status, body)
+            } else {
+                json(400, r#"{"error":"ExpiredToken","message":"expired"}"#)
+            }
+        });
+        let rig = rig(&login);
+        rig.login();
+        rig.timeline(2);
+        match rig.answer() {
+            Event::Failed { signed_out, .. } => {
+                assert!(!signed_out, "a {status} on refresh must not sign the user out")
+            }
+            other => panic!("{other:?}"),
+        }
+        // Still signed in: the next call tries again instead of NotSignedIn.
+        rig.timeline(3);
+        match rig.answer() {
+            Event::Failed { signed_out, .. } => assert!(!signed_out),
+            other => panic!("{other:?}"),
+        }
+        assert!(paths(&pds).iter().filter(|p| p.ends_with("refreshSession")).count() >= 2);
+    }
+}
+
+#[test]
 fn a_refresh_the_server_refuses_ends_the_session() {
     let (login, pds) = pair("a", "r", |_, _| {
         json(400, r#"{"error":"ExpiredToken","message":"expired"}"#)

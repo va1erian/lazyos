@@ -40,6 +40,8 @@ pub enum Report {
     DetailRows(usize),
     /// The picture cache holds this many pictures.
     Pictures(usize),
+    /// The session ended and the window went back to the login page.
+    SignedOut,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

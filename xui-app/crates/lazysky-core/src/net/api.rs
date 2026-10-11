@@ -194,19 +194,28 @@ impl Api {
             .http
             .post(&url, &[("authorization", &bearer)], b"")
             .map_err(ApiError::Transport)?;
-        let renewed = ok_json(&response)
-            .ok()
-            .and_then(|v| Session::from_json(&v, &pds).ok());
-        match renewed {
-            Some(session) => {
-                self.session = Some(session);
-                Ok(())
-            }
-            None => {
-                self.session = None;
-                Err(ApiError::SessionExpired)
-            }
+        // Only the server saying the refresh token is no good ends the
+        // session. A 5xx, a rate limit or an unreadable answer is a bad
+        // moment, not a sign-out: keep the session and let the caller's
+        // error say so (the next call tries the refresh again).
+        if (200..300).contains(&response.status) {
+            let renewed = parse_json(&response.body)
+                .ok()
+                .and_then(|v| Session::from_json(&v, &pds).ok());
+            return match renewed {
+                Some(session) => {
+                    self.session = Some(session);
+                    Ok(())
+                }
+                None => Err(ApiError::Transport("the refresh answer was not a session".into())),
+            };
         }
+        let error = XrpcError::from_response(response.status, &response.body);
+        if matches!(response.status, 400 | 401) {
+            self.session = None;
+            return Err(ApiError::SessionExpired);
+        }
+        Err(ApiError::Server(error))
     }
 
     /// Sleeps `total`, waking to see a shutdown; `false` if one came.

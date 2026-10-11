@@ -228,6 +228,7 @@ impl LazySkyApp {
                     self.clear_everything();
                     self.apply_visibility(ui);
                     self.login.say(&reason);
+                    (self.report)(&Msg::Report(Report::SignedOut));
                 }
             }
             Event::Status { line } => self.say(&line),
