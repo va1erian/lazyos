@@ -2747,6 +2747,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazysky-core"
+version = "0.1.0"
+dependencies = [
+ "nettls-crypto",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "ureq",
+]
+
+[[package]]
+name = "lazysky-ui"
+version = "0.1.0"
+dependencies = [
+ "lazysky-core",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "lazyweb"
 version = "0.1.0"
 dependencies = [
@@ -6713,6 +6734,8 @@ dependencies = [
  "lazymotion",
  "lazyos-sys",
  "lazyshell",
+ "lazysky-core",
+ "lazysky-ui",
  "libc",
  "libmessenger",
  "messenger-generated",

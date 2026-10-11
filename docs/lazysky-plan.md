@@ -1,7 +1,7 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** plan, revision 2 (2026-10-11). Nothing is implemented yet. The
-spike (P0, §9) is the next step.
+**Status:** revision 3 (2026-10-11). P0 (§9) is implemented and its host
+checks pass; its QEMU check (item 5) waits for P8's packaging. P1 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -514,6 +514,26 @@ host tests, and every file under 500 lines (`python tools/check_file_length.py`)
 the musl build of the bin succeeds; the desktop example opens on Windows; the
 QEMU spike prints its marker (or the fallback decision is written down).
 
+*P0 findings (2026-10-11).*
+* **Off-thread shaping works.** A `Box<dyn TextLayout>` shaped on a worker
+  thread from `ui.text_shaper()` draws correctly with `Canvas::draw_layout` on
+  the offscreen backend (`lazysky-ui/tests/window.rs`, light and dark
+  snapshots) and under xui's winit backend on Windows (`desktop` example). The
+  LazyOS backend (`SKY:SPIKE:SHAPE:PASS`) is not yet run: the bin is built
+  (musl, release) but is not packaged until P8, so item 5 stays open. Until it
+  is run, §6.1's fallback (shape on the UI thread inside R5) is the plan B.
+* **The offscreen backend has no timers.** A view that polls a worker from a
+  timer returns `Msg::Poll`; a test emits it itself after waiting for the
+  worker (`stage.emit(Msg::Poll)`).
+* **xui pin.** The workspace is at rev `93592fdc` (not `e50e69d` of §12).
+  Every new crate uses the workspace's rev.
+* **No `rustls` in the bin.** `lazysky_core::install_tls_provider()` installs
+  `nettls-crypto`, so the root `xui-app` package gains no TLS dependency.
+* **The core's TLS config names its provider explicitly**, so the core works
+  without a process-wide default provider.
+* `sky_cli --features native-roots` fetched `https://bsky.social/xrpc/_health`
+  through `Core` (HTTP 200).
+
 **P1: protocol.** `proto/` with every type in §7.3, `#[serde(default)]` on
 optional fields, facet validation, record builders, error mapping; fixtures
 (timeline with reposts, quotes, 1–4 images, external link, video, unknown
@@ -653,7 +673,7 @@ same lines.)
    label-policy trace; LazyWeb; Mail; LazyGolf for the portable-crate +
    desktop-example pattern); `.claude/skills/xui-app/SKILL.md`; xui's
    `docs/cookbook.md` and `docs/widgets.md` in the cargo checkout of the
-   pinned rev (`~/.cargo/git/checkouts/xui-*/e50e69d/`);
+   pinned rev (`~/.cargo/git/checkouts/xui-*/93592fd/`);
    `xui-app/crates/pdfview/src/{view.rs,worker.rs,cache.rs}`;
    `xui-app/web/src/fetch/{tls.rs,roots.rs,pool.rs}`.
 2. **Use redsky for behaviour, not code.** It is egui and async.
@@ -679,9 +699,9 @@ same lines.)
 
 ## 12. Known facts from the survey (so nobody re-derives them)
 
-* xui rev `e50e69d64c0b851b89c85b06e3d8f5df891a916a`, every crate must use
-  the same one; local checkout under
-  `~/.cargo/git/checkouts/xui-e7bf80847fe0275b/e50e69d/`.
+* xui rev `93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6` (the workspace's pin; the
+  first draft said `e50e69d`), every crate must use the same one; local
+  checkout under `~/.cargo/git/checkouts/xui-e7bf80847fe0275b/93592fd/`.
 * `xui_core::Image::decode` handles PNG and JPEG only; GIF/WebP come from the
   `image` crate (already in `xui-app/Cargo.lock` via `xui-blitz`).
   `Canvas::draw_image` is bilinear and backends cache uploads by `Image::id`.
