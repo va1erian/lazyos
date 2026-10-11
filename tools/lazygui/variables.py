@@ -79,6 +79,7 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "quake": b(value=False),
+        "srb2kart": b(value=False),
         "emusic": b(value=False),
         "modplayer": b(value=False),
         # Networking (LAZYOS_NETD + a QEMU user-mode card, run_demo --net).

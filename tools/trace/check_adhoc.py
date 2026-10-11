@@ -49,6 +49,7 @@ TREES = [
     ("doom", "doom/"),
     ("emusic", "emusic/"),
     ("quake", "quake/"),
+    ("srb2kart", "srb2kart/"),
 ]
 
 # Not scanned: the one place a line is written, the kernel suite and the

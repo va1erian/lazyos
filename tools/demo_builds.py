@@ -1,7 +1,7 @@
 """The optional build steps `run_demo.py` runs before `cargo build`.
 
 Each runs one tool script quietly and reports a failure in one line; the
-explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--emusic`, `--modplayer`,
+explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
 `--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`) return
 False so the run stops instead of booting an image without what was asked
 for.
@@ -66,6 +66,13 @@ def build_quake() -> bool:
     its LazyOS bridge, id's shareware pak, then `target/pkg/quake.lzp`); a
     missing toolchain or download stops the run."""
     return required("Quake", "quake/build.py", ("--require",))
+
+
+def build_srb2kart() -> bool:
+    """SRB2Kart (`tools/srb2kart/build.py`: the Kart-Public engine and its
+    LazyOS platform layer, Kart Krew's game data, then `target/pkg/srb2kart.lzp`
+    and `target/srb2kart/data/`); a missing toolchain or download stops the run."""
+    return required("SRB2Kart", "srb2kart/build.py", ("--require",))
 
 
 def build_emusic() -> bool:

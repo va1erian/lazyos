@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPT
 #: `catalog.simple_config`'s switches, in its argument order.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic", "usb_image", "lazysky")
+                 "emusic", "usb_image", "lazysky", "srb2kart")
 
 _OPTION_TEXT = {
     "shell": "LazyShell desktop (taskbar, start menu, desktop icons)",

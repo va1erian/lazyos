@@ -419,6 +419,32 @@ deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
 `/tmp/quake-result.txt`); v1 is silent and pointer-free like Doom's (the
 `Pcm` records already ride the bridge).
 
+## SRB2Kart (an installable `.lzp` package, data fetched at build time)
+
+SRB2Kart is `srb2kart/` (Kart-Public v1.6, Kart Krew's kart racer, fetched at
+a pinned revision and compiled with zig, plus a C platform backend and a Rust
+layer on `xui-app`'s client window) shipped as the package `org.lazy.srb2kart`
+with **the engine only**: its game data (`srb2.srb`, `*.kart`, ~220 MB) is
+Kart Krew's, unlicensed, so the image build downloads it from their own v1.6
+release (SHA-256 pinned in `tools/srb2kart/fetch.py`) and writes it to
+`/system/share/srb2kart/` (`fhs::share::SRB2KART_DATA`) beside a
+`CREDITS.txt`. **Never commit, upload, attach or publish the data or an image
+containing it** (CI artifacts carry screenshots and logs, no image); keep the
+credits wherever the game appears. See [`srb2kart/README.md`](srb2kart/README.md)
+and [`docs/srb2kart-port-plan.md`](docs/srb2kart-port-plan.md).
+
+```bash
+python tools/srb2kart/build.py            # engine + srb2kart.elf + target/pkg/srb2kart.lzp + target/srb2kart/data/
+python tools/run_demo.py --srb2kart       # desktop + the package + the data; the OS volume defaults to 1G (--reset-os for an older image)
+cargo test -p build-support-tests         # srb2kart_embed paths, the 1G default
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/srb2kart \
+    --script tools/screenshot/examples/srb2kart.json   # needs LAZYOS_SRB2KART=1, LAZYOS_RESET_OS=1 and LAZYOS_UI_PROBE=1
+```
+
+Markers (channel `SRB2KART`): `SRB2KART:UP:PASS mode=window|headless`,
+`SRB2KART:DATA:FAIL`, `SRB2KART:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/srb2kart-result.txt`), `SRB2KART:QUIT:PASS`. v1 is silent (K2 adds sound).
+
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
 `python tools/linuxapps/build.py` builds unmodified dash, sqlite3, jq and

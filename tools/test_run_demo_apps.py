@@ -31,6 +31,15 @@ class OptInAppTests(RunDemoCase):
             self.assertEqual(env.get(switch), "1", switch)
         self.assertIn("virtio-sound-pci,audiodev=snd0", command)
 
+    def test_srb2kart_builds_the_package_and_brings_the_desktop(self) -> None:
+        with mock.patch.object(run_demo, "build_srb2kart", return_value=True) as package, \
+                mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _command = self.run_main("--srb2kart")
+        self.assertEqual(code, 0)
+        package.assert_called_once()
+        for switch in ("LAZYOS_SRB2KART", "LAZYOS_DESKTOP"):
+            self.assertEqual(self.builds[-1].get(switch), "1", switch)
+
     def test_modplayer_brings_lazyrad_the_desktop_and_a_sound_card(self) -> None:
         with mock.patch.object(run_demo, "build_lazyrad", return_value=True) as lazyrad, \
                 mock.patch.object(run_demo, "build_modplayer", return_value=True) as package, \

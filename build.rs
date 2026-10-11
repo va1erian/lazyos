@@ -57,6 +57,8 @@ mod pictures_embed;
 mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
 #[path = "build_support/tls_embed.rs"]
@@ -106,7 +108,7 @@ fn main() {
             == Some(std::ffi::OsStr::new("1")),
         os_size: match std::env::var("LAZYOS_OS_SIZE") {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
-            Err(_) => os_disk::DEFAULT_OS_SIZE,
+            Err(_) => os_disk::default_size_env(),
         },
         journal: os_image::journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
             .unwrap_or_else(|error| panic!("{error}")),
@@ -442,6 +444,9 @@ fn main() {
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
     // through pkgd.
     doom_embed::embed(&mut files, &manifest_dir);
+    // SRB2Kart (`LAZYOS_SRB2KART=1`): the engine package and, fetched at build
+    // time, its game data in /system/share/srb2kart (never published).
+    srb2kart_embed::embed(&mut files, &manifest_dir);
     // The emusic package (`LAZYOS_EMUSIC=1`), a sample user package too.
     emusic_embed::embed(&mut files, &manifest_dir);
     // The Quake package (`LAZYOS_QUAKE=1`), a sample user package too.
