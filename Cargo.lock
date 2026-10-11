@@ -327,6 +327,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cursorgfx"
+version = "0.1.0"
+
+[[package]]
 name = "dbgwire"
 version = "0.1.0"
 dependencies = [
@@ -1508,6 +1512,7 @@ dependencies = [
  "audioclient",
  "audiomix",
  "confd",
+ "cursorgfx",
  "dbgwire",
  "deskmenu",
  "devinspect",

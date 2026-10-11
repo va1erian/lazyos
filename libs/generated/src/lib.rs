@@ -5329,13 +5329,18 @@ pub mod os_lazy_display_cursor_v1 {
     // Only interfaces that declare topics use the shared topic runtime.
     #[allow(unused_imports)]
     use super::topics;
-    use super::transfers;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
     // Only interfaces that declare rings use the ring descriptors.
     #[allow(unused_imports)]
     use super::rings;
 
     /// The interface id: the FNV-1a hash of the `.vN` interface name.
     pub const INTERFACE_ID: u64 = 0x17e8a175efe87bc6;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.display.cursor.v1";
 
     /// `CursorShape::Default` wire value.
     pub const CURSOR_SHAPE_DEFAULT: u32 = 0;
@@ -5392,12 +5397,10 @@ pub mod os_lazy_display_cursor_v1 {
         Ok(out)
     }
 
-    /// The transfers the request `method` declares; `NONE` for a method
-    /// that declares none or an unknown method id.
-    pub fn request_transfers(method: u32) -> transfers::Transfers {
-        let _ = method;
-        transfers::Transfers::NONE
-    }
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
 }
 
 /// `os.lazy.echo.v1` (interface id `0xcc4ac1057e84db93`).
