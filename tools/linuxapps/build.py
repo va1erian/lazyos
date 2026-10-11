@@ -4,7 +4,6 @@
 LazyOS runs static ``x86_64-linux-musl`` binaries; these are unmodified
 upstream programs to exercise that with (``tools/linuxapps/README.md``):
 
-* ``lua``: Lua 5.4.7, the interpreter's sources with zig cc (``recipes.py``);
 * ``sqlite3``: SQLite 3.46.1, the amalgamation and its shell (``recipes.py``);
 * ``jq``: jq 1.7.1, with configure's results written out (``recipes.py``);
 * ``dash``: dash 0.5.12 and its source generators (``dash.py``, ``dashgen.py``);
@@ -17,7 +16,7 @@ each is checked to be an ELF64 x86-64 executable without an interpreter.
 Usage::
 
     python tools/linuxapps/build.py                 # everything
-    python tools/linuxapps/build.py --only lua jq   # some
+    python tools/linuxapps/build.py --only sqlite3 jq   # some
     python tools/linuxapps/build.py --require       # anything unavailable fails
 
 Prints a JSON map ``{name: path or null}`` on stdout. Without zig, Rust's musl
@@ -47,7 +46,6 @@ BIN = sources.WORK / "bin"
 
 #: name -> recipe taking (zig, output path); zig-less recipes ignore it.
 C_RECIPES: dict[str, Callable[[Zig, Path], Path | None]] = {
-    "lua": recipes.build_lua,
     "sqlite3": recipes.build_sqlite3,
     "jq": recipes.build_jq,
     "dash": dash.build_dash,

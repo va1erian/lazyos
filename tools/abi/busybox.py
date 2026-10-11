@@ -14,7 +14,10 @@ committed blob. `ensure_busybox()` returns a path to a static
    when Docker is running — this is what makes a Windows or macOS host work.
 
 The build is `defconfig` + `CONFIG_STATIC=y`, with the `tc` applet disabled (its
-kernel headers conflict on modern distros). If any step is unavailable the
+kernel headers conflict on modern distros) and the shell's interactive line
+editing set explicitly (`LINE_EDITING`: Tab completion of commands, files and
+`~user`, history kept in `~/.ash_history`, Ctrl-R search), so it does not depend
+on what `defconfig` happens to enable. If any step is unavailable the
 function returns `None` and the bench marks BusyBox `unavailable`; it never
 raises, so a Windows or minimal host still builds the OS, which then boots
 without a console shell (`build.rs` logs a warning).
@@ -57,6 +60,47 @@ DOCKER_TIMEOUT_SECONDS = 1800
 EXTRA_CFLAGS = "-idirafter /usr/include -idirafter /usr/include/x86_64-linux-gnu"
 
 
+# What the interactive `sh` (ash) needs for a comfortable prompt. Set after
+# `defconfig`, then `oldconfig` settles dependencies. `FEATURE_EDITING_ASK_TERMINAL`
+# is left alone: it queries the terminal's size with an escape sequence.
+LINE_EDITING = {
+    "FEATURE_EDITING": "y",
+    "FEATURE_EDITING_MAX_LEN": "1024",
+    "FEATURE_EDITING_HISTORY": "256",
+    "FEATURE_EDITING_SAVEHISTORY": "y",
+    "FEATURE_EDITING_SAVE_ON_EXIT": "y",
+    "FEATURE_REVERSE_SEARCH": "y",
+    "FEATURE_TAB_COMPLETION": "y",
+    "FEATURE_USERNAME_COMPLETION": "y",
+    "FEATURE_EDITING_FANCY_PROMPT": "y",
+    "FEATURE_EDITING_WINCH": "y",
+    "ASH_INTERACTIVE": "y",
+    "ASH_EXPAND_PRMT": "y",
+}
+# Written beside the cached binary: a build made with another configuration is
+# stale and is rebuilt (`ensure_busybox`).
+CONFIG_STAMP = BUILD_ROOT / "config.stamp"
+
+
+def config_stamp() -> str:
+    """A fingerprint of every option this script sets on top of `defconfig`."""
+    wanted = sorted(LINE_EDITING.items()) + [("STATIC", "y"), ("TC", "n")]
+    return hashlib.sha256(repr(wanted).encode()).hexdigest()[:16]
+
+
+def apply_line_editing(lines: list[str]) -> list[str]:
+    """`.config` lines with `LINE_EDITING` set: an existing `CONFIG_X=..` or
+    `# CONFIG_X is not set` line is replaced, a missing one appended."""
+    def sets_one(line: str) -> bool:
+        return any(
+            line.startswith(f"CONFIG_{key}=") or line == f"# CONFIG_{key} is not set"
+            for key in LINE_EDITING
+        )
+
+    kept = [line for line in lines if not sets_one(line)]
+    return kept + [f"CONFIG_{key}={value}" for key, value in LINE_EDITING.items()]
+
+
 HINT = """busybox: no static BusyBox is available, so the image will have no /busybox
 and the desktop Terminal / console shell report TERM:SPAWN:FAIL. To fix it, either
   * start Docker and re-run `python tools/abi/busybox.py` (builds the pinned release
@@ -85,18 +129,37 @@ def _main_checkout_build() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _stamp_matches(binary: Path) -> bool:
+    stamp = binary.with_name(CONFIG_STAMP.name)
+    try:
+        return stamp.read_text(encoding="utf-8").strip() == config_stamp()
+    except OSError:
+        return False
+
+
 def _cached() -> Path | None:
-    for candidate in (MANUAL, OUTPUT):
-        if candidate.is_file():
-            return candidate
+    """A binary to use now. A hand-dropped one is trusted as is; a cached build
+    only when it was made with the current configuration (`_stale` finds the
+    others)."""
+    if MANUAL.is_file():
+        return MANUAL
+    if OUTPUT.is_file() and _stamp_matches(OUTPUT):
+        return OUTPUT
     shared = _main_checkout_build()
-    if shared is not None:
+    if shared is not None and _stamp_matches(shared):
         # Copied, not referenced: `build.rs` only searches this tree.
         OUTPUT.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(shared, OUTPUT)
+        shutil.copyfile(shared.with_name(CONFIG_STAMP.name), CONFIG_STAMP)
         print(f"busybox: reused {shared}", file=sys.stderr)
         return OUTPUT
     return None
+
+
+def _stale() -> Path | None:
+    """A cached build made with an older configuration: used only when it
+    cannot be rebuilt, so a host without a toolchain keeps its shell."""
+    return OUTPUT if OUTPUT.is_file() else None
 
 
 def _sha256(path: Path) -> str:
@@ -206,7 +269,13 @@ def _configure() -> bool:
             patched.append("# CONFIG_TC is not set")
         else:
             patched.append(line)
-    config.write_text("\n".join(patched) + "\n", encoding="utf-8")
+    config.write_text("\n".join(apply_line_editing(patched)) + "\n", encoding="utf-8")
+    # Settle dependencies without prompting (a symbol whose dependency is off
+    # would otherwise stop the build asking about it).
+    subprocess.run(
+        ["make", "oldconfig"], cwd=SOURCE, input="\n" * 500, text=True,
+        capture_output=True, check=True,
+    )
     return True
 
 
@@ -248,6 +317,12 @@ _DOCKER_SCRIPT = (
     "make defconfig >/dev/null; "
     "sed -i -e 's/^# CONFIG_STATIC is not set$/CONFIG_STATIC=y/' "
     "-e 's/^CONFIG_TC=y$/# CONFIG_TC is not set/' .config; "
+    + "".join(
+        f"sed -i -e '/^CONFIG_{key}=/d' -e '/^# CONFIG_{key} is not set$/d' .config; "
+        f"echo CONFIG_{key}={value} >> .config; "
+        for key, value in LINE_EDITING.items()
+    )
+    + "yes '' | make oldconfig >/dev/null; "
     "make -j\"$(nproc)\" CC=gcc HOSTCC=gcc >/dev/null"
 )
 
@@ -304,6 +379,13 @@ def _build_docker() -> bool:
     return _fetch() and _docker_compile()
 
 
+def _use_stale() -> Path | None:
+    old = _stale()
+    if old is not None:
+        print(f"busybox: could not rebuild; keeping {old} (no Tab completion)", file=sys.stderr)
+    return old
+
+
 def ensure_busybox() -> Path | None:
     """Return a path to a static BusyBox, building it if the host allows."""
     cached = _cached()
@@ -316,19 +398,20 @@ def ensure_busybox() -> Path | None:
         build = _build_docker
     else:
         print("busybox: no musl-gcc and no running Docker engine", file=sys.stderr)
-        return None
+        return _use_stale()
     try:
         if not build():
-            return None
+            return _use_stale()
     except Exception as error:  # noqa: BLE001 - any tool failure is "unavailable"
         print(f"busybox: build unavailable: {error}", file=sys.stderr)
         # `capture_output` hides why make failed; the tail is the diagnosis.
         detail = (getattr(error, "stderr", "") or "").strip()
         if detail:
             print(f"busybox: tool stderr (tail):\n{detail[-2000:]}", file=sys.stderr)
-        return None
+        return _use_stale()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(SOURCE / "busybox", OUTPUT)
+    CONFIG_STAMP.write_text(config_stamp() + "\n", encoding="utf-8")
     print(f"busybox: built {OUTPUT}", file=sys.stderr)
     return OUTPUT
 

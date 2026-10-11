@@ -151,7 +151,7 @@ class ModPlayerTests(unittest.TestCase):
 
 
 class LinuxAppsTests(unittest.TestCase):
-    """The launcher can embed the Linux programs (dash, lua, sqlite3, jq, rg in
+    """The launcher can embed the Linux programs (dash, sqlite3, jq, rg in
     /system/bin) from the Simple tab (CLI or Desktop), the Advanced tab and
     run_demo, building them first."""
 

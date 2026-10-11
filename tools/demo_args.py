@@ -131,7 +131,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
-                             "(LAZYOS_LINUXAPPS=1): dash, lua, sqlite3, jq and rg, "
+                             "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "

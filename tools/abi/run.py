@@ -69,7 +69,6 @@ ORDER = [
     # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
     # fixture, one row per program (see `LINUXAPPS`).
     "dash",
-    "lua",
     "sqlite3",
     "jq",
     "rg",
@@ -78,7 +77,7 @@ ORDER = [
 # Rows judged from one boot of the `linuxapps` fixture on an image built with
 # `LAZYOS_LINUXAPPS=1` (the programs in /system/bin) and BusyBox (dash's
 # pipeline runs an applet). The fixture prints `ABI:<program>:PASS|FAIL`.
-LINUXAPPS = ("dash", "lua", "sqlite3", "jq", "rg")
+LINUXAPPS = ("dash", "sqlite3", "jq", "rg")
 LINUXAPPS_BIN = ROOT / "target" / "linuxapps" / "bin"
 
 # Fixtures that need the persistent data disk and two boots of it. The first

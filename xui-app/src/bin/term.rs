@@ -14,7 +14,7 @@
 //! The shell is a real, out-of-process BusyBox on a real tty: pipes,
 //! redirection and job control work as at a Linux terminal, `^C` is the line
 //! discipline's `SIGINT` for the foreground job, programs that read cooked
-//! input (`cat`, `dash`, `lua`) get echo and line editing from the kernel,
+//! input (`cat`, `dash`) get echo and line editing from the kernel,
 //! and full-screen programs (`vi`, `less`) get raw mode and the window size.
 //!
 //! Serial evidence: `TERM:UP:PASS` after the first frame, `TERM:CMD:<line>` for
@@ -302,8 +302,13 @@ fn main() {
     backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
-        let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
-            .expect("root node");
+        // `wants_tab`: Tab must reach the shell (completion), not move the
+        // widget focus, which is all a Tab does for a node without it.
+        let root = Control::new(
+            ui,
+            &NodeSpec::new(NodeKind::Custom, ui.client_rect()).wants_tab(),
+        )
+        .expect("root node");
         {
             let grid = Rc::clone(&grid);
             let theme = ui.theme_handle();

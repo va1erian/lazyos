@@ -412,11 +412,11 @@ deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
 
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
-`python tools/linuxapps/build.py` builds unmodified dash, lua, sqlite3, jq and
+`python tools/linuxapps/build.py` builds unmodified dash, sqlite3, jq and
 ripgrep from pinned, hash-checked sources (zig for C) into
 `target/linuxapps/bin`; `LAZYOS_LINUXAPPS=1` (`run_demo.py --linuxapps`) puts
 them in `/system/bin`. The ABI bench runs them (`tools/abi/run.py --only
-dash,lua,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
+dash,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
 drive them interactively (the desktop Terminal runs its shell on a pty, so
 `vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
 

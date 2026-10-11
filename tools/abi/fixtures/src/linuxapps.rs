@@ -1,13 +1,12 @@
 //! `linuxapps` — run the real Linux programs `tools/linuxapps/build.py`
-//! builds (dash, lua, sqlite3, jq, ripgrep; `LAZYOS_LINUXAPPS=1` puts them in
+//! builds (dash, sqlite3, jq, ripgrep; `LAZYOS_LINUXAPPS=1` puts them in
 //! `/system/bin`) and check what each prints. One boot, one row per program:
 //! each check prints `ABI:<program>:PASS` or `ABI:<program>:FAIL:<reason>`,
 //! and `tools/abi/run.py` classifies the rows from the same log. The fixture
 //! itself ends with `ABI:linuxapps:PASS` when every program passed.
 //!
 //! Each check exercises what that kind of program leans on: dash forks,
-//! pipes, `$(...)` and `wait`s; lua does file I/O and string formatting;
-//! sqlite3 creates, locks, writes and syncs a database on `/tmp`; jq reads a
+//! pipes, `$(...)` and `wait`s; sqlite3 creates, locks, writes and syncs a database on `/tmp`; jq reads a
 //! pipe; rg walks a tree with worker threads (shared descriptor tables) and
 //! writes through a pipe.
 
@@ -92,23 +91,6 @@ fn dash() -> Result<(), String> {
         &[&path, "one", "two words"],
         None,
         "[one][two words]\n",
-    )
-}
-
-fn lua() -> Result<(), String> {
-    let path = format!("{SCRATCH}/data.txt");
-    let code = format!(
-        "local f = assert(io.open('{path}', 'w')) \
-         for i = 1, 5 do f:write(i * i, '\\n') end f:close() \
-         local sum = 0 for line in io.lines('{path}') do sum = sum + tonumber(line) end \
-         local t = {{}} for w in ('lazy os on lua'):gmatch('%a+') do t[#t + 1] = w:upper() end \
-         print(sum, table.concat(t, '-'), string.format('%.4f', math.pi), os.time() > 0, _VERSION)"
-    );
-    expect(
-        "lua",
-        &["-e", &code],
-        None,
-        "55\tLAZY-OS-ON-LUA\t3.1416\ttrue\tLua 5.4\n",
     )
 }
 
@@ -198,9 +180,8 @@ fn main() {
     if let Err(error) = fs::create_dir_all(SCRATCH) {
         common::fail("linuxapps", &format!("scratch dir: {error}"));
     }
-    let checks: [(&str, fn() -> Result<(), String>); 5] = [
+    let checks: [(&str, fn() -> Result<(), String>); 4] = [
         ("dash", dash),
-        ("lua", lua),
         ("sqlite3", sqlite3),
         ("jq", jq),
         ("rg", rg),

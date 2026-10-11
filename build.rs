@@ -428,7 +428,7 @@ fn main() {
     let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
     ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
     tls_embed::embed(&mut files, &manifest_dir);
-    linuxapps_embed::embed(&mut files, &manifest_dir); // dash, lua, sqlite3, jq, rg
+    linuxapps_embed::embed(&mut files, &manifest_dir); // dash, sqlite3, jq, rg
                                                        // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     docs_embed::embed(&mut files, &manifest_dir);

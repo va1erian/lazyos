@@ -30,7 +30,7 @@ SIMPLE_GROUPS = (
     ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
      ("emusic", "modplayer")),
     ("dev", "Dev", "The LazyRAD IDE and its samples, the Linux command-line programs "
-                   "(dash, lua, sqlite3, jq, rg) and the tray demo.",
+                   "(dash, sqlite3, jq, rg) and the tray demo.",
      ("lazyrad", "linuxapps", "traydemo")),
     ("networking", "Networking", "Internet through QEMU, the Network and Net Tools apps, "
                                  "HTTPS with curl, wget and fetch.",
@@ -69,7 +69,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     package and ``modplayer`` the LazyRAD MOD player package (likewise Desktop
     only); ``net`` adds networking to either interface (the stack, QEMU's user
     network with host port 8080 forwarded, and on the desktop the Network and
-    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash, lua,
+    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash,
     sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
     at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
     fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
