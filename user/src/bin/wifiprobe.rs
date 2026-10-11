@@ -9,7 +9,12 @@
 //! * `open:<ssid>` joins that open network and opens the port, so `netd`
 //!   takes a DHCP lease on `wlan0`;
 //! * `wpa2:<ssid>:<passphrase>` does the same through the 4-way handshake
-//!   (`libs/eapol`, the PMK computed here, not by `keyd`).
+//!   (`libs/eapol`, the PMK computed here, not by `keyd`);
+//! * `suite:<open>:<wpa2>:<passphrase>:<wrong>:<hidden>` is the harness's
+//!   run (`tools/wifi/sim_run.py`): a wildcard scan, a directed scan that
+//!   finds the hidden network, a WPA2 join with the wrong passphrase that
+//!   must fail, the open join held for [`HOLD_MS`] (DHCP and the AP's pings
+//!   on `wlan0`), a leave, then the WPA2 join, kept.
 //!
 //! After a join it stays: it answers group rekeys and reports beacon loss
 //! and deauthentication (`WIFIPROBE:EVENT:*`). It is not a station manager:
@@ -42,18 +47,24 @@ const IFNAME: &str = "wlan0";
 const COUNTRY: &str = "FR";
 /// Scans before the probe gives up looking for its SSID.
 const SCANS: usize = 4;
+/// How long the suite stays on the open network (a DHCP lease and the AP's
+/// five pings fit).
+const HOLD_MS: u64 = 15_000;
+/// "Deauthenticated because sending STA is leaving".
+const REASON_LEAVING: u32 = 3;
 
 fn mac_text(mac: &[u8]) -> String {
     let parts: Vec<String> = mac.iter().map(|b| format!("{b:02x}")).collect();
     parts.join(":")
 }
 
-/// One wildcard scan of 2.4 GHz; every BSS is printed.
-fn scan(client: &mut HwClient) -> Result<Vec<wire::ScanEntry>, String> {
+/// One scan of 2.4 GHz, probing for `ssids` (wildcard when empty); every
+/// BSS is printed.
+fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, String> {
     let scan_id = client.scan(wire::ScanRequest {
         channels: Vec::new(),
         band: wire::BAND_GHZ2,
-        ssids: Vec::new(),
+        ssids: ssids.iter().map(|s| s.as_bytes().to_vec()).collect(),
         active: true,
         dwell_ms: 0,
     })?;
@@ -99,7 +110,7 @@ fn scan(client: &mut HwClient) -> Result<Vec<wire::ScanEntry>, String> {
 /// Scan until `ssid` shows up.
 fn find(client: &mut HwClient, ssid: &str) -> Result<Bss, String> {
     for _ in 0..SCANS {
-        let entries = scan(client)?;
+        let entries = scan(client, &[])?;
         if let Some(bss) = join::pick(&entries, ssid, sys::monotonic_ms()) {
             return Ok(bss);
         }
@@ -135,6 +146,58 @@ fn stay(client: &mut HwClient, sta: &[u8; 6], bss: &Bss, aid: u16, mut sup: Opti
     }
 }
 
+/// Wait out `ms`, printing what the radio reports meanwhile.
+fn hold(client: &mut HwClient, ms: u64) -> Result<(), String> {
+    let until = sys::monotonic_ms() + ms;
+    while let Some(event) = client.next_event(until)? {
+        match event {
+            Event::BeaconLoss => sys::write_str("WIFIPROBE:EVENT:BEACONLOSS\n"),
+            Event::Deauthenticated { reason } => {
+                sys::write_str(&format!("WIFIPROBE:EVENT:DEAUTH reason={reason}\n"))
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// The harness's run (see the module notes).
+fn suite(client: &mut HwClient, sta: &[u8; 6], args: &[String]) -> ! {
+    let arg = |i: usize| args.get(i).map(String::as_str).unwrap_or("");
+    let (open, wpa2, passphrase, wrong, hidden) = (arg(0), arg(1), arg(2), arg(3), arg(4));
+    let outcome = (|| -> Result<(Bss, u16, join::Sup), String> {
+        scan(client, &[])?;
+        let directed = scan(client, &[hidden])?;
+        match join::pick(&directed, hidden, sys::monotonic_ms()) {
+            Some(bss) => sys::write_str(&format!("WIFIPROBE:HIDDEN:FOUND ssid={hidden} ch={}\n", bss.channel)),
+            None => sys::write_str(&format!("WIFIPROBE:HIDDEN:MISSING ssid={hidden}\n")),
+        }
+        let bss = find(client, wrong)?;
+        match join::join_wpa2(client, sta, &bss, passphrase) {
+            Ok(_) => sys::write_str(&format!("WIFIPROBE:WRONG:ACCEPTED ssid={wrong}\n")),
+            Err(why) => sys::write_str(&format!("WIFIPROBE:WRONG:REFUSED ssid={wrong} ({why})\n")),
+        }
+        client.leave(REASON_LEAVING)?;
+        let bss = find(client, open)?;
+        let aid = join::join_open(client, sta, &bss)?;
+        sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={open} security=open aid={aid}\n"));
+        hold(client, HOLD_MS)?;
+        client.leave(REASON_LEAVING)?;
+        sys::write_str(&format!("WIFIPROBE:LEAVE ssid={open}\n"));
+        let bss = find(client, wpa2)?;
+        let (aid, sup) = join::join_wpa2(client, sta, &bss, passphrase)?;
+        sys::write_str(&format!("WIFIPROBE:CONNECTED ssid={wpa2} security=wpa2 aid={aid}\n"));
+        Ok((bss, aid, sup))
+    })();
+    match outcome {
+        Ok((bss, aid, sup)) => stay(client, sta, &bss, aid, Some(sup)),
+        Err(why) => {
+            sys::write_str(&format!("WIFIPROBE:FAIL {why}\n"));
+            sys::exit(1)
+        }
+    }
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let mut client = HwClient::connect(IFNAME, 30_000)?;
     let info = client.info()?;
@@ -150,9 +213,10 @@ fn run(args: &[String]) -> Result<(), String> {
     client.set_country(COUNTRY)?;
     match args.first().map(String::as_str) {
         Some("scan") | None => {
-            scan(&mut client)?;
+            scan(&mut client, &[])?;
             Ok(())
         }
+        Some("suite") => suite(&mut client, &sta, &args[1..]),
         Some("open") => {
             let ssid = args.get(1).ok_or("open needs an SSID")?;
             let bss = find(&mut client, ssid)?;

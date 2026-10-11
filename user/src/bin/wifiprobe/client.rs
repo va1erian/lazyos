@@ -140,6 +140,11 @@ impl HwClient {
         self.simple(wire::METHOD_SETSTATE, body).map(|_| ())
     }
 
+    pub fn leave(&self, reason: u32) -> Result<(), String> {
+        let body = wire::encode_leave_args(&wire::LeaveArgs { reason }).map_err(|e| format!("{e:?}"))?;
+        self.simple(wire::METHOD_LEAVE, body).map(|_| ())
+    }
+
     pub fn set_key(&self, kind: u32, index: u32, key: &[u8], rsc: &[u8], addr: &[u8; 6]) -> Result<(), String> {
         let args = wire::SetKeyArgs {
             kind,

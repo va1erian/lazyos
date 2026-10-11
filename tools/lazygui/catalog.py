@@ -233,6 +233,11 @@ def build_env(cfg: dict) -> dict[str, str]:
         # evidence clients that need `tools/net/run.py`'s host servers.
         env["LAZYOS_NETD"] = "1"
         env["LAZYOS_NETD_ARGS"] = "demo=0"
+    if cfg.get("wifi_sim"):
+        # The simulated Wi-Fi radio `wlan0` (docs/wifi-prerequisites-plan.md
+        # 3.6) is a card of the stack: it brings it, without the harness clients.
+        env.update({"LAZYOS_WIFI_SIM": "1", "LAZYOS_NETD": "1"})
+        env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(limit_env(cfg.get("limits", "")))
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
@@ -344,6 +349,10 @@ def build_plan(cfg: dict) -> list[dict]:
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")
+        if cfg.get("wifi_sim"):
+            # Also with "Skip build": run_demo starts the fake access points
+            # and attaches the air card, not only the build switch.
+            argv.append("--wifi-sim")
         if cfg.get("lazyweb") and not cfg["skip_build"]:
             # run_demo builds the browser and sets the desktop, the stack,
             # HTTPS and LAZYOS_LAZYWEB itself.
