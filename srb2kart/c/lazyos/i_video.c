@@ -205,6 +205,18 @@ static void report_gamestate(void)
 	}
 	snprintf(line, sizeof line, "GAMESTATE:%s", name);
 	lz_log(line);
+	/* The first real game state (the intro, or a -warp level) ends start-up:
+	 * the host drops its busy pointer. "other" is the console frame HU_Init
+	 * draws while the renderer still loads. */
+	if (gamestate != GS_NULL && strcmp(name, "other") != 0)
+	{
+		static boolean ready = false;
+		if (!ready)
+		{
+			ready = true;
+			lz_ready();
+		}
+	}
 }
 
 void I_FinishUpdate(void)

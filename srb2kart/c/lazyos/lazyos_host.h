@@ -25,5 +25,6 @@ int         lz_poll_event(struct lz_event *out);   /* 1 when *out was filled */
 const char *lz_data_dir(void);                     /* /system/share/srb2kart */
 const char *lz_home_dir(void);                     /* the writable config dir, created */
 void        lz_quit(int status);                   /* QUIT marker, exit */
+void        lz_ready(void);                        /* start-up is over: the game loop draws */
 
 #endif

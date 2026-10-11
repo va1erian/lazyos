@@ -20,6 +20,7 @@ use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
 use xui_app::display::{self, Client, Event, FrameEvent};
 use xui_app::input::{self, KeyStatePage};
 use xui_app::sys::{self, errno};
+use messenger_generated::os_lazy_display_cursor_v1 as cursor;
 use xui_core::Rect;
 
 /// Receive buffer for one event; events are far smaller.
@@ -156,6 +157,14 @@ impl Window {
         if self.window.rect != (w as i32, h as i32) {
             let _ = self.client.request_size(self.window.surface, w, h);
         }
+    }
+
+    /// Show the busy pointer over the window (start-up) or the arrow again.
+    /// A package without the cursor scope is refused; the pointer just stays
+    /// an arrow.
+    pub fn set_busy(&mut self, busy: bool) {
+        let shape = if busy { cursor::CURSOR_SHAPE_BUSY } else { cursor::CURSOR_SHAPE_DEFAULT };
+        let _ = self.client.set_cursor(self.window.surface, shape);
     }
 
     pub fn set_title(&mut self, title: &str) {

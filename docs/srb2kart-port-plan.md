@@ -136,7 +136,7 @@ Paths the tools agree on (the contract between the pieces):
 | Package | `target/pkg/srb2kart.lzp` |
 | Image paths | `/system/share/samples/srb2kart.lzp`, `/system/share/srb2kart/<file>`, `/system/share/srb2kart/CREDITS.txt` |
 | Install | `/apps/org.lazy.srb2kart/<ver>/bin/srb2kart.elf` |
-| Markers (channel `SRB2KART`) | `SRB2KART:UP:PASS mode=window\|headless`, `SRB2KART:DATA:FAIL <reason>`, `SRB2KART:WINDOW:FAIL`, `SRB2KART:HEADLESS:PASS frames=N crc=<hex>` (also `/tmp/srb2kart-result.txt`, `fhs::state::SRB2KART_RESULT`), `SRB2KART:QUIT:PASS` |
+| Markers (channel `SRB2KART`) | `SRB2KART:UP:PASS mode=window\|headless`, `SRB2KART:DATA:FAIL <reason>`, `SRB2KART:WINDOW:FAIL`, `SRB2KART:HEADLESS:PASS frames=N crc=<hex>` (also `/tmp/srb2kart-result.txt`, `fhs::state::SRB2KART_RESULT`), `SRB2KART:QUIT:PASS`, `SRB2KART:LOADING:BUSY` (the window opens black with the busy pointer before the data loads) and `SRB2KART:LOADING:DONE ms=<n>` (the first game state; the arrow is back) |
 
 ## Phases
 

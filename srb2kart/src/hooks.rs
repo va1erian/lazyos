@@ -167,3 +167,8 @@ pub extern "C" fn lz_home_dir() -> *const c_char {
 pub extern "C" fn lz_quit(status: c_int) {
     quit(status)
 }
+
+#[no_mangle]
+pub extern "C" fn lz_ready() {
+    with_backend(|backend| backend.ready());
+}

@@ -1090,6 +1090,7 @@ dependencies = [
  "cc",
  "fhs",
  "libmessenger",
+ "messenger-generated",
  "xui-app",
  "xui-core",
 ]

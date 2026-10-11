@@ -26,7 +26,11 @@ pub fn run() {
     create_home(&launch);
     let (backend, mode): (Box<dyn Backend>, &str) = match launch.mode {
         Mode::Headless { frames } => (Box::new(Headless::new(frames)), "headless"),
-        Mode::Window => (Box::new(WindowBackend::new()), "window"),
+        Mode::Window => {
+            let mut window = WindowBackend::new();
+            window.bootstrap();
+            (Box::new(window), "window")
+        }
     };
     println!("SRB2KART:UP:PASS mode={mode} data={}", launch.data_dir);
     hooks::set_dirs(&launch.data_dir, &launch.home_dir);
