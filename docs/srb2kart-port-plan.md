@@ -17,9 +17,12 @@
 >   a 720p desktop) and follows the engine's mode changes; headless is 320x200.
 > - **SRB2Kart is in the launcher's Games group** (and has its own Advanced
 >   checkbox).
-> - **Open problem: start-up reads ~1.3 GiB** through the ext2 volume before the
->   title (minutes under WHPX); suspected the start-up MD5 checks of the data
->   files plus lump reads; to profile next.
+> - **Open problem: every launch hashes the whole data set.** `W_InitFile`
+>   runs `W_MakeFileMD5` over each file it adds (duplicate check, netgame
+>   identity, `W_VerifyFileMD5`), so a launch reads all 516 MB of data plus
+>   ~140 MB of lumps: about 650 MB of disk reads, 6-11 s from launch to the
+>   title under WHPX (not minutes, as first reported). The fix is a cache of
+>   the build-time digests in place of `md5_stream`, issue #768.
 
 **Goal:** SRB2Kart (Kart Krew's kart racer on the Sonic Robo Blast 2 engine)
 in a LazyOS desktop window, offline: Grand Prix, Match Race and Time Attack
