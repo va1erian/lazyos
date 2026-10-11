@@ -12,6 +12,11 @@ license = "GPL-3.0-or-later AND BSD-3-Clause"
 name = "rtw88"
 path = "src/lib.rs"
 
+[features]
+# Expose `rx::fuzz::run`, the byte-script entry point of the seeded RX
+# tests, for a cargo-fuzz target. Needs `std`.
+fuzz = []
+
 [dependencies]
 
 [dev-dependencies]

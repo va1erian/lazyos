@@ -1,7 +1,7 @@
 //! Power sequence commands (upstream `struct rtw_pwr_seq_cmd`, `main.h`).
 //!
 //! The chip powers its MAC on and off by running a table of register steps;
-//! the tables are chip data ([`crate::rtw8822c::pwrseq`]) and the engine that
+//! the tables are chip data ([`crate::rtw8822c::spec::CARD_ENABLE_FLOW_8822C`]) and the engine that
 //! runs them is [`crate::mac::pwr_seq_parser`].
 
 /// What a step does (upstream `RTW_PWR_CMD_*`).

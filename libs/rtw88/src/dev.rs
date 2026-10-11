@@ -39,6 +39,15 @@ pub const RF_PATH_B: usize = 1;
 /// The RTL8822C has two paths.
 pub const RF_PATH_MAX: usize = 2;
 
+/// RF types (upstream `enum rtw_rf_type`, the two this chip comes in).
+pub const RF_1T1R: u8 = 0;
+pub const RF_2T2R: u8 = 2;
+
+/// Baseband path bitmaps (upstream `enum rtw_bb_path`).
+pub const BB_PATH_A: u32 = 1 << 0;
+pub const BB_PATH_B: u32 = 1 << 1;
+pub const BB_PATH_AB: u32 = BB_PATH_A | BB_PATH_B;
+
 /// Facts many modules read (upstream `struct rtw_hal`, the part this driver
 /// needs; tx power tables live in [`PhyState`]).
 #[derive(Clone, Debug, Default)]
@@ -63,6 +72,20 @@ pub struct Hal {
     pub primary_channel: u8,
     /// Centre channel for each width up to the current one.
     pub cch_by_bw: [u8; 3],
+
+    /// `REG_RXFLTMAP1` as the chip's MAC init set it (control frames).
+    pub rxfltmap1: u16,
+    /// Calibrate before the next transmission (`rtwdev->need_rfk`).
+    pub need_rfk: bool,
+    /// Use one spatial stream only (`hal->txrx_1ss`).
+    pub txrx_1ss: bool,
+    /// The TX FIFO layout (`rtwdev->fifo`), written by `mac_init`.
+    pub fifo: crate::mac::FifoConf,
+    /// Device state flags (`rtwdev->flags`).
+    pub flags: crate::mac::Flags,
+    /// The one station interface and its peer (`struct rtw_vif` and
+    /// `struct rtw_sta_info`), see [`crate::station`].
+    pub vif: crate::station::Vif,
 }
 
 /// One RTL8822CE.
