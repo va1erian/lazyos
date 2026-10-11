@@ -66,9 +66,9 @@ fn main() {
         println!("cargo:rerun-if-env-changed={name}");
         env::var_os(name).as_deref() == Some(std::ffi::OsStr::new("1"))
     };
-    let aliased = ["LAZYOS_LABEL_TRACE", "LAZYOS_USB_TRACE", "LAZYOS_UI_PROBE"]
-        .into_iter()
-        .fold(false, |any, name| flag(name) || any);
+    // Every switch is read (each registers its rerun trigger), so no `any`.
+    let switches = ["LAZYOS_LABEL_TRACE", "LAZYOS_USB_TRACE", "LAZYOS_UI_PROBE"].map(flag);
+    let aliased = switches.contains(&true);
     let trace_off = env::var_os("LAZYOS_TRACE").as_deref() == Some(std::ffi::OsStr::new("0"));
     if aliased || !trace_off {
         println!("cargo:rustc-cfg=lazyos_trace");
