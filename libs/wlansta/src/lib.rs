@@ -64,6 +64,7 @@ pub mod fuzz;
 mod join;
 mod machine;
 mod networks;
+mod scan;
 pub mod policy;
 pub mod profile;
 pub mod select;

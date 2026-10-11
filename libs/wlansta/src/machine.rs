@@ -8,15 +8,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use eapol::{Key, Standard, Supplicant};
-use ieee80211::{Bss, Mgmt, ScanTable};
+use ieee80211::ScanTable;
 
-use crate::select::{self, Candidate, Join, Pick};
+use crate::select::Candidate;
 use crate::ssid;
 use crate::types::*;
-use crate::{
-    reason, AUTO_SCAN_MS, BACKOFF_MAX_MS, BACKOFF_MIN_MS, FRESH_MS, MAX_SCAN_SSIDS,
-    SCAN_CAPACITY, SCAN_MAX_AGE_MS, SCAN_TIMEOUT_MS,
-};
+use crate::{reason, BACKOFF_MAX_MS, BACKOFF_MIN_MS, MAX_SCAN_SSIDS, SCAN_CAPACITY};
 
 /// A join under way: the BSS, the PMK when WPA2, and its retransmission.
 pub(crate) struct Joining {
@@ -52,11 +49,11 @@ pub(crate) enum Phase<N: FnMut() -> [u8; 32]> {
     Failed { retry_at: Option<u64> },
 }
 
-struct ScanJob {
-    id: Option<u32>,
-    deadline: u64,
+pub(crate) struct ScanJob {
+    pub id: Option<u32>,
+    pub deadline: u64,
     /// Selection waits for this scan.
-    join: bool,
+    pub join: bool,
 }
 
 /// One radio's station. `N` draws a fresh 32-octet SNonce (the kernel CSPRNG
@@ -66,21 +63,21 @@ pub struct Station<N: FnMut() -> [u8; 32] + Clone> {
     pub(crate) nonce: N,
     pub(crate) status: Status,
     pub(crate) phase: Phase<N>,
-    scan: Option<ScanJob>,
+    pub(crate) scan: Option<ScanJob>,
     pub(crate) table: ScanTable,
     pub(crate) bands: BTreeMap<Mac, Band>,
-    generation: u32,
+    pub(crate) generation: u32,
     pub(crate) profiles: Vec<Profile>,
-    active_users: Vec<u32>,
+    pub(crate) active_users: Vec<u32>,
     /// Profiles that failed with a wrong passphrase: not retried until the
     /// user connects to them again.
-    blocked: Vec<String>,
+    pub(crate) blocked: Vec<String>,
     /// The profile the user asked for; `None` means auto-connect.
-    target: Option<String>,
+    pub(crate) target: Option<String>,
     /// `Disconnect` was asked: no auto-connect until the next `Connect`.
-    suspended: bool,
-    failures: u32,
-    auto_scan_at: Option<u64>,
+    pub(crate) suspended: bool,
+    pub(crate) failures: u32,
+    pub(crate) auto_scan_at: Option<u64>,
     seq: u16,
     /// Frames refused (malformed, foreign, out of place) since the start.
     pub(crate) dropped: u64,
@@ -293,160 +290,6 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         }
     }
 
-    // ---- scanning and selection --------------------------------------------
-
-    fn start_scan(&mut self, now: u64, join: bool, ssids: Vec<Vec<u8>>) -> Vec<Action> {
-        if let Some(job) = self.scan.as_mut() {
-            job.join |= join;
-            return Vec::new();
-        }
-        self.scan = Some(ScanJob {
-            id: None,
-            deadline: now + SCAN_TIMEOUT_MS,
-            join,
-        });
-        vec![Action::Scan { ssids }]
-    }
-
-    fn scan_done(&mut self, now: u64, scan_id: u32, entries: &[ScanEntry]) -> Vec<Action> {
-        if self.scan.as_ref().and_then(|job| job.id) != Some(scan_id) {
-            return Vec::new();
-        }
-        let job = self.scan.take();
-        self.ingest(now, entries);
-        if job.is_some_and(|job| job.join) && matches!(self.phase, Phase::Scanning) {
-            return self.select_and_join(now, true);
-        }
-        Vec::new()
-    }
-
-    /// Parse every entry into the table (hostile frames are dropped by
-    /// `ieee80211`), age the table, and count a scan generation.
-    fn ingest(&mut self, now: u64, entries: &[ScanEntry]) {
-        for entry in entries {
-            let (Some(band), Ok(channel)) = (Band::from_wire(entry.band), u8::try_from(entry.channel))
-            else {
-                self.dropped += 1;
-                continue;
-            };
-            let rssi = entry.rssi_dbm.clamp(i32::from(i8::MIN), i32::from(i8::MAX)) as i8;
-            let seen = now.saturating_sub(u64::from(entry.age_ms));
-            let bss = Mgmt::parse(&entry.frame)
-                .ok()
-                .and_then(|frame| Bss::from_frame(&frame, channel, rssi, seen));
-            match bss {
-                Some(bss) => {
-                    self.bands.insert(bss.bssid, band);
-                    self.table.update(bss);
-                }
-                None => self.dropped += 1,
-            }
-        }
-        self.table.expire(now, SCAN_MAX_AGE_MS);
-        let table = &self.table;
-        self.bands.retain(|bssid, _| table.get(bssid).is_some());
-        self.generation = self.generation.wrapping_add(1);
-    }
-
-    /// The profiles a join may pick now: the target, or auto-connect's.
-    fn wanted(&self) -> Vec<&Profile> {
-        match &self.target {
-            Some(id) => self.profiles.iter().filter(|p| &p.id == id).collect(),
-            None if self.suspended => Vec::new(),
-            None => self
-                .profiles
-                .iter()
-                .filter(|p| p.autoconnect && !self.blocked.contains(&p.id))
-                .filter(|p| match p.owner {
-                    Owner::System => true,
-                    Owner::User(uid) => self.active_users.contains(&uid),
-                })
-                .collect(),
-        }
-    }
-
-    fn pick_from_table(&self, now: u64, fresh_only: bool) -> Pick {
-        let wanted = self.wanted();
-        let heard = self.table.iter().filter_map(|bss| {
-            let fresh = !fresh_only || now.saturating_sub(bss.last_seen) <= FRESH_MS;
-            let band = *self.bands.get(&bss.bssid)?;
-            fresh.then_some((bss, band))
-        });
-        select::pick(&wanted, heard)
-    }
-
-    /// Try to join: from the table when it is fresh, else after a scan.
-    pub(crate) fn attempt(&mut self, now: u64) -> Vec<Action> {
-        self.auto_scan_at = None;
-        if self.wanted().is_empty() {
-            if matches!(self.phase, Phase::Failed { .. }) {
-                self.phase = Phase::Failed { retry_at: None };
-            } else {
-                self.phase = Phase::Idle;
-                self.report(ConnState::Idle, FailReason::None);
-            }
-            return Vec::new();
-        }
-        if let Pick::Found(cand) = self.pick_from_table(now, true) {
-            return self.begin(now, *cand);
-        }
-        let probes: Vec<Vec<u8>> = self
-            .wanted()
-            .iter()
-            .filter(|p| p.hidden)
-            .take(MAX_SCAN_SSIDS)
-            .map(|p| p.ssid.clone())
-            .collect();
-        self.phase = Phase::Scanning;
-        self.report(ConnState::Scanning, FailReason::None);
-        self.start_scan(now, true, probes)
-    }
-
-    /// After a join scan: join the best BSS, or say why not.
-    fn select_and_join(&mut self, now: u64, fresh_only: bool) -> Vec<Action> {
-        match self.pick_from_table(now, fresh_only) {
-            Pick::Found(cand) => self.begin(now, *cand),
-            Pick::Unsupported if self.target.is_some() => {
-                self.fail(now, FailReason::PolicyMismatch, None)
-            }
-            Pick::NotFound if self.target.is_some() => self.fail(now, FailReason::NotFound, None),
-            _ => {
-                // Auto-connect found nothing it may join: look again later.
-                self.phase = Phase::Idle;
-                self.report(ConnState::Idle, FailReason::None);
-                self.auto_scan_at = Some(now + AUTO_SCAN_MS);
-                Vec::new()
-            }
-        }
-    }
-
-    /// Re-evaluate after the profiles or users changed: an idle station (not
-    /// suspended) with something to join starts.
-    fn reconsider(&mut self, now: u64) -> Vec<Action> {
-        let idle = matches!(self.phase, Phase::Idle | Phase::Failed { retry_at: None });
-        if idle && self.scan.is_none() && !self.wanted().is_empty() {
-            return self.attempt(now);
-        }
-        Vec::new()
-    }
-
-    /// Start the join of `cand`: a WPA2 network needs its PMK first.
-    fn begin(&mut self, now: u64, cand: Candidate) -> Vec<Action> {
-        match cand.join {
-            Join::Open => self.start_auth(now, cand, None),
-            Join::Psk(_) => {
-                let fetch = Action::FetchPmk {
-                    id: cand.profile.id.clone(),
-                    owner: cand.profile.owner,
-                    ssid: cand.profile.ssid.clone(),
-                };
-                self.phase = Phase::WaitPmk(cand);
-                self.report(ConnState::Authenticating, FailReason::None);
-                vec![fetch]
-            }
-        }
-    }
-
     // ---- time, failures, reporting -------------------------------------------
 
     fn tick(&mut self, now: u64) -> Vec<Action> {
@@ -512,7 +355,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     }
 
     /// Leave whatever is joined and drop a join scan; the phase becomes idle.
-    fn reset(&mut self, leave_reason: u16) -> Vec<Action> {
+    pub(crate) fn reset(&mut self, leave_reason: u16) -> Vec<Action> {
         let mut out = Vec::new();
         if self.joined() {
             out.push(Action::Leave {
