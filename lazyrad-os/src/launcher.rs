@@ -13,14 +13,25 @@
 //!
 //! Spawning itself (`fork` + `execve` from a `xuid` client, which then opens its
 //! own window) works: that half of the plan's spike is confirmed.
+//!
+//! # Debugging
+//!
+//! [`LaunchMode::Debug`] starts the player with `--debug` and a piped stdin.
+//! Commands go out through [`ChildProcess::send_line`] into an
+//! [`InputQueue`] over the pipe's non-blocking write end, flushed again on every
+//! poll, so a full pipe or a slow player costs the window nothing; the player's
+//! protocol events come back on stdout and are decoded by `stdout_event`.
 
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 
 use lazyrad_ide::run::{
-    stderr_event, ChildProcess, EventSink, LaunchError, Launcher, LineBuffer, RunEvent, RunId,
+    stderr_event, stdout_event, ChildProcess, EventSink, LaunchError, LaunchMode, Launcher,
+    LineBuffer, RunEvent, RunId, SendError,
 };
+
+use crate::input::InputQueue;
 
 /// Most bytes read from one pipe per poll, so a chatty program cannot starve
 /// the UI thread between frames.
@@ -48,6 +59,20 @@ fn is_denied_call(line: &str) -> bool {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PollingLauncher;
 
+/// The player's command line: `--client` always (inside a desktop session the
+/// compositor owns the display, so the player must not race it for the grant;
+/// `init` passes the same flag to every desktop app, and without it the player
+/// first tries to bind the display as its owner, a path that panicked in the P3
+/// spike), then `--debug` for a debug run, then the project.
+pub fn player_args(project_dir: &Path, mode: LaunchMode) -> Vec<std::ffi::OsString> {
+    let mut args = vec![std::ffi::OsString::from("--client")];
+    if mode == LaunchMode::Debug {
+        args.push("--debug".into());
+    }
+    args.push(project_dir.as_os_str().to_owned());
+    args
+}
+
 impl Launcher for PollingLauncher {
     fn launch(
         &self,
@@ -56,14 +81,25 @@ impl Launcher for PollingLauncher {
         run: RunId,
         sink: EventSink,
     ) -> Result<Box<dyn ChildProcess>, LaunchError> {
-        // `--client`: inside a desktop session the compositor owns the display, so
-        // the player must not race it for the grant (`init` passes the same flag
-        // to every desktop app). Without it the player first tries to bind the
-        // display as its owner, and that path panicked in the P3 spike.
+        self.launch_with(player, project_dir, run, sink, LaunchMode::Run)
+    }
+
+    fn launch_with(
+        &self,
+        player: &Path,
+        project_dir: &Path,
+        run: RunId,
+        sink: EventSink,
+        mode: LaunchMode,
+    ) -> Result<Box<dyn ChildProcess>, LaunchError> {
+        let debugging = mode == LaunchMode::Debug;
         let mut child = Command::new(player)
-            .arg("--client")
-            .arg(project_dir)
-            .stdin(Stdio::null())
+            .args(player_args(project_dir, mode))
+            .stdin(if debugging {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -76,18 +112,38 @@ impl Launcher for PollingLauncher {
                 std::io::Error::other("the player's output pipes are unavailable"),
             ));
         };
+        let stdin = child.stdin.take();
+        if debugging && stdin.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(LaunchError::new(
+                player,
+                std::io::Error::other("the player's input pipe is unavailable"),
+            ));
+        }
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
             set_nonblocking(stdout.as_raw_fd());
             set_nonblocking(stderr.as_raw_fd());
+            if let Some(stdin) = &stdin {
+                // The write end must not block the UI thread either.
+                set_nonblocking(stdin.as_raw_fd());
+            }
         }
+        let input = stdin.map(|stdin| {
+            let mut queue = InputQueue::new();
+            queue.attach(stdin);
+            queue
+        });
         Ok(Box::new(PollingChild {
             child,
             run,
             sink,
             out: Pipe::new(stdout),
             err: Pipe::new(stderr),
+            input,
+            debugging,
             done: false,
             hinted: false,
         }))
@@ -156,6 +212,10 @@ struct PollingChild {
     sink: EventSink,
     out: Pipe<std::process::ChildStdout>,
     err: Pipe<std::process::ChildStderr>,
+    /// The debug run's stdin; `None` for a plain run.
+    input: Option<InputQueue<ChildStdin>>,
+    /// Whether stdout carries debug-protocol events.
+    debugging: bool,
     done: bool,
     /// [`DENIED_HINT`] was already shown for this run.
     hinted: bool,
@@ -165,7 +225,8 @@ impl PollingChild {
     /// Reports what both pipes have for us, stdout first.
     fn drain_pipes(&mut self) {
         for line in self.out.drain() {
-            self.report(RunEvent::Output(line.clone()), &line);
+            let event = stdout_event(line.clone(), self.debugging);
+            self.report(event, &line);
         }
         for line in self.err.drain() {
             self.report(stderr_event(line.clone()), &line);
@@ -198,9 +259,23 @@ impl ChildProcess for PollingChild {
         !self.done && matches!(self.child.try_wait(), Ok(None))
     }
 
+    fn send_line(&mut self, line: &str) -> Result<(), SendError> {
+        if self.done {
+            return Err(SendError::Closed);
+        }
+        match self.input.as_mut() {
+            Some(input) => input.push_line(line),
+            None => Err(SendError::Unsupported),
+        }
+    }
+
     fn poll(&mut self) {
         if self.done {
             return;
+        }
+        // Whatever the pipe could not take last time.
+        if let Some(input) = self.input.as_mut() {
+            input.flush();
         }
         self.drain_pipes();
         match self.child.try_wait() {
@@ -410,6 +485,109 @@ exit 3",
         child.kill();
         child.kill();
         assert!(!child.is_running());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_player_command_line_has_client_then_debug_then_the_project() {
+        let plain = player_args(Path::new("/p"), LaunchMode::Run);
+        assert_eq!(plain, ["--client", "/p"]);
+        let debug = player_args(Path::new("/p"), LaunchMode::Debug);
+        assert_eq!(debug, ["--client", "--debug", "/p"]);
+    }
+
+    /// Polls `child` until it ended (or ten seconds passed).
+    #[cfg(unix)]
+    fn run_to_exit(child: &mut Box<dyn ChildProcess>) {
+        use std::time::{Duration, Instant};
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.is_running() && Instant::now() < deadline {
+            child.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        child.poll();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_debug_child_gets_commands_on_stdin_and_its_events_are_decoded() {
+        use lazyrad_runtime::proto::Event;
+        use std::sync::{Arc, Mutex};
+
+        let dir = std::env::temp_dir().join(format!("lazyrad-os-dbg-{}", std::process::id()));
+        // A player that waits for one command and answers with a protocol
+        // event naming it, then prints a plain line and exits.
+        let player = fake_player(
+            &dir,
+            r#"echo "args=$*"
+read cmd
+printf '%s\n' "{\"v\":1,\"event\":\"error\",\"message\":\"got $cmd\"}"
+echo plain output
+exit 0"#,
+        );
+        let events: Arc<Mutex<Vec<RunEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&events);
+        let sink: EventSink = Arc::new(move |_run, event| captured.lock().unwrap().push(event));
+        let mut child = PollingLauncher
+            .launch_with(&player, Path::new("/proj"), 3, sink, LaunchMode::Debug)
+            .expect("the player starts");
+        // Sent before the child has read anything: queued, not lost.
+        child.send_line("hello").expect("the line is queued");
+        run_to_exit(&mut child);
+
+        let events = events.lock().unwrap().clone();
+        assert!(
+            events.contains(&RunEvent::Output("args=--client --debug /proj".to_owned())),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&RunEvent::Debug(Event::Error {
+                message: "got hello".to_owned()
+            })),
+            "{events:?}"
+        );
+        assert!(
+            events.contains(&RunEvent::Output("plain output".to_owned())),
+            "program output stays output: {events:?}"
+        );
+        // The child is gone: sending says so rather than queueing forever.
+        assert_eq!(child.send_line("late"), Err(SendError::Closed));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_plain_run_takes_no_input_and_a_child_that_closed_stdin_reports_it() {
+        use std::time::{Duration, Instant};
+
+        let dir = std::env::temp_dir().join(format!("lazyrad-os-in-{}", std::process::id()));
+        let player = fake_player(&dir, "sleep 30");
+        let sink: EventSink = std::sync::Arc::new(|_, _| {});
+        let mut plain = PollingLauncher
+            .launch(&player, Path::new("x"), 4, sink)
+            .expect("the player starts");
+        assert_eq!(plain.send_line("x"), Err(SendError::Unsupported));
+        plain.kill();
+
+        // A debug child that closes its stdin without exiting: the write end
+        // breaks (EPIPE) and every later line is refused, not retried.
+        let closer = fake_player(&dir, "exec 0<&-\nsleep 30");
+        let sink: EventSink = std::sync::Arc::new(|_, _| {});
+        let mut child = PollingLauncher
+            .launch_with(&closer, Path::new("x"), 5, sink, LaunchMode::Debug)
+            .expect("the player starts");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut refused = None;
+        while Instant::now() < deadline && refused.is_none() {
+            if let Err(error) = child.send_line("{\"v\":1,\"cmd\":\"continue\"}") {
+                refused = Some(error);
+            }
+            child.poll();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(refused, Some(SendError::Closed));
+        assert_eq!(child.send_line("again"), Err(SendError::Closed));
+        child.kill();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -31,14 +31,16 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use lazyrad_ide::run::{
-    stderr_event, ChildProcess, EventSink, LaunchError, Launcher, RunEvent, RunId,
+    stderr_event, stdout_event, ChildProcess, EventSink, LaunchError, LaunchMode, Launcher,
+    RunEvent, RunId, SendError,
 };
 use rhai::{Dynamic, Map};
 use rhai_lazy::msg::gate::Gate;
 use rhai_lazy::msg::{topics, Fabric, Service, Subscription, Wait};
 use xui_app::sys;
 
-use crate::launcher::Pipe;
+use crate::input::InputQueue;
+use crate::launcher::{player_args, Pipe};
 
 /// Where the development package is written: readable by `pkgd` by design.
 pub const STAGING_DIR: &str = fhs::mount::TRANSIENT;
@@ -86,6 +88,17 @@ impl Launcher for DevLauncher {
         run: RunId,
         sink: EventSink,
     ) -> Result<Box<dyn ChildProcess>, LaunchError> {
+        self.launch_with(player, project_dir, run, sink, LaunchMode::Run)
+    }
+
+    fn launch_with(
+        &self,
+        player: &Path,
+        project_dir: &Path,
+        run: RunId,
+        sink: EventSink,
+        mode: LaunchMode,
+    ) -> Result<Box<dyn ChildProcess>, LaunchError> {
         let lrp = project_file(project_dir)
             .ok_or_else(|| launch_error(player, "the project folder has no .lrp file"))?;
         let built = lazyrad_ide::make_app::build(&lrp, Some(player), &self.author)
@@ -112,6 +125,10 @@ impl Launcher for DevLauncher {
         Ok(Box::new(DevChild {
             run,
             sink,
+            // Commands sent while the approval is pending wait here and go to
+            // the player's stdin once it exists.
+            input: InputQueue::new(),
+            debugging: mode == LaunchMode::Debug,
             state: State::Waiting(Waiting {
                 events,
                 label,
@@ -119,6 +136,7 @@ impl Launcher for DevLauncher {
                 deadline: sys::clock_ticks().saturating_add(APPROVAL_TICKS),
                 player: player.to_path_buf(),
                 project_dir: project_dir.to_path_buf(),
+                mode,
                 _fabric: fabric,
             }),
         }))
@@ -154,6 +172,8 @@ struct Waiting {
     deadline: u64,
     player: PathBuf,
     project_dir: PathBuf,
+    /// Plain or debug run: decides the player's arguments and its stdin.
+    mode: LaunchMode,
     /// Keeps the fabric (and so the subscription's broker) alive.
     _fabric: Rc<Fabric>,
 }
@@ -204,6 +224,10 @@ enum State {
 struct DevChild {
     run: RunId,
     sink: EventSink,
+    /// The player's stdin (a debug run); lines are held until it is attached.
+    input: InputQueue<File>,
+    /// Whether the player's stdout carries debug-protocol events.
+    debugging: bool,
     state: State,
 }
 
@@ -224,7 +248,13 @@ impl DevChild {
         };
         let outcome = match waiting.answer() {
             Some(Answer::Approved) => match start(waiting) {
-                Ok(running) => Ok((running, format!("Running under {}.", waiting.label))),
+                Ok((running, stdin)) => {
+                    if let Some(stdin) = stdin {
+                        // What the IDE queued during the approval is written now.
+                        self.input.attach(stdin);
+                    }
+                    Ok((running, format!("Running under {}.", waiting.label)))
+                }
                 Err(why) => Err(format!("The run could not start: {why}")),
             },
             Some(Answer::Refused(why)) => Err(format!("The run was refused: {why}")),
@@ -249,17 +279,16 @@ impl DevChild {
         let State::Running(running) = &mut self.state else {
             return;
         };
-        let mut lines: Vec<RunEvent> = running
-            .out
-            .drain()
-            .into_iter()
-            .map(RunEvent::Output)
-            .collect();
+        // Whatever the stdin pipe could not take last time.
+        self.input.flush();
+        let debugging = self.debugging;
+        let stdout = |line: String| stdout_event(line, debugging);
+        let mut lines: Vec<RunEvent> = running.out.drain().into_iter().map(stdout).collect();
         lines.extend(running.err.drain().into_iter().map(stderr_event));
         let exited = reap(running.pid, false);
         if exited.is_some() {
             // Anything written last is still in the pipes.
-            lines.extend(running.out.drain().into_iter().map(RunEvent::Output));
+            lines.extend(running.out.drain().into_iter().map(stdout));
             lines.extend(running.err.drain().into_iter().map(stderr_event));
         }
         for line in lines {
@@ -285,6 +314,16 @@ impl ChildProcess for DevChild {
 
     fn is_running(&mut self) -> bool {
         !matches!(self.state, State::Done)
+    }
+
+    fn send_line(&mut self, line: &str) -> Result<(), SendError> {
+        if matches!(self.state, State::Done) {
+            return Err(SendError::Closed);
+        }
+        if !self.debugging {
+            return Err(SendError::Unsupported);
+        }
+        self.input.push_line(line)
     }
 
     fn poll(&mut self) {
@@ -320,20 +359,38 @@ fn reap(pid: i32, block: bool) -> Option<Option<i32>> {
 }
 
 /// A pipe as `(read, write)` descriptors, both close-on-exec (the labelled
-/// child gets the write end through `spawnv`'s stdio words, never by exec).
-/// Only the read end is non-blocking: the UI thread polls it, while the player
-/// must block on a full pipe rather than fail its write.
-fn pipe() -> Result<(i32, i32), String> {
+/// child gets its end through `spawnv`'s stdio words, never by exec).
+/// `nonblocking_end` picks the end this task keeps and polls (the other is the
+/// child's and stays blocking, so the player blocks on a full pipe rather than
+/// failing its write): the read end for a pipe the player writes to, the write
+/// end for one it reads.
+fn pipe_with(nonblocking_end: End) -> Result<(i32, i32), String> {
     let mut fds = [0i32; 2];
     // SAFETY: `pipe2(2)` writes two descriptors into the local array.
     let code = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
     if code != 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
-    // SAFETY: `fcntl(F_SETFL)` on the read end `pipe2` just returned; it only
+    let ours = match nonblocking_end {
+        End::Read => fds[0],
+        End::Write => fds[1],
+    };
+    // SAFETY: `fcntl(F_SETFL)` on a descriptor `pipe2` just returned; it only
     // changes the descriptor's status flags.
-    unsafe { libc::fcntl(fds[0], libc::F_SETFL, libc::O_NONBLOCK) };
+    unsafe { libc::fcntl(ours, libc::F_SETFL, libc::O_NONBLOCK) };
     Ok((fds[0], fds[1]))
+}
+
+/// Which end of a pipe this task keeps (and makes non-blocking).
+#[derive(Clone, Copy)]
+enum End {
+    Read,
+    Write,
+}
+
+/// A pipe the player writes (stdout, stderr): we read it.
+fn pipe() -> Result<(i32, i32), String> {
+    pipe_with(End::Read)
 }
 
 /// Close a descriptor this task owns.
@@ -343,8 +400,9 @@ fn close(fd: i32) {
     unsafe { libc::close(fd) };
 }
 
-/// Start the player under the approved label with fresh output pipes.
-fn start(waiting: &Waiting) -> Result<Running, String> {
+/// Start the player under the approved label with fresh pipes: stdout and
+/// stderr always, stdin too for a debug run (returned as our write end).
+fn start(waiting: &Waiting) -> Result<(Running, Option<File>), String> {
     let cred =
         sys::cred_get(None).map_err(|code| format!("reading this task's identity: {code}"))?;
     // Same uid, gid and session; no capability is passed on.
@@ -358,9 +416,28 @@ fn start(waiting: &Waiting) -> Result<Running, String> {
             return Err(why);
         }
     };
+    // A debug run also gets a stdin pipe the IDE writes its commands to.
+    let (in_read, in_write) = if waiting.mode == LaunchMode::Debug {
+        match pipe_with(End::Write) {
+            Ok((read, write)) => (Some(read), Some(write)),
+            Err(why) => {
+                close(out_read);
+                close(out_write);
+                close(err_read);
+                close(err_write);
+                return Err(why);
+            }
+        }
+    } else {
+        (None, None)
+    };
     let player = waiting.player.to_string_lossy().into_owned();
-    let project = waiting.project_dir.to_string_lossy().into_owned();
-    let argv = [player.as_str(), "--client", project.as_str()];
+    let args: Vec<String> = player_args(&waiting.project_dir, waiting.mode)
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let mut argv: Vec<&str> = vec![player.as_str()];
+    argv.extend(args.iter().map(String::as_str));
     let env: Vec<String> = std::env::vars()
         .filter(|(key, _)| KEPT_ENV.contains(&key.as_str()))
         .map(|(key, value)| format!("{key}={value}"))
@@ -372,23 +449,35 @@ fn start(waiting: &Waiting) -> Result<Running, String> {
         &envp,
         child_cred,
         &waiting.label,
-        [None, Some(out_write), Some(err_write)],
+        [in_read, Some(out_write), Some(err_write)],
     );
-    // The child holds its own copies of the write ends now (or never will).
+    // The child holds its own copies of its ends now (or never will).
     close(out_write);
     close(err_write);
+    if let Some(in_read) = in_read {
+        close(in_read);
+    }
     match spawned {
-        Ok(pid) => Ok(Running {
-            pid: pid as i32,
-            // SAFETY: the read ends came from `pipe` and are owned by nothing
-            // else; each `File` closes its descriptor when dropped.
-            out: Pipe::new(unsafe { File::from_raw_fd(out_read) }),
-            // SAFETY: as above.
-            err: Pipe::new(unsafe { File::from_raw_fd(err_read) }),
-        }),
+        Ok(pid) => Ok((
+            Running {
+                pid: pid as i32,
+                // SAFETY: the read ends came from `pipe` and are owned by
+                // nothing else; each `File` closes its descriptor when dropped.
+                out: Pipe::new(unsafe { File::from_raw_fd(out_read) }),
+                // SAFETY: as above.
+                err: Pipe::new(unsafe { File::from_raw_fd(err_read) }),
+            },
+            // SAFETY: the write end came from `pipe_with` and nothing else
+            // owns it; the `File` closes it when the queue drops it, which the
+            // player reads as end of input.
+            in_write.map(|fd| unsafe { File::from_raw_fd(fd) }),
+        )),
         Err(code) => {
             close(out_read);
             close(err_read);
+            if let Some(in_write) = in_write {
+                close(in_write);
+            }
             Err(match -code {
                 13 => format!(
                     "the system refused {} (is `develop = true` in the IDE's manifest, and was the run approved?)",
