@@ -193,8 +193,8 @@ pub fn inet_bell_slow_reader_soak() -> Result<(), String> {
     for c in &conns {
         check!(close(c.fd) == 0, "close");
     }
-    serial_println!(
-        "TEST:linux_inet_bell_slow_reader_soak:INFO:sockets={SOCKETS} bytes_each_way={TOTAL} netd_passes={passes} rings={}",
+    crate::trace::test!(
+        "linux_inet_bell_slow_reader_soak:INFO:sockets={SOCKETS} bytes_each_way={TOTAL} netd_passes={passes} rings={}",
         bell::rings()
     );
     inet_done("inet_bell_slow_reader_soak")

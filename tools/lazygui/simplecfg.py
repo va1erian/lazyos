@@ -19,6 +19,37 @@ SIMPLE_INTERFACES = [
      "app window."),
 ]
 
+#: The Simple tab's feature groups: (key, label, description, the `simple_config`
+#: switches it turns on). A group is one checkbox; Desktop-only switches mean
+#: nothing on the CLI (`simple_config` drops them there). LazyRAD comes with
+#: Games (the brickbreaker sample and the player), Multimedia (the MOD player is
+#: a LazyRAD app) and Dev; the Picture Viewer is always in a Desktop image.
+SIMPLE_GROUPS = (
+    ("games", "Games", "LazyGolf, Doom, Quake and the LazyRAD brickbreaker.",
+     ("doom", "quake", "lazyrad")),
+    ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
+     ("emusic", "modplayer")),
+    ("dev", "Dev", "The LazyRAD IDE and its samples, the Linux command-line programs "
+                   "(dash, sqlite3, jq, rg) and the tray demo.",
+     ("lazyrad", "linuxapps", "traydemo")),
+    ("networking", "Networking", "Internet through QEMU, the Network and Net Tools apps, "
+                                 "HTTPS with curl, wget and fetch.",
+     ("net", "tls")),
+    ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
+                   "(turns Networking on).",
+     ("lazyweb", "mail", "lazysky")),
+)
+#: The switches no group owns, still one checkbox each on the Simple tab.
+SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
+
+
+def group_switches(selected: set[str]) -> dict[str, bool]:
+    """The per-app `simple_config` switches the groups in ``selected`` (keys of
+    :data:`SIMPLE_GROUPS`) turn on; the Picture Viewer is always on."""
+    on = {name for key, _l, _d, names in SIMPLE_GROUPS if key in selected for name in names}
+    every = {name for _k, _l, _d, names in SIMPLE_GROUPS for name in names}
+    return {name: name in on for name in sorted(every)} | {"pictures": True}
+
 
 def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
@@ -39,7 +70,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     package and ``modplayer`` the LazyRAD MOD player package (likewise Desktop
     only); ``net`` adds networking to either interface (the stack, QEMU's user
     network with host port 8080 forwarded, and on the desktop the Network and
-    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash, lua,
+    Net Tools apps), ``linuxapps`` the Linux command-line programs (dash,
     sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
     at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
     fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;

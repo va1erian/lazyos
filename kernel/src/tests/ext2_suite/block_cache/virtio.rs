@@ -23,7 +23,7 @@ fn scratch(test: &str) -> Option<&'static dyn BlockDevice> {
             && device.sector_count() == SCRATCH_SECTORS
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch virtio disk; skipped");
+        crate::trace::test!("{test}:INFO:no scratch virtio disk; skipped");
     }
     found
 }
@@ -145,8 +145,8 @@ pub fn cached_volume() -> Result<(), String> {
         .unwrap_or_default();
     let blocks = bytes.div_ceil(4096) as u64;
     let writes = after.writes - before.writes;
-    serial_println!(
-        "TEST:bcache_virtio_cached_volume:INFO:{blocks} data blocks in {writes} write requests"
+    crate::trace::test!(
+        "bcache_virtio_cached_volume:INFO:{blocks} data blocks in {writes} write requests"
     );
     check!(
         writes * 4 < blocks,

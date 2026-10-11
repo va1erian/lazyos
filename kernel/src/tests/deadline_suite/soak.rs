@@ -90,8 +90,8 @@ pub fn thread_soak() -> Result<(), String> {
         WOKEN.load(Ordering::Relaxed),
         EARLY.load(Ordering::Relaxed),
     );
-    serial_println!(
-        "TEST:deadline_thread_soak:INFO:{} ms, {timed_out} timed out, {woken} woken early, {early} timed out early",
+    crate::trace::test!(
+        "deadline_thread_soak:INFO:{} ms, {timed_out} timed out, {woken} woken early, {early} timed out early",
         (clock::monotonic_ns() - start) / 1_000_000
     );
     let queued: alloc::vec::Vec<usize> = slots

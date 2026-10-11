@@ -29,6 +29,8 @@ pub mod limits_cfg;
 mod os_compose;
 #[path = "os_state.rs"]
 mod os_state;
+#[path = "trace_cfg.rs"]
+pub mod trace_cfg;
 
 use os_compose::{create, update};
 

@@ -40,6 +40,10 @@ pub const ARCHIVER_SAMPLE_7Z: &str = "/system/share/samples/archiver-sample.7z";
 /// session opens (docs/pdf-reader-plan.md). Written by the image build.
 pub const PDF_SAMPLE: &str = "/system/share/samples/lazyos-sample.pdf";
 
+/// A five-second Motion JPEG AVI (`tools/video/make_sample.py`) the Video
+/// Player's screenshot session opens (docs/video-player-plan.md).
+pub const VIDEO_SAMPLE: &str = "/system/share/samples/lazyos-sample.avi";
+
 /// The sample package (the Counter demo), installed with
 /// `pkgctl install /system/share/samples/pkgdemo.lzp`.
 pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";
@@ -104,6 +108,7 @@ mod tests {
             ARCHIVER_SAMPLE_ZIP,
             ARCHIVER_SAMPLE_7Z,
             PDF_SAMPLE,
+            VIDEO_SAMPLE,
             PKGDEMO,
             DOOM_LZP,
             EMUSIC_LZP,

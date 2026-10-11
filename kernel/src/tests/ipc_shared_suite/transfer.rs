@@ -226,8 +226,8 @@ pub fn buffer_zero_copy_handoff() -> Result<(), String> {
         "zero-copy handoffs counted {}, expected 1",
         stats.handoffs
     );
-    serial_println!(
-        "TEST:ipc_buffer_zero_copy_handoff:INFO:frames={} bytes={size} copies=0",
+    crate::trace::test!(
+        "ipc_buffer_zero_copy_handoff:INFO:frames={} bytes={size} copies=0",
         creator_frames.len()
     );
 

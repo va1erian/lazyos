@@ -249,7 +249,7 @@ pub fn dma_fragmentation() -> Result<(), String> {
     let (_slot, handle) = driver_with(dev)?;
     let total = base.total_pages;
     if total < 16 {
-        serial_println!("TEST:dev_dma_fragmentation:INFO:pool too small ({total} pages)");
+        crate::trace::test!("dev_dma_fragmentation:INFO:pool too small ({total} pages)");
         leave(&fx);
         return Ok(());
     }

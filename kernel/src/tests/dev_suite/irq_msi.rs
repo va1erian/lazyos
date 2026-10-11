@@ -93,7 +93,7 @@ pub fn vector_of(dev: DeviceId) -> Result<u8, String> {
 pub fn available(test: &str) -> bool {
     let on = msi::enabled();
     if !on {
-        serial_println!("TEST:{test}:INFO:message interrupts are off (LAZYOS_MSI=0 or no APIC)");
+        crate::trace::test!("{test}:INFO:message interrupts are off (LAZYOS_MSI=0 or no APIC)");
     }
     on
 }

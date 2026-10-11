@@ -451,6 +451,6 @@ pub fn task_snapshot_soak_fork_churn() -> Result<(), String> {
         processes.len() == 1 && processes[0].pid == 0,
         "leaked task rows after {ITERATIONS} fork/reap cycles: {processes:?}"
     );
-    serial_println!("TEST:task_snapshot_soak_fork_churn:INFO:iterations={ITERATIONS}");
+    crate::trace::test!("task_snapshot_soak_fork_churn:INFO:iterations={ITERATIONS}");
     Ok(())
 }

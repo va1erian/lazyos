@@ -235,14 +235,14 @@ pub fn soak_cow_fork_churn() -> Result<(), String> {
             );
         }
         if iteration % 100 == 0 {
-            serial_println!(
-                "TEST:mem_soak_cow_fork_churn:PROGRESS:iteration {iteration}/{ITERATIONS}"
+            crate::trace::test!(
+                "mem_soak_cow_fork_churn:PROGRESS:iteration {iteration}/{ITERATIONS}"
             );
         }
     }
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!(
-        "TEST:mem_soak_cow_fork_churn:INFO:iterations={ITERATIONS} pages={PAGES} cycles={cycles}"
+    crate::trace::test!(
+        "mem_soak_cow_fork_churn:INFO:iterations={ITERATIONS} pages={PAGES} cycles={cycles}"
     );
     check!(
         cycles < MAX_CYCLES,

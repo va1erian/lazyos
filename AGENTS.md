@@ -297,6 +297,26 @@ cargo test --manifest-path xui-app/Cargo.toml -p lazypdf -p xui-pdfview
 FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazypdf --release seeded
 ```
 
+## Video Player (`os.lazy.video`)
+
+`xui-video` is a core desktop app in every desktop image: a player thread
+that demuxes, decodes and paces frames against a media clock
+(`xui-app/crates/video`, `lazyvideo`, portable and host-tested), under an
+xui window with a toolbar, seek bar and status bar (`xui-app/crates/videoview`).
+It plays Motion JPEG in AVI today; H.264, MP4, audio, HTTPS and YouTube are
+the phases of [`docs/video-player-plan.md`](docs/video-player-plan.md), which
+also holds the feasibility numbers. The sample is
+`/system/share/samples/lazyos-sample.avi` (`tools/video/make_sample.py`).
+Session: `tools/screenshot/examples/xui_video.json` (`LAZYOS_XUI_AUTOSTART=video`;
+markers `VIDEO:UP:PASS`, `VIDEO:OPEN:PASS:<path>:<w>x<h>:<fps>:<frames>:<codec>`,
+`VIDEO:POS:<ms>:shown=<n>:dropped=<n>:fps=<n>`, `VIDEO:END:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyvideo -p xui-videoview
+python tools/video/make_sample.py --check
+cargo run --release --manifest-path xui-app/Cargo.toml -p lazyvideo --example decode_bench -- clip.avi
+```
+
 ## LazyGolf (`os.lazy.golf`)
 
 `xui-golf` is a core desktop app: a procedural 18-hole course generator and
@@ -392,11 +412,11 @@ deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
 
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
-`python tools/linuxapps/build.py` builds unmodified dash, lua, sqlite3, jq and
+`python tools/linuxapps/build.py` builds unmodified dash, sqlite3, jq and
 ripgrep from pinned, hash-checked sources (zig for C) into
 `target/linuxapps/bin`; `LAZYOS_LINUXAPPS=1` (`run_demo.py --linuxapps`) puts
 them in `/system/bin`. The ABI bench runs them (`tools/abi/run.py --only
-dash,lua,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
+dash,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
 drive them interactively (the desktop Terminal runs its shell on a pty, so
 `vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
 
@@ -739,6 +759,28 @@ non-test image. Normal boots are unaffected: without `LAZYOS_TESTS=1` the suite
 is not compiled. Test-only hooks live behind `cfg(lazyos_tests)`; add new tests
 under `kernel/src/tests/` (`mem_suite` is where allocator-specific tests go). CI
 is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
+
+## Tracing (`LAZYOS_TRACE`)
+
+Evidence lines (`UP`/`QUIT`, `TEST:`, `DEV:`, `LABEL:DENY`, ...) go through
+`libs/tracefmt` and a sink per runtime, never a bare print
+([`docs/tracing-plan.md`](docs/tracing-plan.md); the kernel's is
+`kernel/src/trace.rs`: `trace::pass!`, `fail!`, `event!`, `line!`). Stage T1
+migrated the kernel; `python tools/trace/check_adhoc.py` counts the prints
+left in the services and apps (T2, T3). `LAZYOS_TRACE=0` compiles the macros
+out, `LAZYOS_TRACE_MASK=init,pkgd,-shell` (`trace.mask=` in `lazyos.cfg`)
+chooses channels, and `LAZYOS_LABEL_TRACE`, `LAZYOS_USB_TRACE` and
+`LAZYOS_UI_PROBE` add theirs. Diagnostics an operator needs on a PC with no
+serial port (`HW:`, `EXCEPTION:`, `IRQOFF:`, `DBGD:AUDIT`) stay on
+`serial_println!`. The channel list is generated into
+[`docs/trace/channels.md`](docs/trace/channels.md)
+(`python tools/trace/catalog.py`, `--check` in CI).
+
+```bash
+cargo test -p tracefmt -p dbgwire
+LAZYOS_TEST_FILTER=trace python tools/test/run.py --accel none
+python tools/trace/test_check_adhoc.py
+```
 
 ## Interrupt latency
 

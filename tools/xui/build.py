@@ -134,6 +134,8 @@ BINS = {
     # LazySky: a Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1`
     # image ships it; its crates are small and build with the other apps.
     "xui-lazysky": "xui-lazysky.elf",
+    # Video Player: Play video files.
+    "xui-video": "xui-video.elf",
 }
 
 

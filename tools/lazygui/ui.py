@@ -13,7 +13,7 @@ from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWER
 from .runner import Runner, open_path
 from .scriptenv import SCRIPT_ENV
 from .scroll import scrollable
-from .simple import SIMPLE_EXTRAS, build_simple_tab, simple_choice
+from .simple import build_simple_tab, simple_choice, simple_flags
 from .uidata import advanced_cfg
 from .variables import make_vars
 
@@ -45,7 +45,7 @@ class Launcher:
             profile, iface = simple_choice(self.v["simple_build"].get(),
                                            self.v["simple_iface"].get())
             return simple_config(self._advanced_cfg(), profile, iface,
-                                 *(self.v[f"simple_{name}"].get() for name in SIMPLE_EXTRAS))
+                                 **simple_flags(self.v))
         return self._advanced_cfg()
 
     def _advanced_cfg(self) -> dict:
@@ -73,13 +73,7 @@ class Launcher:
         self.notebook.add(self.tab_simple, text="Simple")
         self.notebook.add(tab_adv, text="Advanced")
         v = self.v
-        build_simple_tab(scrollable(self.tab_simple), v["simple_build"], v["simple_iface"],
-                         v["simple_lazyrad"], v["simple_shell"], v["simple_devices"],
-                         v["simple_doom"], v["simple_quake"], v["simple_modplayer"],
-                         v["simple_net"], self._run,
-                         *(v[f"simple_{k}"] for k in ("linuxapps", "hidpi", "tls", "lazyweb", "mail",
-                                                     "traydemo", "autologin", "setup", "pictures", "emusic",
-                                                     "usb_image", "lazysky")))
+        build_simple_tab(scrollable(self.tab_simple), v, self._run)
         self._build_left(scrollable(tab_adv))
         self._build_right(right)
 
@@ -111,7 +105,7 @@ class Launcher:
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
         self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
-        self._check(g, "Linux programs dash/lua/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
+        self._check(g, "Linux programs dash/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")

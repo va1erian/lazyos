@@ -39,6 +39,10 @@ pub trait System {
     fn set_zone(&self, zone: &str) -> Result<(), String>;
     /// The OS name and version (`LazyOS 0.1.0 (x86_64)`).
     fn os_version(&self) -> String;
+    /// The SHA-1 of the source revision the OS was built from, when known.
+    fn os_revision(&self) -> Option<String> {
+        None
+    }
     /// Seconds since boot, when known.
     fn uptime_secs(&self) -> Option<u64>;
     /// Where the settings live, or `None` when `confd` cannot be reached.
@@ -114,6 +118,10 @@ impl System for MemSystem {
 
     fn os_version(&self) -> String {
         String::from("LazyOS (test)")
+    }
+
+    fn os_revision(&self) -> Option<String> {
+        Some(String::from("0123456789abcdef0123456789abcdef01234567"))
     }
 
     fn uptime_secs(&self) -> Option<u64> {

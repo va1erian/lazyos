@@ -121,7 +121,7 @@ pub fn soak_threads_on_one_volume() -> Result<(), String> {
     *VOLUME.lock() = None;
     outcome?;
     let slept = crate::block::iowait::test_hooks::PARKS.load(Ordering::Relaxed) - parks;
-    serial_println!("TEST:block_sleep_soak_ext2_threads:INFO:{slept} parks");
+    crate::trace::test!("block_sleep_soak_ext2_threads:INFO:{slept} parks");
     fs.flush().map_err(fs_text)?;
     let after = (
         fs.free_blocks().map_err(fs_text)?,

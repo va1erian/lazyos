@@ -25,7 +25,7 @@ pub fn run(data: &[u8]) {
         }
     }
     let line = logline::parse(text);
-    let _ = line.to_json(Some(1));
+    let _ = logline::to_json(&line, Some(1));
     let _ = logline::split_complete(text);
     let _ = config::parse(text);
     let _ = config::control_enabled(text);

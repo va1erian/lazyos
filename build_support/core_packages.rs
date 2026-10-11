@@ -171,6 +171,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "netdrives",
         // LazyGolf: Fly over a procedurally generated golf course.
         "golf",
+        // Video Player: Play video files.
+        "video",
     ];
     CORE.contains(&short_of(stem))
 }

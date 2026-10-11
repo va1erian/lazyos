@@ -29,7 +29,7 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
 #[test]
 fn every_sample_lands_in_the_samples_directory() {
     let files = samples();
-    assert_eq!(files.len(), 7);
+    assert_eq!(files.len(), 8);
     for file in files.files() {
         assert!(file.path.starts_with(fhs::share::SAMPLES), "{}", file.path);
     }
@@ -63,6 +63,19 @@ fn the_pdf_sample_is_a_pdf() {
         pdf.len() < 256 * 1024,
         "keep the sample small: {} bytes",
         pdf.len()
+    );
+}
+
+#[test]
+fn the_video_sample_is_a_small_avi() {
+    // The Video Player's screenshot session opens it (docs/video-player-plan.md).
+    let avi = bytes(&samples(), fhs::share::VIDEO_SAMPLE);
+    assert!(avi.starts_with(b"RIFF"), "{:?}", &avi[..avi.len().min(8)]);
+    assert_eq!(&avi[8..12], b"AVI ");
+    assert!(
+        avi.len() < 1024 * 1024,
+        "keep the sample small: {} bytes",
+        avi.len()
     );
 }
 

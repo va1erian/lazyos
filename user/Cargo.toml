@@ -85,6 +85,9 @@ netpolicy = { path = "../libs/netpolicy" }
 # `dbgd`'s wire: JSON-RPC lines, the key handshake and the method table
 # (docs/dbgd-plan.md).
 dbgwire = { path = "../libs/dbgwire" }
+# Trace channels by name (docs/tracing-plan.md): `dbgd`'s `sysinfo` lists the
+# ones the kernel prints.
+tracefmt = { path = "../libs/tracefmt" }
 # `mountd`'s mount table and argument checks (docs/smb-plan.md).
 mounttable = { path = "../libs/mounttable" }
 usbpolicy = { path = "../libs/usbpolicy" }

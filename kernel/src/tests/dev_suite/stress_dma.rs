@@ -51,7 +51,7 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
             }
         }
         if op % 200_000 == 0 {
-            serial_println!("TEST:dev_stress_dma_pool_alloc_free_soak:PROGRESS:{op}/{OPS}");
+            crate::trace::test!("dev_stress_dma_pool_alloc_free_soak:PROGRESS:{op}/{OPS}");
         }
     }
     for (phys, pages) in live.drain(..) {
@@ -61,8 +61,8 @@ pub fn dma_pool_alloc_free_soak() -> Result<(), String> {
     }
     // SAFETY: `rdtsc` only reads the time-stamp counter.
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!(
-        "TEST:dev_stress_dma_pool_alloc_free_soak:INFO:ops={OPS} max_live={MAX_LIVE} cycles={cycles}"
+    crate::trace::test!(
+        "dev_stress_dma_pool_alloc_free_soak:INFO:ops={OPS} max_live={MAX_LIVE} cycles={cycles}"
     );
     check!(
         pool() == base,

@@ -396,7 +396,7 @@ lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 `tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`), and real programs built from pinned
-sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, lua, sqlite3,
+sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
 linking; per-thread signal masks and targeting; `timerfd`/`signalfd`/`inotify`/
 `memfd_create`; `alarm`/`setitimer`; `SCM_RIGHTS`; `SIGTTIN`/`SIGTTOU`; the

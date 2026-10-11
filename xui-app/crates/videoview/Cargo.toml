@@ -1,0 +1,17 @@
+# The Video Player's window (docs/video-player-plan.md): the picture view,
+# the transport controls and the app over `lazyvideo`. The `xui-video`
+# binary in `xui-app/src/bin/video.rs` supplies the LazyOS platform through
+# `Host`, so this crate builds and is tested on the host.
+[package]
+name = "xui-videoview"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Video Player, a video player for xui"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+lazyvideo = { path = "../video" }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }

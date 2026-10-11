@@ -151,6 +151,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-volume.elf",
     // LazyGolf: Fly over a procedurally generated golf course.
     "xui-golf.elf",
+    // Video Player: Play video files.
+    "xui-video.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build

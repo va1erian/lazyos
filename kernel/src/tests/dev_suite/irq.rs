@@ -251,8 +251,8 @@ pub fn irq_spurious_7_and_15() -> Result<(), String> {
     if irqchip::chip() != irqchip::Chip::Pic {
         // The 8259 is masked off; the I/O APIC's spurious interrupts use the
         // local APIC's spurious vector, and MSI's are `dev_msi_spurious_vectors`.
-        serial_println!(
-            "TEST:dev_irq_spurious_7_and_15:INFO:lines 7 and 15 are ordinary on the I/O APIC"
+        crate::trace::test!(
+            "dev_irq_spurious_7_and_15:INFO:lines 7 and 15 are ordinary on the I/O APIC"
         );
         return Ok(());
     }

@@ -5,7 +5,7 @@ command-line programs as static `x86_64-linux-musl` executables, to exercise
 LazyOS's Linux ABI with real software.
 
 ```bash
-python tools/linuxapps/build.py                # all five -> target/linuxapps/bin/<name>
+python tools/linuxapps/build.py                # all four -> target/linuxapps/bin/<name>
 python tools/linuxapps/build.py --only jq dash # some
 python tools/linuxapps/build.py --require      # a missing toolchain/download fails
 python tools/linuxapps/smoke.py                # run each once in alpine:3.20 (Docker)
@@ -19,7 +19,6 @@ executable without `PT_INTERP`, exits 1.
 
 | name | upstream | built with | notes |
 |------|----------|-----------|-------|
-| `lua` | Lua 5.4.7 | zig cc | `LUA_USE_POSIX`; no readline, no `dlopen` (static) |
 | `sqlite3` | SQLite 3.46.1 amalgamation | zig cc | `SQLITE_THREADSAFE=0`, `SQLITE_OMIT_LOAD_EXTENSION`, no readline |
 | `jq` | jq 1.7.1 release tarball | zig cc | configure's results as `-D` flags; decNumber on, no oniguruma (no regex) |
 | `dash` | dash 0.5.12 | zig cc | hand-written `config.h` (no libedit); generators below |
@@ -60,7 +59,7 @@ musl) and `--locked` still pins every other dependency.
 `LAZYOS_LINUXAPPS=1 cargo build` (or `python tools/run_demo.py --linuxapps`, or
 the launcher's "Linux programs" checkbox, Simple or Advanced tab) places every
 built program in `/system/bin`, where the shell finds it by name. They are
-checked by the ABI bench (`python tools/abi/run.py --only dash,lua,sqlite3,jq,rg`,
+checked by the ABI bench (`python tools/abi/run.py --only dash,sqlite3,jq,rg`,
 one boot of the `linuxapps` fixture) and shown by two session scripts:
 
 ```bash

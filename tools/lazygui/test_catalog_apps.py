@@ -151,7 +151,7 @@ class ModPlayerTests(unittest.TestCase):
 
 
 class LinuxAppsTests(unittest.TestCase):
-    """The launcher can embed the Linux programs (dash, lua, sqlite3, jq, rg in
+    """The launcher can embed the Linux programs (dash, sqlite3, jq, rg in
     /system/bin) from the Simple tab (CLI or Desktop), the Advanced tab and
     run_demo, building them first."""
 
@@ -316,7 +316,7 @@ class LazyWebTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyweb"])
 
     def test_the_simple_tab_passes_it_by_name(self) -> None:
-        # `ui` calls simple_config positionally in SIMPLE_EXTRAS order.
+        # `simple.SIMPLE_EXTRAS` lists simple_config's switches in its argument order.
         import inspect
         from lazygui.simple import SIMPLE_EXTRAS
         params = list(inspect.signature(catalog.simple_config).parameters)[3:]

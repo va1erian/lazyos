@@ -31,6 +31,9 @@ members = [
     # The PDF Viewer (docs/pdf-reader-plan.md): its rendering library.
     "crates/pdf",
     "crates/pdfview",
+    # The Video Player (docs/video-player-plan.md): its media library.
+    "crates/video",
+    "crates/videoview",
     # The Calculator's engine and window (host-tested); `src/bin/calc.rs` runs it.
     "crates/calc",
     # LazyGolf's generator, renderer and window; `src/bin/golf.rs` runs it.
@@ -116,6 +119,8 @@ xui-explorer = { path = "crates/explorer", features = ["village-icons"] }
 xui-archiver = { path = "crates/archiver" }
 # The PDF Viewer (docs/pdf-reader-plan.md): its window over `lazypdf`.
 xui-pdfview = { path = "crates/pdfview" }
+# The Video Player (docs/video-player-plan.md): its window over `lazyvideo`.
+xui-videoview = { path = "crates/videoview" }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
 # The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
@@ -227,9 +232,6 @@ strip = "symbols"
 [profile.release.package.image]
 opt-level = 3
 
-[profile.release.package.zune-jpeg]
-opt-level = 3
-
 [profile.release.package.zune-core]
 opt-level = 3
 
@@ -265,6 +267,14 @@ opt-level = 3
 
 # LazyGolf's generator and 3D software renderer run every frame on one CPU.
 [profile.release.package.xui-golf]
+opt-level = 3
+
+# The Video Player decodes a picture per frame on one CPU: the release
+# profile's size-optimised code would cost a frame's budget.
+[profile.release.package.lazyvideo]
+opt-level = 3
+
+[profile.release.package.zune-jpeg]
 opt-level = 3
 
 # Its host tests generate whole courses: unoptimised they take minutes.
@@ -337,6 +347,10 @@ path = "src/bin/netdrives.rs"
 [[bin]]
 name = "xui-golf"
 path = "src/bin/golf.rs"
+
+[[bin]]
+name = "xui-video"
+path = "src/bin/video.rs"
 
 [[bin]]
 name = "xui-lazysky"

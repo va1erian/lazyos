@@ -24,7 +24,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
 fn level(line: u8, test: &str) -> bool {
     let level = crate::arch::irqchip::masked_keeps_request(line);
     if !level {
-        serial_println!("TEST:{test}:INFO:line {line} is edge-triggered here; skipped");
+        crate::trace::test!("{test}:INFO:line {line} is edge-triggered here; skipped");
     }
     level
 }

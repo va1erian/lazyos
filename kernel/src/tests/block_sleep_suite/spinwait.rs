@@ -39,8 +39,8 @@ pub fn spin_ends_by_deadline_with_windows() -> Result<(), String> {
         iowait::wait_until(Wait::Spin, &Expect::new(), TIMEOUT_NS, || false)
     });
     let elapsed = now()? - start;
-    serial_println!(
-        "TEST:block_sleep_spin_ends_by_deadline:INFO:elapsed_ms={} worst_us={} ticks={} opened={}",
+    crate::trace::test!(
+        "block_sleep_spin_ends_by_deadline:INFO:elapsed_ms={} worst_us={} ticks={} opened={}",
         elapsed / 1_000_000,
         latency.worst_us,
         latency.ticks,

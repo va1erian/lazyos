@@ -180,8 +180,8 @@ pub fn realtime_conversion() -> Result<(), String> {
 /// image was built without it); with the APIC as the tick there is none.
 pub fn event_timer_boot() -> Result<(), String> {
     let info = timer::info().ok_or("timer::init never ran")?;
-    serial_println!(
-        "TEST:deadline_event_timer_boot:INFO:tick={} event_timer={} rate={} hypervisor={:?}",
+    crate::trace::test!(
+        "deadline_event_timer_boot:INFO:tick={} event_timer={} rate={} hypervisor={:?}",
         if info.lapic { "lapic" } else { "pit" },
         event_timer::available(),
         event_timer::rate(),
@@ -276,8 +276,8 @@ pub fn sleep_accuracy() -> Result<(), String> {
             (1_000_000_000, 1),
         ] {
             let lateness = measure(ns, rounds)?;
-            serial_println!(
-                "TEST:deadline_sleep_accuracy:INFO:{} us x{rounds}: late median {} us, worst {} us",
+            crate::trace::test!(
+                "deadline_sleep_accuracy:INFO:{} us x{rounds}: late median {} us, worst {} us",
                 ns / 1000,
                 lateness.median / 1000,
                 lateness.worst / 1000

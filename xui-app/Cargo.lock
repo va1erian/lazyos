@@ -2774,6 +2774,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyvideo"
+version = "0.1.0"
+dependencies = [
+ "zune-core",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "lazyweb"
 version = "0.1.0"
 dependencies = [
@@ -6765,6 +6773,7 @@ dependencies = [
  "xui-pdfview",
  "xui-rich-text",
  "xui-settings",
+ "xui-videoview",
  "xui-writer",
 ]
 
@@ -6970,6 +6979,15 @@ dependencies = [
  "inputmap",
  "timezone",
  "uitheme",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
+name = "xui-videoview"
+version = "0.1.0"
+dependencies = [
+ "lazyvideo",
  "xui-canvas",
  "xui-core",
 ]

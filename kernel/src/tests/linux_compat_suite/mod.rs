@@ -1,4 +1,4 @@
-//! Linux ABI round 3: what real CLI programs (dash, lua, sqlite3, jq, rg,
+//! Linux ABI round 3: what real CLI programs (dash, sqlite3, jq, rg,
 //! BusyBox) need beyond `std`: the full futex family, `wait4`'s pid argument
 //! and signal statuses, `CLONE_FILES`/`CLONE_FS` sharing, `MSG_PEEK`/
 //! `MSG_DONTWAIT`, `select`/`ppoll`, advisory locks, resource reporting,

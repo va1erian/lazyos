@@ -1,6 +1,6 @@
 //! Embed the real Linux command-line programs (`LAZYOS_LINUXAPPS=1`).
 //!
-//! `tools/linuxapps/build.py` builds unmodified upstream programs (dash, lua,
+//! `tools/linuxapps/build.py` builds unmodified upstream programs (dash,
 //! sqlite3, jq, ripgrep) as static `x86_64-linux-musl` executables into
 //! `target/linuxapps/bin/<name>`. With the switch on, each one that exists is
 //! stored at its `fhs::bin` path in `/system/bin`, where `sh` finds it by name
@@ -19,7 +19,6 @@ const BUILT: &str = "target/linuxapps/bin";
 /// Every program the switch embeds: `(file name in BUILT, image path)`.
 const PROGRAMS: &[(&str, &str)] = &[
     ("dash", fhs::bin::DASH),
-    ("lua", fhs::bin::LUA),
     ("sqlite3", fhs::bin::SQLITE3),
     ("jq", fhs::bin::JQ),
     ("rg", fhs::bin::RG),

@@ -58,7 +58,7 @@ pub fn echo_roundtrip() -> Result<(), String> {
     check!(payload(&got)? == "pong", "reply payload changed");
 
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!("TEST:ipc_channel_echo_roundtrip:INFO:cycles={cycles}");
+    crate::trace::test!("ipc_channel_echo_roundtrip:INFO:cycles={cycles}");
     let stats = channels::stats();
     check!(
         stats.calls == 1 && stats.replies == 1 && stats.timeouts == 0,
@@ -221,7 +221,7 @@ pub fn call_deadline_zero() -> Result<(), String> {
         result == Err(ChannelError::TimedOut),
         "an already-expired call returned {result:?}"
     );
-    serial_println!("TEST:ipc_channel_call_deadline_zero:INFO:cycles={cycles}");
+    crate::trace::test!("ipc_channel_call_deadline_zero:INFO:cycles={cycles}");
     let stats = channels::stats();
     check!(
         stats.timeouts == 1 && stats.outstanding == 0,

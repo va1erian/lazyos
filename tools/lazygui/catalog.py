@@ -17,7 +17,8 @@ from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-expor
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
-from .simplecfg import SIMPLE_BUILDS, SIMPLE_INTERFACES, simple_config  # noqa: F401 (re-exported)
+from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
+                        SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls  # noqa: F401 (re-exported)
@@ -107,10 +108,11 @@ SCRIPTS = [
     ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
     ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
     ("xui_golf.json", "XUI app: LazyGolf", ("desktop",), "golf"),
+    ("xui_video.json", "XUI app: Video Player", ("desktop",), "video"),
 ]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -236,7 +238,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
     env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
-        # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
+        # dash, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
     if wants_dbgd(cfg):

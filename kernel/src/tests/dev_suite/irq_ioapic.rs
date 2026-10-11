@@ -17,7 +17,7 @@ const LOW_BIT: u64 = 1 << 13;
 fn on_ioapic(test: &str) -> bool {
     let on = irqchip::chip() == Chip::IoApic;
     if !on {
-        serial_println!("TEST:{test}:INFO:the 8259 delivers the lines on this image");
+        crate::trace::test!("{test}:INFO:the 8259 delivers the lines on this image");
     }
     on
 }

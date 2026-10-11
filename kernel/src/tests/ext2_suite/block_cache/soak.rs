@@ -113,7 +113,7 @@ pub fn block_ops() -> Result<(), String> {
     fs.flush().map_err(fs_error)?;
     check_volume(disk, BLOCKS)?;
     let stats = fs.cache_stats().ok_or("no cache")?;
-    serial_println!("TEST:bcache_soak_block_ops:INFO:{operations} file operations, {stats:?}");
+    crate::trace::test!("bcache_soak_block_ops:INFO:{operations} file operations, {stats:?}");
     drop((fs, vfs));
     let (fs, mut vfs) = remount_disk(disk)?;
     verify(&mut vfs, &model)?;

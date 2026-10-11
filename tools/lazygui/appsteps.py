@@ -58,7 +58,7 @@ def linuxapps_step(cfg: dict) -> list[dict]:
     """The step that builds the Linux command-line programs, when embedded."""
     if not cfg.get("linuxapps"):
         return []
-    return [{"label": "Build Linux programs (dash, lua, sqlite3, jq, rg)",
+    return [{"label": "Build Linux programs (dash, sqlite3, jq, rg)",
              "argv": [PY, "tools/linuxapps/build.py", "--require"]}]
 
 

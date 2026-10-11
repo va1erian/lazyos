@@ -269,7 +269,7 @@ pub fn connect_soak_connect_close() -> Result<(), String> {
         quota::usage(0, Resource::QueueDepth) == 0 && quota::usage(0, Resource::QueueBytes) == 0,
         "the soak left queue charges behind"
     );
-    serial_println!("TEST:connect_soak_connect_close:INFO:rounds={ROUNDS}");
+    crate::trace::test!("connect_soak_connect_close:INFO:rounds={ROUNDS}");
     channels::reset();
     registry::reset();
     Ok(())
