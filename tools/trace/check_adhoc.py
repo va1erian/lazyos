@@ -79,7 +79,10 @@ DIAGNOSTIC_PREFIXES = frozenset(
 # Channels whose arguments must never carry a secret (plan section 7).
 SECRET_CHANNELS = ("LOGIN:", "GREETER:", "KEYD:", "ELEVD:", "SMB:", "ACCOUNTS:")
 # Lower-case identifiers only: `KEYD_SECRETS` is a path constant, not a value.
-SECRET_WORDS = re.compile(r"\b(?:password|secret|token)s?\b")
+# An underscore separates words (`api_token`); upper case never matches.
+SECRET_WORDS = re.compile(r"(?<![A-Za-z0-9])(?:password|secret|token)s?(?![A-Za-z0-9])")
+# `{password}` in a format string captures a variable of that name.
+NAMED_CAPTURE = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def tracked_rust_files(root: Path) -> list[str]:
@@ -126,8 +129,11 @@ def call_args(text: str, at: int) -> str:
         c = text[i]
         if c == '"':
             i += 1
+            begin = i
             while i < len(text) and text[i] != '"':
                 i += 2 if text[i] == "\\" else 1
+            # The text is blanked, but a `{name}` capture is code.
+            out.extend(f" {name} " for name in NAMED_CAPTURE.findall(text[begin:i]))
         elif c in "([{":
             depth += 1
         elif c in ")]}":

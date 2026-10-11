@@ -65,6 +65,12 @@ class Scan(unittest.TestCase):
         self.assertEqual(len(check_adhoc.secret_hits(bad)), 1)
         self.assertEqual(check_adhoc.secret_hits(good), [])
         self.assertEqual(check_adhoc.secret_hits(label), [])
+        snake = 'sys::write_str(&format!("KEYD:PROVISION user={}\n", api_token));'
+        self.assertEqual(len(check_adhoc.secret_hits(snake)), 1)
+        captured = 'println!("KEYD:PROVISION password={password}");'
+        self.assertEqual(len(check_adhoc.secret_hits(captured)), 1)
+        marker = 'println!("KEYD:SECRETS:PASS {{token}}");'
+        self.assertEqual(check_adhoc.secret_hits(marker), [])
 
 
 class Enforce(unittest.TestCase):

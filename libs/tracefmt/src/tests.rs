@@ -273,8 +273,9 @@ fn a_budget_allows_its_lines_then_one_notice_per_window() {
     assert_eq!(budget.charge(101), Charge::Allow);
     assert_eq!(budget.charge(102), Charge::Allow);
     assert_eq!(budget.charge(103), Charge::Deny);
-    // A quiet window prints no notice.
+    // The denied line was counted: the next window opens with a notice.
     assert_eq!(budget.charge(205), Charge::AllowAfter(1));
+    // A quiet window prints no notice.
     assert_eq!(budget.charge(400), Charge::Allow);
 }
 
