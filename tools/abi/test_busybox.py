@@ -20,6 +20,44 @@ def _tarball(path: Path, members: dict[str, bytes]) -> None:
             tar.addfile(info, io.BytesIO(data))
 
 
+class LineEditingTests(unittest.TestCase):
+    def test_options_replace_disabled_and_differing_lines_and_fill_gaps(self) -> None:
+        lines = [
+            "CONFIG_STATIC=y",
+            "# CONFIG_FEATURE_TAB_COMPLETION is not set",
+            "CONFIG_FEATURE_EDITING_HISTORY=16",
+        ]
+        out = busybox.apply_line_editing(lines)
+        self.assertIn("CONFIG_STATIC=y", out)
+        self.assertNotIn("# CONFIG_FEATURE_TAB_COMPLETION is not set", out)
+        self.assertNotIn("CONFIG_FEATURE_EDITING_HISTORY=16", out)
+        for key, value in busybox.LINE_EDITING.items():
+            self.assertEqual(out.count(f"CONFIG_{key}={value}"), 1, key)
+
+    def test_tab_completion_is_requested(self) -> None:
+        self.assertEqual(busybox.LINE_EDITING["FEATURE_TAB_COMPLETION"], "y")
+        self.assertEqual(busybox.LINE_EDITING["FEATURE_EDITING"], "y")
+
+    def test_docker_script_sets_every_option(self) -> None:
+        for key, value in busybox.LINE_EDITING.items():
+            self.assertIn(f"echo CONFIG_{key}={value} >> .config", busybox._DOCKER_SCRIPT)
+
+    def test_a_build_with_another_configuration_is_not_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "busybox"
+            out.write_bytes(b"x")
+            stamp = Path(tmp) / busybox.CONFIG_STAMP.name
+            with mock.patch.object(busybox, "OUTPUT", out), \
+                    mock.patch.object(busybox, "MANUAL", Path(tmp) / "none"), \
+                    mock.patch.object(busybox, "_main_checkout_build", lambda: None):
+                self.assertIsNone(busybox._cached())  # no stamp: an old build
+                stamp.write_text("stale\n")
+                self.assertIsNone(busybox._cached())
+                stamp.write_text(busybox.config_stamp() + "\n")
+                self.assertEqual(busybox._cached(), out)
+                self.assertEqual(busybox._stale(), out)
+
+
 class FetchTests(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
