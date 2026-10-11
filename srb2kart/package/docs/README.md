@@ -6,12 +6,20 @@ Prix, Match Race and Time Attack against bots.
 
 ## Controls
 
-The bindings are SRB2Kart's own; the game's Setup menu (Player 1 Controls)
-lists and changes them.
+These are SRB2Kart v1.6's default controls for player 1; the game's Setup
+menu (Player 1 Controls) lists and changes them.
 
 | Key | Action |
 |---|---|
-| Arrow keys | steer, menu navigation |
+| Left / Right arrows | steer (and move through menus) |
+| A | accelerate |
+| S | drift |
+| D | brake / reverse |
+| Space | use item |
+| Left Shift | look back |
+| Tab | scoreboard |
+| Pause | pause |
+| ` (backquote) | console |
 | Enter | confirm in menus |
 | Esc | menu / back |
 

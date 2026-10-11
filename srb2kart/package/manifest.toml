@@ -11,7 +11,7 @@ name = "SRB2Kart"
 system_name = "org.lazy.srb2kart"
 author = "LazyOS (engine and game: Kart Krew, Sonic Team Junior, Doom Legacy team, id Software)"
 version = "0.1.0"
-description = "SRB2Kart v1.6, the kart racer by Kart Krew on the Sonic Robo Blast 2 engine, with the software renderer. Arrow keys steer; see the docs page for controls. The game data (c) Kart Krew comes from the image, not from this package. A fan game, not affiliated with or endorsed by SEGA or Sonic Team."
+description = "SRB2Kart v1.6, the kart racer by Kart Krew on the Sonic Robo Blast 2 engine, with the software renderer. Left/Right steer, A accelerate, S drift, D brake, Space uses the item; see the docs page for all controls. The game data (c) Kart Krew comes from the image, not from this package. A fan game, not affiliated with or endorsed by SEGA or Sonic Team."
 category = "games"
 
 [entry]
