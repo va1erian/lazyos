@@ -75,7 +75,8 @@ impl XrpcError {
             (true, true) => format!("the server answered {}", self.status),
             (false, true) => format!("{} ({})", self.code, self.status),
             (true, false) => format!("{} ({})", self.message, self.status),
-            (false, false) => format!("{}: {}", self.code, self.message),
+            // The server's own sentence reads best; the code is for logs.
+            (false, false) => self.message.clone(),
         }
     }
 }
@@ -110,7 +111,7 @@ mod tests {
         );
         assert_eq!(e.kind(), ErrorKind::ExpiredToken);
         assert!(e.needs_refresh());
-        assert_eq!(e.describe(), "ExpiredToken: Token has expired");
+        assert_eq!(e.describe(), "Token has expired");
     }
 
     #[test]

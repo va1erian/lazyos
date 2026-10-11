@@ -4,15 +4,18 @@
 //! `lazysky-ui` runs the same app on Windows); this file only supplies the
 //! LazyOS [`Platform`] and launches the window.
 //!
-//! Serial evidence: `SKY:UP:PASS` after the first frame and
-//! `SKY:SPIKE:SHAPE:PASS:<height>` once text shaped on a worker thread was
-//! delivered to the UI thread (P0). From `launch::run`: `SKY:BIND:FAIL:<code>`
-//! and `SKY:RUN:FAIL:<error>`.
+//! `xui-lazysky [--service URL]`: `--service` points the login at another
+//! Bluesky server (the test harness's mock; default `https://bsky.social`).
+//!
+//! Serial evidence: `SKY:UP:PASS` after the first frame, `SKY:LOGIN:PASS:<handle>`
+//! / `SKY:LOGIN:FAIL:<reason>` and `SKY:FEED:PAGE:<posts>:<skipped>` from the
+//! core, `SKY:FEED:ROWS:<n>` as the timeline grows, `SKY:QUIT:PASS`. From
+//! `launch::run`: `SKY:BIND:FAIL:<code>` and `SKY:RUN:FAIL:<error>`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use lazysky_core::{Platform, Roots};
+use lazysky_core::{Platform, Roots, Settings};
 use lazysky_ui::{LazySkyApp, Msg, Report, WINDOW};
 use xui_app::launch;
 use xui_app::platform::{dirs, launcher};
@@ -62,20 +65,36 @@ impl Platform for LazyOs {
     }
 }
 
+/// The value of `--service`, when given.
+fn service_arg() -> Option<String> {
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--service" {
+            return args.next();
+        }
+        if let Some(url) = arg.strip_prefix("--service=") {
+            return Some(url.to_string());
+        }
+    }
+    None
+}
+
 fn main() {
     // The TLS provider is `nettls-crypto` (GPLv2-compatible), installed
     // before any thread starts, as Mail does.
     lazysky_core::install_tls_provider();
+    let service = service_arg();
     launch::run("SKY", "LazySky", WINDOW, move |ui, backend| {
         backend.on_first_frame(|| println!("SKY:UP:PASS"));
         backend.set_size_hints(480, 360, 0, 0);
-        LazySkyApp::build(ui, Arc::new(LazyOs), |msg| match msg {
-            Msg::Report(Report::ShapedOffThread { lines_height }) => {
-                println!("SKY:SPIKE:SHAPE:PASS:{lines_height}");
-            }
+        let mut settings = Settings::default();
+        if let Some(service) = &service {
+            settings.service = service.clone();
+        }
+        LazySkyApp::build(ui, Arc::new(LazyOs), settings, |msg| match msg {
+            Msg::Report(Report::FeedRows(n)) => println!("SKY:FEED:ROWS:{n}"),
             Msg::Quit => println!("SKY:QUIT:PASS"),
-            // A timer tick the window handles itself; never reported.
-            Msg::Poll => {}
+            _ => {}
         })
         .inspect_err(|error| println!("SKY:BUILD:FAIL:{error}"))
     })

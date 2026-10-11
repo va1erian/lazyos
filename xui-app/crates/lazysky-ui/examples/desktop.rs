@@ -10,7 +10,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use lazysky_core::{Platform, Roots};
+use lazysky_core::{Platform, Roots, Settings};
 use lazysky_ui::{LazySkyApp, Msg, WINDOW};
 use xui_canvas::WinitBackend;
 
@@ -86,7 +86,7 @@ fn main() {
         .size(WINDOW.0, WINDOW.1)
         .backend(Rc::new(WinitBackend::new()))
         .run(|ui| {
-            LazySkyApp::build(ui, Arc::new(Desktop), |msg| {
+            LazySkyApp::build(ui, Arc::new(Desktop), Settings::default(), |msg| {
                 if let Msg::Report(report) = msg {
                     println!("{report:?}");
                 }

@@ -1,8 +1,8 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0 and P1 (§9) are implemented and their
-host checks pass; P0's QEMU check (item 5) waits for P8's packaging. P2 is
-next.
+**Status:** revision 3 (2026-10-11). P0, P1 and P2 (§9) are implemented and their
+host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
+under QEMU wait for P8's packaging and harness. P3 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
