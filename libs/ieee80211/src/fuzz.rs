@@ -77,7 +77,7 @@ fn data_checks(frame: &[u8]) {
         let h2 = DataHeader::parse(&again).unwrap();
         let mut back = Vec::new();
         data::decap(&h2, &again[h2.len..], &mut back).unwrap();
-        assert_eq!(&back, &[eth.clone()]);
+        assert_eq!(&back, core::slice::from_ref(eth));
     }
 }
 

@@ -140,6 +140,10 @@ members = [
     # `no_std` + `alloc`, host-tested and fuzzed.
     "libs/ieee80211",
     "libs/eapol",
+    # The soft-MAC both Wi-Fi radio programs share (`wifid`, `wifisim`;
+    # docs/wifi-rtw88-plan.md section 3): pure `no_std` + `alloc`, host-tested
+    # against a fake radio.
+    "libs/wifimac",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
