@@ -10,22 +10,7 @@
 
 use std::collections::VecDeque;
 
-/// `struct lz_event.kind`: a key went down.
-pub const EVENT_KEY_DOWN: i32 = 1;
-/// `struct lz_event.kind`: a key went up.
-pub const EVENT_KEY_UP: i32 = 2;
-/// `struct lz_event.kind`: the user closed the window.
-pub const EVENT_CLOSE: i32 = 3;
-
-/// The C side's `struct lz_event` (`srb2kart/c/lazyos/lazyos_host.h`, the
-/// seam in `docs/srb2kart-port-plan.md`): `key` is a `keys.h` code for a key
-/// event and 0 for a close.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LzEvent {
-    pub kind: i32,
-    pub key: i32,
-}
+use crate::backend::Event;
 
 /// A press is queued only while fewer transitions than this wait (the engine
 /// drains the queue every tic, so only a stalled game fills it). A release is
@@ -84,10 +69,10 @@ impl Keys {
     }
 
     /// The oldest transition as the C seam's event.
-    pub fn pop_event(&mut self) -> Option<LzEvent> {
+    pub fn pop_event(&mut self) -> Option<Event> {
         let (pressed, key) = self.pop()?;
-        Some(LzEvent {
-            kind: if pressed { EVENT_KEY_DOWN } else { EVENT_KEY_UP },
+        Some(Event {
+            kind: if pressed { Event::KEY_DOWN } else { Event::KEY_UP },
             key: i32::from(key),
         })
     }
@@ -121,10 +106,10 @@ mod tests {
         let mut keys = Keys::new();
         keys.press(13);
         keys.release(13);
-        assert_eq!(keys.pop_event(), Some(LzEvent { kind: 1, key: 13 }));
-        assert_eq!(keys.pop_event(), Some(LzEvent { kind: 2, key: 13 }));
+        assert_eq!(keys.pop_event(), Some(Event { kind: 1, key: 13 }));
+        assert_eq!(keys.pop_event(), Some(Event { kind: 2, key: 13 }));
         assert_eq!(keys.pop_event(), None);
-        assert_eq!(std::mem::size_of::<LzEvent>(), 8);
+        assert_eq!(std::mem::size_of::<Event>(), 8);
     }
 
     #[test]

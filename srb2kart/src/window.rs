@@ -12,7 +12,8 @@
 //! and [`Window::poll`] (`lz_video_open`, `lz_present`, `lz_poll_event`).
 
 use lazysrb2kart::keymap;
-use lazysrb2kart::keys::{Keys, LzEvent, EVENT_CLOSE};
+use lazysrb2kart::backend::Event as LzEvent;
+use lazysrb2kart::keys::Keys;
 use lazysrb2kart::pixels::Blitter;
 use lazysrb2kart::session::{GrabPolicy, SessionKeys};
 use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
@@ -123,7 +124,7 @@ impl Window {
     }
 
     /// The next input event for the engine: a key transition, or the close
-    /// request (once, `kind` [`EVENT_CLOSE`]). Drains the compositor first
+    /// request (once, `kind` [`LzEvent::CLOSE`]). Drains the compositor first
     /// when nothing is queued. `None` when there is nothing.
     pub fn poll(&mut self) -> Option<LzEvent> {
         if let Some(event) = self.keys.pop_event() {
@@ -135,7 +136,7 @@ impl Window {
         }
         if std::mem::take(&mut self.close_pending) {
             return Some(LzEvent {
-                kind: EVENT_CLOSE,
+                kind: LzEvent::CLOSE,
                 key: 0,
             });
         }
@@ -143,7 +144,7 @@ impl Window {
     }
 
     /// The user closed the window: tear the surface down. Call when the
-    /// engine is leaving (after [`EVENT_CLOSE`] or its own quit).
+    /// engine is leaving (after [`LzEvent::CLOSE`] or its own quit).
     pub fn close(&mut self) {
         self.window.close(self.client);
     }

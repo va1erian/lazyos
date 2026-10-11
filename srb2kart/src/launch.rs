@@ -14,14 +14,11 @@
 //! OS volume ([`DATA_DIR`]) unless `-data` names another directory.
 
 /// Where the image build puts the game data.
-// TODO(fhs): fhs::share::SRB2KART_DATA
-pub const DATA_DIR: &str = "/system/share/srb2kart";
+pub const DATA_DIR: &str = fhs::share::SRB2KART_DATA;
 /// The writable directory when there is no home.
-// TODO(fhs): fhs::state::SRB2KART_TMP
-pub const TMP_HOME: &str = "/tmp/srb2kart";
+pub const TMP_HOME: &str = fhs::state::SRB2KART_TMP;
 /// The headless verdict line is also written here.
-// TODO(fhs): fhs::state::SRB2KART_RESULT
-pub const RESULT_FILE: &str = "/tmp/srb2kart-result.txt";
+pub const RESULT_FILE: &str = fhs::state::SRB2KART_RESULT;
 /// The package's `system_name`: its per-user folder is named after it.
 pub const SYSTEM_NAME: &str = "org.lazy.srb2kart";
 /// The file whose presence marks a data directory.

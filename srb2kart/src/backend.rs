@@ -56,4 +56,7 @@ pub trait Backend {
     fn ticks_ns(&mut self) -> u64;
     /// Wait about `us` microseconds.
     fn sleep(&mut self, us: u32);
+    /// The engine is leaving: tear the output down (the window must be
+    /// closed explicitly, it does not die with the process).
+    fn close(&mut self) {}
 }

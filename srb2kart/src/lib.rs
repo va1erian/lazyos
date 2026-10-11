@@ -10,10 +10,14 @@
 //!   frames;
 //! - [`crc`]: the frame checksum the headless mode reports.
 //!
-//! The window half (`pixels`, `keymap`, `keys`, `session`, `window`) joins
-//! here in K1. The binary (`main.rs`) adds the `lz_*` hooks and the engine.
+//! The window half's pure parts (`pixels`, `keymap`, `keys`, `session`) are here
+//! too; the binary (`main.rs`) adds the `lz_*` hooks and the engine.
 
 pub mod backend;
 pub mod crc;
 pub mod headless;
+pub mod keymap;
+pub mod keys;
 pub mod launch;
+pub mod pixels;
+pub mod session;

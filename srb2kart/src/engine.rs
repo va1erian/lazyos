@@ -9,6 +9,7 @@ use lazysrb2kart::headless::Headless;
 use lazysrb2kart::launch::{self, Launch, Mode};
 
 use crate::hooks;
+use crate::window_backend::WindowBackend;
 
 extern "C" {
     fn srb2kart_main(argc: c_int, argv: *mut *mut c_char) -> c_int;
@@ -25,10 +26,7 @@ pub fn run() {
     create_home(&launch);
     let (backend, mode): (Box<dyn Backend>, &str) = match launch.mode {
         Mode::Headless { frames } => (Box::new(Headless::new(frames)), "headless"),
-        Mode::Window => {
-            println!("SRB2KART:WINDOW:FAIL the window is not implemented yet (K1); use -headless");
-            std::process::exit(1);
-        }
+        Mode::Window => (Box::new(WindowBackend::new()), "window"),
     };
     println!("SRB2KART:UP:PASS mode={mode} data={}", launch.data_dir);
     hooks::set_dirs(&launch.data_dir, &launch.home_dir);

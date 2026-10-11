@@ -42,6 +42,7 @@ fn with_backend<T>(f: impl FnOnce(&mut dyn Backend) -> T) -> Option<T> {
 }
 
 fn quit(status: i32) -> ! {
+    let _ = with_backend(|backend| backend.close());
     if status == 0 {
         println!("SRB2KART:QUIT:PASS");
     } else {
