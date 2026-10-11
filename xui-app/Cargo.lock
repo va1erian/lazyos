@@ -2755,6 +2755,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
+ "serde_json",
  "ureq",
 ]
 

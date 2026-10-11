@@ -1,0 +1,52 @@
+{
+ "cursor": "n2",
+ "notifications": [
+  {
+   "uri": "at://did:plc:alice/app.bsky.feed.like/1",
+   "cid": "c1",
+   "author": {
+    "did": "did:plc:alice",
+    "handle": "alice.bsky.test",
+    "displayName": "Alice",
+    "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:alice/a@jpeg"
+   },
+   "reason": "like",
+   "reasonSubject": "at://did:plc:me/app.bsky.feed.post/1",
+   "record": {
+    "$type": "app.bsky.feed.like"
+   },
+   "isRead": false,
+   "indexedAt": "2026-10-10T14:00:00.000Z"
+  },
+  {
+   "uri": "at://did:plc:bob/app.bsky.feed.post/50",
+   "cid": "c2",
+   "author": {
+    "did": "did:plc:bob",
+    "handle": "bob.bsky.test",
+    "displayName": "Bob 🦀",
+    "avatar": "https://cdn.bsky.test/img/avatar_thumbnail/plain/did:plc:bob/b@jpeg"
+   },
+   "reason": "reply",
+   "reasonSubject": "at://did:plc:me/app.bsky.feed.post/1",
+   "record": {
+    "$type": "app.bsky.feed.post",
+    "text": "great post!"
+   },
+   "isRead": false,
+   "indexedAt": "2026-10-10T14:05:00.000Z"
+  },
+  {
+   "uri": "at://did:plc:carol/app.bsky.graph.follow/2",
+   "cid": "c3",
+   "author": {
+    "did": "did:plc:carol",
+    "handle": "carol.bsky.test"
+   },
+   "reason": "follow",
+   "record": {},
+   "isRead": true,
+   "indexedAt": "2026-10-09T10:00:00.000Z"
+  }
+ ]
+}

@@ -9,6 +9,7 @@
 
 pub mod net;
 pub mod platform;
+pub mod proto;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
