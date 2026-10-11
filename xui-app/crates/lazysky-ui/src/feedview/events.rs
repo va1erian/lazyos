@@ -22,14 +22,24 @@ pub(super) fn handle(
     pane: u8,
     event: &Event,
 ) -> Option<Msg> {
+    // `panic = "abort"`: a RefCell panic here ends the whole app (it did, the
+    // "restart to the login screen"). An event that arrives while the view is
+    // borrowed (a paint or a tick holds it) is dropped and the view repainted:
+    // a lost wheel notch is invisible, a crash is not.
     let outcome = {
-        let mut s = state.borrow_mut();
-        route(ui, id, &mut s, event)
+        let Ok(mut s) = state.try_borrow_mut() else {
+            ui.invalidate(id);
+            return None;
+        };
+        let outcome = route(ui, id, &mut s, event);
+        if matches!(outcome, Outcome::Moved) {
+            s.moved = true;
+        }
+        outcome
     };
     match outcome {
         Outcome::Nothing => None,
         Outcome::Moved => {
-            state.borrow_mut().moved = true;
             ui.invalidate(id);
             None
         }

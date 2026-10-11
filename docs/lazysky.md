@@ -112,5 +112,9 @@ panic hook in `src/bin/lazysky.rs` prints `SKY:PANIC:<message> at
 Findings so far: `MouseWheel.delta` is in 120ths of a notch (divide by
 `WHEEL_DELTA`); a video post has no thumbnail path and shows a blank block;
 characters outside Droid Sans (mathematical bold letters) draw as boxes. A
-crash seen by a user while scrolling was not reproduced by the mock (150
-notches, ten pages) nor by 15 live rounds over two pages.
+user's crash while scrolling was `SKY:PANIC:RefCell already borrowed at
+feedview/events.rs`: an event reached the feed's handler while the tick (or a
+paint) held its state, and `panic = "abort"` turned the panic into an app
+restart. The handler and the tick now use `try_borrow_mut` and defer or drop
+instead; the mock and the live runs never hit it, so a real user's timing was
+needed.

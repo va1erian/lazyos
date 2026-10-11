@@ -148,6 +148,8 @@ pub struct LazySkyApp {
     image_inbox: VecDeque<(ImageKey, std::result::Result<Bitmap, String>)>,
     /// The wanted pictures may have changed.
     images_dirty: bool,
+    /// Layout results a tick could not apply because the view was borrowed.
+    carried: [Vec<crate::layouts::Done>; 2],
     menu: Menu<Msg>,
     /// The post the open "..." menu is about: `(pane, post URI)`.
     menu_target: Option<(u8, String)>,
@@ -282,6 +284,7 @@ impl LazySkyApp {
             next_seq: 1,
             image_inbox: VecDeque::new(),
             images_dirty: false,
+            carried: [Vec::new(), Vec::new()],
             menu,
             menu_target: None,
             people_lines: Vec::new(),

@@ -15,7 +15,7 @@ impl LazySkyApp {
         }
         // Layout results: a staged page's rows complete it; the rest
         // re-prepare rows already in a feed.
-        let mut refreshed: [Vec<crate::layouts::Done>; 2] = [Vec::new(), Vec::new()];
+        let mut refreshed: [Vec<crate::layouts::Done>; 2] = std::mem::take(&mut self.carried);
         let mut taken = 0;
         while taken < REFRESH_PER_TICK {
             let Some(done) = self.layouts.try_next() else {
@@ -42,7 +42,12 @@ impl LazySkyApp {
         for pane in [HOME, DETAIL] {
             let done = std::mem::take(&mut refreshed[pane as usize]);
             let view = Rc::clone(self.view(pane));
-            let mut s = view.state.borrow_mut();
+            let Ok(mut s) = view.state.try_borrow_mut() else {
+                // An event or a paint holds the view right now (a panic here
+                // would abort the app): the same results are applied next tick.
+                self.carried[pane as usize] = done;
+                continue;
+            };
             let mut pane_changed = false;
             if !done.is_empty() {
                 pane_changed = timeline::apply_refresh(&mut s, done);
