@@ -1,15 +1,22 @@
-//! Headless LazySky: one HTTPS GET through the [`Core`] API, printing the
-//! status and the first bytes. Proves the core runs with no UI.
+//! Headless LazySky: sign in and print the timeline through the [`Core`]
+//! API, with no UI. Proves the core runs on its own.
 //!
 //! ```text
-//! cargo run -p lazysky-core --example sky_cli --features native-roots -- https://bsky.social/xrpc/_health
+//! LAZYSKY_HANDLE=you.bsky.social LAZYSKY_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+//!     cargo run -p lazysky-core --example sky_cli --features native-roots
 //! ```
+//!
+//! `LAZYSKY_SERVICE` names another login service. Without credentials it
+//! only checks the service's `_health` endpoint over HTTPS.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lazysky_core::{Core, Event, Platform, Request, Roots};
+use lazysky_core::proto::{Embed, Reason};
+use lazysky_core::{
+    Core, Event, FeedSource, Http, HttpOptions, Platform, Request, Roots, Secret, Settings,
+};
 
 struct Terminal;
 
@@ -38,24 +45,84 @@ impl Platform for Terminal {
     }
 }
 
+fn wait(events: &lazysky_core::Events) -> Event {
+    loop {
+        match events.wait(Duration::from_secs(60)) {
+            Some(Event::Status { line }) => eprintln!("{line}"),
+            Some(other) => return other,
+            None => {
+                eprintln!("no answer in 60 s");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 fn main() {
-    let url = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "https://bsky.social/xrpc/_health".to_string());
-    let (core, events) = Core::start(Arc::new(Terminal));
-    core.send(Request::HttpGet { seq: 1, url });
-    match events.wait(Duration::from_secs(60)) {
-        Some(Event::HttpDone { status, body, .. }) => {
-            let shown = String::from_utf8_lossy(&body[..body.len().min(200)]);
-            println!("status {status}, {} bytes: {shown}", body.len());
+    let mut settings = Settings::default();
+    if let Ok(service) = std::env::var("LAZYSKY_SERVICE") {
+        settings.service = service;
+    }
+    let (Ok(handle), Ok(password)) = (
+        std::env::var("LAZYSKY_HANDLE"),
+        std::env::var("LAZYSKY_PASSWORD"),
+    ) else {
+        let http = Http::new(Terminal.ca_roots(), HttpOptions::default());
+        let url = format!("{}/xrpc/_health", settings.service);
+        match http.get(&url, &[]) {
+            Ok(r) => println!("{url}: HTTP {}, {} bytes", r.status, r.body.len()),
+            Err(why) => {
+                eprintln!("{url}: {why}");
+                std::process::exit(1);
+            }
         }
-        Some(Event::Failed { reason, .. }) => {
-            eprintln!("failed: {reason}");
+        return;
+    };
+    let (core, events) = Core::start(Arc::new(Terminal), settings);
+    core.send(Request::Login {
+        seq: 1,
+        handle,
+        password: Secret::new(password),
+    });
+    match wait(&events) {
+        Event::LoggedIn { account, .. } => println!("signed in as {}", account.handle),
+        Event::LoginFailed { reason, .. } => {
+            eprintln!("sign-in failed: {reason}");
             std::process::exit(1);
         }
-        None => {
-            eprintln!("no answer in 60 s");
+        other => panic!("unexpected {other:?}"),
+    }
+    core.send(Request::Feed {
+        seq: 2,
+        source: FeedSource::Timeline,
+        cursor: None,
+    });
+    match wait(&events) {
+        Event::Feed { page, .. } => {
+            for item in &page.items {
+                let post = &item.post;
+                let by = match &item.reason {
+                    Some(Reason::Repost { by }) => format!(" (reposted by {})", by.name()),
+                    None => String::new(),
+                };
+                let pictures = match post.embed.images().len() {
+                    0 => String::new(),
+                    n => format!(" [{n} picture(s)]"),
+                };
+                let quote = matches!(post.embed, Embed::Record(_) | Embed::RecordWithMedia(..));
+                let first_line = post.text.lines().next().unwrap_or("");
+                println!(
+                    "{}{by}: {first_line}{pictures}{}",
+                    post.author.name(),
+                    if quote { " [quote]" } else { "" }
+                );
+            }
+            println!("{} posts, {} skipped", page.items.len(), page.skipped);
+        }
+        Event::Failed { reason, .. } => {
+            eprintln!("timeline failed: {reason}");
             std::process::exit(1);
         }
+        other => panic!("unexpected {other:?}"),
     }
 }

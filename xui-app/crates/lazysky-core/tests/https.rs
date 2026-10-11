@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use lazysky_core::{Core, Event, Http, HttpOptions, Platform, Request, Roots};
+use lazysky_core::{Core, Event, Http, HttpOptions, Platform, Request, Roots, Secret, Settings};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ServerConfig, ServerConnection, StreamOwned};
 
@@ -90,6 +90,13 @@ fn serve(pki: &Pki, body: &'static [u8]) -> (u16, Seen) {
                         headers.push((n.trim().to_ascii_lowercase(), v.trim().to_string()));
                     }
                 }
+                let length: usize = headers
+                    .iter()
+                    .find(|(n, _)| n == "content-length")
+                    .and_then(|(_, v)| v.parse().ok())
+                    .unwrap_or(0);
+                let mut request_body = vec![0; length];
+                let _ = reader.read_exact(&mut request_body);
                 log.lock().unwrap().push((request_line, headers));
                 let out = reader.get_mut();
                 let head = format!(
@@ -125,23 +132,32 @@ impl Platform for Testing {
 }
 
 #[test]
-fn the_core_fetches_over_tls_with_a_trusted_ca() {
+fn the_core_signs_in_over_tls_with_a_trusted_ca() {
     let pki = Pki::named("LazySky Test CA", &["localhost"]);
-    let (port, seen) = serve(&pki, b"hello from bsky.test");
-    let (core, events) = Core::start(Arc::new(Testing(pki.roots())));
-    core.send(Request::HttpGet {
+    let answer: &'static [u8] =
+        br#"{"accessJwt":"a.b.c","refreshJwt":"d.e.f","did":"did:plc:me","handle":"me.test"}"#;
+    let (port, seen) = serve(&pki, answer);
+    let settings = Settings {
+        service: format!("https://localhost:{port}"),
+    };
+    let (core, events) = Core::start(Arc::new(Testing(pki.roots())), settings);
+    core.send(Request::Login {
         seq: 7,
-        url: format!("https://localhost:{port}/xrpc/_health"),
+        handle: "@me.test".into(),
+        password: Secret::new("app-pass-word"),
     });
     match events.wait(Duration::from_secs(30)) {
-        Some(Event::HttpDone { seq, status, body }) => {
-            assert_eq!((seq, status), (7, 200));
-            assert_eq!(body, b"hello from bsky.test");
+        Some(Event::LoggedIn { seq, account }) => {
+            assert_eq!(seq, 7);
+            assert_eq!(account.handle, "me.test");
         }
         other => panic!("unexpected: {other:?}"),
     }
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].0, "GET /xrpc/_health HTTP/1.1");
+    assert_eq!(
+        seen[0].0,
+        "POST /xrpc/com.atproto.server.createSession HTTP/1.1"
+    );
     let agent = &seen[0].1.iter().find(|(n, _)| n == "user-agent").unwrap().1;
     assert!(agent.starts_with("LazySky/"), "{agent}");
 }
