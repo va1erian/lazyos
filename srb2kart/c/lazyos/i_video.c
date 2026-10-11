@@ -267,4 +267,7 @@ void I_GetEvent(void)
 	}
 }
 
-void I_OsPolling(void) {}
+void I_OsPolling(void)
+{
+	I_GetEvent();
+}
