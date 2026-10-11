@@ -67,6 +67,20 @@ fn describe(code: i64) -> String {
 /// `sysname release (machine)` from `uname`, e.g. `LazyOS 0.1.0 (x86_64)`.
 #[cfg(target_os = "linux")]
 fn uname() -> Option<String> {
+    uname_fields().map(|[sysname, release, _, machine]| format!("{sysname} {release} ({machine})"))
+}
+
+/// `uname`'s version field: the kernel's source revision (`kernel/build.rs`).
+#[cfg(target_os = "linux")]
+fn revision() -> Option<String> {
+    let [_, _, version, _] = uname_fields()?;
+    let sha = version.trim();
+    (!sha.is_empty() && sha != "unknown").then(|| sha.to_owned())
+}
+
+/// `[sysname, release, version, machine]` from `uname(2)`.
+#[cfg(target_os = "linux")]
+fn uname_fields() -> Option<[String; 4]> {
     // SAFETY: `utsname` is plain bytes, so all-zero is a valid value, and
     // `uname` only writes into the struct it is handed.
     let mut info: libc::utsname = unsafe { std::mem::zeroed() };
@@ -82,17 +96,22 @@ fn uname() -> Option<String> {
             .collect();
         String::from_utf8_lossy(&bytes).into_owned()
     };
-    Some(format!(
-        "{} {} ({})",
+    Some([
         field(&info.sysname),
         field(&info.release),
-        field(&info.machine)
-    ))
+        field(&info.version),
+        field(&info.machine),
+    ])
 }
 
 /// Host builds (tests) have no LazyOS kernel to ask.
 #[cfg(not(target_os = "linux"))]
 fn uname() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn revision() -> Option<String> {
     None
 }
 
@@ -178,6 +197,10 @@ impl System for OsSystem {
 
     fn os_version(&self) -> String {
         uname().unwrap_or_else(|| String::from("LazyOS"))
+    }
+
+    fn os_revision(&self) -> Option<String> {
+        revision()
     }
 
     fn uptime_secs(&self) -> Option<u64> {

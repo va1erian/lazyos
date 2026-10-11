@@ -12,6 +12,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", font_path.display());
     println!("cargo:rerun-if-changed=build.rs");
+    emit_revision();
 
     // Kernel test harness switch (issue #62): `LAZYOS_TESTS=1` compiles the
     // in-kernel suite and makes `kernel_main` run it before normal boot.
@@ -283,4 +284,28 @@ fn main() {
     );
 
     fs::write(out_dir.join("font_atlas.rs"), src).expect("write generated atlas source");
+}
+
+/// Embed the source revision as `LAZYOS_REVISION` (the full SHA-1), which
+/// `uname`'s version field reports to the About page. `LAZYOS_REVISION=<sha>`
+/// overrides it for builds outside a checkout; otherwise `git rev-parse HEAD`,
+/// or `unknown`. The build reruns when HEAD or the branch it names moves.
+fn emit_revision() {
+    println!("cargo:rerun-if-env-changed=LAZYOS_REVISION");
+    let git = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git").args(args).output().ok()?;
+        let text = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+        (out.status.success() && !text.is_empty()).then_some(text)
+    };
+    for what in ["HEAD", "logs/HEAD"] {
+        if let Some(path) = git(&["rev-parse", "--git-path", what]) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+    let revision = env::var("LAZYOS_REVISION")
+        .ok()
+        .filter(|rev| !rev.trim().is_empty())
+        .or_else(|| git(&["rev-parse", "HEAD"]))
+        .unwrap_or_else(|| String::from("unknown"));
+    println!("cargo:rustc-env=LAZYOS_REVISION={}", revision.trim());
 }

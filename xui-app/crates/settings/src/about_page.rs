@@ -52,6 +52,7 @@ pub fn credits() -> [String; 3] {
 /// The page's widgets: captions beside their values.
 pub struct AboutPage {
     version: Rc<Label<Msg>>,
+    revision: Rc<Label<Msg>>,
     uptime: Rc<Label<Msg>>,
     store: Rc<Label<Msg>>,
     persistence: Rc<Label<Msg>>,
@@ -61,11 +62,17 @@ pub struct AboutPage {
 impl AboutPage {
     /// Lays the page out in the container `page`.
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<AboutPage> {
-        let values: [Handle<Label<Msg>>; 4] = Default::default();
+        let values: [Handle<Label<Msg>>; 5] = Default::default();
         let mut cells = Vec::new();
-        for (caption, value) in ["Version", "Uptime", "Settings store", "Persistence"]
-            .into_iter()
-            .zip(&values)
+        for (caption, value) in [
+            "Version",
+            "Revision",
+            "Uptime",
+            "Settings store",
+            "Persistence",
+        ]
+        .into_iter()
+        .zip(&values)
         {
             cells.push(label(caption).into_entry());
             cells.push(label("").bind(value).into_entry());
@@ -85,9 +92,10 @@ impl AboutPage {
                 ),
             )),
         )?;
-        let [version, uptime, store, persistence] = values;
+        let [version, revision, uptime, store, persistence] = values;
         Ok(AboutPage {
             version: version.get(),
+            revision: revision.get(),
             uptime: uptime.get(),
             store: store.get(),
             persistence: persistence.get(),
@@ -98,6 +106,11 @@ impl AboutPage {
     /// Re-read every value.
     pub fn load(&self, system: &dyn System) {
         self.version.set_text(&system.os_version());
+        self.revision.set_text(
+            &system
+                .os_revision()
+                .unwrap_or_else(|| String::from("unknown")),
+        );
         self.uptime.set_text(
             &system
                 .uptime_secs()
