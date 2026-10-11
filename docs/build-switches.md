@@ -110,6 +110,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_DISPLAY_MAX` | `<w>x<h>` cap on the logical screen of a firmware (real PC / UEFI) framebuffer; default 1920x1080. `2560x1440` on a 1440p panel gives a 1280x720 desktop at scale 2 (#717). | `--display-max WxH` |
 | `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2`: the default for `sys/ui/scale`. | - |
 | `LAZYOS_KBD_LAYOUT` | `us` (default) or `fr` (AZERTY). | - |
+| `LAZYOS_REVISION` | Source revision (a SHA-1) the kernel embeds for `uname`'s version field and Settings -> About; default `git rev-parse HEAD`, or `unknown` outside a checkout (#754). | - |
 
 ## Test and debug
 
