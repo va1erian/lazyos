@@ -9,10 +9,10 @@ use crate::dev::{Dev, RF_PATH_A, RF_PATH_MAX};
 use crate::hci::{Hci, RegExt};
 use crate::phy::rf::{read_rf, write_rf, RFREG_MASK};
 use crate::rtw8822c::regs::*;
-use crate::rtw8822c::standin::read8_physical_efuse;
+use crate::efuse::read8_physical_efuse;
 
 fn efuse8<H: Hci>(dev: &mut Dev<H>, addr: u16) -> u8 {
-    read8_physical_efuse(dev, addr).unwrap_or(EFUSE_READ_FAIL)
+    read8_physical_efuse(&mut dev.hci, addr).unwrap_or(EFUSE_READ_FAIL)
 }
 
 fn paths<H: Hci>(dev: &Dev<H>) -> usize {

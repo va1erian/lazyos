@@ -54,6 +54,8 @@ pub fn phy_set_param<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     rf_init(dev);
     pwrtrack_init(dev);
     bf_phy_init(&mut dev.hci);
+    let ctx = crate::rtw8822c::phy_status_ctx(dev);
+    dev.hci.set_phy_status_ctx(ctx);
     Ok(())
 }
 

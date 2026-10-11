@@ -8,10 +8,10 @@ use std::vec::Vec;
 use super::*;
 use crate::fake::FakeHci;
 use crate::mac::regs::{CR, MAC_SEC_EN, RCR, SYS_CFG1};
-use crate::testmodel::{blank_efuse, healthy_chip, real_fw, synth_fw};
+use crate::testmodel::{healthy_chip, rfe_efuse, real_fw, synth_fw};
 
 fn dev() -> Dev<FakeHci> {
-    Dev::new(healthy_chip(blank_efuse()))
+    Dev::new(healthy_chip(rfe_efuse(1)))
 }
 
 fn probe_and_start(img: &[u8]) -> Dev<FakeHci> {
@@ -103,8 +103,7 @@ fn a_corrupt_image_is_refused_before_touching_the_chip() {
 
 #[test]
 fn unsupported_rfe_fails_the_probe() {
-    let mut d = dev();
-    d.efuse.rfe_option = 9; // the stand-in read_efuse leaves it alone
+    let mut d = Dev::new(healthy_chip(rfe_efuse(9)));
     let img = synth_fw(0x100, 0x100, None);
     assert_eq!(
         d.chip_info_setup(&img),

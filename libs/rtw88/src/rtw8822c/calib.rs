@@ -14,7 +14,8 @@ use crate::dev::{Dev, RF_PATH_A, RF_PATH_B};
 use crate::hci::{Hci, RegExt};
 use crate::phy::rf::{read_rf, write_rf, RFREG_MASK};
 use crate::rtw8822c::regs::*;
-use crate::rtw8822c::{dpk, standin};
+use crate::fw::{self, IqkPara};
+use crate::rtw8822c::dpk;
 
 /// Upstream `IQK_DONE_8822C`.
 const IQK_DONE: u8 = 0xaa;
@@ -40,7 +41,8 @@ pub fn rfk_power_save<H: Hci>(dev: &mut Dev<H>, power_save: bool) {
 /// results) and wait up to 300 ms for its done code. Returns whether it
 /// finished (upstream only warns).
 pub fn do_iqk<H: Hci>(dev: &mut Dev<H>) -> bool {
-    standin::do_iqk(dev, true, false);
+    // A refused H2C shows up as the poll below timing out.
+    let _ = fw::do_iqk(dev, &IqkPara { clear: 1, segment_iqk: 0 });
     let mut done = false;
     let mut waited = 0;
     loop {

@@ -9,11 +9,12 @@
 //!
 //! Contract: [`read_rf`]`(dev, path, addr, mask) -> u32`,
 //! [`write_rf`]`(dev, path, addr, mask, data)`, and for the bring-up
-//! [`board_info_setup`] (upstream `rtw_chip_board_info_setup`: the table
+//! [`setup_board_info`] (upstream `rtw_chip_board_info_setup`: the table
 //! condition and the TX power tables, after the efuse is read) and
 //! [`txpwr::set_tx_power_level`] after each channel change.
 
 pub mod cond;
+pub mod dig;
 pub mod rate;
 pub mod rf;
 pub mod rssi;
@@ -25,6 +26,7 @@ mod tests_cond;
 mod tests_txpwr;
 
 pub use cond::{load_tables, PhyCond};
+pub use dig::{dig_reset, dig_set_max_coverage};
 pub use rf::{read_rf, write_rf};
 pub use txpwr::{set_tx_power_level, TxPwrIdx};
 
@@ -91,7 +93,7 @@ pub struct PhyState {
     /// `hal->tx_pwr_tbl`: the index each rate transmits at on the current
     /// channel, written to the chip by `rtw8822c::set_tx_power_index`.
     pub tx_pwr_tbl: [[u8; DESC_RATE_MAX]; RF_PATH_MAX],
-    /// Set once [`board_info_setup`] has loaded the power tables.
+    /// Set once [`setup_board_info`] has loaded the power tables.
     pub tables_ready: bool,
 }
 
@@ -118,11 +120,15 @@ impl Default for PhyState {
 /// RFE type, then load the RFE type's by-rate and limit tables
 /// (`rtw_phy_init_tx_power`, `rtw_parse_tbl_bb_pg`,
 /// `rtw_parse_tbl_txpwr_lmt`, `rtw_phy_tx_power_by_rate_config`,
-/// `rtw_phy_tx_power_limit_config`). Refuses an RFE type upstream has no
+/// `rtw_phy_tx_power_limit_config`), after decoding the efuse's raw power
+/// index tables into [`PhyState::txpwr_idx`]. Refuses an RFE type upstream has no
 /// definition for (`rtw_check_supported_rfe`).
-pub fn board_info_setup<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
+pub fn setup_board_info<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     let rfe = crate::rtw8822c::tables::rfe_def(dev.efuse.rfe_option)
         .ok_or(Error::Unsupported("rfe type"))?;
+    for (decoded, raw) in dev.phy.txpwr_idx.iter_mut().zip(dev.efuse.txpwr_idx_table.iter()) {
+        *decoded = TxPwrIdx::parse(&raw.0);
+    }
     dev.phy.cond = PhyCond::setup(dev.hal.cut_version, dev.hal.pkg_type, dev.efuse.rfe_option);
     txpwr::init_tx_power(&mut dev.phy);
     txpwr::parse_bb_pg(dev, rfe.phy_pg);

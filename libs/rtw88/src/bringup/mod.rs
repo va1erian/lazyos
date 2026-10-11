@@ -22,7 +22,6 @@
 //! `rtw_core_start`. The firmware image is passed in each time rather than
 //! kept: the binary owns the file's bytes.
 
-pub(crate) mod chip_calls;
 
 #[cfg(test)]
 mod tests;
@@ -129,8 +128,7 @@ pub fn chip_info_setup<H: Hci>(dev: &mut Dev<H>, fw: &Firmware<'_>) -> Result<()
     dev.fw.update(fw);
     chip_parameter_setup(dev);
     chip_efuse_info_setup(dev, fw)?;
-    // contract: rtw88-chip `phy::setup_board_info(dev)` (`rtw_chip_board_info_setup`).
-    chip_calls::board_info_setup(dev)
+    crate::phy::setup_board_info(dev)
 }
 
 /// The steps of `rtw_power_on` after the MAC is powered; an error powers
@@ -139,17 +137,15 @@ fn power_on_steps<H: Hci>(dev: &mut Dev<H>, fw: &Firmware<'_>) -> Result<()> {
     mac::download_firmware(dev, fw)?;
     // config mac after firmware downloaded
     mac::mac_init(dev)?;
-    // contract: rtw88-chip `rtw8822c::phy_set_param(dev) -> Result<()>`.
-    chip_calls::phy_set_param(dev)?;
+    crate::rtw8822c::phy_set_param(dev)?;
     mac::mac_postinit(dev)?;
     dev.hci.start()?;
     // send H2C after HCI has started
     fw::send_general_info(dev)?;
     fw::send_phydm_info(dev)?;
     let wifi_only = !dev.efuse.btcoex;
-    // contract: rtw88-chip `coex::power_on_setting(dev)`, `coex::init_hw_config(dev, wifi_only)`.
-    chip_calls::coex_power_on_setting(dev);
-    chip_calls::coex_init_hw_config(dev, wifi_only);
+    crate::coex::power_on_setting(dev);
+    crate::coex::init_hw_config(dev, wifi_only);
     Ok(())
 }
 
@@ -179,8 +175,7 @@ pub fn core_start<H: Hci>(dev: &mut Dev<H>, fw: &Firmware<'_>) -> Result<()> {
 /// Upstream `rtw_power_off`.
 pub fn power_off<H: Hci>(dev: &mut Dev<H>) {
     dev.hci.stop();
-    // contract: rtw88-chip `coex::power_off_setting(dev)`.
-    chip_calls::coex_power_off_setting(dev);
+    crate::coex::power_off_setting(dev);
     mac::power_off(dev);
 }
 

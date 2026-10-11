@@ -4,17 +4,11 @@
 
 use crate::hci::{Hci, RegExt};
 
-/// Upstream `check_hw_ready`: poll `(read32(addr) & mask) >> shift ==
-/// target` up to 1000 times, 10 us apart; `false` on timeout. Calibration
-/// code logs and carries on after a timeout, as upstream does.
+/// Upstream `check_hw_ready` (`crate::mac::check_hw_ready`) as the `bool`
+/// the calibration code tests: it logs and carries on after a timeout, as
+/// upstream does.
 pub fn check_hw_ready<H: Hci>(hci: &mut H, addr: u32, mask: u32, target: u32) -> bool {
-    for _ in 0..1000 {
-        if hci.read32_mask(addr, mask) == target {
-            return true;
-        }
-        hci.delay_us(10);
-    }
-    false
+    crate::mac::check_hw_ready(hci, "rtw8822c", addr, mask, target).is_ok()
 }
 
 /// `rtw_write8_set`: OR `bits` (the low byte of a 32-bit field constant)

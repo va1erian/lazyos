@@ -184,10 +184,6 @@ pub const REG_WMAC_MU_BF_OPTION: u32 = 0x167c;
 pub const BIT_WMAC_TXMU_ACKPOLICY_EN: u32 = bit(6);
 pub const BIT_SHIFT_WMAC_TXMU_ACKPOLICY: u32 = 4;
 pub const REG_WMAC_MU_BF_CTL: u32 = 0x1680;
-pub const LTECOEX_ACCESS_CTRL: u32 = 0x1700;
-pub const LTECOEX_WRITE_DATA: u32 = 0x1704;
-pub const LTECOEX_READ_DATA: u32 = 0x1708;
-pub const LTECOEX_READY: u32 = bit(29);
 pub const REG_ANAPAR_XTAL_0: u32 = 0x1040;
 pub const BIT_XCAP_0: u32 = genmask(23, 10);
 

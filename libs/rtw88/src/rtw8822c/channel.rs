@@ -11,15 +11,17 @@ use crate::hci::{Hci, RegExt};
 use crate::phy::rf::{read_rf, write_rf, RFREG_MASK};
 use crate::phy::{ch_5g_band, is_ch_2g};
 use crate::rtw8822c::regs::*;
-use crate::rtw8822c::standin;
 
 /// Upstream `rtw8822c_set_channel`. `primary_chan_idx` is the 20 MHz
 /// sub-channel (`RTW_SC_*`, 0 at 20 MHz).
 pub fn set_channel<H: Hci>(dev: &mut Dev<H>, channel: u8, bw: Bw, primary_chan_idx: u8) {
     set_channel_bb(dev, channel, bw, primary_chan_idx);
-    standin::set_channel_mac(dev, channel, bw, primary_chan_idx);
+    crate::mac::set_channel_mac(&mut dev.hci, channel, bw, primary_chan_idx);
     set_channel_rf(dev, channel, bw);
     toggle_igi(dev);
+    // The RX path's PHY status parser falls back to the current width.
+    let ctx = crate::rtw8822c::phy_status_ctx(dev);
+    dev.hci.set_phy_status_ctx(ctx);
 }
 
 /// Upstream `rtw8822c_toggle_igi`: step the initial gain down by 2 and

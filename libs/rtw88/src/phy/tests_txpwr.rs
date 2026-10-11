@@ -4,22 +4,22 @@
 
 use super::rate::*;
 use super::txpwr::*;
-use super::{board_info_setup, MAX_POWER_INDEX};
+use super::{setup_board_info, MAX_POWER_INDEX};
 use crate::dev::{Band, Bw, Dev, RF_PATH_A, RF_PATH_B};
 use crate::fake::FakeHci;
 
-fn idx() -> TxPwrIdx {
-    let mut t = TxPwrIdx {
-        cck_base_2g: [0x2d, 0x2d, 0x2e, 0x2e, 0x2f, 0x2f],
-        bw40_base_2g: [0x30, 0x31, 0x32, 0x33, 0x34],
-        ..TxPwrIdx::default()
-    };
-    t.ht_1s_2g.ofdm = 1;
-    t.ht_1s_2g.bw20 = -1;
-    t.bw40_base_5g[0] = 0x28;
-    t.bw40_base_5g[1] = 0x2a;
-    t.vht_ns_5g[0].bw80 = -1;
-    t
+/// One path's efuse power table, packed as the efuse stores it: CCK bases
+/// 0x2d..0x2f, BW40 bases 0x30..0x34, HT1S OFDM +1 / BW20 -1 (0xf1),
+/// 5 GHz BW40 bases 0x28, 0x2a, VHT1S BW80 -1 (high nibble of byte 38).
+fn raw_idx() -> crate::efuse::TxPwrIdx {
+    let mut b = [0u8; 42];
+    b[..6].copy_from_slice(&[0x2d, 0x2d, 0x2e, 0x2e, 0x2f, 0x2f]);
+    b[6..11].copy_from_slice(&[0x30, 0x31, 0x32, 0x33, 0x34]);
+    b[11] = 0xf1;
+    b[18] = 0x28;
+    b[19] = 0x2a;
+    b[38] = 0xf0;
+    crate::efuse::TxPwrIdx(b)
 }
 
 fn dev(rfe: u8) -> Dev<FakeHci> {
@@ -27,8 +27,10 @@ fn dev(rfe: u8) -> Dev<FakeHci> {
     d.hal.rf_path_num = 2;
     d.hal.rf_phy_num = 2;
     d.efuse.rfe_option = rfe;
-    d.phy.txpwr_idx = [idx(), idx()];
-    board_info_setup(&mut d).unwrap();
+    d.efuse.txpwr_idx_table = [raw_idx(); 4];
+    setup_board_info(&mut d).unwrap();
+    let t = &d.phy.txpwr_idx[0];
+    assert_eq!((t.ht_1s_2g.ofdm, t.ht_1s_2g.bw20, t.vht_ns_5g[0].bw80), (1, -1, -1));
     d
 }
 
@@ -54,7 +56,7 @@ fn channel_groups_and_indices() {
 fn unknown_rfe_type_is_refused() {
     let mut d = Dev::new(FakeHci::default());
     d.efuse.rfe_option = 7;
-    assert!(board_info_setup(&mut d).is_err());
+    assert!(setup_board_info(&mut d).is_err());
 }
 
 #[test]

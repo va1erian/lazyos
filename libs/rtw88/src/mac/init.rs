@@ -5,7 +5,6 @@
 
 use super::regs::*;
 use super::{check_hw_ready, FifoConf};
-use crate::bringup::chip_calls;
 use crate::dev::{Bw, Dev};
 use crate::error::{Error, Result};
 use crate::hci::{Hci, RegExt};
@@ -167,8 +166,7 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     txdma_queue_mapping(dev);
     priority_queue_cfg(dev)?;
     init_h2c(dev)?;
-    // contract: rtw88-chip `rtw8822c::mac_init(dev) -> Result<()>`.
-    chip_calls::mac_init(dev)?;
+    crate::rtw8822c::mac_init(dev)?;
     drv_info_cfg(&mut dev.hci);
     dev.hci.interface_cfg();
     Ok(())

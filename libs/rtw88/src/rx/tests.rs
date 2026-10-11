@@ -4,6 +4,7 @@ use std::vec::Vec;
 
 use super::fuzz::{encode_rx_desc, RxDescFields};
 use super::*;
+use crate::rtw8822c::PhyStatusCtx;
 
 /// The descriptor as raw words, then `rest`.
 fn raw(words: [u32; 6], rest: &[u8]) -> Vec<u8> {
@@ -68,7 +69,7 @@ fn decrypted_needs_an_encryption_type_and_no_swdec() {
         let mut buf = encode_rx_desc(&f).to_vec();
         buf.extend([0; 30]);
         let mut stat = RxPktStat::default();
-        query_rx_desc(&buf, &mut stat).unwrap();
+        query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).unwrap();
         assert_eq!(stat.decrypted, want, "enc {enc} swdec {swdec}");
         assert!(stat.crc_err && stat.icv_err);
     }
@@ -121,7 +122,7 @@ fn refusals_follow_upstream() {
         let mut buf = encode_rx_desc(&f).to_vec();
         buf.extend(std::vec![0; 12_000]);
         let mut stat = RxPktStat::default();
-        assert!(query_rx_desc(&buf, &mut stat).is_err(), "{f:?}");
+        assert!(query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).is_err(), "{f:?}");
     }
     // The largest legal values pass.
     let f = RxDescFields {
@@ -131,13 +132,13 @@ fn refusals_follow_upstream() {
     };
     let mut buf = encode_rx_desc(&f).to_vec();
     buf.extend(std::vec![0; 11454]);
-    assert!(query_rx_desc(&buf, &mut RxPktStat::default()).is_ok());
+    assert!(query_rx_desc(&PhyStatusCtx::default(), &buf, &mut RxPktStat::default()).is_ok());
 }
 
 #[test]
 fn truncated_buffers_are_refused_not_sliced() {
     let mut stat = RxPktStat::default();
-    assert!(query_rx_desc(&[0; 23], &mut stat).is_err());
+    assert!(query_rx_desc(&PhyStatusCtx::default(), &[0; 23], &mut stat).is_err());
     assert!(rx_desc_extent(&[0; 23]).is_err());
     let f = RxDescFields {
         pkt_len: 30,
@@ -148,15 +149,15 @@ fn truncated_buffers_are_refused_not_sliced() {
     };
     let mut buf = encode_rx_desc(&f).to_vec();
     buf.extend([0; 3 + 32 + 29]);
-    assert!(query_rx_desc(&buf, &mut stat).is_err());
+    assert!(query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).is_err());
     buf.push(0);
-    assert!(query_rx_desc(&buf, &mut stat).is_ok());
+    assert!(query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).is_ok());
     // A refused buffer leaves no stale fields behind on the next one.
     let mut other = RxPktStat {
         rssi: 9,
         ..RxPktStat::default()
     };
-    let _ = query_rx_desc(&[0; 24], &mut other);
+    let _ = query_rx_desc(&PhyStatusCtx::default(), &[0; 24], &mut other);
     assert_eq!(other.rssi, 0);
 }
 

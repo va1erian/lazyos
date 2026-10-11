@@ -47,7 +47,7 @@ pub use indirect::{read_indirect_reg, write_indirect_reg};
 use crate::dev::Dev;
 use crate::hci::Hci;
 use crate::rtw8822c::regs::*;
-use crate::rtw8822c::standin;
+use crate::fw;
 use crate::rtw8822c::util::{set8, write8_mask};
 
 /// Upstream `COEX_SCBD_*` scoreboard bits.
@@ -228,7 +228,8 @@ pub fn tdma_off<H: Hci>(dev: &mut Dev<H>) {
         // COEX_PS_WIFI_NATIVE: no forced LPS (this driver has no LPS).
         dev.coex.wl_force_lps_ctrl = false;
         dev.coex.ps_tdma_para = [0; 5];
-        standin::coex_tdma_type(dev, [0; 5]);
+        // Upstream sends and forgets H2Cs here; so does this.
+        let _ = fw::coex_tdma_type(dev, [0; 5]);
         dev.coex.wl_slot_toggle_change = dev.coex.wl_slot_toggle;
         dev.coex.wl_slot_toggle = false;
     }
@@ -268,7 +269,7 @@ pub fn init_hw_config<H: Hci>(dev: &mut Dev<H>, wifi_only: bool) {
     monitor_bt_enable(dev);
     // rtw_coex_wl_slot_extend(false): H2C 0x69 op 0xc, "disable 5 ms".
     dev.coex.wl_slot_extend = false;
-    standin::bt_wifi_control(dev, 0xc, [0x1, 0, 0, 0, 0]);
+    let _ = fw::bt_wifi_control(dev, 0xc, [0x1, 0, 0, 0, 0]);
     set8(&mut dev.hci, REG_BCN_CTRL, BIT_EN_BCN_FUNCTION);
     chip::cfg_rfe_type(dev);
     chip::cfg_init(dev);
@@ -295,7 +296,7 @@ pub fn init_hw_config<H: Hci>(dev: &mut Dev<H>, wifi_only: bool) {
     tdma_off(dev);
     // rtw_coex_query_bt_info
     if !dev.coex.bt_disabled {
-        standin::query_bt_info(dev);
+        let _ = fw::query_bt_info(dev);
     }
 }
 

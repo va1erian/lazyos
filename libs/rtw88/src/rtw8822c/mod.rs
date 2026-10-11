@@ -11,7 +11,7 @@
 //!
 //! | Here | Upstream |
 //! |---|---|
-//! | [`read_efuse`]`(&mut Efuse, log_map)` and [`read_txpwr_idx`]`(log_map)`, or both through [`efuse_setup`]`(dev, log_map)` | `rtw8822c_read_efuse` |
+//! | [`read_efuse`]`(&mut Efuse, log_map)` | `rtw8822c_read_efuse` |
 //! | [`phy_set_param`]`(dev)` | `rtw8822c_phy_set_param` |
 //! | [`mac_init`]`(dev)` | `rtw8822c_mac_init` |
 //! | [`set_channel`]`(dev, channel, bw, primary_chan_idx)` | `rtw8822c_set_channel` |
@@ -20,8 +20,9 @@
 //! | [`phy_calibration`]`(dev)` | `rtw8822c_phy_calibration` |
 //! | [`config_trx_mode`], [`set_antenna`], [`cfg_ldo25`], [`cfo_init`], [`false_alarm_statistics`] | the ops of the same names |
 //!
-//! [`standin`] holds clearly marked stand-ins for functions other work
-//! packages own (H2C sending, `rtw_set_channel_mac`, physical efuse reads).
+//! What this chip code calls in other packages: `crate::fw` (H2C commands,
+//! IQK), `crate::mac::set_channel_mac`, `crate::efuse::read8_physical_efuse`
+//! and the LTE coex window in `crate::mac`.
 
 pub mod calib;
 pub mod channel;
@@ -35,7 +36,6 @@ pub mod param;
 pub mod phystatus;
 pub mod regs;
 pub mod spec;
-pub mod standin;
 pub mod tables;
 pub mod trim;
 pub mod trx;
@@ -51,7 +51,7 @@ mod tests_phystatus;
 
 pub use calib::{false_alarm_statistics, phy_calibration, FalseAlarm};
 pub use channel::set_channel;
-pub use efuse::{efuse_setup, read_efuse, read_txpwr_idx};
+pub use efuse::read_efuse;
 pub use macinit::mac_init;
 pub use param::{cfg_ldo25, cfo_init, phy_set_param};
 pub use phystatus::{phy_status_ctx, query_phy_status, PhyStatusCtx};

@@ -10,10 +10,10 @@ use crate::dev::{Bw, Dev};
 use crate::fake::{Access, FakeHci};
 use crate::fw::Firmware;
 use crate::rtw8822c::spec::CARD_ENABLE_FLOW_8822C;
-use crate::testmodel::{blank_efuse, healthy_chip, synth_fw};
+use crate::testmodel::{healthy_chip, rfe_efuse, synth_fw};
 
 fn dev() -> Dev<FakeHci> {
-    Dev::new(healthy_chip(blank_efuse()))
+    Dev::new(healthy_chip(rfe_efuse(1)))
 }
 
 /// Byte writes to the power-sequence registers, in order.
