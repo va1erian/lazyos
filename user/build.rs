@@ -254,6 +254,16 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_dbgd");
     }
 
+    // Wi-Fi (docs/architecture/wifi.md): `LAZYOS_WIFI=1` adds the `wlanmd`
+    // row to `init`'s manifest (the station manager; `wifictl` and the ELFs
+    // are embedded by the root build script). It needs the network stack.
+    println!("cargo:rerun-if-env-changed=LAZYOS_WIFI");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_wifi)");
+    if env::var_os("LAZYOS_WIFI").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        assert!(netd, "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (Wi-Fi is a network interface)");
+        println!("cargo:rustc-cfg=lazyos_wifi");
+    }
+
     // The device manager (issue #497, docs/driver-plan.md 3.6): whenever the
     // image carries a sound or network driver, `init` starts `devd`, which
     // matches the enumerated devices and asks `init` to start each driver for

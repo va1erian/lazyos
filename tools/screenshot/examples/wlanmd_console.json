@@ -1,0 +1,20 @@
+[
+  {"wait_for": "WLANMD:UP radios=0", "timeout": 400},
+  {"wait_for": "LazyOS login: ", "timeout": 120},
+  {"at": 1.0, "type": "user"},
+  {"at": 1.6, "key": "enter"},
+  {"at": 2.2, "type": "lazy"},
+  {"at": 2.8, "key": "enter", "until": "LOGIN:OK:PASS user=user uid=1000", "timeout": 60, "retries": 1},
+  {"wait": 4.0},
+  {"type": "wifictl status"},
+  {"key": "enter", "until": "WIFICTL:STATUS none disabled", "timeout": 60, "retries": 1},
+  {"type": "wifictl list"},
+  {"key": "enter", "until": "WIFICTL:FAIL no wireless interface", "timeout": 60, "retries": 1},
+  {"type": "wifictl connect home"},
+  {"key": "enter", "until": "WIFICTL:FAIL no wireless interface", "timeout": 60, "retries": 1},
+  {"wait": 10.0},
+  {"type": "echo WLAN:DONE:$?"},
+  {"key": "enter", "until": "WLAN:DONE:", "timeout": 30, "retries": 1},
+  {"shot": "wlanmd_console"},
+  {"quit": true}
+]

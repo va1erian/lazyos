@@ -147,6 +147,11 @@ programs! {
     /// `dbgd`, the remote inspection service (`LAZYOS_DBGD=1`,
     /// docs/dbgd-plan.md).
     DBGD = "dbgd";
+    /// `wlanmd`, the Wi-Fi station manager (`LAZYOS_WIFI=1`,
+    /// docs/architecture/wifi.md).
+    WLANMD = "wlanmd";
+    /// `wifictl`, the Wi-Fi command line (`LAZYOS_WIFI=1`).
+    WIFICTL = "wifictl";
     /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
     /// docs/tls-plan.md §7).
     FETCH = "fetch";

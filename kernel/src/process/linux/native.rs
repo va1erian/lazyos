@@ -95,6 +95,10 @@ const NATIVE: &[&str] = &[
     // An SMB share as a directory (docs/smb-plan.md F3): `smbfuse -U USER
     // //SERVER/SHARE [name=NAME] &` serves `/mnt/<name>`.
     fhs::bin::SMBFUSE,
+    // The Wi-Fi command line (docs/architecture/wifi.md): `wifictl [status |
+    // scan | list | connect SSID | disconnect | forget ID]`. On the image only
+    // with `LAZYOS_WIFI=1`.
+    fhs::bin::WIFICTL,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
     // [reason]` asks `init` for an orderly stop.
     fhs::bin::POWERCTL,

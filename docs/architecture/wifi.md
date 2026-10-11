@@ -2,8 +2,8 @@
 
 The plan is [wifi-prerequisites-plan.md](../wifi-prerequisites-plan.md) (the
 stack above the driver) and [wifi-plan.md](../wifi-plan.md) (the hardware and
-licence). This page describes what is built, stage by stage. Only WP3 is here
-so far.
+licence). This page describes what is built, stage by stage: WP3 (the protocol libraries) and
+WP4's station half (`wlansta`, `wlanmd`, `wifictl`).
 
 ## WP3: the 802.11 protocol libraries
 
@@ -121,3 +121,130 @@ supplicant, so replies are not compared byte for byte); seeded soaks run with
 `FUZZ_CASES=20000 cargo test -p ieee80211 -p eapol --release seeded`; the
 cargo-fuzz targets are `fuzz/fuzz_targets/ieee80211.rs` and `eapol.rs`, with
 seeds from `fuzz/seeds_wifi.py`.
+
+## WP4: the station manager
+
+```
+ wifictl, Network app ──wifi.v1──▶ wlanmd (_wlan 912, no caps) ──WifiPmk──▶ keyd
+                                     │  wlansta::Station per radio   ▲ StoreSecretFor
+                                     │  profiles ─────────────▶ confd
+                                     ▼ wifi.hw.v1 (+ event channel)
+                     os.lazy.net.wifi.hw/wlan0: wifid (_wifi 911) or wifisim (_wifisim 913)
+```
+
+### Names and identities
+
+| Name | Held by | Enforced by |
+|---|---|---|
+| `os.lazy.net.wifi.hw/<ifname>` (`hw.v1`, one per radio; `<ifname>` is its `nic.v1` card's name, `wlan0`) | `_wifi`, `_wifisim` (unlabelled, no session) | the registry (`netpolicy::may_register_wifi_hw_name`, `kernel/src/ipc/policy.rs`) |
+| `os.lazy.net.wifi` (`wifi.v1`) | `_wlan` | the registry (`netpolicy::may_register_wifi_service_name`) |
+| `Attach` to a radio | `_wlan` | the driver (`netpolicy::may_attach_wifi_hw`) |
+| `system/net/<if>/wifi/{state,scan}` | `_wlan` | `messengerd` (`netpolicy::is_wifi_topic`) |
+| `sys/net/wifi/networks/**`, `user/<uid>/net/wifi/networks/**` | `_wlan` (plus `sys/**` writers and each user for their own) | `confd` (`confd::Caller::wifi`, `netpolicy::is_wlanmd`) |
+| `WifiPmk`, `StoreSecretFor`, `DeleteSecretFor` | `_wlan` | `keyd` (`secretstore::authorize`) |
+
+`wlanmd` finds radios by listing the registry every second (as `netd` finds
+cards) and checks each owner again; a radio missing for 3 s, or whose event
+channel reports its peer gone, is dropped and published `Disabled`, and
+attached again when its driver registers anew. At most four radios.
+
+### `libs/wlansta`
+
+The station is pure (`no_std` + `alloc`, no clock, no I/O):
+
+```rust
+let mut sta = Station::new(mac, fresh_nonce);           // fn() -> [u8; 32]
+let actions = sta.set_profiles(now_ms, profiles);       // auto-connect may start
+let actions = sta.input(now_ms, Event::ScanDone { scan_id, aborted, entries });
+let actions = sta.pmk(now_ms, &id, Ok(Key::new(pmk)));  // answer to Action::FetchPmk
+sta.connect(now_ms, &id)?; sta.disconnect(now_ms); sta.scan(now_ms, ssids)?;
+sta.status(); sta.networks(Viewer::User(uid)); sta.next_deadline();
+```
+
+`Event`: `ScanStarted`, `ScanDone`, `Rx { kind, rssi_dbm, frame }`,
+`BeaconLoss`, `Deauthenticated`, `HwError { op, errno }`, `Tick`.
+`Action`: `Scan`, `AbortScan`, `Join`, `Tx`, `SetState`, `SetKey`, `Leave`,
+`FetchPmk`. The caller runs a batch in order and stops at the first radio
+call that fails, reporting it as `HwError`. Also: `policy` (who may do what on
+`wifi.v1`), `profile` (the `confd` keys, ids `w` + 12 hex digits, the country
+default `00`), `ssid::display` (lossy UTF-8, control and invisible
+formatting characters dropped, at most 32 octets), `select` (security
+classification and BSS choice).
+
+Behaviour, each pinned by a host test:
+
+- **Selection**: a known SSID whose security is the profile's; priority, then
+  signal. Joinable: Open, and RSN with CCMP-128 pairwise and group, AKM 2
+  (preferred) or 6, no MFP required. Anything else is `Unsupported`, listed
+  and never joined (an explicit `Connect` to it fails `PolicyMismatch`).
+  A BSS heard in the last 30 s is joined without scanning; hidden profiles are
+  probed for by name.
+- **Join**: `Join`, Open System authentication, `SetState(Authenticated)`,
+  an association request (the BSS's rates; for WPA2 an RSN element with
+  exactly the chosen AKM and CCMP, which `eapol` checks message 2 and 3
+  against), `SetState(Associated, aid)`; open networks then
+  `SetState(Authorized)`. Requests are sent 4 times, 500 ms apart.
+- **Handshake**: EAPOL from the BSSID goes to `eapol::Supplicant`; its
+  actions become `TxMgmt(Eapol)`, `SetKey(Pairwise, 0)`, `SetKey(Group, n,
+  rsc)` and `SetState(Authorized)` in its order. 5 s deadline from
+  association. Message 2 sent and no verified message 3 (deadline, or the AP
+  deauthenticating) is `BadPassphrase`, which blocks that profile until the
+  user connects to it again: no retry storm.
+- **Connected**: group and PTK rekeys keep flowing; no timer runs (a forged
+  message 1 cannot make the station drop its own link).
+- **Failures** (`Rejected`, `Timeout`, `Deauthenticated`, `BeaconLoss`,
+  `PolicyMismatch`, `Radio`, `NotFound` for an explicit connect) leave the BSS
+  and retry after 1 s, doubling to 60 s. Auto-connect that finds nothing goes
+  `Idle` and scans again every 60 s. `Disconnect` suspends auto-connect until
+  the next `Connect`.
+- **Hostile input**: frames not from the joined BSS, not to us, malformed,
+  protected or out of place are dropped and counted without any state change;
+  scan entries with an unknown band or channel are dropped.
+
+Tests: `cargo test -p wlansta` (joins with both AKMs against a test AP whose
+authenticator is built from `lazyos-crypto` alone, group rekey, wrong
+passphrase, deauth, beacon loss, retransmissions and back-off, scan timeout,
+forged EAPOL, policy and profile rules) and a seeded fuzz over radio events
+and commands with invariants after every step
+(`FUZZ_CASES=20000 cargo test -p wlansta --release seeded`).
+
+### `wlanmd` and `wifictl`
+
+`wlanmd` (`user/src/bin/wlanmd.rs`, `wlanmd/{radio,service,store}.rs`) runs
+as `_wlan` with no capabilities in `LAZYOS_WIFI=1` images (which need
+`LAZYOS_NETD=1`; `init` row after `confd` and `keyd`). It reads the profiles
+from `confd`, passes `sys/net/wifi/country` (default `00`) to each radio with
+`SetCountry`, auto-connects to the best known system network, and serves
+`wifi.v1` with the rules of `wlansta::policy`: `AddNetwork` scope `System`
+only from `elevd`, a user network only for its owner, the passphrase straight
+to `keyd` (`StoreSecretFor`) and never kept or logged. User profiles join
+auto-connect once logins are tracked (`Station::set_active_users`, WP5);
+today they are joined by an explicit `Connect`. Serial lines:
+`WLANMD:UP radios=<n>`, `WLANMD:RADIO:UP|GONE|FAIL`, `WLANMD:STATE <if>
+<state> reason=<reason> ssid="<ssid>"`, `WLANMD:SCAN <if> gen=<n>
+networks=<n>`, `WLANMD:ADD`, `WLANMD:FORGET`.
+
+`wifictl` (native, on the kernel's list): `status`, `scan`, `list`,
+`connect SSID` (asks for a new WPA2 network's passphrase without echo, or
+reads `WIFICTL_PASSPHRASE`; `AddNetwork` in the user scope, then `Connect`
+and wait for `Connected` or `Failed`), `disconnect`, `forget ID`.
+
+### What a radio (`wifid`, `wifisim`) must do for `wlanmd`
+
+- Register `os.lazy.net.wifi.hw/<ifname>` and `os.lazy.net.nic/<ifname>` with
+  the same `<ifname>`; refuse `Attach` from anyone but `_wlan`
+  (`netpolicy::may_attach_wifi_hw`, `EPERM`) and owner-only calls from
+  anyone but the attached task.
+- `ScanResults` entries and `RxMgmt(Mgmt)` frames start at the 802.11 MAC
+  header (no FCS); `RxMgmt(Eapol)` and `TxMgmt(Eapol)` are 802.3 frames
+  (destination, source, 0x888E, PDU). `ScanDone` once per scan, after its
+  results are readable.
+- `TxMgmt` frames go out under the keys in force when queued: message 4 is
+  queued just before `SetKey(Pairwise)` and must leave in the clear.
+- `SetState(Authorized)` straight after `Associated` for an open network.
+- Deliver deauthentication and disassociation from the BSS as
+  `Deauthenticated` (and/or the frame as `RxMgmt`; `wlanmd` acts on the first
+  and ignores the repeat).
+- The NIC's link (`system/net/<if>/link`, published by the driver) follows
+  `Authorized`; `messengerd` lets only `_net` publish link topics today, so the
+  Wi-Fi driver uids need adding there.

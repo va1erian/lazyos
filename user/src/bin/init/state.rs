@@ -94,6 +94,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "devd" {
         return Some(DEVD_CRED);
     }
+    #[cfg(lazyos_wifi)]
+    if name == "wlanmd" {
+        return Some(WLAN_CRED);
+    }
     let _ = name;
     None
 }
@@ -343,6 +347,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::Always,
         deps: &["netd"],
+    },
+    // The Wi-Fi station manager (docs/architecture/wifi.md), on
+    // `LAZYOS_WIFI=1` images, as `_wlan` with no capabilities. It lists the
+    // registry for radios itself and idles (state `Disabled`) without one;
+    // profiles come from `confd`, PMKs from `keyd`.
+    #[cfg(lazyos_wifi)]
+    ServiceSpec {
+        name: "wlanmd",
+        path: fhs::bin::WLANMD,
+        args: "",
+        restart: Restart::Always,
+        deps: &["confd", "keyd"],
     },
     // The remote inspection service (docs/dbgd-plan.md, issue #701), present
     // only in `LAZYOS_DBGD=1` images. It reads `diag.dbg.*` from

@@ -86,6 +86,10 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         netd || !enabled("LAZYOS_SMB"),
         "LAZYOS_SMB=1 needs LAZYOS_NETD=1 (the socket service smb connects through)"
     );
+    assert!(
+        netd || !enabled("LAZYOS_WIFI"),
+        "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (Wi-Fi is a network interface)"
+    );
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
         add(sink, fhs::bin::NETDRV, "netdrv");
@@ -115,6 +119,12 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         // of it is in an image built without `LAZYOS_DBGD=1`.
         if enabled("LAZYOS_DBGD") {
             add(sink, fhs::bin::DBGD, "dbgd");
+        }
+        // The Wi-Fi station manager and its command line
+        // (docs/architecture/wifi.md), on request.
+        if enabled("LAZYOS_WIFI") {
+            add(sink, fhs::bin::WLANMD, "wlanmd");
+            add(sink, fhs::bin::WIFICTL, "wifictl");
         }
         // `smb`, the SMB 2.1 client (docs/smb-plan.md F2), on request.
         if enabled("LAZYOS_SMB") {
