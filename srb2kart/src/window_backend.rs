@@ -7,12 +7,16 @@ use lazysrb2kart::backend::{Backend, Event, Flow, Frame};
 
 use crate::window::Window;
 
+/// Input events reported on the serial line (`SRB2KART:EVENT:<kind>:<key>`).
+const LOGGED_EVENTS: u32 = 64;
+
 pub struct WindowBackend {
     window: Option<Window>,
     start: Instant,
     /// Frames presented in the current second, for the `FPS` marker.
     frames: u32,
     second: u64,
+    logged_events: u32,
 }
 
 impl WindowBackend {
@@ -22,6 +26,7 @@ impl WindowBackend {
             start: Instant::now(),
             frames: 0,
             second: 0,
+            logged_events: 0,
         }
     }
 }
@@ -61,7 +66,13 @@ impl Backend for WindowBackend {
     }
 
     fn poll(&mut self) -> Option<Event> {
-        self.window.as_mut()?.poll()
+        let event = self.window.as_mut()?.poll()?;
+        // Evidence that input arrives; bounded so a long game is not noisy.
+        if self.logged_events < LOGGED_EVENTS {
+            self.logged_events += 1;
+            println!("SRB2KART:EVENT:{}:{}", event.kind, event.key);
+        }
+        Some(event)
     }
 
     fn ticks_ns(&mut self) -> u64 {

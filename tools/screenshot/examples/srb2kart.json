@@ -61,7 +61,7 @@
   {"wait_for": "SRB2KART:UP:PASS mode=window", "timeout": 600},
   {"at": 0.5, "move_to": {"window": "SRB2Kart"}, "timeout": 30, "note": "the pointer rests on the game"},
   {"wait_for": "SRB2KART:LOG: GAMESTATE:title", "timeout": 1500, "note": "the data takes a while to load, then the intro plays"},
-  {"at": 4.0, "shot": "05_title"},
+  {"at": 12.0, "shot": "05_title"},
   {"at": 1.0, "key": "enter"},
   {"at": 3.0, "shot": "06_menu"},
   {"at": 1.0, "key": "enter"},
