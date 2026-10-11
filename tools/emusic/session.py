@@ -148,6 +148,38 @@ def resize_session() -> list[dict]:
     return steps
 
 
+def click_at(x: int, y: int, wait: float = 0.8) -> list[dict]:
+    """Click at screen position (x, y): the PS/2 mouse is relative, so park it
+    in the top-left corner first."""
+    return [{"mouse_move": [-300, -300]}] * 4 + [
+        {"mouse_move": [x, y]},
+        {"wait": 0.3},
+        {"mouse_click": "left"},
+        {"wait": wait},
+    ]
+
+
+def add_folder_session() -> list[dict]:
+    """Settings -> Library -> Add folder opens the folder browser; choosing
+    `~/Music/Jazz` adds it and the library scans its track."""
+    steps = install()
+    steps += command("mkdir ~/Music/Jazz; mv ~/Music/tones.mp3 ~/Music/Jazz/ && echo made",
+                     "TERM:OUT:made")
+    steps += command(f"rhai -e 'sys::mimed::open(\"/home/user/Music/Jazz/tones.mp3\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    steps += [{"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120}]
+    steps += click_at(135, 78)    # File
+    steps += click_at(157, 131)   # Settings
+    steps += [{"shot": "02_settings_library"}]
+    steps += click_at(410, 249, 1.5)   # Add folder...
+    steps += [{"shot": "03_folder_browser"}]
+    steps += click_at(178, 274)   # Jazz
+    steps += [{"shot": "04_jazz_selected"}]
+    steps += click_at(437, 584, 4.0)   # Choose
+    steps += [{"shot": "05_folder_added"}, {"at": 1.0, "quit": True}]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -165,6 +197,7 @@ SESSIONS = {
     "emusic_sound.json": sound_session,
     "emusic_theme.json": theme_session,
     "emusic_resize.json": resize_session,
+    "emusic_add_folder.json": add_folder_session,
 }
 
 
