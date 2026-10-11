@@ -18,8 +18,11 @@
 //!    `radio::bring_up`: `libs/rtw88`'s probe, power-on, firmware download,
 //!    MAC/BB/RF init and calibration (`WIFID:CHIP:INFO`, `WIFID:FW:READY`,
 //!    `WIFID:COEX`, `WIFID:MAC`);
-//! 6. surveys the channels (`survey.rs`: `WIFID:SURVEY:*`, what the radio
-//!    hears) on the interrupt channel, serving nothing yet, never busy.
+//! 6. serves the interface through the shared soft-MAC (`user::wifi::run`
+//!    over `hardware.rs`): `os.lazy.net.wifi.hw/<if>` for `wlanmd` and
+//!    `os.lazy.net.nic/<if>` for `netd` (`WIFI:READY`); or, with
+//!    `mode=survey`, hops the channels and reports what the radio hears
+//!    (`survey.rs`, `WIFID:SURVEY:*`).
 //!
 //! A step that fails prints `WIFID:FAIL:<step> <detail>` and the register
 //! dump, then parks with the claim held (a restart could only fail the same
@@ -51,6 +54,8 @@ mod chip;
 mod device;
 #[path = "wifid/firmware.rs"]
 mod firmware;
+#[path = "wifid/hardware.rs"]
+mod hardware;
 #[path = "wifid/radio.rs"]
 mod radio;
 #[path = "wifid/survey.rs"]
@@ -64,11 +69,19 @@ use radio::{Failure, Radio};
 /// timer at first light, the wait only bounds how stale the loop can be.
 const IDLE_TICKS: u64 = 6000;
 
+/// `LAZYOS_WIFID_MODE` at build time: the mode when the arguments name
+/// none (`devd` passes only `dev=` and `ifname=`), so a diagnostic stick for
+/// the NUC is a build switch, `LAZYOS_WIFID_MODE=survey`.
+const BUILD_MODE: Option<&str> = option_env!("LAZYOS_WIFID_MODE");
+
 struct Args {
     /// `dev=<id>`: the device `devd` matched this driver to.
     dev: Option<u64>,
     /// `ifname=<name>`: the interface name `devd` gave the card.
     ifname: String,
+    /// `mode=survey`: hop the channels and report what the radio hears
+    /// instead of serving the interface (`survey.rs`, a diagnostic).
+    survey: bool,
 }
 
 impl Args {
@@ -86,6 +99,7 @@ impl Args {
                 .filter(|name| devmatch::valid_ifname(name))
                 .unwrap_or("wlan0")
                 .to_string(),
+            survey: value("mode=").or(BUILD_MODE) == Some("survey"),
         }
     }
 }
@@ -122,17 +136,33 @@ pub extern "C" fn _start() -> ! {
             ("model", &model),
         ],
     );
-    match run(row) {
-        Ok((radio, irq)) => serve(radio, irq),
+    let (chip, mac, irq) = match run(row) {
+        Ok(up) => up,
         Err(why) => {
             trace::fail(why.step, format_args!("{}", why.detail));
             park()
         }
+    };
+    if args.survey {
+        survey(Radio::survey(chip, mac, sys::clock()), irq)
     }
+    // The station side: `os.lazy.net.wifi.hw/<if>` for `wlanmd` and
+    // `os.lazy.net.nic/<if>` for `netd`, served by the shared soft-MAC.
+    let uid = sys::cred_get(None).map_or(netpolicy::WIFI_UID, |cred| cred.uid);
+    let why = match user::wifi::run(hardware::Rtw::new(chip, mac, irq), &args.ifname, uid) {
+        Ok(()) => String::from("the service loop ended"),
+        Err(why) => why,
+    };
+    trace::fail("serve", format_args!("{why}"));
+    // A service failure (not the chip's): exit so `init` restarts the driver.
+    sys::exit(1)
 }
 
 /// Claim, map, identify, arm, load the firmware and bring the radio up.
-fn run(row: Row) -> Result<(Radio, Option<(Endpoint, u64)>), Failure> {
+/// The claim's interrupt channel and device handle (`None`: polling).
+type Irq = Option<(Endpoint, u64)>;
+
+fn run(row: Row) -> Result<(radio::Chip, [u8; 6], Irq), Failure> {
     let mut claimed = device::claim(row).map_err(|(step, e)| failure(step, format!("errno={e}")))?;
     if let Ok((revision, vendor, device)) = device::identity(&claimed) {
         let subsystem = format!("{vendor:04x}:{device:04x}");
@@ -169,7 +199,7 @@ fn run(row: Row) -> Result<(Radio, Option<(Endpoint, u64)>), Failure> {
         dma: bus::Dma::new(claimed.handle),
         delay_us: bus::delay_us,
     };
-    let radio = radio::bring_up(bus, image, sys::clock()).map_err(|(regs, why)| {
+    let (chip, mac) = radio::bring_up(bus, image).map_err(|(regs, why)| {
         radio::failure_dump(&regs);
         why
     })?;
@@ -177,13 +207,13 @@ fn run(row: Row) -> Result<(Radio, Option<(Endpoint, u64)>), Failure> {
         .irq_channel
         .filter(|_| mode.is_some())
         .map(|channel| (channel, claimed.handle));
-    Ok((radio, irq))
+    Ok((chip, mac, irq))
 }
 
 /// Wait on the interrupt channel (`irq`: the claim's channel and device
 /// handle, `None` when polling) until the radio's next deadline, handle
 /// what arrived, and let the radio hop channels; never busy.
-fn serve(mut radio: Radio, irq: Option<(Endpoint, u64)>) -> ! {
+fn survey(mut radio: Radio, irq: Irq) -> ! {
     trace::event("IDLE", &[("serving", &"survey")]);
     let mut buffer = [0u8; 256];
     loop {

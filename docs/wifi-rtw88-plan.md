@@ -76,9 +76,9 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 | **R0** Plumbing | firmware fetch + `fhs::FIRMWARE` + `libs/fwload`; `LAZYOS_WIFI=1`; `devd` row for `10ec:c822`; `run_demo.py --wifi`, GUI; `THIRD_PARTY.md` | `cargo test -p fwload -p devmatch`; the file lands at its path with its licence |
 | **R1** Chip library | `libs/rtw88`: power on, firmware download, MAC/BB/RF init, channel switch, TX/RX descriptors, PCIe rings, CAM | host tests against the fake bus, sequences compared with upstream's |
 | **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | **Passed** (2026-10-11): `tools/wifi/sim_run.py --station wlanmd`, six checks: scan, wrong passphrase, open and WPA2 joins with DHCP and ping over `wlan0`, rekey kept, rejoin after beacon loss and deauth |
-| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
-| **R4** Scan on the NUC | channel switching, RX of beacons | `wifictl scan` lists the home networks |
-| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data | DHCP lease and `ping` over `wlan0` |
+| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
+| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`) | `wifictl scan` lists the home networks |
+| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (built; passes on the simulator) | DHCP lease and `ping` over `wlan0` |
 
 
 ## 5. The test loop on the NUC
@@ -171,15 +171,34 @@ WIFID:CHIP:INFO cut=. rf_paths=2 rfe=. btcoex=. share_ant=. crystal=.. efuse_mac
 WIFID:FW:READY version=9.9.15 h2c=15 feature=0x........ iqk=true dpk_path_ok=3
 WIFID:COEX wifi_owns_antenna=true lte_ctrl=0x....77.. path_wifi=true indirect_errors=0
 WIFID:MAC addr=xx:xx:xx:xx:xx:xx
-WIFID:IDLE serving=survey
+WIFI:READY if=wlan0 hw=os.lazy.net.wifi.hw/wlan0 nic=os.lazy.net.nic/wlan0 mtu=... max_mgmt=2000
+WIFI:HW:ATTACH if=wlan0 owner=.. uid=912                       (wlanmd took the radio)
+WLANMD:RADIO:UP wlan0 mac=xx:xx:xx:xx:xx:xx country=00
+NETD:NIC:ATTACHED if=wlan0 ...
+```
+
+Then, from a session (`user`/`lazy` on the console or the Terminal):
+
+```text
+wifictl scan                      # WIFICTL:NET "<home SSID>" wpa2-psk rssi=.. freq=.. bss=..
+wifictl connect "<home SSID>"     # Passphrase prompt, then WIFICTL:STATUS wlan0 connected ...
+                                  # WLANMD:STATE wlan0 connected, NETD:ADDR <lease> if=wlan0
+ping -c 3 <gateway>               # BusyBox
+```
+
+**The diagnostic survey.** An image built with `LAZYOS_WIFID_MODE=survey`
+runs no station service: after `MAC` it prints `WIFID:IDLE serving=survey`
+and
+
+```text
 WIFID:IRQ:FIRST hisr0=0x........ hisr1=0x........ hisr3=0x........
 WIFID:SURVEY:CH ch=1 frames=.. mgmt=.. beacons=.. data=.. crc_err=.. c2h=..   (one per channel, 22 channels)
 WIFID:SURVEY:BSS bssid=xx:xx:xx:xx:xx:xx ch=6 beacons=.. dbm=-..              (one per BSS heard)
 WIFID:SURVEY:DONE sweep=1 bss=..                                              (a sweep every minute)
 ```
 
-The survey (`user/src/bin/wifid/survey.rs`) is R3/R4's evidence until the
-soft-MAC layer serves `hw.v1`: it hops the 20 MHz channels with the filter
+The survey (`user/src/bin/wifid/survey.rs`) is the radio's evidence with
+nothing above it: it hops the 20 MHz channels with the filter
 open to every BSS for 250 ms each and counts frames by type and BSSID (fixed
 header offsets only, no information element parsed). `beacons>0` on a
 channel where the home AP lives is the radio hearing the air; `frames=0`
@@ -224,15 +243,18 @@ blocks), so the new run finds the chip as the old one left it: the bring-up
 finds the MAC on (`CR` reads 0xea) and its power-on cycles it off first,
 as upstream's `rtw_mac_power_on` does.
 
-### 5.5 What the full driver assembly still needs
+### 5.5 How the station side runs on the card
 
-`radio::bring_up` runs the whole `libs/rtw88` probe and start (R3) and the
-survey proves RX (R4's radio half). Still to come: serve
-`os.lazy.net.nic/<ifname>` (`kind = wireless`) and
-`os.lazy.net.wifi.hw/<ifname>` from the serve loop through `libs/wifimac`'s
-`Radio` trait implemented over `rtw88::Dev` (TX of management and data
-frames with the software CCMP header, keys in the CAM, RX frames with RSSI
-and the decryption flag), replacing the survey.
+After bring-up `wifid` hands the chip to the shared soft-MAC
+(`user::wifi::run`) through `user/src/bin/wifid/hardware.rs`, the
+`wifimac::Radio` over `rtw88::Dev`: `tune` is `set_channel` at 20 MHz,
+`set_scan_filter` is `scan_start`/`scan_complete`, `set_state` is
+`assoc`/`disassoc` (legacy rates: `wlanmd`'s association request carries no
+HT/VHT yet), keys go to the CAM, a protected frame is sent with the CAM
+entry its CCMP key id names, and received frames lose their FCS and report
+the chip's decryption with an 8-octet MIC trailer. The same soft-MAC passes
+`tools/wifi/sim_run.py --station wlanmd` against the simulated radio, so on
+the card only this adapter and `libs/rtw88` are new.
 
 ## 6. The chip package (R1)
 

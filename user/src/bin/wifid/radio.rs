@@ -1,6 +1,6 @@
 //! The radio: `libs/rtw88`'s bring-up on the real card
-//! (docs/wifi-rtw88-plan.md R3), then a receive survey until the soft-MAC
-//! layer serves `os.lazy.net.wifi.hw.v1` and `nic.v1` on top of it.
+//! (docs/wifi-rtw88-plan.md R3), and the diagnostic receive survey
+//! (`mode=survey`) that runs instead of the station service when asked.
 //!
 //! [`bring_up`] follows upstream's probe and start (`rtw_pci_probe`,
 //! `rtw_core_start`): the PCIe rings over `bus.regs` and `bus.dma`, the chip
@@ -68,27 +68,17 @@ pub(super) struct Radio {
     next_tick: u64,
 }
 
-/// Power the radio up and start the survey; on failure the registers (a
-/// second handle) come back for the dump.
-pub(super) fn bring_up(bus: Bus, firmware: Vec<u8>, now: u64) -> Result<Radio, (Bar, Failure)> {
+/// Power the radio up; on failure the registers (a second handle) come
+/// back for the dump. The caller serves it (`hardware.rs`) or surveys it
+/// ([`Radio::survey`]).
+pub(super) fn bring_up(bus: Bus, firmware: Vec<u8>) -> Result<(Chip, [u8; 6]), (Bar, Failure)> {
     let dump = bus.regs.clone();
     (bus.delay_us)(10);
     let pci = Pci::new(bus.regs, bus.dma).map_err(|e| (dump.clone(), chip_failure("pci", e)))?;
     trace::event("DMA", &[("bytes", &pci.layout().total())]);
     let mut dev = Dev::new(pci);
     match start(&mut dev, &firmware) {
-        Ok(mac) => {
-            let mut radio = Radio {
-                dev,
-                mac,
-                interrupts: 0,
-                survey: Survey::default(),
-                hop: None,
-                next_tick: now,
-            };
-            radio.start_sweep(now);
-            Ok(radio)
-        }
+        Ok(mac) => Ok((dev, mac)),
         Err(why) => Err((dump, why)),
     }
 }
@@ -163,6 +153,20 @@ impl core::fmt::Display for OptHex {
 }
 
 impl Radio {
+    /// Survey with a started chip (`mode=survey`), starting a sweep now.
+    pub(super) fn survey(dev: Chip, mac: [u8; 6], now: u64) -> Radio {
+        let mut radio = Radio {
+            dev,
+            mac,
+            interrupts: 0,
+            survey: Survey::default(),
+            hop: None,
+            next_tick: now,
+        };
+        radio.start_sweep(now);
+        radio
+    }
+
     /// The next tick the serve loop must wake at.
     pub(super) fn deadline(&self) -> u64 {
         self.next_tick
