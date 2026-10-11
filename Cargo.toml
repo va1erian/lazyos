@@ -144,6 +144,10 @@ members = [
     "libs/rtw88",
     # Device firmware files by vendor-relative name (wifi-prerequisites-plan 3.8).
     "libs/fwload",
+    # wlanmd's station state machine (docs/wifi-prerequisites-plan.md WP4):
+    # scan, selection, join, handshake, timers and profiles; pure `no_std` +
+    # `alloc`, host-tested and fuzzed.
+    "libs/wlansta",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's

@@ -489,6 +489,21 @@ interface gained `StoreSecret`, `DeleteSecret`, `ListSecrets` and
   uid would be dead code. The PBKDF2 cost under TCG is not yet measured; it
   runs inside `keyd`'s serve loop, once per (secret, SSID).
 
+**WP4 status (station half built; the simulator is separate work).**
+`libs/wlansta` (the station machine, host-tested and fuzzed), `wlanmd` and
+`wifictl` exist and ship in `LAZYOS_WIFI=1` images; see
+[architecture/wifi.md](architecture/wifi.md) "WP4: the station manager".
+Decisions: one `wlanmd` serves every radio (section 5 item 6); radios
+register `os.lazy.net.wifi.hw/<ifname>`, reserved to `_wifi`/`_wifisim`, and
+accept `Attach` from `_wlan` alone; `os.lazy.net.wifi` is reserved to
+`_wlan`. Changes outside the plan's list: `confd` lets `_wlan` read and write
+the Wi-Fi profile subtrees of the machine and every user
+(`confd::Caller::wifi`), and `keyd` gained `StoreSecretFor` /
+`DeleteSecretFor` for `_wlan`, so `AddNetwork` can keep a user's passphrase
+for that user and a `system` one for `elevd` (which `wlanmd` checks). Not yet:
+login tracking for user-network auto-connect (WP5), the `wifisim` end-to-end
+run (`tools/wifi/sim_run.py`).
+
 **WP0 status (done).** Licence option A is recorded in the README and
 `THIRD_PARTY.md` (register of the five RustCrypto crates plus `dbl`, and
 "not yet taken" rows for mt76, OpenBSD `net80211` and the MediaTek blobs).

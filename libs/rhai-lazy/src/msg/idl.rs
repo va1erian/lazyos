@@ -1878,6 +1878,24 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "pmk", id: 1, ty: Ty::Bytes }],
                 objects: &[],
             },
+            Method {
+                name: "StoreSecretFor",
+                id: 1701625789,
+                oneway: false,
+                doc: "Keep `secret` under `name` for someone else: the user `owner` (scope\n`user`) or the machine (scope `system`, `owner` 0). Answered only to\n`wlanmd` (the `_wlan` system uid, unlabelled, outside any session),\nwhich takes a passphrase in `os.lazy.net.wifi.v1` `AddNetwork` and\nchecks there who may add what (a `system` network only from `elevd`);\neveryone else gets `EPERM`. Otherwise the rules of `StoreSecret`.",
+                params: &[Field { name: "scope", id: 1, ty: Ty::String }, Field { name: "name", id: 2, ty: Ty::String }, Field { name: "secret", id: 3, ty: Ty::Bytes }, Field { name: "owner", id: 4, ty: Ty::U32 }],
+                returns: &[],
+                objects: &[],
+            },
+            Method {
+                name: "DeleteSecretFor",
+                id: 268809353,
+                oneway: false,
+                doc: "Forget the secret `name` of `owner` in `scope` (the rules of\n`StoreSecretFor`; `ENOENT` when there is none).",
+                params: &[Field { name: "scope", id: 1, ty: Ty::String }, Field { name: "name", id: 2, ty: Ty::String }, Field { name: "owner", id: 3, ty: Ty::U32 }],
+                returns: &[],
+                objects: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -3535,7 +3553,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.net.wifi.hw.v1",
         id: 0xa882dc6295ff08bd,
-        doc: "A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md\nsection 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid\n`_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is\n`wlanmd` (uid `_wlan`, no capabilities). The simulator `wifisim` (`_wifisim`)\nserves the same interface in CI and is its first implementation, which is\nwhy nothing here is shaped by one chip.\n\n**Trust.** The side that holds DMA parses nothing from the air and the side\nthat parses the air holds no capabilities. So this interface moves\n*opaque management frames* in both directions: the driver hands over raw\nbeacon, probe-response, authentication and association bodies exactly as\nthe radio received them (with the radio's own metadata: channel, signal,\nage) and transmits frames `wlanmd` built, and it never looks inside an\ninformation element. Everything the driver does decide is a hardware\nmatter: which channels it may tune (it enforces the country it was\ngiven), key slots, and the association state its firmware needs.\n\n**The data path is not here.** Once the station is authorized, payload\nframes travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same\ndriver serves to `netd`. The 802.3 to 802.11 conversion happens below this\ninterface: in the chip's firmware where it offers that, else in the\ndriver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on\nthe RTL8822CE. The NIC's link state follows this interface: it is down\nuntil `SetState(Authorized)`.\n\n**One client.** The first caller of `Attach` owns the radio; its identity\nis the kernel-stamped sender, and every later call or `Detach` by anyone\nelse fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,\nor its event channel reporting the peer gone, detaches it and leaves the\nradio idle: scanning stops, the BSS is left, all keys are deleted.\n\n**Events.** `Attach` carries the client's event channel; the driver sends\nthe `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,\n`Deauthenticated`) on it. They carry the same bounds as calls: a frame is\nat most `HwInfo.max_mgmt` bytes, never truncated and never delivered\npartially; one that does not fit is dropped and counted.\n\n**Keys cross this interface.** `SetKey` is the one place secret material\n(a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is\naccepted only from the owner, the driver never logs or stores it beyond\nthe key slot, and it is cleared by `DelKey`, `Leave` and `Detach`.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
+        doc: "A Wi-Fi radio, **seen from the station manager** (docs/wifi-prerequisites-plan.md\nsection 3.5, docs/wifi-plan.md section 5.1). The chip driver (`wifid`, uid\n`_wifi`, holds `CAP_DEV_CLAIM` and the bus) serves it; its one client is\n`wlanmd` (uid `_wlan`, no capabilities). The simulator `wifisim` (`_wifisim`)\nserves the same interface in CI and is its first implementation, which is\nwhy nothing here is shaped by one chip.\n\n**Trust.** The side that holds DMA parses nothing from the air and the side\nthat parses the air holds no capabilities. So this interface moves\n*opaque management frames* in both directions: the driver hands over raw\nbeacon, probe-response, authentication and association bodies exactly as\nthe radio received them (with the radio's own metadata: channel, signal,\nage) and transmits frames `wlanmd` built, and it never looks inside an\ninformation element. Everything the driver does decide is a hardware\nmatter: which channels it may tune (it enforces the country it was\ngiven), key slots, and the association state its firmware needs.\n\n**The data path is not here.** Once the station is authorized, payload\nframes travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same\ndriver serves to `netd`. The 802.3 to 802.11 conversion happens below this\ninterface: in the chip's firmware where it offers that, else in the\ndriver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on\nthe RTL8822CE. The NIC's link state follows this interface: it is down\nuntil `SetState(Authorized)`.\n\n**Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,\n`<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which\nit serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi\ndriver identities (`_wifi`, `_wifisim`) hold names there\n(`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing\nthat namespace.\n\n**One client.** The first caller of `Attach` owns the radio; its identity\nis the kernel-stamped sender, and every later call or `Detach` by anyone\nelse fails with `EACCES` (a second attach with `EBUSY`). `Attach` is\naccepted from `_wlan` alone (`netpolicy::may_attach_wifi_hw`; `EPERM`\notherwise), so nobody can take the radio before `wlanmd` does. The owner's\nexit, or its event channel reporting the peer gone, detaches it and leaves\nthe radio idle: scanning stops, the BSS is left, all keys are deleted.\n\n**Events.** `Attach` carries the client's event channel; the driver sends\nthe `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,\n`Deauthenticated`) on it. They carry the same bounds as calls: a frame is\nat most `HwInfo.max_mgmt` bytes, never truncated and never delivered\npartially; one that does not fit is dropped and counted.\n\n**Keys cross this interface.** `SetKey` is the one place secret material\n(a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is\naccepted only from the owner, the driver never logs or stores it beyond\nthe key slot, and it is cleared by `DelKey`, `Leave` and `Detach`.\n\nFailures of calls are returned as the shared structured error field\n(`services::error_field`) instead of the declared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -3595,7 +3613,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "ScanResults",
                 id: 536623814,
                 oneway: false,
-                doc: "One page of a finished (or running) scan's results, in the order the\nradio heard them, from entry `first`; at most `max` entries (capped at\n64). `more` says whether a later page holds entries. Each entry is the\nraw management frame body, **unparsed**: parsing it is `wlanmd`'s job.\nAn unknown `scan_id` is `ENOENT`.",
+                doc: "One page of a finished (or running) scan's results, in the order the\nradio heard them, from entry `first`; at most `max` entries (capped at\n64). `more` says whether a later page holds entries. Each entry is the\nraw management frame, **unparsed**: parsing it is `wlanmd`'s job.\nAn unknown `scan_id` is `ENOENT`.",
                 params: &[Field { name: "scan_id", id: 1, ty: Ty::U32 }, Field { name: "first", id: 2, ty: Ty::U32 }, Field { name: "max", id: 3, ty: Ty::U32 }],
                 returns: &[Field { name: "results", id: 1, ty: Ty::Array(&Ty::Struct("ScanEntry")) }, Field { name: "more", id: 2, ty: Ty::Bool }],
                 objects: &[],
@@ -3613,7 +3631,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "TxMgmt",
                 id: 583187128,
                 oneway: false,
-                doc: "Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a\n`FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11\nmanagement frame without FCS, for `Eapol` a complete 802.3 EAPOL frame\n(the radio adds the 802.11 header and, once keys are installed, the\nencryption). Only while joined (`ENOTCONN`); a frame longer than\n`HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.",
+                doc: "Send a management or EAPOL frame `wlanmd` built, as is. `kind` is a\n`FrameKind` ordinal; for `Mgmt` the frame is a complete 802.11\nmanagement frame without FCS, for `Eapol` a complete 802.3 EAPOL frame\n(the radio adds the 802.11 header and, once keys are installed, the\nencryption). Only while joined (`ENOTCONN`); a frame longer than\n`HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.\nA frame goes out under the keys in force when it was queued: message\n4 of the 4-way handshake is queued just before the pairwise key is\ninstalled and must leave unencrypted.",
                 params: &[Field { name: "kind", id: 1, ty: Ty::U32 }, Field { name: "frame", id: 2, ty: Ty::Bytes }],
                 returns: &[],
                 objects: &[],
@@ -3622,7 +3640,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "SetState",
                 id: 1345327380,
                 oneway: false,
-                doc: "Move the radio's association state: a `StaState` ordinal. `Associated`\ncarries the association id the AP assigned; `Authorized` opens the\ncontrolled port (data frames flow, the NIC's link comes up) and is\nvalid only after the pairwise key is installed. Going to a lower state\nis always allowed and takes the link down.",
+                doc: "Move the radio's association state: a `StaState` ordinal. `Associated`\ncarries the association id the AP assigned; `Authorized` opens the\ncontrolled port (data frames flow, the NIC's link comes up) and is\nvalid only after the pairwise key is installed, or straight after\n`Associated` for an open network (no key at all). Going to a lower\nstate is always allowed and takes the link down.",
                 params: &[Field { name: "state", id: 1, ty: Ty::U32 }, Field { name: "aid", id: 2, ty: Ty::U32 }],
                 returns: &[],
                 objects: &[],
@@ -3676,7 +3694,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "RxMgmt",
                 id: 1961753042,
                 oneway: true,
-                doc: "Event, driver to client: a management or EAPOL frame addressed to this\nstation arrived from the joined BSS. `kind` is a `FrameKind` ordinal,\n`rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.",
+                doc: "Event, driver to client: a management or EAPOL frame addressed to this\nstation arrived from the joined BSS. `kind` is a `FrameKind` ordinal,\n`rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:\na whole management frame (from the MAC header, no FCS), or EAPOL as\nan 802.3 frame (destination, source, ethertype 0x888E, then the\nEAPOL PDU), decrypted. The bytes are unparsed and hostile.",
                 params: &[Field { name: "kind", id: 1, ty: Ty::U32 }, Field { name: "rssi_dbm", id: 2, ty: Ty::I32 }, Field { name: "frame", id: 3, ty: Ty::Bytes }],
                 returns: &[],
                 objects: &[],
@@ -3718,7 +3736,7 @@ pub static INTERFACES: &[Interface] = &[
             },
             Struct {
                 name: "JoinRequest",
-                doc: "The complete management frame body (without FCS), as received.\nThe channel it was heard on (a number within `band`).\nA `Band` ordinal.\nSignal strength in dBm as the radio measured it.\nMilliseconds before the results were read that it was heard.\nWhere to go.",
+                doc: "The complete management frame, from the MAC header (the BSSID is\nthere), without FCS, as received.\nThe channel it was heard on (a number within `band`).\nA `Band` ordinal.\nSignal strength in dBm as the radio measured it.\nMilliseconds before the results were read that it was heard.\nWhere to go.",
                 fields: &[Field { name: "bssid", id: 1, ty: Ty::Bytes }, Field { name: "channel", id: 2, ty: Ty::U32 }, Field { name: "band", id: 3, ty: Ty::U32 }, Field { name: "width", id: 4, ty: Ty::U32 }],
             },
             Struct {

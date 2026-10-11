@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "tools" / "firmware"))
 import fetch  # noqa: E402  (the firmware manifest's parser)
 
 #: The Wi-Fi crates (a missing one is skipped: the stack lands in stages).
-CRATES = ["libs/rtw88", "libs/fwload", "libs/ieee80211", "libs/eapol", "libs/wifimac"]
+CRATES = ["libs/rtw88", "libs/fwload", "libs/ieee80211", "libs/eapol", "libs/wlansta", "libs/wifimac"]
 TARGET = "x86_64-unknown-none"
 THIRD_PARTY = ROOT / "THIRD_PARTY.md"
 RTW88_LIB = ROOT / "libs" / "rtw88" / "src" / "lib.rs"

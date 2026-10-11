@@ -29,6 +29,11 @@ pub const NETD_UID: u32 = 903;
 /// wireless device class ([`WIFI_DRIVER_CLASS_RULES`]).
 pub const WIFI_UID: u32 = 911;
 
+/// The `_wlan` system user: the Wi-Fi station manager (`wlanmd`), **no**
+/// capabilities. The one identity a radio accepts as its client, and the one
+/// `keyd` gives PMKs to (`secretstore::WLAN_UID`, the same value).
+pub const WLAN_UID: u32 = 912;
+
 /// The `_wifisim` system user: the simulated Wi-Fi chip the tests run.
 pub const WIFISIM_UID: u32 = 913;
 
@@ -53,6 +58,12 @@ mod nic;
 pub use nic::{
     is_nic_name, may_register_nic_name, nic_kind_allowed, NIC_KIND_WIRED, NIC_KIND_WIRELESS,
     NIC_NAME_PREFIX,
+};
+mod wifi;
+pub use wifi::{
+    is_wifi_hw_name, is_wifi_service_name, is_wifi_topic, is_wlanmd, may_attach_wifi_hw,
+    may_register_wifi_hw_name, may_register_wifi_service_name, WIFI_HW_NAME_PREFIX,
+    WIFI_SERVICE_NAME,
 };
 
 /// One rule. `actor` is a uid.

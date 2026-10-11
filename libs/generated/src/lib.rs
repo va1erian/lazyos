@@ -9426,6 +9426,10 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_LISTSECRETS: u32 = 1353484194;
     /// `WifiPmk` method id.
     pub const METHOD_WIFIPMK: u32 = 249445660;
+    /// `StoreSecretFor` method id.
+    pub const METHOD_STORESECRETFOR: u32 = 1701625789;
+    /// `DeleteSecretFor` method id.
+    pub const METHOD_DELETESECRETFOR: u32 = 268809353;
 
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
@@ -10081,6 +10085,89 @@ pub mod os_lazy_keyd_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.pmk = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Keep `secret` under `name` for someone else: the user `owner` (scope
+    /// `user`) or the machine (scope `system`, `owner` 0). Answered only to
+    /// `wlanmd` (the `_wlan` system uid, unlabelled, outside any session),
+    /// which takes a passphrase in `os.lazy.net.wifi.v1` `AddNetwork` and
+    /// checks there who may add what (a `system` network only from `elevd`);
+    /// everyone else gets `EPERM`. Otherwise the rules of `StoreSecret`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StoreSecretForArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub secret: alloc::vec::Vec<u8>,
+        pub owner: u32,
+    }
+
+    pub fn encode_store_secret_for_args(value: &StoreSecretForArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.bytes(3, &value.secret)?;
+        target.u32(4, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_store_secret_for_args(body: &[u8]) -> Result<StoreSecretForArgs, Error> {
+        let mut out = StoreSecretForArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.secret = field.as_bytes().to_vec();
+                }
+                4 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the secret `name` of `owner` in `scope` (the rules of
+    /// `StoreSecretFor`; `ENOENT` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteSecretForArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub owner: u32,
+    }
+
+    pub fn encode_delete_secret_for_args(value: &DeleteSecretForArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.u32(3, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_secret_for_args(body: &[u8]) -> Result<DeleteSecretForArgs, Error> {
+        let mut out = DeleteSecretForArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
@@ -19409,7 +19496,8 @@ pub mod os_lazy_net_wifi_hw_v1 {
         Ok(out)
     }
 
-    /// The complete management frame body (without FCS), as received.
+    /// The complete management frame, from the MAC header (the BSSID is
+    /// there), without FCS, as received.
     /// The channel it was heard on (a number within `band`).
     /// A `Band` ordinal.
     /// Signal strength in dBm as the radio measured it.
@@ -19727,7 +19815,7 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// One page of a finished (or running) scan's results, in the order the
     /// radio heard them, from entry `first`; at most `max` entries (capped at
     /// 64). `more` says whether a later page holds entries. Each entry is the
-    /// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+    /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ScanResultsArgs {
@@ -19833,6 +19921,9 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// (the radio adds the 802.11 header and, once keys are installed, the
     /// encryption). Only while joined (`ENOTCONN`); a frame longer than
     /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+    /// A frame goes out under the keys in force when it was queued: message
+    /// 4 of the 4-way handshake is queued just before the pairwise key is
+    /// installed and must leave unencrypted.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct TxMgmtArgs {
         pub kind: u32,
@@ -19866,8 +19957,9 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// Move the radio's association state: a `StaState` ordinal. `Associated`
     /// carries the association id the AP assigned; `Authorized` opens the
     /// controlled port (data frames flow, the NIC's link comes up) and is
-    /// valid only after the pairwise key is installed. Going to a lower state
-    /// is always allowed and takes the link down.
+    /// valid only after the pairwise key is installed, or straight after
+    /// `Associated` for an open network (no key at all). Going to a lower
+    /// state is always allowed and takes the link down.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetStateArgs {
         pub state: u32,
@@ -20069,7 +20161,10 @@ pub mod os_lazy_net_wifi_hw_v1 {
 
     /// Event, driver to client: a management or EAPOL frame addressed to this
     /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
-    /// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
+    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
+    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
+    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RxMgmtArgs {
         pub kind: u32,

@@ -405,7 +405,12 @@ capabilities = []
   caller's kernel-stamped uid) or the `system` scope (every user, and before
   anyone logs in). A `system` change is accepted from `elevd`'s identity
   alone (`net.wifi.system`, after an administrator approved it on the
-  trusted prompt), never from uid 0 or a capability. No method returns a
+  trusted prompt), never from uid 0 or a capability. `StoreSecretFor` and
+  `DeleteSecretFor` let `wlanmd` alone keep a secret for someone else: the
+  user who added a network through `os.lazy.net.wifi.v1` `AddNetwork`, or
+  the machine for a `system` network, which `wlanmd` accepts from `elevd`
+  alone (so the approval is checked one hop earlier; `wlanmd` already holds
+  every PMK, so writing secrets gives it nothing more). No method returns a
   stored secret. The one use is `WifiPmk`, the WPA2 pairwise master key for
   an SSID, answered only to `wlanmd` (the `_wlan` system uid, uid 912,
   unlabelled, outside any session) and cached sealed beside the secret.

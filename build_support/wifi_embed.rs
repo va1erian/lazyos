@@ -196,6 +196,9 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         return;
     }
     add_program(sink, fhs::bin::WIFID, "wifid");
+    // The station manager and its command line (docs/architecture/wifi.md).
+    add_program(sink, fhs::bin::WLANMD, "wlanmd");
+    add_program(sink, fhs::bin::WIFICTL, "wifictl");
     let text = std::fs::read_to_string(&manifest)
         .unwrap_or_else(|error| panic!("{}: {error}", manifest.display()));
     let pins = parse_manifest(&text).unwrap_or_else(|why| panic!("{}: {why}", manifest.display()));

@@ -313,6 +313,27 @@ fn dispatch(
                 }),
             )
         }
+        api::METHOD_STORESECRETFOR => {
+            let args = api::decode_store_secret_for_args(body).map_err(parse)?;
+            let op = Op::StoreFor {
+                owner_uid: args.owner,
+            };
+            let owner = secret_owner(message, &args.scope, op)?;
+            let name = bounded_text(args.name)?;
+            let secret = bounded_bytes(args.secret, MAX_BYTES)?;
+            secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
+            Ok(wire::ok_reply(api::METHOD_STORESECRETFOR))
+        }
+        api::METHOD_DELETESECRETFOR => {
+            let args = api::decode_delete_secret_for_args(body).map_err(parse)?;
+            let op = Op::DeleteFor {
+                owner_uid: args.owner,
+            };
+            let owner = secret_owner(message, &args.scope, op)?;
+            let name = bounded_text(args.name)?;
+            secrets.delete(&mut keyd.entropy, owner, &name)?;
+            Ok(wire::ok_reply(api::METHOD_DELETESECRETFOR))
+        }
         api::METHOD_WIFIPMK => {
             let args = api::decode_wifi_pmk_args(body).map_err(parse)?;
             let owner = secret_owner(

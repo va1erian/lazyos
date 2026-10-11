@@ -29,11 +29,20 @@
 // the RTL8822CE. The NIC's link state follows this interface: it is down
 // until `SetState(Authorized)`.
 //
+// **Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,
+// `<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which
+// it serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi
+// driver identities (`_wifi`, `_wifisim`) hold names there
+// (`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing
+// that namespace.
+//
 // **One client.** The first caller of `Attach` owns the radio; its identity
 // is the kernel-stamped sender, and every later call or `Detach` by anyone
-// else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
-// or its event channel reporting the peer gone, detaches it and leaves the
-// radio idle: scanning stops, the BSS is left, all keys are deleted.
+// else fails with `EACCES` (a second attach with `EBUSY`). `Attach` is
+// accepted from `_wlan` alone (`netpolicy::may_attach_wifi_hw`; `EPERM`
+// otherwise), so nobody can take the radio before `wlanmd` does. The owner's
+// exit, or its event channel reporting the peer gone, detaches it and leaves
+// the radio idle: scanning stops, the BSS is left, all keys are deleted.
 //
 // **Events.** `Attach` carries the client's event channel; the driver sends
 // the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
@@ -114,7 +123,7 @@ fn abort_scan(scan_id) {
 /// One page of a finished (or running) scan's results, in the order the
 /// radio heard them, from entry `first`; at most `max` entries (capped at
 /// 64). `more` says whether a later page holds entries. Each entry is the
-/// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+/// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
 /// An unknown `scan_id` is `ENOENT`.
 fn scan_results(scan_id, first, max) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("ScanResults", [scan_id, first, max])
@@ -138,6 +147,9 @@ fn join(request) {
 /// (the radio adds the 802.11 header and, once keys are installed, the
 /// encryption). Only while joined (`ENOTCONN`); a frame longer than
 /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+/// A frame goes out under the keys in force when it was queued: message
+/// 4 of the 4-way handshake is queued just before the pairwise key is
+/// installed and must leave unencrypted.
 fn tx_mgmt(kind, frame) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("TxMgmt", [kind, frame])
 }
@@ -147,8 +159,9 @@ fn tx_mgmt(kind, frame) {
 /// Move the radio's association state: a `StaState` ordinal. `Associated`
 /// carries the association id the AP assigned; `Authorized` opens the
 /// controlled port (data frames flow, the NIC's link comes up) and is
-/// valid only after the pairwise key is installed. Going to a lower state
-/// is always allowed and takes the link down.
+/// valid only after the pairwise key is installed, or straight after
+/// `Associated` for an open network (no key at all). Going to a lower
+/// state is always allowed and takes the link down.
 fn set_state(state, aid) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("SetState", [state, aid])
 }
@@ -204,7 +217,10 @@ fn scan_done(scan_id, aborted) {
 ///
 /// Event, driver to client: a management or EAPOL frame addressed to this
 /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
-/// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+/// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
+/// a whole management frame (from the MAC header, no FCS), or EAPOL as
+/// an 802.3 frame (destination, source, ethertype 0x888E, then the
+/// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
 ///
 /// One-way: returns `()` once the message is queued.
 fn rx_mgmt(kind, rssi_dbm, frame) {
@@ -280,7 +296,8 @@ fn new_scan_entry() {
 
 /// A `JoinRequest` with every field at its zero value.
 ///
-/// The complete management frame body (without FCS), as received.
+/// The complete management frame, from the MAC header (the BSSID is
+/// there), without FCS, as received.
 /// The channel it was heard on (a number within `band`).
 /// A `Band` ordinal.
 /// Signal strength in dBm as the radio measured it.

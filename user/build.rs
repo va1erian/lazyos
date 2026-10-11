@@ -254,9 +254,10 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_dbgd");
     }
 
-    // Wi-Fi (docs/wifi-rtw88-plan.md): `LAZYOS_WIFI=1` adds the `wifid`
-    // driver row `devd` asks for when it finds an RTL8822CE (the ELF and the
-    // firmware are placed by the root build script, `wifi_embed.rs`). A
+    // Wi-Fi (docs/wifi-rtw88-plan.md, docs/architecture/wifi.md):
+    // `LAZYOS_WIFI=1` adds the `wifid` driver row `devd` asks for when it
+    // finds an RTL8822CE and the `wlanmd` station manager row (the ELFs,
+    // `wifictl` and the firmware are placed by the root build script). A
     // wireless card is one of `netd`'s interfaces.
     println!("cargo:rerun-if-env-changed=LAZYOS_WIFI");
     println!("cargo:rustc-check-cfg=cfg(lazyos_wifi)");

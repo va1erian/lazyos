@@ -27,11 +27,20 @@ driver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on
 the RTL8822CE. The NIC's link state follows this interface: it is down
 until `SetState(Authorized)`.
 
+**Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,
+`<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which
+it serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi
+driver identities (`_wifi`, `_wifisim`) hold names there
+(`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing
+that namespace.
+
 **One client.** The first caller of `Attach` owns the radio; its identity
 is the kernel-stamped sender, and every later call or `Detach` by anyone
-else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
-or its event channel reporting the peer gone, detaches it and leaves the
-radio idle: scanning stops, the BSS is left, all keys are deleted.
+else fails with `EACCES` (a second attach with `EBUSY`). `Attach` is
+accepted from `_wlan` alone (`netpolicy::may_attach_wifi_hw`; `EPERM`
+otherwise), so nobody can take the radio before `wlanmd` does. The owner's
+exit, or its event channel reporting the peer gone, detaches it and leaves
+the radio idle: scanning stops, the BSS is left, all keys are deleted.
 
 **Events.** `Attach` carries the client's event channel; the driver sends
 the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,

@@ -200,6 +200,38 @@ fn authorization_table() {
     }
 }
 
+#[test]
+fn only_wlanmd_stores_and_deletes_for_someone() {
+    let wlan = caller(WLAN_UID);
+    for op in [
+        Op::StoreFor { owner_uid: 1000 },
+        Op::DeleteFor { owner_uid: 1000 },
+    ] {
+        assert_eq!(authorize(wlan, "user", op), Ok(Owner::User(1000)));
+        assert_eq!(authorize(wlan, "system", op), Err(Denied::Invalid));
+        for denied in [
+            caller(ELEVD_UID),
+            caller(0),
+            caller(1000),
+            caller(913),
+            Caller { label_id: 4, ..wlan },
+            Caller { session: 2, ..wlan },
+        ] {
+            for scope in ["user", "system"] {
+                assert_eq!(authorize(denied, scope, op), Err(Denied::Perm), "{denied:?}");
+            }
+        }
+    }
+    for op in [Op::StoreFor { owner_uid: 0 }, Op::DeleteFor { owner_uid: 0 }] {
+        assert_eq!(authorize(wlan, "system", op), Ok(Owner::System));
+        assert_eq!(authorize(wlan, "user", op), Ok(Owner::User(0)));
+    }
+    assert_eq!(
+        authorize(wlan, "users", Op::StoreFor { owner_uid: 1 }),
+        Err(Denied::Invalid)
+    );
+}
+
 // ---- the PMK -------------------------------------------------------------
 
 #[test]

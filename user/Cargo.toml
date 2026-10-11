@@ -94,6 +94,8 @@ dbgwire = { path = "../libs/dbgwire" }
 tracefmt = { path = "../libs/tracefmt" }
 # `mountd`'s mount table and argument checks (docs/smb-plan.md).
 mounttable = { path = "../libs/mounttable" }
+# `wlanmd`'s station state machine (docs/architecture/wifi.md, WP4).
+wlansta = { path = "../libs/wlansta" }
 usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
 # init's restart/backoff/notice decisions (issue #549), host-tested there.
@@ -548,6 +550,21 @@ bench = false
 [[bin]]
 name = "dbgd"
 path = "src/bin/dbgd.rs"
+test = false
+bench = false
+
+# `wlanmd` (docs/architecture/wifi.md, `LAZYOS_WIFI=1`): the Wi-Fi station
+# manager over `os.lazy.net.wifi.hw.v1`, serving `os.lazy.net.wifi.v1`.
+[[bin]]
+name = "wlanmd"
+path = "src/bin/wlanmd.rs"
+test = false
+bench = false
+
+# `wifictl` (`LAZYOS_WIFI=1`): the Wi-Fi command line over `wlanmd`.
+[[bin]]
+name = "wifictl"
+path = "src/bin/wifictl.rs"
 test = false
 bench = false
 

@@ -134,11 +134,18 @@ pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
     0,
 );
 
+/// The Wi-Fi station manager's identity (docs/architecture/wifi.md): the
+/// `_wlan` system uid and **no capabilities**. It parses the air; the radio
+/// drivers, `keyd` and `confd` recognise it by this identity alone.
+#[cfg(lazyos_wifi)]
+pub(super) const WLAN_CRED: SysCred =
+    SysCred::new(netpolicy::WLAN_UID, netpolicy::WLAN_UID, 0, 0, 0);
+
 /// Every system uid a service runs as or is trusted by. Services authorize
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 12] = [
+const SYSTEM_UIDS: [u32; 13] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
@@ -151,6 +158,7 @@ const SYSTEM_UIDS: [u32; 12] = [
     accountdb::ACCOUNTS_UID,
     accountdb::ELEVD_UID,
     mounttable::MOUNTD_UID,
+    netpolicy::WLAN_UID,
 ];
 
 const _: () = {
