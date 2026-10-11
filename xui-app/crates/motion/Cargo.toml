@@ -1,0 +1,13 @@
+[package]
+name = "lazymotion"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Easing curves, a damped spring and tweens as pure functions of elapsed time, plus the sys/ui/motion setting (docs/notify-plan.md)"
+
+# Pure and host-tested: no clock, no xui, no syscalls. The caller passes the
+# time (milliseconds), so a curve is the same on the host and in the guest and
+# a test needs no sleeping. It lives beside the shell rather than in
+# `xui-core` (a pinned external dependency); the toast presenter uses it, and
+# window open/close can later.
+[dependencies]

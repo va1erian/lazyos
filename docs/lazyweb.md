@@ -103,6 +103,7 @@ download of the session, with a link to open a finished one and to cancel a
 running one. File > Save Page As Download saves the current page the same
 way. Serial evidence: `WEB:DOWNLOAD:START:<name>`,
 `WEB:DOWNLOAD:DONE:<name>:<bytes>`, `WEB:DOWNLOAD:FAIL:<reason>`.
+Each download also shows a toast (`os.lazy.notify`, docs/notify-plan.md): "Downloading" while it runs, updated in place to "Download complete" or "Download failed".
 
 ## Links and the rest of the OS
 

@@ -13993,6 +13993,553 @@ pub mod os_lazy_net_socket_v1 {
     ];
 }
 
+/// `os.lazy.notify.v1` (interface id `0xedc6a2bd550db5ab`).
+#[rustfmt::skip]
+pub mod os_lazy_notify_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xedc6a2bd550db5ab;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.notify.v1";
+
+    /// `Level::Info` wire value.
+    pub const LEVEL_INFO: u32 = 0;
+    /// `Level::Success` wire value.
+    pub const LEVEL_SUCCESS: u32 = 1;
+    /// `Level::Warn` wire value.
+    pub const LEVEL_WARN: u32 = 2;
+    /// `Level::Error` wire value.
+    pub const LEVEL_ERROR: u32 = 3;
+
+    /// `CloseReason::User` wire value.
+    pub const CLOSE_REASON_USER: u32 = 0;
+    /// `CloseReason::Timeout` wire value.
+    pub const CLOSE_REASON_TIMEOUT: u32 = 1;
+    /// `CloseReason::Replaced` wire value.
+    pub const CLOSE_REASON_REPLACED: u32 = 2;
+    /// `CloseReason::Sender` wire value.
+    pub const CLOSE_REASON_SENDER: u32 = 3;
+    /// `CloseReason::Restart` wire value.
+    pub const CLOSE_REASON_RESTART: u32 = 4;
+    /// `CloseReason::Muted` wire value.
+    pub const CLOSE_REASON_MUTED: u32 = 5;
+
+    /// A toast's picture: at most one source. An empty `Icon`, a Lucide name
+    /// the named-icon library (`lazyicons`, `docs/icons.md`) does not know,
+    /// or an image larger than 64 x 64 or whose `data` is not
+    /// `width * height * 4` bytes falls back to the level's icon.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Icon {
+        pub lucide: core::option::Option<alloc::string::String>,
+        pub image: core::option::Option<Image>,
+    }
+
+    pub fn encode_icon(value: &Icon) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        match &value.lucide {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(1, Some(&nested))?;
+            }
+            None => {
+                target.option(1, None)?;
+            }
+        }
+        match &value.image {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_image(item)?)?;
+                target.option(2, Some(&nested))?;
+            }
+            None => {
+                target.option(2, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_icon(body: &[u8]) -> Result<Icon, Error> {
+        let mut out = Icon::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    if field.payload.is_empty() {
+                        out.lucide = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.lucide = Some(item.as_str()?.into());
+                    }
+                }
+                2 => {
+                    if field.payload.is_empty() {
+                        out.image = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.image = Some(decode_image(item.payload)?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A Lucide outline by its kebab-case name (`usb`), tinted with the
+    /// toast's ink.
+    /// Full-colour straight RGBA, drawn as given.
+    /// Straight RGBA8 pixels, rows tightly packed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Image {
+        pub width: u32,
+        pub height: u32,
+        pub data: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_image(value: &Image) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.width)?;
+        target.u32(2, value.height)?;
+        target.bytes(3, &value.data)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_image(body: &[u8]) -> Result<Image, Error> {
+        let mut out = Image::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.width = field.as_u32()?;
+                }
+                2 => {
+                    out.height = field.as_u32()?;
+                }
+                3 => {
+                    out.data = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A button on the toast. `id` is what `ActionInvoked` reports back.
+    /// Mouse only: a toast never takes keyboard focus, so an action must
+    /// never be the only way to do something (docs/notify-plan.md).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Action {
+        pub id: u32,
+        pub label: alloc::string::String,
+    }
+
+    pub fn encode_action(value: &Action) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.id)?;
+        target.string(2, &value.label)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_action(body: &[u8]) -> Result<Action, Error> {
+        let mut out = Action::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u32()?;
+                }
+                2 => {
+                    out.label = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 1;
+    /// `Close` method id.
+    pub const METHOD_CLOSE: u32 = 2;
+    /// `Listen` method id.
+    pub const METHOD_LISTEN: u32 = 3;
+
+    /// Show a toast and return its id. With `replaces_id` naming a live
+    /// toast of this sender, that toast is updated in place (a copy that
+    /// goes from "Copying..." to "Done" is one toast, not two) and the same
+    /// id comes back; an id that is gone or someone else's is ignored and a
+    /// new toast is made.
+    /// 
+    /// `timeout` is in milliseconds: absent is the level's default (Info and
+    /// Success 5 s), 0 until dismissed, otherwise 1 s to 60 s. Warn and
+    /// Error never time out, and neither does a toast whose `progress` is
+    /// below 100. `actions` is empty for none; `progress` absent for none.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub level: u32,
+        pub title: alloc::string::String,
+        pub body: alloc::string::String,
+        pub icon: core::option::Option<Icon>,
+        pub actions: alloc::vec::Vec<Action>,
+        pub progress: core::option::Option<u32>,
+        pub replaces_id: core::option::Option<u64>,
+        pub timeout: core::option::Option<u32>,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.level)?;
+        target.string(2, &value.title)?;
+        target.string(3, &value.body)?;
+        match &value.icon {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_icon(item)?)?;
+                target.option(4, Some(&nested))?;
+            }
+            None => {
+                target.option(4, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.actions {
+            nested.raw(Kind::Struct, 1, &encode_action(item)?)?;
+        }
+        target.array(5, &nested)?;
+        match &value.progress {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u32(1, *item)?;
+                target.option(6, Some(&nested))?;
+            }
+            None => {
+                target.option(6, None)?;
+            }
+        }
+        match &value.replaces_id {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u64(1, *item)?;
+                target.option(7, Some(&nested))?;
+            }
+            None => {
+                target.option(7, None)?;
+            }
+        }
+        match &value.timeout {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.u32(1, *item)?;
+                target.option(8, Some(&nested))?;
+            }
+            None => {
+                target.option(8, None)?;
+            }
+        }
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.level = field.as_u32()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
+                }
+                3 => {
+                    out.body = field.as_str()?.into();
+                }
+                4 => {
+                    if field.payload.is_empty() {
+                        out.icon = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.icon = Some(decode_icon(item.payload)?);
+                    }
+                }
+                5 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.actions.push(decode_action(item.payload)?);
+                    }
+                }
+                6 => {
+                    if field.payload.is_empty() {
+                        out.progress = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.progress = Some(item.as_u32()?);
+                    }
+                }
+                7 => {
+                    if field.payload.is_empty() {
+                        out.replaces_id = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.replaces_id = Some(item.as_u64()?);
+                    }
+                }
+                8 => {
+                    if field.payload.is_empty() {
+                        out.timeout = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.timeout = Some(item.as_u32()?);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyReply {
+        pub id: u64,
+    }
+
+    pub fn encode_notify_reply(value: &NotifyReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_reply(body: &[u8]) -> Result<NotifyReply, Error> {
+        let mut out = NotifyReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Close the sender's toast `id` (`Closed` with reason `Sender`). Not an
+    /// error when it is already gone, or is not this sender's.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CloseArgs {
+        pub id: u64,
+    }
+
+    pub fn encode_close_args(value: &CloseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_close_args(body: &[u8]) -> Result<CloseArgs, Error> {
+        let mut out = CloseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask for this app's events: `Activated`, `ActionInvoked` and `Closed`
+    /// are sent on `events`, which replaces an earlier channel. The shell
+    /// `Ping`s it and forgets it when it is gone (`EPIPE`). A sender that
+    /// does not care about the outcome never calls it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListenArgs {
+        pub events: u64,
+    }
+
+    /// The body and the object list of `Listen`.
+    pub fn encode_listen_args(value: &ListenArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.channel(1, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Listen` from its body and the objects the kernel installed
+    /// (`LISTEN_OBJECTS`, each claimed by its field).
+    pub fn decode_listen_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<ListenArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = ListenArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.events = field.claim_channel(objects, next)?;
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Listen` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.notify.events.v1` on.
+    pub const LISTEN_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_LISTEN, LISTEN_OBJECTS),
+    ];
+}
+
+/// `os.lazy.notify.events.v1` (interface id `0x13b1573de8af167e`).
+#[rustfmt::skip]
+pub mod os_lazy_notify_events_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x13b1573de8af167e;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.notify.events.v1";
+
+    /// `Activated` method id.
+    pub const METHOD_ACTIVATED: u32 = 1;
+    /// `ActionInvoked` method id.
+    pub const METHOD_ACTIONINVOKED: u32 = 2;
+    /// `Closed` method id.
+    pub const METHOD_CLOSED: u32 = 3;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 4;
+
+    /// The user clicked the toast's body.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActivatedArgs {
+        pub id: u64,
+    }
+
+    pub fn encode_activated_args(value: &ActivatedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_activated_args(body: &[u8]) -> Result<ActivatedArgs, Error> {
+        let mut out = ActivatedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The user pressed action `action` of toast `id`; the toast closes.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActionInvokedArgs {
+        pub id: u64,
+        pub action: u32,
+    }
+
+    pub fn encode_action_invoked_args(value: &ActionInvokedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        target.u32(2, value.action)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_action_invoked_args(body: &[u8]) -> Result<ActionInvokedArgs, Error> {
+        let mut out = ActionInvokedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u64()?;
+                }
+                2 => {
+                    out.action = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The toast is gone; `reason` is a `CloseReason` value. It is sent once
+    /// per toast, also for one that was never shown (`Muted`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ClosedArgs {
+        pub id: u64,
+        pub reason: u32,
+    }
+
+    pub fn encode_closed_args(value: &ClosedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.id)?;
+        target.u32(2, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_closed_args(body: &[u8]) -> Result<ClosedArgs, Error> {
+        let mut out = ClosedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_u64()?;
+                }
+                2 => {
+                    out.reason = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
+}
+
 /// `os.lazy.pkgd.v1` (interface id `0x2e65545739956542`).
 #[rustfmt::skip]
 pub mod os_lazy_pkgd_v1 {
@@ -20637,6 +21184,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0xe125dc0e9d908624,
         method: 1,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.notify.v1.Listen
+    objects::ObjectDecl {
+        interface: 0xedc6a2bd550db5ab,
+        method: 3,
         kinds: &[objects::Kind::Channel],
     },
 ];

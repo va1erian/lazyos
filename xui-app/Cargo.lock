@@ -2710,6 +2710,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazymotion"
+version = "0.1.0"
+
+[[package]]
 name = "lazyos-sys"
 version = "0.1.0"
 dependencies = [
@@ -2733,6 +2737,7 @@ dependencies = [
  "confd",
  "deskmenu",
  "fuzzkit",
+ "lazymotion",
  "messenger-generated",
  "timezone",
 ]
@@ -6700,6 +6705,7 @@ dependencies = [
  "fhs",
  "inputmap",
  "lazyicons",
+ "lazymotion",
  "lazyos-sys",
  "lazyshell",
  "libc",

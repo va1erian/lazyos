@@ -538,15 +538,40 @@ LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 `init` restarts services and the desktop shell as before, but a launched app
 that fails while starting (or keeps crashing) is not restarted: `init`
 publishes `system/events/app/<id>` on the central broker and LazyShell shows
-one notice with the app's name, its exit status and the reason the app gave
-through `init.ReportFailure` (`lrplay` sends the player's error). The rules are
-`libs/svcpolicy` (host-tested), the notice `xui-app/src/shell/notice.rs`.
+one toast (an Error with *Restart* and *Close*, until dismissed) with the
+app's name, its exit status and the reason the app gave through
+`init.ReportFailure` (`lrplay` sends the player's error). The rules are
+`libs/svcpolicy` (host-tested), the text `lazyshell::notice`, the toast
+`xui-app/src/shell/notify/` ([Notifications](#notifications-toasts)).
 
 ```bash
 cargo test -p svcpolicy
 python tools/crash/run.py            # build, install crashload.lzp, open it from the menu, judge
 python tools/crash/test_judge.py     # the judge fails when it should
 ```
+
+## Notifications (toasts)
+
+`os.lazy.notify` (`idl/notify.midl`, [`docs/notify-plan.md`](docs/notify-plan.md),
+issue #747) lets a service or app tell the user something: LazyShell serves it
+and draws the toasts, animated (spring in, icon flourish, eased reflow, hover
+pauses, flick dismisses; `sys/ui/motion` = `full`/`reduced`/`none`). Nothing is
+kept (no history; Warn and Error stay until dismissed), identity is the
+kernel-identified app (a script from the Terminal shows as "Terminal"),
+`sys/ui/notify/dnd` and `sys/ui/notify/mute` are the user's. From a script:
+`sys::notify::notify("Info", "Title", "Body", (), [], (), (), ())`. A toast never
+takes keyboard focus, so **an action must never be the only way to do
+something**. The model is `lazyshell::notify`, the curves `lazymotion`
+(`xui-app/crates/motion`); both are host-tested, no QEMU needed:
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazymotion -p lazyshell
+FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p lazyshell --release notify::fuzz
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/notify     --script tools/screenshot/examples/notify.json   # LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term, with rhai
+```
+
+Markers: `SHELL:NOTIFY:POST|SHOW|CLOSE|ACTION|DENY|LIMIT|SETTINGS`; with the UI
+probe `UI:RECT name=toast:<label>` (`toast:retry`, `toast:dismiss`, `toast:body`).
 
 ## Tray icons (`LAZYOS_TRAYDEMO=1`)
 

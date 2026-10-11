@@ -57,6 +57,8 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::net_nic`](#sysnet_nic) | `os.lazy.net.nic.v1` |
 | [`sys::net_stack`](#sysnet_stack) | `os.lazy.net.stack.v1` |
 | [`sys::net_socket`](#sysnet_socket) | `os.lazy.net.socket.v1` |
+| [`sys::notify`](#sysnotify) | `os.lazy.notify.v1` |
+| [`sys::notify_events`](#sysnotify_events) | `os.lazy.notify.events.v1` |
 | [`sys::pkgd`](#syspkgd) | `os.lazy.pkgd.v1` |
 | [`sys::print`](#sysprint) | `os.lazy.print.v1` |
 | [`sys::messenger_registry`](#sysmessenger_registry) | `os.lazy.messenger.registry.v1` |
@@ -648,6 +650,38 @@ Sockets (docs/networking-plan.md N3), served by `netd` next to
 - `SOCK_KIND` = the `SockKind` variants; `SOCK_KIND_STREAM`, `SOCK_KIND_DATAGRAM`
 - `READY` = the `Ready` variants; `READY_READABLE`, `READY_WRITABLE`, `READY_ACCEPTABLE`, `READY_CLOSED`, `READY_ERROR`
 - `SHUTDOWN` = the `Shutdown` variants; `SHUTDOWN_READ`, `SHUTDOWN_WRITE`, `SHUTDOWN_BOTH`
+
+## `sys::notify`
+
+Interface `os.lazy.notify.v1`, source [`notify.rhai`](notify.rhai).
+
+Desktop notifications (docs/notify-plan.md, issue #747): a service or app
+
+| Function | IDL | About |
+|---|---|---|
+| `notify(level, title, body, icon, actions, progress, replaces_id, timeout)` | `Notify(level: Level, title: String, body: String, icon: Option<Icon>, actions: Array<Action>, progress: Option<U32>, replaces_id: Option<U64>, timeout: Option<U32>) -> (id: U64)` | Show a toast and return its id. With `replaces_id` naming a live |
+| `close(id)` | `Close(id: U64) -> ()` | Close the sender's toast `id` (`Closed` with reason `Sender`). Not an |
+| `new_icon()` | struct `Icon` | a `Icon` at its zero value |
+| `new_image()` | struct `Image` | a `Image` at its zero value |
+| `new_action()` | struct `Action` | a `Action` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `Listen`.
+
+- `LEVEL` = the `Level` variants; `LEVEL_INFO`, `LEVEL_SUCCESS`, `LEVEL_WARN`, `LEVEL_ERROR`
+- `CLOSE_REASON` = the `CloseReason` variants; `CLOSE_REASON_USER`, `CLOSE_REASON_TIMEOUT`, `CLOSE_REASON_REPLACED`, `CLOSE_REASON_SENDER`, `CLOSE_REASON_RESTART`, `CLOSE_REASON_MUTED`
+
+## `sys::notify_events`
+
+Interface `os.lazy.notify.events.v1`, source [`notify_events.rhai`](notify_events.rhai).
+
+What the shell sends an app about its toasts: oneway methods on the
+
+| Function | IDL | About |
+|---|---|---|
+| `activated(id)` | `Activated(id: U64) -> () oneway` | The user clicked the toast's body. |
+| `action_invoked(id, action)` | `ActionInvoked(id: U64, action: U32) -> () oneway` | The user pressed action `action` of toast `id`; the toast closes. |
+| `closed(id, reason)` | `Closed(id: U64, reason: U32) -> () oneway` | The toast is gone; `reason` is a `CloseReason` value. It is sent once |
+| `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 
 ## `sys::pkgd`
 

@@ -438,7 +438,9 @@ Interfaces are authored in `.midl` files under [`idl/`](../idl); `midlc`
 generates the Rust codecs (`messenger-generated`, used by the kernel, native
 `user` programs and the static-musl `xui-app` alike), the references in
 [`docs/idl/`](idl) and the manifest. Nothing hand-copies an id or an
-encoder. The example below is illustrative only.
+encoder. The example below is illustrative only (the real notification
+interface is [`idl/notify.midl`](../idl/notify.midl), shaped for toasts:
+[`notify-plan.md`](notify-plan.md)).
 
 ```idl
 // interfaces/os.lazy.notify.midl

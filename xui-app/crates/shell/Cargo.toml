@@ -17,6 +17,8 @@ confd = { path = "../../../libs/confd" }
 timezone = { path = "../../../libs/timed" }
 # The `os.lazy.shell.tray.v1` request types the tray model validates.
 messenger-generated = { path = "../../../libs/generated" }
+# Easing, the toast spring and `sys/ui/motion` (the notification center's motion).
+lazymotion = { path = "../motion" }
 
 [dev-dependencies]
 # Seeded fuzz over set/update/clear/resident sequences (`tray::fuzz`).

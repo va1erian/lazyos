@@ -191,6 +191,16 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Be told when you click its taskbar icon or pick from its menu",
     ),
     (
+        "os.lazy.notify.v1",
+        LOW,
+        "Show short notices on the desktop, under its own name",
+    ),
+    (
+        "os.lazy.notify.events.v1",
+        LOW,
+        "Be told when you click or dismiss one of its notices",
+    ),
+    (
         "os.lazy.init.app.v1",
         LOW,
         "Be told when you open it again or ask it to quit",

@@ -1534,6 +1534,63 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.notify.v1",
+    "interface_id": "0xedc6a2bd550db5ab",
+    "methods": [
+      {
+        "name": "Notify",
+        "id": 1,
+        "oneway": false
+      },
+      {
+        "name": "Close",
+        "id": 2,
+        "oneway": false
+      },
+      {
+        "name": "Listen",
+        "id": 3,
+        "oneway": false,
+        "objects": [
+          {
+            "name": "events",
+            "kind": "channel",
+            "index": 0,
+            "interface": "os.lazy.notify.events.v1"
+          }
+        ]
+      }
+    ],
+    "topics": []
+  },
+  {
+    "interface": "os.lazy.notify.events.v1",
+    "interface_id": "0x13b1573de8af167e",
+    "methods": [
+      {
+        "name": "Activated",
+        "id": 1,
+        "oneway": true
+      },
+      {
+        "name": "ActionInvoked",
+        "id": 2,
+        "oneway": true
+      },
+      {
+        "name": "Closed",
+        "id": 3,
+        "oneway": true
+      },
+      {
+        "name": "Ping",
+        "id": 4,
+        "oneway": true
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.pkgd.v1",
     "interface_id": "0x2e65545739956542",
     "methods": [

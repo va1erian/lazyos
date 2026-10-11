@@ -7,12 +7,10 @@
 //! `RefCell`/`Cell` that is never borrowed across a call into another window.
 
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
 use std::rc::Rc;
 
 use lazyshell::desktop::folder::Item;
 use lazyshell::menu::{listed_hidden, visible, Listed, Menu, Submenu};
-use lazyshell::notice::Failure;
 use lazyshell::taskbar::{self, Taskbar, BAR_H};
 use lazyshell::Rect;
 use xui_core::app::WindowHandle;
@@ -20,7 +18,6 @@ use xui_core::app::WindowHandle;
 use super::deskdir::Watch;
 use super::failures::FailureFeed;
 use super::menu::MenuMsg;
-use super::notice::{NoticeMsg, Showing};
 use super::services;
 use super::submenu::SubMsg;
 use super::taskbar::BarMsg;
@@ -83,12 +80,11 @@ pub struct Ctx {
     pub keys_in_submenu: Cell<bool>,
     /// Whether this shell holds the compositor's panel-key grab.
     pub panel_grab: Cell<bool>,
-    /// `init`'s app failures for this session, the notice on screen, its
-    /// window, and the failures waiting behind it (issue #549).
+    /// `init`'s app failures for this session (issue #549); each becomes a
+    /// toast of the shell's own ([`super::notify::post_failure`]).
     pub failures: RefCell<FailureFeed>,
-    pub notice: RefCell<Option<Showing>>,
-    pub notice_window: RefCell<Option<WindowHandle<NoticeMsg>>>,
-    pub pending_notices: RefCell<VecDeque<Failure>>,
+    /// The desktop notifications: the center and its toasts (#747).
+    pub notify: super::notify::NotifyState,
     /// The taskbar tray (docs/tray-plan.md).
     pub tray: super::tray::TrayState,
     /// Keys of the one-time log lines already printed.
@@ -131,9 +127,7 @@ impl Ctx {
             keys_in_submenu: Cell::new(false),
             panel_grab: Cell::new(false),
             failures: RefCell::new(FailureFeed::new(session)),
-            notice: RefCell::new(None),
-            notice_window: RefCell::new(None),
-            pending_notices: RefCell::new(VecDeque::new()),
+            notify: super::notify::NotifyState::new(session),
             tray: super::tray::TrayState::new(session),
             noted: RefCell::new(Vec::new()),
         }

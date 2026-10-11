@@ -1,10 +1,5 @@
 use super::*;
 
-/// Every character is 7 pixels wide.
-fn mono(text: &str) -> i32 {
-    7 * text.chars().count() as i32
-}
-
 fn failure(reason: &str, startup: bool) -> Failure {
     Failure {
         app: "user.me.messenger".into(),
@@ -19,7 +14,6 @@ fn failure(reason: &str, startup: bool) -> Failure {
 fn the_text_names_the_app_and_says_what_happened() {
     let f = failure("boom", true);
     assert_eq!(f.title(), "Messenger stopped");
-    assert_eq!(f.heading(), "Messenger stopped unexpectedly");
     assert!(f.sentence().contains("failed while starting (exit code 2)"));
     assert_eq!(f.reason_text().as_deref(), Some("Reason: boom"));
     let later = failure("  ", false);
@@ -37,57 +31,43 @@ fn a_nameless_app_is_called_by_its_id() {
 }
 
 #[test]
-fn wrapping_keeps_every_word_within_the_width() {
-    let lines = wrap("the quick brown fox jumps over the lazy dog", 70, &mono);
-    assert!(lines.iter().all(|line| mono(line) <= 70), "{lines:?}");
+fn the_toast_is_a_sticky_error_with_restart_and_close() {
+    let request = failure("main_form.rhai:3:7: boom", true).request();
+    let note = request.note;
+    assert_eq!(note.level, Level::Error);
+    assert_eq!(note.title, "Messenger stopped");
+    assert!(note.body.contains("failed while starting"));
+    assert!(note.body.ends_with("Reason: main_form.rhai:3:7: boom"));
     assert_eq!(
-        lines.join(" "),
-        "the quick brown fox jumps over the lazy dog"
+        note.actions
+            .iter()
+            .map(|a| (a.id, a.label.as_str()))
+            .collect::<Vec<_>>(),
+        [(ACTION_RESTART, "Restart"), (ACTION_CLOSE, "Close")]
     );
-    let long = wrap("supercalifragilistic", 35, &mono);
-    assert_eq!(long, ["super", "calif", "ragil", "istic"]);
-    assert_eq!(wrap("", 70, &mono), [""]);
+    assert_eq!(note.lifetime_ms(), None);
+    assert_eq!(request.replaces, None);
 }
 
 #[test]
-fn the_layout_stacks_text_above_the_buttons() {
-    let layout = Layout::new(&failure("main_form.rhai:3:7: boom", true), 18, &mono);
-    assert_eq!(layout.width, WIDTH);
-    assert!(layout.lines[0].heading);
-    let last = layout.lines.last().expect("lines");
-    assert!(last.text.starts_with("Reason:") || last.text.contains("boom"));
-    assert!(layout.restart.y > last.y + 18 - 1);
-    assert_eq!(layout.height, layout.close.y + BUTTON_H + PAD);
-    assert!(layout.restart.x + layout.restart.w < layout.close.x);
-    assert_eq!(layout.close.x + layout.close.w, WIDTH - PAD);
-}
-
-#[test]
-fn buttons_are_hit_by_their_rectangles() {
-    let layout = Layout::new(&failure("", false), 18, &mono);
-    let r = layout.restart;
-    let c = layout.close;
-    assert_eq!(layout.hit(r.x + 1, r.y + 1), Some(Button::Restart));
-    assert_eq!(
-        layout.hit(c.x + c.w - 1, c.y + c.h - 1),
-        Some(Button::Close)
-    );
-    assert_eq!(layout.hit(0, 0), None);
-    assert_eq!(layout.button(Button::Close), c);
-}
-
-#[test]
-fn a_long_reason_is_cut_with_an_ellipsis() {
+fn a_long_reason_is_cut_to_the_toasts_limit() {
     let reason = "word ".repeat(400);
-    let layout = Layout::new(&failure(&reason, true), 18, &mono);
-    let reason_lines: Vec<&Line> = layout
-        .lines
-        .iter()
-        .filter(|line| !line.heading)
-        .skip_while(|line| !line.text.starts_with("Reason:"))
-        .collect();
-    assert_eq!(reason_lines.len(), MAX_REASON_LINES);
-    let last = reason_lines.last().expect("a reason line");
-    assert!(last.text.ends_with("..."));
-    assert!(mono(&last.text) <= WIDTH - 2 * PAD);
+    let note = failure(&reason, false).request().note;
+    assert!(note.body.chars().count() <= BODY_MAX);
+    assert!(note.body.ends_with("..."));
+    let mut huge = failure("", true);
+    huge.name = "N".repeat(500);
+    assert!(huge.request().note.title.chars().count() <= TITLE_MAX);
+}
+
+#[test]
+fn line_breaks_in_a_reason_become_spaces() {
+    let note = failure(
+        "line one
+line two	tabbed",
+        true,
+    )
+    .request()
+    .note;
+    assert!(note.body.ends_with("Reason: line one line two tabbed"));
 }

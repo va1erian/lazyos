@@ -13,6 +13,8 @@
 //! * [`shortcut`]: the `.lnk` shortcut files the desktop folder holds.
 //! * [`clock`]: the bar clock text (kernel UTC plus the `timed` zone).
 //! * [`notice`]: the "app stopped" notice `init`'s app failures become.
+//! * [`notify`]: the desktop notifications' queue, toasts and motion
+//!   (docs/notify-plan.md).
 //! * [`policy`]: who may call the `os.lazy.shell` service.
 //! * [`wallpaper`]: the desktop picture's size check, crop and brightness.
 //! * [`tray`]: the taskbar tray's items, validation, icon fallback and
@@ -28,6 +30,7 @@ pub mod desktop;
 pub mod keynav;
 pub mod menu;
 pub mod notice;
+pub mod notify;
 pub mod policy;
 pub mod shortcut;
 pub mod taskbar;
