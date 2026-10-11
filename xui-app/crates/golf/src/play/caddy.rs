@@ -5,12 +5,15 @@ use crate::math::{polyline_at, polyline_distance, polyline_length, Vec2};
 
 use super::clubs::CLUBS;
 
+/// A tee shot is a driver only when it goes at least this far.
+const DRIVER_MIN: f32 = 150.0;
+
 /// The club to start from: the shortest whose full carry gets to
 /// `distance`, or the longest if none does. A tee shot on a par 4 or 5
 /// is a driver whatever the distance to the aim point, as a caddy would
 /// say.
 pub fn recommend(distance: f32, tee_shot_on_long_hole: bool) -> usize {
-    if tee_shot_on_long_hole {
+    if tee_shot_on_long_hole && distance >= DRIVER_MIN {
         return 0;
     }
     CLUBS
@@ -47,6 +50,11 @@ mod tests {
         assert_eq!(CLUBS[recommend(96.0, false)].name, "9 Iron");
         assert_eq!(CLUBS[recommend(10.0, false)].name, "Sand Wedge");
         assert_eq!(recommend(500.0, false), 0, "out of reach: the longest");
-        assert_eq!(recommend(120.0, true), 0, "a driver off the tee");
+        assert_eq!(recommend(190.0, true), 0, "a driver off a long tee");
+        assert_eq!(
+            CLUBS[recommend(120.0, true)].name,
+            "8 Iron",
+            "but not for a short hole"
+        );
     }
 }

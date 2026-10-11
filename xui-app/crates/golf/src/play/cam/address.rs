@@ -17,6 +17,8 @@ use super::obstacles::Obstacles;
 
 /// The eye is never lower than this above the ground, metres.
 pub const MIN_CLEARANCE: f32 = 1.2;
+/// A putting camera crouches: this low over the green.
+pub const PUTT_CLEARANCE: f32 = 0.45;
 /// The search lifts the eye at most this far above its preferred height.
 const MAX_LIFT: f32 = 10.0;
 const LIFT_STEP: f32 = 0.5;
@@ -27,11 +29,19 @@ const STRETCHES: [f32; 5] = [1.0, 1.25, 1.6, 2.0, 2.6];
 const SIDES: [f32; 6] = [0.8, -0.8, 2.0, -2.0, 3.5, -3.5];
 /// Where on the screen (0 top .. 1 bottom) things should sit.
 const BALL_LOW: f32 = 0.90;
-/// The ball should sit at least this far down (a downhill shot may
-/// still raise it, but never above the middle).
-const BALL_MID: f32 = 0.55;
+/// The ball should sit at least this far down the picture (a downhill
+/// shot may still raise it). Low enough that a close ball does not force
+/// the camera to stare at the ground: the horizon and the far end of the
+/// shot stay in view.
+const BALL_MID: f32 = 0.78;
+/// A position is taken as good when it can keep the ball at least this
+/// far down: the pitch then aims for [`BALL_MID`] where it can.
+const BALL_ACCEPT: f32 = 0.55;
 const LOOK_AT: f32 = 0.38;
 const EDGE: f32 = 0.06;
+/// The aim point should be at least this far from the top when the search
+/// can arrange it: a target jammed against the edge is hard to judge.
+const AIM_COMFORT: f32 = 0.16;
 
 /// Where the shot looks and from where.
 #[derive(Clone, Copy, Debug)]
@@ -40,6 +50,14 @@ pub struct Address {
     /// The ball could not be seen from any spot the search tried (a ball
     /// in a hollow behind trees): the aim marker is all the player has.
     pub blind: bool,
+}
+
+/// What kind of view: a full shot looks far down the hole from behind and
+/// above; a putt crouches low and close, looking along the green.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Style {
+    Full,
+    Putt,
 }
 
 /// One place the eye could be, and how far that is from the preferred one.
@@ -74,10 +92,28 @@ fn candidates() -> Vec<Candidate> {
 /// The camera for a ball at `ball` (on the ground), shooting along `dir`
 /// at a point `distance` metres away. `aspect` is height over width of the
 /// picture.
-pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: f32) -> Address {
-    let distance = distance.clamp(15.0, 300.0);
-    let far = smoothstep(20.0, 220.0, distance);
-    let fov = lerp(58.0, 50.0, far).to_radians();
+pub fn address(
+    world: &Obstacles,
+    ball: Vec3,
+    dir: Vec2,
+    distance: f32,
+    aspect: f32,
+    style: Style,
+) -> Address {
+    let putt = style == Style::Putt;
+    let distance = distance.clamp(if putt { 1.5 } else { 15.0 }, 300.0);
+    let far = if putt {
+        smoothstep(2.0, 30.0, distance)
+    } else {
+        smoothstep(20.0, 220.0, distance)
+    };
+    let fov = if putt {
+        lerp(52.0, 46.0, far)
+    } else {
+        lerp(58.0, 50.0, far)
+    }
+    .to_radians();
+    let clearance = if putt { PUTT_CLEARANCE } else { MIN_CLEARANCE };
     let tan_v = (fov * 0.5).tan() * aspect;
     // The angle above the screen's centre of a point at height `f` (0 top,
     // 1 bottom) of the picture.
@@ -87,7 +123,12 @@ pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: 
     let aim = world.on_ground(ground + dir * distance);
     let look = world.on_ground(ground + dir * (0.65 * distance));
     let right = dir.perp();
-    let (back0, height0) = (lerp(4.0, 10.0, far), lerp(1.8, 3.6, far));
+    let (back0, height0) = if putt {
+        (lerp(2.8, 6.0, far), lerp(1.0, 2.2, far))
+    } else {
+        (lerp(6.0, 11.0, far), lerp(1.8, 3.8, far))
+    };
+    let slack = (back0 * 0.4).min(1.5);
     let ball_top = Vec3::new(ball.x, ball.y + 0.1, ball.z);
 
     // For each candidate: the eye, whether it is clear and sees the ball,
@@ -115,36 +156,50 @@ pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: 
             - std::f32::consts::PI;
         let beside = turned.abs() <= fov * 0.5 * 0.8;
         let fits = beside && low <= high;
-        let lower_half = fits && low <= high.min(up(ball) - rel(BALL_MID));
-        let above_ground = eye.y >= floor + MIN_CLEARANCE;
-        let sees = above_ground && !world.inside_tree(eye) && !world.blocked(eye, ball_top, 1.5);
-        let want = (up(look) - rel(LOOK_AT)).min(up(ball) - rel(BALL_MID));
-        let pitch = want.clamp(low.min(high), high.max(low));
-        (eye, sees, fits, lower_half, above_ground, pitch)
+        // Tilting the camera up lowers the ball in the picture, so the ball
+        // sits at least BALL_ACCEPT down when the pitch can be at least
+        // that high without losing the aim point off the top.
+        let lower_half = fits && low.max(up(ball) - rel(BALL_ACCEPT)) <= high;
+        // The roomy case: the aim point has margin from the top as well.
+        let low_roomy = (up(aim) - rel(AIM_COMFORT)).max(up(ball) - rel(EDGE));
+        let roomy = fits && low_roomy.max(up(ball) - rel(BALL_ACCEPT)) <= high;
+        let above_ground = eye.y >= floor + clearance;
+        let sees = above_ground && !world.inside_tree(eye) && !world.blocked(eye, ball_top, slack);
+        // Look at the point ahead, but never tilt down so far that the ball
+        // rises above BALL_MID: with the ball close that wins, and the
+        // horizon and the far end of the shot stay in the picture.
+        let want = (up(look) - rel(LOOK_AT)).max(up(ball) - rel(BALL_MID));
+        let floor_pitch = if roomy { low_roomy } else { low };
+        let pitch = want.clamp(floor_pitch.min(high), high.max(floor_pitch));
+        (eye, sees, fits, lower_half, roomy, above_ground, pitch)
     };
 
-    // The best by preference: seen and framed with the ball in the lower
-    // half; then seen and framed; then framed but hidden (the aim marker
-    // is what the player has); then seen but badly framed.
-    let mut fallback: [Option<(Vec3, f32, bool)>; 3] = [None; 3];
+    // The best by preference: seen, framed with room round the aim point
+    // and the ball low; then seen and framed with the ball low; then seen
+    // and framed; then framed but hidden (the aim marker is what the
+    // player has); then seen but badly framed.
+    let mut fallback: [Option<(Vec3, f32, bool)>; 4] = [None; 4];
     let mut chosen = None;
     for c in candidates() {
-        let (eye, sees, fits, lower, above, pitch) = try_one(&c);
+        let (eye, sees, fits, lower, roomy, above, pitch) = try_one(&c);
         if !above {
             continue;
         }
-        if sees && fits && lower {
+        if sees && roomy {
             chosen = Some((eye, pitch, true));
             break;
         }
-        if sees && fits && fallback[0].is_none() {
+        if sees && fits && lower && fallback[0].is_none() {
             fallback[0] = Some((eye, pitch, true));
         }
-        if fits && fallback[1].is_none() {
-            fallback[1] = Some((eye, pitch, false));
+        if sees && fits && fallback[1].is_none() {
+            fallback[1] = Some((eye, pitch, true));
         }
-        if sees && fallback[2].is_none() {
-            fallback[2] = Some((eye, pitch, true));
+        if fits && fallback[2].is_none() {
+            fallback[2] = Some((eye, pitch, false));
+        }
+        if sees && fallback[3].is_none() {
+            fallback[3] = Some((eye, pitch, true));
         }
     }
     let (eye, pitch, clear) = chosen
@@ -152,7 +207,7 @@ pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: 
         .unwrap_or_else(|| {
             // Nothing above the ground at all: straight up, looking down.
             let c = &candidates()[0];
-            let (eye, _, _, _, _, pitch) = try_one(c);
+            let (eye, _, _, _, _, _, pitch) = try_one(c);
             (eye, pitch, false)
         });
     let flat = look.ground() - eye.ground();

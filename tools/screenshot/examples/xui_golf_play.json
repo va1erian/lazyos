@@ -1,0 +1,76 @@
+[
+  {
+    "wait_for": "PKGD:PROVISION:DONE",
+    "timeout": 420
+  },
+  {
+    "wait_for": "GOLF:UP:PASS",
+    "timeout": 240
+  },
+  {
+    "wait_for": "GOLF:READY:",
+    "timeout": 300
+  },
+  {
+    "wait": 3.0
+  },
+  {
+    "shot": "golf_play_address"
+  },
+  {
+    "key": "space"
+  },
+  {
+    "wait": 0.9
+  },
+  {
+    "shot": "golf_play_meter"
+  },
+  {
+    "key": "space"
+  },
+  {
+    "wait": 0.9
+  },
+  {
+    "key": "space"
+  },
+  {
+    "wait_for": "GOLF:SHOT:",
+    "timeout": 30
+  },
+  {
+    "wait": 2.0
+  },
+  {
+    "shot": "golf_play_flight"
+  },
+  {
+    "wait_for": "GOLF:LAND:",
+    "timeout": 60
+  },
+  {
+    "wait": 1.5
+  },
+  {
+    "shot": "golf_play_landing"
+  },
+  {
+    "key": "space"
+  },
+  {
+    "wait": 2.0
+  },
+  {
+    "shot": "golf_play_next"
+  },
+  {
+    "key": "esc",
+    "until": "GOLF:QUIT:PASS",
+    "timeout": 60,
+    "retries": 2
+  },
+  {
+    "quit": true
+  }
+]

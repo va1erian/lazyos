@@ -4,7 +4,9 @@
 //! window.
 
 pub mod address;
+pub mod director;
 pub mod obstacles;
 
-pub use address::{address, Address, MIN_CLEARANCE};
+pub use address::{address, Address, Style, MIN_CLEARANCE, PUTT_CLEARANCE};
+pub use director::Director;
 pub use obstacles::Obstacles;

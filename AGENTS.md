@@ -325,9 +325,15 @@ crate `xui-app/crates/golf` (`xui-golf`; the design is
 [`docs/golf-course-generator.md`](docs/golf-course-generator.md)). The bin
 only launches it; the crate's `golf` example runs the same app as a desktop
 window through xui's winit backend. The game opens on the shot camera at the
-first tee (aim with Left/Right, club with Up/Down; `F` is the free camera the
-session below flies); gameplay is [`docs/golf-gameplay-plan.md`](docs/golf-gameplay-plan.md)
-(`xui-app/crates/golf/src/play/`, host tests `--test play --test camera`). Session:
+first tee: aim with Left/Right, club with Up/Down, **Space** is the swing
+meter's three clicks (start, power at the tick, accuracy on the line; `X`
+cancels), PageUp / E and PageDown / Q tilt the view, `F` is the free camera the session below flies. Gameplay (ball
+flight, bounce and roll, putting, caddy, flight cameras) is
+[`docs/golf-gameplay-plan.md`](docs/golf-gameplay-plan.md), in
+`xui-app/crates/golf/src/play/`; host tests `--test play --test shot
+--test camera --test round` (the last plays holes through the real state
+machine). Playing markers: `GOLF:SHOT`, `GOLF:LAND`, `GOLF:PENALTY`,
+`GOLF:HOLED`; session `tools/screenshot/examples/xui_golf_play.json`. Session:
 `tools/screenshot/examples/xui_golf.json` (`LAZYOS_XUI_AUTOSTART=golf`;
 markers `GOLF:UP:PASS`, `GOLF:READY:<seed>:par=<par>:ms=<ms>:<name>`,
 `GOLF:FPS:<fps>:scale=<n>:<w>x<h>:work=<ms>` once a second while drawing,
