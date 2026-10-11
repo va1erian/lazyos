@@ -12,6 +12,7 @@ impl LazySkyApp {
             Nav::Raw => 4,
             Nav::Composer => 5,
             Nav::Settings => 6,
+            Nav::Viewer { .. } => 7,
         }
     }
 
@@ -86,6 +87,7 @@ impl LazySkyApp {
                 self.detail.view.focus();
             }
             Nav::Profile { actor, tab } => {
+                self.profile_handle = None;
                 self.reset_detail("Profile");
                 self.detail.set_extras(ui, true, false, "");
                 let generation = self.panes[DETAIL as usize].generation;
@@ -183,6 +185,7 @@ impl LazySkyApp {
                 self.draft.clear();
             }
             Nav::Settings => self.settings_page.load(&self.settings),
+            Nav::Viewer { uri, index } => self.open_viewer(&uri, index),
         }
         self.apply_visibility(ui);
         self.set_interval(ui, drain::BUSY_MS);

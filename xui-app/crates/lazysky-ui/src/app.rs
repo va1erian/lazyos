@@ -27,6 +27,7 @@ use crate::login::LoginPage;
 use crate::pages::{Composer, Detail, Home, People, RawPage, SettingsPage, DETAIL, HOME};
 use crate::prepare::{Action, Target};
 use crate::timeline::{self, Staging};
+use crate::viewer::Viewer;
 use crate::{Msg, Report};
 
 /// Layout results applied per tick (R5): more wait for the next one.
@@ -39,6 +40,10 @@ const MENU_LINK: MenuId = MenuId::new(1);
 const MENU_LIKES: MenuId = MenuId::new(2);
 const MENU_REPOSTS: MenuId = MenuId::new(3);
 const MENU_DELETE: MenuId = MenuId::new(4);
+
+const IMAGE_SAVE: MenuId = MenuId::new(0);
+const IMAGE_OPEN: MenuId = MenuId::new(1);
+const IMAGE_COPY: MenuId = MenuId::new(2);
 
 /// A page of the window. The bottom of the stack is always the timeline.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +68,11 @@ enum Nav {
         posts: bool,
     },
     Settings,
+    /// A picture of a post, full size.
+    Viewer {
+        uri: String,
+        index: usize,
+    },
 }
 
 /// How often the unread count is asked for.
@@ -124,7 +134,8 @@ pub struct LazySkyApp {
     raw: RawPage,
     composer: Composer,
     settings_page: SettingsPage,
-    /// `[login, home, detail, people, raw, composer, settings]`.
+    viewer: Viewer,
+    /// `[login, home, detail, people, raw, composer, settings, viewer]`.
     panels: Vec<Rc<Panel<Msg>>>,
     account: Option<Account>,
     nav: Vec<Nav>,
@@ -143,6 +154,17 @@ pub struct LazySkyApp {
     /// The people list's accounts, for opening a profile later.
     people_lines: Vec<Actor>,
     picker: FileDialog<Msg>,
+    /// The Save Image As dialog.
+    save_picker: FileDialog<Msg>,
+    image_menu: Menu<Msg>,
+    /// The picture the open image menu is about: `(post URI, index)`.
+    image_target: Option<(String, usize)>,
+    /// What Save As will write: `(full-size URL)`.
+    save_url: Option<String>,
+    /// The running bulk download's request number.
+    bulk_seq: Option<u64>,
+    /// The handle of the profile on show (names the download folder).
+    profile_handle: Option<String>,
     pictures: Vec<PathBuf>,
     /// What the composer's text field holds (kept from its change events).
     draft: String,
@@ -169,7 +191,9 @@ fn now_unix() -> u64 {
 mod events;
 mod feeds;
 mod interact;
+mod media;
 mod pages;
+mod settings;
 mod tick;
 
 impl LazySkyApp {
@@ -181,7 +205,7 @@ impl LazySkyApp {
         settings: Settings,
         report: impl Fn(&Msg) + 'static,
     ) -> Result<LazySkyApp> {
-        let frames: Vec<Handle<Panel<Msg>>> = (0..7).map(|_| Handle::new()).collect();
+        let frames: Vec<Handle<Panel<Msg>>> = (0..8).map(|_| Handle::new()).collect();
         let mut root = column();
         for frame in &frames {
             root = root.child(panel(column()).plain().bind(frame).fill(1));
@@ -197,6 +221,7 @@ impl LazySkyApp {
         let raw = RawPage::build(ui, id(4))?;
         let composer = Composer::build(ui, id(5))?;
         let settings_page = SettingsPage::build(ui, id(6))?;
+        let viewer = Viewer::build(ui, id(7), &images)?;
         let system_theme = ui.theme_handle().get();
         ui.on_close(|| Some(Msg::Quit));
         ui.on_timer(|_| Some(Msg::Tick));
@@ -218,6 +243,19 @@ impl LazySkyApp {
             .on_accept(|path| Some(Msg::ComposerPicture(path)))
             .on_cancel(|| None);
         picker.set_initial_dir(platform.pictures_dir());
+        let save_picker = FileDialog::save_file(ui, "Save image as")?
+            .filter("Pictures", &["jpg", "png", "gif", "webp"])
+            .filter("All files", &[])
+            .on_accept(|path| Some(Msg::SavePicked(path)))
+            .on_cancel(|| None);
+        save_picker.set_initial_dir(platform.pictures_dir());
+        let image_menu = Menu::context(ui)
+            .build(|scope| {
+                scope.item(IMAGE_SAVE, "Save image as...");
+                scope.item(IMAGE_OPEN, "Open image");
+                scope.item(IMAGE_COPY, "Copy image address");
+            })
+            .on_select(|id| Some(Msg::ImageMenu(id)));
         let (core, events) = Core::start(Arc::clone(&platform), settings.clone());
         // The shaper is taken once, here, and lives on the layout thread.
         let layouts = Layouts::start(ui.text_shaper());
@@ -234,6 +272,7 @@ impl LazySkyApp {
             raw,
             composer,
             settings_page,
+            viewer,
             panels,
             account: None,
             nav: vec![Nav::Timeline],
@@ -247,6 +286,12 @@ impl LazySkyApp {
             menu_target: None,
             people_lines: Vec::new(),
             picker,
+            save_picker,
+            image_menu,
+            image_target: None,
+            save_url: None,
+            bulk_seq: None,
+            profile_handle: None,
             pictures: Vec::new(),
             draft: String::new(),
             reply: None,
@@ -402,6 +447,22 @@ impl App for LazySkyApp {
             Msg::SettingsMaxHeight(height) => self.settings_max_height(height),
             Msg::SettingsApplyService => self.settings_service(),
             Msg::SettingsRemember(on) => self.settings_remember(on),
+            Msg::ViewerSave => self.viewer_save(),
+            Msg::ViewerZoom(steps) => {
+                self.viewer.state.borrow_mut().zoom_by(steps);
+                self.viewer.invalidate();
+                self.set_interval(ui, drain::BUSY_MS);
+            }
+            Msg::ViewerFit => {
+                self.viewer.state.borrow_mut().fit();
+                self.viewer.invalidate();
+                self.set_interval(ui, drain::BUSY_MS);
+            }
+            Msg::ViewerStep(by) => self.viewer_step(ui, by),
+            Msg::SavePicked(path) => self.save_picked(path),
+            Msg::ImageMenu(id) => self.image_menu_chosen(ui, id),
+            Msg::BulkStart => self.bulk_start(ui),
+            Msg::BulkCancel => self.core.cancel_bulk(),
             Msg::Report(_) => (self.report)(&msg),
             Msg::Quit => {
                 let total = self.home.view.perf.borrow().total_fields();

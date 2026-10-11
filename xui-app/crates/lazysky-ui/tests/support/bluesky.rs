@@ -54,7 +54,7 @@ pub fn post_view(n: usize, base: &str) -> Value {
         1 => {
             view["embed"] = json!({"$type": "app.bsky.embed.images#view", "images": [{
                 "thumb": format!("{base}/img/{n}.png"),
-                "fullsize": format!("{base}/img/{n}.png"),
+                "fullsize": format!("{base}/img/{n}@png"),
                 "aspectRatio": {"width": 4, "height": 3}}]});
         }
         3 => {
@@ -104,7 +104,12 @@ pub fn bluesky() -> Mock {
             return (200, picture(96, 96, 7));
         }
         if let Some(n) = path.strip_prefix("/img/") {
-            let n: u32 = n.trim_end_matches(".png").parse().unwrap_or(0);
+            // `/img/<n>.png` (a thumbnail) or `/img/<n>@png` (a full size).
+            let n: u32 = n
+                .split(['@', '.'])
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
             return (200, picture(400, 300, n));
         }
         if path.contains("createSession") {
@@ -174,7 +179,23 @@ pub fn bluesky() -> Mock {
                        "followsCount": 3, "postsCount": 40}),
             );
         }
-        if path.contains("getAuthorFeed") || path.contains("getActorLikes") {
+        if path.contains("getAuthorFeed") {
+            // The signed-in user's own media posts, one picture each.
+            let feed: Vec<Value> = (600..605)
+                .map(|n| {
+                    let mut view = post_view(n, &base);
+                    view["author"] = json!({"did": ME, "handle": "me.test",
+                                            "displayName": "Me"});
+                    view["embed"] = json!({"$type": "app.bsky.embed.images#view",
+                        "images": [{"thumb": format!("{base}/img/{n}.png"),
+                                    "fullsize": format!("{base}/img/{n}@png"),
+                                    "aspectRatio": {"width": 4, "height": 3}}]});
+                    json!({"post": view})
+                })
+                .collect();
+            return json(200, json!({"feed": feed}));
+        }
+        if path.contains("getActorLikes") {
             let feed: Vec<Value> = (200..205)
                 .map(|n| json!({"post": post_view(n, &base)}))
                 .collect();

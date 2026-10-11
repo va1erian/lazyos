@@ -3,7 +3,6 @@
 
 mod common;
 
-
 use common::*;
 use lazysky_core::{Event, Request, Settings};
 use serde_json::json;

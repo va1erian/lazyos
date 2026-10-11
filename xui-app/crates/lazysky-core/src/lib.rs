@@ -12,6 +12,7 @@ pub mod images;
 pub mod net;
 pub mod platform;
 pub mod proto;
+pub mod save;
 pub mod settings;
 mod worker;
 
@@ -140,6 +141,20 @@ pub enum Request {
     Configure { seq: u64, service: String },
     /// Writes `settings.toml` (on the api thread, never the UI's).
     SaveSettings { seq: u64, settings: Settings },
+    /// Saves the picture at `url` to `path` (through `<path>.part`).
+    SaveImage {
+        seq: u64,
+        url: String,
+        path: std::path::PathBuf,
+    },
+    /// Saves every picture of an account's own posts into `dir`. Progress
+    /// arrives as [`Event::BulkProgress`], the end as [`Event::BulkDone`];
+    /// [`Core::cancel_bulk`] stops it.
+    BulkDownload {
+        seq: u64,
+        actor: String,
+        dir: std::path::PathBuf,
+    },
     /// Writes a post, uploading up to four picture files first.
     CreatePost {
         seq: u64,
@@ -208,6 +223,33 @@ pub enum Event {
     Done {
         seq: u64,
     },
+    /// A picture was saved.
+    Saved {
+        seq: u64,
+        path: std::path::PathBuf,
+        bytes: u64,
+    },
+    /// A bulk download is under way.
+    BulkProgress {
+        seq: u64,
+        /// Posts looked at so far.
+        scanned_posts: usize,
+        /// Pictures found so far.
+        found: usize,
+        /// Pictures settled (saved, already there, failed or cancelled).
+        finished: usize,
+        /// The scan is still reading pages.
+        scanning: bool,
+    },
+    /// A bulk download ended.
+    BulkDone {
+        seq: u64,
+        saved: usize,
+        /// Already on disk: left alone.
+        skipped: usize,
+        errors: usize,
+        cancelled: bool,
+    },
     /// A thread.
     Thread {
         seq: u64,
@@ -248,6 +290,7 @@ pub struct Core {
     closing: Arc<AtomicBool>,
     api: Option<thread::JoinHandle<()>>,
     images: images::ImagePool,
+    bulk_cancel: Arc<AtomicBool>,
 }
 
 /// The receiving end of the core's events.
@@ -278,9 +321,11 @@ impl Core {
         let flag = Arc::clone(&closing);
         let images =
             images::ImagePool::start(platform.ca_roots(), event_tx.clone(), images::THREADS);
+        let bulk_cancel = Arc::new(AtomicBool::new(false));
+        let cancel = Arc::clone(&bulk_cancel);
         let api = thread::Builder::new()
             .name("sky-api".into())
-            .spawn(move || worker::run(platform, settings, request_rx, event_tx, flag))
+            .spawn(move || worker::run(platform, settings, request_rx, event_tx, flag, cancel))
             .expect("the api thread starts");
         (
             Core {
@@ -288,6 +333,7 @@ impl Core {
                 closing,
                 api: Some(api),
                 images,
+                bulk_cancel,
             },
             Events { rx },
         )
@@ -296,6 +342,12 @@ impl Core {
     /// Queues `request`; never blocks.
     pub fn send(&self, request: Request) {
         let _ = self.requests.send(worker::Message::Request(request));
+    }
+
+    /// Stops a running bulk download: no new page is read and the pictures
+    /// still waiting are skipped. Never blocks.
+    pub fn cancel_bulk(&self) {
+        self.bulk_cancel.store(true, Ordering::SeqCst);
     }
 
     /// Replaces the pictures the image threads work through (nearest first):

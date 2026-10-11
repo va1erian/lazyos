@@ -109,6 +109,20 @@ fn route(ui: &Ui<Msg>, id: WidgetId, s: &mut ViewState, event: &Event) -> Outcom
             click(s, x, y)
         }
         Event::MouseDown {
+            x,
+            y,
+            button: MouseButton::Right,
+            ..
+        } => {
+            ui.focus(id);
+            match click(s, x, y) {
+                Outcome::Action(FeedAction::Target { row, target, at }) => {
+                    Outcome::Action(FeedAction::Context { row, target, at })
+                }
+                _ => Outcome::Nothing,
+            }
+        }
+        Event::MouseDown {
             y,
             button: MouseButton::Middle,
             ..

@@ -35,6 +35,37 @@ pub fn cover(img: &DynamicImage, width: u32, height: u32) -> Bitmap {
     }
 }
 
+/// `img` scaled to fit inside `width` x `height`, whole, keeping its
+/// proportions. The result is at least 1 x 1 and never larger than the box.
+pub fn fit(img: &DynamicImage, width: u32, height: u32) -> Bitmap {
+    let (width, height) = (width.max(1), height.max(1));
+    let rgba = img.to_rgba8();
+    let (sw, sh) = (rgba.width().max(1), rgba.height().max(1));
+    // The scale that makes the picture touch the box on its tighter side.
+    let by_width = u64::from(width) * u64::from(sh) <= u64::from(height) * u64::from(sw);
+    let (w, h) = if by_width {
+        (
+            width,
+            ((u64::from(width) * u64::from(sh)) / u64::from(sw)).max(1) as u32,
+        )
+    } else {
+        (
+            ((u64::from(height) * u64::from(sw)) / u64::from(sh)).max(1) as u32,
+            height,
+        )
+    };
+    let resized = if (w, h) == (sw, sh) {
+        rgba
+    } else {
+        imageops::resize(&rgba, w, h, FilterType::CatmullRom)
+    };
+    Bitmap {
+        width: w,
+        height: h,
+        rgba: resized.into_raw(),
+    }
+}
+
 /// Makes `bitmap` a circle: alpha falls to 0 outside the inscribed ellipse,
 /// with a one-pixel antialiased edge.
 pub fn circle_mask(bitmap: &mut Bitmap) {
@@ -92,6 +123,24 @@ mod tests {
         let px = |x: u32| &b.rgba[((25 * 50 + x) * 4) as usize..][..3];
         assert_eq!(px(5), [255, 0, 0]);
         assert_eq!(px(45), [0, 0, 255]);
+    }
+
+    #[test]
+    fn fit_keeps_the_whole_picture_inside_the_box() {
+        let wide = two_halves(400, 100);
+        let b = fit(&wide, 200, 200);
+        assert_eq!((b.width, b.height), (200, 50));
+        let tall = two_halves(100, 400);
+        let b = fit(&tall, 200, 200);
+        assert_eq!((b.width, b.height), (50, 200));
+        // It scales up too (a zoom) and never leaves the box.
+        let b = fit(&two_halves(10, 10), 300, 100);
+        assert_eq!((b.width, b.height), (100, 100));
+        // Both halves survive: nothing is cropped.
+        let b = fit(&wide, 100, 100);
+        assert_eq!(&b.rgba[..3], [255, 0, 0]);
+        let last = ((b.height - 1) * b.width + (b.width - 1)) as usize * 4;
+        assert_eq!(&b.rgba[last..last + 3], [0, 0, 255]);
     }
 
     #[test]

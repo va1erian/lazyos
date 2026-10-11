@@ -85,6 +85,7 @@ impl LazySkyApp {
                 self.pending = self.pending.saturating_sub(1);
                 if let Some(Route::Profile { generation }) = self.routes.remove(&seq) {
                     if self.panes[DETAIL as usize].generation == generation {
+                        self.profile_handle = Some(profile.actor.handle.clone());
                         self.detail.set_title(profile.actor.name());
                         let about = profile.description.lines().next().unwrap_or("");
                         self.detail.set_subtitle(&format!(
@@ -124,6 +125,47 @@ impl LazySkyApp {
                 self.routes.remove(&seq);
                 self.unread = count;
                 self.home.set_unread(count);
+            }
+            Event::Saved { path, bytes, .. } => {
+                self.pending = self.pending.saturating_sub(1);
+                self.say(&format!(
+                    "Saved {} ({} KB).",
+                    path.display(),
+                    bytes.div_ceil(1000)
+                ));
+            }
+            Event::BulkProgress {
+                seq,
+                scanned_posts,
+                found,
+                finished,
+                scanning,
+            } => {
+                if self.bulk_seq == Some(seq) {
+                    let line = if scanning {
+                        format!("Scanning... {scanned_posts} posts, {found} pictures")
+                    } else {
+                        format!("Downloading {finished}/{found}")
+                    };
+                    self.detail.say(&line);
+                }
+            }
+            Event::BulkDone {
+                seq,
+                saved,
+                skipped,
+                errors,
+                cancelled,
+            } => {
+                self.pending = self.pending.saturating_sub(1);
+                if self.bulk_seq == Some(seq) {
+                    self.bulk_seq = None;
+                    self.detail.set_bulk_running(ui, false);
+                    let how = if cancelled { "Cancelled" } else { "Done" };
+                    self.detail.say(&format!(
+                        "{how}: {saved} saved, {skipped} already there, {errors} failed."
+                    ));
+                }
             }
             Event::Done { seq } => {
                 self.pending = self.pending.saturating_sub(1);

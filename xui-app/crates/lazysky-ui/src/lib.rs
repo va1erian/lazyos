@@ -19,6 +19,7 @@ mod pages;
 pub mod perf;
 pub mod prepare;
 mod timeline;
+pub mod viewer;
 
 use std::path::PathBuf;
 
@@ -88,6 +89,20 @@ pub enum Msg {
     SettingsMaxHeight(i32),
     SettingsApplyService,
     SettingsRemember(bool),
+    /// The viewer's Save as... (or Ctrl+S).
+    ViewerSave,
+    /// Zoom the viewer by this many steps.
+    ViewerZoom(i32),
+    ViewerFit,
+    /// Previous (-1) or next (+1) picture of the post.
+    ViewerStep(i32),
+    /// The Save As dialog accepted this path.
+    SavePicked(PathBuf),
+    /// A command of the picture's menu.
+    ImageMenu(MenuId),
+    /// Download every picture of the profile on show.
+    BulkStart,
+    BulkCancel,
     Report(Report),
     Quit,
 }

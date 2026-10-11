@@ -6,7 +6,7 @@ mod crop;
 mod decode;
 mod pool;
 
-pub use crop::{circle_mask, cover};
+pub use crop::{circle_mask, cover, fit};
 pub use decode::{decode_limited, MAX_PIXELS, MAX_SIDE};
 pub(crate) use pool::{ImagePool, THREADS};
 
@@ -17,6 +17,9 @@ pub enum Shape {
     Cover,
     /// The same, then masked to a circle (an avatar).
     Circle,
+    /// Scaled to fit inside the box, whole, keeping its proportions (the
+    /// viewer): the bitmap may be smaller than the box in one direction.
+    Fit,
 }
 
 /// What the UI wants: this URL, at exactly this many pixels.

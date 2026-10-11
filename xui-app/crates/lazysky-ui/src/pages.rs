@@ -104,6 +104,9 @@ pub struct Detail {
     tabs: [Rc<Button<Msg>>; 3],
     /// Accounts / Posts: shown for a search only.
     toggle: Rc<Button<Msg>>,
+    /// Download all images / Cancel: shown for a profile only.
+    download: Rc<Button<Msg>>,
+    cancel: Rc<Button<Msg>>,
     pub view: Rc<FeedView>,
     _mounted: Mounted<Msg>,
 }
@@ -117,6 +120,7 @@ impl Detail {
             Handle::new(),
             Handle::new(),
         );
+        let (download, cancel) = (Handle::new(), Handle::new());
         let tabs: [Handle<Button<Msg>>; 3] = std::array::from_fn(|_| Handle::new());
         let images = Rc::clone(images);
         let mounted = ui.mount_in(
@@ -132,6 +136,12 @@ impl Detail {
                 )),
                 row().padding(8).gap(8).children((
                     label("").bind(&subtitle).fill(1),
+                    button("Download images")
+                        .on_click(Msg::BulkStart)
+                        .bind(&download),
+                    button("Cancel download")
+                        .on_click(Msg::BulkCancel)
+                        .bind(&cancel),
                     button("Posts").on_click(Msg::ProfileTab(0)).bind(&tabs[0]),
                     button("Media").on_click(Msg::ProfileTab(1)).bind(&tabs[1]),
                     button("Likes").on_click(Msg::ProfileTab(2)).bind(&tabs[2]),
@@ -148,6 +158,8 @@ impl Detail {
             subtitle: subtitle.get(),
             tabs: [t0, t1, t2],
             toggle: toggle.get(),
+            download: download.get(),
+            cancel: cancel.get(),
             view: view.get(),
             _mounted: mounted,
         })
@@ -173,7 +185,15 @@ impl Detail {
             ui.set_visible(tab.id(), profile);
         }
         ui.set_visible(self.toggle.id(), search);
+        ui.set_visible(self.download.id(), profile);
+        ui.set_visible(self.cancel.id(), false);
         self.toggle.set_text(toggle_text);
+    }
+
+    /// A download is running: Cancel shows in place of Download.
+    pub fn set_bulk_running(&self, ui: &Ui<Msg>, running: bool) {
+        ui.set_visible(self.download.id(), !running);
+        ui.set_visible(self.cancel.id(), running);
     }
 }
 

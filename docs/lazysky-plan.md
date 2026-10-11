@@ -1,8 +1,8 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** revision 3 (2026-10-11). P0 to P5 (§9) are implemented and their
+**Status:** revision 3 (2026-10-11). P0 to P7 (§9) are implemented and their
 host checks pass; P0's QEMU check (item 5) and P2's `SKY:LOGIN:PASS` run
-under QEMU wait for P8's packaging and harness. P6 is next.
+under QEMU wait for P8's packaging and harness. P8 is next.
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -627,6 +627,33 @@ post search; Settings (theme, max image height, server, remember handle).
 **P7: saving images.** The image viewer (fit to window, `Ctrl+=`/`Ctrl+-`/`0`
 zoom with the resize on a worker, drag to pan, `Ctrl+S`); Save Image As… and
 bulk download exactly as §7.6, with sanitize tests.
+
+*P6 findings (2026-10-11).*
+* Profile (counts, Posts / Media / Likes tabs), bookmarks, search (accounts or
+  posts; a `#tag` goes to posts) and thread pages share the detail pane;
+  people lists and notifications share the people page. **Deviation from
+  §9:** notifications are a list (one line each, a reply's text after it),
+  not FeedView rows: a like or a follow has no post to lay out. Opening one
+  goes to its subject's thread, a follow to the profile. The unread count is
+  polled every 60 s from the tick and shown on the button; opening the list
+  marks everything seen.
+* Settings live in `settings.toml` (`lazysky_core::Settings`): theme, tallest
+  picture, server, remember handle. A bad file gives defaults, a bad number
+  is clamped. They are written by the api thread (`Request::SaveSettings`),
+  never the UI's. Changing the picture height marks every row dirty so the
+  layout thread re-lays them out under R3.
+
+*P7 findings (2026-10-11).*
+* Save Image As, the picture menu (right click: Save, Open, Copy address)
+  and the viewer (fit, zoom by asking the core for a bigger `Shape::Fit`
+  bitmap, drag to pan, Ctrl+S, Left/Right for the post's other pictures).
+  Saved files are the server's bytes, written through `<name>.part`.
+* Download all images scans `getAuthorFeed?filter=posts_with_media` a page of
+  100 at a time from the api thread (a request that arrives meanwhile goes
+  first), 100 ms between pages, hands each picture of the account's own
+  non-reply, non-repost posts to three save threads, skips files already
+  there (so a second run is a no-op) and ends with
+  `SKY:BULK:DONE:<n>:<errors>`; Cancel stops it.
 
 **P8: LazyOS integration.** Copy the LazyWeb route (list in
 `build_support/lazyweb_embed.rs` and AGENTS.md):

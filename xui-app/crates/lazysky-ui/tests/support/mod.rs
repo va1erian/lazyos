@@ -24,7 +24,8 @@ use xui_core::message::Modifiers;
 use xui_core::{Dip, Image, Theme};
 
 mod bluesky;
-pub use bluesky::{bluesky, post_view};
+#[allow(unused_imports)]
+pub use bluesky::{bluesky, picture, post_view};
 
 /// The signed-in account's DID: posts with `n % 13 == 5` are its own.
 pub const ME: &str = "did:plc:me";

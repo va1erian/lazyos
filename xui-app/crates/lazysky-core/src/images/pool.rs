@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::{circle_mask, cover, decode_limited, Bitmap, ImageKey, Shape};
+use super::{circle_mask, cover, decode_limited, fit, Bitmap, ImageKey, Shape};
 use crate::net::{Http, HttpOptions};
 use crate::platform::Roots;
 use crate::Event;
@@ -135,9 +135,14 @@ fn load(http: &Http, key: &ImageKey) -> Result<Bitmap, String> {
         return Err(format!("the picture server answered {}", response.status));
     }
     let img = decode_limited(&response.body)?;
-    let mut bitmap = cover(&img, key.width, key.height);
-    if key.shape == Shape::Circle {
-        circle_mask(&mut bitmap);
-    }
+    let bitmap = match key.shape {
+        Shape::Cover => cover(&img, key.width, key.height),
+        Shape::Circle => {
+            let mut bitmap = cover(&img, key.width, key.height);
+            circle_mask(&mut bitmap);
+            bitmap
+        }
+        Shape::Fit => fit(&img, key.width, key.height),
+    };
     Ok(bitmap)
 }

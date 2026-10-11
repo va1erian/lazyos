@@ -8,6 +8,7 @@ impl LazySkyApp {
     pub(super) fn tick(&mut self, ui: &mut Ui<Msg>) {
         let started = Instant::now();
         self.poll_unread(started);
+        self.viewer_request();
         let drained = drain::drain(&self.events, drain::BUDGET);
         for event in drained.events {
             self.on_event(ui, event);

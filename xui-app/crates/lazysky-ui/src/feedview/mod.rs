@@ -45,6 +45,12 @@ pub enum FeedAction {
         /// Where in the view it was clicked (view-local pixels).
         at: (i32, i32),
     },
+    /// A right click on a hit region of a row.
+    Context {
+        row: RowId,
+        target: Target,
+        at: (i32, i32),
+    },
     /// Elsewhere in a row.
     Row(RowId),
 }

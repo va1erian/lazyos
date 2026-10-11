@@ -3,12 +3,14 @@
 mod feeds;
 mod writes;
 
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::net::api::{Api, ApiError, Notes};
 use crate::net::{Http, HttpOptions};
+use crate::save::{BulkState, SaveJob, SavePool, Scan, Step};
 use crate::{Account, Event, Platform, Request, Settings};
 
 pub(crate) enum Message {
@@ -32,15 +34,87 @@ pub(crate) fn run(
     requests: Receiver<Message>,
     events: Sender<Event>,
     closing: Arc<AtomicBool>,
+    bulk_cancel: Arc<AtomicBool>,
 ) {
     // Made on this thread: its sockets are this thread's own.
     let http = Http::new(platform.ca_roots(), HttpOptions::default());
-    let mut api = Api::new(http, &settings.service, closing);
-    while let Ok(Message::Request(request)) = requests.recv() {
-        let event = handle(&mut api, platform.as_ref(), &events, request);
-        if events.send(event).is_err() {
-            break;
+    let mut api = Api::new(http, &settings.service, Arc::clone(&closing));
+    let saves = SavePool::start(Arc::clone(&platform), events.clone());
+    let mut bulk: Option<Scan> = None;
+    loop {
+        // While a bulk scan runs, queued requests go first and the scan
+        // takes a page whenever none waits.
+        let message = if bulk.is_some() {
+            match requests.try_recv() {
+                Ok(message) => Some(message),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        } else {
+            match requests.recv() {
+                Ok(message) => Some(message),
+                Err(_) => break,
+            }
+        };
+        match message {
+            Some(Message::Shutdown) => break,
+            Some(Message::Request(Request::BulkDownload { seq, actor, dir })) => {
+                if bulk.is_some() {
+                    let _ = events.send(Event::Failed {
+                        seq,
+                        reason: "a download is already running".into(),
+                        signed_out: false,
+                    });
+                } else {
+                    bulk_cancel.store(false, Ordering::SeqCst);
+                    let state = Arc::new(BulkState::new(
+                        seq,
+                        Arc::clone(&bulk_cancel),
+                        Arc::clone(&platform),
+                    ));
+                    bulk = Some(Scan::new(state, actor, dir));
+                }
+            }
+            Some(Message::Request(Request::SaveImage { seq, url, path })) => {
+                saves.submit(SaveJob {
+                    seq,
+                    url,
+                    path,
+                    bulk: None,
+                });
+            }
+            Some(Message::Request(request)) => {
+                let event = handle(&mut api, platform.as_ref(), &events, request);
+                if events.send(event).is_err() {
+                    break;
+                }
+            }
+            None => {
+                let Some(scan) = bulk.as_mut() else { continue };
+                let notes = EventNotes(&events);
+                match scan.step(&mut api, &saves, &notes, &events) {
+                    Ok(Step::More) => pause(&closing, Duration::from_millis(100)),
+                    Ok(Step::Done) => bulk = None,
+                    Err(error) => {
+                        let seq = scan.state().seq;
+                        let _ = events.send(failed(seq, &error));
+                        scan.finish(&events);
+                        bulk = None;
+                    }
+                }
+            }
         }
+    }
+}
+
+/// Sleeps `total`, waking early when the core is closing.
+fn pause(closing: &AtomicBool, total: Duration) {
+    let step = Duration::from_millis(20);
+    let mut left = total;
+    while !left.is_zero() && !closing.load(Ordering::SeqCst) {
+        let nap = left.min(step);
+        std::thread::sleep(nap);
+        left -= nap;
     }
 }
 
@@ -141,6 +215,12 @@ fn handle(
                 reason: format!("settings not saved: {reason}"),
                 signed_out: false,
             },
+        },
+        // Both are taken by the loop before `handle` is called.
+        Request::SaveImage { seq, .. } | Request::BulkDownload { seq, .. } => Event::Failed {
+            seq,
+            reason: "internal: request routed to the wrong place".into(),
+            signed_out: false,
         },
         Request::Raw { seq, json } => Event::Raw {
             seq,
