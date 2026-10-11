@@ -27,7 +27,7 @@ What this port is:
   bridge, the engine) still runs.
 
 Like Doom's port
-([`docs/doom-port-plan.md`](docs/doom-port-plan.md), which this plan
+([`docs/doom-port-plan.md`](doom-port-plan.md), which this plan
 mirrors), the engine is never committed: `tools/quake/qfetch.py` fetches
 `quake-srp` at a pinned revision and id's zip at pinned SHA-256s; nothing
 new is checked into `target/`.
