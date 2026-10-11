@@ -13,10 +13,11 @@ use crate::hud_play;
 const MARGIN: i32 = 10;
 const LINE: i32 = 17;
 
-const HELP_PLAY: [(&str, &str); 9] = [
+const HELP_PLAY: [(&str, &str); 10] = [
     ("Space", "swing: start, power, accuracy"),
     ("X", "cancel the swing"),
     ("Left / Right", "aim (Shift: fast)"),
+    ("PgUp PgDn / E Q", "look up, down"),
     ("Up Down / wheel", "longer, shorter club"),
     ("N / P / Home", "next, previous hole, first"),
     ("F", "free camera"),

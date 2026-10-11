@@ -33,6 +33,9 @@ use terrain::{CourseTerrain, Terrain};
 /// The ball rests this far above the ground, metres (its radius, and a
 /// little, so it is drawn on top of the grass).
 const BALL_REST: f32 = 0.03;
+/// How far the player may tilt the shot camera down and up, radians.
+pub const LOOK_DOWN: f32 = -0.25;
+pub const LOOK_UP: f32 = 0.6;
 /// The aim marker's ring is about this many screen pixels at 1280 wide.
 const RING_PER_METRE: f32 = 0.012;
 
@@ -61,6 +64,8 @@ pub struct Play {
     pub from: Vec3,
     /// Strokes taken on each hole of the round, once holed.
     pub scores: Vec<Option<u32>>,
+    /// The player's tilt of the shot camera, radians (positive: up).
+    pub look: f32,
     /// Where the meter's tick stands for the swing in progress.
     pub swing_tick: f32,
     /// How many times in a row this lie has cost a penalty (the caddy
@@ -100,6 +105,7 @@ impl Play {
             flight: None,
             director: None,
             from: ball,
+            look: 0.0,
             swing_tick: 1.0,
             retries: 0,
             lie: surface::Lie {
@@ -148,6 +154,12 @@ impl Play {
         self.heading = rotated(self.heading, radians);
     }
 
+    /// Tilts the shot camera by `radians` (positive: up), within limits
+    /// that keep the ball and the ground in the picture.
+    pub fn look_by(&mut self, radians: f32) {
+        self.look = (self.look + radians).clamp(LOOK_DOWN, LOOK_UP);
+    }
+
     /// A longer (`-1`) or shorter (`+1`) club; stays within the bag.
     pub fn step_club(&mut self, towards_shorter: isize) {
         let next = self.club as isize + towards_shorter;
@@ -172,6 +184,8 @@ impl Play {
         let at = self.ball.ground();
         let material = terrain.material(at.x, at.y);
         let to_pin = at.distance(hole.pin);
+        // A new stroke starts from the camera's own idea of the view.
+        self.look = 0.0;
         self.set_lie(material);
         if material == Material::Green || (material == Material::Fringe && to_pin < 12.0) {
             self.club = PUTTER_INDEX;
@@ -231,7 +245,9 @@ impl Play {
     pub fn camera(&self, bake: &Bake, aspect: f32) -> Camera {
         match (&self.phase, &self.director) {
             (Phase::Address | Phase::Swing(_), _) | (_, None) => {
-                self.address_camera(bake, aspect).camera
+                let mut camera = self.address_camera(bake, aspect).camera;
+                camera.pitch += self.look;
+                camera
             }
             (_, Some(director)) => director.camera,
         }

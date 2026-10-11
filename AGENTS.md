@@ -327,7 +327,7 @@ only launches it; the crate's `golf` example runs the same app as a desktop
 window through xui's winit backend. The game opens on the shot camera at the
 first tee: aim with Left/Right, club with Up/Down, **Space** is the swing
 meter's three clicks (start, power at the tick, accuracy on the line; `X`
-cancels), `F` is the free camera the session below flies. Gameplay (ball
+cancels), PageUp / E and PageDown / Q tilt the view, `F` is the free camera the session below flies. Gameplay (ball
 flight, bounce and roll, putting, caddy, flight cameras) is
 [`docs/golf-gameplay-plan.md`](docs/golf-gameplay-plan.md), in
 `xui-app/crates/golf/src/play/`; host tests `--test play --test shot

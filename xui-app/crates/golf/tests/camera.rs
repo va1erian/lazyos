@@ -96,9 +96,10 @@ fn the_address_camera_frames_every_shot() {
                             "{label}: {what} at ({x:.2}, {y:.2})"
                         );
                     }
-                    // The ball sits in the lower half of the picture.
+                    // The ball sits low in the picture, so the horizon and the far end of
+                    // the shot are in it.
                     let ball = on_screen(&cam, aspect, play.ball).unwrap();
-                    assert!(ball.1 >= 0.5, "{label}: ball at {:.2}", ball.1);
+                    assert!(ball.1 >= 0.6, "{label}: ball at {:.2}", ball.1);
                 }
             }
         }

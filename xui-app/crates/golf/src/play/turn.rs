@@ -139,7 +139,8 @@ impl Play {
         let launch = solve::launch(&club, at, heading, power, side, &lie);
 
         let flight = shot::play_out(&launch, self.wind, &terrain);
-        let address = self.address_camera(bake, aspect).camera;
+        let mut address = self.address_camera(bake, aspect).camera;
+        address.pitch += self.look;
         let pin = course.holes.get(hole).map(|h| h.pin);
         self.director = Some(Director::new(
             &address,

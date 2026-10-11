@@ -9,6 +9,8 @@ use super::{Report, Running};
 
 /// How fast a held key turns the aim, radians per second.
 const AIM_RATE: f32 = 0.3;
+/// How fast a held key tilts the camera, radians per second.
+const LOOK_RATE: f32 = 0.7;
 
 impl Running {
     /// Height over width of the picture, for the shot camera.
@@ -144,10 +146,16 @@ impl Running {
             f32::from(u8::from(held.has(plus))) - f32::from(u8::from(held.has(minus)))
         };
         let axis = turn(Action::TurnRight, Action::TurnLeft) + turn(Action::Right, Action::Left);
+        let tilt = turn(Action::Up, Action::Down);
+        let fast = if held.has(Action::Fast) { 4.0 } else { 1.0 };
         if axis != 0.0 {
-            let fast = if held.has(Action::Fast) { 4.0 } else { 1.0 };
             self.play
                 .rotate(axis.clamp(-1.0, 1.0) * AIM_RATE * fast * dt);
+        }
+        if tilt != 0.0 {
+            self.play.look_by(tilt * LOOK_RATE * fast.min(2.5) * dt);
+        }
+        if axis != 0.0 || tilt != 0.0 {
             self.sync_play();
         }
     }

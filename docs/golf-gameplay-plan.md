@@ -426,6 +426,16 @@ xui_golf_play.json`.) What the build found, in the order it was found:
 - **Retrying a penalty is not the same shot**: each retry plays 12% shorter
   and 3 degrees to alternate sides.
 
+- **The address camera stared at the ground** (play-testing feedback on
+  #766). The framing rule that was meant to keep the ball low in the
+  picture was `min(look, ball)` where it had to be `max`: tilting the
+  camera *up* lowers the ball, so the camera tilted down until the ball
+  sat mid-screen (0.55 from the top), horizon out of frame. Now the ball
+  sits near 0.78, the horizon and the far end of the shot stay in view,
+  and the search prefers positions that leave the aim point 16% in from
+  the top. The player can also tilt the view: PageUp / E and PageDown / Q
+  (`Play.look`, within -14 and +34 degrees, reset each stroke).
+
 Known gaps: no wind (the plumbing is there; `Play.wind` is zero), no
 mouse swing, no scorecard screen (the HUD shows the round's strokes against
 par), no gimme, the computer player is the caddy plus a perfect meter (G5's
