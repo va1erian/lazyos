@@ -82,6 +82,25 @@ def app_session() -> list[dict]:
     return steps
 
 
+def theme_session() -> list[dict]:
+    """emusic paints in the desktop's theme and follows it live.
+
+    The desktop is switched to light (and a blue accent) from a background
+    job started in the Terminal before emusic's window covers it."""
+    steps = install()
+    steps += command("(sleep 40;confctl set user/1000/ui/mode str light) &")
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    steps += [
+        {"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120},
+        {"at": 1.0, "shot": "02_dark_follows_desktop"},
+        {"wait_for": "THEME:APPLIED", "timeout": 120},
+        {"at": 3.0, "shot": "03_light_follows_desktop"},
+        {"at": 1.5, "quit": True},
+    ]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -94,7 +113,11 @@ def sound_session() -> list[dict]:
     return steps
 
 
-SESSIONS = {"emusic.json": app_session, "emusic_sound.json": sound_session}
+SESSIONS = {
+    "emusic.json": app_session,
+    "emusic_sound.json": sound_session,
+    "emusic_theme.json": theme_session,
+}
 
 
 def render(steps: list[dict]) -> str:

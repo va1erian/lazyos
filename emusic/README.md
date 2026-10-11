@@ -28,6 +28,12 @@ open an MP3 from Files or start emusic from the menu. Its config, library
 database and thumbnails live in `~/.apps/org.lazy.emusic`; the package ships a
 sample track, `resources/tones.mp3` (A4 for 2 s, then C5; `tools/emusic/make_tones.py`).
 
+The window follows the desktop's colour scheme and accent, live (Settings ->
+Appearance -> *Follow system*, the default; Dark and Light override it).
+`python tools/screenshot/qemu_session.py ... --script tools/screenshot/examples/emusic_theme.json`
+switches the desktop to light while emusic is open
+([`docs/emusic-native-styling-plan.md`](../docs/emusic-native-styling-plan.md)).
+
 Not there yet: formats other than MP3, file dialogs (emusic's `file_picker`
 seam has no LazyOS picker, so Settings -> Add folder answers "cancelled"),
 library change watching (no inotify), gapless playback.
