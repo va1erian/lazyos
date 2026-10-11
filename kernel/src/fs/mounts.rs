@@ -179,7 +179,11 @@ pub(crate) fn build_preferring(devices: Devices, preferred: Option<&str>) -> Tab
         configured(&cfg, boot, boot_device, devices)
     })()
     .unwrap_or_else(|| legacy(devices));
-    serial_println!("FS:ROOT:{}", tables.root_device.unwrap_or("none"));
+    crate::trace::line!(
+        tracefmt::Channel::Fs,
+        "ROOT:{}",
+        tables.root_device.unwrap_or("none")
+    );
     tables
 }
 

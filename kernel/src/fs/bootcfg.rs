@@ -179,6 +179,7 @@ pub fn load(boot: &dyn Filesystem) -> Option<BootCfg> {
                     // limits, which the `limit.*` lines then override.
                     crate::display::modeset::apply_config(text);
                     crate::limits::apply_config(text);
+                    crate::trace::apply_config(text);
                 }
                 parse_bytes(&buf[..read])
             }

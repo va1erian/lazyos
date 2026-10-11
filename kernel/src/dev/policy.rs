@@ -83,7 +83,7 @@ pub fn boot_rules() -> Vec<Rule> {
 /// before the filesystem is mounted and long before `init` runs.
 pub fn install_boot_policy() {
     let rules = boot_rules();
-    crate::serial_println!("DEV:POLICY rules={}", rules.len());
+    crate::trace::event!(tracefmt::Channel::Dev, "POLICY", rules = rules.len());
     install(rules);
 }
 

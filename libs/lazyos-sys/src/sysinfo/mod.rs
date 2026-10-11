@@ -27,12 +27,12 @@ mod memory;
 pub use cpu::{cpu_percent, CpuSample};
 pub use memory::{MemoryUse, PAGE};
 
-/// ABI version this client understands (5: the cache and slab frame counts;
-/// 4 added the idle tick counter, 3 had 256 rows, 2 had 64, issue #204).
-pub const VERSION: u64 = 5;
+/// ABI version this client understands (6: the trace mask; 5 the cache and
+/// slab frame counts; 4 added the idle tick counter, 3 had 256 rows, 2 had 64, issue #204).
+pub const VERSION: u64 = 6;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
-pub const HEADER_WORDS: usize = 26;
+pub const HEADER_WORDS: usize = 28;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
@@ -96,6 +96,12 @@ pub mod header {
     pub const CACHE_FRAMES: usize = 24;
     /// Frames carved into typed-object slabs (part of the live frames).
     pub const SLAB_FRAMES: usize = 25;
+    /// The trace mask, low word: bit `n` is the channel with index `n` in
+    /// `tracefmt::Channel` (docs/tracing-plan.md); zero in a build with
+    /// `LAZYOS_TRACE=0`.
+    pub const TRACE_MASK_LO: usize = 26;
+    /// The trace mask, high word.
+    pub const TRACE_MASK_HI: usize = 27;
 }
 
 /// Task row word indices (relative to a row's base).
@@ -365,6 +371,8 @@ pub struct Snapshot {
     /// Frames carved into typed-object slabs (part of
     /// [`Snapshot::frames_live`]).
     pub slab_frames: u64,
+    /// The trace mask as two words, bit `n` for `tracefmt::Channel` index `n`.
+    pub trace_mask: [u64; 2],
     /// One row per scheduler slot.
     pub tasks: Vec<TaskRow>,
     /// The raw words, so a snapshot can be re-encoded for the wire.
@@ -445,6 +453,7 @@ pub fn decode_words(words: &[u64]) -> Option<Snapshot> {
         heap_free: words[header::HEAP_FREE],
         cache_frames: words[header::CACHE_FRAMES],
         slab_frames: words[header::SLAB_FRAMES],
+        trace_mask: [words[header::TRACE_MASK_LO], words[header::TRACE_MASK_HI]],
         tasks,
         raw: words[..WORDS].to_vec(),
     })

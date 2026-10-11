@@ -124,7 +124,7 @@ pub fn syscall_echo() -> Result<(), String> {
         );
         check!(stats.queued == 0, "channel not drained: {stats:?}");
 
-        serial_println!("MSG:ECHO:PASS");
+        crate::trace::line!(tracefmt::Channel::Msg, "ECHO:PASS");
 
         // 7. Cancel a registered call; the await reports the cancellation.
         let stuck = parcel(12, flags::SYNC, "stuck")?;

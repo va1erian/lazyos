@@ -248,8 +248,8 @@ pub fn wake_yield_soak() -> Result<(), String> {
         );
     }
     let cycles = crate::perf::rdtsc().wrapping_sub(started);
-    serial_println!(
-        "TEST:task_preempt_wake_yield_soak:INFO:rounds={ROUNDS} cycles_per_round={}",
+    crate::trace::test!(
+        "task_preempt_wake_yield_soak:INFO:rounds={ROUNDS} cycles_per_round={}",
         cycles / ROUNDS
     );
     check!(
@@ -308,7 +308,7 @@ pub fn wake_yield_soak() -> Result<(), String> {
     // The kernel task yields every round here, paying for a selection each
     // time, so the peer may deserve every wake; the bound in wall time is
     // `same_class_wake_bounded`'s.
-    serial_println!("TEST:task_preempt_wake_yield_soak:INFO:same_class_preempted={preempted}/1000");
+    crate::trace::test!("task_preempt_wake_yield_soak:INFO:same_class_preempted={preempted}/1000");
     stop_thread(slot)
 }
 
@@ -356,8 +356,8 @@ pub fn exit_hands_cpu_on() -> Result<(), String> {
             "round {round}: reaped {reaped:?}"
         );
     }
-    serial_println!(
-        "TEST:task_preempt_exit_hands_cpu_on:INFO:rounds={ROUNDS} crossed_tick={crossed}"
+    crate::trace::test!(
+        "task_preempt_exit_hands_cpu_on:INFO:rounds={ROUNDS} crossed_tick={crossed}"
     );
     check!(
         crossed <= ROUNDS / 10,

@@ -222,6 +222,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "passwd",
+ "tracefmt",
  "webpki-root-certs",
 ]
 
@@ -337,6 +338,7 @@ dependencies = [
  "fhs",
  "fuzzkit",
  "lazyos-crypto",
+ "tracefmt",
 ]
 
 [[package]]
@@ -732,6 +734,7 @@ dependencies = [
  "surfbuf",
  "timezone",
  "tiny-skia",
+ "tracefmt",
  "uart_16550",
  "usbpolicy",
  "virtio",
@@ -753,6 +756,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "passwd",
+ "tracefmt",
  "user",
  "webpki-root-certs",
 ]
@@ -1439,6 +1443,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracefmt"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "trayclient"
 version = "0.1.0"
 dependencies = [
@@ -1549,6 +1560,7 @@ dependencies = [
  "surfbuf",
  "svcpolicy",
  "timezone",
+ "tracefmt",
  "uitheme",
  "usbhid",
  "usbmsc",

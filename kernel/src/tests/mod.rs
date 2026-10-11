@@ -238,6 +238,7 @@ mod timed_suite;
 mod timer_suite;
 mod topics_gate_suite;
 mod topics_suite;
+mod trace_suite;
 mod transfer_gate_suite;
 mod virtio_modern_suite;
 mod virtio_suite;
@@ -301,6 +302,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     partition_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,
+    trace_suite::CASES,
     boot_media_suite::CASES,
     boot_io_suite::CASES,
     string_io_suite::CASES,
@@ -390,16 +392,16 @@ pub fn run() -> ! {
             match test() {
                 Ok(()) => {
                     pass += 1;
-                    serial_println!("TEST:{name}:PASS");
+                    crate::trace::test!("{name}:PASS");
                 }
                 Err(detail) => {
                     fail += 1;
-                    serial_println!("TEST:{name}:FAIL:{}", detail.replace('\n', " "));
+                    crate::trace::test!("{name}:FAIL:{}", detail.replace('\n', " "));
                 }
             }
         }
     }
-    serial_println!("TEST:SUMMARY:PASS={pass} FAIL={fail}");
+    crate::trace::test!("SUMMARY:PASS={pass} FAIL={fail}");
     debug_exit(fail == 0);
     crate::halt();
 }

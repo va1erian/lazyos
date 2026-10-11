@@ -21,7 +21,7 @@ fn scratch(test: &str) -> Option<&'static dyn BlockDevice> {
             && device.sector_count() == SCRATCH_SECTORS
     });
     if found.is_none() {
-        serial_println!("TEST:{test}:INFO:no scratch AHCI disk; skipped");
+        crate::trace::test!("{test}:INFO:no scratch AHCI disk; skipped");
     }
     found
 }
@@ -61,8 +61,8 @@ pub fn ahci_attached() -> Result<(), String> {
         "sector size {}",
         disk.sector_size()
     );
-    serial_println!(
-        "TEST:ahci_attached:INFO:{} {} sectors",
+    crate::trace::test!(
+        "ahci_attached:INFO:{} {} sectors",
         disk.name(),
         disk.sector_count()
     );
@@ -231,7 +231,7 @@ pub fn ahci_soak() -> Result<(), String> {
             }
         }
     }
-    serial_println!("TEST:ahci_soak:INFO:{OPS} random operations matched the shadow copy");
+    crate::trace::test!("ahci_soak:INFO:{OPS} random operations matched the shadow copy");
     Ok(())
 }
 

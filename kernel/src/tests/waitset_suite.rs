@@ -395,7 +395,7 @@ pub fn wait_any_soak() -> Result<(), String> {
             chan::queued_waiters()
         );
     }
-    serial_println!("TEST:ipc_waitset_soak:INFO:rounds={ROUNDS} endpoints={ENDPOINTS}");
+    crate::trace::test!("ipc_waitset_soak:INFO:rounds={ROUNDS} endpoints={ENDPOINTS}");
     rig.teardown()
 }
 

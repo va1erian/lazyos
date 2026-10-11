@@ -50,7 +50,7 @@ fn busy_ms(reference: Option<RefClock>, ms: u64) {
 pub fn pit_probe_no_false_trigger() -> Result<(), String> {
     let info = info()?;
     if info.pit == PitVerdict::Unknown {
-        serial_println!("TEST:timer_pit_probe_no_false_trigger:INFO:no reference clock; skipped");
+        crate::trace::test!("timer_pit_probe_no_false_trigger:INFO:no reference clock; skipped");
         return Ok(());
     }
     let expected = match info.pit {

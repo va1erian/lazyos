@@ -129,6 +129,7 @@ fn main() {
         String::from(fhs::boot::LAZYOS_CFG),
         (os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env())
             + &os_image::display_cfg::from_env()
+            + &os_image::trace_cfg::from_env()
             + &os_image::dbgd_cfg::from_env(&manifest_dir.join("target/dbgd.key")))
             .into_bytes(),
     );

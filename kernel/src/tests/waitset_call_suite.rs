@@ -372,7 +372,7 @@ pub fn soak() -> Result<(), String> {
         }
         clean("soak")?;
     }
-    serial_println!("TEST:ipc_waitcall_soak:INFO:rounds={ROUNDS} calls={CALLS}");
+    crate::trace::test!("ipc_waitcall_soak:INFO:rounds={ROUNDS} calls={CALLS}");
     rig.teardown()
 }
 

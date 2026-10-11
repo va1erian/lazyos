@@ -108,8 +108,8 @@ pub fn slots_soak_recycle() -> Result<(), String> {
             live - baseline
         );
     }
-    serial_println!(
-        "TEST:task_slots_soak_recycle:INFO:spawned={total} slots={}",
+    crate::trace::test!(
+        "task_slots_soak_recycle:INFO:spawned={total} slots={}",
         task::MAX_TASKS
     );
     task::harness::reset();
@@ -293,8 +293,8 @@ pub fn soak_thread_exit_generations() -> Result<(), String> {
                 "round {round}: frames leaked ({} over baseline)",
                 live.saturating_sub(steady_frames)
             );
-            serial_println!(
-                "TEST:task_soak_thread_exit_generations:PROGRESS:thread {round}/{THREADS}"
+            crate::trace::test!(
+                "task_soak_thread_exit_generations:PROGRESS:thread {round}/{THREADS}"
             );
         }
     }
@@ -368,8 +368,8 @@ pub fn soak_thread_exit_generations() -> Result<(), String> {
         after_slots.saturating_sub(baseline_slots)
     );
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!(
-        "TEST:task_soak_thread_exit_generations:INFO:threads={THREADS} groups={GROUPS} cycles={cycles}"
+    crate::trace::test!(
+        "task_soak_thread_exit_generations:INFO:threads={THREADS} groups={GROUPS} cycles={cycles}"
     );
     check!(
         cycles < MAX_CYCLES,

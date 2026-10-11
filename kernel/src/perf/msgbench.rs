@@ -16,12 +16,14 @@ pub fn start() {
     x86_64::instructions::interrupts::without_interrupts(|| {
         let path = fhs::bin::MSGBENCH;
         let Ok(file) = process::image::VfsFile::native(fs::vfs::Id::current(), path) else {
-            crate::serial_println!("PERF:msg_rt:SKIP {path} missing");
+            crate::trace::line!(tracefmt::Channel::Perf, "msg_rt:SKIP {path} missing");
             return;
         };
         match task::spawn(fhs::bin::name(path), &file) {
             Ok(slot) => process::set_task_argv(slot, &[path]),
-            Err(error) => crate::serial_println!("PERF:msg_rt:SKIP spawn failed: {error}"),
+            Err(error) => {
+                crate::trace::line!(tracefmt::Channel::Perf, "msg_rt:SKIP spawn failed: {error}")
+            }
         }
     });
 }

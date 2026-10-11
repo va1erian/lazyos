@@ -98,6 +98,6 @@ pub fn ramfs_open_soak_copies_nothing() -> Result<(), String> {
         held < SIZE,
         "{OPENS} opens of a {SIZE}-byte file held {held} heap bytes"
     );
-    serial_println!("TEST:compat_ramfs_open_soak_copies_nothing:INFO:opens={OPENS} heap={held}");
+    crate::trace::test!("compat_ramfs_open_soak_copies_nothing:INFO:opens={OPENS} heap={held}");
     Ok(())
 }

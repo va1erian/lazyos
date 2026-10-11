@@ -75,7 +75,7 @@ pub fn detect(regions: &[MemoryRegion]) -> Media {
 pub fn record(regions: &[MemoryRegion]) -> Media {
     let media = detect(regions);
     MEDIA.store(media.to_u8(), Ordering::Relaxed);
-    serial_println!("BOOT:MEDIA:{}", media.as_str());
+    crate::trace::line!(tracefmt::Channel::Boot, "MEDIA:{}", media.as_str());
     media
 }
 

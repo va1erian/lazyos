@@ -184,8 +184,8 @@ pub fn targeted_wake_soak() -> Result<(), String> {
     }
     // SAFETY: as above, a side-effect-free counter read.
     let cycles = unsafe { core::arch::x86_64::_rdtsc() }.wrapping_sub(start);
-    serial_println!(
-        "TEST:ipc_channel_targeted_wake_soak:INFO:receivers={RECEIVERS} rounds={ROUNDS} cycles={cycles}"
+    crate::trace::test!(
+        "ipc_channel_targeted_wake_soak:INFO:receivers={RECEIVERS} rounds={ROUNDS} cycles={cycles}"
     );
     let stats = channels::stats();
     check!(

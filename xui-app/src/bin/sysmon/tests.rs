@@ -58,7 +58,7 @@ fn later(snapshot: &Snapshot, seconds: u64) -> Snapshot {
 fn sample() -> Snapshot {
     let mut words = vec![0u64; WORDS];
     for (index, value) in [
-        (header::VERSION, 5),
+        (header::VERSION, 6),
         (header::TICKS, 360_000),
         (header::IDLE_TICKS, 300_000),
         (header::TASKS_LIVE, 4),
