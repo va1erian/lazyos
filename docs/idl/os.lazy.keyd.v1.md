@@ -33,6 +33,8 @@ or a `Channel`, so no client ever maps a page that holds a key.
 | DeleteSecret | 212754042 | sync | `(scope: String, name: String) -> ()` |
 | ListSecrets | 1353484194 | sync | `(scope: String) -> (names: Array<String>)` |
 | WifiPmk | 249445660 | sync | `(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)` |
+| StoreSecretFor | 1701625789 | sync | `(scope: String, name: String, secret: Bytes, owner: U32) -> ()` |
+| DeleteSecretFor | 268809353 | sync | `(scope: String, name: String, owner: U32) -> ()` |
 
 ## struct `KeyInfo`
 

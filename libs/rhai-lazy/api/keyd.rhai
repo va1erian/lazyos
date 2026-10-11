@@ -168,6 +168,26 @@ fn wifi_pmk(scope, name, ssid, owner) {
     msg::connect("os.lazy.keyd.v1").invoke("WifiPmk", [scope, name, ssid, owner])
 }
 
+/// `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()`
+///
+/// Keep `secret` under `name` for someone else: the user `owner` (scope
+/// `user`) or the machine (scope `system`, `owner` 0). Answered only to
+/// `wlanmd` (the `_wlan` system uid, unlabelled, outside any session),
+/// which takes a passphrase in `os.lazy.net.wifi.v1` `AddNetwork` and
+/// checks there who may add what (a `system` network only from `elevd`);
+/// everyone else gets `EPERM`. Otherwise the rules of `StoreSecret`.
+fn store_secret_for(scope, name, secret, owner) {
+    msg::connect("os.lazy.keyd.v1").invoke("StoreSecretFor", [scope, name, secret, owner])
+}
+
+/// `DeleteSecretFor(scope: String, name: String, owner: U32) -> ()`
+///
+/// Forget the secret `name` of `owner` in `scope` (the rules of
+/// `StoreSecretFor`; `ENOENT` when there is none).
+fn delete_secret_for(scope, name, owner) {
+    msg::connect("os.lazy.keyd.v1").invoke("DeleteSecretFor", [scope, name, owner])
+}
+
 /// A `KeyInfo` with every field at its zero value.
 ///
 /// One row of the key list: identity and counters only, never material.

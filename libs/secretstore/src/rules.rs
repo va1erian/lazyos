@@ -43,6 +43,16 @@ pub enum Op {
     Pmk {
         owner_uid: u32,
     },
+    /// Store a secret for `owner_uid` (`user`) or the machine (`system`,
+    /// `owner_uid` 0): `wlanmd` keeping the passphrase of a network it was
+    /// asked to remember, after its own check of who asked.
+    StoreFor {
+        owner_uid: u32,
+    },
+    /// Delete a secret on the same terms.
+    DeleteFor {
+        owner_uid: u32,
+    },
 }
 
 /// Why a request is refused.
@@ -60,6 +70,12 @@ pub enum Denied {
 /// |---|---|---|---|
 /// | `user` | the caller's own | the caller's own | `wlanmd`, for the uid it names |
 /// | `system` | `elevd` only | anyone (names only) | `wlanmd` |
+///
+/// Store and delete *for* someone ([`Op::StoreFor`], [`Op::DeleteFor`]) are
+/// `wlanmd`'s alone, in either scope: its `os.lazy.net.wifi.v1` takes a
+/// user's passphrase for that user, and a `system` one only from `elevd`
+/// (`AddNetwork`), so the approval is checked there. It already holds every
+/// PMK; writing a secret gives it nothing more.
 pub fn authorize(caller: Caller, scope: &str, op: Op) -> Result<Owner, Denied> {
     let system = match scope {
         "user" => false,
@@ -67,10 +83,22 @@ pub fn authorize(caller: Caller, scope: &str, op: Op) -> Result<Owner, Denied> {
         _ => return Err(Denied::Invalid),
     };
     match (op, system) {
-        (Op::Pmk { .. }, _) if !caller.is_wlan() => Err(Denied::Perm),
-        (Op::Pmk { owner_uid }, false) => Ok(Owner::User(owner_uid)),
-        (Op::Pmk { owner_uid: 0 }, true) => Ok(Owner::System),
-        (Op::Pmk { .. }, true) => Err(Denied::Invalid),
+        (Op::Pmk { .. } | Op::StoreFor { .. } | Op::DeleteFor { .. }, _) if !caller.is_wlan() => {
+            Err(Denied::Perm)
+        }
+        (
+            Op::Pmk { owner_uid } | Op::StoreFor { owner_uid } | Op::DeleteFor { owner_uid },
+            false,
+        ) => Ok(Owner::User(owner_uid)),
+        (
+            Op::Pmk { owner_uid: 0 }
+            | Op::StoreFor { owner_uid: 0 }
+            | Op::DeleteFor { owner_uid: 0 },
+            true,
+        ) => Ok(Owner::System),
+        (Op::Pmk { .. } | Op::StoreFor { .. } | Op::DeleteFor { .. }, true) => {
+            Err(Denied::Invalid)
+        }
         (Op::Store | Op::Delete, true) if !caller.is_elevd() => Err(Denied::Perm),
         (_, true) => Ok(Owner::System),
         (_, false) => Ok(Owner::User(caller.uid)),

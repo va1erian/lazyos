@@ -8,7 +8,10 @@
 //! * `system`: available to every user and before anyone logs in. Stored and
 //!   deleted only on `elevd`'s say-so (an administrator typed their password
 //!   on the trusted prompt); the caller is identified by `elevd`'s system
-//!   uid, never by uid 0 or a capability.
+//!   uid, never by uid 0 or a capability. `wlanmd` also stores and deletes
+//!   them ([`Op::StoreFor`]), for the networks `elevd` asked it to add with
+//!   `os.lazy.net.wifi.v1` `AddNetwork`, which it takes from `elevd` alone;
+//!   it stores `user` secrets for the user who added a network the same way.
 //!
 //! No call returns a secret. The one use is [`Store::pmk`]: the WPA2 pairwise
 //! master key of a passphrase for an SSID, which only `wlanmd` (the
