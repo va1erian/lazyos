@@ -47,7 +47,7 @@ use crate::hci::{Hci, TxQueue};
 pub use irq::IrqEvents;
 pub use phycfg::{IntfPhyPara, IpSel, PCIE_GEN1_PARA_8822C, PCIE_GEN2_PARA_8822C};
 pub use ring::{Layout, RingSizes};
-pub use rxq::RxPacket;
+pub use rxq::{RxPacket, RxPoll};
 
 use ring::Ring;
 

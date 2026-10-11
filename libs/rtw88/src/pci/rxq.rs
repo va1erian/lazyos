@@ -138,12 +138,16 @@ impl<M: Mmio, D: DmaAlloc> Pci<M, D> {
         (count, delivered)
     }
 
-    /// Upstream `rtw_pci_napi_poll`: deliver up to `budget` received
-    /// buffers (802.11 frames and C2H packets alike) to `f`, then, if the
-    /// ring was drained, unmask RX again. Returns the buffers delivered.
-    /// Upstream reschedules itself when more arrived meanwhile; here the
-    /// caller checks [`Pci::rx_pending`] or waits for the next interrupt.
-    pub fn rx_poll(&mut self, budget: u32, mut f: impl FnMut(RxPacket<'_>)) -> u32 {
+    /// Upstream `rtw_pci_napi_poll`: process up to `budget` received
+    /// buffers (802.11 frames and C2H packets go to `f`, malformed ones are
+    /// dropped and counted), then, if the ring was drained, unmask RX again
+    /// and look once more, as upstream does, because a buffer that landed
+    /// while `ROK` was masked raises no new (edge-triggered) message.
+    ///
+    /// When the result's `more` is set, `ROK` may still be masked or a
+    /// buffer is already waiting: the caller must call `rx_poll` again
+    /// rather than wait for an interrupt, or RX stalls.
+    pub fn rx_poll(&mut self, budget: u32, mut f: impl FnMut(RxPacket<'_>)) -> RxPoll {
         let (mut work, mut delivered) = (0, 0);
         while work < budget {
             let (done, got) = self.rx_napi(budget - work, &mut f);
@@ -153,9 +157,23 @@ impl<M: Mmio, D: DmaAlloc> Pci<M, D> {
             work += done;
             delivered += got;
         }
-        if work < budget && self.running {
+        let more = if work < budget && self.running {
             self.enable_interrupt(false);
-        }
-        delivered
+            self.rx_pending() != 0
+        } else {
+            // Budget spent (ROK stays masked) or the bus is stopped.
+            self.running
+        };
+        RxPoll { delivered, more }
     }
+}
+
+/// What one [`Pci::rx_poll`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RxPoll {
+    /// Buffers handed to the callback.
+    pub delivered: u32,
+    /// Poll again now: the budget ran out, or a buffer arrived as RX was
+    /// unmasked.
+    pub more: bool,
 }

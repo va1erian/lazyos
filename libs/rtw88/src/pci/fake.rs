@@ -231,25 +231,27 @@ impl Default for HeapDma {
 }
 
 impl HeapDma {
-    /// The CPU address of device address `phys`, if inside a block.
-    pub fn virt(&self, phys: u64) -> Option<*mut u8> {
+    /// The CPU address of device address `phys`, if `len` bytes from there
+    /// lie inside one block.
+    pub fn virt(&self, phys: u64, len: usize) -> Option<*mut u8> {
         self.blocks.iter().find_map(|b| {
-            (phys >= b.phys && phys < b.phys + b.len as u64)
-                // SAFETY: the offset is inside the block, checked above.
+            let end = phys.checked_add(len as u64)?;
+            (phys >= b.phys && end <= b.phys + b.len as u64)
+                // SAFETY: `phys..phys + len` is inside the block, checked above.
                 .then(|| unsafe { b.virt.add((phys - b.phys) as usize) })
         })
     }
 
     /// `len` bytes at device address `phys` (a copy).
     pub fn read(&self, phys: u64, len: usize) -> Vec<u8> {
-        let p = self.virt(phys).expect("phys in a block");
-        // SAFETY: `p` is inside a live heap block; tests read inside it.
+        let p = self.virt(phys, len).expect("range in a block");
+        // SAFETY: `virt` checked the whole range is inside a live heap block.
         unsafe { core::slice::from_raw_parts(p, len) }.to_vec()
     }
 
     /// Write `data` at device address `phys` (the device's side).
     pub fn write(&self, phys: u64, data: &[u8]) {
-        let p = self.virt(phys).expect("phys in a block");
+        let p = self.virt(phys, data.len()).expect("range in a block");
         // SAFETY: as in `read`; nothing else holds a reference to it.
         unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), p, data.len()) };
     }

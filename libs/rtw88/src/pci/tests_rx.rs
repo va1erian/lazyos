@@ -115,12 +115,35 @@ fn several_buffers_in_one_poll_and_the_budget() {
     pci.mmio().clear_log();
     // A budget of two leaves one, and RX masked as upstream's NAPI does.
     let mut got = 0;
-    assert_eq!(pci.rx_poll(2, |_| got += 1), 2);
+    let r = pci.rx_poll(2, |_| got += 1);
+    assert_eq!((r.delivered, r.more), (2, true));
     assert_eq!(got, 2);
     assert_eq!(pci.mmio().last_write(4, HIMR0), None);
     assert_eq!(pci.rx_pending(), 1);
-    assert_eq!(pci.rx_poll(2, |_| got += 1), 1);
+    let r = pci.rx_poll(2, |_| got += 1);
+    assert_eq!((r.delivered, r.more), (1, false));
     assert_eq!(pci.mmio().last_write(4, HIMR0), Some(mask0));
+}
+
+#[test]
+fn a_spent_budget_with_drops_still_says_poll_again() {
+    // Review finding: a batch of exactly `budget` buffers with a drop in it
+    // leaves ROK masked; the result must say so, or RX stalls on an idle
+    // station whose next MSI never comes.
+    let mut pci = pci_with(ring4());
+    pci.setup().unwrap();
+    pci.start().unwrap();
+    let mut bad = frame_buf(30, 0);
+    bad[2] = (bad[2] & 0xF0) | 3;
+    deliver(&pci, 0, &bad, 1);
+    deliver(&pci, 1, &frame_buf(30, 1), 2);
+    pci.mmio().clear_log();
+    let r = pci.rx_poll(2, |_| {});
+    assert_eq!((r.delivered, r.more), (1, true));
+    assert_eq!(pci.mmio().last_write(4, HIMR0), None);
+    let r = pci.rx_poll(2, |_| {});
+    assert_eq!((r.delivered, r.more), (0, false));
+    assert!(pci.mmio().last_write(4, HIMR0).is_some());
 }
 
 #[test]
