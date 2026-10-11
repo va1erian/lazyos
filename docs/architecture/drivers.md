@@ -196,6 +196,9 @@ MSI/MSI-X and the I/O APIC landed with #616 ([interrupts.md](interrupts.md)):
 [driver-config-plan.md](../driver-config-plan.md) (enable/disable, binding
 overrides) and does not watch for hot-plug; one device per driver row, except
 that every network card gets its own `netdrv` named `eth0`, `eth1`, ... (WP1,
-[networking.md](networking.md) "Several interfaces"); the
+[networking.md](networking.md) "Several interfaces") and every RTL8822CE its
+own `wifid` named `wlan0`, `wlan1`, ... (`LAZYOS_WIFI=1`, a counter of its
+own; `_wifi` claims only the kernel's `wireless` class, PCI `02/80` and base
+class `0D`, [wifi-rtw88-plan.md](../wifi-rtw88-plan.md)); the
 `e1000e`/`igc` families, HDA capture, HDMI codecs and a DSP-mode (SOF)
 controller.
