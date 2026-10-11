@@ -1,6 +1,25 @@
 # Plan: SRB2Kart on LazyOS
 
-> **Status: planned (2026-10-11).** Nothing implemented yet.
+> **Status: K0 and K1 implemented (2026-10-11); K2-K4 not started.** The
+> session `tools/screenshot/examples/srb2kart.json` installs the package, runs
+> the headless check in the Terminal (`crc=b3580eb0`), launches the game from
+> Games, reaches the title, drives a Time Attack race (55-60 fps at 640x400
+> under WHPX) and quits from the window's close button. Decisions taken while
+> implementing, which supersede the text below where they differ:
+>
+> - **Not `NONET`:** upstream's `NONET` build does not compile, so the network
+>   code is built in and never started (`I_InitNetwork` says no) until K3.
+>   Two force-included shims cover names that only exist under `HAVE_CURL`
+>   (`srb2kart/README.md`). No upstream file is patched.
+> - **The engine's home is `<app folder>/.srb2kart`:** upstream always appends
+>   its `DEFAULTDIR`.
+> - **The window opens at 640x400** (the engine's 1280x800 default does not fit
+>   a 720p desktop) and follows the engine's mode changes; headless is 320x200.
+> - **SRB2Kart is in the launcher's Games group** (and has its own Advanced
+>   checkbox).
+> - **Open problem: start-up reads ~1.3 GiB** through the ext2 volume before the
+>   title (minutes under WHPX); suspected the start-up MD5 checks of the data
+>   files plus lump reads; to profile next.
 
 **Goal:** SRB2Kart (Kart Krew's kart racer on the Sonic Robo Blast 2 engine)
 in a LazyOS desktop window, offline: Grand Prix, Match Race and Time Attack
