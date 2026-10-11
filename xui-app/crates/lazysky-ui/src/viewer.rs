@@ -39,6 +39,8 @@ pub struct ViewerState {
     pub size: (i32, i32),
     /// The key last asked for (so the same one is not asked twice).
     pub requested: Option<ImageKey>,
+    /// When `requested` was asked for (the arrival time is reported).
+    pub asked_at: Option<std::time::Instant>,
     /// The latest key whose picture was drawn: kept while a new one loads.
     pub shown: Option<ImageKey>,
     drag: Option<(i32, i32, (i32, i32))>,
@@ -52,6 +54,7 @@ impl ViewerState {
             offset: (0, 0),
             size: (0, 0),
             requested: None,
+            asked_at: None,
             shown: None,
             drag: None,
         }

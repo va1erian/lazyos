@@ -61,7 +61,17 @@ def steps(rounds: int, timeout: float) -> list[dict]:
         {"wait": 5.0},
         {"shot": "02_feed"},
         {"move_to": {"window": "LazySky"}},
+        # Open the viewer from the timeline: click down the first screen
+        # (an image under the pointer opens it, anything else a thread or
+        # nothing) with Alt+Left after each; the markers say what happened.
     ]
+    # Sample the feed: scroll a bit, click the window's centre, come back.
+    # Whatever picture sits there opens the viewer (SKY:VIEWER:WANT).
+    for n in range(10):
+        out += [step for _ in range(12) for step in ({"mouse_scroll": -5}, {"wait": 0.1})]
+        out += [{"wait": 2.0}, {"click_at": {"window": "LazySky", "offset": [0, 40]}}, {"wait": 6.0},
+                {"shot": f"probe_{n:02d}"},
+                {"key_down": "alt"}, {"key": "left"}, {"key_up": "alt"}, {"wait": 1.5}]
     for n in range(rounds):
         out += [step for _ in range(40) for step in ({"mouse_scroll": -5}, {"wait": 0.1})]
         # "Load more" is a click, not automatic: the wheel (End does not scroll

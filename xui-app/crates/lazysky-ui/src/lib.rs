@@ -42,6 +42,12 @@ pub enum Report {
     Pictures(usize),
     /// The session ended and the window went back to the login page.
     SignedOut,
+    /// The viewer's picture arrived after this many milliseconds.
+    ViewerReady(u64),
+    /// The viewer asked the core for `<width>x<height> <url>`.
+    ViewerWanted(String),
+    /// A picture could not be fetched or decoded: `<width>x<height> <why> <url>`.
+    ImageFailed(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

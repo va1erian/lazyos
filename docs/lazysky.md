@@ -118,3 +118,11 @@ paint) held its state, and `panic = "abort"` turned the panic into an app
 restart. The handler and the tick now use `try_borrow_mut` and defer or drop
 instead; the mock and the live runs never hit it, so a real user's timing was
 needed.
+
+Two more findings from live runs: video thumbnails (`video.bsky.app`) answer
+with a redirect, which the image client now follows (https only, three hops,
+never on the API client that carries the token); and the viewer is no feed
+pane, so a picture that arrived while it was open was cached but never
+repainted ("Loading..." until the next unrelated repaint). `SKY:VIEWER:WANT`,
+`SKY:VIEWER:READY:<ms>` and `SKY:IMAGE:FAIL:<size> <why> <url>` print what the
+viewer asked for, how long the picture took and why one failed.

@@ -38,6 +38,8 @@ impl LazySkyApp {
         }
         let mut changed = false;
         let mut pictures = None;
+        let mut failures: Vec<String> = Vec::new();
+        let mut ready_ms: Option<u64> = None;
         let active = self.active_pane();
         for pane in [HOME, DETAIL] {
             let done = std::mem::take(&mut refreshed[pane as usize]);
@@ -71,8 +73,20 @@ impl LazySkyApp {
                     break;
                 };
                 match result {
-                    Ok(bitmap) => cache.insert(key, bitmap),
-                    Err(_) => cache.fail(key),
+                    Ok(bitmap) => {
+                        let viewer = self.viewer.state.borrow();
+                        if viewer.requested.as_ref() == Some(&key) {
+                            if let Some(at) = viewer.asked_at {
+                                ready_ms = Some(at.elapsed().as_millis() as u64);
+                            }
+                        }
+                        drop(viewer);
+                        cache.insert(key, bitmap);
+                    }
+                    Err(why) => {
+                        failures.push(format!("{}x{} {why} {}", key.width, key.height, key.url));
+                        cache.fail(key);
+                    }
                 }
                 changed = true;
                 pictures = Some(cache.len());
@@ -88,6 +102,12 @@ impl LazySkyApp {
                 self.images.borrow_mut().evict(&protect);
             }
         }
+        if let Some(ms) = ready_ms {
+            (self.report)(&Msg::Report(Report::ViewerReady(ms)));
+        }
+        for failure in failures {
+            (self.report)(&Msg::Report(Report::ImageFailed(failure)));
+        }
         if let Some(count) = pictures {
             (self.report)(&Msg::Report(Report::Pictures(count)));
         }
@@ -97,6 +117,12 @@ impl LazySkyApp {
         if changed {
             if let Some(pane) = active {
                 self.view(pane).invalidate();
+            }
+            // The viewer is no feed pane: without this the picture sat in
+            // the cache while the page still read "Loading..." until the
+            // next unrelated repaint.
+            if matches!(self.nav.last(), Some(Nav::Viewer { .. })) {
+                self.viewer.invalidate();
             }
         }
         let busy = self.pending > 0

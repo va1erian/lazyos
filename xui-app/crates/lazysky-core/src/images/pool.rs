@@ -130,7 +130,9 @@ fn run(shared: &Shared, roots: Roots, events: &Sender<Event>) {
 
 /// Fetches, decodes and fits one picture.
 fn load(http: &Http, key: &ImageKey) -> Result<Bitmap, String> {
-    let response = http.get(&key.url, &[("accept", "image/*")])?;
+    // Video thumbnails answer with a redirect (video.bsky.app); a picture
+    // is public, so following up to three hops to https is safe.
+    let response = http.get_following(&key.url, &[("accept", "image/*")], 3)?;
     if response.status != 200 {
         return Err(format!("the picture server answered {}", response.status));
     }

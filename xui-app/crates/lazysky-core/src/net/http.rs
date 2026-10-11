@@ -111,6 +111,31 @@ impl Http {
         self.send(http::Method::GET, url, headers, None)
     }
 
+    /// `GET url`, following up to `hops` redirects to another `https`
+    /// address. For pictures and other public files only: the redirect
+    /// target is a different server, so no header of the caller's is sent
+    /// there except the ones in `headers`, and the API client (which sends a
+    /// bearer token) never uses this.
+    pub fn get_following(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        hops: usize,
+    ) -> Result<Response, String> {
+        let mut current = url.to_string();
+        for _ in 0..=hops {
+            let response = self.get(&current, headers)?;
+            let Some(next) = response
+                .header("location")
+                .and_then(|location| redirect_target(&current, response.status, location))
+            else {
+                return Ok(response);
+            };
+            current = next;
+        }
+        Err(format!("{}: too many redirects", host_of(url)))
+    }
+
     /// `POST url` with `body` (its `Content-Type` is in `headers`).
     pub fn post(
         &self,
@@ -181,6 +206,28 @@ impl Http {
     }
 }
 
+/// Where a redirect answer points, when it may be followed: a 301, 302,
+/// 303, 307 or 308 whose `location` is an `https` address or a path on the
+/// same server. Never a downgrade to `http` and never another scheme.
+fn redirect_target(from: &str, status: u16, location: &str) -> Option<String> {
+    if !matches!(status, 301 | 302 | 303 | 307 | 308) {
+        return None;
+    }
+    let location = location.trim();
+    let secure = |u: &str| u.get(..8).is_some_and(|p| p.eq_ignore_ascii_case("https://"));
+    if secure(location) {
+        return Some(location.to_string());
+    }
+    if location.starts_with('/') && !location.starts_with("//") && secure(from) {
+        let scheme_end = from.find("://")? + 3;
+        let host_end = from[scheme_end..]
+            .find(['/', '?', '#'])
+            .map_or(from.len(), |i| scheme_end + i);
+        return Some(format!("{}{location}", &from[..host_end]));
+    }
+    None
+}
+
 /// The `host[:port]` of `url`, for messages.
 fn host_of(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
@@ -215,6 +262,25 @@ mod tests {
     fn hosts_are_named_for_messages() {
         assert_eq!(host_of("https://bsky.social/xrpc/x?a=b"), "bsky.social");
         assert_eq!(host_of("http://127.0.0.1:8080"), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn redirects_are_followed_only_to_https_or_a_path_on_the_same_server() {
+        let from = "https://video.bsky.app/watch/x/thumbnail.jpg?a=1";
+        let go = |status, location| redirect_target(from, status, location);
+        assert_eq!(
+            go(302, "https://cdn.example/t.jpg").as_deref(),
+            Some("https://cdn.example/t.jpg")
+        );
+        assert_eq!(
+            go(301, "/other/t.jpg").as_deref(),
+            Some("https://video.bsky.app/other/t.jpg")
+        );
+        assert_eq!(go(200, "https://cdn.example/t.jpg"), None, "not a redirect");
+        assert_eq!(go(302, "http://cdn.example/t.jpg"), None, "no downgrade");
+        assert_eq!(go(302, "//evil.example/t.jpg"), None, "scheme-relative");
+        assert_eq!(go(302, "ftp://evil.example/t"), None);
+        assert_eq!(go(304, "/x"), None);
     }
 
     #[test]

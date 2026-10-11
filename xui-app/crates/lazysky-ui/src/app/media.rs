@@ -54,10 +54,15 @@ impl LazySkyApp {
                 return;
             }
             s.requested = wanted.clone();
+            s.asked_at = Some(Instant::now());
             wanted
         };
         if let Some(key) = wanted {
             let cached = self.images.borrow().contains(&key);
+            (self.report)(&Msg::Report(Report::ViewerWanted(format!(
+                "{}x{} cached={cached} {}",
+                key.width, key.height, key.url
+            ))));
             if !cached {
                 self.core.want_images(vec![key]);
             }

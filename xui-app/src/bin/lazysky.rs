@@ -110,6 +110,9 @@ fn main() {
             Msg::Report(Report::DetailRows(n)) => println!("SKY:DETAIL:ROWS:{n}"),
             Msg::Report(Report::Pictures(n)) => println!("SKY:IMAGES:{n}"),
             Msg::Report(Report::SignedOut) => println!("SKY:SIGNEDOUT"),
+            Msg::Report(Report::ViewerReady(ms)) => println!("SKY:VIEWER:READY:{ms}"),
+            Msg::Report(Report::ViewerWanted(what)) => println!("SKY:VIEWER:WANT:{what}"),
+            Msg::Report(Report::ImageFailed(why)) => println!("SKY:IMAGE:FAIL:{why}"),
             Msg::Quit => println!("SKY:QUIT:PASS"),
             _ => {}
         })
