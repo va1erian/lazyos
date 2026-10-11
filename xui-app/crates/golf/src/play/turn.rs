@@ -362,10 +362,11 @@ impl Play {
     pub fn skip(&mut self, course: &Course, bake: &Bake) {
         for _ in 0..4 {
             match self.phase {
-                Phase::Flight { .. } => {
+                Phase::Flight { landed, .. } => {
+                    // Skipping past the landing still reports it.
                     if let Some(f) = &self.flight {
                         let end = f.duration();
-                        self.fly(end, true, 0.0, course, bake);
+                        self.fly(end, landed, 0.0, course, bake);
                     }
                 }
                 Phase::Rest { .. } => self.next_stroke(course, bake),

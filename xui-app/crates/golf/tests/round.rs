@@ -338,3 +338,27 @@ fn flight_cameras_and_the_putting_view() {
     }
     picture(scene, &putt, "golf-play-7-putt-roll.png");
 }
+
+/// A click that skips a shot still reports where the ball came down, once.
+#[test]
+fn skipping_a_flight_still_reports_the_landing() {
+    let scenes = scenes();
+    let scene = &scenes[0];
+    let (course, bake) = (&scene.course, &scene.bake);
+    let mut play = Play::tee_off(&course.holes, bake, 6);
+    play.seed = course.seed;
+    play.set_up(course, bake);
+    let power = play.target_power(course, bake);
+    play.hit(course, bake, ASPECT, power, 0.0);
+    // The ball is still in the air.
+    play.tick(DT, course, bake, ASPECT);
+    assert!(matches!(play.phase, Phase::Flight { landed: false, .. }));
+    play.skip(course, bake);
+    let landed = play
+        .events
+        .iter()
+        .filter(|e| matches!(e, PlayEvent::Landed { .. }))
+        .count();
+    assert_eq!(landed, 1, "events: {:?}", play.events);
+    assert!(play.message.is_some(), "and the player is told");
+}
