@@ -34,6 +34,10 @@ Appearance -> *Follow system*, the default; Dark and Light override it).
 switches the desktop to light while emusic is open
 ([`docs/emusic-native-styling-plan.md`](../docs/emusic-native-styling-plan.md)).
 
+The UI font has no note, star or play glyph: emusic draws them as icons, the
+track table shows only the columns that fit, and an empty library offers an
+"Add music folder..." button (`tools/screenshot/examples/emusic_library.json`).
+
 Settings -> Library -> Add folder opens emusic's own small folder browser
 (there is no platform dialog on LazyOS): it starts in `~/Music`, and the
 folder it returns is recorded in the config and scanned. Session:

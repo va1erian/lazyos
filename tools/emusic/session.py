@@ -180,6 +180,26 @@ def add_folder_session() -> list[dict]:
     return steps
 
 
+def library_session() -> list[dict]:
+    """An empty library shows the "Add music folder" prompt; the button opens
+    the folder browser, Choose scans `~/Music` and the track table fits its
+    columns, with a star icon on the row and a play icon once it plays.
+    Needs a sound card (`--extra-arg=-device --extra-arg=virtio-sound-pci,...`,
+    as `tools/emusic/run.py` attaches), or the track cannot play."""
+    steps = install()
+    steps += command(f"rhai -e 'sys::mimed::open(\"{TRACK}\",\"open\")'",
+                     "EMUSIC:UP:PASS", 300)
+    steps += [{"wait_for": "EMUSIC:PLAY:tones.mp3", "timeout": 120}, {"wait": 1.0}]
+    steps += [{"shot": "02_empty_library"}]
+    steps += click_at(604, 543, 1.5)   # Add music folder...
+    steps += [{"shot": "03_folder_browser"}]
+    steps += click_at(437, 584, 4.0)   # Choose
+    steps += [{"shot": "04_library"}]
+    steps += click_at(814, 344, 1.5)   # Shuffle all: plays the track
+    steps += [{"shot": "05_playing"}, {"at": 1.0, "quit": True}]
+    return steps
+
+
 def sound_session() -> list[dict]:
     """Run the headless sound check on the track, for the recording."""
     steps = install()
@@ -198,6 +218,7 @@ SESSIONS = {
     "emusic_theme.json": theme_session,
     "emusic_resize.json": resize_session,
     "emusic_add_folder.json": add_folder_session,
+    "emusic_library.json": library_session,
 }
 
 

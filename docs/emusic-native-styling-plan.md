@@ -1,6 +1,7 @@
 # emusic: native look and a working Add folder
 
-Status: phases 0, 1 and 2 are done; phases 3 and 4 are open.
+Status: phases 0, 1 and 2 are done, phase 3 is done except the items under
+"Open" in it; phase 4 (wiring) is mostly covered by the sessions.
 Context: [`media-plan.md`](media-plan.md), [`../emusic/README.md`](../emusic/README.md).
 
 ## Findings
@@ -95,12 +96,41 @@ xui widgets in a secondary window, like its other dialogs:
   SID, visualization presets) still answer "cancelled" on LazyOS; they are
   off the music path.
 
-### 3. Usability and glitch pass
+### 3. Usability and glitch pass (done, see Open)
 
-Fix each finding at its source, check the empty state (a prompt in the main
-pane, not only in Settings), minimum window size, keyboard (Tab order, Enter,
-Esc), HiDPI (`--hidpi`), and the whole flow: add folder, scan, appears in
-Music, double-click plays, seek, volume.
+Findings, each fixed at its source in emusic's portable frontend:
+
+- **Tofu boxes.** The UI face is Droid Sans (Latin, Greek, Cyrillic; 873
+  glyphs); none of the fonts in the tree has the music note (U+266A, missing
+  from Droid Sans), the stars (U+2605/2606) or the play triangle (U+25B6).
+  A full Unicode font was not needed for these: they are drawn as icons now
+  (the navigator's Music raster for the note placeholder, xui's `Star`,
+  `StarFilled` and `Play` glyphs; the track table uses the row icon, so the
+  playing row shows a play triangle instead of its star). The streaming
+  status text lost its arrows.
+- **Clipped, squeezed track table.** The data columns (about 760 dip) did not
+  fit the 540 dip left beside the right panel, so Title was squeezed and the
+  table clipped. `fitting_columns` shows the data columns in priority order
+  (Artist, Album, Time, Genre, Year, Plays, Format, Last played, File) while
+  Title keeps 140 dip; the others get width 0 and come back when the window
+  grows.
+- **Empty state.** An empty Music view shows "Your library is empty" and an
+  **Add music folder...** button (below the table header) instead of a blank
+  list.
+- Session: `tools/screenshot/examples/emusic_library.json` (empty prompt, the
+  folder browser, the fitted table, a playing row; needs a sound card).
+
+Open:
+
+- **Non-Latin tags** (CJK, Arabic, Hebrew, Thai, Korean) still render as tofu:
+  Droid Sans has none of them. That is the case for a full Unicode fallback
+  font in xui's text shaper (a CJK face is 10 to 16 MB, so it should be a
+  `LAZYOS_` image option, not compiled into every xui app). Separate decision.
+- **The 900x540 minimum** can come down once the right panel's summary no
+  longer overlaps the track table below about 840 px wide.
+- A playing track shows no star in the table (one icon per row); the star is
+  in the Now Playing panel.
+- HiDPI (`--hidpi`) not checked.
 
 ### 4. Verification and wiring
 
