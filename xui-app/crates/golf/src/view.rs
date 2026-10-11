@@ -224,8 +224,12 @@ fn apply(
                 } else {
                     // A notch toward you is a shorter club.
                     let steps = (f32::from(delta) / WHEEL_NOTCH).round() as isize;
-                    run.play.step_club(-steps.signum());
-                    run.sync_play();
+                    // A trackpad's small deltas round to nothing: no step,
+                    // which would otherwise reset a shortened aim.
+                    if steps != 0 {
+                        run.play.step_club(-steps.signum());
+                        run.sync_play();
+                    }
                 }
                 after.invalidate = true;
             }
