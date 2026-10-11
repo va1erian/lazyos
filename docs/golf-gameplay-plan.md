@@ -305,9 +305,9 @@ Each ends with a screenshot Read by a person, not only a passing test.
 |---|---|---|
 | G0 (**done**) | `Overlay` + ball/shadow drawn depth-tested; `play::ball` integrates a shot | host tests: every club carries its table distance +/-5% on flat ground; `golf-ball-flight.png` (ball and trail over a generated tee) |
 | G1 (**done**) | Address camera (4.3) with clearance and trees; aim rotation; caddy club; `Play` at Address | invariant tests over 20 seeds x 18 holes: ball and aim in frame, eye above ground+1.2, no eye inside a trunk; snapshot of every tee |
-| G2 | Meter and one shot end to end on the tee: swing, flight, Track camera, rest | session script plays hole 1 stroke 1; markers `GOLF:SHOT`, `GOLF:LAND:<material>` |
-| G3 | Landing/roll cuts, surfaces table, bounce and roll on slopes, lies | tests: energy never increases, a ball stops, sand plugs, water ends in a penalty; snapshots of the cut |
-| G4 | Short game: wedges, chip, fringe, Green back camera, putting with grid and holing out | tests: a putt below the speed limit drops, above lips out; green-back framing invariants; green grid snapshot |
+| G2 (**done**) | Meter and one shot end to end on the tee: swing, flight, Track camera, rest | session script plays hole 1 stroke 1; markers `GOLF:SHOT`, `GOLF:LAND:<material>` |
+| G3 (**done**) | Landing/roll cuts, surfaces table, bounce and roll on slopes, lies | tests: energy never increases, a ball stops, sand plugs, water ends in a penalty; snapshots of the cut |
+| G4 (**done**) | Short game: wedges, chip, fringe, Green back camera, putting with grid and holing out | tests: a putt below the speed limit drops, above lips out; green-back framing invariants; green grid snapshot |
 | G5 | Rules, scoring, hole summary, scorecard, 18-hole round | AI plays a full round deterministically for a seed (`GOLF:ROUND:<seed>:<strokes>`) in a host test |
 | G6 | Preview flyover, replay, authentic cut-and-repaint polish, wind | session script of a whole hole; fps stays above 20 at 720p in QEMU |
 | G7 | Hot-seat, match play, settings (units, mouse swing) | scoped separately |
@@ -385,6 +385,54 @@ every tree, the ball in the lower half, and 0.1% blind. Snapshots:
   tree begins or stops blocking; section 4 wants damped motion inside a
   shot), the pin's flag-top as a second must-be-visible point, and
   the overlay marker colours are the palette's yellow, not tuned.
+
+**G2-G4** are in: a playable prototype. Space starts the meter, sets the
+power at the tick, sets the accuracy; the ball flies, bounces and rolls;
+the camera follows and cuts; the putter, the slope grid and the cup work;
+18 holes can be played to the cup. (`src/play/{ball,shot,surface,terrain,
+meter,solve,plan,turn,green}.rs`, `src/play/cam/director.rs`,
+`src/hud_play.rs`, `tests/{shot,round}.rs`, `tools/screenshot/examples/
+xui_golf_play.json`.) What the build found, in the order it was found:
+
+- **The meter's tick is solved, not tabulated.** The tick sits at the power
+  at which the *simulator* sends the ball to the aim marker on this ground
+  (`solve::power_for`): slope, roll, lie and wind included. A table of
+  flat-ground carries sent a wedge short and into water, a 3-wood on past
+  the green, and a 12 m uphill putt back to where it started (nine
+  strokes in a row).
+- **The caddy plans with the simulator** (`plan::plan`): targets from as far
+  as the longest club reaches back toward the player, the shortest club
+  with power in hand for each, the shot played out, and the first whose
+  every ground contact and rest are safe taken. A pass/fail test with the
+  *first* candidate as the fallback drove straight into the water on steep
+  holes: candidates are now *scored* (water or out of bounds -1000, each
+  hazard contact -20, a steep rest up to -40) and the least bad wins. A
+  perfect-contact player now holes 18 of 18 holes of three generated
+  courses (60 strokes, no penalties); before the planner, 6 picked up
+  and there were 35 penalty strokes.
+- **Friction opposes the net force.** Applying friction and then slope let
+  gravity re-add 0.06 m/s to a ball friction had just stopped on a steep
+  bunker face, so it crept for 66 s. Slope first, then friction.
+- **Landing cuts are chosen with the future in hand.** The planner tries a
+  ring of spots around the landing at two heights and scores each over the
+  rest of the flight: turn rate of the line of sight, nearest and
+  furthest range, and the share of samples hidden by a rise or a tree
+  (8 per unit; a ball behind a ridge is no shot to watch). A cut that
+  only chased the ball showed empty sky; the pan now frames the ball and
+  where it comes down together, and the zoom is limited to 0.6.
+- **Ball and aim marks are depth-tested with a grazing bias.** At 3 m eye
+  height and 80 m one row of pixels spans 1.7 m of depth, so the fixed 1%
+  margin hid the ball; the margin grows with range over eye height.
+- **Retrying a penalty is not the same shot**: each retry plays 12% shorter
+  and 3 degrees to alternate sides.
+
+Known gaps: no wind (the plumbing is there; `Play.wind` is zero), no
+mouse swing, no scorecard screen (the HUD shows the round's strokes against
+par), no gimme, the computer player is the caddy plus a perfect meter (G5's
+noise and skill are not in), and the QEMU session is unrun. The ball is
+visible (in the frame and not hidden) in 97% of flight frames over 18
+holes; the rest are rolls behind rises that the address camera cannot see
+(no cut when the carry is under 60 m).
 
 ## 11. Risks and open questions
 

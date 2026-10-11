@@ -126,7 +126,11 @@ fn aiming_and_clubs_stay_valid() {
     play.step_club(-100);
     assert_eq!(play.club, 0);
     play.step_club(100);
-    assert_eq!(play.club, xui_golf::play::CLUBS.len() - 1);
+    assert_eq!(
+        play.club,
+        xui_golf::play::BAG.len() - 1,
+        "the putter is last"
+    );
     // The camera follows the aim: turning it right turns the camera right.
     let a = lie(scene, 0, 0.0);
     let mut b = a.clone();
@@ -191,6 +195,7 @@ fn address_views_for_a_few_shots() {
                 ground: scene.bake.height_at(play.ball.x, play.ball.z),
             }),
             aim: Some(mark),
+            grid: Vec::new(),
         };
         let mut frame = Frame::new(W, H);
         let mut job = RenderJob::new(scene, &a.camera, W, H, Mode::Fly, 0.0).with_overlay(overlay);

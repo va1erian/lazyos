@@ -159,7 +159,7 @@ fn apply(
     match *event {
         Event::KeyDown { key, repeat, .. } => {
             if let Some(run) = game.run.as_mut().filter(|r| !r.free) {
-                if club_key(run, key) {
+                if play_key(run, key, repeat) {
                     after.invalidate = true;
                     return None;
                 }
@@ -224,8 +224,10 @@ fn apply(
                 } else {
                     // A notch toward you is a shorter club.
                     let steps = (f32::from(delta) / WHEEL_NOTCH).round() as isize;
-                    run.play.step_club(-steps.signum());
-                    run.sync_play();
+                    if !run.play.in_stroke() {
+                        run.play.step_club(-steps.signum());
+                        run.sync_play();
+                    }
                 }
                 after.invalidate = true;
             }
@@ -235,9 +237,23 @@ fn apply(
     None
 }
 
-/// Club selection: Up / W a longer club, Down / S a shorter one. Returns
-/// whether the key was one.
-fn club_key(run: &mut crate::game::Running, key: Key) -> bool {
+/// The keys of playing a hole: Space is the swing meter's click (and skips
+/// a shot's replay), X backs out of a swing, Up / W and Down / S choose the
+/// club while lining up. Returns whether the key was one of them.
+fn play_key(run: &mut crate::game::Running, key: Key, repeat: u16) -> bool {
+    if key == Key::SPACE || key == Key::RETURN {
+        if repeat <= 1 {
+            run.click();
+        }
+        return true;
+    }
+    if key == Key::X || key == Key::BACK {
+        run.cancel_swing();
+        return true;
+    }
+    if run.play.in_stroke() {
+        return false;
+    }
     let step = match key {
         k if k == Key::UP || k == Key::W => -1,
         k if k == Key::DOWN || k == Key::S => 1,

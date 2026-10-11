@@ -34,10 +34,20 @@ pub struct AimMark {
     pub radius: f32,
 }
 
+/// One arrow of the green's slope grid: a short line on the ground.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GridArrow {
+    pub from: Vec3,
+    pub to: Vec3,
+    /// Palette index.
+    pub color: u8,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Overlay {
     pub ball: Option<BallMark>,
     pub aim: Option<AimMark>,
+    pub grid: Vec<GridArrow>,
 }
 
 #[inline]
@@ -54,6 +64,9 @@ fn plot(frame: &mut Frame, x: i64, y: i64, iz: f32, index: u8) {
 
 /// Draws the overlay into `frame` as seen by `view`.
 pub fn draw(frame: &mut Frame, view: &View, overlay: &Overlay) {
+    for arrow in &overlay.grid {
+        draw_arrow(frame, view, arrow);
+    }
     if let Some(aim) = &overlay.aim {
         draw_aim(frame, view, aim);
     }
@@ -67,11 +80,11 @@ pub fn draw(frame: &mut Frame, view: &View, overlay: &Overlay) {
         if let Some((x, y, z)) = screen(view, on_ground) {
             // Flat on the ground: twice as wide as tall.
             let r = (DRAWN_RADIUS * view.focal / z).clamp(1.0, MAX_PIXELS);
-            let iz = 1.0 / z;
+            let iz = grazing(view, ball.ground, z) / z;
             for dx in -(2.0 * r).ceil() as i64..=(2.0 * r).ceil() as i64 {
                 let wide = r * 2.0;
                 if (dx as f32).abs() <= wide {
-                    plot(frame, x + dx, y, iz * 1.001, pal::BLACK);
+                    plot(frame, x + dx, y, iz, pal::BLACK);
                 }
             }
         }
@@ -81,7 +94,7 @@ pub fn draw(frame: &mut Frame, view: &View, overlay: &Overlay) {
     };
     let r = (DRAWN_RADIUS * view.focal / z).clamp(1.0, MAX_PIXELS);
     // In front of anything at its own depth (the grass it rests on).
-    let iz = 1.01 / z;
+    let iz = grazing(view, ball.ground, z) / z;
     let reach = r.ceil() as i64;
     for dy in -reach..=reach {
         for dx in -reach..=reach {
@@ -104,14 +117,23 @@ fn screen(view: &View, p: Vec3) -> Option<(i64, i64, f32)> {
 
 /// A touch nearer than the ground it lies on, so the grass does not eat it.
 const ON_GROUND: f32 = 1.004;
+
+/// How much nearer than the surface under it a thing standing on the
+/// ground is tested: seen from low and far, one row of pixels spans
+/// metres of depth, and a fixed margin would hide the thing.
+fn grazing(view: &View, ground: f32, z: f32) -> f32 {
+    let height = (view.eye.y - ground).max(1.0);
+    1.0 + (2.5 * z / (height * view.focal)).clamp(0.01, 0.4)
+}
 const RING_POINTS: usize = 48;
 
 fn draw_aim(frame: &mut Frame, view: &View, aim: &AimMark) {
     for &dot in &aim.dots {
         if let Some((x, y, z)) = screen(view, dot) {
             // Two pixels wide: a single one vanishes at a distance.
-            plot(frame, x, y, ON_GROUND / z, pal::YELLOW);
-            plot(frame, x + 1, y, ON_GROUND / z, pal::YELLOW);
+            let iz = grazing(view, dot.y, z).max(ON_GROUND) / z;
+            plot(frame, x, y, iz, pal::YELLOW);
+            plot(frame, x + 1, y, iz, pal::YELLOW);
         }
     }
     let t = aim.target;
@@ -145,4 +167,26 @@ fn draw_aim(frame: &mut Frame, view: &View, aim: &AimMark) {
             plot(frame, x, y, ON_GROUND / z, pal::WHITE);
         }
     }
+}
+
+/// A grid arrow: the shaft as a line of pixels from tail to head, and the
+/// head a pixel bigger.
+fn draw_arrow(frame: &mut Frame, view: &View, arrow: &GridArrow) {
+    let (Some((x0, y0, z0)), Some((x1, y1, _))) =
+        (screen(view, arrow.from), screen(view, arrow.to))
+    else {
+        return;
+    };
+    if z0 > 70.0 {
+        return;
+    }
+    let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
+    let iz = ON_GROUND / z0;
+    for i in 0..=steps {
+        let x = x0 + (x1 - x0) * i / steps;
+        let y = y0 + (y1 - y0) * i / steps;
+        plot(frame, x, y, iz, arrow.color);
+    }
+    plot(frame, x1 + 1, y1, iz, arrow.color);
+    plot(frame, x1, y1 - 1, iz, arrow.color);
 }

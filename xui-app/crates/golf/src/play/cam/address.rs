@@ -17,6 +17,8 @@ use super::obstacles::Obstacles;
 
 /// The eye is never lower than this above the ground, metres.
 pub const MIN_CLEARANCE: f32 = 1.2;
+/// A putting camera crouches: this low over the green.
+pub const PUTT_CLEARANCE: f32 = 0.45;
 /// The search lifts the eye at most this far above its preferred height.
 const MAX_LIFT: f32 = 10.0;
 const LIFT_STEP: f32 = 0.5;
@@ -40,6 +42,14 @@ pub struct Address {
     /// The ball could not be seen from any spot the search tried (a ball
     /// in a hollow behind trees): the aim marker is all the player has.
     pub blind: bool,
+}
+
+/// What kind of view: a full shot looks far down the hole from behind and
+/// above; a putt crouches low and close, looking along the green.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Style {
+    Full,
+    Putt,
 }
 
 /// One place the eye could be, and how far that is from the preferred one.
@@ -74,10 +84,28 @@ fn candidates() -> Vec<Candidate> {
 /// The camera for a ball at `ball` (on the ground), shooting along `dir`
 /// at a point `distance` metres away. `aspect` is height over width of the
 /// picture.
-pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: f32) -> Address {
-    let distance = distance.clamp(15.0, 300.0);
-    let far = smoothstep(20.0, 220.0, distance);
-    let fov = lerp(58.0, 50.0, far).to_radians();
+pub fn address(
+    world: &Obstacles,
+    ball: Vec3,
+    dir: Vec2,
+    distance: f32,
+    aspect: f32,
+    style: Style,
+) -> Address {
+    let putt = style == Style::Putt;
+    let distance = distance.clamp(if putt { 1.5 } else { 15.0 }, 300.0);
+    let far = if putt {
+        smoothstep(2.0, 30.0, distance)
+    } else {
+        smoothstep(20.0, 220.0, distance)
+    };
+    let fov = if putt {
+        lerp(52.0, 46.0, far)
+    } else {
+        lerp(58.0, 50.0, far)
+    }
+    .to_radians();
+    let clearance = if putt { PUTT_CLEARANCE } else { MIN_CLEARANCE };
     let tan_v = (fov * 0.5).tan() * aspect;
     // The angle above the screen's centre of a point at height `f` (0 top,
     // 1 bottom) of the picture.
@@ -87,7 +115,12 @@ pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: 
     let aim = world.on_ground(ground + dir * distance);
     let look = world.on_ground(ground + dir * (0.65 * distance));
     let right = dir.perp();
-    let (back0, height0) = (lerp(4.0, 10.0, far), lerp(1.8, 3.6, far));
+    let (back0, height0) = if putt {
+        (lerp(1.8, 4.5, far), lerp(0.9, 1.8, far))
+    } else {
+        (lerp(4.0, 10.0, far), lerp(1.8, 3.6, far))
+    };
+    let slack = (back0 * 0.4).min(1.5);
     let ball_top = Vec3::new(ball.x, ball.y + 0.1, ball.z);
 
     // For each candidate: the eye, whether it is clear and sees the ball,
@@ -116,8 +149,8 @@ pub fn address(world: &Obstacles, ball: Vec3, dir: Vec2, distance: f32, aspect: 
         let beside = turned.abs() <= fov * 0.5 * 0.8;
         let fits = beside && low <= high;
         let lower_half = fits && low <= high.min(up(ball) - rel(BALL_MID));
-        let above_ground = eye.y >= floor + MIN_CLEARANCE;
-        let sees = above_ground && !world.inside_tree(eye) && !world.blocked(eye, ball_top, 1.5);
+        let above_ground = eye.y >= floor + clearance;
+        let sees = above_ground && !world.inside_tree(eye) && !world.blocked(eye, ball_top, slack);
         let want = (up(look) - rel(LOOK_AT)).min(up(ball) - rel(BALL_MID));
         let pitch = want.clamp(low.min(high), high.max(low));
         (eye, sees, fits, lower_half, above_ground, pitch)

@@ -9,6 +9,7 @@ use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
 mod pacing;
+mod playing;
 use pacing::{Bench, Stats};
 
 use xui_core::Image;
@@ -19,7 +20,7 @@ use crate::loading::Loading;
 use crate::math::Vec3;
 use crate::minimap::Minimap;
 use crate::play::Play;
-use crate::render::{resolve_into, BallMark, Camera, Frame, Mode, Overlay, RenderJob, Scene};
+use crate::render::{resolve_into, Camera, Frame, GridArrow, Mode, Overlay, RenderJob, Scene};
 
 /// What the game tells its host (the LazyOS binary prints it as serial
 /// evidence).
@@ -46,6 +47,24 @@ pub enum Report {
         min_fps: u32,
         avg_fps: f32,
     },
+    /// The ball was struck.
+    Shot {
+        hole: u8,
+        stroke: u32,
+        club: String,
+        power: f32,
+    },
+    /// The ball first touched the ground.
+    Landed {
+        hole: u8,
+        stroke: u32,
+        material: String,
+        carry: f32,
+    },
+    /// A penalty stroke (water, out of bounds).
+    Penalty { hole: u8, stroke: u32, kind: String },
+    /// The ball is in the cup.
+    Holed { hole: u8, strokes: u32, par: u8 },
 }
 
 /// The overhead map's size, pixels at 96 DPI.
@@ -53,8 +72,6 @@ pub const MAP_SIZE: usize = 200;
 /// How often the water's palette animation advances: often enough to look
 /// continuous (each step only re-resolves the frame).
 const WATER_PERIOD: Duration = Duration::from_millis(60);
-/// How fast a held key turns the aim, radians per second.
-const AIM_RATE: f32 = 0.3;
 /// The flying part, once a course exists.
 pub struct Running {
     pub scene: Scene,
@@ -81,6 +98,8 @@ pub struct Running {
     pub authentic: bool,
     job: Option<RenderJob>,
     overlay: Overlay,
+    /// The slope grid of the green being putted on, kept per hole.
+    grid: Option<(usize, Vec<GridArrow>)>,
     dirty: bool,
     settled: bool,
     last_input: Instant,
@@ -194,7 +213,9 @@ impl Running {
         if let Some(first) = scene.course.holes.first() {
             flyer.to_tee(first, |x, z| scene.bake.height_at(x, z));
         }
-        let play = Play::tee_off(&scene.course.holes, &scene.bake, 0);
+        let mut play = Play::tee_off(&scene.course.holes, &scene.bake, 0);
+        play.seed = scene.course.seed;
+        play.set_up(&scene.course, &scene.bake);
         let camera = flyer.camera;
         let mut run = Running {
             scene,
@@ -213,6 +234,7 @@ impl Running {
             authentic: false,
             job: None,
             overlay: Overlay::default(),
+            grid: None,
             dirty: true,
             settled: true,
             last_input: now,
@@ -233,55 +255,11 @@ impl Running {
         self.camera
     }
 
-    /// Shows the ball and the aim for the current play state and redraws.
-    pub fn sync_play(&mut self) {
-        let bake = &self.scene.bake;
-        let ball = self.play.ball;
-        self.overlay.ball = Some(BallMark {
-            position: ball,
-            ground: bake.height_at(ball.x, ball.z),
-        });
-        self.overlay.aim = Some(self.play.aim_mark(bake));
-        self.moved();
-    }
-
-    /// Plays hole `n` from its tee.
-    pub fn start_hole(&mut self, n: usize) {
-        self.play = Play::tee_off(&self.scene.course.holes, &self.scene.bake, n);
-        self.free = false;
-        self.sync_play();
-    }
-
-    /// Switches between the shot camera and the free one.
-    pub fn toggle_free(&mut self) {
-        self.free = !self.free;
-        if self.free {
-            // Fly on from where the shot camera was.
-            self.flyer.camera = self.camera;
-            self.overlay.aim = None;
-            self.moved();
-        } else {
-            self.sync_play();
-        }
-    }
-
     /// Something moved the camera (a key, the mouse, a teleport).
     pub fn moved(&mut self) {
         self.dirty = true;
         self.last_input = Instant::now();
         self.job = None;
-    }
-
-    /// Shows the ball at `position` (`None`: no ball), drawn over every view.
-    pub fn set_ball(&mut self, position: Option<Vec3>) {
-        let ball = position.map(|position| BallMark {
-            position,
-            ground: self.scene.bake.height_at(position.x, position.z),
-        });
-        if ball != self.overlay.ball {
-            self.overlay.ball = ball;
-            self.moved();
-        }
     }
 
     /// Cycles the scale: automatic, then 1 to 4 window pixels per pixel.
@@ -341,7 +319,7 @@ impl Running {
         if self.bench.is_some() {
             self.fly_bench(now, reports);
         } else if !self.free {
-            self.aim_tick(held, dt);
+            self.play_step(held, dt, reports);
         } else if self
             .flyer
             .update(held, dt, size, |x, z| scene.bake.height_at(x, z))
@@ -371,22 +349,8 @@ impl Running {
         if drew || water {
             self.present();
         }
-        drew || water
-    }
-
-    /// Held turn keys rotate the aim (Shift for a fast turn).
-    fn aim_tick(&mut self, held: Held, dt: f32) {
-        use crate::fly::Action;
-        let turn = |plus: Action, minus: Action| {
-            f32::from(u8::from(held.has(plus))) - f32::from(u8::from(held.has(minus)))
-        };
-        let axis = turn(Action::TurnRight, Action::TurnLeft) + turn(Action::Right, Action::Left);
-        if axis != 0.0 {
-            let fast = if held.has(Action::Fast) { 4.0 } else { 1.0 };
-            self.play
-                .rotate(axis.clamp(-1.0, 1.0) * AIM_RATE * fast * dt);
-            self.sync_play();
-        }
+        // The swing meter moves without the picture changing.
+        drew || water || self.swinging()
     }
 
     /// Renders a whole frame and keeps the books on how long it took.

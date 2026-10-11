@@ -9,6 +9,10 @@
 //! `GOLF:FPS:<fps>:scale=<n>:<w>x<h>:work=<ms>` once a second while frames
 //! are drawn, `GOLF:BENCH:frames=<n>:min=<fps>:avg=<fps>` after the `B`
 //! flyover, and `GOLF:QUIT:PASS` on Escape (or the window close button).
+//! Playing: `GOLF:SHOT:<hole>:<stroke>:<club>:power=<p>` at impact,
+//! `GOLF:LAND:<hole>:<stroke>:<material>:carry=<m>` at the first touch,
+//! `GOLF:PENALTY:<hole>:<stroke>:<kind>` and
+//! `GOLF:HOLED:<hole>:<strokes>:par=<par>`.
 //! A first argument that is a number picks the course seed.
 
 use xui_app::launch;
@@ -53,6 +57,28 @@ fn main() {
                 avg_fps,
             }) => {
                 println!("GOLF:BENCH:frames={frames}:min={min_fps}:avg={avg_fps:.1}");
+            }
+            Msg::Report(Report::Shot {
+                hole,
+                stroke,
+                club,
+                power,
+            }) => {
+                println!("GOLF:SHOT:{hole}:{stroke}:{club}:power={power:.2}");
+            }
+            Msg::Report(Report::Landed {
+                hole,
+                stroke,
+                material,
+                carry,
+            }) => {
+                println!("GOLF:LAND:{hole}:{stroke}:{material}:carry={carry:.0}");
+            }
+            Msg::Report(Report::Penalty { hole, stroke, kind }) => {
+                println!("GOLF:PENALTY:{hole}:{stroke}:{kind}");
+            }
+            Msg::Report(Report::Holed { hole, strokes, par }) => {
+                println!("GOLF:HOLED:{hole}:{strokes}:par={par}");
             }
             Msg::Quit => println!("GOLF:QUIT:PASS"),
         })

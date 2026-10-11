@@ -8,17 +8,19 @@ use xui_core::geometry::{Point, Rect};
 use xui_core::{Color, Dip};
 
 use crate::game::Game;
+use crate::hud_play;
 
 const MARGIN: i32 = 10;
 const LINE: i32 = 17;
 
-const HELP_PLAY: [(&str, &str); 8] = [
+const HELP_PLAY: [(&str, &str); 9] = [
+    ("Space", "swing: start, power, accuracy"),
+    ("X", "cancel the swing"),
     ("Left / Right", "aim (Shift: fast)"),
     ("Up Down / wheel", "longer, shorter club"),
     ("N / P / Home", "next, previous hole, first"),
     ("F", "free camera"),
     ("T / R / M", "authentic, resolution, map"),
-    ("G / B", "new course, benchmark"),
     ("H", "hide this help"),
     ("Esc", "quit"),
 ];
@@ -106,11 +108,19 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
     if !run.free {
         let play = &run.play;
         lines.push(format!(
-            "{}  aim {:.0} m  pin {:.0} m",
+            "Stroke {}  {}  aim {:.0} m  pin {:.0} m",
+            play.stroke + 1,
             play.club().name,
             play.distance,
             play.distance_to_pin(&course.holes)
         ));
+        let (strokes, par) = card(play, &course.holes);
+        if par > 0 {
+            lines.push(format!(
+                "Round {strokes} on {par} par ({:+})",
+                strokes as i32 - par as i32
+            ));
+        }
     }
     let (fps, work) = run.fps();
     let (w, h) = run.resolution();
@@ -162,6 +172,18 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
     if game.show_map {
         map(canvas, run, bounds, s);
     }
+    if !run.free {
+        hud_play::paint(canvas, run, bounds, s);
+    }
+}
+
+/// Strokes and par over the holes finished on the card.
+fn card(play: &crate::play::Play, holes: &[crate::Hole]) -> (u32, u32) {
+    play.scores
+        .iter()
+        .zip(holes)
+        .filter_map(|(s, h)| s.map(|s| (s, u32::from(h.par))))
+        .fold((0, 0), |(a, b), (s, p)| (a + s, b + p))
 }
 
 /// The overhead map with the camera's position and heading.

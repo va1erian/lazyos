@@ -5,7 +5,7 @@
 
 use crate::math::{Vec2, Vec3};
 
-use super::ball::Launch;
+use super::ball::{simulate, Launch, Wind};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Club {
@@ -20,7 +20,40 @@ pub struct Club {
     pub carry_m: f32,
 }
 
+/// Ball speed of a full putt, m/s: about 59 m on a fast green.
+const PUTT_SPEED: f32 = 8.0;
+/// How far a full putt rolls on a flat green, metres: v^2 / (2 mu g).
+const PUTT_FULL: f32 = 59.0;
+
 impl Club {
+    pub fn is_putter(&self) -> bool {
+        self.launch_deg == 0.0
+    }
+
+    /// The share of a full swing (0..=1) that sends the ball `distance`
+    /// metres on flat ground: the carry for a full-swing club, the roll
+    /// for the putter. A distance beyond the club's reach is a full swing.
+    pub fn power_for(&self, distance: f32) -> f32 {
+        if self.is_putter() {
+            return (distance / PUTT_FULL).sqrt().clamp(0.0, 1.0);
+        }
+        if distance >= self.carry_m {
+            return 1.0;
+        }
+        let (mut low, mut high) = (0.0f32, 1.0f32);
+        for _ in 0..14 {
+            let mid = 0.5 * (low + high);
+            let launch = self.launch(Vec3::default(), Vec2::new(1.0, 0.0), mid, 0.0);
+            let carry = simulate(&launch, Wind::default(), |_, _| 0.0).carry();
+            if carry < distance {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        0.5 * (low + high)
+    }
+
     /// The ball leaving `position` along `heading` at `power` (0..=1.2 of
     /// a full swing); `sidespin` in rpm curves it (positive: right).
     pub fn launch(&self, position: Vec3, heading: Vec2, power: f32, sidespin: f32) -> Launch {
@@ -66,3 +99,20 @@ const fn club(
         carry_m,
     }
 }
+
+/// The putter: no loft, so the ball starts on the ground and rolls.
+pub const PUTTER: Club = club("Putter", PUTT_SPEED, 0.0, 0.0, PUTT_FULL);
+
+/// The whole bag: the full-swing clubs longest first, then the putter.
+pub const BAG: [Club; 12] = {
+    let mut bag = [PUTTER; 12];
+    let mut i = 0;
+    while i < CLUBS.len() {
+        bag[i] = CLUBS[i];
+        i += 1;
+    }
+    bag
+};
+
+/// The putter's place in [`BAG`].
+pub const PUTTER_INDEX: usize = BAG.len() - 1;
