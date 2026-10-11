@@ -43,8 +43,8 @@ pub fn rf_dac_cal<H: Hci>(dev: &mut Dev<H>) {
     let backup = Backup::save(
         &mut dev.hci,
         [
-            0x180c, 0x1810, 0x410c, 0x4110, 0x1c3c, 0x1c24, 0x1d70, 0x9b4, 0x1a00, 0x1a14, 0x1d58, 0x1c38, 0x1e24,
-            0x1e28, 0x1860, 0x4160,
+            0x180c, 0x1810, 0x410c, 0x4110, 0x1c3c, 0x1c24, 0x1d70, 0x9b4, 0x1a00, 0x1a14, 0x1d58,
+            0x1c38, 0x1e24, 0x1e28, 0x1860, 0x4160,
         ],
     );
     // Upstream indexes its RF backup as `path * i + i` with i = 0, so both
@@ -324,7 +324,8 @@ fn step1<H: Hci>(dev: &mut Dev<H>, path: usize) {
     h.write32(base + 0xd4, 0x6200_0000);
     h.delay_us(20_000);
     // Upstream logs "failed to wait for dack ready" and carries on.
-    let _ = check_hw_ready(h, read + 0x08, 0x7f_ff80, 0xffff) && check_hw_ready(h, read + 0x34, 0x7f_ff80, 0xffff);
+    let _ = check_hw_ready(h, read + 0x08, 0x7f_ff80, 0xffff)
+        && check_hw_ready(h, read + 0x34, 0x7f_ff80, 0xffff);
     h.write32(base + 0xb8, 0x0200_0000);
     h.delay_us(1000);
     h.write32(base + 0xbc, 0x0008_ff87);
@@ -363,7 +364,14 @@ fn scale(v: u32) -> u32 {
 
 /// Upstream `rtw8822c_dac_cal_step3`: apply the codes, re-run, and return
 /// the residual offsets (magnitudes) the caller's loop checks.
-fn step3<H: Hci>(dev: &mut Dev<H>, path: usize, adc_ic: u32, adc_qc: u32, ic: u32, qc: u32) -> (u32, u32) {
+fn step3<H: Hci>(
+    dev: &mut Dev<H>,
+    path: usize,
+    adc_ic: u32,
+    adc_qc: u32,
+    ic: u32,
+    qc: u32,
+) -> (u32, u32) {
     let (base, read) = (write_addr(path), read_addr(path));
     let h = &mut dev.hci;
     h.write32(base + 0x0c, 0xdff0_0220);
@@ -390,7 +398,8 @@ fn step3<H: Hci>(dev: &mut Dev<H>, path: usize, adc_ic: u32, adc_qc: u32, ic: u3
     h.write32(base + 0xd4, 0x6200_0000);
     h.delay_us(20_000);
     // Upstream logs "failed to write IQ vector to hardware" and carries on.
-    let _ = check_hw_ready(h, read + 0x24, 0x07f8_0000, ic) && check_hw_ready(h, read + 0x50, 0x07f8_0000, qc);
+    let _ = check_hw_ready(h, read + 0x24, 0x07f8_0000, ic)
+        && check_hw_ready(h, read + 0x50, 0x07f8_0000, qc);
     h.write32(base + 0xb8, 0x0200_0000);
     h.delay_us(1000);
     h.write32_mask(base + 0xbc, 0xe, 0x3);
@@ -401,8 +410,20 @@ fn step3<H: Hci>(dev: &mut Dev<H>, path: usize, adc_ic: u32, adc_qc: u32, ic: u3
     h.write32(base + 0x10, 0x02d5_08c5);
     h.write32(base + 0x60, 0xf000_0000);
     let (i, q) = rf_mode(dev);
-    let unbias = |v: u32| if v >= 0x10 { v - 0x10 } else { 0x400 - (0x10 - v) };
-    let mag = |v: u32| if v >= 0x200 { 0x400u32.wrapping_sub(v) } else { v };
+    let unbias = |v: u32| {
+        if v >= 0x10 {
+            v - 0x10
+        } else {
+            0x400 - (0x10 - v)
+        }
+    };
+    let mag = |v: u32| {
+        if v >= 0x200 {
+            0x400u32.wrapping_sub(v)
+        } else {
+            v
+        }
+    };
     (mag(unbias(i)), mag(unbias(q)))
 }
 

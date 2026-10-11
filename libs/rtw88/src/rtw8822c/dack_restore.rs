@@ -21,7 +21,7 @@ pub struct DackState {
     /// `[path][vector: 0 = I, 1 = Q][index]`.
     pub msbk: [[[u16; MSBK_NUM]; 2]; 2],
     /// `[path][..][..]` in upstream's (asymmetric) indexing, see
-    /// [`backup_dck`].
+    /// `backup_dck`.
     pub dck: [[[u8; 2]; 2]; 2],
 }
 
@@ -98,7 +98,10 @@ fn restore_prepare<H: Hci>(dev: &mut Dev<H>) {
     for r in [0x18b0, 0x18cc, 0x41b0, 0x41cc] {
         h.write32_mask(r, bit(27), 0x0);
     }
-    for (anapar, ctl, a, b) in [(0x1830, 0x1860, 0x18b4, 0x18d0), (0x4130, 0x4160, 0x41b4, 0x41d0)] {
+    for (anapar, ctl, a, b) in [
+        (0x1830, 0x1860, 0x18b4, 0x18d0),
+        (0x4130, 0x4160, 0x41b4, 0x41d0),
+    ] {
         h.write32_mask(anapar, bit(30), 0x0);
         h.write32_mask(ctl, 0xfc00_0000, 0x3c);
         h.write32_mask(a, bit(0), 0x1);
@@ -181,7 +184,11 @@ fn restore_path<H: Hci>(dev: &mut Dev<H>, path: usize) -> bool {
 /// nothing was saved or the hardware does not get ready.
 pub fn dac_cal_restore<H: Hci>(dev: &mut Dev<H>) -> bool {
     let m = &dev.dm.dack.msbk;
-    if m[RF_PATH_A][0][0] == 0 && m[RF_PATH_A][1][0] == 0 && m[RF_PATH_B][0][0] == 0 && m[RF_PATH_B][1][0] == 0 {
+    if m[RF_PATH_A][0][0] == 0
+        && m[RF_PATH_A][1][0] == 0
+        && m[RF_PATH_B][0][0] == 0
+        && m[RF_PATH_B][1][0] == 0
+    {
         return false;
     }
     let h = &mut dev.hci;

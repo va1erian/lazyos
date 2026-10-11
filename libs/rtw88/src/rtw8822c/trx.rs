@@ -95,7 +95,13 @@ fn config_ofdm_tx_path<H: Hci>(h: &mut H, tx_path: u8, tx_path_sel_1ss: u8) {
 }
 
 /// Upstream `rtw8822c_config_tx_path`.
-pub fn config_tx_path<H: Hci>(h: &mut H, tx_path: u8, tx_path_sel_1ss: u8, tx_path_cck: u8, is_tx2_path: bool) {
+pub fn config_tx_path<H: Hci>(
+    h: &mut H,
+    tx_path: u8,
+    tx_path_sel_1ss: u8,
+    tx_path_cck: u8,
+    is_tx2_path: bool,
+) {
     config_cck_tx_path(h, tx_path_cck, is_tx2_path);
     config_ofdm_tx_path(h, tx_path, tx_path_sel_1ss);
     bb_reset(h);
@@ -107,8 +113,16 @@ pub fn config_tx_path<H: Hci>(h: &mut H, tx_path: u8, tx_path_sel_1ss: u8, tx_pa
 pub fn config_trx_mode<H: Hci>(dev: &mut Dev<H>, tx_path: u8, rx_path: u8, is_tx2_path: bool) {
     let h = &mut dev.hci;
     let code = |used: bool| if used { 0x33312 } else { 0x11111 };
-    h.write32_mask(REG_ORITXCODE, MASK20BITS, code((tx_path | rx_path) & BB_PATH_A != 0));
-    h.write32_mask(REG_ORITXCODE2, MASK20BITS, code((tx_path | rx_path) & BB_PATH_B != 0));
+    h.write32_mask(
+        REG_ORITXCODE,
+        MASK20BITS,
+        code((tx_path | rx_path) & BB_PATH_A != 0),
+    );
+    h.write32_mask(
+        REG_ORITXCODE2,
+        MASK20BITS,
+        code((tx_path | rx_path) & BB_PATH_B != 0),
+    );
     config_cck_rx_path(h, rx_path);
     config_ofdm_rx_path(h, rx_path);
     config_tx_path(h, tx_path, BB_PATH_A, BB_PATH_A, is_tx2_path);

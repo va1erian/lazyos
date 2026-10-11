@@ -28,16 +28,22 @@ use crate::dev::{RF_PATH_A, RF_PATH_B};
 pub const RF_TABLES: [(usize, &[u32]); 2] = [(RF_PATH_B, RF_B), (RF_PATH_A, RF_A)];
 
 /// The power tables one RFE type uses (upstream `struct rtw_rfe_def`; the
-/// power-tracking table is type 0 for every 8822C RFE type and lives in
-/// [`crate::rtw8822c::pwrtrack`]).
+/// power-tracking table, type 0 for every 8822C RFE type, belongs to
+/// thermal power tracking, which is not ported yet).
 #[derive(Clone, Copy, Debug)]
 pub struct RfeDef {
     pub phy_pg: &'static [[u32; 6]],
     pub txpwr_lmt: &'static [[u8; 6]],
 }
 
-const TYPE0: RfeDef = RfeDef { phy_pg: BB_PG_TYPE0, txpwr_lmt: TXPWR_LMT_TYPE0 };
-const TYPE5: RfeDef = RfeDef { phy_pg: BB_PG_TYPE0, txpwr_lmt: TXPWR_LMT_TYPE5 };
+const TYPE0: RfeDef = RfeDef {
+    phy_pg: BB_PG_TYPE0,
+    txpwr_lmt: TXPWR_LMT_TYPE0,
+};
+const TYPE5: RfeDef = RfeDef {
+    phy_pg: BB_PG_TYPE0,
+    txpwr_lmt: TXPWR_LMT_TYPE5,
+};
 
 /// Upstream `rtw8822c_rfe_defs`: RFE types 0 to 6, all on by-rate table 0,
 /// type 5 with its own limit table.

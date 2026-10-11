@@ -126,7 +126,12 @@ impl Default for PhyState {
 pub fn setup_board_info<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     let rfe = crate::rtw8822c::tables::rfe_def(dev.efuse.rfe_option)
         .ok_or(Error::Unsupported("rfe type"))?;
-    for (decoded, raw) in dev.phy.txpwr_idx.iter_mut().zip(dev.efuse.txpwr_idx_table.iter()) {
+    for (decoded, raw) in dev
+        .phy
+        .txpwr_idx
+        .iter_mut()
+        .zip(dev.efuse.txpwr_idx_table.iter())
+    {
         *decoded = TxPwrIdx::parse(&raw.0);
     }
     dev.phy.cond = PhyCond::setup(dev.hal.cut_version, dev.hal.pkg_type, dev.efuse.rfe_option);

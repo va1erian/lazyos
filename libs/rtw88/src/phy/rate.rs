@@ -75,8 +75,9 @@ const VHT_4S: [u8; 10] = span(DESC_RATEVHT4SS_MCS0);
 
 /// Upstream `rtw_rate_section[]` (with `rtw_rate_size[]` as each slice's
 /// length), in section order.
-pub const RATE_SECTION: [&[u8]; RATE_SECTION_NUM] =
-    [&CCK, &OFDM, &HT_1S, &HT_2S, &VHT_1S, &VHT_2S, &HT_3S, &HT_4S, &VHT_3S, &VHT_4S];
+pub const RATE_SECTION: [&[u8]; RATE_SECTION_NUM] = [
+    &CCK, &OFDM, &HT_1S, &HT_2S, &VHT_1S, &VHT_2S, &HT_3S, &HT_4S, &VHT_3S, &VHT_4S,
+];
 
 /// Upstream `rtw_phy_rate_to_rate_section`; `None` for a code past the table
 /// (upstream returns `RTW_RATE_SECTION_NUM`).

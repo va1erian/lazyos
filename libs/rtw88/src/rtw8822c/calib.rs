@@ -11,11 +11,11 @@
 //! upstream with that flag. TX works without it.
 
 use crate::dev::{Dev, RF_PATH_A, RF_PATH_B};
+use crate::fw::{self, IqkPara};
 use crate::hci::{Hci, RegExt};
 use crate::phy::rf::{read_rf, write_rf, RFREG_MASK};
-use crate::rtw8822c::regs::*;
-use crate::fw::{self, IqkPara};
 use crate::rtw8822c::dpk;
+use crate::rtw8822c::regs::*;
 
 /// Upstream `IQK_DONE_8822C`.
 const IQK_DONE: u8 = 0xaa;
@@ -33,7 +33,8 @@ pub fn phy_calibration<H: Hci>(dev: &mut Dev<H>) {
 pub fn rfk_power_save<H: Hci>(dev: &mut Dev<H>, power_save: bool) {
     for path in 0..u32::from(dev.hal.rf_path_num).min(2) {
         dev.hci.write32_mask(REG_NCTL0, BIT_SEL_PATH, path);
-        dev.hci.write32_mask(REG_DPD_CTL1_S0, BIT_PS_EN, u32::from(!power_save));
+        dev.hci
+            .write32_mask(REG_DPD_CTL1_S0, BIT_PS_EN, u32::from(!power_save));
     }
 }
 
@@ -42,7 +43,13 @@ pub fn rfk_power_save<H: Hci>(dev: &mut Dev<H>, power_save: bool) {
 /// finished (upstream only warns).
 pub fn do_iqk<H: Hci>(dev: &mut Dev<H>) -> bool {
     // A refused H2C shows up as the poll below timing out.
-    let _ = fw::do_iqk(dev, &IqkPara { clear: 1, segment_iqk: 0 });
+    let _ = fw::do_iqk(
+        dev,
+        &IqkPara {
+            clear: 1,
+            segment_iqk: 0,
+        },
+    );
     let mut done = false;
     let mut waited = 0;
     loop {

@@ -38,7 +38,9 @@ pub fn channel_to_idx(band_5g: bool, channel: u8) -> Option<usize> {
 fn set_limit(phy: &mut PhyState, regd: u8, band: u8, bw: u8, rs: u8, ch: u8, lmt: i8) {
     let max = MAX_POWER_INDEX as i8;
     let lmt = lmt.clamp(-max, max);
-    let Some(ch_idx) = channel_to_idx(band == 1, ch) else { return };
+    let Some(ch_idx) = channel_to_idx(band == 1, ch) else {
+        return;
+    };
     if regd >= REGD_MAX || usize::from(bw) >= BW_MAX || usize::from(rs) >= RATE_SECTION_NUM {
         return;
     }
@@ -47,7 +49,11 @@ fn set_limit(phy: &mut PhyState, regd: u8, band: u8, bw: u8, rs: u8, ch: u8, lmt
         1 => &mut phy.limit_5g[usize::from(bw)][usize::from(rs)][ch_idx],
         _ => return,
     };
-    *cell = if regd == REGD_WW { lmt } else { (*cell).min(lmt) };
+    *cell = if regd == REGD_WW {
+        lmt
+    } else {
+        (*cell).min(lmt)
+    };
 }
 
 /// Upstream `rtw_parse_tbl_txpwr_lmt`, keeping the world-wide limits, then
@@ -59,11 +65,16 @@ pub fn parse_txpwr_lmt(phy: &mut PhyState, rows: &[[u8; 6]]) {
         set_limit(phy, regd, band, bw, rs, ch, lmt as i8);
     }
     let max = MAX_POWER_INDEX as i8;
-    let pairs = [(RS_HT_1S, RS_VHT_1S), (RS_HT_2S, RS_VHT_2S), (RS_HT_3S, RS_VHT_3S), (RS_HT_4S, RS_VHT_4S)];
-    for bw in 0..=1usize {
+    let pairs = [
+        (RS_HT_1S, RS_VHT_1S),
+        (RS_HT_2S, RS_VHT_2S),
+        (RS_HT_3S, RS_VHT_3S),
+        (RS_HT_4S, RS_VHT_4S),
+    ];
+    // 20 and 40 MHz only.
+    for t in phy.limit_5g.iter_mut().take(2) {
         for ch in 0..MAX_CHANNEL_NUM_5G {
             for &(ht, vht) in &pairs {
-                let t = &mut phy.limit_5g[bw];
                 let (l_ht, l_vht) = (t[ht][ch], t[vht][ch]);
                 if l_ht == l_vht {
                     continue;

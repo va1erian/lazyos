@@ -17,12 +17,25 @@ const DB_INVERT_TABLE: [[u64; 8]; 12] = [
     [316, 398, 501, 631, 794, 1000, 1259, 1585],
     [1995, 2512, 3162, 3981, 5012, 6310, 7943, 10000],
     [12589, 15849, 19953, 25119, 31623, 39811, 50119, 63098],
-    [79433, 100000, 125893, 158489, 199526, 251189, 316228, 398107],
-    [501187, 630957, 794328, 1000000, 1258925, 1584893, 1995262, 2511886],
-    [3162278, 3981072, 5011872, 6309573, 7943282, 1000000, 12589254, 15848932],
-    [19952623, 25118864, 31622777, 39810717, 50118723, 63095734, 79432823, 100000000],
-    [125892541, 158489319, 199526232, 251188643, 316227766, 398107171, 501187234, 630957345],
-    [794328235, 1000000000, 1258925412, 1584893192, 1995262315, 2511886432, 3162277660, 3981071706],
+    [
+        79433, 100000, 125893, 158489, 199526, 251189, 316228, 398107,
+    ],
+    [
+        501187, 630957, 794328, 1000000, 1258925, 1584893, 1995262, 2511886,
+    ],
+    [
+        3162278, 3981072, 5011872, 6309573, 7943282, 1000000, 12589254, 15848932,
+    ],
+    [
+        19952623, 25118864, 31622777, 39810717, 50118723, 63095734, 79432823, 100000000,
+    ],
+    [
+        125892541, 158489319, 199526232, 251188643, 316227766, 398107171, 501187234, 630957345,
+    ],
+    [
+        794328235, 1000000000, 1258925412, 1584893192, 1995262315, 2511886432, 3162277660,
+        3981071706,
+    ],
 ];
 
 /// Upstream `rtw_phy_power_2_db`: dBm to a 0..100 scale (100 at 0 dBm and
@@ -54,12 +67,12 @@ fn db_2_linear(power_db: u8) -> u64 {
 
 fn linear_2_db(linear: u64) -> u8 {
     let mut found = None;
-    'outer: for i in 0..12 {
-        for j in 0..8 {
+    'outer: for (i, row) in DB_INVERT_TABLE.iter().enumerate() {
+        for (j, &entry) in row.iter().enumerate() {
             let hit = if i <= 2 {
-                (linear << FRAC_BITS) <= DB_INVERT_TABLE[i][j]
+                (linear << FRAC_BITS) <= entry
             } else {
-                linear <= DB_INVERT_TABLE[i][j]
+                linear <= entry
             };
             if hit {
                 found = Some((i, j));
@@ -92,7 +105,10 @@ fn linear_2_db(linear: u64) -> u8 {
 /// entries of `rf_power`, averaged in the linear domain.
 pub fn rf_power_2_rssi(rf_power: &[i8], path_num: usize) -> u8 {
     let n = path_num.min(rf_power.len());
-    let mut sum: u64 = rf_power[..n].iter().map(|&p| db_2_linear(power_2_db(p))).sum();
+    let mut sum: u64 = rf_power[..n]
+        .iter()
+        .map(|&p| db_2_linear(power_2_db(p)))
+        .sum();
     sum = (sum + (1 << (FRAC_BITS - 1))) >> FRAC_BITS;
     match n {
         2 => sum >>= 1,
@@ -112,7 +128,11 @@ mod tests {
     #[test]
     fn one_path_matches_upstream_model() {
         for dbm in -74i8..=-5 {
-            let want = if dbm == -30 { 60 } else { (100 + i16::from(dbm)) as u8 };
+            let want = if dbm == -30 {
+                60
+            } else {
+                (100 + i16::from(dbm)) as u8
+            };
             assert_eq!(rf_power_2_rssi(&[dbm], 1), want, "dbm {dbm}");
         }
         let edges: [(i8, u8); 12] = [

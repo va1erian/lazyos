@@ -24,17 +24,27 @@ const EDCCA_OFFSET: u32 = 0x80;
 /// the firmware is up (upstream `rtw_mac_init` order is the core's).
 pub fn phy_set_param<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     // Power on the BB and RF domains.
-    set8(&mut dev.hci, REG_SYS_FUNC_EN, BIT_FEN_BB_GLB_RST | BIT_FEN_BB_RSTB);
-    set8(&mut dev.hci, REG_RF_CTRL, BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
+    set8(
+        &mut dev.hci,
+        REG_SYS_FUNC_EN,
+        BIT_FEN_BB_GLB_RST | BIT_FEN_BB_RSTB,
+    );
+    set8(
+        &mut dev.hci,
+        REG_RF_CTRL,
+        BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB,
+    );
     dev.hci.set32(REG_WLRF1, BIT_WLRF1_BBRF_EN);
     // No DPD on the low rates.
-    dev.hci.write32_mask(REG_DIS_DPD, DIS_DPD_MASK, DIS_DPD_RATEALL);
+    dev.hci
+        .write32_mask(REG_DIS_DPD, DIS_DPD_MASK, DIS_DPD_RATEALL);
 
     header_file_init(&mut dev.hci, true);
     phy::load_tables(dev);
 
     let cap = u32::from(dev.efuse.crystal_cap & XCAP_MASK);
-    dev.hci.write32_mask(REG_ANAPAR_XTAL_0, 0xfffc00, cap | (cap << 7));
+    dev.hci
+        .write32_mask(REG_ANAPAR_XTAL_0, 0xfffc00, cap | (cap << 7));
 
     header_file_init(&mut dev.hci, false);
 
@@ -125,7 +135,10 @@ pub fn bf_phy_init<H: Hci>(h: &mut H) {
     v &= !BIT_EN_MU_MIMO;
     v &= !BIT_MASK_R_MU_TABLE_VALID;
     h.write32(REG_MU_TX_CTL, v);
-    h.write8(REG_WMAC_MU_BF_OPTION, ((3 << BIT_SHIFT_WMAC_TXMU_ACKPOLICY) | BIT_WMAC_TXMU_ACKPOLICY_EN) as u8);
+    h.write8(
+        REG_WMAC_MU_BF_OPTION,
+        ((3 << BIT_SHIFT_WMAC_TXMU_ACKPOLICY) | BIT_WMAC_TXMU_ACKPOLICY_EN) as u8,
+    );
     h.write16(REG_WMAC_MU_BF_CTL, 0);
     h.set32(REG_TXBF_CTRL, BIT_USE_NDPA_PARAMETER);
     h.write8(REG_NDPA_OPT_CTRL, 0x10);
@@ -136,14 +149,18 @@ pub fn bf_phy_init<H: Hci>(h: &mut H) {
 pub fn cfg_ldo25<H: Hci>(dev: &mut Dev<H>, enable: bool) {
     let v = dev.hci.read8(REG_ANAPARLDO_POW_MAC);
     let bit = BIT_LDOE25_PON as u8;
-    dev.hci.write8(REG_ANAPARLDO_POW_MAC, if enable { v | bit } else { v & !bit });
+    dev.hci.write8(
+        REG_ANAPARLDO_POW_MAC,
+        if enable { v | bit } else { v & !bit },
+    );
 }
 
 /// Upstream `rtw8822c_set_crystal_cap_reg`.
 pub fn set_crystal_cap_reg<H: Hci>(dev: &mut Dev<H>, cap: u8) {
     dev.dm.crystal_cap = cap;
     let v = u32::from(cap);
-    dev.hci.write32_mask(REG_ANAPAR_XTAL_0, BIT_XCAP_0, v | (v << 7));
+    dev.hci
+        .write32_mask(REG_ANAPAR_XTAL_0, BIT_XCAP_0, v | (v << 7));
 }
 
 /// Upstream `rtw8822c_set_crystal_cap`: only on a change.

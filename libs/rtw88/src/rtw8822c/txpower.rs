@@ -39,7 +39,11 @@ pub fn set_tx_power_index<H: Hci>(dev: &mut Dev<H>) {
 
     let mut diff_idx = [0i8; 4];
     for (rs, rates) in RATE_SECTION.iter().enumerate().take(RS_2SS_MAX + 1) {
-        let (ra, rb) = if rs == 0 { (ref_cck[0], ref_cck[1]) } else { (ref_ofdm[0], ref_ofdm[1]) };
+        let (ra, rb) = if rs == 0 {
+            (ref_cck[0], ref_cck[1])
+        } else {
+            (ref_ofdm[0], ref_ofdm[1])
+        };
         for &rate in rates.iter() {
             let r = usize::from(rate);
             let diff_a = (tbl[RF_PATH_A][r] as i8).wrapping_sub(ra as i8);
@@ -55,10 +59,9 @@ pub fn set_tx_power_index<H: Hci>(dev: &mut Dev<H>) {
 /// Upstream `rtw8822c_set_tx_power_diff`: four 7-bit differences into the
 /// dword for `rate` (a multiple of 4).
 fn set_tx_power_diff<H: Hci>(h: &mut H, rate: u8, diff_idx: &[i8; 4]) {
-    let word = diff_idx
-        .iter()
-        .enumerate()
-        .fold(0u32, |w, (i, &d)| w | (u32::from(d as u8 & 0x7f) << (8 * i)));
+    let word = diff_idx.iter().enumerate().fold(0u32, |w, (i, &d)| {
+        w | (u32::from(d as u8 & 0x7f) << (8 * i))
+    });
     h.write32_mask(0x1c90, bit(15), 0x0);
     h.write32_mask(OFFSET_TXAGC + u32::from(rate & 0xfc), MASKDWORD, word);
 }

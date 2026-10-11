@@ -30,7 +30,10 @@ fn dev(rfe: u8) -> Dev<FakeHci> {
     d.efuse.txpwr_idx_table = [raw_idx(); 4];
     setup_board_info(&mut d).unwrap();
     let t = &d.phy.txpwr_idx[0];
-    assert_eq!((t.ht_1s_2g.ofdm, t.ht_1s_2g.bw20, t.vht_ns_5g[0].bw80), (1, -1, -1));
+    assert_eq!(
+        (t.ht_1s_2g.ofdm, t.ht_1s_2g.bw20, t.vht_ns_5g[0].bw80),
+        (1, -1, -1)
+    );
     d
 }
 
@@ -72,28 +75,76 @@ fn by_rate_offsets_are_relative_to_the_section_base() {
     assert_eq!(p.by_rate_2g[RF_PATH_A][usize::from(DESC_RATE6M)], 0x14);
     // VHT's base is MCS7 (0x40): MCS8 0x3c, MCS9 0x38 go negative.
     assert_eq!(p.by_rate_base_5g[RF_PATH_B][RS_VHT_1S], 0x40);
-    assert_eq!(p.by_rate_5g[RF_PATH_B][usize::from(DESC_RATEVHT1SS_MCS0 + 8)], -4);
-    assert_eq!(p.by_rate_5g[RF_PATH_B][usize::from(DESC_RATEVHT1SS_MCS9)], -8);
+    assert_eq!(
+        p.by_rate_5g[RF_PATH_B][usize::from(DESC_RATEVHT1SS_MCS0 + 8)],
+        -4
+    );
+    assert_eq!(
+        p.by_rate_5g[RF_PATH_B][usize::from(DESC_RATEVHT1SS_MCS9)],
+        -8
+    );
 }
 
 #[test]
 fn world_wide_limits_match_the_reference_model() {
     // (rfe, 2.4 GHz [bw][rs][ch], 5 GHz [bw][rs][ch], expected before base)
     for (rfe, lim2, lim5) in [
-        (1, [(0, RS_CCK, 0, 60), (0, RS_OFDM, 0, 52), (0, RS_HT_1S, 5, 60), (0, RS_OFDM, 12, 28), (0, RS_CCK, 13, 68), (1, RS_HT_2S, 10, 16)],
-            [(0, RS_OFDM, 0, 54), (0, RS_VHT_1S, 0, 54), (1, RS_HT_1S, 1, 54), (2, RS_VHT_1S, 3, 54), (2, RS_VHT_2S, 38, 4), (0, RS_OFDM, 35, 28)]),
-        (5, [(0, RS_CCK, 0, 56), (0, RS_OFDM, 0, 52), (0, RS_HT_1S, 5, 60), (0, RS_OFDM, 12, 28), (0, RS_CCK, 13, 72), (1, RS_HT_2S, 10, 26)],
-            [(0, RS_OFDM, 0, 58), (0, RS_VHT_1S, 0, 58), (1, RS_HT_1S, 1, 64), (2, RS_VHT_1S, 3, 60), (2, RS_VHT_2S, 38, 4), (0, RS_OFDM, 35, 28)]),
+        (
+            1,
+            [
+                (0, RS_CCK, 0, 60),
+                (0, RS_OFDM, 0, 52),
+                (0, RS_HT_1S, 5, 60),
+                (0, RS_OFDM, 12, 28),
+                (0, RS_CCK, 13, 68),
+                (1, RS_HT_2S, 10, 16),
+            ],
+            [
+                (0, RS_OFDM, 0, 54),
+                (0, RS_VHT_1S, 0, 54),
+                (1, RS_HT_1S, 1, 54),
+                (2, RS_VHT_1S, 3, 54),
+                (2, RS_VHT_2S, 38, 4),
+                (0, RS_OFDM, 35, 28),
+            ],
+        ),
+        (
+            5,
+            [
+                (0, RS_CCK, 0, 56),
+                (0, RS_OFDM, 0, 52),
+                (0, RS_HT_1S, 5, 60),
+                (0, RS_OFDM, 12, 28),
+                (0, RS_CCK, 13, 72),
+                (1, RS_HT_2S, 10, 26),
+            ],
+            [
+                (0, RS_OFDM, 0, 58),
+                (0, RS_VHT_1S, 0, 58),
+                (1, RS_HT_1S, 1, 64),
+                (2, RS_VHT_1S, 3, 60),
+                (2, RS_VHT_2S, 38, 4),
+                (0, RS_OFDM, 35, 28),
+            ],
+        ),
     ] {
         let d = dev(rfe);
         let p = &d.phy;
         for (bw, rs, ch, want) in lim2 {
             let base = p.by_rate_base_2g[0][rs];
-            assert_eq!(p.limit_2g[bw][rs][ch], (want as i8).wrapping_sub(base), "rfe {rfe} 2g {bw} {rs} {ch}");
+            assert_eq!(
+                p.limit_2g[bw][rs][ch],
+                (want as i8).wrapping_sub(base),
+                "rfe {rfe} 2g {bw} {rs} {ch}"
+            );
         }
         for (bw, rs, ch, want) in lim5 {
             let base = p.by_rate_base_5g[0][rs];
-            assert_eq!(p.limit_5g[bw][rs][ch], (want as i8).wrapping_sub(base), "rfe {rfe} 5g {bw} {rs} {ch}");
+            assert_eq!(
+                p.limit_5g[bw][rs][ch],
+                (want as i8).wrapping_sub(base),
+                "rfe {rfe} 5g {bw} {rs} {ch}"
+            );
         }
     }
 }
@@ -103,30 +154,63 @@ fn power_index_by_hand() {
     let mut d = dev(1);
     d.hal.cch_by_bw = [1, 0, 0];
     // 11M ch1: CCK base 0x2d; offset 0, limit 60 - 72 = -12 -> 0x21.
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATE11M, Bw::Mhz20, 1, 12), 0x21);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATE11M, Bw::Mhz20, 1, 12),
+        0x21
+    );
     // 1M: offset 0x0c still loses to the limit.
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATE1M, Bw::Mhz20, 1, 12), 0x21);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATE1M, Bw::Mhz20, 1, 12),
+        0x21
+    );
     // 6M ch1: 0x30 + 1 * 2 = 0x32; min(0x14, 52 - 68) = -16; DPD off -12 -> 0x16.
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATE6M, Bw::Mhz20, 1, 12), 0x16);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATE6M, Bw::Mhz20, 1, 12),
+        0x16
+    );
     // 54M ch1: 0x32 - 16 = 0x22.
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATE54M, Bw::Mhz20, 1, 12), 0x22);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATE54M, Bw::Mhz20, 1, 12),
+        0x22
+    );
     // ch6 (group 2): MCS7 0x32 - 2 = 0x30, limit 60 - 64 = -4 -> 0x2c;
     // MCS0 then also loses 12 for DPD -> 0x20.
     d.hal.cch_by_bw = [6, 0, 0];
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATEMCS7, Bw::Mhz20, 6, 12), 0x2c);
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATEMCS0, Bw::Mhz20, 6, 12), 0x20);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATEMCS7, Bw::Mhz20, 6, 12),
+        0x2c
+    );
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATEMCS0, Bw::Mhz20, 6, 12),
+        0x20
+    );
     // ch14 CCK uses group 5: 0x2f, limit 68 - 72 = -4 -> 0x2b.
     d.hal.cch_by_bw = [14, 0, 0];
-    assert_eq!(get_tx_power_index(&d, RF_PATH_B, DESC_RATE11M, Bw::Mhz20, 14, 12), 0x2b);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_B, DESC_RATE11M, Bw::Mhz20, 14, 12),
+        0x2b
+    );
     // ch36 54M: 0x28, limit 54 - 68 = -14 -> 0x1a.
     d.hal.cch_by_bw = [36, 38, 42];
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATE54M, Bw::Mhz20, 36, 12), 0x1a);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATE54M, Bw::Mhz20, 36, 12),
+        0x1a
+    );
     // ch42 VHT1SS MCS0 at 80 MHz: (0x28 + 0x2a) / 2 - 2 = 0x27; limits 54
     // at 36/38/42 minus base 0x40 = -10; DPD -12 -> 0x11.
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, DESC_RATEVHT1SS_MCS0, Bw::Mhz80, 42, 12), 0x11);
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, DESC_RATEVHT1SS_MCS0, Bw::Mhz80, 42, 12),
+        0x11
+    );
     // A domain past WW is unlimited; out-of-range inputs give the maximum.
-    assert_eq!(get_tx_power_index(&d, 5, DESC_RATE1M, Bw::Mhz20, 36, 12), MAX_POWER_INDEX);
-    assert_eq!(get_tx_power_index(&d, RF_PATH_A, 0x60, Bw::Mhz20, 36, 12), MAX_POWER_INDEX);
+    assert_eq!(
+        get_tx_power_index(&d, 5, DESC_RATE1M, Bw::Mhz20, 36, 12),
+        MAX_POWER_INDEX
+    );
+    assert_eq!(
+        get_tx_power_index(&d, RF_PATH_A, 0x60, Bw::Mhz20, 36, 12),
+        MAX_POWER_INDEX
+    );
 }
 
 #[test]
@@ -147,12 +231,17 @@ fn set_tx_power_level_programs_references_and_differences() {
     // CCK differences: every CCK rate sits at the reference (limit-bound).
     assert_eq!(d.hci.peek32(0x3a00), 0);
     // 6M..18M: (0x16, 0x16, 0x1e, 0x1e) - ref, as 7-bit two's complement.
-    let want: [u8; 4] = core::array::from_fn(|i| (t[0][4 + i] as i8).wrapping_sub(ref_ofdm as i8) as u8 & 0x7f);
+    let want: [u8; 4] =
+        core::array::from_fn(|i| (t[0][4 + i] as i8).wrapping_sub(ref_ofdm as i8) as u8 & 0x7f);
     assert_eq!(d.hci.peek32(0x3a04).to_le_bytes(), want);
     // Every difference dword of the 1SS/2SS sections was written (CCK to
     // MCS15, VHT1SS MCS0 to VHT2SS MCS9); the 3SS/4SS ones were not.
     assert!(!d.hci.writes().iter().any(|&(_, a, _)| a == 0x3a1c));
     for rate in (0..0x1cu32).step_by(4).chain((0x2c..0x40).step_by(4)) {
-        assert!(d.hci.writes().iter().any(|&(_, a, _)| a == 0x3a00 + rate), "0x{:x}", 0x3a00 + rate);
+        assert!(
+            d.hci.writes().iter().any(|&(_, a, _)| a == 0x3a00 + rate),
+            "0x{:x}",
+            0x3a00 + rate
+        );
     }
 }

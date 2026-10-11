@@ -81,7 +81,9 @@ fn bcd2bin(v: u8) -> u8 {
 /// offsets. Rows for an unknown register, a band past 5 GHz or a path the
 /// chip lacks are dropped (upstream warns).
 fn store(phy: &mut PhyState, band: u32, path: u32, addr: u32, mask: u32, data: u32) {
-    let Some((rates, first, bcd)) = rate_values(addr, mask) else { return };
+    let Some((rates, first, bcd)) = rate_values(addr, mask) else {
+        return;
+    };
     let path = path as usize;
     if path >= RF_PATH_MAX || band > 1 {
         return;
@@ -91,7 +93,11 @@ fn store(phy: &mut PhyState, band: u32, path: u32, addr: u32, mask: u32, data: u
         // The 8822C is not `is_pwr_by_rate_dec`: bytes are binary except
         // the two rows upstream always reads as BCD.
         let offset = if bcd { bcd2bin(byte) } else { byte } as i8;
-        let table = if band == 0 { &mut phy.by_rate_2g } else { &mut phy.by_rate_5g };
+        let table = if band == 0 {
+            &mut phy.by_rate_2g
+        } else {
+            &mut phy.by_rate_5g
+        };
         table[path][usize::from(rate)] = offset;
     }
 }
@@ -113,7 +119,11 @@ pub fn parse_bb_pg<H: Hci>(dev: &mut Dev<H>, rows: &[[u32; 6]]) {
 pub fn by_rate_config(phy: &mut PhyState) {
     for path in 0..RF_PATH_MAX {
         for (rs, rates) in RATE_SECTION.iter().enumerate() {
-            let base_idx = usize::from(if rates.len() == 10 { rates[rates.len() - 3] } else { rates[rates.len() - 1] });
+            let base_idx = usize::from(if rates.len() == 10 {
+                rates[rates.len() - 3]
+            } else {
+                rates[rates.len() - 1]
+            });
             let base_2g = phy.by_rate_2g[path][base_idx];
             let base_5g = phy.by_rate_5g[path][base_idx];
             phy.by_rate_base_2g[path][rs] = base_2g;

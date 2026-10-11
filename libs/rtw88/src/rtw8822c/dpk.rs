@@ -156,7 +156,10 @@ fn pre_setting<H: Hci>(dev: &mut Dev<H>) {
         let two_g = dev.dm.dpk.dpk_band == DPK_BAND_2G;
         let h = &mut dev.hci;
         h.write32(REG_NCTL0, subpage(path));
-        h.write32(REG_DPD_CTL1_S1, if two_g { 0x1f10_0000 } else { 0x1f0d_0000 });
+        h.write32(
+            REG_DPD_CTL1_S1,
+            if two_g { 0x1f10_0000 } else { 0x1f0d_0000 },
+        );
         h.write32_mask(REG_DPD_LUT0, BIT_GLOSS_DB, 0x4);
         h.write32_mask(REG_IQK_CTL1, BIT_TX_CFIR, 0x3);
     }
@@ -184,9 +187,9 @@ fn result_reset<H: Hci>(dev: &mut Dev<H>) {
 
 /// The 20 report selectors of upstream `rtw8822c_dpk_get_coef_tbl`.
 const GET_COEF_TBL: [u32; 20] = [
-    0x000400f0, 0x040400f0, 0x080400f0, 0x010400f0, 0x050400f0, 0x090400f0, 0x020400f0, 0x060400f0, 0x0a0400f0,
-    0x030400f0, 0x070400f0, 0x0b0400f0, 0x0c0400f0, 0x100400f0, 0x0d0400f0, 0x110400f0, 0x0e0400f0, 0x120400f0,
-    0x0f0400f0, 0x130400f0,
+    0x000400f0, 0x040400f0, 0x080400f0, 0x010400f0, 0x050400f0, 0x090400f0, 0x020400f0, 0x060400f0,
+    0x0a0400f0, 0x030400f0, 0x070400f0, 0x0b0400f0, 0x0c0400f0, 0x100400f0, 0x0d0400f0, 0x110400f0,
+    0x0e0400f0, 0x120400f0, 0x0f0400f0, 0x130400f0,
 ];
 
 /// Upstream `rtw8822c_dpk_get_coef` with `_coef_tbl_apply` and
@@ -214,7 +217,11 @@ fn get_coef<H: Hci>(dev: &mut Dev<H>, path: usize) {
 /// Upstream `rtw8822c_dpk_coef_read`: 0 if any coefficient saturated.
 fn coef_read(coef: &[u32; 20]) -> u8 {
     let bad = |c: u32| c == 0x1000 || c == 0x0fff;
-    u8::from(!coef.iter().any(|&c| bad((c & 0x1fff_0000) >> 16) || bad(c & 0x1fff)))
+    u8::from(
+        !coef
+            .iter()
+            .any(|&c| bad((c & 0x1fff_0000) >> 16) || bad(c & 0x1fff)),
+    )
 }
 
 /// Upstream `rtw8822c_dpk_coef_write`: the measured coefficients, or the
@@ -238,7 +245,14 @@ pub(super) fn coef_write<H: Hci>(dev: &mut Dev<H>, path: usize, ok: bool) {
 /// Upstream `rtw8822c_dpk_fill_result`.
 fn fill_result<H: Hci>(dev: &mut Dev<H>, dpk_txagc: u32, path: usize, ok: bool) {
     dev.hci.write32_mask(REG_NCTL0, BIT_SUBPAGE, subpage(path));
-    dev.hci.write8(REG_DPD_AGC, if ok { dpk_txagc.wrapping_sub(6) as u8 } else { 0 });
+    dev.hci.write8(
+        REG_DPD_AGC,
+        if ok {
+            dpk_txagc.wrapping_sub(6) as u8
+        } else {
+            0
+        },
+    );
     dev.dm.dpk.result[path] = u8::from(ok);
     dev.dm.dpk.dpk_txagc[path] = dev.hci.read8(REG_DPD_AGC);
     coef_write(dev, path, ok);
@@ -272,7 +286,10 @@ fn enable_disable<H: Hci>(dev: &mut Dev<H>) {
     h.write32_mask(REG_NCTL0, BIT_SUBPAGE, 0xc);
     h.write32_mask(REG_DPD_CTL1_S0, BIT_DPD_EN, u32::from(d.is_dpk_pwr_on));
     h.write32_mask(REG_DPD_CTL1_S1, BIT_DPD_EN, u32::from(d.is_dpk_pwr_on));
-    for (path, ctl1, ctl0) in [(0, REG_DPD_CTL1_S0, REG_DPD_CTL0_S0), (1, REG_DPD_CTL1_S1, REG_DPD_CTL0_S1)] {
+    for (path, ctl1, ctl0) in [
+        (0, REG_DPD_CTL1_S0, REG_DPD_CTL0_S0),
+        (1, REG_DPD_CTL1_S1, REG_DPD_CTL0_S1),
+    ] {
         if d.path_ok & (1 << path) != 0 {
             h.write32_mask(ctl1, bit(15) | bit(14), 0x0);
             h.write8(ctl0, d.dpk_gs[path] as u8);
@@ -293,14 +310,17 @@ pub fn do_dpk<H: Hci>(dev: &mut Dev<H>) {
     let bb = Backup::save(
         &mut dev.hci,
         [
-            0x520, 0x820, 0x824, 0x1c3c, 0x1d58, 0x1864, 0x4164, 0x180c, 0x410c, 0x186c, 0x416c, 0x1a14, 0x1e70,
-            0x80c, 0x1d70, 0x1e7c, 0x18a4, 0x41a4,
+            0x520, 0x820, 0x824, 0x1c3c, 0x1d58, 0x1864, 0x4164, 0x180c, 0x410c, 0x186c, 0x416c,
+            0x1a14, 0x1e70, 0x80c, 0x1d70, 0x1e7c, 0x18a4, 0x41a4,
         ],
     );
     const RF_REGS: [u32; 7] = [0x0, 0x1a, 0x55, 0x63, 0x87, 0x8f, 0xde];
     let mut rf_bak = [[0u32; 2]; 7];
     for (i, &r) in RF_REGS.iter().enumerate() {
-        rf_bak[i] = [read_rf(dev, RF_PATH_A, r, RFREG_MASK), read_rf(dev, RF_PATH_B, r, RFREG_MASK)];
+        rf_bak[i] = [
+            read_rf(dev, RF_PATH_A, r, RFREG_MASK),
+            read_rf(dev, RF_PATH_B, r, RFREG_MASK),
+        ];
     }
 
     tx_pause(dev);

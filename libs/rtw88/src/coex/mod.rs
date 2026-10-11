@@ -45,9 +45,9 @@ mod tests;
 pub use indirect::{read_indirect_reg, write_indirect_reg};
 
 use crate::dev::Dev;
+use crate::fw;
 use crate::hci::Hci;
 use crate::rtw8822c::regs::*;
-use crate::fw;
 use crate::rtw8822c::util::{set8, write8_mask};
 
 /// Upstream `COEX_SCBD_*` scoreboard bits.
@@ -114,7 +114,8 @@ pub fn write_scbd<H: Hci>(dev: &mut Dev<H>, bitpos: u16, set: bool) {
     }
     if val != dev.coex.score_board {
         dev.coex.score_board = val;
-        dev.hci.write16(REG_WIFI_BT_INFO, val | BIT_BT_INT_EN as u16);
+        dev.hci
+            .write16(REG_WIFI_BT_INFO, val | BIT_BT_INT_EN as u16);
     }
 }
 
@@ -241,7 +242,11 @@ pub fn tdma_off<H: Hci>(dev: &mut Dev<H>) {
 pub fn power_on_setting<H: Hci>(dev: &mut Dev<H>) {
     dev.coex.stop_dm = true;
     dev.coex.wl_rf_off = false;
-    set8(&mut dev.hci, REG_SYS_FUNC_EN, BIT_FEN_BB_GLB_RST | BIT_FEN_BB_RSTB);
+    set8(
+        &mut dev.hci,
+        REG_SYS_FUNC_EN,
+        BIT_FEN_BB_GLB_RST | BIT_FEN_BB_RSTB,
+    );
     monitor_bt_enable(dev);
     chip::cfg_rfe_type(dev);
     set_ant_path(dev, true, AntPhase::PowerOn);
@@ -276,7 +281,12 @@ pub fn init_hw_config<H: Hci>(dev: &mut Dev<H>, wifi_only: bool) {
     // TX response, beacon and beacon queue at high PTA priority
     // (rtw_coex_set_wl_pri_mask, COEX_WLPRI_TX_RSP/_BEACON/_BEACONQ).
     for bitmap in [3u32, 4, 27] {
-        write8_mask(&mut dev.hci, REG_BT_COEX_TABLE_H + bitmap / 8, 1 << (bitmap % 8), 1);
+        write8_mask(
+            &mut dev.hci,
+            REG_BT_COEX_TABLE_H + bitmap / 8,
+            1 << (bitmap % 8),
+            1,
+        );
     }
     if dev.coex.wl_rf_off {
         set_ant_path(dev, true, AntPhase::WlanOff);

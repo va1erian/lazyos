@@ -42,7 +42,10 @@ fn chain() -> Vec<u32> {
 #[test]
 fn setup_maps_cut_a_and_no_package_to_15() {
     let c = PhyCond::setup(0, 0, 5);
-    assert_eq!((c.cut, c.pkg, c.plat, c.rfe, c.intf), (15, 15, 4, 5, INTF_PCIE));
+    assert_eq!(
+        (c.cut, c.pkg, c.plat, c.rfe, c.intf),
+        (15, 15, 4, 5, INTF_PCIE)
+    );
     let c = PhyCond::setup(3, 2, 1);
     assert_eq!((c.cut, c.pkg), (3, 2));
 }
@@ -50,13 +53,22 @@ fn setup_maps_cut_a_and_no_package_to_15() {
 #[test]
 fn check_positive_zero_means_any_but_rfe_is_exact() {
     let drv = PhyCond::setup(3, 0, 1);
-    let cond = |cut, pkg, intf, rfe| PhyCond { cut, pkg, intf, rfe, plat: 0 };
+    let cond = |cut, pkg, intf, rfe| PhyCond {
+        cut,
+        pkg,
+        intf,
+        rfe,
+        plat: 0,
+    };
     assert!(check_positive(&drv, &cond(0, 0, 0, 1)));
     assert!(check_positive(&drv, &cond(3, 15, 1, 1)));
     assert!(!check_positive(&drv, &cond(4, 0, 0, 1)));
     assert!(!check_positive(&drv, &cond(0, 2, 0, 1)));
     assert!(!check_positive(&drv, &cond(0, 0, 2, 1)));
-    assert!(!check_positive(&drv, &cond(0, 0, 0, 0)), "rfe 0 in a header is not a wildcard");
+    assert!(
+        !check_positive(&drv, &cond(0, 0, 0, 0)),
+        "rfe 0 in a header is not a wildcard"
+    );
 }
 
 #[test]
@@ -86,14 +98,22 @@ fn first_match_wins_and_a_trailing_odd_word_is_ignored() {
 }
 
 fn digest(pairs: &[(u32, u32)]) -> u32 {
-    pairs.iter().fold(0u32, |h, &(a, d)| h.wrapping_mul(31).wrapping_add(a).wrapping_mul(31).wrapping_add(d))
+    pairs.iter().fold(0u32, |h, &(a, d)| {
+        h.wrapping_mul(31)
+            .wrapping_add(a)
+            .wrapping_mul(31)
+            .wrapping_add(d)
+    })
 }
 
 /// Counts and digests from an independent Python model of upstream's
 /// parser run over the C source (cut 0 is cut A, i.e. 15).
+/// (table, words, cut, rfe, writes, digest)
+type Case = (&'static str, &'static [u32], u8, u8, usize, u32);
+
 #[test]
 fn real_tables_match_the_reference_model() {
-    let cases: &[(&str, &[u32], u8, u8, usize, u32)] = &[
+    let cases: &[Case] = &[
         ("agc", tables::AGC, 3, 1, 450, 0x4a32_7f00),
         ("agc", tables::AGC, 3, 0x15, 450, 0x0c65_0ade),
         ("bb", tables::BB, 4, 5, 1289, 0x6730_b030),
@@ -110,7 +130,11 @@ fn real_tables_match_the_reference_model() {
     ];
     for &(name, words, cut, rfe, n, d) in cases {
         let got = run(&PhyCond::setup(cut, 0, rfe), words);
-        assert_eq!((got.len(), digest(&got)), (n, d), "{name} cut {cut} rfe {rfe}");
+        assert_eq!(
+            (got.len(), digest(&got)),
+            (n, d),
+            "{name} cut {cut} rfe {rfe}"
+        );
     }
 }
 
@@ -124,7 +148,14 @@ fn dev() -> Dev<FakeHci> {
 #[test]
 fn bb_and_rf_delay_addresses_only_wait() {
     let mut d = dev();
-    for (a, us) in [(0xfe, 50_000), (0xfd, 5_000), (0xfc, 1_000), (0xfb, 50), (0xfa, 5), (0xf9, 1)] {
+    for (a, us) in [
+        (0xfe, 50_000),
+        (0xfd, 5_000),
+        (0xfc, 1_000),
+        (0xfb, 50),
+        (0xfa, 5),
+        (0xf9, 1),
+    ] {
         d.hci.log.clear();
         cfg_bb(&mut d.hci, a, 0x1234);
         assert_eq!(d.hci.log, [Access::Delay { us }], "bb {a:#x}");
@@ -148,8 +179,16 @@ fn rf_direct_write_and_read() {
     assert_eq!(
         d.hci.log,
         [
-            Access::Read { width: 4, addr: 0x3d58, val: 0xfff1_2345 },
-            Access::Write { width: 4, addr: 0x3d58, val: 0xfff1_2347 },
+            Access::Read {
+                width: 4,
+                addr: 0x3d58,
+                val: 0xfff1_2345
+            },
+            Access::Write {
+                width: 4,
+                addr: 0x3d58,
+                val: 0xfff1_2347
+            },
             Access::Delay { us: 1 },
         ]
     );
@@ -165,7 +204,17 @@ fn rf_register_0_goes_over_sipi() {
     let mut d = dev();
     d.hci.log.clear();
     write_rf(&mut d, RF_PATH_A, 0, RFREG_MASK, 0x3_0000);
-    assert_eq!(d.hci.log, [Access::Write { width: 4, addr: 0x1808, val: 0x3_0000 }, Access::Delay { us: 13 }]);
+    assert_eq!(
+        d.hci.log,
+        [
+            Access::Write {
+                width: 4,
+                addr: 0x1808,
+                val: 0x3_0000
+            },
+            Access::Delay { us: 13 }
+        ]
+    );
     // A partial write reads the register through the direct window first.
     d.hci.write32(0x4c00, 0x1_0005);
     d.hci.log.clear();
@@ -173,8 +222,16 @@ fn rf_register_0_goes_over_sipi() {
     assert_eq!(
         d.hci.log,
         [
-            Access::Read { width: 4, addr: 0x4c00, val: 0x1_0005 },
-            Access::Write { width: 4, addr: 0x4108, val: 0x2_0005 },
+            Access::Read {
+                width: 4,
+                addr: 0x4c00,
+                val: 0x1_0005
+            },
+            Access::Write {
+                width: 4,
+                addr: 0x4108,
+                val: 0x2_0005
+            },
             Access::Delay { us: 13 },
         ]
     );
@@ -209,9 +266,17 @@ fn load_tables_order_and_rf_paths() {
     let last_rf_b = w.iter().rposition(|&(_, a, _)| rf_b(a)).unwrap();
     let first_rf_a = w.iter().position(|&(_, a, _)| rf_a(a)).unwrap();
     assert!(first_bb < first_agc && first_agc < first_cal && first_cal < first_rf_b);
-    assert!(last_rf_b < first_rf_a, "path B's table loads first (upstream rf_tbl order)");
+    assert!(
+        last_rf_b < first_rf_a,
+        "path B's table loads first (upstream rf_tbl order)"
+    );
     // One write per RF table entry on each path (register 0 over SIPI).
-    let reference = |words: &[u32]| run(&d.phy.cond, words).iter().filter(|&&(a, _)| a != 0xfe && a != 0xffe).count();
+    let reference = |words: &[u32]| {
+        run(&d.phy.cond, words)
+            .iter()
+            .filter(|&&(a, _)| a != 0xfe && a != 0xffe)
+            .count()
+    };
     let sipi = |reg: u32| w.iter().filter(|&&(_, a, _)| a == reg).count();
     let count_b = w.iter().filter(|&&(_, a, _)| rf_b(a)).count() + sipi(0x4108);
     let count_a = w.iter().filter(|&&(_, a, _)| rf_a(a)).count() + sipi(0x1808);

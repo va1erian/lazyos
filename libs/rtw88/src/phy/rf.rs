@@ -32,16 +32,24 @@ pub fn read_rf<H: Hci>(dev: &mut Dev<H>, path: usize, addr: u32, mask: u32) -> u
     if !path_ok(dev, path) {
         return INV_RF_DATA;
     }
-    dev.hci.read32_mask(direct_addr(path, addr), mask & RFREG_MASK)
+    dev.hci
+        .read32_mask(direct_addr(path, addr), mask & RFREG_MASK)
 }
 
 /// Upstream `rtw_phy_write_rf_reg`: a direct write of the field under
 /// `mask`, then 1 us for the RF chip to latch it.
-pub fn write_rf_reg<H: Hci>(dev: &mut Dev<H>, path: usize, addr: u32, mask: u32, data: u32) -> bool {
+pub fn write_rf_reg<H: Hci>(
+    dev: &mut Dev<H>,
+    path: usize,
+    addr: u32,
+    mask: u32,
+    data: u32,
+) -> bool {
     if !path_ok(dev, path) {
         return false;
     }
-    dev.hci.write32_mask(direct_addr(path, addr), mask & RFREG_MASK, data);
+    dev.hci
+        .write32_mask(direct_addr(path, addr), mask & RFREG_MASK, data);
     dev.hci.delay_us(1);
     true
 }
@@ -49,7 +57,13 @@ pub fn write_rf_reg<H: Hci>(dev: &mut Dev<H>, path: usize, addr: u32, mask: u32,
 /// Upstream `rtw_phy_write_rf_reg_sipi`: a partial write reads the whole
 /// register first (through `read_rf`), then one 28-bit word `addr << 20 |
 /// data` goes to the path's SIPI register and the chip gets 13 us.
-pub fn write_rf_reg_sipi<H: Hci>(dev: &mut Dev<H>, path: usize, addr: u32, mask: u32, data: u32) -> bool {
+pub fn write_rf_reg_sipi<H: Hci>(
+    dev: &mut Dev<H>,
+    path: usize,
+    addr: u32,
+    mask: u32,
+    data: u32,
+) -> bool {
     if !path_ok(dev, path) {
         return false;
     }

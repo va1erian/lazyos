@@ -70,21 +70,44 @@ impl TxPwrIdx {
         let mut t = TxPwrIdx::default();
         t.cck_base_2g.copy_from_slice(&b[0..6]);
         t.bw40_base_2g.copy_from_slice(&b[6..11]);
-        t.ht_1s_2g = Diff1s { ofdm: lo(b[11]), bw20: hi(b[11]) };
+        t.ht_1s_2g = Diff1s {
+            ofdm: lo(b[11]),
+            bw20: hi(b[11]),
+        };
         for (n, d) in t.ht_ns_2g.iter_mut().enumerate() {
             let (x, y) = (b[12 + 2 * n], b[13 + 2 * n]);
-            *d = DiffNs { bw20: lo(x), bw40: hi(x), cck: lo(y), ofdm: hi(y) };
+            *d = DiffNs {
+                bw20: lo(x),
+                bw40: hi(x),
+                cck: lo(y),
+                ofdm: hi(y),
+            };
         }
         t.bw40_base_5g.copy_from_slice(&b[18..32]);
-        t.ht_1s_5g = Diff1s { ofdm: lo(b[32]), bw20: hi(b[32]) };
+        t.ht_1s_5g = Diff1s {
+            ofdm: lo(b[32]),
+            bw20: hi(b[32]),
+        };
         for (n, d) in t.ht_ns_5g.iter_mut().enumerate() {
             let x = b[33 + n];
-            *d = DiffNs { bw20: lo(x), bw40: hi(x), cck: 0, ofdm: 0 };
+            *d = DiffNs {
+                bw20: lo(x),
+                bw40: hi(x),
+                cck: 0,
+                ofdm: 0,
+            };
         }
-        t.ofdm_ns_5g = DiffOfdmNs { ofdm_3s: lo(b[36]), ofdm_2s: hi(b[36]), ofdm_4s: lo(b[37]) };
+        t.ofdm_ns_5g = DiffOfdmNs {
+            ofdm_3s: lo(b[36]),
+            ofdm_2s: hi(b[36]),
+            ofdm_4s: lo(b[37]),
+        };
         for (n, d) in t.vht_ns_5g.iter_mut().enumerate() {
             let x = b[38 + n];
-            *d = DiffVht { bw160: lo(x), bw80: hi(x) };
+            *d = DiffVht {
+                bw160: lo(x),
+                bw80: hi(x),
+            };
         }
         t
     }
@@ -112,11 +135,26 @@ mod tests {
         assert_eq!(t.cck_base_2g[0], 0x2d);
         assert_eq!(t.bw40_base_2g[4], 0x30);
         assert_eq!(t.ht_1s_2g, Diff1s { ofdm: 2, bw20: -1 });
-        assert_eq!(t.ht_ns_2g[0], DiffNs { bw20: -2, bw40: -8, cck: 1, ofdm: 7 });
+        assert_eq!(
+            t.ht_ns_2g[0],
+            DiffNs {
+                bw20: -2,
+                bw40: -8,
+                cck: 1,
+                ofdm: 7
+            }
+        );
         assert_eq!(t.bw40_base_5g[0], 0x28);
         assert_eq!(t.bw40_base_5g[13], 0x29);
         assert_eq!(t.ht_1s_5g, Diff1s { ofdm: -1, bw20: 1 });
-        assert_eq!(t.ofdm_ns_5g, DiffOfdmNs { ofdm_3s: 3, ofdm_2s: -2, ofdm_4s: -4 });
+        assert_eq!(
+            t.ofdm_ns_5g,
+            DiffOfdmNs {
+                ofdm_3s: 3,
+                ofdm_2s: -2,
+                ofdm_4s: -4
+            }
+        );
         assert_eq!(t.vht_ns_5g[3], DiffVht { bw160: 5, bw80: -6 });
     }
 }

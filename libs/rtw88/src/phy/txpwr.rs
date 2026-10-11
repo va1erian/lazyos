@@ -14,7 +14,10 @@
 //! SAR limit; the 8822C has no TX AGC remnant.
 
 use super::rate::*;
-use super::{is_ch_2g, PhyState, BW_MAX, MAX_CHANNEL_NUM_2G, MAX_CHANNEL_NUM_5G, MAX_POWER_INDEX, REGD_WW, TXGI_FACTOR};
+use super::{
+    is_ch_2g, PhyState, BW_MAX, MAX_CHANNEL_NUM_2G, MAX_CHANNEL_NUM_5G, MAX_POWER_INDEX, REGD_WW,
+    TXGI_FACTOR,
+};
 use crate::dev::{Band, Bw, Dev, RF_PATH_MAX};
 use crate::hci::Hci;
 
@@ -104,7 +107,11 @@ fn base_2g(idx: &TxPwrIdx, bw: Bw, rate: u8, group: usize) -> u8 {
         // Upstream WARNs on 80 MHz in 2.4 GHz and treats it as 20 MHz.
         Bw::Mhz20 | Bw::Mhz80 => {
             p = add(p, idx.ht_1s_2g.bw20);
-            for (above, d) in [(s.above_2ss, ns[0]), (s.above_3ss, ns[1]), (s.above_4ss, ns[2])] {
+            for (above, d) in [
+                (s.above_2ss, ns[0]),
+                (s.above_3ss, ns[1]),
+                (s.above_4ss, ns[2]),
+            ] {
                 if above {
                     p = add(p, d.bw20);
                 }
@@ -112,7 +119,11 @@ fn base_2g(idx: &TxPwrIdx, bw: Bw, rate: u8, group: usize) -> u8 {
         }
         // bw40 is the base power.
         Bw::Mhz40 => {
-            for (above, d) in [(s.above_2ss, ns[0]), (s.above_3ss, ns[1]), (s.above_4ss, ns[2])] {
+            for (above, d) in [
+                (s.above_2ss, ns[0]),
+                (s.above_3ss, ns[1]),
+                (s.above_4ss, ns[2]),
+            ] {
                 if above {
                     p = add(p, d.bw40);
                 }
@@ -167,12 +178,21 @@ fn base_5g(idx: &TxPwrIdx, bw: Bw, rate: u8, group: usize) -> u8 {
 /// Upstream `rtw_phy_get_tx_power_limit` for the kept (world-wide) set:
 /// the smallest limit from 20 MHz up to `bw`, each at its own centre
 /// channel (`hal->cch_by_bw`).
-fn power_limit(phy: &PhyState, cch_by_bw: &[u8; 3], band_5g: bool, bw: Bw, rate: u8, regd: u8) -> i8 {
+fn power_limit(
+    phy: &PhyState,
+    cch_by_bw: &[u8; 3],
+    band_5g: bool,
+    bw: Bw,
+    rate: u8,
+    regd: u8,
+) -> i8 {
     let max = MAX_POWER_INDEX as i8;
     if regd > REGD_WW {
         return max;
     }
-    let Some(rs) = rate_section(rate) else { return max };
+    let Some(rs) = rate_section(rate) else {
+        return max;
+    };
     let mut bw = bw as usize;
     if rs == RS_CCK || rs == RS_OFDM {
         bw = 0;
@@ -182,7 +202,9 @@ fn power_limit(phy: &PhyState, cch_by_bw: &[u8; 3], band_5g: bool, bw: Bw, rate:
     }
     let mut limit = max;
     for (cur_bw, &cur_ch) in cch_by_bw.iter().enumerate().take(bw + 1) {
-        let Some(ch_idx) = channel_to_idx(band_5g, cur_ch) else { return max };
+        let Some(ch_idx) = channel_to_idx(band_5g, cur_ch) else {
+            return max;
+        };
         let cur = if usize::from(cur_ch) <= MAX_CHANNEL_NUM_2G {
             phy.limit_2g[cur_bw][rs].get(ch_idx).copied().unwrap_or(max)
         } else {
@@ -198,17 +220,23 @@ fn power_limit(phy: &PhyState, cch_by_bw: &[u8; 3], band_5g: bool, bw: Bw, rate:
 /// (12 index steps) lower.
 fn dis_dpd_diff(rate: u8) -> i8 {
     match rate {
-        DESC_RATE6M | DESC_RATE9M | DESC_RATEMCS0 | DESC_RATEMCS1 | DESC_RATEMCS8 | DESC_RATEMCS9
-        | DESC_RATEVHT1SS_MCS0 | DESC_RATEVHT1SS_MCS1 | DESC_RATEVHT2SS_MCS0 | DESC_RATEVHT2SS_MCS1 => {
-            -6 * TXGI_FACTOR as i8
-        }
+        DESC_RATE6M | DESC_RATE9M | DESC_RATEMCS0 | DESC_RATEMCS1 | DESC_RATEMCS8
+        | DESC_RATEMCS9 | DESC_RATEVHT1SS_MCS0 | DESC_RATEVHT1SS_MCS1 | DESC_RATEVHT2SS_MCS0
+        | DESC_RATEVHT2SS_MCS1 => -6 * TXGI_FACTOR as i8,
         _ => 0,
     }
 }
 
 /// Upstream `rtw_phy_get_tx_power_index`. The arithmetic is upstream's u8
 /// wrap-around, clamped to the maximum index.
-pub fn get_tx_power_index<H: Hci>(dev: &Dev<H>, path: usize, rate: u8, bw: Bw, channel: u8, regd: u8) -> u8 {
+pub fn get_tx_power_index<H: Hci>(
+    dev: &Dev<H>,
+    path: usize,
+    rate: u8,
+    bw: Bw,
+    channel: u8,
+    regd: u8,
+) -> u8 {
     let phy = &dev.phy;
     if path >= RF_PATH_MAX || usize::from(rate) >= DESC_RATE_MAX {
         return MAX_POWER_INDEX;
@@ -217,9 +245,15 @@ pub fn get_tx_power_index<H: Hci>(dev: &Dev<H>, path: usize, rate: u8, bw: Bw, c
     let group = channel_group(channel, rate);
     let five = !is_ch_2g(channel);
     let (base, offset) = if five {
-        (base_5g(idx, bw, rate, group), phy.by_rate_5g[path][usize::from(rate)])
+        (
+            base_5g(idx, bw, rate, group),
+            phy.by_rate_5g[path][usize::from(rate)],
+        )
     } else {
-        (base_2g(idx, bw, rate, group), phy.by_rate_2g[path][usize::from(rate)])
+        (
+            base_2g(idx, bw, rate, group),
+            phy.by_rate_2g[path][usize::from(rate)],
+        )
     };
     let limit = power_limit(phy, &dev.hal.cch_by_bw, five, bw, rate, regd);
     // No SAR configuration: upstream's `rtw_query_sar` gives the maximum.
@@ -235,7 +269,11 @@ pub fn get_tx_power_index<H: Hci>(dev: &Dev<H>, path: usize, rate: u8, bw: Bw, c
 /// (`rtw8822c_set_tx_power_index`).
 pub fn set_tx_power_level<H: Hci>(dev: &mut Dev<H>, channel: u8) {
     let bw = dev.hal.current_band_width;
-    let first = if dev.hal.current_band_type == Band::Ghz2 { RS_CCK } else { RS_OFDM };
+    let first = if dev.hal.current_band_type == Band::Ghz2 {
+        RS_CCK
+    } else {
+        RS_OFDM
+    };
     let paths = usize::from(dev.hal.rf_path_num).min(RF_PATH_MAX);
     for path in 0..paths {
         for rates in &RATE_SECTION[first..] {

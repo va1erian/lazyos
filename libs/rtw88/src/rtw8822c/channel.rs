@@ -60,9 +60,13 @@ fn set_channel_bb_2g<H: Hci>(h: &mut H, channel: u8, bw: Bw) {
     h.write32_mask(REG_SCOTRK, 0xfff, scotrk);
     // The CCK TX filter: channel 14 (Japan, CCK only) has its own shape.
     let txf: [u32; 8] = if channel == 14 {
-        [0x3da0, 0x4962c931, 0x6aa3, 0xaa7b, 0xf3d7, 0x0, 0xff012455, 0xffff]
+        [
+            0x3da0, 0x4962c931, 0x6aa3, 0xaa7b, 0xf3d7, 0x0, 0xff012455, 0xffff,
+        ]
     } else {
-        [0x5284, 0x3e18fec8, 0x0a88, 0xacc4, 0xc8b2, 0x00faf0de, 0x00122344, 0x0fffffff]
+        [
+            0x5284, 0x3e18fec8, 0x0a88, 0xacc4, 0xc8b2, 0x00faf0de, 0x00122344, 0x0fffffff,
+        ]
     };
     h.write32_mask(REG_TXF0, MASKHWORD, txf[0]);
     h.write32_mask(REG_TXF1, MASKDWORD, txf[1]);
@@ -124,10 +128,18 @@ pub fn set_channel_bb<H: Hci>(dev: &mut Dev<H>, channel: u8, bw: Bw, primary_ch_
             h.write32_mask(REG_PT_CHSMO, BIT_PT_OPT, 0x0);
         }
         Bw::Mhz40 => {
-            h.write32_mask(REG_CCKSB, bit(4), u32::from(primary_ch_idx == RTW_SC_20_UPPER));
+            h.write32_mask(
+                REG_CCKSB,
+                bit(4),
+                u32::from(primary_ch_idx == RTW_SC_20_UPPER),
+            );
             h.write32_mask(REG_TXBWCTL, 0xf, 0x5);
             h.write32_mask(REG_TXBWCTL, 0xc0, 0x0);
-            h.write32_mask(REG_TXBWCTL, 0xff00, u32::from(primary_ch_idx | (primary_ch_idx << 4)));
+            h.write32_mask(
+                REG_TXBWCTL,
+                0xff00,
+                u32::from(primary_ch_idx | (primary_ch_idx << 4)),
+            );
             h.write32_mask(REG_CCK_SOURCE, BIT_NBI_EN, 0x1);
             h.write32_mask(REG_SBD, BITS_SUBTUNE, 0x1);
             h.write32_mask(REG_PT_CHSMO, BIT_PT_OPT, 0x1);
@@ -135,7 +147,11 @@ pub fn set_channel_bb<H: Hci>(dev: &mut Dev<H>, channel: u8, bw: Bw, primary_ch_
         Bw::Mhz80 => {
             h.write32_mask(REG_TXBWCTL, 0xf, 0xa);
             h.write32_mask(REG_TXBWCTL, 0xc0, 0x0);
-            h.write32_mask(REG_TXBWCTL, 0xff00, u32::from(primary_ch_idx | (primary_ch_idx << 4)));
+            h.write32_mask(
+                REG_TXBWCTL,
+                0xff00,
+                u32::from(primary_ch_idx | (primary_ch_idx << 4)),
+            );
             h.write32_mask(REG_SBD, BITS_SUBTUNE, 0x6);
             h.write32_mask(REG_PT_CHSMO, BIT_PT_OPT, 0x1);
         }

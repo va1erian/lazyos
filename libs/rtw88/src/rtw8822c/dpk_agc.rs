@@ -73,7 +73,9 @@ fn pas_read<H: Hci>(h: &mut H, path: usize) -> u32 {
 
 /// Upstream `rtw8822c_psd_log2base`: 100 x log2, from a fraction table.
 pub fn psd_log2base(val: u32) -> u32 {
-    const FRACTION: [u32; 21] = [0, 432, 332, 274, 232, 200, 174, 151, 132, 115, 100, 86, 74, 62, 51, 42, 32, 23, 15, 7, 0];
+    const FRACTION: [u32; 21] = [
+        0, 432, 332, 274, 232, 200, 174, 151, 132, 115, 100, 86, 74, 62, 51, 42, 32, 23, 15, 7, 0,
+    ];
     if val == 0 {
         return 0;
     }
@@ -179,7 +181,11 @@ fn step<H: Hci>(dev: &mut Dev<H>, d: &mut AgcData, state: State) -> State {
             if d.txbb == bound {
                 return State::AgcOut;
             }
-            d.txbb = if large { d.txbb.wrapping_sub(2) } else { d.txbb.wrapping_add(3) };
+            d.txbb = if large {
+                d.txbb.wrapping_sub(2)
+            } else {
+                d.txbb.wrapping_add(3)
+            };
             write_rf(dev, path, RF_TX_GAIN, BIT_GAIN_TXBB, u32::from(d.txbb));
             d.limited_pga = false;
             State::GainCheck
@@ -205,7 +211,15 @@ fn step<H: Hci>(dev: &mut Dev<H>, d: &mut AgcData, state: State) -> State {
 
 /// Upstream `rtw8822c_dpk_pas_agc`: the TX baseband gain the search ends at.
 fn pas_agc<H: Hci>(dev: &mut Dev<H>, path: usize, gain_only: bool, loss_only: bool) -> u8 {
-    let mut d = AgcData { txbb: 0, pga: 0, limited_pga: false, agc_cnt: 0, loss_only, gain_only, path };
+    let mut d = AgcData {
+        txbb: 0,
+        pga: 0,
+        limited_pga: false,
+        agc_cnt: 0,
+        loss_only,
+        gain_only,
+        path,
+    };
     let mut state = State::GainCheck;
     while state != State::AgcOut {
         state = step(dev, &mut d, state);
@@ -234,7 +248,11 @@ fn rf_setting<H: Hci>(dev: &mut Dev<H>, path: usize) -> u32 {
     write_rf(dev, path, RF_MODE_TRXAGC, BIT_RXAGC, 0xf);
     write_rf(dev, path, RF_DEBUG, BIT_DE_TRXBW, 0x1);
     write_rf(dev, path, RF_BW_TRXBB, BIT_BW_RXBB, 0x0);
-    let txbb_bw = if dev.dm.dpk.dpk_bw == DPK_BW_80 { 0x2 } else { 0x1 };
+    let txbb_bw = if dev.dm.dpk.dpk_bw == DPK_BW_80 {
+        0x2
+    } else {
+        0x1
+    };
     write_rf(dev, path, RF_BW_TRXBB, BIT_BW_TXBB, txbb_bw);
     write_rf(dev, path, RF_EXT_TIA_BW, bit(1), 0x1);
     dev.hci.delay_us(100);
@@ -268,7 +286,11 @@ pub(super) fn gainloss<H: Hci>(dev: &mut Dev<H>, path: usize) -> u32 {
 /// Upstream `rtw8822c_dpk_cal_gs`: the gain scaling for a calibrated path.
 fn cal_gs<H: Hci>(dev: &mut Dev<H>, path: usize) {
     let bw80 = dev.dm.dpk.dpk_bw == DPK_BW_80;
-    let (ctl0, ctl1) = if path == RF_PATH_A { (REG_DPD_CTL0_S0, REG_DPD_CTL1_S0) } else { (REG_DPD_CTL0_S1, REG_DPD_CTL1_S1) };
+    let (ctl0, ctl1) = if path == RF_PATH_A {
+        (REG_DPD_CTL0_S0, REG_DPD_CTL1_S0)
+    } else {
+        (REG_DPD_CTL0_S1, REG_DPD_CTL1_S1)
+    };
     let h = &mut dev.hci;
     h.write32_mask(REG_NCTL0, BIT_SUBPAGE, subpage(path));
     h.write32_mask(REG_IQK_CTL1, BIT_BYPASS_DPD, 0x0);
@@ -280,9 +302,21 @@ fn cal_gs<H: Hci>(dev: &mut Dev<H>, path: usize) {
     h.write32_mask(ctl0, BIT_GS_PWSF, 0x106_6680);
     h.write32_mask(ctl1, BIT_DPD_EN, 0x1);
     let seq: [u32; 5] = if bw80 {
-        [0x8000_1310, 0x0000_1310, 0x8100_00db, 0x0100_00db, 0x0000_b428]
+        [
+            0x8000_1310,
+            0x0000_1310,
+            0x8100_00db,
+            0x0100_00db,
+            0x0000_b428,
+        ]
     } else {
-        [0x8200_190c, 0x0200_190c, 0x8301_ee14, 0x0301_ee14, 0x0000_b428]
+        [
+            0x8200_190c,
+            0x0200_190c,
+            0x8301_ee14,
+            0x0301_ee14,
+            0x0000_b428,
+        ]
     };
     for v in seq {
         h.write32(REG_DPD_CTL16, v);
@@ -353,13 +387,25 @@ pub(super) fn reload<H: Hci>(dev: &mut Dev<H>) -> bool {
         for path in 0..usize::from(dev.hal.rf_path_num).min(2) {
             let h = &mut dev.hci;
             h.write32_mask(REG_NCTL0, BIT_SUBPAGE, subpage(path));
-            h.write32(REG_DPD_CTL1_S1, if d.dpk_band == DPK_BAND_2G { 0x1f10_0000 } else { 0x1f0d_0000 });
+            h.write32(
+                REG_DPD_CTL1_S1,
+                if d.dpk_band == DPK_BAND_2G {
+                    0x1f10_0000
+                } else {
+                    0x1f0d_0000
+                },
+            );
             h.write8(REG_DPD_AGC, d.dpk_txagc[path]);
             coef_write(dev, path, d.path_ok & (1 << path) != 0);
             one_shot(dev, path, Action::DpkOn);
-            let ctl0 = if path == RF_PATH_A { REG_DPD_CTL0_S0 } else { REG_DPD_CTL0_S1 };
+            let ctl0 = if path == RF_PATH_A {
+                REG_DPD_CTL0_S0
+            } else {
+                REG_DPD_CTL0_S1
+            };
             dev.hci.write32_mask(REG_NCTL0, BIT_SUBPAGE, 0xc);
-            dev.hci.write32_mask(ctl0, BIT_GS_PWSF, u32::from(d.dpk_gs[path]));
+            dev.hci
+                .write32_mask(ctl0, BIT_GS_PWSF, u32::from(d.dpk_gs[path]));
         }
         cal_coef1(dev);
     }

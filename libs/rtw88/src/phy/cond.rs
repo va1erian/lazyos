@@ -86,8 +86,8 @@ pub fn parse_phy_cond(drv: &PhyCond, words: &[u32], mut cfg: impl FnMut(u32, u32
     let mut pos_cond = PhyCond::default();
     let mut is_matched = true;
     let mut is_skipped = false;
-    for pair in words.chunks_exact(2) {
-        let (addr, data) = (pair[0], pair[1]);
+    let (pairs, _odd) = words.as_chunks::<2>();
+    for &[addr, data] in pairs {
         if addr & (1 << 31) != 0 {
             match (addr >> 28) & 0x3 {
                 BRANCH_ENDIF => {

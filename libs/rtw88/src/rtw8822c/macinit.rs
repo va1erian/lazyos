@@ -65,9 +65,8 @@ const WLAN_MAC_OPT_FUNC2: u32 = 0xb081_0041;
 const WLAN_MAC_INT_MIG_CFG: u32 = 0x3333_0000;
 const MAC_CLK_SPEED: u8 = 80;
 
-/// Upstream `rtw8822c_mac_init`. Also records the RX filter 1 default in
-/// `hal` the way upstream keeps `hal->rxfltmap1` (here: nowhere else needs
-/// it, so it is only written).
+/// Upstream `rtw8822c_mac_init`. The RX filter 1 default is also kept in
+/// `hal.rxfltmap1`, as upstream keeps it (the station code edits it).
 pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     let h = &mut dev.hci;
     // TX queue control
@@ -75,13 +74,25 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     h.write8(REG_FWHW_TXQ_CTRL, v);
     h.write8(REG_FWHW_TXQ_CTRL + 1, WLAN_TXQ_RPT_EN);
     // SIFS
-    h.write16(REG_SPEC_SIFS, WLAN_SIFS_CCK_DUR_TUNE | (WLAN_SIFS_OFDM_DUR_TUNE << 8));
+    h.write16(
+        REG_SPEC_SIFS,
+        WLAN_SIFS_CCK_DUR_TUNE | (WLAN_SIFS_OFDM_DUR_TUNE << 8),
+    );
     h.write32(
         REG_SIFS,
-        WLAN_SIFS_CCK_CONT_TX | (WLAN_SIFS_OFDM_CONT_TX << 8) | (WLAN_SIFS_CCK_TRX << 16) | (WLAN_SIFS_OFDM_TRX << 24),
+        WLAN_SIFS_CCK_CONT_TX
+            | (WLAN_SIFS_OFDM_CONT_TX << 8)
+            | (WLAN_SIFS_CCK_TRX << 16)
+            | (WLAN_SIFS_OFDM_TRX << 24),
     );
-    h.write16(REG_RESP_SIFS_CCK, WLAN_SIFS_CCK_CTX | (WLAN_SIFS_CCK_IRX << 8));
-    h.write16(REG_RESP_SIFS_OFDM, WLAN_SIFS_OFDM_CTX | (WLAN_SIFS_OFDM_IRX << 8));
+    h.write16(
+        REG_RESP_SIFS_CCK,
+        WLAN_SIFS_CCK_CTX | (WLAN_SIFS_CCK_IRX << 8),
+    );
+    h.write16(
+        REG_RESP_SIFS_OFDM,
+        WLAN_SIFS_OFDM_CTX | (WLAN_SIFS_OFDM_IRX << 8),
+    );
     // Rate fallback
     h.write32(REG_DARFRC, 0x0100_0000);
     h.write32(REG_DARFRCH, 0x0807_0504);
@@ -102,9 +113,15 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     h.write8(REG_PRECNT_CTRL + 1, (pre_txcnt >> 8) as u8);
     h.write32(
         REG_PROT_MODE_CTRL,
-        WLAN_RTS_LEN_TH | (WLAN_RTS_TX_TIME_TH << 8) | (WLAN_MAX_AGG_PKT_LIMIT << 16) | (WLAN_RTS_MAX_AGG_PKT_LIMIT << 24),
+        WLAN_RTS_LEN_TH
+            | (WLAN_RTS_TX_TIME_TH << 8)
+            | (WLAN_MAX_AGG_PKT_LIMIT << 16)
+            | (WLAN_RTS_MAX_AGG_PKT_LIMIT << 24),
     );
-    h.write16(REG_BAR_MODE_CTRL + 2, WLAN_BAR_RETRY_LIMIT | (WLAN_RA_TRY_RATE_AGG_LIMIT << 8));
+    h.write16(
+        REG_BAR_MODE_CTRL + 2,
+        WLAN_BAR_RETRY_LIMIT | (WLAN_RA_TRY_RATE_AGG_LIMIT << 8),
+    );
     h.write8(REG_FAST_EDCA_VOVI_SETTING, FAST_EDCA_TH);
     h.write8(REG_FAST_EDCA_VOVI_SETTING + 2, FAST_EDCA_TH);
     h.write8(REG_FAST_EDCA_BEBK_SETTING, FAST_EDCA_TH);
@@ -119,7 +136,11 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     h.write32(REG_EDCA_BK_PARAM, WLAN_EDCA_BK_PARAM);
     h.write8(REG_PIFS, WLAN_PIFS_TIME);
     clr8(h, REG_TX_PTCL_CTRL + 1, BIT_SIFS_BK_EN >> 8);
-    set8(h, REG_RD_CTRL + 1, (BIT_DIS_TXOP_CFE | BIT_DIS_LSIG_CFE | BIT_DIS_STBC_CFE) >> 8);
+    set8(
+        h,
+        REG_RD_CTRL + 1,
+        (BIT_DIS_TXOP_CFE | BIT_DIS_LSIG_CFE | BIT_DIS_STBC_CFE) >> 8,
+    );
     // MAC clock
     h.clr32(REG_AFE_CTRL1, BIT_MAC_CLK_SEL);
     h.write8(REG_USTIME_TSF, MAC_CLK_SPEED);
@@ -129,10 +150,16 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     h.write16(REG_TXPAUSE, 0x0000);
     h.write8(REG_SLOT, WLAN_SLOT_TIME);
     h.write32(REG_RD_NAV_NXT, WLAN_RDG_NAV | (WLAN_TXOP_NAV << 16));
-    h.write16(REG_RXTSF_OFFSET_CCK, WLAN_CCK_RX_TSF | (WLAN_OFDM_RX_TSF << 8));
+    h.write16(
+        REG_RXTSF_OFFSET_CCK,
+        WLAN_CCK_RX_TSF | (WLAN_OFDM_RX_TSF << 8),
+    );
     // Beacon: enable the TSF and related functions; send timing.
     set8(h, REG_BCN_CTRL, BIT_EN_BCN_FUNCTION);
-    h.write32(REG_TBTT_PROHIBIT, WLAN_TBTT_PROHIBIT | (WLAN_TBTT_HOLD_TIME << 8));
+    h.write32(
+        REG_TBTT_PROHIBIT,
+        WLAN_TBTT_PROHIBIT | (WLAN_TBTT_HOLD_TIME << 8),
+    );
     h.write8(REG_DRVERLYINT, WLAN_DRV_EARLY_INT);
     h.write8(REG_BCN_CTRL_CLINT0, WLAN_BCN_CTRL_CLT0);
     h.write8(REG_BCNDMATIM, WLAN_BCN_DMA_TIME);
@@ -147,6 +174,7 @@ pub fn mac_init<H: Hci>(dev: &mut Dev<H>) -> Result<()> {
     h.write8(REG_NAV_CTRL + 2, WLAN_NAV_MAX);
     h.write8(REG_WMAC_TRXPTCL_CTL_H + 2, WLAN_BAR_ACK_TYPE);
     h.write16(REG_RXFLTMAP0, WLAN_RX_FILTER0);
+    dev.hal.rxfltmap1 = WLAN_RX_FILTER1;
     h.write16(REG_RXFLTMAP1, WLAN_RX_FILTER1);
     h.write16(REG_RXFLTMAP2, WLAN_RX_FILTER2);
     h.write32(REG_RCR, WLAN_RCR_CFG);

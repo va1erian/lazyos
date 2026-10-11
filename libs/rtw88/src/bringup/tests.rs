@@ -8,7 +8,7 @@ use std::vec::Vec;
 use super::*;
 use crate::fake::FakeHci;
 use crate::mac::regs::{CR, MAC_SEC_EN, RCR, SYS_CFG1};
-use crate::testmodel::{healthy_chip, rfe_efuse, real_fw, synth_fw};
+use crate::testmodel::{healthy_chip, real_fw, rfe_efuse, synth_fw};
 
 fn dev() -> Dev<FakeHci> {
     Dev::new(healthy_chip(rfe_efuse(1)))

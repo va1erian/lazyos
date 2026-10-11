@@ -22,7 +22,6 @@
 //! `rtw_core_start`. The firmware image is passed in each time rather than
 //! kept: the binary owns the file's bytes.
 
-
 #[cfg(test)]
 mod tests;
 
@@ -143,7 +142,11 @@ fn power_on_steps<H: Hci>(dev: &mut Dev<H>, fw: &Firmware<'_>) -> Result<()> {
     // send H2C after HCI has started
     fw::send_general_info(dev)?;
     fw::send_phydm_info(dev)?;
-    let wifi_only = !dev.efuse.btcoex;
+    // Upstream passes `!efuse.btcoex` (false on this combo card) and lets
+    // its coexistence mechanism hand the grants to the PTA once Bluetooth
+    // reports in. LazyOS runs no such mechanism and no Bluetooth stack, so
+    // Wi-Fi takes the antenna for good (crate::coex docs).
+    let wifi_only = true;
     crate::coex::power_on_setting(dev);
     crate::coex::init_hw_config(dev, wifi_only);
     Ok(())

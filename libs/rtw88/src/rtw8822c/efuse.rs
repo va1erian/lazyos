@@ -59,7 +59,8 @@ pub fn read_efuse(efuse: &mut Efuse, log_map: &[u8]) -> Result<()> {
     efuse.regd = m[RF_BOARD_OPTION] & 0x7;
     efuse.thermal_meter[0] = m[PATH_A_THERMAL];
     efuse.thermal_meter[1] = m[PATH_B_THERMAL];
-    efuse.thermal_meter_k = ((u16::from(m[PATH_A_THERMAL]) + u16::from(m[PATH_B_THERMAL])) >> 1) as u8;
+    efuse.thermal_meter_k =
+        ((u16::from(m[PATH_A_THERMAL]) + u16::from(m[PATH_B_THERMAL])) >> 1) as u8;
     efuse.power_track_type = (m[TX_PWR_CALIBRATE_RATE] >> 4) & 0xf;
     for (path, t) in efuse.txpwr_idx_table.iter_mut().enumerate() {
         let start = TXPWR_IDX_TABLE + path * TXPWR_IDX_LEN;
@@ -68,7 +69,9 @@ pub fn read_efuse(efuse: &mut Efuse, log_map: &[u8]) -> Result<()> {
         *t = TxPwrIdx(raw);
     }
     // rtw8822ce_efuse_parsing
-    efuse.addr.copy_from_slice(&m[PCIE_MAC_ADDR..PCIE_MAC_ADDR + 6]);
+    efuse
+        .addr
+        .copy_from_slice(&m[PCIE_MAC_ADDR..PCIE_MAC_ADDR + 6]);
     Ok(())
 }
 
@@ -80,7 +83,7 @@ mod tests {
         let mut m = std::vec![0xffu8; 768];
         m[0] = 0x29;
         m[1] = 0x81; // rtl_id 0x8129
-        // Path A power: CCK base 0x2a.., path B: 0x30..
+                     // Path A power: CCK base 0x2a.., path B: 0x30..
         for i in 0..6 {
             m[0x10 + i] = 0x2a + i as u8;
             m[0x10 + 42 + i] = 0x30 + i as u8;

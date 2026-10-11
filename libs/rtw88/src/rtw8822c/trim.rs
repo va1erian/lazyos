@@ -6,10 +6,10 @@
 //! `rtw_read8_physical_efuse` (0xff, or a timeout, means "not trimmed").
 
 use crate::dev::{Dev, RF_PATH_A, RF_PATH_MAX};
+use crate::efuse::read8_physical_efuse;
 use crate::hci::{Hci, RegExt};
 use crate::phy::rf::{read_rf, write_rf, RFREG_MASK};
 use crate::rtw8822c::regs::*;
-use crate::efuse::read8_physical_efuse;
 
 fn efuse8<H: Hci>(dev: &mut Dev<H>, addr: u16) -> u8 {
     read8_physical_efuse(&mut dev.hci, addr).unwrap_or(EFUSE_READ_FAIL)
@@ -32,7 +32,7 @@ pub fn rf_x2_check<H: Hci>(dev: &mut Dev<H>) {
 }
 
 /// Upstream `rtw8822c_thermal_trim`: efuse bit 0 moves to bit 3 and bits
-/// 3:1 down by one, into RF 0x43[19:16]. Stops at the first untrimmed path.
+/// 3:1 down by one, into RF 0x43 bits 19:16. Stops at the first untrimmed path.
 pub fn thermal_trim<H: Hci>(dev: &mut Dev<H>) {
     let regs = [PPG_THERMAL_A, PPG_THERMAL_B];
     for (path, &reg) in regs.iter().enumerate().take(paths(dev)) {
@@ -65,11 +65,11 @@ fn set_power_trim<H: Hci>(dev: &mut Dev<H>, bb_gain: &[[u8; 8]; 2]) {
         (0xd, 7),
         (0xe, 7),
     ];
-    for path in 0..paths(dev) {
+    for (path, gain) in bb_gain.iter().enumerate().take(paths(dev)) {
         write_rf(dev, path, 0xee, bit(19), 1);
         for &(seq, idx) in &SEQ {
             write_rf(dev, path, 0x33, RFREG_MASK, seq);
-            write_rf(dev, path, 0x3f, RFREG_MASK, u32::from(bb_gain[path][idx]));
+            write_rf(dev, path, 0x3f, RFREG_MASK, u32::from(gain[idx]));
         }
         write_rf(dev, path, 0xee, bit(19), 0);
     }
@@ -81,8 +81,20 @@ fn set_power_trim<H: Hci>(dev: &mut Dev<H>, bb_gain: &[[u8; 8]; 2]) {
 pub fn power_trim<H: Hci>(dev: &mut Dev<H>) {
     const EF_2G: [u16; 3] = [PPG_2GL_TXAB, PPG_2GM_TXAB, PPG_2GH_TXAB];
     const EF_5G: [[u16; 5]; 2] = [
-        [PPG_5GL1_TXA, PPG_5GL2_TXA, PPG_5GM1_TXA, PPG_5GM2_TXA, PPG_5GH1_TXA],
-        [PPG_5GL1_TXB, PPG_5GL2_TXB, PPG_5GM1_TXB, PPG_5GM2_TXB, PPG_5GH1_TXB],
+        [
+            PPG_5GL1_TXA,
+            PPG_5GL2_TXA,
+            PPG_5GM1_TXA,
+            PPG_5GM2_TXA,
+            PPG_5GH1_TXA,
+        ],
+        [
+            PPG_5GL1_TXB,
+            PPG_5GL2_TXB,
+            PPG_5GM1_TXB,
+            PPG_5GM2_TXB,
+            PPG_5GH1_TXB,
+        ],
     ];
     let mut bb_gain = [[0u8; 8]; 2];
     let mut set = false;
@@ -108,7 +120,8 @@ pub fn power_trim<H: Hci>(dev: &mut Dev<H>) {
     if set {
         set_power_trim(dev, &bb_gain);
     }
-    dev.hci.write32_mask(REG_DIS_DPD, DIS_DPD_MASK, DIS_DPD_RATEALL);
+    dev.hci
+        .write32_mask(REG_DIS_DPD, DIS_DPD_MASK, DIS_DPD_RATEALL);
 }
 
 /// Upstream `rtw8822c_pa_bias`: the PA bias trims into RF 0x60. A missing
@@ -122,10 +135,22 @@ pub fn pa_bias<H: Hci>(dev: &mut Dev<H>) {
         if pg == EFUSE_READ_FAIL {
             return;
         }
-        write_rf(dev, path, RF_PA, RF_PABIAS_2G_MASK, u32::from(pg & PPG_PABIAS_MASK));
+        write_rf(
+            dev,
+            path,
+            RF_PA,
+            RF_PABIAS_2G_MASK,
+            u32::from(pg & PPG_PABIAS_MASK),
+        );
     }
     for (path, &reg) in ef_5g.iter().enumerate().take(paths(dev)) {
         let pg = efuse8(dev, reg);
-        write_rf(dev, path, RF_PA, RF_PABIAS_5G_MASK, u32::from(pg & PPG_PABIAS_MASK));
+        write_rf(
+            dev,
+            path,
+            RF_PA,
+            RF_PABIAS_5G_MASK,
+            u32::from(pg & PPG_PABIAS_MASK),
+        );
     }
 }

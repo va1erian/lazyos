@@ -20,8 +20,8 @@ use crate::hci::Hci;
 use crate::phy::rate::{DESC_RATE11M, DESC_RATEMCS0};
 use crate::phy::rssi::rf_power_2_rssi;
 use crate::phy::{ch_5g_band, is_ch_2g};
-use crate::rx::RxPktStat;
 use crate::rtw8822c::DmState;
+use crate::rx::RxPktStat;
 
 /// Bytes page 0 reads (up to `GAIN_B` in dword 4).
 pub const PAGE0_LEN: usize = 20;
@@ -55,7 +55,11 @@ pub fn phy_status_ctx<H: Hci>(dev: &Dev<H>) -> PhyStatusCtx {
 pub fn set_rx_freq_band(pkt: &mut RxPktStat, channel: u8) {
     if is_ch_2g(channel) {
         pkt.band = 0;
-        pkt.freq = if channel == 14 { 2484 } else { 2407 + 5 * u16::from(channel) };
+        pkt.freq = if channel == 14 {
+            2484
+        } else {
+            2407 + 5 * u16::from(channel)
+        };
     } else if ch_5g_band(channel).is_some() {
         pkt.band = 1;
         pkt.freq = 5000 + 5 * u16::from(channel);
@@ -117,7 +121,11 @@ fn page1(ctx: &PhyStatusCtx, ps: &[u8], pkt: &mut RxPktStat) {
     pkt.rx_power = [ps[1].wrapping_sub(110) as i8, ps[2].wrapping_sub(110) as i8];
     pkt.rssi = rf_power_2_rssi(&pkt.rx_power, 2);
     pkt.bw = bw as u8;
-    pkt.signal_power = i32::from(pkt.rx_power[RF_PATH_A].max(pkt.rx_power[RF_PATH_B]).max(MIN_RX_POWER));
+    pkt.signal_power = i32::from(
+        pkt.rx_power[RF_PATH_A]
+            .max(pkt.rx_power[RF_PATH_B])
+            .max(MIN_RX_POWER),
+    );
     pkt.rx_evm = [ps[16], ps[17]];
     pkt.rx_snr = [ps[24] as i8, ps[25] as i8];
     pkt.cfo_tail = [ps[20] as i8, ps[21] as i8];
@@ -141,7 +149,11 @@ pub fn update_dm(dm: &mut DmState, rf_path_num: u8, pkt: &RxPktStat, page1: bool
         dm.cfo_tail[path] = (i16::from(pkt.cfo_tail[path]) * 5) >> 1;
         let evm = pkt.rx_evm[path] as i8;
         if evm < 0 {
-            evm_dbm = if evm == i8::MIN { 0 } else { (evm as u8).wrapping_neg() >> 1 };
+            evm_dbm = if evm == i8::MIN {
+                0
+            } else {
+                (evm as u8).wrapping_neg() >> 1
+            };
         }
         dm.rx_evm_dbm[path] = evm_dbm;
     }

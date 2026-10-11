@@ -122,7 +122,10 @@ fn refusals_follow_upstream() {
         let mut buf = encode_rx_desc(&f).to_vec();
         buf.extend(std::vec![0; 12_000]);
         let mut stat = RxPktStat::default();
-        assert!(query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).is_err(), "{f:?}");
+        assert!(
+            query_rx_desc(&PhyStatusCtx::default(), &buf, &mut stat).is_err(),
+            "{f:?}"
+        );
     }
     // The largest legal values pass.
     let f = RxDescFields {

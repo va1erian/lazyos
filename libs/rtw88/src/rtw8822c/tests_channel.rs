@@ -55,18 +55,18 @@ fn check(d: &Dev<FakeHci>, regs: &[(u32, u32)], what: &str) {
 
 fn channel_2g(ch: u8, scotrk: u32, rf18: u32) -> Vec<(u32, u32)> {
     std::vec![
-        (0x1a14, 0),                 // RX IQ weight off
-        (0x454, 0),                  // CCK check off (BB and MAC agree)
-        (0x1a80, 0),                 // BB CCK check off
-        (0x1c80, 0x0f00_0000),       // CCAMSK
-        (0x18ac, 0x5060),            // RXAGCCTL0: CCK 5, OFDM 6
-        (0x41ac, 0x5060),            // RXAGCCTL (path B)
-        (0xc30, scotrk),             // SCOTRK
-        (0x1a20, 0x5284_0000),       // CCK TX filter, channels 1-13
+        (0x1a14, 0),           // RX IQ weight off
+        (0x454, 0),            // CCK check off (BB and MAC agree)
+        (0x1a80, 0),           // BB CCK check off
+        (0x1c80, 0x0f00_0000), // CCAMSK
+        (0x18ac, 0x5060),      // RXAGCCTL0: CCK 5, OFDM 6
+        (0x41ac, 0x5060),      // RXAGCCTL (path B)
+        (0xc30, scotrk),       // SCOTRK
+        (0x1a20, 0x5284_0000), // CCK TX filter, channels 1-13
         (0x1a24, 0x3e18_fec8),
         (0x1a28, 0x0000_0a88),
         (0x1a98, 0xacc4_0000),
-        (0x1a9c, 0x0010_c8b2),       // TXF4 with bit 20 set
+        (0x1a9c, 0x0010_c8b2), // TXF4 with bit 20 set
         (0x1aa0, 0x00fa_f0de),
         (0x1aac, 0x0012_2344),
         (0x1ab0, 0x0fff_ffff),
@@ -86,8 +86,8 @@ fn channel_5g(ofdm_agc: u32, scotrk: u32, rf18: u32) -> Vec<(u32, u32)> {
         (0x18ac, ofdm_agc << 4), // OFDM AGC table, CCK untouched
         (0x41ac, ofdm_agc << 4),
         (0xc30, scotrk),
-        (0x1a20, 0),             // the CCK filter is left alone
-        (0x1a9c, 0),             // TXF4 bit 20 cleared
+        (0x1a20, 0), // the CCK filter is left alone
+        (0x1a9c, 0), // TXF4 bit 20 cleared
         (0x3c60, rf18),
         (0x4c60, rf18),
     ]
@@ -101,7 +101,11 @@ const MAC: [(u32, u32); 3] = [(0x480, 0), (0x668, 0), (0x24, 0)];
 fn channels_1_6_11_at_20mhz() {
     // RF 0x18: bit 19 kept, band/RF-section/channel/width cleared, then
     // 2.4 GHz (0), the channel, 20 MHz (0x3000).
-    for (ch, scotrk, rf18) in [(1u8, 0x9aa, 0x83001), (6, 0x9aa, 0x83006), (11, 0x96a, 0x8300b)] {
+    for (ch, scotrk, rf18) in [
+        (1u8, 0x9aa, 0x83001),
+        (6, 0x9aa, 0x83006),
+        (11, 0x96a, 0x8300b),
+    ] {
         let d = run(ch);
         check(&d, &channel_2g(ch, scotrk, rf18), &std::format!("ch {ch}"));
         check(&d, &BW20, "bw20");
@@ -136,11 +140,18 @@ fn order_is_bb_mac_rf_with_3wire_held_and_igi_toggled() {
     let mac = pos(&|a, _| a == 0x483);
     let hold = pos(&|a, v| a == 0x1c90 && v & 0x100 == 0);
     let rf = pos(&|a, _| a == 0x3c60);
-    let release = w.iter().rposition(|&(_, a, v)| a == 0x1c90 && v & 0x100 != 0).unwrap();
+    let release = w
+        .iter()
+        .rposition(|&(_, a, v)| a == 0x1c90 && v & 0x100 != 0)
+        .unwrap();
     let igi_dip = pos(&|a, v| a == 0x1d70 && v & 0x7f == 0x1e);
     assert!(bb < mac && mac < hold && hold < rf && rf < release && release < igi_dip);
     // The IGI goes to 0x1e on both paths, then back to 0x20.
-    let igi: Vec<u32> = w.iter().filter(|&&(_, a, _)| a == 0x1d70).map(|&(_, _, v)| v).collect();
+    let igi: Vec<u32> = w
+        .iter()
+        .filter(|&&(_, a, _)| a == 0x1d70)
+        .map(|&(_, _, v)| v)
+        .collect();
     assert_eq!(igi, [0x201e, 0x1e1e, 0x1e20, 0x2020]);
 }
 
