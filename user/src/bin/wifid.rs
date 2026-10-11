@@ -15,9 +15,11 @@
 //! 4. loads `rtw88/rtw8822c_fw.bin` from the firmware tree through
 //!    `libs/fwload` (`WIFID:FW:FILE`, with the header's version);
 //! 5. hands the bus (registers, DMA through `dev::dma_alloc`, a delay) to
-//!    `radio::bring_up`, the seam where `libs/rtw88`'s power-on, firmware
-//!    download and PHY init slot in (`WIFID:RADIO:PENDING` until then);
-//! 6. idles on the interrupt channel, serving nothing yet, never busy.
+//!    `radio::bring_up`: `libs/rtw88`'s probe, power-on, firmware download,
+//!    MAC/BB/RF init and calibration (`WIFID:CHIP:INFO`, `WIFID:FW:READY`,
+//!    `WIFID:COEX`, `WIFID:MAC`);
+//! 6. surveys the channels (`survey.rs`: `WIFID:SURVEY:*`, what the radio
+//!    hears) on the interrupt channel, serving nothing yet, never busy.
 //!
 //! A step that fails prints `WIFID:FAIL:<step> <detail>` and the register
 //! dump, then parks with the claim held (a restart could only fail the same
@@ -51,6 +53,8 @@ mod device;
 mod firmware;
 #[path = "wifid/radio.rs"]
 mod radio;
+#[path = "wifid/survey.rs"]
+mod survey;
 #[path = "wifid/trace.rs"]
 mod trace;
 
@@ -165,8 +169,8 @@ fn run(row: Row) -> Result<(Radio, Option<(Endpoint, u64)>), Failure> {
         dma: bus::Dma::new(claimed.handle),
         delay_us: bus::delay_us,
     };
-    let radio = radio::bring_up(bus, image).map_err(|(bus, why)| {
-        radio::failure_dump(&bus.regs);
+    let radio = radio::bring_up(bus, image, sys::clock()).map_err(|(regs, why)| {
+        radio::failure_dump(&regs);
         why
     })?;
     let irq = claimed
@@ -176,24 +180,29 @@ fn run(row: Row) -> Result<(Radio, Option<(Endpoint, u64)>), Failure> {
     Ok((radio, irq))
 }
 
-/// Idle on the interrupt channel (`irq`: the claim's channel and device
-/// handle, `None` when polling), handling what arrives, never busy.
+/// Wait on the interrupt channel (`irq`: the claim's channel and device
+/// handle, `None` when polling) until the radio's next deadline, handle
+/// what arrived, and let the radio hop channels; never busy.
 fn serve(mut radio: Radio, irq: Option<(Endpoint, u64)>) -> ! {
-    trace::event("IDLE", &[("serving", &"nothing yet")]);
+    trace::event("IDLE", &[("serving", &"survey")]);
     let mut buffer = [0u8; 256];
     loop {
-        let deadline = sys::clock() + IDLE_TICKS;
-        let Some((channel, handle)) = irq else {
-            let _ = sys::wait(deadline);
-            continue;
-        };
-        let _ = wait::wait_any(&[channel], 0, Some(deadline));
-        while let Ok(Some(message)) = channel.poll_recv_with(&mut buffer) {
-            if device::is_interrupt(&message) {
-                radio.interrupt();
-                let _ = user::dev::irq_ack(handle);
+        let deadline = radio.deadline().min(sys::clock() + IDLE_TICKS);
+        match irq {
+            None => {
+                let _ = sys::wait(deadline);
+            }
+            Some((channel, handle)) => {
+                let _ = wait::wait_any(&[channel], 0, Some(deadline));
+                while let Ok(Some(message)) = channel.poll_recv_with(&mut buffer) {
+                    if device::is_interrupt(&message) {
+                        radio.interrupt();
+                        let _ = user::dev::irq_ack(handle);
+                    }
+                }
             }
         }
+        radio.tick(sys::clock());
     }
 }
 

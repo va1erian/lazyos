@@ -5,7 +5,10 @@
 use rtw88::pci::{DmaAlloc, DmaBuf, Mmio};
 use user::{dev, sys};
 
-/// The chip's register BAR, mapped uncached by the kernel.
+/// The chip's register BAR, mapped uncached by the kernel. A copy is a
+/// second handle on the same registers (the failure dump keeps one while
+/// the chip library owns the other).
+#[derive(Clone)]
 pub(super) struct Bar {
     base: *mut u8,
     len: u64,
@@ -92,11 +95,6 @@ const PAGE: usize = 4096;
 impl Dma {
     pub(super) fn new(device: u64) -> Dma {
         Dma { device, blocks: 0 }
-    }
-
-    /// Blocks allocated so far.
-    pub(super) fn blocks(&self) -> usize {
-        self.blocks
     }
 }
 

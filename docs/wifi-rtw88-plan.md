@@ -166,9 +166,26 @@ WIFID:CHIP sys_cfg1=0x........ cut=? rf=2T2R production=1
 WIFID:REGS boot 0000=0x........ 0004=0x........ ...      (three lines: the always-on registers)
 WIFID:IRQ mode=msi
 WIFID:FW:FILE name=rtw88/rtw8822c_fw.bin bytes=202600 signature=0x8822 version=9.9.15 h2c=15 built="2023-03-16 13:49" dmem=19328 imem=54064 emem=129120
-WIFID:RADIO:PENDING firmware_bytes=202600 dma_blocks=0 reason="chip bring-up not in this build (libs/rtw88 R1)"
-WIFID:IDLE serving="nothing yet"
+WIFID:DMA bytes=1966080
+WIFID:CHIP:INFO cut=. rf_paths=2 rfe=. btcoex=. share_ant=. crystal=.. efuse_mac=xx:xx:xx:xx:xx:xx
+WIFID:FW:READY version=9.9.15 h2c=15 feature=0x........ iqk=true dpk_path_ok=3
+WIFID:COEX wifi_owns_antenna=true lte_ctrl=0x....77.. path_wifi=true indirect_errors=0
+WIFID:MAC addr=xx:xx:xx:xx:xx:xx
+WIFID:IDLE serving=survey
+WIFID:IRQ:FIRST hisr0=0x........ hisr1=0x........ hisr3=0x........
+WIFID:SURVEY:CH ch=1 frames=.. mgmt=.. beacons=.. data=.. crc_err=.. c2h=..   (one per channel, 22 channels)
+WIFID:SURVEY:BSS bssid=xx:xx:xx:xx:xx:xx ch=6 beacons=.. dbm=-..              (one per BSS heard)
+WIFID:SURVEY:DONE sweep=1 bss=..                                              (a sweep every minute)
 ```
+
+The survey (`user/src/bin/wifid/survey.rs`) is R3/R4's evidence until the
+soft-MAC layer serves `hw.v1`: it hops the 20 MHz channels with the filter
+open to every BSS for 250 ms each and counts frames by type and BSSID (fixed
+header offsets only, no information element parsed). `beacons>0` on a
+channel where the home AP lives is the radio hearing the air; `frames=0`
+everywhere with `FW:READY` and `COEX wifi_owns_antenna=true` points at RX
+path setup (`set_channel`, AGC tables, RFE type); `wifi_owns_antenna=false`
+points at the coexistence grants.
 
 | Line | Means |
 |---|---|
@@ -177,7 +194,8 @@ WIFID:IDLE serving="nothing yet"
 | `WIFID:FAIL:map errno=19` | BAR 2 is missing or not memory (the survey says 64 KiB MMIO) |
 | `WIFID:FAIL:chip REG_SYS_CFG1 reads 0xffffffff` | the card does not decode (D3, link down, ASPM): compare `WIFID:PCI` with `docs/compat/amd-nuc` |
 | `WIFID:FAIL:firmware ... errno=2` | no firmware file (the build refuses this, so: a hand-copied binary) |
-| `WIFID:FAIL:<step>` then `WIFID:REGS fail ...` | a bring-up step failed (once `libs/rtw88` is in): the system and MAC registers at that moment |
+| `WIFID:FAIL:<step>` then `WIFID:REGS fail ...` | a bring-up step failed: `pci` (rings), `chip-info` (power-on, firmware for the efuse, efuse), `pci-phy`, `core-start` (power-on, firmware, MAC/BB/RF init, calibration), `station`; the detail is the `rtw88::Error` (a `Timeout` names the register polled) and the dump is the system and MAC registers at that moment |
+| `WIFID:FAIL:scan-start`, `set-channel` | the survey could not start or tune; the radio stays up |
 
 After any `WIFID:FAIL` the driver parks with the claim held, so `devices`,
 `drivers` and the log stay readable and `init` does not restart-loop it.
@@ -203,22 +221,18 @@ and rolls back if the new run exits within the trial. A run that parks after
 a `WIFID:FAIL` is alive, so it commits: read its dump, fix, reload again.
 The kill ends the claim (the kernel stops the card's DMA and frees the
 blocks), so the new run finds the chip as the old one left it: the bring-up
-must power the chip off before powering it on, as upstream's
-`rtw_power_on` does.
+finds the MAC on (`CR` reads 0xea) and its power-on cycles it off first,
+as upstream's `rtw_mac_power_on` does.
 
-### 5.5 What the full driver assembly needs
+### 5.5 What the full driver assembly still needs
 
-- `radio::bring_up` (`user/src/bin/wifid/radio.rs`) is the seam: build
-  `rtw88::pci::Pci` from `bus.regs` (`Mmio`), `bus.dma` (`DmaAlloc`, blocks
-  below 4 GiB, at most 16 of 4 MiB) and `bus.delay_us`, run the bring-up with
-  the firmware bytes, print `WIFID:FW:READY` and `WIFID:MAC:<addr>`, and
-  return the failing step on error (`wifid.rs` prints it and
-  `radio::failure_dump`).
-- `Radio::interrupt` is called for each MSI message, after which the serve
-  loop acknowledges it (`irq_ack`); it must read and clear `HISR` there.
-- Register `os.lazy.net.nic/<ifname>` (and `os.lazy.net.wifi.hw.v1`) from
-  the serve loop once the radio is up: `netpolicy` already lets `_wifi`
-  register `wlan*` names with `kind = wireless`.
+`radio::bring_up` runs the whole `libs/rtw88` probe and start (R3) and the
+survey proves RX (R4's radio half). Still to come: serve
+`os.lazy.net.nic/<ifname>` (`kind = wireless`) and
+`os.lazy.net.wifi.hw/<ifname>` from the serve loop through `libs/wifimac`'s
+`Radio` trait implemented over `rtw88::Dev` (TX of management and data
+frames with the software CCMP header, keys in the CAM, RX frames with RSSI
+and the decryption flag), replacing the survey.
 
 ## 6. The chip package (R1)
 

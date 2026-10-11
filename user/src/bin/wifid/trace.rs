@@ -42,3 +42,13 @@ impl Display for Hex32 {
         write!(f, "{:#010x}", self.0)
     }
 }
+
+/// A station address as `aa:bb:cc:dd:ee:ff`.
+pub(super) struct Mac(pub [u8; 6]);
+
+impl Display for Mac {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [a, b, c, d, e, g] = self.0;
+        write!(f, "{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{g:02x}")
+    }
+}
