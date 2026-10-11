@@ -116,22 +116,22 @@ class LiveTests(unittest.TestCase):
     GOOD = "\n".join(["SKY:UP:PASS", "SKY:FEED:ROWS:30", "SKY:IMAGES:5"])
 
     def test_a_quiet_run_passes(self) -> None:
-        self.assertEqual(live.judge_live(self.GOOD, "pw", "me.test"), [])
+        self.assertEqual(live.judge_live(self.GOOD, "pw"), [])
 
     def test_a_restart_is_named(self) -> None:
-        problems = live.judge_live(self.GOOD + "\nSKY:UP:PASS", "pw", "me.test")
+        problems = live.judge_live(self.GOOD + "\nSKY:UP:PASS", "pw")
         self.assertTrue(any("restarted" in p for p in problems), problems)
 
     def test_a_panic_and_a_leak_fail(self) -> None:
         text = self.GOOD + "\nSKY:PANIC:index out of bounds at x.rs:1\npw"
-        problems = live.judge_live(text, "pw", "me.test")
+        problems = live.judge_live(text, "pw")
         self.assertTrue(any("panic" in p for p in problems))
         self.assertTrue(any("password" in p for p in problems))
 
     def test_the_script_holds_no_secret(self) -> None:
         text = json.dumps(live.steps(2, 10))
-        self.assertIn('"type_secret": "BSKY_DUMMY_PWD"', text)
-        self.assertIn('"type_secret": "BSKY_DUMMY_ACCOUNT"', text)
+        self.assertIn('"type_secret": "LAZYSKY_DUMMY_PWD"', text)
+        self.assertIn('"type_secret": "LAZYSKY_DUMMY_ACCOUNT"', text)
 
 
 class FixtureTests(unittest.TestCase):

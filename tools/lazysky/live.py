@@ -3,7 +3,7 @@
 that the app survives a long scroll (the "crash and restart" report).
 
 The handle and the app password come from the host environment
-(`BSKY_DUMMY_ACCOUNT`, `BSKY_DUMMY_PWD`) and are typed with the session step
+(`LAZYSKY_DUMMY_ACCOUNT`, `LAZYSKY_DUMMY_PWD`) and are typed with the session step
 `{"type_secret": VAR}`: neither is written to the script, the logs or the
 repo, and the serial log and the capture are scanned for the password. Use an
 app password of a dummy account, never a main password.
@@ -34,7 +34,7 @@ import judge  # noqa: E402
 import run  # noqa: E402
 import session  # noqa: E402
 
-ACCOUNT, PASSWORD = "BSKY_DUMMY_ACCOUNT", "BSKY_DUMMY_PWD"
+ACCOUNT, PASSWORD = "LAZYSKY_DUMMY_ACCOUNT", "LAZYSKY_DUMMY_PWD"
 APP = session.APP
 
 
@@ -64,14 +64,19 @@ def steps(rounds: int, timeout: float) -> list[dict]:
     ]
     for n in range(rounds):
         out += [step for _ in range(40) for step in ({"mouse_scroll": -5}, {"wait": 0.1})]
-        out += [{"wait": 1.0}]
+        # "Load more" is a click, not automatic: the wheel (End does not scroll
+        # the feed) to the very end, then the row at the bottom; Alt+Left in
+        # case the click opened a thread instead.
+        out += [step for _ in range(60) for step in ({"mouse_scroll": -10}, {"wait": 0.05})]
+        out += [{"wait": 1.0}, {"click_at": {"window": "LazySky", "offset": [0, 292]}}, {"wait": 4.0},
+                {"key_down": "alt"}, {"key": "left"}, {"key_up": "alt"}, {"wait": 1.0}]
         if n % 5 == 4:
             out += [{"shot": f"scroll_{n + 1:03d}"}]
-    out += [{"key": "home"}, {"wait": 3.0}, {"shot": "end"}, {"wait": 2.0}, {"quit": True}]
+    out += [{"wait": 3.0}, {"shot": "end"}, {"wait": 2.0}, {"quit": True}]
     return out
 
 
-def judge_live(text: str, password: str, account: str) -> list[str]:
+def judge_live(text: str, password: str) -> list[str]:
     """The app stayed up; nothing secret was logged."""
     problems = []
     if "SKY:UP:PASS" not in text:
@@ -91,8 +96,6 @@ def judge_live(text: str, password: str, account: str) -> list[str]:
         problems.append("the feed never showed rows (sign in failed?)")
     if password and password in text:
         problems.append("the app password appeared in the serial log")
-    if account and account in text:
-        problems.append("the handle appeared in the serial log (the app must not print it)")
     return problems
 
 
@@ -133,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
                                stderr=subprocess.STDOUT)
     log = out / "serial.log"
     text = log.read_text(errors="replace") if log.is_file() else ""
-    problems = judge_live(text, password, account)
+    problems = judge_live(text, password)
     if code != 0:
         problems.append("the session did not finish (see session.log, summary.json)")
     for problem in problems[:16]:

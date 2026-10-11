@@ -97,3 +97,20 @@ GPLv2-compatible licence choice (`tools/nettls/licenses.py --lazysky`); never
 add `ring`, `aws-lc-rs`, `tokio`, `reqwest` or an Apache-2.0-only crate. The
 host's trust store (`rustls-native-certs`) is only behind the core's
 `native-roots` feature, which LazyOS images never link.
+
+## Live run and crash reports
+
+`python tools/lazysky/live.py` (needs `LAZYSKY_DUMMY_ACCOUNT` and
+`LAZYSKY_DUMMY_PWD`, an app password of a throwaway account) builds an image
+with no test CA, signs in to the real service, scrolls and clicks "Load more"
+in a loop, and fails on a second `SKY:UP:PASS` (a restart), a `SKY:PANIC:`
+line, a failure marker or the password in the serial log. The release
+profile is `panic = "abort"`, so any panic on any thread ends the app: the
+panic hook in `src/bin/lazysky.rs` prints `SKY:PANIC:<message> at
+<file:line>` first, which is what a crash report should quote.
+
+Findings so far: `MouseWheel.delta` is in 120ths of a notch (divide by
+`WHEEL_DELTA`); a video post has no thumbnail path and shows a blank block;
+characters outside Droid Sans (mathematical bold letters) draw as boxes. A
+crash seen by a user while scrolling was not reproduced by the mock (150
+notches, ten pages) nor by 15 live rounds over two pages.
