@@ -25,6 +25,7 @@
 //! | [`phy`] | `phy.c` | table loading, RF access, TX power |
 //! | [`rtw8822c`] | `rtw8822c.c`, `rtw8822c_table.c` | the chip: efuse layout, BB/RF init, channel, calibration |
 //! | [`coex`] | `coex.c` | the minimum to give the shared antenna to Wi-Fi |
+//! | [`station`] | `mac80211.c`, `main.c` | the station facade a soft-MAC drives: port, BSSID, filters, association, keys, TX packets |
 //!
 //! Nothing here takes a syscall: the binary (`wifid`) claims the function,
 //! maps BAR 2, allocates DMA and hands this crate an [`hci::Hci`]. The host
@@ -55,10 +56,13 @@ pub mod pwrseq;
 pub mod rtw8822c;
 pub mod rx;
 pub mod sec;
+pub mod station;
 pub mod tx;
 
 #[cfg(test)]
 pub mod fake;
+#[cfg(test)]
+mod testmodel;
 
 pub use dev::Dev;
 pub use error::Error;

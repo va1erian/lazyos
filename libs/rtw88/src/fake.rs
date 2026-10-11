@@ -31,7 +31,18 @@ pub struct FakeHci {
     pub h2c: Vec<Vec<u8>>,
     pub kicks: usize,
     pub delayed_us: u64,
+    /// Device models: each runs after every register write with the
+    /// register file, the width, the address and the value, so a test can
+    /// give a register side effects (a self-clearing bit, an efuse byte
+    /// appearing, a firmware answer).
+    pub hooks: Vec<Hook>,
+    /// The bus calls other than register I/O, in order (`setup`, `start`,
+    /// `stop`, `interface_cfg`, `link_ps`).
+    pub calls: Vec<&'static str>,
 }
+
+/// A device model hook, see [`FakeHci::hooks`].
+pub type Hook = std::boxed::Box<dyn FnMut(&mut [u8], u8, u32, u32)>;
 
 impl Default for FakeHci {
     fn default() -> Self {
@@ -44,6 +55,8 @@ impl Default for FakeHci {
             h2c: Vec::new(),
             kicks: 0,
             delayed_us: 0,
+            hooks: Vec::new(),
+            calls: Vec::new(),
         }
     }
 }
@@ -78,6 +91,11 @@ impl FakeHci {
             self.regs[a] = (val >> (8 * i)) as u8;
         }
         self.log.push(Access::Write { width, addr, val });
+        let mut hooks = std::mem::take(&mut self.hooks);
+        for h in hooks.iter_mut() {
+            h(&mut self.regs, width, addr, val);
+        }
+        self.hooks = hooks;
     }
 
     fn read(&mut self, addr: u32, width: u8) -> u32 {
@@ -127,14 +145,22 @@ impl Hci for FakeHci {
         self.log.push(Access::Delay { us });
     }
     fn setup(&mut self) -> Result<()> {
+        self.calls.push("setup");
         Ok(())
     }
     fn start(&mut self) -> Result<()> {
+        self.calls.push("start");
         Ok(())
     }
-    fn stop(&mut self) {}
-    fn interface_cfg(&mut self) {}
-    fn link_ps(&mut self, _enter: bool) {}
+    fn stop(&mut self) {
+        self.calls.push("stop");
+    }
+    fn interface_cfg(&mut self) {
+        self.calls.push("interface_cfg");
+    }
+    fn link_ps(&mut self, _enter: bool) {
+        self.calls.push("link_ps");
+    }
     fn tx_write(&mut self, queue: TxQueue, pkt: &[u8]) -> Result<()> {
         self.tx.push((queue, pkt.to_vec()));
         Ok(())
