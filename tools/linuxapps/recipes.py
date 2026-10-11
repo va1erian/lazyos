@@ -1,4 +1,4 @@
-"""Build recipes for the small C programs: Lua, the SQLite shell and jq.
+"""Build recipes for the small C programs: the SQLite shell and jq.
 
 Each recipe takes a :class:`toolchain.Zig` and the output path, works on a
 fresh copy of the pinned source (``sources.work_copy``) and compiles an
@@ -12,31 +12,6 @@ from pathlib import Path
 
 import sources
 from toolchain import BuildError, Zig
-
-# --- Lua -------------------------------------------------------------------
-
-#: `src/Makefile`'s CORE_O + LIB_O + the interpreter (`lua.c`); not `luac.c`.
-LUA_SOURCES = [
-    "lapi.c", "lcode.c", "lctype.c", "ldebug.c", "ldo.c", "ldump.c", "lfunc.c",
-    "lgc.c", "llex.c", "lmem.c", "lobject.c", "lopcodes.c", "lparser.c",
-    "lstate.c", "lstring.c", "ltable.c", "ltm.c", "lundump.c", "lvm.c", "lzio.c",
-    "lauxlib.c", "lbaselib.c", "lcorolib.c", "ldblib.c", "liolib.c",
-    "lmathlib.c", "loadlib.c", "loslib.c", "lstrlib.c", "ltablib.c",
-    "lutf8lib.c", "linit.c",
-    "lua.c",
-]
-#: `LUA_USE_LINUX` is `LUA_USE_POSIX` + `LUA_USE_DLOPEN`. A static binary has
-#: no dynamic loader, so only the POSIX half applies (`require` of a C module
-#: then says "dynamic libraries not enabled"); there is no readline either.
-LUA_FLAGS = ["-std=gnu99", "-DLUA_USE_POSIX"]
-
-
-def build_lua(cc: Zig, out: Path) -> Path | None:
-    tree = sources.work_copy("lua")
-    if tree is None:
-        return None
-    return cc.program(LUA_SOURCES, out, tree / "src", LUA_FLAGS)
-
 
 # --- SQLite ----------------------------------------------------------------
 

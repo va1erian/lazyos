@@ -238,7 +238,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
     env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
-        # dash, lua, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
+        # dash, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
     if wants_dbgd(cfg):

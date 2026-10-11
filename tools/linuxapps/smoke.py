@@ -27,7 +27,6 @@ PLATFORM = "linux/amd64"
 
 #: name -> (shell command run inside the container, the line it must print).
 CHECKS: dict[str, tuple[str, str]] = {
-    "lua": ("/w/lua -e 'print(1+1)'", "2"),
     "sqlite3": ("/w/sqlite3 :memory: 'select 6*7'", "42"),
     "jq": ("echo '{\"a\":1}' | /w/jq .a", "1"),
     "dash": ("/w/dash -c 'echo $((2+3))'", "5"),

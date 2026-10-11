@@ -3,7 +3,6 @@
 Every archive is pinned by version, URL and SHA-256. The digests were taken
 from the downloaded bytes and cross-checked against what upstream publishes:
 
-* Lua 5.4.7: the SHA-256 on https://www.lua.org/ftp/;
 * SQLite 3.46.1: upstream publishes SHA3-256 values; the ``sqlite3.c`` inside
   this zip matches the "SHA3-256 for sqlite3.c" of the 3.46.1 release log
   (186a1baa...7dad);
@@ -54,12 +53,6 @@ class Source:
 
 
 PINS: dict[str, Source] = {
-    "lua": Source(
-        "5.4.7",
-        "https://www.lua.org/ftp/lua-5.4.7.tar.gz",
-        "9fbf5e28ef86c69858f6d3d34eccc32e911c1a28b4120ff3e84aaa70cfbf1e30",
-        "lua-5.4.7",
-    ),
     "sqlite3": Source(
         "3.46.1",
         "https://www.sqlite.org/2024/sqlite-amalgamation-3460100.zip",

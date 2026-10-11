@@ -82,7 +82,7 @@ def build_modplayer() -> bool:
 
 
 def build_linuxapps() -> bool:
-    """The Linux command-line programs (dash, lua, sqlite3, jq, rg from pinned
+    """The Linux command-line programs (dash, sqlite3, jq, rg from pinned
     sources); a missing toolchain or download stops the run."""
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
 
