@@ -442,7 +442,17 @@ is refused at message 2; the open join gives `netd` a DHCP lease on `wlan0`
 and the AP's pings are answered; the WPA2 join shows messages 1-4 in the
 capture, CCMP data the AP decrypted with its own code, a lease and pings; a
 group rekey, beacon loss and a deauthentication each reach the radio's
-client. With `--station wlanmd` (once `wlanmd` is in the tree) the image has
-no probe and the harness types `wifictl scan`, `wifictl connect LazyWPA2`
-(answering the passphrase prompt) and `wifictl status` on the console; the
-AP-side checks are the same.
+client.
+
+With `--station wlanmd` the image has no probe: the harness logs in as
+`user` and types `wifictl scan`, `wifictl connect LazyWrong` (a wrong
+passphrase), `wifictl connect LazyOpen`, `wifictl connect LazyWPA2`
+(answering the no-echo prompt when the network is not yet remembered),
+then injects a group rekey, beacon loss and a deauthentication.
+`sim_judge_wlanmd.py` (self-test `test_judge_wlanmd.py`) wants `wlanmd`
+(uid 912) as the radio's owner, `wifictl`'s merged network list, a
+`bad-passphrase` failure, both joins with the same AP-side and capture
+evidence as the probe run, the link kept across the rekey, and `wlanmd`
+joining again on its own after the beacon loss and after the
+deauthentication (the AP authorizes it three times). The image needs
+BusyBox for the shell (`LAZYOS_BUSYBOX`, or `tools/abi/busybox.py`).

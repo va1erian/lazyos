@@ -54,6 +54,7 @@ sys.path.insert(0, str(ROOT / "tools/net"))
 
 import fake_ap  # noqa: E402
 import sim_judge  # noqa: E402
+import sim_judge_wlanmd  # noqa: E402
 from fakeap import air  # noqa: E402
 from harness_io import stop_qemu  # noqa: E402
 from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port  # noqa: E402
@@ -140,22 +141,81 @@ def drive_probe(watch: Watch, control: int, scale: float) -> None:
     watch.until(lambda serial, ap: "WIFIPROBE:EVENT:DEAUTH" in serial, 20 * scale)
 
 
-def drive_wlanmd(watch: Watch, qmp: Qmp, scale: float) -> None:
-    """Type the station manager's commands on the console (the plan's
-    `wifictl`: `scan`, `connect <ssid>` with a no-echo prompt, `status`)."""
-    if not watch.until(lambda serial, ap: "/ #" in serial or "WIFI:READY" in serial, 180 * scale):
+def _line(qmp: Qmp, text: str) -> None:
+    qmp.type_text(text)
+    qmp.press_key("ret")
+
+
+def _connect(watch: Watch, qmp: Qmp, ssid: str, passphrase: str | None, want: str, scale: float) -> bool:
+    """`wifictl connect SSID`, the passphrase typed at its no-echo prompt if
+    it asks (a network remembered by an earlier boot of the same OS volume
+    joins without one)."""
+    seen = watch.text().count(want)
+    prompt = f'Passphrase for "{ssid}"'
+    asked = watch.text().count(prompt)
+    _line(qmp, f"wifictl connect {ssid}")
+    if passphrase is not None:
+        watch.until(lambda serial, ap: serial.count(prompt) > asked or serial.count(want) > seen, 30 * scale)
+        if watch.text().count(prompt) > asked:
+            time.sleep(0.5)
+            _line(qmp, passphrase)
+    return watch.until(lambda serial, ap: serial.count(want) > seen, 90 * scale)
+
+
+def _last_state(serial: str) -> str:
+    """The last `WLANMD:STATE` line printed (the console may prefix it)."""
+    states = [line[line.index("WLANMD:STATE"):] for line in serial.splitlines() if "WLANMD:STATE" in line]
+    return states[-1] if states else ""
+
+
+def _ap_seen(prefix: str, ssid: str):
+    return lambda serial, ap: any(line.startswith(prefix) and line.endswith(f"ssid={ssid}") for line in ap)
+
+
+def drive_wlanmd(watch: Watch, qmp: Qmp, control: int, scale: float) -> None:
+    """Log in as the session user and drive the real station manager with
+    `wifictl` (scan, a wrong passphrase, an open and a WPA2 join), then the
+    AP's faults, waiting on evidence at each step (`sim_judge_wlanmd`)."""
+    state = sim_judge_wlanmd.state
+    if not watch.until(lambda serial, ap: "LazyOS login: " in serial and "WLANMD:RADIO:UP" in serial, 240 * scale):
         return
-    time.sleep(5)
-    for command, answer in (("wifictl scan", None), (f"wifictl connect {sim_judge.WPA2}", fake_ap.WPA2_PASSPHRASE),
-                            ("wifictl status", None)):
-        qmp.type_text(command)
-        qmp.press_key("ret")
-        time.sleep(3)
-        if answer:
-            qmp.type_text(answer)
-            qmp.press_key("ret")
-            time.sleep(10)
-    watch.until(lambda serial, ap: any(line.startswith("AP:ICMP:ECHO:REPLY") for line in ap), 120 * scale)
+    time.sleep(1.0)
+    _line(qmp, "user")
+    time.sleep(0.6)
+    _line(qmp, "lazy")
+    if not watch.until(lambda serial, ap: "LOGIN:OK:PASS user=user" in serial, 60 * scale):
+        return
+    time.sleep(3.0)
+    _line(qmp, "wifictl scan")
+    watch.until(lambda serial, ap: "network(s)" in serial, 60 * scale)
+    _connect(watch, qmp, sim_judge.WRONG, "not-the-passphrase",
+             state("wlan0", "failed", sim_judge.WRONG, "bad-passphrase"), scale)
+    if _connect(watch, qmp, sim_judge.OPEN, None, state("wlan0", "connected", sim_judge.OPEN), scale):
+        watch.until(_ap_seen("AP:ICMP:ECHO:REPLY", sim_judge.OPEN), 60 * scale)
+    if not _connect(watch, qmp, sim_judge.WPA2, fake_ap.WPA2_PASSPHRASE,
+                    state("wlan0", "connected", sim_judge.WPA2), scale):
+        return
+    if not watch.until(_ap_seen("AP:ICMP:ECHO:REPLY", sim_judge.WPA2), 60 * scale):
+        return
+    _line(qmp, "wifictl status")
+    fault(control, "rekey")
+    watch.until(_ap_seen("AP:REKEY:G2:OK", sim_judge.WPA2), 30 * scale)
+    authorized = lambda n: lambda serial, ap: sum(  # noqa: E731
+        line.startswith(f"AP:AUTHORIZED ssid={sim_judge.WPA2}") for line in ap) >= n
+    fault(control, "silence 3")
+    watch.until(lambda serial, ap: "reason=beacon-loss" in serial, 30 * scale)
+    # The AP keeps answering while silent, so wlanmd may rejoin and lose the
+    # beacons again before the 3 s are over: let the silence end and the
+    # link settle in `connected` before the next fault.
+    time.sleep(3.5)
+    watch.until(lambda serial, ap: _last_state(serial).startswith("WLANMD:STATE wlan0 connected"), 90 * scale)
+    watch.until(authorized(2), 90 * scale)
+    time.sleep(2.0)
+    fault(control, "deauth 7")
+    watch.until(lambda serial, ap: "reason=deauthenticated" in serial, 30 * scale)
+    watch.until(authorized(3), 90 * scale)
+    _line(qmp, "wifictl status")
+    time.sleep(2.0)
 
 
 def main() -> int:
@@ -201,7 +261,7 @@ def main() -> int:
         if args.station == "probe":
             drive_probe(watch, control, scale)
         else:
-            drive_wlanmd(watch, qmp, scale)
+            drive_wlanmd(watch, qmp, control, scale)
         watch.echo()
     finally:
         stop_qemu(proc, qmp)
@@ -211,13 +271,9 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             ap.kill()
     run = sim_judge.Run(watch.text(), watch.ap(), air.read_pcap(pcap) if pcap.is_file() else [])
-    verdict = sim_judge.judge(run)
-    probe_only = {"boot", "scan", "wrong passphrase", "rekey, beacon loss, deauth"}
+    verdict = (sim_judge if args.station == "probe" else sim_judge_wlanmd).judge(run)
     failures = 0
     for name, problems in verdict.items():
-        if args.station == "wlanmd" and name in probe_only:
-            print(f"SKIP {name}: judged on wifiprobe's markers")
-            continue
         print(f"{'PASS' if not problems else 'FAIL'} {name}")
         for problem in problems:
             print(f"     - {problem}")

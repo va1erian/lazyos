@@ -906,8 +906,9 @@ networks, an independent authenticator, DHCP, faults); `wifiprobe` drives
 
 ```bash
 cargo test -p ieee80211 -p wifimac -p simair
-python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP, ping, faults
-python tools/wifi/test_judge.py; python tools/wifi/test_fake_ap.py
+python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP, ping, faults (wifiprobe)
+python tools/wifi/sim_run.py --station wlanmd   # the same through wlanmd + wifictl as `user` (needs BusyBox)
+python tools/wifi/test_judge.py; python tools/wifi/test_judge_wlanmd.py; python tools/wifi/test_fake_ap.py
 python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
 ```
 

@@ -75,7 +75,7 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 |---|---|---|
 | **R0** Plumbing | firmware fetch + `fhs::FIRMWARE` + `libs/fwload`; `LAZYOS_WIFI=1`; `devd` row for `10ec:c822`; `run_demo.py --wifi`, GUI; `THIRD_PARTY.md` | `cargo test -p fwload -p devmatch`; the file lands at its path with its licence |
 | **R1** Chip library | `libs/rtw88`: power on, firmware download, MAC/BB/RF init, channel switch, TX/RX descriptors, PCIe rings, CAM | host tests against the fake bus, sequences compared with upstream's |
-| **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | `tools/wifi/sim_run.py`: scan, open and WPA2 joins, DHCP and echo over `wlan0` |
+| **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | **Passed** (2026-10-11): `tools/wifi/sim_run.py --station wlanmd`, six checks: scan, wrong passphrase, open and WPA2 joins with DHCP and ping over `wlan0`, rekey kept, rejoin after beacon loss and deauth |
 | **R3** First light on the NUC | `wifid` up to firmware running and MAC address read | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
 | **R4** Scan on the NUC | channel switching, RX of beacons | `wifictl scan` lists the home networks |
 | **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data | DHCP lease and `ping` over `wlan0` |
