@@ -512,6 +512,34 @@ hands a `mailto:` link to the OS (`WEB:LAUNCH:<url>:OK|FAIL`) and opens
 `about:history` (**Ctrl+H**) and `about:downloads` (**Ctrl+J**)
 ([`tools/web/README.md`](tools/web/README.md)).
 
+## LazySky Bluesky client (`LAZYOS_LAZYSKY=1`)
+
+LazySky (`os.lazy.lazysky`) is a Bluesky client built as a headless core
+(`xui-app/crates/lazysky-core`: no xui type, no LazyOS crate, so it also runs
+under `sky_cli`) and a portable xui window (`xui-app/crates/lazysky-ui`, which
+also has a `desktop` example for Windows/Linux/macOS); `xui-app/src/bin/lazysky.rs`
+only launches it and supplies the LazyOS `Platform`. Its feed is one
+custom-painted, virtualized `FeedView` with anchored scrolling; text is shaped
+on a layout thread and pictures decoded on image threads, and the UI thread
+never does network I/O, JSON, decoding or shaping (the plan's R1 to R8,
+`docs/lazysky-plan.md` section 5). **Never push a clip on the feed's normal
+paint path**: an active clip made every draw several times dearer (the paint
+bench catches it). The package (`xui-app/packages/lazysky`) is shipped only by
+`LAZYOS_LAZYSKY=1` images, which need `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
+See [`docs/lazysky.md`](docs/lazysky.md).
+
+```bash
+python tools/run_demo.py --lazysky        # desktop + networking + the client
+cd xui-app && cargo test -p lazysky-core -p lazysky-ui
+cargo test -p lazysky-ui --release --test bench -- --ignored --nocapture   # paint p99 <= 4 ms
+cargo run --release -p lazysky-ui --example desktop --features desktop     # the window on the host
+python tools/nettls/licenses.py --lazysky # GPLv2-compatible tree (no ring/aws-lc/tokio/reqwest)
+```
+
+The offscreen window tests write `xui-app/target/snapshots/lazysky-*.png`:
+Read them. Serial markers are `SKY:*` (listed in `docs/lazysky.md`); a
+password or token must never appear in any log.
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command

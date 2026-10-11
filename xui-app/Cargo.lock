@@ -2747,6 +2747,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazysky-core"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "nettls-crypto",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+ "ureq",
+]
+
+[[package]]
+name = "lazysky-ui"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lazysky-core",
+ "serde_json",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "lazyvideo"
 version = "0.1.0"
 dependencies = [
@@ -6721,6 +6748,8 @@ dependencies = [
  "lazymotion",
  "lazyos-sys",
  "lazyshell",
+ "lazysky-core",
+ "lazysky-ui",
  "libc",
  "libmessenger",
  "messenger-generated",

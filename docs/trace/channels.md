@@ -44,14 +44,14 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `GOLF` | `Golf` | `golf` | xui-app | sessions | programs |
 | `GREETER` | `Greeter` | `greeter` | xui-app | sessions, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
-| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
+| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/mail | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
-| `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/storage, tools/tray | programs |
+| `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/storage, tools/tray | programs |
 | `LRIDE` | `Lride` | `lride` | lazyrad-os | sessions | programs |
 | `LRPLAY` | `Lrplay` | `lrplay` | lazyrad-os | sessions, tools/lazyrad, tools/rhai | programs |
 | `MAIL` | `Mail` | `mail` | xui-app | sessions, tools/mail | programs |
@@ -70,7 +70,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NETAPP` | `Netapp` | `netapp` | xui-app | sessions | programs |
 | `NETBULK` | `Netbulk` | `netbulk` | other, user | - | programs |
 | `NETCTL` | `Netctl` | `netctl` | user | tools/net | programs |
-| `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/net, tools/web | programs |
+| `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/lazysky, tools/net, tools/web | programs |
 | `NETDRIVES` | `Netdrives` | `netdrives` | xui-app | tools/fuse | programs |
 | `NETDRV` | `Netdrv` | `netdrv` | user | tools/irqpath.py, tools/net, tools/perf, tools/test_irqpath.py | programs |
 | `NETSTATUS` | `Netstatus` | `netstatus` | xui-app | sessions | programs |
@@ -82,7 +82,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PERF` | `Perf` | `perf` | kernel, user | - | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
-| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/lazyrad, tools/screenshot, tools/services, tools/shutdown, tools/web | programs |
+| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
@@ -97,7 +97,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/keyd, tools/lazygui, tools/rhai, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite | sessions, tools/test | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/services | programs |

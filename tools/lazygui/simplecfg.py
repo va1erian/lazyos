@@ -35,8 +35,9 @@ SIMPLE_GROUPS = (
     ("networking", "Networking", "Internet through QEMU, the Network and Net Tools apps, "
                                  "HTTPS with curl, wget and fetch.",
      ("net", "tls")),
-    ("web", "Web", "The LazyWeb browser and Mail (turns Networking on).",
-     ("lazyweb", "mail")),
+    ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
+                   "(turns Networking on).",
+     ("lazyweb", "mail", "lazysky")),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
@@ -58,7 +59,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
-                  usb_image: bool = False) -> dict:
+                  usb_image: bool = False, lazysky: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -80,7 +81,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
     the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
     the emusic package (Desktop only, like ``doom``); ``usb_image`` also writes
-    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md). Machine settings
+    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md);
+    ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
+    ``net``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -90,6 +93,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         raise ValueError(f"unknown interface: {interface!r}")
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
+    lazysky = desktop and lazysky
     tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
@@ -124,7 +128,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "quake": desktop and quake,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls,
+        "net": net or tls or lazysky,
         "net_forwards": "",
         "net_restrict": False,
         "nics": "1",
@@ -132,6 +136,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "tls": tls,
         "journal": False,
         "lazyweb": lazyweb,
+        "lazysky": lazysky,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,

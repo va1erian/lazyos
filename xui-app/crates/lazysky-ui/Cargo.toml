@@ -1,0 +1,27 @@
+[package]
+name = "lazysky-ui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "LazySky's portable xui window (docs/lazysky-plan.md): host-tested offscreen, run on LazyOS by `xui-lazysky` and on a desktop by the `desktop` example"
+
+[dependencies]
+lazysky-core = { path = "../lazysky-core" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+# Only for the `desktop` runner: xui's winit backend, so the same app runs
+# as a window on Windows, Linux and macOS. LazyOS builds never turn it on.
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false, optional = true }
+
+[features]
+# `cargo run --release -p lazysky-ui --example desktop --features desktop`
+desktop = ["dep:xui-canvas", "xui-canvas/winit-backend", "lazysky-core/native-roots"]
+
+[dev-dependencies]
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
+
+[[example]]
+name = "desktop"
+required-features = ["desktop"]

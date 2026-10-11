@@ -262,6 +262,18 @@ impl Running {
         self.job = None;
     }
 
+    /// Shows the ball at `position` (`None`: no ball), drawn over every view.
+    pub fn set_ball(&mut self, position: Option<Vec3>) {
+        let ball = position.map(|position| BallMark {
+            position,
+            ground: self.scene.bake.height_at(position.x, position.z),
+        });
+        if ball != self.overlay.ball {
+            self.overlay.ball = ball;
+            self.moved();
+        }
+    }
+
     /// Cycles the scale: automatic, then 1 to 4 window pixels per pixel.
     pub fn cycle_scale(&mut self) {
         (self.auto_scale, self.scale) = match (self.auto_scale, self.scale) {
@@ -351,6 +363,21 @@ impl Running {
         }
         // The swing meter moves without the picture changing.
         drew || water || self.swinging()
+    }
+
+    /// Held turn keys rotate the aim (Shift for a fast turn).
+    fn aim_tick(&mut self, held: Held, dt: f32) {
+        use crate::fly::Action;
+        let turn = |plus: Action, minus: Action| {
+            f32::from(u8::from(held.has(plus))) - f32::from(u8::from(held.has(minus)))
+        };
+        let axis = turn(Action::TurnRight, Action::TurnLeft) + turn(Action::Right, Action::Left);
+        if axis != 0.0 {
+            let fast = if held.has(Action::Fast) { 4.0 } else { 1.0 };
+            self.play
+                .rotate(axis.clamp(-1.0, 1.0) * AIM_RATE * fast * dt);
+            self.sync_play();
+        }
     }
 
     /// Renders a whole frame and keeps the books on how long it took.

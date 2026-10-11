@@ -1,0 +1,363 @@
+//! A feed row, shaped and measured at a width (docs/lazysky-plan.md §6.1,
+//! §6.2, R2): everything the painter needs, and the row's final height.
+//!
+//! [`prepare`] runs on the layout thread (`TextShaper` and `TextLayout` are
+//! `Send + Sync`); the UI thread only draws the result. Nothing here knows
+//! how a row is drawn beyond its geometry: the painter (`feedview/paint.rs`)
+//! turns [`Piece`]s into pixels.
+
+mod embeds;
+
+use lazysky_core::images::{ImageKey, Shape};
+use lazysky_core::proto::facets::Feature;
+use lazysky_core::proto::time::{parse_rfc3339, short_age};
+use lazysky_core::proto::{FeedItem, Reason};
+use xui_core::backend::{FontSpec, TextLayout, TextShaper};
+use xui_core::geometry::Rect;
+use xui_core::Dip;
+
+/// Design-pixel metrics (96 dpi); [`Metrics::px`] scales them.
+const PAD_X: i32 = 12;
+const PAD_Y: i32 = 10;
+const AVATAR: i32 = 48;
+const GAP: i32 = 10;
+const ACTION_GAP: i32 = 22;
+pub(super) const QUOTE_PAD: i32 = 8;
+/// The text size classes.
+pub(super) const SIZE_BODY: f32 = 14.0;
+pub(super) const SIZE_SMALL: f32 = 12.0;
+/// The tallest a single full-width image gets (the settings page overrides).
+pub const DEFAULT_MAX_IMAGE_H: i32 = 420;
+/// A quote's text is cut to this many characters (no layout line limit).
+pub(super) const QUOTE_CHARS: usize = 240;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    Primary,
+    Secondary,
+    Accent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Reply,
+    Repost,
+    Like,
+    More,
+}
+
+/// What a click on a region of the row does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Target {
+    Link(String),
+    Mention(String),
+    Tag(String),
+    /// The `n`th picture of the post.
+    Image(usize),
+    Action(Action),
+    /// The "Load more" row.
+    LoadMore,
+}
+
+#[derive(Clone, Debug)]
+pub struct Hit {
+    /// Relative to the row's top-left corner.
+    pub rect: Rect,
+    pub target: Target,
+}
+
+pub enum Piece {
+    Text {
+        layout: Box<dyn TextLayout>,
+        at: (i32, i32),
+        tone: Tone,
+    },
+    /// The box a picture fills: grey until it arrives (or when it cannot).
+    Media {
+        rect: Rect,
+        label: &'static str,
+        key: Option<ImageKey>,
+    },
+    /// The author's avatar circle.
+    Avatar { rect: Rect, key: Option<ImageKey> },
+    /// A quote or link-card frame.
+    Frame { rect: Rect },
+    /// A tint behind a link or mention.
+    LinkTint { rect: Rect },
+    /// The row's bottom rule.
+    Rule { y: i32 },
+}
+
+/// A row at one width.
+pub struct Prepared {
+    /// The row width it was laid out for, in device pixels.
+    pub width: i32,
+    pub height: i32,
+    pub pieces: Vec<Piece>,
+    pub hits: Vec<Hit>,
+}
+
+/// Scale from design pixels.
+#[derive(Clone, Copy)]
+pub struct Metrics {
+    pub dpi: u32,
+}
+
+impl Metrics {
+    pub fn px(self, design: i32) -> i32 {
+        (design * self.dpi.max(1) as i32 + 48) / 96
+    }
+}
+
+/// What `prepare` needs besides the post.
+#[derive(Clone, Copy)]
+pub struct Context {
+    pub width: i32,
+    pub dpi: u32,
+    /// Unix seconds, for ages ("3h").
+    pub now: u64,
+    /// The tallest a lone image box gets, in design pixels.
+    pub max_image_h: i32,
+}
+
+/// The picture `url` at `width` x `height` pixels.
+pub(super) fn picture_key(url: &str, width: i32, height: i32, shape: Shape) -> ImageKey {
+    ImageKey {
+        url: url.to_string(),
+        width: width.max(1) as u32,
+        height: height.max(1) as u32,
+        shape,
+    }
+}
+
+impl Prepared {
+    /// The pictures this row draws, in paint order.
+    pub fn image_keys(&self) -> impl Iterator<Item = &ImageKey> {
+        self.pieces.iter().filter_map(|piece| match piece {
+            Piece::Media { key, .. } | Piece::Avatar { key, .. } => key.as_ref(),
+            _ => None,
+        })
+    }
+}
+
+pub(super) fn shape(
+    shaper: &dyn TextShaper,
+    text: &str,
+    size: f32,
+    bold: bool,
+    width: f32,
+    dpi: u32,
+) -> Box<dyn TextLayout> {
+    let mut spec = FontSpec::new(Dip(size));
+    if bold {
+        spec = spec.weight(700);
+    }
+    shaper.layout(text, &spec, width, dpi)
+}
+
+pub(super) fn height_of(layout: &dyn TextLayout) -> i32 {
+    layout.height().ceil() as i32
+}
+
+/// Lays `item` out at `ctx.width`.
+pub fn prepare(shaper: &dyn TextShaper, item: &FeedItem, ctx: Context) -> Prepared {
+    let m = Metrics { dpi: ctx.dpi };
+    let post = &item.post;
+    let (pad_x, pad_y) = (m.px(PAD_X), m.px(PAD_Y));
+    let x0 = pad_x + m.px(AVATAR) + m.px(GAP);
+    let text_w = (ctx.width - x0 - pad_x).max(m.px(80));
+    let mut pieces = Vec::new();
+    let mut hits = Vec::new();
+    let mut y = pad_y;
+
+    if let Some(Reason::Repost { by }) = &item.reason {
+        let line = shape(
+            shaper,
+            &format!("Reposted by {}", by.name()),
+            SIZE_SMALL,
+            false,
+            text_w as f32,
+            ctx.dpi,
+        );
+        let h = height_of(&*line);
+        pieces.push(Piece::Text {
+            layout: line,
+            at: (x0, y),
+            tone: Tone::Secondary,
+        });
+        y += h + m.px(2);
+    }
+
+    let avatar_bottom = y + m.px(AVATAR);
+    let avatar_rect = Rect::new(pad_x, y, pad_x + m.px(AVATAR), y + m.px(AVATAR));
+    pieces.push(Piece::Avatar {
+        rect: avatar_rect,
+        key: post.author.avatar.as_ref().map(|url| {
+            picture_key(
+                url,
+                avatar_rect.width(),
+                avatar_rect.height(),
+                Shape::Circle,
+            )
+        }),
+    });
+    hits.push(Hit {
+        rect: Rect::new(pad_x, y, pad_x + m.px(AVATAR), y + m.px(AVATAR)),
+        target: Target::Mention(post.author.did.clone()),
+    });
+
+    let name = shape(
+        shaper,
+        post.author.name(),
+        SIZE_BODY,
+        true,
+        text_w as f32,
+        ctx.dpi,
+    );
+    let name_h = height_of(&*name);
+    pieces.push(Piece::Text {
+        layout: name,
+        at: (x0, y),
+        tone: Tone::Primary,
+    });
+    y += name_h;
+    let age = parse_rfc3339(&post.created_at)
+        .or_else(|| parse_rfc3339(&post.indexed_at))
+        .map(|then| short_age(ctx.now, then));
+    let meta_text = match age {
+        Some(age) => format!("@{} \u{b7} {age}", post.author.handle),
+        None => format!("@{}", post.author.handle),
+    };
+    let meta = shape(
+        shaper,
+        &meta_text,
+        SIZE_SMALL,
+        false,
+        text_w as f32,
+        ctx.dpi,
+    );
+    let meta_h = height_of(&*meta);
+    pieces.push(Piece::Text {
+        layout: meta,
+        at: (x0, y),
+        tone: Tone::Secondary,
+    });
+    y += meta_h + m.px(4);
+
+    if !post.text.is_empty() {
+        let body = shape(shaper, &post.text, SIZE_BODY, false, text_w as f32, ctx.dpi);
+        let body_h = height_of(&*body);
+        link_hits(&*body, post, (x0, y), &mut pieces, &mut hits);
+        pieces.push(Piece::Text {
+            layout: body,
+            at: (x0, y),
+            tone: Tone::Primary,
+        });
+        y += body_h + m.px(6);
+    }
+
+    y = embeds::embed_box(
+        shaper,
+        &post.embed,
+        ctx,
+        m,
+        (x0, y, text_w),
+        &mut pieces,
+        &mut hits,
+    );
+
+    // The avatar column is at least as tall as the row's text above the
+    // action line.
+    y = y.max(avatar_bottom + m.px(6));
+
+    // The action line: Reply, Repost, Like with their counts, and "...".
+    let actions = [
+        (Action::Reply, format!("Reply {}", post.reply_count)),
+        (Action::Repost, format!("Repost {}", post.repost_count)),
+        (Action::Like, format!("Like {}", post.like_count)),
+        (Action::More, "...".to_string()),
+    ];
+    let mut x = x0;
+    let mut line_h = 0;
+    for (action, text) in actions {
+        let tone = match action {
+            Action::Like if post.viewer.like.is_some() => Tone::Accent,
+            Action::Repost if post.viewer.repost.is_some() => Tone::Accent,
+            _ => Tone::Secondary,
+        };
+        let layout = shape(shaper, &text, SIZE_SMALL, false, f32::INFINITY, ctx.dpi);
+        let (w, h) = (layout.width().ceil() as i32, height_of(&*layout));
+        hits.push(Hit {
+            rect: Rect::new(x, y, x + w, y + h),
+            target: Target::Action(action),
+        });
+        pieces.push(Piece::Text {
+            layout,
+            at: (x, y),
+            tone,
+        });
+        x += w + m.px(ACTION_GAP);
+        line_h = line_h.max(h);
+    }
+    y += line_h + pad_y;
+    pieces.push(Piece::Rule { y: y - 1 });
+    Prepared {
+        width: ctx.width,
+        height: y,
+        pieces,
+        hits,
+    }
+}
+
+/// Hit boxes and tints for the post's links and mentions.
+fn link_hits(
+    body: &dyn TextLayout,
+    post: &lazysky_core::proto::Post,
+    origin: (i32, i32),
+    pieces: &mut Vec<Piece>,
+    hits: &mut Vec<Hit>,
+) {
+    for facet in &post.facets {
+        let target = match &facet.feature {
+            Feature::Link(uri) => Target::Link(uri.clone()),
+            Feature::Mention(did) => Target::Mention(did.clone()),
+            Feature::Tag(tag) => Target::Tag(tag.clone()),
+        };
+        for r in body.selection_rects(facet.start, facet.end) {
+            let rect = Rect::new(
+                origin.0 + r.left,
+                origin.1 + r.top,
+                origin.0 + r.right,
+                origin.1 + r.bottom,
+            );
+            pieces.push(Piece::LinkTint { rect });
+            hits.push(Hit {
+                rect,
+                target: target.clone(),
+            });
+        }
+    }
+}
+
+/// The "Load more" row: one centred line.
+pub fn prepare_load_more(shaper: &dyn TextShaper, ctx: Context) -> Prepared {
+    let m = Metrics { dpi: ctx.dpi };
+    let label = shape(shaper, "Load more", SIZE_BODY, true, f32::INFINITY, ctx.dpi);
+    let (w, h) = (label.width().ceil() as i32, height_of(&*label));
+    let height = h + 2 * m.px(PAD_Y) + m.px(16);
+    let at = ((ctx.width - w) / 2, (height - h) / 2);
+    let rect = Rect::new(0, 0, ctx.width, height);
+    Prepared {
+        width: ctx.width,
+        height,
+        pieces: vec![Piece::Text {
+            layout: label,
+            at,
+            tone: Tone::Accent,
+        }],
+        hits: vec![Hit {
+            rect,
+            target: Target::LoadMore,
+        }],
+    }
+}

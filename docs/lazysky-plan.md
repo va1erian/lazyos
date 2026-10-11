@@ -1,7 +1,11 @@
 # LazySky: a Bluesky client for LazyOS (and Windows)
 
-**Status:** plan, revision 2 (2026-10-11). Nothing is implemented yet. The
-spike (P0, §9) is the next step.
+**Status:** revision 4 (2026-10-11). P0 to P8 (§9) are implemented and
+verified: host tests, the paint bench, and the QEMU harness
+(`python tools/lazysky/run.py`, passing on WHPX with and without
+`LAZYOS_LABEL_TRACE=1`). Not done: P9 (stay signed in with `keyd`, optional)
+and the Windows packaging step (optional); `tools/xui/build.py` has no
+`--no-lazysky` (the crates are small and build with the other apps).
 
 LazySky (`os.lazy.lazysky`, binary `xui-lazysky.elf`) is a desktop Bluesky
 client on xui, ported from **redsky**
@@ -514,6 +518,26 @@ host tests, and every file under 500 lines (`python tools/check_file_length.py`)
 the musl build of the bin succeeds; the desktop example opens on Windows; the
 QEMU spike prints its marker (or the fallback decision is written down).
 
+*P0 findings (2026-10-11).*
+* **Off-thread shaping works.** A `Box<dyn TextLayout>` shaped on a worker
+  thread from `ui.text_shaper()` draws correctly with `Canvas::draw_layout` on
+  the offscreen backend (`lazysky-ui/tests/window.rs`, light and dark
+  snapshots) and under xui's winit backend on Windows (`desktop` example). The
+  LazyOS backend (`SKY:SPIKE:SHAPE:PASS`) is not yet run: the bin is built
+  (musl, release) but is not packaged until P8, so item 5 stays open. Until it
+  is run, §6.1's fallback (shape on the UI thread inside R5) is the plan B.
+* **The offscreen backend has no timers.** A view that polls a worker from a
+  timer returns `Msg::Poll`; a test emits it itself after waiting for the
+  worker (`stage.emit(Msg::Poll)`).
+* **xui pin.** The workspace is at rev `93592fdc` (not `e50e69d` of §12).
+  Every new crate uses the workspace's rev.
+* **No `rustls` in the bin.** `lazysky_core::install_tls_provider()` installs
+  `nettls-crypto`, so the root `xui-app` package gains no TLS dependency.
+* **The core's TLS config names its provider explicitly**, so the core works
+  without a process-wide default provider.
+* `sky_cli --features native-roots` fetched `https://bsky.social/xrpc/_health`
+  through `Core` (HTTP 200).
+
 **P1: protocol.** `proto/` with every type in §7.3, `#[serde(default)]` on
 optional fields, facet validation, record builders, error mapping; fixtures
 (timeline with reposts, quotes, 1–4 images, external link, video, unknown
@@ -536,16 +560,66 @@ with Load more; `app/perf.rs` (§10.3). *Done when:* offscreen snapshots of a
 300-post feed in both themes (Read them) and an `#[ignore]` release bench
 paints 1,000 frames of a 2,000-row feed with p99 ≤ 4 ms.
 
+*P3 findings (2026-10-11).*
+* **A pushed clip makes every later draw expensive, and the canvas is not
+  clipped to the widget's bounds for you.** With any clip active each
+  operation applies a mask: five rows cost 6 ms a frame with a clip per row
+  and 0.7 ms with none, but without any clip a row scrolled partly above the
+  view paints over the header. FeedView clips only the rows that stick out of
+  the view (the first and the last) and rows whose layout is for another
+  width, and draws every other row bare (bench: p50 2.4 ms, p99 2.9 ms over
+  1,000 frames of a 2,000-row feed, release, host, against the 4 ms budget).
+  Any new painter code follows this; the bench catches a regression.
+* **Link runs are tinted, not recoloured.** `Canvas::draw_layout` draws one
+  colour, so facet ranges get an accent-tinted box behind the text
+  (`TextLayout::selection_rects`) and a hit region each.
+* **The row model found a real bug in its own random walk** (a removed anchor
+  row was reset to the first row before the "move to the next" rule ran);
+  `feed/tests.rs` keeps the walk, with the invariants checked after every
+  operation.
+* Heights are final at insertion: a page is staged until the layout thread
+  has shaped every row (`timeline::Staging`), then inserted at once.
+
 **P4: images.** Core image pool (nearest-first, queue replaced on scroll,
 stale drop, decode limits, cover-crop, circle avatars), UI cache and
 dehydration (§6.4). *Done when:* tests cover crop sizes, circle mask, a
 decode-bomb refusal, LRU never evicting visible entries, queue replacement;
 the bench still holds with images.
 
+*P4 findings (2026-10-11).*
+* Pictures are fetched, decoded under limits (8192 px a side, 64 Mpx, read
+  from the header before any allocation), cover-cropped to the box and, for
+  avatars, masked to a circle on four image threads; the UI turns each into
+  an `xui_core::Image` at most six per tick and draws it with one
+  `draw_image`. `Core::want_images` replaces the waiting list (R6): a picture
+  that waited and is no longer wanted is never fetched
+  (`tests/images.rs::a_new_list_drops_what_waited...`).
+* The decoded-picture cache is a 64 MiB LRU that never evicts what the view
+  shows; failures are remembered until a refresh.
+* The UI's layout thread and the core's image threads each build their own
+  `Http` on their own thread, as the socket rule requires.
+
 **P5: actions.** Like/unlike/repost/unrepost (optimistic, rolled back with a
 status error), composer (up to 4 images via `FileDialog::open_file`, reply),
 delete own post, thread page, likers/reposters (`list()` `ListView`, fixed
 rows), Raw view. Markers `SKY:LIKE:<ok|fail>`, `SKY:POST:PASS:<uri>`.
+
+*P5 findings (2026-10-11).*
+* The core exposes likes, reposts, deletes (own records only, checked
+  client-side), posts with up to four pictures (read and uploaded on the api
+  thread; refused above Bluesky's 1 MB), threads, people lists and the Raw
+  view. `SKY:LIKE:ok|fail`, `SKY:REPOST:ok|fail`, `SKY:POST:PASS:<uri>` come
+  from the core through `Platform::log`.
+* The window is a stack of pages over the timeline (`Nav`): timeline, thread,
+  people, raw, composer; Back and Alt+Left pop. A row opens its thread; the
+  "..." menu has Raw view, Copy link, Liked by, Reposted by, Delete (own
+  posts only).
+* Likes and reposts are optimistic: the post is patched at once (its old
+  layout is drawn until the new one arrives, `FeedRow::dirty`), confirmed
+  with the record URI the server returns, and rolled back with a status
+  line when it refuses (`actions.rs`, `tests/interact.rs`).
+* The composer keeps its text from the field's change events (the model
+  holds it, not the widget), which also makes it testable headlessly.
 
 **P6: profile, bookmarks, notifications, search, settings.** Nav stack with
 Back and `Alt+Left`; Profile (Posts/Media/Likes, counts); Bookmarks;
@@ -556,6 +630,33 @@ post search; Settings (theme, max image height, server, remember handle).
 **P7: saving images.** The image viewer (fit to window, `Ctrl+=`/`Ctrl+-`/`0`
 zoom with the resize on a worker, drag to pan, `Ctrl+S`); Save Image As… and
 bulk download exactly as §7.6, with sanitize tests.
+
+*P6 findings (2026-10-11).*
+* Profile (counts, Posts / Media / Likes tabs), bookmarks, search (accounts or
+  posts; a `#tag` goes to posts) and thread pages share the detail pane;
+  people lists and notifications share the people page. **Deviation from
+  §9:** notifications are a list (one line each, a reply's text after it),
+  not FeedView rows: a like or a follow has no post to lay out. Opening one
+  goes to its subject's thread, a follow to the profile. The unread count is
+  polled every 60 s from the tick and shown on the button; opening the list
+  marks everything seen.
+* Settings live in `settings.toml` (`lazysky_core::Settings`): theme, tallest
+  picture, server, remember handle. A bad file gives defaults, a bad number
+  is clamped. They are written by the api thread (`Request::SaveSettings`),
+  never the UI's. Changing the picture height marks every row dirty so the
+  layout thread re-lays them out under R3.
+
+*P7 findings (2026-10-11).*
+* Save Image As, the picture menu (right click: Save, Open, Copy address)
+  and the viewer (fit, zoom by asking the core for a bigger `Shape::Fit`
+  bitmap, drag to pan, Ctrl+S, Left/Right for the post's other pictures).
+  Saved files are the server's bytes, written through `<name>.part`.
+* Download all images scans `getAuthorFeed?filter=posts_with_media` a page of
+  100 at a time from the api thread (a request that arrives meanwhile goes
+  first), 100 ms between pages, hands each picture of the account's own
+  non-reply, non-repost posts to three save threads, skips files already
+  there (so a second run is a no-op) and ends with
+  `SKY:BULK:DONE:<n>:<errors>`; Cancel stops it.
 
 **P8: LazyOS integration.** Copy the LazyWeb route (list in
 `build_support/lazyweb_embed.rs` and AGENTS.md):
@@ -581,6 +682,29 @@ bulk download exactly as §7.6, with sanitize tests.
 * Icon (`xui-app/crates/app-icons` `PACKAGES`), `docs/lazysky.md`, package
   README, `docs/build-switches.md` row, an AGENTS.md section like LazyWeb's,
   and `python tools/nettls/licenses.py` over the tree (no `ring`/`aws-lc`).
+
+*P8 findings (2026-10-11).*
+* LazySky runs on LazyOS under QEMU: sign-in over TLS against the mock with
+  the harness CA, the timeline with decoded JPEG pictures and avatars,
+  scrolling, an unread count, a thread by click. The first QEMU run printed
+  `SKY:UP:PASS` from a bin with the P0 spike; the full harness (WHPX) reports
+  six `SKY:PERF` lines inside R7 and the mock saw the sign-in body, a bearer
+  token on every XRPC call, SNI `bsky.test` and `cdn.bsky.test` and the
+  pictures. The host-side opt-in bench (p99 2.9 ms) and these numbers agree.
+* `init.Launch` hands an app **one absolute path at most**, so the harness
+  cannot pass `--service`; it writes `settings.toml` into the app's folder
+  first and launches only once the file reads back (so a typed password can
+  never reach the real service). `xui-lazysky` therefore loads
+  `settings.toml` at start; `--service` still overrides it.
+* BusyBox `mkdir -p ~/.apps/x` was answered "can't create directory '/home/':
+  Permission denied" in the guest although `/home/user` exists, so the
+  session makes one level at a time. Not investigated; a kernel look at
+  `mkdir` of an existing directory (it should be `EEXIST`) is worth it.
+* The package's file rules take `$HOME/<dir>`, not the home itself, so
+  the composer's picker is allowed `read:$HOME/Pictures` and
+  `read:$HOME/Downloads`.
+* Permissions: window, cursor, input, `mimed` and `clipboard`; `network =
+  ["outbound"]`.
 
 **P9 (optional): stay signed in** with `keyd` (§7.4), LazyOS only.
 
@@ -653,7 +777,7 @@ same lines.)
    label-policy trace; LazyWeb; Mail; LazyGolf for the portable-crate +
    desktop-example pattern); `.claude/skills/xui-app/SKILL.md`; xui's
    `docs/cookbook.md` and `docs/widgets.md` in the cargo checkout of the
-   pinned rev (`~/.cargo/git/checkouts/xui-*/e50e69d/`);
+   pinned rev (`~/.cargo/git/checkouts/xui-*/93592fd/`);
    `xui-app/crates/pdfview/src/{view.rs,worker.rs,cache.rs}`;
    `xui-app/web/src/fetch/{tls.rs,roots.rs,pool.rs}`.
 2. **Use redsky for behaviour, not code.** It is egui and async.
@@ -679,9 +803,9 @@ same lines.)
 
 ## 12. Known facts from the survey (so nobody re-derives them)
 
-* xui rev `e50e69d64c0b851b89c85b06e3d8f5df891a916a`, every crate must use
-  the same one; local checkout under
-  `~/.cargo/git/checkouts/xui-e7bf80847fe0275b/e50e69d/`.
+* xui rev `93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6` (the workspace's pin; the
+  first draft said `e50e69d`), every crate must use the same one; local
+  checkout under `~/.cargo/git/checkouts/xui-e7bf80847fe0275b/93592fd/`.
 * `xui_core::Image::decode` handles PNG and JPEG only; GIF/WebP come from the
   `image` crate (already in `xui-app/Cargo.lock` via `xui-blitz`).
   `Canvas::draw_image` is bilinear and backends cache uploads by `Image::id`.

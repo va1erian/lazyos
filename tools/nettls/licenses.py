@@ -20,6 +20,7 @@ Usage::
 
     python tools/nettls/licenses.py            # nettls/ and tools/abi/fixtures/tlsfix/
     python tools/nettls/licenses.py --lazyweb  # also xui-app/web/ (LazyWeb, GPL-2.0-only)
+    python tools/nettls/licenses.py --lazysky  # also xui-app/crates/lazysky-core/
     python tools/nettls/licenses.py --verbose  # also print every crate and its licence
 
 Exit status 1 when any linked crate has no acceptable licence choice.
@@ -42,6 +43,9 @@ MANIFESTS = [ROOT / "nettls" / "Cargo.toml", ROOT / "tools" / "abi" / "fixtures"
 #: cosmic-text) does not yet. Its manifest is a member of the `xui-app`
 #: workspace; `cargo tree` reports just this package's graph.
 LAZYWEB = ROOT / "xui-app" / "web" / "Cargo.toml"
+#: LazySky links the same TLS stack (docs/lazysky.md); its headless core is the
+#: part that does, so its tree is checked with ``--lazysky``.
+LAZYSKY = ROOT / "xui-app" / "crates" / "lazysky-core" / "Cargo.toml"
 TARGET = "x86_64-unknown-linux-musl"
 
 #: Licences a GPL-2.0 binary can include (FSF's GPL-compatible list, the
@@ -196,10 +200,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--verbose", action="store_true", help="print every crate and its licence")
     parser.add_argument("--lazyweb", action="store_true", help="also check LazyWeb (xui-app/web)")
+    parser.add_argument("--lazysky", action="store_true",
+                        help="also check LazySky's core (xui-app/crates/lazysky-core)")
     args = parser.parse_args()
     self_test()
     problems: list[str] = []
-    for manifest in MANIFESTS + ([LAZYWEB] if args.lazyweb else []):
+    for manifest in MANIFESTS + ([LAZYWEB] if args.lazyweb else []) + ([LAZYSKY] if args.lazysky else []):
         problems += check(manifest, args.verbose)
     if problems:
         print("licences not GPLv2-compatible:")
