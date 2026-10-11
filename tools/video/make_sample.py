@@ -84,28 +84,57 @@ def avi(frames: list[bytes]) -> bytes:
     return chunk(b"RIFF", b"AVI " + hdrl + movi + chunk(b"idx1", index))
 
 
+def walk(data: bytes, pos: int, end: int):
+    """Yields `(id, form, body_start, body_end)` for each chunk in
+    `pos..end`; a LIST also carries its form type. Raises ValueError on a
+    chunk that runs past its parent."""
+    while pos + 8 <= end:
+        tag, size = data[pos : pos + 4], struct.unpack_from("<I", data, pos + 4)[0]
+        body, stop = pos + 8, pos + 8 + size
+        if stop > end:
+            raise ValueError(f"chunk {tag!r} at {pos} runs past its parent")
+        yield tag, (data[body : body + 4] if tag in (b"LIST", b"RIFF") else b""), body, stop
+        pos = stop + (size & 1)
+
+
 def check(data: bytes) -> str | None:
-    """Why `data` is not the expected clip, or None when it is."""
-    if data[:4] != b"RIFF" or data[8:12] != b"AVI ":
-        return "not an AVI"
-    movi = data.find(b"movi")
-    if movi < 0:
-        return "no movi list"
-    u32 = lambda at: struct.unpack_from("<I", data, at)[0]  # noqa: E731
-    avih = data.find(b"avih") + 8  # the chunk's body
-    if (u32(avih + 32), u32(avih + 36)) != (WIDTH, HEIGHT):
-        return f"not {WIDTH}x{HEIGHT}"
-    if u32(data.find(b"strh") + 8 + 24) != FPS:
-        return f"not {FPS} fps"
-    frames, pos = 0, movi + 4
-    while pos + 8 <= len(data) and data[pos : pos + 4] == b"00dc":
-        size = u32(pos + 4)
-        body = data[pos + 8 : pos + 8 + size]
-        if body[:2] != b"\xff\xd8" or body[-2:] != b"\xff\xd9":
-            return f"frame {frames} is not a JPEG"
-        frames += 1
-        pos += 8 + size + (size & 1)
-    return None if frames == FRAMES else f"{frames} frames, expected {FRAMES}"
+    """Why `data` is not the expected clip, or None when it is. Walks the
+    RIFF structure, so frame bytes are never mistaken for headers."""
+    try:
+        if data[:4] != b"RIFF" or data[8:12] != b"AVI ":
+            return "not an AVI"
+        top = struct.unpack_from("<I", data, 4)[0] + 8
+        if top > len(data):
+            return "truncated"
+        u32 = lambda at: struct.unpack_from("<I", data, at)[0]  # noqa: E731
+        seen, frames = set(), 0
+        for tag, form, body, stop in walk(data, 12, top):
+            if tag != b"LIST":
+                continue
+            if form == b"hdrl":
+                for t, f, b, e in walk(data, body + 4, stop):
+                    if t == b"avih":
+                        if e - b < 40 or (u32(b + 32), u32(b + 36)) != (WIDTH, HEIGHT):
+                            return f"not {WIDTH}x{HEIGHT}"
+                        seen.add("avih")
+                    elif t == b"LIST" and f == b"strl":
+                        for t2, _, b2, e2 in walk(data, b + 4, e):
+                            if t2 == b"strh":
+                                if e2 - b2 < 28 or u32(b2 + 24) != FPS:
+                                    return f"not {FPS} fps"
+                                seen.add("strh")
+            elif form == b"movi":
+                for t, _, b, e in walk(data, body + 4, stop):
+                    if t != b"00dc":
+                        continue
+                    if data[b : b + 2] != b"\xff\xd8" or data[e - 2 : e] != b"\xff\xd9":
+                        return f"frame {frames} is not a JPEG"
+                    frames += 1
+        if seen != {"avih", "strh"}:
+            return "headers missing"
+        return None if frames == FRAMES else f"{frames} frames, expected {FRAMES}"
+    except (ValueError, struct.error) as why:
+        return f"damaged ({why})"
 
 
 def build() -> bytes:
