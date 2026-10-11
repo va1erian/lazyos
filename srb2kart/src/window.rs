@@ -1,0 +1,246 @@
+//! The game's `xuid` window: an 8-bit frame out, key events in.
+//!
+//! The window is an ordinary client-mode surface (`xui_app::client_window`):
+//! two shared buffer slots, a one-way `Present` per frame, and the compositor's
+//! `BufferRelease` pacing which slot is free. When neither slot is free the
+//! frame is dropped, never waited for: the engine keeps its own 35 Hz clock.
+//! Frames are palettized (`pixels::Blitter` expands and scales them).
+//! Keys arrive on the `inputd` session when the service runs, else as the
+//! compositor's legacy `KeyDown`/`KeyUp`; both feed one edge-tracking queue.
+//! A session also brings the key-state page and the keyboard grab
+//! (`window_input.rs`). The C seam sees [`Window::open`], [`Window::present`]
+//! and [`Window::poll`] (`lz_video_open`, `lz_present`, `lz_poll_event`).
+
+use lazysrb2kart::keymap;
+use lazysrb2kart::keys::{Keys, LzEvent, EVENT_CLOSE};
+use lazysrb2kart::pixels::Blitter;
+use lazysrb2kart::session::{GrabPolicy, SessionKeys};
+use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
+use xui_app::display::{self, Client, Event, FrameEvent};
+use xui_app::input::{self, KeyStatePage};
+use xui_app::sys::{self, errno};
+use xui_core::Rect;
+
+/// Receive buffer for one event; events are far smaller.
+const EVENT_BYTES: usize = 4096;
+/// The smallest content size: the engine's own resolution.
+const MIN_W: u32 = 320;
+const MIN_H: u32 = 200;
+
+pub struct Window {
+    client: Client,
+    pub(crate) window: ClientWindow,
+    /// The window-sized RGBA image the next present copies from.
+    image: Vec<u8>,
+    pub keys: Keys,
+    blitter: Blitter,
+    /// The compositor asked the window to close; reported once by `poll`.
+    close_pending: bool,
+    /// Which physical key pressed which Doom key (session input only).
+    pub(crate) session_keys: SessionKeys,
+    /// The page `inputd` keeps the held keys in while the window is focused.
+    pub(crate) key_page: Option<KeyStatePage>,
+    /// The keyboard grab taken while maximized.
+    pub(crate) grab: GrabPolicy,
+}
+
+impl Window {
+    /// Connect to `xuid` and open a `width` x `height` window.
+    pub fn open(width: usize, height: usize, title: &str) -> Result<Window, OpenError> {
+        let client = Client::connect()
+            .map_err(|code| OpenError::Failed(format!("connect: errno {code}")))?;
+        let mut window = ClientWindow::open(
+            client,
+            width as u32,
+            height as u32,
+            title,
+            SurfaceRole::Window,
+        )?;
+        let (w, h) = window.rect;
+        let pending = std::mem::take(&mut window.pending_events);
+        let configure = window.pending_configure.take();
+        let mut this = Window {
+            client,
+            window,
+            image: vec![0; w as usize * h as usize * 4],
+            keys: Keys::new(),
+            blitter: Blitter::new(),
+            close_pending: false,
+            session_keys: SessionKeys::new(),
+            key_page: None,
+            grab: GrabPolicy::new(),
+        };
+        this.attach_key_page();
+        // Resizable down to the engine's native 320x200 and up to the screen,
+        // so the window can be maximized (the frame is scaled to fit, and a
+        // maximized game holds the keyboard grab, `window_input.rs`). An older
+        // compositor refuses it and the window stays fixed-size.
+        let surface = this.window.surface;
+        let _ = client.set_size_hints(surface, MIN_W, MIN_H, 0, 0);
+        if let Some((w, h)) = configure {
+            this.resize(w, h);
+        }
+        for event in pending {
+            this.route(event);
+        }
+        Ok(this)
+    }
+
+    /// Expand the engine's `w` x `h` indexed frame (rows `pitch` bytes apart)
+    /// through `palette` (RGB triples), scale it into the window and present
+    /// it, if a buffer slot is free.
+    pub fn present(
+        &mut self,
+        pixels: &[u8],
+        w: usize,
+        h: usize,
+        pitch: usize,
+        palette: &[u8; 768],
+    ) {
+        self.pump();
+        let (win_w, win_h) = self.window.rect;
+        let (w_win, h_win) = (win_w as usize, win_h as usize);
+        self.blitter
+            .blit(pixels, w, h, pitch, palette, &mut self.image, w_win, h_win);
+        let (w, h) = (win_w, win_h);
+        let surface = self.window.surface;
+        let slots = &mut self.window.slots;
+        let Ok(Some(slot)) = slots.acquire(self.client, surface, w, h) else {
+            return; // both slots on screen or a resize in flight: drop the frame
+        };
+        let full = Rect::new(0, 0, w, h);
+        slots.damage(full);
+        if !slots.sync(slot, &self.image) {
+            return;
+        }
+        let Some(seq) = slots.submit(slot) else {
+            return;
+        };
+        if self.client.present(surface, slot, seq, full).is_err() {
+            // The compositor never saw it, so it will never release the slot.
+            slots.cancel(slot, seq);
+        }
+    }
+
+    /// The next input event for the engine: a key transition, or the close
+    /// request (once, `kind` [`EVENT_CLOSE`]). Drains the compositor first
+    /// when nothing is queued. `None` when there is nothing.
+    pub fn poll(&mut self) -> Option<LzEvent> {
+        if let Some(event) = self.keys.pop_event() {
+            return Some(event);
+        }
+        self.pump();
+        if let Some(event) = self.keys.pop_event() {
+            return Some(event);
+        }
+        if std::mem::take(&mut self.close_pending) {
+            return Some(LzEvent {
+                kind: EVENT_CLOSE,
+                key: 0,
+            });
+        }
+        None
+    }
+
+    /// The user closed the window: tear the surface down. Call when the
+    /// engine is leaving (after [`EVENT_CLOSE`] or its own quit).
+    pub fn close(&mut self) {
+        self.window.close(self.client);
+    }
+
+    pub fn set_title(&mut self, title: &str) {
+        if self.window.title != title && self.client.set_title(self.window.surface, title).is_ok() {
+            self.window.title = title.to_owned();
+        }
+    }
+
+    /// Drain both event channels without blocking: only queued messages are
+    /// read (the channel counters say how many), so an idle pump costs two
+    /// cheap syscalls and never parks the game for a timer tick.
+    pub fn pump(&mut self) {
+        let mut buf = vec![0u8; EVENT_BYTES];
+        while let Some(parcel) = next_message(self.window.events, &mut buf) {
+            if parcel.header.method == display::METHOD_WINDOW_CLOSE {
+                // Held keys must not outlive the window: the game decides
+                // when to leave and gets the close as an event.
+                self.keys.release_all();
+                self.close_pending = true;
+            }
+            if let Some(frame) = display::decode_frame_event(&parcel) {
+                match frame {
+                    FrameEvent::BufferRelease { slot } => {
+                        self.window.slots.released(slot);
+                    }
+                    FrameEvent::FrameDone { seq } => {
+                        self.window.slots.frame_done(seq);
+                    }
+                }
+            } else if let Some(event) = display::decode_event(&parcel) {
+                self.route(event);
+            }
+        }
+        let Some(session) = self.window.input else {
+            return;
+        };
+        while let Some(parcel) = next_message(session.events, &mut buf) {
+            if let Some(event) = input::decode_event(&parcel) {
+                self.session_event(session, event);
+            }
+        }
+        self.reconcile_keys();
+    }
+
+    /// One compositor event: legacy keys and size changes (pointer input is
+    /// not used: v1 is keyboard-only).
+    fn route(&mut self, event: Event) {
+        match event {
+            Event::KeyDown { key } => {
+                if let Some(key) = keymap::from_legacy(key) {
+                    self.keys.press(key);
+                }
+            }
+            Event::KeyUp { key } => {
+                if let Some(key) = keymap::from_legacy(key) {
+                    self.keys.release(key);
+                }
+            }
+            Event::Configure {
+                width,
+                height,
+                state,
+            } => {
+                self.resize(width, height);
+                self.configured(state);
+            }
+            _ => {}
+        }
+    }
+
+    /// Follow a `Configure`: the slots reallocate as each is next drawn into.
+    fn resize(&mut self, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        self.window.resize(width, height);
+        self.image = vec![0; width as usize * height as usize * 4];
+    }
+}
+
+/// The next queued message on `channel`, decoded, or `None` when nothing is
+/// queued (or the peer is gone).
+fn next_message(channel: u64, buf: &mut [u8]) -> Option<libmessenger::Parcel> {
+    if !matches!(sys::msg_queued(channel), Ok(queued) if queued > 0) {
+        return None;
+    }
+    loop {
+        match sys::msg_recv(channel, buf, sys::EXPIRED_DEADLINE) {
+            Ok(result) => {
+                if let Some(parcel) = display::decode_message(&buf[..result.bytes as usize]) {
+                    return Some(parcel);
+                }
+            }
+            Err(code) if code == -errno::ETIMEDOUT => return None,
+            Err(_) => return None,
+        }
+    }
+}
