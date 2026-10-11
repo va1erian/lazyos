@@ -44,10 +44,10 @@ fhs = { path = "../libs/fhs", features = ["alloc"] }
 # emusic at the revision `tools/emusic/build.py` pins (EMUSIC_REV there).
 # `--emusic-src PATH` builds a local checkout instead through a `[patch]`.
 # No BASS, SID or platform dialogs: none exist on LazyOS.
-emusic-ui = { git = "https://github.com/va1erian/emusic", rev = "cb81535f6abb638dee3c6e5d2268ae68cd4ba36c", default-features = false }
-emusic-frontend-portable = { git = "https://github.com/va1erian/emusic", rev = "cb81535f6abb638dee3c6e5d2268ae68cd4ba36c", default-features = false }
-emusic-lazyaudio = { git = "https://github.com/va1erian/emusic", rev = "cb81535f6abb638dee3c6e5d2268ae68cd4ba36c" }
-emusic-player = { git = "https://github.com/va1erian/emusic", rev = "cb81535f6abb638dee3c6e5d2268ae68cd4ba36c", default-features = false }
+emusic-ui = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7", default-features = false }
+emusic-frontend-portable = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7", default-features = false }
+emusic-lazyaudio = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7" }
+emusic-player = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7", default-features = false }
 
 [profile.release]
 opt-level = 2
