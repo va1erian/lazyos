@@ -41,6 +41,8 @@ pub fn play_headless(player: &Path, project_dir: &Path, author: &str) -> i32 {
     let sink: EventSink = Arc::new(move |_run, event| match event {
         RunEvent::Output(line) => println!("LRIDE:PLAY:OUT:{line}"),
         RunEvent::Diagnostic(report) => println!("LRIDE:PLAY:OUT:error: {}", report.message),
+        // A headless run never starts the player under the debugger.
+        RunEvent::Debug(_) => {}
         RunEvent::Exited(code) => {
             if let Ok(mut slot) = seen.lock() {
                 *slot = Some(code);

@@ -355,8 +355,59 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
   lose the pipe and the wait status (the IDE saw an instant "exit" and killed the
   player). `lazyrad-os::launcher::PollingLauncher` polls non-blocking pipes on the
   window timer instead; no Messenger transport was needed.
-- **Debugger: not available upstream.** LazyRAD's IDE and player have no debug
-  protocol yet (its M4), so `lazyrad_debug.json` / `LRIDE:BREAK:PASS` are not done.
+- **Debugger: available (LazyRAD M4), wired here.** LazyRAD's IDE sets breakpoints
+  (F9) and steps (F8, Shift+F8, Ctrl+Shift+F8); its player speaks a JSON-lines
+  protocol on stdin and stdout under `--debug` (PLAN.md section 7 in the LazyRAD
+  repo). Nothing in the protocol needs a thread on the IDE side, which is what
+  made it fit this OS:
+  - **IDE to player.** The launcher seam gained `Launcher::launch_with(.., mode)`
+    and `ChildProcess::send_line`. `PollingLauncher` (an unlabelled IDE) and
+    `DevLauncher` (the packaged IDE, whose Play is a development run, `devplay`)
+    start the player with `--client --debug <project>` and a piped stdin whose
+    write end is non-blocking (`O_NONBLOCK`). `src/input.rs` queues the bytes
+    in front of it: a full pipe (`EAGAIN`) keeps the line and every poll tries
+    again, a partial write keeps its tail, `EPIPE` closes the queue for good (later
+    lines are refused with `SendError::Closed`), and the queue is bounded
+    (`SendError::Full`). Lines sent while `DevLauncher` waits for the Installer's
+    approval are held and written once the player exists.
+  - **Player to IDE.** Events arrive on stdout through the same polled pipe as
+    program output and are decoded by `lazyrad_ide::run::stdout_event` (one JSON
+    object per line, `"v":1`); anything else stays program output.
+  - **The player's stdin.** LazyRAD's own reader thread would lose descriptor 0 on
+    this OS, so `lrplay --debug` installs `src/debugio.rs`
+    (`lazyrad_player::debug::install_transport`): stdin in non-blocking mode,
+    read from the main thread. The debug callback polls it every 128 script
+    nodes (so Break and breakpoints set while it runs reach a loop that never
+    returns) and a stopped program waits in a poll-and-sleep loop. End of input
+    resumes the program with the debugger off, so an IDE that dies never leaves a
+    player stuck.
+  - **Evidence.** `lrplay` prints `LRPLAY:DEBUG:PASS` when started with `--debug`;
+    the IDE prints `LRIDE:BREAK:PASS:<item>:<line>` at a breakpoint,
+    `LRIDE:STEP:PASS:...` after a step, `LRIDE:PAUSE:PASS:...` for a Break,
+    `LRIDE:STOPERR:PASS:...` for a script error and `LRIDE:LOCALS:PASS:<n>` with
+    the Locals pane's row count. `tools/screenshot/examples/lazyrad_debug.json`
+    drives them: breakpoint on `form_load`'s third line (Ctrl+G, F9), F5,
+    approve the development run in the Installer, stop, the toolbar's Step
+    Over, F5.
+  - **Status.** `input` and `debugio` are unit-tested on the host; the
+    launcher's pipe tests (`cfg(unix)`) were type-checked for musl but not run
+    (the host was Windows). `lazyrad_debug.json` **passed twice on a QEMU
+    image** (desktop, Terminal autostart, `LAZYOS_RESET_OS=1`, the packaged
+    IDE's `DevLauncher` path): `LRPLAY:DEBUG:PASS`, `LRIDE:BREAK:PASS:main_form:3`,
+    `LRIDE:LOCALS:PASS:1`, `LRIDE:STEP:PASS:main_form:4`, `LRIDE:LOCALS:PASS:2`,
+    `LRPLAY:UP:PASS` after Continue; the screenshots show the breakpoint dot,
+    the tinted stop line, `[break]` in the title and the Locals rows
+    (`count = 3`, `total = 6`), and the Call Stack tab shows
+    `#0 form_load  main_form.rhai:3`. Re-run against the merged LazyRAD pin
+    (va1erian/lazyrad#117) with the same result. Not exercised on LazyOS: the F8 / Shift+F8
+    keys (the player's window takes the keyboard focus when it opens, so the
+    session steps with the toolbar button and F5 comes after the click), the
+    Immediate tab, break on error, an IDE that dies while the
+    program is stopped, and the unlabelled `PollingLauncher` path (the IDE
+    there is labelled, so Play always uses `DevLauncher`).
+  - **Finding: the player's window freezes while stopped**, and it is the
+    focused window right after it opens, so a script (or a user) must click the
+    IDE before using its keyboard shortcuts.
 - **Clipboard:** needs no LazyRAD seam; xui routes it through the backend.
 - **Rhai/getrandom:** with `default-features = false` only a build-time proc-macro
   pulls `getrandom`; nothing at runtime. One xui rev (`58c1a6e`) and one Rhai

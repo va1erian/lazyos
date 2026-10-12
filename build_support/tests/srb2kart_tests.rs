@@ -45,7 +45,9 @@ fn every_data_file_is_found_in_name_order() {
     assert!(all
         .iter()
         .any(|file| file.path == "/system/share/srb2kart/sub/extra.kart"));
-    assert!(all.iter().all(|file| matches!(file.source, Source::Path(_))));
+    assert!(all
+        .iter()
+        .all(|file| matches!(file.source, Source::Path(_))));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
