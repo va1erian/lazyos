@@ -12,6 +12,9 @@ use super::{
 
 mod edit;
 mod layers;
+mod adjust;
+mod image_ops;
+mod io;
 mod ops;
 
 /// What a rubber-banded shape preview is.
@@ -209,3 +212,6 @@ impl Model {
         &self.history
     }
 }
+
+#[cfg(test)]
+mod image_tests;

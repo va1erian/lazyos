@@ -45,6 +45,30 @@ pub enum LayerCommand {
         /// The properties to put in.
         props: LayerProps,
     },
+    /// Merge Layer Down: removes the layer at `index`, whose picture has
+    /// already been merged into the layer below (what Merge Layer Down
+    /// records is the [`LayerCommand::Unmerge`] that reverses it, and redo is
+    /// this). `lower` is the merged picture of the layer below, swapped in.
+    Merge {
+        /// The layer that is merged away.
+        index: usize,
+        /// The layer below's merged pixels.
+        lower: Bitmap,
+        /// The layer to select afterwards.
+        active: usize,
+    },
+    /// The reverse of a merge: puts `upper` back at `index` and swaps the
+    /// layer below's pixels with `lower`, its pre-merge picture.
+    Unmerge {
+        /// Where the upper layer goes back.
+        index: usize,
+        /// The layer that was merged away.
+        upper: Layer,
+        /// The layer below's other picture.
+        lower: Bitmap,
+        /// The layer to select afterwards.
+        active: usize,
+    },
 }
 
 impl LayerCommand {
@@ -85,6 +109,67 @@ impl LayerCommand {
                 doc.set_active(follow(active, from, to));
                 LayerCommand::Move { from: to, to: from }
             }
+            LayerCommand::Merge {
+                index,
+                mut lower,
+                active,
+            } => {
+                let before = doc.active();
+                // Refused (out of range, or a mismatched picture): nothing moved.
+                let below_fits = index > 0
+                    && index < doc.layers().len()
+                    && doc
+                        .layer(index - 1)
+                        .is_some_and(|l| l.pixels.size() == lower.size());
+                let Some(upper) = below_fits.then(|| doc.remove_layer(index)).flatten() else {
+                    return LayerCommand::Merge {
+                        index,
+                        lower,
+                        active,
+                    };
+                };
+                if let Some(below) = doc.layer_mut(index - 1) {
+                    std::mem::swap(&mut below.pixels, &mut lower);
+                }
+                doc.set_active(active);
+                LayerCommand::Unmerge {
+                    index,
+                    upper,
+                    lower,
+                    active: before,
+                }
+            }
+            LayerCommand::Unmerge {
+                index,
+                upper,
+                mut lower,
+                active,
+            } => {
+                let before = doc.active();
+                let fits = index > 0
+                    && index <= doc.layers().len()
+                    && doc
+                        .layer(index - 1)
+                        .is_some_and(|l| l.pixels.size() == lower.size());
+                if !fits {
+                    return LayerCommand::Unmerge {
+                        index,
+                        upper,
+                        lower,
+                        active,
+                    };
+                }
+                if let Some(below) = doc.layer_mut(index - 1) {
+                    std::mem::swap(&mut below.pixels, &mut lower);
+                }
+                doc.insert_layer(index, upper);
+                doc.set_active(active);
+                LayerCommand::Merge {
+                    index,
+                    lower,
+                    active: before,
+                }
+            }
             LayerCommand::Props { index, props } => {
                 let Some(layer) = doc.layer_mut(index) else {
                     return LayerCommand::Props { index, props };
@@ -104,6 +189,10 @@ impl LayerCommand {
     fn bytes(&self) -> usize {
         match self {
             LayerCommand::Insert { layer, .. } => layer.pixels.byte_len(),
+            LayerCommand::Merge { lower, .. } => lower.byte_len(),
+            LayerCommand::Unmerge { upper, lower, .. } => {
+                upper.pixels.byte_len() + lower.byte_len()
+            }
             _ => 0,
         }
     }

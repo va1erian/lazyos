@@ -104,7 +104,7 @@ impl Model {
         Ok(())
     }
 
-    fn replace(&mut self, doc: Document) {
+    pub(super) fn replace(&mut self, doc: Document) {
         self.doc = doc;
         self.history.clear();
         self.preview = None;

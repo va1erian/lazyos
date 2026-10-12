@@ -29,6 +29,16 @@ impl Layer {
         }
     }
 
+    /// This layer's name, visibility and opacity over other `pixels`.
+    pub fn with_pixels(&self, pixels: Bitmap) -> Layer {
+        Layer {
+            name: self.name.clone(),
+            pixels,
+            visible: self.visible,
+            opacity: self.opacity,
+        }
+    }
+
     /// The name, visibility and opacity, without the pixels.
     pub fn props(&self) -> LayerProps {
         LayerProps {

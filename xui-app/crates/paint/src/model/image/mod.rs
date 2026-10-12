@@ -8,6 +8,7 @@
 mod budget;
 mod flatten;
 mod layer;
+mod rebuild;
 
 pub use budget::{BudgetError, MEMORY_BUDGET, Reserved, check as check_budget, required_bytes};
 pub use layer::{Layer, LayerProps};
