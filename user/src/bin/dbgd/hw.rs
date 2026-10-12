@@ -83,10 +83,10 @@ fn locate(params: &Value) -> Result<Function, Failure> {
 /// A kernel errno as the JSON-RPC failure that explains it.
 fn kernel_failure(errno: i64, what: &str) -> Failure {
     let (rpc, why) = match errno {
-        errno::EPERM => (code::DENIED, "the kernel refuses this uid (only dbgd and root may read hardware)"),
+        errno::EPERM => (code::DENIED, "the kernel refuses this uid (only dbgd, uid 914, may read hardware)"),
         errno::EACCES => (
             code::DENIED,
-            "refused by the kernel's rules: MMIO is off, or the span is not in an allowed range",
+            "refused by the kernel's rules: MMIO is off, the span is not in an allowed range, or config past the 64-byte header without diag.dbg.mmio=1",
         ),
         errno::EBUSY => (
             code::DENIED,

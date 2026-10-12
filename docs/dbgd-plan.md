@@ -139,6 +139,14 @@ well is on, because a power-gated well may not return cleanly (all-ones or
 zeros, and Linux counts these as unclaimed accesses). `ffffffff` from a
 register is a fact about the well, not the register.
 
+**GT registers read as zero in RC6.** Without forcewake, ranges such as
+`0x2000`, `0x12000`, `0x1A000` and `0x22000` of the HD 620 read 0 or garbage
+while the GT sleeps; that is not a fault of the probe (it never takes
+forcewake or writes anything). Config bytes `0x40..0x100` of a *claimed*
+device are readable with `diag.dbg.mmio=1` alone, by design: config reads
+have no side effects that can corrupt a driver's transaction the way MMIO
+reads can.
+
 **Memory-type aliasing.** The kernel maps a BAR page uncached for these
 reads. If another mapping of the same frames uses a different type (the
 display path maps the VGA framebuffer BAR write-combining, and a GPU driver

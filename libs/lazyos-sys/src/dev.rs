@@ -117,7 +117,7 @@ mod inspect {
 
     /// `len` bytes of configuration space of the function at `bdf`
     /// (`bus << 8 | device << 3 | function`), without claiming it. Only
-    /// only `dbgd` may ask (`kernel/src/dev/peek.rs`).
+    /// `dbgd` may ask (`kernel/src/dev/peek.rs`).
     pub fn config_read(bdf: u16, offset: u64, len: usize) -> Result<Vec<u8>, i64> {
         let mut bytes = vec![0u8; len];
         // SAFETY: the kernel writes at most `len` bytes, the size of `bytes`.
