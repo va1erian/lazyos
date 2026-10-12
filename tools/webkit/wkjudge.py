@@ -84,7 +84,10 @@ def trivial(key: str, value: str) -> str:
         parts = value.split("+")
         if not all(part.isdigit() for part in parts) or any(int(part) == 0 for part in parts):
             return f"{value!r}: something was not drawn"
-    if key != "inked" and len(set(value)) <= 1:
+    # A zero of any length, or a digest (8 or more characters) of one repeated
+    # character, proves nothing; a small count such as `glyphs=22` can
+    # legitimately be one repeated digit.
+    if key != "inked" and (set(value) == {"0"} or (len(value) >= 8 and len(set(value)) <= 1)):
         return f"{value!r} is a single repeated digit"
     return ""
 

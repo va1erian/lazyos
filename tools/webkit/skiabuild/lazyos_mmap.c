@@ -42,8 +42,11 @@ void* lazyos_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t 
     void* mapped = mmap(addr, length, prot, flags, fd, offset);
     if (mapped != MAP_FAILED || !no_file_mappings(errno))
         return mapped;
-    /* Only the case the copy can honour: a read-only private file mapping. */
-    if ((flags & MAP_ANONYMOUS) || !(flags & MAP_PRIVATE) || (prot & PROT_WRITE)) {
+    /* Only the case the copy can honour: a read-only private file mapping at an
+     * address of the kernel's choosing. A MAP_FIXED request wants `addr` itself,
+     * which a fresh anonymous mapping cannot promise, so it is refused rather
+     * than answered with an unrelated address (Skia never asks for it). */
+    if ((flags & MAP_ANONYMOUS) || !(flags & MAP_PRIVATE) || (prot & PROT_WRITE) || (flags & MAP_FIXED)) {
         errno = ENODEV;
         return MAP_FAILED;
     }
@@ -56,6 +59,9 @@ void* lazyos_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t 
         if (got <= 0) {
             if (got < 0 && errno == EINTR)
                 continue;
+            /* A file shorter than `length` is EIO here, where a real mapping
+             * would zero-fill past the end: Skia sizes the request from fstat,
+             * so it never asks for more than the file holds. */
             int error = got < 0 ? errno : EIO;
             munmap(copy, length);
             errno = error;
