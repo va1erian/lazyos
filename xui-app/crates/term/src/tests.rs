@@ -89,7 +89,8 @@ const fn case(
 
 const TABLE: &[Case] = &[
     case("text and CRLF", (8, 3), "ab\r\ncd", &["ab", "cd", ""], (1, 2)),
-    case("LF returns the carriage", (8, 3), "ab\ncd", &["ab", "cd", ""], (1, 2)),
+    case("LF keeps the column", (8, 3), "ab\ncd", &["ab", "  cd", ""], (1, 4)),
+    case("LNM makes LF return the carriage", (8, 3), "\x1b[20hab\ncd\x1b[20l\nef", &["ab", "cd", "  ef"], (2, 4)),
     case("backspace overwrites", (8, 2), "abc\x08\x08X", &["aXc", ""], (0, 2)),
     case("CUP", (8, 4), "\x1b[3;4Hx", &["", "", "   x", ""], (2, 4)),
     case("CUU CUD CUF CUB", (8, 4), "\x1b[3;3H\x1b[2A\x1b[3C\x1b[1B\x1b[2Dx", &["", "   x", "", ""], (1, 4)),

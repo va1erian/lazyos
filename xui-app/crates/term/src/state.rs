@@ -59,8 +59,9 @@ pub(crate) struct State {
     pub tabs: Vec<bool>,
     pub autowrap: bool,
     pub cursor_visible: bool,
-    /// A line feed also returns the carriage (LNM). The tty's ONLCR already
-    /// does that on the way out; raw-mode programs send `\r\n` themselves.
+    /// A line feed also returns the carriage (LNM, off by default as in
+    /// xterm). The tty's ONLCR already sends `\r\n` for cooked output, and a
+    /// raw-mode program that clears OPOST expects a bare `\n` to keep the column.
     pub newline: bool,
     /// Bytes to write back to the pty (answers to DSR and DA).
     pub reply: Vec<u8>,
@@ -90,7 +91,7 @@ impl State {
             tabs: default_tabs(cols),
             autowrap: true,
             cursor_visible: true,
-            newline: true,
+            newline: false,
             reply: Vec::new(),
             completed: Vec::new(),
             carry: String::new(),

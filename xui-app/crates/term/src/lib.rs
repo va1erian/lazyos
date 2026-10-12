@@ -20,6 +20,8 @@ mod row;
 mod screen;
 mod state;
 #[cfg(test)]
+mod bench;
+#[cfg(test)]
 mod tests;
 
 pub use cell::{Attr, Cell, Color, Flags};

@@ -113,7 +113,6 @@ pub fn paint(
 mod tests {
     use std::path::PathBuf;
     use std::rc::Rc;
-    use std::sync::Once;
 
     use xui_canvas::snapshot::{render, Snapshot};
     use xui_core::app::{App, Ui};
@@ -132,12 +131,11 @@ mod tests {
         fn update(&mut self, _msg: (), _ui: &mut Ui<()>) {}
     }
 
+    /// Register the mono face as `main` does. The registry is per thread and
+    /// each test runs on its own thread, so every render registers again.
     fn fonts() {
-        static ONCE: Once = Once::new();
-        ONCE.call_once(|| {
-            xui_canvas::add_font(xui_app::font::MONO_BYTES.to_vec());
-            xui_canvas::set_default_family(xui_app::font::MONO_FAMILY);
-        });
+        xui_canvas::add_font(xui_app::font::MONO_BYTES.to_vec());
+        xui_canvas::set_default_family(xui_app::font::MONO_FAMILY);
     }
 
     /// `term` painted at `dpi` in `dark` or light, saved as `name`.
