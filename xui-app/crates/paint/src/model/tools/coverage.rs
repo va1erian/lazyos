@@ -78,6 +78,22 @@ impl Coverage {
         self
     }
 
+    /// The part of the mask inside `window`: the same pixels, a smaller
+    /// buffer. Returns `self` untouched when nothing is cut.
+    pub fn cropped(self, window: Rect) -> Coverage {
+        let keep = self.rect.intersect(window);
+        if keep == self.rect {
+            return self;
+        }
+        let mut out = Coverage::new(keep);
+        let width = keep.width() as usize;
+        for y in keep.y0..keep.y1 {
+            let at = (y - keep.y0) as usize * width;
+            out.data[at..at + width].copy_from_slice(self.row(y, keep.x0, keep.x1));
+        }
+        out
+    }
+
     /// Hard-edges the mask: coverage of 128 and up becomes 255, the rest 0.
     /// This is what "antialias off" means for every tool.
     pub fn threshold(&mut self) {

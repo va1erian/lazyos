@@ -3,6 +3,7 @@
 //! The Text tool's editing state: a caret in a block of text placed on the
 //! image, with no pixels until it is committed.
 
+use crate::model::rect::Rect;
 use crate::model::tools::Coverage;
 
 use super::style::{TextCoverage, TextRasterizer, TextStyle};
@@ -130,7 +131,7 @@ impl TextEdit {
     }
 
     fn step_line(&mut self, rasterizer: &dyn TextRasterizer, by: isize) {
-        let layout = self.layout(rasterizer);
+        let layout = self.geometry(rasterizer);
         let (line, _) = layout.line_column(self.caret);
         let Some(target) = line
             .checked_add_signed(by)
@@ -147,8 +148,11 @@ impl TextEdit {
 
     /// Puts the caret at the character nearest the image point `(x, y)`.
     pub fn set_caret_at(&mut self, rasterizer: &dyn TextRasterizer, x: i32, y: i32) {
-        let layout = self.layout(rasterizer);
-        let index = layout.index_at((x - self.origin.0) as f32, (y - self.origin.1) as f32);
+        let layout = self.geometry(rasterizer);
+        let index = layout.index_at(
+            (i64::from(x) - i64::from(self.origin.0)) as f32,
+            (i64::from(y) - i64::from(self.origin.1)) as f32,
+        );
         self.caret = index.min(self.chars.len());
     }
 
@@ -160,15 +164,27 @@ impl TextEdit {
         );
     }
 
-    /// Lays the text out with the current style.
+    /// Lays the text out with the current style, rasterizing all of it. The
+    /// Text tool uses [`TextEdit::layout_in`] and [`TextEdit::geometry`].
     pub fn layout(&self, rasterizer: &dyn TextRasterizer) -> TextCoverage {
         rasterizer.layout(&self.text(), &self.style)
+    }
+
+    /// Lays the text out and rasterizes only `window` (the block's own
+    /// coordinates), so the mask never outgrows the layer.
+    pub fn layout_in(&self, rasterizer: &dyn TextRasterizer, window: Rect) -> TextCoverage {
+        rasterizer.layout_in(&self.text(), &self.style, window)
+    }
+
+    /// The line and caret geometry alone: no pixels are rasterized.
+    pub fn geometry(&self, rasterizer: &dyn TextRasterizer) -> TextCoverage {
+        self.layout_in(rasterizer, Rect::EMPTY)
     }
 
     /// The caret as `(x, y, height)` in image coordinates, to draw as an
     /// overlay.
     pub fn caret_rect(&self, rasterizer: &dyn TextRasterizer) -> Option<(f32, f32, f32)> {
-        let layout = self.layout(rasterizer);
+        let layout = self.geometry(rasterizer);
         let (x, y, height) = layout.caret(self.caret)?;
         Some((x + self.origin.0 as f32, y + self.origin.1 as f32, height))
     }

@@ -290,3 +290,38 @@ fn an_edit_commits_to_positioned_coverage() {
     edit.home();
     assert_eq!(edit.caret_rect(&r).unwrap().0, 100.0);
 }
+
+#[test]
+fn a_window_keeps_the_mask_small_and_the_pixels_the_same() {
+    let r = rasterizer();
+    let text = "Hello World";
+    let full = r.layout(text, &style());
+    // The window cuts the middle of the block.
+    let window = Rect::new(20, 8, 60, 20);
+    let cut = r.layout_in(text, &style(), window);
+    assert_eq!(cut.extent, full.extent, "the block keeps its size");
+    assert_eq!(cut.lines, full.lines, "and its carets");
+    assert_eq!(cut.mask.rect(), full.extent.intersect(window));
+    for y in window.y0..window.y1 {
+        for x in window.x0..window.x1 {
+            assert_eq!(cut.mask.get(x, y), full.mask.get(x, y), "({x}, {y})");
+        }
+    }
+    // A window off the block, or an empty one, rasterizes nothing.
+    let off = r.layout_in(text, &style(), Rect::new(-500, 0, 10, 10));
+    assert!(off.mask.is_empty());
+    assert!(r.layout_in(text, &style(), Rect::EMPTY).mask.is_empty());
+}
+
+#[test]
+fn a_hundred_huge_glyphs_never_build_a_huge_mask() {
+    let r = rasterizer();
+    let big = TextStyle {
+        size: 1024.0,
+        ..style()
+    };
+    let layer = Rect::new(0, 0, 640, 480);
+    let layout = r.layout_in(&"W".repeat(100), &big, layer);
+    assert!(layout.extent.width() > 50_000, "the block is huge");
+    assert!(layout.mask.rect().area() <= layer.area());
+}

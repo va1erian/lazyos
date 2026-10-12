@@ -2,6 +2,7 @@
 
 //! Text style, the rasterizer contract and the geometry an editing caret needs.
 
+use crate::model::rect::Rect;
 use crate::model::tools::Coverage;
 
 /// Horizontal alignment of each line within the widest one.
@@ -81,14 +82,29 @@ impl LineGeometry {
 /// A laid-out and rasterized block of text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextCoverage {
-    /// The glyph coverage, its rectangle's origin at the block's top-left
-    /// (the point the user clicked) and not extending left of it.
+    /// The rectangle the whole block's ink and line boxes span, its origin at
+    /// the block's top-left (the point the user clicked): the size of the
+    /// block however little of it `mask` holds.
+    pub extent: Rect,
+    /// The glyph coverage inside the window asked for: `extent` clipped to
+    /// it, in the same coordinates. A tall line of wide text is far bigger
+    /// than any layer, so the part nobody can see is never allocated.
     pub mask: Coverage,
     /// One entry per line of the text, top first (an empty text has one line).
     pub lines: Vec<LineGeometry>,
 }
 
 impl TextCoverage {
+    /// A layout from the complete `full` coverage, keeping only what lies in
+    /// `window`: for rasterizers that draw the whole block first.
+    pub fn windowed(full: Coverage, window: Rect, lines: Vec<LineGeometry>) -> TextCoverage {
+        TextCoverage {
+            extent: full.rect(),
+            mask: full.cropped(window),
+            lines,
+        }
+    }
+
     /// The line holding the caret before character `index` (the end of text is
     /// the last line's end; a caret right after a newline starts the next line).
     fn line_of(&self, index: usize) -> Option<(usize, &LineGeometry)> {
@@ -138,9 +154,28 @@ impl TextCoverage {
 /// Turns text into coverage and caret geometry. The real implementation is
 /// behind the crate's `text` feature; the model and its tests use fakes.
 pub trait TextRasterizer {
-    /// Lays `text` out (lines split at `\n`, no wrapping) and rasterizes it
-    /// in white-on-nothing coverage.
-    fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage;
+    /// Lays `text` out (lines split at `\n`, no wrapping) and rasterizes the
+    /// part inside `window` (the block's own coordinates, origin at its
+    /// top-left) in white-on-nothing coverage. The caret geometry and the
+    /// `extent` always describe the whole block; only `mask` is clipped, and
+    /// an empty window rasterizes nothing.
+    fn layout_in(&self, text: &str, style: &TextStyle, window: Rect) -> TextCoverage;
+
+    /// [`TextRasterizer::layout_in`] with no window: the whole block's
+    /// coverage, which grows with the text. For tests and callers that know
+    /// the text is small; the Text tool always passes the layer's window.
+    fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage {
+        self.layout_in(
+            text,
+            style,
+            Rect {
+                x0: 0,
+                y0: 0,
+                x1: i32::MAX,
+                y1: i32::MAX,
+            },
+        )
+    }
 
     /// The family names the options bar offers, sorted. A rasterizer that
     /// cannot list its fonts offers none.

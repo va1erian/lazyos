@@ -18,6 +18,11 @@ use crate::model::{Pixel, Rect};
 /// The name of a committed block in the history.
 const NAME: &str = "Text";
 
+/// What painting a pixel of glyph coverage holds at once: the coverage, the
+/// stroke buffer's coverage and layer snapshot (1 + 4 bytes) and the undo
+/// copy (4 bytes).
+const PAINT_BYTES_PER_PIXEL: u64 = 10;
+
 /// A key the Text tool edits with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextKey {
@@ -152,7 +157,9 @@ impl Model {
                 from.0.saturating_add(x.saturating_sub(start.0)),
                 from.1.saturating_add(y.saturating_sub(start.1)),
             );
-            session.edit.move_by(to.0 - ox, to.1 - oy);
+            session
+                .edit
+                .move_by(to.0.saturating_sub(ox), to.1.saturating_sub(oy));
         }
         self.refresh_text();
     }
@@ -216,27 +223,83 @@ impl Model {
             self.text = Some(session);
             return;
         };
-        let layout = session.edit.layout(&*rasterizer);
         let (ox, oy) = session.edit.origin();
-        self.text_geom = geometry(&layout, session.edit.caret(), (ox, oy));
         let key = (
             session.edit.text(),
             session.edit.style.clone(),
             (ox, oy),
             self.primary,
         );
-        if session.drawn.as_ref() != Some(&key) {
-            self.paint_text(&mut session, &layout);
+        // Pixels are rasterized only when they will be painted, and only the
+        // part that lands on the layer.
+        let repaint = session.drawn.as_ref() != Some(&key);
+        let layout = if repaint {
+            let window = self.text_window(&session);
+            let window = self.budgeted_window(&session, &*rasterizer, window);
+            session.edit.layout_in(&*rasterizer, window)
+        } else {
+            session.edit.geometry(&*rasterizer)
+        };
+        self.text_geom = geometry(&layout, session.edit.caret(), (ox, oy));
+        if repaint {
+            self.paint_text(&mut session, layout);
             session.drawn = Some(key);
         }
         self.text = Some(session);
     }
 
+    /// What of the block can show: the layer (and the selection that clips
+    /// it), in the block's own coordinates.
+    fn text_window(&self, session: &TextSession) -> Rect {
+        let Some(layer) = self.doc.layer(session.live.layer) else {
+            return Rect::EMPTY;
+        };
+        let mut visible = layer.pixels.rect();
+        if let Some(clip) = &session.clip {
+            visible = visible.intersect(clip.rect());
+        }
+        let (ox, oy) = session.edit.origin();
+        Rect {
+            x0: visible.x0.saturating_sub(ox),
+            y0: visible.y0.saturating_sub(oy),
+            x1: visible.x1.saturating_sub(ox),
+            y1: visible.y1.saturating_sub(oy),
+        }
+    }
+
+    /// `window`, or the empty window (the block paints nothing, with a
+    /// notice) when the glyph coverage of it would not fit the memory budget.
+    /// Painting holds the coverage, the stroke buffer's coverage and snapshot
+    /// and the undo copy: [`PAINT_BYTES_PER_PIXEL`] bytes a pixel. Layers
+    /// are bounded, so the cheap test on the whole window settles nearly
+    /// every case; only a window too big to pass it asks the rasterizer how
+    /// much of it the block really covers.
+    fn budgeted_window(
+        &mut self,
+        session: &TextSession,
+        rasterizer: &dyn TextRasterizer,
+        window: Rect,
+    ) -> Rect {
+        let cost = |area: usize| area as u64 * PAINT_BYTES_PER_PIXEL;
+        let mut result = self.check_extra_fits(cost(window.area()));
+        if result.is_err() {
+            let used = session.edit.geometry(rasterizer).extent.intersect(window);
+            result = self.check_extra_fits(cost(used.area()));
+        }
+        match result {
+            Ok(()) => window,
+            Err(error) => {
+                self.notice = Some(format!("The text is too large to draw: {error}"));
+                Rect::EMPTY
+            }
+        }
+    }
+
     /// Redraws the glyphs through a stroke buffer, taking the last frame back
     /// first.
-    fn paint_text(&mut self, session: &mut TextSession, layout: &TextCoverage) {
+    fn paint_text(&mut self, session: &mut TextSession, layout: TextCoverage) {
         let (ox, oy) = session.edit.origin();
-        let mask = layout.mask.clone().translated(ox, oy);
+        let mask = layout.mask.translated(ox, oy);
         let inked = mask.total() > 0;
         let color = self.primary;
         let Some(target) = self.doc.layer_mut(session.live.layer) else {
@@ -284,7 +347,7 @@ impl Model {
 fn geometry(layout: &TextCoverage, caret: usize, origin: (i32, i32)) -> Option<TextGeom> {
     let (cx, cy, height) = layout.caret(caret)?;
     let last = layout.lines.last()?;
-    let ink = layout.mask.rect();
+    let ink = layout.extent;
     let local = Rect {
         x0: 0,
         y0: 0,

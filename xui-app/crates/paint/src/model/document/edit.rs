@@ -68,6 +68,9 @@ impl Model {
     /// Begins an action at document pixel `(x, y)`. The modifiers matter to
     /// the selection tools and the Pencil.
     pub fn begin_with(&mut self, x: i32, y: i32, side: Side, mods: Mods) {
+        // A press while a drag is live (its release was lost) finishes that
+        // drag first, so its stroke is recorded rather than overwritten.
+        self.end();
         match self.tool {
             Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand => {
                 self.begin_select(x, y, side, mods);

@@ -1,7 +1,9 @@
 //! Image-wide operations land a floating selection (or a text block) first,
 //! so the history stays in order and undo restores the picture.
 
-use crate::model::{Adjustment, Anchor, CanvasFill, Flip, Model, Pixel, Rect, Resample, Side, Tool, Turn};
+use crate::model::{
+    Adjustment, Anchor, CanvasFill, Flip, Model, Pixel, Rect, Resample, Side, Tool, Turn, WHITE,
+};
 
 const RED: Pixel = [255, 0, 0, 255];
 
@@ -28,6 +30,29 @@ fn floating() -> Model {
     m.end();
     assert!(m.is_floating());
     m
+}
+
+#[test]
+fn a_press_while_a_drag_is_live_records_that_drag_first() {
+    for tool in [Tool::Pencil, Tool::Line, Tool::Gradient, Tool::Fill] {
+        let mut m = Model::new(8, 8);
+        m.set_tool(tool);
+        m.set_primary(RED);
+        m.begin(0, 0, Side::Primary);
+        m.extend(6, 0);
+        // The release was lost: the next press arrives with the drag live.
+        m.begin(0, 6, Side::Primary);
+        m.end();
+        let steps = m.history().undo_len();
+        assert!(steps >= 1, "{tool:?}: the first drag is in the history");
+        assert!(!m.is_dragging(), "{tool:?}");
+        if tool == Tool::Pencil {
+            assert_eq!(steps, 2);
+            m.undo();
+            assert_eq!(m.bitmap().get(0, 0), Some(RED), "the first stroke stays");
+            assert_eq!(m.bitmap().get(0, 6), Some(WHITE));
+        }
+    }
 }
 
 /// Runs `op` on a model with a live float, then lands it and undoes

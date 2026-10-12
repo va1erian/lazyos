@@ -16,7 +16,7 @@ const RED: Pixel = [255, 0, 0, 255];
 struct Boxes;
 
 impl TextRasterizer for Boxes {
-    fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage {
+    fn layout_in(&self, text: &str, style: &TextStyle, window: Rect) -> TextCoverage {
         let cw = (style.size / 2.0) as i32;
         let ch = style.size as i32;
         let lines: Vec<&str> = text.split('\n').collect();
@@ -47,10 +47,7 @@ impl TextRasterizer for Boxes {
             });
             start += count + 1;
         }
-        TextCoverage {
-            mask,
-            lines: geometry,
-        }
+        TextCoverage::windowed(mask, window, geometry)
     }
 
     fn families(&self) -> Vec<String> {

@@ -98,6 +98,7 @@ impl CosmicRasterizer {
 /// The empty layout: one empty line.
 fn blank(height: f32) -> TextCoverage {
     TextCoverage {
+        extent: Rect::EMPTY,
         mask: Coverage::new(Rect::EMPTY),
         lines: vec![LineGeometry {
             top: 0.0,
@@ -114,7 +115,7 @@ impl TextRasterizer for CosmicRasterizer {
         CosmicRasterizer::families(self)
     }
 
-    fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage {
+    fn layout_in(&self, text: &str, style: &TextStyle, window: Rect) -> TextCoverage {
         let size = if style.size.is_finite() {
             style.size.clamp(SIZE_RANGE.0, SIZE_RANGE.1)
         } else {
@@ -162,12 +163,15 @@ impl TextRasterizer for CosmicRasterizer {
             }
         }
 
-        let width = block.ceil() as i32 + PAD;
+        let width = (block.ceil() as i32).saturating_add(PAD);
         let height = (lines.len() as f32 * line_height).ceil() as i32;
-        let rect = Rect::new(0, 0, width as u32, height as u32);
-        let mut mask = Coverage::new(rect);
-        let stride = rect.width() as usize;
-        {
+        let extent = Rect::new(0, 0, width as u32, height as u32);
+        // Only the part inside the window is allocated and drawn: the block
+        // can be far larger than the layer it is painted on.
+        let keep = extent.intersect(window);
+        let mut mask = Coverage::new(keep);
+        if !keep.is_empty() {
+            let stride = keep.width() as usize;
             let data = mask.data_mut();
             let offsets: Vec<(f32, f32)> =
                 lines.iter().map(|l| (l.geometry.top, l.offset)).collect();
@@ -184,9 +188,11 @@ impl TextRasterizer for CosmicRasterizer {
                         .iter()
                         .rfind(|(top, _)| *top <= y as f32)
                         .map_or(0.0, |(_, off)| *off) as i32;
-                    for yy in y.max(0)..(y + h as i32).min(height) {
-                        for xx in (x + offset).max(0)..(x + offset + w as i32).min(width) {
-                            let slot = &mut data[yy as usize * stride + xx as usize];
+                    let glyph = Rect::new(x.saturating_add(offset), y, w, h).intersect(keep);
+                    for yy in glyph.y0..glyph.y1 {
+                        let row = (yy - keep.y0) as usize * stride;
+                        for xx in glyph.x0..glyph.x1 {
+                            let slot = &mut data[row + (xx - keep.x0) as usize];
                             *slot = (*slot).max(alpha);
                         }
                     }
@@ -197,10 +203,17 @@ impl TextRasterizer for CosmicRasterizer {
                     let thickness = (size / 14.0).round().max(1.0) as i32;
                     let top = (line.geometry.baseline + size * 0.1).round() as i32;
                     let (x0, x1) = (line.offset as i32, (line.offset + line.width).ceil() as i32);
-                    for yy in top.max(0)..(top + thickness).min(height) {
-                        for xx in x0.max(0)..x1.min(width) {
-                            data[yy as usize * stride + xx as usize] = 255;
-                        }
+                    let bar = Rect {
+                        x0,
+                        y0: top,
+                        x1,
+                        y1: top.saturating_add(thickness),
+                    }
+                    .intersect(keep);
+                    for yy in bar.y0..bar.y1 {
+                        let row = (yy - keep.y0) as usize * stride;
+                        data[row + (bar.x0 - keep.x0) as usize..row + (bar.x1 - keep.x0) as usize]
+                            .fill(255);
                     }
                 }
             }
@@ -209,6 +222,7 @@ impl TextRasterizer for CosmicRasterizer {
             mask.threshold();
         }
         TextCoverage {
+            extent,
             mask,
             lines: lines.into_iter().map(|l| l.geometry).collect(),
         }

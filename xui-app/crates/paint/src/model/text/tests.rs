@@ -10,7 +10,7 @@ const ADVANCE: f32 = 6.0;
 const LINE: f32 = 10.0;
 
 impl TextRasterizer for Fake {
-    fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage {
+    fn layout_in(&self, text: &str, style: &TextStyle, window: Rect) -> TextCoverage {
         let lines: Vec<&str> = text.split('\n').collect();
         let block = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f32 * ADVANCE;
         let mut mask = Coverage::new(Rect::new(
@@ -52,7 +52,7 @@ impl TextRasterizer for Fake {
             });
             start += count + 1;
         }
-        TextCoverage { mask, lines: out }
+        TextCoverage::windowed(mask, window, out)
     }
 }
 
