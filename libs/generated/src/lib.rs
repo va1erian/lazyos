@@ -20305,6 +20305,8 @@ pub mod os_lazy_net_wifi_v1 {
     pub const FAIL_REASON_POLICY_MISMATCH: u32 = 7;
     /// `FailReason::Radio` wire value.
     pub const FAIL_REASON_RADIO: u32 = 8;
+    /// `FailReason::Unsupported` wire value.
+    pub const FAIL_REASON_UNSUPPORTED: u32 = 9;
 
     /// A heard network, merged with what is known about it.
     #[derive(Clone, Debug, Default, PartialEq)]

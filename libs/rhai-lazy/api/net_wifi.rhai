@@ -218,7 +218,7 @@ export const CONN_STATE_CONNECTED = "Connected";
 export const CONN_STATE_FAILED = "Failed";
 
 // The variants of `FailReason`, in wire order.
-export const FAIL_REASON = ["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio"];
+export const FAIL_REASON = ["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio", "Unsupported"];
 
 export const FAIL_REASON_NONE = "None";
 
@@ -237,6 +237,8 @@ export const FAIL_REASON_BEACON_LOSS = "BeaconLoss";
 export const FAIL_REASON_POLICY_MISMATCH = "PolicyMismatch";
 
 export const FAIL_REASON_RADIO = "Radio";
+
+export const FAIL_REASON_UNSUPPORTED = "Unsupported";
 
 // Filter for every event of the topic `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained).
 // Scans completed since the service started.

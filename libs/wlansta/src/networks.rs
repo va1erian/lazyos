@@ -32,6 +32,10 @@ impl Viewer {
     }
 }
 
+/// Several heard SSIDs show as the same text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Ambiguous;
+
 /// One heard network (`os.lazy.net.wifi.v1` `Network`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Network {
@@ -102,6 +106,27 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 }
             })
             .collect()
+    }
+
+    /// The raw SSID a typed name names among the networks heard: the octets
+    /// themselves when a BSS carries exactly them, else the one SSID whose
+    /// [`ssid::display`] form is the typed text. `Ok(None)` when nothing
+    /// heard matches (a hidden network, or one out of range);
+    /// `Err(Ambiguous)` when several different SSIDs display as typed and
+    /// none is exact.
+    pub fn heard_ssid(&self, typed: &[u8]) -> Result<Option<Vec<u8>>, Ambiguous> {
+        let heard = || self.table.iter().filter(|b| !b.hidden);
+        if heard().any(|b| b.ssid == typed) {
+            return Ok(Some(typed.to_vec()));
+        }
+        let mut found: Option<&[u8]> = None;
+        for bss in heard().filter(|b| ssid::matches(typed, &b.ssid).is_some()) {
+            match found {
+                Some(other) if other != bss.ssid.as_slice() => return Err(Ambiguous),
+                _ => found = Some(&bss.ssid),
+            }
+        }
+        Ok(found.map(<[u8]>::to_vec))
     }
 
     /// The viewer's best profile for a network: highest priority.

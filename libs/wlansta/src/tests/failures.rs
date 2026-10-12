@@ -8,8 +8,23 @@ use super::ap::{Ap, AP};
 use super::*;
 use crate::reason;
 
+/// Answer `actions` (a scan, or a fetch straight from the table) with `ap`
+/// and `pmk`, and run the join up to the handshake.
+fn rejoin(h: &mut H, actions: Vec<Action>, ap: &Ap, pmk: [u8; 32]) {
+    let actions = if actions.iter().any(|a| matches!(a, Action::Scan { .. })) {
+        h.answer_scan(actions, &[ap])
+    } else {
+        actions
+    };
+    let actions = h.answer_pmk(actions, pmk);
+    assert!(matches!(actions[0], Action::Join { .. }), "{actions:?}");
+    h.rx(FrameKind::Mgmt, ap.auth_response(0));
+    h.rx(FrameKind::Mgmt, ap.assoc_response(0, 1));
+    assert_eq!(h.state().0, ConnState::Handshake);
+}
+
 #[test]
-fn a_wrong_passphrase_fails_once_and_is_not_retried() {
+fn a_silent_wrong_passphrase_takes_two_attempts_and_its_block_decays() {
     let mut ap = Ap::wpa2(AP, "home", "correct horse battery", Akm::Psk);
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let wrong = lazyos_crypto::wifi::pbkdf2_sha1(b"wrong passphrase", b"home").unwrap();
@@ -19,32 +34,64 @@ fn a_wrong_passphrase_fails_once_and_is_not_retried() {
     // The AP drops message 2 and retries message 1; the station answers.
     let actions = h.rx(FrameKind::Eapol, ap.msg1());
     assert!(!ap.take_msg2(&eapol_sent(&actions)));
-    // Nothing verifies before the deadline.
+    // The AP never says why: the first silent end is only a timeout (a lost
+    // frame or a rogue BSS look the same), and the BSS is avoided.
     let actions = h.advance(crate::HANDSHAKE_TIMEOUT_MS);
     assert_eq!(leaves(&actions), vec![reason::HANDSHAKE_TIMEOUT]);
+    assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
+    let actions = h.advance(crate::BACKOFF_MIN_MS);
+    assert!(matches!(actions.as_slice(), [Action::Scan { .. }]), "a penalised BSS is rescanned for: {actions:?}");
+    rejoin(&mut h, actions, &ap, wrong);
+    h.rx(FrameKind::Eapol, ap.msg1());
+    h.advance(crate::HANDSHAKE_TIMEOUT_MS);
+    // The second in a row is a wrong passphrase.
     let status = h.sta.status().clone();
     assert_eq!((status.state, status.reason), (ConnState::Failed, FailReason::BadPassphrase));
-    assert_eq!((status.id.as_str(), status.ssid.as_str()), (HOME, "home"));
-    // No retry storm: nothing is scheduled, nothing happens.
-    assert_eq!(h.sta.next_deadline(), None);
+    assert_eq!((status.id.as_str(), status.ssid.as_str(), status.owner), (HOME, "home", Some(Owner::System)));
+    // No retry storm: only the block's end is scheduled.
+    assert_eq!(h.sta.next_deadline(), Some(h.now + crate::BLOCK_MS));
     for _ in 0..10 {
         assert!(h.advance(crate::BACKOFF_MAX_MS).is_empty());
     }
     assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
-    // The user tries again: the block is lifted.
-    let actions = h.sta.connect(h.now, HOME).unwrap();
+    // The block decays: auto-connect tries once more.
+    let rest = crate::BLOCK_MS - 10 * crate::BACKOFF_MAX_MS;
+    let actions = h.advance(rest);
     assert!(matches!(actions.as_slice(), [Action::Scan { .. }] | [Action::FetchPmk { .. }]), "{actions:?}");
 }
 
 #[test]
-fn an_ap_deauthenticating_after_message_2_means_a_wrong_passphrase() {
+fn connecting_again_lifts_a_block() {
+    let ap = Ap::wpa2(AP, "home", "correct horse battery", Akm::Psk);
+    let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
+    let actions = h.begin();
+    h.answer_scan(actions, &[&ap]);
+    h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
+    assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
+    let actions = h.sta.connect(h.now, Owner::System, HOME).unwrap();
+    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "{actions:?}");
+    assert_eq!(h.sta.next_deadline(), Some(h.now + crate::PMK_TIMEOUT_MS), "no block left");
+}
+
+#[test]
+fn the_aps_reason_after_message_2_is_the_evidence() {
     let mut ap = Ap::wpa2(AP, "home", "correct horse battery", Akm::Psk);
+    // 15, 2 and 23 after message 2: the AP says the passphrase is wrong.
+    for code in crate::BAD_PASSPHRASE_REASONS {
+        let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
+        to_handshake(&mut h, &ap, [9; 32]);
+        h.rx(FrameKind::Eapol, ap.msg1());
+        let actions = h.rx(FrameKind::Mgmt, ap.deauth(code));
+        assert_eq!(leaves(&actions).len(), 1);
+        assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase), "reason {code}");
+    }
+    // Any other reason (or a forged one) is a rejection, retried elsewhere.
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     to_handshake(&mut h, &ap, [9; 32]);
     h.rx(FrameKind::Eapol, ap.msg1());
-    let actions = h.rx(FrameKind::Mgmt, ap.deauth(15));
-    assert_eq!(leaves(&actions).len(), 1);
-    assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
+    h.input(Event::Deauthenticated { reason: 7 });
+    assert_eq!(h.state(), (ConnState::Failed, FailReason::Rejected));
+    assert!(h.sta.next_deadline().is_some(), "a rejection is retried");
     // Before message 2 it is only a timeout.
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     to_handshake(&mut h, &ap, [9; 32]);
@@ -59,15 +106,32 @@ fn a_missing_secret_is_a_bad_passphrase_and_keyd_down_is_retried() {
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let actions = h.begin();
     h.answer_scan(actions, &[&ap]);
-    assert!(h.sta.pmk(h.now, HOME, Err(PmkError::Unavailable)).is_empty());
+    assert!(h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Unavailable)).is_empty());
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
-    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "{actions:?}");
-    h.sta.pmk(h.now, HOME, Err(PmkError::Missing));
+    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "keyd, not the BSS, failed: {actions:?}");
+    h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
     assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
-    assert_eq!(h.sta.next_deadline(), None);
-    // A PMK for another profile, or arriving late, is ignored.
-    assert!(h.sta.pmk(h.now, CAFE, Ok(Key::new([1; 32]))).is_empty());
+    assert_eq!(h.sta.next_deadline(), Some(h.now + crate::BLOCK_MS));
+    // A PMK for another profile, another owner's, or arriving late, is ignored.
+    assert!(h.sta.pmk(h.now, Owner::System, CAFE, Ok(Key::new([1; 32]))).is_empty());
+    assert!(h.sta.pmk(h.now, Owner::User(1000), HOME, Ok(Key::new([1; 32]))).is_empty());
+}
+
+#[test]
+fn a_pmk_that_never_comes_times_out() {
+    let ap = Ap::wpa2(AP, "home", "correct horse battery", Akm::Psk);
+    let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
+    let actions = h.begin();
+    let actions = h.answer_scan(actions, &[&ap]);
+    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]));
+    // The caller dropped the batch: the station does not wait forever.
+    assert_eq!(h.sta.next_deadline(), Some(h.now + crate::PMK_TIMEOUT_MS));
+    let actions = h.advance(crate::PMK_TIMEOUT_MS);
+    assert!(leaves(&actions).is_empty(), "nothing was joined");
+    assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
+    let actions = h.advance(crate::BACKOFF_MIN_MS);
+    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "the BSS is not blamed: {actions:?}");
 }
 
 #[test]
@@ -122,8 +186,11 @@ fn requests_are_retransmitted_then_time_out_with_growing_back_off() {
     let actions = h.advance(crate::JOIN_TIMEOUT_MS);
     assert_eq!(leaves(&actions).len(), 1);
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
-    // The retry: 1 s, then 2 s after the next failure.
+    // The retry: 1 s, then 2 s after the next failure. The BSS that never
+    // answered is avoided: a scan first, and it again only as the last
+    // resort.
     let actions = h.advance(crate::BACKOFF_MIN_MS);
+    let actions = h.answer_scan(actions, &[&ap]);
     assert!(matches!(actions[0], Action::Join { .. }));
     h.rx(FrameKind::Mgmt, ap.auth_response(0));
     for _ in 1..crate::JOIN_TRIES {
@@ -144,12 +211,14 @@ fn rejections_and_radio_errors_fail_the_attempt() {
     assert_eq!(leaves(&actions).len(), 1);
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Rejected));
 
-    h.advance(crate::BACKOFF_MIN_MS);
+    let actions = h.advance(crate::BACKOFF_MIN_MS);
+    h.answer_scan(actions, &[&ap]);
     h.rx(FrameKind::Mgmt, ap.auth_response(0));
     h.rx(FrameKind::Mgmt, ap.assoc_response(12, 0));
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Rejected));
 
-    h.advance(2 * crate::BACKOFF_MIN_MS);
+    let actions = h.advance(2 * crate::BACKOFF_MIN_MS);
+    h.answer_scan(actions, &[&ap]);
     let actions = h.input(Event::HwError {
         op: HwOp::Join,
         errno: -22,
@@ -194,7 +263,7 @@ fn forgetting_the_current_network_leaves_it() {
     let actions = h.sta.set_profiles(h.now, vec![]);
     assert_eq!(leaves(&actions), vec![reason::LEAVING]);
     assert_eq!(h.state(), (ConnState::Idle, FailReason::None));
-    assert_eq!(h.sta.connect(h.now, CAFE).unwrap_err(), Refused::NoProfile);
+    assert_eq!(h.sta.connect(h.now, Owner::System, CAFE).unwrap_err(), Refused::NoProfile);
 }
 
 #[test]

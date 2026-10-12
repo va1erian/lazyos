@@ -23,6 +23,10 @@ pub struct Ap {
     pub rsn: Option<Rsn>,
     pub rssi: i32,
     pub hidden: bool,
+    /// Elements appended to the beacon (HT, WMM, membership selectors...).
+    pub extra: Vec<u8>,
+    /// The channel the radio heard the beacon on, when not its own.
+    pub heard_on: Option<u8>,
     // The authenticator.
     pub pmk: [u8; 32],
     pub anonce: [u8; 32],
@@ -40,6 +44,8 @@ impl Ap {
             rsn: None,
             rssi: -50,
             hidden: false,
+            extra: Vec::new(),
+            heard_on: None,
             pmk: [0; 32],
             anonce: [0x33; 32],
             replay: 0,
@@ -87,13 +93,15 @@ impl Ap {
             interval: 100,
             capability,
         };
-        build::beacon(&self.bssid, 1, fields, &ies.finish())
+        let mut ies = ies.finish();
+        ies.extend_from_slice(&self.extra);
+        build::beacon(&self.bssid, 1, fields, &ies)
     }
 
     pub fn entry(&self) -> ScanEntry {
         ScanEntry {
             frame: self.beacon(),
-            channel: u32::from(self.channel),
+            channel: u32::from(self.heard_on.unwrap_or(self.channel)),
             band: 0,
             rssi_dbm: self.rssi,
             age_ms: 0,

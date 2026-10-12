@@ -52,11 +52,17 @@ impl Cursor<'_> {
     }
 }
 
+/// Profiles from a mask: bit 0 the system "cafe", bit 1 the system "home",
+/// bit 2 hidden, bit 3 no auto-connect, bits 4-5 the priority, bit 6 a user
+/// 1000 "home" under the system id (dropped when bit 1 is set), bit 7 a user
+/// 1001 "cafe" under the system id of "cafe".
 fn profiles(mask: u8) -> Vec<Profile> {
     let mut out = Vec::new();
-    for (bit, id, ssid, security) in [
-        (1, CAFE, &b"cafe"[..], Security::Open),
-        (2, HOME, &b"home"[..], Security::Wpa2Psk),
+    for (bit, id, ssid, security, owner) in [
+        (1, CAFE, &b"cafe"[..], Security::Open, Owner::System),
+        (2, HOME, &b"home"[..], Security::Wpa2Psk, Owner::System),
+        (0x40, HOME, &b"home"[..], Security::Wpa2Psk, Owner::User(1000)),
+        (0x80, CAFE, &b"cafe"[..], Security::Open, Owner::User(1001)),
     ] {
         if mask & bit != 0 {
             out.push(Profile {
@@ -65,12 +71,20 @@ fn profiles(mask: u8) -> Vec<Profile> {
                 security,
                 hidden: mask & 4 != 0,
                 autoconnect: mask & 8 == 0,
-                priority: u32::from(mask >> 4),
-                owner: Owner::System,
+                priority: u32::from((mask >> 4) & 3),
+                owner,
             });
         }
     }
     out
+}
+
+fn owner(byte: u8) -> Owner {
+    match byte % 3 {
+        0 => Owner::System,
+        1 => Owner::User(1000),
+        _ => Owner::User(1001),
+    }
 }
 
 fn beacon(bssid: &Mac, ssid: &[u8], wpa2: bool) -> Vec<u8> {
@@ -135,6 +149,21 @@ fn check<N: FnMut() -> [u8; 32] + Clone>(sta: &Station<N>, now: u64, ticked: boo
             assert!(matches!(sta.phase_name(), "handshake" | "connected" | "failed"));
         }
     }
+    let status = sta.status();
+    assert_eq!(status.owner.is_some(), !status.id.is_empty(), "an id always has its owner");
+    let (blocks, strikes, penalties) = sta.memory.sizes();
+    assert!(blocks <= sta.profiles().len() && strikes <= sta.profiles().len());
+    assert!(penalties <= crate::memory::MAX_PENALTIES);
+    for (i, p) in sta.profiles().iter().enumerate() {
+        let clash = sta.profiles()[..i]
+            .iter()
+            .any(|q| q.id == p.id && (q.owner == p.owner || q.owner == Owner::System));
+        assert!(!clash, "a profile identity is unique");
+    }
+    if matches!(sta.phase_name(), "auth" | "assoc" | "handshake" | "connected" | "wait-pmk") {
+        let current = sta.current().map(|c| &c.profile);
+        assert!(current.is_some_and(|c| sta.profiles().contains(c)), "the current profile is known");
+    }
     for network in sta.networks(Viewer::User(1000)) {
         assert!(network.ssid.len() <= 32 && !network.ssid.chars().any(char::is_control));
     }
@@ -171,7 +200,7 @@ pub fn run(data: &[u8]) -> ConnState {
                 sta.input(now, Event::Rx { kind: FrameKind::Eapol, rssi_dbm: -40, frame })
             }
             7 => sta.input(now, Event::BeaconLoss),
-            8 => sta.input(now, Event::Deauthenticated { reason: c.u16() }),
+            8 => sta.input(now, Event::Deauthenticated { reason: [1, 2, 7, 15, 23][usize::from(c.byte()) % 5] }),
             9 => {
                 let op = [HwOp::Scan, HwOp::AbortScan, HwOp::Join, HwOp::Tx, HwOp::SetState, HwOp::SetKey, HwOp::Leave];
                 let op = op[usize::from(c.byte()) % op.len()];
@@ -179,7 +208,7 @@ pub fn run(data: &[u8]) -> ConnState {
             }
             10 => {
                 let id = if c.byte() & 1 == 0 { CAFE } else { HOME };
-                sta.connect(now, id).unwrap_or_default()
+                sta.connect(now, owner(c.byte()), id).unwrap_or_default()
             }
             11 => sta.disconnect(now),
             12 => sta.scan(now, vec![]).unwrap_or_default(),
@@ -189,10 +218,18 @@ pub fn run(data: &[u8]) -> ConnState {
                     1 => Err(PmkError::Missing),
                     _ => Err(PmkError::Unavailable),
                 };
-                sta.pmk(now, HOME, answer)
+                sta.pmk(now, owner(c.byte()), HOME, answer)
             }
             14 => sta.set_profiles(now, profiles(c.byte())),
-            _ => sta.set_active_users(now, vec![u32::from(c.byte())]),
+            _ => {
+                let users = match c.byte() % 4 {
+                    0 => vec![],
+                    1 => vec![1000],
+                    2 => vec![1001, 1000],
+                    _ => vec![u32::from(c.byte())],
+                };
+                sta.set_active_users(now, users)
+            }
         };
         check(&sta, now, ticked, &actions);
     }

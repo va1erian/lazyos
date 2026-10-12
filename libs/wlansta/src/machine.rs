@@ -1,6 +1,7 @@
-//! The station: its state, the commands a front end gives it, scanning,
-//! selection, failure and back-off. The join itself (authentication,
-//! association, handshake) is `join.rs`.
+//! The station: its state, the commands a front end gives it, time and the
+//! status it reports. Scanning and selection are `scan.rs`, the join itself
+//! (authentication, association, handshake) `join.rs`, failures and what
+//! they leave behind `failure.rs` and `memory.rs`.
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -10,10 +11,11 @@ use alloc::vec::Vec;
 use eapol::{Key, Standard, Supplicant};
 use ieee80211::ScanTable;
 
+use crate::memory::Memory;
 use crate::select::Candidate;
 use crate::ssid;
 use crate::types::*;
-use crate::{reason, BACKOFF_MAX_MS, BACKOFF_MIN_MS, MAX_SCAN_SSIDS, SCAN_CAPACITY};
+use crate::{profile, reason, MAX_SCAN_SSIDS, SCAN_CAPACITY};
 
 /// A join under way: the BSS, the PMK when WPA2, and its retransmission.
 pub(crate) struct Joining {
@@ -31,7 +33,7 @@ pub(crate) struct Link<N: FnMut() -> [u8; 32]> {
     pub aid: u16,
     pub sup: Option<Supplicant<Standard<N>>>,
     pub deadline: u64,
-    /// Message 2 went out: a failure from here on means a wrong passphrase.
+    /// Message 2 went out: a failure from here on may be a wrong passphrase.
     pub msg2_sent: bool,
 }
 
@@ -39,8 +41,8 @@ pub(crate) enum Phase<N: FnMut() -> [u8; 32]> {
     Idle,
     /// A scan for a join runs; selection follows its results.
     Scanning,
-    /// Waiting for `keyd`'s PMK for this BSS.
-    WaitPmk(Candidate),
+    /// Waiting for `keyd`'s PMK for this BSS, until `deadline`.
+    WaitPmk { cand: Candidate, deadline: u64 },
     Auth(Joining),
     Assoc(Joining),
     Handshake(Link<N>),
@@ -69,14 +71,17 @@ pub struct Station<N: FnMut() -> [u8; 32] + Clone> {
     pub(crate) generation: u32,
     pub(crate) profiles: Vec<Profile>,
     pub(crate) active_users: Vec<u32>,
-    /// Profiles that failed with a wrong passphrase: not retried until the
-    /// user connects to them again.
-    pub(crate) blocked: Vec<String>,
-    /// The profile the user asked for; `None` means auto-connect.
-    pub(crate) target: Option<String>,
+    /// Blocks, strikes and BSSID penalties left by failures.
+    pub(crate) memory: Memory,
+    /// The profile the user asked for (owner and id); `None` means
+    /// auto-connect.
+    pub(crate) target: Option<(Owner, String)>,
     /// `Disconnect` was asked: no auto-connect until the next `Connect`.
     pub(crate) suspended: bool,
     pub(crate) failures: u32,
+    /// When the link came up; the back-off resets once it has held
+    /// [`crate::STABLE_MS`].
+    pub(crate) connected_at: Option<u64>,
     pub(crate) auto_scan_at: Option<u64>,
     seq: u16,
     /// Frames refused (malformed, foreign, out of place) since the start.
@@ -97,10 +102,11 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             generation: 0,
             profiles: Vec::new(),
             active_users: Vec::new(),
-            blocked: Vec::new(),
+            memory: Memory::default(),
             target: None,
             suspended: false,
             failures: 0,
+            connected_at: None,
             auto_scan_at: None,
             seq: 0,
             dropped: 0,
@@ -121,7 +127,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         self.dropped
     }
 
-    /// The profiles the station knows.
+    /// The profiles the station holds (after [`profile::normalize`]).
     pub fn profiles(&self) -> &[Profile] {
         &self.profiles
     }
@@ -131,7 +137,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         match self.phase {
             Phase::Idle => "idle",
             Phase::Scanning => "scanning",
-            Phase::WaitPmk(_) => "wait-pmk",
+            Phase::WaitPmk { .. } => "wait-pmk",
             Phase::Auth(_) => "auth",
             Phase::Assoc(_) => "assoc",
             Phase::Handshake(_) => "handshake",
@@ -143,15 +149,21 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     /// When [`Event::Tick`] is next due, if anything waits for time.
     pub fn next_deadline(&self) -> Option<u64> {
         let phase = match &self.phase {
+            Phase::WaitPmk { deadline, .. } => Some(*deadline),
             Phase::Auth(j) | Phase::Assoc(j) => Some(j.deadline),
             Phase::Handshake(link) => Some(link.deadline),
             Phase::Failed { retry_at } => *retry_at,
             _ => None,
         };
-        [phase, self.scan.as_ref().map(|s| s.deadline), self.auto_scan_at]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            phase,
+            self.scan.as_ref().map(|s| s.deadline),
+            self.auto_scan_at,
+            self.memory.next_expiry(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// The next 12-bit management sequence number.
@@ -202,7 +214,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         }
         let joining = matches!(
             self.phase,
-            Phase::WaitPmk(_) | Phase::Auth(_) | Phase::Assoc(_) | Phase::Handshake(_)
+            Phase::WaitPmk { .. } | Phase::Auth(_) | Phase::Assoc(_) | Phase::Handshake(_)
         );
         if self.scan.is_some() || joining {
             return Err(Refused::Busy);
@@ -210,18 +222,19 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         Ok(self.start_scan(now, false, ssids))
     }
 
-    /// Join the profile `id`: leave the current network, scan if it was not
-    /// heard lately, pick its best BSS. A wrong-passphrase block is lifted.
-    pub fn connect(&mut self, now: u64, id: &str) -> Result<Vec<Action>, Refused> {
-        if !self.profiles.iter().any(|p| p.id == id) {
+    /// Join `owner`'s profile `id`: leave the current network, scan if it was
+    /// not heard lately, pick its best BSS. A wrong-passphrase block and the
+    /// strikes towards one are lifted.
+    pub fn connect(&mut self, now: u64, owner: Owner, id: &str) -> Result<Vec<Action>, Refused> {
+        if !self.profiles.iter().any(|p| p.is(owner, id)) {
             return Err(Refused::NoProfile);
         }
-        let current = self.current().map(|c| c.profile.id.as_str());
-        if current == Some(id) && matches!(self.phase, Phase::Connected(_)) {
+        let current = self.current().is_some_and(|c| c.profile.is(owner, id));
+        if current && matches!(self.phase, Phase::Connected(_)) {
             return Ok(Vec::new());
         }
-        self.blocked.retain(|b| b != id);
-        self.target = Some(String::from(id));
+        self.memory.unblock(owner, id);
+        self.target = Some((owner, String::from(id)));
         self.suspended = false;
         self.failures = 0;
         let mut out = self.reset(reason::LEAVING);
@@ -240,13 +253,24 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         out
     }
 
-    /// Replace the known profiles. Leaving a network whose profile is gone or
-    /// changed; joining one when idle and auto-connect now has a candidate.
+    /// Whose network a `Disconnect` would leave: the profile joined or being
+    /// joined, else the one asked for, else the one whose failure is shown.
+    pub fn current_owner(&self) -> Option<Owner> {
+        let failed = (self.status.state == ConnState::Failed).then_some(self.status.owner);
+        self.current()
+            .map(|c| c.profile.owner)
+            .or(self.target.as_ref().map(|(owner, _)| *owner))
+            .or(failed.flatten())
+    }
+
+    /// Replace the known profiles ([`profile::normalize`]d). Leaving a network
+    /// whose profile is gone or changed; joining one when idle and
+    /// auto-connect now has a candidate.
     pub fn set_profiles(&mut self, now: u64, profiles: Vec<Profile>) -> Vec<Action> {
-        self.profiles = profiles;
-        let profiles = &self.profiles;
-        self.blocked.retain(|id| profiles.iter().any(|p| &p.id == id));
-        if self.target.as_ref().is_some_and(|t| !profiles.iter().any(|p| &p.id == t)) {
+        self.profiles = profile::normalize(profiles, profile::MAX_PER_OWNER);
+        self.memory.retain(&self.profiles);
+        let gone = |(owner, id): &(Owner, String)| !self.profiles.iter().any(|p| p.is(*owner, id));
+        if self.target.as_ref().is_some_and(gone) {
             self.target = None;
         }
         let stale = self
@@ -262,25 +286,46 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     }
 
     /// The uids logged in now: their own profiles become auto-connect
-    /// candidates beside the system's.
-    pub fn set_active_users(&mut self, now: u64, users: Vec<u32>) -> Vec<Action> {
+    /// candidates beside the system's. A user network whose owner is no
+    /// longer logged in is left (a user's network is theirs while they are
+    /// logged in).
+    pub fn set_active_users(&mut self, now: u64, mut users: Vec<u32>) -> Vec<Action> {
+        users.sort_unstable();
+        users.dedup();
         self.active_users = users;
-        self.reconsider(now)
+        let away = |owner: Owner| matches!(owner, Owner::User(uid) if !self.active_users.contains(&uid));
+        if self.target.as_ref().is_some_and(|(owner, _)| away(*owner)) {
+            self.target = None;
+        }
+        let mut out = Vec::new();
+        if self.current().is_some_and(|c| away(c.profile.owner)) {
+            out = self.reset(reason::LEAVING);
+            self.report(ConnState::Idle, FailReason::None);
+        }
+        out.extend(self.reconsider(now));
+        out
     }
 
-    /// `keyd`'s answer to [`Action::FetchPmk`] for profile `id`.
-    pub fn pmk(&mut self, now: u64, id: &str, pmk: Result<Key<32>, PmkError>) -> Vec<Action> {
-        let waiting = matches!(&self.phase, Phase::WaitPmk(c) if c.profile.id == id);
+    /// `keyd`'s answer to [`Action::FetchPmk`] for `owner`'s profile `id`.
+    pub fn pmk(
+        &mut self,
+        now: u64,
+        owner: Owner,
+        id: &str,
+        pmk: Result<Key<32>, PmkError>,
+    ) -> Vec<Action> {
+        let waiting = matches!(&self.phase, Phase::WaitPmk { cand, .. } if cand.profile.is(owner, id));
         if !waiting {
             return Vec::new();
         }
-        let Phase::WaitPmk(cand) = core::mem::replace(&mut self.phase, Phase::Idle) else {
+        let Phase::WaitPmk { cand, deadline } = core::mem::replace(&mut self.phase, Phase::Idle)
+        else {
             return Vec::new();
         };
         match pmk {
             Ok(pmk) => self.start_auth(now, cand, Some(pmk)),
             Err(error) => {
-                self.phase = Phase::WaitPmk(cand);
+                self.phase = Phase::WaitPmk { cand, deadline };
                 let why = match error {
                     PmkError::Missing => FailReason::BadPassphrase,
                     PmkError::Unavailable => FailReason::Timeout,
@@ -290,7 +335,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         }
     }
 
-    // ---- time, failures, reporting -------------------------------------------
+    // ---- time and reporting --------------------------------------------------
 
     fn tick(&mut self, now: u64) -> Vec<Action> {
         let mut out = Vec::new();
@@ -301,7 +346,9 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             let join = job.join;
             self.scan = None;
             if join && matches!(self.phase, Phase::Scanning) {
-                out.extend(self.select_and_join(now, false));
+                // What the table held before this scan may be old: only
+                // what was heard lately is joined.
+                out.extend(self.select_and_join(now, true));
             }
         }
         if self.auto_scan_at.is_some_and(|at| now >= at) {
@@ -310,6 +357,9 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 out.extend(self.attempt(now));
             }
         }
+        if self.memory.expire(now) {
+            out.extend(self.reconsider(now));
+        }
         if matches!(self.phase, Phase::Failed { retry_at: Some(at) } if now >= at) {
             out.extend(self.attempt(now));
         }
@@ -317,121 +367,52 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         out
     }
 
-    fn hw_error(&mut self, now: u64, op: HwOp) -> Vec<Action> {
-        match op {
-            HwOp::Scan => {
-                self.scan = None;
-                if matches!(self.phase, Phase::Scanning) {
-                    return self.fail(now, FailReason::Radio, None);
-                }
-                Vec::new()
-            }
-            HwOp::AbortScan | HwOp::Leave => Vec::new(),
-            HwOp::Join | HwOp::Tx | HwOp::SetState | HwOp::SetKey => {
-                if self.current().is_some() {
-                    return self.fail(now, FailReason::Radio, Some(reason::UNSPECIFIED));
-                }
-                Vec::new()
-            }
-        }
-    }
-
     /// The candidate of the join or link in progress.
     pub(crate) fn current(&self) -> Option<&Candidate> {
         match &self.phase {
-            Phase::WaitPmk(c) => Some(c),
+            Phase::WaitPmk { cand, .. } => Some(cand),
             Phase::Auth(j) | Phase::Assoc(j) => Some(&j.cand),
             Phase::Handshake(l) | Phase::Connected(l) => Some(&l.cand),
             _ => None,
         }
     }
 
-    /// Whether the radio is joined (it needs a `Leave` to be idle again).
-    fn joined(&self) -> bool {
-        matches!(
-            self.phase,
-            Phase::Auth(_) | Phase::Assoc(_) | Phase::Handshake(_) | Phase::Connected(_)
-        )
-    }
-
-    /// Leave whatever is joined and drop a join scan; the phase becomes idle.
-    pub(crate) fn reset(&mut self, leave_reason: u16) -> Vec<Action> {
-        let mut out = Vec::new();
-        if self.joined() {
-            out.push(Action::Leave {
-                reason: leave_reason,
-            });
-        }
-        if let Some(job) = self.scan.as_mut() {
-            job.join = false;
-        }
-        self.phase = Phase::Idle;
-        out
-    }
-
-    /// The attempt failed: leave, report why, and schedule the retry.
-    pub(crate) fn fail(&mut self, now: u64, why: FailReason, leave: Option<u16>) -> Vec<Action> {
-        let failed = self.current().map(|c| c.profile.clone()).or_else(|| {
-            let target = self.target.as_ref()?;
-            self.profiles.iter().find(|p| &p.id == target).cloned()
-        });
-        let out = self.reset(leave.unwrap_or(reason::UNSPECIFIED));
-        if why == FailReason::BadPassphrase {
-            if let Some(profile) = &failed {
-                self.blocked.push(profile.id.clone());
-                if self.target.as_ref() == Some(&profile.id) {
-                    self.target = None;
-                }
-            }
-        }
-        self.failures = self.failures.saturating_add(1);
-        let retry = !self.wanted().is_empty();
-        let shift = self.failures.saturating_sub(1).min(16);
-        let delay = (BACKOFF_MIN_MS << shift).min(BACKOFF_MAX_MS);
-        self.phase = Phase::Failed {
-            retry_at: retry.then_some(now + delay),
-        };
-        let (name, id) = failed
-            .map(|p| (ssid::display(&p.ssid), p.id))
-            .unwrap_or_default();
-        self.set_status(ConnState::Failed, why, name, id, None, 0, 0);
-        out
-    }
-
-    /// The link (or the join) ended under us.
-    pub(crate) fn link_lost(&mut self, now: u64, why: FailReason, leave: u16) -> Vec<Action> {
-        if self.joined() {
-            return self.fail(now, why, Some(leave));
-        }
-        Vec::new()
+    /// The profile of the target, if one is set and still known.
+    pub(crate) fn target_profile(&self) -> Option<&Profile> {
+        let (owner, id) = self.target.as_ref()?;
+        self.profiles.iter().find(|p| p.is(*owner, id))
     }
 
     /// Report the state of the current candidate (or none).
     pub(crate) fn report(&mut self, state: ConnState, why: FailReason) {
-        let (name, id, bssid, freq, rssi) = match self.current() {
+        let (name, owner, bssid, freq, rssi) = match self.current() {
             Some(c) => (
                 ssid::display(&c.profile.ssid),
-                c.profile.id.clone(),
+                Some((c.profile.owner, c.profile.id.clone())),
                 Some(c.bss.bssid),
                 c.band.freq_mhz(c.bss.channel),
                 i32::from(c.bss.rssi),
             ),
-            None => (String::new(), String::new(), None, 0, 0),
+            None => (String::new(), None, None, 0, 0),
         };
-        self.set_status(state, why, name, id, bssid, freq, rssi);
+        self.set_status(state, why, name, owner, bssid, freq, rssi);
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn set_status(
+    pub(crate) fn set_status(
         &mut self,
         state: ConnState,
         reason: FailReason,
         ssid: String,
-        id: String,
+        profile: Option<(Owner, String)>,
         bssid: Option<Mac>,
         freq_mhz: u32,
         rssi_dbm: i32,
     ) {
+        let (owner, id) = match profile {
+            Some((owner, id)) => (Some(owner), id),
+            None => (None, String::new()),
+        };
         let mut next = Status {
             state,
             ssid,
@@ -439,6 +420,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             rssi_dbm,
             freq_mhz,
             id,
+            owner,
             reason,
             changes: self.status.changes,
         };
@@ -448,9 +430,14 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         self.status = next;
     }
 
-    /// The connection succeeded: forget the failures.
-    pub(crate) fn connected(&mut self) {
-        self.failures = 0;
+    /// The connection succeeded: the profile's strikes go, and the back-off
+    /// resets once the link has held.
+    pub(crate) fn connected(&mut self, now: u64) {
+        if let Some(c) = self.current() {
+            let (owner, id) = (c.profile.owner, c.profile.id.clone());
+            self.memory.clear_strikes(owner, &id);
+        }
+        self.connected_at = Some(now);
         self.report(ConnState::Connected, FailReason::None);
     }
 }

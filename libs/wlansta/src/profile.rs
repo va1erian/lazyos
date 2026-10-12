@@ -23,6 +23,12 @@ pub const USER_TAIL: &str = "net/wifi/networks";
 pub const COUNTRY_KEY: &str = "sys/net/wifi/country";
 /// The world domain, used when the key is unset or not a country code.
 pub const WORLD: &str = "00";
+/// Profiles one owner (the system, or one user) keeps at most.
+pub const MAX_PER_OWNER: usize = 32;
+/// Ids of one owner read at most per load: a user who writes thousands of
+/// junk keys under their own subtree costs bounded work, and invalid ones
+/// (which [`parse`] drops) do not take the place of valid ones below this.
+pub const MAX_READ_PER_OWNER: usize = 2 * MAX_PER_OWNER;
 
 /// A field's value, mirroring the `confd` kinds used here.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,14 +139,39 @@ pub fn split_key(key: &str) -> Option<(Owner, &str)> {
     (valid_id(id) && FIELDS.contains(&field)).then_some((owner, id))
 }
 
-/// The distinct (owner, id) pairs among `keys`, in order of first sight.
-pub fn ids(keys: &[String]) -> Vec<(Owner, String)> {
+/// The distinct (owner, id) pairs among `keys`, in order of first sight, at
+/// most `per_owner` for each owner.
+pub fn ids(keys: &[String], per_owner: usize) -> Vec<(Owner, String)> {
     let mut out: Vec<(Owner, String)> = Vec::new();
     for key in keys {
         if let Some((owner, id)) = split_key(key) {
-            if !out.iter().any(|(o, i)| *o == owner && i == id) {
+            let known = out.iter().any(|(o, i)| *o == owner && i == id);
+            let full = out.iter().filter(|(o, _)| *o == owner).count() >= per_owner;
+            if !known && !full {
                 out.push((owner, String::from(id)));
             }
+        }
+    }
+    out
+}
+
+/// The profiles a station holds, from what was read: system profiles first;
+/// a user profile whose id a system profile has, or a second profile of the
+/// same owner and id, dropped; at most `per_owner` per owner, counted after
+/// parsing. A profile is named by (owner, id) from here on, and a caller's
+/// id is unambiguous among the profiles it may use (the system's and its
+/// own).
+pub fn normalize(profiles: Vec<Profile>, per_owner: usize) -> Vec<Profile> {
+    let (system, users): (Vec<Profile>, Vec<Profile>) =
+        profiles.into_iter().partition(|p| p.owner == Owner::System);
+    let mut out: Vec<Profile> = Vec::new();
+    for profile in system.into_iter().chain(users) {
+        let clash = out
+            .iter()
+            .any(|p| p.id == profile.id && (p.owner == profile.owner || p.owner == Owner::System));
+        let full = out.iter().filter(|p| p.owner == profile.owner).count() >= per_owner;
+        if !clash && !full {
+            out.push(profile);
         }
     }
     out

@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use eapol::{Cipher, Config, Key, Stage, Standard, Supplicant};
 
+use crate::failure::BAD_PASSPHRASE_REASONS;
 use crate::frames::{self, Rx};
 use crate::machine::{Joining, Link, Phase, Station};
 use crate::select::{Candidate, Join};
@@ -84,7 +85,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 deadline: 0,
                 msg2_sent: false,
             });
-            self.connected();
+            self.connected(now);
             return out;
         };
         let config = Config {
@@ -119,11 +120,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                     deadline: now,
                     msg2_sent: false,
                 });
-                out.extend(self.fail(
-                    now,
-                    FailReason::PolicyMismatch,
-                    error.deauth_reason(),
-                ));
+                out.extend(self.fail(now, refusal(error), error.deauth_reason()));
                 out
             }
         }
@@ -202,13 +199,7 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         let steps = match result {
             Ok(steps) => steps,
             Err(error) if error.is_fatal() => {
-                let why = match error {
-                    eapol::Error::BadKeyData | eapol::Error::MissingGtk | eapol::Error::BadGtk => {
-                        FailReason::Rejected
-                    }
-                    _ => FailReason::PolicyMismatch,
-                };
-                return Some(self.fail(now, why, error.deauth_reason()));
+                return Some(self.fail(now, refusal(error), error.deauth_reason()));
             }
             // A wrong MIC, a replay, a message out of order: drop it and let
             // the handshake deadline (or the AP) decide.
@@ -248,26 +239,34 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         if authorized && matches!(self.phase, Phase::Handshake(_)) {
             if let Phase::Handshake(link) = core::mem::replace(&mut self.phase, Phase::Idle) {
                 self.phase = Phase::Connected(link);
-                self.connected();
+                self.connected(now);
             }
         }
         Some(out)
     }
 
-    /// The AP deauthenticated or disassociated us (event or frame).
+    /// The AP deauthenticated or disassociated us (event or frame) with
+    /// reason `code`. Unprotected, so anyone can send one: during a
+    /// handshake only the reasons an AP gives for a failed message 2 count
+    /// towards a wrong passphrase, and even those decay
+    /// ([`crate::memory::BLOCK_MS`]).
     pub(crate) fn ended(&mut self, now: u64, code: u16) -> Vec<Action> {
-        let why = match &self.phase {
-            Phase::Auth(_) | Phase::Assoc(_) => FailReason::Rejected,
-            Phase::Handshake(link) if link.msg2_sent => FailReason::BadPassphrase,
-            _ => FailReason::Deauthenticated,
-        };
-        let _ = code;
-        self.link_lost(now, why, reason::UNSPECIFIED)
+        match &self.phase {
+            Phase::Handshake(link) if link.msg2_sent => {
+                let strong = BAD_PASSPHRASE_REASONS.contains(&code);
+                self.handshake_failed(now, strong, FailReason::Rejected, reason::UNSPECIFIED)
+            }
+            Phase::Auth(_) | Phase::Assoc(_) | Phase::Handshake(_) => {
+                self.link_lost(now, FailReason::Rejected, reason::UNSPECIFIED)
+            }
+            _ => self.link_lost(now, FailReason::Deauthenticated, reason::UNSPECIFIED),
+        }
     }
 
     /// Retransmissions and the handshake deadline.
     pub(crate) fn join_tick(&mut self, now: u64) -> Vec<Action> {
         let due = match &self.phase {
+            Phase::WaitPmk { deadline, .. } => now >= *deadline,
             Phase::Auth(j) | Phase::Assoc(j) => now >= j.deadline,
             Phase::Handshake(link) => now >= link.deadline,
             _ => false,
@@ -300,18 +299,35 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 }]
             }
             Phase::Handshake(link) => {
-                let why = if link.msg2_sent {
-                    FailReason::BadPassphrase
-                } else {
-                    FailReason::Timeout
-                };
+                let msg2_sent = link.msg2_sent;
                 self.phase = Phase::Handshake(link);
-                self.fail(now, why, Some(reason::HANDSHAKE_TIMEOUT))
+                if msg2_sent {
+                    return self.handshake_failed(now, false, FailReason::Timeout, reason::HANDSHAKE_TIMEOUT);
+                }
+                self.fail(now, FailReason::Timeout, Some(reason::HANDSHAKE_TIMEOUT))
             }
             phase => {
                 self.phase = phase;
                 self.fail(now, FailReason::Timeout, Some(reason::UNSPECIFIED))
             }
         }
+    }
+}
+
+/// What a fatal `eapol` error says about the network: a cipher, AKM or
+/// protection the station cannot run is `Unsupported`; a group key it could
+/// not take is the AP's fault (`Rejected`); anything else (an RSN element
+/// that changed between the beacon and message 3: a downgrade) is
+/// `PolicyMismatch`.
+fn refusal(error: eapol::Error) -> FailReason {
+    match error {
+        eapol::Error::UnsupportedAkm(_)
+        | eapol::Error::UnsupportedCipher(_)
+        | eapol::Error::PmfRequired
+        | eapol::Error::NotOffered => FailReason::Unsupported,
+        eapol::Error::BadKeyData | eapol::Error::MissingGtk | eapol::Error::BadGtk => {
+            FailReason::Rejected
+        }
+        _ => FailReason::PolicyMismatch,
     }
 }

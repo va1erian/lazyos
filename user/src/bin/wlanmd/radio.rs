@@ -11,7 +11,8 @@ use user::central::Bus;
 use user::messenger::wifi::{api, hw, Radio};
 use user::messenger::{self, errno, Endpoint, Error, Message};
 use user::sys;
-use wlansta::{Action, Event, FrameKind, HwOp, ScanEntry, Station, Status};
+use wlansta::profile::WORLD;
+use wlansta::{Action, Event, FrameKind, HwOp, ScanEntry, Station, Status, Viewer};
 
 use crate::store::Store;
 
@@ -32,6 +33,8 @@ pub(crate) struct Slot {
     /// Our end of the event channel the driver sends on.
     pub events: Endpoint,
     pub station: Sta,
+    /// The regulatory domain the radio accepted.
+    pub country: String,
     /// Tick the registry last listed it.
     pub seen: u64,
     published_changes: Option<u32>,
@@ -48,7 +51,8 @@ pub(crate) fn mac_text(mac: &[u8; 6]) -> String {
 
 impl Slot {
     /// Resolve the radio `ifname`, read its address, attach with a fresh
-    /// event channel and set the regulatory domain.
+    /// event channel and set the regulatory domain (the world domain when
+    /// the radio refuses `country`; no attach when it refuses that too).
     pub fn attach(ifname: &str, country: &str, nonce: fn() -> [u8; 32]) -> messenger::Result<Slot> {
         let radio = Radio::connect(ifname, CALL_TICKS)?;
         let mac: [u8; 6] = match radio.info() {
@@ -71,15 +75,22 @@ impl Slot {
             radio.release();
             return Err(error);
         }
-        if let Err(error) = radio.set_country(country) {
-            sys::write_str(&format!("WLANMD:RADIO:COUNTRY {ifname} {}\n", error.message()));
-        }
+        let country = match set_country(&radio, ifname, country) {
+            Ok(code) => code,
+            Err(error) => {
+                let _ = radio.detach();
+                let _ = mine.close();
+                radio.release();
+                return Err(error);
+            }
+        };
         Ok(Slot {
             ifname: String::from(ifname),
             mac,
             radio,
             events: mine,
             station: Station::new(mac, nonce),
+            country,
             seen: sys::clock(),
             published_changes: None,
             published_generation: 0,
@@ -87,6 +98,13 @@ impl Slot {
             printed_generation: 0,
             buffer: vec![0; SCAN_BUFFER],
         })
+    }
+
+    /// Give the radio a new regulatory domain (the world domain if it
+    /// refuses that one). `Err` when it takes neither: the caller drops it.
+    pub fn apply_country(&mut self, country: &str) -> messenger::Result<()> {
+        self.country = set_country(&self.radio, &self.ifname, country)?;
+        Ok(())
     }
 
     /// Detach and release everything (the driver may already be gone).
@@ -98,7 +116,10 @@ impl Slot {
     }
 
     /// Run `actions` in order; a radio call that fails stops the batch and is
-    /// reported to the station, whose answer runs next.
+    /// reported to the station, whose answer runs next. A failed `Leave` or
+    /// `AbortScan` is reported but does not stop the batch: the radio leaves
+    /// and stops on its own when it can, and what follows (a new join, the
+    /// next scan) must still happen.
     pub fn execute(&mut self, store: &mut Store, actions: Vec<Action>) {
         for action in actions {
             match self.run(store, action) {
@@ -112,7 +133,9 @@ impl Slot {
                     let event = Event::HwError { op, errno };
                     let more = self.station.input(crate::now_ms(), event);
                     self.execute(store, more);
-                    return;
+                    if !matches!(op, HwOp::Leave | HwOp::AbortScan) {
+                        return;
+                    }
                 }
             }
         }
@@ -171,7 +194,7 @@ impl Slot {
             }
             Action::FetchPmk { id, owner, ssid } => {
                 let answer = store.pmk(&id, owner, &ssid);
-                Ok(Feedback::Actions(self.station.pmk(crate::now_ms(), &id, answer)))
+                Ok(Feedback::Actions(self.station.pmk(crate::now_ms(), owner, &id, answer)))
             }
         }
     }
@@ -268,8 +291,11 @@ impl Slot {
         let Some(bus) = bus else {
             return;
         };
+        // Everyone may read the topic: a user network's profile id is not
+        // published there (its owner reads it through `Status`).
+        let public = wire_state(&status, Viewer::System);
         if self.published_changes != Some(status.changes)
-            && api::publish_system_net_wifi_state(bus, &self.ifname, &wire_state(&status)).is_ok()
+            && api::publish_system_net_wifi_state(bus, &self.ifname, &public).is_ok()
         {
             self.published_changes = Some(status.changes);
         }
@@ -298,15 +324,27 @@ fn entry(e: hw::ScanEntry) -> ScanEntry {
     }
 }
 
-/// The station's status as `WifiState`.
-pub(crate) fn wire_state(status: &Status) -> api::WifiState {
+/// Set `country` on `radio`, else the world domain; the code it took.
+fn set_country(radio: &Radio, ifname: &str, country: &str) -> messenger::Result<String> {
+    match radio.set_country(country) {
+        Ok(()) => return Ok(String::from(country)),
+        Err(error) => sys::write_str(&format!("WLANMD:RADIO:COUNTRY {ifname} {country} {}\n", error.message())),
+    }
+    radio.set_country(WORLD)?;
+    Ok(String::from(WORLD))
+}
+
+/// The station's status as `WifiState`, as `viewer` may see it: the profile
+/// id only when the viewer may see that owner's profiles.
+pub(crate) fn wire_state(status: &Status, viewer: Viewer) -> api::WifiState {
+    let shown = status.owner.is_some_and(|owner| viewer.sees(owner));
     api::WifiState {
         state: status.state as u32,
         ssid: status.ssid.clone(),
         bssid: status.bssid.map(|b| b.to_vec()).unwrap_or_default(),
         rssi_dbm: status.rssi_dbm,
         freq_mhz: status.freq_mhz,
-        id: status.id.clone(),
+        id: if shown { status.id.clone() } else { String::new() },
         reason: status.reason as u32,
         changes: status.changes,
     }

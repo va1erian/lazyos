@@ -32,10 +32,10 @@ an SSID over 32 octets is the one error that refuses the frame.
 | Item | What it does |
 |---|---|
 | `Mgmt::parse(&[u8])` | Header (24 octets, +4 HT Control with the Order bit) and body of a management frame, no FCS. `Body::{Beacon, ProbeRequest, ProbeResponse, Auth, AssocRequest, AssocResponse, Deauth, Disassoc, Action, Other}`. Refuses a version other than 0, non-management types, the Protected bit and fragments |
-| `Elements::parse(ies)` | SSID (may be empty, all NULs, non-UTF-8; `hidden()`), rates, DS channel, country, HT/VHT/HE capabilities as raw slices, the first RSN element (body and whole element), the WPA1 vendor element, up to 32 vendor elements |
+| `Elements::parse(ies)` | SSID (may be empty, all NULs, non-UTF-8; `hidden()`), rates, DS channel, country, HT/VHT/HE capabilities as raw slices, the HT Operation element (22 octets or more; `ht_primary_channel()`), the first RSN element (body and whole element), the WPA1 vendor element, whether a WMM element was present (`wmm`, noted past the vendor cap too), up to 32 vendor elements |
 | `Rsn::{parse_body, parse_ie, to_body, to_ie}` | Version, group cipher, pairwise list, AKM list, capabilities (`RsnCaps`), PMKID list, group management cipher. Optional tail fields default per the standard; counts are checked against the bytes left; `parse` of `to_ie` is the identity |
 | `build::{beacon, probe_response, probe_request, auth, assoc_request, assoc_response, deauth, disassoc, action}` and `IeBuilder` | The frames a station sends and the ones the simulator's AP sends |
-| `Bss::from_frame(&Mgmt, rx_channel, rssi, now_ms)` | BSSID, SSID, channel (the chip's, else DS), RSSI, capability, `Security::{Open, Wep, Wpa1, Rsn(Rsn), InvalidRsn}`, the whole RSN element for the handshake, country, HT/VHT/HE flags. `None` for IBSS, a spoofed transmitter or a group BSSID |
+| `Bss::from_frame(&Mgmt, rx_channel, rssi, now_ms)` | BSSID, SSID, channel (`operating_channel`: the DS Parameter Set's on 2.4 GHz, where a receiver also hears the overlapping neighbour channels, the HT Operation primary channel on 5 GHz, a claim from the other band ignored, else the channel heard on), RSSI, capability, `Security::{Open, Wep, Wpa1, Rsn(Rsn), InvalidRsn}`, the whole RSN element for the handshake, country, HT/VHT/HE/WMM flags and the HT primary channel. `None` for IBSS, a spoofed transmitter or a group BSSID |
 | `ScanTable::{new(capacity), update, expire(now, max_age), get, by_signal}` | By BSSID. Never past its capacity: when full, a new BSS replaces the weakest only if it is stronger. A hidden beacon never blanks a name learned from a probe response |
 
 The scan time is the caller's millisecond clock; the library has no clock.
@@ -159,79 +159,127 @@ The station is pure (`no_std` + `alloc`, no clock, no I/O):
 ```rust
 let mut sta = Station::new(mac, fresh_nonce);           // fn() -> [u8; 32]
 let actions = sta.set_profiles(now_ms, profiles);       // auto-connect may start
+let actions = sta.set_active_users(now_ms, uids);       // their profiles too
 let actions = sta.input(now_ms, Event::ScanDone { scan_id, aborted, entries });
-let actions = sta.pmk(now_ms, &id, Ok(Key::new(pmk)));  // answer to Action::FetchPmk
-sta.connect(now_ms, &id)?; sta.disconnect(now_ms); sta.scan(now_ms, ssids)?;
+let actions = sta.pmk(now_ms, owner, &id, Ok(Key::new(pmk))); // answer to FetchPmk
+sta.connect(now_ms, owner, &id)?; sta.disconnect(now_ms); sta.scan(now_ms, ssids)?;
 sta.status(); sta.networks(Viewer::User(uid)); sta.next_deadline();
+sta.current_owner(); sta.heard_ssid(typed);
 ```
 
 `Event`: `ScanStarted`, `ScanDone`, `Rx { kind, rssi_dbm, frame }`,
 `BeaconLoss`, `Deauthenticated`, `HwError { op, errno }`, `Tick`.
 `Action`: `Scan`, `AbortScan`, `Join`, `Tx`, `SetState`, `SetKey`, `Leave`,
 `FetchPmk`. The caller runs a batch in order and stops at the first radio
-call that fails, reporting it as `HwError`. Also: `policy` (who may do what on
-`wifi.v1`), `profile` (the `confd` keys, ids `w` + 12 hex digits, the country
-default `00`), `ssid::display` (lossy UTF-8, control and invisible
-formatting characters dropped, at most 32 octets), `select` (security
-classification and BSS choice).
+call that fails (a failed `Leave` or `AbortScan` excepted), reporting it as
+`HwError`. Also: `policy` (who may do what on `wifi.v1`), `profile` (the
+`confd` keys, ids `w` + 12 hex digits, the country default `00`,
+`normalize`), `ssid::display` (lossy UTF-8; control characters, bidi marks,
+embeddings, overrides and isolates, line and paragraph separators,
+zero-width space, tag and annotation characters dropped, the zero-width
+joiner and non-joiner kept; at most 32 octets) and `ssid::matches`,
+`select` (security classification and BSS choice).
+
+**Identity.** A profile is its owner and its id (`Profile::is`): each user
+writes their own `confd` subtree, so two users may hold the same id.
+`profile::normalize` keeps system profiles first, drops a user profile that
+reuses a system id (or repeats its own), and keeps at most 32 per owner,
+counted after parsing (`wlanmd` reads at most 64 ids per owner).
+`Connect`, `Forget`, the PMK and the station's target, blocks and status
+all carry the owner.
 
 Behaviour, each pinned by a host test:
 
-- **Selection**: a known SSID whose security is the profile's; priority, then
-  signal. Joinable: Open, and RSN with CCMP-128 pairwise and group, AKM 2
-  (preferred) or 6, no MFP required. Anything else is `Unsupported`, listed
-  and never joined (an explicit `Connect` to it fails `PolicyMismatch`).
-  A BSS heard in the last 30 s is joined without scanning; hidden profiles are
-  probed for by name.
-- **Join**: `Join`, Open System authentication, `SetState(Authenticated)`,
-  an association request (the BSS's rates; for WPA2 an RSN element with
-  exactly the chosen AKM and CCMP, which `eapol` checks message 2 and 3
-  against), `SetState(Associated, aid)`; open networks then
-  `SetState(Authorized)`. Requests are sent 4 times, 500 ms apart.
+- **Selection**: a known SSID whose security is the profile's; a BSS that
+  failed us lately last, then priority, then signal. Joinable: Open, and RSN
+  with CCMP-128 pairwise and group, AKM 2 (preferred) or 6, no MFP required.
+  Anything else is `Unsupported`, listed and never joined (an explicit
+  `Connect` fails `Unsupported`; one whose security differs from the
+  profile's, `PolicyMismatch`). A BSS heard in the last 30 s is joined
+  without scanning unless it failed us lately; hidden profiles are probed
+  for by name. A user's profiles are auto-connect candidates only while that
+  user is logged in (`set_active_users`); their network is left when they
+  log out.
+- **Join**: `Join` on the BSS's own channel, Open System authentication,
+  `SetState(Authenticated)`, an association request (the BSS's rates without
+  membership selectors; for WPA2 an RSN element with exactly the chosen AKM
+  and CCMP, which `eapol` checks message 2 and 3 against; for an HT BSS an
+  HT Capabilities element: 20 MHz, SM power save disabled, MCS 0-7, no
+  aggregation; for a WMM BSS a WMM Information element),
+  `SetState(Associated, aid)`; open networks then `SetState(Authorized)`.
+  Requests are sent 4 times, 500 ms apart. The PMK must come within 5 s.
 - **Handshake**: EAPOL from the BSSID goes to `eapol::Supplicant`; its
   actions become `TxMgmt(Eapol)`, `SetKey(Pairwise, 0)`, `SetKey(Group, n,
-  rsc)` and `SetState(Authorized)` in its order. 5 s deadline from
-  association. Message 2 sent and no verified message 3 (deadline, or the AP
-  deauthenticating) is `BadPassphrase`, which blocks that profile until the
-  user connects to it again: no retry storm.
+  rsc)` and `SetState(Authorized)` in its order. 8 s deadline from
+  association (an AP gives up after about four and deauthenticates with
+  reason 15). After message 2 a deauthentication with reason 2, 15 or 23 is
+  `BadPassphrase`; any other end (the deadline, another reason: a lost
+  frame, a forged deauthentication and a rogue BSS look alike) is `Timeout`
+  or `Rejected` and a strike, and the second strike in a row is
+  `BadPassphrase`. `BadPassphrase` blocks auto-connect to that profile for
+  15 minutes, or until the user connects to it again: no retry storm, and no
+  permanent lockout from one forged frame.
 - **Connected**: group and PTK rekeys keep flowing; no timer runs (a forged
   message 1 cannot make the station drop its own link).
 - **Failures** (`Rejected`, `Timeout`, `Deauthenticated`, `BeaconLoss`,
-  `PolicyMismatch`, `Radio`, `NotFound` for an explicit connect) leave the BSS
-  and retry after 1 s, doubling to 60 s. Auto-connect that finds nothing goes
-  `Idle` and scans again every 60 s. `Disconnect` suspends auto-connect until
-  the next `Connect`.
+  `PolicyMismatch`, `Unsupported`, `Radio`, `NotFound` for an explicit
+  connect) leave the BSS and retry after 1 s, doubling to 60 s; the back-off
+  resets only once a link has held 30 s. `Rejected`, `Timeout` and
+  `BeaconLoss` put the BSSID on a 60 s penalty: another BSS of the SSID is
+  tried, or a scan first. Auto-connect that finds nothing goes `Idle` and
+  scans again every 60 s. A join scan that times out joins only what was
+  heard in the last 30 s. `Disconnect` suspends auto-connect until the next
+  `Connect`.
 - **Hostile input**: frames not from the joined BSS, not to us, malformed,
   protected or out of place are dropped and counted without any state change;
   scan entries with an unknown band or channel are dropped.
 
 Tests: `cargo test -p wlansta` (joins with both AKMs against a test AP whose
 authenticator is built from `lazyos-crypto` alone, group rekey, wrong
-passphrase, deauth, beacon loss, retransmissions and back-off, scan timeout,
-forged EAPOL, policy and profile rules) and a seeded fuzz over radio events
-and commands with invariants after every step
+passphrase evidence and block decay, deauth, beacon loss, retransmissions,
+penalties and back-off, scan timeout, forged EAPOL, the association
+request's elements, identity across owners, logged-in users, policy and
+profile rules) and a seeded fuzz over radio events and commands with
+invariants after every step
 (`FUZZ_CASES=20000 cargo test -p wlansta --release seeded`).
 
 ### `wlanmd` and `wifictl`
 
-`wlanmd` (`user/src/bin/wlanmd.rs`, `wlanmd/{radio,service,store}.rs`) runs
-as `_wlan` with no capabilities in `LAZYOS_WIFI=1` images (which need
+`wlanmd` (`user/src/bin/wlanmd.rs`, `wlanmd/{radio,service,sessions,store}.rs`)
+runs as `_wlan` with no capabilities in `LAZYOS_WIFI=1` images (which need
 `LAZYOS_NETD=1`; `init` row after `confd` and `keyd`). It reads the profiles
-from `confd`, passes `sys/net/wifi/country` (default `00`) to each radio with
-`SetCountry`, auto-connects to the best known system network, and serves
-`wifi.v1` with the rules of `wlansta::policy`: `AddNetwork` scope `System`
-only from `elevd`, a user network only for its owner, the passphrase straight
-to `keyd` (`StoreSecretFor`) and never kept or logged. User profiles join
-auto-connect once logins are tracked (`Station::set_active_users`, WP5);
-today they are joined by an explicit `Connect`. Serial lines:
-`WLANMD:UP radios=<n>`, `WLANMD:RADIO:UP|GONE|FAIL`, `WLANMD:STATE <if>
-<state> reason=<reason> ssid="<ssid>"`, `WLANMD:SCAN <if> gen=<n>
-networks=<n>`, `WLANMD:ADD`, `WLANMD:FORGET`.
+from `confd` (again every 10 s; a read that fails keeps the profiles known,
+`WLANMD:PROFILES:STALE`), passes `sys/net/wifi/country` (default `00`) to
+each radio with `SetCountry` (the world domain when the radio refuses the
+code, no attach when it refuses that too; a changed key is applied within
+10 s), auto-connects to the best known system network and to the networks of
+the users logged in, and serves `wifi.v1` with the rules of
+`wlansta::policy`: `AddNetwork` scope `System` only from `elevd`, a user
+network only for its owner, the passphrase straight to `keyd`
+(`StoreSecretFor`) and never kept or logged (the request's receive buffer
+and body are wiped), a request's id resolved among the profiles the caller
+may use, `Disconnect` of a user's network only by its owner, `Scan` once a
+second per caller (`EAGAIN`), and `Status` and the retained state topic
+showing a user network's profile id only to its owner. `keyd` refusing a PMK
+(`EPERM`, `EINVAL`) is retried and printed (`WLANMD:PMK:REFUSED`), never
+taken for a wrong passphrase.
+
+Who is logged in comes from `logind`: its login events on `init`'s broker
+are only hints (the broker takes any publisher), on which `wlanmd` asks
+`logind`'s `Sessions` and believes the answer (and every 30 s besides; an
+unanswered question after an `end` hint drops that user, never adds one).
+Serial lines: `WLANMD:UP radios=<n>`, `WLANMD:RADIO:UP|GONE|FAIL`,
+`WLANMD:STATE <if> <state> reason=<reason> ssid="<ssid>"`, `WLANMD:SCAN <if>
+gen=<n> networks=<n>`, `WLANMD:USERS <uids>`, `WLANMD:ADD`, `WLANMD:FORGET`.
 
 `wifictl` (native, on the kernel's list): `status`, `scan`, `list`,
 `connect SSID` (asks for a new WPA2 network's passphrase without echo, or
-reads `WIFICTL_PASSPHRASE`; `AddNetwork` in the user scope, then `Connect`
-and wait for `Connected` or `Failed`), `disconnect`, `forget ID`.
+reads `WIFICTL_PASSPHRASE`; 8 to 63 octets of UTF-8 or 64 hex digits;
+`AddNetwork` in the user scope, then `Connect` and wait for `Connected` or
+`Failed`), `connect --id ID` (a remembered network, when two show alike),
+`connect --hidden [--open] SSID`, `disconnect`, `forget ID`. `wlanmd`
+matches a typed name against the raw SSIDs it heard first, then against
+their displayed form (refusing a guess between look-alikes).
 
 ### What a radio (`wifid`, `wifisim`) must do for `wlanmd`
 

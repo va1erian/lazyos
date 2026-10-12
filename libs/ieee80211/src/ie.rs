@@ -10,6 +10,10 @@ pub const ID_RATES: u8 = 1;
 pub const ID_DS_PARAMS: u8 = 3;
 pub const ID_COUNTRY: u8 = 7;
 pub const ID_HT_CAP: u8 = 45;
+/// HT Operation (9.4.2.56): its first octet is the primary channel.
+pub const ID_HT_OP: u8 = 61;
+/// Length of the HT Operation element body.
+pub const HT_OP_LEN: usize = 22;
 pub const ID_RSN: u8 = 48;
 pub const ID_EXT_RATES: u8 = 50;
 pub const ID_VHT_CAP: u8 = 191;
@@ -25,6 +29,9 @@ pub const MAX_SSID: usize = 32;
 pub const MAX_VENDOR: usize = 32;
 /// The WPA1 vendor element: OUI 00:50:F2, type 1.
 pub const WPA_OUI: [u8; 3] = [0x00, 0x50, 0xF2];
+/// The WMM vendor elements: OUI 00:50:F2, type 2, subtype 0 (Information)
+/// or 1 (Parameter).
+pub const WMM_TYPE: u8 = 2;
 
 /// One element: ID, body, and the whole element (ID, length, body) as it was
 /// on the air (the RSN element is compared byte for byte in the 4-way
@@ -117,11 +124,17 @@ pub struct Elements<'a> {
     pub ht_cap: Option<&'a [u8]>,
     pub vht_cap: Option<&'a [u8]>,
     pub he_cap: Option<&'a [u8]>,
+    /// HT Operation body (at least [`HT_OP_LEN`] octets; the first is the
+    /// primary channel). Shorter ones are counted in `malformed`.
+    pub ht_op: Option<&'a [u8]>,
     /// The first RSN element: body, and the whole element for byte comparison.
     pub rsn: Option<&'a [u8]>,
     pub rsn_ie: Option<&'a [u8]>,
     /// The WPA1 vendor element (whole element), if present.
     pub wpa_ie: Option<&'a [u8]>,
+    /// A WMM Information or Parameter element was present (noted even past
+    /// the vendor cap): the AP speaks QoS.
+    pub wmm: bool,
     pub vendor: Vec<Vendor<'a>>,
     /// Vendor elements past [`MAX_VENDOR`].
     pub vendor_dropped: u16,
@@ -165,6 +178,7 @@ impl<'a> Elements<'a> {
             (ID_DS_PARAMS, &[channel]) => once(&mut self.ds_channel, channel, dup),
             (ID_COUNTRY, [_, _, _, ..]) => once(&mut self.country, body, dup),
             (ID_HT_CAP, _) => once(&mut self.ht_cap, body, dup),
+            (ID_HT_OP, _) if body.len() >= HT_OP_LEN => once(&mut self.ht_op, body, dup),
             (ID_VHT_CAP, _) => once(&mut self.vht_cap, body, dup),
             (ID_EXTENSION, [EXT_HE_CAP, rest @ ..]) => once(&mut self.he_cap, rest, dup),
             (ID_RSN, _) => {
@@ -174,7 +188,7 @@ impl<'a> Elements<'a> {
                 once(&mut self.rsn, body, dup);
             }
             (ID_VENDOR, _) => self.take_vendor(element),
-            (ID_DS_PARAMS | ID_COUNTRY, _) => {
+            (ID_DS_PARAMS | ID_COUNTRY | ID_HT_OP, _) => {
                 self.malformed = self.malformed.saturating_add(1);
             }
             _ => {}
@@ -192,6 +206,9 @@ impl<'a> Elements<'a> {
         if oui == WPA_OUI && kind == 1 && self.wpa_ie.is_none() {
             self.wpa_ie = Some(element.raw);
         }
+        if oui == WPA_OUI && kind == WMM_TYPE && matches!(data.first(), Some(0 | 1)) {
+            self.wmm = true;
+        }
         if self.vendor.len() >= MAX_VENDOR {
             self.vendor_dropped = self.vendor_dropped.saturating_add(1);
             return;
@@ -202,6 +219,11 @@ impl<'a> Elements<'a> {
     /// True when the SSID is absent, zero-length or all NULs.
     pub fn hidden(&self) -> bool {
         self.ssid.is_none_or(ssid_is_hidden)
+    }
+
+    /// The primary channel the HT Operation element names, if present.
+    pub fn ht_primary_channel(&self) -> Option<u8> {
+        self.ht_op.and_then(|body| body.first().copied())
     }
 
     /// The two-letter country string, if the element is present.

@@ -8,6 +8,7 @@ use crate::types::*;
 use crate::{Key, Station};
 
 mod ap;
+mod evidence;
 mod failures;
 mod hostile;
 mod joins;
@@ -103,11 +104,11 @@ impl H {
 
     /// Give the PMK the `FetchPmk` in `actions` asks for.
     pub fn answer_pmk(&mut self, actions: Vec<Action>, pmk: [u8; 32]) -> Vec<Action> {
-        let id = match actions.as_slice() {
-            [Action::FetchPmk { id, .. }] => id.clone(),
+        let (owner, id) = match actions.as_slice() {
+            [Action::FetchPmk { id, owner, .. }] => (*owner, id.clone()),
             other => panic!("expected FetchPmk: {other:?}"),
         };
-        self.sta.pmk(self.now, &id, Ok(Key::new(pmk)))
+        self.sta.pmk(self.now, owner, &id, Ok(Key::new(pmk)))
     }
 }
 

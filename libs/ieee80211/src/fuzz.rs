@@ -127,6 +127,16 @@ fn frame_checks(data: &[u8]) {
             assert!(matches!(again.body, Body::Beacon(x) if x == b));
         }
     }
+    for rx in [0, 6, 36] {
+        if let Some(bss) = Bss::from_frame(&frame, rx, -50, 1) {
+            let claims = [Some(rx), bss.ds_channel, bss.ht_primary];
+            assert!(claims.contains(&Some(bss.channel)) || bss.channel == 0, "channel from nowhere");
+            if rx != 0 {
+                assert!(bss.channel != 0, "a heard BSS lost its channel");
+                assert_eq!(rx > 14, bss.channel > 14, "the channel changed band");
+            }
+        }
+    }
     if let Some(bss) = Bss::from_frame(&frame, 6, -50, 1) {
         assert!(bss.ssid.len() <= MAX_SSID, "ssid over 32 octets");
         let mut table = ScanTable::new(4);
@@ -172,6 +182,7 @@ fn synthetic(id: u8, rssi: i8, at: u64) -> Bss {
         hidden: false,
         channel: 1,
         ds_channel: None,
+        ht_primary: None,
         rssi,
         capability: crate::cap::ESS,
         interval: 100,
@@ -181,6 +192,7 @@ fn synthetic(id: u8, rssi: i8, at: u64) -> Bss {
         ht: false,
         vht: false,
         he: false,
+        wmm: false,
         rates: Vec::new(),
         last_seen: at,
         from_probe_response: false,

@@ -9,10 +9,9 @@ use ieee80211::{Bss, Mgmt};
 use crate::machine::{Phase, ScanJob, Station};
 use crate::select::{self, Candidate, Join, Pick};
 use crate::types::*;
-use crate::{AUTO_SCAN_MS, FRESH_MS, MAX_SCAN_SSIDS, SCAN_MAX_AGE_MS, SCAN_TIMEOUT_MS};
+use crate::{AUTO_SCAN_MS, FRESH_MS, MAX_SCAN_SSIDS, PMK_TIMEOUT_MS, SCAN_MAX_AGE_MS, SCAN_TIMEOUT_MS};
 
 impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
-
     pub(crate) fn start_scan(&mut self, now: u64, join: bool, ssids: Vec<Vec<u8>>) -> Vec<Action> {
         if let Some(job) = self.scan.as_mut() {
             job.join |= join;
@@ -69,12 +68,12 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     /// The profiles a join may pick now: the target, or auto-connect's.
     pub(crate) fn wanted(&self) -> Vec<&Profile> {
         match &self.target {
-            Some(id) => self.profiles.iter().filter(|p| &p.id == id).collect(),
+            Some((owner, id)) => self.profiles.iter().filter(|p| p.is(*owner, id)).collect(),
             None if self.suspended => Vec::new(),
             None => self
                 .profiles
                 .iter()
-                .filter(|p| p.autoconnect && !self.blocked.contains(&p.id))
+                .filter(|p| p.autoconnect && !self.memory.blocked(p.owner, &p.id))
                 .filter(|p| match p.owner {
                     Owner::System => true,
                     Owner::User(uid) => self.active_users.contains(&uid),
@@ -83,6 +82,8 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         }
     }
 
+    /// The best BSS for what is wanted; one that failed us lately is chosen
+    /// only when nothing else fits (and says so, [`Candidate::penalized`]).
     pub(crate) fn pick_from_table(&self, now: u64, fresh_only: bool) -> Pick {
         let wanted = self.wanted();
         let heard = self.table.iter().filter_map(|bss| {
@@ -90,10 +91,11 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             let band = *self.bands.get(&bss.bssid)?;
             fresh.then_some((bss, band))
         });
-        select::pick(&wanted, heard)
+        select::pick(&wanted, heard, |bssid| self.memory.penalized(bssid, now))
     }
 
-    /// Try to join: from the table when it is fresh, else after a scan.
+    /// Try to join: from the table when it is fresh (and the BSS has not
+    /// failed us lately), else after a scan.
     pub(crate) fn attempt(&mut self, now: u64) -> Vec<Action> {
         self.auto_scan_at = None;
         if self.wanted().is_empty() {
@@ -106,7 +108,9 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             return Vec::new();
         }
         if let Pick::Found(cand) = self.pick_from_table(now, true) {
-            return self.begin(now, *cand);
+            if !cand.penalized {
+                return self.begin(now, *cand);
+            }
         }
         let probes: Vec<Vec<u8>> = self
             .wanted()
@@ -120,12 +124,16 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         self.start_scan(now, true, probes)
     }
 
-    /// After a join scan: join the best BSS, or say why not.
+    /// After a join scan: join the best BSS (one that failed us lately too,
+    /// when the scan found no other), or say why not.
     pub(crate) fn select_and_join(&mut self, now: u64, fresh_only: bool) -> Vec<Action> {
         match self.pick_from_table(now, fresh_only) {
             Pick::Found(cand) => self.begin(now, *cand),
-            Pick::Unsupported if self.target.is_some() => {
+            Pick::Mismatch if self.target.is_some() => {
                 self.fail(now, FailReason::PolicyMismatch, None)
+            }
+            Pick::Unsupported if self.target.is_some() => {
+                self.fail(now, FailReason::Unsupported, None)
             }
             Pick::NotFound if self.target.is_some() => self.fail(now, FailReason::NotFound, None),
             _ => {
@@ -158,7 +166,10 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                     owner: cand.profile.owner,
                     ssid: cand.profile.ssid.clone(),
                 };
-                self.phase = Phase::WaitPmk(cand);
+                self.phase = Phase::WaitPmk {
+                    cand,
+                    deadline: now + PMK_TIMEOUT_MS,
+                };
                 self.report(ConnState::Authenticating, FailReason::None);
                 vec![fetch]
             }

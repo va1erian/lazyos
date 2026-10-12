@@ -438,6 +438,9 @@ interface os.lazy.net.wifi.v1 {
     /// never came. `Deauthenticated`: the AP ended an established link.
     /// `BeaconLoss`: the AP went silent. `PolicyMismatch`: the AP's security
     /// settings differ between its beacon and the handshake. `Radio`: the
-    /// driver reported an error.
-    enum FailReason { None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio }
+    /// driver reported an error. `Unsupported`: the network asks for what
+    /// the station cannot do (a TKIP group cipher in WPA/WPA2 mixed mode,
+    /// management frame protection required, an AKM other than PSK).
+    /// Ordinals are append-only.
+    enum FailReason { None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio, Unsupported }
 }

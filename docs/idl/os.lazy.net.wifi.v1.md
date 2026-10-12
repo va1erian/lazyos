@@ -107,4 +107,4 @@ shared structured error field (`services::error_field`).
 
 ## enum `FailReason`
 
-- None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio
+- None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio, Unsupported

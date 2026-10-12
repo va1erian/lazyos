@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use ieee80211::{Akm, Bss, Cipher, Rsn, RsnCaps};
 
-use crate::types::{Band, Profile, Security};
+use crate::types::{Band, Mac, Profile, Security};
 
 /// How the station would join a BSS: open, or WPA2-PSK with this AKM.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,51 +59,74 @@ pub struct Candidate {
     pub bss: Bss,
     pub band: Band,
     pub join: Join,
+    /// The BSS failed us lately; chosen only because nothing else fits.
+    pub penalized: bool,
+}
+
+impl Candidate {
+    /// Selection order: a BSS that has not failed us lately, then profile
+    /// priority, then signal.
+    fn rank(&self) -> (bool, u32, i8) {
+        (!self.penalized, self.profile.priority, self.bss.rssi)
+    }
 }
 
 /// The outcome of a selection.
 #[derive(Debug)]
 pub enum Pick {
     Found(alloc::boxed::Box<Candidate>),
-    /// A BSS of a wanted SSID was heard, but none the station can join.
+    /// A BSS of a wanted SSID was heard with a security the station can
+    /// join, but not the profile's.
+    Mismatch,
+    /// A BSS of a wanted SSID was heard, but only with a security the
+    /// station cannot join (TKIP, WEP, PMF required, SAE, ...).
     Unsupported,
     /// Nothing of a wanted SSID was heard.
     NotFound,
 }
 
 /// The best BSS for any of `profiles` among `heard` (with each BSS's band):
-/// highest profile priority first, then strongest signal. A BSS is fit for a
-/// profile when its SSID is the profile's (a hidden beacon has no name and
-/// never matches) and its security is the profile's.
-pub fn pick<'a>(profiles: &[&Profile], heard: impl Iterator<Item = (&'a Bss, Band)>) -> Pick {
+/// one `penalized` does not name first, then highest profile priority, then
+/// strongest signal. A BSS is fit for a profile when its SSID is the
+/// profile's (a hidden beacon has no name and never matches) and its
+/// security is the profile's.
+pub fn pick<'a>(
+    profiles: &[&Profile],
+    heard: impl Iterator<Item = (&'a Bss, Band)>,
+    penalized: impl Fn(&Mac) -> bool,
+) -> Pick {
     let mut best: Option<Candidate> = None;
-    let mut seen_ssid = false;
+    let (mut mismatch, mut unsupported) = (false, false);
     for (bss, band) in heard {
         if bss.hidden {
             continue;
         }
         let (security, join) = classify(bss);
         for profile in profiles.iter().filter(|p| p.ssid == bss.ssid) {
-            seen_ssid = true;
-            let Some(join) = join.filter(|_| security == profile.security) else {
+            let Some(join) = join else {
+                unsupported = true;
                 continue;
             };
-            let better = best.as_ref().is_none_or(|b| {
-                (profile.priority, bss.rssi) > (b.profile.priority, b.bss.rssi)
-            });
-            if better {
-                best = Some(Candidate {
-                    profile: (*profile).clone(),
-                    bss: bss.clone(),
-                    band,
-                    join,
-                });
+            if security != profile.security {
+                mismatch = true;
+                continue;
+            }
+            let candidate = Candidate {
+                profile: (*profile).clone(),
+                bss: bss.clone(),
+                band,
+                join,
+                penalized: penalized(&bss.bssid),
+            };
+            if best.as_ref().is_none_or(|b| candidate.rank() > b.rank()) {
+                best = Some(candidate);
             }
         }
     }
     match best {
         Some(candidate) => Pick::Found(alloc::boxed::Box::new(candidate)),
-        None if seen_ssid => Pick::Unsupported,
+        None if mismatch => Pick::Mismatch,
+        None if unsupported => Pick::Unsupported,
         None => Pick::NotFound,
     }
 }

@@ -132,6 +132,10 @@ pub enum FailReason {
     BeaconLoss = 6,
     PolicyMismatch = 7,
     Radio = 8,
+    /// The network asks for what the station cannot do: a TKIP group cipher
+    /// (WPA/WPA2 mixed mode), management frame protection required, an AKM
+    /// other than PSK.
+    Unsupported = 9,
 }
 
 impl FailReason {
@@ -146,11 +150,12 @@ impl FailReason {
             FailReason::BeaconLoss => "beacon-loss",
             FailReason::PolicyMismatch => "policy-mismatch",
             FailReason::Radio => "radio",
+            FailReason::Unsupported => "unsupported",
         }
     }
 
     pub fn from_wire(value: u32) -> Option<FailReason> {
-        const ALL: [FailReason; 9] = [
+        const ALL: [FailReason; 10] = [
             FailReason::None,
             FailReason::NotFound,
             FailReason::Rejected,
@@ -160,6 +165,7 @@ impl FailReason {
             FailReason::BeaconLoss,
             FailReason::PolicyMismatch,
             FailReason::Radio,
+            FailReason::Unsupported,
         ];
         ALL.get(value as usize).copied()
     }
@@ -221,6 +227,14 @@ pub struct Profile {
     /// Higher wins among several known networks in range.
     pub priority: u32,
     pub owner: Owner,
+}
+
+impl Profile {
+    /// Whether this is `owner`'s profile `id`: a profile's identity is both
+    /// (two users may each hold the same id).
+    pub fn is(&self, owner: Owner, id: &str) -> bool {
+        self.owner == owner && self.id == id
+    }
 }
 
 /// One heard frame from `ScanResults`, as the radio gave it.
@@ -312,9 +326,10 @@ pub enum Action {
 /// Why `keyd` gave no PMK.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PmkError {
-    /// No secret, or not a valid passphrase: joining cannot work.
+    /// No secret is stored for the profile: the user must give one.
     Missing,
-    /// `keyd` did not answer: try again later.
+    /// `keyd` did not answer, or refused for a reason that is not the
+    /// passphrase (`EPERM`, `EINVAL`): try again later.
     Unavailable,
 }
 
@@ -329,6 +344,9 @@ pub struct Status {
     pub freq_mhz: u32,
     /// The profile in use; empty when none.
     pub id: String,
+    /// Whose profile `id` is (`None` when none). A publisher shows `id` only
+    /// to whoever may see this owner's profiles.
+    pub owner: Option<Owner>,
     pub reason: FailReason,
     /// Changes of the fields above (not of `rssi_dbm`) since the start.
     pub changes: u32,
@@ -343,6 +361,7 @@ impl Status {
             rssi_dbm: 0,
             freq_mhz: 0,
             id: String::new(),
+            owner: None,
             reason: FailReason::None,
             changes: 0,
         }
@@ -355,6 +374,7 @@ impl Status {
             && self.bssid == other.bssid
             && self.freq_mhz == other.freq_mhz
             && self.id == other.id
+            && self.owner == other.owner
             && self.reason == other.reason
     }
 }

@@ -7,13 +7,21 @@
 //! wifictl list [IF]              the networks heard, strongest first
 //! wifictl connect SSID [IF]      join; asks for the passphrase of a new
 //!                                WPA2 network (not echoed) and remembers it
+//! wifictl connect --id ID [IF]   join a remembered network by its id
+//! wifictl connect --hidden [--open] SSID [IF]
+//!                                remember a network that hides its name
+//!                                (WPA2 unless --open) and join it
 //! wifictl disconnect [IF]        leave, and stop auto-connecting
 //! wifictl forget ID              delete a remembered network
 //! ```
 //!
 //! `IF` defaults to the first wireless interface. A headless run passes the
 //! passphrase in `WIFICTL_PASSPHRASE` instead of typing it; it is never an
-//! argument. Network names are printed as `wlanmd` sanitised them, quoted.
+//! argument. A passphrase is 8 to 63 octets of UTF-8 (or 64 hex digits).
+//! Network names are printed as `wlanmd` sanitised them, quoted; `wlanmd`
+//! matches a typed name against the raw names it heard first, so a network
+//! whose name shows altered is still reachable, and `--id` names one
+//! exactly when two show alike.
 //! Lines: `WIFICTL:STATUS <if> <state> ...`, `WIFICTL:NET ...`,
 //! `WIFICTL:FAIL <reason>`.
 
@@ -39,7 +47,10 @@ const PASSPHRASE_VAR: &str = "WIFICTL_PASSPHRASE";
 const SCAN_WAIT_TICKS: u64 = 2_000;
 const CONNECT_WAIT_TICKS: u64 = 3_000;
 
-const USAGE: &str = "usage: wifictl [status|scan|list|disconnect] [IF] | connect SSID [IF] | forget ID\n";
+const USAGE: &str = "usage: wifictl [status|scan|list|disconnect] [IF] | connect [--hidden [--open]] SSID [IF] \
+                     | connect --id ID [IF] | forget ID\n";
+/// Longest passphrase typed (a raw PSK is 64 hex digits).
+const MAX_SECRET: usize = 64;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -67,8 +78,9 @@ fn run(args: &[&str]) -> core::result::Result<(), String> {
         "scan" => scan(&client, &pick(0)?),
         "list" => list(&client, &pick(0)?),
         "connect" => {
-            let ssid = rest.first().ok_or_else(|| String::from(USAGE.trim_end()))?;
-            connect(&client, &pick(1)?, ssid)
+            let (how, rest) = Target::parse(rest).ok_or_else(|| String::from(USAGE.trim_end()))?;
+            let ifname = interface(&client, rest.first().copied())?;
+            connect(&client, &ifname, how)
         }
         "disconnect" => {
             let ifname = pick(0)?;
@@ -146,15 +158,23 @@ fn status(client: &Client, wanted: Option<&str>) -> core::result::Result<(), Str
 
 /// Scan and wait for the scan topic to say it finished, then list.
 fn scan(client: &Client, ifname: &str) -> core::result::Result<(), String> {
+    wait_scan(client, ifname, Vec::new())?;
+    list(client, ifname)
+}
+
+/// Ask for a scan probing for `ssids` and wait until one finishes.
+fn wait_scan(client: &Client, ifname: &str, ssids: Vec<String>) -> core::result::Result<(), String> {
     let mut bus = Bus::connect().ok();
     let subscription = bus.as_mut().and_then(|bus| {
         let filter = api::name_system_net_wifi_scan(ifname).ok()?;
         bus.subscribe(&filter).ok()
     });
-    match client.scan(ifname, Vec::new()) {
+    match client.scan(ifname, ssids) {
         Ok(()) => {}
-        // One already runs (auto-connect's, say): wait for that one.
-        Err(Error::Errno(code)) if code == -user::messenger::errno::EBUSY => {}
+        // One already runs (auto-connect's, say), or this user just asked:
+        // wait for that one.
+        Err(Error::Errno(code))
+            if code == -user::messenger::errno::EBUSY || code == -user::messenger::errno::EAGAIN => {}
         Err(error) => return Err(text(error)),
     }
     let deadline = sys::clock() + SCAN_WAIT_TICKS;
@@ -172,7 +192,7 @@ fn scan(client: &Client, ifname: &str) -> core::result::Result<(), String> {
             }
         }
     }
-    list(client, ifname)
+    Ok(())
 }
 
 fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
@@ -193,14 +213,39 @@ fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
     Ok(())
 }
 
-/// Join `ssid`: a known network directly, a new one after remembering it.
-fn connect(client: &Client, ifname: &str, ssid: &str) -> core::result::Result<(), String> {
-    let networks = client.networks(ifname).map_err(text)?;
-    let heard = networks.iter().find(|n| n.ssid == ssid);
-    let id = match heard {
-        Some(n) if !n.id.is_empty() => n.id.clone(),
-        Some(n) => add(client, ssid, n.security)?,
-        None => return Err(format!("\"{ssid}\" was not heard; run `wifictl scan` first")),
+/// What `connect` was asked to join.
+enum Target<'a> {
+    /// A network heard (or remembered) by this name.
+    Named(&'a str),
+    /// A remembered network by its profile id.
+    Id(&'a str),
+    /// A network that hides its name.
+    Hidden { ssid: &'a str, open: bool },
+}
+
+impl<'a> Target<'a> {
+    /// The target and the arguments after it (the interface).
+    fn parse(args: &'a [&'a str]) -> Option<(Target<'a>, &'a [&'a str])> {
+        match args {
+            ["--id", id, rest @ ..] => Some((Target::Id(id), rest)),
+            ["--hidden", "--open", ssid, rest @ ..] | ["--open", "--hidden", ssid, rest @ ..] => {
+                Some((Target::Hidden { ssid, open: true }, rest))
+            }
+            ["--hidden", ssid, rest @ ..] => Some((Target::Hidden { ssid, open: false }, rest)),
+            [flag, ..] if flag.starts_with("--") => None,
+            [ssid, rest @ ..] => Some((Target::Named(ssid), rest)),
+            [] => None,
+        }
+    }
+}
+
+/// Join a network: a known one directly, a new one after remembering it,
+/// then wait for `Connected` or `Failed`.
+fn connect(client: &Client, ifname: &str, how: Target<'_>) -> core::result::Result<(), String> {
+    let id = match how {
+        Target::Id(id) => String::from(id),
+        Target::Named(ssid) => named(client, ifname, ssid)?,
+        Target::Hidden { ssid, open } => hidden(client, ifname, ssid, open)?,
     };
     client.connect_network(ifname, &id).map_err(text)?;
     let deadline = sys::clock() + CONNECT_WAIT_TICKS;
@@ -221,50 +266,108 @@ fn connect(client: &Client, ifname: &str, ssid: &str) -> core::result::Result<()
     }
 }
 
+/// The id of the heard network shown as `ssid`, remembering it first if
+/// it is new. Several networks shown alike are refused unless exactly one
+/// is remembered: `--id` names one of the others.
+fn named(client: &Client, ifname: &str, ssid: &str) -> core::result::Result<String, String> {
+    let networks = client.networks(ifname).map_err(text)?;
+    let heard: Vec<&api::Network> = networks.iter().filter(|n| n.ssid == ssid).collect();
+    let known: Vec<&&api::Network> = heard.iter().filter(|n| !n.id.is_empty()).collect();
+    match (heard.as_slice(), known.as_slice()) {
+        ([], _) => Err(format!("\"{ssid}\" was not heard; run `wifictl scan` first")),
+        (_, [one]) => Ok(one.id.clone()),
+        // New (several shown alike included: `wlanmd` takes the exact name
+        // first and refuses a guess between look-alikes).
+        ([first, ..], []) => add(client, ssid, first.security, false),
+        (_, _) => {
+            let ids: Vec<&str> = known.iter().map(|n| n.id.as_str()).collect();
+            Err(format!("several networks show as \"{ssid}\": use `wifictl connect --id ID` ({})", ids.join(", ")))
+        }
+    }
+}
+
+/// Remember a hidden network (or find it remembered) and return its id.
+fn hidden(client: &Client, ifname: &str, ssid: &str, open: bool) -> core::result::Result<String, String> {
+    let security = if open { Security::Open } else { Security::Wpa2Psk };
+    match add(client, ssid, security as u32, true) {
+        Ok(id) => return Ok(id),
+        Err(why) if why != EXISTS => return Err(why),
+        Err(_) => {}
+    }
+    // Remembered already: probe for it so the scan names it, and take its id.
+    wait_scan(client, ifname, alloc::vec![String::from(ssid)])?;
+    let networks = client.networks(ifname).map_err(text)?;
+    networks
+        .iter()
+        .find(|n| n.ssid == ssid && !n.id.is_empty())
+        .map(|n| n.id.clone())
+        .ok_or_else(|| format!("\"{ssid}\" is remembered but did not answer a probe"))
+}
+
+/// What `add` says when the network is remembered already.
+const EXISTS: &str = "already remembered";
+
 /// Remember a network for this user; asks for the passphrase of a WPA2 one.
-fn add(client: &Client, ssid: &str, security: u32) -> core::result::Result<String, String> {
+fn add(client: &Client, ssid: &str, security: u32, hidden: bool) -> core::result::Result<String, String> {
     let passphrase = match Security::from_wire(security) {
         Some(Security::Open) => None,
-        Some(Security::Wpa2Psk) => Some(passphrase(ssid)),
+        Some(Security::Wpa2Psk) => Some(passphrase(ssid)?),
         _ => return Err(format!("\"{ssid}\" uses a security this system cannot join")),
     };
     let profile = api::Profile {
         id: String::new(),
         ssid: String::from(ssid),
         security,
-        hidden: false,
+        hidden,
         autoconnect: true,
         priority: 0,
         scope: api::SCOPE_USER,
     };
+    // `add_network` wipes its copies of the passphrase.
     let result = client.add_network(profile, passphrase);
     result.map_err(|error| match error {
-        Error::Errno(code) if code == -user::messenger::errno::EINVAL => {
-            String::from("refused: a passphrase is 8 to 63 printable characters or 64 hex digits")
-        }
+        Error::Errno(code) if code == -user::messenger::errno::EINVAL => String::from(
+            "refused: a passphrase is 8 to 63 octets of text or 64 hex digits, \
+             and the name must match one network",
+        ),
+        Error::Errno(code) if code == -user::messenger::errno::EEXIST => String::from(EXISTS),
         other => text(other),
     })
 }
 
-/// The passphrase: the environment for a scripted run, else a silent prompt.
-fn passphrase(ssid: &str) -> String {
+/// The passphrase: the environment for a scripted run, else a silent
+/// prompt (UTF-8, at most [`MAX_SECRET`] octets). The line buffer is
+/// wiped; the returned text is wiped by `Client::add_network`.
+fn passphrase(ssid: &str) -> core::result::Result<String, String> {
     if let Some(secret) = sys::getenv(PASSPHRASE_VAR) {
-        return String::from(secret);
+        return Ok(String::from(secret));
     }
     sys::write_str(&format!("Passphrase for \"{ssid}\": "));
-    let mut line = String::new();
+    let mut line = [0u8; MAX_SECRET];
+    let mut len = 0;
     loop {
         match sys::read_char() as u8 {
             0 | b'\n' | b'\r' => break,
             8 | 0x7F => {
-                line.pop();
+                // Remove one character: its continuation octets too.
+                while len > 0 {
+                    len -= 1;
+                    if line[len] & 0xC0 != 0x80 {
+                        break;
+                    }
+                }
             }
-            byte if (0x20..0x7F).contains(&byte) && line.len() < 64 => line.push(char::from(byte)),
+            byte if byte >= 0x20 && len < MAX_SECRET => {
+                line[len] = byte;
+                len += 1;
+            }
             _ => {}
         }
     }
     sys::write_str("\n");
-    line
+    let text = core::str::from_utf8(&line[..len]).map(String::from);
+    line.fill(0);
+    text.map_err(|_| String::from("the passphrase is not valid UTF-8"))
 }
 
 #[panic_handler]

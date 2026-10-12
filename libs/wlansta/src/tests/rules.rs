@@ -1,6 +1,7 @@
 //! The authorization table, request checks, profile keys, SSID display and
 //! the merged network list.
 
+use std::format;
 use std::string::String;
 use std::vec;
 use std::vec::Vec;
@@ -45,6 +46,9 @@ fn new_networks_need_a_valid_ssid_and_exactly_the_right_secret() {
     assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"a".repeat(63))), Ok(()));
     assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"aB".repeat(32))), Ok(()));
     assert_eq!(policy::check_new("cafe", Open, None), Ok(()));
+    // UTF-8 passphrases of 8 to 63 octets, as access points take them.
+    assert_eq!(policy::check_new("home", Wpa2Psk, Some("caf\u{e9} au lait")), Ok(()));
+    assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"\u{e9}".repeat(31))), Ok(()));
     for (ssid, security, secret) in [
         ("", Open, None),
         (&"x".repeat(33)[..], Open, None),
@@ -53,12 +57,65 @@ fn new_networks_need_a_valid_ssid_and_exactly_the_right_secret() {
         ("home", Wpa2Psk, Some(&"z".repeat(64)[..])),
         ("home", Wpa2Psk, Some(&"g".repeat(64)[..])),
         ("home", Wpa2Psk, Some("tab\tinside")),
-        ("home", Wpa2Psk, Some("caf\u{e9} au lait")),
+        ("home", Wpa2Psk, Some("line\u{85}break")),
+        ("home", Wpa2Psk, Some(&"\u{e9}".repeat(32)[..])),
         ("cafe", Open, Some("password")),
         ("x", Unsupported, None),
     ] {
         assert_eq!(policy::check_new(ssid, security, secret), Err(Denied::Invalid), "{ssid} {secret:?}");
     }
+}
+
+#[test]
+fn a_request_names_a_profile_among_those_its_caller_may_use() {
+    let mut system = profile(HOME, "home", Security::Wpa2Psk);
+    system.owner = Owner::System;
+    let mut mine = profile(CAFE, "cafe", Security::Open);
+    mine.owner = Owner::User(1000);
+    let mut theirs = profile(CAFE, "their cafe", Security::Open);
+    theirs.owner = Owner::User(1001);
+    let all = vec![system, theirs.clone(), mine.clone()];
+    // The same id belongs to two users: each gets their own.
+    assert_eq!(policy::resolve(USER, &all, CAFE), Ok(&mine));
+    assert_eq!(policy::resolve(OTHER, &all, CAFE), Ok(&theirs));
+    assert_eq!(policy::resolve(USER, &all, HOME).map(|p| p.owner), Ok(Owner::System));
+    let only_theirs = vec![theirs.clone()];
+    assert_eq!(policy::resolve(USER, &only_theirs, CAFE), Err(Denied::Perm));
+    assert_eq!(policy::resolve(USER, &all, "w0000000000ff"), Err(Denied::Missing));
+    // Forget: your own, never a system network, nothing about others'.
+    assert_eq!(policy::resolve_forget(USER, &all, CAFE), Ok(Some(&mine)));
+    assert_eq!(policy::resolve_forget(USER, &all, HOME), Err(Denied::Perm));
+    assert_eq!(policy::resolve_forget(USER, &only_theirs, CAFE), Ok(None));
+    assert_eq!(policy::resolve_forget(ELEVD, &all, HOME).map(|p| p.map(|p| p.owner)), Ok(Some(Owner::System)));
+    assert_eq!(policy::resolve_forget(ELEVD, &all, CAFE), Ok(None));
+    // Disconnect: a system network or none, anyone; a user's, its owner.
+    assert!(policy::may_disconnect(OTHER, None));
+    assert!(policy::may_disconnect(OTHER, Some(Owner::System)));
+    assert!(policy::may_disconnect(USER, Some(Owner::User(1000))));
+    assert!(!policy::may_disconnect(OTHER, Some(Owner::User(1000))));
+    assert!(!policy::may_disconnect(ELEVD, Some(Owner::User(1000))));
+}
+
+#[test]
+fn normalizing_puts_the_system_first_and_caps_each_owner() {
+    let mut user_dup = profile(HOME, "evil", Security::Open);
+    user_dup.owner = Owner::User(1000);
+    let mut user_own = profile(CAFE, "cafe", Security::Open);
+    user_own.owner = Owner::User(1000);
+    let mut other = profile(CAFE, "cafe", Security::Open);
+    other.owner = Owner::User(1001);
+    let system = profile(HOME, "home", Security::Wpa2Psk);
+    let twice = user_own.clone();
+    let kept = profile::normalize(vec![user_dup, user_own.clone(), twice, other.clone(), system.clone()], 8);
+    assert_eq!(kept, vec![system, user_own, other], "a system id wins; (owner, id) is unique");
+    let many: Vec<Profile> = (0..40u8)
+        .map(|i| {
+            let mut p = profile(&profile::new_id([0, 0, 0, 0, 0, i]), "x", Security::Open);
+            p.owner = Owner::User(1000);
+            p
+        })
+        .collect();
+    assert_eq!(profile::normalize(many, profile::MAX_PER_OWNER).len(), profile::MAX_PER_OWNER);
 }
 
 #[test]
@@ -102,7 +159,7 @@ fn keys_name_their_owner_and_id() {
     .map(|k| String::from(*k))
     .collect();
     assert_eq!(
-        profile::ids(&keys),
+        profile::ids(&keys, 8),
         vec![
             (Owner::System, String::from("w000000000001")),
             (Owner::User(1000), String::from("w0000000000ff")),
@@ -130,6 +187,39 @@ fn ssids_are_shown_without_controls_and_within_32_octets() {
     assert_eq!(ssid::display("x\u{202E}gnp.exe".as_bytes()), "xgnp.exe");
     assert_eq!(ssid::display(&[0xFF; 32]).chars().count(), 10, "U+FFFD is 3 octets");
     assert!(ssid::display(&[0xFF; 32]).len() <= 32);
+    // Bidi marks and isolates, separators, tags and annotations go; the
+    // joiners that emoji and scripts need stay.
+    for hidden in ["\u{061C}", "\u{200E}", "\u{2028}", "\u{2029}", "\u{2067}", "\u{206A}", "\u{FFF9}", "\u{E0041}", "\u{200B}"] {
+        assert_eq!(ssid::display(format!("a{hidden}b").as_bytes()), "ab", "{hidden:?}");
+    }
+    let family = "\u{1F468}\u{200D}\u{1F469}";
+    assert_eq!(ssid::display(family.as_bytes()), family);
+    assert_eq!(ssid::display("a\u{200C}b".as_bytes()), "a\u{200C}b");
+}
+
+#[test]
+fn a_typed_name_matches_raw_octets_first() {
+    use crate::ssid::Match;
+    assert_eq!(ssid::matches(b"home", b"home"), Some(Match::Exact));
+    assert_eq!(ssid::matches(b"home", "home\u{200B}".as_bytes()), Some(Match::Display));
+    assert_eq!(ssid::matches(b"home", b"house"), None);
+    assert_eq!(ssid::matches(b"", b"\0\0"), None, "nothing names a hidden network");
+    let plain = Ap::open(AP, "home");
+    let mut twin = Ap::open(AP2, "home\u{200B}");
+    twin.rssi = -30;
+    let mut h = H::new(vec![]);
+    let actions = h.sta.scan(h.now, vec![]).unwrap();
+    h.answer_scan(actions, &[&plain, &twin]);
+    assert_eq!(h.sta.heard_ssid(b"home"), Ok(Some(b"home".to_vec())), "the exact name wins");
+    let mut h = H::new(vec![]);
+    let actions = h.sta.scan(h.now, vec![]).unwrap();
+    h.answer_scan(actions, &[&twin]);
+    assert_eq!(h.sta.heard_ssid(b"home"), Ok(Some("home\u{200B}".as_bytes().to_vec())));
+    let other = Ap::open(AP, "home\u{2060}");
+    let actions = h.sta.scan(h.now, vec![]).unwrap();
+    h.answer_scan(actions, &[&twin, &other]);
+    assert_eq!(h.sta.heard_ssid(b"home"), Err(crate::Ambiguous));
+    assert_eq!(h.sta.heard_ssid(b"absent"), Ok(None));
 }
 
 #[test]

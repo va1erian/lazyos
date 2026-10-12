@@ -3859,7 +3859,7 @@ pub static INTERFACES: &[Interface] = &[
             Enum { name: "Security", variants: &["Open", "Wpa2Psk", "Unsupported"] },
             Enum { name: "Scope", variants: &["User", "System"] },
             Enum { name: "ConnState", variants: &["Disabled", "Idle", "Scanning", "Authenticating", "Associating", "Handshake", "Connected", "Failed"] },
-            Enum { name: "FailReason", variants: &["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio"] },
+            Enum { name: "FailReason", variants: &["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio", "Unsupported"] },
         ],
         topics: &[
             Topic {

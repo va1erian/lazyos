@@ -7,18 +7,18 @@
 //! `keyd` keeps the passphrase under the profile's id, in the profile's scope
 //! (`StoreSecretFor`), and answers `WifiPmk` to `_wlan` alone.
 
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use confd::Value as ConfValue;
 use user::messenger::{confd as conf, errno, keyd, Error};
+use user::sys;
 use wlansta::profile::{self, Value};
 use wlansta::{Key, Owner, PmkError, Profile};
 
 /// Ticks a `confd` call may take.
 const CONFD_TICKS: u64 = 200;
-/// Profiles kept at most (system and every user together).
-const MAX_PROFILES: usize = 64;
 
 pub(crate) struct Store {
     conf: Option<conf::Client>,
@@ -80,52 +80,81 @@ impl Store {
         self.keyd.as_ref()
     }
 
-    /// The regulatory domain for the radios.
-    pub fn country(&mut self) -> String {
-        let configured = match self.conf().map(|c| c.get(profile::COUNTRY_KEY)) {
-            Some(Ok(Some(ConfValue::Str(code)))) => Some(code),
-            _ => None,
+    /// The regulatory domain for the radios: `None` when `confd` could not
+    /// be asked (the radios keep theirs).
+    pub fn country(&mut self) -> Option<String> {
+        let configured = match self.conf()?.get(profile::COUNTRY_KEY) {
+            Ok(Some(ConfValue::Str(code))) => Some(code),
+            Ok(_) => None,
+            // Unset, or refused: the world domain, which needs nobody's word.
+            Err(error)
+                if [errno::ENOENT, errno::EPERM, errno::EACCES, errno::EINVAL]
+                    .iter()
+                    .any(|code| error.errno() == Some(-code)) =>
+            {
+                None
+            }
+            Err(_) => {
+                self.conf = None;
+                return None;
+            }
         };
-        String::from(profile::country(configured.as_deref()))
+        Some(String::from(profile::country(configured.as_deref())))
     }
 
     pub fn profiles(&self) -> &[Profile] {
         &self.profiles
     }
 
-    /// Read every profile again; on failure keep what was known.
-    pub fn reload(&mut self) {
-        let Some(client) = self.conf() else {
-            return;
+    /// Read every profile again. Any `confd` error (a timeout, a restart)
+    /// keeps the list that was known and is returned: replacing it with a
+    /// partial one would make the station leave a network whose profile only
+    /// failed to read.
+    pub fn reload(&mut self) -> Result<(), Error> {
+        let profiles = self.read_all();
+        if profiles.is_err() {
+            self.conf = None;
+        }
+        self.profiles = profiles?;
+        self.loaded = true;
+        Ok(())
+    }
+
+    fn read_all(&mut self) -> Result<Vec<Profile>, Error> {
+        let client = self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
+        let list = |prefix: &str| match client.list(prefix) {
+            Err(error) if error.errno() == Some(-errno::ENOENT) => Ok(Vec::new()),
+            other => other,
         };
-        let mut keys = match client.list(profile::SYSTEM_PREFIX) {
-            Ok(keys) => keys,
-            Err(error) if error.errno() == Some(-errno::ENOENT) => Vec::new(),
-            Err(_) => {
-                self.conf = None;
-                return;
-            }
-        };
+        let mut keys = list(profile::SYSTEM_PREFIX)?;
         // Every user's profiles: `confd` shows `_wlan` the Wi-Fi subtrees.
-        keys.extend(client.list("user").unwrap_or_default());
+        keys.extend(list("user")?);
         let mut profiles = Vec::new();
-        for (owner, id) in profile::ids(&keys).into_iter().take(MAX_PROFILES) {
-            let get = |field: &str| {
-                let value = client.get(&profile::key(owner, &id, field)).ok()??;
-                from_conf(value)
-            };
+        for (owner, id) in profile::ids(&keys, profile::MAX_READ_PER_OWNER) {
+            let mut fields: Vec<(&str, Option<Value>)> = Vec::new();
+            for field in profile::FIELDS {
+                let value = match client.get(&profile::key(owner, &id, field)) {
+                    Ok(value) => value.and_then(from_conf),
+                    // Deleted between the list and the read: half a profile.
+                    Err(error) if error.errno() == Some(-errno::ENOENT) => None,
+                    Err(error) => return Err(error),
+                };
+                fields.push((field, value));
+            }
+            let get = |name: &str| fields.iter().find(|(f, _)| *f == name).and_then(|(_, v)| v.clone());
             if let Some(profile) = profile::parse(owner, &id, get) {
                 profiles.push(profile);
             }
         }
-        self.profiles = profiles;
-        self.loaded = true;
+        Ok(profile::normalize(profiles, profile::MAX_PER_OWNER))
     }
 
     /// Remember `profile`: the secret first, then the fields (the SSID last,
-    /// so a reader never sees half a profile); undone if a step fails.
+    /// so a reader never sees half a profile); undone if a step fails. An
+    /// owner holds at most `profile::MAX_PER_OWNER` profiles (`ENOSPC`).
     pub fn add(&mut self, profile: &Profile, passphrase: Option<&str>) -> Result<(), Error> {
-        if self.profiles.len() >= MAX_PROFILES {
+        let owned = self.profiles.iter().filter(|p| p.owner == profile.owner).count();
+        if owned >= profile::MAX_PER_OWNER {
             return Err(Error::Errno(-errno::ENOSPC));
         }
         let (scope, uid) = scope_of(profile.owner);
@@ -163,7 +192,10 @@ impl Store {
         }
     }
 
-    /// The PMK of profile `id` for `ssid`, from `keyd`.
+    /// The PMK of `owner`'s profile `id` for `ssid`, from `keyd`. Only "no
+    /// such secret" (`ENOENT`) is the user's to fix; a refusal (`EPERM`,
+    /// `EINVAL`: `keyd`'s policy or its own checks) or no answer is retried
+    /// later (and a refusal printed), never taken for a wrong passphrase.
     pub fn pmk(&mut self, id: &str, owner: Owner, ssid: &[u8]) -> Result<Key<32>, PmkError> {
         let (scope, uid) = scope_of(owner);
         let Some(keyd) = self.keyd() else {
@@ -171,12 +203,16 @@ impl Store {
         };
         match keyd.wifi_pmk(scope, id, ssid, uid) {
             Ok(mut bytes) => {
-                let pmk = <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| PmkError::Missing);
+                let pmk = <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| PmkError::Unavailable);
                 bytes.fill(0);
                 pmk.map(Key::new)
             }
             Err(error) => match error.errno().map(|code| -code) {
-                Some(errno::ENOENT | errno::EINVAL | errno::EPERM) => Err(PmkError::Missing),
+                Some(errno::ENOENT) => Err(PmkError::Missing),
+                Some(code) if code == errno::EINVAL || code == errno::EPERM => {
+                    sys::write_str(&format!("WLANMD:PMK:REFUSED {id} errno={code}\n"));
+                    Err(PmkError::Unavailable)
+                }
                 _ => {
                     self.keyd = None;
                     Err(PmkError::Unavailable)

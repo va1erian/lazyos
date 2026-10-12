@@ -177,11 +177,12 @@ fn security_must_match_the_profile_and_unsupported_is_never_joined() {
     assert_eq!(h.state().0, ConnState::Idle);
 
     // An explicit connect to it says why.
-    let actions = h.sta.connect(h.now, CAFE).unwrap();
+    let actions = h.sta.connect(h.now, Owner::System, CAFE).unwrap();
     assert!(h.answer_scan(actions, &[&ap]).is_empty());
     assert_eq!(h.state(), (ConnState::Failed, FailReason::PolicyMismatch));
 
-    // TKIP group cipher and PMF required are unsupported.
+    // TKIP group cipher (mixed mode) and PMF required are unsupported, and
+    // said so.
     let mut tkip = Ap::wpa2(AP, "home", "password1", Akm::Psk);
     tkip.rsn.as_mut().unwrap().group = ieee80211::Cipher::Tkip;
     let mut pmf = Ap::wpa2(AP2, "home", "password1", Akm::Psk);
@@ -189,9 +190,9 @@ fn security_must_match_the_profile_and_unsupported_is_never_joined() {
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let first = h.begin();
     // The connect joins the auto-connect scan already running.
-    assert!(h.sta.connect(h.now, HOME).unwrap().is_empty());
+    assert!(h.sta.connect(h.now, Owner::System, HOME).unwrap().is_empty());
     assert!(h.answer_scan(first, &[&tkip, &pmf]).is_empty());
-    assert_eq!(h.state(), (ConnState::Failed, FailReason::PolicyMismatch));
+    assert_eq!(h.state(), (ConnState::Failed, FailReason::Unsupported));
     let listed = h.sta.networks(crate::Viewer::User(1000));
     assert!(listed.iter().all(|n| n.security == Security::Unsupported));
 }
@@ -207,7 +208,7 @@ fn a_recent_scan_is_joined_without_scanning_again() {
     // Suspended: nothing happens on its own.
     assert_eq!(h.sta.next_deadline(), None);
     assert!(h.advance(crate::FRESH_MS / 2).is_empty());
-    let actions = h.sta.connect(h.now, CAFE).unwrap();
+    let actions = h.sta.connect(h.now, Owner::System, CAFE).unwrap();
     assert!(matches!(actions[0], Action::Join { .. }), "{actions:?}");
 }
 

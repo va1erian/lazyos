@@ -98,6 +98,36 @@ fn checked(
     }
 }
 
+/// Room for the reply to a request that carried a secret: those replies
+/// are empty or a structured error.
+const SECRET_REPLY: usize = 1024;
+
+/// Call with a request that carries a secret (a temporal key, a
+/// passphrase): encode it here into a buffer sized up front (a growing one
+/// would leave copies behind in freed memory), send it, and wipe the
+/// parcel's body and the encoded bytes whatever the outcome.
+fn call_secret(endpoint: &Endpoint, mut request: Parcel, deadline: Option<u64>) -> Result<Parcel> {
+    let mut bytes = Vec::with_capacity(request.body.len() + 256);
+    let encoded = request.encode(&mut bytes).map_err(Error::Parcel);
+    request.body.fill(0);
+    let result = encoded.and_then(|()| {
+        let mut buf = [0u8; SECRET_REPLY];
+        endpoint.call_bytes_with(&bytes, &mut buf, deadline)
+    });
+    bytes.fill(0);
+    let reply = result?;
+    match error_field(&reply)? {
+        Some(code) => Err(Error::Errno(-code)),
+        None => Ok(reply),
+    }
+}
+
+/// Wipe a secret held in a `String` and drop it.
+fn wipe(text: String) {
+    let mut bytes = text.into_bytes();
+    bytes.fill(0);
+}
+
 /// A radio, as its one client sees it.
 pub struct Radio {
     endpoint: Endpoint,
@@ -229,23 +259,23 @@ impl Radio {
         self.call(hw::METHOD_SETSTATE, body, Vec::new()).map(|_| ())
     }
 
-    /// `SetKey` with CCMP-128. The encoded request holds the key; it is
-    /// wiped as soon as the call returns.
+    /// `SetKey` with CCMP-128. Every copy of the key this side makes (the
+    /// arguments, the encoded body, the wire bytes) is wiped as soon as the
+    /// call returns.
     pub fn set_key(&self, kind: u32, index: u32, key: &[u8], rsc: &[u8], addr: &[u8]) -> Result<()> {
-        let mut body = hw::encode_set_key_args(&hw::SetKeyArgs {
+        let mut args = hw::SetKeyArgs {
             kind,
             index,
             cipher: hw::CIPHER_CCMP128,
             key: key.to_vec(),
             rsc: rsc.to_vec(),
             addr: addr.to_vec(),
-        })
-        .map_err(Error::Parcel)?;
-        let request = parcel(hw::INTERFACE_ID, hw::METHOD_SETKEY, core::mem::take(&mut body), Vec::new());
+        };
+        let body = hw::encode_set_key_args(&args).map_err(Error::Parcel);
+        args.key.fill(0);
+        let request = parcel(hw::INTERFACE_ID, hw::METHOD_SETKEY, body?, Vec::new());
         let deadline = Some(crate::sys::clock() + self.timeout);
-        let result = checked(&self.endpoint, request, None, deadline).map(|_| ());
-        body.fill(0);
-        result
+        call_secret(&self.endpoint, request, deadline).map(|_| ())
     }
 
     pub fn leave(&self, reason: u32) -> Result<()> {
@@ -299,11 +329,16 @@ impl Client {
     }
 
     /// `AddNetwork`; the passphrase crosses once, to `wlanmd`, which hands
-    /// it to `keyd`.
+    /// it to `keyd`. This side's copies of it (the argument, the encoded
+    /// body, the wire bytes) are wiped before it returns.
     pub fn add_network(&self, profile: api::Profile, passphrase: Option<String>) -> Result<String> {
-        let body = api::encode_add_network_args(&api::AddNetworkArgs { profile, passphrase })
-            .map_err(Error::Parcel)?;
-        let reply = self.call(api::METHOD_ADDNETWORK, body)?;
+        let mut args = api::AddNetworkArgs { profile, passphrase };
+        let body = api::encode_add_network_args(&args).map_err(Error::Parcel);
+        if let Some(text) = args.passphrase.take() {
+            wipe(text);
+        }
+        let request = parcel(api::INTERFACE_ID, api::METHOD_ADDNETWORK, body?, Vec::new());
+        let reply = call_secret(&self.endpoint, request, None)?;
         Ok(api::decode_add_network_reply(&reply.body).map_err(Error::Parcel)?.id)
     }
 

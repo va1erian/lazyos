@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 
 use ieee80211::build;
 use ieee80211::frame::{Body, Mgmt, AUTH_OPEN, STATUS_SUCCESS};
-use ieee80211::ie::IeBuilder;
+use ieee80211::ie::{IeBuilder, ID_HT_CAP, ID_VENDOR};
 use ieee80211::{cap, Bss, BROADCAST};
 
 use crate::select::{assoc_rsn, Join};
@@ -28,16 +28,57 @@ const CAP_SHORT_SLOT: u16 = 1 << 10;
 /// Rates (500 kb/s units, basic bit clear) when a BSS advertised none.
 const RATES_2GHZ: &[u8] = &[2, 4, 11, 22, 12, 18, 24, 36, 48, 72, 96, 108];
 const RATES_5GHZ: &[u8] = &[12, 18, 24, 36, 48, 72, 96, 108];
+/// The fastest legacy rate, 54 Mb/s. A rate octet above it (with the basic
+/// bit) is a BSS membership selector (HT PHY 127, VHT 126, HE 122, SAE
+/// hash-to-element 123, ...), which says what the AP requires, not a rate a
+/// station supports: echoing one claims a PHY the request does not describe.
+const MAX_LEGACY_RATE: u8 = 108;
+
+/// HT Capabilities (9.4.2.55) the station states for an HT BSS: 20 MHz only,
+/// SM power save disabled (bits 2-3 = 3), no short GI, no STBC, no greenfield,
+/// 3839-octet A-MSDUs; A-MPDU parameters 0 (no block-ack agreement is ever
+/// accepted, so the AP aggregates nothing); receive MCS 0-7. What the chip
+/// sends is the firmware's rate adaptation's business; this element only
+/// makes an HT-only AP accept a legacy-driven station.
+const HT_CAPABILITIES: [u8; 26] = {
+    let mut body = [0u8; 26];
+    body[0] = 0x0C;
+    body[3] = 0xFF;
+    body
+};
+/// A WMM Information element (OUI 00:50:F2, type 2, subtype 0, version 1, no
+/// U-APSD): the station speaks QoS (the soft-MAC sends QoS data to a BSS that
+/// advertised HT or WMM).
+const WMM_INFO: [u8; 7] = [0x00, 0x50, 0xF2, 0x02, 0x00, 0x01, 0x00];
+
+/// The rates of `bss` a station may echo: its advertised rates without the
+/// membership selectors, else the band's legacy set.
+fn station_rates(bss: &Bss, band: Band) -> Vec<u8> {
+    let rates: Vec<u8> = bss
+        .rates
+        .iter()
+        .copied()
+        .filter(|rate| (1..=MAX_LEGACY_RATE).contains(&(rate & 0x7F)))
+        .take(255)
+        .collect();
+    match (rates.is_empty(), band) {
+        (false, _) => rates,
+        (true, Band::Ghz2) => RATES_2GHZ.to_vec(),
+        (true, _) => RATES_5GHZ.to_vec(),
+    }
+}
 
 /// An Open System authentication request (transaction 1).
 pub fn auth_request(mac: &Mac, bssid: &Mac, seq: u16) -> Vec<u8> {
     build::auth(bssid, mac, bssid, seq, (AUTH_OPEN, 1, 0), &[])
 }
 
-/// An association request for `bss`: its SSID, the rates it advertised (the
-/// chip runs every legacy rate), and for WPA2 the RSN element of
-/// [`assoc_rsn`]. Returns the frame and that RSN element (whole), which the
-/// handshake must see again in message 2.
+/// An association request for `bss`: its SSID, the rates it advertised
+/// without membership selectors (the chip runs every legacy rate), for WPA2
+/// the RSN element of [`assoc_rsn`], and for an HT or WMM BSS the minimal
+/// HT Capabilities and WMM elements many APs refuse a station without.
+/// Returns the frame and that RSN element (whole), which the handshake must
+/// see again in message 2.
 pub fn assoc_request(
     mac: &Mac,
     bss: &Bss,
@@ -45,21 +86,15 @@ pub fn assoc_request(
     join: Join,
     seq: u16,
 ) -> (Vec<u8>, Option<Vec<u8>>) {
-    let rates: &[u8] = if !bss.rates.is_empty() {
-        &bss.rates
-    } else if band == Band::Ghz2 {
-        RATES_2GHZ
-    } else {
-        RATES_5GHZ
-    };
-    // The SSID is at most 32 octets (the scan refused longer ones) and the
-    // rates at most 255 each way, so the builder cannot fail; an empty list
-    // would only make the AP refuse us.
+    let rates = station_rates(bss, band);
+    // The SSID is at most 32 octets (the scan refused longer ones), the rates
+    // at most 255 and the other bodies fixed, so the builder cannot fail; an
+    // element left out would only make the AP refuse us.
     let mut ies = IeBuilder::new();
     if let Ok(next) = ies.clone().ssid(&bss.ssid) {
         ies = next;
     }
-    if let Ok(next) = ies.clone().rates(&rates[..rates.len().min(255)]) {
+    if let Ok(next) = ies.clone().rates(&rates) {
         ies = next;
     }
     let mut rsn_ie = None;
@@ -68,6 +103,16 @@ pub fn assoc_request(
         if let (Ok(next), Ok(ie)) = (ies.clone().rsn(&rsn), rsn.to_ie()) {
             ies = next;
             rsn_ie = Some(ie);
+        }
+    }
+    if bss.ht {
+        if let Ok(next) = ies.clone().raw(ID_HT_CAP, &HT_CAPABILITIES) {
+            ies = next;
+        }
+    }
+    if bss.wmm {
+        if let Ok(next) = ies.clone().raw(ID_VENDOR, &WMM_INFO) {
+            ies = next;
         }
     }
     let mut capability = cap::ESS | CAP_SHORT_PREAMBLE | (bss.capability & cap::PRIVACY);

@@ -8,11 +8,15 @@
 //! | `AddNetwork` scope `User` | a user, for themselves |
 //! | `AddNetwork` scope `System`, `Forget` of a system network | `elevd` only (the `net.wifi.system` prompt) |
 //! | `Connect` | a system network: anyone; a user network: its owner |
-//! | `Disconnect` | anyone who may connect |
+//! | `Disconnect` | a system network (or none): anyone; a user network: its owner |
 //! | `Forget` of a user network | its owner |
+//!
+//! A profile is named by its owner **and** its id: two users may hold the
+//! same id (each writes their own `confd` subtree), so a request's id is
+//! looked up only among the profiles its caller may use ([`resolve`]).
 
 use crate::networks::Viewer;
-use crate::types::{Owner, Security};
+use crate::types::{Owner, Profile, Security};
 
 /// The sender, as the kernel stamped it. `elevd` is decided by the caller
 /// (`elevpolicy::is_elevd`: its uid, unlabelled, outside any session).
@@ -29,6 +33,8 @@ pub enum Denied {
     Perm,
     /// `EINVAL`.
     Invalid,
+    /// `ENOENT`: no profile of that id at all.
+    Missing,
 }
 
 /// `os.lazy.net.wifi.v1` `Scope` ordinals.
@@ -51,6 +57,47 @@ pub fn may_use(caller: Caller, owner: Owner) -> bool {
     viewer(caller).sees(owner)
 }
 
+/// Whether the caller may leave the network of the profile in use (`None`
+/// when the station holds none): what anyone may connect to, anyone may
+/// leave; another user's network only its owner.
+pub fn may_disconnect(caller: Caller, current: Option<Owner>) -> bool {
+    current.is_none_or(|owner| may_use(caller, owner))
+}
+
+/// The profile a caller's `Connect` names: the one of `id` it may use (a
+/// system profile, or its own). `Perm` when only another user's profile has
+/// that id, `Missing` when none does.
+pub fn resolve<'a>(caller: Caller, profiles: &'a [Profile], id: &str) -> Result<&'a Profile, Denied> {
+    let mut same = profiles.iter().filter(|p| p.id == id).peekable();
+    if same.peek().is_none() {
+        return Err(Denied::Missing);
+    }
+    same.find(|p| may_use(caller, p.owner)).ok_or(Denied::Perm)
+}
+
+/// The profile a caller's `Forget` deletes: the one of `id` it may forget.
+/// `Ok(None)` when it names nothing the caller can see (gone, or another
+/// user's: not an error, and nothing is revealed), `Perm` for a profile it
+/// sees but may not delete (a system network, for a user).
+pub fn resolve_forget<'a>(
+    caller: Caller,
+    profiles: &'a [Profile],
+    id: &str,
+) -> Result<Option<&'a Profile>, Denied> {
+    let mut seen = false;
+    for profile in profiles.iter().filter(|p| p.id == id) {
+        if may_forget(caller, profile.owner) {
+            return Ok(Some(profile));
+        }
+        seen |= may_use(caller, profile.owner);
+    }
+    if seen {
+        Err(Denied::Perm)
+    } else {
+        Ok(None)
+    }
+}
+
 /// Whether the caller may forget `owner`'s network.
 pub fn may_forget(caller: Caller, owner: Owner) -> bool {
     match owner {
@@ -69,9 +116,7 @@ pub fn viewer(caller: Caller) -> Viewer {
 }
 
 /// `AddNetwork`'s checks: an SSID of 1 to 32 octets, a joinable security, and
-/// a passphrase exactly when it needs one: 8 to 63 printable ASCII
-/// characters, or 64 hex digits (a raw PSK). These are also `keyd`'s and
-/// PBKDF2's rules, so a profile never holds a secret that cannot be used.
+/// a passphrase exactly when it needs one ([`valid_passphrase`]).
 pub fn check_new(ssid: &str, security: Security, passphrase: Option<&str>) -> Result<(), Denied> {
     if !crate::ssid::valid(ssid.as_bytes()) {
         return Err(Denied::Invalid);
@@ -83,10 +128,15 @@ pub fn check_new(ssid: &str, security: Security, passphrase: Option<&str>) -> Re
     }
 }
 
-/// A WPA2 passphrase (IEEE 802.11 Annex J.4) or raw PSK.
+/// A WPA2 passphrase or raw PSK: 8 to 63 octets of UTF-8 text without
+/// control characters, or exactly 64 hex digits. IEEE 802.11 Annex J.4 asks
+/// for printable ASCII, but access points (and the stations people set them
+/// up with) take any UTF-8, and PBKDF2 hashes octets: refusing `café au
+/// lait` would only lock the user out of their own network. `keyd` must
+/// accept the same set, or a profile could hold a secret it cannot use.
 pub fn valid_passphrase(secret: &str) -> bool {
     let bytes = secret.as_bytes();
-    let printable = (8..=63).contains(&bytes.len()) && bytes.iter().all(|b| (0x20..=0x7E).contains(b));
+    let text = (8..=63).contains(&bytes.len()) && !secret.chars().any(char::is_control);
     let hex = bytes.len() == 64 && bytes.iter().all(u8::is_ascii_hexdigit);
-    printable || hex
+    text || hex
 }

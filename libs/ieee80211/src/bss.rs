@@ -31,11 +31,14 @@ pub struct Bss {
     pub ssid: Vec<u8>,
     /// True when the last frame carried a hidden SSID and no name is known.
     pub hidden: bool,
-    /// The channel the frame was received on, as the chip reported it; when
-    /// the chip gave none (0), the DS Parameter Set channel.
+    /// The channel the AP operates on ([`operating_channel`]): what it
+    /// claims in its DS Parameter Set (2.4 GHz) or HT Operation element
+    /// (5 GHz), else the channel the frame was received on.
     pub channel: u8,
     /// The channel the AP claims in its DS Parameter Set, if any.
     pub ds_channel: Option<u8>,
+    /// The primary channel its HT Operation element names, if any.
+    pub ht_primary: Option<u8>,
     /// Received signal strength in dBm, from the caller.
     pub rssi: i8,
     pub capability: u16,
@@ -50,6 +53,8 @@ pub struct Bss {
     pub ht: bool,
     pub vht: bool,
     pub he: bool,
+    /// A WMM element was advertised: the AP speaks QoS.
+    pub wmm: bool,
     /// Rates (basic bit included), Supported then Extended.
     pub rates: Vec<u8>,
     /// Caller's clock, milliseconds, at the last frame.
@@ -87,12 +92,9 @@ impl Bss {
             bssid,
             hidden: ssid_is_hidden(ssid),
             ssid: ssid.to_vec(),
-            channel: if rx_channel != 0 {
-                rx_channel
-            } else {
-                elements.ds_channel.unwrap_or(0)
-            },
+            channel: operating_channel(rx_channel, elements.ds_channel, elements.ht_primary_channel()),
             ds_channel: elements.ds_channel,
+            ht_primary: elements.ht_primary_channel(),
             rssi,
             capability: fixed.capability,
             interval: fixed.interval,
@@ -102,6 +104,7 @@ impl Bss {
             ht: elements.ht_cap.is_some(),
             vht: elements.vht_cap.is_some(),
             he: elements.he_cap.is_some(),
+            wmm: elements.wmm,
             rates,
             last_seen: now_ms,
             from_probe_response: probe,
@@ -121,6 +124,34 @@ impl Bss {
     pub fn is_rsn(&self) -> bool {
         matches!(self.security, Security::Rsn(_))
     }
+}
+
+/// 2.4 GHz channel numbers. 5 GHz ones start at 32, so a number alone tells
+/// the two bands apart (6 GHz reuses small numbers but carries neither a DS
+/// Parameter Set nor an HT Operation element).
+fn is_2ghz(channel: u8) -> bool {
+    (1..=14).contains(&channel)
+}
+
+/// The channel a BSS operates on, from the channel a frame of it was heard
+/// on (`rx`, 0 when the chip did not say) and the channels its elements
+/// claim. A 2.4 GHz receiver also hears a beacon from a neighbouring channel
+/// (the channels overlap), so the AP's own DS Parameter Set wins there; on 5
+/// GHz the HT Operation element's primary channel does. A claim from the
+/// other band than the one heard on is ignored, and with no usable claim the
+/// receive channel stands.
+pub fn operating_channel(rx: u8, ds: Option<u8>, ht_primary: Option<u8>) -> u8 {
+    let ds = ds.filter(|c| *c != 0);
+    let ht = ht_primary.filter(|c| *c != 0);
+    if rx == 0 {
+        return ht.or(ds).unwrap_or(0);
+    }
+    let preferred = if is_2ghz(rx) { [ds, ht] } else { [ht, ds] };
+    preferred
+        .into_iter()
+        .flatten()
+        .find(|c| is_2ghz(*c) == is_2ghz(rx))
+        .unwrap_or(rx)
 }
 
 fn security_of(elements: &Elements<'_>, capability: u16) -> Security {

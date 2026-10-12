@@ -31,18 +31,27 @@
 //! * **Handshake**: EAPOL frames go to an `eapol::Supplicant`, its actions
 //!   become `TxMgmt(Eapol)`, `SetKey` and `SetState(Authorized)` in the order
 //!   it gives them. The supplicant has no timers; the station gives the 4-way
-//!   handshake [`HANDSHAKE_TIMEOUT_MS`]. A handshake that sent message 2 and
-//!   never got a verified message 3 (timeout, or the AP deauthenticating us)
-//!   is [`FailReason::BadPassphrase`]: the AP drops a message 2 whose MIC
-//!   fails, which is all a wrong passphrase looks like from here.
+//!   handshake [`HANDSHAKE_TIMEOUT_MS`]. The AP drops a message 2 whose MIC
+//!   fails, which is all a wrong passphrase looks like from here, and the
+//!   air can fake the rest, so a handshake that sent message 2 and got no
+//!   verified message 3 is [`FailReason::BadPassphrase`] only when the AP
+//!   said so (deauthentication reason 2, 15 or 23) or when it happens on
+//!   [`STRIKES`] attempts in a row; otherwise it is a timeout or a
+//!   rejection, and the BSS is avoided for [`PENALTY_MS`].
 //! * **Connected**: group rekeys and PTK rekeys keep flowing through the
 //!   same supplicant. No timer runs here, so a forged message 1 cannot make
 //!   the station drop its own link.
 //! * **Failures** go to [`ConnState::Failed`] with a [`FailReason`] and a
 //!   retry after a back-off of [`BACKOFF_MIN_MS`] doubling to
-//!   [`BACKOFF_MAX_MS`]. A wrong passphrase blocks that profile until the
-//!   user connects to it again, so it is never retried on its own (no retry
-//!   storm against an AP, no account lockout).
+//!   [`BACKOFF_MAX_MS`] (reset once a link has held [`STABLE_MS`]). A BSS
+//!   that refused us, never answered or went silent is avoided for
+//!   [`PENALTY_MS`]: another BSS of the SSID, or a fresh scan, comes first.
+//!   A wrong passphrase blocks that profile until the user connects to it
+//!   again or [`BLOCK_MS`] passes (no retry storm against an AP, and no
+//!   permanent lockout from one forged frame).
+//! * **Identity**: a profile is its owner and its id together
+//!   ([`Profile::is`]); [`profile::normalize`] drops a user profile that
+//!   reuses a system id, and caps each owner.
 //! * [`Station::disconnect`] leaves and suspends auto-connect until the next
 //!   [`Station::connect`].
 //!
@@ -58,11 +67,13 @@ extern crate alloc;
 #[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
+mod failure;
 mod frames;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 mod join;
 mod machine;
+mod memory;
 mod networks;
 mod scan;
 pub mod policy;
@@ -74,18 +85,25 @@ mod tests;
 mod types;
 
 pub use eapol::Key;
+pub use failure::BAD_PASSPHRASE_REASONS;
 pub use machine::Station;
-pub use networks::{Network, Viewer};
+pub use memory::{BLOCK_MS, PENALTY_MS, STRIKES};
+pub use networks::{Ambiguous, Network, Viewer};
 pub use types::*;
 
 /// Wait for an authentication or association response this long.
 pub const JOIN_TIMEOUT_MS: u64 = 500;
 /// Send an authentication or association request at most this many times.
 pub const JOIN_TRIES: u8 = 4;
-/// The whole 4-way handshake must finish this long after association. The
-/// standard's authenticator retries message 1 and 3 for about a second; the
-/// margin is for a PBKDF2-free but slow (emulated) guest.
-pub const HANDSHAKE_TIMEOUT_MS: u64 = 5_000;
+/// The whole 4-way handshake must finish this long after association. An
+/// authenticator retries message 1 and 3 for a few seconds (hostapd about
+/// four) and then deauthenticates with reason 15, which is the evidence of a
+/// wrong passphrase: the deadline leaves it room to arrive first.
+pub const HANDSHAKE_TIMEOUT_MS: u64 = 8_000;
+/// `keyd`'s PMK must arrive this long after [`Action::FetchPmk`].
+pub const PMK_TIMEOUT_MS: u64 = 5_000;
+/// A link that held this long resets the back-off when it fails.
+pub const STABLE_MS: u64 = 30_000;
 /// A scan that has not reported done by then is aborted and its results
 /// read as they are.
 pub const SCAN_TIMEOUT_MS: u64 = 20_000;
