@@ -23,8 +23,9 @@ autostart = false
 
 [permissions]
 # Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`):
-# the window, `netd`'s status and Renew, `confd` to read `sys/net/<card>/*`, and
-# `elevd`, through which an administrator approves a change (`net.config`).
+# the window, `netd`'s status and Renew, `confd` to read `sys/net/<card>/*`,
+# `elevd`, through which an administrator approves a change (`net.config`), and
+# `wlanmd` for the Wi-Fi page (scan, networks, join, forget).
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
@@ -32,4 +33,5 @@ interfaces = [
     "os.lazy.confd.v1",
     "os.lazy.net.stack.v1",
     "os.lazy.elevd.v1",
+    "os.lazy.net.wifi.v1",
 ]

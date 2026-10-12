@@ -439,7 +439,7 @@ after WP6 and plug into what WP4 proved.
 | **WP2 Secrets** | §3.3: named secrets, persistence under `/conf`, `WifiPmk`, scope rules, `elevd` action `net.wifi.system` | WP0 | `keyd` host tests; a session stores a secret, reboots, and a `WifiPmk` from `wlanmd`'s label matches the Annex J PMK while the same call from the Terminal gets `EPERM`; the accounts attack harness gains "read another user's Wi-Fi secret" as `blocked` |
 | **WP3 Protocol libraries** (**built**) | §3.4: `libs/ieee80211`, `libs/eapol`, fuzz targets and seeds | WP0 | `cargo test -p ieee80211 -p eapol`; seeded fuzz soak; `python fuzz/gen_corpus.py --check` |
 | **WP4 Station stack on the simulator** | §3.5 + §3.6: `wlanmd`, `wifisim`, `fake_ap.py`, `wifictl`; `netd` gets `wlan0` | WP1–WP3 | `tools/wifi/sim_run.py`: scan lists the fake SSIDs with channel and RSSI; open and WPA2-PSK joins; DHCP and echo over `wlan0`; the AP-side pcap shows EAPOL 1–4 and CCMP data the independent Python side decrypted; wrong passphrase, deauth, beacon loss and group rekey scenarios each end in the expected state; `wlanmd` killed mid-handshake is restarted by `init` and reconnects. `test_judge.py` fails when it should. CI |
-| **WP5 Profiles and front ends** | §3.7 + §3.10: profiles, auto-connect at boot and login, country, Network app page, tray icon and menu, Settings, `rhai`, launchers and GUI, core package permissions | WP4 | a session script against the simulator: connect from the Network app with the password dialog, reboot, auto-connect before login for a system network, a user network dropped at logout; screenshots judged by `pngstats.py`; no `LABEL:DENY` in the traced run; `test_catalog.py` |
+| **WP5 Profiles and front ends** (**partly built**) | §3.7 + §3.10: profiles, auto-connect at boot and login, country, Network app page, tray icon and menu, Settings, `rhai`, launchers and GUI, core package permissions | WP4 | a session script against the simulator: connect from the Network app with the password dialog, reboot, auto-connect before login for a system network, a user network dropped at logout; screenshots judged by `pngstats.py`; no `LABEL:DENY` in the traced run; `test_catalog.py` |
 | **WP6 Driver landing pad** | §3.8 + §3.9: firmware path, fetch tool, `libs/fwload`; `os.lazy.usb.device.v1`; USB rows in `devd` | WP0 | a test class driver over the device interface passes its harness (storage or `usb-serial`); `tools/usb/run.py` and `tools/storage/run.py` still green; the fetched firmware lands at its `fhs` path with its licence, and an in-place update replaces it |
 
 **WP2 status (done).** `libs/secretstore` holds everything testable on the
@@ -489,6 +489,28 @@ interface gained `StoreSecret`, `DeleteSecret`, `ListSecrets` and
   runs as `_wlan` until `wlanmd` exists (WP4), and a test binary under that
   uid would be dead code. The PBKDF2 cost under TCG is not yet measured; it
   runs inside `keyd`'s serve loop, once per (secret, SSID).
+
+**WP5 status (front ends, first slice built).** The Network app has a
+Wi-Fi tab when `wlanmd` manages a radio (`xui-app/src/bin/network/wifipage.rs`
+over the typed client `xui_app::net::wifi` and the pure model
+`xui_app::net::wifimodel`): the networks `wlanmd` hears with signal, security
+and saved/connected state; Join (typing the passphrase of a new WPA2 network,
+which goes to `AddNetwork` scope `User` and nowhere else), Disconnect,
+Forget, Scan, and a box for a hidden network. The Network Status applet
+subscribes to `system/net/+/wifi/state`: signal bars (an alpha mask the shell
+tints; the bundled Lucide set has no Wi-Fi glyph) and a tooltip naming the
+network while Wi-Fi is the connection in use. The Network package lists
+`os.lazy.net.wifi.v1`; `run_demo.py --desktop --wifi --wifi-sim` ships the
+network apps. `python tools/wifi/ui_run.py` boots the desktop (`LAZYOS_WIFI=1` +
+`LAZYOS_WIFI_SIM=1`) against `fake_ap.py`, drives the page by widget name,
+rejoins a saved network with an empty passphrase box, reboots and does it
+again, and checks `keyd`'s file on the volume holds no passphrase in the clear. **Still to do in
+WP5:** a profile "available to all users" (`elevd`'s `net.wifi.system` stores
+the secret, but nothing yet records the system profile with `AddNetwork`
+scope `System`: that call has to come from `elevd` itself), the country in
+Settings (`sys/net/wifi/country` is read by `wlanmd` already), editing a
+saved network's priority and auto-connect, and the reboot / login scenarios
+of the stage's evidence.
 
 **WP4 status (station half built; the simulator is separate work).**
 `libs/wlansta` (the station machine, host-tested and fuzzed), `wlanmd` and
