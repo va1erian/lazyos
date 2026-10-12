@@ -234,15 +234,14 @@ fn load_file_from_disk(name: &CStr16) -> Option<&'static mut [u8]> {
 fn image_dir_path<'a>(name: &CStr16, out: &'a mut [u16; boot_dir::MAX_PATH]) -> Option<&'a CStr16> {
     let loaded_image = boot::open_protocol_exclusive::<LoadedImage>(boot::image_handle()).ok()?;
     let file_path = loaded_image.file_path()?;
-    let units = file_path
+    let nodes = file_path
         .node_iter()
         .filter_map(|node| match node.as_enum() {
-            Ok(DevicePathNodeEnum::MediaFilePath(file)) => Some(file.path_name()),
+            Ok(DevicePathNodeEnum::MediaFilePath(file)) => Some(file.path_name().into_iter()),
             _ => None,
-        })
-        .flat_map(|units| units.into_iter());
+        });
     let name = name.to_u16_slice().iter().copied();
-    let len = boot_dir::join(units, name, out)?;
+    let len = boot_dir::join_nodes(nodes, name, out)?;
     CStr16::from_u16_with_nul(&out[..len]).ok()
 }
 

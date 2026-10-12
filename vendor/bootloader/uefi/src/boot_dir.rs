@@ -56,9 +56,22 @@ pub fn join(
     Some(at + 1)
 }
 
+/// [`join`] over the image path's file-path nodes, a separator between
+/// each. GRUB's `chainloader` gives the directory and the file as two nodes
+/// (`\EFI\lazyos`, then `BOOTX64.EFI`, with no separator at the seam);
+/// firmware and the shell give one. Doubled separators collapse in `join`.
+pub fn join_nodes<N, U>(nodes: N, name: impl Iterator<Item = u16>, out: &mut [u16; MAX_PATH]) -> Option<usize>
+where
+    N: Iterator<Item = U>,
+    U: Iterator<Item = u16>,
+{
+    let units = nodes.flat_map(|node| core::iter::once(BACKSLASH).chain(node));
+    join(units, name, out)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{join, MAX_PATH};
+    use super::{join, join_nodes, MAX_PATH};
 
     fn run(image: &str, name: &str) -> Option<String> {
         let mut out = [0u16; MAX_PATH];
@@ -81,6 +94,26 @@ mod tests {
             run("/EFI/lazyos/\0\\BOOTX64.EFI\0", "ramdisk").as_deref(),
             Some("\\EFI\\lazyos\\ramdisk")
         );
+    }
+
+    fn run_nodes(nodes: &[&str], name: &str) -> Option<String> {
+        let mut out = [0u16; MAX_PATH];
+        let len = join_nodes(nodes.iter().map(|n| n.encode_utf16()), name.encode_utf16(), &mut out)?;
+        Some(String::from_utf16(&out[..len - 1]).unwrap())
+    }
+
+    #[test]
+    fn grub_two_node_path() {
+        // grub_efi_file_device_path: the directory, then the file.
+        assert_eq!(
+            run_nodes(&["\\EFI\\lazyos", "BOOTX64.EFI"], "kernel-x86_64").as_deref(),
+            Some("\\EFI\\lazyos\\kernel-x86_64")
+        );
+        assert_eq!(
+            run_nodes(&["\\EFI\\lazyos\\BOOTX64.EFI"], "ramdisk").as_deref(),
+            Some("\\EFI\\lazyos\\ramdisk")
+        );
+        assert_eq!(run_nodes(&["BOOTX64.EFI"], "ramdisk"), None);
     }
 
     #[test]
