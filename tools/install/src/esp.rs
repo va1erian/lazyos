@@ -227,8 +227,11 @@ impl Esp for ImageEsp {
 
     fn read(&mut self, path: &str) -> Result<Option<Vec<u8>>, String> {
         let fs = self.open()?;
-        let Ok(mut file) = fs.root_dir().open_file(path) else {
-            return Ok(None);
+        // Only an absent file is "none"; any other error is one.
+        let mut file = match fs.root_dir().open_file(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(fat_error(path)(error)),
         };
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).map_err(fat_error(path))?;
@@ -252,7 +255,8 @@ impl Esp for ImageEsp {
                     file.read_to_end(&mut old).map_err(fat_error(name))?;
                     Some(old)
                 }
-                Err(_) => None,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                Err(error) => return Err(fat_error(name)(error)),
             };
             if previous.is_some() {
                 at.remove(name).map_err(fat_error(name))?;
