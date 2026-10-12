@@ -8,7 +8,7 @@ use crate::model::{Bitmap, Document, Edit, MAX_SIDE, MIN_SIDE, WHITE};
 impl Model {
     /// Undoes the last committed action.
     pub fn undo(&mut self) {
-        self.end();
+        self.settle();
         if let Some(damage) = self.history.undo(&mut self.doc) {
             self.after_history(damage);
         }
@@ -16,7 +16,7 @@ impl Model {
 
     /// Redoes the last undone action.
     pub fn redo(&mut self) {
-        self.end();
+        self.settle();
         if let Some(damage) = self.history.redo(&mut self.doc) {
             self.after_history(damage);
         }
@@ -26,12 +26,13 @@ impl Model {
         self.damage.set(self.damage.get().merge(damage));
         self.preview = None;
         self.drag = None;
-        self.bump();
+        // The step may have changed the selection (or swapped the document).
+        self.selection_changed();
     }
 
     /// Clears the active layer to white as one undo step.
     pub fn clear(&mut self) {
-        self.end();
+        self.settle();
         let layer = self.doc.active();
         let Some(target) = self.doc.layer_mut(layer) else {
             return;
@@ -64,7 +65,7 @@ impl Model {
                 "size must be {MIN_SIDE}-{MAX_SIDE} pixels per side"
             ));
         }
-        self.end();
+        self.settle();
         if self.doc.size() == (width, height) {
             return Ok(());
         }
@@ -104,12 +105,13 @@ impl Model {
         Ok(())
     }
 
-    fn replace(&mut self, doc: Document) {
+    pub(super) fn replace(&mut self, doc: Document) {
+        self.forget_float();
         self.doc = doc;
         self.history.clear();
         self.preview = None;
         self.drag = None;
         self.damage_all();
-        self.bump();
+        self.selection_changed();
     }
 }

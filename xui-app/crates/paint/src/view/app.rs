@@ -16,7 +16,8 @@ use super::layout::{self, Observer};
 use super::menu::{self, Enabled};
 use super::options::{Options, step_size};
 use super::palette::Palette;
-use super::shortcuts::{shortcut, tool_hint};
+use super::shortcuts::{float_key, shortcut, tool_hint};
+use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
 use super::{Msg, PaintCanvas};
 use crate::model::{Model, Pixel, Side, Tool};
@@ -25,11 +26,13 @@ use crate::storage::Storage;
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
 mod colors;
+mod commands;
 mod dialogs;
 mod files;
 mod probe;
 
-use dialogs::{AboutBox, FileDialogs, ResizePrompt};
+use commands::PasteKind;
+use dialogs::{AboutBox, FileDialogs, PasteSizePrompt, ResizePrompt};
 
 /// The paint application.
 pub struct PaintApp {
@@ -64,6 +67,17 @@ pub struct PaintApp {
     current_path: Option<PathBuf>,
     /// The last window title set, so an unchanged one is not re-sent.
     title: String,
+    /// Whether the arrow keys, Enter and Esc belong to a move tool or a float.
+    float_keys: Rc<Cell<bool>>,
+    paste_size: PasteSizePrompt,
+    /// The paste waiting for the oversized-picture answer.
+    pending_paste: Option<PasteKind>,
+    /// The system `image/png` clipboard, if the host wired one.
+    system: Option<Rc<dyn SystemClipboard>>,
+    /// The PNG last offered to it; what is there now is ours when it matches.
+    last_offered: Option<Vec<u8>>,
+    /// Whether the newest copy is only in the in-app slot (too big to offer).
+    local_newest: bool,
 }
 
 impl PaintApp {
@@ -128,13 +142,20 @@ impl PaintApp {
             status,
         } = layout::mount(ui)?;
         let modal = Rc::new(Cell::new(false));
+        let float_keys = Rc::new(Cell::new(false));
         {
             let modal = Rc::clone(&modal);
+            let float_keys = Rc::clone(&float_keys);
             // Weak: the menu holds the window, and the window holds this hook.
             let menu = Rc::downgrade(&menu);
             ui.on_key(move |key, modifiers| {
                 let menu_open = menu.upgrade().is_some_and(|menu| menu.is_open());
-                shortcut(key, modifiers, modal.get() || menu_open)
+                let blocked = modal.get() || menu_open;
+                shortcut(key, modifiers, blocked).or_else(|| {
+                    (float_keys.get() && !blocked)
+                        .then(|| float_key(key, modifiers))
+                        .flatten()
+                })
             });
         }
 
@@ -161,6 +182,12 @@ impl PaintApp {
             probe: None,
             current_path: None,
             title: String::new(),
+            float_keys,
+            paste_size: PasteSizePrompt::default(),
+            pending_paste: None,
+            system: None,
+            last_offered: None,
+            local_newest: false,
         };
         // Rows of unbuilt features start disabled; the live ones follow the model.
         menu::init(&app.menu, app.enabled());
@@ -182,6 +209,8 @@ impl PaintApp {
             can_undo: self.model.history().can_undo(),
             can_redo: self.model.history().can_redo(),
             io: self.io(),
+            selection: self.model.selection().is_some(),
+            can_paste: self.model.clipboard().is_some() || self.system.is_some(),
         }
     }
 
@@ -235,6 +264,11 @@ impl PaintApp {
         self.options.sync(ui, &self.model);
         menu::sync(&self.menu, self.enabled());
         self.modal.set(self.modal_open(ui));
+        self.float_keys
+            .set(self.model.tool().is_move() || self.model.is_floating());
+        if let Some(notice) = self.model.take_notice() {
+            self.message = Some(notice);
+        }
         self.refresh_status();
     }
 
@@ -245,7 +279,11 @@ impl PaintApp {
             None => "--".to_string(),
         };
         let (width, height) = self.model.document().size();
-        let size = format!("{width} x {height}");
+        let selection = self.model.selection().map(|s| s.bounds());
+        let size = match selection {
+            Some(b) => format!("{width} x {height}  sel {}x{}", b.width(), b.height()),
+            None => format!("{width} x {height}"),
+        };
         let tool = self.model.tool().label().to_string();
         // A hovered tool names itself over the last message while the pointer is
         // on the grid.
@@ -270,6 +308,8 @@ impl PaintApp {
         observer.can_redo = self.model.history().can_redo();
         observer.cursor = self.cursor;
         observer.dragging = self.model.is_dragging();
+        observer.selection = selection.map(|b| (b.x0, b.y0, b.width(), b.height()));
+        observer.floating = self.model.is_floating();
         observer.zoom_percent = zoom_percent;
         observer.editing = self.editing.map(|(side, _)| side);
         observer.status = [position, size, tool, message, zoom];
@@ -329,35 +369,6 @@ impl PaintApp {
     }
 }
 
-impl PaintApp {
-    /// Selects `tool`. (`update` has already ended a stroke in progress, so a
-    /// key pressed mid-stroke cannot leave pixels the history never saw.)
-    fn select_tool(&mut self, tool: Tool) {
-        self.model.set_tool(tool);
-    }
-
-    /// Runs a command: the View menu's zoom and grid act on the canvas; every
-    /// other one is a feature a later phase builds and only says so.
-    fn run_command(&mut self, command: super::Command) {
-        use super::Command;
-        match command {
-            Command::ZoomIn => self.canvas.zoom_in(),
-            Command::ZoomOut => self.canvas.zoom_out(),
-            Command::ZoomToWindow => self.canvas.zoom_fit(),
-            Command::ActualSize => self.canvas.actual_size(),
-            Command::PixelGrid => {
-                self.grid = !self.grid;
-                self.canvas.set_grid(self.grid);
-                let state = if self.grid { "on" } else { "off" };
-                self.message = Some(format!("Pixel grid {state}"));
-            }
-            other => {
-                self.message = Some(format!("{} is not available yet", other.label()));
-            }
-        }
-    }
-}
-
 impl App for PaintApp {
     type Msg = Msg;
 
@@ -375,6 +386,8 @@ impl App for PaintApp {
                 | Msg::ColorDone
                 | Msg::ColorCancel
                 | Msg::Probe
+                | Msg::PasteExpand
+                | Msg::PasteKeep
                 | Msg::Canvas(CanvasMsg::Cancel)
         );
         if !passes && self.modal_open(ui) {
@@ -429,7 +442,7 @@ impl App for PaintApp {
                     self.message = Some(format!("About failed: {error}"));
                 }
             }
-            Msg::Command(command) => self.run_command(command),
+            Msg::Command(command) => self.run_command(ui, command),
             Msg::Probe => self.probe(ui),
             Msg::OpenStartup => self.open_startup(),
             Msg::OpenChosen => self.open_chosen(ui),
@@ -441,24 +454,32 @@ impl App for PaintApp {
             }
             Msg::ResizeChosen => self.resize_chosen(ui),
             Msg::DialogClosed => ui.focus(self.canvas.id()),
-            Msg::Canvas(CanvasMsg::Down { x, y, side }) => {
+            Msg::Nudge(..)
+            | Msg::FloatCommit
+            | Msg::FloatCancel
+            | Msg::SelectMode(_)
+            | Msg::WandTolerance(_)
+            | Msg::WandContiguous(_)
+            | Msg::PasteExpand
+            | Msg::PasteKeep => self.selection_msg(msg),
+            Msg::Canvas(CanvasMsg::Down { x, y, side, mods }) => {
                 if self.model.is_dragging() {
                     self.model.end();
                 }
                 self.hint = None;
                 self.cursor = Some((x, y));
-                self.model.begin(x, y, side);
+                self.model.begin_with(x, y, side, mods);
             }
-            Msg::Canvas(CanvasMsg::Move { x, y }) => {
+            Msg::Canvas(CanvasMsg::Move { x, y, mods }) => {
                 // The pointer is on the canvas, so it is no longer on the grid
                 // (a backend need not send the grid a leave).
                 self.hint = None;
                 self.cursor = Some((x, y));
-                self.model.extend(x, y);
+                self.model.extend_with(x, y, mods);
             }
-            Msg::Canvas(CanvasMsg::Up { x, y }) => {
+            Msg::Canvas(CanvasMsg::Up { x, y, mods }) => {
                 self.cursor = Some((x, y));
-                self.model.extend(x, y);
+                self.model.extend_with(x, y, mods);
                 self.model.end();
             }
             Msg::Canvas(CanvasMsg::Cancel) => {

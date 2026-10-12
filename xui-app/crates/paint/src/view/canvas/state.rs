@@ -7,7 +7,7 @@
 use xui_core::geometry::Rect;
 use xui_core::image::Image;
 
-use crate::model::{Damage, Document, Preview};
+use crate::model::{Damage, Document, Edge, Preview};
 use crate::render::{self, FlatCache};
 use crate::viewport::Viewport;
 
@@ -29,6 +29,11 @@ pub struct CanvasState {
     pub(super) space: bool,
     /// The last pointer position of a pan drag, in view pixels.
     pub(super) pan: Option<(i32, i32)>,
+    /// The selection's outline and the model revision it was built for.
+    pub(super) edges: Vec<Edge>,
+    pub(super) sel_rev: u64,
+    /// How far the ants have crawled.
+    pub(super) phase: u32,
 }
 
 impl Default for CanvasState {
@@ -46,6 +51,9 @@ impl Default for CanvasState {
             grid: true,
             space: false,
             pan: None,
+            edges: Vec::new(),
+            sel_rev: 0,
+            phase: 0,
         }
     }
 }
@@ -103,6 +111,13 @@ impl CanvasState {
             self.grid = grid;
             self.screen_stale = true;
         }
+    }
+
+    /// The picture pixel at the top-left of the view, kept inside the picture:
+    /// where a paste lands.
+    pub(super) fn top_left(&self) -> (i32, i32) {
+        let (x, y) = self.viewport.to_doc(0, 0);
+        (x.max(0), y.max(0))
     }
 
     /// The picture pixel under the view pixel `(x, y)`.

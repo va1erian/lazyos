@@ -2,8 +2,8 @@
 
 //! The document: a stack of same-sized layers.
 //!
-//! A selection will live here too (P2); nothing in this module assumes there
-//! is exactly one layer or that layers are all visible.
+//! The selection lives here too; nothing in this module assumes there is
+//! exactly one layer or that layers are all visible.
 
 mod budget;
 mod flatten;
@@ -14,6 +14,7 @@ pub use layer::{Layer, LayerProps};
 
 use super::bitmap::{Bitmap, Pixel};
 use super::rect::Rect;
+use super::selection::Selection;
 
 /// What a standalone document reserves for undo: the history's default cap.
 const DEFAULT_RESERVE: Reserved = Reserved {
@@ -32,6 +33,8 @@ pub struct Document {
     height: u32,
     layers: Vec<Layer>,
     active: usize,
+    /// The pixels tools may change; `None` means the whole picture.
+    selection: Option<Selection>,
 }
 
 /// A whole document's contents, swapped in and out by structural history
@@ -64,6 +67,25 @@ impl Document {
             height: bitmap.height(),
             layers: vec![Layer::new(BACKGROUND, bitmap)],
             active: 0,
+            selection: None,
+        }
+    }
+
+    /// A document of `layers` (all `width` x `height`) with no selection. The
+    /// caller has checked the budget.
+    pub(crate) fn from_parts(
+        width: u32,
+        height: u32,
+        layers: Vec<Layer>,
+        active: usize,
+    ) -> Document {
+        let active = active.min(layers.len().saturating_sub(1));
+        Document {
+            width,
+            height,
+            layers,
+            active,
+            selection: None,
         }
     }
 
@@ -107,9 +129,32 @@ impl Document {
         &self.layers[self.active]
     }
 
-    /// The pixel bytes of every layer.
+    /// The bytes of every layer and of the selection's mask.
     pub fn bytes(&self) -> usize {
-        self.layers.iter().map(|l| l.pixels.byte_len()).sum()
+        let mask = self.selection.as_ref().map_or(0, Selection::bytes);
+        mask + self
+            .layers
+            .iter()
+            .map(|l| l.pixels.byte_len())
+            .sum::<usize>()
+    }
+
+    /// The selection, if there is one.
+    pub fn selection(&self) -> Option<&Selection> {
+        self.selection.as_ref()
+    }
+
+    pub(crate) fn set_selection(&mut self, selection: Option<Selection>) -> Option<Selection> {
+        std::mem::replace(&mut self.selection, selection)
+    }
+
+    /// One layer to draw on and the selection to clip it to.
+    pub(crate) fn layer_and_selection(
+        &mut self,
+        index: usize,
+    ) -> Option<(&mut Layer, Option<&Selection>)> {
+        let selection = self.selection.as_ref();
+        self.layers.get_mut(index).map(|layer| (layer, selection))
     }
 
     pub(crate) fn layer_mut(&mut self, index: usize) -> Option<&mut Layer> {
@@ -166,6 +211,8 @@ impl Document {
             height: height.clamp(super::MIN_SIDE, super::MAX_SIDE),
             layers,
             active: self.active,
+            // A resize keeps no outline: its coordinates mean nothing now.
+            selection: None,
         }
     }
 }

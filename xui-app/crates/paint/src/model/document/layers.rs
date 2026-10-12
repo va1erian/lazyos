@@ -14,7 +14,7 @@ impl Model {
         if index >= self.doc.layers().len() {
             return false;
         }
-        self.end();
+        self.settle();
         self.doc.set_active(index);
         self.bump();
         true
@@ -45,7 +45,7 @@ impl Model {
     /// Inserts `layer` (which must match the document's size) above the active
     /// layer after the budget check.
     fn add_layer_with(&mut self, layer: Layer) -> Result<(), String> {
-        self.end();
+        self.settle();
         self.check_fits(
             self.doc.width(),
             self.doc.height(),
@@ -71,7 +71,7 @@ impl Model {
 
     /// Deletes layer `index`; the last layer cannot be deleted.
     pub fn delete_layer(&mut self, index: usize) -> Result<(), String> {
-        self.end();
+        self.settle();
         if self.doc.layers().len() <= 1 {
             return Err("an image needs at least one layer".to_string());
         }
@@ -102,7 +102,7 @@ impl Model {
 
     /// Moves layer `from` so it ends at index `to` (0 is the bottom).
     pub fn move_layer(&mut self, from: usize, to: usize) -> Result<(), String> {
-        self.end();
+        self.settle();
         let count = self.doc.layers().len();
         if from >= count || to >= count {
             return Err("no such layer".to_string());
@@ -124,7 +124,7 @@ impl Model {
     /// Sets layer `index`'s name, visibility and opacity; unchanged properties
     /// are not an undo step.
     pub fn set_layer_props(&mut self, index: usize, props: LayerProps) -> Result<(), String> {
-        self.end();
+        self.settle();
         let Some(layer) = self.doc.layer_mut(index) else {
             return Err("no such layer".to_string());
         };

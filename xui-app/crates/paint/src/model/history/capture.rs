@@ -9,8 +9,9 @@
 
 use std::collections::HashMap;
 
-use crate::model::bitmap::Bitmap;
+use crate::model::bitmap::{Bitmap, Pixel};
 use crate::model::rect::Rect;
+use crate::model::selection::{Selection, mix_by};
 
 /// The tile edge in pixels.
 const TILE: i32 = 64;
@@ -46,6 +47,41 @@ impl UndoCapture {
                     && let Some(tile) = layer.crop(tile_rect((tx, ty), layer.rect()))
                 {
                     slot.insert(tile);
+                }
+            }
+        }
+    }
+
+    /// The pixel `(x, y)` had before the action: the saved tile's when the
+    /// pixel was touched, else `layer`'s own (it has not changed).
+    pub fn original(&self, layer: &Bitmap, x: i32, y: i32) -> Option<Pixel> {
+        let key = (x.div_euclid(TILE), y.div_euclid(TILE));
+        match self.tiles.get(&key) {
+            Some(tile) => tile.get(x - key.0 * TILE, y - key.1 * TILE),
+            None => layer.get(x, y),
+        }
+    }
+
+    /// Takes back what a draw into `rect` did outside `selection`: each pixel
+    /// there becomes the original blended toward the drawn pixel by the
+    /// selection's coverage. Call after drawing, with every pixel of `rect`
+    /// already [`touch`](UndoCapture::touch)ed. This is the one place a tool's
+    /// output meets the selection, so every tool clips the same way.
+    pub fn clip(&self, layer: &mut Bitmap, rect: Rect, selection: Option<&Selection>) {
+        let Some(selection) = selection else { return };
+        let rect = rect.intersect(layer.rect());
+        // Wholly inside a rectangle: nothing to take back.
+        if rect.is_empty() || (selection.is_rect() && selection.bounds().intersect(rect) == rect) {
+            return;
+        }
+        for y in rect.y0..rect.y1 {
+            for x in rect.x0..rect.x1 {
+                let cover = selection.coverage(x, y);
+                if cover == 255 {
+                    continue;
+                }
+                if let (Some(old), Some(new)) = (self.original(layer, x, y), layer.get(x, y)) {
+                    layer.put(x, y, mix_by(cover, old, new));
                 }
             }
         }

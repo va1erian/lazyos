@@ -25,6 +25,27 @@ impl Side {
     }
 }
 
+/// The modifier keys held during a pointer event. Selection tools read them
+/// (Ctrl adds, Alt intersects, Shift keeps a square or circle).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mods {
+    /// Ctrl (or the Windows key).
+    pub ctrl: bool,
+    /// Shift.
+    pub shift: bool,
+    /// Alt.
+    pub alt: bool,
+}
+
+impl Mods {
+    /// No modifier held.
+    pub const NONE: Mods = Mods {
+        ctrl: false,
+        shift: false,
+        alt: false,
+    };
+}
+
 /// One drawing tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -44,11 +65,23 @@ pub enum Tool {
     Fill,
     /// The eyedropper: picks a colour from the canvas.
     Picker,
+    /// Selects a rectangle.
+    RectSelect,
+    /// Selects an ellipse.
+    EllipseSelect,
+    /// Selects the polygon the pointer draws.
+    Lasso,
+    /// Selects the pixels of a similar colour.
+    MagicWand,
+    /// Lifts the selected pixels and moves them.
+    MovePixels,
+    /// Moves the selection's outline only.
+    MoveSelection,
 }
 
 impl Tool {
     /// Every tool, in toolbar order.
-    pub const ALL: [Tool; 8] = [
+    pub const ALL: [Tool; 14] = [
         Tool::Pencil,
         Tool::Brush,
         Tool::Eraser,
@@ -57,6 +90,12 @@ impl Tool {
         Tool::Ellipse,
         Tool::Fill,
         Tool::Picker,
+        Tool::RectSelect,
+        Tool::EllipseSelect,
+        Tool::Lasso,
+        Tool::MagicWand,
+        Tool::MovePixels,
+        Tool::MoveSelection,
     ];
 
     /// Whether the tool draws a rubber-banded shape (preview, then commit).
@@ -67,6 +106,19 @@ impl Tool {
     /// Whether the tool paints freehand while dragging.
     pub const fn is_freehand(self) -> bool {
         matches!(self, Tool::Pencil | Tool::Brush | Tool::Eraser)
+    }
+
+    /// Whether the tool makes a selection.
+    pub const fn is_selector(self) -> bool {
+        matches!(
+            self,
+            Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand
+        )
+    }
+
+    /// Whether the tool moves the selection or its pixels.
+    pub const fn is_move(self) -> bool {
+        matches!(self, Tool::MovePixels | Tool::MoveSelection)
     }
 
     /// A short human label for the status bar.
@@ -80,6 +132,12 @@ impl Tool {
             Tool::Ellipse => "Ellipse",
             Tool::Fill => "Fill",
             Tool::Picker => "Picker",
+            Tool::RectSelect => "Rectangle Select",
+            Tool::EllipseSelect => "Ellipse Select",
+            Tool::Lasso => "Lasso Select",
+            Tool::MagicWand => "Magic Wand",
+            Tool::MovePixels => "Move Selected Pixels",
+            Tool::MoveSelection => "Move Selection",
         }
     }
 }

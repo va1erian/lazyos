@@ -12,27 +12,27 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Command {
     // Edit.
-    /// Cut the selection (P2).
+    /// Cut the selection.
     Cut,
-    /// Copy the selection (P2).
+    /// Copy the selection.
     Copy,
-    /// Copy every visible layer of the selection (P2).
+    /// Copy every visible layer of the selection.
     CopyMerged,
-    /// Paste as a floating selection (P2).
+    /// Paste as a floating selection.
     Paste,
-    /// Paste into a new layer (P2).
+    /// Paste into a new layer.
     PasteNewLayer,
-    /// Paste into a new image (P2).
+    /// Paste into a new image.
     PasteNewImage,
-    /// Erase the selected pixels (P2).
+    /// Erase the selected pixels.
     EraseSelection,
-    /// Fill the selection with the primary colour (P2).
+    /// Fill the selection with the primary colour.
     FillSelection,
-    /// Invert the selection (P2).
+    /// Invert the selection.
     InvertSelection,
-    /// Select the whole image (P2).
+    /// Select the whole image.
     SelectAll,
-    /// Drop the selection (P2).
+    /// Drop the selection.
     Deselect,
     // View.
     /// Zoom in.
@@ -46,7 +46,7 @@ pub enum Command {
     /// Toggle the pixel grid (drawn from 800%).
     PixelGrid,
     // Image.
-    /// Crop to the selection (P5).
+    /// Crop to the selection.
     CropToSelection,
     /// Resize the image, scaling its pixels (P5).
     ResizeImage,
@@ -93,10 +93,6 @@ pub enum Command {
     /// Hue and saturation, with a preview (P5).
     HueSaturation,
     // Tools.
-    /// The selection tools (P2).
-    SelectTool,
-    /// Move the selected pixels (P2).
-    MoveTool,
     /// Zoom by clicking (P4).
     ZoomTool,
     /// Pan by dragging (P4).
@@ -109,7 +105,7 @@ pub enum Command {
 
 impl Command {
     /// Every command, in menu order.
-    pub const ALL: [Command; 44] = [
+    pub const ALL: [Command; 42] = [
         Command::Cut,
         Command::Copy,
         Command::CopyMerged,
@@ -148,8 +144,6 @@ impl Command {
         Command::Sepia,
         Command::BrightnessContrast,
         Command::HueSaturation,
-        Command::SelectTool,
-        Command::MoveTool,
         Command::ZoomTool,
         Command::PanTool,
         Command::GradientTool,
@@ -167,6 +161,39 @@ impl Command {
                 | Command::ZoomToWindow
                 | Command::ActualSize
                 | Command::PixelGrid
+                | Command::Cut
+                | Command::Copy
+                | Command::CopyMerged
+                | Command::Paste
+                | Command::PasteNewLayer
+                | Command::PasteNewImage
+                | Command::EraseSelection
+                | Command::FillSelection
+                | Command::InvertSelection
+                | Command::SelectAll
+                | Command::Deselect
+                | Command::CropToSelection
+        )
+    }
+
+    /// Whether the command acts on a selection and is disabled without one.
+    pub const fn needs_selection(self) -> bool {
+        matches!(
+            self,
+            Command::Cut
+                | Command::Copy
+                | Command::CopyMerged
+                | Command::InvertSelection
+                | Command::Deselect
+                | Command::CropToSelection
+        )
+    }
+
+    /// Whether the command pastes and is disabled with nothing to paste.
+    pub const fn needs_clipboard(self) -> bool {
+        matches!(
+            self,
+            Command::Paste | Command::PasteNewLayer | Command::PasteNewImage
         )
     }
 
@@ -211,8 +238,6 @@ impl Command {
             Command::Sepia => "Sepia",
             Command::BrightnessContrast => "Brightness / Contrast",
             Command::HueSaturation => "Hue / Saturation",
-            Command::SelectTool => "Select",
-            Command::MoveTool => "Move",
             Command::ZoomTool => "Zoom",
             Command::PanTool => "Pan",
             Command::GradientTool => "Gradient",

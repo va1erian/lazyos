@@ -8,6 +8,7 @@ use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
 
 use super::super::color_of;
+use super::ants;
 use super::state::CanvasState;
 use crate::model::{Preview, PreviewKind};
 
@@ -40,6 +41,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Th
         let radius = (state.brush.max(1) as f32 * zoom as f32 / 2.0).max(1.0);
         canvas.stroke_ellipse(at(cursor), radius, radius, theme.text, 1.0);
     }
+    ants::draw(canvas, state, bounds);
     canvas.stroke_rect(bounds, theme.border, 1.0);
     canvas.pop_clip();
 }

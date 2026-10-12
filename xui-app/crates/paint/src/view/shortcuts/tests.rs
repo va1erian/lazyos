@@ -69,7 +69,7 @@ fn keys_of_unbuilt_features_name_their_command() {
     assert_eq!(press(Key::I, CTRL), command(Command::InvertSelection));
     assert_eq!(press(Key::DIGIT0, CTRL), command(Command::ActualSize));
     assert_eq!(press(Key::M, CTRL), command(Command::MergeLayerDown));
-    assert_eq!(press(Key::M, NONE), command(Command::MoveTool));
+    assert_eq!(press(Key::M, NONE), Some(Msg::CycleTool(ToolGroup::Move)));
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn tool_keys_select_tools_only_without_modifiers() {
     assert_eq!(press(Key::E, NONE), Some(Msg::Tool(Tool::Eraser)));
     assert_eq!(press(Key::F, NONE), Some(Msg::Tool(Tool::Fill)));
     assert_eq!(press(Key::K, NONE), Some(Msg::Tool(Tool::Picker)));
-    assert_eq!(press(Key::S, NONE), command(Command::SelectTool));
+    assert_eq!(press(Key::S, NONE), Some(Msg::CycleTool(ToolGroup::Select)));
     assert_eq!(press(Key::B, SHIFT), None);
     assert_eq!(press(Key::B, ALT), None);
     assert_eq!(press(Key::B, CTRL), command(Command::ZoomToWindow));
@@ -125,6 +125,42 @@ fn nothing_is_taken_while_a_dialog_is_open() {
             chord.label()
         );
     }
+}
+
+#[test]
+fn the_select_and_move_keys_cycle_their_groups() {
+    let mut tool = Tool::Pencil;
+    let mut seen = Vec::new();
+    for _ in 0..5 {
+        tool = ToolGroup::Select.next(tool);
+        seen.push(tool);
+    }
+    assert_eq!(
+        seen,
+        [
+            Tool::RectSelect,
+            Tool::EllipseSelect,
+            Tool::Lasso,
+            Tool::MagicWand,
+            Tool::RectSelect
+        ]
+    );
+    assert_eq!(ToolGroup::Move.next(Tool::MovePixels), Tool::MoveSelection);
+    assert_eq!(ToolGroup::Move.next(Tool::MoveSelection), Tool::MovePixels);
+    assert_eq!(tool_hint(Tool::Lasso), "Lasso Select (S)");
+    assert_eq!(tool_hint(Tool::MoveSelection), "Move Selection (M)");
+}
+
+#[test]
+fn float_keys_nudge_land_and_cancel() {
+    assert_eq!(float_key(Key::LEFT, NONE), Some(Msg::Nudge(-1, 0)));
+    assert_eq!(float_key(Key::DOWN, NONE), Some(Msg::Nudge(0, 1)));
+    assert_eq!(float_key(Key::RIGHT, SHIFT), Some(Msg::Nudge(10, 0)));
+    assert_eq!(float_key(Key::UP, SHIFT), Some(Msg::Nudge(0, -10)));
+    assert_eq!(float_key(Key::RETURN, NONE), Some(Msg::FloatCommit));
+    assert_eq!(float_key(Key::ESCAPE, NONE), Some(Msg::FloatCancel));
+    assert_eq!(float_key(Key::LEFT, CTRL), None);
+    assert_eq!(float_key(Key::A, NONE), None);
 }
 
 #[test]

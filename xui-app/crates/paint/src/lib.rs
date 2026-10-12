@@ -34,7 +34,7 @@ pub mod viewport;
 
 pub use model::{Bitmap, Model, Tool};
 pub use storage::{MemoryStorage, Storage};
-pub use view::{Msg, Observer, PaintApp};
+pub use view::{Msg, Observer, PaintApp, SystemClipboard};
 
 /// The default canvas width in pixels.
 pub const DEFAULT_WIDTH: u32 = 320;

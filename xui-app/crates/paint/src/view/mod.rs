@@ -13,6 +13,7 @@ mod menu;
 mod options;
 mod palette;
 pub mod shortcuts;
+mod sysclip;
 mod toolbar;
 
 pub use app::PaintApp;
@@ -21,7 +22,8 @@ pub use command::Command;
 pub use layout::{COLORS_WIDTH, Observer};
 pub use options::{step_size, uses_size};
 pub use palette::{COLORS, PALETTE, Palette};
-pub use shortcuts::{ToolGroup, shortcut};
+pub use shortcuts::{ToolGroup, float_key, shortcut};
+pub use sysclip::SystemClipboard;
 pub use toolbar::ToolStrip;
 
 use xui_core::Color;
@@ -79,6 +81,23 @@ pub enum Msg {
     Quit,
     /// Show the About box.
     About,
+    /// Move the floating pixels or the selection outline by this many pixels
+    /// (the arrow keys while a move tool is active).
+    Nudge(i32, i32),
+    /// Land the floating pixels (Enter).
+    FloatCommit,
+    /// Drop the floating pixels where they were lifted from (Esc).
+    FloatCancel,
+    /// Choose how a new selection joins the old one.
+    SelectMode(crate::model::CombineMode),
+    /// Set the Magic Wand's tolerance in percent.
+    WandTolerance(u8),
+    /// Choose between a contiguous region and every similar pixel.
+    WandContiguous(bool),
+    /// The pasted picture is larger than the canvas: grow the canvas to it.
+    PasteExpand,
+    /// The pasted picture is larger than the canvas: keep the canvas size.
+    PasteKeep,
     /// A command whose feature a later phase builds; see [`Command`].
     Command(Command),
     /// Print the named widget rectangles (UI probe images only).

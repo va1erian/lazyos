@@ -207,12 +207,20 @@ pub(super) struct Enabled {
     pub can_redo: bool,
     /// Whether Open and Save have a storage behind them.
     pub io: bool,
+    /// Whether there is a selection.
+    pub selection: bool,
+    /// Whether there is a picture to paste.
+    pub can_paste: bool,
 }
 
 /// Whether the row for `msg` is enabled in `state`.
 pub(super) fn is_enabled(msg: Msg, state: Enabled) -> bool {
     match msg {
-        Msg::Command(command) => command.available(),
+        Msg::Command(command) => {
+            command.available()
+                && (!command.needs_selection() || state.selection)
+                && (!command.needs_clipboard() || state.can_paste)
+        }
         Msg::Undo => state.can_undo,
         Msg::Redo => state.can_redo,
         Msg::Open | Msg::Save | Msg::SaveAs => state.io,
@@ -229,8 +237,13 @@ pub(super) fn init(menu: &Menu<Msg>, state: Enabled) {
 
 /// Updates the rows `state` can change.
 pub(super) fn sync(menu: &Menu<Msg>, state: Enabled) {
-    for msg in [Msg::Undo, Msg::Redo] {
-        if let Some(id) = id_of(msg) {
+    for (id, msg) in items() {
+        let live = match msg {
+            Msg::Undo | Msg::Redo => true,
+            Msg::Command(command) => command.needs_selection() || command.needs_clipboard(),
+            _ => false,
+        };
+        if live {
             menu.set_enabled(id, is_enabled(msg, state));
         }
     }

@@ -72,6 +72,10 @@ pub struct Observer {
     pub zoom_percent: u32,
     /// The colour the editor is changing, while it is open.
     pub editing: Option<Side>,
+    /// The selection's `(x, y, width, height)`, if there is one.
+    pub selection: Option<(i32, i32, u32, u32)>,
+    /// Whether lifted or pasted pixels are waiting to be placed.
+    pub floating: bool,
     /// The five status-bar parts: position, size, tool, message, zoom.
     pub status: [String; 5],
 }
@@ -89,6 +93,8 @@ impl Default for Observer {
             dragging: false,
             zoom_percent: 100,
             editing: None,
+            selection: None,
+            floating: false,
             status: Default::default(),
         }
     }

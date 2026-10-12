@@ -38,6 +38,7 @@ impl PaintApp {
     /// Whether a modal dialog or the colour editor has the window.
     pub(super) fn modal_open(&self, ui: &Ui<Msg>) -> bool {
         self.resize.is_open()
+            || self.paste_size.is_open()
             || self.about.is_open()
             || self.editor.is_open(ui)
             || self.files.as_ref().is_some_and(|files| files.is_open())

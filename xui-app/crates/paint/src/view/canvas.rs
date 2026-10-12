@@ -4,6 +4,7 @@
 //! viewport's zoom, a live shape preview and a brush cursor, and maps pointer
 //! input to picture coordinates.
 
+mod ants;
 mod events;
 mod paint;
 mod state;
@@ -18,7 +19,7 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 
 use super::Msg;
-use crate::model::{Model, Side};
+use crate::model::{Model, Mods, Side};
 use crate::viewport::Viewport;
 
 pub use state::CanvasState;
@@ -37,6 +38,8 @@ pub enum CanvasMsg {
         y: i32,
         /// Which paint side the button selects.
         side: Side,
+        /// The modifier keys held.
+        mods: Mods,
     },
     /// The pointer moved while a button may be down.
     Move {
@@ -44,6 +47,8 @@ pub enum CanvasMsg {
         x: i32,
         /// Picture y.
         y: i32,
+        /// The modifier keys held.
+        mods: Mods,
     },
     /// A button went up at the given picture position.
     Up {
@@ -51,6 +56,8 @@ pub enum CanvasMsg {
         x: i32,
         /// Picture y.
         y: i32,
+        /// The modifier keys held.
+        mods: Mods,
     },
     /// The drag was interrupted (focus or capture lost).
     Cancel,
@@ -62,7 +69,12 @@ pub enum CanvasMsg {
 pub struct PaintCanvas {
     control: Control<Msg>,
     state: Rc<RefCell<CanvasState>>,
+    ui: Ui<Msg>,
+    timer: RefCell<Option<xui_core::backend::TimerId>>,
 }
+
+/// Milliseconds between steps of the marching ants.
+const ANTS_MS: u32 = 200;
 
 impl PaintCanvas {
     /// Creates a canvas node; the window layout places it.
@@ -95,7 +107,12 @@ impl PaintCanvas {
             });
         }
 
-        Ok(PaintCanvas { control, state })
+        Ok(PaintCanvas {
+            control,
+            state,
+            ui: ui.clone(),
+            timer: RefCell::new(None),
+        })
     }
 
     /// The canvas's node identity.
@@ -119,10 +136,56 @@ impl PaintCanvas {
             state.brush = brush;
             changed = true;
         }
+        if state.sel_rev != model.selection_rev() {
+            state.sel_rev = model.selection_rev();
+            state.edges = model.selection().map(|s| s.edges()).unwrap_or_default();
+            changed = true;
+        }
+        let animate = !ants::is_empty(&state.edges);
         drop(state);
+        self.animate_ants(animate);
         if changed {
             self.control.invalidate();
         }
+    }
+
+    /// Starts the ants' timer while there is an outline and stops it when there
+    /// is not, so an idle Paint costs no wakeups. A backend with no timers
+    /// leaves the ants still.
+    fn animate_ants(&self, on: bool) {
+        let mut timer = self.timer.borrow_mut();
+        match (on, *timer) {
+            (true, None) => {
+                let state = Rc::clone(&self.state);
+                let ui = self.ui.clone();
+                let id = self.control.id();
+                *timer = self.control.set_timer(ANTS_MS, move || {
+                    let mut state = state.borrow_mut();
+                    state.phase = state.phase.wrapping_add(1);
+                    drop(state);
+                    ui.invalidate(id);
+                    None
+                });
+            }
+            (false, Some(id)) => {
+                self.control.kill_timer(id);
+                *timer = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// The picture pixel at the top-left of the view (where a paste lands).
+    pub fn view_top_left(&self) -> (i32, i32) {
+        self.state.borrow().top_left()
+    }
+
+    /// Advances the ants one step, as a timer tick does.
+    pub fn tick_ants(&self) {
+        let mut state = self.state.borrow_mut();
+        state.phase = state.phase.wrapping_add(1);
+        drop(state);
+        self.control.invalidate();
     }
 
     /// The viewport (zoom and scroll).

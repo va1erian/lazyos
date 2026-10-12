@@ -6,14 +6,21 @@
 
 use super::{Drag, Model, Pixel, PreviewKind, Side, Tool};
 use crate::model::history::UndoCapture;
-use crate::model::{Edit, MAX_BRUSH, Preview, fill, raster};
+use crate::model::selection::mix_by;
+use crate::model::{Edit, MAX_BRUSH, Mods, Preview, fill, raster};
 
 /// What the eraser writes: no colour, no alpha.
 const TRANSPARENT: Pixel = [0, 0, 0, 0];
 
 impl Model {
-    /// Selects a tool, dropping any in-progress preview.
+    /// Selects a tool, dropping any in-progress preview. Pixels being placed
+    /// (a lift or a paste) land first, unless the new tool is Move Selected
+    /// Pixels, which keeps placing them.
     pub fn set_tool(&mut self, tool: Tool) {
+        self.end();
+        if tool != Tool::MovePixels {
+            self.commit_float();
+        }
         self.tool = tool;
         self.preview = None;
         self.drag = None;
@@ -50,9 +57,19 @@ impl Model {
         }
     }
 
-    /// Begins an action at document pixel `(x, y)`.
+    /// Begins an action at document pixel `(x, y)` with no modifier held.
     pub fn begin(&mut self, x: i32, y: i32, side: Side) {
+        self.begin_with(x, y, side, Mods::NONE);
+    }
+
+    /// Begins an action at document pixel `(x, y)`. The modifiers matter to
+    /// the selection tools.
+    pub fn begin_with(&mut self, x: i32, y: i32, side: Side, mods: Mods) {
         match self.tool {
+            Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand => {
+                self.begin_select(x, y, side, mods);
+            }
+            Tool::MovePixels | Tool::MoveSelection => self.begin_move(x, y),
             Tool::Pencil | Tool::Brush | Tool::Eraser => {
                 let color = self.color_for(side);
                 let diameter = if self.tool == Tool::Pencil {
@@ -86,6 +103,11 @@ impl Model {
 
     /// Extends an in-progress action to `(x, y)`.
     pub fn extend(&mut self, x: i32, y: i32) {
+        self.extend_with(x, y, Mods::NONE);
+    }
+
+    /// Extends an in-progress action to `(x, y)` with `mods` held now.
+    pub fn extend_with(&mut self, x: i32, y: i32, mods: Mods) {
         let Some(drag) = self.drag.take() else {
             return;
         };
@@ -116,6 +138,12 @@ impl Model {
                 self.preview = Some(self.preview_of(start, (x, y), side));
                 Drag::Shape { start, side }
             }
+            drag @ (Drag::Select { .. } | Drag::Lasso { .. }) => {
+                self.extend_select(drag, x, y, mods)
+            }
+            drag @ (Drag::MoveOutline { .. } | Drag::MoveFloat { .. }) => {
+                self.extend_move(drag, x, y)
+            }
         });
     }
 
@@ -132,8 +160,9 @@ impl Model {
                 let color = self.color_for(side);
                 let diameter = self.size;
                 let mut capture = UndoCapture::new();
-                if let Some(target) = self.doc.layer_mut(layer) {
-                    capture.touch(&target.pixels, raster::reach(start, end, diameter));
+                if let Some((target, selection)) = self.doc.layer_and_selection(layer) {
+                    let reach = raster::reach(start, end, diameter);
+                    capture.touch(&target.pixels, reach);
                     let bitmap = &mut target.pixels;
                     match self.tool {
                         Tool::Line => raster::line(bitmap, start, end, diameter, color),
@@ -141,10 +170,15 @@ impl Model {
                         Tool::Ellipse => raster::ellipse(bitmap, start, end, diameter, color),
                         _ => {}
                     }
+                    capture.clip(bitmap, reach, selection);
                 }
                 self.commit(layer, capture);
                 self.bump();
             }
+            Drag::Select { base, .. } | Drag::Lasso { base, .. } => self.end_select(base),
+            Drag::MoveOutline { base, .. } => self.end_move_outline(base),
+            // The lifted pixels stay in the air until committed.
+            Drag::MoveFloat { .. } => {}
         }
         self.preview = None;
     }
@@ -182,7 +216,7 @@ impl Model {
         diameter: u32,
         color: Pixel,
     ) {
-        let Some(target) = self.doc.layer_mut(layer) else {
+        let Some((target, selection)) = self.doc.layer_and_selection(layer) else {
             return;
         };
         let area = raster::reach(from, to, diameter).intersect(target.pixels.rect());
@@ -191,11 +225,18 @@ impl Model {
         }
         capture.touch(&target.pixels, area);
         raster::line(&mut target.pixels, from, to, diameter, color);
+        capture.clip(&mut target.pixels, area, selection);
         self.damage_rect(area);
     }
 
     /// Turns a finished capture into one history entry named for the tool.
     fn commit(&mut self, layer: usize, capture: UndoCapture) {
+        let name = self.tool.label().to_string();
+        self.commit_named(layer, capture, &name);
+    }
+
+    /// Turns a finished capture into one history entry called `name`.
+    pub(super) fn commit_named(&mut self, layer: usize, capture: UndoCapture, name: &str) {
         let Some(target) = self.doc.layer(layer) else {
             return;
         };
@@ -203,11 +244,12 @@ impl Model {
         if let Some((rect, before)) = capture.finish(&target.pixels) {
             self.damage_rect(rect);
             self.history.record(Edit::Pixels {
-                name: self.tool.label().to_string(),
+                name: name.to_string(),
                 layer,
                 rect,
                 before,
             });
+            self.bump();
         } else if !touched.is_empty() {
             self.damage_rect(touched);
         }
@@ -217,9 +259,13 @@ impl Model {
     fn fill_at(&mut self, x: i32, y: i32, side: Side) {
         let color = self.color_for(side);
         let layer = self.doc.active();
-        let Some(target) = self.doc.layer_mut(layer) else {
+        let Some((target, selection)) = self.doc.layer_and_selection(layer) else {
             return;
         };
+        // A click outside the selection fills nothing.
+        if selection.is_some_and(|s| s.coverage(x, y) == 0) {
+            return;
+        }
         let Some(filled) = fill::flood_fill_spans(&mut target.pixels, x, y, color) else {
             return;
         };
@@ -234,6 +280,28 @@ impl Model {
                 x1 - filled.bounds.x0,
                 filled.target,
             );
+        }
+        // The region was found without regard to the selection; take back
+        // what lies outside it.
+        if let Some(selection) = selection {
+            let rect = filled.bounds;
+            for py in rect.y0..rect.y1 {
+                for px in rect.x0..rect.x1 {
+                    let cover = selection.coverage(px, py);
+                    if cover == 255 {
+                        continue;
+                    }
+                    if let (Some(old), Some(new)) = (
+                        before.get(px - rect.x0, py - rect.y0),
+                        target.pixels.get(px, py),
+                    ) {
+                        target.pixels.put(px, py, mix_by(cover, old, new));
+                    }
+                }
+            }
+            if target.pixels.crop(rect).as_ref() == Some(&before) {
+                return;
+            }
         }
         self.damage_rect(filled.bounds);
         self.history.record(Edit::Pixels {

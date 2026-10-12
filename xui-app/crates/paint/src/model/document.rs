@@ -6,13 +6,18 @@ use std::cell::Cell;
 
 use super::history::UndoCapture;
 use super::{
-    Bitmap, DEFAULT_CAP, Damage, Document, History, Pixel, Rect, Reserved, Side, Tool, WHITE,
-    check_budget,
+    Bitmap, CombineMode, DEFAULT_CAP, Damage, Document, History, Pixel, Rect, Reserved, Selection,
+    Side, Tool, WHITE, check_budget,
 };
 
+mod clip;
 mod edit;
+mod float;
 mod layers;
 mod ops;
+mod select;
+
+pub use clip::Clipboard;
 
 /// What a rubber-banded shape preview is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +58,27 @@ enum Drag {
     },
     /// A shape being rubber-banded; the layer is untouched until release.
     Shape { start: (i32, i32), side: Side },
+    /// A rectangle or ellipse selection being dragged out; the document's
+    /// selection already shows the result.
+    Select {
+        base: Option<Selection>,
+        mode: CombineMode,
+        start: (i32, i32),
+        moved: bool,
+    },
+    /// A lasso being drawn.
+    Lasso {
+        base: Option<Selection>,
+        mode: CombineMode,
+        points: Vec<(i32, i32)>,
+    },
+    /// The selection's outline being dragged (Move Selection).
+    MoveOutline {
+        base: Option<Selection>,
+        start: (i32, i32),
+    },
+    /// The floating selection being dragged.
+    MoveFloat { start: (i32, i32), from: (i32, i32) },
 }
 
 /// The drawing document: layers, a tool choice, the two colours and a bounded
@@ -73,6 +99,20 @@ pub struct Model {
     floating_bytes: u64,
     /// Bytes of the app-wide clipboard bitmap (P2's cut and copy set it).
     clipboard_bytes: u64,
+    /// How a new selection joins the old one when no modifier says otherwise.
+    sel_mode: CombineMode,
+    /// The Magic Wand's tolerance in percent (0-100).
+    wand_tolerance: u8,
+    /// Whether the Magic Wand selects only the region around the click.
+    wand_contiguous: bool,
+    /// Changes whenever the selection may have; the view redraws its ants then.
+    sel_rev: u64,
+    /// Lifted or pasted pixels that are still being placed.
+    float: Option<float::Float>,
+    /// The app-wide clipboard slot.
+    clipboard: Option<Clipboard>,
+    /// Why the last tool action did nothing, for the status bar.
+    notice: Option<String>,
 }
 
 impl Model {
@@ -103,6 +143,13 @@ impl Model {
             damage: Cell::new(Damage::All),
             floating_bytes: 0,
             clipboard_bytes: 0,
+            sel_mode: CombineMode::Replace,
+            wand_tolerance: 30,
+            wand_contiguous: true,
+            sel_rev: 1,
+            float: None,
+            clipboard: None,
+            notice: None,
         })
     }
 

@@ -140,6 +140,15 @@ pub fn ctrl(stage: &Stg<'_>, key: Key) {
     press_with(stage, key, modifiers);
 }
 
+pub fn ctrl_shift(stage: &Stg<'_>, key: Key) {
+    let modifiers = Modifiers {
+        ctrl: true,
+        shift: true,
+        ..Modifiers::NONE
+    };
+    press_with(stage, key, modifiers);
+}
+
 /// What a step closure can read back besides the observer.
 pub struct Parts {
     pub areas: Areas,
@@ -150,6 +159,14 @@ pub struct Parts {
 
 /// Builds the app with an observer and runs `step` with the placed widgets.
 pub fn session(step: impl FnOnce(&Stg<'_>, &Rc<RefCell<Observer>>, &Parts) + 'static) -> Image {
+    session_with(None, step)
+}
+
+/// Like [`session`], with a system clipboard wired when one is given.
+pub fn session_with(
+    system: Option<Rc<dyn xui_paint::view::SystemClipboard>>,
+    step: impl FnOnce(&Stg<'_>, &Rc<RefCell<Observer>>, &Parts) + 'static,
+) -> Image {
     let observer = Rc::new(RefCell::new(Observer::default()));
     let build_probe = Rc::clone(&observer);
     let widgets = Widgets::default();
@@ -160,7 +177,10 @@ pub fn session(step: impl FnOnce(&Stg<'_>, &Rc<RefCell<Observer>>, &Parts) + 'st
     render_with(
         Snapshot::new(Dip(WIDTH as f32), Dip(HEIGHT as f32)),
         move |ui| {
-            let app = PaintApp::build_observed(ui, Rc::new(MemoryStorage::new()), build_probe);
+            let mut app = PaintApp::build_observed(ui, Rc::new(MemoryStorage::new()), build_probe);
+            if let (Ok(app), Some(system)) = (&mut app, system) {
+                app.set_system_clipboard(system);
+            }
             if let Ok(app) = &app {
                 *stored.borrow_mut() = Some((app.menu(), app.color_panel(), app.canvas().id()));
             }

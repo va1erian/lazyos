@@ -9,6 +9,7 @@ mod fill;
 mod history;
 mod image;
 mod rect;
+mod selection;
 
 mod document;
 mod raster;
@@ -26,8 +27,9 @@ pub use image::{
 };
 pub use raster::MAX_BRUSH;
 pub use rect::Rect;
+pub use selection::{CombineMode, Edge, Selection};
 pub use size::parse_size;
-pub use tool::{SIZES, Side, Tool};
+pub use tool::{Mods, SIZES, Side, Tool};
 
 #[cfg(test)]
 mod tests;

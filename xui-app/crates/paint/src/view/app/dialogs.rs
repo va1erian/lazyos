@@ -162,3 +162,47 @@ impl AboutBox {
         Ok(())
     }
 }
+
+/// The answer to "the pasted picture is larger than the canvas".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PasteSize {
+    /// Grow the canvas to hold the picture.
+    Expand,
+    /// Keep the canvas; the picture hangs over the edge.
+    Keep,
+}
+
+/// The oversized-paste question: expand the canvas or keep its size. Built per
+/// open so the message can name the two sizes.
+#[derive(Default)]
+pub(super) struct PasteSizePrompt {
+    dialog: Option<Dialog<Msg>>,
+}
+
+impl PasteSizePrompt {
+    pub(super) fn is_open(&self) -> bool {
+        self.dialog.as_ref().is_some_and(Dialog::is_open)
+    }
+
+    pub(super) fn show(
+        &mut self,
+        ui: &Ui<Msg>,
+        picture: (u32, u32),
+        canvas: (u32, u32),
+    ) -> Result<()> {
+        let text = format!(
+            "The picture ({} x {}) is larger than the canvas ({} x {}). Expand the canvas to fit it?",
+            picture.0, picture.1, canvas.0, canvas.1
+        );
+        let dialog = Dialog::confirm(ui, "Paste", &text)?
+            .accept_label("Expand canvas")
+            .cancel_label("Keep size")
+            .on_action(|action| match action {
+                DialogAction::Accept(_) => Some(Msg::PasteExpand),
+                DialogAction::Cancel => Some(Msg::PasteKeep),
+            });
+        dialog.open();
+        self.dialog = Some(dialog);
+        Ok(())
+    }
+}

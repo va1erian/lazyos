@@ -22,11 +22,12 @@ use std::rc::Rc;
 
 use xui_app::launch;
 use xui_app::platform::argv;
+use xui_app::platform::clipboard as system_clipboard;
 use xui_app::probe;
 use xui_app::platform::storage::PngStorage;
 use xui_core::widget::StdFileSystem;
 use xui_paint::storage::Storage;
-use xui_paint::view::PaintApp;
+use xui_paint::view::{PaintApp, SystemClipboard};
 use xui_paint::Msg;
 
 /// Window size a compositor lays Paint out at.
@@ -39,6 +40,30 @@ const MIN_WINDOW: (u32, u32) = (560, 420);
 /// How many times the UI probe is reported: the window may not be at its final
 /// size or title on the first tick, and the newest line for a name wins.
 const PROBES: u32 = 8;
+
+/// The MIME type Paint shares pictures as.
+const PNG_MIME: &str = "image/png";
+
+/// `clipboardd`'s `image/png` offers: a copy is offered when it fits the
+/// service's inline cap (8 KiB), and a paste reads the newest offer. Without
+/// the service (or the package's clipboard scopes) both calls fail quietly and
+/// Paint keeps using its in-app slot.
+struct PngClipboard;
+
+impl SystemClipboard for PngClipboard {
+    fn max_bytes(&self) -> usize {
+        system_clipboard::MAX_BYTES
+    }
+
+    fn offer_png(&self, png: &[u8]) {
+        let _ = system_clipboard::offer(PNG_MIME, png);
+    }
+
+    fn request_png(&self) -> Option<Vec<u8>> {
+        // Token 0 asks for the newest offer in the caller's session.
+        system_clipboard::paste(0, PNG_MIME).ok()
+    }
+}
 
 /// The default save file when no path is given.
 fn default_path() -> PathBuf {
@@ -131,6 +156,7 @@ fn main() {
         backend.on_first_frame(|| println!("PAINT:UP:PASS"));
         let mut app = PaintApp::build_with_files(ui, storage, Rc::new(StdFileSystem))?;
         app.set_start_dir(start_dir(requested.as_deref()));
+        app.set_system_clipboard(Rc::new(PngClipboard));
         let startup = requested.is_some();
         let probing = probe::enabled();
         if probing {

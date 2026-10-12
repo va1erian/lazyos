@@ -74,8 +74,8 @@ fn tool_keys_select_tools_and_a_repeated_key_cycles_the_shapes() {
 #[test]
 fn keys_of_unbuilt_features_say_so_in_the_status_bar() {
     session(|stage, observer, _| {
-        ctrl(stage, Key::C);
-        assert_eq!(status(observer, 3), "Copy is not available yet");
+        ctrl_shift(stage, Key::G);
+        assert_eq!(status(observer, 3), "Black and White is not available yet");
         press(stage, Key::T);
         assert_eq!(status(observer, 3), "Text is not available yet");
         assert_eq!(
@@ -160,7 +160,9 @@ fn unbuilt_menu_rows_are_disabled() {
             if let Some(id) = menu_item(Msg::Command(command)) {
                 assert_eq!(
                     parts.menu.is_enabled(id),
-                    command.available(),
+                    // With no selection and nothing copied, the rows that
+                    // need one wait.
+                    command.available() && !command.needs_selection() && !command.needs_clipboard(),
                     "{}",
                     command.label()
                 );

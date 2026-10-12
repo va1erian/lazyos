@@ -12,7 +12,7 @@ use xui_core::message::{Key, Modifiers, MouseButton};
 
 use super::state::CanvasState;
 use super::{CanvasMsg, Msg};
-use crate::model::Side;
+use crate::model::{Mods, Side};
 
 /// Maps which side a button paints.
 pub(super) fn side_of(button: MouseButton) -> Option<Side> {
@@ -20,6 +20,15 @@ pub(super) fn side_of(button: MouseButton) -> Option<Side> {
         MouseButton::Left => Some(Side::Primary),
         MouseButton::Right => Some(Side::Secondary),
         _ => None,
+    }
+}
+
+/// The pointer modifiers the model reads.
+fn mods_of(modifiers: Modifiers) -> Mods {
+    Mods {
+        ctrl: modifiers.ctrl || modifiers.win,
+        shift: modifiers.shift,
+        alt: modifiers.alt,
     }
 }
 
@@ -34,7 +43,12 @@ pub(super) fn handle(
     event: &Event,
 ) -> Option<Msg> {
     match event {
-        Event::MouseDown { x, y, button, .. } => {
+        Event::MouseDown {
+            x,
+            y,
+            button,
+            modifiers,
+        } => {
             let panning = state.borrow().space || *button == MouseButton::Middle;
             if panning {
                 state.borrow_mut().pan = Some((*x, *y));
@@ -46,9 +60,14 @@ pub(super) fn handle(
             ui.focus(id);
             ui.set_capture(id);
             let (cx, cy) = state.borrow().to_doc(*x, *y);
-            Some(Msg::Canvas(CanvasMsg::Down { x: cx, y: cy, side }))
+            Some(Msg::Canvas(CanvasMsg::Down {
+                x: cx,
+                y: cy,
+                side,
+                mods: mods_of(*modifiers),
+            }))
         }
-        Event::MouseMove { x, y, .. } => {
+        Event::MouseMove { x, y, modifiers } => {
             if let Some(moved) = pan_to(ui, id, state, (*x, *y)) {
                 return moved.then_some(Msg::Canvas(CanvasMsg::View));
             }
@@ -59,9 +78,15 @@ pub(super) fn handle(
                 at
             };
             ui.invalidate(id);
-            Some(Msg::Canvas(CanvasMsg::Move { x: cx, y: cy }))
+            Some(Msg::Canvas(CanvasMsg::Move {
+                x: cx,
+                y: cy,
+                mods: mods_of(*modifiers),
+            }))
         }
-        Event::MouseUp { x, y, .. } => {
+        Event::MouseUp {
+            x, y, modifiers, ..
+        } => {
             let was_panning = state.borrow_mut().pan.take().is_some();
             let at = state.borrow().to_doc(*x, *y);
             // xui gap: G2 — release_capture raises a synchronous CaptureChanged
@@ -72,7 +97,11 @@ pub(super) fn handle(
             if was_panning {
                 return None;
             }
-            Some(Msg::Canvas(CanvasMsg::Up { x: at.0, y: at.1 }))
+            Some(Msg::Canvas(CanvasMsg::Up {
+                x: at.0,
+                y: at.1,
+                mods: mods_of(*modifiers),
+            }))
         }
         Event::MouseLeave => {
             // Only hide the brush ring: with capture held, a leave does not end

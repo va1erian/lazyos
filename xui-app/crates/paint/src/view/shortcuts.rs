@@ -21,6 +21,10 @@ use crate::model::Tool;
 pub enum ToolGroup {
     /// Line, rectangle and ellipse share `O`.
     Shapes,
+    /// Rectangle select, ellipse select, lasso and magic wand share `S`.
+    Select,
+    /// Move Selected Pixels and Move Selection share `M`.
+    Move,
 }
 
 impl ToolGroup {
@@ -28,6 +32,13 @@ impl ToolGroup {
     pub const fn tools(self) -> &'static [Tool] {
         match self {
             ToolGroup::Shapes => &[Tool::Line, Tool::Rectangle, Tool::Ellipse],
+            ToolGroup::Select => &[
+                Tool::RectSelect,
+                Tool::EllipseSelect,
+                Tool::Lasso,
+                Tool::MagicWand,
+            ],
+            ToolGroup::Move => &[Tool::MovePixels, Tool::MoveSelection],
         }
     }
 
@@ -193,8 +204,8 @@ pub static BINDINGS: &[(Chord, Msg)] = &[
     (ctrl_shift(Key::G), Msg::Command(Command::BlackAndWhite)),
     (ctrl_shift(Key::E), Msg::Command(Command::Sepia)),
     // Tools.
-    (plain(Key::S), Msg::Command(Command::SelectTool)),
-    (plain(Key::M), Msg::Command(Command::MoveTool)),
+    (plain(Key::S), Msg::CycleTool(ToolGroup::Select)),
+    (plain(Key::M), Msg::CycleTool(ToolGroup::Move)),
     (plain(Key::Z), Msg::Command(Command::ZoomTool)),
     (plain(Key::H), Msg::Command(Command::PanTool)),
     (plain(Key::P), Msg::Tool(Tool::Pencil)),
@@ -222,6 +233,26 @@ pub fn shortcut(key: Key, modifiers: Modifiers, dialog_open: bool) -> Option<Msg
         .iter()
         .find(|(chord, _)| chord.matches(key, modifiers))
         .map(|(_, msg)| *msg)
+}
+
+/// The keys that place floating pixels or move the selection, claimed only
+/// while a move tool is active or pixels float (the window's key hook asks
+/// [`PaintApp`](super::PaintApp), which knows): the arrows nudge by one pixel
+/// (Shift: ten), Enter lands the float, Esc cancels it.
+pub fn float_key(key: Key, modifiers: Modifiers) -> Option<Msg> {
+    if modifiers.ctrl || modifiers.alt || modifiers.win {
+        return None;
+    }
+    let step = if modifiers.shift { 10 } else { 1 };
+    match key {
+        Key::LEFT => Some(Msg::Nudge(-step, 0)),
+        Key::RIGHT => Some(Msg::Nudge(step, 0)),
+        Key::UP => Some(Msg::Nudge(0, -step)),
+        Key::DOWN => Some(Msg::Nudge(0, step)),
+        Key::RETURN => Some(Msg::FloatCommit),
+        Key::ESCAPE => Some(Msg::FloatCancel),
+        _ => None,
+    }
 }
 
 /// The chord a menu prints for `msg`: the first binding that raises it.

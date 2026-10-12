@@ -10,6 +10,7 @@ use crate::model::bitmap::Bitmap;
 use crate::model::damage::Damage;
 use crate::model::image::{Document, DocumentSnapshot, Layer, LayerProps};
 use crate::model::rect::Rect;
+use crate::model::selection::Selection;
 
 /// A structural change to the layer stack. Applying one returns the command
 /// that reverses it, so a stack entry flips between undo and redo.
@@ -146,12 +147,28 @@ pub enum Edit {
         /// What reverses it.
         command: LayerCommand,
     },
-    /// The whole document (resize; later crop and rotate).
+    /// The whole document (resize, crop; later rotate).
     Document {
         /// The display name.
         name: String,
         /// The document on the other side of the edit.
         before: Box<DocumentSnapshot>,
+    },
+    /// The selection (`None`: nothing selected) on the other side of the edit.
+    Selection {
+        /// The display name.
+        name: String,
+        /// The selection to swap in.
+        before: Option<Selection>,
+    },
+    /// Several edits that are one step to the user (a lift and drop changes
+    /// pixels and the selection). Applied in reverse of the order recorded,
+    /// which is the order that undoes them.
+    Group {
+        /// The display name.
+        name: String,
+        /// The parts, in the order they were made.
+        edits: Vec<Edit>,
     },
 }
 
@@ -159,9 +176,11 @@ impl Edit {
     /// The display name.
     pub fn name(&self) -> &str {
         match self {
-            Edit::Pixels { name, .. } | Edit::Layer { name, .. } | Edit::Document { name, .. } => {
-                name
-            }
+            Edit::Pixels { name, .. }
+            | Edit::Layer { name, .. }
+            | Edit::Document { name, .. }
+            | Edit::Selection { name, .. }
+            | Edit::Group { name, .. } => name,
         }
     }
 
@@ -171,6 +190,8 @@ impl Edit {
             Edit::Pixels { before, .. } => before.byte_len(),
             Edit::Layer { command, .. } => command.bytes(),
             Edit::Document { before, .. } => before.bytes(),
+            Edit::Selection { before, .. } => before.as_ref().map_or(0, Selection::bytes),
+            Edit::Group { edits, .. } => edits.iter().map(Edit::bytes).sum(),
         };
         held + self.name().len() + 64
     }
@@ -202,6 +223,19 @@ impl Edit {
             Edit::Document { before, .. } => {
                 doc.swap_contents(before);
                 Damage::All
+            }
+            Edit::Selection { before, .. } => {
+                *before = doc.set_selection(before.take());
+                Damage::None
+            }
+            Edit::Group { edits, .. } => {
+                let mut damage = Damage::None;
+                for edit in edits.iter_mut().rev() {
+                    damage = damage.merge(edit.apply(doc));
+                }
+                // The next apply is the reverse of this one.
+                edits.reverse();
+                damage
             }
         }
     }

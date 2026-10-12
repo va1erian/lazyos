@@ -61,8 +61,6 @@ fn every_message_appears_in_one_row_only() {
 fn every_menu_command_of_the_plan_is_present() {
     // Tools are chosen by key and the tool grid, not from a menu.
     let tools = [
-        Command::SelectTool,
-        Command::MoveTool,
         Command::ZoomTool,
         Command::PanTool,
         Command::GradientTool,
@@ -157,7 +155,9 @@ fn unbuilt_features_start_disabled_and_the_rest_enabled() {
                 Enabled {
                     io: true,
                     can_undo: true,
-                    can_redo: true
+                    can_redo: true,
+                    selection: true,
+                    can_paste: true,
                 }
             ) == command.available(),
             "{} follows its availability",
@@ -173,6 +173,32 @@ fn unbuilt_features_start_disabled_and_the_rest_enabled() {
             ..none
         }
     ));
+    // Rows that act on a selection or a picture to paste wait for one.
+    let cut = Msg::Command(Command::Cut);
+    let paste = Msg::Command(Command::Paste);
+    assert!(!is_enabled(cut, none) && !is_enabled(paste, none));
+    assert!(is_enabled(
+        cut,
+        Enabled {
+            selection: true,
+            ..none
+        }
+    ));
+    assert!(!is_enabled(
+        paste,
+        Enabled {
+            selection: true,
+            ..none
+        }
+    ));
+    assert!(is_enabled(
+        paste,
+        Enabled {
+            can_paste: true,
+            ..none
+        }
+    ));
+    assert!(is_enabled(Msg::Command(Command::SelectAll), none));
     assert!(!is_enabled(Msg::Open, none));
     assert!(is_enabled(Msg::Open, Enabled { io: true, ..none }));
     for msg in [Msg::New, Msg::Quit, Msg::ResizeAsk, Msg::Clear, Msg::About] {

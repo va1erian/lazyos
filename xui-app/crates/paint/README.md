@@ -4,12 +4,14 @@ A minimal MS-Paint-style doodler built on [xui](../xui-core), designed to be the
 test vehicle for xui on a toy OS: it needs `std` and little else, has no
 threads, network, process or filesystem dependency. It is growing into an image
 editor modelled on Paint.NET ([`docs/paint-plan.md`](../../../docs/paint-plan.md));
-this is the P1 state: menu bar, keyboard shortcuts and the panel layout.
+this is the P2 state: menu bar, keyboard shortcuts, the panel layout, selections
+and the clipboard.
 
 | | |
 |---|---|
 | Canvas | white, 320x240 by default, sides up to 16384 within a 512 MiB budget (layers + cache + undo), zoom 1/16x-32x (Ctrl+wheel), pixel grid from 800% |
-| Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker (tool grid, left) |
+| Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker, Rectangle / Ellipse / Lasso Select, Magic Wand, Move Selected Pixels, Move Selection (tool grid, left) |
+| Selections | a bounding rectangle plus an optional 8-bit mask (hard-edged in v1); every pixel tool, the bucket, Fill and Erase Selection clip to it; marching ants drawn over the picture |
 | Sizes | 1, 2, 4, 8, 16 px (options bar, for the tools that use one; `[` and `]`) |
 | Colours | 32 swatches; left picks primary, right picks secondary; click a swatch of the pair to edit it |
 | Menus | File, Edit, View, Image, Layers, Adjustments, Help; rows of unbuilt features are disabled |
@@ -45,15 +47,46 @@ menu is open.
 | O (repeat to cycle) | Line, Rectangle, Ellipse |
 | `[`  `]` | Brush size down, up |
 | X, D | Swap, reset the primary and secondary colours |
-| S, M, Z, H, G, T | Select, Move, Zoom, Pan, Gradient, Text: not built yet |
-| Ctrl+X/C/V, Ctrl+Shift+C/V, Ctrl+Alt+V, Del, Backspace, Ctrl+I/A/D | Edit menu (selections, clipboard): not built yet |
+| S (repeat to cycle) | Rectangle Select, Ellipse Select, Lasso, Magic Wand |
+| M (repeat to cycle) | Move Selected Pixels, Move Selection |
+| Z, H, G, T | Zoom, Pan, Gradient, Text: not built yet |
+| Ctrl+A / D / I | Select All, Deselect, Invert Selection |
+| Del, Backspace | Erase Selection, Fill Selection (primary colour) |
+| Ctrl+X / C / Shift+C | Cut, Copy, Copy Merged |
+| Ctrl+V / Shift+V / Alt+V | Paste (floating), Paste into New Layer, Paste into New Image |
+| Ctrl+Shift+X | Crop to Selection |
+| Arrows (Shift: 10 px), Enter, Esc | with a move tool active or pixels floating: nudge, land, cancel |
 | Ctrl++ / Ctrl+- / Ctrl+B / Ctrl+0 | Zoom in, out, to window, actual size (View menu; Pixel Grid toggles the grid drawn from 800%) |
-| Ctrl+R, Ctrl+Shift+X/F, Ctrl+Shift+N/D, Ctrl+M, F4, Ctrl+Shift+I/G/E | Image, Layers and Adjustments commands: not built yet |
+| Ctrl+R, Ctrl+Shift+F, Ctrl+Shift+N/D, Ctrl+M, F4, Ctrl+Shift+I/G/E | Image, Layers and Adjustments commands: not built yet |
 
 A key for a feature that does not exist yet (`view::Command`, whose
 `available()` is false) only says so in the status bar, and its menu row is
 disabled. A later phase implements it by flipping `available` and adding an arm
 in `PaintApp::update`; the menu and the key table need no change.
+
+### Selections and the clipboard
+
+Selection tools: drag a rectangle or ellipse (Shift: square or circle), draw a
+lasso (a polygon filled by the even-odd rule), or click with the Magic Wand
+(options bar: tolerance in percent, contiguous or global, on the active layer;
+a difference equal to the tolerance is included). A plain click without a drag
+deselects. Modes: the options bar's Replace / Union / Exclude / Intersect / Xor,
+or by modifier: Ctrl = Union, right button = Exclude, Alt + left = Intersect,
+Ctrl + right = Xor. The status bar shows the selection's size.
+
+Move Selected Pixels lifts the selected pixels of the active layer (the whole
+layer when nothing is selected) into a floating selection and leaves a
+transparent hole; drag or use the arrows, then Enter, a click outside, or any
+other tool lands it as one history entry; Esc puts everything back. Paste makes
+the same floating selection at the top-left of the view; a picture larger than
+the canvas asks whether to expand the canvas. The clipboard is one in-app slot
+counted against the memory budget (a copy that does not fit is refused). A host
+may wire an `image/png` system clipboard through `view::SystemClipboard`
+(`PaintApp::set_system_clipboard`); LazyOS offers copies that fit
+`clipboardd`'s 8 KiB inline cap and adopts a picture another app copied.
+
+The marching ants crawl on a timer (`Control::set_timer`) only while a selection
+exists; a backend with no timers leaves them still.
 
 ## Running
 
