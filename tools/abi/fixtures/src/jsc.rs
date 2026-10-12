@@ -79,6 +79,8 @@ impl Shell {
     /// Run a script and report it as `<prefix>RUN:PASS|FAIL:<name>`.
     fn check(&self, name: &str, args: &[&str], want: &str) -> bool {
         let prefix = self.prefix;
+        // Names the script in the serial log before anything it makes the kernel say.
+        println!("{prefix}RUN:BEGIN:{name}");
         let began = Instant::now();
         let result = run(self.program, args);
         let ms = began.elapsed().as_millis();
@@ -137,6 +139,7 @@ impl Shell {
             ("promise", PROMISE_SCRIPT, PROMISE_WANT),
             ("hot", HOT_SCRIPT, hot_want.as_str()),
             ("agents", AGENTS_SCRIPT, AGENTS_WANT),
+            ("suspend", SUSPEND_SCRIPT, SUSPEND_WANT),
         ] {
             let path = script(&format!("{}-{name}", self.program), body);
             ok &= self.check(name, &[&path], want);

@@ -8,7 +8,7 @@ Markers: ``JSC:W1:PASS:cxx``, ``JSC:W1:PASS:icu``, ``JSC:W1:PASS`` (the C++
 toolchain and ICU, stage W1). Stage W2 runs two shells, the C-loop ``jsc``
 (prefix ``JSC:``) and the JIT ``jsc-jit`` (prefix ``JSC:JIT:``); each prints
 ``<prefix>UP:PASS``, ``<prefix>START:<ms>`` and ``<prefix>RUN:PASS:<name>`` for
-``arith``, ``gc``, ``promise``, ``hot`` and ``agents`` (each script followed by
+``arith``, ``gc``, ``promise``, ``hot``, ``agents`` and ``suspend`` (each script followed by
 ``<prefix>TIME:<name>:<ms>``), and ``<prefix>UP:FAIL:...`` /
 ``<prefix>RUN:FAIL:<name>:<reason>`` say why not. Then the stress subset
 (``tools/jsc/stress.py``): ``<prefix>STRESS:<pass>/<total>``, one
@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 
 W1_MARKERS = ("JSC:W1:PASS:cxx", "JSC:W1:PASS:icu", "JSC:W1:PASS")
-RUNS = ("arith", "gc", "promise", "hot", "agents")
+RUNS = ("arith", "gc", "promise", "hot", "agents", "suspend")
 #: The two shells: marker prefix and the program name.
 SHELLS = {"JSC:": "jsc", "JSC:JIT:": "jsc-jit"}
 
@@ -30,7 +30,7 @@ SHELLS = {"JSC:": "jsc", "JSC:JIT:": "jsc-jit"}
 #: them that must pass in each shell. Set from the first full run
 #: (docs/webkit-port-plan.md section 5, W2); a drop below it is a regression.
 STRESS_MIN_TOTAL = 200
-STRESS_MIN_RATE = {"JSC:": 0.0, "JSC:JIT:": 0.0}
+STRESS_MIN_RATE = {"JSC:": 0.98, "JSC:JIT:": 0.98}
 
 
 @dataclass(frozen=True)
@@ -46,10 +46,14 @@ def has_line(serial: str, marker: str) -> bool:
 
 
 def failures(serial: str) -> list[str]:
-    """Every failure line the guest printed, trimmed."""
+    """Every failure line the fixture printed, trimmed.
+
+    The kernel's ``user: task N killed by ...`` lines are not among them: a
+    stress file that crashes prints one and is already counted by the stress
+    rate, and a crash anywhere else makes the fixture print a failure line.
+    """
     found = re.findall(r"^(JSC:(?:JIT:)?(?:W1|RUN|UP):FAIL.*)$", serial, re.M)
-    killed = re.findall(r"^(user: task \d+ killed by.*)$", serial, re.M)
-    return [line.strip()[:200] for line in found + killed]
+    return [line.strip()[:200] for line in found]
 
 
 def stress(serial: str, prefix: str) -> tuple[int, int] | None:
@@ -96,7 +100,7 @@ def judge(serial: str, stages: tuple[str, ...] = ("w1", "w2")) -> list[Verdict]:
     if "w2" in stages:
         shown = bad
     else:
-        shown = [line for line in bad if line.startswith("JSC:W1:") or line.startswith("user:")]
+        shown = [line for line in bad if line.startswith("JSC:W1:")]
     verdicts.append(Verdict("no failure lines", not shown, "; ".join(shown)))
     return verdicts
 

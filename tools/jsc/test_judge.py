@@ -64,9 +64,13 @@ class JudgeTests(unittest.TestCase):
             self.assertEqual(failing(GOOD + line + "\n"), ["no failure lines"], line)
         self.assertIn("gc-bad", judge.judge(GOOD + "JSC:RUN:FAIL:gc:got gc-bad\n")[-1].detail)
 
-    def test_a_killed_task_fails(self):
-        serial = GOOD + "user: task 12 killed by SIGSEGV at 0x0\n"
-        self.assertEqual(failing(serial), ["no failure lines"])
+    def test_a_killed_task_is_the_fixtures_to_report(self):
+        # A stress file the kernel kills is counted by the stress rate; a crash
+        # anywhere else makes the fixture print a failure line or not finish.
+        killed = "user: task 12 killed by SIGSEGV at 0x0\n"
+        self.assertEqual(failing(GOOD + killed), [])
+        self.assertEqual(failing(GOOD.replace("JSC:RUN:PASS:gc\n", "") + killed),
+                         ["JSC:RUN:PASS:gc"])
 
     def test_the_fixture_must_finish(self):
         self.assertEqual(failing(GOOD.replace("ABI:jsc:PASS\n", "")), ["ABI:jsc:PASS"])

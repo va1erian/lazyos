@@ -57,9 +57,9 @@ pub const PROMISE_WANT: &str = "Rex makes a sound (woof)|6|boom|a|b|6|2|1,234,56
 /// another thread, and the guest has one CPU).
 pub const HOT_SCRIPT: &str = r#"
 function fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }
-const f = fib(27);
+const f = fib(30);
 let sum = 0;
-for (let i = 0; i < 6000000; i++) sum = (sum + i * 3) % 1000003;
+for (let i = 0; i < 20000000; i++) sum = (sum + i * 3) % 1000003;
 const arr = [];
 let x = 12345;
 for (let i = 0; i < 60000; i++) { x = (x * 1103515245 + 12345) & 0x7fffffff; arr.push(x); }
@@ -72,7 +72,7 @@ const dfg = numberOfDFGCompiles(fib);
 print(dfg > 0 && dfg < 1000000 ? "tier:dfg" : "tier:none");
 "#;
 
-pub const HOT_COMMON: &str = "hot-ok:196418:513:20736:2147470080:20000\n";
+pub const HOT_COMMON: &str = "hot-ok:832040:5490:20736:2147470080:20000\n";
 
 /// Four SharedArrayBuffer agents (real threads, each its own VM) allocate in
 /// a loop and park in `Atomics.wait` while the main thread allocates, wakes
@@ -126,3 +126,26 @@ print("agents-ok:" + reports + ":" + Atomics.load(ia, 2) + ":" + (Atomics.load(i
 "#;
 
 pub const AGENTS_WANT: &str = "agents-ok:4:4:true\n";
+
+/// Allocates, then sits idle in the run loop on timers while the collector
+/// works: the main thread is parked outside the interpreter, so the collector
+/// thread cannot stop it at a safepoint and suspends it with a thread-directed
+/// signal (`SIGUSR1`, WTF's `Thread::suspend`; docs/webkit-port-plan.md 4.2).
+/// A script that calls `fullGC()` itself never gets there: the mutator is at a
+/// safepoint, and agents are separate VMs with heaps of their own.
+pub const SUSPEND_SCRIPT: &str = r#"
+let keep = [];
+let rounds = 0;
+function tick() {
+  for (let i = 0; i < 100000; i++) {
+    const o = { a: i, s: "t" + i, b: [i] };
+    if (i % 8 == 0) keep.push(o);
+  }
+  if (keep.length > 40000) keep = keep.slice(-500);
+  if (++rounds < 12) setTimeout(tick, 150);
+  else print("suspend-ok:" + rounds + ":" + (keep.length > 0));
+}
+setTimeout(tick, 150);
+"#;
+
+pub const SUSPEND_WANT: &str = "suspend-ok:12:true\n";

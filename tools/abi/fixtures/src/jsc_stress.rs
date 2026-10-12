@@ -97,6 +97,9 @@ pub fn run(program: &str, prefix: &str) -> bool {
     let (mut passed, mut total) = (0usize, 0usize);
     for name in index.lines().filter(|line| !line.is_empty()) {
         total += 1;
+        // Names the test in the serial log, so a crash report or kernel line
+        // that follows can be matched to it.
+        println!("{prefix}STRESS:RUN:{name}");
         match run_limited(
             &format!("/system/bin/{program}"),
             &format!("{TESTS}/{name}"),
