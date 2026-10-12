@@ -1100,6 +1100,17 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --net --nics 2
 python tools/net/test_qemu_net.py                         # the QEMU argument helper
 ```
 
+**Wi-Fi in the Network app.** With `wlanmd` (`LAZYOS_WIFI=1`) the Network app
+gets a Wi-Fi button and page: the networks heard, connect through a password
+form, Other network..., disconnect, forget, and "Available to all users"
+(`elevd` `net.wifi.add`/`net.wifi.forget` after an administrator approves).
+`python tools/wifi/ui_run.py` builds the desktop image with the simulated radio
+(`LAZYOS_WIFI_SIM=1`; the firmware first: `python tools/firmware/fetch.py
+--switch wifi`), boots it against the fake access points and drives the page
+(`tools/screenshot/examples/wifi_network_app.json`; `--label-trace` lists any
+`LABEL:DENY`); the model is `xui_app::net::wifiview`
+([`docs/architecture/wifi.md`](docs/architecture/wifi.md)).
+
 ## Network Drives (FTP and SMB mounts from the desktop)
 
 `ftpfuse` serves an FTP server, and `smbfuse` an SMB share, at
