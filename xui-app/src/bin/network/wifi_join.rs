@@ -67,8 +67,7 @@ impl JoinWidgets {
                 grid([Track::Fixed(Dip(110.0)), Track::Fill(1)])
                     .gap(8)
                     .children(fields),
-                checkbox("Available to all users (an administrator approves)")
-                    .bind(&self.system),
+                checkbox("Available to all users (an administrator approves)").bind(&self.system),
                 label("").bind(&self.message).fixed(44),
                 row().gap(8).children((
                     button("Cancel")
@@ -98,8 +97,10 @@ impl JoinWidgets {
         put("join_system", self.system.get().id());
         put("join_cancel", self.cancel.get().id());
         put("join_ok", self.connect.get().id());
-        if let Some(id) = self.security.get().ids().get(1) {
-            put("join_wpa2", *id);
+        for (name, index) in [("join_open", 0), ("join_wpa2", 1)] {
+            if let Some(id) = self.security.get().ids().get(index) {
+                put(name, *id);
+            }
         }
     }
 
@@ -129,7 +130,10 @@ impl Network {
         form.clear();
         form.security.get().select(1);
         let (title, other) = match &kind {
-            JoinKind::Known { ssid } => (format!("\"{ssid}\" is protected. Enter its password."), false),
+            JoinKind::Known { ssid } => (
+                format!("\"{ssid}\" is protected. Enter its password."),
+                false,
+            ),
             JoinKind::Other => (
                 String::from("Join a network that is not in the list, or is hidden."),
                 true,
@@ -210,8 +214,14 @@ fn join_own(join: &Join, secret: String) -> std::result::Result<String, String> 
             None
         }
     };
-    wifi::add_network(&join.ssid, join.security, join.hidden, passphrase)
-        .map_err(|error| format!("Could not save the network: {}", error.describe()))
+    wifi::add_network(&join.ssid, join.security, join.hidden, passphrase).map_err(|error| {
+        let slow = if error == wifi::Error::Code(-110) {
+            " It may still be saved: look for it in the list in a moment."
+        } else {
+            ""
+        };
+        format!("Could not save the network: {}.{slow}", error.describe())
+    })
 }
 
 /// Save `join` for all users through `elevd`: it stores the password and the

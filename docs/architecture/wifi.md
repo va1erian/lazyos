@@ -558,3 +558,63 @@ evidence as the probe run, the link kept across the rekey, and `wlanmd`
 joining again on its own after the beacon loss and after the
 deauthentication (the AP authorizes it three times). The image needs
 BusyBox for the shell (`LAZYOS_BUSYBOX`, or `tools/abi/busybox.py`).
+
+## Desktop front ends: the Network app's Wi-Fi page
+
+`xui-network` (`xui-app/src/bin/network.rs`, its Wi-Fi page in
+`network/wifi_page.rs` and `network/wifi_join.rs`, the model without a window
+in `xui_app::net::wifiview`, host tested) is a client of `wifi.v1` through
+the typed client `xui_app::net::wifi`. Once `Interfaces` names a wireless
+interface a **Wi-Fi** button appears beside Next card and swaps the wired
+groups for the Wi-Fi page in the same window (`Ui::set_visible`; the wired
+page is laid out as before when nothing wireless exists). While the page is
+shown it asks `Status` and `Networks` once a second and for a `Scan` every
+ten ticks, never during a join; `EAGAIN`/`EBUSY` are not errors to show.
+
+* **The list**: SSID as plain text (an unsaved hidden network is
+  "(hidden network)"), a lock icon and "WPA2" or "Open" or "Not supported",
+  signal bars with the dBm, the band, and "Connected" or "Saved". The status
+  line above it is `ConnState::label` and, on `Failed`, `reason_text`.
+* **Connect** (a double-click works too): a saved network (`id` set) is
+  `Connect`ed; an unsaved open one is `AddNetwork`ed and then `Connect`ed; an
+  unsaved WPA2 one opens the **password form**. **Other network...** asks for
+  the name, open or WPA2 and the password of a hidden network (it saves the
+  profile as hidden).
+* **The password** is a masked field (no copy or cut), checked before
+  anything is sent (`wifiview::secret_problem`: 8 to 63 octets without control
+  characters, or 64 hex digits), read once when Connect is pressed, passed by
+  value to `AddNetwork` (which wipes it) and cleared from the field whatever
+  the outcome. The app keeps no copy, prints none, and its `NETAPP:WIFI:*`
+  serial lines never carry one.
+* **Disconnect** and **Forget** (a confirmation dialog first).
+* **Available to all users** (a checkbox on the form) is the machine's
+  setting, so an administrator approves it on `elevd`'s trusted prompt:
+  `net.wifi.add` (SSID, `open`/`wpa2`, hidden, passphrase) makes a profile
+  id, stores the passphrase in `keyd` as a `system` secret under it, then
+  asks `wlanmd` for `AddNetwork` with scope `System` (which accepts that
+  from `elevd` alone) and answers with the id so the app can `Connect`; if
+  `wlanmd` refuses, the secret is deleted again. A system network cannot be
+  forgotten by a user (`EPERM`): Forget then asks `elevd` for
+  `net.wifi.forget` (id), which removes the profile, then its `system`
+  secret. Both are `Class::Once` (the prompt every time); the prompt names
+  the network and never the password (`elevpolicy::wifi`, host tested).
+  `net.wifi.system` (`store`/`delete` of a bare secret) stays as it was.
+
+Package permissions: the Network package lists `os.lazy.net.wifi.v1` besides
+its former interfaces; a traced run (`python tools/wifi/ui_run.py
+--label-trace`) shows no `LABEL:DENY` for it.
+
+```bash
+cargo test -p elevpolicy                                     # net.wifi.add / net.wifi.forget
+python tools/wifi/ui_run.py                                  # build, boot against the fake APs, drive the page, judge (shots/wifi_network_app/)
+python tools/wifi/test_ui_judge.py                           # the judge fails when it should
+```
+
+`ui_run.py` needs the radio firmware (`python tools/firmware/fetch.py
+--switch wifi`) and BusyBox (`LAZYOS_BUSYBOX`). The session
+(`tools/screenshot/examples/wifi_network_app.json`) opens the page, joins
+`LazyWPA2` through the password form, tries `LazyWrong` (refused, "the
+password is probably wrong"), saves and joins the hidden open `LazyHidden`
+through Other network, disconnects and forgets it; the judge wants the
+`NETAPP:WIFI:*` lines, the AP's `AP:AUTHORIZED` for both networks, the
+passphrase in no log, no `LABEL:DENY` for the app, and real screenshots.

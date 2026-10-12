@@ -37,10 +37,14 @@ use xui_core::prelude::*;
 use xui_core::widget::{Dialog, DialogAction, RadioGroup};
 use xui_settings::store::{ConfigStore, Value};
 
+#[path = "network/wifi_actions.rs"]
+mod wifi_actions;
 #[path = "network/wifi_join.rs"]
 mod wifi_join;
 #[path = "network/wifi_page.rs"]
 mod wifi_page;
+#[path = "network/wifi_probe.rs"]
+mod wifi_probe;
 
 /// The window title, which the UI probe lines name.
 const TITLE: &str = "Network";

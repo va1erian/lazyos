@@ -24,6 +24,9 @@ use crate::platform::messenger::Service;
 const NAME: &str = "os.lazy.net.wifi";
 /// The longest one call may wait (PIT ticks, 100 Hz).
 pub const CALL_TICKS: u64 = 300;
+/// The longest [`add_network`] may wait (15 s): `wlanmd` hands the passphrase
+/// to `keyd`, which writes it to disk before it answers.
+pub const ADD_TICKS: u64 = 1500;
 /// Longest SSID shown (the standard allows 32 octets; text may be longer).
 const MAX_SSID_CHARS: usize = 64;
 
@@ -53,6 +56,12 @@ impl Error {
     /// way, `EBUSY`): not a failure to show, the caller asks again later.
     pub fn is_busy(self) -> bool {
         matches!(self, Error::Code(code) if -code == EAGAIN || -code == EBUSY)
+    }
+
+    /// Whether the service does not know the network (`ENOENT`): right after
+    /// an add, `wlanmd` may not have re-read its profiles yet.
+    pub fn is_missing(self) -> bool {
+        matches!(self, Error::Code(code) if -code == ENOENT)
     }
 
     /// Whether the service refused the caller (`EPERM`, `EACCES`).
@@ -247,16 +256,22 @@ fn clipped(text: &str) -> String {
 /// cached endpoint dead (`EPIPE`): the failed call evicts it and one retry
 /// reaches the new one.
 fn call(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
-    match call_once(method, body.clone()) {
-        Err(Error::Code(code)) if -code == EPIPE => call_once(method, body),
+    call_for(method, body, CALL_TICKS)
+}
+
+/// [`call`] with its own bound: saving a network writes the secret and the
+/// profile to disk, which on a busy volume takes longer than a read.
+fn call_for(method: u32, body: Vec<u8>, ticks: u64) -> Result<Vec<u8>, Error> {
+    match call_once(method, body.clone(), ticks) {
+        Err(Error::Code(code)) if -code == EPIPE => call_once(method, body, ticks),
         other => other,
     }
 }
 
-fn call_once(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
+fn call_once(method: u32, body: Vec<u8>, ticks: u64) -> Result<Vec<u8>, Error> {
     let service = Service::try_connect(NAME).ok_or(Error::NotRunning)?;
     service
-        .call_within(wire::INTERFACE_ID, method, ERROR_FIELD, body, CALL_TICKS)
+        .call_within(wire::INTERFACE_ID, method, ERROR_FIELD, body, ticks)
         .map(|reply| reply.body)
         .map_err(Error::Code)
 }
@@ -360,7 +375,7 @@ pub fn add_network(
         wipe_string(secret);
     }
     let mut body = decoded(encoded)?;
-    let result = call(wire::METHOD_ADDNETWORK, body.clone());
+    let result = call_for(wire::METHOD_ADDNETWORK, body.clone(), ADD_TICKS);
     body.fill(0);
     let reply = result?;
     Ok(clipped(

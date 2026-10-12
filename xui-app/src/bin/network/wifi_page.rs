@@ -21,11 +21,9 @@
 //! printed). The name is always the last field. No line carries a password.
 
 use xui_app::net::wifi::{self, ConnState, Network as Heard, Status};
-use xui_app::net::wifiview::{self, Plan, ScanPacer};
-use xui_app::platform::elevd;
+use xui_app::net::wifiview::{self, ScanPacer};
 use xui_app::probe;
 use xui_core::app::Ui;
-use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
 use xui_core::widget::{Dialog, ListModel};
 use xui_core::{IconRef, Lucide};
@@ -47,16 +45,16 @@ pub(super) enum View {
 /// Every widget of the Wi-Fi page and its join form.
 #[derive(Default)]
 pub(super) struct WifiWidgets {
-    page: Handle<GroupBox<Msg>>,
-    status: Handle<Label<Msg>>,
-    list: Handle<ListView<Msg>>,
-    connect: Handle<Button<Msg>>,
-    disconnect: Handle<Button<Msg>>,
-    forget: Handle<Button<Msg>>,
-    scan: Handle<Button<Msg>>,
-    other: Handle<Button<Msg>>,
-    back: Handle<Button<Msg>>,
-    message: Handle<Label<Msg>>,
+    pub(super) page: Handle<GroupBox<Msg>>,
+    pub(super) status: Handle<Label<Msg>>,
+    pub(super) list: Handle<ListView<Msg>>,
+    pub(super) connect: Handle<Button<Msg>>,
+    pub(super) disconnect: Handle<Button<Msg>>,
+    pub(super) forget: Handle<Button<Msg>>,
+    pub(super) scan: Handle<Button<Msg>>,
+    pub(super) other: Handle<Button<Msg>>,
+    pub(super) back: Handle<Button<Msg>>,
+    pub(super) message: Handle<Label<Msg>>,
     pub(super) join: JoinWidgets,
 }
 
@@ -139,20 +137,34 @@ pub(super) struct Wifi {
     pub(super) view: View,
     /// The wireless interface the page drives; `None` until one is found.
     pub(super) ifname: Option<String>,
-    networks: Vec<Heard>,
-    status: Option<Status>,
-    pacer: ScanPacer,
-    ticks: u32,
+    pub(super) networks: Vec<Heard>,
+    pub(super) status: Option<Status>,
+    pub(super) pacer: ScanPacer,
+    pub(super) ticks: u32,
     /// The state last reported on serial, so a change is reported once.
-    reported: Option<(ConnState, String)>,
+    pub(super) reported: Option<(ConnState, String)>,
     /// The Forget confirmation, and the network it is about.
-    forget_dialog: Dialog<Msg>,
-    forget_target: Option<(String, String)>,
+    pub(super) forget_dialog: Dialog<Msg>,
+    pub(super) forget_target: Option<(String, String)>,
     /// The probe lines wait for a frame with the page in place.
     pub(super) probe_pending: bool,
-    probed_rows: Vec<String>,
+    /// The Wi-Fi button just appeared: probe it at the next frame.
+    pub(super) button_probe: bool,
+    pub(super) probed_rows: Vec<String>,
     pub(super) join: Option<wifiview::JoinKind>,
+    /// A saved network that `Connect` did not know yet: asked again each tick.
+    pub(super) pending: Option<Pending>,
 }
+
+/// A join to retry: the profile id, its name and the tries left.
+pub(super) struct Pending {
+    pub(super) id: String,
+    pub(super) ssid: String,
+    pub(super) left: u32,
+}
+
+/// How many ticks a join waits for `wlanmd` to learn a network just saved.
+pub(super) const JOIN_RETRIES: u32 = 15;
 
 impl Wifi {
     pub(super) fn new(forget_dialog: Dialog<Msg>) -> Wifi {
@@ -167,8 +179,10 @@ impl Wifi {
             forget_dialog,
             forget_target: None,
             probe_pending: false,
+            button_probe: false,
             probed_rows: Vec::new(),
             join: None,
+            pending: None,
         }
     }
 }
@@ -191,9 +205,22 @@ impl Network {
             return;
         }
         if self.wifi.view == View::Wired {
+            if std::mem::take(&mut self.wifi.button_probe) {
+                let r = self.ui.bounds(self.w.wifi_button.get().id());
+                probe::widget(
+                    TITLE,
+                    "wifi_button",
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                );
+                println!("NETAPP:WIFI:PROBE:wired");
+            }
             return;
         }
         self.wifi_poll();
+        self.wifi_retry_join();
         if self.wifi.probe_pending {
             self.wifi.probe_pending = false;
             self.wifi_probe();
@@ -201,7 +228,7 @@ impl Network {
     }
 
     /// Look for a wireless interface; the button appears when there is one.
-    fn wifi_detect(&mut self) {
+    pub(super) fn wifi_detect(&mut self) {
         let Ok(names) = wifi::interfaces() else {
             return;
         };
@@ -216,6 +243,7 @@ impl Network {
         };
         println!("NETAPP:WIFI:UP if={ifname}");
         self.ui.set_visible(self.w.wifi_button.get().id(), true);
+        self.wifi.button_probe = true;
         self.wifi.ifname = Some(ifname);
     }
 
@@ -244,6 +272,7 @@ impl Network {
     }
 
     pub(super) fn wifi_back(&mut self) {
+        self.wifi.pending = None;
         self.wifi_show(View::Wired);
     }
 
@@ -252,7 +281,7 @@ impl Network {
     }
 
     /// The state, the list and, when due, a scan.
-    fn wifi_poll(&mut self) {
+    pub(super) fn wifi_poll(&mut self) {
         let Some(ifname) = self.wifi.ifname.clone() else {
             return;
         };
@@ -287,7 +316,7 @@ impl Network {
         }
     }
 
-    fn wifi_show_list(&mut self, list: Vec<Heard>) {
+    pub(super) fn wifi_show_list(&mut self, list: Vec<Heard>) {
         let keep = self.selected_network().map(|n| n.ssid);
         let rows = wifiview::rows(&list);
         let names: Vec<String> = rows.iter().map(|r| r.cells[0].clone()).collect();
@@ -305,7 +334,7 @@ impl Network {
     }
 
     /// Report a change of state once.
-    fn wifi_report(&mut self, status: &Status) {
+    pub(super) fn wifi_report(&mut self, status: &Status) {
         let now = (status.state, status.ssid.clone());
         if self.wifi.reported.as_ref() == Some(&now) {
             return;
@@ -331,148 +360,5 @@ impl Network {
     pub(super) fn selected_network(&self) -> Option<Heard> {
         let index = self.w.wifi.list.try_get()?.selected()?;
         self.wifi.networks.get(index).cloned()
-    }
-
-    pub(super) fn wifi_scan_now(&mut self) {
-        self.wifi.pacer.restart();
-        self.wifi_say("Searching for networks...");
-        self.wifi_poll();
-    }
-
-    /// Connect or Enter on a row: what the network needs decides.
-    pub(super) fn wifi_connect(&mut self) {
-        let Some(network) = self.selected_network() else {
-            self.wifi_say("Select a network first.");
-            return;
-        };
-        match wifiview::plan(&network) {
-            Plan::Connect { id } => self.wifi_join_saved(&network.ssid, &id),
-            Plan::AddOpen { ssid } => {
-                match wifi::add_network(&ssid, wifi::Security::Open, false, None) {
-                    Ok(id) => self.wifi_join_saved(&ssid, &id),
-                    Err(error) => self.wifi_say(&format!("Could not save it: {}", error.describe())),
-                }
-            }
-            Plan::AskPassword { ssid } => self.open_join(wifiview::JoinKind::Known { ssid }),
-            Plan::Hidden => self.wifi_say("Use \"Other network...\" to join a hidden network."),
-            Plan::Unsupported => self.wifi_say(
-                "That network's security mode is not supported (open and WPA2 only).",
-            ),
-        }
-    }
-
-    /// Start joining the saved network `id`.
-    pub(super) fn wifi_join_saved(&mut self, ssid: &str, id: &str) {
-        let Some(ifname) = self.wifi.ifname.clone() else {
-            return;
-        };
-        match wifi::connect(&ifname, id) {
-            Ok(()) => {
-                println!("NETAPP:WIFI:CONNECT ssid={ssid}");
-                self.wifi_say(&format!("Connecting to {ssid}..."));
-                self.wifi.pacer.restart();
-            }
-            Err(error) => self.wifi_say(&format!("Could not connect: {}", error.describe())),
-        }
-    }
-
-    pub(super) fn wifi_disconnect(&mut self) {
-        let Some(ifname) = self.wifi.ifname.clone() else {
-            return;
-        };
-        match wifi::disconnect(&ifname) {
-            Ok(()) => self.wifi_say("Disconnected. It stays off until you connect again."),
-            Err(error) => self.wifi_say(&format!("Could not disconnect: {}", error.describe())),
-        }
-    }
-
-    /// Forget asks first: the saved password goes with it.
-    pub(super) fn wifi_forget_ask(&mut self) {
-        let Some(network) = self.selected_network().filter(|n| !n.id.is_empty()) else {
-            self.wifi_say("Select a saved network to forget.");
-            return;
-        };
-        let dialog = &self.wifi.forget_dialog;
-        dialog.set_message(&format!(
-            "Forget \"{}\"? Its saved password is deleted. A network kept for all users needs an administrator to approve.",
-            network.ssid
-        ));
-        self.wifi.forget_target = Some((network.id, network.ssid));
-        self.wifi.forget_dialog.open();
-    }
-
-    pub(super) fn wifi_forget_answer(&mut self, yes: bool) {
-        let Some((id, ssid)) = self.wifi.forget_target.take() else {
-            return;
-        };
-        if !yes {
-            return;
-        }
-        let result = match wifi::forget(&id) {
-            // A network of all users is the administrator's to remove.
-            Err(error) if error.is_denied() => elevd::request("net.wifi.forget", &[id.as_str()])
-                .map(drop)
-                .map_err(|error| elevd::describe(&error)),
-            other => other.map_err(|error| error.describe()),
-        };
-        match result {
-            Ok(()) => {
-                println!("NETAPP:WIFI:FORGET ssid={ssid}");
-                self.wifi_say(&format!("Forgot {ssid}."));
-                self.wifi_poll();
-            }
-            Err(why) => self.wifi_say(&format!("Could not forget {ssid}: {why}")),
-        }
-    }
-
-    /// Print where the page's controls and rows are (UI probe images only).
-    pub(super) fn wifi_probe(&self) {
-        let w = &self.w.wifi;
-        let ui = &self.ui;
-        let rect = |name: &str, id: WidgetId| {
-            let r = ui.bounds(id);
-            probe::widget(TITLE, name, r.left, r.top, r.right - r.left, r.bottom - r.top);
-        };
-        match self.wifi.view {
-            View::Wired => return,
-            View::List => {
-                let buttons = [
-                    ("wifi_connect", w.connect.get().id()),
-                    ("wifi_disconnect", w.disconnect.get().id()),
-                    ("wifi_forget", w.forget.get().id()),
-                    ("wifi_scan", w.scan.get().id()),
-                    ("wifi_other", w.other.get().id()),
-                    ("wifi_back", w.back.get().id()),
-                ];
-                for (name, id) in buttons {
-                    rect(name, id);
-                }
-                self.wifi_probe_rows();
-                println!("NETAPP:WIFI:PROBE:list");
-            }
-            View::Join => {
-                w.join.probe(ui, |name, id| rect(name, id));
-                println!("NETAPP:WIFI:PROBE:join");
-            }
-        }
-    }
-
-    /// One `wifi_row:<name>` rectangle per listed network, from the list's
-    /// header and row heights (24 and 22 design units).
-    fn wifi_probe_rows(&self) {
-        let r = self.ui.bounds(self.w.wifi.list.get().id());
-        let dpi = self.ui.dpi() as i32;
-        let (header, row) = (24 * dpi / 96, 22 * dpi / 96);
-        for (index, name) in self.wifi.probed_rows.iter().enumerate() {
-            let top = r.top + header + row * index as i32;
-            probe::widget(
-                TITLE,
-                &format!("wifi_row:{name}"),
-                r.left,
-                top,
-                r.right - r.left,
-                row,
-            );
-        }
     }
 }
