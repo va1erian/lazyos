@@ -129,7 +129,7 @@ fn find(bdf: u64) -> Result<(DeviceInfo, pci::Address), Errno> {
 }
 
 fn copy_out(buf: u64, bytes: &[u8]) -> Result<u64, Errno> {
-    crate::ipc::syscalls::copy_out(buf, bytes).map_err(|_| EFAULT)?;
+    crate::user_ptr::try_copy_to(buf, bytes).map_err(|_| EFAULT)?;
     Ok(bytes.len() as u64)
 }
 

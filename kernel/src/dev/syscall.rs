@@ -77,9 +77,9 @@ pub const OP_DBG_CONFIG_READ: u64 = 13;
 pub const OP_DBG_MMIO_READ: u64 = 14;
 /// The highest op this kernel knows (the suite probes the one after it).
 #[cfg(lazyos_dbgd)]
-pub const OP_LAST: u64 = OP_DBG_MMIO_READ;
+pub const LAST_KNOWN_OP: u64 = OP_DBG_MMIO_READ;
 #[cfg(not(lazyos_dbgd))]
-pub const OP_LAST: u64 = OP_DENIALS;
+pub const LAST_KNOWN_OP: u64 = OP_DENIALS;
 
 /// `claim` flag: the claimant accepts sharing its interrupt line.
 pub const FLAG_SHARED_IRQ: u64 = 1;

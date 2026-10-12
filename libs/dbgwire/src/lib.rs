@@ -12,6 +12,7 @@
 //! * [`fsallow`]: the paths `fs.read` may open;
 //! * [`methods`]: the method table and its parameter checks;
 //! * [`control`]: the control tier's rules (restart, hot reload, v2);
+//! * [`probe`]: the byte budget of hardware reads;
 //! * [`logline`]: a `TAG key=value` log line as a record
 //!   (the grammar is `tracefmt`'s, docs/tracing-plan.md).
 //!
@@ -32,6 +33,7 @@ pub mod fuzz;
 pub mod json;
 pub mod logline;
 pub mod methods;
+pub mod probe;
 pub mod rpc;
 
 #[cfg(test)]

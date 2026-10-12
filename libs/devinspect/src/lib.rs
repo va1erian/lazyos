@@ -9,6 +9,8 @@
 
 #![no_std]
 
+extern crate alloc;
+
 use core::fmt;
 
 /// Inspection op codes (`dev::syscall::OP_*`).
@@ -195,6 +197,8 @@ pub struct Device {
     pub class: u8,
     pub subclass: u8,
     pub prog_if: u8,
+    /// `bus << 8 | device << 3 | function` of a PCI function.
+    pub bdf: Option<u16>,
     pub vendor: u16,
     pub device: u16,
     pub class_id: u64,
@@ -211,6 +215,7 @@ impl Device {
             class: (w[0] >> 16) as u8,
             subclass: (w[0] >> 24) as u8,
             prog_if: (w[0] >> 32) as u8,
+            bdf: (w[0] >> 56 & 1 == 1).then_some((w[0] >> 40) as u16),
             vendor: w[1] as u16,
             device: (w[1] >> 16) as u16,
             class_id: w[2],
@@ -221,6 +226,14 @@ impl Device {
 
     pub fn class_name(&self) -> &'static str {
         class_name(self.class_id)
+    }
+
+    /// The `bb:dd.f` spelling of the PCI address, `None` for a platform
+    /// device.
+    pub fn bdf_text(&self) -> Option<alloc::string::String> {
+        self.bdf.map(|b| {
+            alloc::format!("{:02x}:{:02x}.{}", b >> 8, (b >> 3) & 0x1F, b & 7)
+        })
     }
 }
 
@@ -301,9 +314,14 @@ mod tests {
             u64::from(netpolicy::NET_UID) | u64::from(rights::MMIO | rights::DMA) << 32,
         ]);
         assert_eq!(device.id, 7);
+        assert_eq!(device.bdf, None);
         assert_eq!(device.class_name(), "net");
         assert_eq!(device.owner, Some(902));
         assert_eq!(device.rights.to_string(), "MMIO DMA");
+        // bus 0, device 2, function 0 (00:02.0).
+        let gpu = Device::from_words(&[7 | 0x03 << 16 | 0x10 << 40 | 1 << 56, 0, 0, 0]);
+        assert_eq!(gpu.bdf, Some(0x10));
+        assert_eq!(gpu.bdf_text().as_deref(), Some("00:02.0"));
         let free = Device::from_words(&[0, 0, 0, u64::from(u32::MAX)]);
         assert_eq!(free.owner, None);
         assert_eq!(free.rights.to_string(), "-");

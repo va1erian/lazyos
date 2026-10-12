@@ -25,6 +25,9 @@ pub mod code {
     pub const UNAVAILABLE: i32 = -32003;
     /// Too many failed attempts: wait and retry.
     pub const LOCKED_OUT: i32 = -32004;
+    /// A hardware read over the session's byte budget: retry after the
+    /// delay the message names.
+    pub const RATE_LIMITED: i32 = -32005;
 }
 
 /// A request `id`: a number, a string or `null`, echoed back as given.

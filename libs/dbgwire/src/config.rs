@@ -6,6 +6,9 @@
 //! diag.dbg.key=<32..128 hex>  # pre-shared key; without one dbgd refuses to run
 //! diag.dbg.peer=192.168.1.20  # only this IPv4 address may connect (optional)
 //! diag.dbg.control=1          # allow the control tier: restart, hot reload (v2)
+//! diag.dbg.mmio=1             # allow MMIO reads of allowlisted ranges (pciprobe)
+//! diag.dbg.mmio.claimed=1     # ...also of devices a driver has claimed
+//! diag.dbg.mmio.allow=VVVV:DDDD:BAR:START-END   # one more readable range
 //! ```
 //!
 //! The file sits on the unencrypted boot volume: anyone who can read the
@@ -35,6 +38,10 @@ pub struct Config {
     /// Whether the control methods (restart, hot reload) may be used at all
     /// (`diag.dbg.control=1`); off, they answer `DENIED`.
     pub control: bool,
+    /// The hardware-read rules (`diag.dbg.mmio*`): MMIO is off unless
+    /// `diag.dbg.mmio=1`; the kernel reads the same lines and enforces them,
+    /// `dbgd` only uses them to refuse early and explain.
+    pub probe: pciprobe::Policy,
 }
 
 /// Why `dbgd` will not run.
@@ -115,6 +122,7 @@ pub fn parse(cfg: &str) -> Result<Config, Refusal> {
         key,
         peer,
         control,
+        probe: pciprobe::Policy::from_cfg(cfg),
     })
 }
 

@@ -240,6 +240,9 @@ fn method_table_is_consistent() {
         methods::lookup("fs.write").is_none(),
         "no general file write method"
     );
+    for write in ["pci.write", "pci.config.write", "mmio.write", "mmio.poke"] {
+        assert!(methods::lookup(write).is_none(), "{write}");
+    }
 }
 
 #[test]
@@ -386,4 +389,48 @@ b",
     ] {
         assert_eq!(check(bad), Err(Refusal::Malformed), "{bad:?}");
     }
+}
+
+#[test]
+fn hardware_reads_validate_their_params() {
+    let pci = methods::lookup("pci.config").unwrap();
+    assert_eq!(pci.access, Access::Read);
+    let ok = json::parse(r#"{"bdf":"00:02.0","offset":0,"len":256}"#).unwrap();
+    assert!(methods::validate(pci, &ok).is_ok());
+    for bad in [
+        r#"{"bdf":"00:02.0","offset":256,"len":1}"#,
+        r#"{"bdf":"00:02.0","offset":0,"len":257}"#,
+        r#"{"bdf":"00:02.0","offset":0,"len":0}"#,
+        r#"{"bdf":2,"offset":0,"len":4}"#,
+        r#"{"bdf":"00:02.0","offset":-1,"len":4}"#,
+        r#"{"bdf":"00:02.0","write":1}"#,
+    ] {
+        let params = json::parse(bad).unwrap();
+        assert!(methods::validate(pci, &params).is_err(), "{bad}");
+    }
+    let mmio = methods::lookup("mmio.read").unwrap();
+    assert_eq!(mmio.access, Access::Read);
+    let ok = json::parse(r#"{"bdf":"00:02.0","bar":0,"offset":458752,"len":4096}"#).unwrap();
+    assert!(methods::validate(mmio, &ok).is_ok());
+    for bad in [
+        r#"{"bdf":"00:02.0","bar":6,"offset":0,"len":4}"#,
+        r#"{"bdf":"00:02.0","bar":0,"offset":0,"len":4097}"#,
+        r#"{"bdf":"00:02.0","bar":0,"offset":0,"len":3}"#,
+        r#"{"bdf":"00:02.0","bar":0,"offset":1099511627777,"len":4}"#,
+        r#"{"bdf":"00:02.0","bar":0,"value":0}"#,
+    ] {
+        let params = json::parse(bad).unwrap();
+        assert!(methods::validate(mmio, &params).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn mmio_is_off_unless_the_config_says_so() {
+    let base = "diag.dbg=1\ndiag.dbg.key=00112233445566778899aabbccddeeff\n";
+    let off = config::parse(base).unwrap();
+    assert!(!off.probe.mmio);
+    let on = config::parse(&alloc::format!("{base}diag.dbg.mmio=1\ndiag.dbg.mmio.claimed=1\n")).unwrap();
+    assert!(on.probe.mmio && on.probe.claimed);
+    // The control tier and the MMIO tier are independent switches.
+    assert!(!on.control);
 }
