@@ -60,8 +60,8 @@ calls `Poll`).
 | Doom's build | `FEATURE_SOUND` defined; `doom/c/stub/SDL_mixer.h` (empty) on the include path; our module defines `use_libsamplerate = 0` and `libsamplerate_scale` | The two gotchas above, without patching `i_sound.c`. |
 | Missing card | `Audio::try_connect()` returning `None` (or the stream failing) makes the game **silent, never fatal**: `<GAME>:SOUND:OFF reason=...`; a retry every 5 s picks up a restarted `audiod` | A desktop with no sound card must play exactly as today. |
 | Headless | Headless mixes through the same `gamemix` into a buffer on its virtual clock and prints a sound CRC beside the frame CRC; it never opens a stream. The frame CRCs (`crc=b3580eb0` for Kart's check) must not change | Sound must not touch game state; a changed frame CRC is the alarm. |
-| Permissions | `os.lazy.audio.v1` added to both manifests (emusic's line), confirmed by a `LAZYOS_LABEL_TRACE=1` run with no `LABEL:DENY` | AGENTS.md: permissions come from a traced run. |
-| Launchers | **Decided:** `--doom` and `--srb2kart` imply `--sound auto` (as `--emusic` and `--modplayer` do in `tools/demo_args.py`); the GUI's `session_sound` adds the card for them; tests in `tools/test_run_demo_apps.py` and `tools/lazygui/test_catalog.py` | Every app launchable from both front ends, with its sound. |
+| Permissions | Planned (S2, S3): `os.lazy.audio.v1` added to both manifests (emusic's line), confirmed by a `LAZYOS_LABEL_TRACE=1` run with no `LABEL:DENY` | AGENTS.md: permissions come from a traced run. |
+| Launchers | **Decided, implemented in S2/S3:** `--doom` and `--srb2kart` imply `--sound auto` (as `--emusic` and `--modplayer` do in `tools/demo_args.py`); the GUI's `session_sound` adds the card for them; tests in `tools/test_run_demo_apps.py` and `tools/lazygui/test_catalog.py` | Every app launchable from both front ends, with its sound. |
 
 ## The seam
 

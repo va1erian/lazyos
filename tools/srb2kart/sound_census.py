@@ -99,15 +99,18 @@ def classify(wad: str, name: str, kind: str, body: bytes) -> Lump:
 
 
 def wav_info(body: bytes, lump: Lump) -> None:
-    pos = 12
+    # RIFF chunks come in any order: `data` may precede `fmt `.
+    pos, bits, data_size = 12, 0, 0
     while pos + 8 <= len(body):
         chunk, size = struct.unpack_from("<4sI", body, pos)
-        if chunk == b"fmt ":
+        if chunk == b"fmt " and pos + 24 <= len(body):
             _, lump.channels, lump.rate = struct.unpack_from("<HHI", body, pos + 8)
             bits = struct.unpack_from("<H", body, pos + 22)[0]
-        elif chunk == b"data" and lump.channels:
-            lump.samples = size // (lump.channels * max(bits // 8, 1))
+        elif chunk == b"data":
+            data_size = min(size, len(body) - pos - 8)
         pos += 8 + size + (size & 1)
+    if lump.channels:
+        lump.samples = data_size // (lump.channels * max(bits // 8, 1))
 
 
 def ogg_pages(body: bytes):
@@ -183,6 +186,8 @@ def census(data: Path) -> tuple[list[Lump], int]:
                 continue
             lump = classify(wad.name, name, kind, body)
             if lump.fmt == "other":
+                # It still hides an earlier audio lump of the same name.
+                found.pop(name, None)
                 not_audio += 1
                 continue
             found[name] = lump
