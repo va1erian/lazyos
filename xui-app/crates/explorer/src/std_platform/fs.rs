@@ -90,15 +90,11 @@ impl Platform for StdPlatform {
     fn thumb_reader(&self) -> Option<ThumbReader> {
         Some(Arc::new(|path, max| {
             use std::io::Read;
-            let mut bytes = Vec::new();
-            // One byte past the limit tells a file that grew from one that
-            // fits, without trusting the size the listing saw.
-            fs::File::open(path)?
-                .take(max + 1)
-                .read_to_end(&mut bytes)?;
-            if bytes.len() as u64 > max {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "too large"));
-            }
+            let file = fs::File::open(path)?;
+            // Sized from the file, not grown by doubling.
+            let hint = file.metadata().map_or(0, |meta| meta.len().min(max));
+            let mut bytes = Vec::with_capacity(hint as usize);
+            file.take(max).read_to_end(&mut bytes)?;
             Ok(bytes)
         }))
     }

@@ -125,8 +125,8 @@ pub trait Platform {
     }
 }
 
-/// Reads a whole file for a thumbnail: `(path, max_bytes)`, failing when the
-/// file is longer than `max_bytes`. Unlike [`Platform`] it is `Send + Sync`,
+/// Reads the start of a file for a thumbnail: `(path, max_bytes)` returns at
+/// most `max_bytes` (fewer for a shorter file). Unlike [`Platform`] it is `Send + Sync`,
 /// because the explorer calls it from background threads so a slow volume
 /// (a network share) never holds up the window.
 pub type ThumbReader = std::sync::Arc<dyn Fn(&Path, u64) -> io::Result<Vec<u8>> + Send + Sync>;

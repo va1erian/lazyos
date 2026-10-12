@@ -15,9 +15,27 @@ use xui_core::image::Image;
 pub(crate) const EDGE: u32 = 128;
 
 /// The most pixels a picture may declare. A decoded picture is four bytes a
-/// pixel and two workers decode at once, so this bounds the transient memory
-/// to about 130 MB on the 1 GiB guest.
+/// pixel and a decode peaks near three times that (about 100 MB), with at most
+/// two decodes at once in the process, which is what the 1 GiB guest affords.
 pub(crate) const MAX_PIXELS: u64 = 8_000_000;
+
+/// How much of a file's start holds the header the size checks need.
+pub(crate) const HEADER: u64 = 64 * 1024;
+
+/// Whether `prefix` (the start of a file) declares a picture too large to
+/// decode. `false` when the size cannot be told from it: the file is then
+/// read and decided on whole.
+pub(crate) fn refuses(prefix: &[u8]) -> bool {
+    let declared = dimensions(prefix).or_else(|| {
+        use std::io::Cursor;
+        image::ImageReader::new(Cursor::new(prefix))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()
+    });
+    declared.is_some_and(|(width, height)| !within_limit(width, height))
+}
 
 /// Whether a file name is one the decoder handles (case-insensitive).
 pub(crate) fn supported(name: &std::ffi::OsStr) -> bool {
@@ -117,9 +135,15 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     }
 }
 
-/// Scales `image` so its longest side is at most [`EDGE`], averaging every
-/// source pixel into the destination pixel it falls in. A picture already that
-/// small is returned as it is.
+/// Samples taken per destination pixel along each axis. A thumbnail needs
+/// the average of its box, not of every source pixel: the full average
+/// touches all of a photo (the guest has one slow CPU), this touches at most
+/// `SAMPLES * SAMPLES` per output pixel and is visually the same.
+const SAMPLES: u32 = 4;
+
+/// Scales `image` so its longest side is at most [`EDGE`], averaging a grid of
+/// source pixels spread over the box each destination pixel covers. A picture
+/// already that small is returned as it is.
 fn shrink(image: Image) -> Option<Image> {
     let (width, height) = image.size();
     let longest = width.max(height);
@@ -131,28 +155,36 @@ fn shrink(image: Image) -> Option<Image> {
     let (out_width, out_height) = (scale(width), scale(height));
     let source = image.pixels();
     let mut out = vec![0u8; out_width as usize * out_height as usize * 4];
+    // The source coordinate of sample `n` of `count` in `[start, end)`.
+    let at = |start: u32, end: u32, n: u32, count: u32| {
+        start + ((2 * n + 1) * (end - start)) / (2 * count)
+    };
     for dy in 0..out_height {
         let y0 = (u64::from(dy) * u64::from(height) / u64::from(out_height)) as u32;
         let y1 = ((u64::from(dy + 1) * u64::from(height) / u64::from(out_height)) as u32)
             .max(y0 + 1)
             .min(height);
+        let rows = (y1 - y0).min(SAMPLES);
         for dx in 0..out_width {
             let x0 = (u64::from(dx) * u64::from(width) / u64::from(out_width)) as u32;
             let x1 = ((u64::from(dx + 1) * u64::from(width) / u64::from(out_width)) as u32)
                 .max(x0 + 1)
                 .min(width);
+            let columns = (x1 - x0).min(SAMPLES);
             let mut sum = [0u32; 4];
-            for y in y0..y1 {
-                let row = (y as usize * width as usize + x0 as usize) * 4;
-                for pixel in source[row..row + (x1 - x0) as usize * 4].chunks(4) {
-                    for (total, value) in sum.iter_mut().zip(pixel) {
+            for row in 0..rows {
+                let y = at(y0, y1, row, rows);
+                for column in 0..columns {
+                    let x = at(x0, x1, column, columns);
+                    let pixel = (y as usize * width as usize + x as usize) * 4;
+                    for (total, value) in sum.iter_mut().zip(&source[pixel..pixel + 4]) {
                         *total += u32::from(*value);
                     }
                 }
             }
-            let count = (x1 - x0) * (y1 - y0);
-            let at = (dy as usize * out_width as usize + dx as usize) * 4;
-            for (slot, total) in out[at..at + 4].iter_mut().zip(sum) {
+            let count = rows * columns;
+            let place = (dy as usize * out_width as usize + dx as usize) * 4;
+            for (slot, total) in out[place..place + 4].iter_mut().zip(sum) {
                 *slot = (total / count) as u8;
             }
         }
@@ -186,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn the_box_filter_averages_a_checkerboard() {
+    fn the_shrink_averages_a_checkerboard() {
         let (w, h) = (256u32, 256u32);
         let mut pixels = Vec::new();
         for y in 0..h {
@@ -265,5 +297,38 @@ mod tests {
         bytes[18..22].copy_from_slice(&30_000i32.to_le_bytes());
         bytes[22..26].copy_from_slice(&30_000i32.to_le_bytes());
         assert!(thumbnail(&bytes).is_none());
+    }
+
+    /// Seeded corruption of valid files must never panic: the decoders read
+    /// untrusted files from shares, and Files is built with `panic = "abort"`.
+    #[test]
+    fn mutated_pictures_never_panic() {
+        let seeds = [
+            png(40, 30, [5, 6, 7, 255]),
+            encoded(image::ImageFormat::Gif, 40, 30),
+            encoded(image::ImageFormat::Bmp, 40, 30),
+        ];
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let cases = std::env::var("FUZZ_CASES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(400);
+        for case in 0..cases {
+            let mut bytes = seeds[case % seeds.len()].clone();
+            for _ in 0..1 + next() % 6 {
+                let at = (next() % bytes.len() as u64) as usize;
+                bytes[at] = next() as u8;
+            }
+            if next() % 4 == 0 {
+                bytes.truncate((next() % bytes.len() as u64) as usize);
+            }
+            let _ = thumbnail(&bytes);
+        }
     }
 }

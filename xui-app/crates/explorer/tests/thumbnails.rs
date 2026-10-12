@@ -85,10 +85,19 @@ fn render(theme: Theme, dir: PathBuf) -> (Image, Image) {
                 Image::from_rgba(frame.width, frame.height, frame.pixels).unwrap()
             };
             frames.borrow_mut().push(grab(&backend));
-            std::thread::sleep(Duration::from_millis(1000));
-            ui.emit(Msg::Thumbs);
-            backend.pump(window);
-            frames.borrow_mut().push(grab(&backend));
+            // Deliver the workers' wake until the frame shows them, so a slow
+            // runner takes longer rather than failing.
+            let mut after = grab(&backend);
+            for _ in 0..200 {
+                if ramp_pixels(&after) > 300 {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+                ui.emit(Msg::Thumbs);
+                backend.pump(window);
+                after = grab(&backend);
+            }
+            frames.borrow_mut().push(after);
         });
     }
     let handle: Rc<dyn Backend> = backend.clone();

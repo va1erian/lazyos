@@ -5,7 +5,7 @@
 //! Nothing here blocks the UI thread. The view's paint hook asks
 //! [`Thumbs::paint`] for each visible picture tile: a cached thumbnail is
 //! drawn, anything else falls back to the generic picture icon and, the first
-//! time, queues a job. Worker threads take jobs newest first (what the
+//! time, queues a job. Reader threads take jobs newest first (what the
 //! user just scrolled to is wanted before what they scrolled past), read the
 //! file through the platform's [`ThumbReader`] (a mounted network share is
 //! just a path, and a slow read only holds up a worker), decode and shrink it
@@ -42,9 +42,12 @@ pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const QUEUE_CAP: usize = 96;
 /// Thumbnails kept (about 64 KiB each at most).
 const CACHE_CAP: usize = 512;
-/// Reader threads. A share's reads are latency-bound, so several in flight
-/// fill the pipe; decoding is short next to that.
-const WORKERS: usize = 4;
+/// Reader threads. A share's reads are latency-bound and cost the CPU almost
+/// nothing, so several in flight fill the pipe.
+const READERS: usize = 4;
+/// Files read and waiting for the decoder; readers wait for room past this
+/// (each holds up to [`MAX_BYTES`]).
+const BACKLOG: usize = 3;
 /// Space kept between a thumbnail and its tile's edge.
 const MARGIN: i32 = 2;
 
@@ -84,16 +87,63 @@ enum Slot {
     Pending,
     /// Made.
     Ready(Image),
-    /// Unreadable or not a picture; not asked for again until the folder is
-    /// shown again.
-    Failed,
+    /// Could not be read (a share went away): asked for again when the
+    /// folder is shown again.
+    Unreadable,
+    /// Read, but not a picture or too large to decode: the file's key
+    /// (size, mtime) is unchanged, so it stays refused.
+    Refused,
+}
+
+/// What a worker made of a job.
+enum Outcome {
+    Ready(Image),
+    Unreadable,
+    Refused,
+}
+
+/// Decodes running at once in the whole process, all windows together: a
+/// decode peaks near three times its picture's RGBA size, so this bounds the
+/// transient memory. Each window has one decoder thread; the guest has one CPU,
+/// and a lone CPU-bound task is what the scheduler's CPU guard demotes behind
+/// the UI, where several smaller ones would each stay under its threshold and
+/// together starve the window.
+const DECODERS: usize = 1;
+
+/// A claim on one of the [`DECODERS`] slots.
+struct DecodePermit;
+
+static DECODING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+impl DecodePermit {
+    fn acquire() -> DecodePermit {
+        let (running, freed) = &DECODING;
+        let mut running = locked(running);
+        while *running >= DECODERS {
+            running = freed.wait(running).unwrap_or_else(PoisonError::into_inner);
+        }
+        *running += 1;
+        DecodePermit
+    }
+}
+
+impl Drop for DecodePermit {
+    fn drop(&mut self) {
+        *locked(&DECODING.0) -= 1;
+        DECODING.1.notify_one();
+    }
 }
 
 /// What the workers share with the UI thread.
 struct Shared {
     work: Mutex<Work>,
+    /// Readers wait here for a job (or the close).
     wake_worker: Condvar,
-    done: Mutex<Vec<(Key, Option<Image>)>>,
+    /// The decoder waits here for a file.
+    decode_ready: Condvar,
+    /// Readers wait here for room in the decode backlog.
+    decode_room: Condvar,
+    done: Mutex<Vec<(Key, Outcome)>>,
     /// Whether the UI was woken and has not drained since.
     notified: AtomicBool,
     reader: ThumbReader,
@@ -103,6 +153,8 @@ struct Shared {
 #[derive(Default)]
 struct Work {
     queue: VecDeque<Key>,
+    /// Files read, waiting for the decoder.
+    decode: VecDeque<(Key, Vec<u8>)>,
     closed: bool,
 }
 
@@ -111,7 +163,38 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Shared {
-    fn worker(&self) {
+    /// Reads one picture's file. A big file's header comes first, so a photo
+    /// over the pixel cap costs a few KiB on a share, not the file. `Err` is
+    /// the verdict when there is nothing to decode.
+    fn read(&self, key: &Key) -> Result<Vec<u8>, Outcome> {
+        if key.size > thumb_decode::HEADER {
+            match (self.reader)(&key.path, thumb_decode::HEADER) {
+                Ok(prefix) if thumb_decode::refuses(&prefix) => return Err(Outcome::Refused),
+                Ok(_) => {}
+                Err(_) => return Err(Outcome::Unreadable),
+            }
+        }
+        // One byte past the limit tells a file that grew.
+        let Ok(bytes) = (self.reader)(&key.path, MAX_BYTES + 1) else {
+            return Err(Outcome::Unreadable);
+        };
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(Outcome::Refused);
+        }
+        Ok(bytes)
+    }
+
+    fn post(&self, key: Key, outcome: Outcome) {
+        locked(&self.done).push((key, outcome));
+        // One wake per burst: the UI clears the flag when it drains.
+        if !self.notified.swap(true, Ordering::AcqRel) {
+            (self.wake_ui)();
+        }
+    }
+
+    /// A reader thread: takes the newest job, reads it, hands the bytes to
+    /// the decoder.
+    fn reader_loop(&self) {
         loop {
             let key = {
                 let mut work = locked(&self.work);
@@ -129,14 +212,56 @@ impl Shared {
                         .unwrap_or_else(PoisonError::into_inner);
                 }
             };
-            let image = (self.reader)(&key.path, MAX_BYTES)
-                .ok()
-                .and_then(|bytes| thumb_decode::thumbnail(&bytes));
-            locked(&self.done).push((key, image));
-            // One wake per burst: the UI clears the flag when it drains.
-            if !self.notified.swap(true, Ordering::AcqRel) {
-                (self.wake_ui)();
+            match self.read(&key) {
+                Err(outcome) => self.post(key, outcome),
+                Ok(bytes) => {
+                    let mut work = locked(&self.work);
+                    while work.decode.len() >= BACKLOG && !work.closed {
+                        work = self
+                            .decode_room
+                            .wait(work)
+                            .unwrap_or_else(PoisonError::into_inner);
+                    }
+                    work.decode.push_back((key, bytes));
+                    drop(work);
+                    self.decode_ready.notify_one();
+                }
             }
+        }
+    }
+
+    /// The decoder thread: the one place a picture is decoded.
+    fn decoder_loop(&self) {
+        loop {
+            let (key, bytes) = {
+                let mut work = locked(&self.work);
+                loop {
+                    if work.closed {
+                        return;
+                    }
+                    // Newest first, like the readers.
+                    if let Some(job) = work.decode.pop_back() {
+                        break job;
+                    }
+                    work = self
+                        .decode_ready
+                        .wait(work)
+                        .unwrap_or_else(PoisonError::into_inner);
+                }
+            };
+            self.decode_room.notify_one();
+            let permit = DecodePermit::acquire();
+            // A decoder that panics on a hostile file must not take the
+            // thread (and its Pending slot) with it; under `panic = "abort"`
+            // the fuzz test is the defence.
+            let made = std::panic::catch_unwind(|| thumb_decode::thumbnail(&bytes));
+            drop(permit);
+            drop(bytes);
+            let outcome = match made {
+                Ok(Some(image)) => Outcome::Ready(image),
+                _ => Outcome::Refused,
+            };
+            self.post(key, outcome);
         }
     }
 }
@@ -159,6 +284,8 @@ impl Thumbs {
             shared: Arc::new(Shared {
                 work: Mutex::default(),
                 wake_worker: Condvar::new(),
+                decode_ready: Condvar::new(),
+                decode_room: Condvar::new(),
                 done: Mutex::default(),
                 notified: AtomicBool::new(false),
                 reader,
@@ -179,7 +306,7 @@ impl Thumbs {
         };
         let known = match self.cache.borrow().get(&key) {
             Some(Slot::Ready(image)) => return draw(canvas, image, rect),
-            Some(Slot::Pending | Slot::Failed) => true,
+            Some(Slot::Pending | Slot::Unreadable | Slot::Refused) => true,
             None => false,
         };
         if !known {
@@ -208,13 +335,17 @@ impl Thumbs {
         if self.started.replace(true) {
             return;
         }
-        for index in 0..WORKERS {
+        // A failed spawn leaves tiles on the generic icon.
+        for index in 0..READERS {
             let shared = Arc::clone(&self.shared);
-            // A failed spawn leaves tiles on the generic icon.
             let _ = std::thread::Builder::new()
-                .name(format!("thumbs-{index}"))
-                .spawn(move || shared.worker());
+                .name(format!("thumb-read-{index}"))
+                .spawn(move || shared.reader_loop());
         }
+        let shared = Arc::clone(&self.shared);
+        let _ = std::thread::Builder::new()
+            .name("thumb-decode".to_string())
+            .spawn(move || shared.decoder_loop());
     }
 
     /// Takes in the results the workers posted. Returns whether the view
@@ -226,17 +357,17 @@ impl Thumbs {
         let mut changed = false;
         let mut cache = self.cache.borrow_mut();
         let mut order = self.order.borrow_mut();
-        for (key, image) in done {
-            match image {
-                Some(image) => {
+        for (key, outcome) in done {
+            let slot = match outcome {
+                Outcome::Ready(image) => {
                     changed = true;
                     order.push_back(key.clone());
-                    cache.insert(key, Slot::Ready(image));
+                    Slot::Ready(image)
                 }
-                None => {
-                    cache.insert(key, Slot::Failed);
-                }
-            }
+                Outcome::Unreadable => Slot::Unreadable,
+                Outcome::Refused => Slot::Refused,
+            };
+            cache.insert(key, slot);
         }
         while order.len() > CACHE_CAP {
             if let Some(oldest) = order.pop_front() {
@@ -247,15 +378,25 @@ impl Thumbs {
     }
 
     /// The window shows another folder or refreshed: forget queued work (the
-    /// tiles it was for are gone) and let failures be retried. Made
+    /// tiles it was for are gone) and let unreadable files be retried. Made
     /// thumbnails stay, so going Back is instant.
     pub fn folder_changed(&self) {
-        let forgotten = std::mem::take(&mut locked(&self.shared.work).queue);
+        let (queued, read) = {
+            let mut work = locked(&self.shared.work);
+            (
+                std::mem::take(&mut work.queue),
+                std::mem::take(&mut work.decode),
+            )
+        };
+        self.shared.decode_room.notify_all();
         let mut cache = self.cache.borrow_mut();
-        for key in forgotten {
+        for key in queued
+            .into_iter()
+            .chain(read.into_iter().map(|(key, _)| key))
+        {
             cache.remove(&key);
         }
-        cache.retain(|_, slot| !matches!(slot, Slot::Failed));
+        cache.retain(|_, slot| !matches!(slot, Slot::Unreadable));
     }
 
     /// How many thumbnails are made (tests).
@@ -269,6 +410,8 @@ impl Drop for Thumbs {
     fn drop(&mut self) {
         locked(&self.shared.work).closed = true;
         self.shared.wake_worker.notify_all();
+        self.shared.decode_ready.notify_all();
+        self.shared.decode_room.notify_all();
     }
 }
 
@@ -299,199 +442,4 @@ fn draw(canvas: &mut dyn Canvas, image: &Image, rect: Rect) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::ffi::OsString;
-    use std::io;
-    use std::sync::atomic::AtomicUsize;
-    use std::time::{Duration, Instant};
-
-    use xui_canvas::Surface;
-    use xui_core::theme::Theme;
-
-    use super::*;
-    use crate::platform::{Meta, RawEntry};
-
-    fn png(side: u32, shade: u8) -> Vec<u8> {
-        Image::from_rgba(
-            side,
-            side,
-            [shade, 0, 0, 255].repeat((side * side) as usize),
-        )
-        .unwrap()
-        .encode_png()
-        .unwrap()
-    }
-
-    fn picture(name: &str, size: u64) -> Entry {
-        let mut meta = Meta::bare(Path::new(name), Kind::File);
-        meta.size = Some(size);
-        Entry::from_raw(RawEntry {
-            name: OsString::from(name),
-            meta,
-        })
-    }
-
-    struct Rig {
-        thumbs: Thumbs,
-        wakes: Arc<AtomicUsize>,
-    }
-
-    fn rig(reader: ThumbReader) -> Rig {
-        let wakes = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&wakes);
-        let wake = Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        });
-        Rig {
-            thumbs: Thumbs::new(reader, wake),
-            wakes,
-        }
-    }
-
-    /// Paints `entry` on a fresh surface; returns whether it claimed the tile.
-    fn paint(thumbs: &Thumbs, entry: &Entry) -> bool {
-        let rect = Rect::new(4, 4, 52, 52);
-        let mut surface = Surface::new(56, 56);
-        let _ = Theme::light();
-        surface.with_canvas_at(rect, 96, |canvas| {
-            thumbs.paint(Path::new("/pics"), entry, canvas, rect)
-        })
-    }
-
-    fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
-        let end = Instant::now() + Duration::from_secs(10);
-        while !condition() {
-            assert!(Instant::now() < end, "timed out waiting for {what}");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    #[test]
-    fn a_thumbnail_arrives_in_the_background_and_then_draws() {
-        let rig = rig(Arc::new(|_, _| Ok(png(300, 200))));
-        let entry = picture("cat.png", 1000);
-        assert!(
-            !paint(&rig.thumbs, &entry),
-            "first paint is the generic icon"
-        );
-        wait_for("the wake", || rig.wakes.load(Ordering::SeqCst) > 0);
-        assert!(rig.thumbs.drain(), "a made thumbnail asks for a repaint");
-        assert_eq!(rig.thumbs.ready(), 1);
-        assert!(paint(&rig.thumbs, &entry), "now the thumbnail is drawn");
-    }
-
-    #[test]
-    fn paint_does_not_wait_for_a_slow_reader() {
-        let (release, gate) = std::sync::mpsc::channel::<()>();
-        let gate = Mutex::new(gate);
-        let rig = rig(Arc::new(move |_, _| {
-            let _ = locked(&gate).recv_timeout(Duration::from_secs(10));
-            Ok(png(32, 9))
-        }));
-        let entry = picture("slow.png", 100);
-        let started = Instant::now();
-        for _ in 0..50 {
-            assert!(!paint(&rig.thumbs, &entry));
-        }
-        assert!(started.elapsed() < Duration::from_secs(2));
-        drop(release);
-    }
-
-    #[test]
-    fn a_failure_is_remembered_until_the_folder_is_shown_again() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&calls);
-        let rig = rig(Arc::new(move |_, _| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            Err(io::Error::other("share went away"))
-        }));
-        let entry = picture("gone.png", 100);
-        paint(&rig.thumbs, &entry);
-        wait_for("the failure", || rig.wakes.load(Ordering::SeqCst) > 0);
-        assert!(!rig.thumbs.drain(), "a failure changes nothing on screen");
-        for _ in 0..5 {
-            paint(&rig.thumbs, &entry);
-        }
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "not retried per paint");
-        rig.thumbs.folder_changed();
-        paint(&rig.thumbs, &entry);
-        wait_for("the retry", || calls.load(Ordering::SeqCst) == 2);
-    }
-
-    #[test]
-    fn non_pictures_and_oversized_files_are_never_read() {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&calls);
-        let rig = rig(Arc::new(move |_, _| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            Ok(Vec::new())
-        }));
-        for entry in [
-            picture("notes.txt", 100),
-            picture("huge.png", MAX_BYTES + 1),
-            picture("empty.png", 0),
-            picture("vector.svg", 100),
-        ] {
-            assert!(!paint(&rig.thumbs, &entry));
-        }
-        std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[test]
-    fn the_queue_is_bounded_and_serves_the_newest_first() {
-        let (release, gate) = std::sync::mpsc::channel::<()>();
-        let gate = Mutex::new(gate);
-        let order = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
-        let log = Arc::clone(&order);
-        let rig = rig(Arc::new(move |path, _| {
-            locked(&log).push(path.to_path_buf());
-            let _ = locked(&gate).recv_timeout(Duration::from_secs(10));
-            Ok(png(16, 1))
-        }));
-        // Every worker picks up a job and block on the gate; the rest queue.
-        let total = QUEUE_CAP + 40;
-        for index in 0..total {
-            paint(&rig.thumbs, &picture(&format!("{index:03}.png"), 100));
-            if index == WORKERS - 1 {
-                wait_for("both workers busy", || locked(&order).len() == WORKERS);
-            }
-        }
-        assert_eq!(locked(&rig.thumbs.shared.work).queue.len(), QUEUE_CAP);
-        // Release exactly one job: the next one taken is the newest.
-        release.send(()).unwrap();
-        wait_for("a third read", || locked(&order).len() == WORKERS + 1);
-        let third = locked(&order)[WORKERS].clone();
-        assert_eq!(
-            third,
-            Path::new("/pics").join(format!("{:03}.png", total - 1))
-        );
-        drop(release);
-        // Dropping the window's thumbnails stops the workers.
-        drop(rig);
-    }
-
-    #[test]
-    fn a_picture_is_drawn_inside_its_tile_without_distortion() {
-        let rig = rig(Arc::new(|_, _| {
-            let wide = Image::from_rgba(80, 20, [255, 0, 0, 255].repeat(1600)).unwrap();
-            Ok(wide.encode_png().unwrap())
-        }));
-        let entry = picture("wide.png", 100);
-        paint(&rig.thumbs, &entry);
-        wait_for("the wake", || rig.wakes.load(Ordering::SeqCst) > 0);
-        rig.thumbs.drain();
-        let rect = Rect::new(0, 0, 48, 48);
-        let mut surface = Surface::new(48, 48);
-        surface.fill(xui_core::Color::rgb(255, 255, 255));
-        surface.with_canvas_at(rect, 96, |canvas| {
-            assert!(rig.thumbs.paint(Path::new("/pics"), &entry, canvas, rect));
-        });
-        let pixels = surface.pixels();
-        let at = |x: usize, y: usize| pixels[(y * 48 + x) * 4..(y * 48 + x) * 4 + 4].to_vec();
-        let white = vec![255u8; 4];
-        assert_eq!(at(24, 2), white, "above the 4:1 picture stays background");
-        assert_eq!(at(24, 46), white, "and below");
-        assert_ne!(at(24, 24), white, "the picture is in the middle");
-    }
-}
+mod tests;
