@@ -15,6 +15,10 @@ pub const FAULT_RIP_INDEX: usize = 16;
 /// Size of the frame we build on the user stack: `pretcode` (8) + `ucontext_t`
 /// (304) + `siginfo_t` (128), rounded up with slack.
 pub(super) const LINUX_FRAME_SIZE: u64 = 512;
+/// Bytes of x87/SSE state the frame carries (`struct _fpstate`, an `FXSAVE`
+/// image), placed above the `rt_sigframe` and 64-byte aligned (what an `XSAVE`
+/// image will need).
+pub(super) const FP_STATE_SIZE: u64 = crate::task::fpu::IMAGE_SIZE as u64;
 /// x86_64 System V red zone, which the interrupted code may be using below RSP.
 pub(super) const RED_ZONE: u64 = 128;
 
@@ -100,8 +104,20 @@ pub(super) fn read_u64(addr: u64) -> u64 {
 /// handler-entry alignment `pretcode` needs (it plays the return address of a
 /// `call`). `None` when the stack cannot hold it (tiny `rsp`, or not a user
 /// address).
-pub(super) fn frame_base(stack_top: u64) -> Option<u64> {
-    harden::handler_frame_below(stack_top, RED_ZONE + LINUX_FRAME_SIZE)
+pub fn frame_base(stack_top: u64) -> Option<u64> {
+    let fp = fp_state_below(stack_top)?;
+    harden::handler_frame_below(fp, LINUX_FRAME_SIZE)
+}
+
+/// Where the FP state image goes: below the red zone, 64-byte aligned, above
+/// the frame (the handler's stack grows down from the frame, so the image
+/// cannot sit below it). Page zero is never user memory.
+pub(super) fn fp_state_below(stack_top: u64) -> Option<u64> {
+    if stack_top > harden::USER_MAX {
+        return None;
+    }
+    let top = stack_top.checked_sub(RED_ZONE + FP_STATE_SIZE)? & !63;
+    (top >= 0x1000).then_some(top)
 }
 
 /// Build the Linux `rt_sigframe` at the top of `stack_top`. Writes the
@@ -124,6 +140,29 @@ pub fn build_linux_frame(
     saved_mask: u64,
     info: &SigInfo,
 ) -> Option<FrameResult> {
+    let fp = crate::task::fpu::capture(current());
+    build_linux_frame_fp(
+        stack_top, regs, sig, handler, flags, restorer, mask, saved_mask, info, &fp,
+    )
+}
+
+/// [`build_linux_frame`] with the interrupted task's FP state given: the live
+/// registers belong to the task on the CPU, which is not always the one the
+/// timer sweep delivers to.
+#[allow(clippy::too_many_arguments)] // each field is independently meaningful ABI-frame state
+pub fn build_linux_frame_fp(
+    stack_top: u64,
+    regs: &UserRegs,
+    sig: u8,
+    handler: u64,
+    flags: u64,
+    restorer: u64,
+    mask: u64,
+    saved_mask: u64,
+    info: &SigInfo,
+    fp: &crate::task::fpu::FxImage,
+) -> Option<FrameResult> {
+    let fp_addr = fp_state_below(stack_top)?;
     let frame = frame_base(stack_top)?;
     write_u64(frame, restorer);
     // ucontext_t.
@@ -161,7 +200,12 @@ pub fn build_linux_frame(
     write_u64(mc + lf::TRAPNO, 0);
     write_u64(mc + lf::OLDMASK, kernel_to_linux_sigset(mask));
     write_u64(mc + lf::CR2, 0);
-    write_u64(mc + lf::FPSTATE, 0);
+    // The interrupted x87/SSE state, for the handler to read or edit and
+    // `rt_sigreturn` to restore.
+    for index in 0..crate::task::fpu::IMAGE_SIZE / 8 {
+        write_u64(fp_addr + 8 * index as u64, fp.word(index));
+    }
+    write_u64(mc + lf::FPSTATE, fp_addr);
     write_u64(frame + lf::UC_SIGMASK, kernel_to_linux_sigset(saved_mask));
     // siginfo_t.
     let si = frame + lf::SIGINFO;

@@ -63,6 +63,12 @@ path = "src/bigapp.rs"
 name = "sigstress"
 path = "src/sigstress.rs"
 
+# x87/SSE state across asynchronous signals and sibling-thread delivery
+# (issue #809).
+[[bin]]
+name = "fpsig"
+path = "src/fpsig.rs"
+
 # Per-thread signal masks and thread-directed signals: the JavaScriptCore
 # stop-the-world pattern (issue #772).
 [[bin]]
