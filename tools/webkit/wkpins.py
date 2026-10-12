@@ -134,6 +134,13 @@ DEPS: list[Dep] = [
         "8.22.0", f"{H}/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.tar.xz",
         "f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7", "curl-8.22.0"),
         "curl (MIT-style)", "the NetworkProcess HTTP/HTTPS client (WebCore's platform/network/curl)"),
+    # W4: the PlayStation port's input and pasteboard types come from libwpe; its
+    # sources are in git and not in the tarball. The digest is the one
+    # https://wpewebkit.org/releases/libwpe-1.16.2.tar.xz.sums lists.
+    Dep("libwpe", Source(
+        "1.16.2", f"{H}/WebPlatformForEmbedded/libwpe/releases/download/1.16.2/libwpe-1.16.2.tar.xz",
+        "960bdd11c3f2cf5bd91569603ed6d2aa42fd4000ed7cac930a804eac367888d7", "libwpe-1.16.2"),
+        "BSD-2-Clause", "input event, pasteboard and key-code types of the PlayStation port's WebKit layer"),
 ]
 
 BY_NAME = {dep.name: dep for dep in DEPS}
