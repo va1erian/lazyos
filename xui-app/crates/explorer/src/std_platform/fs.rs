@@ -8,8 +8,9 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::platform::{Kind, Meta, Platform, RawEntry};
+use crate::platform::{Kind, Meta, Platform, RawEntry, ThumbReader};
 
 /// The desktop filesystem.
 #[derive(Clone, Copy, Debug, Default)]
@@ -84,6 +85,22 @@ impl Platform for StdPlatform {
 
     fn home(&self) -> Option<PathBuf> {
         home_dir()
+    }
+
+    fn thumb_reader(&self) -> Option<ThumbReader> {
+        Some(Arc::new(|path, max| {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            // One byte past the limit tells a file that grew from one that
+            // fits, without trusting the size the listing saw.
+            fs::File::open(path)?
+                .take(max + 1)
+                .read_to_end(&mut bytes)?;
+            if bytes.len() as u64 > max {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "too large"));
+            }
+            Ok(bytes)
+        }))
     }
 }
 

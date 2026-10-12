@@ -61,7 +61,7 @@ impl ExplorerWindow {
     /// view is not placed; showing it again re-flows it once the message is
     /// done, outside the borrow.
     pub(super) fn set_models(&self, ui: &Ui<Msg>) {
-        let model = SharedListing::new(Rc::clone(&self.listing));
+        let model = SharedListing::new(Rc::clone(&self.listing)).with_thumbs(self.thumbs.clone());
         let icons = self.chrome.icons.id();
         let shown = ui.is_visible(icons);
         ui.set_visible(icons, false);

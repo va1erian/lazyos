@@ -27,6 +27,11 @@
 //! - [`shell`] is the shared state: the platform, the launcher, the session
 //!   and what each open window shows, so a delete or a paste refreshes every
 //!   window it affects.
+//! - Picture tiles (PNG and JPEG) show a thumbnail instead of the generic
+//!   icon. [`model::Thumbs`] makes them on two worker threads through
+//!   [`Platform::thumb_reader`], newest request first, and the window repaints
+//!   as each arrives; nothing on the UI thread reads or decodes a file, so a
+//!   network mount only slows the thumbnails, never the window.
 //! - [`testing`] is an in-memory [`Platform`] for tests that must not touch the
 //!   real disk.
 //! - `std_platform` (the default `std-platform` feature) is the desktop shell:
