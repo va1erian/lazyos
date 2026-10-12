@@ -278,7 +278,8 @@ def main(argv: list[str]) -> int:
             # The build cannot resize an OS volume: fit it to the selection, or
             # say now (not after the build) that it has to be recreated.
             wants = args.srb2kart or os.environ.get("LAZYOS_SRB2KART") == "1"
-            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants)
+            wants_webkit = args.webkit or os.environ.get("LAZYOS_WEBKIT") == "1"
+            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants, wants_webkit)
             if recreate:
                 have = (osvolume.existing_bytes(osvolume.DEFAULT_IMAGE) or 0) >> 20
                 if not args.yes and not confirm(

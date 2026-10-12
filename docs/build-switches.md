@@ -95,7 +95,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
-| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
+| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, `768M` with `LAZYOS_WEBKIT=1`, `1G` with `LAZYOS_SRB2KART=1`, `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
 | `LAZYOS_RESET_OS` | Recreate the OS volume with a new UUID instead of updating in place. CI sets it everywhere. | `--reset-os` |
 | `LAZYOS_UPDATE_DAMAGED_OS` | Update a volume anyway when the checker finds damage a crash does not leave. | - |
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |
