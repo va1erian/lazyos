@@ -1174,6 +1174,8 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "lazyos-crypto",
+ "netpolicy",
+ "wlansta",
 ]
 
 [[package]]
