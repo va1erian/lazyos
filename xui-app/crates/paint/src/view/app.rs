@@ -276,7 +276,11 @@ impl App for PaintApp {
             Msg::SwapColors => self.model.swap_colors(),
             Msg::Undo => self.model.undo(),
             Msg::Redo => self.model.redo(),
-            Msg::Clear => self.model.clear(),
+            Msg::Clear => {
+                if let Err(error) = self.model.clear() {
+                    self.message = Some(format!("Clear failed: {error}"));
+                }
+            }
             Msg::New => {
                 match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
                     Ok(()) => {
