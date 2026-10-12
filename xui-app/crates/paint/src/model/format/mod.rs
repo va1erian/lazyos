@@ -26,6 +26,8 @@ mod zip;
 mod fuzz;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod bmp_tests;
 
 use std::path::Path;
 

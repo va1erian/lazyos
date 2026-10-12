@@ -135,7 +135,9 @@ impl Model {
         Reserved {
             floating: self.floating_bytes,
             clipboard: self.clipboard_bytes,
-            history: self.history.cap() as u64,
+            // `History::trim` always keeps one entry, so a single entry larger
+            // than the cap stays held: reserve whichever is larger.
+            history: self.history.cap().max(self.history.bytes()) as u64,
         }
     }
 
@@ -145,6 +147,21 @@ impl Model {
     /// add or duplicate layer call it first.
     pub fn check_fits(&self, width: u32, height: u32, layers: usize) -> Result<(), String> {
         check_budget(width, height, layers, self.reserved()).map_err(|e| e.to_string())
+    }
+
+    /// [`Model::check_fits`] for an action that is about to record an undo
+    /// entry of `entry` bytes: the history then holds at least that entry,
+    /// even past its cap, so the reserve is the larger of the two.
+    pub fn check_fits_recording(
+        &self,
+        width: u32,
+        height: u32,
+        layers: usize,
+        entry: u64,
+    ) -> Result<(), String> {
+        let mut reserved = self.reserved();
+        reserved.history = reserved.history.max(entry);
+        check_budget(width, height, layers, reserved).map_err(|e| e.to_string())
     }
 
     /// Checks that a further bitmap of `extra` bytes (a paste, a cut, the
