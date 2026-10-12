@@ -18,6 +18,11 @@
 //! `LAZYOS_WEBKIT_DEPS=1` embeds `depsproof`, the C++ program that links the
 //! whole WebKit dependency bundle (`tools/webkit/deps.py`, built in the same
 //! container into `target/webkit/bin/`; docs/webkit-port-plan.md W3).
+//!
+//! `LAZYOS_WEBKIT=1` embeds the WebKit port (`tools/webkit/port.py`, W4): the
+//! `WebProcess` and `NetworkProcess` it launches, the headless UI process
+//! `webkit-smoke`, and the Fontconfig configuration they read
+//! (`webkit/port/fonts.conf` at `fhs::etc::FONTS_CONF`).
 
 use std::path::Path;
 
@@ -48,6 +53,19 @@ const JSC_TESTS_BUILT: &str = "target/jsc/jsc-tests";
 const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
 
+/// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT=1` embeds.
+const WEBKIT_BUILT: &str = "target/webkit/bin";
+const WEBKIT_PROGRAMS: &[(&str, &str)] = &[
+    ("WebProcess", fhs::bin::WEBPROCESS),
+    ("NetworkProcess", fhs::bin::NETWORKPROCESS),
+    ("webkit-smoke", fhs::bin::WEBKIT_SMOKE),
+];
+/// The Fontconfig configuration of those programs (a checked-in file).
+const WEBKIT_FONTS_CONF: &str = "webkit/port/fonts.conf";
+/// The Liberation fonts (`assets/manifest.txt` installs them in desktop images only): a
+/// console image with the WebKit port has no other fonts, and a page without fonts has no text.
+const WEBKIT_FONTS: &str = "assets/fonts/liberation";
+
 /// Whether the environment variable `name` is `1`.
 fn switch_on(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| value == "1")
@@ -64,6 +82,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     if enabled() {
         embed_programs(
             sink,
@@ -97,6 +116,40 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             WEBKIT_DEPS_BUILT,
             WEBKIT_DEPS_PROGRAMS,
             "tools/webkit/deps.py",
+        );
+    }
+    if switch_on("LAZYOS_WEBKIT") {
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_WEBKIT",
+            WEBKIT_BUILT,
+            WEBKIT_PROGRAMS,
+            "tools/webkit/port.py",
+        );
+        let conf = manifest_dir.join(WEBKIT_FONTS_CONF);
+        println!("cargo:rerun-if-changed={}", conf.display());
+        sink.add_file(fhs::etc::FONTS_CONF, conf);
+        embed_fonts(sink, &manifest_dir.join(WEBKIT_FONTS));
+    }
+}
+
+/// Store every `.ttf` of `dir` under `fhs::share::FONTS_LIBERATION` (a desktop image already
+/// has them there; the later entry replaces the earlier).
+fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        println!("cargo:warning=LAZYOS_WEBKIT: no fonts in {}", dir.display());
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str().filter(|name| name.ends_with(".ttf")) else {
+            continue;
+        };
+        sink.add_file(
+            &format!("{}/{name}", fhs::share::FONTS_LIBERATION),
+            entry.path(),
         );
     }
 }

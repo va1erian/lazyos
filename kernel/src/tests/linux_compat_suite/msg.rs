@@ -149,6 +149,12 @@ pub fn msg_bad_flags() -> Result<(), String> {
         recv(b, &mut buf, 0x20_0000) == EINVAL,
         "an unknown recv flag was ignored"
     );
+    // MSG_NOSIGNAL is a send flag Linux also takes (and ignores) on a receive.
+    check!(send(a, b"y", 0x4000) == 1, "send NOSIGNAL");
+    check!(
+        recv(b, &mut buf, 0x4000) == 1 && buf[0] == b'y',
+        "recv with MSG_NOSIGNAL was refused"
+    );
     let (r, _w) = pipe()?;
     check!(
         recv(r, &mut buf, 0) == neg(88),
@@ -307,6 +313,109 @@ pub fn msg_recvmsg_soak() -> Result<(), String> {
             joined[..kept] == message[..kept],
             "round {round}: bytes out of order"
         );
+    }
+    sys(3, &[a]);
+    sys(3, &[b]);
+    Ok(())
+}
+
+const WRITEV: u64 = 20;
+
+/// `sendmsg` and `writev` of several segments on a seqpacket pair are ONE
+/// record each (WebKit's IPC sends a header and a body that way), empty
+/// segments contribute nothing, a gather over the capacity is `EMSGSIZE`, and
+/// no extra record appears.
+pub fn msg_seqpacket_gathers_one_record() -> Result<(), String> {
+    fresh()?;
+    let (a, b) = seqpacket_pair()?;
+    let (p1, p2, p3) = (b"abc".as_slice(), b"".as_slice(), b"defg".as_slice());
+    let iov = [
+        p1.as_ptr() as u64,
+        3,
+        p2.as_ptr() as u64,
+        0,
+        p3.as_ptr() as u64,
+        4,
+    ];
+    let msg = [0u64, 0, iov.as_ptr() as u64, 3, 0, 0, 0];
+    check!(
+        sys(SENDMSG, &[a, msg.as_ptr() as u64, 0]) == 7,
+        "sendmsg gather"
+    );
+    check!(
+        sys(WRITEV, &[a, iov.as_ptr() as u64, 3]) == 7,
+        "writev gather"
+    );
+    let mut buf = [0u8; 16];
+    for which in ["sendmsg", "writev"] {
+        let got = recv(b, &mut buf, MSG_DONTWAIT);
+        check!(got == 7, "{which}: the record was {got} bytes, not 7");
+        check!(&buf[..7] == b"abcdefg", "{which}: record bytes");
+    }
+    check!(
+        recv(b, &mut buf, MSG_DONTWAIT) == EAGAIN,
+        "a gather left a second record"
+    );
+    // Over the capacity: refused whole, nothing queued.
+    let big = alloc::vec![0u8; crate::ipc::pipe::CAPACITY];
+    let two = [big.as_ptr() as u64, big.len() as u64, p1.as_ptr() as u64, 3];
+    let too_big = [0u64, 0, two.as_ptr() as u64, 2, 0, 0, 0];
+    check!(
+        sys(SENDMSG, &[a, too_big.as_ptr() as u64, 0]) == EMSGSIZE,
+        "an oversized gather was not EMSGSIZE"
+    );
+    check!(
+        recv(b, &mut buf, MSG_DONTWAIT) == EAGAIN,
+        "a refused gather queued bytes"
+    );
+    // A bad segment is EFAULT, and nothing is queued either.
+    let bad = [p1.as_ptr() as u64, 3, 8u64, 4];
+    let bad_msg = [0u64, 0, bad.as_ptr() as u64, 2, 0, 0, 0];
+    check!(
+        sys_checked(SENDMSG, &[a, bad_msg.as_ptr() as u64, 0]) == EFAULT,
+        "a bad segment was accepted"
+    );
+    check!(
+        recv(b, &mut buf, MSG_DONTWAIT) == EAGAIN,
+        "a faulting gather queued bytes"
+    );
+    sys(3, &[a]);
+    sys(3, &[b]);
+    Ok(())
+}
+
+/// Soak: thousands of gathered records of varying segmentation keep their
+/// boundaries and bytes, through `sendmsg` and `writev` alternately.
+pub fn msg_seqpacket_gather_soak() -> Result<(), String> {
+    fresh()?;
+    let (a, b) = seqpacket_pair()?;
+    let mut out = [0u8; 256];
+    for round in 0..3000usize {
+        let (l1, l2, l3) = (round % 13 + 1, round % 29, round % 47 + 1);
+        let message: Vec<u8> = (0..l1 + l2 + l3).map(|i| (round * 7 + i) as u8).collect();
+        let (s1, rest) = message.split_at(l1);
+        let (s2, s3) = rest.split_at(l2);
+        let iov = [
+            s1.as_ptr() as u64,
+            l1 as u64,
+            s2.as_ptr() as u64,
+            l2 as u64,
+            s3.as_ptr() as u64,
+            l3 as u64,
+        ];
+        let sent = if round % 2 == 0 {
+            let msg = [0u64, 0, iov.as_ptr() as u64, 3, 0, 0, 0];
+            sys(SENDMSG, &[a, msg.as_ptr() as u64, 0])
+        } else {
+            sys(WRITEV, &[a, iov.as_ptr() as u64, 3])
+        };
+        check!(sent == message.len() as u64, "round {round}: sent {sent}");
+        let got = recv(b, &mut out, 0);
+        check!(
+            got == message.len() as u64,
+            "round {round}: record of {got}"
+        );
+        check!(out[..message.len()] == message[..], "round {round}: bytes");
     }
     sys(3, &[a]);
     sys(3, &[b]);

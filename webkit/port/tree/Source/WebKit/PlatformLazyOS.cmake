@@ -80,6 +80,10 @@ list(APPEND WebKit_SOURCES
 
     UIProcess/WebsiteData/playstation/WebsiteDataStorePlayStation.cpp
 
+    UIProcess/linux/MemoryPressureMonitor.cpp
+
+    UIProcess/API/C/lazyos/WPELoaderLazyOS.cpp
+
     UIProcess/libwpe/WebPasteboardProxyLibWPE.cpp
 
     UIProcess/playstation/PageClientImpl.cpp
@@ -88,7 +92,7 @@ list(APPEND WebKit_SOURCES
     UIProcess/playstation/WebPreferencesPlayStation.cpp
     UIProcess/playstation/WebProcessPoolPlayStation.cpp
 
-    WebProcess/InjectedBundle/playstation/InjectedBundlePlayStation.cpp
+    WebProcess/InjectedBundle/lazyos/InjectedBundleLazyOS.cpp
 
     WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
 
@@ -108,6 +112,7 @@ list(APPEND WebKit_PRIVATE_INCLUDE_DIRECTORIES
     "${WEBKIT_DIR}/UIProcess/API/C/playstation"
     "${WEBKIT_DIR}/UIProcess/API/playstation"
     "${WEBKIT_DIR}/UIProcess/CoordinatedGraphics"
+    "${WEBKIT_DIR}/UIProcess/linux"
     "${WEBKIT_DIR}/UIProcess/playstation"
     "${WEBKIT_DIR}/WebProcess/WebPage/CoordinatedGraphics"
 )
@@ -148,4 +153,5 @@ endif ()
 # (webkit/port/smoke/, docs W4). Linked like the auxiliary processes.
 add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp")
 target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers")
+target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR} ${Fontconfig_INCLUDE_DIRS})
 target_link_libraries(webkit-smoke PRIVATE WebKit)

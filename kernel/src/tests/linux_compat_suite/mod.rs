@@ -64,6 +64,7 @@ const EFAULT: u64 = neg(14);
 const EEXIST: u64 = neg(17);
 const EINVAL: u64 = neg(22);
 const ENOSYS: u64 = neg(38);
+const EMSGSIZE: u64 = neg(90);
 const EOPNOTSUPP: u64 = neg(95);
 const ETIMEDOUT: u64 = neg(110);
 
@@ -185,6 +186,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
     ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
+    (
+        "compat_msg_seqpacket_gathers_one_record",
+        msg_seqpacket_gathers_one_record,
+    ),
+    (
+        "compat_msg_seqpacket_gather_soak",
+        msg_seqpacket_gather_soak,
+    ),
     ("compat_scmrights_round_trip", scmrights_round_trip),
     ("compat_scmrights_cloexec", scmrights_cloexec),
     ("compat_scmrights_ctrunc", scmrights_ctrunc),

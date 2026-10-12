@@ -12,9 +12,15 @@ Markers, in the order the program prints them::
     WEBKIT:W4:TITLE:hello lazyos
     WEBKIT:W4:PAINT:<w>x<h>:<crc>        (only when pixels arrived)
     WEBKIT:W4:INFO:PAINT:pixels=<n>:displayCallbacks=<n>
+    WEBKIT:W4:INFO:INK:pixels=<n>:bbox=<x0>,<y0>,<x1>,<y1>     (the glyphs, as ART lines too)
     WEBKIT:W4:PASS     or     WEBKIT:W4:FAIL:<stage>:<reason>
 
 The stage reached is reported even on failure: the highest marker present.
+
+``tools/webkit/port.py`` also runs ``webkit-smoke`` once on the Linux build host (the programs are
+static musl executables; ``target/webkit/smoke.host.txt``). Given that run, the judge requires the
+guest to have painted the same bitmap: the checksum and the ink must be equal, which shows WebKit's
+layout, Skia and the fonts compute the same page on LazyOS as on Linux.
 """
 
 from __future__ import annotations
@@ -73,8 +79,14 @@ def painted_pixels(serial: str) -> int:
     return int(found[-1]) if found else 0
 
 
-def judge(serial: str) -> list[Verdict]:
-    """Verdicts for one boot."""
+def ink(serial: str) -> str | None:
+    """The ``pixels=<n>:bbox=...`` of the INK line, or None."""
+    found = re.findall(r"^WEBKIT:W4:INFO:INK:(\S+)\s*$", serial, re.M)
+    return found[-1] if found else None
+
+
+def judge(serial: str, host: str | None = None) -> list[Verdict]:
+    """Verdicts for one boot; `host` is the build host's own run of the same program, if any."""
     verdicts = [Verdict("WEBKIT:W4:UP", has_line(serial, "WEBKIT:W4:UP"))]
     for name in ("WEBPROCESS", "NETWORKPROCESS"):
         pids = [p for p in lines(serial, f"WEBKIT:W4:{name}:UP:") if p.isdigit() and int(p) > 0]
@@ -90,6 +102,15 @@ def judge(serial: str) -> list[Verdict]:
     if drawn or pixels:
         verdicts.append(Verdict("WEBKIT:W4:PAINT with the pixels it counted", bool(drawn) and pixels > 0,
                                 f"{drawn} pixels={pixels}"))
+    if drawn:
+        verdicts.append(Verdict("the page has ink (text was drawn)", (ink(serial) or "pixels=0").split(":")[0] != "pixels=0",
+                                ink(serial) or ""))
+    if host:
+        want = paint(host)
+        verdicts.append(Verdict("paint equals the host's", want is not None and drawn == want,
+                                f"guest {drawn}, host {want}"))
+        verdicts.append(Verdict("ink equals the host's", ink(host) is not None and ink(serial) == ink(host),
+                                f"guest {ink(serial)}, host {ink(host)}"))
     verdicts.append(Verdict("WEBKIT:W4:PASS", has_line(serial, "WEBKIT:W4:PASS")))
     bad = failures(serial)
     verdicts.append(Verdict("no failure lines", not bad, "; ".join(bad)))

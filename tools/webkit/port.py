@@ -59,6 +59,8 @@ def run_steps(only: list[str] | None, jobs: int, configure_only: bool) -> dict[s
         port_cmake.configure(tree)
         return {}
     built = port_cmake.build(tree, jobs, only or NAMES)
+    if not only:
+        port_cmake.host_reference()
     port_cmake.chown_outputs()
     return built
 

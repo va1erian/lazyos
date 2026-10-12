@@ -92,9 +92,18 @@ void ProcessLauncher::launchProcess()
     }
     if (!pid) {
         execv(path.data(), argv);
-        // exec failed: say so with write(), which is async-signal-safe, and leave without atexit handlers.
-        static const char message[] = "WebKit: exec of the auxiliary process failed\n";
-        ssize_t ignored = write(STDERR_FILENO, message, sizeof message - 1);
+        // exec failed: say so with write(), which is async-signal-safe (hence the hand-made number),
+        // and leave without atexit handlers.
+        char message[64] = "WebKit: exec of the auxiliary process failed, errno ";
+        size_t length = strlen(message);
+        char digits[8];
+        int count = 0;
+        for (int code = errno; code > 0 && count < 8; code /= 10)
+            digits[count++] = static_cast<char>('0' + code % 10);
+        while (count > 0)
+            message[length++] = digits[--count];
+        message[length++] = '\n';
+        ssize_t ignored = write(STDERR_FILENO, message, length);
         (void)ignored;
         _exit(127);
     }

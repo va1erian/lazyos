@@ -85,6 +85,17 @@ list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/playstation/RenderThemePlayStation.h
 )
 
+# LazyOS has no file-backed mmap yet (docs/linux-abi-plan.md) and Skia's fontconfig font
+# manager maps font files with mmap and no fallback to reading, so it refuses every font and
+# every family falls back to the same face (found by running W4: Liberation Serif drew as Sans).
+# W3's lazyos_mmap shim copies the file instead; it is linked into Skia and SkOSFile_posix.cpp
+# is compiled against it, as in tools/webkit/skiabuild. Remove with the kernel limitation.
+if (TARGET Skia)
+    target_sources(Skia PRIVATE "${LAZYOS_PORT_DIR}/../../tools/webkit/skiabuild/lazyos_mmap.c")
+    set_source_files_properties("${CMAKE_SOURCE_DIR}/Source/ThirdParty/skia/src/ports/SkOSFile_posix.cpp"
+        TARGET_DIRECTORY Skia PROPERTIES COMPILE_DEFINITIONS "mmap=lazyos_mmap")
+endif ()
+
 # The dependency bundle is static, and an archive must come after the archives
 # that use it: FreeType (PNG, zlib, brotli), Fontconfig (FreeType, expat), curl
 # (nghttp2, brotli, libpsl, OpenSSL, zlib), libxml2 (ICU, zlib).

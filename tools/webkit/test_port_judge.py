@@ -23,6 +23,7 @@ WEBKIT:W4:WEBPROCESS:UP:12
 WEBKIT:W4:NETWORKPROCESS:UP:13
 WEBKIT:W4:PAINT:800x600:0badf00d
 WEBKIT:W4:INFO:PAINT:pixels=480000:displayCallbacks=3
+WEBKIT:W4:INFO:INK:pixels=42:bbox=8,15,15,22
 WEBKIT:W4:PASS
 """
 
@@ -67,6 +68,19 @@ class PortJudgeTests(unittest.TestCase):
 
     def test_pass_must_be_a_whole_line(self) -> None:
         self.assertIn("WEBKIT:W4:PASS", failed(GOOD.replace("WEBKIT:W4:PASS\n", "WEBKIT:W4:PASS:partial\n")))
+
+    def test_the_hosts_paint_must_match(self) -> None:
+        host = GOOD.replace("WEBPROCESS:UP:12", "WEBPROCESS:UP:99")
+        self.assertEqual({v.name for v in portjudge.judge(GOOD, host) if not v.ok}, set())
+        other = host.replace("0badf00d", "00000000")
+        self.assertIn("paint equals the host's", {v.name for v in portjudge.judge(GOOD, other) if not v.ok})
+        shifted = host.replace("bbox=8,15,15,22", "bbox=8,12,16,20")
+        self.assertIn("ink equals the host's", {v.name for v in portjudge.judge(GOOD, shifted) if not v.ok})
+        self.assertIn("paint equals the host's", {v.name for v in portjudge.judge(GOOD, "garbage") if not v.ok})
+
+    def test_a_page_without_ink_fails(self) -> None:
+        blank = GOOD.replace("pixels=42:bbox=8,15,15,22", "pixels=0:bbox=800,600,-1,-1")
+        self.assertIn("the page has ink (text was drawn)", failed(blank))
 
     def test_the_stage_reached(self) -> None:
         self.assertEqual(portjudge.reached(""), "none")

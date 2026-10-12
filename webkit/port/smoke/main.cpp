@@ -30,11 +30,13 @@
 #include <WebKit/WKPagePrivatePlayStation.h>
 #include <WebKit/WKRunLoop.h>
 #include <WebKit/WKString.h>
+#include <WebKit/WKType.h>
 #include <WebKit/WKURL.h>
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
+#include <fontconfig/fontconfig.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <signal.h>
@@ -62,6 +64,7 @@ struct State {
     std::string secondUrl { "data:text/html,<title>hello lazyos</title><p>x</p>" };
     int loadsFinished { 0 };
     int displayCallbacks { 0 };
+    int titlePolls { 0 };
     bool titleSeen { false };
     const char* stage { "init" };
 } state;
@@ -148,12 +151,38 @@ void paintAndFinish(void*)
     state.stage = "paint";
     std::vector<unsigned char> pixels(static_cast<size_t>(kWidth) * kHeight * 4, 0);
     WKPagePaint(state.page, pixels.data(), WKSizeMake(kWidth, kHeight), WKRectMake(0, 0, kWidth, kHeight));
-    size_t drawn = 0;
-    for (size_t i = 0; i < pixels.size(); i += 4)
-        drawn += pixels[i] || pixels[i + 1] || pixels[i + 2] || pixels[i + 3];
+    // "Ink" is any pixel that is not the page's white; its bounding box shows where the text went.
+    size_t drawn = 0, ink = 0;
+    int x0 = kWidth, y0 = kHeight, x1 = -1, y1 = -1;
+    for (int y = 0; y < kHeight; ++y) {
+        for (int x = 0; x < kWidth; ++x) {
+            const unsigned char* p = &pixels[(static_cast<size_t>(y) * kWidth + x) * 4];
+            drawn += p[0] || p[1] || p[2] || p[3];
+            if ((p[0] & p[1] & p[2] & p[3]) != 0xff) {
+                ++ink;
+                x0 = x < x0 ? x : x0;
+                y0 = y < y0 ? y : y0;
+                x1 = x > x1 ? x : x1;
+                y1 = y > y1 ? y : y1;
+            }
+        }
+    }
     if (drawn) {
         say("WEBKIT:W4:PAINT:%dx%d:%08x", kWidth, kHeight, crc32(pixels.data(), pixels.size()));
         say("WEBKIT:W4:INFO:PAINT:pixels=%zu:displayCallbacks=%d", drawn, state.displayCallbacks);
+        say("WEBKIT:W4:INFO:INK:pixels=%zu:bbox=%d,%d,%d,%d", ink, x0, y0, x1, y1);
+        // The ink as text (up to 40 x 96 pixels), so a run's glyphs can be looked at in the log.
+        for (int y = y0; ink && y <= y1 && y < y0 + 96; ++y) {
+            char row[48];
+            int n = 0;
+            for (int x = x0; x <= x1 && x < x0 + 40; ++x) {
+                const unsigned char* p = &pixels[(static_cast<size_t>(y) * kWidth + x) * 4];
+                int level = 255 - (p[0] + p[1] + p[2]) / 3;
+                row[n++] = level > 192 ? '#' : level > 96 ? '+' : level > 16 ? '.' : ' ';
+            }
+            row[n] = 0;
+            say("WEBKIT:W4:INFO:ART:%s|", row);
+        }
     } else
         say("WEBKIT:W4:INFO:PAINT:nothing arrived (displayCallbacks=%d)", state.displayCallbacks);
     say("WEBKIT:W4:PASS");
@@ -168,6 +197,54 @@ void* settleThenPaint(void*)
     return nullptr;
 }
 
+std::string currentTitle()
+{
+    WKStringRef title = WKPageCopyTitle(state.page);
+    std::string text = utf8(title);
+    if (title)
+        WKRelease(title);
+    return text;
+}
+
+void startSettleThread()
+{
+    state.stage = "settle";
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, settleThenPaint, nullptr) != 0)
+        fail("settle", "cannot start a thread");
+    pthread_detach(thread);
+}
+
+// The title is the WebProcess's to report and can arrive a little after the load finished:
+// look every 250 ms for up to ten seconds.
+void checkTitle(void*);
+
+void* retitle(void*)
+{
+    usleep(250 * 1000);
+    WKRunLoopCallOnMainThread(checkTitle, nullptr);
+    return nullptr;
+}
+
+void checkTitle(void*)
+{
+    std::string text = currentTitle();
+    if (text == kDefaultTitle) {
+        say("WEBKIT:W4:TITLE:%s", text.c_str());
+        state.titleSeen = true;
+        startSettleThread();
+        return;
+    }
+    if (++state.titlePolls > 40) {
+        say("WEBKIT:W4:TITLE:%s", text.c_str());
+        fail("title", "the title is not the one the page set");
+    }
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, retitle, nullptr) != 0)
+        fail("title", "cannot start a thread");
+    pthread_detach(thread);
+}
+
 void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
     ++state.loadsFinished;
@@ -177,20 +254,9 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
         return;
     }
     say("WEBKIT:W4:LOAD:%s", state.secondUrl.c_str());
-    WKStringRef title = WKPageCopyTitle(state.page);
-    std::string text = utf8(title);
-    if (title)
-        WKRelease(title);
-    say("WEBKIT:W4:TITLE:%s", text.c_str());
-    if (text != kDefaultTitle)
-        fail("title", "the title is not the one the page set");
-    state.titleSeen = true;
     reportProcesses();
-    state.stage = "settle";
-    pthread_t thread;
-    if (pthread_create(&thread, nullptr, settleThenPaint, nullptr) != 0)
-        fail("settle", "cannot start a thread");
-    pthread_detach(thread);
+    state.stage = "title";
+    checkTitle(nullptr);
 }
 
 void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef, WKTypeRef, const void*)
@@ -201,6 +267,35 @@ void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef, WKTypeRef, const 
 void webProcessDidCrash(WKPageRef, const void*) { fail(state.stage, "the WebProcess crashed"); }
 
 void viewNeedsDisplay(WKViewRef, WKRect, const void*) { ++state.displayCallbacks; }
+
+// What Fontconfig (the font manager under WebKit's text) sees: how many fonts, and what the
+// generic and common family names resolve to. A page with the wrong face is a font setup problem
+// that this line shows at once.
+void reportFonts()
+{
+    FcConfig* config = FcInitLoadConfigAndFonts();
+    if (!config) {
+        say("WEBKIT:W4:INFO:FONTS:no fontconfig configuration");
+        return;
+    }
+    FcFontSet* set = FcConfigGetFonts(config, FcSetSystem);
+    std::string line = "WEBKIT:W4:INFO:FONTS:count=" + std::to_string(set ? set->nfont : 0);
+    for (const char* name : { "serif", "sans-serif", "monospace", "Times", "Arial" }) {
+        FcPattern* pattern = FcNameParse(reinterpret_cast<const FcChar8*>(name));
+        FcConfigSubstitute(config, pattern, FcMatchPattern);
+        FcDefaultSubstitute(pattern);
+        FcResult result;
+        FcPattern* match = FcFontMatch(config, pattern, &result);
+        FcChar8* family = nullptr;
+        if (match)
+            FcPatternGetString(match, FC_FAMILY, 0, &family);
+        line += std::string(":") + name + "=" + (family ? reinterpret_cast<const char*>(family) : "?");
+        if (match)
+            FcPatternDestroy(match);
+        FcPatternDestroy(pattern);
+    }
+    say("%s", line.c_str());
+}
 
 std::string environment(const char* name, const char* fallback)
 {
@@ -224,6 +319,7 @@ int main(int argc, char** argv)
 
     WKRunLoopInitializeMain();
     say("WEBKIT:W4:UP");
+    reportFonts();
 
     state.stage = "context";
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();

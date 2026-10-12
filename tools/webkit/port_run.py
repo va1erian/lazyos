@@ -37,6 +37,7 @@ import portjudge  # noqa: E402
 
 BIN = ROOT / "target" / "webkit" / "bin"
 IMAGE = ROOT / "target" / "webkit" / "lazyos-webkit-port.img"
+HOST_RUN = ROOT / "target" / "webkit" / "smoke.host.txt"
 PY = sys.executable
 PROMPT = "/ #"
 #: The program's last line.
@@ -94,7 +95,10 @@ def boot(args: argparse.Namespace, out: Path, command: str) -> tuple[bool, str]:
 
 
 def report(serial: str) -> int:
-    verdicts = portjudge.judge(serial)
+    host = HOST_RUN.read_text(errors="replace") if HOST_RUN.is_file() else None
+    if host is None:
+        print("webkit: no host reference run (target/webkit/smoke.host.txt): the paint is not compared")
+    verdicts = portjudge.judge(serial, host)
     for verdict in verdicts:
         print(f"{'PASS' if verdict.ok else 'FAIL'}  {verdict.name}  {verdict.detail}".rstrip())
     for name in ("WebProcess", "NetworkProcess", "webkit-smoke"):

@@ -105,3 +105,39 @@ def chown_outputs() -> None:
         return
     for path in [wkpins.OUT, *wkpins.OUT.rglob("*")]:
         os.chown(path, int(uid), int(gid))
+
+
+#: Where the programs expect to find each other and their fonts (the image's layout).
+HOST_BIN = Path("/system/bin")
+HOST_FONTS = Path("/system/share/fonts/liberation")
+HOST_FONTS_CONF = Path("/system/etc/fonts/fonts.conf")
+REFERENCE = wkpins.OUT / "smoke.host.txt"
+
+
+def host_reference() -> bool:
+    """Run ``webkit-smoke`` once on the build host and keep what it printed.
+
+    The programs are static musl executables, so a Linux host runs them as they are; the guest
+    must paint the same bitmap (``portjudge`` compares the checksum and the glyphs' ink). Only
+    inside the build container: it lays the image's ``/system`` paths down, which no developer's
+    own machine should get. True when the run passed.
+    """
+    import shutil
+    import subprocess
+    if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
+        wkpins.log("not in the build container: no host reference run")
+        return False
+    for directory in (HOST_BIN, HOST_FONTS, HOST_FONTS_CONF.parent):
+        directory.mkdir(parents=True, exist_ok=True)
+    for name in OUTPUTS:
+        shutil.copy2(wkpins.BIN / name, HOST_BIN / name)
+        (HOST_BIN / name).chmod(0o755)
+    for font in (wkpins.ROOT / "assets" / "fonts" / "liberation").glob("*.ttf"):
+        shutil.copy2(font, HOST_FONTS / font.name)
+    shutil.copy2(PORT_DIR / "fonts.conf", HOST_FONTS_CONF)
+    shutil.rmtree("/tmp/fontconfig", ignore_errors=True)
+    done = subprocess.run([str(HOST_BIN / "webkit-smoke")], capture_output=True, text=True, timeout=300)
+    REFERENCE.write_text(done.stdout)
+    ok = done.returncode == 0 and "WEBKIT:W4:PASS" in done.stdout
+    wkpins.log("host reference run " + ("passed" if ok else "FAILED:\n" + done.stdout[-1500:] + done.stderr[-500:]))
+    return ok
