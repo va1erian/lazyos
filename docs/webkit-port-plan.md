@@ -15,7 +15,7 @@ tools/jsc/build.py` then `python tools/jsc/run.py`):
 |---|---|
 | C++ proof `cxxproof` | 30.8 MiB static-PIE (about 30 MiB of it ICU's data): libc++, 8 threads, exceptions, RTTI, TLS destructors, `std::filesystem`, `ucnv`/`uloc`/`Normalizer2`/`BreakIterator`; prints `JSC:W1:PASS` on LazyOS at the first run |
 | `jsc` | WebKitGTK 2.54.1 `JSCOnly`, C-loop, ICU 74.2: **44.5 MiB** stripped, **no source patches** (flags only, see the README) |
-| Build | __BUILD__ |
+| Build | clean, from nothing but the pinned Docker image: **4 min 20 s** on a 20-core host (downloads, ICU twice, 2098 WebKit objects, `jsc` link; zig cache cold), an identical 44.5 MiB result the second time |
 | `jsc -e 'print(1+1)'` on LazyOS | 170 to 230 ms from `exec` to exit under WHPX (a 45 MB ELF read whole from ext2, ICU initialised, concurrent GC threads started) |
 | 1.5 M allocations, 4 concurrent marker threads, `gc()`/`edenGC()` | 1.2 s under WHPX, correct result |
 | Classes, private fields, Promises, async generators, `Intl.NumberFormat`, `toUpperCase` | `JSC:RUN:PASS:promise` |
