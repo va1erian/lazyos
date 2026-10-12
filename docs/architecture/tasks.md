@@ -17,13 +17,25 @@ ISR that performs context switches.
 
 **Task table** (`task/mod.rs`)
 
-- `MAX_TASKS = 256` (64 until the application package system, 16 until issue
-  #204). Slot bitmasks (`PENDING_RECLAIM`, the device `EXITED` mask) are
+- `MAX_TASKS = 1024` (256 until issue #774, 64 until the application package
+  system, 16 until issue #204) is the table's capacity; `limit.task_max`
+  (RAM in MiB, 256..1024) is how many slots a machine uses. Slot bitmasks (`PENDING_RECLAIM`, the device `EXITED` mask) are
   `task::slotmask::SlotMask`es, and per-slot snapshots (`stats_snapshot`,
   `sysinfo`, `ipc::stats`) live on the heap, because a kernel stack is 48 KiB;
   slot 0 is the kernel task (`KERNEL_TASK`, the mux), 1.. are
-  user programs/threads, each with a 48 KiB kernel stack (`KSTACKS`; 32 KiB
-  until USB storage, whose I/O parks the writer deep inside ext2).
+  user programs/threads, each with a 48 KiB kernel stack taken from the heap
+  when the slot is claimed and freed with the task (`task/kstack.rs`; a static
+  `KSTACKS` array until #774; 32 KiB until USB storage, whose I/O parks the
+  writer deep inside ext2). A stack is refused while the heap would drop below
+  its reserve (4 MiB or `heap_max / 16`), so a flood of `clone`s ends in
+  `ENOMEM`, not in an exhausted heap. `kstack_headroom` and the fault
+  reporter's high-water marks (`diag::kstack_high_water`, the lowest non-zero
+  word of a zeroed stack) are how depth is observed. There is no guard page:
+  a static-array stack that overflowed corrupted the neighbouring slot's
+  stack, and a heap stack that overflows now corrupts whatever heap object
+  sits below it, which is harder to diagnose. A guard page would need
+  page-granular stacks allocated from frames rather than from the heap (a
+  follow-up).
 - `Kind`: `Native` (`int 0x80`) or `Linux` (`syscall`/`sysret`). `TaskState`:
   `Runnable`, `Blocked { wait: WaitKind, deadline: Option<u64> }`, `Done` (kept
   until reaped). `WakeReason`: `Woken`, `TimedOut`, `Interrupted`. The

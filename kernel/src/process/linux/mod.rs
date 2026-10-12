@@ -49,7 +49,9 @@ mod jobctl;
 mod links;
 mod locks;
 mod mem;
+mod memfd;
 mod misc;
+mod mmapfile;
 mod msgio;
 mod names;
 pub(crate) mod native;
@@ -101,6 +103,7 @@ pub fn proc_file_for_test(path: &str) -> Option<alloc::vec::Vec<u8>> {
     procfs::contents(path)
 }
 mod scatter;
+mod scm;
 mod sendfile;
 mod sig;
 pub(crate) mod slow;
@@ -237,7 +240,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         6 => stat::sys_stat_path(a1, a2), // lstat(path, buf)
         7 => io::sys_poll(a1, a2, a3),    // poll
         8 => fd::sys_lseek(a1, a2, a3),   // lseek
-        9 => mem::sys_mmap(a1, a2, a3, a4),
+        9 => mem::sys_mmap(a1, a2, a3, a4, a5, a6),
         10 => mem::sys_mprotect(a1, a2, a3),
         11 => mem::sys_munmap(a1, a2),
         12 => mem::sys_brk(a1),
@@ -306,6 +309,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         112 => procctl::sys_setsid(),                   // setsid
         121 => procctl::sys_getpgid(a1),                // getpgid
         124 => procctl::sys_getsid(a1),                 // getsid
+        127 => sig::sys_rt_sigpending(a1, a2),          // rt_sigpending(set, size)
         130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
         132 => attr::sys_utime(a1, a2),      // utime(path, times)
@@ -351,6 +355,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         296 => iov::sys_pwritev(a1, a2, a3, a4),  // pwritev(fd, iov, cnt, offset)
         306 => filesys::sys_syncfs(a1),           // syncfs(fd)
         318 => time::sys_getrandom(a1, a2),
+        319 => memfd::sys_memfd_create(a1, a2), // memfd_create(name, flags)
         327 => iov::sys_preadv2(a1, a2, a3, a4, a6), // preadv2(fd, iov, cnt, offset, flags)
         328 => iov::sys_pwritev2(a1, a2, a3, a4, a6), // pwritev2
         332 => statx::sys_statx(a1, a2, a3, a4, a5), // statx(dirfd, path, flags, mask, buf)

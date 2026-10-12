@@ -80,6 +80,16 @@ unsafe fn cow_clone_level(src_phys: u64, level: u8) -> Option<u64> {
             if entry & (pte::MMIO | pte::DMA) != 0 {
                 continue;
             }
+            // A shared mapping stays shared: the child maps the same frame
+            // with the same protection, one more reference, no COW.
+            if entry & pte::SHARED != 0 {
+                if !share_frame(PhysAddr::new(entry & PTE_ADDR)) {
+                    free_table(new_phys.as_u64(), level);
+                    return None;
+                }
+                *dst.add(i) = entry;
+                continue;
+            }
             // Share the frame read-only and mark it copy-on-write in both.
             if !share_frame(PhysAddr::new(entry & PTE_ADDR)) {
                 free_table(new_phys.as_u64(), level);

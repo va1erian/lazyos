@@ -193,6 +193,8 @@ pub(super) fn sys_epoll_wait(epfd: u64, events: u64, maxevents: u64, timeout: u6
         match task::wait_poll_ns(deadline) {
             WakeReason::Woken => {}
             WakeReason::TimedOut => return 0,
+            // Woken for a signal a sibling thread took: wait on.
+            WakeReason::Interrupted if !task::signal::wait_interrupted(task::current()) => {}
             WakeReason::Interrupted => return err(EINTR),
         }
     }

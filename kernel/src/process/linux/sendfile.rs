@@ -3,7 +3,7 @@
 use crate::ipc::pipe;
 use crate::task::{self, FdKind};
 
-use super::errno::{err, EAGAIN, EBADF, EINTR, EINVAL, EMSGSIZE, EPIPE};
+use super::errno::{err, EAGAIN, EBADF, EINTR, EINVAL, EMSGSIZE, EPIPE, ETOOMANYREFS};
 use super::io::STREAM_CHUNK;
 use super::iov::{add_iov_total, partial_or};
 
@@ -101,6 +101,7 @@ fn stream_error(error: pipe::Error) -> u64 {
         pipe::Error::BrokenPipe => err(EPIPE),
         pipe::Error::Interrupted => err(EINTR),
         pipe::Error::MessageTooLong => err(EMSGSIZE),
+        pipe::Error::TooManyRefs => err(ETOOMANYREFS),
         pipe::Error::Invalid => err(EINVAL),
         pipe::Error::BadEnd => err(EBADF),
     }

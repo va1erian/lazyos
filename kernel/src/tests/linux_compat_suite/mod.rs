@@ -9,29 +9,41 @@ use super::*;
 
 mod ctty;
 mod etcmap;
+mod execmem;
+mod execmem_regions;
+mod execmem_soak;
 mod fdshare;
 mod files;
 mod futex;
 mod locks;
+mod memfd;
 mod msg;
 mod ptyflow;
 mod readthrough;
 mod resources;
+mod scmrights;
 mod select;
 mod termios;
+mod threadsig;
 mod wait;
 
 use ctty::*;
 use etcmap::*;
+use execmem::*;
+use execmem_regions::*;
+use execmem_soak::*;
 use fdshare::*;
 use files::*;
 use futex::*;
 use locks::*;
+use memfd::*;
 use msg::*;
 use ptyflow::*;
 use resources::*;
+use scmrights::*;
 use select::*;
 use termios::*;
+use threadsig::*;
 use wait::*;
 
 /// `-errno` as the dispatcher returns it.
@@ -169,6 +181,66 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
     ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
+    ("compat_scmrights_round_trip", scmrights_round_trip),
+    ("compat_scmrights_cloexec", scmrights_cloexec),
+    ("compat_scmrights_ctrunc", scmrights_ctrunc),
+    ("compat_scmrights_refusals", scmrights_refusals),
+    (
+        "compat_scmrights_dropped_message_closes",
+        scmrights_dropped_message_closes,
+    ),
+    (
+        "compat_scmrights_receiver_exit_releases",
+        scmrights_receiver_exit_releases,
+    ),
+    ("compat_scmrights_peek", scmrights_peek),
+    (
+        "compat_scmrights_stream_boundaries",
+        scmrights_stream_boundaries,
+    ),
+    ("compat_scmrights_seqpacket", scmrights_seqpacket),
+    (
+        "compat_scmrights_read_stops_before_rights",
+        scmrights_read_stops_before_rights,
+    ),
+    (
+        "compat_scmrights_empty_message_with_rights",
+        scmrights_empty_message_with_rights,
+    ),
+    (
+        "compat_scmrights_in_flight_limits",
+        scmrights_in_flight_limits,
+    ),
+    ("compat_scmrights_cycles_refused", scmrights_cycles_refused),
+    (
+        "compat_scmrights_blocked_send_revalidates",
+        scmrights_blocked_send_revalidates,
+    ),
+    ("compat_scmrights_soak", scmrights_soak),
+    ("compat_memfd_file_operations", memfd_file_operations),
+    (
+        "compat_memfd_shared_between_spaces",
+        memfd_shared_between_spaces,
+    ),
+    (
+        "compat_memfd_shared_survives_fork",
+        memfd_shared_survives_fork,
+    ),
+    (
+        "compat_memfd_private_mapping_copies_on_write",
+        memfd_private_mapping_copies_on_write,
+    ),
+    ("compat_memfd_mmap_refusals", memfd_mmap_refusals),
+    (
+        "compat_memfd_mprotect_mremap_madvise",
+        memfd_mprotect_mremap_madvise,
+    ),
+    ("compat_memfd_accounting", memfd_accounting),
+    (
+        "compat_memfd_sparse_costs_no_heap",
+        memfd_sparse_costs_no_heap,
+    ),
+    ("compat_memfd_soak", memfd_soak),
     ("compat_select_and_ppoll", select_and_ppoll),
     ("compat_select_timeout_and_ebadf", select_timeout_and_ebadf),
     ("compat_select_soak", select_soak),
@@ -212,11 +284,70 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_terminal_signal_soak", terminal_signal_soak),
     (
+        "compat_threadsig_masks_belong_to_threads",
+        threadsig_masks_belong_to_threads,
+    ),
+    (
+        "compat_threadsig_tgkill_targets_one_thread",
+        threadsig_tgkill_targets_one_thread,
+    ),
+    (
+        "compat_threadsig_kill_lands_on_unblocked_thread",
+        threadsig_kill_lands_on_unblocked_thread,
+    ),
+    (
+        "compat_threadsig_wakes_only_the_target",
+        threadsig_wakes_only_the_target,
+    ),
+    (
+        "compat_threadsig_sigpending_is_the_union",
+        threadsig_sigpending_is_the_union,
+    ),
+    (
+        "compat_threadsig_fault_uses_the_faulting_threads_mask",
+        threadsig_fault_uses_the_faulting_threads_mask,
+    ),
+    (
+        "compat_threadsig_fatal_default_ends_the_group",
+        threadsig_fatal_default_ends_the_group,
+    ),
+    (
+        "compat_threadsig_recycled_slot_starts_clean",
+        threadsig_recycled_slot_starts_clean,
+    ),
+    (
+        "compat_threadsig_sibling_takes_the_signal_without_interrupting",
+        threadsig_sibling_takes_the_signal_without_interrupting,
+    ),
+    ("compat_threadsig_soak", threadsig_soak),
+    (
         "compat_ramfs_opens_read_through",
         readthrough::ramfs_opens_read_through,
     ),
     (
         "compat_ramfs_open_soak_copies_nothing",
         readthrough::ramfs_open_soak_copies_nothing,
+    ),
+    ("execmem_wx_cycle", execmem_wx_cycle),
+    ("execmem_rwx_page", execmem_rwx_page),
+    ("execmem_prot_bits_map_to_pte", execmem_prot_bits_map_to_pte),
+    (
+        "execmem_access_faults_are_accerr",
+        execmem_access_faults_are_accerr,
+    ),
+    ("execmem_sigsegv_siginfo_code", execmem_sigsegv_siginfo_code),
+    ("execmem_mprotect_splits_vmas", execmem_mprotect_splits_vmas),
+    ("execmem_mremap_keeps_exec", execmem_mremap_keeps_exec),
+    (
+        "execmem_stack_and_heap_are_nx",
+        execmem_stack_and_heap_are_nx,
+    ),
+    (
+        "execmem_fork_inherits_rx_and_cows_on_write",
+        execmem_fork_inherits_rx_and_cows_on_write,
+    ),
+    (
+        "execmem_soak_wx_flips_with_second_thread",
+        execmem_soak_wx_flips_with_second_thread,
     ),
 ];

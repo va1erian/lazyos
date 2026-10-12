@@ -28,10 +28,22 @@ import re
 import shutil
 import subprocess
 import sys
+import importlib.util
 import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def limit_env(entries):
+    """`lazygui.limits.limit_env`, loaded from its file: importing the
+    package would import its Tkinter window, which a CI Python lacks."""
+    path = ROOT / "tools" / "lazygui" / "limits.py"
+    spec = importlib.util.spec_from_file_location("lazygui_limits", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.limit_env(entries)
+
 FIXTURE_DIR = ROOT / "target" / "abi" / "fixtures"
 # One image per row, copied out of `target/lazyos.img` after its build, so the
 # boots can run side by side while the next row's image is built.
@@ -50,11 +62,15 @@ ORDER = [
     "syncstress",
     "fsstress",
     "memstress",
+    "bigapp",
+    "jitmem",
     "procstress",
     "sigstress",
+    "threadsig",
     "epollstress",
     "msgpoll",
     "unixstress",
+    "scmrights",
     "persist",
     "statxio",
     "cwd",
@@ -178,8 +194,10 @@ def capture(
 
 def classify(name: str, serial: str, ok: str = "PASS") -> tuple[str, str]:
     """Classify one boot; `ok` is the marker that counts as success."""
-    if re.search(rf"ABI:{re.escape(name)}:{ok}", serial):
-        return "pass", ""
+    # A row may report numbers before the marker: `ABI:bigapp:threads=9:PASS`.
+    found = re.search(rf"ABI:{re.escape(name)}:((?:\w+=[^:\s]*:)*){ok}", serial)
+    if found:
+        return "pass", found.group(1).rstrip(":").replace(":", " ")
     match = re.search(rf"ABI:{re.escape(name)}:FAIL:(.*)", serial)
     if match:
         return "fail", match.group(1).strip()[:120]
@@ -350,12 +368,19 @@ def main() -> int:
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
     parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
+    parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
+                        help="kernel limit for the images (limit.<key> in lazyos.cfg, "
+                             "docs/architecture/limits.md); repeatable")
     parser.add_argument("--jobs", type=int, default=1,
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
     args = parser.parse_args()
     global GUEST_MEMORY
     GUEST_MEMORY = args.memory
+    try:
+        os.environ.update(limit_env(args.limit))
+    except ValueError as error:
+        parser.error(str(error))
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 

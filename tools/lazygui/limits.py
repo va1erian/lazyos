@@ -9,7 +9,23 @@ from __future__ import annotations
 
 #: The kernel limits `lazyos.cfg` can set; `KEY=VALUE` becomes `LAZYOS_LIMIT_<KEY>`.
 LIMIT_KEYS = ("heap_max", "fd_max", "stack_size", "quota_user_memory",
-              "quota_kernel_memory", "shared_buffer_max", "scratch_max")
+              "quota_kernel_memory", "shared_buffer_max", "scratch_max", "task_max")
+
+
+#: The "big app" profile (docs/architecture/limits.md): room for one
+#: browser-class program (dozens of threads, a few hundred MB, thousands of
+#: descriptors). `--big-app` fills in what the user did not choose.
+BIG_APP_MEMORY = "4G"
+BIG_APP_LIMITS = ("quota_user_memory=3G", "fd_max=8192", "task_max=1024")
+
+
+def big_app(memory: str, default_memory: str, entries: list[str]) -> tuple[str, list[str]]:
+    """``(memory, limits)`` for ``--big-app``: guest RAM unless one was chosen
+    (``memory`` differs from ``default_memory``), and each of
+    :data:`BIG_APP_LIMITS` unless ``entries`` already sets that key."""
+    chosen = {entry.partition("=")[0].strip().lower() for entry in entries}
+    extra = [entry for entry in BIG_APP_LIMITS if entry.partition("=")[0] not in chosen]
+    return (BIG_APP_MEMORY if memory == default_memory else memory), [*entries, *extra]
 
 
 def limit_env(entries) -> dict[str, str]:

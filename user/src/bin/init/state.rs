@@ -33,8 +33,8 @@ pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// `launch` until the table is full and supervised restarts and new logins
 /// starve. The application package system raised both to 256 so a session can
 /// hold many installed apps; the boot services and other sessions share the
-/// same 256 slots, so the kernel table, not this cap, is what runs out first
-/// when several sessions are busy. A row still reserves its slot
+/// same task table (`limit.task_max`), so the kernel table, not this cap, is
+/// what runs out first when several sessions are busy. A row still reserves its slot
 /// while `Restarting`: [`spawn_service`] respawns it from the main loop's
 /// backoff sweep, not through [`launch`], so a crashed row that stopped
 /// counting here could let a session accumulate more rows than the cap once

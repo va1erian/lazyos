@@ -9,7 +9,9 @@ use crate::ipc::pipe;
 use crate::task::{self, FdKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
+use super::errno::{
+    err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE, ETOOMANYREFS,
+};
 use super::filerw::{read_file_bytes, write_file};
 use super::scatter::{Received, Scatter};
 use super::time::millis_deadline;
@@ -120,6 +122,7 @@ pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::File => write_file(fd, ptr, len, None),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::write(file, ptr, len)),
         FdKind::EventFd => write_eventfd(fd, ptr, len),
+        FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::write(mem, ptr, len)),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
         // Readiness only: messages are taken with the Messenger `recv`.
@@ -161,10 +164,31 @@ pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
 
 /// [`write_stream`] that never blocks when `dont_wait` (`MSG_DONTWAIT`).
 pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) -> u64 {
+    write_stream_rights(fd, ptr, len, dont_wait, &mut None)
+}
+
+/// [`write_stream_opts`] that queues `rights` (`SCM_RIGHTS`) beside the bytes
+/// it stores; they stay in `rights` when nothing was stored.
+pub(super) fn write_stream_rights(
+    fd: u64,
+    ptr: u64,
+    len: u64,
+    dont_wait: bool,
+    rights: &mut Option<pipe::Rights>,
+) -> u64 {
+    let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
     if len == 0 {
-        return 0;
+        // No bytes: nothing is sent, unless descriptors make an empty
+        // seqpacket datagram of it (a stream drops them, as Linux does).
+        if !(seqpacket && rights.is_some()) {
+            return 0;
+        }
+        return match task::fd_stream_send_rights(fd as usize, &[], dont_wait, rights) {
+            Ok(n) => n as u64,
+            Err(error) => pipe_error(error),
+        };
     }
-    if task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize) {
+    if seqpacket {
         if len > pipe::CAPACITY as u64 {
             return err(EMSGSIZE);
         }
@@ -178,12 +202,13 @@ pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) ->
             Ok(bytes) => buf.copy_from_slice(bytes),
             Err(_) => return err(EFAULT),
         }
-        return match task::fd_stream_send(fd as usize, &buf, dont_wait) {
+        return match task::fd_stream_send_rights(fd as usize, &buf, dont_wait, rights) {
             Ok(n) => n as u64,
             Err(pipe::Error::WouldBlock) => err(EAGAIN),
             Err(pipe::Error::BrokenPipe) => err(EPIPE),
             Err(pipe::Error::Interrupted) => err(EINTR),
             Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
+            Err(pipe::Error::TooManyRefs) => err(ETOOMANYREFS),
             Err(pipe::Error::Invalid) => err(EINVAL),
             Err(pipe::Error::BadEnd) => err(EBADF),
         };
@@ -197,7 +222,7 @@ pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) ->
         Ok(bytes) => buf.copy_from_slice(bytes),
         Err(_) => return err(EFAULT),
     }
-    match task::fd_stream_send(fd as usize, buf, dont_wait) {
+    match task::fd_stream_send_rights(fd as usize, buf, dont_wait, rights) {
         Ok(n) => n as u64,
         Err(error) => pipe_error(error),
     }
@@ -210,6 +235,7 @@ pub(super) fn pipe_error(error: pipe::Error) -> u64 {
         pipe::Error::BrokenPipe => err(EPIPE),
         pipe::Error::Interrupted => err(EINTR),
         pipe::Error::MessageTooLong => err(EMSGSIZE),
+        pipe::Error::TooManyRefs => err(ETOOMANYREFS),
         pipe::Error::Invalid => err(EINVAL),
         pipe::Error::BadEnd => err(EBADF),
     }
@@ -228,7 +254,9 @@ fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::Interrupted) => err(EINTR),
         Err(pipe::Error::Invalid) => err(EINVAL),
         Err(pipe::Error::BadEnd) => err(EBADF),
-        Err(pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => err(EINVAL),
+        Err(pipe::Error::BrokenPipe | pipe::Error::MessageTooLong | pipe::Error::TooManyRefs) => {
+            err(EINVAL)
+        }
     }
 }
 
@@ -241,6 +269,7 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::Inet => super::inet::sys_read(fd, ptr, len),
         FdKind::EventFd => read_eventfd(fd, ptr, len),
+        FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::read(mem, ptr, len)),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
         // Readiness only: messages are taken with the Messenger `recv`.
@@ -270,6 +299,17 @@ pub(super) fn read_stream_opts(fd: u64, ptr: u64, len: u64, opts: task::RecvOpts
 
 /// [`read_stream_opts`] into any destination, reporting a truncated message.
 pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Received {
+    recv_stream_rights(fd, dest, opts, None)
+}
+
+/// [`recv_stream`] that gives the descriptors sent beside the bytes
+/// (`SCM_RIGHTS`) to `sink`; with none they are closed.
+pub(super) fn recv_stream_rights(
+    fd: u64,
+    dest: &Scatter,
+    opts: task::RecvOpts,
+    sink: Option<&mut Vec<crate::task::Fd>>,
+) -> Received {
     let len = dest.len();
     let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
     // A stream has nothing to give an empty buffer; a message socket still
@@ -287,12 +327,13 @@ pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Rece
     let Some(buf) = stage(&mut stack, &mut heap, want) else {
         return Received::of(err(ENOMEM));
     };
-    let n = match task::fd_stream_recv(fd as usize, buf, opts) {
+    let n = match task::fd_stream_recv_rights(fd as usize, buf, opts, sink) {
         Ok(n) => n,
         Err(pipe::Error::WouldBlock) => return Received::of(err(EAGAIN)),
         Err(pipe::Error::BrokenPipe) => return Received::of(err(EPIPE)),
         Err(pipe::Error::Interrupted) => return Received::of(err(EINTR)),
         Err(pipe::Error::MessageTooLong) => return Received::of(err(EMSGSIZE)),
+        Err(pipe::Error::TooManyRefs) => return Received::of(err(EINVAL)),
         Err(pipe::Error::Invalid) => return Received::of(err(EINVAL)),
         Err(pipe::Error::BadEnd) => return Received::of(err(EBADF)),
     };
@@ -322,8 +363,11 @@ fn read_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::WouldBlock) => err(EAGAIN),
         Err(pipe::Error::Interrupted) => err(EINTR),
         Err(pipe::Error::BadEnd) => err(EBADF),
-        Err(pipe::Error::Invalid | pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => {
-            err(EINVAL)
-        }
+        Err(
+            pipe::Error::Invalid
+            | pipe::Error::BrokenPipe
+            | pipe::Error::MessageTooLong
+            | pipe::Error::TooManyRefs,
+        ) => err(EINVAL),
     }
 }

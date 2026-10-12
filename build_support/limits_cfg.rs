@@ -7,7 +7,7 @@
 //! here instead of being ignored with a log line at boot.
 
 /// The configurable limits, as the kernel names them (`limits::KEYS`).
-pub const KEYS: [&str; 7] = [
+pub const KEYS: [&str; 8] = [
     "heap_max",
     "fd_max",
     "stack_size",
@@ -15,10 +15,11 @@ pub const KEYS: [&str; 7] = [
     "quota_kernel_memory",
     "shared_buffer_max",
     "scratch_max",
+    "task_max",
 ];
 
 /// Keys whose value is a count rather than a byte size (no `K`/`M`/`G`/`T`).
-const COUNTS: [&str; 1] = ["fd_max"];
+const COUNTS: [&str; 2] = ["fd_max", "task_max"];
 
 /// The environment variable that sets `key`.
 pub fn env_name(key: &str) -> String {

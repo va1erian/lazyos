@@ -5,11 +5,13 @@
 //! bytes stay queued), `MSG_WAITALL` (a stream read waits for the whole
 //! buffer, short only at end-of-file, a signal or an error), and
 //! `MSG_NOSIGNAL` (no `SIGPIPE` is ever raised here, so it changes nothing).
-//! `MSG_MORE`, `MSG_EOR` and `MSG_CMSG_CLOEXEC` have no effect on these
-//! sockets and are accepted; `MSG_OOB` and any unknown flag are refused with
-//! `EOPNOTSUPP`/`EINVAL` rather than ignored. Ancillary data (`SCM_RIGHTS`
-//! descriptor passing, credentials) is not supported: a `sendmsg` with control
-//! data is `EOPNOTSUPP`, and `recvmsg` always reports none.
+//! `MSG_MORE` and `MSG_EOR` have no effect on these sockets and are accepted;
+//! `MSG_OOB` and any unknown flag are refused with `EOPNOTSUPP`/`EINVAL`
+//! rather than ignored. Ancillary data is `SCM_RIGHTS` descriptor passing on
+//! `AF_UNIX` sockets only ([`super::scm`]): `sendmsg` takes the descriptors
+//! with the message, `recvmsg` installs them in the receiver
+//! (`MSG_CMSG_CLOEXEC` marks them close-on-exec, `MSG_CTRUNC` reports ones that
+//! did not fit). Credentials and every other control message are refused.
 
 use alloc::vec::Vec;
 
@@ -17,6 +19,8 @@ use crate::task::{self, RecvOpts};
 use crate::user_ptr;
 
 use super::scatter::{Received, Scatter};
+use super::scm;
+use crate::task::Fd;
 
 use super::errno::{err, EFAULT, EINVAL, EMSGSIZE, EOPNOTSUPP};
 
@@ -77,21 +81,38 @@ pub(super) fn sys_recvfrom(fd: u64, buf: u64, len: u64, flags: u64, addr: u64, a
         Ok(decoded) => decoded,
         Err(code) => return code,
     };
-    receive(fd, &Scatter::one(buf, len), (addr, alen), opts, wait_all).result
+    let mut closed = Vec::new();
+    receive(
+        fd,
+        &Scatter::one(buf, len),
+        (addr, alen),
+        opts,
+        wait_all,
+        &mut closed,
+    )
+    .result
 }
 
 /// One receive into `dest`. A message socket always reads exactly one
 /// message. `MSG_WAITALL` on a stream keeps reading until `dest` is full; a
 /// partial count is returned when a later read ends (EOF, signal, error), as
 /// Linux does.
-fn receive(fd: u64, dest: &Scatter, from: (u64, u64), opts: RecvOpts, wait_all: bool) -> Received {
+fn receive(
+    fd: u64,
+    dest: &Scatter,
+    from: (u64, u64),
+    opts: RecvOpts,
+    wait_all: bool,
+    rights: &mut Vec<Fd>,
+) -> Received {
     if !wait_all || is_message_socket(fd) {
-        return super::socket::recv_into(fd, dest, from, opts);
+        return super::socket::recv_into(fd, dest, from, opts, Some(rights));
     }
     let len = dest.len();
     let mut got = 0u64;
     while got < len {
-        let n = super::socket::recv_into(fd, &dest.after(got), from, opts).result;
+        let n =
+            super::socket::recv_into(fd, &dest.after(got), from, opts, Some(&mut *rights)).result;
         if (n as i64) <= 0 {
             return Received::of(if got > 0 { got } else { n });
         }
@@ -158,25 +179,33 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
         Ok(header) => header,
         Err(code) => return code,
     };
-    if header.control != 0 && header.controllen != 0 {
-        return err(EOPNOTSUPP);
-    }
+    let mut rights = if header.control != 0 && header.controllen != 0 {
+        match scm::parse_send(header.control, header.controllen) {
+            Ok(rights) => rights,
+            Err(code) => return code,
+        }
+    } else {
+        None
+    };
     let iov = match read_iov(header.iov, header.iovlen) {
         Ok(iov) => iov,
         Err(code) => return code,
     };
     let parts: Vec<(u64, u64)> = segments(iov).collect();
     let to = (header.name, header.namelen);
+    // Descriptors ride with the first bytes stored; with none, they are closed
+    // when `rights` drops (a message with no data carries nothing).
+    let send = super::socket::sys_sendto_rights;
     if is_message_socket(fd) {
         return match parts.as_slice() {
-            [] => super::socket::sys_sendto(fd, 0, 0, to, dont_wait),
-            [(base, len)] => super::socket::sys_sendto(fd, *base, *len, to, dont_wait),
+            [] => send(fd, 0, 0, to, (dont_wait, &mut rights)),
+            [(base, len)] => send(fd, *base, *len, to, (dont_wait, &mut rights)),
             _ => err(EOPNOTSUPP),
         };
     }
     let mut sent = 0u64;
     for (base, len) in parts {
-        let n = super::socket::sys_sendto(fd, base, len, to, dont_wait);
+        let n = send(fd, base, len, to, (dont_wait, &mut rights));
         if (n as i64) < 0 {
             return if sent > 0 { sent } else { n };
         }
@@ -196,8 +225,10 @@ fn is_message_socket(fd: u64) -> bool {
 /// `recvmsg(fd, msg, flags)`: one receive scattered across every segment in
 /// order (a message socket reads one message against their combined
 /// capacity; `MSG_TRUNC` in `msg_flags` only when that message was longer).
-/// The source address is written for datagram sockets that have one; the
-/// control length comes back zero.
+/// The source address is written for datagram sockets that have one. The
+/// descriptors sent with the message are installed and described by one
+/// `SCM_RIGHTS` control message ([`super::scm::deliver`]); with no control
+/// buffer they are closed and `MSG_CTRUNC` is set.
 pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     const MSG_TRUNC: i32 = 0x20;
     let (opts, wait_all) = match recv_flags(flags) {
@@ -218,13 +249,20 @@ pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     } else {
         (0, 0)
     };
-    let got = receive(fd, &dest, from, opts, wait_all);
+    let mut rights = Vec::new();
+    let got = receive(fd, &dest, from, opts, wait_all, &mut rights);
     let n = got.result;
     if (n as i64) < 0 {
         return n;
     }
-    let msg_flags = if got.truncated { MSG_TRUNC } else { 0 };
-    if user_ptr::try_write::<u64>(msg + 40, 0).is_err()
+    let cloexec = flags & MSG_CMSG_CLOEXEC != 0;
+    let control = (header.control, header.controllen);
+    let delivered = match scm::deliver(rights, control, cloexec) {
+        Ok(delivered) => delivered,
+        Err(code) => return code,
+    };
+    let msg_flags = delivered.flags | if got.truncated { MSG_TRUNC } else { 0 };
+    if user_ptr::try_write::<u64>(msg + 40, delivered.used).is_err()
         || user_ptr::try_write::<i32>(msg + 48, msg_flags).is_err()
     {
         return err(EFAULT);

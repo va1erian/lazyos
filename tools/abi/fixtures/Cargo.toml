@@ -44,13 +44,30 @@ path = "src/fsstress.rs"
 name = "memstress"
 path = "src/memstress.rs"
 
+# JIT-style executable memory: W^X flips, access errors, fork, threads (issue #773).
+[[bin]]
+name = "jitmem"
+path = "src/jitmem.rs"
+
 [[bin]]
 name = "procstress"
 path = "src/procstress.rs"
 
+# The ceilings one browser-class program hits: threads, memory, descriptors,
+# alone and in four forked children (issue #774, docs/architecture/limits.md).
+[[bin]]
+name = "bigapp"
+path = "src/bigapp.rs"
+
 [[bin]]
 name = "sigstress"
 path = "src/sigstress.rs"
+
+# Per-thread signal masks and thread-directed signals: the JavaScriptCore
+# stop-the-world pattern (issue #772).
+[[bin]]
+name = "threadsig"
+path = "src/threadsig.rs"
 
 [[bin]]
 name = "epollstress"
@@ -64,6 +81,11 @@ path = "src/msgpoll.rs"
 [[bin]]
 name = "unixstress"
 path = "src/unixstress.rs"
+
+# SCM_RIGHTS, memfd_create and MAP_SHARED between processes (issue #771).
+[[bin]]
+name = "scmrights"
+path = "src/scmrights.rs"
 
 [[bin]]
 name = "persist"

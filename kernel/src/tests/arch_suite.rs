@@ -54,11 +54,26 @@ pub fn sysret_selectors_rpl3() -> Result<(), String> {
 /// the release desktop while debug builds hid it; and the padding slot that
 /// fixed it is also `a6`'s slot, which must be written, not left stale.
 pub fn syscall_entry_call_alignment() -> Result<(), String> {
+    // Kernel stacks belong to live tasks: probe on a few real ones.
+    crate::task::register_kernel();
+    crate::task::harness::reset();
+    crate::task::harness::switch_current(crate::task::KERNEL_TASK);
+    let mut slots = Vec::new();
+    for _ in 0..4 {
+        slots.push(crate::task::spawn_fork().map_err(|error| format!("fork: {error}"))?);
+    }
+    let outcome = syscall_entry_alignment_on(&slots);
+    crate::task::harness::reset();
+    outcome
+}
+
+fn syscall_entry_alignment_on(slots: &[usize]) -> Result<(), String> {
     use crate::arch::linux::{probe_entry, ENTRY_CALL_PAD, ENTRY_PUSHED_QWORDS};
     const GETPID: u64 = 39;
     const R9_MARK: u64 = 0x5eed_c0de_1234_5678;
-    for slot in [0, 1, crate::task::MAX_TASKS - 1] {
+    for &slot in slots {
         let top = crate::task::kstack_top(slot);
+        check!(top != 0, "slot {slot} has no kernel stack");
         check!(
             top % 16 == 0,
             "kernel stack top of slot {slot} ({top:#x}) is not 16-aligned"

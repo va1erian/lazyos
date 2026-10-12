@@ -38,6 +38,7 @@ pub(super) const ENOTCONN: u64 = 107;
 // Filesystem errnos (mapped from `FsError` by `fs_err`).
 pub(super) const EACCES: u64 = 13;
 pub(super) const EEXIST: u64 = 17;
+pub(super) const EFBIG: u64 = 27;
 pub(super) const EOVERFLOW: u64 = 75;
 pub(super) const ELOOP: u64 = 40;
 pub(super) const ENOTDIR: u64 = 20;
@@ -47,6 +48,7 @@ pub(super) const EROFS: u64 = 30;
 pub(super) const ENAMETOOLONG: u64 = 36;
 pub(super) const ENOTEMPTY: u64 = 39;
 pub(super) const EOPNOTSUPP: u64 = 95;
+pub(super) const ETOOMANYREFS: u64 = 109;
 
 pub(super) fn err(e: u64) -> u64 {
     (e as i64).wrapping_neg() as u64

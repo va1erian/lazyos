@@ -3,6 +3,7 @@
 use super::*;
 use crate::fs::openfile::OpenFile;
 use crate::ipc::endpointfd::EndpointWatch;
+use crate::mem::memfd::Memfd;
 use crate::tty::pty::Pty;
 
 /// Per-descriptor `FD_CLOEXEC` bit in a [`super::FdTable`] slot's flags.
@@ -51,6 +52,10 @@ pub enum Fd {
     /// A Messenger endpoint watched for readiness (`ipc::endpointfd`, issue
     /// #667): pollable, never readable or writable.
     Endpoint { watch: Arc<EndpointWatch> },
+    /// An anonymous memory file (`memfd_create`): frame-backed, readable,
+    /// writable and mappable `MAP_SHARED`. `dup`/`fork` share the one open
+    /// file description (and its offset).
+    Memfd { mem: Arc<Memfd> },
 }
 
 impl Fd {
@@ -151,6 +156,8 @@ impl Fd {
             Fd::Inet { sock } => sock.poll_gen(events),
             Fd::Pty { pty, master } => pty.poll_gen(*master, events),
             Fd::Endpoint { watch } => watch.poll_gen(events),
+            // A memory file never blocks: ready both ways, as a regular file.
+            Fd::Memfd { .. } => (events & (pipe::POLLIN | pipe::POLLOUT), 0),
         }
     }
 }
@@ -190,6 +197,9 @@ impl Clone for Fd {
             Fd::Endpoint { watch } => Fd::Endpoint {
                 watch: Arc::clone(watch),
             },
+            Fd::Memfd { mem } => Fd::Memfd {
+                mem: Arc::clone(mem),
+            },
         }
     }
 }
@@ -219,6 +229,7 @@ impl Fd {
                 Arc::ptr_eq(a, b) && x == y
             }
             (Fd::Endpoint { watch: a }, Fd::Endpoint { watch: b }) => Arc::ptr_eq(a, b),
+            (Fd::Memfd { mem: a }, Fd::Memfd { mem: b }) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -272,4 +283,6 @@ pub enum FdKind {
     Pty,
     /// A Messenger endpoint watched for readiness.
     Endpoint,
+    /// An anonymous memory file (`memfd_create`).
+    Memfd,
 }

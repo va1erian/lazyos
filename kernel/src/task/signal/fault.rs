@@ -8,7 +8,7 @@
 
 use super::{
     apply_regs_to_frame, arm_handler, bit, current_info, prepare_handler, regs_from_frame,
-    with_signals, Disposition, Kind, SigInfo, FPE_INTDIV, ILL_ILLOPC, SA_SIGINFO, SEGV_ACCERR,
+    with_both, Disposition, Kind, SigInfo, FPE_INTDIV, ILL_ILLOPC, SA_SIGINFO, SEGV_ACCERR,
     SEGV_MAPERR, SIGFPE, SIGILL, SIGSEGV, SI_KERNEL, TASKS,
 };
 
@@ -57,20 +57,37 @@ impl Exception {
     }
 }
 
+/// The `si_code` Linux gives a `SIGSEGV` page fault: `SEGV_ACCERR` when the
+/// address is mapped but the access is not allowed, `SEGV_MAPERR` when
+/// nothing is mapped there.
+///
+/// The CPU's P bit (`PROTECTION_VIOLATION`) says a present page refused the
+/// access: a store to a read-only page, or an instruction fetch from an NX
+/// page, which is how a W^X flip shows up. A not-present fault inside a VMA
+/// (a `PROT_NONE` range, a store to a read-only demand-zero range) is also an
+/// access error; only an address no VMA covers is a map error. The write bit
+/// says nothing about which: a store to an unmapped page is `SEGV_MAPERR`.
+pub fn segv_code(error: u64, in_vma: bool) -> i32 {
+    const PROTECTION_VIOLATION: u64 = 1;
+    if error & PROTECTION_VIOLATION != 0 || in_vma {
+        SEGV_ACCERR
+    } else {
+        SEGV_MAPERR
+    }
+}
+
 /// Deliver `SIGSEGV` for a page fault that COW/demand-zero could not resolve.
 /// Returns true when a handler was entered: the caller resumes the faulting
 /// task at the handler instead of ending it.
 pub fn deliver_fault(frame_rsp: u64, rip_index: usize, fault_addr: u64, error: u64) -> bool {
-    let code = if error & 0b10 != 0 {
-        SEGV_ACCERR
-    } else {
-        SEGV_MAPERR
-    };
+    let in_vma = current_info().is_some_and(|(_, pml4)| {
+        crate::mem::vma::find(x86_64::PhysAddr::new(pml4), fault_addr).is_some()
+    });
     deliver(
         frame_rsp,
         rip_index,
         SIGSEGV,
-        SigInfo::fault(code, fault_addr),
+        SigInfo::fault(segv_code(error, in_vma), fault_addr),
     )
 }
 
@@ -94,14 +111,20 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
     };
     // A synchronous fault cannot wait for an unblock: the instruction would
     // just fault again. Linux force-kills instead, and so do we.
-    let deliverable = with_signals(pml4, |state| {
-        matches!(state.actions[sig as usize], Disposition::Handler { .. })
-            && state.blocked & bit(sig) == 0
+    // The fault belongs to this thread: its mask decides, and the signal
+    // waits in (and is taken from) its own pending set.
+    let deliverable = with_both(pml4, slot, |state, thread| {
+        let deliverable = matches!(state.actions[sig as usize], Disposition::Handler { .. })
+            && thread.blocked & bit(sig) == 0;
+        if deliverable {
+            thread.pending |= bit(sig);
+            thread.infos[sig as usize] = info;
+        }
+        deliverable
     });
     if !deliverable {
         return false;
     }
-    with_signals(pml4, |state| state.infos[sig as usize] = info);
     let Some(armed) = arm_handler(pml4, slot, sig) else {
         return false;
     };

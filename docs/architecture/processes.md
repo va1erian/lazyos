@@ -20,7 +20,7 @@ syscall shim.
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
   the leader. The tree is derived by scanning for `parent == slot` (cheap at
-  `MAX_TASKS = 256`) rather than stored as child lists.
+  `MAX_TASKS = 1024`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts
   `SIGCHLD` and notifies `CHILD_EXIT`.
@@ -188,12 +188,15 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `fchownat`, `utimensat`/`utime`/`utimes`/`futimesat`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
   `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
-  signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`),
+  signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigreturn`,
+  `sigaltstack`; the mask and the alternate stack are per thread, see
+  [wait-signals.md](wait-signals.md)),
   process (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`,
   `tkill`, `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
   `getppid`, `setpgid`, `setsid`, `getpgid`, `getsid`), pipes/sockets (`pipe`,
   `pipe2`, `socketpair`, `socket`/`bind`/`listen`/`accept`/`connect`/`shutdown`/
   `getsockname` for `AF_UNIX` stream and seqpacket, `sendto`/`recvfrom`,
+  `sendmsg`/`recvmsg` with `SCM_RIGHTS`, `memfd_create`,
   `poll`, `epoll_create1`/`epoll_ctl`/`epoll_wait`, `eventfd2`), and time/misc
   (`nanosleep`, `clock_nanosleep`, `clock_gettime`/`clock_getres` (the
   monotonic clocks read `arch::clock::monotonic_ns`: PIT ticks plus the
@@ -309,8 +312,10 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   when the last reader closes (no SIGPIPE; see the module docs). `F_GETFL`/
   `F_SETFL` carry `O_NONBLOCK`, `F_GETFD`/`F_SETFD` carry `FD_CLOEXEC`, and
   `execve` closes marked descriptors while `fork` inherits them.
-- `execve` replaces the image, resets the signal table, and tears down the old
-  PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
+- `execve` replaces the image, resets the dispositions (the process's signal
+  state is keyed by its PML4), keeps the calling thread's blocked mask and
+  pending signals as Linux does but not its alternate stack, and tears down
+  the old PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
   `LAZYOS_INIT`; `/system/bin/busybox` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 - `execve` of a `#!` script (`process/linux/shebang.rs`, issue #491) runs the
@@ -392,15 +397,42 @@ propagation and reaping, `ENOEXEC`/`ENOENT`/`EAGAIN` without leaks, the `&`
 lifecycle, and a 384-cycle spawn/exit soak that checks slots and frames) and the
 `tools/screenshot/examples/native_exec.json` console session in `ci.yml`.
 
-**Status.** Working: BusyBox `sh`, the 14 static musl fixtures in
+**Descriptor passing and shared memory** (issue #771). `sendmsg` with an
+`SCM_RIGHTS` control message (`process/linux/scm.rs`) clones the caller's
+descriptors into a `pipe::Rights` that the direction pipe of the `AF_UNIX`
+socket queues beside the message's bytes (`ipc/pipe/rights.rs`: a `Record`
+per message with its stream positions; `Ring` counts bytes in and out).
+`recvmsg` takes the records whose first byte it consumed and installs the
+descriptors in the receiver's table (`scm::deliver`), `FD_CLOEXEC` with
+`MSG_CMSG_CLOEXEC`, `MSG_CTRUNC` for what does not fit. Descriptors are only
+ever dropped with the ring unlocked, since closing a socket end takes other
+rings' locks; the last reader closing a direction purges its queue
+(`Pipe::release`). In-flight descriptors are charged to the sender's `Fds`
+quota and a global ceiling (`ETOOMANYREFS`).
+
+`memfd_create` makes an `Fd::Memfd` (`task/fdtypes.rs`) over a
+`mem::memfd::Memfd`: a sparse vector of frames, so it is mappable, not a
+`Vec<u8>` on the kernel heap like the scratch ramfs's files. `mmap`
+(`process/linux/mem.rs`, `mmapfile.rs`) maps the frames eagerly with
+`pte::SHARED` for `MAP_SHARED` (VMA `Kind::Shared`, whose pages the memfd
+charges once) or read-only copy-on-write for `MAP_PRIVATE`; `fork`
+(`mem/cow.rs`) copies a `SHARED` leaf as it is instead of marking it COW.
+`MAP_SHARED | MAP_ANONYMOUS` (`Kind::SharedAnon`) is the same without a file.
+The details and limits are in [linux-abi-plan.md](../linux-abi-plan.md),
+round 4; tests are `linux_compat_suite/{scmrights,memfd}.rs` and the
+`scmrights` fixture.
+
+**Status.** Working: BusyBox `sh`, the 15 static musl fixtures in
 `tools/abi/fixtures` (`persist` boots twice on one data disk; threads, `std::process` with piped stdio, `mremap`,
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
-linking; per-thread signal masks and targeting; `timerfd`/`signalfd`/`inotify`/
-`memfd_create`; `alarm`/`setitimer`; `SCM_RIGHTS`; `SIGTTIN`/`SIGTTOU`; the
-umask is global, not per process. `link`/`symlink` answer `EPERM` (no
+linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`;
+`alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
+regular files; the umask is global, not per process. `SCM_RIGHTS`,
+`memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
+"Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
 filesystem stores links). The `persist` fixture also sets and re-checks mode,
 owner and times across its two boots. Kernel tests for the round-3 calls:
 `kernel/src/tests/linux_compat_suite/`.

@@ -66,16 +66,16 @@ pub fn fork_reap_churn() -> Result<(), String> {
     Ok(())
 }
 
-/// Every slot but the kernel's can hold a task, and the table is empty
+/// Every slot below `limit.task_max` but the kernel's can hold a task, and the table is empty
 /// again once they are reaped (issue #204).
 pub fn slots_fill_table() -> Result<(), String> {
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
     let spawned = fill_and_drain()?;
     check!(
-        spawned == task::MAX_TASKS - 1,
+        spawned == crate::limits::task_max() - 1,
         "filled {spawned} slots, expected {}",
-        task::MAX_TASKS - 1
+        crate::limits::task_max() - 1
     );
     check!(
         task::process::process_list().len() == 1,
@@ -97,7 +97,7 @@ pub fn slots_soak_recycle() -> Result<(), String> {
     for round in 0..ROUNDS {
         let spawned = fill_and_drain().map_err(|error| format!("round {round}: {error}"))?;
         check!(
-            spawned == task::MAX_TASKS - 1,
+            spawned == crate::limits::task_max() - 1,
             "round {round}: only {spawned} slots were free again"
         );
         total += spawned;
@@ -110,7 +110,7 @@ pub fn slots_soak_recycle() -> Result<(), String> {
     }
     crate::trace::test!(
         "task_slots_soak_recycle:INFO:spawned={total} slots={}",
-        task::MAX_TASKS
+        crate::limits::task_max()
     );
     task::harness::reset();
     Ok(())

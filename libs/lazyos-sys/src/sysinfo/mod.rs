@@ -27,16 +27,16 @@ mod memory;
 pub use cpu::{cpu_percent, CpuSample};
 pub use memory::{MemoryUse, PAGE};
 
-/// ABI version this client understands (6: the trace mask; 5 the cache and
+/// ABI version this client understands (7: 1024 rows, issue #774; 6: the trace mask; 5 the cache and
 /// slab frame counts; 4 added the idle tick counter, 3 had 256 rows, 2 had 64, issue #204).
-pub const VERSION: u64 = 6;
+pub const VERSION: u64 = 7;
 
 /// Words in the header (mirrors `kernel::sysinfo::HEADER_WORDS`).
 pub const HEADER_WORDS: usize = 28;
 /// Words in one task row (mirrors `kernel::sysinfo::TASK_ROW_WORDS`).
 pub const TASK_ROW_WORDS: usize = 10;
 /// Scheduler slots in the task table (mirrors `kernel::task::MAX_TASKS`).
-pub const MAX_TASKS: usize = 256;
+pub const MAX_TASKS: usize = 1024;
 /// Words in the whole block.
 pub const WORDS: usize = HEADER_WORDS + MAX_TASKS * TASK_ROW_WORDS;
 /// Bytes in the whole block.

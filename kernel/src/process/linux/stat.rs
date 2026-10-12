@@ -109,6 +109,7 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
             }
         }),
         FdKind::Vfs => super::vfsfd::meta_of(fd).map(|meta| Attrs::of(&meta)),
+        FdKind::Memfd => super::memfd::attrs(fd),
         FdKind::Terminal | FdKind::Pty => {
             let (uid, gid) = super::tty::fd_owner(fd);
             let attrs = Attrs::anonymous(S_IFCHR | 0o620, 0, super::tty::fd_ino(fd));

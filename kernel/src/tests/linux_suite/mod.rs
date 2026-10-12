@@ -211,9 +211,11 @@ mod inet_pump;
 mod inet_server;
 mod inet_soak;
 mod inet_timeouts;
+mod mmap_quota;
 mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
+mod nofile_limit;
 mod random;
 mod sendfile;
 mod seqpacket_unix;
@@ -232,9 +234,11 @@ pub(super) use inet_pump::*;
 pub(super) use inet_server::*;
 pub(super) use inet_soak::*;
 pub(super) use inet_timeouts::*;
+pub(super) use mmap_quota::*;
 pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
+pub(super) use nofile_limit::*;
 pub(super) use random::*;
 pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
@@ -339,6 +343,34 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("linux_fd_table_copies_at_scale", fd_table_copies_at_scale),
     ("linux_fd_table_open_close_soak", fd_table_open_close_soak),
+    (
+        "linux_mmap_quota_exhaustion_is_enomem",
+        mmap_quota_exhaustion_is_enomem,
+    ),
+    (
+        "linux_mmap_quota_exhaustion_soak",
+        mmap_quota_exhaustion_soak,
+    ),
+    (
+        "linux_mmap_quota_returns_when_the_process_exits",
+        mmap_quota_returns_when_the_process_exits,
+    ),
+    (
+        "linux_nofile_soft_limit_is_enforced",
+        nofile_soft_limit_is_enforced,
+    ),
+    (
+        "linux_nofile_limit_travels_with_the_table",
+        nofile_limit_travels_with_the_table,
+    ),
+    (
+        "linux_fd_table_copies_skip_the_closed_tail",
+        fd_table_copies_skip_the_closed_tail,
+    ),
+    (
+        "linux_nofile_limit_covers_the_thread_group",
+        nofile_limit_covers_the_thread_group,
+    ),
     ("linux_brk_stops_below_the_stack", brk_stops_below_the_stack),
     (
         "linux_brk_stops_at_the_layout_ceiling",

@@ -13,6 +13,7 @@ pub struct Limits {
     pub quota_kernel_memory: u64,
     pub shared_buffer_max: u64,
     pub scratch_max: u64,
+    pub task_max: u64,
 }
 
 impl Limits {
@@ -20,12 +21,13 @@ impl Limits {
     /// kernel uses before the memory map has been read.
     pub const BASELINE: Limits = Limits {
         heap_max: 64 * MIB,
-        fd_max: 1024,
+        fd_max: 8192,
         stack_size: 8 * MIB,
         quota_user_memory: 256 * MIB,
         quota_kernel_memory: 32 * MIB,
         shared_buffer_max: 16 * MIB,
         scratch_max: 32 * MIB,
+        task_max: 256,
     };
 
     /// The defaults for a machine with `ram` usable bytes and a screen whose
@@ -43,8 +45,9 @@ impl Limits {
             // console pixmap and every kernel object, but user memory needs
             // the other half. It only grows on demand.
             heap_max,
-            // Linux's default soft limit; the table grows on demand, so a
-            // high ceiling costs nothing until a task opens that many.
+            // Chromium raises its soft limit to 8192; the table grows on
+            // demand, so a high ceiling costs heap only for the descriptors
+            // a task really opens (a slot is 32 bytes).
             fd_max: base.fd_max,
             // Linux's default `ulimit -s`; pages are demand-zero.
             stack_size: base.stack_size,
@@ -68,6 +71,10 @@ impl Limits {
             // half the heap ceiling, so a full `/tmp` leaves the kernel
             // room for its own objects.
             scratch_max: GIB.min(down(heap_max / 2)).max(base.scratch_max),
+            // One slot per MiB of RAM: a task costs a 48 KiB kernel stack
+            // and its page tables, so 256 on the smallest machine, the
+            // table's 1024 from 1 GiB.
+            task_max: (ram / MIB).max(base.task_max),
         };
         limits.clamped()
     }
@@ -82,6 +89,7 @@ impl Limits {
             self.quota_kernel_memory,
             self.shared_buffer_max,
             self.scratch_max,
+            self.task_max,
         ]
     }
 
@@ -94,7 +102,7 @@ impl Limits {
                 *value &= !0xfff;
             }
         }
-        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max, scratch_max] =
+        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max, scratch_max, task_max] =
             values;
         Limits {
             heap_max,
@@ -104,6 +112,7 @@ impl Limits {
             quota_kernel_memory,
             shared_buffer_max,
             scratch_max,
+            task_max,
         }
     }
 }

@@ -113,8 +113,9 @@ pub(super) fn release_address_space(pml4: u64) -> usize {
 /// descriptors, and the last reference to a pipe end wakes the peer's wait
 /// queue, which takes the task table (queue-before-table order). Dropping it
 /// under the caller's `TASKS` lock would spin on that lock forever with
-/// interrupts off (issue #404). The kernel stack is a static array reused
-/// with the slot, so it needs no freeing.
+/// interrupts off (issue #404). The task's kernel stack (`KernelStack`) is
+/// freed with it, when the caller drops the returned task with the table
+/// unlocked: the task is `Done`, so nothing runs on that stack.
 pub(super) fn take_finished(
     tasks: &mut [Option<Task>; MAX_TASKS],
     slot: usize,

@@ -63,7 +63,13 @@ pub(super) fn dispatch(nr: u64, a: [u64; 6]) -> Option<u64> {
 
 /// `pause()`: sleep until a signal is delivered.
 fn sys_pause() -> u64 {
-    while task::wait_signal() != task::WakeReason::Interrupted {}
+    loop {
+        if task::wait_signal() == task::WakeReason::Interrupted
+            && task::signal::wait_interrupted(task::current())
+        {
+            break;
+        }
+    }
     err(EINTR)
 }
 

@@ -6,7 +6,8 @@ for CSS including grid, flexbox, floats and `var()`, Taffy for layout, Parley
 for text, `vello_cpu` for painting; PNG, JPEG, GIF, WebP and SVG; no
 JavaScript) behind xui's `xui-blitz` web view, in a desktop window of the
 `xuid` compositor, fetching pages over `http://` and `https://`. It replaced
-NetSurf (issue #649). HTTPS uses the TLS work of
+NetSurf (issue #649). A WebKit port is a separate, longer road:
+[webkit-port-plan.md](webkit-port-plan.md). HTTPS uses the TLS work of
 [tls-plan.md](tls-plan.md): rustls with the pure-Rust `nettls-crypto`
 provider, certificates checked against the system bundle at
 `/etc/ssl/certs/ca-certificates.crt`, names resolved by musl through

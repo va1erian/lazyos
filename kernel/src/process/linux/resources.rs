@@ -1,14 +1,18 @@
 //! Resource reporting: `getrlimit`/`setrlimit`/`prlimit64`, `sysinfo`,
 //! `times` and `getrusage`.
 //!
-//! The limits are the kernel's real ones (`crate::limits`: descriptors per task, the
-//! user stack, task slots), reported as both soft and hard limits so a program
-//! that sizes a table by `RLIMIT_NOFILE` sizes it right. They cannot be
-//! changed: a `setrlimit` that asks for exactly the current values succeeds
-//! (programs routinely "raise" the soft limit to the hard one), as does any
-//! `RLIMIT_CORE` value (no core file is ever written, so every core limit is
-//! honoured); anything else is `EPERM`, since a limit the kernel would not
-//! enforce must not be reported as set.
+//! The limits are the kernel's real ones (`crate::limits`: descriptors per
+//! process, the user stack, task slots), so a program that sizes a table by
+//! `RLIMIT_NOFILE` sizes it right. `RLIMIT_NOFILE` is the one a process can
+//! change: `setrlimit` may lower its soft limit and raise it back up to its
+//! hard limit (programs routinely "raise" the soft limit to the hard one),
+//! and lower the hard limit; the table refuses descriptors past the soft
+//! limit (`EMFILE`), for every thread of the process and its children
+//! (`task::fdlimit`). Raising the hard limit past the kernel's `fd_max` is
+//! `EPERM`. `RLIMIT_CORE` accepts any value (no core file is ever written, so
+//! every core limit is honoured). The rest are fixed: a `setrlimit` that asks
+//! for exactly the current values succeeds, anything else is `EPERM`, since a
+//! limit the kernel would not enforce must not be reported as set.
 
 use crate::task;
 use crate::user_ptr;
@@ -24,24 +28,37 @@ const RLIMIT_NOFILE: u32 = 7;
 /// `RLIM_NLIMITS`: resources 0..16 exist.
 const RLIM_NLIMITS: u32 = 16;
 
-/// `(soft, hard)` for `resource`.
-pub(super) fn limit(resource: u32) -> (u64, u64) {
+/// `(soft, hard)` for `resource` as process `pid` sees it.
+fn limit_of(resource: u32, pid: usize) -> (u64, u64) {
     match resource {
         RLIMIT_STACK => (super::stack_size(), super::stack_size()),
         RLIMIT_CORE => (0, RLIM_INFINITY),
-        RLIMIT_NPROC => (task::MAX_TASKS as u64, task::MAX_TASKS as u64),
-        RLIMIT_NOFILE => (task::fd_max() as u64, task::fd_max() as u64),
+        RLIMIT_NPROC => {
+            let max = crate::limits::task_max() as u64;
+            (max, max)
+        }
+        RLIMIT_NOFILE => {
+            let (soft, hard) = task::nofile_limits_of(pid).unwrap_or_default();
+            (soft as u64, hard as u64)
+        }
         _ => (RLIM_INFINITY, RLIM_INFINITY),
     }
 }
 
-/// Whether `(soft, hard)` may be installed for `resource` (see the module
-/// docs): `Ok` to report success, or the errno.
-fn check_new(resource: u32, soft: u64, hard: u64) -> Result<(), u64> {
+/// Install `(soft, hard)` as the caller's `resource` (see the module docs):
+/// `Ok` to report success, or the errno.
+fn install(resource: u32, soft: u64, hard: u64) -> Result<(), u64> {
     if soft > hard {
         return Err(err(EINVAL));
     }
-    if resource == RLIMIT_CORE || (soft, hard) == limit(resource) {
+    if resource == RLIMIT_NOFILE {
+        let clamp = |value: u64| usize::try_from(value).unwrap_or(usize::MAX);
+        return task::set_nofile_limits(clamp(soft), clamp(hard)).map_err(|error| match error {
+            task::LimitError::Inverted => err(EINVAL),
+            task::LimitError::NotPermitted => err(EPERM),
+        });
+    }
+    if resource == RLIMIT_CORE || (soft, hard) == limit_of(resource, task::linuxstate::tgid()) {
         Ok(())
     } else {
         Err(err(EPERM))
@@ -74,41 +91,48 @@ pub(super) fn sys_setrlimit(resource: u64, rlim: u64) -> u64 {
     sys_prlimit64(0, resource, rlim, 0)
 }
 
-/// `prlimit64(pid, resource, new, old)`: `pid` 0 or the caller's own; the
-/// limits are system-wide constants, so another live process would answer
-/// the same, but changing one is not ours to do (`EPERM` comes from the rule
-/// above anyway).
+/// `prlimit64(pid, resource, new, old)`: `pid` 0 or the caller's own, or
+/// another live process whose limits can be read but not changed (that is not
+/// ours to do: `EPERM`). The old value is written before the new one is
+/// installed.
 pub(super) fn sys_prlimit64(pid: u64, resource: u64, new: u64, old: u64) -> u64 {
     let resource = resource as u32;
     if resource >= RLIM_NLIMITS {
         return err(EINVAL);
     }
-    if pid != 0 && pid as usize != task::linuxstate::tgid() && task::pml4_of(pid as usize).is_none()
-    {
+    let me = task::linuxstate::tgid();
+    let own = pid == 0 || pid as usize == me;
+    if !own && task::pml4_of(pid as usize).is_none() {
         return err(ESRCH);
     }
-    if new != 0 {
-        let (soft, hard) = match read_rlimit(new) {
-            Ok(pair) => pair,
+    let wanted = if new != 0 {
+        match read_rlimit(new) {
+            Ok(pair) => Some(pair),
             Err(code) => return code,
-        };
-        if let Err(code) = check_new(resource, soft, hard) {
-            return code;
         }
+    } else {
+        None
+    };
+    if wanted.is_some() && !own {
+        return err(EPERM);
     }
     if old != 0 {
-        if let Err(code) = write_rlimit(old, limit(resource)) {
+        let target = if own { me } else { pid as usize };
+        if let Err(code) = write_rlimit(old, limit_of(resource, target)) {
             return code;
         }
     }
-    0
+    match wanted {
+        Some((soft, hard)) => install(resource, soft, hard).err().unwrap_or(0),
+        None => 0,
+    }
 }
 
 /// `sysinfo(info)`: uptime, memory (in 4 KiB units: `mem_unit` = 4096) and
 /// the number of tasks. There is no load average (zeros) and no swap.
 pub(super) fn sys_sysinfo(info: u64) -> u64 {
     let stats = crate::mem::frame_stats();
-    let procs = (1..task::MAX_TASKS)
+    let procs = (1..crate::limits::task_max().min(task::MAX_TASKS))
         .filter(|&slot| task::pml4_of(slot).is_some())
         .count() as u16;
     // struct sysinfo (x86_64): uptime, loads[3], totalram, freeram, sharedram,

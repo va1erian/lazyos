@@ -148,17 +148,22 @@ pub(super) fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) ->
     } else {
         deadline_after_ns(timespec_ns(sec as u64, nsec as u64))
     };
-    match task::wait_sleep_ns(deadline) {
-        WakeReason::TimedOut => 0,
-        WakeReason::Interrupted => {
-            // TIMER_ABSTIME sleeps never report a remainder (there's nothing
-            // to resume relative to); only a relative sleep does.
-            if !absolute && rem != 0 {
-                write_duration(rem, deadline.saturating_sub(now_ns()), 1);
+    loop {
+        match task::wait_sleep_ns(deadline) {
+            WakeReason::TimedOut => return 0,
+            // Woken for a signal a sibling thread took: nothing to deliver
+            // here, so the sleep goes on (Linux restarts it).
+            WakeReason::Interrupted if !task::signal::wait_interrupted(task::current()) => {}
+            WakeReason::Interrupted => {
+                // TIMER_ABSTIME sleeps never report a remainder (there's
+                // nothing to resume relative to); only a relative sleep does.
+                if !absolute && rem != 0 {
+                    write_duration(rem, deadline.saturating_sub(now_ns()), 1);
+                }
+                return err(EINTR);
             }
-            err(EINTR)
+            WakeReason::Woken => return 0, // nothing notifies the sleep queue
         }
-        WakeReason::Woken => 0, // nothing notifies the sleep queue
     }
 }
 
@@ -178,7 +183,9 @@ fn sleep_until_realtime(sec: u64, nsec: u64) -> u64 {
         }
         let step = target.min(now.saturating_add(REALTIME_RECHECK_NS));
         if let WakeReason::Interrupted = task::wait_sleep_ns(step) {
-            return err(EINTR);
+            if task::signal::wait_interrupted(task::current()) {
+                return err(EINTR);
+            }
         }
     }
 }

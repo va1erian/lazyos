@@ -68,10 +68,12 @@ pub enum Id {
     /// File bytes the in-memory scratch filesystem (`/transient`, `/tmp`)
     /// may hold.
     ScratchMax,
+    /// Task slots (processes and threads) the whole machine may use at once.
+    TaskMax,
 }
 
 /// Number of configurable limits.
-pub const COUNT: usize = 7;
+pub const COUNT: usize = 8;
 
 /// Every configurable limit. The ranges are the sanity bounds a config value
 /// is clamped into, not the defaults (see [`Limits::for_machine`]).
@@ -129,6 +131,15 @@ pub const KEYS: [Key; COUNT] = [
         max: 64 * GIB,
         bytes: true,
     },
+    // Below 64 the boot services and the desktop do not fit; the table
+    // itself (`task::MAX_TASKS`) is the ceiling. A slot costs a 48 KiB kernel
+    // stack from the heap only while a task occupies it.
+    Key {
+        name: "task_max",
+        min: 64,
+        max: crate::task::MAX_TASKS as u64,
+        bytes: false,
+    },
 ];
 
 /// Where the live value of a limit came from.
@@ -155,6 +166,7 @@ static VALUES: [AtomicU64; COUNT] = {
         AtomicU64::new(base.quota_kernel_memory),
         AtomicU64::new(base.shared_buffer_max),
         AtomicU64::new(base.scratch_max),
+        AtomicU64::new(base.task_max),
     ]
 };
 static SOURCES: [AtomicU8; COUNT] = [const { AtomicU8::new(Source::Default as u8) }; COUNT];
@@ -191,6 +203,11 @@ pub fn heap_max() -> u64 {
 /// Descriptors one task may hold.
 pub fn fd_max() -> usize {
     get(Id::FdMax) as usize
+}
+
+/// Task slots the machine may use at once (`RLIMIT_NPROC`).
+pub fn task_max() -> usize {
+    get(Id::TaskMax) as usize
 }
 
 /// Largest Linux main-thread stack, page aligned.

@@ -73,6 +73,7 @@ mod fpu_state;
 mod lifecycle;
 mod process_tree;
 mod reclaim;
+mod slots;
 mod tick_catchup;
 mod wait_queue;
 mod yield_clock;
@@ -82,6 +83,7 @@ pub(super) use fpu_state::*;
 pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
 pub(super) use reclaim::*;
+pub(super) use slots::*;
 pub(super) use tick_catchup::*;
 pub(super) use wait_queue::*;
 pub(super) use yield_clock::*;
@@ -98,6 +100,16 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_soak_thread_exit_generations",
         soak_thread_exit_generations,
     ),
+    (
+        "task_kstack_lives_and_dies_with_its_task",
+        kstack_lives_and_dies_with_its_task,
+    ),
+    ("task_threads_fill_the_ceiling", threads_fill_the_ceiling),
+    (
+        "task_threads_stop_before_the_heap_runs_out",
+        threads_stop_before_the_heap_runs_out,
+    ),
+    ("task_thread_ceiling_soak", thread_ceiling_soak),
     ("task_reclaim_wakes_pipe_peer", reclaim_wakes_pipe_peer),
     ("task_reclaim_pipe_close_soak", reclaim_pipe_close_soak),
     ("task_futex_wait_mismatch", futex_wait_mismatch),

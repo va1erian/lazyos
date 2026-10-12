@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
-from lazygui.limits import add_limit_option, build_limits  # noqa: E402
+from lazygui.limits import add_limit_option, big_app, build_limits  # noqa: E402
 from lazygui.login import add_login_option, build_login  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
@@ -40,6 +40,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     add_limit_option(parser)
+    parser.add_argument("--big-app", action="store_true",
+                        help="room for one browser-class program: 4G of RAM and "
+                             "--limit quota_user_memory=3G fd_max=8192 task_max=1024, "
+                             "except what --memory / --limit already choose")
     add_display_options(parser)
     add_assets_option(parser)
     parser.add_argument("--accel", default="auto",
@@ -244,6 +248,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
+    if args.big_app:
+        args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer

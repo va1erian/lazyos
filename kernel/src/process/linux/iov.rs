@@ -107,7 +107,7 @@ pub(super) fn sys_readv(fd: u64, iov: u64, count: u64) -> u64 {
 /// then a negative offset is `-EINVAL`.
 fn check_positional(fd: u64, offset: u64) -> Result<(), u64> {
     match task::fd_kind(fd as usize) {
-        FdKind::File | FdKind::Vfs => {}
+        FdKind::File | FdKind::Vfs | FdKind::Memfd => {}
         FdKind::Closed => return Err(err(EBADF)),
         _ => return Err(err(ESPIPE)),
     }

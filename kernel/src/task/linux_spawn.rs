@@ -85,9 +85,7 @@ fn spawn_linux_in<I: Image + ?Sized>(
         .map_err(|error| error.message())?;
 
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     // Resolve the parent before the slot is filled, so a bad parent cannot
     // leave a half-registered task.
     let (parent_slot, pgid, sid) = match parent {
@@ -100,7 +98,7 @@ fn spawn_linux_in<I: Image + ?Sized>(
     };
     guard.commit();
 
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_user_frame(top, started.entry, started.rsp);
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
@@ -114,11 +112,13 @@ fn spawn_linux_in<I: Image + ?Sized>(
     }
     // A new program starts with clean x87/SSE registers.
     fpu::reset(index);
+    signal::thread_born(index, None);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
         pml4: pml4.as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,

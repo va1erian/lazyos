@@ -44,6 +44,14 @@ pub const MMIO: u64 = 1 << 10;
 /// mapping, exactly as for [`MMIO`], and the parent keeps sharing the frames
 /// with its device.
 pub const DMA: u64 = 1 << 11;
+/// Software-defined bit (bit 52) marking a leaf of a *shared* user mapping
+/// (`mmap(MAP_SHARED)` of a memfd, or `MAP_SHARED | MAP_ANONYMOUS`). The frame
+/// belongs to every address space that maps it: `fork` gives the child the
+/// same frame with the same (writable) protection instead of turning it
+/// copy-on-write, so the parent and the child keep seeing each other's
+/// stores. Teardown, `munmap` and `mprotect` treat it like any other user
+/// leaf (one frame reference per mapping).
+pub const SHARED: u64 = 1 << 52;
 /// Page-level write-through (PAT index bit 0).
 pub const PWT: u64 = 1 << 3;
 /// Page-level cache disable (PAT index bit 1); with [`PWT`] the power-on PAT

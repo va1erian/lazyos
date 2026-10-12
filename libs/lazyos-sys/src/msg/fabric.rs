@@ -3,7 +3,7 @@
 
 /// Task slots in the [`FabricStats`] per-slot arrays; mirrors the kernel's
 /// `task::MAX_TASKS`.
-pub const FABRIC_TASKS: usize = 256;
+pub const FABRIC_TASKS: usize = 1024;
 
 /// Per-slot usage row of a [`FabricStats`] snapshot.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -24,12 +24,12 @@ pub struct TaskUsage {
     pub polls: u64,
 }
 
-/// The versioned fabric snapshot (stats ABI version 6): channels, messages,
+/// The versioned fabric snapshot (stats ABI version 7): channels, messages,
 /// buffers, handles, ACL/audit state, and per-slot usage in one block. Mirrors
 /// `kernel/src/ipc/stats.rs` field for field; [`FabricStats::from_bytes`]
 /// decodes the little-endian word stream the kernel writes.
 ///
-/// ~16 KiB, so it is only ever built in place on the heap (`Box`): a native
+/// ~64 KiB, so it is only ever built in place on the heap (`Box`): a native
 /// program's stack is small, and a by-value snapshot overflowed it (#702).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FabricStats {
@@ -95,10 +95,10 @@ pub struct FabricStats {
 }
 
 impl FabricStats {
-    /// The ABI version this mirror understands (6: `polls` and per-slot call
+    /// The ABI version this mirror understands (7: 1024 per-slot rows, #774; 6: `polls` and per-slot call
     /// counters, #702; 5: no fence counters, #677; 4: 256 per-slot rows; 3
     /// had 64, #204).
-    pub const VERSION: u64 = 6;
+    pub const VERSION: u64 = 7;
     /// Scalar words ahead of the per-slot handle counts.
     const SCALARS: usize = 19;
     /// Words in one per-slot usage row.

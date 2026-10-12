@@ -37,9 +37,13 @@ use crate::task::{WaitKind, WakeReason};
 
 mod peek;
 mod poll;
+mod rights;
 mod small;
 mod socketpair;
 
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the tests watch the in-flight count
+pub use rights::in_flight;
+pub use rights::{Rights, RightsError, SCM_MAX_FD};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the tests check the cap
 pub use small::{MAX_SMALL_PIPES, SMALL_CAPACITY};
 pub use socketpair::SocketPair;
@@ -90,6 +94,9 @@ pub enum Error {
     Interrupted,
     /// A `SOCK_SEQPACKET` message larger than the buffer (`-EMSGSIZE`).
     MessageTooLong,
+    /// Queueing the message's descriptors could close a cycle of sockets
+    /// carrying each other (`-ETOOMANYREFS`, `rights.rs`).
+    TooManyRefs,
     /// An argument the stream layer rejects (`-EINVAL`).
     Invalid,
 }
@@ -109,6 +116,16 @@ struct Ring {
     len: usize,
     mode: Mode,
     frames: VecDeque<usize>,
+    /// Bytes ever stored / ever taken out, so a message's descriptors can be
+    /// matched to the bytes they were sent beside (`rights.rs`).
+    total_in: u64,
+    total_out: u64,
+    /// Seqpacket messages ever queued / ever taken, numbering the frames so a
+    /// record names its message even when that has no bytes.
+    frames_in: u64,
+    frames_out: u64,
+    /// Descriptors in flight, oldest first, each tied to its message's bytes.
+    records: VecDeque<rights::Record>,
 }
 
 impl Ring {
@@ -132,6 +149,7 @@ impl Ring {
         }
         self.head = (self.head + n) % self.buf.len();
         self.len -= n;
+        self.total_out += n as u64;
         n
     }
 
@@ -140,6 +158,7 @@ impl Ring {
         debug_assert!(n <= self.len);
         self.head = (self.head + n) % self.buf.len();
         self.len -= n;
+        self.total_out += n as u64;
     }
 
     /// Copy `min(src.len(), free space)` bytes in after the current tail.
@@ -152,6 +171,7 @@ impl Ring {
             self.buf[..n - first].copy_from_slice(&src[first..n]);
         }
         self.len += n;
+        self.total_in += n as u64;
         n
     }
 }
@@ -221,6 +241,11 @@ impl Pipe {
                 len: 0,
                 mode,
                 frames: VecDeque::new(),
+                total_in: 0,
+                total_out: 0,
+                frames_in: 0,
+                frames_out: 0,
+                records: VecDeque::new(),
             }),
             read_wq: WaitQueue::new(WaitKind::Pipe),
             write_wq: WaitQueue::new(WaitKind::Pipe),
@@ -275,6 +300,9 @@ impl Pipe {
         if remaining == 0 {
             match end {
                 End::Read => {
+                    // Nobody will read what is queued: descriptors in flight
+                    // on it are closed now, as Linux purges the receive queue.
+                    self.purge_rights();
                     self.write_events.fetch_add(1, Ordering::AcqRel);
                     self.write_wq.notify_all();
                 }
@@ -358,44 +386,7 @@ impl Pipe {
         nonblock: bool,
         deadline: Option<u64>,
     ) -> Result<usize, Error> {
-        if end != End::Read {
-            return Err(Error::BadEnd);
-        }
-        if dst.is_empty() {
-            return Ok(0);
-        }
-        loop {
-            {
-                let mut ring = self.state.lock();
-                let free_before = ring.buf.len() - ring.len;
-                if ring.mode == Mode::Seqpacket {
-                    if let Some(&message) = ring.frames.front() {
-                        let n = message.min(dst.len());
-                        let copied = ring.drain_into(&mut dst[..n]);
-                        if message > copied {
-                            ring.discard(message - copied);
-                        }
-                        let full = ring.frames.len() >= MAX_FRAMES;
-                        ring.frames.pop_front();
-                        drop(ring);
-                        self.after_read(if full { 0 } else { free_before });
-                        return Ok(n);
-                    }
-                } else if !ring.is_empty() {
-                    let n = ring.drain_into(dst);
-                    drop(ring);
-                    self.after_read(free_before);
-                    return Ok(n);
-                }
-                if self.writers.load(Ordering::Acquire) == 0 {
-                    return Ok(0); // EOF
-                }
-            }
-            if nonblock {
-                return Err(Error::WouldBlock);
-            }
-            block_on(&self.read_wq, deadline)?;
-        }
+        self.read_rights(end, dst, nonblock, deadline, None)
     }
 
     /// Write `src`, returning how many bytes were accepted (a short write is
@@ -418,40 +409,7 @@ impl Pipe {
         nonblock: bool,
         deadline: Option<u64>,
     ) -> Result<usize, Error> {
-        if end != End::Write {
-            return Err(Error::BadEnd);
-        }
-        if src.is_empty() {
-            return Ok(0);
-        }
-        loop {
-            {
-                let mut ring = self.state.lock();
-                if self.readers.load(Ordering::Acquire) == 0 {
-                    return Err(Error::BrokenPipe);
-                }
-                if ring.mode == Mode::Seqpacket && src.len() > ring.buf.len() {
-                    return Err(Error::MessageTooLong);
-                }
-                if self.space_for(&ring, src.len()) {
-                    let was_empty = !ring.has_data();
-                    let n = ring.fill_from(src);
-                    if ring.mode == Mode::Seqpacket {
-                        ring.frames.push_back(n);
-                    }
-                    drop(ring);
-                    self.read_events.fetch_add(1, Ordering::AcqRel);
-                    self.read_wq.notify_all();
-                    crate::task::notify_poll_key(self as *const Self as u64);
-                    self.bell_after_write(was_empty);
-                    return Ok(n);
-                }
-            }
-            if nonblock {
-                return Err(Error::WouldBlock);
-            }
-            block_on(&self.write_wq, deadline)?;
-        }
+        self.write_rights(src, end, nonblock, deadline, &mut None, None)
     }
 }
 

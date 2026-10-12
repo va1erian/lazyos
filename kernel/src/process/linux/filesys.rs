@@ -47,6 +47,7 @@ pub(super) fn sys_ftruncate(fd: u64, length: u64) -> u64 {
             }
         }),
         FdKind::File => truncate_snapshot(fd, length),
+        FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::truncate(mem, length)),
         FdKind::Closed => err(EBADF),
         _ => err(EINVAL), // not a regular file
     }

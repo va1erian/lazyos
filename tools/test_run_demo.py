@@ -168,6 +168,31 @@ class MainTests(RunDemoCase):
         self.assertEqual((build.get("LAZYOS_SETUP"), build.get("LAZYOS_DESKTOP")), ("1", "1"))
         self.assertEqual(build.get("LAZYOS_AUTOLOGIN"), "none")
 
+    def test_big_app_gives_room_to_one_big_program(self) -> None:
+        code, command = self.run_main("--big-app", "--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(command[command.index("-m") + 1], "4G")
+        build = self.builds[-1]
+        self.assertEqual(
+            (build.get("LAZYOS_LIMIT_QUOTA_USER_MEMORY"), build.get("LAZYOS_LIMIT_FD_MAX"),
+             build.get("LAZYOS_LIMIT_TASK_MAX")),
+            ("3G", "8192", "1024"))
+
+    def test_big_app_keeps_what_the_user_chose(self) -> None:
+        code, command = self.run_main("--big-app", "--memory", "8G", "--limit", "fd_max=16384",
+                                      "--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(command[command.index("-m") + 1], "8G")
+        build = self.builds[-1]
+        self.assertEqual(build.get("LAZYOS_LIMIT_FD_MAX"), "16384")
+        self.assertEqual(build.get("LAZYOS_LIMIT_QUOTA_USER_MEMORY"), "3G")
+
+    def test_no_big_app_changes_nothing(self) -> None:
+        code, command = self.run_main("--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(command[command.index("-m") + 1], "1G")
+        self.assertNotIn("LAZYOS_LIMIT_FD_MAX", self.builds[-1])
+
     def test_reset_os_sets_the_build_variable(self) -> None:
         code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)

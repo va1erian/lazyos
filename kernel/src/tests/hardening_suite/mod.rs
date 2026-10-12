@@ -20,7 +20,9 @@ use libmessenger::{flags, Header, Parcel, VERSION};
 /// Scratch user space for the tests that need real user mappings.
 pub(in crate::tests) const SPACE: u64 = 0x0040_0000;
 
-pub(in crate::tests) const SPACE_PAGES: u64 = 8;
+/// Room for a whole task-list snapshot (~90 KiB at 1024 slots) and the blocks
+/// the tests place around it.
+pub(in crate::tests) const SPACE_PAGES: u64 = 28;
 
 const EPERM: i64 = 1;
 

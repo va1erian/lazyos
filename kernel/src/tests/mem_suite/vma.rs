@@ -171,8 +171,9 @@ pub fn demand_zero_and_munmap() -> Result<(), String> {
 }
 
 /// Fork + `mprotect` interaction: cloning copies the VMA list and marks
-/// pages COW; `protect_range` privatizes a COW page before applying the new
-/// flags, so the two address spaces stop sharing.
+/// pages COW; `protect_range` keeps a shared page shared (read-only, still
+/// COW) whatever the new protection, and the first store after `mprotect(rw)`
+/// takes the copy, so the two address spaces stop sharing only then.
 pub fn vma_cow_mprotect() -> Result<(), String> {
     let parent = mem::new_user_table().ok_or("new_user_table failed")?;
     let base = TEST_VA;
@@ -208,7 +209,8 @@ pub fn vma_cow_mprotect() -> Result<(), String> {
         "child does not share the parent frame"
     );
 
-    // mprotect(read) on the COW page: private copy, write cleared, COW gone.
+    // mprotect(read) on the COW page: the frame stays shared (no copy is
+    // needed to take write away), still COW, and now read-only for good.
     check!(
         mem::protect_range(parent, base, base + 4096, Prot::READ),
         "protect_range failed"
@@ -218,30 +220,60 @@ pub fn vma_cow_mprotect() -> Result<(), String> {
         "VMA protect missed the range"
     );
     let parent_entry = raw_entry(parent, base).ok_or("parent page vanished")?;
-    let private = parent_entry & PTE_ADDR;
     check!(
-        private != shared,
-        "parent still shares the frame after mprotect"
+        parent_entry & PTE_ADDR == shared,
+        "mprotect(read) copied a page it only had to keep read-only"
     );
     check!(
-        parent_entry & PTE_WRITABLE == 0 && parent_entry & COW_BIT == 0,
+        parent_entry & PTE_WRITABLE == 0 && parent_entry & COW_BIT != 0,
         "mprotect flags are {parent_entry:#x}"
-    );
-    check!(frame_matches(private, 0x5a), "privatized copy is corrupted");
-    check!(
-        frame_matches(shared, 0x5a),
-        "mprotect modified the still-shared frame"
     );
     check!(
         mem::vma::find(parent, base).map(|vma| vma.prot) == Some(Prot::READ),
         "the parent VMA did not take the new protection"
+    );
+    // A store to the parent's read-only page is an access error, not a COW
+    // request: its VMA does not allow writing.
+    check!(
+        !mem::cow_fault(parent, base),
+        "cow_fault made a PROT_READ page writable"
+    );
+
+    // mprotect(rw) on a page still shared with the child keeps it shared and
+    // read-only: the copy waits for the first store.
+    check!(
+        mem::protect_range(parent, base, base + 4096, rw),
+        "protect_range(rw) failed"
+    );
+    mem::vma::protect(parent, base, base + 4096, rw);
+    let parent_entry = raw_entry(parent, base).ok_or("parent page vanished")?;
+    check!(
+        parent_entry & PTE_ADDR == shared
+            && parent_entry & PTE_WRITABLE == 0
+            && parent_entry & COW_BIT != 0,
+        "mprotect(rw) privatised or exposed a shared page: {parent_entry:#x}"
+    );
+    check!(
+        mem::cow_fault(parent, base),
+        "the store after mprotect(rw) found no COW fault to take"
+    );
+    let parent_entry = raw_entry(parent, base).ok_or("parent page vanished")?;
+    let private = parent_entry & PTE_ADDR;
+    check!(
+        private != shared && parent_entry & PTE_WRITABLE != 0 && parent_entry & COW_BIT == 0,
+        "the parent did not get a private writable copy: {parent_entry:#x}"
+    );
+    check!(frame_matches(private, 0x5a), "privatized copy is corrupted");
+    check!(
+        frame_matches(shared, 0x5a),
+        "the copy modified the still-shared frame"
     );
 
     // The child is now the original frame's only owner: its write fault
     // keeps that frame, made writable in place (P6.6), not a copy.
     check!(
         mem::cow_fault(child, base),
-        "child cow_fault failed after the parent mprotect"
+        "child cow_fault failed after the parent copied"
     );
     let child_phys = frame_of(child, base)?;
     let child_entry = raw_entry(child, base).ok_or("child page vanished")?;

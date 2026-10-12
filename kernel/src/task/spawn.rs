@@ -1,4 +1,4 @@
-//! Task creation: kernel task, spawn, threads, fork and initial frames.
+//! Task creation: spawn, threads, fork and initial frames.
 //!
 //! A program's address space is built (and its image streamed in from disk)
 //! before the task table is locked: loading touches the filesystem, which must
@@ -7,39 +7,6 @@
 use super::*;
 use crate::process::image::Image;
 
-/// Register the kernel task (the multiplexer running in ring 0).
-pub fn register_kernel() {
-    let mut tasks = TASKS.lock();
-    tasks[KERNEL_TASK] = Some(Task {
-        name: "kernel",
-        kind: Kind::Native,
-        pml4: mem::kernel_table().as_u64(),
-        kstack_top: 0,
-        rsp: 0,
-        state: TaskState::Runnable,
-        // The multiplexer serves input and painting: an interactive workload.
-        // `mux::run` parks it between frames, which bounds its CPU share.
-        class: PriorityClass::Interactive,
-        weight: PriorityClass::Interactive.default_weight(),
-        pass: 0,
-        cpu_ticks: 0,
-        wake_reason: None,
-        clear_child_tid: 0,
-        parent: 0,
-        pgid: KERNEL_TASK,
-        sid: KERNEL_TASK,
-        exit_status: 0,
-        heap_break: 0,
-        fs_base: 0,
-        fds: FdTable::standard(),
-        cwd: None,
-        linux: LinuxExtras::default(),
-        output: Vec::new(),
-        input: VecDeque::new(),
-        guard: guard::State::new(),
-    });
-    super::runq::sync(&tasks, KERNEL_TASK);
-}
 /// Create a user task from an ELF image. Returns its slot index.
 ///
 /// The program is started by the kernel: it has no parent and leads its own
@@ -139,17 +106,17 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     stdio: Stdio,
 ) -> Result<usize, SpawnError> {
     let pml4 = mem::new_user_table().ok_or(SpawnError::NoMemory)?;
-    // A load failure returns while the guard is live, releasing the whole
-    // partially built address space instead of leaking its frames.
+    // A failure below returns with the guard live, freeing the partial space.
     let guard = mem::UserTableGuard::new(pml4);
     // The segments are charged to the uid the child will run as (#265).
     let uid = parent.map_or(0, |slot| credentials::of(slot).uid);
     let start = user_process::load_image(guard.table(), elf, uid).map_err(load_error)?;
 
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or(SpawnError::NoSlot)?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(|error| match error {
+        kstack::ClaimError::NoSlot => SpawnError::NoSlot,
+        kstack::ClaimError::NoMemory => SpawnError::NoMemory,
+    })?;
     let (parent_slot, pgid, sid) = match parent {
         Some(parent) => {
             let parent_task = tasks[parent].as_ref().ok_or(SpawnError::NoParent)?;
@@ -163,7 +130,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     guard.commit();
     trace::clear(index);
 
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_user_frame(top, start.entry, user_process::USER_STACK_TOP - 16);
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
@@ -187,11 +154,13 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     // A new program starts with clean x87/SSE registers, not the slot's
     // previous owner's.
     fpu::reset(index);
+    signal::thread_born(index, None);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,
         pml4: pml4.as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,
@@ -256,9 +225,7 @@ pub fn spawn_thread_sharing(
         return Err("non-canonical user fs base");
     }
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let creator = current();
     let parent = tasks[creator].as_mut().ok_or("no parent task")?;
     // The thread's table starts as a copy of its creator's (and stays equal to
@@ -282,7 +249,7 @@ pub fn spawn_thread_sharing(
     let cwd = parent.cwd.clone();
     let context = crate::arch::linux::user_context();
 
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_thread_frame(top, &context, user_rsp);
     let pass = virtual_now(&tasks);
 
@@ -292,11 +259,15 @@ pub fn spawn_thread_sharing(
     // Like its registers, a thread's floating-point state starts as its
     // creator's.
     fpu::inherit_live(index);
+    // A thread starts with its creator's blocked mask, nothing pending and no
+    // alternate stack (Linux `clone`).
+    signal::thread_born(index, Some(creator));
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
         pml4,
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,
@@ -348,9 +319,7 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
 /// child's resume stack (`clone` provides one); `None` resumes on the parent's.
 pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent_index = current();
     let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
@@ -396,7 +365,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         mem::clone_user_table(PhysAddr::new(pml4))
     }
     .ok_or("out of memory (fork)")?;
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_thread_frame(top, &context, user_rsp.unwrap_or(context.rsp));
 
     // `fork`/`vfork` children inherit the parent's credentials; the slot may
@@ -410,6 +379,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         kind: Kind::Linux,
         pml4: child_table.as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,
@@ -432,6 +402,9 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // POSIX `fork` inherits dispositions, the calling thread's blocked mask
+    // and alternate stack; pending signals do not cross the fork.
+    signal::fork_inherit(parent_index, pml4, index, child_table.as_u64());
     drop(tasks);
 
     // The child's break and mmap cursor continue where the parent's are.
@@ -441,9 +414,6 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
             ..bump
         });
     }
-    // POSIX `fork` inherits dispositions, the blocked mask and the alternate
-    // stack; pending signals do not cross the fork.
-    signal::fork_inherit(pml4, child_table.as_u64());
     Ok(index)
 }
 

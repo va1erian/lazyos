@@ -24,8 +24,8 @@ fn getrlimit(resource: u64) -> Result<[u64; 2], String> {
     Ok(out)
 }
 
-/// The limits are the kernel's real ones; only no-op changes (and any core
-/// limit) are accepted.
+/// The limits are the kernel's real ones; the descriptor limit can be lowered
+/// and raised back, the others accept only no-op changes (and any core limit).
 pub fn rlimits_honest() -> Result<(), String> {
     fresh()?;
     let nofile = getrlimit(RLIMIT_NOFILE)?;
@@ -39,9 +39,21 @@ pub fn rlimits_honest() -> Result<(), String> {
         sys(SETRLIMIT, &[RLIMIT_NOFILE, nofile.as_ptr() as u64]) == 0,
         "a no-op set failed"
     );
+    // NOFILE is enforced, so it can be lowered (`linux_nofile_*` proves the
+    // table honours it); the stack limit is not, so a change is refused.
     let lower = [4u64, nofile[1]];
     check!(
-        sys(SETRLIMIT, &[RLIMIT_NOFILE, lower.as_ptr() as u64]) == EPERM,
+        sys(SETRLIMIT, &[RLIMIT_NOFILE, lower.as_ptr() as u64]) == 0
+            && getrlimit(RLIMIT_NOFILE)? == lower,
+        "a lower soft descriptor limit was refused"
+    );
+    check!(
+        sys(SETRLIMIT, &[RLIMIT_NOFILE, nofile.as_ptr() as u64]) == 0,
+        "the soft limit could not be raised back"
+    );
+    let stack_change = [4u64, stack[1]];
+    check!(
+        sys(SETRLIMIT, &[RLIMIT_STACK, stack_change.as_ptr() as u64]) == EPERM,
         "an unenforced limit was accepted"
     );
     let inverted = [10u64, 5];
