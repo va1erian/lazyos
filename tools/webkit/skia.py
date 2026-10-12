@@ -20,6 +20,7 @@ import toolenv
 import wkpins
 from registry import Lib, register
 
+DEP = wkpins.BUNDLED_BY_NAME["skia"]
 WRAPPER = wkpins.HERE / "skiabuild"
 OPTIONS = {"CMAKE_CXX_STANDARD": "20"}
 
@@ -46,6 +47,5 @@ register(Lib("skia", ["freetype", "fontconfig", "libpng", "libjpeg-turbo", "expa
              {"options": OPTIONS, "wrapper": _digest()}, _build, own_tree=True,
              extra={"version": "WebKitGTK 2.54.1 ThirdParty/skia",
                     "source_sha": wkpins.jsc_pins.WEBKIT.sha256,
-                    "info": {"url": wkpins.jsc_pins.WEBKIT.url, "license": "BSD-3-Clause",
-                             "sha256": wkpins.jsc_pins.WEBKIT.sha256, "archive": wkpins.jsc_pins.WEBKIT.archive,
-                             "why": "the raster backend: GraphicsContextSkia, SkFontMgr, image codecs glue"}}))
+                    "info": {"url": DEP.source.url, "license": DEP.license, "why": DEP.why,
+                             "sha256": DEP.source.sha256, "archive": DEP.source.archive}}))
