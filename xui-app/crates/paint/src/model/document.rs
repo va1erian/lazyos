@@ -295,3 +295,6 @@ mod alpha_tests;
 
 #[cfg(test)]
 mod adjust_tests;
+
+#[cfg(test)]
+mod settle_tests;

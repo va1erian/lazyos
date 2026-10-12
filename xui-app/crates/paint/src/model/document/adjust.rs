@@ -35,7 +35,7 @@ impl Model {
         rect: Rect,
         selection: Option<&Selection>,
     ) -> Result<(), String> {
-        self.end();
+        self.settle();
         let rect = rect.intersect(self.doc.bounds());
         if rect.is_empty() {
             return Ok(());

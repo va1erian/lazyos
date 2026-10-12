@@ -48,7 +48,7 @@ impl Model {
     /// Resize Image: scales every layer to `width` x `height`.
     pub fn resize_image(&mut self, width: u32, height: u32, how: Resample) -> Result<(), String> {
         check_sides(width, height)?;
-        self.end();
+        self.settle();
         if self.doc.size() == (width, height) {
             return Ok(());
         }
@@ -72,7 +72,7 @@ impl Model {
         fill: CanvasFill,
     ) -> Result<(), String> {
         check_sides(width, height)?;
-        self.end();
+        self.settle();
         if self.doc.size() == (width, height) {
             return Ok(());
         }
@@ -104,7 +104,7 @@ impl Model {
         rect: Rect,
         mask: Option<&Selection>,
     ) -> Result<(), String> {
-        self.end();
+        self.settle();
         let rect = rect.intersect(self.doc.bounds());
         if rect.is_empty() {
             return Err("nothing to crop to".to_string());
@@ -130,7 +130,7 @@ impl Model {
 
     /// Flip Image: mirrors every layer.
     pub fn flip_image(&mut self, flip: Flip) -> Result<(), String> {
-        self.end();
+        self.settle();
         let (w, h) = self.doc.size();
         self.check_replacement(w, h, self.doc.layers().len())?;
         let new = self.doc.mapped(w, h, |_, b| flip.apply(b));
@@ -140,7 +140,7 @@ impl Model {
 
     /// Rotate Image: turns every layer; a quarter turn swaps width and height.
     pub fn rotate_image(&mut self, turn: Turn) -> Result<(), String> {
-        self.end();
+        self.settle();
         let (w, h) = self.doc.size();
         let (nw, nh) = if turn.swaps_sides() { (h, w) } else { (w, h) };
         self.check_replacement(nw, nh, self.doc.layers().len())?;
@@ -177,7 +177,7 @@ impl Model {
         name: String,
         f: impl FnOnce(&Bitmap) -> Bitmap,
     ) -> Result<(), String> {
-        self.end();
+        self.settle();
         let bytes = self.doc.active_layer().pixels.byte_len() as u64;
         self.check_extra_fits(bytes)?;
         let layer = self.doc.active();
@@ -204,7 +204,7 @@ impl Model {
     /// Flatten: one "Background" layer holding the visible layers composited.
     /// A one-layer image is left alone.
     pub fn flatten_image(&mut self) -> Result<(), String> {
-        self.end();
+        self.settle();
         let layers = self.doc.layers().len();
         if layers <= 1 {
             return Ok(());
@@ -221,7 +221,7 @@ impl Model {
     /// through its opacity (a hidden layer adds nothing), and selects the
     /// lower layer, which keeps its own name, opacity and visibility.
     pub fn merge_layer_down(&mut self) -> Result<(), String> {
-        self.end();
+        self.settle();
         let index = self.doc.active();
         if index == 0 {
             return Err("there is no layer below".to_string());
