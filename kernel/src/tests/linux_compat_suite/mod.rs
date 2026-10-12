@@ -212,6 +212,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         scmrights_in_flight_limits,
     ),
     ("compat_scmrights_cycles_refused", scmrights_cycles_refused),
+    (
+        "compat_scmrights_blocked_send_revalidates",
+        scmrights_blocked_send_revalidates,
+    ),
     ("compat_scmrights_soak", scmrights_soak),
     ("compat_memfd_file_operations", memfd_file_operations),
     (

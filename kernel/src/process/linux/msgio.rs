@@ -22,7 +22,7 @@ use super::scatter::{Received, Scatter};
 use super::scm;
 use crate::task::Fd;
 
-use super::errno::{err, EFAULT, EINVAL, EMSGSIZE, EOPNOTSUPP, ETOOMANYREFS};
+use super::errno::{err, EFAULT, EINVAL, EMSGSIZE, EOPNOTSUPP};
 
 const MSG_OOB: u64 = 0x1;
 const MSG_PEEK: u64 = 0x2;
@@ -187,16 +187,6 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     } else {
         None
     };
-    // No socket may carry a socket that could carry it back (`rights.rs`):
-    // the refusal drops the clones `parse_send` took.
-    if let Some(carried) = &rights {
-        let dest = task::fd_clone(fd as usize);
-        if let Some(Fd::Socket { pair, .. }) = &dest {
-            if carried.would_cycle(pair) {
-                return err(ETOOMANYREFS);
-            }
-        }
-    }
     let iov = match read_iov(header.iov, header.iovlen) {
         Ok(iov) => iov,
         Err(code) => return code,

@@ -7,9 +7,11 @@ use super::*;
 use crate::ipc::pipe;
 use crate::quota::{self, Resource};
 
+mod blocked;
 mod delivery;
 mod queue;
 
+pub use blocked::*;
 pub use delivery::*;
 pub use queue::*;
 

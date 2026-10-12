@@ -94,6 +94,9 @@ pub enum Error {
     Interrupted,
     /// A `SOCK_SEQPACKET` message larger than the buffer (`-EMSGSIZE`).
     MessageTooLong,
+    /// Queueing the message's descriptors could close a cycle of sockets
+    /// carrying each other (`-ETOOMANYREFS`, `rights.rs`).
+    TooManyRefs,
     /// An argument the stream layer rejects (`-EINVAL`).
     Invalid,
 }
@@ -406,7 +409,7 @@ impl Pipe {
         nonblock: bool,
         deadline: Option<u64>,
     ) -> Result<usize, Error> {
-        self.write_rights(src, end, nonblock, deadline, &mut None)
+        self.write_rights(src, end, nonblock, deadline, &mut None, None)
     }
 }
 

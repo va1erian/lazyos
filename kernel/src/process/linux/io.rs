@@ -9,7 +9,9 @@ use crate::ipc::pipe;
 use crate::task::{self, FdKind, WakeReason};
 use crate::user_ptr;
 
-use super::errno::{err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE};
+use super::errno::{
+    err, EAGAIN, EBADF, EFAULT, EINTR, EINVAL, EMSGSIZE, ENOMEM, ENOTCONN, EPIPE, ETOOMANYREFS,
+};
 use super::filerw::{read_file_bytes, write_file};
 use super::scatter::{Received, Scatter};
 use super::time::millis_deadline;
@@ -206,6 +208,7 @@ pub(super) fn write_stream_rights(
             Err(pipe::Error::BrokenPipe) => err(EPIPE),
             Err(pipe::Error::Interrupted) => err(EINTR),
             Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
+            Err(pipe::Error::TooManyRefs) => err(ETOOMANYREFS),
             Err(pipe::Error::Invalid) => err(EINVAL),
             Err(pipe::Error::BadEnd) => err(EBADF),
         };
@@ -232,6 +235,7 @@ pub(super) fn pipe_error(error: pipe::Error) -> u64 {
         pipe::Error::BrokenPipe => err(EPIPE),
         pipe::Error::Interrupted => err(EINTR),
         pipe::Error::MessageTooLong => err(EMSGSIZE),
+        pipe::Error::TooManyRefs => err(ETOOMANYREFS),
         pipe::Error::Invalid => err(EINVAL),
         pipe::Error::BadEnd => err(EBADF),
     }
@@ -250,7 +254,9 @@ fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::Interrupted) => err(EINTR),
         Err(pipe::Error::Invalid) => err(EINVAL),
         Err(pipe::Error::BadEnd) => err(EBADF),
-        Err(pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => err(EINVAL),
+        Err(pipe::Error::BrokenPipe | pipe::Error::MessageTooLong | pipe::Error::TooManyRefs) => {
+            err(EINVAL)
+        }
     }
 }
 
@@ -327,6 +333,7 @@ pub(super) fn recv_stream_rights(
         Err(pipe::Error::BrokenPipe) => return Received::of(err(EPIPE)),
         Err(pipe::Error::Interrupted) => return Received::of(err(EINTR)),
         Err(pipe::Error::MessageTooLong) => return Received::of(err(EMSGSIZE)),
+        Err(pipe::Error::TooManyRefs) => return Received::of(err(EINVAL)),
         Err(pipe::Error::Invalid) => return Received::of(err(EINVAL)),
         Err(pipe::Error::BadEnd) => return Received::of(err(EBADF)),
     };
@@ -356,8 +363,11 @@ fn read_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
         Err(pipe::Error::WouldBlock) => err(EAGAIN),
         Err(pipe::Error::Interrupted) => err(EINTR),
         Err(pipe::Error::BadEnd) => err(EBADF),
-        Err(pipe::Error::Invalid | pipe::Error::BrokenPipe | pipe::Error::MessageTooLong) => {
-            err(EINVAL)
-        }
+        Err(
+            pipe::Error::Invalid
+            | pipe::Error::BrokenPipe
+            | pipe::Error::MessageTooLong
+            | pipe::Error::TooManyRefs,
+        ) => err(EINVAL),
     }
 }

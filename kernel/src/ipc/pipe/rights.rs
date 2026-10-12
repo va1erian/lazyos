@@ -28,7 +28,10 @@
 //! read or purge, leaking the in-flight budget for the rest of the boot.
 //! Linux reclaims such cycles with a garbage collector; there is none here,
 //! and a connection socket is sent with an empty queue (WebKit's pattern),
-//! which the rule allows ([`Rights::would_cycle`]).
+//! which the rule allows ([`Rights::would_cycle`]). The check runs under the
+//! destination ring's lock at the moment the message is queued, so a send
+//! that waited for room re-checks when it resumes: what travelled through
+//! the carried pair while it slept counts.
 //!
 //! Locking: descriptors are dropped only with the ring unlocked, since
 //! closing a socket or pipe end takes other rings' locks and wakes queues.
@@ -228,7 +231,10 @@ fn deliver(taken: Vec<Rights>, sink: Option<&mut Vec<Fd>>) {
 impl Pipe {
     /// [`Pipe::write_until`] that also queues `rights` beside the bytes it
     /// stores. `rights` is left in place when nothing was stored (an error),
-    /// for the caller to close.
+    /// for the caller to close. `guard` is the socket pair this pipe is a
+    /// direction of: with descriptors to queue, [`Rights::would_cycle`] is
+    /// asked under the ring lock, right before they are queued, and refuses
+    /// with [`Error::TooManyRefs`].
     pub fn write_rights(
         &self,
         src: &[u8],
@@ -236,6 +242,7 @@ impl Pipe {
         nonblock: bool,
         deadline: Option<u64>,
         rights: &mut Option<Rights>,
+        guard: Option<&SocketPair>,
     ) -> Result<usize, Error> {
         if end != End::Write {
             return Err(Error::BadEnd);
@@ -255,6 +262,16 @@ impl Pipe {
                     return Err(Error::MessageTooLong);
                 }
                 if self.space_for(&ring, src.len()) {
+                    // Decided here, with the ring locked and room found, so
+                    // a send that slept for room sees the queues as they are
+                    // now. The carried pairs' rings are other pipes' locks
+                    // (a pair's own ends are refused before any lock is
+                    // taken), and nothing else runs with this one held.
+                    if let (Some(carried), Some(pair)) = (rights.as_ref(), guard) {
+                        if carried.would_cycle(pair) {
+                            return Err(Error::TooManyRefs);
+                        }
+                    }
                     let was_empty = !ring.has_data();
                     let start = ring.total_in;
                     let n = ring.fill_from(src);
@@ -422,7 +439,7 @@ impl SocketPair {
             return Err(Error::BrokenPipe);
         }
         let (_, write) = self.directions(side);
-        write.write_rights(src, End::Write, nonblock, deadline, rights)
+        write.write_rights(src, End::Write, nonblock, deadline, rights, Some(self))
     }
 
     /// A read (or, with `peek`, a peek) of what the peer wrote, giving the
