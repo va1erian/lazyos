@@ -231,6 +231,26 @@ def _register_dbgd_tools(server, session) -> None:
         return session.call("devices.list")
 
     @server.tool()
+    def pci_config(bdf: str, offset: int = 0, length: int = 64) -> dict:
+        """Read-only PCI configuration space of the function at `bdf`
+        ("00:02.0", see `devices`): `length` bytes (1..256) from `offset`,
+        as `hex` (memory order). No claim, no side effect; works on a device
+        a driver owns."""
+        return session.call("pci.config", bdf=bdf, offset=offset, len=length)
+
+    @server.tool()
+    def mmio_read(bdf: str, bar: int, offset: int, length: int = 4) -> dict:
+        """Read-only register reads of BAR `bar` of the function at `bdf`:
+        `length` bytes (a multiple of 4, at most 4096) from the dword-aligned
+        `offset`, as little-endian dwords in `hex`. Only inside ranges the box
+        allows (built-in per-device table plus lazyos.cfg
+        diag.dbg.mmio.allow=) and only when it was built with
+        LAZYOS_DBGD_MMIO=1; anything else is refused naming the allowed
+        ranges. A device a driver holds needs diag.dbg.mmio.claimed=1.
+        Rate limited (about 256 KiB/s)."""
+        return session.call("mmio.read", bdf=bdf, bar=bar, offset=offset, len=length)
+
+    @server.tool()
     def drivers() -> dict:
         """devd's view: each device's matched driver, model and state."""
         return session.call("drivers.list")
