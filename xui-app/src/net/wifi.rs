@@ -52,9 +52,9 @@ impl Error {
     /// The failure in words, for a status line.
     pub fn describe(self) -> String {
         match self {
-            Error::NotRunning => String::from(
-                "Wi-Fi is not available (an image built with LAZYOS_WIFI=1 runs it)",
-            ),
+            Error::NotRunning => {
+                String::from("Wi-Fi is not available (an image built with LAZYOS_WIFI=1 runs it)")
+            }
             Error::Code(code) => match -code {
                 EPERM | EACCES => String::from("not allowed"),
                 ENOENT => String::from("no such network"),
@@ -278,7 +278,10 @@ pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
     let args = wire::NetworksArgs {
         ifname: String::from(ifname),
     };
-    let body = call(wire::METHOD_NETWORKS, decoded(wire::encode_networks_args(&args))?)?;
+    let body = call(
+        wire::METHOD_NETWORKS,
+        decoded(wire::encode_networks_args(&args))?,
+    )?;
     let mut list: Vec<Network> = decoded(wire::decode_networks_reply(&body))?
         .list
         .iter()
@@ -292,7 +295,11 @@ pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
             connected: n.connected,
         })
         .collect();
-    list.sort_by(|a, b| b.connected.cmp(&a.connected).then(b.rssi_dbm.cmp(&a.rssi_dbm)));
+    list.sort_by(|a, b| {
+        b.connected
+            .cmp(&a.connected)
+            .then(b.rssi_dbm.cmp(&a.rssi_dbm))
+    });
     Ok(list)
 }
 
@@ -301,7 +308,10 @@ pub fn status(ifname: &str) -> Result<Status, Error> {
     let args = wire::StatusArgs {
         ifname: String::from(ifname),
     };
-    let body = call(wire::METHOD_STATUS, decoded(wire::encode_status_args(&args))?)?;
+    let body = call(
+        wire::METHOD_STATUS,
+        decoded(wire::encode_status_args(&args))?,
+    )?;
     let s = decoded(wire::decode_status_reply(&body))?.status;
     Ok(Status {
         state: ConnState::from_wire(s.state),
@@ -342,7 +352,9 @@ pub fn add_network(
     let result = call(wire::METHOD_ADDNETWORK, body.clone());
     body.fill(0);
     let reply = result?;
-    Ok(clipped(&decoded(wire::decode_add_network_reply(&reply))?.id))
+    Ok(clipped(
+        &decoded(wire::decode_add_network_reply(&reply))?.id,
+    ))
 }
 
 /// Join saved network `id` on `ifname`; returns once the attempt started.
@@ -351,7 +363,11 @@ pub fn connect(ifname: &str, id: &str) -> Result<(), Error> {
         ifname: String::from(ifname),
         id: String::from(id),
     };
-    call(wire::METHOD_CONNECT, decoded(wire::encode_connect_args(&args))?).map(drop)
+    call(
+        wire::METHOD_CONNECT,
+        decoded(wire::encode_connect_args(&args))?,
+    )
+    .map(drop)
 }
 
 /// Leave the current network on `ifname` (auto-connect pauses until the
@@ -360,7 +376,11 @@ pub fn disconnect(ifname: &str) -> Result<(), Error> {
     let args = wire::DisconnectArgs {
         ifname: String::from(ifname),
     };
-    call(wire::METHOD_DISCONNECT, decoded(wire::encode_disconnect_args(&args))?).map(drop)
+    call(
+        wire::METHOD_DISCONNECT,
+        decoded(wire::encode_disconnect_args(&args))?,
+    )
+    .map(drop)
 }
 
 /// Delete saved network `id` (disconnects first if it is in use).
@@ -368,7 +388,11 @@ pub fn forget(id: &str) -> Result<(), Error> {
     let args = wire::ForgetArgs {
         id: String::from(id),
     };
-    call(wire::METHOD_FORGET, decoded(wire::encode_forget_args(&args))?).map(drop)
+    call(
+        wire::METHOD_FORGET,
+        decoded(wire::encode_forget_args(&args))?,
+    )
+    .map(drop)
 }
 
 /// Overwrite a secret's bytes before freeing it.
@@ -401,7 +425,10 @@ mod tests {
 
     #[test]
     fn states_and_reasons_have_words() {
-        assert_eq!(ConnState::from_wire(wire::CONN_STATE_CONNECTED), ConnState::Connected);
+        assert_eq!(
+            ConnState::from_wire(wire::CONN_STATE_CONNECTED),
+            ConnState::Connected
+        );
         assert_eq!(ConnState::from_wire(999), ConnState::Disabled);
         assert!(ConnState::Handshake.joining());
         assert!(reason_text(wire::FAIL_REASON_BAD_PASSPHRASE).is_some());
