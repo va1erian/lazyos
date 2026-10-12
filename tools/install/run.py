@@ -64,18 +64,22 @@ TESTDISK = ROOT / "target" / "debug" / "examples" / f"testdisk{EXE}"
 GRUB_FILES = ("EFI/BOOT/BOOTX64.EFI", "EFI/BOOT/grub.cfg")
 STUB_CFG = """search --no-floppy --set=root --file /EFI/BOOT/grub.cfg
 set prefix=($root)/EFI/BOOT
+export root prefix
 configfile $prefix/grub.cfg
 """
 # Shaped like Debian's generated grub.cfg: 00_header's next_entry handling,
-# a default "Linux" entry, and 41_custom's custom.cfg source line.
+# a default "Linux" entry, and 41_custom's custom.cfg source line. Paths go
+# through ${config_directory} (set for the file `configfile` loads), as
+# 41_custom's do: `configfile` starts a new scope, so the stub's prefix may
+# not reach here.
 GRUB_CFG = """serial --unit=0 --speed=115200
 terminal_output console serial
 set timeout=1
-load_env
+load_env -f ${config_directory}/grubenv
 if [ "${next_entry}" ] ; then
    set default="${next_entry}"
    set next_entry=
-   save_env next_entry
+   save_env -f ${config_directory}/grubenv next_entry
 else
    set default=0
 fi
@@ -84,8 +88,8 @@ menuentry "Linux (stand-in)" --id linux {
 	sleep 2
 	halt
 }
-if [ -f ${prefix}/custom.cfg ]; then
-  source ${prefix}/custom.cfg
+if [ -f ${config_directory}/custom.cfg ]; then
+  source ${config_directory}/custom.cfg
 fi
 """
 STARTUP_NSH = "@echo -off\r\nfs0:\r\n\\EFI\\lazyos\\BOOTX64.EFI\r\n"
@@ -180,7 +184,8 @@ def qemu_disk_args(disk: Path, firmware: tuple[Path, Path], out: Path, name: str
             "-device", "ide-hd,drive=disk,bus=ahcib.0,bootindex=0"]
 
 
-def session(args, name: str, steps: list[dict], extra: list[str], out: Path) -> str:
+def session(args, name: str, steps: list[dict], extra: list[str], out: Path,
+            fail_on: str = r"LazyOS PANIC|panicked at") -> str:
     run_dir = out / name
     shutil.rmtree(run_dir, ignore_errors=True)
     run_dir.mkdir(parents=True)
@@ -189,7 +194,7 @@ def session(args, name: str, steps: list[dict], extra: list[str], out: Path) -> 
     command = [sys.executable, ROOT / "tools/screenshot/qemu_session.py",
                "--accel", args.accel, "--memory", args.memory,
                "--timeout", str(args.timeout), "--wait-timeout", str(args.timeout),
-               "--out", run_dir, "--script", script, "--fail-on", r"LazyOS PANIC|panicked at",
+               "--out", run_dir, "--script", script, "--fail-on", fail_on,
                ] + [f"--extra-arg={arg}" for arg in extra]
     started = time.time()
     output = run(command, log=out / f"{name}.session.log", check=False)
@@ -270,8 +275,10 @@ def main() -> int:
             break
         if args.via == "grub":
             set_next_entry(disk, out, "lazyos")
+        # A LazyOS boot that lands in GRUB's "Linux" default fails at once.
         log = session(args, name, desktop_steps(power_off),
-                      qemu_disk_args(disk, firmware, out, name), out)
+                      qemu_disk_args(disk, firmware, out, name), out,
+                      fail_on=rf"LazyOS PANIC|panicked at|{judge.LINUX_STANDIN}")
         report["failures"][name] = judge.judge_boot(log, screen_stats(out, name), uuids, power_off)
         if name == "boot1" and not report["failures"][name]:
             check = run([TESTDISK, "check", disk], log=out / "host.log", check=False)
