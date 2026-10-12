@@ -24,7 +24,7 @@ pub use bitmap::{Bitmap, MAX_SIDE, MIN_SIDE, Pixel, WHITE};
 pub use blend::{div255, source_over};
 pub use damage::Damage;
 pub use document::{Model, TextKey};
-pub use format::{Format, needs_flatten, open as open_file, save as save_file};
+pub use format::{Format, decode_picture, needs_flatten, open as open_file, save as save_file};
 pub use history::{DEFAULT_CAP, Edit, History, LayerCommand, UndoCapture};
 pub use image::{
     BACKGROUND, BudgetError, Document, Layer, LayerProps, MEMORY_BUDGET, Reserved, check_budget,

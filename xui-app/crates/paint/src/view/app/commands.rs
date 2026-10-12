@@ -9,7 +9,7 @@ use xui_core::app::Ui;
 
 use super::dialogs::PasteSize;
 use super::{Msg, PaintApp};
-use crate::model::{Bitmap, Tool};
+use crate::model::Tool;
 use crate::view::Command;
 use crate::view::sysclip::SystemClipboard;
 
@@ -135,7 +135,7 @@ impl PaintApp {
         if self.last_offered.as_ref() == Some(&png) {
             return;
         }
-        if let Ok(bitmap) = Bitmap::decode(&png)
+        if let Ok(bitmap) = crate::model::decode_picture(&png)
             && self.model.set_clipboard(bitmap, (0, 0)).is_ok()
         {
             self.last_offered = Some(png);

@@ -289,6 +289,9 @@ fn a_picture_that_claims_to_be_huge_is_refused_before_decoding() {
     let xml = r#"<image w="2" h="2"><stack><layer src="a.png"/></stack></image>"#;
     let err = open(&handmade(xml, &[("a.png", png_claiming(16384, 16384))])).unwrap_err();
     assert!(err.contains("too large"), "{err}");
+    // The system clipboard's pictures take the same bounded path.
+    let err = decode_picture(&png_claiming(16384, 16384)).unwrap_err();
+    assert!(err.contains("too large"), "{err}");
 }
 
 #[test]

@@ -30,7 +30,12 @@ impl Model {
     /// The document encoded as `format`. A format without layers gets a
     /// flattened copy; the document is not changed. Ask
     /// [`Model::needs_flatten`] first to offer "Flatten image?".
+    ///
+    /// Every format builds a flattened copy (the file itself, or OpenRaster's
+    /// merged image), so that copy is checked against the budget first.
     pub fn save_bytes(&self, format: Format) -> Result<Vec<u8>, String> {
+        let (width, height) = self.doc.size();
+        self.check_extra_fits(u64::from(width) * u64::from(height) * 4)?;
         format::save(format, &self.doc)
     }
 

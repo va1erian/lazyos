@@ -135,15 +135,23 @@ pub fn open(bytes: &[u8]) -> Result<(Format, Document), String> {
         Format::OpenRaster => ora::read(bytes)?,
         Format::Bmp => Document::from_bitmap(bmp::read(bytes)?).map_err(|e| e.to_string())?,
         Format::Png | Format::Jpeg => {
-            let (w, h) = sniff_size(bytes).ok_or("the picture is damaged")?;
-            if !png_size_ok(w, h, HISTORY_RESERVE.total()) {
-                return Err(format!("the picture is too large ({w} x {h})"));
-            }
-            let image = Image::decode(bytes).map_err(|e| format!("the picture is damaged: {e}"))?;
-            Document::from_bitmap(Bitmap::from_image(&image)).map_err(|e| e.to_string())?
+            Document::from_bitmap(decode_picture(bytes)?).map_err(|e| e.to_string())?
         }
     };
     Ok((format, doc))
+}
+
+/// Decodes a PNG or JPEG after checking the size its header declares, since
+/// the decoder allocates the whole picture from that header before reading a
+/// pixel. Every untrusted PNG or JPEG (a file, the system clipboard) goes
+/// through here.
+pub fn decode_picture(bytes: &[u8]) -> Result<Bitmap, String> {
+    let (w, h) = sniff_size(bytes).ok_or("the picture is damaged")?;
+    if !png_size_ok(w, h, HISTORY_RESERVE.total()) {
+        return Err(format!("the picture is too large ({w} x {h})"));
+    }
+    let image = Image::decode(bytes).map_err(|e| format!("the picture is damaged: {e}"))?;
+    Ok(Bitmap::from_image(&image))
 }
 
 /// Encodes `doc` as `format`. The document is never changed: a format

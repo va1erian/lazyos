@@ -35,7 +35,13 @@ impl FlatCache {
     pub fn update(&mut self, doc: &Document, damage: Damage) -> &Bitmap {
         let stale = self.flat.as_ref().is_none_or(|f| f.size() != doc.size());
         match (stale, damage) {
-            (true, _) | (_, Damage::All) => self.flat = Some(doc.flatten()),
+            (true, _) => self.flat = Some(doc.flatten()),
+            // Same size: recompose in place rather than allocate a new cache.
+            (false, Damage::All) => {
+                if let Some(flat) = &mut self.flat {
+                    doc.flatten_into(flat, doc.bounds());
+                }
+            }
             (false, Damage::Rect(rect)) => {
                 if let Some(flat) = &mut self.flat {
                     doc.flatten_into(flat, rect);

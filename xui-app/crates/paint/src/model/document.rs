@@ -220,7 +220,9 @@ impl Model {
         entry: u64,
     ) -> Result<(), String> {
         let mut reserved = self.reserved();
-        reserved.history = reserved.history.max(entry);
+        // Until `History::record` trims, the new entry sits beside what the
+        // history already holds.
+        reserved.history = reserved.history.saturating_add(entry);
         check_budget(width, height, layers, reserved).map_err(|e| e.to_string())
     }
 
