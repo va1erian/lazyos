@@ -1,0 +1,16 @@
+Make InlineCacheCompiler.h self-contained when the JIT is on.
+
+The header returns `CCallHelpers::Jump` and `CCallHelpers::JumpList` from
+static member functions of `InlineCacheCompiler`, which needs the complete
+type, but only forward-declares it. A translation unit that reaches the
+header before `CCallHelpers.h` (here `llint/LLIntOffsetsExtractor.cpp`, built
+with `ENABLE_JIT=ON` and not part of a unified source) fails with "incomplete
+type named in nested name specifier". WebKitGTK 2.54.1 as released.
+
+--- a/Source/JavaScriptCore/bytecode/InlineCacheCompiler.h
++++ b/Source/JavaScriptCore/bytecode/InlineCacheCompiler.h
+@@ -30,3 +30,4 @@
+ #include "AccessCase.h"
++#include "CCallHelpers.h"
+ #include "InlineCacheHandler.h"
+ #include "JITStubRoutine.h"
