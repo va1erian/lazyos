@@ -46,6 +46,10 @@ pub struct Attr {
     pub fg: Color,
     pub bg: Color,
     pub flags: Flags,
+    /// The hyperlink the text belongs to (OSC 8): an index into the
+    /// terminal's link table, `0` for none. It is part of the attribute so
+    /// runs of one link are one run, and an erase drops it.
+    pub link: u16,
 }
 
 impl Attr {
@@ -56,6 +60,7 @@ impl Attr {
             fg: Color::Default,
             bg: self.bg,
             flags: Flags::default(),
+            link: 0,
         }
     }
 }

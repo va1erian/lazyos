@@ -70,8 +70,17 @@ impl Terminal {
         self.send(bytes);
     }
 
-    /// Repaint what changed on screen (the rows, or the scrollbar).
+    /// Repaint what changed on screen (the rows, or the scrollbar), unless a
+    /// synchronized update is open (`meta.rs` holds it for a moment).
     pub(super) fn refresh(&mut self, ui: &mut Ui<Msg>) {
+        if self.hold_for_sync(ui) {
+            return;
+        }
+        self.repaint(ui);
+    }
+
+    /// The repaint itself.
+    pub(super) fn repaint(&mut self, ui: &mut Ui<Msg>) {
         let key = self.look.borrow().key();
         let changed = self
             .shown
@@ -145,6 +154,7 @@ impl Terminal {
             }
         }
         self.touch(ui);
+        self.meta_changed(ui);
         self.refresh(ui);
         let at_prompt = {
             let term = self.term.borrow();

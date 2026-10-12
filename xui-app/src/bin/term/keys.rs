@@ -4,6 +4,7 @@
 use xui_core::app::Ui;
 use xui_core::{Key, Modifiers};
 
+use super::chords::chord_bytes;
 use super::scroll::key_move;
 use super::{Msg, Terminal};
 
@@ -37,36 +38,12 @@ pub fn zoom_key(key: Key, m: Modifiers) -> Option<Option<i32>> {
     }
     match key.code() {
         0xbb | 0x6b => Some(Some(1)),
-        0xbd | 0x6d => Some(Some(-1)),
+        // Ctrl+Shift+- is Ctrl+_, which a program may want.
+        0xbd if !m.shift => Some(Some(-1)),
+        0x6d => Some(Some(-1)),
         0x30 | 0x60 => Some(None),
         _ => None,
     }
-}
-
-/// The control byte of a Ctrl+letter chord (`Ctrl+C` is 3), or `None`.
-pub fn control_byte(key: Key) -> Option<u8> {
-    let code = key.code();
-    (u16::from(b'A')..=u16::from(b'Z'))
-        .contains(&code)
-        .then(|| code as u8 - b'A' + 1)
-}
-
-/// The bytes a VT100 sends for a non-text key (`None`: nothing to send).
-pub fn key_sequence(key: Key) -> Option<&'static [u8]> {
-    Some(match key {
-        Key::ESCAPE => b"\x1b",
-        Key::UP => b"\x1b[A",
-        Key::DOWN => b"\x1b[B",
-        Key::RIGHT => b"\x1b[C",
-        Key::LEFT => b"\x1b[D",
-        Key::HOME => b"\x1b[H",
-        Key::END => b"\x1b[F",
-        Key::INSERT => b"\x1b[2~",
-        Key::DELETE => b"\x1b[3~",
-        Key::PAGE_UP => b"\x1b[5~",
-        Key::PAGE_DOWN => b"\x1b[6~",
-        _ => return None,
-    })
 }
 
 impl Terminal {
@@ -123,18 +100,20 @@ impl Terminal {
         let scrollable = !self.term.borrow().on_alternate_screen();
         if let Some(mv) = key_move(key, mods.shift, mods.ctrl, self.page()).filter(|_| scrollable) {
             self.scroll(ui, mv);
-        } else if mods.ctrl {
-            // Ctrl+A..Z: the control byte (^C, ^D, ^Z ...), which the line
-            // discipline turns into a signal or an edit.
-            if let Some(byte) = control_byte(key) {
-                // ^C, ^D and ^U abandon the line being typed.
-                if matches!(byte, 3 | 4 | 21) {
-                    self.typed.clear();
-                }
-                self.input(ui, &[byte]);
+            return;
+        }
+        let modes = self.term.borrow().key_modes();
+        if let Some(bytes) = chord_bytes(key, mods, modes) {
+            // ^C, ^D and ^U abandon the line being typed.
+            if matches!(bytes.as_slice(), [3 | 4 | 21]) {
+                self.typed.clear();
             }
-        } else if let Some(sequence) = key_sequence(key) {
-            self.input(ui, sequence);
+            // Shift+Tab sends a sequence; the tab character that follows it
+            // as a `Char` is not for the program.
+            if key == Key::TAB && mods.shift {
+                self.skip_char = Some('\t');
+            }
+            self.input(ui, &bytes);
         }
     }
 }
@@ -165,14 +144,11 @@ mod tests {
     }
 
     #[test]
-    fn plain_ctrl_letters_stay_control_bytes() {
+    fn plain_ctrl_letters_are_not_shortcuts() {
         assert_eq!(shortcut(letter(b'C'), mods(true, false)), None, "^C interrupts");
         assert_eq!(shortcut(letter(b'V'), mods(true, false)), None);
         assert_eq!(shortcut(letter(b'A'), mods(true, false)), None);
         assert_eq!(shortcut(Key::INSERT, mods(false, false)), None);
-        assert_eq!(control_byte(letter(b'C')), Some(3));
-        assert_eq!(control_byte(letter(b'Z')), Some(26));
-        assert_eq!(control_byte(Key::UP), None);
     }
 
     #[test]
@@ -182,6 +158,7 @@ mod tests {
         assert_eq!(zoom_key(Key::from_code(0xbb), mods(true, true)), Some(Some(1)), "Ctrl++");
         assert_eq!(zoom_key(Key::from_code(0x6b), ctrl), Some(Some(1)), "keypad +");
         assert_eq!(zoom_key(Key::from_code(0xbd), ctrl), Some(Some(-1)), "Ctrl+-");
+        assert_eq!(zoom_key(Key::from_code(0xbd), mods(true, true)), None, "Ctrl+_ is the program's");
         assert_eq!(zoom_key(Key::from_code(0x30), ctrl), Some(None), "Ctrl+0 resets");
         assert_eq!(zoom_key(Key::from_code(0xbb), mods(false, false)), None, "a plain = is text");
         let alt = Modifiers { ctrl: true, alt: true, ..Modifiers::default() };
@@ -197,12 +174,5 @@ mod tests {
             ..Modifiers::default()
         };
         assert_eq!(shortcut(letter(b'C'), m), None);
-    }
-
-    #[test]
-    fn navigation_keys_have_sequences() {
-        assert_eq!(key_sequence(Key::UP), Some(&b"\x1b[A"[..]));
-        assert_eq!(key_sequence(Key::INSERT), Some(&b"\x1b[2~"[..]));
-        assert_eq!(key_sequence(Key::F1), None);
     }
 }

@@ -250,6 +250,10 @@ BusyBox `vi` re-reads the window size on its next key, not on `SIGWINCH`
 `TERM:RESIZE:<cols>x<rows>`. Sessions: `term_resize.json`,
 `term_window_size.json`.
 
+Sessions that must not inherit a size: the remembered `window/last_size`
+survives on a non-reset OS volume, so build the image with
+`LAZYOS_RESET_OS=1` or give the session an explicit `window/size`.
+
 ### T5. `TERM`, keys and the rest of xterm's core
 
 - Ship a terminfo entry and set `TERM=xterm-256color` (compiled entry under
@@ -266,6 +270,40 @@ BusyBox `vi` re-reads the window size on its next key, not on `SIGWINCH`
   hyperlinks.
 - Focus reporting (`?1004`), synchronized output (`?2026`, hold paints until
   the end mark) so full-screen redraws do not tear.
+
+As built: `TERM=xterm-256color`, `COLORTERM=truecolor`,
+`TERMINFO_DIRS=/system/share/terminfo` (`fhs::share::TERMINFO`) and a `PS1`
+that is BusyBox's default prompt behind a non-printing OSC 7 (`\[\e]7;file://\w\a\]`,
+`FEATURE_EDITING_FANCY_PROMPT`; `\w` abbreviates `$HOME` to `~`, which the
+Terminal expands) are the child's environment. The entry's source is
+`assets/terminfo/xterm-256color.src`: xterm-256color trimmed to what lazyterm
+does (no alternate character set, no insert mode, no blink). The image build
+compiles it with `libs/terminfo` (a source parser and a writer of the legacy
+compiled format; its output is byte-identical to ncurses' `tic` for the same
+source, which was checked once by hand; host tests round-trip it and keep
+the key capabilities equal to what `lazyterm::keys` sends and the output
+capabilities equal to what the parser does).
+
+Keys are `lazyterm::keys` (xterm's encodings: Alt as an ESC prefix, F1-F12,
+modified arrows and navigation keys as `CSI 1;<m>`, DECCKM, DECKPAM, Shift+Tab
+as `CSI Z`, Ctrl+Space/@/[/\\/]/^/_//?); `term/chords.rs` maps xui's keys
+(US layout) onto them. The keypad's DECKPAM encoding exists and is tested, but
+xui's `Key` has no numeric-keypad codes, so nothing is wired to it. Ctrl+- is
+still the zoom; Ctrl+Shift+- is Ctrl+_. OSC 0/2 set the window title
+(printable characters, at most 256; an empty one or a reset restores
+"Terminal"; the title is not reset when the shell returns to its prompt),
+OSC 7 the working directory (`TERM:CWD:`), OSC 8 hyperlinks (an interned table
+bounded to 8192 links, a link id per cell: rendering and clicking are T6).
+Focus reporting (`?1004`) follows the *window's* keyboard focus
+(`LazyOSBackend::on_keyboard_focus`, from the input session's Enter and
+Leave), which also drives the hollow cursor; synchronized output (`?2026`)
+holds the repaint for at most 150 ms. Device attributes: primary
+`CSI ? 62 ; 22 c` (VT220 with ANSI colour, claiming only what is
+implemented), secondary `CSI > 0 ; 10 ; 0 c` (a version low enough that no
+program enables xterm extensions lazyterm lacks). `vte` is built without its
+`std` feature so an unterminated OSC cannot grow past 4096 bytes. Session:
+`tools/screenshot/examples/term_xterm.json` (needs `rhai` and
+`LAZYOS_LINUXAPPS=1` for the `rg` part).
 
 ### T6. Convenience
 

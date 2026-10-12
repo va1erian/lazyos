@@ -22,6 +22,8 @@ pub(super) enum Msg {
     Resized,
     /// The size badge's time is up.
     BadgeOff,
+    /// A held synchronized update has been held long enough.
+    SyncExpired,
     /// A translated character from the keyboard.
     Char(char),
     /// A key press with the modifiers held: arrows, Escape and the like, and

@@ -157,6 +157,9 @@ impl Terminal {
             self.offset.set(offset.min(max_offset(&term, rows)));
         }
         self.master.set_size(rows as u16, cols as u16);
+        // The cursor is solid while the size changes.
+        self.blink.activity(now_ms());
+        self.sync_cursor_phase();
         println!("TERM:RESIZE:{cols}x{rows}");
         if self.sized {
             self.show_badge(ui, cols, rows);
@@ -259,6 +262,12 @@ impl Terminal {
 
     pub(super) fn focus_changed(&mut self, ui: &mut Ui<Msg>, focused: bool) {
         self.blink.set_focused(focused, now_ms());
+        println!("TERM:FOCUS:{}", u8::from(focused));
+        // A program that asked (`?1004`) hears about it.
+        let report = self.term.borrow().focus_report(focused);
+        if let Some(report) = report {
+            self.send(report);
+        }
         self.sync_cursor_phase();
         self.refresh(ui);
     }

@@ -84,6 +84,9 @@ enum Mode {
     Client(RefCell<ClientState>),
 }
 
+/// A callback told whether the window has the keyboard.
+type FocusCallback = Rc<dyn Fn(bool)>;
+
 /// A bound display, an open window, and a node table.
 pub struct LazyOSBackend {
     /// How this backend presents and receives input.
@@ -148,6 +151,9 @@ pub struct LazyOSBackend {
     frames: Cell<u64>,
     /// A one-shot callback run after the first frame reached the screen.
     on_first_frame: RefCell<Option<Box<dyn FnOnce()>>>,
+    /// Told when the window's keyboard focus arrives or leaves
+    /// ([`LazyOSBackend::on_keyboard_focus`]).
+    on_keyboard_focus: RefCell<Option<FocusCallback>>,
     /// Content-size hints applied to every window this app opens, or `None`
     /// for fixed-size windows. Set before `run_app` with
     /// [`LazyOSBackend::set_size_hints`].
@@ -312,6 +318,7 @@ impl LazyOSBackend {
             paint_damage: Cell::new(None),
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
+            on_keyboard_focus: RefCell::new(None),
             size_hints: Cell::new(None),
             next_role: Cell::new(SurfaceRole::Window),
             scale: Cell::new(1),
@@ -349,6 +356,16 @@ impl LazyOSBackend {
     /// (through the display grant or to `xuid`).
     pub fn on_first_frame(&self, callback: impl FnOnce() + 'static) {
         *self.on_first_frame.borrow_mut() = Some(Box::new(callback));
+    }
+
+    /// Registers a callback told when the *window* gains (`true`) or loses
+    /// (`false`) the keyboard, as the compositor's input session reports it
+    /// (`Enter`/`Leave`). Widgets only see focus moving between their own
+    /// nodes; an app that must react to the window being switched away from
+    /// (the Terminal's hollow cursor and `?1004` focus reports) uses this. The
+    /// callback runs on the event loop's thread; send a message, do not block.
+    pub fn on_keyboard_focus(&self, callback: impl Fn(bool) + 'static) {
+        *self.on_keyboard_focus.borrow_mut() = Some(Rc::new(callback));
     }
 
     /// The node holding the keyboard focus, if any: lets an app's shortcut

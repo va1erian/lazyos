@@ -7,7 +7,7 @@ description = "The Terminal's portable engine: escape-sequence parser, screen, c
 
 [dependencies]
 # Alacritty's escape-sequence state machine (MIT/Apache-2.0).
-vte = "0.15"
+vte = { version = "0.15", default-features = false }
 # Terminal cell widths (CJK and emoji take two cells).
 unicode-width = "0.2"
 # Font tables: family names, styles and glyph advances (to offer only the
@@ -17,3 +17,8 @@ ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 [features]
 # Exposes `lazyterm::fuzz::run` to a cargo-fuzz target.
 fuzz = []
+
+[dev-dependencies]
+# The shipped terminfo entry is checked against what the engine does and the
+# keys it sends (`src/tests_terminfo.rs`).
+terminfo = { path = "../../../libs/terminfo" }

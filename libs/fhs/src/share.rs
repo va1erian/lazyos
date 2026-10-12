@@ -143,3 +143,13 @@ mod tests {
         }
     }
 }
+
+/// The terminfo database the Terminal's child shell finds through
+/// `TERMINFO_DIRS` (ncurses layout: `<dir>/<first letter>/<name>`). Written by
+/// the image build.
+pub const TERMINFO: &str = "/system/share/terminfo";
+
+/// The one entry shipped: `xterm-256color`, trimmed to what the Terminal
+/// implements (`assets/terminfo/xterm-256color.src`, compiled by
+/// `libs/terminfo` at build time), which `TERM=xterm-256color` names.
+pub const TERMINFO_XTERM_256COLOR: &str = "/system/share/terminfo/x/xterm-256color";

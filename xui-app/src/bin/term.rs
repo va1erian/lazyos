@@ -46,6 +46,8 @@ mod appearance;
 mod badge;
 #[path = "term/blink.rs"]
 mod blink;
+#[path = "term/chords.rs"]
+mod chords;
 #[path = "term/clicks.rs"]
 mod clicks;
 #[path = "term/clip.rs"]
@@ -64,6 +66,8 @@ mod geometry;
 mod keys;
 #[path = "term/look.rs"]
 mod look;
+#[path = "term/meta.rs"]
+mod meta;
 #[path = "term/metrics.rs"]
 mod metrics;
 #[path = "term/msg.rs"]
@@ -99,6 +103,12 @@ use view::{Layout, Shown};
 /// `busybox sh -i`. `argv[0]` (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox
 /// dispatches on, so it is set explicitly.
 const SHELL: &str = fhs::bin::BUSYBOX;
+/// BusyBox ash's default prompt (`\w \$ `) behind a non-printing OSC 7 with
+/// the working directory: `\[` and `\]` bracket what takes no columns, `\e`
+/// and `\a` are ESC and BEL. The visible prompt is exactly the default one
+/// (`evidence::is_prompt` reads it). `\w` abbreviates the home directory to
+/// `~`, which `Terminal::cwd` expands.
+const PROMPT: &str = "\\[\\e]7;file://\\w\\a\\]\\w \\$ ";
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);
@@ -184,6 +194,14 @@ struct Terminal {
     remember: bool,
     /// The grid to remember in `confd` once the window has rested, and when.
     save: Option<(usize, usize, u64)>,
+    /// The tab character that follows a Shift+Tab key press is not sent.
+    skip_char: Option<char>,
+    /// What the program told the window (OSC 0/2 and 7), as last shown, and the
+    /// synchronized update being held back (`output.rs`).
+    title_generation: u64,
+    cwd: Option<lazyterm::Cwd>,
+    sync_hold: Option<u64>,
+    sync_timer: Rc<Cell<Option<TimerId>>>,
 }
 
 impl Terminal {
@@ -231,17 +249,21 @@ impl App for Terminal {
             Msg::Focus(focused) => self.focus_changed(ui, focused),
             Msg::Resized => self.window_resized(ui),
             Msg::BadgeOff => self.hide_badge(ui),
+            Msg::SyncExpired => self.sync_expired(ui),
             // While the paste confirmation is up the keyboard answers it.
             Msg::Char('\r' | '\n') if self.pending_text.is_some() => self.confirm(ui, true),
             Msg::Key(Key::ESCAPE, _) if self.pending_text.is_some() => self.confirm(ui, false),
             Msg::Char(_) | Msg::Key(..) if self.pending_text.is_some() => {}
             Msg::Char(ch) => {
                 self.touch(ui);
-                self.key(ch, ui);
+                if self.skip_char.take() != Some(ch) {
+                    self.key(ch, ui);
+                }
             }
-            // Both input paths also deliver Enter and Backspace as `Char`s:
-            // handling the key too would send each one twice.
-            Msg::Key(Key::RETURN | Key::BACK, _) => {}
+            // Both input paths also deliver a plain Enter or Backspace as a
+            // `Char`: handling the key too would send each one twice. With Alt
+            // or Ctrl there is no `Char`, and the chord is encoded.
+            Msg::Key(Key::RETURN | Key::BACK, mods) if !(mods.alt || mods.ctrl) => {}
             Msg::Key(key, mods) => {
                 self.touch(ui);
                 self.key_chord(ui, key, mods);
@@ -288,11 +310,22 @@ fn main() {
     let blink_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
     let badge_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
     let badge: Rc<RefCell<Option<String>>> = Rc::default();
+    let sync_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
     let pending: Rc<Cell<Option<usize>>> = Rc::default();
     // Files dropped on the window arrive on the backend's hook; the proxy
     // turns them into a message once the UI exists.
     let outbox: Rc<RefCell<Option<Proxy<Msg>>>> = Rc::default();
     watch_drops(&backend, Rc::clone(&outbox));
+    // The window gaining or losing the keyboard (switching to another window):
+    // the cursor goes hollow and a program that asked hears about it.
+    {
+        let outbox = Rc::clone(&outbox);
+        backend.on_keyboard_focus(move |focused| {
+            if let Some(proxy) = outbox.borrow().as_ref() {
+                let _ = proxy.send(Msg::Focus(focused));
+            }
+        });
+    }
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
         // `wants_tab`: Tab must reach the shell (completion), not move the
@@ -314,7 +347,13 @@ fn main() {
         let (cols, rows) = asked.unwrap_or_else(|| appearance::grid_for(ui.client_rect(), &metrics));
         let mut shell = Command::new(SHELL);
         shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
-        shell.env("TERM", "vt100");
+        shell.env("TERM", "xterm-256color");
+        // 24-bit colour, the terminfo database the shipped entry lives in,
+        // and a prompt that reports the working directory (OSC 7) without
+        // changing what is shown (docs/terminal-plan.md T5).
+        shell.env("COLORTERM", "truecolor");
+        shell.env("TERMINFO_DIRS", fhs::share::TERMINFO);
+        shell.env("PS1", PROMPT);
         let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
             Ok(spawned) => spawned,
             Err(error) => {
@@ -363,7 +402,7 @@ fn main() {
         root.focus();
         ui.on_close(|| Some(Msg::Close));
         events::watch_resize(ui);
-        events::route_timers(ui, &auto, &flush, &blink_timer, &badge_timer);
+        events::route_timers(ui, &auto, &flush, &blink_timer, &badge_timer, &sync_timer);
         ui.set_timer(FALLBACK_MILLIS);
         let mut terminal = Terminal {
             child,
@@ -404,6 +443,11 @@ fn main() {
             settling: asked.is_some(),
             remember: false,
             save: None,
+            skip_char: None,
+            title_generation: 0,
+            cwd: None,
+            sync_hold: None,
+            sync_timer: Rc::clone(&sync_timer),
         };
         terminal.restyle(ui);
         if let Some(grid) = asked {

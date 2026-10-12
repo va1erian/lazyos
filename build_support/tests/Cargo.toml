@@ -24,6 +24,8 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
+# The Terminal's terminfo entry (`samples_embed.rs`).
+terminfo = { path = "../../libs/terminfo" }
 lazyos-crypto = { path = "../../libs/crypto" }
 # The OS random source `dbgd_cfg.rs` makes the generated key from.
 getrandom = "0.4.3"

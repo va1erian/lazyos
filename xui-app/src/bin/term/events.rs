@@ -64,8 +64,9 @@ pub(super) fn route_timers(
     flush: &Rc<Cell<Option<TimerId>>>,
     blink: &Rc<Cell<Option<TimerId>>>,
     badge: &Rc<Cell<Option<TimerId>>>,
+    sync: &Rc<Cell<Option<TimerId>>>,
 ) {
-    let timers = (Rc::clone(auto), Rc::clone(flush), Rc::clone(blink), Rc::clone(badge));
+    let timers = (Rc::clone(auto), Rc::clone(flush), Rc::clone(blink), Rc::clone(badge), Rc::clone(sync));
     ui.on_timer(move |id| {
         Some(if timers.0.get() == Some(id) {
             Msg::Autoscroll
@@ -73,6 +74,8 @@ pub(super) fn route_timers(
             Msg::Flush
         } else if timers.2.get() == Some(id) {
             Msg::Blink
+        } else if timers.4.get() == Some(id) {
+            Msg::SyncExpired
         } else if timers.3.get() == Some(id) {
             Msg::BadgeOff
         } else {

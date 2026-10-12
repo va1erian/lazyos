@@ -1,5 +1,5 @@
 //! Operating system commands: the colour ones (4, 10, 11, 12 set and query;
-//! 104, 110, 111, 112 reset). Titles and the rest are ignored here (T5).
+//! 104, 110, 111, 112 reset) and the dispatch of the rest (`osc_meta.rs`).
 //! Every parameter is bounded: the text comes from the program's output.
 
 use crate::palette::{parse_color, Rgb};
@@ -51,6 +51,11 @@ impl State {
                     }
                 }
             }
+            // Titles (0 also names the icon, 1 only the icon: ignored), the
+            // working directory and hyperlinks: `osc_meta.rs`.
+            "0" | "2" => self.set_title(params),
+            "7" => self.set_cwd(params),
+            "8" => self.set_link(params),
             "110" => self.palette.set_fg(self.palette.scheme().fg),
             "111" => self.palette.set_bg(self.palette.scheme().bg),
             "112" => self.palette.set_cursor(self.palette.scheme().cursor),

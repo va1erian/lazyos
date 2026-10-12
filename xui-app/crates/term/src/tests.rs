@@ -325,7 +325,7 @@ fn status_reports_are_queued_for_the_pty() {
     assert_eq!(term.take_reply(), b"\x1b[3;5R");
     assert!(term.take_reply().is_empty());
     term.feed(b"\x1b[5n\x1b[c\x1b[0c");
-    assert_eq!(term.take_reply(), b"\x1b[0n\x1b[?6c\x1b[?6c");
+    assert_eq!(term.take_reply(), b"\x1b[0n\x1b[?62;22c\x1b[?62;22c");
 }
 
 #[test]
@@ -338,7 +338,7 @@ fn a_cursor_report_at_the_margin_is_in_range() {
 #[test]
 fn unsafe_queries_get_no_answer() {
     let mut term = Term::new(80, 24);
-    term.feed(b"\x1b[21t\x1b[18t\x1b]0;?\x07\x1b[>c\x1bP$qm\x1b\\");
+    term.feed(b"\x1b[21t\x1b[18t\x1b]0;?\x07\x1bP$qm\x1b\\");
     assert!(term.take_reply().is_empty());
 }
 

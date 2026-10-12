@@ -66,8 +66,18 @@ impl LazyOSBackend {
             InputEvent::Leave => {
                 self.modifiers.set(Modifiers::NONE);
                 self.release_held_keys(window);
+                self.keyboard_focus(false);
             }
-            InputEvent::Enter(_) | InputEvent::Layout(_) | InputEvent::Grant { .. } => {}
+            InputEvent::Enter(_) => self.keyboard_focus(true),
+            InputEvent::Layout(_) | InputEvent::Grant { .. } => {}
+        }
+    }
+
+    /// Tell the app (`on_keyboard_focus`) the window gained or lost the keyboard.
+    fn keyboard_focus(&self, focused: bool) {
+        let callback = self.on_keyboard_focus.borrow().clone();
+        if let Some(callback) = callback {
+            callback(focused);
         }
     }
 

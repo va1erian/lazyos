@@ -2,7 +2,9 @@
 //! two text files and the Docs app's test document. LazyWriter's sample
 //! picture and the Archiver's sample archives are data assets
 //! (`assets/samples`, `assets_embed.rs`); the sample packages (`pkgdemo.lzp`,
-//! Doom, the MOD player) have their own embed modules.
+//! Doom, the MOD player) have their own embed modules. The Terminal's terminfo
+//! entry, the other generated file under `/system/share`, is compiled here too
+//! (`libs/terminfo`; no `tic` is needed on the build host).
 
 use crate::os_image::Sink;
 
@@ -11,8 +13,17 @@ use crate::os_image::Sink;
 /// dialog, and by hand in the Docs app or the Editor.
 const TESTDOC: &str = "xui-app/docs/testdata/testdoc.md";
 
-/// Add the samples to the OS file list.
+/// The Terminal's terminfo source (docs/terminal-plan.md T5).
+const TERMINFO_SRC: &str = "assets/terminfo/xterm-256color.src";
+
+/// Add the samples (and the terminfo entry) to the OS file list.
 pub fn embed(sink: &mut dyn Sink) {
+    println!("cargo:rerun-if-changed={TERMINFO_SRC}");
+    sink.add_bytes(
+        fhs::share::TERMINFO_XTERM_256COLOR,
+        terminfo::compile_source(include_str!("../assets/terminfo/xterm-256color.src"))
+            .expect("assets/terminfo/xterm-256color.src compiles"),
+    );
     println!("cargo:rerun-if-changed=build_support/samples_embed.rs");
     println!("cargo:rerun-if-changed={TESTDOC}");
     let sample = |name: &str| format!("{}/{name}", fhs::share::SAMPLES);

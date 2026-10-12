@@ -51,7 +51,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "01_initial_68x19"
@@ -120,7 +120,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "03_bigger_stty"
@@ -189,7 +189,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "05_smaller_stty"
@@ -246,7 +246,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "06_maximized"
@@ -303,7 +303,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "07_restored"
@@ -411,7 +411,7 @@
   "key": "enter"
  },
  {
-  "wait": 1.5
+  "wait": 0.7
  },
  {
   "shot": "10_after_vi"

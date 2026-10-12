@@ -222,6 +222,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "passwd",
+ "terminfo",
  "tracefmt",
  "webpki-root-certs",
 ]
@@ -756,6 +757,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "passwd",
+ "terminfo",
  "tracefmt",
  "user",
  "webpki-root-certs",
@@ -1337,6 +1339,10 @@ dependencies = [
  "rustix",
  "windows-sys",
 ]
+
+[[package]]
+name = "terminfo"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

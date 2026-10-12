@@ -7,6 +7,8 @@ use unicode_width::UnicodeWidthChar;
 use crate::cell::{Attr, Cell};
 use crate::history::History;
 use crate::input::MouseMode;
+use crate::links::Links;
+use crate::osc_meta::Cwd;
 use crate::palette::{scheme_by_name, Palette};
 use crate::selection::Selection;
 use crate::reflow::{reflow, Remap};
@@ -64,6 +66,19 @@ pub(crate) struct State {
     pub mouse: MouseMode,
     pub mouse_sgr: bool,
     pub bracketed_paste: bool,
+    /// DECCKM, DECKPAM (what keys send), focus reporting (`?1004`) and
+    /// synchronized output (`?2026`): see `keys.rs`.
+    pub app_cursor: bool,
+    pub app_keypad: bool,
+    pub focus_reporting: bool,
+    pub sync_output: bool,
+    /// The window title a program set (OSC 0/2; `None` when it has not, or
+    /// cleared it), counted so the host sees a change; the working directory
+    /// the shell reported (OSC 7); the hyperlinks cells point at (OSC 8).
+    pub title: Option<String>,
+    pub title_generation: u64,
+    pub cwd: Option<Cwd>,
+    pub links: Links,
     stash: Option<Stash>,
     pub row: usize,
     pub col: usize,
@@ -107,6 +122,14 @@ impl State {
             mouse: MouseMode::Off,
             mouse_sgr: false,
             bracketed_paste: false,
+            app_cursor: false,
+            app_keypad: false,
+            focus_reporting: false,
+            sync_output: false,
+            title: None,
+            title_generation: 0,
+            cwd: None,
+            links: Links::default(),
             stash: None,
             row: 0,
             col: 0,
@@ -413,6 +436,8 @@ impl State {
         std::mem::swap(&mut fresh.palette, &mut self.palette);
         fresh.palette.reset();
         fresh.history.clear();
+        // The title goes with the rest, but the host must see that it changed.
+        fresh.title_generation = self.title_generation + u64::from(self.title.is_some());
         *self = fresh;
     }
 

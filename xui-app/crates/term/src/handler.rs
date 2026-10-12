@@ -7,7 +7,22 @@ use vte::{Params, Perform};
 
 use crate::cell::{Color, Flags};
 use crate::input::MouseMode;
+use crate::keys;
 use crate::state::State;
+
+/// Primary device attributes, `CSI c`: `CSI ? 62 ; 22 c`, a VT220-class
+/// terminal (62) with ANSI colour (22). xterm itself claims more (132 columns,
+/// selective erase, national sets, windowing...); this claims only what is
+/// here, so a program that picks features from the list does not pick one
+/// that is missing.
+const PRIMARY_DA: &[u8] = b"\x1b[?62;22c";
+
+/// Secondary device attributes, `CSI > c`: `CSI > 0 ; 10 ; 0 c`: terminal
+/// type 0 (VT100), firmware 10, no ROM cartridge. Programs gate xterm
+/// extensions on this version (vim's mouse mode, for one), so it is
+/// deliberately lower than any xterm patch level that implies features lazyterm
+/// lacks.
+const SECONDARY_DA: &[u8] = b"\x1b[>0;10;0c";
 
 /// The `index`-th parameter's first value, if present.
 fn nth(params: &Params, index: usize) -> Option<u16> {
@@ -53,6 +68,7 @@ impl Perform for State {
         match intermediates {
             [] => self.csi(params, action),
             [b'?'] => self.private_mode(params, action),
+            [b'>'] if action == 'c' && mode(params) == 0 => self.reply.extend_from_slice(SECONDARY_DA),
             _ => {}
         }
     }
@@ -72,6 +88,9 @@ impl Perform for State {
             ([], b'8') => self.restore_cursor(),
             ([], b'H') => self.tabs[self.col] = true,
             ([], b'c') => self.reset(),
+            // DECKPAM / DECKPNM: the keypad sends SS3 sequences, or its characters.
+            ([], b'=') => self.app_keypad = true,
+            ([], b'>') => self.app_keypad = false,
             ([b'#'], b'8') => self.alignment_pattern(),
             _ => {}
         }
@@ -127,7 +146,7 @@ impl State {
                 }
             }
             'n' => self.status_report(mode(params)),
-            'c' if mode(params) == 0 => self.reply.extend_from_slice(b"\x1b[?6c"),
+            'c' if mode(params) == 0 => self.reply.extend_from_slice(PRIMARY_DA),
             _ => {}
         }
     }
@@ -153,6 +172,9 @@ impl State {
         for group in params.iter() {
             match group.first() {
                 Some(7) => self.autowrap = on,
+                Some(&keys::DECCKM) => self.app_cursor = on,
+                Some(&keys::FOCUS_REPORTING) => self.focus_reporting = on,
+                Some(&keys::SYNC_OUTPUT) => self.sync_output = on,
                 Some(25) => self.cursor_visible = on,
                 Some(code @ (1000 | 1002 | 1003)) => {
                     let level = MouseMode::from_code(*code);
@@ -174,14 +196,20 @@ impl State {
     /// extended colours.
     fn sgr(&mut self, params: &Params) {
         let mut groups = params.iter().peekable();
+        // A reset keeps the hyperlink: OSC 8 ends it, not SGR.
+        let link = self.attr.link;
         if groups.peek().is_none() {
             self.attr = Default::default();
+            self.attr.link = link;
         }
         while let Some(group) = groups.next() {
             let code = group.first().copied().unwrap_or(0);
             let flags = &mut self.attr.flags;
             match code {
-                0 => self.attr = Default::default(),
+                0 => {
+                    self.attr = Default::default();
+                    self.attr.link = link;
+                }
                 1 => flags.set(Flags::BOLD, true),
                 2 => flags.set(Flags::DIM, true),
                 3 => flags.set(Flags::ITALIC, true),

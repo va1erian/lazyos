@@ -21,7 +21,10 @@ pub mod fuzz;
 mod handler;
 mod history;
 pub mod input;
+pub mod keys;
+mod links;
 mod osc;
+mod osc_meta;
 pub mod palette;
 pub mod paste;
 pub mod render;
@@ -44,11 +47,16 @@ mod tests_select;
 #[cfg(test)]
 mod tests_history;
 #[cfg(test)]
+mod tests_modes;
+#[cfg(test)]
+mod tests_terminfo;
+#[cfg(test)]
 mod tests_reflow;
 
 pub use cell::{Attr, Cell, Color, Flags};
 pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
 pub use palette::{Palette, Rgb, Scheme};
+pub use osc_meta::{Cwd, MAX_TITLE};
 pub use reflow::Remap;
 pub use row::Row;
 pub use selection::{Point, SelectMode};
@@ -57,6 +65,12 @@ pub use state::Line;
 use state::State;
 
 /// The largest size the engine accepts; a request beyond it is clamped.
+/// The OSC buffer, in bytes: bigger than any URI or path kept (`MAX_URI`,
+/// `MAX_CWD`), so a longer one arrives longer than its limit and is refused
+/// instead of being cut to something that looks valid; and it bounds the memory
+/// a program can make an unterminated OSC take.
+const OSC_BUF: usize = 4096;
+
 pub const MAX_COLS: usize = 1000;
 pub const MAX_ROWS: usize = 1000;
 
@@ -76,7 +90,7 @@ pub struct LineRef<'a> {
 
 /// A virtual terminal screen driven by a program's output.
 pub struct Term {
-    parser: vte::Parser,
+    parser: vte::Parser<OSC_BUF>,
     state: State,
 }
 
@@ -84,7 +98,7 @@ impl Term {
     pub fn new(cols: usize, rows: usize) -> Term {
         let (cols, rows) = clamp_size(cols, rows);
         Term {
-            parser: vte::Parser::new(),
+            parser: vte::Parser::<OSC_BUF>::new_with_size(),
             state: State::new(cols, rows),
         }
     }
@@ -199,6 +213,74 @@ impl Term {
     /// Lines kept in the scrollback.
     pub fn scrollback_len(&self) -> usize {
         self.state.history.len()
+    }
+
+    /// The title a program set with OSC 0 or 2, cleaned (printable characters,
+    /// at most [`MAX_TITLE`]); `None` when none is set.
+    pub fn title(&self) -> Option<&str> {
+        self.state.title.as_deref()
+    }
+
+    /// How many times the title has changed: the host sets the window title
+    /// when this moves.
+    pub fn title_generation(&self) -> u64 {
+        self.state.title_generation
+    }
+
+    /// The working directory the shell reported with OSC 7 (`file://host/path`).
+    pub fn cwd(&self) -> Option<&Cwd> {
+        self.state.cwd.as_ref()
+    }
+
+    /// What keys send now: DECCKM and DECKPAM as the program set them.
+    pub fn key_modes(&self) -> keys::KeyModes {
+        keys::KeyModes {
+            app_cursor: self.state.app_cursor,
+            app_keypad: self.state.app_keypad,
+        }
+    }
+
+    /// The program asked to hear about focus changes (`?1004`): send
+    /// [`Term::focus_report`] when the window gains or loses it.
+    pub fn focus_reporting(&self) -> bool {
+        self.state.focus_reporting
+    }
+
+    /// The bytes for a focus change: `CSI I` or `CSI O`, when reporting is on.
+    pub fn focus_report(&self, focused: bool) -> Option<&'static [u8]> {
+        self.state
+            .focus_reporting
+            .then_some(if focused { &b"\x1b[I"[..] } else { &b"\x1b[O"[..] })
+    }
+
+    /// A program is in the middle of a synchronized update (`?2026`): the
+    /// host holds its repaint (with a timeout of its own) until it ends.
+    pub fn sync_output(&self) -> bool {
+        self.state.sync_output
+    }
+
+    /// The URI of the hyperlink on the cell at (`line`, `col`), if any.
+    pub fn link_at(&self, line: u64, col: usize) -> Option<&str> {
+        let cell = self.line(line)?.cells.get(col)?;
+        self.state.links.uri(cell.attr.link)
+    }
+
+    /// The hyperlinks on a line as (first column, last column, URI), in order.
+    pub fn links_on(&self, line: u64) -> Vec<(usize, usize, &str)> {
+        let mut out: Vec<(usize, usize, &str)> = Vec::new();
+        let Some(found) = self.line(line) else {
+            return out;
+        };
+        for (col, cell) in found.cells.iter().enumerate() {
+            let Some(uri) = self.state.links.uri(cell.attr.link) else {
+                continue;
+            };
+            match out.last_mut() {
+                Some(last) if last.1 + 1 == col && last.2 == uri => last.1 = col,
+                _ => out.push((col, col, uri)),
+            }
+        }
+        out
     }
 
     /// Forget the scrollback (`CSI 3 J`).

@@ -1,0 +1,397 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420,
+  "note": "image: LAZYOS_DESKTOP=1 LAZYOS_LINUXAPPS=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 (rg: python tools/linuxapps/build.py)"
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "TERM:RESIZE:68x19",
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "echo $TERM $COLORTERM $TERMINFO_DIRS"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:xterm-256color truecolor /system/share/terminfo",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "ls /system/share/terminfo/x"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:xterm-256color",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "cd /tmp"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CWD:/tmp",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "01_term_and_cwd"
+ },
+ {
+  "type": "printf '\\033]0;hello title\\007'"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:TITLE:hello title",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "02_title"
+ },
+ {
+  "type": "rhai -e 'sys::init::launch(\"os.lazy.counter\", \"\", 0)'"
+ },
+ {
+  "key": "enter",
+  "until": "XUIAPP:COUNTER:PASS",
+  "timeout": 120
+ },
+ {
+  "wait_for": "UI:RECT .*name=window:xui counter",
+  "regex": true,
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "hello title",
+   "offset": [
+    250,
+    150
+   ]
+  },
+  "note": "back into the Terminal"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "printf '\\033[?1004h'; od -c"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "note": "the Counter's taskbar entry: it takes the keyboard from the Terminal",
+  "click_at": [
+   330,
+   703
+  ]
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": [
+   172,
+   703
+  ],
+  "note": "the Terminal's taskbar entry: and gets it back"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "d"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "printf '\\033[?1004l'"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "03_focus_reports"
+ },
+ {
+  "type": "printf '\\033[?2026h'; echo SYNCED; sleep 2; printf '\\033[?2026l'"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "shot": "04_sync_output_timeout"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "type": "od -c"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "f1"
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "x"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "right"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "backspace"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "d"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "05_keys_through_od"
+ },
+ {
+  "type": "seq 1 100 > /tmp/k; vi /tmp/k"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "06_vi_top"
+ },
+ {
+  "key": "down"
+ },
+ {
+  "key": "down"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "07_vi_after_down_down"
+ },
+ {
+  "key": "pagedown"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "shot": "08_vi_after_pgdn"
+ },
+ {
+  "key": "pageup"
+ },
+ {
+  "wait": 0.8
+ },
+ {
+  "shot": "09_vi_after_pgup"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key": "home"
+ },
+ {
+  "key": "right"
+ },
+ {
+  "key": "right"
+ },
+ {
+  "key": "left"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "10_vi_horizontal"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": ":q!"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "echo abcdef > /tmp/e; vi /tmp/e"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "key": "end"
+ },
+ {
+  "type": "x"
+ },
+ {
+  "key": "home"
+ },
+ {
+  "type": "x"
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "type": ":wq"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "cat /tmp/e"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:bcde",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "echo hello world > /tmp/t.txt"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "type": "rg hello /tmp/t.txt"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "rg --color=always hello /tmp/t.txt | od -c | head -3"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "TERM=dumb rg hello /tmp/t.txt"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "11_rg_colour"
+ },
+ {
+  "quit": true
+ }
+]

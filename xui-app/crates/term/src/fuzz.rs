@@ -44,7 +44,17 @@ pub fn check(term: &Term) {
     for (index, row) in state.screen.rows.iter().enumerate() {
         assert_eq!(row.cells.len(), cols, "row {index} width");
         assert!(row.is_consistent(), "row {index} wide characters");
+        for cell in &row.cells {
+            assert!(usize::from(cell.attr.link) <= state.links.len(), "a link past the table");
+        }
     }
+    if let Some(title) = term.title() {
+        assert!(title.chars().count() <= crate::MAX_TITLE && !title.chars().any(|c| c.is_control()), "title");
+    }
+    if let Some(cwd) = term.cwd() {
+        assert!(cwd.path.len() <= crate::osc_meta::MAX_CWD && !cwd.path.chars().any(|c| c.is_control()), "cwd");
+    }
+    assert!(state.links.len() <= crate::links::MAX_LINKS);
 }
 
 /// The logical lines of the scrollback and screen up to and including the
@@ -230,6 +240,9 @@ impl Rng {
 /// Typical terminal traffic the mutations start from: a shell prompt, an
 /// editor redraw, wide characters, a scroll region, colours.
 pub const SEEDS: &[&[u8]] = &[
+    // T5: titles, the working directory, hyperlinks, modes and attributes.
+    b"\x20\x10\x1b]0;a title\x07\x1b]2;x;y;z\x1b\\\x1b]7;file://h/a%20b\x07\x1b]8;id=1;http://a;b\x07link\x1b]8;;\x07 text\x1b[?1;1004;2026h\x1b=\x1b[>c\x1b[c\x1b[?2026l\x1b>\x1b[?1l",
+    b"\x20\x10\x1b]8;;\x1b\\x\x1b]8;a:b;u\x1b[1;31my\x1b[0mz\x1b]8;;\x07\x1b]0;\x07\x1b]7;file:///%00\x07\x1b]2;\xff\x07\x1bc",
     b"\x20\x08\x1b]4;1;rgb:ff/00/00\x07\x1b]4;1;?\x07\x1b]10;#fff\x1b\\\x1b]11;?\x07\x1b]104\x07\x1b[38;2;1;2;3m\x1b[48;5;200mx\x1bc",
     b"\x08\x05a\nb\nc\nd\ne\nf\n\x1b[3J\x1b[1;3r\x1b[3;1H\n\n\x1bM\x1b[S\x1b[?1049h\n\n\n\n\n\x1b[?1049l\x1bc\n\n\n\n",
     b"\x4f\x17/ # echo hi\r\nhi\r\n/ # ",

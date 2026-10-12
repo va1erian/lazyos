@@ -416,7 +416,7 @@ fn a_program_changed_palette_is_what_is_painted() {
 #[test]
 fn the_cell_colours_follow_inverse_dim_hidden_and_bold_is_bright() {
     let palette = lazyterm::Palette::new(scheme_by_name("desktop", true));
-    let attr = |flags: u16, fg: lazyterm::Color, bg: lazyterm::Color| lazyterm::Attr { fg, bg, flags: lazyterm::Flags(flags) };
+    let attr = |flags: u16, fg: lazyterm::Color, bg: lazyterm::Color| lazyterm::Attr { fg, bg, flags: lazyterm::Flags(flags), link: 0 };
     use lazyterm::{Color, Flags};
     let (fg, bg) = cell_colors(&palette, attr(Flags::INVERSE, Color::Default, Color::Default), false);
     assert_eq!((fg, bg), (palette.bg(), palette.fg()));

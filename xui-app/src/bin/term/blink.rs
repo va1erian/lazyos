@@ -8,6 +8,9 @@
 pub const PERIOD_MS: u32 = 530;
 /// Idle time after which the blink stops.
 pub const IDLE_MS: u64 = 10_000;
+/// After a key, output or a resize the cursor stays solid this long, so a
+/// frame taken just then (a screenshot) always shows it.
+pub const SOLID_MS: u64 = 1_000;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Blink {
@@ -60,6 +63,12 @@ impl Blink {
         if !self.wants_timer() {
             return false;
         }
+        // Solid just after activity: the timer's phase does not count.
+        if now.saturating_sub(self.last_activity) < SOLID_MS {
+            let changed = !self.on;
+            self.on = true;
+            return changed;
+        }
         if now.saturating_sub(self.last_activity) >= IDLE_MS {
             // Stop steady and visible.
             let changed = !self.on;
@@ -109,8 +118,24 @@ mod tests {
         let mut blink = Blink::default();
         blink.activity(0);
         assert!(blink.cursor_on());
-        assert!(blink.tick(530) && !blink.cursor_on());
-        assert!(blink.tick(1060) && blink.cursor_on());
+        // Solid for the first second, then it blinks.
+        assert!(!blink.tick(530) && blink.cursor_on());
+        assert!(blink.tick(1060) && !blink.cursor_on());
+        assert!(blink.tick(1590) && blink.cursor_on());
+    }
+
+    #[test]
+    fn activity_keeps_it_solid_for_a_second_whatever_the_timer_phase() {
+        let mut blink = Blink::default();
+        blink.activity(0);
+        // The timer was mid-phase when a key arrived at 1200 ms: its next
+        // tick, 10 ms later, must not blank the cursor.
+        assert!(blink.tick(1060) && !blink.cursor_on());
+        blink.activity(1200);
+        assert!(blink.cursor_on());
+        assert!(!blink.tick(1210), "still solid");
+        assert!(blink.cursor_on());
+        assert!(blink.tick(2300) && !blink.cursor_on(), "blinking again after the solid second");
     }
 
     #[test]
@@ -162,7 +187,7 @@ mod tests {
     fn going_idle_while_off_turns_the_cursor_back_on() {
         let mut blink = Blink::default();
         blink.activity(0);
-        assert!(blink.tick(530) && !blink.cursor_on());
+        assert!(blink.tick(1060) && !blink.cursor_on());
         // The next look is past the idle time with the cursor off: one last
         // frame turns it on.
         assert!(blink.tick(10_000));
