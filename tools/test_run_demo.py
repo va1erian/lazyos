@@ -208,6 +208,22 @@ class MainTests(RunDemoCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(command, [])
 
+    def test_webkit_deps_builds_the_bundle_sets_the_switch_and_brings_the_network(self) -> None:
+        with mock.patch.object(run_demo, "build_webkit_deps", return_value=True) as built:
+            code, command = self.run_main("--webkit-deps", "--yes")
+        self.assertEqual(code, 0)
+        built.assert_called_once_with()
+        self.assertEqual(self.builds[-1].get("LAZYOS_WEBKIT_DEPS"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertEqual(command[command.index("-m") + 1], "4G")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
+
+    def test_a_failed_webkit_deps_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_webkit_deps", return_value=False):
+            code, command = self.run_main("--webkit-deps", "--yes")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(command, [])
+
     def test_reset_os_sets_the_build_variable(self) -> None:
         code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)

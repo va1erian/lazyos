@@ -184,6 +184,14 @@ pub const QUAKE_TMP: &str = "/tmp/quake";
 /// (`quake/src/lazy/headless.rs`).
 pub const QUAKE_RESULT: &str = "/tmp/quake-result.txt";
 
+/// Fontconfig's cache directory in the WebKit dependency bundle
+/// (`tools/webkit`, `LAZYOS_WEBKIT_DEPS=1`): the library is built with it as
+/// `--with-cache-dir`, so it is baked into `libfontconfig.a`, and
+/// `depsproof` creates it. `tools/webkit/fhspaths.py` reads this constant, so
+/// the build, the program and a test share one value. On the ramfs: nothing is
+/// kept across a reboot.
+pub const FONTCONFIG_CACHE: &str = "/tmp/fontconfig";
+
 /// The tray demo's lifecycle test hooks (`xui-app/src/bin/traydemo.rs`,
 /// tools/screenshot/examples/tray_resident.json): milliseconds to delay its
 /// `Watch` by, and a marker that makes it ignore `Quit`.
@@ -240,6 +248,7 @@ mod tests {
         assert!(RESOLV_CONF.starts_with(TRANSIENT));
         assert!(DBGD_STAGE.starts_with(TRANSIENT));
         assert!(INIT_RELOAD.starts_with(TRANSIENT));
+        assert!(FONTCONFIG_CACHE.starts_with(TMP));
         for name in [
             APP_DATA_DIR,
             LAZYRAD_APP,

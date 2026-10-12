@@ -201,6 +201,8 @@ programs! {
     JSC = "jsc";
     /// `cxxproof`, the C++/ICU toolchain check (`LAZYOS_JSC=1`, W1).
     CXXPROOF = "cxxproof";
+    /// `depsproof`, the WebKit dependency bundle check (`LAZYOS_WEBKIT_DEPS=1`, W3).
+    DEPSPROOF = "depsproof";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";
