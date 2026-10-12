@@ -18,6 +18,10 @@ pub(super) enum Msg {
     Blink,
     /// The window gained or lost the keyboard focus.
     Focus(bool),
+    /// The window's size changed (a resize, a maximize, a restore).
+    Resized,
+    /// The size badge's time is up.
+    BadgeOff,
     /// A translated character from the keyboard.
     Char(char),
     /// A key press with the modifiers held: arrows, Escape and the like, and

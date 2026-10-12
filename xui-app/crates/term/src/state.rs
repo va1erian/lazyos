@@ -9,6 +9,7 @@ use crate::history::History;
 use crate::input::MouseMode;
 use crate::palette::{scheme_by_name, Palette};
 use crate::selection::Selection;
+use crate::reflow::{reflow, Remap};
 use crate::row::Row;
 use crate::screen::Screen;
 
@@ -415,17 +416,29 @@ impl State {
         *self = fresh;
     }
 
-    /// Crop or pad to `cols` x `rows` (no reflow until T4).
-    pub fn resize(&mut self, cols: usize, rows: usize) {
+    /// Resize: the main screen and the scrollback are reflowed (`reflow.rs`),
+    /// the alternate screen is cropped or padded.
+    pub fn resize(&mut self, cols: usize, rows: usize) -> Remap {
         self.selection = None;
+        self.carry.clear();
         self.dirty = vec![false; rows];
-        self.row = self.screen.resize(cols, rows, self.row);
+        let remap;
         if let Some(main) = &mut self.stash {
-            main.row = main.screen.resize(cols, rows, main.row);
-            main.col = main.col.min(cols - 1);
+            self.row = self.screen.resize(cols, rows, self.row);
+            self.col = self.col.min(cols - 1);
+            self.wrap_pending &= self.col == cols - 1;
+            let old = std::mem::replace(&mut main.screen, Screen::new(1, 1));
+            let cursor = (main.row, main.col, main.wrap_pending);
+            let (screen, row, col, map) = reflow(&mut self.history, old, cursor, cols, rows);
+            (main.screen, main.row, main.col, main.wrap_pending) = (screen, row, col, false);
+            remap = map;
+        } else {
+            let old = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+            let cursor = (self.row, self.col, self.wrap_pending);
+            let (screen, row, col, map) = reflow(&mut self.history, old, cursor, cols, rows);
+            (self.screen, self.row, self.col, self.wrap_pending) = (screen, row, col, false);
+            remap = map;
         }
-        self.col = self.col.min(cols - 1);
-        self.wrap_pending &= self.col == cols - 1;
         self.top = 0;
         self.bottom = rows - 1;
         self.tabs.truncate(cols);
@@ -435,6 +448,7 @@ impl State {
             saved.row = saved.row.min(rows - 1);
             saved.col = saved.col.min(cols - 1);
         }
+        remap
     }
 
     /// A row's text, right-trimmed.

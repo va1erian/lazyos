@@ -47,6 +47,55 @@ pub fn check(term: &Term) {
     }
 }
 
+/// The logical lines of the scrollback and screen up to and including the
+/// cursor's (what a reflow must preserve), and whether the cursor's line was
+/// seen to its end: a reflow that keeps the cursor on screen may crop the rest
+/// of a long line below the bottom row.
+fn through_cursor(term: &Term) -> (Vec<String>, bool) {
+    let last = term.screen_top() + term.cursor().0 as u64;
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut complete = false;
+    for line in term.first_line()..term.screen_top() + term.rows() as u64 {
+        let row = term.line(line).expect("a line");
+        current.extend(row.cells.iter().filter(|cell| cell.is_glyph()).map(|cell| cell.ch));
+        if row.wrapped {
+            let missing = term.cols().saturating_sub(row.cells.len());
+            current.extend(std::iter::repeat_n(' ', missing));
+        } else {
+            out.push(current.trim_end().to_string());
+            current.clear();
+            // The cursor's logical line ends here: nothing below it counts.
+            if line >= last {
+                complete = true;
+                break;
+            }
+        }
+    }
+    if !complete {
+        out.push(current.trim_end().to_string());
+    }
+    while out.last().is_some_and(|line| line.is_empty()) {
+        out.pop();
+    }
+    (out, complete)
+}
+
+/// A reflow kept the text through the cursor's line (a cropped tail excepted).
+fn assert_preserved(before: &(Vec<String>, bool), after: &(Vec<String>, bool), note: &str) {
+    let (before, after_lines) = (&before.0, &after.0);
+    if after.1 {
+        assert_eq!(after_lines, before, "reflow changed the text {note}");
+        return;
+    }
+    let n = after_lines.len();
+    assert!(n <= before.len(), "reflow added text {note}");
+    if n > 0 {
+        assert_eq!(after_lines[..n - 1], before[..n - 1], "reflow changed the text {note}");
+        assert!(before[n - 1].starts_with(&after_lines[n - 1]), "reflow changed the last line {note}");
+    }
+}
+
 /// Feed `data` as: two size bytes, then chunks whose lengths and the resizes
 /// between them are drawn from the data itself.
 pub fn run(data: &[u8]) {
@@ -69,11 +118,22 @@ pub fn run(data: &[u8]) {
             check(&term);
         }
         if chunk[0] % 31 == 0 {
-            term.resize(
+            let (cols, rows) = (
                 1 + usize::from(chunk[chunk.len() - 1]) % 120,
                 1 + usize::from(chunk[0]) % 50,
             );
+            let before = (!term.on_alternate_screen()).then(|| through_cursor(&term));
+            let kept = term.scrollback_len() + term.rows();
+            let dbg_old = (term.cols(), term.rows(), term.cursor(), term.scrollback_len());
+            term.resize(cols, rows);
             check(&term);
+            // Reflow keeps every line up to the cursor's, unless the budget
+            // evicted some or one column cannot hold a wide character.
+            if let Some(before) = before {
+                if cols >= 2 && term.scrollback_len() < term.state.history.limit() && kept > 0 {
+                    assert_preserved(&before, &through_cursor(&term), &format!("{dbg_old:?} to {:?}", (cols, rows, term.cursor(), term.scrollback_len())));
+                }
+            }
         }
     }
 }

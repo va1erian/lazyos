@@ -22,6 +22,19 @@ pub struct HistoryRow {
     pub wrapped: bool,
 }
 
+/// A row as it is kept: its trailing default blanks are dropped.
+pub fn encode(row: &Row) -> HistoryRow {
+    let used = row
+        .cells
+        .iter()
+        .rposition(|cell| *cell != Cell::default())
+        .map_or(0, |at| at + 1);
+    HistoryRow {
+        cells: Box::from(&row.cells[..used]),
+        wrapped: row.wrapped,
+    }
+}
+
 pub struct History {
     rows: VecDeque<HistoryRow>,
     limit: usize,
@@ -42,6 +55,12 @@ impl History {
             limit,
             first: 0,
         }
+    }
+
+    /// The budget, in lines.
+    #[cfg(any(test, feature = "fuzz"))]
+    pub fn limit(&self) -> usize {
+        self.limit
     }
 
     pub fn len(&self) -> usize {
@@ -66,15 +85,20 @@ impl History {
             self.first += 1;
             return;
         }
-        let used = row
-            .cells
-            .iter()
-            .rposition(|cell| *cell != Cell::default())
-            .map_or(0, |at| at + 1);
-        self.rows.push_back(HistoryRow {
-            cells: Box::from(&row.cells[..used]),
-            wrapped: row.wrapped,
-        });
+        self.rows.push_back(encode(row));
+        self.evict();
+    }
+
+    /// Hand over every kept row (a reflow rebuilds them); the budget stays.
+    pub fn take_rows(&mut self) -> Vec<HistoryRow> {
+        self.rows.drain(..).collect()
+    }
+
+    /// Replace the kept rows: `rows[0]` is numbered `first`. The oldest go
+    /// first if there are more than the budget keeps.
+    pub fn put_rows(&mut self, first: u64, rows: Vec<HistoryRow>) {
+        self.first = first;
+        self.rows = rows.into();
         self.evict();
     }
 

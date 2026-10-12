@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::backend::{Event, TimerId};
-use xui_core::Control;
+use xui_core::{Control, WidgetId};
 
 use super::msg::Msg;
 use super::pointer::{mouse, MouseKind};
@@ -49,6 +49,13 @@ pub(super) fn install(root: &Control<Msg>) {
     });
 }
 
+/// Tell the app when the window's size changes.
+pub(super) fn watch_resize(ui: &mut Ui<Msg>) {
+    ui.register_events(WidgetId::NONE, |event| {
+        matches!(event, Event::Resize { .. }).then_some(Msg::Resized)
+    });
+}
+
 /// Tell the timers apart: the autoscroll, the input retry and the blink each
 /// have an id of their own; anything else is the poll tick.
 pub(super) fn route_timers(
@@ -56,8 +63,9 @@ pub(super) fn route_timers(
     auto: &Rc<Cell<Option<TimerId>>>,
     flush: &Rc<Cell<Option<TimerId>>>,
     blink: &Rc<Cell<Option<TimerId>>>,
+    badge: &Rc<Cell<Option<TimerId>>>,
 ) {
-    let timers = (Rc::clone(auto), Rc::clone(flush), Rc::clone(blink));
+    let timers = (Rc::clone(auto), Rc::clone(flush), Rc::clone(blink), Rc::clone(badge));
     ui.on_timer(move |id| {
         Some(if timers.0.get() == Some(id) {
             Msg::Autoscroll
@@ -65,6 +73,8 @@ pub(super) fn route_timers(
             Msg::Flush
         } else if timers.2.get() == Some(id) {
             Msg::Blink
+        } else if timers.3.get() == Some(id) {
+            Msg::BadgeOff
         } else {
             Msg::Tick
         })

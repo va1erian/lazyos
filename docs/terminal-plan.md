@@ -231,6 +231,25 @@ Each phase is shippable on its own and keeps the existing sessions green
 - Session images keep a known size: sessions set `window/size` explicitly so
   coordinates in scripts stay stable.
 
+As built: columns and rows are `floor((client - 2 * pad) / cell)` with a
+floor of 20 x 5 (`appearance.rs::grid_for`); a font, size, spacing or zoom
+change recomputes them as well. `lazyterm::Term::resize` reflows the main
+screen and the scrollback (`reflow.rs`: logical lines rewrap, the cursor stays
+on its character, wide characters never split, the scrollback budget applies)
+and returns a `Remap` the Terminal uses to keep a scrolled-back view on its
+text; a selection is cleared by a resize (mapping columns per cell was not
+worth it). The alternate screen is cropped or padded. Then `TIOCSWINSZ`.
+`window/size` (`80x24`, validated 20..500 x 5..200) sets the first grid, which
+the Terminal asks the compositor for (`request_size`); `window/last_size` is
+written two seconds after the user last resized the window (never for a font
+or zoom change, never while zoomed) and used when `window/size` is unset, so
+**session images that must not inherit a size build with `LAZYOS_RESET_OS=1`**.
+BusyBox `vi` re-reads the window size on its next key, not on `SIGWINCH`
+(Ctrl+L redraws it at the new size); the shell's own line editor redraws
+(`FEATURE_EDITING_WINCH`, `tools/abi/busybox.py`). Evidence:
+`TERM:RESIZE:<cols>x<rows>`. Sessions: `term_resize.json`,
+`term_window_size.json`.
+
 ### T5. `TERM`, keys and the rest of xterm's core
 
 - Ship a terminfo entry and set `TERM=xterm-256color` (compiled entry under

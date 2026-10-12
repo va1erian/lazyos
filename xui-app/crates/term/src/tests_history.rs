@@ -166,8 +166,10 @@ fn ten_thousand_short_lines_stay_small() {
 fn a_resize_keeps_the_history() {
     let mut term = Term::new(10, 3);
     term.feed(lines(1, 8).as_bytes());
-    let len = term.scrollback_len();
+    let (len, lines) = (term.scrollback_len(), term.scrollback_len() + term.rows());
     term.resize(6, 5);
-    assert_eq!(term.scrollback_len(), len);
+    // Two more rows on the screen: two lines came back from the scrollback.
+    assert_eq!(term.scrollback_len(), len - 2);
+    assert_eq!(term.scrollback_len() + term.rows(), lines);
     check(&term);
 }

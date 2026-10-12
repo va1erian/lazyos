@@ -3,22 +3,35 @@
 //! the cursor, and so the grid's rows (the engine and the pty follow).
 
 use lazyterm::palette::scheme_by_name;
+use lazyterm::settings::{MAX_GRID_COLS, MAX_GRID_ROWS, MIN_COLS, MIN_ROWS};
 use xui_app::sys::monotonic_ns;
 use xui_core::app::Ui;
+use xui_core::Rect;
 
 use super::conf::Conf;
 use super::fonts;
 use super::look;
-use super::{Msg, Terminal, COLS};
+use super::badge::BADGE_MILLIS;
+use super::metrics::Metrics;
+use super::view::{max_offset, Shown};
+use super::{Msg, Terminal};
 
-/// The most rows the grid grows to (a tiny font in a tall window).
-const MAX_ROWS: usize = 200;
+/// How long the window must rest before its grid is remembered.
+const SAVE_DELAY_MS: u64 = 2000;
 /// Zoom steps either way.
 const MAX_ZOOM: i32 = 30;
 
 /// Milliseconds on the monotonic clock.
 pub fn now_ms() -> u64 {
     monotonic_ns() / 1_000_000
+}
+
+/// The grid a window holds: whole cells inside the padding, at least 20 x 5
+/// and at most the bounds a setting may ask for.
+pub fn grid_for(rect: Rect, m: &Metrics) -> (usize, usize) {
+    let cols = ((rect.width() - 2 * m.pad) / m.cell_w.max(1)).max(0) as usize;
+    let rows = ((rect.height() - 2 * m.pad) / m.line_h.max(1)).max(0) as usize;
+    (cols.clamp(MIN_COLS, MAX_GRID_COLS), rows.clamp(MIN_ROWS, MAX_GRID_ROWS))
 }
 
 impl Terminal {
@@ -92,33 +105,130 @@ impl Terminal {
         self.refresh(ui);
     }
 
-    /// The grid's size from the window and the line height: the columns stay
-    /// the pty's 80 (a narrower tty wraps long commands, and the window clips
-    /// what it cannot show; reflow is T4), the rows are what the window
-    /// holds. The engine and the pty follow, and `TERM:FONT` reports it.
+    /// The grid's size from the window, the cell and the font: columns and
+    /// rows follow the visible width and height (at least 20 x 5). A change
+    /// reflows the engine, tells the program (`TIOCSWINSZ`, so `SIGWINCH`),
+    /// and is reported as `TERM:RESIZE`; `TERM:FONT` reports the font and grid.
     pub(super) fn relayout(&mut self, ui: &mut Ui<Msg>) {
         let (family, size, metrics) = {
             let look = self.look.borrow();
             (look.family.clone(), look.metrics.size, look.metrics)
         };
-        let height = ui.client_rect().height();
-        let rows = (((height - 2 * metrics.pad) / metrics.line_h).max(1) as usize).min(MAX_ROWS);
-        let now = {
-            let mut term = self.term.borrow_mut();
-            let before = (term.cols(), term.rows());
-            if before != (COLS, rows) {
-                term.resize(COLS, rows);
-                // The program learns the new size (SIGWINCH) only when it
-                // changed.
-                self.master.set_size(rows as u16, COLS as u16);
-                self.offset.set(0);
+        // The window is about to take the size that was asked for: the grid
+        // it has now is not what the user wants.
+        if !self.settling {
+            let (cols, rows) = grid_for(ui.client_rect(), &metrics);
+            let have = {
+                let term = self.term.borrow();
+                (term.cols(), term.rows())
+            };
+            if have != (cols, rows) {
+                self.apply_grid(ui, cols, rows);
             }
+        }
+        self.size_hints(&metrics);
+        let (cols, rows) = {
+            let term = self.term.borrow();
             (term.cols(), term.rows())
         };
-        let marker = format!("{family}:{}:{}x{}", size as u32, now.0, now.1);
+        let marker = format!("{family}:{}:{cols}x{rows}", size as u32);
         if self.marker.as_deref() != Some(marker.as_str()) {
             println!("TERM:FONT:{marker}");
             self.marker = Some(marker);
+        }
+        if !self.sized {
+            self.sized = true;
+            println!("TERM:RESIZE:{cols}x{rows}");
+        }
+    }
+
+    /// Resize the engine (reflowing it), keep the view on its text, then tell
+    /// the program.
+    fn apply_grid(&mut self, ui: &mut Ui<Msg>, cols: usize, rows: usize) {
+        {
+            let mut term = self.term.borrow_mut();
+            let view_top = term.screen_top().saturating_sub(self.offset.get() as u64);
+            let remap = term.resize(cols, rows);
+            let offset = if self.offset.get() == 0 {
+                0
+            } else {
+                term.screen_top().saturating_sub(remap.line(view_top)) as usize
+            };
+            self.offset.set(offset.min(max_offset(&term, rows)));
+        }
+        self.master.set_size(rows as u16, cols as u16);
+        println!("TERM:RESIZE:{cols}x{rows}");
+        if self.sized {
+            self.show_badge(ui, cols, rows);
+            self.shown = Shown::default();
+            // Only the user's own resizing is remembered, not what a font or
+            // zoom change does to the grid.
+            if self.remember && self.zoom == 0 {
+                self.save = Some((cols, rows, now_ms() + SAVE_DELAY_MS));
+            }
+        }
+        self.sized = true;
+    }
+
+    /// The window's size changed: the root node follows it, then the grid.
+    pub(super) fn window_resized(&mut self, ui: &mut Ui<Msg>) {
+        self.settling = false;
+        let rect = ui.client_rect();
+        self.root.set_bounds(rect);
+        self.remember = true;
+        self.relayout(ui);
+        self.remember = false;
+        self.refresh(ui);
+    }
+
+    /// Ask the compositor for a window that holds `grid`; the grid is applied
+    /// when its answer arrives (`window_resized`).
+    pub(super) fn request_grid(&self, grid: (usize, usize)) {
+        let m = self.look.borrow().metrics;
+        let scale = m.scale.max(1);
+        let width = (grid.0 as i32 * m.cell_w + 2 * m.pad) / scale;
+        let height = (grid.1 as i32 * m.line_h + 2 * m.pad) / scale;
+        self.backend.request_size(width.max(1) as u32, height.max(1) as u32);
+    }
+
+    /// The smallest window the compositor lets the user make: 20 x 5 cells and
+    /// the padding, in design pixels.
+    fn size_hints(&self, m: &Metrics) {
+        let scale = m.scale.max(1);
+        let min_w = (MIN_COLS as i32 * m.cell_w + 2 * m.pad + scale - 1) / scale;
+        let min_h = (MIN_ROWS as i32 * m.line_h + 2 * m.pad + scale - 1) / scale;
+        self.backend.set_size_hints(min_w as u32, min_h as u32, 0, 0);
+    }
+
+    /// Show `100 x 30` in the middle of the window for a moment.
+    fn show_badge(&mut self, ui: &mut Ui<Msg>, cols: usize, rows: usize) {
+        *self.badge.borrow_mut() = Some(format!("{cols} x {rows}"));
+        if let Some(id) = self.badge_timer.take() {
+            ui.kill_timer(id);
+        }
+        self.badge_timer.set(Some(ui.set_timer(BADGE_MILLIS)));
+    }
+
+    /// The badge's time is up: its timer stops with it.
+    pub(super) fn hide_badge(&mut self, ui: &mut Ui<Msg>) {
+        if let Some(id) = self.badge_timer.take() {
+            ui.kill_timer(id);
+        }
+        if self.badge.borrow_mut().take().is_some() {
+            if let Some(layout) = self.layout.get() {
+                let rect = Rect::new(0, 0, layout.width, layout.height);
+                ui.invalidate_rect(self.root.id(), rect);
+            }
+        }
+    }
+
+    /// Remember the grid once the window has rested (or now, on closing).
+    pub(super) fn save_size(&mut self, now: bool) {
+        if let Some((cols, rows, due)) = self.save {
+            if now || now_ms() >= due {
+                self.save = None;
+                self.follower.save_last_size(cols, rows);
+            }
         }
     }
 
@@ -159,5 +269,45 @@ impl Terminal {
             self.sync_cursor_phase();
             self.refresh(ui);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn metrics() -> Metrics {
+        Metrics::new(15.0, 1, 130, 288, 19)
+    }
+
+    #[test]
+    fn the_grid_is_whole_cells_inside_the_padding() {
+        let m = metrics();
+        assert_eq!(grid_for(Rect::new(0, 0, 640, 400), &m), (68, 19));
+        assert_eq!(grid_for(Rect::new(0, 0, 20 + 9 * 100, 20 + 20 * 30), &m), (100, 30));
+        // One pixel short of another column or row.
+        assert_eq!(grid_for(Rect::new(0, 0, 20 + 9 * 100 - 1, 20 + 20 * 30 - 1), &m), (99, 29));
+    }
+
+    #[test]
+    fn a_window_smaller_than_the_floor_still_has_20_by_5() {
+        let m = metrics();
+        assert_eq!(grid_for(Rect::new(0, 0, 50, 40), &m), (MIN_COLS, MIN_ROWS));
+        assert_eq!(grid_for(Rect::new(0, 0, 0, 0), &m), (MIN_COLS, MIN_ROWS));
+        assert_eq!(grid_for(Rect::new(0, 0, -5, -5), &m), (MIN_COLS, MIN_ROWS));
+    }
+
+    #[test]
+    fn a_huge_window_stops_at_the_bounds() {
+        let m = metrics();
+        assert_eq!(grid_for(Rect::new(0, 0, 100_000, 100_000), &m), (MAX_GRID_COLS, MAX_GRID_ROWS));
+    }
+
+    #[test]
+    fn the_scale_multiplies_the_cell_not_the_count() {
+        let one = metrics();
+        let two = Metrics::new(15.0, 2, 130, 576, 38);
+        assert_eq!(grid_for(Rect::new(0, 0, 640, 400), &one), (68, 19));
+        assert_eq!(grid_for(Rect::new(0, 0, 1280, 800), &two), (68, 19));
     }
 }

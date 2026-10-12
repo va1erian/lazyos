@@ -405,7 +405,7 @@ fn a_row_broken_by_hand_at_the_margin_is_flagged() {
 // ---- size ---------------------------------------------------------------------
 
 #[test]
-fn resize_crops_pads_and_keeps_the_cursor_on_screen() {
+fn resize_rewraps_pads_and_keeps_the_cursor_on_screen() {
     let mut term = Term::new(8, 4);
     term.feed(b"abcdefgh\r\nij\r\nkl\r\nmn");
     term.resize(4, 2);
@@ -415,18 +415,22 @@ fn resize_crops_pads_and_keeps_the_cursor_on_screen() {
     term.resize(10, 5);
     check(&term);
     assert_eq!((term.cols(), term.rows()), (10, 5));
-    assert_eq!(screen(&term), ["kl", "mn", "", "", ""]);
+    // The wrapped line joins again, and the scrolled-off rows come back.
+    assert_eq!(screen(&term), ["abcdefgh", "ij", "kl", "mn", ""]);
+    assert_eq!(term.cursor(), (3, 2));
     term.feed(b"\x1b[1;10H\x1b[Zx");
     check(&term);
 }
 
 #[test]
-fn resize_extends_the_tab_stops_and_cuts_wide_characters() {
+fn resize_extends_the_tab_stops_and_never_splits_wide_characters() {
     let mut term = Term::new(4, 1);
     term.feed("ab\u{4e2d}".as_bytes());
     term.resize(3, 1);
     check(&term);
-    assert_eq!(term.row_text(0), "ab");
+    // The wide character wrapped whole onto the row below; the last row shows.
+    assert_eq!(term.row_text(0), "中");
+    assert_eq!(term.scrollback_len(), 1);
     term.resize(20, 1);
     term.feed(b"\r\t\tX");
     assert_eq!(term.cursor(), (0, 17));

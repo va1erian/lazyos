@@ -1,0 +1,422 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "TERM:RESIZE:68x19",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "PS1='# '"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:PS1",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "seq 1 200"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:1",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "echo $(seq 1 60)"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:1 2 3",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "01_initial_68x19"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   690,
+   470
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_down": "left"
+ },
+ {
+  "mouse_move": [
+   200,
+   120
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_up": "left"
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "shot": "02_bigger_badge"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "03_bigger_stty"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   890,
+   590
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_down": "left"
+ },
+ {
+  "mouse_move": [
+   -250,
+   -190
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_up": "left"
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "shot": "04_smaller_badge"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "05_smaller_stty"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   300,
+   59
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 0.1
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "06_maximized"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   300,
+   10
+  ]
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 0.1
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "07_restored"
+ },
+ {
+  "type": "vi /tmp/v"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "08_vi_small"
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   -300,
+   -300
+  ]
+ },
+ {
+  "mouse_move": [
+   640,
+   400
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_down": "left"
+ },
+ {
+  "mouse_move": [
+   300,
+   200
+  ]
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_up": "left"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "09_vi_bigger"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "09b_vi_redrawn"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": ":q!"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "10_after_vi"
+ },
+ {
+  "quit": true
+ }
+]

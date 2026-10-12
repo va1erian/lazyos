@@ -1,0 +1,95 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420,
+  "note": "image: LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1, with rhai (tools/rhai/build.py)"
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "TERM:RESIZE:68x19",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "PS1='# '"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:PS1",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "P='fn put(p,v){let x=sys::confd::new_value();x.kind=3;x.str_value=v;sys::confd::set(\"user/1000/term/\"+p,x)}'"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "rhai -e \"$P put(\\\"window/size\\\",\\\"100x30\\\")\""
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": [
+   44,
+   704
+  ]
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "menu": "System"
+  }
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "00_menu"
+ },
+ {
+  "click_at": {
+   "menu": "Terminal"
+  }
+ },
+ {
+  "wait_for": "TERM:RESIZE:100x30",
+  "timeout": 120
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "01_second_terminal_100x30"
+ },
+ {
+  "type": "stty size"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "02_stty"
+ },
+ {
+  "quit": true
+ }
+]

@@ -42,7 +42,7 @@ impl CursorShape {
 }
 
 /// The keys the Terminal reads, relative to `user/<uid>/term/`.
-pub const KEYS: [&str; 11] = [
+pub const KEYS: [&str; 13] = [
     "font/family",
     "font/size",
     "font/line_spacing",
@@ -54,7 +54,24 @@ pub const KEYS: [&str; 11] = [
     "select/copy_on_select",
     "select/word_chars",
     "paste/confirm_multiline",
+    "window/size",
+    "window/last_size",
 ];
+
+/// The smallest grid a window may hold, and the largest a setting may ask for.
+pub const MIN_COLS: usize = 20;
+pub const MIN_ROWS: usize = 5;
+pub const MAX_GRID_COLS: usize = 500;
+pub const MAX_GRID_ROWS: usize = 200;
+
+/// A grid size written `COLSxROWS` (`80x24`), or `None` when it is not one or
+/// is outside the bounds.
+pub fn parse_grid(text: &str) -> Option<(usize, usize)> {
+    let (cols, rows) = text.trim().split_once(['x', 'X'])?;
+    let (cols, rows): (usize, usize) = (cols.trim().parse().ok()?, rows.trim().parse().ok()?);
+    ((MIN_COLS..=MAX_GRID_COLS).contains(&cols) && (MIN_ROWS..=MAX_GRID_ROWS).contains(&rows))
+        .then_some((cols, rows))
+}
 
 pub const MIN_SIZE: i64 = 6;
 pub const MAX_SIZE: i64 = 72;
@@ -82,6 +99,10 @@ pub struct Settings {
     pub copy_on_select: bool,
     pub word_chars: String,
     pub confirm_multiline: bool,
+    /// `window/size`: the initial grid, when set. `window/last_size`: the
+    /// grid the window had when it was last closed, used when no size is set.
+    pub window_size: Option<(usize, usize)>,
+    pub last_size: Option<(usize, usize)>,
 }
 
 impl Default for Settings {
@@ -98,6 +119,8 @@ impl Default for Settings {
             copy_on_select: false,
             word_chars: String::from("-_./~:@"),
             confirm_multiline: true,
+            window_size: None,
+            last_size: None,
         }
     }
 }
@@ -151,9 +174,17 @@ impl Settings {
                     .collect();
             }
             ("paste/confirm_multiline", Value::Bool(on)) => self.confirm_multiline = *on,
+            // An invalid size is no size.
+            ("window/size", Value::Text(text)) => self.window_size = parse_grid(text),
+            ("window/last_size", Value::Text(text)) => self.last_size = parse_grid(text),
             _ => return KEYS.contains(&key),
         }
         true
+    }
+
+    /// The grid the window opens with: the setting, else the one remembered.
+    pub fn initial_grid(&self) -> Option<(usize, usize)> {
+        self.window_size.or(self.last_size)
     }
 
     /// The effective font size for a zoom of `steps` (two design pixels a
@@ -196,6 +227,8 @@ mod tests {
             ("select/copy_on_select", Value::Bool(true)),
             ("select/word_chars", text("_.")),
             ("paste/confirm_multiline", Value::Bool(false)),
+            ("window/size", text("100x30")),
+            ("window/last_size", text("64x20")),
         ];
         assert_eq!(all.len(), KEYS.len());
         for (key, value) in &all {
@@ -206,6 +239,24 @@ mod tests {
         assert_eq!((s.cursor_shape, s.cursor_blink, s.scheme.as_str()), (CursorShape::Bar, false, "tango"));
         assert!(s.bold_is_bright && s.copy_on_select && !s.confirm_multiline);
         assert_eq!(s.word_chars, "_.");
+        assert_eq!((s.window_size, s.last_size), (Some((100, 30)), Some((64, 20))));
+    }
+
+    #[test]
+    fn grid_sizes_are_validated() {
+        assert_eq!(parse_grid("80x24"), Some((80, 24)));
+        assert_eq!(parse_grid(" 120 X 40 "), Some((120, 40)));
+        for bad in ["", "80", "80x", "x24", "19x24", "80x4", "501x24", "80x201", "-80x24", "80x24x1", "eighty x 24", "80*24"] {
+            assert_eq!(parse_grid(bad), None, "{bad:?}");
+        }
+        let mut s = Settings::default();
+        s.apply("window/size", &text("100x30"));
+        s.apply("window/last_size", &text("90x25"));
+        assert_eq!(s.initial_grid(), Some((100, 30)), "the setting wins");
+        s.apply("window/size", &text("nonsense"));
+        assert_eq!(s.initial_grid(), Some((90, 25)), "an invalid size is no size");
+        s.apply("window/last_size", &Value::Int(5));
+        assert_eq!(s.initial_grid(), Some((90, 25)), "the wrong type changes nothing");
     }
 
     #[test]

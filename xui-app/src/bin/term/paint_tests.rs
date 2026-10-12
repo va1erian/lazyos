@@ -64,6 +64,7 @@ struct Shot {
     bold_is_bright: bool,
     offset: usize,
     pending: Option<usize>,
+    badge: Option<&'static str>,
 }
 
 impl Default for Shot {
@@ -81,6 +82,7 @@ impl Default for Shot {
             bold_is_bright: false,
             offset: 0,
             pending: None,
+            badge: None,
         }
     }
 }
@@ -130,6 +132,7 @@ fn render_with(mut term: Term, shot: &Shot, times: u32, name: &str) -> (Shown, f
                     offset: setup.offset,
                     pending: setup.pending,
                     accent: Rgb(accent.r, accent.g, accent.b),
+                    badge: setup.badge,
                 };
                 let start = Instant::now();
                 for _ in 0..times {

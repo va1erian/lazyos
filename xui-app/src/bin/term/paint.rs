@@ -12,6 +12,7 @@ use lazyterm::settings::CursorShape;
 use lazyterm::{Attr, Flags, Palette, Rgb, Term};
 use xui_core::{Canvas, Color, Rect};
 
+use super::badge;
 use super::geometry::confirm_rects;
 use super::look::Look;
 use super::view::{
@@ -33,6 +34,8 @@ pub struct Scene<'a> {
     pub pending: Option<usize>,
     /// The theme's accent: the selection is the background tinted with it.
     pub accent: Rgb,
+    /// The size badge's text, while it is up (`badge.rs`).
+    pub badge: Option<&'a str>,
 }
 
 /// The background of selected cells: the scheme's background tinted with the
@@ -155,6 +158,9 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
     };
     if let Some(lines) = scene.pending {
         paint_confirm(canvas, palette, &laid, m.scale, lines, damage);
+    }
+    if let Some(text) = scene.badge {
+        badge::paint(canvas, palette, look, &laid, text, damage);
     }
     laid
 }

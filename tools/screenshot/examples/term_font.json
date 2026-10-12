@@ -194,7 +194,7 @@
  },
  {
   "key": "enter",
-  "until": "TERM:OUT:21 80",
+  "until": "TERM:OUT:21 77",
   "timeout": 60,
   "retries": 2
  },

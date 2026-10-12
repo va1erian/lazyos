@@ -237,8 +237,7 @@ pub(super) fn mouse(kind: MouseKind, x: i32, y: i32, mods: Modifiers) -> Msg {
 /// Tell session scripts where the grid is (`UI:WIDGET`, with the probe on):
 /// its top-left is the origin the drags in `term_select_copy.json` use.
 pub(super) fn probe_grid(layout: &Layout) {
-    let cols = super::COLS as i32;
-    let width = (layout.width - 2 * layout.pad).min(cols * layout.cell_w);
+    let width = layout.width - 2 * layout.pad;
     xui_app::probe::widget(
         "Terminal",
         "grid",

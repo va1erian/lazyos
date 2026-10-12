@@ -104,6 +104,20 @@ impl Follower {
         }
     }
 
+    /// Remember the window's grid (`window/last_size`, per user), unless it
+    /// is already what is stored. A refused write (the label may not allow
+    /// it) is not an error: the size is only a convenience.
+    pub fn save_last_size(&mut self, cols: usize, rows: usize) {
+        let Some(uid) = self.uid.filter(|_| self.available) else {
+            return;
+        };
+        if self.current.settings.last_size == Some((cols, rows)) {
+            return;
+        }
+        let path = format!("user/{uid}/term/window/last_size");
+        let _ = self.store.set(&path, StoreValue::Str(format!("{cols}x{rows}")));
+    }
+
     /// Look for changes; the new configuration when something differs.
     pub fn poll(&mut self) -> Option<Conf> {
         let changed = self

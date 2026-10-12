@@ -25,6 +25,7 @@ mod osc;
 pub mod palette;
 pub mod paste;
 pub mod render;
+mod reflow;
 mod row;
 mod selection;
 pub mod settings;
@@ -42,10 +43,13 @@ mod tests_input;
 mod tests_select;
 #[cfg(test)]
 mod tests_history;
+#[cfg(test)]
+mod tests_reflow;
 
 pub use cell::{Attr, Cell, Color, Flags};
 pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
 pub use palette::{Palette, Rgb, Scheme};
+pub use reflow::Remap;
 pub use row::Row;
 pub use selection::{Point, SelectMode};
 
@@ -93,11 +97,14 @@ impl Term {
         self.state.height()
     }
 
-    /// Change the size. Rows and columns are cropped or padded (reflow is a
-    /// later phase); the cursor stays on screen.
-    pub fn resize(&mut self, cols: usize, rows: usize) {
+    /// Change the size. The main screen and the scrollback are reflowed (the
+    /// logical lines rewrap, the cursor stays on its character, a wide
+    /// character is never split); the alternate screen is cropped or padded.
+    /// The selection is cleared. The result maps old absolute line numbers to
+    /// new ones, for a view that must stay on its text.
+    pub fn resize(&mut self, cols: usize, rows: usize) -> Remap {
         let (cols, rows) = clamp_size(cols, rows);
-        self.state.resize(cols, rows);
+        self.state.resize(cols, rows)
     }
 
     /// Feed the child's output. Returns the logical lines completed by a line

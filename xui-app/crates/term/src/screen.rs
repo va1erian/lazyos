@@ -18,6 +18,11 @@ impl Screen {
         }
     }
 
+    /// A screen of already built rows, each `cols` wide.
+    pub fn from_rows(rows: Vec<Row>, cols: usize) -> Screen {
+        Screen { rows, cols }
+    }
+
     pub fn cols(&self) -> usize {
         self.cols
     }

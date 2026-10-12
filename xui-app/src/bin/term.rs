@@ -42,6 +42,8 @@ use xui_core::{Control, Dip, Key};
 
 #[path = "term/appearance.rs"]
 mod appearance;
+#[path = "term/badge.rs"]
+mod badge;
 #[path = "term/blink.rs"]
 mod blink;
 #[path = "term/clicks.rs"]
@@ -100,12 +102,6 @@ const SHELL: &str = fhs::bin::BUSYBOX;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);
-/// The columns of the pty and the engine: BusyBox's line editor breaks a long
-/// command at the margin with its own newline, and the evidence reads that, so
-/// the width is not the window's until the resize phase (docs/terminal-plan.md
-/// T4); the window clips what it cannot show. The rows are what the window
-/// holds at the font's line height (`term/appearance.rs`).
-const COLS: usize = 80;
 /// A safety-net drain: the pty wakes the loop itself (`watch_fd`), so this
 /// only matters if a wake were ever missed. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
@@ -175,10 +171,24 @@ struct Terminal {
     /// The cursor blink and its timer, which runs only while it is needed.
     blink: Blink,
     blink_timer: Rc<Cell<Option<TimerId>>>,
+    /// The backend (size hints, size requests), the size badge's text shared
+    /// with the painter and its timer.
+    backend: Rc<LazyOSBackend>,
+    badge: Rc<RefCell<Option<String>>>,
+    badge_timer: Rc<Cell<Option<TimerId>>>,
+    /// A grid has been applied before (the first is not announced), and the
+    /// window is still being sized to the `window/size` that was asked for.
+    sized: bool,
+    settling: bool,
+    /// The size change being applied is the window's, so it is remembered.
+    remember: bool,
+    /// The grid to remember in `confd` once the window has rested, and when.
+    save: Option<(usize, usize, u64)>,
 }
 
 impl Terminal {
-    fn finish(&self, ui: &mut Ui<Msg>) {
+    fn finish(&mut self, ui: &mut Ui<Msg>) {
+        self.save_size(true);
         println!("TERM:EXIT:PASS");
         ui.quit();
     }
@@ -204,6 +214,12 @@ impl App for Terminal {
                 if let Some(conf) = self.follower.poll() {
                     self.apply_conf(ui, conf);
                 }
+                // A window that never answered the size request is left as it is.
+                if std::mem::take(&mut self.settling) {
+                    self.relayout(ui);
+                    self.refresh(ui);
+                }
+                self.save_size(false);
                 self.follow_theme(ui);
                 if self.hung_up {
                     self.finish(ui);
@@ -213,6 +229,8 @@ impl App for Terminal {
             Msg::Flush => self.flush_out(),
             Msg::Blink => self.blink_tick(ui),
             Msg::Focus(focused) => self.focus_changed(ui, focused),
+            Msg::Resized => self.window_resized(ui),
+            Msg::BadgeOff => self.hide_badge(ui),
             // While the paste confirmation is up the keyboard answers it.
             Msg::Char('\r' | '\n') if self.pending_text.is_some() => self.confirm(ui, true),
             Msg::Key(Key::ESCAPE, _) if self.pending_text.is_some() => self.confirm(ui, false),
@@ -268,6 +286,8 @@ fn main() {
     let auto: Rc<Cell<Option<TimerId>>> = Rc::default();
     let flush: Rc<Cell<Option<TimerId>>> = Rc::default();
     let blink_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
+    let badge_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
+    let badge: Rc<RefCell<Option<String>>> = Rc::default();
     let pending: Rc<Cell<Option<usize>>> = Rc::default();
     // Files dropped on the window arrive on the backend's hook; the proxy
     // turns them into a message once the UI exists.
@@ -289,12 +309,13 @@ fn main() {
         let metrics = look::measure(ui, family, settings.zoomed_size(0) as f32, settings.line_spacing);
         let styles = fonts.catalog.styles(family).unwrap_or_default();
         let look = Rc::new(RefCell::new(Look::new(metrics, family, styles)));
-        let height = ui.client_rect().height();
-        let rows = (((height - 2 * metrics.pad) / metrics.line_h).max(1) as usize).min(200);
+        // The grid fills the window, unless a size was asked for.
+        let asked = settings.initial_grid();
+        let (cols, rows) = asked.unwrap_or_else(|| appearance::grid_for(ui.client_rect(), &metrics));
         let mut shell = Command::new(SHELL);
         shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
         shell.env("TERM", "vt100");
-        let (master, child) = match pty::spawn(shell, rows as u16, COLS as u16) {
+        let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
             Ok(spawned) => spawned,
             Err(error) => {
                 println!("TERM:SPAWN:FAIL:{error}");
@@ -304,7 +325,7 @@ fn main() {
         };
         set_nonblocking(master.fd());
         backend.watch_fd(master.fd());
-        let term = Rc::new(RefCell::new(Engine::new(COLS, rows)));
+        let term = Rc::new(RefCell::new(Engine::new(cols, rows)));
         {
             let term = Rc::clone(&term);
             let look = Rc::clone(&look);
@@ -313,20 +334,24 @@ fn main() {
             let layout = Rc::clone(&layout);
             let offset = Rc::clone(&offset);
             let pending = Rc::clone(&pending);
+            let badge = Rc::clone(&badge);
             let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
                 let accent = theme.get().accent;
-                let (term, look) = (term.borrow(), look.borrow());
+                let (term, look, badge) = (term.borrow(), look.borrow(), badge.borrow());
                 let scene = Scene {
                     term: &term,
                     look: &look,
                     offset: offset.get(),
                     pending: pending.get(),
                     accent: Rgb(accent.r, accent.g, accent.b),
+                    badge: badge.as_deref(),
                 };
                 let damage = backend.paint_damage();
                 let laid = clock.time(|| paint(canvas, &scene, damage));
-                if layout.replace(Some(laid)).is_none() {
+                // The probe line names the grid's rectangle; it moves when the
+                // window is resized.
+                if layout.replace(Some(laid)) != Some(laid) {
                     probe_grid(&laid);
                 }
             }));
@@ -337,7 +362,8 @@ fn main() {
         *outbox.borrow_mut() = Some(ui.proxy());
         root.focus();
         ui.on_close(|| Some(Msg::Close));
-        events::route_timers(ui, &auto, &flush, &blink_timer);
+        events::watch_resize(ui);
+        events::route_timers(ui, &auto, &flush, &blink_timer, &badge_timer);
         ui.set_timer(FALLBACK_MILLIS);
         let mut terminal = Terminal {
             child,
@@ -371,8 +397,18 @@ fn main() {
             marker: None,
             blink: Blink::default(),
             blink_timer: Rc::clone(&blink_timer),
+            backend: Rc::clone(&backend),
+            badge: Rc::clone(&badge),
+            badge_timer: Rc::clone(&badge_timer),
+            sized: false,
+            settling: asked.is_some(),
+            remember: false,
+            save: None,
         };
         terminal.restyle(ui);
+        if let Some(grid) = asked {
+            terminal.request_grid(grid);
+        }
         terminal
     });
 

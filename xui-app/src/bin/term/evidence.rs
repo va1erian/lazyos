@@ -179,6 +179,29 @@ mod tests {
         assert_eq!(got, [command[5..].to_string()], "the echo's tail is not the output");
     }
 
+    /// The window's width is the pty's now, so the shell breaks its echo at
+    /// whatever width the window has: 20 columns (the floor), 40, 68 (the
+    /// default window), 80 and 139 (a maximized one).
+    #[test]
+    fn a_long_echo_broken_by_the_shell_is_recognised_at_every_width() {
+        let command = format!("echo {}", "1234567890".repeat(9));
+        let output = &command[5..];
+        for cols in [20, 40, 68, 80, 139] {
+            let mut term = Term::new(cols, 24);
+            let mut evidence = Evidence::default();
+            let echo = format!("/ $ {command}");
+            let rows: Vec<&str> = echo
+                .as_bytes()
+                .chunks(cols)
+                .map(|row| std::str::from_utf8(row).unwrap())
+                .collect();
+            outs(&mut evidence, &mut term, rows.join("\r\r\n").as_bytes());
+            evidence.submitted(command.clone());
+            let got = outs(&mut evidence, &mut term, format!("\r\n{output}\r\n/ $ ").as_bytes());
+            assert_eq!(got, [output.to_string()], "at {cols} columns");
+        }
+    }
+
     #[test]
     fn an_output_line_that_ends_like_the_command_is_still_output() {
         let mut term = Term::new(80, 24);
