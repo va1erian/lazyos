@@ -120,6 +120,28 @@ mod tests {
     }
 
     #[test]
+    fn jetbrains_mono_has_all_four_faces_with_the_regular_advance() {
+        let faces: [(&[u8], bool, bool); 4] = [
+            (JETBRAINS, false, false),
+            (include_bytes!("../../../../assets/fonts/JetBrainsMono-Bold.ttf"), true, false),
+            (include_bytes!("../../../../assets/fonts/JetBrainsMono-Italic.ttf"), false, true),
+            (include_bytes!("../../../../assets/fonts/JetBrainsMono-BoldItalic.ttf"), true, true),
+        ];
+        let regular = parse(JETBRAINS).unwrap().advance_em;
+        let mut catalog = Catalog::default();
+        for (bytes, bold, italic) in faces {
+            let info = parse(bytes).unwrap();
+            assert_eq!(info.family, "JetBrains Mono");
+            assert_eq!((info.bold, info.italic), (bold, italic));
+            assert!(info.monospaced, "monospaced");
+            assert!((info.advance_em - regular).abs() < 1e-6, "{} vs {regular}", info.advance_em);
+            catalog.add(&info);
+        }
+        let styles = catalog.styles("JetBrains Mono").unwrap();
+        assert!(styles.regular && styles.bold && styles.italic && styles.bold_italic);
+    }
+
+    #[test]
     fn liberation_mono_reports_its_style() {
         let info = parse(LIBERATION_MONO).unwrap();
         assert_eq!(info.family, "Liberation Mono");

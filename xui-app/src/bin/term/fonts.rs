@@ -37,10 +37,12 @@ pub fn directories() -> Vec<PathBuf> {
 /// shaper. Call before the first measure or draw.
 pub fn register(dirs: &[PathBuf]) -> Fonts {
     let mut fonts = Fonts::default();
-    let built_in = xui_app::font::MONO_BYTES;
-    xui_canvas::add_font(built_in.to_vec());
-    if let Some(info) = parse(built_in) {
-        fonts.catalog.add(&info);
+    // JetBrains Mono, compiled in: the Regular and its three other faces.
+    for face in std::iter::once(xui_app::font::MONO_BYTES).chain(xui_app::font::MONO_STYLES) {
+        xui_canvas::add_font(face.to_vec());
+        if let Some(info) = parse(face) {
+            fonts.catalog.add(&info);
+        }
     }
     for dir in dirs {
         scan(dir, DEPTH, &mut fonts);

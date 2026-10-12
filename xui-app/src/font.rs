@@ -12,6 +12,15 @@ pub const BYTES: &[u8] = include_bytes!("../../assets/fonts/DroidSans.ttf");
 /// JetBrains Mono Regular (SIL OFL), for the Terminal's fixed character grid.
 pub const MONO_BYTES: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
 
+/// JetBrains Mono's other three faces (SIL OFL, release v2.304), which the
+/// Terminal registers beside the Regular so bold, italic and bold italic are
+/// real faces, not an overstrike and a slant.
+pub const MONO_STYLES: [&[u8]; 3] = [
+    include_bytes!("../../assets/fonts/JetBrainsMono-Bold.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMono-Italic.ttf"),
+    include_bytes!("../../assets/fonts/JetBrainsMono-BoldItalic.ttf"),
+];
+
 /// The family name JetBrains Mono declares, for `set_default_family`.
 pub const MONO_FAMILY: &str = "JetBrains Mono";
 
