@@ -200,6 +200,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_scmrights_seqpacket", scmrights_seqpacket),
     (
+        "compat_scmrights_read_stops_before_rights",
+        scmrights_read_stops_before_rights,
+    ),
+    (
+        "compat_scmrights_empty_message_with_rights",
+        scmrights_empty_message_with_rights,
+    ),
+    (
         "compat_scmrights_in_flight_limits",
         scmrights_in_flight_limits,
     ),

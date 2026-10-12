@@ -174,10 +174,19 @@ pub(super) fn write_stream_rights(
     dont_wait: bool,
     rights: &mut Option<pipe::Rights>,
 ) -> u64 {
+    let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
     if len == 0 {
-        return 0;
+        // No bytes: nothing is sent, unless descriptors make an empty
+        // seqpacket datagram of it (a stream drops them, as Linux does).
+        if !(seqpacket && rights.is_some()) {
+            return 0;
+        }
+        return match task::fd_stream_send_rights(fd as usize, &[], dont_wait, rights) {
+            Ok(n) => n as u64,
+            Err(error) => pipe_error(error),
+        };
     }
-    if task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize) {
+    if seqpacket {
         if len > pipe::CAPACITY as u64 {
             return err(EMSGSIZE);
         }

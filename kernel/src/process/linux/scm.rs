@@ -14,6 +14,13 @@
 //! `SCM_RIGHTS` control message. Descriptors that do not fit the control
 //! buffer, or the table, are closed and `MSG_CTRUNC` is set.
 //!
+//! Any open descriptor may be sent, as on Linux. Two kinds deserve a note: a
+//! Messenger endpoint watch (`Fd::Endpoint`) is only a pollable view, with no
+//! authority (it cannot receive, send or close, and re-checks on every poll
+//! that its owner still holds the handle), and a `fork` child already inherits
+//! the same view, so passing one widens nothing; an epoll instance holds its
+//! own references to what it watches, as on Linux.
+//!
 //! `SCM_CREDENTIALS` and every other control message are refused: the former
 //! with `EOPNOTSUPP` (credentials are not carried), the rest with `EINVAL`.
 

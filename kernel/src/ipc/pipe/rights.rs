@@ -10,8 +10,10 @@
 //!
 //! The rules follow Linux:
 //!
-//! * a stream read stops at the end of a message that carried descriptors,
-//!   so a descriptor is never delivered with bytes from beyond its message;
+//! * a stream read never mixes bytes of a message that carried descriptors
+//!   with others: it stops before such a message, or at its end, so a
+//!   descriptor is never delivered with bytes from outside its message; a
+//!   seqpacket message may be empty when it carries descriptors;
 //! * a read that has nowhere to put descriptors (`read`, `recv`, a `recvmsg`
 //!   without a control buffer) still consumes them, closing them;
 //! * `MSG_PEEK` hands out duplicates and leaves the queue as it was;
@@ -110,29 +112,62 @@ impl Drop for Rights {
     }
 }
 
-/// A message's descriptors and the stream positions `[start, end)` of its
-/// bytes.
+/// A message's descriptors, the stream positions `[start, end)` of its bytes
+/// and (seqpacket) its frame number.
 pub(super) struct Record {
     start: u64,
     end: u64,
+    frame: u64,
     rights: Rights,
 }
 
 impl Ring {
-    /// How many of `want` bytes a stream read may take: it stops at the end of
-    /// the first message with descriptors that it reaches into.
+    /// How many of `want` bytes a stream read may take. Bytes are never mixed
+    /// with a message that carries descriptors (Linux does not glue messages
+    /// whose ancillary data differs): a read that starts before one stops where
+    /// it begins, and one that starts inside or at it stops where it ends.
     fn rights_cap(&self, want: usize) -> usize {
         if self.mode != Mode::Stream {
             return want;
         }
         let limit = self.total_out + want as u64;
-        match self.records.iter().find(|record| record.start < limit) {
-            Some(record) => want.min(usize::try_from(record.end - self.total_out).unwrap_or(want)),
-            None => want,
+        let Some(record) = self.records.iter().find(|record| record.start < limit) else {
+            return want;
+        };
+        let stop = if record.start > self.total_out {
+            record.start
+        } else {
+            record.end
+        };
+        want.min(usize::try_from(stop - self.total_out).unwrap_or(want))
+    }
+
+    /// The descriptors of seqpacket message `frame`, which a read just took.
+    fn take_frame_rights(&mut self, frame: u64) -> Vec<Rights> {
+        let mut taken = Vec::new();
+        if self
+            .records
+            .front()
+            .is_some_and(|record| record.frame == frame)
+        {
+            if let Some(record) = self.records.pop_front() {
+                taken.push(record.rights);
+            }
+        }
+        taken
+    }
+
+    /// Duplicates of the descriptors of the next seqpacket message.
+    fn clone_frame_rights(&self, sink: &mut Vec<Fd>) {
+        let frame = self.frames_out;
+        if let Some(record) = self.records.iter().find(|record| record.frame == frame) {
+            if sink.try_reserve(record.rights.len()).is_ok() {
+                sink.extend(record.rights.fds.iter().cloned());
+            }
         }
     }
 
-    /// Remove the messages whose first byte has been consumed.
+    /// Remove the stream messages whose first byte has been consumed.
     fn take_rights(&mut self) -> Vec<Rights> {
         let mut taken = Vec::new();
         while self
@@ -188,7 +223,9 @@ impl Pipe {
         if end != End::Write {
             return Err(Error::BadEnd);
         }
-        if src.is_empty() {
+        // A message with no bytes carries nothing on a stream; on a seqpacket
+        // socket it is a datagram of its own when it has descriptors.
+        if src.is_empty() && !(rights.is_some() && self.mode() == Mode::Seqpacket) {
             return Ok(0);
         }
         loop {
@@ -204,12 +241,19 @@ impl Pipe {
                     let was_empty = !ring.has_data();
                     let start = ring.total_in;
                     let n = ring.fill_from(src);
+                    let frame = ring.frames_in;
                     if ring.mode == Mode::Seqpacket {
                         ring.frames.push_back(n);
+                        ring.frames_in += 1;
                     }
                     if let Some(rights) = rights.take() {
                         let end = ring.total_in;
-                        ring.records.push_back(Record { start, end, rights });
+                        ring.records.push_back(Record {
+                            start,
+                            end,
+                            frame,
+                            rights,
+                        });
                     }
                     drop(ring);
                     self.read_events.fetch_add(1, Ordering::AcqRel);
@@ -255,7 +299,9 @@ impl Pipe {
                         }
                         let full = ring.frames.len() >= MAX_FRAMES;
                         ring.frames.pop_front();
-                        let taken = ring.take_rights();
+                        let frame = ring.frames_out;
+                        ring.frames_out += 1;
+                        let taken = ring.take_frame_rights(frame);
                         drop(ring);
                         self.after_read(if full { 0 } else { free_before });
                         deliver(taken, sink);
@@ -314,7 +360,11 @@ impl Pipe {
                 };
                 if let Some((n, consumed)) = seen {
                     if let Some(sink) = sink {
-                        ring.clone_rights(ring.total_out + consumed as u64, sink);
+                        if ring.mode == Mode::Seqpacket {
+                            ring.clone_frame_rights(sink);
+                        } else {
+                            ring.clone_rights(ring.total_out + consumed as u64, sink);
+                        }
                     }
                     return Ok(n);
                 }

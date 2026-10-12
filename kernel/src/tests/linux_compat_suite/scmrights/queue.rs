@@ -86,9 +86,16 @@ pub fn scmrights_stream_boundaries() -> Result<(), String> {
         first.n,
         first.fds.len()
     );
+    let plain = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        plain.n == 2 && &buf[..2] == b"BB" && plain.fds.is_empty(),
+        "plain read: {} bytes, {} fds",
+        plain.n,
+        plain.fds.len()
+    );
     let second = recv_fds(p.b, &mut buf, Some(4), 0);
     check!(
-        second.n == 4 && &buf[..4] == b"BBCC" && second.fds.len() == 1,
+        second.n == 2 && &buf[..2] == b"CC" && second.fds.len() == 1,
         "second read: {} bytes, {} fds",
         second.n,
         second.fds.len()
@@ -140,6 +147,144 @@ pub fn scmrights_seqpacket() -> Result<(), String> {
     );
     check!(pipe::in_flight() == 0, "{} in flight", pipe::in_flight());
     for fd in one.fds.into_iter().chain(three.fds) {
+        close(fd);
+    }
+    task::harness::switch_current(p.leader);
+    check!(at_eof(p.r), "a write end leaked");
+    task::harness::reset();
+    settled(pipes_before)
+}
+
+/// Plain bytes queued ahead of a message with descriptors are read apart
+/// from it, by `recvmsg` and by a peek: a read never mixes a message that
+/// has none with one that has.
+pub fn scmrights_read_stops_before_rights() -> Result<(), String> {
+    let pipes_before = pipe::Pipe::live();
+    let p = processes()?;
+    check!(send_fds(p.a, b"aaa", &[]) == 3, "plain message");
+    check!(
+        send_fds(p.a, b"bbb", &[p.w]) == 3,
+        "message with a descriptor"
+    );
+    check!(send_fds(p.a, b"ccc", &[]) == 3, "plain message after it");
+    close(p.w);
+    task::harness::switch_current(p.child);
+    for fd in [p.w, p.a, p.r] {
+        close(fd);
+    }
+    let mut buf = [0u8; 16];
+    let peeked = recv_fds(p.b, &mut buf, Some(4), MSG_PEEK);
+    check!(
+        peeked.n == 3 && &buf[..3] == b"aaa" && peeked.fds.is_empty(),
+        "peek: {} bytes, {} fds",
+        peeked.n,
+        peeked.fds.len()
+    );
+    let first = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        first.n == 3 && &buf[..3] == b"aaa" && first.fds.is_empty(),
+        "first read: {} bytes, {} fds",
+        first.n,
+        first.fds.len()
+    );
+    check!(pipe::in_flight() == 1, "the descriptor was consumed early");
+    let peeked = recv_fds(p.b, &mut buf, Some(4), MSG_PEEK);
+    check!(
+        peeked.n == 3 && &buf[..3] == b"bbb" && peeked.fds.len() == 1,
+        "second peek: {} bytes, {} fds",
+        peeked.n,
+        peeked.fds.len()
+    );
+    let second = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        second.n == 3 && &buf[..3] == b"bbb" && second.fds.len() == 1,
+        "second read: {} bytes, {} fds",
+        second.n,
+        second.fds.len()
+    );
+    // The bytes after it come in a read of their own too.
+    let third = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        third.n == 3 && &buf[..3] == b"ccc" && third.fds.is_empty(),
+        "third read"
+    );
+    for fd in peeked.fds.into_iter().chain(second.fds) {
+        close(fd);
+    }
+    task::harness::switch_current(p.leader);
+    check!(at_eof(p.r), "a write end leaked");
+    task::harness::reset();
+    settled(pipes_before)
+}
+
+/// On a seqpacket socket a message with descriptors and no bytes is a
+/// datagram of its own, in order with the others; on a stream it carries
+/// nothing and its descriptors are closed.
+pub fn scmrights_empty_message_with_rights() -> Result<(), String> {
+    let pipes_before = pipe::Pipe::live();
+    let p = processes()?;
+    check!(
+        send_fds(p.sa, b"", &[p.w]) == 0,
+        "empty datagram with a descriptor"
+    );
+    // An empty message with no descriptors sends nothing at all.
+    check!(send_fds(p.sa, b"", &[]) == 0, "nothing at all");
+    check!(send_fds(p.sa, b"mid", &[]) == 3, "plain datagram");
+    check!(
+        send_fds(p.sa, b"", &[p.w, p.w]) == 0,
+        "second empty datagram"
+    );
+    check!(send_fds(p.sa, b"", &[p.w]) == 0, "third empty datagram");
+    check!(pipe::in_flight() == 4, "in flight: {}", pipe::in_flight());
+    // A stream drops the descriptors of an empty message.
+    check!(send_fds(p.a, b"", &[p.w]) == 0, "empty stream message");
+    check!(
+        pipe::in_flight() == 4,
+        "a stream kept an empty message's descriptors"
+    );
+    close(p.w);
+    task::harness::switch_current(p.child);
+    for fd in [p.w, p.sa, p.r] {
+        close(fd);
+    }
+    let mut buf = [0u8; 8];
+    let peeked = recv_fds(p.sb, &mut buf, Some(4), MSG_PEEK);
+    check!(
+        peeked.n == 0 && peeked.fds.len() == 1,
+        "peek: {} fds",
+        peeked.fds.len()
+    );
+    let first = recv_fds(p.sb, &mut buf, Some(4), 0);
+    check!(
+        first.n == 0 && first.fds.len() == 1,
+        "first: {} fds",
+        first.fds.len()
+    );
+    let third = recv_fds(p.sb, &mut buf, Some(4), 0);
+    check!(
+        third.n == 3 && &buf[..3] == b"mid" && third.fds.is_empty(),
+        "third"
+    );
+    let fourth = recv_fds(p.sb, &mut buf, Some(4), 0);
+    check!(
+        fourth.n == 0 && fourth.fds.len() == 2,
+        "fourth: {} fds",
+        fourth.fds.len()
+    );
+    let fifth = recv_fds(p.sb, &mut buf, Some(4), 0);
+    check!(
+        fifth.n == 0 && fifth.fds.len() == 1,
+        "fifth: {} fds",
+        fifth.fds.len()
+    );
+    check!(pipe::in_flight() == 0, "{} in flight", pipe::in_flight());
+    for fd in peeked
+        .fds
+        .into_iter()
+        .chain(first.fds)
+        .chain(fourth.fds)
+        .chain(fifth.fds)
+    {
         close(fd);
     }
     task::harness::switch_current(p.leader);

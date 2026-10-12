@@ -96,15 +96,19 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   `recvmsg` installs them in the receiver's table when it consumes the
 >   message (lowest free numbers; `MSG_CMSG_CLOEXEC` sets `FD_CLOEXEC`); ones
 >   that do not fit the control buffer or the table are closed and
->   `MSG_CTRUNC` is set. A stream read stops at the end of a message that
->   carried descriptors, `read`/`recv`/a `recvmsg` with no control buffer
+>   `MSG_CTRUNC` is set. A stream read never mixes bytes of a message with
+>   descriptors and one without (it stops before such a message, or at its
+>   end), `read`/`recv`/a `recvmsg` with no control buffer
 >   consume and close them, `MSG_PEEK` hands out duplicates and leaves them
 >   queued. A message nobody received is dropped, closing its descriptors,
 >   when the receiving end's last descriptor closes or its owner exits.
 >   Descriptors in flight count against the sender's `Fds` quota and a global
 >   ceiling of four descriptor tables (`ETOOMANYREFS`). `SCM_CREDENTIALS` is
 >   still `EOPNOTSUPP` and any other control message `EINVAL`; a message with
->   no data bytes carries nothing (as on a Linux stream); a socket sent
+>   no data bytes carries nothing on a stream (as on Linux) and is a datagram
+>   of its own on a seqpacket socket; any descriptor kind may travel (a
+>   Messenger endpoint watch is a pollable view with no authority, see
+>   `process/linux/scm.rs`); a socket sent
 >   through itself is not reclaimed once both ends close (Linux needs its
 >   garbage collector for that cycle).
 > * **`memfd_create`** (319, `MFD_CLOEXEC`; `MFD_ALLOW_SEALING` is accepted

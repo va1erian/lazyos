@@ -117,6 +117,10 @@ struct Ring {
     /// matched to the bytes they were sent beside (`rights.rs`).
     total_in: u64,
     total_out: u64,
+    /// Seqpacket messages ever queued / ever taken, numbering the frames so a
+    /// record names its message even when that has no bytes.
+    frames_in: u64,
+    frames_out: u64,
     /// Descriptors in flight, oldest first, each tied to its message's bytes.
     records: VecDeque<rights::Record>,
 }
@@ -236,6 +240,8 @@ impl Pipe {
                 frames: VecDeque::new(),
                 total_in: 0,
                 total_out: 0,
+                frames_in: 0,
+                frames_out: 0,
                 records: VecDeque::new(),
             }),
             read_wq: WaitQueue::new(WaitKind::Pipe),
