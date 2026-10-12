@@ -410,8 +410,10 @@ capabilities = []
   else: the user who added a network through `os.lazy.net.wifi.v1`
   `AddNetwork` (the uid comes from that call's kernel-stamped sender). They
   are refused in the `system` scope: a machine-wide network's passphrase is
-  stored by `elevd` itself (`net.wifi.system`, under the network's profile
-  id), so a `system` secret still needs an administrator. No method returns
+  stored by `elevd` itself (`net.wifi.system`, or `net.wifi.add`, which makes
+  the profile id, stores the secret and adds the `System` profile in
+  `wlanmd` in one approved step, undoing the secret if `wlanmd` refuses),
+  so a `system` secret still needs an administrator. No method returns
   a stored secret. The one use is `WifiPmk`, the WPA2 pairwise master key
   for an SSID, answered only to `wlanmd` (the `_wlan` system uid, uid 912,
   unlabelled, outside any session) and cached sealed beside the secret.
@@ -476,7 +478,8 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   no root, no capability, not even to a child. A program asks `elevd` for one
   **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
   `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
-  `net.config`, `service.restart`, `net.wifi.system`) with checked arguments; `elevd` (its own `_elev` uid,
+  `net.config`, `service.restart`, `net.wifi.system`, `net.wifi.add`,
+  `net.wifi.forget`) with checked arguments; `elevd` (its own `_elev` uid,
   no capability) performs it itself once an administrator approved, and the
   services accept that path from its kernel-stamped identity alone.
 - Elevation always prompts: `xuid` draws the prompt over a dimmed screen,
