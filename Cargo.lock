@@ -833,6 +833,7 @@ dependencies = [
  "mounttable",
  "netpolicy",
  "nvme",
+ "pciprobe",
  "pkgstore",
  "sndpolicy",
  "spin",

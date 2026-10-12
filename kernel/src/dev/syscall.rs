@@ -25,6 +25,12 @@
 //!   INVENTORY(10)  a1 -> rows, a2 = capacity   -> total (read-only, [`super::inspect`])
 //!   POLICY(11)     a1 -> rows, a2 = capacity   -> total class rules, ENOENT if none
 //!   DENIALS(12)    a1 -> rows, a2 = capacity   -> total refused claims (CAP_AUDIT_READ)
+//!   DBG_CONFIG_READ(13)  a1 = bus << 8 | device << 3 | function, a2 = offset,
+//!                  a3 = length, a4 -> buffer     -> bytes read (`dbgd` only,
+//!                  `cfg(lazyos_dbgd)`; no claim, read-only, [`super::peek`])
+//!   DBG_MMIO_READ(14)  a1 = bdf, a2 = offset in the BAR, a3 = bar | length << 8,
+//!                  a4 -> buffer                   -> bytes read (as above,
+//!                  allowlisted ranges only)
 //! ```
 //!
 //! No operation takes a raw physical or port address: everything is resolved
@@ -65,6 +71,15 @@ pub const OP_DMA_ALLOC: u64 = 9;
 pub const OP_INVENTORY: u64 = 10;
 pub const OP_POLICY: u64 = 11;
 pub const OP_DENIALS: u64 = 12;
+/// `dbgd`'s read-only reads of an unclaimed device (`cfg(lazyos_dbgd)`
+/// kernels only; every other kernel answers `EINVAL`).
+pub const OP_DBG_CONFIG_READ: u64 = 13;
+pub const OP_DBG_MMIO_READ: u64 = 14;
+/// The highest op this kernel knows (the suite probes the one after it).
+#[cfg(lazyos_dbgd)]
+pub const OP_LAST: u64 = OP_DBG_MMIO_READ;
+#[cfg(not(lazyos_dbgd))]
+pub const OP_LAST: u64 = OP_DENIALS;
 
 /// `claim` flag: the claimant accepts sharing its interrupt line.
 pub const FLAG_SHARED_IRQ: u64 = 1;
@@ -108,6 +123,10 @@ pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
         OP_INVENTORY => inspect::inventory(slot, a1, a2),
         OP_POLICY => inspect::policy(slot, a1, a2),
         OP_DENIALS => inspect::denials(slot, a1, a2),
+        #[cfg(lazyos_dbgd)]
+        OP_DBG_CONFIG_READ => super::peek::config_read(slot, a1, a2, a3, a4),
+        #[cfg(lazyos_dbgd)]
+        OP_DBG_MMIO_READ => super::peek::mmio_read(slot, a1, a2, a3, a4),
         _ => Err(EINVAL),
     };
     match result {
