@@ -44,8 +44,7 @@ class WebkitDepsTests(unittest.TestCase):
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/webkit/deps.py", "--require"])
         env = plan[at].get("env", {})
-        if env:
-            self.assertEqual(env.get("LAZYOS_WEBKIT_DEPS"), "1")
+        self.assertEqual(env.get("LAZYOS_WEBKIT_DEPS"), "1")
 
     def test_the_gui_gives_it_networking_and_a_card(self) -> None:
         # depsproof's curl check fetches over HTTPS: the stack in the image and

@@ -260,6 +260,12 @@ def build_env(cfg: dict) -> dict[str, str]:
         # dash, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
         env["LAZYOS_LINUXAPPS"] = "1"
+    if cfg.get("jsc"):
+        # JavaScriptCore's jsc and cxxproof (tools/jsc/build.py), any mode.
+        env["LAZYOS_JSC"] = "1"
+    if cfg.get("webkit_deps"):
+        # The WebKit dependency bundle's depsproof (tools/webkit/deps.py), any mode.
+        env["LAZYOS_WEBKIT_DEPS"] = "1"
     if wants_dbgd(cfg):
         # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
         # stack above; the image build writes its key to target/dbgd.key.

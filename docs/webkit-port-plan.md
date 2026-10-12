@@ -275,7 +275,7 @@ non-composited renderer (read from the code, not yet run).
 **Decisions.** *Raster:* Skia, because it is the only backend GTK and WPE still
 build and the CPU path is a supported configuration, not a patch; Cairo plus
 pixman would be a revival of code the ports dropped. Built from the tarball in
-63 s on 20 cores. *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
+under a minute on 20 cores (53 s in the table below). *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
 SubtleCrypto are written against the OpenSSL API (`CurlSSLVerifier`,
 `OpenSSLHelper`, `crypto/openssl`), so Mbed TLS or rustls would mean
 rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (LazyWeb's
@@ -322,13 +322,13 @@ slower handshakes.
   host (`target/webkit/depsproof.host.txt`), the page curl fetched over
   TLS 1.3 (3037 bytes, verified against the harness CA in the image's bundle,
   SNI `tls.test`) to be the one the host server holds, and the server to have seen
-  exactly that handshake and request.
+  a completed TLS 1.3 handshake with that SNI and a request for `/` from `depsproof`.
 * **One deviation from upstream, found by running it:** on LazyOS
   `mmap(fd, PROT_READ, MAP_PRIVATE)` of a file fails (the file-backed `mmap`
   of §6). Skia's fontconfig font manager maps font files with
   `SkData::MakeFromFileName`, has no fallback, and so refused every font
   (`FontAccessible()`: `matchFamilyStyle` returned null although Fontconfig and
-  FreeType alone worked). `skiabuild/lazyos_mmap.c` (35 lines, linked into
+  FreeType alone worked). `skiabuild/lazyos_mmap.c` (linked into
   `libSkia.a`; `SkOSFile_posix.cpp` is compiled with `-Dmmap=lazyos_mmap`) copies the file
   into an anonymous mapping when the kernel cannot map it. No source file of any
   tarball is patched (`tools/webkit/patches/` is empty). The fix that removes the shim is the
@@ -409,7 +409,7 @@ interpreted, no video, no GPU, two to three months in.
   the profile is `run_demo.py --big-app --memory 4G`.
 * **File-backed `mmap` showed up in W3.** Skia maps font files with `mmap(fd,
   PROT_READ, MAP_PRIVATE)`, which fails on LazyOS, and its fontconfig font manager
-  has no fallback; the bundle carries a 35-line copying shim
+  has no fallback; the bundle carries a copying shim
   (`tools/webkit/skiabuild/lazyos_mmap.c`). WebKit maps files elsewhere too
   in WTF's `FileSystem` too (not yet exercised); expect more of the same
   until the kernel can map a file read-only and private.
