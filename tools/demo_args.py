@@ -173,6 +173,12 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "tools/webkit/deps.py in Docker (docs/webkit-port-plan.md W3); it is "
                              "tens of MB (big-app profile) and fetches an HTTPS page, so this "
                              "implies networking")
+    parser.add_argument("--webkit", action="store_true",
+                        help="embed the WebKit port in /system/bin (LAZYOS_WEBKIT=1): WebProcess, "
+                             "NetworkProcess and the headless UI process webkit-smoke, built by "
+                             "tools/webkit/port.py in Docker (docs/webkit-port-plan.md W4); three "
+                             "static programs of tens of MB (big-app profile) over the network "
+                             "stack, so this implies networking")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -259,7 +265,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
-    if args.big_app or args.jsc or args.webkit_deps:
+    if args.big_app or args.jsc or args.webkit_deps or args.webkit:
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -282,7 +288,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
     args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
-                or args.webkit_deps)
+                or args.webkit_deps or args.webkit)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer

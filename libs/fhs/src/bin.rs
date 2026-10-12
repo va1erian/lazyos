@@ -205,6 +205,12 @@ programs! {
     CXXPROOF = "cxxproof";
     /// `depsproof`, the WebKit dependency bundle check (`LAZYOS_WEBKIT_DEPS=1`, W3).
     DEPSPROOF = "depsproof";
+    /// `WebProcess`, WebKit's page process (`LAZYOS_WEBKIT=1`, Linux ABI, W4).
+    WEBPROCESS = "WebProcess";
+    /// `NetworkProcess`, WebKit's network process (`LAZYOS_WEBKIT=1`, W4).
+    NETWORKPROCESS = "NetworkProcess";
+    /// `webkit-smoke`, the headless WebKit UI process of the W4 check (`LAZYOS_WEBKIT=1`).
+    WEBKIT_SMOKE = "webkit-smoke";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

@@ -59,7 +59,7 @@ list(APPEND WebCore_SOURCES
     platform/libwpe/PlatformKeyboardEventLibWPE.cpp
     platform/libwpe/PlatformPasteboardLibWPE.cpp
 
-    platform/network/playstation/CurlSSLHandlePlayStation.cpp
+    platform/network/lazyos/CurlSSLHandleLazyOS.cpp
     platform/network/playstation/NetworkStateNotifierPlayStation.cpp
 
     platform/playstation/MIMETypeRegistryPlayStation.cpp

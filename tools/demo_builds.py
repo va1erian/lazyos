@@ -106,6 +106,14 @@ def build_webkit_deps() -> bool:
     return required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
 
 
+def build_webkit() -> bool:
+    """The WebKit port (`WebProcess`, `NetworkProcess`, `webkit-smoke`), built in
+    Docker by `tools/webkit/port.py` against the dependency bundle (built
+    first); a missing Docker or download stops the run."""
+    return (required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
+            and required("the WebKit port", "webkit/port.py", ("--require",)))
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""

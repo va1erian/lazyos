@@ -28,6 +28,12 @@ pub const CA_BUNDLE: &str = "/system/etc/ssl/certs/ca-certificates.crt";
 /// programs as [`LINUX_HOSTS`]. Written by the image build.
 pub const HOSTS: &str = "/system/etc/hosts";
 
+/// The Fontconfig configuration of WebKit's processes (`LAZYOS_WEBKIT=1`,
+/// `webkit/port/fonts.conf`): the fonts under [`FONTS`](crate::share::FONTS),
+/// a cache in `/tmp/fontconfig`. Fontconfig was built for this path
+/// (`--sysconfdir=/system/etc`). Written by the image build.
+pub const FONTS_CONF: &str = "/system/etc/fonts/fonts.conf";
+
 /// Present only in an image built with `LAZYOS_UI_PROBE=1` (issue #538): the
 /// shell and the LazyRAD player then print the screen rectangles of their
 /// named widgets as `UI:` serial lines (the compositor's window lines are
@@ -73,6 +79,7 @@ mod tests {
         assert!(SKEL.starts_with(crate::SYSTEM_ETC));
         assert!(CA_BUNDLE.starts_with(crate::SYSTEM_ETC));
         assert!(HOSTS.starts_with(crate::SYSTEM_ETC));
+        assert!(FONTS_CONF.starts_with(crate::SYSTEM_ETC));
         assert!(UI_PROBE.starts_with(crate::SYSTEM_ETC));
     }
 
