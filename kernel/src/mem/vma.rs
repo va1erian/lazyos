@@ -29,10 +29,6 @@ impl Prot {
     pub const WRITE: Prot = Prot(2);
     pub const EXEC: Prot = Prot(4);
 
-    pub fn has_read(self) -> bool {
-        self.0 & Self::READ.0 != 0
-    }
-
     pub fn has_write(self) -> bool {
         self.0 & Self::WRITE.0 != 0
     }
