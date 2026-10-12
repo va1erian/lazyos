@@ -94,6 +94,12 @@ def build_linuxapps() -> bool:
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
 
 
+def build_jsc() -> bool:
+    """`jsc` (WebKit's JSCOnly port) and `cxxproof`, built in Docker by
+    `tools/jsc/build.py`; a missing Docker or download stops the run."""
+    return required("JavaScriptCore", "jsc/build.py", ("--require",))
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""

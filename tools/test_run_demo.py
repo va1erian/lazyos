@@ -193,6 +193,21 @@ class MainTests(RunDemoCase):
         self.assertEqual(command[command.index("-m") + 1], "1G")
         self.assertNotIn("LAZYOS_LIMIT_FD_MAX", self.builds[-1])
 
+    def test_jsc_builds_the_programs_sets_the_switch_and_gives_room(self) -> None:
+        with mock.patch.object(run_demo, "build_jsc", return_value=True) as built:
+            code, command = self.run_main("--jsc", "--yes")
+        self.assertEqual(code, 0)
+        built.assert_called_once_with()
+        self.assertEqual(self.builds[-1].get("LAZYOS_JSC"), "1")
+        self.assertEqual(command[command.index("-m") + 1], "4G")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
+
+    def test_a_failed_jsc_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_jsc", return_value=False):
+            code, command = self.run_main("--jsc", "--yes")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(command, [])
+
     def test_reset_os_sets_the_build_variable(self) -> None:
         code, _ = self.run_main("--reset-os", "--yes")
         self.assertEqual(code, 0)

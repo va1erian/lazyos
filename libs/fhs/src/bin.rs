@@ -197,6 +197,10 @@ programs! {
     JQ = "jq";
     /// `rg`, ripgrep (`LAZYOS_LINUXAPPS=1`, Linux ABI).
     RG = "rg";
+    /// `jsc`, JavaScriptCore's shell (`LAZYOS_JSC=1`, Linux ABI, docs/webkit-port-plan.md W2).
+    JSC = "jsc";
+    /// `cxxproof`, the C++/ICU toolchain check (`LAZYOS_JSC=1`, W1).
+    CXXPROOF = "cxxproof";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

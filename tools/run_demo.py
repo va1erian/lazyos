@@ -28,6 +28,7 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, sqlite3, jq, rg in /system/bin
+    python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
@@ -83,7 +84,7 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
-    build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
+    build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_wifi, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
@@ -275,6 +276,7 @@ def main(argv: list[str]) -> int:
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
+                                      (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),

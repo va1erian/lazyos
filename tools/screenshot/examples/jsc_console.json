@@ -1,0 +1,17 @@
+[
+  {"wait_for": "/ #", "timeout": 300},
+  {"at": 1.0, "key": "tab"},
+  {"wait": 1.0},
+  {"type": "jsc -e 'print(\"JSCSH:\" + (6*7))'"},
+  {"key": "enter", "until": "JSCSH:42", "timeout": 120, "retries": 1},
+  {"wait": 1.0},
+  {"type": "jsc -e 'print(\"JSCI:\" + new Intl.NumberFormat(\"de-DE\").format(1234.5))'"},
+  {"key": "enter", "until": "JSCI:1.234,5", "timeout": 120, "retries": 1},
+  {"wait": 1.0},
+  {"type": "cxxproof | tail -n 2"},
+  {"key": "enter", "until": "JSC:W1:PASS", "timeout": 120, "retries": 1},
+  {"wait": 2.0},
+  {"shot": "01_console_jsc"},
+  {"wait": 1.0},
+  {"quit": true}
+]

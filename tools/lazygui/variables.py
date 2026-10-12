@@ -92,6 +92,8 @@ def make_vars() -> dict:
         "net_restrict": b(value=False),
         "nics": s(value="1"),
         "linuxapps": b(value=False),
+        # JavaScriptCore's jsc (LAZYOS_JSC, run_demo --jsc; built in Docker).
+        "jsc": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).

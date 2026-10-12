@@ -121,6 +121,12 @@ path = "src/compat.rs"
 name = "linuxapps"
 path = "src/linuxapps.rs"
 
+# Runs `jsc` and `cxxproof` of `tools/jsc/build.py` (an image built with
+# `LAZYOS_JSC=1`): run by `python tools/jsc/run.py`, not by the ABI bench.
+[[bin]]
+name = "jsc"
+path = "src/jsc.rs"
+
 # Needs a network (the echo servers of `tools/net/run.py`): run by `netd demo=1`
 # as `linux:/system/bin/netfix`, never by the ABI bench (`tools/abi/run.py`).
 [[bin]]
