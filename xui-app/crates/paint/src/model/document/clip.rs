@@ -156,6 +156,14 @@ impl Model {
     /// its mask transparent, as one undo step. The selection is gone after.
     pub fn crop_to_selection(&mut self) -> Result<(), String> {
         self.settle();
+        // The old document stays held by the undo entry, even past the
+        // history cap: check before the cropped copy is allocated.
+        if let Some(selection) = self.doc.selection() {
+            let area = selection.bounds().intersect(self.doc.bounds());
+            let old = self.doc.bytes() as u64;
+            let layers = self.doc.layers().len();
+            self.check_fits_recording(area.width(), area.height(), layers, old)?;
+        }
         let Some(mut cropped) = crop_document(&self.doc) else {
             return Err(if self.doc.selection().is_some() {
                 "The selection is the whole picture".to_string()

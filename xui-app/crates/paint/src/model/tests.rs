@@ -139,7 +139,11 @@ fn an_undo_entry_larger_than_the_history_cap_is_counted() {
     assert!(model.check_fits(8192, 4096, 2).is_ok());
     // ...but not when the undo entry about to be kept is the 256 MiB old
     // document: one entry stays held even past the cap.
-    assert!(model.check_fits_recording(8192, 4096, 2, 256 * mib).is_err());
+    assert!(
+        model
+            .check_fits_recording(8192, 4096, 2, 256 * mib)
+            .is_err()
+    );
     // An entry under the cap changes nothing.
     assert!(model.check_fits_recording(8192, 4096, 2, mib).is_ok());
 }
