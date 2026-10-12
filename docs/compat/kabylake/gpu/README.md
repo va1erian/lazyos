@@ -55,6 +55,8 @@ Commit the text files and the small binaries (`*-edid.bin`, `*-vbt.bin`,
 
 Redact before committing:
 
+0. The default output directory name and `README.txt` embed the machine's
+   hostname; rename or edit them if that is private.
 1. Run `python tools/boot/redact_survey.py <dir>` over the text files (MACs,
    GUIDs and `lspci` serial numbers; the same rules as `hw-survey`).
 2. **EDID serial**: the raw EDID holds the monitor's serial number in base

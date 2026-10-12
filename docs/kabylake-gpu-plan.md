@@ -372,7 +372,7 @@ Still open (answer at G0/G1, none blocks starting):
 
 ## 10. Status of prep work (hardware-independent, no QEMU)
 
-Landed on branch `gpu-prep-g0`; none of it touches the kernel, `user/`,
+Landed in the prep PR; none of it touches the kernel, `user/`,
 `idl/` or `build.rs`, and none of it has run on the box.
 
 - **G0, Linux side**: `tools/boot/survey_gpu.sh` (also called by

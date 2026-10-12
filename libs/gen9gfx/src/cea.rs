@@ -197,6 +197,10 @@ impl Cea {
         self.hdmi = self.hdmi.or(other.hdmi);
         self.hdmi_forum = self.hdmi_forum.or(other.hdmi_forum);
         self.malformed |= other.malformed;
+        self.basic_audio |= other.basic_audio;
+        self.underscan |= other.underscan;
+        self.ycbcr444 |= other.ycbcr444;
+        self.ycbcr422 |= other.ycbcr422;
     }
 
     /// The most channels any LPCM descriptor offers (0 if none).

@@ -130,7 +130,9 @@ pub enum DdiMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DdiFunc {
     pub enabled: bool,
-    /// The DDI port feeding this transcoder: 0 = none, 1 = A ... 5 = E.
+    /// The DDI port feeding this transcoder: 0 = none, 1 = DDI B ... 4 = DDI E
+    /// (`// TO CONFIRM against dump`: DDI A is reached through the eDP
+    /// transcoder, not through this field).
     pub ddi_select: u8,
     pub mode: DdiMode,
     pub bits_per_component: Option<u8>,
@@ -190,11 +192,11 @@ mod tests {
 
     #[test]
     fn ddi_func_decodes_hdmi_8bpc() {
-        // Enabled, DDI B (select 2), HDMI mode, 8 bpc, both syncs positive.
-        let v = 1 << 31 | 2 << 28 | 1 << 17 | 1 << 16;
+        // Enabled, DDI B (select 1), HDMI mode, 8 bpc, both syncs positive.
+        let v = 1 << 31 | 1 << 28 | 1 << 17 | 1 << 16;
         let f = DdiFunc::decode(v);
         assert!(f.enabled);
-        assert_eq!(f.ddi_select, 2);
+        assert_eq!(f.ddi_select, 1);
         assert_eq!(f.mode, DdiMode::Hdmi);
         assert_eq!(f.bits_per_component, Some(8));
         assert!(f.hsync_positive && f.vsync_positive);

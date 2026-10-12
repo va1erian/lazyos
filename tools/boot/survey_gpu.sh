@@ -10,7 +10,8 @@
 # docs/compat/kabylake/gpu/ (README.md there says what to redact first).
 #
 # READ-ONLY. Nothing is written to the machine: no module is loaded, debugfs
-# is not mounted for you, no register is written, the option ROM is not
+# is not mounted for you, no MMIO write is made by this script (debugfs reads can still wake
+# forcewake or make the sink transact on AUX/DPCD), the option ROM is not
 # enabled. Registers are read by mapping the BAR0 resource PROT_READ (the same
 # thing `intel_reg` does). A missing tool, file or privilege only leaves a
 # note in its output file and in MISSING.txt.
@@ -173,8 +174,8 @@ else
             i915_power_domain_info i915_runtime_pm_status i915_shared_dplls_info \
             i915_forcewake_domains i915_engine_info i915_gem_framebuffer \
             i915_fbc_status i915_drrs_status i915_psr_status i915_guc_info \
-            i915_huc_load_status i915_guc_load_status i915_opregion \
-            i915_dp_mst_info i915_hdcp_sink_capability i915_gpu_info \
+            i915_huc_load_status i915_guc_load_status \
+            i915_dp_mst_info i915_hdcp_sink_capability \
             i915_edp_psr_status i915_wa_registers i915_drpc_info \
             i915_frequency_info i915_ips_status i915_sr_status; do
             [ -r "$dir/$f" ] && grab "$dir/$f" "03-dri$n-$f.txt"
@@ -187,7 +188,7 @@ else
         runsh "03-dri$n-listing.txt" "ls -l $dir | head -150"
     done
 fi
-run 03-intel_vbt_decode.txt sh -c 'for f in '"$out"'/03-dri*-vbt.bin; do [ -r "$f" ] && echo "== $f" && intel_vbt_decode "$f"; done'
+run 03-intel_vbt_decode.txt sh -c 'for f in "'"$out"'"/03-dri*-vbt.bin; do [ -r "$f" ] && echo "== $f" && intel_vbt_decode "$f"; done'
 
 # EDID and connectors -------------------------------------------------------------
 for c in /sys/class/drm/card*-*; do

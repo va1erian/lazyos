@@ -132,9 +132,15 @@ pub fn exact_clock_hz(table_khz: u32) -> Option<(u64, u64)> {
 }
 
 /// The table's recommended pair, for a TMDS clock given in kHz exactly as the
-/// standard names it (25175, 25200, 27000, ... as i915 keys them).
+/// standard names it (25175, 25200, 27000, ... as i915 keys them). EDID
+/// detailed timings carry the clock in 10 kHz units, so 74.176 MHz arrives as
+/// 74180 or 74170: a clock within 10 kHz of a row (the nearest row wins; no
+/// two rows are closer than 27 kHz) selects that row.
 pub fn recommended(tmds_khz: u32, rate: Rate) -> Option<NCts> {
-    let r = TABLE.iter().find(|r| r.khz == tmds_khz)?;
+    let r = TABLE
+        .iter()
+        .filter(|r| r.khz.abs_diff(tmds_khz) <= 10)
+        .min_by_key(|r| r.khz.abs_diff(tmds_khz))?;
     let (f, m) = rate.family();
     let (n, cts) = r.nc[f];
     let exact = match exact_clock_hz(r.khz) {
@@ -242,8 +248,8 @@ pub fn tmds_clock_khz(pixel_khz: u32, bits_per_component: u32) -> u32 {
 
 /// `AUD_CONFIG` pixel-clock index for the clocks the display engine knows
 /// (the 25.2/1.001 ... 148.5 MHz rows). `// TO CONFIRM against dump`: from
-/// memory of i915's `hsw_hdmi_audio_config`; other clocks fall back to the
-/// 25.2 MHz entry with an explicit `N` there.
+/// memory of i915's `hsw_hdmi_audio_config`; a clock it does not know gets
+/// `None` and the caller programs an explicit `N` instead.
 pub fn aud_config_clock_index(tmds_khz: u32) -> Option<u32> {
     Some(match tmds_khz {
         25_175 => 0,
@@ -344,6 +350,18 @@ mod tests {
             u64::from(e.cts) * 128 * 44_100,
             241_500_000 * u64::from(e.n)
         );
+    }
+
+    #[test]
+    fn edid_resolution_clocks_snap_to_the_fractional_rows() {
+        // A 1080p59.94 DTD stores 14835 (10 kHz units); 720p59.94 stores 7418.
+        let r = recommended(148_350, Rate::Hz48000).expect("148.352 row");
+        assert_eq!((r.n, r.cts), (5824, 140_625));
+        let r = recommended(74_180, Rate::Hz48000).expect("74.176 row");
+        assert_eq!((r.n, r.cts), (11_648, 140_625));
+        // 74.25 MHz must not be pulled onto the 74.176 row.
+        assert_eq!(recommended(74_250, Rate::Hz48000).unwrap().n, 6144);
+        assert!(recommended(241_500, Rate::Hz48000).is_none());
     }
 
     #[test]
