@@ -191,8 +191,14 @@ pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
 /// address space). A range with no VMA is a no-op: the old shim ignored it, and
 /// we have no signal to deliver an ENOMEM against anyway.
 pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
+    // A zero length is a successful no-op on an aligned address, as on Linux
+    // (JavaScriptCore's growable ArrayBuffer protects 0 bytes while it is empty).
     if len == 0 {
-        return err(EINVAL);
+        return if addr.is_multiple_of(PAGE) {
+            0
+        } else {
+            err(EINVAL)
+        };
     }
     let start = addr & !0xFFF;
     let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {

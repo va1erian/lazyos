@@ -357,6 +357,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         schedattr_children_inherit,
     ),
     ("compat_schedattr_soak", schedattr_soak),
+    ("execmem_mprotect_zero_length", execmem_mprotect_zero_length),
     ("execmem_wx_cycle", execmem_wx_cycle),
     ("execmem_rwx_page", execmem_rwx_page),
     ("execmem_prot_bits_map_to_pte", execmem_prot_bits_map_to_pte),

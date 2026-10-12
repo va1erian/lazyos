@@ -14,6 +14,8 @@ use crate::task::trace::{self, Event};
 
 /// Words of the user stack printed from `rsp` upward.
 const STACK_WORDS: usize = 16;
+/// Instruction bytes printed from `rip` (the longest x86 instruction is 15).
+const CODE_BYTES: u64 = 16;
 
 /// Print everything known about the faulting task `slot`. `regs` is the
 /// interrupted register set when the exception stub saved one (the naked
@@ -21,6 +23,7 @@ const STACK_WORDS: usize = 16;
 pub fn print(slot: usize, regs: Option<&UserRegs>) {
     if let Some(regs) = regs {
         print_registers(regs);
+        print_code(regs.rip);
         print_stack(regs.rsp);
     }
     print_signals(slot);
@@ -55,6 +58,24 @@ fn print_registers(regs: &UserRegs) {
         regs.r14,
         regs.r15
     );
+}
+
+/// The bytes at `rip`, the way a debugger's "code:" line shows them: an
+/// `#UD` is only diagnosable (a `ud2`, a VEX prefix without AVX state, a
+/// garbled JIT page) from the instruction itself. An unreadable byte (the
+/// page is gone, or the jump was wild) prints as `??`.
+fn print_code(rip: u64) {
+    use core::fmt::Write;
+    let mut line = alloc::string::String::new();
+    for offset in 0..CODE_BYTES {
+        match crate::user_ptr::try_read::<u8>(rip.wrapping_add(offset)) {
+            Ok(byte) => {
+                let _ = write!(line, " {byte:02x}");
+            }
+            Err(_) => line.push_str(" ??"),
+        }
+    }
+    crate::serial_println!("user: code at {rip:#x}:{line}");
 }
 
 /// The words above `rsp`, four per line; an unmapped word prints as `?`. The

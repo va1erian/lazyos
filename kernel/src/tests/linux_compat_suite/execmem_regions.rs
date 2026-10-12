@@ -153,3 +153,41 @@ pub fn execmem_stack_and_heap_are_nx() -> Result<(), String> {
     );
     outcome
 }
+
+/// `mprotect` with a zero length is a no-op that succeeds on an aligned
+/// address and is `EINVAL` on an unaligned one, as on Linux. JavaScriptCore
+/// reserves a growable ArrayBuffer's address range `PROT_NONE` and protects
+/// the committed prefix (`OSAllocator::protect`), 0 bytes while it is empty.
+pub fn execmem_mprotect_zero_length() -> Result<(), String> {
+    fresh()?;
+    let before = footprint();
+    let base = mmap_prot(8 * PAGE, 0)?;
+    check!(mprotect(base, 0, RW) == 0, "mprotect(len 0) on a reserve");
+    check!(mprotect(base + PAGE, 0, RW) == 0, "mprotect(len 0) inside");
+    check!(
+        mprotect(base + 1, 0, RW) == EINVAL,
+        "mprotect(len 0) on an unaligned address"
+    );
+    // Nothing changed: the reserve is still PROT_NONE, and growing it works.
+    let vma = crate::mem::vma::find(crate::mem::kernel_table(), base).ok_or("no VMA")?;
+    check!(vma.prot == Prot(0), "len 0 changed the protection: {vma:?}");
+    check!(mprotect(base, 3 * PAGE, RW) == 0, "protect the prefix");
+    check!(
+        mprotect(base + 3 * PAGE, 0, RW) == 0,
+        "len 0 at the prefix end"
+    );
+    // The same call on addresses nothing maps is still a no-op.
+    check!(
+        mprotect(0x7000_0000_0000, 0, RW) == 0,
+        "len 0 where nothing is"
+    );
+    for round in 0..2000u64 {
+        check!(
+            mprotect(base + (round % 8) * PAGE, 0, round % 8) == 0,
+            "round {round}: len 0"
+        );
+    }
+    check!(unmap(base, 8 * PAGE) == 0, "munmap");
+    check!(footprint() == before, "the reserve leaked");
+    Ok(())
+}
