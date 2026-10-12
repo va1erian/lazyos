@@ -16,7 +16,11 @@
 //! (`NETAPP:STATUS:NOSTACK` once when `netd` is absent);
 //! `NETAPP:APPLY:PASS mode=<dhcp|static> if=<card>`, `NETAPP:APPLY:REFUSED` (the form) or
 //! `NETAPP:APPLY:FAIL` (cancelled or not approved) on Apply;
-//! `NETAPP:RENEW:PASS`/`FAIL` on Renew; `NETAPP:CLOSE:PASS` on close.
+//! `NETAPP:RENEW:PASS`/`FAIL` on Renew; `NETAPP:CLOSE:PASS` on close. With a Wi-Fi
+//! radio the window has a second tab, whose evidence is `NETAPP:WIFI:*`
+//! (`wifipage.rs`); with the UI probe, `UI:WIDGET` lines name `tabs`,
+//! `wifi_networks`, `wifi_passphrase`, `wifi_join`, `wifi_leave`, `wifi_scan`,
+//! `wifi_hidden`, `wifi_forget` and `wifi_join_hidden`.
 
 use xui_app::launch;
 use xui_app::net::apply;
@@ -29,8 +33,17 @@ use xui_core::prelude::*;
 use xui_core::widget::RadioGroup;
 use xui_settings::store::{ConfigStore, Value};
 
+#[path = "network/wifipage.rs"]
+mod wifipage;
+
 /// The window size when a compositor lays the app out.
 const WINDOW: (i32, i32) = (600, 470);
+/// With the Wi-Fi page there is a tab bar and a taller table to fit.
+const WINDOW_WIFI: (i32, i32) = (640, 600);
+/// Height of the tab bar, which the Wi-Fi page's coordinates start below.
+const TAB_BAR: i32 = 28;
+/// The window title, which the UI probe lines name.
+const TITLE: &str = "Network";
 /// How often the status refreshes.
 const REFRESH_MILLIS: u32 = 1000;
 
@@ -41,6 +54,8 @@ enum Msg {
     Renew,
     Revert,
     NextCard,
+    Tab,
+    Wifi(wifipage::Action),
     Close,
 }
 
@@ -121,6 +136,13 @@ struct Network {
     /// The interface being shown and edited, by name; `None` follows the
     /// primary one.
     selected: Option<String>,
+    /// The Wi-Fi page, when `wlanmd` manages a radio, and the tab bar that
+    /// holds it.
+    wifi: Option<wifipage::Page>,
+    tabs: Handle<Tabs<Msg>>,
+    /// Whether the UI probe lines are due (the first tick, and the first
+    /// one after a tab change, once that tab has its sizes).
+    probe_due: bool,
     /// The address last reported on serial, so a change is reported once.
     reported: Option<String>,
     /// The card the form was filled from. Apply writes to this card and only
@@ -134,7 +156,22 @@ impl App for Network {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Tick => self.refresh(),
+            Msg::Tick => {
+                self.refresh();
+                if let Some(page) = self.wifi.as_mut() {
+                    page.tick();
+                }
+                if self.probe_due {
+                    self.probe_due = false;
+                    self.probe(ui);
+                }
+            }
+            Msg::Tab => self.probe_due = true,
+            Msg::Wifi(action) => {
+                if let Some(page) = self.wifi.as_mut() {
+                    page.act(action);
+                }
+            }
             Msg::Apply => self.apply(),
             Msg::Renew => self.renew(),
             Msg::Revert => {
@@ -154,6 +191,39 @@ impl App for Network {
 }
 
 impl Network {
+    /// Print where the Wi-Fi page's controls are (UI probe images only).
+    fn probe(&self, ui: &Ui<Msg>) {
+        let Some(page) = self.wifi.as_ref() else {
+            return;
+        };
+        let tabs = ui.bounds(self.tabs.get().id());
+        xui_app::probe::widget(
+            TITLE,
+            "tabs",
+            tabs.left,
+            tabs.top,
+            tabs.right - tabs.left,
+            tabs.bottom - tabs.top,
+        );
+        for (name, id) in page.probe_targets() {
+            let r = ui.bounds(id);
+            // A page that is not shown has no size yet.
+            if r.right <= r.left {
+                continue;
+            }
+            // A tab page lays out from below the tab bar: the probe's
+            // window coordinates add its height.
+            xui_app::probe::widget(
+                TITLE,
+                name,
+                r.left,
+                r.top + TAB_BAR,
+                r.right - r.left,
+                r.bottom - r.top,
+            );
+        }
+    }
+
     /// Read the stack and show it; fill the form once the first answer is in.
     fn refresh(&mut self) {
         match stack::status(self.selected.as_deref()) {
@@ -333,18 +403,39 @@ impl Network {
 }
 
 fn main() {
-    launch::run("NETAPP", "Network", WINDOW, |ui, backend| {
+    // The radio decides the window: with one, a Status tab and a Wi-Fi tab;
+    // without, the Ethernet-only window the sessions know.
+    let wifi = wifipage::Page::detect();
+    let size = if wifi.is_some() { WINDOW_WIFI } else { WINDOW };
+    launch::run("NETAPP", TITLE, size, move |ui, backend| {
         backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
         let w = Widgets::default();
-        ui.root(w.layout())
+        let mut wifi = wifi;
+        let tab_bar = Handle::<Tabs<Msg>>::default();
+        let root = match wifi.as_ref() {
+            Some(page) => column().children((tabs()
+                .page("Status", w.layout())
+                .page("Wi-Fi", page.layout())
+                .on_change(|_| Msg::Tab)
+                .bind(&tab_bar)
+                .fill(1),)),
+            None => w.layout(),
+        };
+        ui.root(root)
             .inspect_err(|error| println!("NETAPP:BUILD:FAIL:{error}"))?;
         ui.every(REFRESH_MILLIS, Msg::Tick);
         ui.on_close(|| Some(Msg::Close));
+        if let Some(page) = wifi.as_mut() {
+            page.start();
+        }
         let mut app = Network {
             w,
             store: ConfdStore::new(),
             status: None,
             selected: None,
+            wifi,
+            tabs: tab_bar,
+            probe_due: true,
             reported: None,
             form_card: None,
         };

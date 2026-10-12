@@ -14,6 +14,10 @@
 //! `target/jsc/bin/`; docs/webkit-port-plan.md W1 and W2). They are tens of MB
 //! (ICU's data is inside) and LazyOS loads an ELF whole into RAM, so the
 //! guest wants the `--big-app` profile.
+//!
+//! `LAZYOS_WEBKIT_DEPS=1` embeds `depsproof`, the C++ program that links the
+//! whole WebKit dependency bundle (`tools/webkit/deps.py`, built in the same
+//! container into `target/webkit/bin/`; docs/webkit-port-plan.md W3).
 
 use std::path::Path;
 
@@ -34,6 +38,10 @@ const PROGRAMS: &[(&str, &str)] = &[
 const JSC_BUILT: &str = "target/jsc/bin";
 const JSC_PROGRAMS: &[(&str, &str)] = &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
 
+/// Where `tools/webkit/deps.py` writes `depsproof`, and what `LAZYOS_WEBKIT_DEPS=1` embeds.
+const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
+const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
+
 /// Whether the environment variable `name` is `1`.
 fn switch_on(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| value == "1")
@@ -49,6 +57,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-changed=build_support/linuxapps_embed.rs");
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     if enabled() {
         embed_programs(
             sink,
@@ -67,6 +76,16 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             JSC_BUILT,
             JSC_PROGRAMS,
             "tools/jsc/build.py",
+        );
+    }
+    if switch_on("LAZYOS_WEBKIT_DEPS") {
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_WEBKIT_DEPS",
+            WEBKIT_DEPS_BUILT,
+            WEBKIT_DEPS_PROGRAMS,
+            "tools/webkit/deps.py",
         );
     }
 }

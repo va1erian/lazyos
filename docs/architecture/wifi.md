@@ -558,3 +558,19 @@ evidence as the probe run, the link kept across the rekey, and `wlanmd`
 joining again on its own after the beacon loss and after the
 deauthentication (the AP authorizes it three times). The image needs
 BusyBox for the shell (`LAZYOS_BUSYBOX`, or `tools/abi/busybox.py`).
+
+## WP5: front ends
+
+The desktop reaches `wlanmd` only through `os.lazy.net.wifi.v1` and its
+retained topics, like `wifictl` does:
+
+| Front end | What it does |
+|---|---|
+| Network app, Wi-Fi tab (`xui-app/src/bin/network/wifipage.rs`) | Lists `Networks`, joins with `AddNetwork` (scope `User`) + `Connect`, `Disconnect`, `Forget`, `Scan`; refreshes `Status` and `Networks` once a second. The tab exists whenever the image ships `wlanmd` (the program is the test: the window is built once) and adopts the service and a radio that attach later; calls back off after a failure. The passphrase field is a password edit, emptied when Join is pressed |
+| Network Status applet (`xui-app/src/bin/netstatus.rs`) | Subscribes to `system/net/+/wifi/state`; signal bars and a tooltip while the primary interface is the joined wireless one |
+| Client and model (`xui-app/src/net/wifi.rs`, `wifimodel.rs`) | Bounded calls (1 s), names cleaned and clipped again, host-tested rows, status lines, signal bars and input checks |
+
+Serial lines (`NETAPP:WIFI:*`) never carry a passphrase; `python
+tools/wifi/ui_run.py` checks that. Still missing: a system-wide profile
+from the UI (`elevd` stores the secret but does not call `AddNetwork`) and the
+country in Settings.

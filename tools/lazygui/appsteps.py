@@ -80,6 +80,15 @@ def jsc_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/jsc/build.py", "--require"]}]
 
 
+def webkit_deps_step(cfg: dict) -> list[dict]:
+    """The step that builds the WebKit dependency bundle and `depsproof` (in
+    Docker, tools/webkit/deps.py), when embedded."""
+    if not cfg.get("webkit_deps"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle and depsproof (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]}]
+
+
 def tls_step(cfg: dict) -> list[dict]:
     """The step that builds the HTTPS clients (`fetch`, `curl`, `wget`), when embedded."""
     if not cfg.get("tls"):
@@ -150,11 +159,13 @@ def wants_pictures(cfg: dict) -> bool:
 
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
-    `LAZYOS_PICTURES`, and `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
-    `tools/jsc/build.py`; a console program, so desktop or not)."""
+    `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
+    `tools/jsc/build.py`; a console program, so desktop or not) and
+    `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`)."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
-            | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {}))
+            | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
+            | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
@@ -163,7 +174,8 @@ def desktop_app_argv(cfg: dict) -> list[str]:
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
-            + (["--jsc"] if cfg.get("jsc") and building else []))
+            + (["--jsc"] if cfg.get("jsc") and building else [])
+            + (["--webkit-deps"] if cfg.get("webkit_deps") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:
@@ -185,6 +197,6 @@ def app_steps(cfg: dict) -> list[dict]:
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
-            + jsc_step(cfg)
+            + jsc_step(cfg) + webkit_deps_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

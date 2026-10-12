@@ -167,6 +167,12 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "/system/bin (LAZYOS_JSC=1), built by tools/jsc/build.py (Docker: "
                              "WebKit's JSCOnly port, docs/webkit-port-plan.md W1/W2); a static jsc "
                              "is tens of MB, so this implies the --big-app profile")
+    parser.add_argument("--webkit-deps", action="store_true",
+                        help="embed depsproof in /system/bin (LAZYOS_WEBKIT_DEPS=1): one C++ program "
+                             "linking the WebKit dependency bundle (zlib to curl and Skia), built by "
+                             "tools/webkit/deps.py in Docker (docs/webkit-port-plan.md W3); it is "
+                             "tens of MB (big-app profile) and fetches an HTTPS page, so this "
+                             "implies networking")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -269,7 +275,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
-    if args.big_app or args.jsc:
+    if args.big_app or args.jsc or args.webkit_deps:
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -292,7 +298,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
-    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
+    args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
+                or args.webkit_deps)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer
