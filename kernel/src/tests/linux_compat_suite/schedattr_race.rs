@@ -138,8 +138,9 @@ fn one_call(rng: &mut u64, seen: &mut Seen) -> Result<(), String> {
     } else {
         0
     };
-    let allowed = level >= i32::from(before.nice)
-        && (!before.is_idle() || policy == IDLE)
+    // IDLE ignores the nice value (it keeps the task's own), so it never
+    // raises; the other policies must not lower it or leave IDLE.
+    let allowed = (policy == IDLE || (level >= i32::from(before.nice) && !before.is_idle()))
         && (!before.reset_on_fork || flags & RESET_ON_FORK != 0);
 
     let got = setattr(
@@ -156,7 +157,7 @@ fn one_call(rng: &mut u64, seen: &mut Seen) -> Result<(), String> {
         let want = SchedState {
             policy: policy as u8,
             reset_on_fork: flags != 0,
-            nice: level as i8,
+            nice: if policy == IDLE { before.nice } else { level as i8 },
         };
         if got != 0 || after != want {
             return Err(format!(

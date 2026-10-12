@@ -359,6 +359,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_schedattr_keep_flags", schedattr_keep_flags),
     (
+        "compat_schedattr_idle_ignores_nice",
+        schedattr_idle_ignores_nice,
+    ),
+    (
+        "compat_schedattr_getattr_end_of_mapping",
+        schedattr_getattr_end_of_mapping,
+    ),
+    (
         "compat_schedattr_children_inherit",
         schedattr_children_inherit,
     ),
