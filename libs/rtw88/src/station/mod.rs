@@ -31,6 +31,7 @@
 
 pub mod keys;
 pub mod ra;
+pub mod rates;
 pub mod txb;
 
 #[cfg(test)]
@@ -38,6 +39,7 @@ mod tests;
 
 pub use keys::Cipher;
 pub use ra::{HtCaps, PeerCaps, StaInfo, VhtCaps};
+pub use rates::legacy_rates;
 pub use txb::TxFrame;
 
 use crate::dev::{Band, Bw, Dev};
@@ -87,6 +89,11 @@ pub struct Vif {
     pub aid: u16,
     pub mac_id: u8,
     pub port: u8,
+    /// The interface's own address (upstream `vif->addr`), which the port
+    /// goes back to after a scan.
+    pub addr: [u8; 6],
+    /// The address on the port now (upstream `rtwvif->mac_addr`): a scan
+    /// may use another one.
     pub mac_addr: [u8; 6],
     pub bssid: [u8; 6],
     pub bcn_ctrl: u8,
@@ -150,6 +157,7 @@ impl<H: Hci> Dev<H> {
         }
         self.hal.vif = Vif {
             added: true,
+            addr: mac,
             mac_addr: mac,
             bcn_ctrl: EN_BCN_FUNCTION,
             ..Vif::default()
@@ -171,11 +179,18 @@ impl<H: Hci> Dev<H> {
         Ok(())
     }
 
-    /// Change the port's address (upstream does this for a scan with a
-    /// random address, `rtw_core_scan_start`).
+    /// Change the port's address only (upstream does this for a scan with a
+    /// random address, `rtw_core_scan_start`); [`Dev::scan_complete`] puts
+    /// the interface's address back.
     pub fn set_port(&mut self, mac: [u8; 6]) {
         self.hal.vif.mac_addr = mac;
         port_config(self, port_set::MAC_ADDR);
+    }
+
+    /// Change the interface's own address, and the port's with it.
+    pub fn set_addr(&mut self, mac: [u8; 6]) {
+        self.hal.vif.addr = mac;
+        self.set_port(mac);
     }
 
     /// Upstream `BSS_CHANGED_BSSID`: the BSS to receive from (zeros to
@@ -243,16 +258,22 @@ impl<H: Hci> Dev<H> {
     /// our BSS's beacons. The firmware answers the stop with
     /// `C2H_SCAN_RESULT`; upstream waits 10 ms for it, here it simply
     /// arrives on the RX ring.
+    ///
+    /// A failed firmware notification is reported only after the port and
+    /// the filter are restored: the scan is over either way, and the station
+    /// must not stay on the scan address with every BSS's beacons.
     pub fn scan_complete(&mut self) -> Result<()> {
         crate::phy::dig_reset(self);
         self.hal.flags.scanning = false;
-        if self.fw.has(fw::feature::NOTIFY_SCAN) {
-            fw::scan_notify(self, false)?;
-        }
-        let mac = self.hal.vif.mac_addr;
+        let notified = if self.fw.has(fw::feature::NOTIFY_SCAN) {
+            fw::scan_notify(self, false)
+        } else {
+            Ok(())
+        };
+        let mac = self.hal.vif.addr;
         self.set_port(mac);
         self.set_filter_scan(false);
-        Ok(())
+        notified
     }
 
     /// Upstream `rtw_set_channel` + `rtw_update_channel`: tune to `primary`
@@ -262,20 +283,25 @@ impl<H: Hci> Dev<H> {
         crate::rtw8822c::set_channel(self, center, bw, idx);
         crate::phy::set_tx_power_level(self, center);
         // Calibrating on every scan channel takes too long; upstream defers
-        // it to the first transmission on an operating channel.
+        // it to `mgd_prepare_tx` on an operating channel. mac80211 calls
+        // `rtw_set_channel` only when the channel changed; here a tune back
+        // to the channel last calibrated (the end of a scan, a soft-MAC
+        // re-tuning the channel it is on) needs no new calibration.
         if !self.hal.flags.scanning {
-            self.hal.need_rfk = true;
+            self.hal.need_rfk = self.hal.rfk_channel != Some((center, bw));
         }
         Ok(())
     }
 
     /// Upstream `rtw_chip_prepare_tx` (`mgd_prepare_tx`): run the RF
     /// calibration [`Dev::set_channel`] deferred. Call before sending the
-    /// authentication frame.
+    /// authentication frame; it does nothing unless the channel changed
+    /// since the last calibration.
     pub fn prepare_tx(&mut self) {
         if self.hal.need_rfk {
             self.hal.need_rfk = false;
             crate::rtw8822c::phy_calibration(self);
+            self.hal.rfk_channel = Some((self.hal.current_channel, self.hal.current_band_width));
         }
     }
 

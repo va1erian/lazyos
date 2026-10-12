@@ -7,28 +7,37 @@
 //! class rules narrow to wireless cards. It:
 //!
 //! 1. finds the function and claims it with interrupts on a channel the
-//!    kernel makes, switches on memory decode and bus mastering;
+//!    kernel makes, switches on memory decode (bus mastering waits, step 5);
 //! 2. maps BAR 2 (`bus::Bar`, `rtw88::pci::Mmio`) and reads the chip's
 //!    identity from `REG_SYS_CFG1` (`WIFID:CHIP`) and the always-on system
 //!    registers (`WIFID:REGS boot`);
-//! 3. arms MSI (`WIFID:IRQ`);
+//! 3. quiesces the chip a previous driver may have left running
+//!    (`rtw88::pci::quiesce`: interrupts masked, DMA stopped, MAC off;
+//!    `WIFID:QUIESCE`), then arms MSI (`WIFID:IRQ`);
 //! 4. loads `rtw88/rtw8822c_fw.bin` from the firmware tree through
 //!    `libs/fwload` (`WIFID:FW:FILE`, with the header's version);
-//! 5. hands the bus (registers, DMA through `dev::dma_alloc`, a delay) to
-//!    `radio::bring_up`: `libs/rtw88`'s probe, power-on, firmware download,
-//!    MAC/BB/RF init and calibration (`WIFID:CHIP:INFO`, `WIFID:FW:READY`,
-//!    `WIFID:COEX`, `WIFID:MAC`);
+//! 5. switches bus mastering on and hands the bus (registers, DMA through
+//!    `dev::dma_alloc`, a delay) to `radio::bring_up`: `libs/rtw88`'s
+//!    probe, power-on, firmware download, MAC/BB/RF init and calibration
+//!    (`WIFID:CHIP:INFO`, `WIFID:FW:READY`, `WIFID:COEX`, `WIFID:MAC`);
 //! 6. serves the interface through the shared soft-MAC (`user::wifi::run`
 //!    over `hardware.rs`): `os.lazy.net.wifi.hw/<if>` for `wlanmd` and
 //!    `os.lazy.net.nic/<if>` for `netd` (`WIFI:READY`); or, with
 //!    `mode=survey`, hops the channels and reports what the radio hears
-//!    (`survey.rs`, `WIFID:SURVEY:*`).
+//!    (`survey.rs`, `WIFID:SURVEY:*`). When the service loop ends the
+//!    radio is dropped, which powers the chip off (`WIFID:STOP`), and
+//!    `wifid` exits 1 for `init` to restart it.
 //!
-//! A step that fails prints `WIFID:FAIL:<step> <detail>` and the register
-//! dump, then parks with the claim held (a restart could only fail the same
-//! way, and `dbgd` can still read the box). Started with no RTL8822CE (by
-//! hand, or a stale `dev=`), it prints `WIFID:FAIL:no-device` once and
-//! exits 0, which `init`'s `OnFailure` row does not restart. Every line is
+//! A step that fails before the BAR is mapped (the device list, the claim:
+//! `EBUSY` while the kernel still tears down a reloaded driver's claim)
+//! prints `WIFID:FAIL:<step>` and exits 1, so `init`'s `OnFailure` row
+//! tries again. A step after it prints `WIFID:FAIL:<step> <detail>` and the
+//! register dump, then parks with the claim held (a restart could only fail
+//! the same way, and `dbgd` can still read the box). Started with no
+//! RTL8822CE (by hand, or a stale `dev=`), it prints `WIFID:FAIL:no-device`
+//! once and exits 0, which `init`'s `OnFailure` row does not restart. A
+//! panic exits without powering the chip off; the next run's quiesce (step
+//! 3) covers that. Every line is
 //! built with `libs/tracefmt` (`trace.rs`); on the NUC read them with
 //! `dbgctl log --source programs --follow`, and replace the binary with
 //! `dbgctl reload wifid` (docs/wifi-rtw88-plan.md section 5).
@@ -58,6 +67,8 @@ mod firmware;
 mod hardware;
 #[path = "wifid/radio.rs"]
 mod radio;
+#[path = "wifid/rxmeta.rs"]
+mod rxmeta;
 #[path = "wifid/survey.rs"]
 mod survey;
 #[path = "wifid/trace.rs"]
@@ -118,8 +129,9 @@ pub extern "C" fn _start() -> ! {
     let found = match device::find(args.dev) {
         Ok(found) => found,
         Err(errno) => {
+            // Nothing is touched yet: let `init` try again.
             trace::fail("list", format_args!("errno={errno}"));
-            park()
+            sys::exit(1)
         }
     };
     let Some((row, model)) = found else {
@@ -136,7 +148,16 @@ pub extern "C" fn _start() -> ! {
             ("model", &model),
         ],
     );
-    let (chip, mac, irq) = match run(row) {
+    let (claimed, regs) = match attach(row) {
+        Ok(attached) => attached,
+        Err(why) => {
+            // Not mapped yet (a claim a reloaded driver still holds is
+            // `EBUSY` for a moment): exit for `init` to retry.
+            trace::fail(why.step, format_args!("{}", why.detail));
+            sys::exit(1)
+        }
+    };
+    let (chip, mac, irq) = match run(claimed, regs) {
         Ok(up) => up,
         Err(why) => {
             trace::fail(why.step, format_args!("{}", why.detail));
@@ -149,6 +170,7 @@ pub extern "C" fn _start() -> ! {
     // The station side: `os.lazy.net.wifi.hw/<if>` for `wlanmd` and
     // `os.lazy.net.nic/<if>` for `netd`, served by the shared soft-MAC.
     let uid = sys::cred_get(None).map_or(netpolicy::WIFI_UID, |cred| cred.uid);
+    // `run` drops the radio on its way out, which powers the chip off.
     let why = match user::wifi::run(hardware::Rtw::new(chip, mac, irq), &args.ifname, uid) {
         Ok(()) => String::from("the service loop ended"),
         Err(why) => why,
@@ -158,12 +180,16 @@ pub extern "C" fn _start() -> ! {
     sys::exit(1)
 }
 
-/// Claim, map, identify, arm, load the firmware and bring the radio up.
 /// The claim's interrupt channel and device handle (`None`: polling).
 type Irq = Option<(Endpoint, u64)>;
 
-fn run(row: Row) -> Result<(radio::Chip, [u8; 6], Irq), Failure> {
-    let mut claimed = device::claim(row).map_err(|(step, e)| failure(step, format!("errno={e}")))?;
+fn step_failure((step, errno): device::StepError) -> Failure {
+    failure(step, format!("errno={errno}"))
+}
+
+/// Claim the card (memory decode only) and map its register BAR.
+fn attach(row: Row) -> Result<(device::Claimed, bus::Bar), Failure> {
+    let claimed = device::claim(row).map_err(step_failure)?;
     if let Ok((revision, vendor, device)) = device::identity(&claimed) {
         let subsystem = format!("{vendor:04x}:{device:04x}");
         trace::event(
@@ -177,23 +203,43 @@ fn run(row: Row) -> Result<(radio::Chip, [u8; 6], Irq), Failure> {
             ],
         );
     }
-    let (base, len) =
-        device::map(&claimed).map_err(|(step, e)| failure(step, format!("errno={e}")))?;
+    let (base, len) = device::map(&claimed).map_err(step_failure)?;
     // SAFETY: `device::map` mapped the whole BAR, `len` bytes, uncached; the
     // mapping lives until the claim ends with this task.
     let regs = unsafe { bus::Bar::new(base, len) };
+    Ok((claimed, regs))
+}
+
+/// Identify, quiesce, arm, load the firmware and bring the radio up.
+fn run(
+    mut claimed: device::Claimed,
+    regs: bus::Bar,
+) -> Result<(radio::Chip, [u8; 6], Irq), Failure> {
     let identity = chip::identify(&regs);
     identity.report();
     chip::dump("boot", &regs, chip::SYSTEM_REGS);
     if identity.bus_dead() {
         return Err(failure("chip", format!("REG_SYS_CFG1 reads {:#010x}", identity.sys_cfg1)));
     }
-    let mode = device::arm(&mut claimed).map_err(|(step, e)| failure(step, format!("errno={e}")))?;
+    // Before bus mastering: a previous driver's rings may still point at
+    // memory it no longer owns.
+    let quiet = rtw88::pci::quiesce(&regs);
+    trace::event(
+        "QUIESCE",
+        &[
+            ("was_running", &quiet.was_running()),
+            ("cr_before", &trace::Hex32(quiet.cr_before.into())),
+            ("cr_after", &trace::Hex32(quiet.cr_after.into())),
+        ],
+    );
+    let mode = device::arm(&mut claimed).map_err(step_failure)?;
     trace::event("IRQ", &[("mode", &device::mode_name(mode))]);
     let image = firmware::load().map_err(|why| {
         failure("firmware", format!("{}/{}: {why}", fhs::FIRMWARE, rtw88::FIRMWARE))
     })?;
     firmware::report(&image);
+    // The rings are allocated and programmed next, in memory this task owns.
+    device::enable_bus_master(&claimed).map_err(step_failure)?;
     let bus = radio::Bus {
         regs,
         dma: bus::Dma::new(claimed.handle),

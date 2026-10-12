@@ -238,10 +238,21 @@ its `dev=` and `ifname=` arguments across restarts), not on `dbgwire`'s
 never-reload list, so `init` kills it, runs the uploaded binary in its place
 and rolls back if the new run exits within the trial. A run that parks after
 a `WIFID:FAIL` is alive, so it commits: read its dump, fix, reload again.
-The kill ends the claim (the kernel stops the card's DMA and frees the
-blocks), so the new run finds the chip as the old one left it: the bring-up
-finds the MAC on (`CR` reads 0xea) and its power-on cycles it off first,
-as upstream's `rtw_mac_power_on` does.
+The kill ends the claim: the kernel turns the card's bus mastering off and
+frees the DMA blocks, but the chip stays powered, its ring base registers
+still holding the freed blocks' addresses and its RX DMA enabled (a panic
+or a crash leaves it the same way). Turning bus mastering back on as is
+would let it write received frames into pages the kernel has handed to
+someone else. So the new run claims with memory decode only, quiesces the
+chip through the BAR (`rtw88::pci::quiesce`: every `HIMR` cleared, the
+`CR` DMA enables cleared and the PCIe DMA interface reset, the MAC powered
+off by the card-disable flow; `WIFID:QUIESCE was_running=... cr_before=...
+cr_after=...`, `cr_after` 0xea when the MAC is off), and switches bus
+mastering on only just before the rings are allocated and programmed; the
+bring-up then powers a cold MAC on. A controlled exit (the service loop
+ending) powers the chip off first (`WIFID:STOP`). A `WIFID:FAIL:list` or
+`WIFID:FAIL:claim` (`EBUSY` while the old claim is torn down) exits 1 for
+`init` to retry; only failures after the BAR is mapped park.
 
 ### 5.5 How the station side runs on the card
 
@@ -252,7 +263,14 @@ After bring-up `wifid` hands the chip to the shared soft-MAC
 `assoc`/`disassoc` (legacy rates: `wlanmd`'s association request carries no
 HT/VHT yet), keys go to the CAM, a protected frame is sent with the CAM
 entry its CCMP key id names, and received frames lose their FCS and report
-the chip's decryption with an 8-octet MIC trailer. The same soft-MAC passes
+the chip's decryption with an 8-octet MIC trailer and the channel their PHY
+status names. The RF calibration (IQK, DPK: hundreds of milliseconds) runs
+before an Authentication frame or the first frame on a channel other than
+the one last calibrated, never on a scan channel nor after a scan returned
+to the operating channel. Management frames and EAPOL (`basic_rate`) go at
+the BSS's lowest basic rate, read from its beacons and association response
+(OFDM 6 Mb/s on a 2.4 GHz BSS with no CCK basic rate), and the firmware's
+rate adaptation is given the BSS's legacy rates. The same soft-MAC passes
 `tools/wifi/sim_run.py --station wlanmd` against the simulated radio, so on
 the card only this adapter and `libs/rtw88` are new.
 
