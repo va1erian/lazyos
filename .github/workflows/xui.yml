@@ -526,8 +526,16 @@ jobs:
           for marker in PAINT:UP:PASS PAINT:SAVE:PASS; do
             grep -q "$marker" shots/paint/serial.log
           done
-          ! grep -q "^init: launch .* failed" shots/paint/serial.log
-          ! grep "LABEL:DENY" shots/paint/serial.log | grep -q "os.lazy.paint"
+          # A negated command is exempt from `set -e` unless it is the last
+          # one, so each check is an `if` that fails the step itself.
+          if grep -q "^init: launch .* failed" shots/paint/serial.log; then
+            echo "init failed to launch an app"
+            exit 1
+          fi
+          if grep -qE "LABEL:DENY.*os\.lazy\.paint" shots/paint/serial.log; then
+            echo "the Paint package was refused a call"
+            exit 1
+          fi
 
       # The editing flow by widget name: layers, clipboard, text, gradient,
       # adjustment, OpenRaster and PNG round trips. Same image as above.
@@ -547,8 +555,16 @@ jobs:
           for marker in PAINT:FONTS PAINT:UP:PASS PAINT:SAVE:PASS PAINT:OPEN:PASS; do
             grep -q "$marker" shots/paint_editor/serial.log
           done
-          ! grep -q "^init: launch .* failed" shots/paint_editor/serial.log
-          ! grep "LABEL:DENY" shots/paint_editor/serial.log | grep -q "os.lazy.paint"
+          # A negated command is exempt from `set -e` unless it is the last
+          # one, so each check is an `if` that fails the step itself.
+          if grep -q "^init: launch .* failed" shots/paint_editor/serial.log; then
+            echo "init failed to launch an app"
+            exit 1
+          fi
+          if grep -qE "LABEL:DENY.*os\.lazy\.paint" shots/paint_editor/serial.log; then
+            echo "the Paint package was refused a call"
+            exit 1
+          fi
 
       # Files browses in place: the address bar, the details view, Alt+Up,
       # Alt+Left, then a file typed into the address bar opens. It clicks the
@@ -960,7 +976,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png shots/accounts_setup/*.png shots/accounts_setup_reboot/*.png shots/confd/*.png shots/settings_machine/*.png)
+          pngs=(shots/m0/*.png shots/m1/*.png shots/m2/*.png shots/sysmon/*.png shots/fabmon/*.png shots/client/*.png shots/sysclient/*.png shots/desktop/*.png shots/pointer_restart/*.png shots/shell/*.png shots/login/*.png shots/desktop_fr/*.png shots/symbols_us/*.png shots/symbols_fr/*.png shots/editor/*.png shots/paint/*.png shots/paint_editor/*.png shots/files/*.png shots/files_s51/*.png shots/docs/*.png shots/docs_open/*.png shots/writer/*.png shots/writer_light/*.png shots/archiver/*.png shots/print/shot_*.png shots/print_quit/shot_*.png shots/accounts_setup/*.png shots/accounts_setup_reboot/*.png shots/confd/*.png shots/settings_machine/*.png)
           # A QEMU without PNG screendump falls back to PPM (qemu_qmp.py),
           # which pngstats cannot judge: that is a broken run, not an empty shard.
           ppms=(shots/*/*.ppm)
@@ -996,7 +1012,7 @@ jobs:
         shell: bash
         run: |
           shopt -s nullglob
-          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit shots/accounts_setup shots/accounts_setup_reboot shots/confd shots/settings_machine shots/accounts/warm shots/accounts/attack shots/accounts/verify shots/accounts/verify-kill; do
+          for dir in shots/m0 shots/m1 shots/m2 shots/sysmon shots/fabmon shots/client shots/sysclient shots/desktop shots/pointer_restart shots/shell shots/login shots/symbols_us shots/desktop_fr shots/symbols_fr shots/editor shots/paint shots/paint_editor shots/files shots/files_s51 shots/docs shots/docs_open shots/writer shots/writer_light shots/archiver shots/print shots/print_quit shots/accounts_setup shots/accounts_setup_reboot shots/confd shots/settings_machine shots/accounts/warm shots/accounts/attack shots/accounts/verify shots/accounts/verify-kill; do
             [ -d "$dir" ] || continue
             echo "::group::$dir"
             if [ -f "$dir/summary.json" ]; then
@@ -1069,6 +1085,9 @@ jobs:
             shots/paint/*.png
             shots/paint/serial.log
             shots/paint/summary.json
+            shots/paint_editor/*.png
+            shots/paint_editor/serial.log
+            shots/paint_editor/summary.json
             shots/files/*.png
             shots/files/serial.log
             shots/files/summary.json
