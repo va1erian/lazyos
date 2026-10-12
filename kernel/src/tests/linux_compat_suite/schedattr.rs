@@ -326,10 +326,10 @@ pub fn schedattr_argument_errors() -> Result<(), String> {
     })
 }
 
-/// The `sched_attr` size handshake: too small is `E2BIG` and the size the
-/// kernel knows is written back; zero means the first version's; a larger
-/// struct needs zero tail bytes; `sched_getattr` fills what fits and zeroes
-/// a larger buffer's tail.
+/// The `sched_attr` size handshake: too small or too big is `E2BIG` and the
+/// size the kernel knows (56) is written back; zero means the first
+/// version's; a larger struct needs zero tail bytes; `sched_getattr` fills
+/// what fits and leaves a larger buffer's tail alone.
 pub fn schedattr_size_rules() -> Result<(), String> {
     scoped(USER, || {
         // The kernel writes the size it knows back into a struct it refuses.
@@ -340,7 +340,7 @@ pub fn schedattr_size_rules() -> Result<(), String> {
             "size 47"
         );
         check!(
-            u32::from_le_bytes(raw[0..4].try_into().unwrap()) == 48,
+            u32::from_le_bytes(raw[0..4].try_into().unwrap()) == SIZE,
             "size not written back: {:?}",
             &raw[0..4]
         );
@@ -353,6 +353,11 @@ pub fn schedattr_size_rules() -> Result<(), String> {
         check!(
             sys(SETATTR, &[0, raw.as_mut_ptr() as u64, 0]) == E2BIG,
             "size 5000"
+        );
+        check!(
+            u32::from_le_bytes(raw[0..4].try_into().unwrap()) == SIZE,
+            "size not written back for a struct over a page: {:?}",
+            &raw[0..4]
         );
 
         // A 64-byte struct: the 8 bytes past this kernel's are unknown.
@@ -379,7 +384,10 @@ pub fn schedattr_size_rules() -> Result<(), String> {
             "size field {:?}",
             &out[0..4]
         );
-        check!(out[56..].iter().all(|&b| b == 0), "tail not zeroed");
+        check!(
+            out[56..].iter().all(|&b| b == 0xAA),
+            "sched_getattr wrote past the 56 bytes it knows"
+        );
         let mut out = [0xAAu8; 64];
         check!(getattr_size(0, &mut out, 48) == 0, "get into 48 bytes");
         check!(
@@ -443,7 +451,8 @@ pub fn schedattr_privilege_rules() -> Result<(), String> {
             task::weight(other) == weight && getattr(other as u64)?.nice == 0,
             "a task of another process changed"
         );
-        check!(getattr(0)?.nice == 12, "the caller's nice moved");
+        // IDLE took no nice value: the caller is still at the 10 it chose.
+        check!(getattr(0)?.nice == 10, "the caller's nice moved");
         Ok(())
     })?;
     // A thread of the caller's own process is its to change, and its weight

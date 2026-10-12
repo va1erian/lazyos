@@ -165,12 +165,14 @@ fn self_status() -> String {
     let cred = credentials::of(me);
     format!(
         "Name:\t{}\nState:\tR (running)\nTgid:\t{}\nPid:\t{me}\nPPid:\t{}\n\
-         Uid:\t{u}\t{u}\t{u}\t{u}\nGid:\t{g}\t{g}\t{g}\t{g}\nThreads:\t1\n",
+         Uid:\t{u}\t{u}\t{u}\t{u}\nGid:\t{g}\t{g}\t{g}\t{g}\nThreads:\t1\n\
+         LazyOS_ThreadSignals:\t{sent}\n",
         String::from_utf8_lossy(&comm[..len]),
         task::linuxstate::tgid(),
         task::ppid(),
         u = cred.uid,
         g = cred.gid,
+        sent = task::linuxstate::thread_signals(),
     )
 }
 
