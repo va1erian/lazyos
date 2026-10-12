@@ -76,9 +76,9 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 | **R0** Plumbing | firmware fetch + `fhs::FIRMWARE` + `libs/fwload`; `LAZYOS_WIFI=1`; `devd` row for `10ec:c822`; `run_demo.py --wifi`, GUI; `THIRD_PARTY.md` | `cargo test -p fwload -p devmatch`; the file lands at its path with its licence |
 | **R1** Chip library | `libs/rtw88`: power on, firmware download, MAC/BB/RF init, channel switch, TX/RX descriptors, PCIe rings, CAM | host tests against the fake bus, sequences compared with upstream's |
 | **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | **Passed** (2026-10-11): `tools/wifi/sim_run.py --station wlanmd`, six checks: scan, wrong passphrase, open and WPA2 joins with DHCP and ping over `wlan0`, rekey kept, rejoin after beacon loss and deauth |
-| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`; **passed on the Kaby Lake box, 2026-10-12**) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
-| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`; **passed on the Kaby Lake box**) | `wifictl scan` lists the home networks |
-| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (**passed on the Kaby Lake box**: WPA2, 5 GHz; the AMD NUC itself is still to boot) | DHCP lease and `ping` over `wlan0` |
+| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`; **passed on the Kaby Lake box and the AMD NUC, 2026-10-12**) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
+| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`; **passed on both boxes**) | `wifictl scan` lists the home networks |
+| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (**passed on the Kaby Lake box and the AMD NUC**: WPA2, 5 GHz) | DHCP lease and `ping` over `wlan0` |
 
 
 ## 5. The test loop on the NUC
@@ -297,8 +297,17 @@ which carries the same RTL8822CE (`10ec:c822`) as the AMD NUC; read over
 | Address | `system/net/wlan0/addr`: 192.168.1.46/24, gateway 192.168.1.254 (DHCP) |
 | Health | `msg-services`: `wifid`, `wlanmd`, `netd`, `keyd`, `netdrv` running, 0 restarts |
 
-The AMD NUC (Ryzen 5 3501U) has the same card but its own PCIe root, MSI
-and firmware: boot the same stick there to close R3-R5 for it.
+**The AMD NUC** (Ryzen 5 3501U, AMD `1022` root complex, Vega `1002:15d8`,
+two RTL8168s) then joined the same network from the same build:
+
+| What | Evidence |
+|---|---|
+| Driver | `devices`: `10ec:c822 wireless _wifi(911) MMIO PIO IRQ DMA CFG`; both RTL8168 ports `_net(902)` |
+| Station | `system/net/wlan0/wifi/state`: `Connected`, the same BSSID as the Kaby Lake box, 5500 MHz, RSSI -22 dBm |
+| Address | `system/net/wlan0/addr`: 192.168.1.81/24, gateway 192.168.1.254 (DHCP) |
+| Health | `msg-services`: `wifid`, `wlanmd`, `netd`, `keyd`, both `netdrv` running, 0 restarts |
+
+R3-R5 are closed on the machine this plan was written for.
 
 ## 6. The chip package (R1)
 
