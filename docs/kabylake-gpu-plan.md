@@ -12,6 +12,10 @@
 > plumbing allows**; where there is a choice, the simpler option wins;
 > OpenGL/Vulkan is not a goal for now. The stage order in §4 reflects this.
 >
+> **Revision 3** folds in review comments: stage ids renumbered to execution
+> order, G2 (audio) acknowledged as a live-pipe write with its own safety net,
+> engine-submission and decode risk made explicit, logical cap decided.
+>
 > Confidence: facts about *this repo* and *this box* are quoted from
 > [display-modeset-plan.md](display-modeset-plan.md), [compat/kabylake/](compat/kabylake/README.md),
 > [architecture/display.md](architecture/display.md), [architecture/audio.md](architecture/audio.md)
@@ -57,7 +61,7 @@
 | Today | firmware GOP; loader takes the largest mode (2560x1440), kernel centres a 1080p logical screen; WC mapping on; windows laggy | boot-1 NOTES |
 | Audio today | HDA `8086:9d71`, one codec "Intel Kabylake HDMI"; `sndd` reaches `SNDD:READY` (pin 3) but the display side never enabled audio, so no sound is expected | boot-1, box plan §3.3 |
 | Interrupts | MSI available; I/O APIC in use | box plan §2 |
-| CPU | 2C/4T, runs on CPU 0, SSE2 only, no XSAVE/AVX, no SMP | video plan §1 |
+| CPU | i3-7100U: 2C/4T with AVX2. **LazyOS** runs on CPU 0 only, SSE2 only (no XSAVE/AVX, no SMP) | video plan §1 |
 | IOMMU | VT-d present in firmware; LazyOS does not program it | box plan §2, drivers.md |
 
 **To confirm in G0** (each changes the design):
@@ -68,6 +72,13 @@
   found through the ACPI OpRegion, `ASLS` in PCI config) names the DDI port,
   its DDC pin, level-shifter setting and `lspcon` flag. This decides whether
   DP AUX is in scope at all.
+- **HDMI or DVI mode, and which infoframes** the firmware left enabled on the
+  transcoder (audio needs HDMI mode with data islands on; a DVI-mode link
+  forces G2 to rewrite a live pipe, §4).
+- **The Gen9 command-submission path** for the video and blitter rings:
+  legacy ring vs execlists, whether a context image and an (aliasing) PPGTT
+  root are mandatory, which forcewake domain a per-engine reset needs held.
+  Read from `i915` and the PRM; a G0 deliverable, because it sets G3's size.
 - Which DDI/pipe/transcoder the firmware used, its CDCLK, DPLL, DDB and
   watermark state (to reuse as a baseline, §5.1).
 - Whether `sndd`'s HDMI pin has a valid ELD and presence-detect set once the
@@ -89,7 +100,11 @@
 **Decided: A.** `gpud` programs the display and GGTT and tells the
 kernel `display::set_scanout(...)`; the kernel's `present` blits into the
 aperture window (a WC window like `mem/fbwindow.rs` already makes for Bochs).
-If `gpud` dies the last mode keeps scanning out and the kernel console keeps
+Until G6 the present path is the same CPU copy into write-combining memory
+the box already uses and finds laggy, so this design does not by itself
+improve responsiveness. The scanout pages' lifetime belongs to the kernel
+(it allocated them for the descriptor); `gpud` may add GGTT entries for
+them but a rewrite or restart never frees them under the console. If `gpud` dies the last mode keeps scanning out and the kernel console keeps
 working; `init` restarts it and it re-adopts the live state from registers.
 
 ### 3.2 Layers
@@ -126,37 +141,37 @@ working; `init` restarts it and it re-adopts the live state from registers.
 ## 4. Stages
 
 Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ several weeks, of focused work. Stage
-ids keep their names from revision 1; the table is in **execution order**.
+ids are in execution order (G = GPU stages, M = deferred mode-setting stages, so they cannot be confused with the options of display-modeset-plan.md).
 
-| Order | Stage | What | Exit criterion | Size |
+| # | Stage | What | Exit criterion | Size |
 |---|---|---|---|---|
 | 1 | **G0** Probe | Read-only `gpu probe` over `dbgd`: PCI config (`BDSM`, `ASLS`), MMIO dump of display/pipe/plane/DDI/DPLL/CDCLK/DDB/WM/audio registers, VBT and OpRegion copy, EDID, GGTT size, engine/forcewake state. Capture the same from Linux (`intel_reg`, `i915_display_info`, `/sys/kernel/debug/dri/0`) into `docs/compat/kabylake/gpu/`. Also the `beep` precheck (§5.2). | Every "to confirm" in §2 has an answer in the repo; LSPCON vs native HDMI known; GuC/HuC/DMC confirmed unnecessary | S |
-| 2 | **G1** Adopt + observe | `gpud` skeleton, claims 00:02.0, maps BAR0/BAR2, forcewake, **adopts** the firmware's mode without writing display state, snapshots it (the revert baseline, §7), publishes `set_scanout`, exposes pipe CRC, underrun and vblank counters, `GPU:*` markers, MSI → vblank counter. Opt-in switch (§8). | Desktop identical with `gpud` running at 2560x1440 (kernel logical cap raised via `display.max`); vblank ticks at the monitor's rate; CRC stable on an idle frame | M |
-| 3 | **G4** HDMI audio | Display side: ELD, `AUD_CONFIG` N/CTS for 32/44.1/48 kHz, audio enable on the adopted pipe/DDI, audio infoframe, audio power domain. `sndd` side: ELD read, presence detect and unsolicited responses, pin/converter choice by the active DDI, digital stream format and channel mapping, rate negotiation from the ELD's SADs. `system/display/<n>/audio` topic (MIDL) carries `{pin, rates, channels, valid}`. | A tone and `modplay` are heard through the monitor; the recording (line-in or the monitor's output) is judged with the sound harness's detectors; monitor power-cycle and unplug mute and recover cleanly | M–L |
-| 4 | **GE** Engine plumbing | The part of old G7 that decode needs: forcewake discipline, GT power wells, GGTT page insertion (kernel-allocated pages, `Buffer` objects mapped into it), HW status page, ring/execlist submission (**to confirm** which Gen9 supports for the video ring), seqno fences, interrupt on completion, engine reset (GDRST) with a per-engine watchdog and `gpud` restart. A trivial batch (`MI_STORE_DATA_IMM`, `MI_NOOP`) on the video and blitter rings proves it. | 1 M no-op/store batches soak with every seqno observed and the memory written; an injected hang is detected, the engine reset, `gpud` carries on; no effect on the CPU compose path | L |
-| 5 | **G9** H.264 decode | VDBOX (MFX) H.264 first: CPU parses SPS/PPS/slice headers (reusing the video plan's V3 parser), `gpud` builds the MFX pipe/surface/state and BSD object commands, hardware does entropy decode, reconstruction and deblock into NV12 surfaces with a DPB of GGTT surfaces. `os.lazy.gpu.v1.Decode(bitstream: Buffer, params, out: Buffer)`. The player first reads the NV12 surface back and converts on the CPU (works before G5), then hands it to the plane. | The V3 golden-stream CRC matches software decode bit-exactly (Baseline/Main/High 4:2:0 8-bit, progressive first; interlaced and 10-bit are listed as unsupported, not attempted); 1080p30 plays at CPU < 15% (convert included until G5) | L–XL |
+| 2 | **G1** Adopt + observe | `gpud` skeleton, claims 00:02.0, maps BAR0/BAR2, forcewake, **adopts** the firmware's mode without writing display state, snapshots it (the revert baseline, §7), publishes `set_scanout`, exposes pipe CRC, underrun and vblank counters, `GPU:*` markers, MSI → vblank counter, idle temperature/power readings as the baseline (§7). Groundwork for G2 and G3 (claims, forcewake, vblank, snapshot), not a user-visible change. Opt-in switch (§8). | Desktop identical with `gpud` running at 2560x1440 (`display.max=2560x1440` set in `lazyos.cfg`; it is boot-time and refused once a compositor binds); vblank ticks at the monitor's rate; CRC stable on an idle frame | M |
+| 3 | **G2** HDMI audio | **Writes a live pipe**: if the firmware left the link in DVI mode, G2 changes `TRANS_DDI_FUNC_CTL`/data-island/infoframe state, a partial mode set that can blank the screen, so it runs under §7's snapshot, revert and boot-pending rules. 2560x1440@60 (about 241.5 MHz) is not a standard HDMI audio clock, so N/CTS is computed (or auto-CTS verified), not looked up. Display side: ELD, `AUD_CONFIG` N/CTS for 32/44.1/48 kHz, audio enable on the adopted pipe/DDI, audio infoframe, audio power domain. `sndd` side: ELD read, presence detect and unsolicited responses, pin/converter choice by the active DDI, digital stream format and channel mapping, rate negotiation from the ELD's SADs. `system/display/<n>/audio` topic (MIDL) carries `{pin, rates, channels, valid}`. | A tone and `modplay` are heard through the monitor; the recording (line-in or the monitor's output) is judged with the sound harness's detectors; monitor power-cycle and unplug mute and recover cleanly | M–L |
+| 4 | **G3** Engine plumbing | The shared engine plumbing (also G7's base) that decode needs: forcewake discipline, GT power wells, GGTT page insertion (kernel-allocated pages, `Buffer` objects mapped into it), HW status page, ring/execlist submission (**to confirm** which Gen9 supports for the video ring), seqno fences, interrupt on completion, engine reset (GDRST) with a per-engine watchdog and `gpud` restart. A trivial batch (`MI_STORE_DATA_IMM`, `MI_NOOP`) on the video and blitter rings proves it. **Risk:** Gen9 submission may need a context image and a PPGTT root even for "global only" use, and the legacy ring may be unsupported or untested for VCS; a reset needs the right wake domain held. **Fallback:** if VCS submission cannot be made reliable, stop after G1, G2 and G5 (audio, plane, flips) and keep software decode. | 1 M no-op/store batches soak with every seqno observed and the memory written; an injected hang is detected, the engine reset, `gpud` carries on; no effect on the CPU compose path | L |
+| 5 | **G4** H.264 decode | VDBOX (MFX) H.264 first: CPU parses SPS/PPS/slice headers (reusing the video plan's V3 parser), `gpud` builds the MFX pipe/surface/state and BSD object commands, hardware does entropy decode, reconstruction and deblock into NV12 surfaces with a DPB of GGTT surfaces. `os.lazy.gpu.v1.Decode(bitstream: Buffer, params, out: Buffer)`. **De-risk first:** one intra-only Baseline I-frame, NV12 output compared with software, gates everything else (the MFX VLD command set, DPB and per-slice state have no QEMU model and no reference on this box beyond `intel-vaapi-driver`'s source). The player first reads the NV12 surface back and converts on the CPU (works before G5), then hands it to the plane. | The V3 golden-stream CRC matches software decode bit-exactly (Baseline/Main/High 4:2:0 8-bit, progressive first; interlaced and 10-bit are listed as unsupported, not attempted); 1080p30 plays at CPU below the measured software 1080p30 figure (taken in the guest first; the video plan's 7% is 720p30 on a host; convert included until G5) | L–XL |
 | 6 | **G5** Flip + video plane | Page flip armed at vblank with a `Flip` event carrying the vblank timestamp; an NV12 sprite plane with the plane scaler on the adopted pipe (no mode set), BT.601/709 and range flags; fullscreen hand-off from `xuid`. A/V clock from vblank timestamps. | Decoded 1080p/720p plays tear-free at the monitor's refresh, zero CPU colour convert; `VIDEO:POS` dropped = 0 | M |
 | 7 | **G6** GGTT scanout (optional) | The compositor's screen buffer pages mapped into the GGTT and scanned out directly (zero-copy scanout, "S8 follow-up" in architecture/display.md); dirty-region cache flush; kernel `present` becomes flush + flip. Hardware cursor plane rides along. | latency in `perf/report.md` not worse; CPU in `present` ≈ 0 at 1440p | M |
-| 8 | **G7** Blitter (optional) | `Fill`/`Copy` on BCS using GE's plumbing (`XY_COLOR_BLT`, `XY_SRC_COPY_BLT`). | 1 M-op soak equals a CPU reference byte for byte | S–M |
+| 8 | **G7** Blitter (optional) | `Fill`/`Copy` on BCS using G3's plumbing (`XY_COLOR_BLT`, `XY_SRC_COPY_BLT`). | 1 M-op soak equals a CPU reference byte for byte | S–M |
 | 9 | **G8** Render kernels (optional) | RCS context, small batch builder, hand-assembled EU kernels: src-over blend, YUV→RGB, bilinear scale. Offloads `xuid` compose. No shader compiler. | `xuid` composes 1440p with 10 alpha windows in measurably less CPU; output within ±1/255 of software | L |
-| — | **G2 / G3** Mode setting | **Deferred** (the box always runs 1440p). G2: plane size/stride + pipe scaler for hardware-scaled logical sizes (simpler, no PLL). G3: EDID, DPLL1–3, DDI/TMDS, timings, watermarks, revert-on-no-ack. Do G2 first if a lower logical resolution is ever wanted; G3 only if a different native timing is. | — | M / L |
-| — | **G10** 3D / Mesa | **Not a goal** (decision 5). Kept as a note in §5.5. | — | — |
+| — | **M1 / M2** Mode setting | **Deferred** (the box always runs 1440p). M1: plane size/stride + pipe scaler for hardware-scaled logical sizes (simpler, no PLL). M2: EDID, DPLL1–3, DDI/TMDS, timings, watermarks, revert-on-no-ack. Do M1 first if a lower logical resolution is ever wanted; M2 only if a different native timing is. | — | M / L |
+| — | **G9** 3D / Mesa | **Not a goal** (decision 5). Kept as a note in §5.5. | — | — |
 
-Goal coverage: audio = G1+G4; video = GE+G9+G5 (G6 helps); acceleration =
-GE, G5, G6, G7, G8 as wanted; mode setting = G1 (adopt) now, G2/G3 later.
+Goal coverage: audio = G1+G2; video = G3+G4+G5 (G6 helps); acceleration =
+G3, G5, G6, G7, G8 as wanted; mode setting = G1 (adopt) now, M1/M2 later.
 
-**Why decode before the blitter or render engine.** G9 needs only the
+**Why decode before the blitter or render engine.** G4 needs only the
 video ring, the GGTT and surface state, none of which depends on G7/G8, and
 its output (NV12) is directly consumable by the G5 plane, so the whole
 decode-to-glass path never touches the 3D pipeline.
 
 ## 5. Per-goal notes
 
-### 5.1 Mode setting (deferred: G1 adopts, G2/G3 only if needed)
+### 5.1 Mode setting (deferred: G1 adopts, M1/M2 only if needed)
 
 The box runs its native 1440p, so only the *adopt* half is on the critical
 path (G1: read the live pipe/plane/DDI state, snapshot it, publish the
-scanout). The notes below are the design for G2/G3 if a change is ever
+scanout). The notes below are the design for M1/M2 if a change is ever
 wanted; they are kept so the register knowledge gathered in G0 has a home.
 
 - **Baseline, not blank-slate.** Treat the firmware's programmed state as the
@@ -169,7 +184,7 @@ wanted; they are kept so the register knowledge gathered in G0 has a home.
   transcoder/DDI function → buffer; program DPLL and select it for the DDI;
   program transcoder timings, pipe size, plane, scaler; enable transcoder
   function and DDI buffer with VBT translations; enable pipe; enable plane;
-  infoframes; audio (G4). Reverse to disable.
+  infoframes; audio (G2). Reverse to disable.
 - **CDCLK**: not changed in v1. A mode whose pixel clock does not fit the
   firmware CDCLK is refused with a reason, not clocked anyway (2560x1440@60
   is about 241.5 MHz; the firmware already scans it out).
@@ -204,7 +219,7 @@ not done in audio.md). What is missing is on both sides of the link:
 - **Routing**: `audiod` keeps its single-card model; the HDMI codec simply
   *is* the card on this box. Multi-sink switching is a later audio-plan item.
 - **Cheap precheck in G0**: with the firmware mode up, play `beep` on the box.
-  If the monitor already makes sound, G4 shrinks to the hotplug/rate work.
+  If the monitor already makes sound, G2 shrinks to the hotplug/rate work.
 - **Alternative that needs no GPU**: the box has a USB audio device (boot-1),
   so a USB Audio Class driver in `usbd` also gives sound. Not part of this
   plan; noted so the owner can pick it independently.
@@ -212,7 +227,7 @@ not done in audio.md). What is missing is on both sides of the link:
 ### 5.3 Video
 
 Software decode stays the baseline (video-player-plan V3: 720p30 at ~7% of a
-core). The GPU removes the parts that do not scale on one SSE2-only core:
+core). The GPU removes the parts that do not scale on LazyOS's one SSE2-only core:
 
 | Piece | Stage | Win |
 |---|---|---|
@@ -220,7 +235,7 @@ core). The GPU removes the parts that do not scale on one SSE2-only core:
 | Vblank clock + flip events | G5 | tear-free, frame pacing and A/V sync against real refresh |
 | Zero-copy scanout | G6 | no `present` copy for fullscreen video or games |
 | Render-engine `Convert`/`Compose` for windowed video | G8 | windowed video without CPU blits |
-| HW H.264 (then HEVC/VP9) decode | G9 | 1080p and beyond; the CPU has no AVX or SMP to get there |
+| HW H.264 (then HEVC/VP9) decode | G4 | 1080p and beyond without waiting for LazyOS to gain XSAVE/AVX2 and SMP (the video plan's next software step, roughly 1.5-2.5x); also CPU headroom and power |
 
 The decoder boundary is `os.lazy.gpu.v1.Decode` taking a bitstream `Buffer`
 plus parsed slice/picture parameters and returning an NV12 surface handle
@@ -233,14 +248,14 @@ YouTube stay on the video plan's V2–V6; they are independent.
 
 | Capability | Achievable? | Notes |
 |---|---|---|
-| Hardware cursor, plane scale, flips, YUV planes | **yes**, G2/G5 | the biggest win per line of code |
+| Plane scale, flips, YUV planes (G5); hardware cursor (G6) | **yes** | the biggest win per line of code |
 | Zero-copy scanout | **yes**, G6 | cache coherency handled by WC or `clflush` |
 | Blitter fill/copy/convert | **yes**, G7 | no alpha blending on the blitter |
 | Alpha-blended compositing, scale, YUV→RGB, blur | **yes**, G8 | hand-assembled EU kernels (small, fixed set), no compiler |
-| Hardware video decode (H.264/HEVC/VP9) | **yes**, G9, large | fixed-function, no GuC/HuC needed for decode |
-| General 3D (OpenGL/Vulkan via Mesa) | **stretch**, G10 | needs per-client PPGTT, i915-style GEM shim, C++ (zig toolchain exists), threads; plan after G8 |
+| Hardware video decode (H.264/HEVC/VP9) | **yes**, G4, large | fixed-function, no GuC/HuC needed for decode |
+| General 3D (OpenGL/Vulkan via Mesa) | **not a goal**, G9 | needs per-client PPGTT, i915-style GEM shim, C++ (zig toolchain exists), threads; plan after G8 |
 | Compute (OpenCL), video encode, HDR, multi-monitor, DP | no | out of scope |
-| Power management (RC6, DC states, frequency scaling) | later | needed for idle watts, not for function; DMC then |
+| Power management (RC6, DC states, frequency scaling) | later | not needed for function. Without DMC, KBL loses only DC5/DC6 (**to confirm**); a busy engine still runs hotter, so G1 and G3 record idle temperature/power over `dbgd` as a baseline |
 
 ### 5.5 Mesa, in one paragraph
 
@@ -275,13 +290,15 @@ kernel and compositor side of a mode change is covered without the box.
 The failure mode is a dark screen on a machine with no serial port.
 
 - **Opt-in.** `LAZYOS_GEN9GFX=1` / `display.gen9=1` in `lazyos.cfg`; off by
-  default until G3 has soaked on the box. `devd` matches `8086:5916` (and
+  default until G2 (audio) and G5 (flips) have soaked on the box, the first
+  stages that write display state. `devd` matches `8086:5916` (and
   the Skylake/Coffee Lake ids once confirmed) only when on.
-- **Revert timer.** `SetMode` returns after the mode is up and starts a
-  15 s timer; `xuid` (or Settings) must `Confirm`. Unconfirmed → restore the
+- **Revert timer.** Any write to a live pipe (G2's HDMI-mode/audio enable,
+  G5's plane enable, M1/M2 `SetMode` if built) starts a 15 s timer; the
+  compositor (or a `gpu` CLI) must `Confirm`. Unconfirmed → restore the
   snapshot of the firmware's register state taken at adopt time (G1).
 - **Boot-pending flag.** `gpud` sets `sys/display/gpu/boot_pending` in `confd`
-  before the first modeset of a boot and the compositor clears it after its
+  before the first display-state write of a boot and the compositor clears it after its
   first frame. If a boot starts with it set, `gpud` stays in adopt-only
   mode (no writes) and logs why.
 - **Remote eyes.** Everything above is observable over `dbgd` on Wi-Fi or
@@ -292,6 +309,14 @@ The failure mode is a dark screen on a machine with no serial port.
 - **GPU hang.** Watchdog per engine, engine reset, `gpud` restart; a hung
   render engine must never stall `xuid`'s CPU path (it falls back to
   software compose).
+- **GGTT entries.** Only pages `gpud` was granted (`dma_alloc`, `Buffer`
+  objects) may be inserted; a `gpud` bug is a ring-0-equivalent write with no
+  IOMMU and the kernel cannot validate entries, so the panic path never
+  depends on GGTT state (it uses the descriptor's aperture window).
+- **`gpud` restart mid-batch.** Re-adoption reads display registers back, but
+  engine state and GGTT contents are lost: the new instance resets every
+  engine first, drops in-flight decode (the player sees an error and
+  re-opens), and re-publishes the scanout.
 - **IOMMU.** The GPU is a bus master under a trusted driver (the same trust
   level drivers.md states); VT-d for it is issue #615's territory. Until
   per-client PPGTT exists, no untrusted batch reaches the GPU.
@@ -324,21 +349,21 @@ Decided (2026-10-12):
 
 1. **Ownership**: userspace `gpud` (§3.1).
 2. **Resolution change**: not a priority; the box runs 1440p permanently, so
-   the firmware's mode is adopted and G0b (software scale / loader exact
-   mode) is dropped from this plan (it stays in display-modeset-plan.md).
-3. **Mode setting**: the simpler path, i.e. none for now; G2 before G3 if it
+   the firmware's mode is adopted and the no-GPU options of
+   display-modeset-plan.md (software scale, loader exact mode) are not part of
+   this plan.
+3. **Mode setting**: the simpler path, i.e. none for now; M1 before M2 if it
    returns.
-4. **Hardware decode**: as early as possible, after audio, via GE then G9.
+6. **Logical cap**: run the full 1440p (`display.max=2560x1440`, ~14.7 MiB per
+   RGBA surface, three by default), as the box is always used that way.
+4. **Hardware decode**: as early as possible, after audio, via G3 then G4.
 5. **3D**: not a goal.
 
 Still open (answer at G0/G1, none blocks starting):
 
 - **Display-surface choice for the player**: plane (G5) from the start, or
-  read-back and CPU convert first (works the day G9 lands)? The plan does
+  read-back and CPU convert first (works the day G4 lands)? The plan does
   the latter then the former.
-- **Kernel logical cap**: the box shows a centred 1080p today; run at the
-  full 1440p (`display.max=2560x1440`, ~14.7 MiB per RGBA surface, three
-  surfaces by default) or keep 1080p logical until G6 removes the copy?
 - **Codecs after H.264**: HEVC 8-bit and VP9 are in the same engine; add
   only if a source needs them.
 - **One box**: every stage is a flash, test, observe loop on the single
