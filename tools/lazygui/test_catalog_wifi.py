@@ -68,6 +68,11 @@ class WifiTests(unittest.TestCase):
         plain = catalog.simple_config(demo_config(), "dev", "Desktop",
                                       **catalog.group_switches({"networking"}))
         self.assertFalse(plain["wifi"], "Networking alone does not fetch firmware")
+        # The Advanced tab's simulator switch never leaks into a Simple build.
+        leaked = catalog.simple_config(demo_config() | {"wifi_sim": True}, "dev", "Desktop",
+                                       **catalog.group_switches({"wifi"}))
+        self.assertFalse(leaked["wifi_sim"])
+        self.assertNotIn("--wifi-sim", catalog.build_plan(leaked)[-1]["argv"])
 
     def test_the_nuc_stick_is_wifi_dbgd_control_and_the_usb_image(self) -> None:
         env = catalog.build_env(base(desktop=True, wifi=True, dbgd_control=True,

@@ -42,6 +42,28 @@ def _missing(run: Run, serial: tuple[str, ...] = (), ap: tuple[tuple[str, str | 
     return problems
 
 
+# What the fake AP logs when the station sent something it should not have:
+# a frame in the clear after the pairwise key, one it cannot decrypt, a bad
+# LLC header, data before the port opened, or an EAPOL frame out of turn.
+# Retries can hide these from the DHCP and ping checks, so they are judged
+# on their own, over the join phase (before the first injected fault, after
+# which a station may legitimately send into a link it has not yet seen
+# drop).
+AP_COMPLAINTS = ("AP:DATA:PLAINTEXT:DROPPED", "AP:CCMP:NOKEY", "AP:DATA:BADLLC", "AP:DATA:NOT_AUTHORIZED",
+                 "AP:EAPOL:STALE", "AP:EAPOL:UNEXPECTED", "AP:EAPOL:MALFORMED")
+
+
+def ap_complaints(run: Run) -> list[str]:
+    """The AP's complaints logged before the first `AP:FAULT:` line."""
+    problems = []
+    for line in run.ap:
+        if line.startswith("AP:FAULT:"):
+            break
+        if line.startswith(AP_COMPLAINTS):
+            problems.append(f"the AP logged {line!r}")
+    return problems
+
+
 def check_boot(run: Run) -> list[str]:
     problems = _missing(run, ("NETDRV:AIR ifname=air0", "WIFISIM:AIR if=air0", "WIFI:READY if=wlan0",
                               "WIFI:HW:ATTACH if=wlan0", "WIFIPROBE:INFO if=wlan0"))
@@ -109,6 +131,7 @@ def check_wpa2_join(run: Run) -> list[str]:
     for prefix in ("AP:CCMP:BADMIC", "AP:CCMP:REPLAY"):
         if run.ap_has(prefix, WPA2):
             problems.append(f"the AP logged {prefix} for {WPA2}: a wrong key or packet number")
+    problems += ap_complaints(run)
     eapol = _eapol_frames(run.frames)
     station_msgs = [info for from_ap, info in eapol if not from_ap]
     ap_msgs = [info for from_ap, info in eapol if from_ap]

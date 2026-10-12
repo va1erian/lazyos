@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import re
 
-from sim_judge import FAIL_MARKERS, OPEN, ROAM, WPA2, WRONG, Run, _eapol_frames, _missing, _probes_from_guest
+from sim_judge import (FAIL_MARKERS, OPEN, ROAM, WPA2, WRONG, Run, _eapol_frames, _missing, _probes_from_guest,
+                       ap_complaints)
 
 WLANMD_UID = 912
 
@@ -70,6 +71,7 @@ def check_wpa2_join(run: Run) -> list[str]:
     for prefix in ("AP:CCMP:BADMIC", "AP:CCMP:REPLAY"):
         if run.ap_has(prefix, WPA2):
             problems.append(f"the AP logged {prefix} for {WPA2}: a wrong key or packet number")
+    problems += ap_complaints(run)
     station = [info for from_ap, info in _eapol_frames(run.frames) if not from_ap]
     if not any(info & 0x0100 and not info & 0x0200 for info in station):
         problems.append("no message 2 in the capture")

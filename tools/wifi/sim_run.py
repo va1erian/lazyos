@@ -70,11 +70,15 @@ WLANMD_PRESENT = (ROOT / "user/src/bin/wlanmd.rs").is_file()
 def build(station: str) -> bool:
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_WIFI_SIM="1", LAZYOS_RESET_OS="1")
-    for key in ("LAZYOS_DESKTOP", "LAZYOS_NET_ARGS", "LAZYOS_WIFI_SIM_ARGS"):
+    # A Wi-Fi switch exported in the shell would put `wlanmd` (and `wifid`)
+    # beside the probe, which then competes for the radio.
+    for key in ("LAZYOS_DESKTOP", "LAZYOS_NET_ARGS", "LAZYOS_WIFI_SIM_ARGS", "LAZYOS_WIFI"):
         env.pop(key, None)
     if station == "probe":
         env["LAZYOS_WIFI_SIM_ARGS"] = PROBE
     else:
+        # `LAZYOS_WIFI=1` also embeds `wifid` and its firmware, which the
+        # build refuses until `tools/firmware/fetch.py --switch wifi` ran.
         env["LAZYOS_WIFI"] = "1"
     print(f"building: LAZYOS_SERVICES=1 LAZYOS_NETD=1 LAZYOS_WIFI_SIM=1 station={station} cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env)
