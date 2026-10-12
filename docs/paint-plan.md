@@ -142,12 +142,13 @@ Edit menu ("Undo Paintbrush").
 `MAX_SIDE` goes to 16384. One memory budget (default 512 MiB, guest RAM
 permitting) covers everything that scales with the picture: the layers
 (`width x height x 4 x layers`), the flattened cache (`width x height x 4`),
-a floating selection or clipboard bitmap, and the history. History has its
-own cap inside that budget (section 4.2), so the admission check for a new
-document is `layers + cache + floating + history cap <= budget`.
-`Document::new` and every allocation path (new, open, resize, canvas size,
-add/duplicate layer, paste) run that check first and refuse with a
-status-bar message; history evicts its oldest entries rather than exceed
+the floating selection, the app-wide clipboard bitmap, and the history.
+History has its own cap inside that budget (section 4.2), so the admission
+check is `layers + cache + floating + clipboard + history cap <= budget`.
+`Document::new` and every path that creates or grows one of these buffers
+(new, open, resize, canvas size, add/duplicate layer, cut, copy, paste,
+lifting pixels with Move Selected Pixels) run that check first and refuse
+with a status-bar message; history evicts its oldest entries rather than exceed
 its cap. The screen image is bounded by the window and is not counted.
 
 ## 5. v1 phases
