@@ -54,7 +54,6 @@ def build_image(extra: dict[str, str]) -> str | None:
                LAZYOS_WEBKIT="1", LAZYOS_RESET_OS="1", LAZYOS_BUSYBOX=str(shell), **extra)
     for stale in ("LAZYOS_DESKTOP", "LAZYOS_TLS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS", "LAZYOS_WEBKIT_DEPS"):
         env.pop(stale, None)
-    env.setdefault("LAZYOS_OS_SIZE", "768M")
     print("webkit: cargo build (LAZYOS_WEBKIT=1, console, networking)", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
@@ -81,6 +80,12 @@ def session(command: str, timeout: float) -> list[dict]:
     ]
 
 
+def smoke_command(session_timeout: float) -> str:
+    """The shell command: the program's own watchdog (90 s by default) must not fire before the
+    harness gives up, so it is told to wait a little less than the session does."""
+    return f"WEBKIT_SMOKE_TIMEOUT={max(90, int(session_timeout) - 30)} webkit-smoke"
+
+
 def boot(args: argparse.Namespace, out: Path, command: str) -> tuple[bool, str]:
     script = out / "session.json"
     script.write_text(json.dumps(session(command, args.timeout), indent=1))
@@ -96,8 +101,6 @@ def boot(args: argparse.Namespace, out: Path, command: str) -> tuple[bool, str]:
 
 def report(serial: str) -> int:
     host = HOST_RUN.read_text(errors="replace") if HOST_RUN.is_file() else None
-    if host is None:
-        print("webkit: no host reference run (target/webkit/smoke.host.txt): the paint is not compared")
     verdicts = portjudge.judge(serial, host)
     for verdict in verdicts:
         print(f"{'PASS' if verdict.ok else 'FAIL'}  {verdict.name}  {verdict.detail}".rstrip())
@@ -116,11 +119,15 @@ def main() -> int:
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--memory", default="4G", help="guest RAM (default 4G)")
-    parser.add_argument("--timeout", type=float, default=300.0, help="seconds to wait for the program")
+    parser.add_argument("--timeout", type=float, default=None,
+                        help="seconds to wait for the program (default 300; 900 under --accel none/tcg, "
+                             "where two 107 MB ELFs are read whole and run by the emulator)")
     parser.add_argument("--out", default="shots/webkit-port")
     parser.add_argument("--no-build", action="store_true", help="boot the last image")
     parser.add_argument("--judge-only", metavar="LOG", help="judge a saved serial log and exit")
     args = parser.parse_args()
+    if args.timeout is None:
+        args.timeout = 900.0 if args.accel in ("none", "tcg") else 300.0
     out = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
     out.mkdir(parents=True, exist_ok=True)
 
@@ -139,7 +146,7 @@ def main() -> int:
         print(f"webkit: {IMAGE} not found", file=sys.stderr)
         return 1
     (out / "serial.log").unlink(missing_ok=True)
-    session_ok, serial = boot(args, out, "webkit-smoke")
+    session_ok, serial = boot(args, out, smoke_command(args.timeout))
     if not session_ok:
         print("FAIL  the session did not finish (see summary.json)")
     code = report(serial)

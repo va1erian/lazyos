@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+PORT = HERE.parent.parent / "webkit" / "port"
 sys.path.insert(0, str(HERE))
 import fhspaths  # noqa: E402
 import recipes_net  # noqa: E402
@@ -72,6 +73,58 @@ class RecipeTests(unittest.TestCase):
         for name in fhspaths.PROOF_DEFINES:
             self.assertIn(name, header)
         self.assertIn("#error", header)
+
+
+class PortTests(unittest.TestCase):
+    """The WebKit port's C++ and fonts.conf take their paths from libs/fhs, not from literals."""
+
+    def test_the_macros_are_the_fhs_values(self) -> None:
+        self.assertEqual(fhspaths.WEBKIT_DEFINES["LAZYOS_WEBPROCESS_PATH"], "/system/bin/webprocess")
+        self.assertEqual(fhspaths.WEBKIT_DEFINES["LAZYOS_NETWORKPROCESS_PATH"], "/system/bin/networkprocess")
+        self.assertEqual(fhspaths.WEBKIT_DEFINES["LAZYOS_CA_BUNDLE_PATH"], fhspaths.CA_BUNDLE)
+        self.assertEqual(fhspaths.program("WEBKIT_SMOKE"), "/system/bin/webkit-smoke")
+
+    def test_cmake_gets_the_macros(self) -> None:
+        import port_cmake
+        options = port_cmake.options()
+        for name, value in fhspaths.WEBKIT_DEFINES.items():
+            self.assertEqual(options[name], value)
+
+    def test_the_cpp_refuses_to_compile_without_them(self) -> None:
+        sources = {
+            "smoke/main.cpp": ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH"),
+            "tree/Source/WebKit/UIProcess/Launcher/ProcessLauncherLazyOS.cpp":
+                ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH"),
+            "tree/Source/WebCore/platform/network/lazyos/CurlSSLHandleLazyOS.cpp": ("LAZYOS_CA_BUNDLE_PATH",),
+        }
+        for relative, names in sources.items():
+            text = (PORT / relative).read_text(encoding="utf-8")
+            for name in names:
+                self.assertIn(f"#ifndef {name}", text, relative)
+                self.assertIn("#error", text, relative)
+
+    def test_no_port_source_names_a_guest_path(self) -> None:
+        found = []
+        sources = [*(PORT / "smoke").glob("*.cpp"), *(PORT / "tree").rglob("*LazyOS.cpp"),
+                   *(PORT / "tree").rglob("*LazyOS.cmake")]
+        for path in sorted(sources):
+            comment = "#" if path.suffix == ".cmake" else "//"
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.lstrip()
+                if stripped.startswith((comment, "/*", "*")):
+                    continue
+                if PREFIX.search(line):
+                    found.append(f"{path.relative_to(PORT)}:{number}: {stripped}")
+        self.assertEqual(found, [], "take the path from libs/fhs (fhspaths.WEBKIT_DEFINES)")
+
+    def test_fonts_conf_is_made_from_the_template(self) -> None:
+        template = (PORT / "fonts.conf.in").read_text(encoding="utf-8")
+        text = fhspaths.fonts_conf(template)
+        self.assertIn(f"<dir>{fhspaths.FONT_DIR}</dir>", text)
+        self.assertIn(f"<cachedir>{fhspaths.FONT_CACHE_DIR}</cachedir>", text)
+        self.assertEqual(re.findall(r"@\w+@", text), [])
+        with self.assertRaises(KeyError):
+            fhspaths.fonts_conf(template + "<dir>@OTHER@</dir>")
 
 
 class NoLiteralTests(unittest.TestCase):

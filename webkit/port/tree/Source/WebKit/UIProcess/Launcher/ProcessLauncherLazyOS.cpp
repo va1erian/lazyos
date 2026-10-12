@@ -12,7 +12,14 @@
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ * EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 // The process launcher of the LazyOS port (webkit/port/, docs/webkit-port-plan.md W4).
@@ -27,6 +34,12 @@
 // vfork-style clone the Linux ABI layer refuses (docs/webkit-port-plan.md W4).
 // Between fork and exec the child only calls async-signal-safe functions on
 // memory prepared before the fork.
+//
+// A pid must never be signalled after its child was reaped (the number can belong to another
+// process by then). Every child lives in `liveChildren()` from fork until its reaper thread
+// has collected it, and both the collecting (waitpid with WNOHANG, polled: LazyOS has no
+// waitid with WNOWAIT to wait without reaping) and `terminateProcess`'s kill happen under one
+// lock, so a kill only ever reaches a child that is still running or a zombie.
 
 #include "config.h"
 #include "ProcessLauncher.h"
@@ -39,9 +52,22 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <wtf/HashSet.h>
+#include <wtf/Lock.h>
+#include <wtf/Locker.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Threading.h>
 #include <wtf/text/CString.h>
+
+// The image's paths of the two programs, from libs/fhs (set by tools/webkit/port_cmake.py and
+// WebKit/PlatformLazyOS.cmake).
+#ifndef LAZYOS_WEBPROCESS_PATH
+#error "LAZYOS_WEBPROCESS_PATH must name the image's webprocess (libs/fhs)"
+#endif
+#ifndef LAZYOS_NETWORKPROCESS_PATH
+#error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
+#endif
 
 namespace WebKit {
 
@@ -50,22 +76,48 @@ static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
 {
     switch (type) {
     case ProcessLauncher::ProcessType::Network:
-        return "/system/bin/networkprocess";
+        return LAZYOS_NETWORKPROCESS_PATH;
     case ProcessLauncher::ProcessType::Web:
     default:
-        return "/system/bin/webprocess";
+        return LAZYOS_WEBPROCESS_PATH;
     }
 }
+
+// The children that are not reaped yet, and the lock that orders a reap against a kill.
+static Lock s_childrenLock;
+static HashSet<pid_t>& liveChildren()
+{
+    static NeverDestroyed<HashSet<pid_t>> children;
+    return children;
+}
+
+// How often the reaper looks at its child, in microseconds: a finished child is a zombie for
+// at most this long.
+static constexpr useconds_t reapPollInterval = 50 * 1000;
 
 // Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
 // its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child.
 static void reapInBackground(pid_t pid)
 {
     Thread::create("ProcessLauncher reaper"_s, [pid] {
-        int status = 0;
-        while (waitpid(pid, &status, 0) == -1 && errno == EINTR) { }
-        if (WIFSIGNALED(status))
-            fprintf(stderr, "WebKit: auxiliary process %d killed by signal %d\n", static_cast<int>(pid), WTERMSIG(status));
+        for (;;) {
+            int status = 0;
+            pid_t result;
+            {
+                Locker locker { s_childrenLock };
+                result = waitpid(pid, &status, WNOHANG);
+                if (result == pid || (result == -1 && errno != EINTR))
+                    liveChildren().remove(pid); // reaped (or not ours any more): no kill may name it
+            }
+            if (result == pid) {
+                if (WIFSIGNALED(status))
+                    fprintf(stderr, "WebKit: auxiliary process %d killed by signal %d\n", static_cast<int>(pid), WTERMSIG(status));
+                return;
+            }
+            if (result == -1 && errno != EINTR)
+                return;
+            usleep(reapPollInterval);
+        }
     })->detach();
 }
 
@@ -88,6 +140,11 @@ void ProcessLauncher::launchProcess()
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(errno));
+        // Finish the launch without a connection (an invalid identifier, as the other launchers do
+        // when they cannot start the process): the proxy stops waiting for a launch that never was.
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
+            protectedThis->didFinishLaunchingProcess(0, IPC::Connection::Identifier { });
+        });
         return;
     }
     if (!pid) {
@@ -100,6 +157,8 @@ void ProcessLauncher::launchProcess()
         int count = 0;
         for (int code = errno; code > 0 && count < 8; code /= 10)
             digits[count++] = static_cast<char>('0' + code % 10);
+        if (!count)
+            digits[count++] = '0';
         while (count > 0)
             message[length++] = digits[--count];
         message[length++] = '\n';
@@ -109,6 +168,12 @@ void ProcessLauncher::launchProcess()
     }
 
     m_processID = pid;
+    {
+        // Entered before the reaper exists, so the reaper (and a later kill) always find it. Not
+        // taken around the fork: the child must not touch a lock that another thread may hold.
+        Locker locker { s_childrenLock };
+        liveChildren().add(pid);
+    }
     reapInBackground(pid);
     close(socketPair.client.release()); // the child holds its end now
 
@@ -128,7 +193,12 @@ void ProcessLauncher::terminateProcess()
     if (!m_processID)
         return;
 
-    kill(m_processID, SIGKILL);
+    {
+        // Only a child the reaper has not collected: a collected pid may be someone else's now.
+        Locker locker { s_childrenLock };
+        if (liveChildren().contains(m_processID))
+            kill(m_processID, SIGKILL);
+    }
     m_processID = 0;
 }
 
