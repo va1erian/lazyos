@@ -132,6 +132,20 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > Evidence: `kernel/src/tests/linux_compat_suite/{scmrights,memfd}.rs` (with
 > soaks that check descriptors, pipes, frames and quota against their
 > baselines) and the `scmrights` fixture (`ABI:scmrights:PASS`).
+>
+> **Round 5 (WebKit W4): what the WebKit IPC needed on top of that.** Found
+> by running the port's three processes (`docs/webkit-port-plan.md` W4):
+>
+> * `sendmsg` and `writev` of several segments on an `AF_UNIX`
+>   `SOCK_SEQPACKET` socket send **one record**, built from the segments
+>   (WebKit sends a header and a body); `sendmsg` used to answer `EOPNOTSUPP`
+>   and `writev` made one record per segment. A scattered datagram on `AF_INET`
+>   is still refused. (`io::send_gathered`; `compat_msg_seqpacket_gathers_one_record`
+>   and its soak.)
+> * `recvmsg`/`recvfrom` accept `MSG_NOSIGNAL` (ignored, as on Linux); they
+>   answered `EINVAL`. (`compat_msg_bad_flags`.)
+> * Still missing and met again: file-backed `mmap` (Skia's font manager,
+>   W3's shim) and `fadvise64` (221, `ENOSYS`, harmless).
 
 > **`sched_setattr`/`sched_getattr` (314, 315): supported (W2).** The plain
 > policies (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are

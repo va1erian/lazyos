@@ -1,12 +1,17 @@
 # A WebKit port — exploration and plan
 
-Status: **W0, W1, W2 and W3 built** (2026-10-12). The four kernel prerequisites
+Status: **W0 to W4 built** (2026-10-12). The four kernel prerequisites
 landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
 `JSCOnly` shell runs on LazyOS both as the C-loop interpreter (`jsc`) and with
 the JIT (`jsc-jit`: LLInt, baseline, DFG), each passing 254 of 255 files of a
-fixed `JSTests/stress` subset, and the dependency bundle (zlib to curl with
+fixed `JSTests/stress` subset, the dependency bundle (zlib to curl with
 OpenSSL, FreeType, HarfBuzz, Fontconfig, Skia) is built and used by a program
-on LazyOS, including an HTTPS fetch. Next is W4 (the port skeleton). Decisions taken: WebKit2 is
+on LazyOS, including an HTTPS fetch, and **WebCore and WebKit2 build as
+`PORT=LazyOS` and run on LazyOS as three real processes**: a headless UI process
+(`webkit-smoke`) launches a WebProcess and a NetworkProcess over the Unix IPC,
+loads `about:blank` and a `data:` URL, reads the title and paints the page into a
+bitmap that equals, pixel for pixel, the one the same programs paint on Linux
+(§5 W4). Next is W5 (the window). Decisions taken: WebKit2 is
 the engine (§2), the port is modeled on the PlayStation port with WebKit's C
 API as the seam to a Rust xui window (§5), and the port files live out of
 tree like `doom/` and `quake/` (§7).
@@ -400,6 +405,81 @@ the GTK and WPE code path: the PlayStation `AcceleratedSurface` is GL only, and
 the tarball lacks the PlayStation CMake files, so the port starts from git for
 those and writes the render-target choice itself.
 
+**W4 results** (`webkit/`, [README](../webkit/README.md); `python tools/webkit/deps.py`
+then `python tools/webkit/port.py` and `python tools/webkit/port_run.py`):
+
+| | |
+|---|---|
+| Configuration | `PORT=LazyOS`: curl and OpenSSL (the bundle's 3.5), Skia on the CPU, FreeType/Fontconfig/HarfBuzz, libwpe's types, the generic run loop, `USE_COORDINATED_GRAPHICS`, **JIT on** (LLInt, baseline, DFG; no FTL), static JSC, system malloc, no video, WebGL, WebRTC, Web Audio, WebAssembly, GPU process, sandbox, remote inspector |
+| Compiled and linked | all of WTF, bmalloc, JavaScriptCore, PAL, Skia, WebCore and WebKit (8288 ninja steps, unified sources); `WebProcess` **107.4 MiB**, `NetworkProcess` **107.4 MiB**, `webkit-smoke` **104.4 MiB**, stripped static-PIE (ICU's 30 MB of data is in each) |
+| Build | **9 min 19 s** from a fresh container state on a 20-core host with 15 GiB for Docker (extraction, 11 patches, 85 fetched files, configure, 8288 steps at `-j13`: 8 min 7 s, link, strip, the host run); zig's cache wiped first. A rebuild after editing one port file: seconds |
+| On LazyOS (WHPX, 4 GiB, console image with networking) | `WEBKIT:W4:UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, `LOAD:about:blank`, `LOAD:data:text/html,...`, `TITLE:hello lazyos`, `PAINT:800x600:6cf525bf`, `PASS`; from `exec` of `webkit-smoke` to the first finished load 3.7 s (two 107 MB ELFs read whole, a fork and exec each, JSC and Skia initialised), the data page 50 ms later |
+| The same programs on the Linux build host | the same checksum, the same ink (42 pixels, `x` at 8,15 to 15,22): `port.py` runs `webkit-smoke` once in the container (`target/webkit/smoke.host.txt`) and `port_run.py` requires the guest to equal it, so layout, fonts, Skia and the IPC compute the same page on LazyOS as on Linux |
+
+*What had to be written.* The tarball is GTK's (libsoup, GLib): it has every
+`*/playstation/*` source and none of the PlayStation CMake, none of the libwpe
+directories the PlayStation WebKit layer uses, and none of `platform/network/curl`
+or the curl parts of WebKit (85 files, `webkit/port/upstream.txt`, fetched from
+git by blob digest). The PlayStation port was also found to be unbuildable with
+Skia at this revision as it stands (its Cairo-era code names `epoxy`, GLES3
+enums, a `SkiaPaintingEngine::create()` that has since gained an argument, a
+`hardwareAccelerationEnabled` setting that only GTK and WPE define), so the
+port is the PlayStation WebCore and WebKit layer on a Skia build, patched
+(`webkit/patches`, eleven patches including JSC's two; `webkit/README.md`
+lists each with its reason) and given these LazyOS files (`webkit/port/tree`):
+`OptionsLazyOS.cmake` and a `PlatformLazyOS.cmake` for WTF, bmalloc,
+JavaScriptCore, PAL, WebCore and WebKit; `ProcessLauncherLazyOS.cpp` (fork and
+`execv`, the socketpair's client end inherited; `posix_spawn` is not used);
+`CurlSSLHandleLazyOS.cpp` (the system CA bundle instead of the console's);
+`InjectedBundleLazyOS.cpp` (a static executable cannot load a bundle: refused
+with a message); `WPELoaderLazyOS.cpp` (libwpe is linked static and asks for a
+backend; there is none). Also: libwpe 1.16.2 (static, no xkbcommon) and a
+do-nothing EGL/GLESv2 generated from the Khronos headers join the dependency
+bundle (`tools/webkit/recipes_port.py`), `fonts.conf` is written into the image
+(`/system/etc/fonts`) with the Liberation fonts, and W3's `lazyos_mmap` shim is
+linked into the port's Skia. The platform macro is `PLATFORM(LAZYOS)`, not
+`PLATFORM(PLAYSTATION)`, whose tests in WTF, JavaScriptCore and bmalloc choose
+console code (patch `0003` renames the 44 tests in WebCore and WebKit only), so
+those three stay exactly the proven `jsc-jit` configuration.
+
+*Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
+PlayStation port's classic one: the WebProcess paints dirty rectangles into a
+`ShareableBitmap` (shared memory, `memfd` + `SCM_RIGHTS`, W0) with
+`GraphicsContextSkia` on a CPU surface and sends an `Update`; the UI process
+keeps them in `BackingStoreSkia` and `WKPagePaint` copies them out. Nothing
+touches EGL: the composited classes (`LayerTreeHost`, `ThreadedCompositor`,
+`AcceleratedSurface`) are compiled and linked against the stand-ins and never
+run. The chosen route is not the brief's `NonCompositedFrameRenderer` (GTK/WPE's
+`DrawingAreaCoordinatedGraphicsGLib`): it includes libepoxy and needs the GTK
+shared sources; the PlayStation drawing area gives the same CPU path with no
+patch to select a render target.
+
+*Gaps found by running it* (`SYSCALL_USED` and the guest's own errors; each is
+fixed and has kernel tests, `compat_msg_*`):
+
+| syscall | what WebKit does | what LazyOS did | now |
+|---|---|---|---|
+| `sendmsg` (46) and `writev` (20) on `AF_UNIX` `SOCK_SEQPACKET` | `ConnectionUnix` sends a header and a body as two `iovec` segments | `EOPNOTSUPP` (`sendmsg`) or two records (`writev`) | one record, as Linux builds it (`io::send_gathered`); a scattered datagram on `AF_INET` is still refused |
+| `recvmsg` (47) with `MSG_NOSIGNAL` | `recvmsg(fd, &msg, MSG_NOSIGNAL)` | `EINVAL`: "Error receiving IPC message" on both sockets | accepted and ignored |
+| `fadvise64` (221) | something in the three processes advises on a file | `ENOSYS` (once, ignored by the caller) | open, harmless |
+| file-backed `mmap` (9) | Skia's font manager (`SkData::MakeFromFileName`, no fallback) | fails | the W3 shim copies the file; without it every font family silently fell back to one face (found because the first guest paint differed from the host's) |
+
+Everything else the three processes use (`fork`, `execve`, `clone`, `futex`,
+`socketpair`, `SCM_RIGHTS`, `memfd_create`, `sched_setattr`, `mremap`,
+`madvise`, `prctl`, `sched_getaffinity`, `sysinfo`, `getdents64`, `select`)
+was already there.
+
+*Not verified.* HTTP or HTTPS loads through the NetworkProcess (the run loads
+`about:blank` and a `data:` URL; the network stack is the bundle's, proven in
+W3, but WebKit's curl path has not fetched a page on LazyOS), input events,
+JavaScript in a page (the engine is `jsc-jit`'s, but no script ran), images,
+the desktop (the run is a console image with the fonts added), crash recovery
+of a WebProcess, memory per process (three static 105 to 107 MiB ELFs are
+read whole into RAM; `--big-app`, 4 GiB), FTL, and the whole thing on real
+hardware. `webkit-smoke` prints one `WEBKIT:W4:INFO:*` line each for what a
+reader would otherwise have to guess (fonts Fontconfig sees, the glyphs as
+text, timings).
+
 ### W5. The window (a few weeks)
 
 The UI process is a Rust `xui-app` client, as Doom and Quake are, with the
@@ -447,13 +527,13 @@ interpreted, no video, no GPU, two to three months in.
   the fix, and it is the entry on the missing list of
   [linux-abi-plan.md](linux-abi-plan.md) that now matters most. Until then
   the profile is `run_demo.py --big-app --memory 4G`.
-* **File-backed `mmap` showed up in W3.** Skia maps font files with `mmap(fd,
+* **File-backed `mmap` showed up in W3 and again in W4** (the port's Skia needs the same shim, and without it text came out in the wrong face with no error). Skia maps font files with `mmap(fd,
   PROT_READ, MAP_PRIVATE)`, which fails on LazyOS, and its fontconfig font manager
   has no fallback; the bundle carries a 35-line copying shim
   (`tools/webkit/skiabuild/lazyos_mmap.c`). WebKit maps files elsewhere too
   in WTF's `FileSystem` too (not yet exercised); expect more of the same
   until the kernel can map a file read-only and private.
-* **Process spawning.** Fork and exec, as above.
+* **Process spawning: done.** Fork and exec, `ProcessLauncherLazyOS.cpp`; both children came up on the first run.
 * **Threads per process.** JSC alone starts a dozen; `task_max` is per
   machine, and a desktop session already holds a few dozen slots. The
   `bigapp` numbers are for a console image; measure a logged-in desktop.

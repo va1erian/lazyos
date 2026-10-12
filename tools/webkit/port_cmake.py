@@ -112,6 +112,8 @@ HOST_BIN = Path("/system/bin")
 HOST_FONTS = Path("/system/share/fonts/liberation")
 HOST_FONTS_CONF = Path("/system/etc/fonts/fonts.conf")
 REFERENCE = wkpins.OUT / "smoke.host.txt"
+#: The image keeps program names lowercase (libs/fhs); the build names follow WebKit.
+IMAGE_NAMES = {"WebProcess": "webprocess", "NetworkProcess": "networkprocess"}
 
 
 def host_reference() -> bool:
@@ -130,8 +132,9 @@ def host_reference() -> bool:
     for directory in (HOST_BIN, HOST_FONTS, HOST_FONTS_CONF.parent):
         directory.mkdir(parents=True, exist_ok=True)
     for name in OUTPUTS:
-        shutil.copy2(wkpins.BIN / name, HOST_BIN / name)
-        (HOST_BIN / name).chmod(0o755)
+        installed = HOST_BIN / IMAGE_NAMES.get(name, name)
+        shutil.copy2(wkpins.BIN / name, installed)
+        installed.chmod(0o755)
     for font in (wkpins.ROOT / "assets" / "fonts" / "liberation").glob("*.ttf"):
         shutil.copy2(font, HOST_FONTS / font.name)
     shutil.copy2(PORT_DIR / "fonts.conf", HOST_FONTS_CONF)

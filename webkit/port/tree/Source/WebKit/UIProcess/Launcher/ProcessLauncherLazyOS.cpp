@@ -50,10 +50,10 @@ static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
 {
     switch (type) {
     case ProcessLauncher::ProcessType::Network:
-        return "/system/bin/NetworkProcess";
+        return "/system/bin/networkprocess";
     case ProcessLauncher::ProcessType::Web:
     default:
-        return "/system/bin/WebProcess";
+        return "/system/bin/webprocess";
     }
 }
 

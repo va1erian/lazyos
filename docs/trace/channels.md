@@ -71,7 +71,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NETAPP` | `Netapp` | `netapp` | xui-app | sessions | programs |
 | `NETBULK` | `Netbulk` | `netbulk` | other, user | - | programs |
 | `NETCTL` | `Netctl` | `netctl` | user | tools/net | programs |
-| `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/lazysky, tools/net, tools/web, tools/wifi | programs |
+| `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/lazysky, tools/net, tools/web, tools/webkit, tools/wifi | programs |
 | `NETDRIVES` | `Netdrives` | `netdrives` | xui-app | tools/fuse | programs |
 | `NETDRV` | `Netdrv` | `netdrv` | user | tools/irqpath.py, tools/net, tools/perf, tools/test_irqpath.py, tools/wifi | programs |
 | `NETSTATUS` | `Netstatus` | `netstatus` | xui-app | sessions | programs |

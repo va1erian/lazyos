@@ -36,9 +36,17 @@ plan (§5 W3); the pins and how each digest was cross-checked are in
 | ICU 74.2 | the build of `tools/jsc/icu.py`, copied into the prefix |
 | Skia | `skiabuild/CMakeLists.txt` builds the Skia inside the WebKit tarball (`Source/ThirdParty/skia`) with WebKit's own CMake, a few macros stood in for; no GN, no depot_tools |
 | `depsproof` | `depsproof/*.cpp`, linked from `pkg-config --static`; run once on the build host (`target/webkit/depsproof.host.txt`) |
+| libwpe 1.16.2, `glstub` | W4 (`recipes_port.py`): libwpe's CMake, static, no libxkbcommon; `libEGL.a`/`libGLESv2.a` in which every entry point of the Khronos headers does nothing (`webkit/port/glstub/gen_stub.py`) |
 
 Nothing in any tarball is edited (`patches/<name>/*.patch` is supported by
 `buildkit.apply_patches` and is empty).
+
+## The port (W4)
+
+`python tools/webkit/port.py` builds WebCore and WebKit2 as `PORT=LazyOS` against this bundle
+(`webkit/README.md`); `port_run.py`, `portjudge.py`, `test_port_judge.py`, `port_tree.py`
+(tarball + patches + the files the tarball lacks), `port_cmake.py` and
+`gen_platform_patch.py` (regenerates patch 0003) are its tools.
 
 ## Docker, stamps, rebuilds
 

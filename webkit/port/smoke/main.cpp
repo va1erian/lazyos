@@ -45,6 +45,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <time.h>
 #include <unistd.h>
 #include <vector>
 
@@ -65,6 +66,7 @@ struct State {
     int loadsFinished { 0 };
     int displayCallbacks { 0 };
     int titlePolls { 0 };
+    long upMs { 0 }, aboutMs { 0 }, dataMs { 0 }, titleMs { 0 };
     bool titleSeen { false };
     const char* stage { "init" };
 } state;
@@ -78,6 +80,19 @@ void say(const char* format, ...)
     va_end(args);
     printf("\n");
     fflush(stdout);
+}
+
+// Milliseconds since the program started (CLOCK_MONOTONIC).
+long elapsedMs()
+{
+    static const long origin = [] {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
+    }();
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1000L + now.tv_nsec / 1000000L - origin;
 }
 
 [[noreturn]] void fail(const char* stage, const char* reason)
@@ -185,6 +200,8 @@ void paintAndFinish(void*)
         }
     } else
         say("WEBKIT:W4:INFO:PAINT:nothing arrived (displayCallbacks=%d)", state.displayCallbacks);
+    say("WEBKIT:W4:INFO:TIME:up=%ld:about=%ld:data=%ld:title=%ld:paint=%ld", state.upMs, state.aboutMs, state.dataMs,
+        state.titleMs, elapsedMs());
     say("WEBKIT:W4:PASS");
     WKRunLoopStopMain();
 }
@@ -230,6 +247,7 @@ void checkTitle(void*)
 {
     std::string text = currentTitle();
     if (text == kDefaultTitle) {
+        state.titleMs = elapsedMs();
         say("WEBKIT:W4:TITLE:%s", text.c_str());
         state.titleSeen = true;
         startSettleThread();
@@ -249,10 +267,12 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
     ++state.loadsFinished;
     if (state.loadsFinished == 1) {
+        state.aboutMs = elapsedMs();
         say("WEBKIT:W4:LOAD:%s", state.firstUrl.c_str());
         loadUrl(state.secondUrl);
         return;
     }
+    state.dataMs = elapsedMs();
     say("WEBKIT:W4:LOAD:%s", state.secondUrl.c_str());
     reportProcesses();
     state.stage = "title";
@@ -317,14 +337,16 @@ int main(int argc, char** argv)
     pthread_create(&guard, nullptr, watchdog, nullptr);
     pthread_detach(guard);
 
+    elapsedMs();
     WKRunLoopInitializeMain();
+    state.upMs = elapsedMs();
     say("WEBKIT:W4:UP");
     reportFonts();
 
     state.stage = "context";
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();
-    WKStringRef webPath = makeString(environment("LAZYOS_WEBPROCESS", "/system/bin/WebProcess"));
-    WKStringRef networkPath = makeString(environment("LAZYOS_NETWORKPROCESS", "/system/bin/NetworkProcess"));
+    WKStringRef webPath = makeString(environment("LAZYOS_WEBPROCESS", "/system/bin/webprocess"));
+    WKStringRef networkPath = makeString(environment("LAZYOS_NETWORKPROCESS", "/system/bin/networkprocess"));
     WKContextConfigurationSetWebProcessPath(configuration, webPath);
     WKContextConfigurationSetNetworkProcessPath(configuration, networkPath);
     state.context = WKContextCreateWithConfiguration(configuration);
