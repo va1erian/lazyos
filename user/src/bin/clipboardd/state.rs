@@ -7,8 +7,22 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use user::central;
 use user::messenger::{clipboard as wire, errno, Endpoint, Error};
+use user::sys;
 
 use super::MAX_SESSIONS;
+
+/// A large payload that stays in the shared pages its owner offered: this
+/// service holds its own handle to them (and a mapping), so nothing is copied
+/// into the heap and the pages go back to the system when the offer is
+/// evicted.
+pub(super) struct Big {
+    pub(super) mime: String,
+    pub(super) handle: u64,
+    /// Where the payload starts in this task (the mapping plus the offered
+    /// range's offset).
+    pub(super) va: u64,
+    pub(super) len: usize,
+}
 
 /// One live offer in a session.
 pub(super) struct Offer {
@@ -18,6 +32,8 @@ pub(super) struct Offer {
     pub(super) owner_slot: u64,
     pub(super) mimes: Vec<String>,
     pub(super) data: Vec<(String, Vec<u8>)>,
+    /// The buffer-backed payload of an `OfferBuffer` offer (no `data`).
+    pub(super) big: Option<Big>,
     pub(super) sink: Option<String>,
     /// Cached owner endpoint once a lazy paste resolved the sink.
     pub(super) endpoint: Option<Endpoint>,
@@ -25,7 +41,21 @@ pub(super) struct Offer {
     pub(super) tick: u64,
 }
 
+impl Drop for Offer {
+    fn drop(&mut self) {
+        if let Some(big) = &self.big {
+            // Unmap and drop this service's reference to the pages.
+            let _ = sys::buffer_close(big.handle);
+        }
+    }
+}
+
 impl Offer {
+    /// Bytes this offer keeps in shared pages.
+    pub(super) fn big_len(&self) -> usize {
+        self.big.as_ref().map_or(0, |big| big.len)
+    }
+
     /// Metadata only: the shape `Current` and the changed topic carry.
     pub(super) fn info(&self) -> wire::OfferInfo {
         wire::OfferInfo {

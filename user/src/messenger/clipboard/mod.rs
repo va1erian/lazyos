@@ -70,6 +70,10 @@ pub mod method {
     pub const OFFER: u32 = wire::METHOD_OFFER;
     /// Read: fetch a payload by token and MIME.
     pub const REQUEST: u32 = wire::METHOD_REQUEST;
+    /// Write: publish one large payload that lives in a shared buffer.
+    pub const OFFER_BUFFER: u32 = wire::METHOD_OFFERBUFFER;
+    /// Read: copy a large payload into the caller's shared buffer.
+    pub const FETCH: u32 = wire::METHOD_FETCH;
     /// Owner: serialize one MIME of an offer on demand (lazy transfer).
     pub const SERIALIZE: u32 = wire::METHOD_SERIALIZE;
     /// Control: liveness probe.
@@ -82,8 +86,16 @@ pub mod method {
 pub const MAX_MIME: usize = 64;
 /// Most MIME types in one offer.
 pub const MAX_MIMES: usize = 8;
-/// Largest inline payload the service keeps for one offer.
+/// Largest inline payload the service keeps for one offer: what rides in a
+/// parcel (`Offer`'s data, `Request`'s reply). A larger one goes through a
+/// shared buffer (`OfferBuffer`, `Fetch`).
 pub const MAX_DATA: usize = 8 * 1024;
+/// Largest payload either direction accepts, inline or through a buffer
+/// (16 MiB), enforced by the service and by every client.
+pub const MAX_BUFFER: usize = 16 * 1024 * 1024;
+/// The most buffer-backed payload bytes the service retains per session; the
+/// oldest offers are evicted past it (their pages go back to the system).
+pub const MAX_RETAINED: usize = 64 * 1024 * 1024;
 /// Longest owner label or sink name.
 pub const MAX_TEXT: usize = 128;
 
@@ -104,19 +116,21 @@ pub struct OfferInfo {
     pub tick: u64,
 }
 
-/// The payload a `Request` yields. A shared buffer is the future home of
-/// `bytes`; until that path lands the bytes ride in the reply parcel (see
-/// module docs).
+/// What a `Request` yields: a payload up to [`MAX_DATA`] in `bytes`, or its
+/// `size` alone when it is larger and must be read with `Fetch`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BufferHandle {
-    /// Token of the offer that was read.
+    /// Token of the offer that was read (the resolved one, also for a
+    /// request that asked for the newest with token 0).
     pub token: u64,
     /// MIME type that was read.
     pub mime: String,
     /// Whether the bytes came from the owner's `Serialize` callback.
     pub lazy: bool,
-    /// The payload bytes.
+    /// The payload bytes, empty when the payload is read with `Fetch`.
     pub bytes: Vec<u8>,
+    /// The payload's length.
+    pub size: u64,
 }
 
 /// A decoded `Offer` request (the service's view).

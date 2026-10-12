@@ -22,11 +22,27 @@ interface os.lazy.clipboard.v1 {
     /// lazy offer sets `sink`, the registry name of the endpoint where the
     /// owner serves `Serialize`, and leaves `data` empty.
     method Offer(owner: String = 1, sink: Option<String> = 2, mimes: Array<String> = 3, data: Array<Payload> = 4) -> (token: U64 = 1);
+    /// Publish one large payload (more than the inline cap of 8 KiB, at most
+    /// 16 MiB) for the caller's session. The bytes live in `data`'s shared
+    /// pages, which the service keeps (it holds its own handle, so the caller
+    /// may close theirs at once) until the offer is evicted; nothing is
+    /// copied into the service's heap. The range `data.offset .. + data.len`
+    /// is the payload. Travels on this interface's own id, not a scope id:
+    /// the kernel's declared-object gate keys on the header's interface.
+    method OfferBuffer(owner: String = 1, mime: String = 2, data: Buffer = 3) -> (token: U64 = 1);
     /// Read one MIME of an offer. `token` 0 selects the newest offer in the
     /// caller's session that lists `mime`; another session's token fails with
-    /// `EACCES` and is audited, an unknown one with `ENOENT`. The reply carries
-    /// the payload bytes inline until the shared-buffer mapping op lands.
-    method Request(token: U64 = 1, mime: String = 2) -> (token: U64 = 1, mime: String = 2, lazy: Bool = 3, bytes: Bytes = 4);
+    /// `EACCES` and is audited, an unknown one with `ENOENT`. `size` is the
+    /// payload's length. A payload up to the inline cap rides in `bytes`; a
+    /// larger one leaves `bytes` empty and is read with `Fetch`, using the
+    /// reply's `token`.
+    method Request(token: U64 = 1, mime: String = 2) -> (token: U64 = 1, mime: String = 2, lazy: Bool = 3, bytes: Bytes = 4, size: U64 = 5);
+    /// Copy a large payload (see `Request`) into the caller's buffer: the
+    /// bytes of `token`'s `mime` go to `into`'s range, which must be at least
+    /// `size` long (`E2BIG` otherwise). `token` must be an exact token (0 is
+    /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
+    /// audited). Replies with the number of bytes written.
+    method Fetch(token: U64 = 1, mime: String = 2, into: Buffer = 3) -> (written: U64 = 1);
     /// Serialize one MIME of a lazy offer on demand. The service calls this on
     /// the offer owner's `sink` endpoint when a paste happens.
     method Serialize(token: U64 = 1, mime: String = 2) -> (bytes: Bytes = 1);
