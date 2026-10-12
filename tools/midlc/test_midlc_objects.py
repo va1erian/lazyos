@@ -277,6 +277,8 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.shell.tray.v1", "Set"): [("events", "channel", "os.lazy.shell.tray.events.v1")],
                 ("os.lazy.init.app.v1", "Watch"): [("events", "channel", "os.lazy.init.app.events.v1")],
                 ("os.lazy.notify.v1", "Listen"): [("events", "channel", "os.lazy.notify.events.v1")],
+                ("os.lazy.clipboard.v1", "OfferBuffer"): [("data", "buffer", None)],
+                ("os.lazy.clipboard.v1", "Fetch"): [("into", "buffer", None)],
             },
         )
 
