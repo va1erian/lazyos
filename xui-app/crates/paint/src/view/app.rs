@@ -403,7 +403,7 @@ impl App for PaintApp {
                 self.model.redo();
                 self.message = name.map(|name| format!("Redid {name}"));
             }
-            Msg::Clear => self.model.clear(),
+            Msg::Clear => self.message = self.model.clear().err(),
             Msg::New => match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
                 Ok(()) => {
                     self.cursor = None;
