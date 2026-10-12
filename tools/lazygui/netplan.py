@@ -37,8 +37,9 @@ def wants_wifi(cfg: dict) -> bool:
 
 
 def wants_dbgd(cfg: dict) -> bool:
-    """Whether the image carries `dbgd` (its control tier implies it)."""
-    return bool(cfg.get("dbgd") or cfg.get("dbgd_control"))
+    """Whether the image carries `dbgd`: always, so a box built from the
+    launcher can be inspected (and its services reloaded) without a re-flash."""
+    return True
 
 
 def net_specs(cfg: dict) -> list[str]:

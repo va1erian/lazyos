@@ -100,11 +100,11 @@ def make_vars() -> dict:
         # run_demo --wifi-sim; implies the stack).
         "wifi_sim": b(value=False),
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
-        # implies networking).
-        "dbgd": b(value=False),
+        # implies networking). Always built in by catalog/netplan; ticked here to match.
+        "dbgd": b(value=True),
         # Its control tier: restart and hot reload (LAZYOS_DBGD_CONTROL,
         # run_demo --dbgd-control; implies dbgd).
-        "dbgd_control": b(value=False),
+        "dbgd_control": b(value=True),
         # Wi-Fi: wifid and its firmware (LAZYOS_WIFI, run_demo --wifi; implies
         # networking).
         "wifi": b(value=False),

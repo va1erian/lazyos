@@ -15,6 +15,7 @@ import sys
 
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
+from . import osvolume
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .netboot import netboot_env  # noqa: F401 (re-exported)
@@ -149,6 +150,7 @@ def check_limits(cfg: dict) -> None:
 
 def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
     """The "Build image" button's steps and environment (``ValueError`` on bad limits)."""
+    osvolume.check(cfg, IMAGE)
     return app_steps(cfg) + [cargo_step(cfg)], build_env(cfg)
 
 
@@ -194,6 +196,7 @@ def build_env(cfg: dict) -> dict[str, str]:
             env["LAZYOS_XUI_AUTOSTART"] = f"{current},devices"
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
+    env.update(osvolume.env(cfg, IMAGE))  # fit the OS volume; never resize one
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
@@ -260,9 +263,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
         # stack above; the image build writes its key to target/dbgd.key.
         env["LAZYOS_DBGD"] = "1"
-        if cfg.get("dbgd_control"):
-            # Its control tier: restart and hot-reload services (v2).
-            env["LAZYOS_DBGD_CONTROL"] = "1"
+        env["LAZYOS_DBGD_CONTROL"] = "1"  # control tier: restart/hot-reload (v2)
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
@@ -328,6 +329,7 @@ def build_plan(cfg: dict) -> list[dict]:
     """Turn a configuration dict into an ordered list of steps."""
     check_limits(cfg)
     mode = cfg["mode"]
+    osvolume.check(cfg, IMAGE)
     steps: list[dict] = []
 
     if mode == "Interactive demo":
@@ -365,7 +367,7 @@ def build_plan(cfg: dict) -> list[dict]:
         if wants_dbgd(cfg) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DBGD (and _CONTROL), the stack and the 9701
             # forward itself.
-            argv.append("--dbgd-control" if cfg.get("dbgd_control") else "--dbgd")
+            argv.append("--dbgd-control")
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")
@@ -417,7 +419,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # Recreate the OS volume (apps, settings, logs) instead of updating it; it needs a
         # build, so "Skip build" wins. run_demo asks before erasing and has no terminal
         # here, so the GUI asks first (datavol.confirm_reset_os) and passes --yes for it.
-        if (cfg.get("reset_os") or cfg.get("setup")) and not cfg["skip_build"]:
+        if osvolume.reset_wanted(cfg, IMAGE) and not cfg["skip_build"]:
             argv += ["--reset-os", "--yes"]
         argv += device_flags(cfg)  # sound card, NIC model, devd (`drivers`)
         # A virtio-net card on QEMU's user network with the forwards; run_demo

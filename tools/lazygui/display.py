@@ -38,11 +38,18 @@ def check_mode(text: str) -> str:
 
 def display_env(mode: str, max_size: str = "") -> dict[str, str]:
     """`LAZYOS_DISPLAY_MODE` for ``mode`` and `LAZYOS_DISPLAY_MAX` for
-    ``max_size`` (none for an empty one)."""
+    ``max_size`` (none for an empty one; the HiDPI mode brings its own cap)."""
     env = {}
-    if mode := check_mode(mode):
+    mode = check_mode(mode)
+    if mode:
         env["LAZYOS_DISPLAY_MODE"] = mode
-    if max_size := check_mode(max_size):
+    max_size = check_mode(max_size)
+    if mode == HIDPI_MODE and not max_size:
+        # `display.mode` only switches a Bochs adapter (QEMU); a real PC keeps
+        # its firmware framebuffer, which `display.max` caps at 1920x1080 unless
+        # raised (issue #717), so HiDPI asks for both.
+        max_size = HIDPI_MODE
+    if max_size:
         env["LAZYOS_DISPLAY_MAX"] = max_size
     return env
 

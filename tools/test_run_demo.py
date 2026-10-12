@@ -82,8 +82,12 @@ class RunDemoCase(unittest.TestCase):
         self.home = self.dir / "home.img"
         self.builds: list[dict] = []
         self.commands: list[list[str]] = []
+        # The OS volume sizing reads the build's image: use none, not the developer's.
+        patcher = mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", self.dir / "os.img")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def run_main(self, *argv: str) -> tuple[int, list[str]]:
+    def run_main(self, *argv: str, busybox_found: object = "busybox") -> tuple[int, list[str]]:
         launched: list[str] = []
 
         def fake_build(command, cwd=None, env=None, **_):
@@ -92,7 +96,8 @@ class RunDemoCase(unittest.TestCase):
                 self.builds.append(env)
             return mock.Mock(returncode=0)
 
-        with mock.patch.object(run_demo.busybox, "ensure_busybox"), \
+        with mock.patch.object(run_demo.busybox, "ensure_busybox",
+                               return_value=busybox_found), \
                 mock.patch.object(run_demo, "build_rhai"), \
                 mock.patch.object(run_demo, "find_qemu", return_value="qemu"), \
                 mock.patch.object(run_demo, "accel_args", return_value=[]), \
@@ -107,6 +112,31 @@ class RunDemoCase(unittest.TestCase):
 
 class MainTests(RunDemoCase):
     """The disks, profiles and switches `main` turns into a build and a boot."""
+
+    def test_a_too_small_os_volume_is_caught_before_the_build(self) -> None:
+        from lazygui.test_osvolume import make_image
+        small = make_image(self.dir, 512)
+        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small),                 mock.patch.object(run_demo, "build_srb2kart", return_value=True):
+            code, _ = self.run_main("--desktop", "--srb2kart")
+            self.assertEqual(code, 1, "no terminal to ask: left untouched")
+            self.assertEqual(self.builds, [])
+            code, _ = self.run_main("--desktop", "--srb2kart", "--yes")
+            self.assertEqual(code, 0)
+            self.assertEqual(self.builds[-1]["LAZYOS_RESET_OS"], "1")
+            self.assertEqual(self.builds[-1]["LAZYOS_OS_SIZE"], str(1024 << 20))
+            code, _ = self.run_main("--desktop")  # a 512M volume fits without SRB2Kart
+            self.assertEqual(code, 0)
+            self.assertNotIn("LAZYOS_RESET_OS", self.builds[-1])
+
+    def test_a_missing_busybox_fails_the_build(self) -> None:
+        env = {k: v for k, v in run_demo.os.environ.items()
+               if k not in ("LAZYOS_BUSYBOX", "LAZYOS_INIT")}
+        with mock.patch.dict(run_demo.os.environ, env, clear=True):
+            code, _ = self.run_main(busybox_found=None)
+            self.assertEqual(code, 1)
+            self.assertEqual(self.builds, [], "nothing was built")
+            code, _ = self.run_main("--no-busybox", busybox_found=None)
+            self.assertEqual(code, 0)
 
     def test_home_disk_is_created_and_attached_second(self) -> None:
         code, command = self.run_main("--no-build")
