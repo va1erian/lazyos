@@ -277,15 +277,16 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
     // this same table.
     let old = unsafe { *entry };
-    if old & PTE_USER == 0 || old & COW_BIT == 0 || vma::forbids_write(table, va) {
+    if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return false;
     }
     // COW only defers the copy of a page the address space may write. A fork
     // marks every leaf COW, read-only ones (`PROT_READ`, `PROT_READ|EXEC`: a
-    // JIT's code cache) included, and a store to one of those is an access
-    // error (`SIGSEGV`, `SEGV_ACCERR`), not a request for a private copy. A
-    // page with no VMA (a loader's or test's own mapping) keeps the old rule.
-    if vma::find(table, va).is_some_and(|vma| !vma.prot.has_write()) {
+    // JIT's code cache) included, and a private memfd view is mapped COW
+    // whatever its protection; a store to one of those is an access error
+    // (`SIGSEGV`, `SEGV_ACCERR`), not a request for a private copy. A page
+    // with no VMA (a loader's or test's own mapping) keeps the old rule.
+    if vma::forbids_write(table, va) {
         return false;
     }
     let shared = PhysAddr::new(old & PTE_ADDR);
