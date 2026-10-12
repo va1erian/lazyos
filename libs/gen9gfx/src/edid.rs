@@ -255,10 +255,10 @@ impl Edid {
             extension_count: base[126],
             bad_extensions: 0,
         };
-        for pair in base[38..54].chunks_exact(2) {
+        for pair in base[38..54].as_chunks::<2>().0 {
             edid.standard.extend(std_timing(pair[0], pair[1]));
         }
-        for d in base[54..126].chunks_exact(18) {
+        for d in base[54..126].as_chunks::<18>().0 {
             if d[0] != 0 || d[1] != 0 {
                 edid.detailed.extend(Timing::parse(d));
                 continue;

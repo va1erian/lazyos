@@ -147,8 +147,10 @@ impl Eld {
             product_code: u16::from_le_bytes([data[18], data[19]]),
             monitor_name: name,
             sads: data[sads_at..sads_at + sad_count * 3]
-                .chunks_exact(3)
-                .map(|c| Sad::from_bytes([c[0], c[1], c[2]]))
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .map(|c| Sad::from_bytes(*c))
                 .collect(),
         })
     }

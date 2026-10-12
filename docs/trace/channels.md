@@ -100,7 +100,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
 | `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
-| `TEST` | `Test` | `test` | kernel, kernel suite | sessions, tools/test | programs |
+| `TEST` | `Test` | `test` | kernel, kernel suite, other | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/services | programs |

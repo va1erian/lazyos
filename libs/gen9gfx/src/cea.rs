@@ -242,10 +242,9 @@ fn hdmi_vsdb(p: &[u8]) -> Option<HdmiVsdb> {
 
 fn data_block(cea: &mut Cea, tag: u8, p: &[u8]) {
     match tag {
-        1 => cea.sads.extend(
-            p.chunks_exact(3)
-                .map(|c| Sad::from_bytes([c[0], c[1], c[2]])),
-        ),
+        1 => cea
+            .sads
+            .extend(p.as_chunks::<3>().0.iter().map(|c| Sad::from_bytes(*c))),
         2 => cea.svds.extend(p.iter().map(|&b| {
             // 1..=64 and 129..=192 carry the native flag in bit 7.
             let native_range = (1..=64).contains(&(b & 0x7F)) && b & 0x80 != 0;

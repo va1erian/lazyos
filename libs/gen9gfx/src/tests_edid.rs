@@ -231,7 +231,7 @@ fn seeded_fuzz() {
         }
         // Mutations rarely keep the checksum, so also try them re-sealed.
         fuzz::edid_bytes(&data);
-        for block in data.chunks_exact_mut(BLOCK) {
+        for block in data.as_chunks_mut::<BLOCK>().0.iter_mut() {
             crate::build::seal(block);
         }
         fuzz::edid_bytes(&data);
