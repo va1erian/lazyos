@@ -14,6 +14,7 @@ use xui_core::image::Image;
 use xui_core::message::{Key, Modifiers, MouseButton};
 use xui_paint::storage::MemoryStorage;
 use xui_paint::view::{Observer, PaintApp};
+use xui_paint::viewport::Viewport;
 
 use common::{Areas, Widgets};
 
@@ -98,72 +99,110 @@ fn px(image: &Image, x: i32, y: i32) -> [u8; 4] {
     image.pixel(x as u32, y as u32).expect("inside the image")
 }
 
-/// Draws one red pencil dot at picture pixel (2, 1) at 100%, then zooms with
+/// Draws one red pencil dot at `DOT` (the middle of the picture) at 100%, then zooms with
 /// `notches` Ctrl+wheel steps around the canvas's top-left corner.
+
+/// The viewport after `notches` Ctrl+wheel steps around the picture's top-left
+/// pixel `around`, worked out with the same arithmetic the canvas uses.
+/// The dot's picture pixel: zooming around the middle of a picture that fits
+/// the canvas keeps it under the pointer all the way.
+const DOT: (i32, i32) = (160, 120);
+
+fn viewport_after(areas: &Areas, notches: i16, around: (i32, i32)) -> Viewport {
+    let doc = (320, 240);
+    let view = (areas.canvas.width(), areas.canvas.height());
+    let mut viewport = Viewport::new();
+    viewport.clamp(doc, view);
+    let (wx, wy) = areas.pixel(around.0, around.1);
+    let anchor = (wx - areas.canvas.left, wy - areas.canvas.top);
+    for _ in 0..notches.unsigned_abs() {
+        if notches > 0 {
+            viewport.zoom_in(anchor, doc, view);
+        } else {
+            viewport.zoom_out(anchor, doc, view);
+        }
+    }
+    viewport
+}
+
+/// Draws one red pencil dot at `DOT` (the middle of the picture) at 100%, then zooms with
+/// `notches` Ctrl+wheel steps around the dot.
 fn zoomed_dot(
     notches: i16,
-    check: impl FnOnce(&TestStage<'_>, &Rc<RefCell<Observer>>, &Areas) + 'static,
+    check: impl FnOnce(&TestStage<'_>, &Rc<RefCell<Observer>>, &Areas, Viewport) + 'static,
 ) -> Image {
     session(move |stage, observer, areas| {
-        let (left, top) = (areas.canvas.left, areas.canvas.top);
         // The palette's red swatch is index 3, as in the view tests.
         let swatch = (24 + 3 * 24 + 12, areas.palette.top + 12);
         click(stage, swatch);
-        click(stage, (left + 2, top + 1));
+        click(stage, areas.pixel(DOT.0, DOT.1));
         assert!(observer.borrow().can_undo, "the dot was drawn");
-        wheel(stage, (left, top), notches, ctrl());
-        check(stage, observer, areas);
+        wheel(stage, areas.pixel(DOT.0, DOT.1), notches, ctrl());
+        check(stage, observer, areas, viewport_after(areas, notches, DOT));
     })
+}
+
+/// The window position of the top-left of picture pixel `(x, y)`.
+fn at(areas: &Areas, viewport: &Viewport, x: i32, y: i32) -> (i32, i32) {
+    let (vx, vy) = viewport.to_view(x, y);
+    (areas.canvas.left + vx, areas.canvas.top + vy)
 }
 
 #[test]
 fn ctrl_wheel_zooms_to_200_percent_with_crisp_pixels() {
-    let areas = Rc::new(RefCell::new(None));
-    let seen = Rc::clone(&areas);
-    let image = zoomed_dot(1, move |_, _, a| *seen.borrow_mut() = Some(*a));
+    let seen = Rc::new(RefCell::new(None));
+    let probe = Rc::clone(&seen);
+    let image = zoomed_dot(1, move |_, _, areas, viewport| {
+        *probe.borrow_mut() = Some((*areas, viewport));
+    });
     save("xpaint-zoom-200", &image);
-    let a = areas.borrow().unwrap();
-    let (left, top) = (a.canvas.left, a.canvas.top);
-    // Picture pixel (2, 1) is now the 2x2 block at view (4..6, 2..4).
-    for (x, y) in [(4, 2), (5, 2), (4, 3), (5, 3)] {
-        assert_eq!(px(&image, left + x, top + y), RED, "({x}, {y})");
+    let (areas, viewport) = seen.borrow().unwrap();
+    assert_eq!(viewport.percent(), 200);
+    // The dot's pixel is a 2 x 2 block, edges exactly on pixel borders.
+    let (x, y) = at(&areas, &viewport, DOT.0, DOT.1);
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        assert_eq!(px(&image, x + dx, y + dy), RED, "({dx}, {dy})");
     }
-    for (x, y) in [(3, 2), (6, 3), (4, 1), (5, 4)] {
-        assert_eq!(px(&image, left + x, top + y), WHITE, "no blur at ({x}, {y})");
+    for (dx, dy) in [(-1, 0), (2, 1), (0, -1), (1, 2)] {
+        assert_eq!(px(&image, x + dx, y + dy), WHITE, "no blur at ({dx}, {dy})");
     }
+    // The picture fits the canvas across (640 < 800): centred there.
+    assert!(viewport.origin().0 < 0);
 }
 
 #[test]
 fn ctrl_wheel_zooms_to_800_percent_with_a_grid() {
-    let areas = Rc::new(RefCell::new(None));
-    let seen = Rc::clone(&areas);
-    let image = zoomed_dot(6, move |_, _, a| *seen.borrow_mut() = Some(*a));
+    let seen = Rc::new(RefCell::new(None));
+    let probe = Rc::clone(&seen);
+    let image = zoomed_dot(6, move |_, _, areas, viewport| {
+        *probe.borrow_mut() = Some((*areas, viewport));
+    });
     save("xpaint-zoom-800", &image);
-    let a = areas.borrow().unwrap();
-    let (left, top) = (a.canvas.left, a.canvas.top);
-    // Pixel (2, 1) is the 8x8 block at view (16..24, 8..16); the cell's first
-    // row and column carry the grid line, the rest is solid.
-    for (x, y) in [(18, 10), (23, 15), (17, 9)] {
-        assert_eq!(px(&image, left + x, top + y), RED, "({x}, {y})");
+    let (areas, viewport) = seen.borrow().unwrap();
+    assert_eq!(viewport.percent(), 800);
+    // The dot is an 8 x 8 block; the first row and column of every cell
+    // carry the grid line, the rest is solid.
+    let (x, y) = at(&areas, &viewport, DOT.0, DOT.1);
+    for (dx, dy) in [(2, 2), (7, 7), (1, 1)] {
+        assert_eq!(px(&image, x + dx, y + dy), RED, "({dx}, {dy})");
     }
-    assert_ne!(px(&image, left + 16, top + 12), RED, "the grid line");
-    assert_eq!(px(&image, left + 12, top + 12), WHITE, "a clean white cell");
-    assert_ne!(px(&image, left + 12, top + 8), WHITE, "a horizontal grid line");
+    assert_ne!(px(&image, x, y + 4), RED, "the grid line");
+    let (cx, cy) = at(&areas, &viewport, DOT.0 - 2, DOT.1 - 2);
+    assert_eq!(px(&image, cx + 4, cy + 4), WHITE, "a clean white cell");
+    assert_ne!(px(&image, cx + 4, cy), WHITE, "a horizontal grid line");
 }
 
 #[test]
 fn the_pointer_maps_through_the_zoom() {
-    zoomed_dot(6, |stage, observer, areas| {
-        let (left, top) = (areas.canvas.left, areas.canvas.top);
-        mouse_move(stage, (left + 20, top + 12));
-        assert_eq!(observer.borrow().cursor, Some((2, 1)));
-        mouse_move(stage, (left + 7, top + 7));
-        assert_eq!(observer.borrow().cursor, Some((0, 0)));
-        mouse_move(stage, (left + 24, top + 16));
-        assert_eq!(observer.borrow().cursor, Some((3, 2)));
-        // A stroke at zoom lands on the pixel under the pointer.
-        let before = observer.borrow().can_undo;
-        assert!(before);
+    zoomed_dot(6, |stage, observer, areas, viewport| {
+        let hover = |dx: i32, dy: i32, x: i32, y: i32| {
+            let (wx, wy) = at(areas, &viewport, x, y);
+            mouse_move(stage, (wx + dx, wy + dy));
+            observer.borrow().cursor
+        };
+        assert_eq!(hover(4, 4, DOT.0, DOT.1), Some(DOT));
+        assert_eq!(hover(4, 4, DOT.0 - 2, DOT.1 - 1), Some((DOT.0 - 2, DOT.1 - 1)));
+        assert_eq!(hover(7, 7, DOT.0 + 1, DOT.1 + 1), Some((DOT.0 + 1, DOT.1 + 1)));
     });
 }
 
@@ -240,21 +279,81 @@ fn the_wheel_pans_a_zoomed_picture_and_space_drag_pans_too() {
     });
 }
 
+
 #[test]
 fn zooming_out_shows_the_whole_picture_small() {
-    let areas = Rc::new(RefCell::new(None));
-    let seen = Rc::clone(&areas);
+    let seen = Rc::new(RefCell::new(None));
+    let probe = Rc::clone(&seen);
     let image = session(move |stage, _, a| {
-        *seen.borrow_mut() = Some(*a);
-        let (left, top) = (a.canvas.left, a.canvas.top);
         click(stage, (24 + 3 * 24 + 12, a.palette.top + 12));
-        click(stage, (left + 200, top + 100));
+        click(stage, a.pixel(200, 100));
         // 1 -> 2/3 -> 1/2 -> 1/3 -> 1/4.
-        wheel(stage, (left, top), -4, ctrl());
+        wheel(stage, a.pixel(200, 100), -4, ctrl());
+        *probe.borrow_mut() = Some((*a, viewport_after(a, -4, (200, 100))));
     });
     save("xpaint-zoom-25", &image);
-    let a = areas.borrow().unwrap();
-    let (left, top) = (a.canvas.left, a.canvas.top);
-    assert_eq!(px(&image, left + 50, top + 25), RED, "the dot moved to 25%");
-    assert_ne!(px(&image, left + 200, top + 100), RED);
+    let (areas, viewport) = seen.borrow().unwrap();
+    assert_eq!(viewport.percent(), 25);
+    let (x, y) = at(&areas, &viewport, 200, 100);
+    assert_eq!(px(&image, x, y), RED, "the dot moved to 25%");
+    // The whole 320 x 240 picture is 80 x 60 and centred.
+    let (x0, y0) = at(&areas, &viewport, 0, 0);
+    assert_eq!(px(&image, x0 + 10, y0 + 10), WHITE);
+    assert_ne!(px(&image, x0 - 4, y0 + 10), WHITE, "outside it is the background");
+}
+
+#[test]
+fn the_zoom_shows_in_the_status_bar_and_the_observer() {
+    session(|stage, observer, areas| {
+        assert_eq!(observer.borrow().zoom_percent, 100);
+        assert_eq!(observer.borrow().status[4], "100%");
+        wheel(stage, areas.pixel(160, 120), 1, ctrl());
+        assert_eq!(observer.borrow().zoom_percent, 200);
+        assert_eq!(observer.borrow().status[4], "200%");
+        wheel(stage, areas.pixel(160, 120), -2, ctrl());
+        assert_eq!(observer.borrow().status[4], "67%");
+    });
+}
+
+#[test]
+fn the_eraser_leaves_a_checkerboard() {
+    let seen = Rc::new(RefCell::new(None));
+    let probe = Rc::clone(&seen);
+    let image = session(move |stage, _, areas| {
+        *probe.borrow_mut() = Some(*areas);
+        click(stage, (2 * 28 + 14, 15)); // Eraser
+        click(stage, (12 * 28 + 14, 15)); // 16 px
+        let from = areas.pixel(100, 100);
+        let to = areas.pixel(200, 100);
+        for event in [
+            Event::MouseDown {
+                x: from.0,
+                y: from.1,
+                button: MouseButton::Left,
+                modifiers: Modifiers::NONE,
+            },
+            Event::MouseMove {
+                x: to.0,
+                y: to.1,
+                modifiers: Modifiers::NONE,
+            },
+            Event::MouseUp {
+                x: to.0,
+                y: to.1,
+                button: MouseButton::Left,
+                modifiers: Modifiers::NONE,
+            },
+        ] {
+            stage.inject(event);
+        }
+    });
+    save("xpaint-eraser-checker", &image);
+    let areas = seen.borrow().unwrap();
+    let (y, left) = (areas.pixel(0, 100).1, areas.pixel(100, 0).0);
+    let row: Vec<[u8; 4]> = (left + 4..left + 96).map(|x| px(&image, x, y)).collect();
+    assert!(row.contains(&[255, 255, 255, 255]), "light checker cells");
+    assert!(row.contains(&[204, 204, 204, 255]), "dark checker cells");
+    // Away from the stroke the picture is still plain white.
+    let (wx, wy) = areas.pixel(100, 20);
+    assert_eq!(px(&image, wx + 10, wy), WHITE);
 }

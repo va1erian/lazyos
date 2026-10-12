@@ -19,17 +19,10 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Th
 
     // The screen image is already scaled to the zoom and covers only what is
     // visible, so it is drawn 1:1: xui's bilinear filter has nothing to blur.
-    if let Some(image) = state.screen() {
+    if let Some((image, (x, y))) = state.screen() {
         let (width, height) = (image.width() as i32, image.height() as i32);
-        canvas.draw_image(
-            image,
-            Rect::new(
-                bounds.left,
-                bounds.top,
-                bounds.left + width,
-                bounds.top + height,
-            ),
-        );
+        let (left, top) = (bounds.left + x, bounds.top + y);
+        canvas.draw_image(image, Rect::new(left, top, left + width, top + height));
     }
     let zoom = state.viewport().zoom();
     // The view position of the middle of picture pixel `point`.

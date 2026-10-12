@@ -59,8 +59,10 @@ pub struct Observer {
     pub cursor: Option<(i32, i32)>,
     /// Whether a drag is in progress.
     pub dragging: bool,
-    /// The four status-bar parts.
-    pub status: [String; 4],
+    /// The zoom in whole percent.
+    pub zoom_percent: u32,
+    /// The five status-bar parts: position, size, tool, message, zoom.
+    pub status: [String; 5],
 }
 
 impl Default for Observer {
@@ -74,6 +76,7 @@ impl Default for Observer {
             can_redo: false,
             cursor: None,
             dragging: false,
+            zoom_percent: 100,
             status: Default::default(),
         }
     }
@@ -98,7 +101,7 @@ pub(super) fn mount(ui: &Ui<Msg>, io: bool) -> Result<Widgets> {
         build(move |ui| ToolStrip::new(ui, strip_items(io))).bind(&toolbar),
         build(PaintCanvas::new).bind(&canvas).fill(1),
         build(Palette::new).bind(&palette),
-        status_bar(&["--", "320 x 240", "Pencil"]).bind(&status),
+        status_bar(&["--", "320 x 240", "Pencil", "", "100%"]).bind(&status),
     )))?;
     Ok(Widgets {
         canvas: canvas.get(),

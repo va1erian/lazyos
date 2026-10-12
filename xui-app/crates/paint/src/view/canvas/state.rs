@@ -17,7 +17,8 @@ pub struct CanvasState {
     viewport: Viewport,
     doc_size: (u32, u32),
     view: (i32, i32),
-    screen: Option<Image>,
+    /// The screen image and where it sits in the view.
+    screen: Option<(Image, (i32, i32))>,
     screen_stale: bool,
     pub(super) preview: Option<Preview>,
     /// The pointer in picture pixels, while it is over the canvas.
@@ -106,15 +107,18 @@ impl CanvasState {
         self.viewport.to_doc(x, y)
     }
 
-    /// The window-sized image, rebuilt first when stale. It is drawn 1:1.
-    pub(super) fn screen(&mut self) -> Option<&Image> {
+    /// The window-sized image and its offset in the view (non-zero when the
+    /// picture is centred), rebuilt first when stale. It is drawn 1:1.
+    pub(super) fn screen(&mut self) -> Option<(&Image, (i32, i32))> {
         if self.screen_stale {
             self.screen_stale = false;
             self.screen = self.cache.get().and_then(|flat| {
                 let image = render::render(flat, &self.viewport, self.view, self.grid)?;
-                Image::from_rgba(image.width, image.height, image.rgba).ok()
+                let at = (image.x, image.y);
+                let pixels = Image::from_rgba(image.width, image.height, image.rgba).ok()?;
+                Some((pixels, at))
             });
         }
-        self.screen.as_ref()
+        self.screen.as_ref().map(|(image, at)| (image, *at))
     }
 }

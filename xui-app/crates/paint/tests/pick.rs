@@ -59,28 +59,30 @@ fn the_picker_samples_into_the_clicked_side_and_updates_the_swatch() {
         move |stage| {
             let areas = widgets.areas(stage.ui());
             seen_palette.set(areas.palette.top);
-            let y = areas.canvas.top + 60;
+            let (x_dot, y) = areas.pixel(50, 60);
+            let (x_white, _) = areas.pixel(200, 60);
+            let (x_out, _) = areas.pixel(400, 60);
             // Paint a red dot with the pencil at canvas (50, 60): red is
             // palette index 3.
             let red = (24 + 3 * 24 + 12, areas.palette.top + 12);
             press(stage, red.0, red.1, MouseButton::Left);
             assert_eq!(observer.borrow().primary, RED);
-            press(stage, 50, y, MouseButton::Left);
+            press(stage, x_dot, y, MouseButton::Left);
 
             // Picker is the last tool cell (index 7).
             press(stage, 7 * 28 + 14, 15, MouseButton::Left);
             // Right button samples the dot into the secondary colour only.
-            press(stage, 50, y, MouseButton::Right);
+            press(stage, x_dot, y, MouseButton::Right);
             assert_eq!(observer.borrow().secondary, RED);
             assert_eq!(observer.borrow().primary, RED);
             // Left button samples white background into the primary only.
-            press(stage, 200, y, MouseButton::Left);
+            press(stage, x_white, y, MouseButton::Left);
             assert_eq!(observer.borrow().primary, WHITE);
             assert_eq!(observer.borrow().secondary, RED);
             // Picking is not an edit beyond the one pencil dot.
             assert!(observer.borrow().can_undo);
             // Outside the bitmap nothing is sampled.
-            press(stage, 500, y, MouseButton::Left);
+            press(stage, x_out, y, MouseButton::Left);
             assert_eq!(observer.borrow().primary, WHITE);
         },
     )

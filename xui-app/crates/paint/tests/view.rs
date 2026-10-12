@@ -15,7 +15,19 @@ use xui_paint::model::Tool;
 use xui_paint::storage::MemoryStorage;
 use xui_paint::view::{Observer, PaintApp};
 
+use std::cell::Cell;
+
 use common::{Areas, Widgets};
+
+thread_local! {
+    /// Where the 320 x 240 picture's top-left sat in the window in the last
+    /// session: the picture is centred where it fits the canvas.
+    static ORIGIN: Cell<(i32, i32)> = const { Cell::new((0, 0)) };
+}
+
+fn origin() -> (i32, i32) {
+    ORIGIN.with(Cell::get)
+}
 
 const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
@@ -102,7 +114,11 @@ fn session(
                 build_probe,
             ))
         },
-        move |stage| step(stage, &observer, &widgets.areas(stage.ui())),
+        move |stage| {
+            let areas = widgets.areas(stage.ui());
+            ORIGIN.with(|o| o.set(areas.pixel(0, 0)));
+            step(stage, &observer, &areas)
+        },
     )
     .expect("render")
 }
@@ -118,18 +134,20 @@ fn is(bitmap: &Image, x: u32, y: u32, color: [u8; 4]) -> bool {
 #[test]
 fn a_canvas_drag_paints_pixels_and_reports_state() {
     let image = session(|stage, observer, areas| {
-        let y = areas.canvas.top + 50;
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 50;
         assert_eq!(observer.borrow().status[0], "--", "no cursor at rest");
-        drag(stage, (100, y), (200, y + 40), MouseButton::Left);
+        drag(stage, (100 + ox, y), (200 + ox, y + 40), MouseButton::Left);
         let seen = observer.borrow();
         assert!(seen.can_undo, "the stroke is undoable");
         assert_eq!(seen.cursor, Some((200, 90)));
         assert_eq!(seen.status[0], "200, 90");
         assert_eq!(seen.status[2], "Pencil");
     });
+    let (ox, oy) = origin();
     // The stroke starts at canvas pixel (100, 50).
     assert!(
-        is(&image, 100, 78, BLACK),
+        is(&image, (ox + 100) as u32, (oy + 50) as u32, BLACK),
         "the stroke painted at its start"
     );
 }
@@ -152,12 +170,13 @@ fn toolbar_and_palette_changes_take_effect() {
         }
 
         // A shape preview must not be an undo step.
-        let y = areas.canvas.top + 80;
-        inject(stage, down(120, y, MouseButton::Left));
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 80;
+        inject(stage, down(120 + ox, y, MouseButton::Left));
         inject(
             stage,
             Event::MouseMove {
-                x: 300,
+                x: 300 + ox,
                 y,
                 modifiers: Modifiers::NONE,
             },
@@ -166,19 +185,21 @@ fn toolbar_and_palette_changes_take_effect() {
             !observer.borrow().can_undo,
             "a preview is not committed to history"
         );
-        inject(stage, up(300, y, MouseButton::Left));
+        inject(stage, up(300 + ox, y, MouseButton::Left));
         assert!(observer.borrow().can_undo, "releasing commits the shape");
     });
+    let (ox, oy) = origin();
     // A 16px red line from canvas (120, 80) to (300, 80).
-    assert!(is(&image, 200, 108, RED), "the shape is red");
-    assert!(is(&image, 200, 100, RED), "the shape is 16px thick");
+    assert!(is(&image, (ox + 200) as u32, (oy + 80) as u32, RED), "the shape is red");
+    assert!(is(&image, (ox + 200) as u32, (oy + 72) as u32, RED), "the shape is 16px thick");
 }
 
 #[test]
 fn undo_and_redo_buttons_work() {
     let image = session(|stage, observer, areas| {
-        let y = areas.canvas.top + 40;
-        drag(stage, (100, y), (200, y), MouseButton::Left);
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        drag(stage, (100 + ox, y), (200 + ox, y), MouseButton::Left);
         assert!(observer.borrow().can_undo);
 
         let undo = strip(13);
@@ -191,7 +212,8 @@ fn undo_and_redo_buttons_work() {
         assert!(observer.borrow().can_undo, "redo restored the step");
         assert!(!observer.borrow().can_redo);
     });
-    assert!(is(&image, 150, 68, BLACK), "the redone stroke is back");
+    let (ox, oy) = origin();
+    assert!(is(&image, (ox + 150) as u32, (oy + 40) as u32, BLACK), "the redone stroke is back");
 }
 
 #[test]
@@ -201,11 +223,13 @@ fn the_right_button_paints_the_secondary_colour() {
         click(stage, blue.0, blue.1, MouseButton::Right);
         assert_eq!(observer.borrow().secondary, BLUE);
 
-        let y = areas.canvas.top + 40;
-        drag(stage, (100, y), (200, y), MouseButton::Right);
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        drag(stage, (100 + ox, y), (200 + ox, y), MouseButton::Right);
         assert_eq!(observer.borrow().primary, BLACK, "the primary is unchanged");
     });
-    assert!(is(&image, 150, 68, BLUE), "the stroke used the secondary");
+    let (ox, oy) = origin();
+    assert!(is(&image, (ox + 150) as u32, (oy + 40) as u32, BLUE), "the stroke used the secondary");
 }
 
 #[test]
@@ -214,7 +238,8 @@ fn fill_then_clear_then_new() {
         let fill = strip(6);
         click(stage, fill.0, fill.1, MouseButton::Left);
         // Inside the 320x240 bitmap, not merely inside the 800-wide viewport.
-        click(stage, 200, areas.canvas.top + 100, MouseButton::Left);
+        let (x, y) = areas.pixel(200, 100);
+        click(stage, x, y, MouseButton::Left);
         assert!(observer.borrow().can_undo);
 
         let clear = strip(15);
@@ -226,48 +251,52 @@ fn fill_then_clear_then_new() {
         assert!(!observer.borrow().can_undo, "New empties the history");
         assert_eq!(observer.borrow().status[1], "320 x 240");
     });
-    assert!(is(&image, 200, 128, WHITE), "the canvas is white again");
+    let (ox, oy) = origin();
+    assert!(is(&image, (ox + 200) as u32, (oy + 100) as u32, WHITE), "the canvas is white again");
 }
 
 #[test]
 fn a_mouse_up_outside_the_widget_ends_the_drag() {
     let image = session(|stage, observer, areas| {
-        let y = areas.canvas.top + 40;
-        inject(stage, down(100, y, MouseButton::Left));
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        inject(stage, down(100 + ox, y, MouseButton::Left));
         inject(
             stage,
             Event::MouseMove {
-                x: 150,
+                x: 150 + ox,
                 y,
                 modifiers: Modifiers::NONE,
             },
         );
         assert!(observer.borrow().dragging);
         // Release over the status bar, outside the canvas.
-        inject(stage, up(150, HEIGHT - 5, MouseButton::Left));
+        inject(stage, up(150 + ox, HEIGHT - 5, MouseButton::Left));
         assert!(!observer.borrow().dragging, "the drag ended");
         assert!(observer.borrow().can_undo);
     });
-    assert!(is(&image, 120, 68, BLACK));
+    let (ox, oy) = origin();
+    assert!(is(&image, (ox + 120) as u32, (oy + 40) as u32, BLACK));
 }
 
 #[test]
 fn a_second_button_mid_drag_does_not_stick() {
     session(|stage, observer, areas| {
-        let y = areas.canvas.top + 40;
-        inject(stage, down(100, y, MouseButton::Left));
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        inject(stage, down(100 + ox, y, MouseButton::Left));
         inject(
             stage,
             Event::MouseMove {
-                x: 140,
+                x: 140 + ox,
                 y,
                 modifiers: Modifiers::NONE,
             },
         );
         // The other button goes down without a release of the first.
-        inject(stage, down(180, y, MouseButton::Right));
+        inject(stage, down(180 + ox, y, MouseButton::Right));
         assert!(observer.borrow().dragging, "the second drag is live");
-        inject(stage, up(180, y, MouseButton::Right));
+        inject(stage, up(180 + ox, y, MouseButton::Right));
         assert!(!observer.borrow().dragging, "the tool is not stuck");
     });
 }
@@ -275,12 +304,13 @@ fn a_second_button_mid_drag_does_not_stick() {
 #[test]
 fn a_mouse_leave_mid_drag_does_not_cancel_it() {
     session(|stage, observer, areas| {
-        let y = areas.canvas.top + 40;
-        inject(stage, down(100, y, MouseButton::Left));
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        inject(stage, down(100 + ox, y, MouseButton::Left));
         inject(
             stage,
             Event::MouseMove {
-                x: 150,
+                x: 150 + ox,
                 y,
                 modifiers: Modifiers::NONE,
             },
@@ -290,7 +320,7 @@ fn a_mouse_leave_mid_drag_does_not_cancel_it() {
             observer.borrow().dragging,
             "a leave must not end a captured drag"
         );
-        inject(stage, up(150, y, MouseButton::Left));
+        inject(stage, up(150 + ox, y, MouseButton::Left));
         assert!(!observer.borrow().dragging);
         assert!(observer.borrow().can_undo);
     });
@@ -299,14 +329,15 @@ fn a_mouse_leave_mid_drag_does_not_cancel_it() {
 #[test]
 fn losing_focus_cancels_an_in_progress_drag() {
     session(|stage, observer, areas| {
-        let y = areas.canvas.top + 40;
-        drag(stage, (100, y), (150, y), MouseButton::Left);
+        let (ox, oy) = areas.pixel(0, 0);
+        let y = oy + 40;
+        drag(stage, (100 + ox, y), (150 + ox, y), MouseButton::Left);
         // A fresh drag, then focus is lost.
-        inject(stage, down(200, y, MouseButton::Left));
+        inject(stage, down(200 + ox, y, MouseButton::Left));
         inject(
             stage,
             Event::MouseMove {
-                x: 240,
+                x: 240 + ox,
                 y,
                 modifiers: Modifiers::NONE,
             },
@@ -320,11 +351,12 @@ fn losing_focus_cancels_an_in_progress_drag() {
 #[test]
 fn hovering_the_canvas_updates_the_status_bar() {
     session(|stage, observer, areas| {
+        let (ox, oy) = areas.pixel(0, 0);
         inject(
             stage,
             Event::MouseMove {
-                x: 33,
-                y: areas.canvas.top + 44,
+                x: ox + 33,
+                y: oy + 44,
                 modifiers: Modifiers::NONE,
             },
         );

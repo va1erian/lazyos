@@ -161,21 +161,25 @@ fn a_resize_keeps_the_drawing_and_the_undo_history() {
         |probe| {
             // Draw one stroke on the canvas before the resize.
             let canvas = probe.ui.bounds(probe.canvas);
-            let y = canvas.top + 40;
+            // The 320 x 240 picture is centred where it fits the canvas.
+            let mut viewport = xui_paint::viewport::Viewport::new();
+            viewport.clamp((320, 240), (canvas.width(), canvas.height()));
+            let (ox, oy) = viewport.to_view(0, 0);
+            let y = canvas.top + oy + 40;
             let down = |x, y| Event::MouseDown {
                 x,
                 y,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,
             };
-            probe.pointer(down(100, y));
+            probe.pointer(down(canvas.left + ox + 100, y));
             probe.pointer(Event::MouseMove {
-                x: 200,
+                x: canvas.left + ox + 200,
                 y: y + 30,
                 modifiers: Modifiers::NONE,
             });
             probe.pointer(Event::MouseUp {
-                x: 200,
+                x: canvas.left + ox + 200,
                 y: y + 30,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,

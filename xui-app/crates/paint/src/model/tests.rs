@@ -73,7 +73,14 @@ fn fill_and_eraser_and_picker_behave() {
     model.set_tool(Tool::Eraser);
     model.begin(0, 0, Side::Primary);
     model.end();
-    assert_eq!(model.bitmap().get(0, 0), Some(WHITE));
+    assert_eq!(model.bitmap().get(0, 0), Some([0, 0, 0, 0]), "alpha 0");
+    model.undo();
+    assert_eq!(model.bitmap().get(0, 0), Some(RED));
+    // The right button paints the secondary colour instead.
+    model.set_secondary([0, 0, 255, 255]);
+    model.begin(0, 0, Side::Secondary);
+    model.end();
+    assert_eq!(model.bitmap().get(0, 0), Some([0, 0, 255, 255]));
 }
 
 #[test]

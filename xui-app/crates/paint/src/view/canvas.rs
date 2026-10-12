@@ -54,6 +54,8 @@ pub enum CanvasMsg {
     },
     /// The drag was interrupted (focus or capture lost).
     Cancel,
+    /// The canvas zoomed or scrolled itself (wheel, Space-drag).
+    View,
 }
 
 /// A zoomable, scrollable view over the model's document.

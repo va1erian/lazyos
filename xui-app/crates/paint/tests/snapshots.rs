@@ -70,7 +70,7 @@ fn check(width: f32, height: f32, dpi: u32) {
 
     // The bitmap (320x240 canvas pixels) is white at rest; sample well inside
     // it, clear of the viewport border.
-    let sample = (areas.canvas.left + 50, areas.canvas.top + 50);
+    let sample = areas.pixel(50, 50);
     assert_eq!(
         light.pixel(sample.0 as u32, sample.1 as u32),
         Some(WHITE),

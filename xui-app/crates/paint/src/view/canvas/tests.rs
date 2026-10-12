@@ -33,8 +33,8 @@ fn the_screen_image_is_built_lazily_and_only_when_stale() {
     let mut state = CanvasState::default();
     state.set_view(xui_core::geometry::Rect::new(0, 0, 20, 20));
     state.update(&doc, Damage::All);
-    let first = state.screen().map(|i| (i.width(), i.height()));
+    let first = state.screen().map(|(i, _)| (i.width(), i.height()));
     assert_eq!(first, Some((8, 8)));
     state.change_viewport(|vp, doc, view| vp.zoom_to(2.0, (0, 0), doc, view));
-    assert_eq!(state.screen().map(|i| i.width()), Some(16));
+    assert_eq!(state.screen().map(|(i, _)| i.width()), Some(16));
 }

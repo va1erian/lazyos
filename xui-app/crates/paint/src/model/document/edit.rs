@@ -6,7 +6,10 @@
 
 use super::{Drag, Model, Pixel, PreviewKind, Side, Tool};
 use crate::model::history::UndoCapture;
-use crate::model::{Edit, MAX_BRUSH, Preview, WHITE, fill, raster};
+use crate::model::{Edit, MAX_BRUSH, Preview, fill, raster};
+
+/// What the eraser writes: no colour, no alpha.
+const TRANSPARENT: Pixel = [0, 0, 0, 0];
 
 impl Model {
     /// Selects a tool, dropping any in-progress preview.
@@ -36,15 +39,14 @@ impl Model {
         std::mem::swap(&mut self.primary, &mut self.secondary);
     }
 
-    /// The paint colour for a side (the eraser always paints the background;
-    /// writing alpha 0 is P3's change to the eraser).
+    /// The paint colour for a side. The eraser's primary button writes
+    /// transparent (alpha 0, so the layer shows the checkerboard where it
+    /// erased); its secondary button paints the secondary colour.
     pub fn color_for(&self, side: Side) -> Pixel {
-        if self.tool == Tool::Eraser {
-            return WHITE;
-        }
-        match side {
-            Side::Primary => self.primary,
-            Side::Secondary => self.secondary,
+        match (self.tool, side) {
+            (Tool::Eraser, Side::Primary) => TRANSPARENT,
+            (_, Side::Primary) => self.primary,
+            (_, Side::Secondary) => self.secondary,
         }
     }
 

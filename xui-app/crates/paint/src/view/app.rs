@@ -178,6 +178,9 @@ impl PaintApp {
         self.status.set_text(1, &size);
         self.status.set_text(2, &tool);
         self.status.set_text(3, &message);
+        let zoom_percent = self.canvas.zoom_percent();
+        let zoom = format!("{zoom_percent}%");
+        self.status.set_text(4, &zoom);
 
         let mut observer = self.observer.borrow_mut();
         observer.tool = self.model.tool();
@@ -188,7 +191,8 @@ impl PaintApp {
         observer.can_redo = self.model.history().can_redo();
         observer.cursor = self.cursor;
         observer.dragging = self.model.is_dragging();
-        observer.status = [position, size, tool, message];
+        observer.zoom_percent = zoom_percent;
+        observer.status = [position, size, tool, message, zoom];
     }
 
     /// Saves the bitmap through the storage, reporting the outcome.
@@ -314,6 +318,9 @@ impl App for PaintApp {
                 self.model.cancel();
                 self.cursor = None;
             }
+            // The canvas zoomed or scrolled itself; the sync below refreshes
+            // the zoom part of the status bar.
+            Msg::Canvas(CanvasMsg::View) => {}
         }
         self.sync();
         if self.files.is_some() && self.title != self.title() {

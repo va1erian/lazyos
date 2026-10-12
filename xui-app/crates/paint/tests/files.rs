@@ -180,16 +180,18 @@ fn click_cell(stage: &Stage<'_, Msg>, index: i32) {
     stage.click(index * 28 + 14, 15);
 }
 
+/// A pencil dot near the middle of the window, which is inside the centred
+/// 320 x 240 picture.
 fn draw_a_dot(stage: &Stage<'_, Msg>) {
-    let y = 28 + 40;
+    let y = 290;
     stage.inject(Event::MouseDown {
-        x: 60,
+        x: 400,
         y,
         button: MouseButton::Left,
         modifiers: Modifiers::NONE,
     });
     stage.inject(Event::MouseUp {
-        x: 60,
+        x: 400,
         y,
         button: MouseButton::Left,
         modifiers: Modifiers::NONE,
@@ -241,11 +243,12 @@ fn cancelling_the_open_dialog_does_nothing() {
         assert!(seen.borrow().can_undo);
         // Drawing works again once the dialog is gone.
         stage.inject(Event::MouseMove {
-            x: 90,
-            y: 90,
+            x: 400,
+            y: 291,
             modifiers: Modifiers::NONE,
         });
-        assert_eq!(seen.borrow().cursor, Some((90, 62)));
+        // The 320-wide picture is centred in the 800-wide canvas: x is 400 - 240.
+        assert_eq!(seen.borrow().cursor.map(|c| c.0), Some(160));
     });
 }
 

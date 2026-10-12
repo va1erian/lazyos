@@ -119,7 +119,7 @@ pub fn run(out: &mut dyn Write) -> bool {
     );
 
     check(
-        "the eraser paints the background",
+        "the eraser writes transparency",
         {
             let mut model = Model::new(16, 16);
             model.begin(4, 4, Side::Primary);
@@ -127,9 +127,9 @@ pub fn run(out: &mut dyn Write) -> bool {
             model.set_tool(Tool::Eraser);
             model.begin(4, 4, Side::Primary);
             model.end();
-            model.bitmap().get(4, 4) == Some(WHITE)
+            model.bitmap().get(4, 4) == Some([0, 0, 0, 0])
         },
-        "the eraser left paint behind",
+        "the eraser did not clear the pixel to alpha 0",
     );
 
     check(

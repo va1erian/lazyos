@@ -51,8 +51,8 @@ pub(super) fn handle(
             Some(Msg::Canvas(CanvasMsg::Down { x: cx, y: cy, side }))
         }
         Event::MouseMove { x, y, .. } => {
-            if pan_to(ui, id, state, (*x, *y)) {
-                return None;
+            if let Some(moved) = pan_to(ui, id, state, (*x, *y)) {
+                return moved.then_some(Msg::Canvas(CanvasMsg::View));
             }
             let (cx, cy) = {
                 let mut state = state.borrow_mut();
@@ -115,20 +115,24 @@ pub(super) fn handle(
             y,
             modifiers,
         } => {
-            wheel(ui, id, state, *delta, *horizontal, (*x, *y), *modifiers);
-            None
+            let moved = wheel(ui, id, state, *delta, *horizontal, (*x, *y), *modifiers);
+            moved.then_some(Msg::Canvas(CanvasMsg::View))
         }
         _ => None,
     }
 }
 
-/// Continues a pan drag; returns whether one is in progress.
-fn pan_to(ui: &Ui<Msg>, id: WidgetId, state: &Rc<RefCell<CanvasState>>, at: (i32, i32)) -> bool {
+/// Continues a pan drag: `None` when none is in progress, else whether the
+/// view moved.
+fn pan_to(
+    ui: &Ui<Msg>,
+    id: WidgetId,
+    state: &Rc<RefCell<CanvasState>>,
+    at: (i32, i32),
+) -> Option<bool> {
     let moved = {
         let mut state = state.borrow_mut();
-        let Some(last) = state.pan else {
-            return false;
-        };
+        let last = state.pan?;
         state.pan = Some(at);
         state.change_viewport(|vp, doc, view| {
             vp.pan_by(last.0 - at.0, last.1 - at.1, doc, view);
@@ -137,7 +141,7 @@ fn pan_to(ui: &Ui<Msg>, id: WidgetId, state: &Rc<RefCell<CanvasState>>, at: (i32
     if moved {
         ui.invalidate(id);
     }
-    true
+    Some(moved)
 }
 
 /// Ctrl+wheel zooms around the pointer; the wheel scrolls (Shift, or a
@@ -150,7 +154,7 @@ fn wheel(
     horizontal: bool,
     at: (i32, i32),
     modifiers: Modifiers,
-) {
+) -> bool {
     let moved = {
         let mut state = state.borrow_mut();
         let moved = if modifiers.ctrl {
@@ -183,4 +187,5 @@ fn wheel(
     if moved {
         ui.invalidate(id);
     }
+    moved
 }

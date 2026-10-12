@@ -5,8 +5,10 @@
 //! Pure arithmetic, no `Ui`: the canvas maps pointer positions through it and
 //! the renderer samples through it, so both agree on which pixel is which.
 //!
-//! A picture pixel `p` appears at view pixel `p * zoom - origin`. The origin is
-//! never negative: a picture smaller than the view sits at the top-left.
+//! A picture pixel `p` appears at view pixel `p * zoom - origin`. On an axis
+//! where the picture is larger than the view the origin scrolls it between 0
+//! and the overflow; where it fits, the origin is negative so the picture is
+//! centred.
 
 use crate::model::Rect;
 
@@ -85,13 +87,21 @@ impl Viewport {
         (scaled(doc.0), scaled(doc.1))
     }
 
-    /// Keeps the origin inside the picture for a `view`-sized window.
+    /// Keeps the picture in a `view`-sized window: scrolled within its edges
+    /// where it overflows, centred where it fits. Returns whether it moved.
     pub fn clamp(&mut self, doc: (u32, u32), view: (i32, i32)) -> bool {
         let content = self.content_size(doc);
+        let axis = |origin: i32, content: i32, view: i32| {
+            if content <= view {
+                -((view - content) / 2)
+            } else {
+                origin.clamp(0, content - view)
+            }
+        };
         let before = self.origin;
         self.origin = (
-            self.origin.0.clamp(0, (content.0 - view.0).max(0)),
-            self.origin.1.clamp(0, (content.1 - view.1).max(0)),
+            axis(self.origin.0, content.0, view.0),
+            axis(self.origin.1, content.1, view.1),
         );
         self.origin != before
     }
@@ -163,6 +173,7 @@ impl Viewport {
         let fit_h = f64::from(view.1.max(1)) / f64::from(doc.1.max(1));
         self.zoom = fit_w.min(fit_h).clamp(ZOOM_MIN, ZOOM_MAX);
         self.origin = (0, 0);
+        self.clamp(doc, view);
     }
 
     /// The picture pixel under the view pixel `(x, y)`; outside the picture
@@ -230,11 +241,11 @@ mod tests {
     #[test]
     fn zoomed_out_several_pixels_share_a_view_pixel() {
         let mut vp = Viewport::new();
-        vp.zoom_to(0.25, (0, 0), DOC, VIEW);
+        vp.zoom_to(0.25, (0, 0), DOC, (40, 30));
         assert_eq!(vp.to_doc(10, 10), (40, 40));
         assert_eq!(vp.content_size(DOC), (80, 60));
         let mut third = Viewport::new();
-        third.zoom_to(1.0 / 3.0, (0, 0), (300, 300), VIEW);
+        third.zoom_to(1.0 / 3.0, (0, 0), (300, 300), (50, 50));
         assert_eq!(third.to_doc(5, 5), (15, 15), "no float slip at 1/3");
     }
 
@@ -273,6 +284,8 @@ mod tests {
     #[test]
     fn scrolling_stops_at_the_picture_edges() {
         let mut vp = Viewport::new();
+        vp.clamp(DOC, VIEW);
+        assert_eq!(vp.origin(), (-240, -180), "it fits: centred");
         assert!(!vp.pan_by(50, 50, DOC, VIEW), "it all fits: nothing scrolls");
         vp.zoom_to(8.0, (0, 0), DOC, VIEW);
         vp.pan_by(100_000, 100_000, DOC, VIEW);
@@ -291,6 +304,41 @@ mod tests {
         assert_eq!(vp.percent(), 100);
         // Zooming keeps the centre of the view: the middle of the picture.
         assert_eq!(vp.visible((1600, 1200), VIEW), Rect::new(400, 300, 800, 600));
+    }
+
+    #[test]
+    fn a_picture_that_fits_is_centred_on_that_axis_only() {
+        let mut vp = Viewport::new();
+        // 320 x 240 at 200% is 640 wide (fits 800) and 480 tall (overflows 300).
+        vp.zoom_to(2.0, (0, 0), DOC, (800, 300));
+        assert_eq!(vp.origin(), (-80, 0));
+        assert_eq!(vp.to_view(0, 0), (80, 0));
+        assert_eq!(vp.to_doc(80, 0), (0, 0));
+        assert_eq!(vp.to_doc(79, 0).0, -1, "left of the picture");
+        vp.pan_by(10, 1000, DOC, (800, 300));
+        assert_eq!(vp.origin(), (-80, 180));
+    }
+
+    #[test]
+    fn fit_leaves_no_margin_on_the_tight_axis() {
+        let mut vp = Viewport::new();
+        vp.fit(DOC, VIEW);
+        // 800 / 320 = 2.5, 600 / 240 = 2.5: both axes tight.
+        assert_eq!(vp.origin(), (0, 0));
+        vp.fit((100, 400), VIEW);
+        assert_eq!(vp.zoom(), 1.5);
+        assert_eq!(vp.origin(), (-325, 0), "150 px wide in 800: centred");
+    }
+
+    #[test]
+    fn zooming_out_of_an_overflow_keeps_the_anchor_while_it_still_overflows() {
+        let mut vp = Viewport::new();
+        vp.zoom_to(4.0, (0, 0), (2000, 2000), VIEW);
+        vp.pan_by(900, 700, (2000, 2000), VIEW);
+        let anchor = (300, 200);
+        let before = vp.to_doc(anchor.0, anchor.1);
+        vp.zoom_out(anchor, (2000, 2000), VIEW);
+        assert_eq!(vp.to_doc(anchor.0, anchor.1), before);
     }
 
     #[test]

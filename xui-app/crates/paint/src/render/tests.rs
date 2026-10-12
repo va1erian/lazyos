@@ -42,6 +42,19 @@ fn zoom_in_is_nearest_neighbour_not_blurred() {
 }
 
 #[test]
+fn a_picture_that_fits_is_offset_to_the_centre() {
+    let mut vp = Viewport::new();
+    vp.zoom_to(2.0, (0, 0), (4, 4), (20, 12));
+    let flat = Bitmap::white(4, 4);
+    let image = render(&flat, &vp, (20, 12), false).unwrap();
+    assert_eq!((image.x, image.y), (6, 2));
+    assert_eq!((image.width, image.height), (8, 8));
+    // The offset lines up with the pointer mapping.
+    assert_eq!(vp.to_doc(6, 2), (0, 0));
+    assert_eq!(vp.to_doc(5, 2).0, -1);
+}
+
+#[test]
 fn zoom_out_samples_the_picture() {
     let mut flat = Bitmap::white(8, 8);
     flat.put(4, 4, RED);
