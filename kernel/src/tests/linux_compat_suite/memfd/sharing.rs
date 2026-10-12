@@ -275,8 +275,9 @@ pub fn memfd_private_mapping_copies_on_write() -> Result<(), String> {
         "the private copy followed the file"
     );
 
-    // Read-only private mapping: the store is refused; mprotect(WRITE) makes
-    // a copy first, so the file stays clean.
+    // Read-only private mapping: the store is refused; mprotect(WRITE) leaves
+    // the still-shared page read-only and COW (issue #773), and the first
+    // store takes the copy, so the file stays clean.
     let ro = BASE + 0x10_0000;
     check!(
         mmap(ro, PAGE, PROT_READ, MAP_PRIVATE | MAP_FIXED, fd, 0) == ro,
@@ -289,10 +290,11 @@ pub fn memfd_private_mapping_copies_on_write() -> Result<(), String> {
     );
     check!(mprotect(ro, PAGE, PROT_READ | PROT_WRITE) == 0, "mprotect");
     check!(
-        a.frame(ro)? != frame || refs(frame) == 1,
+        a.frame(ro)? == frame && a.entry(ro)? & PTE_WRITABLE == 0,
         "mprotect left the file's frame writable"
     );
     a.store(ro, b"mprotected")?;
+    check!(a.frame(ro)? != frame, "the store after mprotect did not copy");
     check!(
         pread_fd(fd, 10, 0) == b"file conte",
         "mprotect then store reached the file"

@@ -301,6 +301,8 @@ pub fn scmrights_in_flight_limits() -> Result<(), String> {
     let p = processes()?;
     let cap = crate::limits::fd_max() * 4;
     let most = rights_control(&alloc::vec![p.w as i32; 253]);
+    // Enough full messages to pass the ceiling, whatever `fd_max` is.
+    let plenty = cap / 253 + 2;
     let mut sent = 0;
     loop {
         let result = sendmsg_control(p.a, b"m", &most, 0);
@@ -309,7 +311,7 @@ pub fn scmrights_in_flight_limits() -> Result<(), String> {
         }
         check!(result == 1, "send {sent}: {result:#x}");
         sent += 1;
-        check!(sent < 40, "no limit after {sent} messages");
+        check!(sent < plenty, "no limit after {sent} messages (cap {cap})");
     }
     check!(
         pipe::in_flight() == sent * 253 && pipe::in_flight() + 253 > cap,
