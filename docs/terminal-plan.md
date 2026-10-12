@@ -301,7 +301,10 @@ holds the repaint for at most 150 ms. Device attributes: primary
 `CSI ? 62 ; 22 c` (VT220 with ANSI colour, claiming only what is
 implemented), secondary `CSI > 0 ; 10 ; 0 c` (a version low enough that no
 program enables xterm extensions lazyterm lacks). `vte` is built without its
-`std` feature so an unterminated OSC cannot grow past 4096 bytes. Session:
+`std` feature so an unterminated OSC cannot grow past 4096 bytes. Known gaps:
+xui's `Key` has no numeric-keypad codes (DECKPAM is encoded and tested but
+nothing is wired to it), and Alt/Ctrl characters assume a US layout (`Key`
+names the key, not the character a layout makes of it). Session:
 `tools/screenshot/examples/term_xterm.json` (needs `rhai` and
 `LAZYOS_LINUXAPPS=1` for the `rg` part).
 

@@ -112,3 +112,17 @@ fn an_entry_with_nothing_set_compiles_to_a_valid_empty_one() {
     assert_eq!(read_compiled(&bytes).unwrap(), one);
     assert_eq!(bytes.len() % 2, 0);
 }
+
+/// The entry as ncurses' `tic` (6.4) compiles the same source: our own source
+/// through the reference compiler (`tic -o DIR assets/terminfo/xterm-256color.src`),
+/// kept so a regression in the writer is a failing test, not a broken `vi`.
+const TIC_REFERENCE: &[u8] = include_bytes!("../tests/fixtures/xterm-256color.tic");
+
+#[test]
+fn the_writer_matches_ncurses_tic_byte_for_byte() {
+    let ours = compile_source(SOURCE).unwrap();
+    assert_eq!(ours.len(), TIC_REFERENCE.len(), "same size as tic's");
+    assert!(ours == TIC_REFERENCE, "the compiled entry differs from tic's");
+    // And the reader agrees with the reference's content.
+    assert_eq!(read_compiled(TIC_REFERENCE).unwrap(), parse_source(SOURCE).unwrap());
+}
