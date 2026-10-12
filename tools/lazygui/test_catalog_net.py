@@ -31,9 +31,11 @@ class NetworkCardTests(unittest.TestCase):
                 demo_argv(net=True, nics=bad)
         self.assertIn("--nics", demo_argv(net=True, nics=" 2 "), "spaces around a number")
 
-    def test_network_cards_are_ignored_without_networking(self) -> None:
-        self.assertNotIn("--nics", demo_argv(nics="3"))
-        self.assertEqual(catalog.net_flags({"nics": "99"}), [], "not even validated")
+    def test_network_cards_apply_without_the_switch(self) -> None:
+        # dbgd is always on, so the card (and its count) is always there.
+        self.assertIn("--nics", demo_argv(nics="3"))
+        with self.assertRaises(ValueError):
+            catalog.net_flags({"nics": "99"})
 
     def test_network_cards_reach_the_screenshot_and_session_modes(self) -> None:
         common = {"profile": "dev", "skip_build": True, "accel": "auto", "memory": "256M",

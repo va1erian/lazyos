@@ -29,6 +29,7 @@ from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_wifi import WifiTests  # noqa: E402,F401
 from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401
 from lazygui.test_catalog_srb2kart import Srb2kartTests  # noqa: E402,F401
+from lazygui.test_osvolume import OsVolumeTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
 from lazygui.test_usb_image import UsbImageTests  # noqa: E402,F401
@@ -408,17 +409,17 @@ class NetworkTests(unittest.TestCase):
     def test_the_switch_builds_the_stack_without_the_harness_clients(self) -> None:
         env = catalog.build_env({**self.base(), "net": True})
         self.assertEqual((env["LAZYOS_NETD"], env["LAZYOS_NETD_ARGS"]), ("1", "demo=0"))
-        self.assertNotIn("LAZYOS_NETD", catalog.build_env(self.base()))
+        self.assertEqual(catalog.build_env(self.base())["LAZYOS_NETD"], "1", "dbgd is always on")
 
     def test_the_demo_passes_run_demos_flags(self) -> None:
         argv = demo_argv(net=True, skip_build=False)
         self.assertIn("--net", argv)
-        self.assertNotIn("--net-forward", argv, "empty forwards keep run_demo's default")
+        # Empty forwards keep run_demo's defaults plus dbgd's port (always on).
+        self.assertIn("9701:9701", argv)
         argv = demo_argv(net=True, net_forwards="2323:2323, udp:5353:53", net_restrict=True)
         self.assertEqual(argv[argv.index("--net-forward") + 1], "2323:2323")
         self.assertIn("udp:5353:53", argv)
         self.assertIn("--net-restrict", argv)
-        self.assertNotIn("--net", demo_argv(net_forwards="1:2"))
 
     def test_a_bad_forward_is_a_plan_error(self) -> None:
         with self.assertRaises(ValueError):

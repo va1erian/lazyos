@@ -37,7 +37,10 @@ class DisplayModeTests(unittest.TestCase):
     def test_simple_hidpi_sets_the_mode(self) -> None:
         for iface in ("Desktop", "CLI"):
             cfg = catalog.simple_config(demo_config(), "dev", iface, hidpi=True)
-            self.assertEqual(catalog.build_env(cfg)["LAZYOS_DISPLAY_MODE"], "2560x1440")
+            env = catalog.build_env(cfg)
+            self.assertEqual(env["LAZYOS_DISPLAY_MODE"], "2560x1440")
+            # A real PC keeps its firmware framebuffer: HiDPI lifts the cap too.
+            self.assertEqual(env["LAZYOS_DISPLAY_MAX"], "2560x1440")
             argv = catalog.build_plan(cfg)[-1]["argv"]
             self.assertIn("--display-mode", argv)
             self.assertEqual(argv[argv.index("--display-mode") + 1], "2560x1440")
@@ -58,7 +61,12 @@ class DisplayModeTests(unittest.TestCase):
 
     def test_run_demo_flags(self) -> None:
         self.assertEqual(display.build_display(parse(["--hidpi"])),
-                         {"LAZYOS_DISPLAY_MODE": "2560x1440"})
+                         {"LAZYOS_DISPLAY_MODE": "2560x1440", "LAZYOS_DISPLAY_MAX": "2560x1440"})
+        self.assertEqual(display.build_display(parse(["--display-mode", "2560x1440"])),
+                         {"LAZYOS_DISPLAY_MODE": "2560x1440", "LAZYOS_DISPLAY_MAX": "2560x1440"})
+        self.assertEqual(display.build_display(parse(["--hidpi", "--display-max", "3840x2160"])),
+                         {"LAZYOS_DISPLAY_MODE": "2560x1440", "LAZYOS_DISPLAY_MAX": "3840x2160"},
+                         "a typed cap wins")
         self.assertEqual(display.build_display(parse(["--display-mode", "1920x1080"])),
                          {"LAZYOS_DISPLAY_MODE": "1920x1080"})
         self.assertEqual(display.build_display(parse([])), {})

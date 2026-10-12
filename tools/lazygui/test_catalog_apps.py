@@ -37,7 +37,7 @@ class DoomTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["doom"])
 
     def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False}))  # dbgd is always on
         self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
@@ -123,7 +123,7 @@ class ModPlayerTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["modplayer"])
 
     def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False}))  # dbgd is always on
         self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
@@ -173,7 +173,7 @@ class LinuxAppsTests(unittest.TestCase):
             self.assertFalse(catalog.simple_config(demo_config(), "dev", iface)["linuxapps"])
 
     def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False}))  # dbgd is always on
         self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
@@ -228,7 +228,7 @@ class TlsTests(unittest.TestCase):
             self.assertFalse(off["net"])
 
     def test_advanced_sessions_get_the_card_with_tls_alone(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "tls": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False}))  # dbgd is always on
         self.assertIn("--net", catalog.net_flags({"net": False, "tls": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
@@ -488,7 +488,7 @@ class SmbTests(unittest.TestCase):
             self.assertNotIn("LAZYOS_SMB", catalog.build_env({**self.base(), "desktop": desktop}))
 
     def test_advanced_sessions_get_the_card_with_smb_alone(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "smb": False}), [])
+        self.assertIn("--net", catalog.net_flags({"net": False, "smb": False}))  # dbgd is always on
         self.assertIn("--net", catalog.net_flags({"net": False, "smb": True}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:

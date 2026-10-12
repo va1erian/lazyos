@@ -33,8 +33,10 @@ class WifiSimTests(unittest.TestCase):
             plain = catalog.build_env({**self.base(), "desktop": desktop})
             self.assertNotIn("LAZYOS_WIFI_SIM", plain)
 
-    def test_it_needs_no_user_network_card(self) -> None:
-        self.assertEqual(catalog.net_flags({"net": False, "wifi_sim": True}), [])
+    def test_it_adds_no_forwards_of_its_own(self) -> None:
+        # Only dbgd's card and port (always on) are there, nothing for the radio.
+        self.assertEqual(catalog.net_flags({"net": False, "wifi_sim": True}),
+                         catalog.net_flags({"net": False, "wifi_sim": False}))
 
     def test_the_demo_passes_the_flag_even_without_a_build(self) -> None:
         for skip_build in (False, True):
