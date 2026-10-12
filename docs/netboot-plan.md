@@ -47,10 +47,11 @@
 3. **The registry, the payload and the push are the same whatever boots
    them.** A Python standard-library HTTP server on the homelab keeps
    immutable builds under channels, a JSON listing for the picker (and an
-   iPXE menu, if iPXE is ever used), a token-protected push API, per-machine
-   defaults and a one-shot "boot this next". `LAZYOS_NETBOOT=1 cargo build`
-   writes the stick's `kernel-x86_64` and `ramdisk` plus a `manifest.json`
-   to `target/netboot/`; `python tools/netboot/push.py` uploads it. Both
+   iPXE menu, if iPXE is ever used), a push API whose writes are Ed25519
+   signed, per-machine defaults and a one-shot "boot this next".
+   `LAZYOS_NETBOOT=1 cargo build` writes the stick's `kernel-x86_64` and
+   `ramdisk` plus a signed `manifest.json` to `target/netboot/`;
+   `python tools/netboot/push.py` uploads it. Both
    front ends get the switch (`run_demo.py --netboot [--push URL]`, the
    launcher's Advanced tab), as AGENTS.md requires.
 4. **Only the system travels.** `/home` stays on the SSD (`lazyhome`, found
@@ -86,8 +87,8 @@
      kernel-x86_64                   kernel-x86_64 ramdisk                 └─ kernel ─► init ─► wifid, wlanmd (system profile from
      ramdisk                         manifest.json                              /conf: the state volume, or the seeded copy) ─► netd
      manifest.json                 GET /api/builds?mac=..  (JSON)           ─► netpicker: GET /api/builds, the menu, the countdown
- python tools/netboot/push.py ───► PUT /api/builds/.. (token)                ─► GET /files/<ch>/<id>/{kernel-x86_64,ramdisk} into RAM
-                                   POST /api/machines/<name>/next             ─► SHA-256 against the manifest ─► init.Shutdown(kexec)
+ python tools/netboot/push.py ───► PUT /api/builds/.. (signed manifest)      ─► GET /files/<ch>/<id>/{kernel-x86_64,ramdisk} into RAM
+                                   POST /api/machines/<name>/next (signed)    ─► manifest.sig against the embedded key, SHA-256 of both ─► init.Kexec
                                    GET /boot.ipxe        (iPXE, optional)   ─► the system kernel: ram0 = /, /home = LABEL=lazyhome,
                                                                                   / = LABEL=lazystate and /system = ram0p2 ro (N5)
                                                                           no network: the picker kexecs \EFI\lazyos\local\ after a countdown
@@ -139,14 +140,26 @@
    `stable`) is an ordered list, newest first. Pruning keeps the last N per
    channel and every pinned build. The registry stores files and JSON and
    generates text; it never reads a byte of the ramdisk.
-4. **Trust is the LAN's, as it is for a stick, and it is written down.**
-   Plain HTTP, no signatures in v1: anyone on the home network can serve a
-   kernel to the box, exactly as anyone who can plug a stick into it can.
-   The picker verifies SHA-256 against the manifest, which catches
-   corruption, not an attacker. The registry binds to the LAN address,
-   refuses pushes without the bearer token, refuses `..` and absolute
-   paths, logs every request. Right for a development box on a home
-   network; §12 names the signed path.
+4. **What boots is signed; the wire is plain HTTP.** The dev machine holds
+   an Ed25519 key pair (`tools/netboot/keygen.py`, once; the secret in
+   `target/netboot/key.sec`, git-ignored, and never on the homelab). The
+   build signs `manifest.json` (`manifest.sig`; the manifest carries the
+   SHA-256 and size of every file, the update plan's U1 shape), the boot OS
+   embeds the public key (`LAZYOS_BOOTOS_KEY=<pub>`), and the picker
+   **refuses to kexec** a build whose manifest does not verify or whose files
+   do not match it. The registry is then storage, not a trust anchor: a LAN
+   attacker who replaces its files gets a refusal and a `PICKER:VERIFY:FAIL`,
+   and reads can stay plain HTTP. Writes are authenticated by the same key,
+   with no bearer token to capture: a build's `commit` is accepted when its
+   `manifest.sig` verifies against a key in the registry's `keys.json` and
+   every uploaded file matches the manifest; the other writes (`next`, pin,
+   prune, delete) carry a signed body (action, nonce, timestamp) that the
+   registry verifies and refuses to replay. The registry verifies with the
+   `cryptography` package when present, else with the pure-Python RFC 8032
+   verifier in `tools/netboot/ed25519.py` (tested against the RFC vectors);
+   the picker verifies with `ed25519-dalek`, already in `nettls-crypto`. The
+   local copy on the ESP is trusted as the ESP is (Secure Boot is off, the
+   loader and kernel are unsigned), which the plan states rather than fixes.
 5. **Home by label now, UUID later.** `home=LABEL=lazyhome`; the SSD's home
    partition is labelled `lazyhome`. `home=UUID=` comes with per-machine
    configuration (§12).
@@ -175,7 +188,8 @@
 ## 5. The registry
 
 `python tools/netboot/registry.py --root /srv/lazyos --bind 192.168.1.5:8420
---token-file /etc/lazyos-registry.token` on the homelab, with a sample
+--keys /etc/lazyos-registry/keys.json` (the public keys allowed to write)
+on the homelab, with a sample
 systemd unit (`tools/netboot/lazyos-registry.service`). Standard library only
 (`http.server`, `json`, `hashlib`); it runs on any Linux or Windows machine.
 `tools/netboot/spike/serve.py` (the spike's single-build server with `Range`
@@ -185,7 +199,7 @@ and a per-request log) is its seed.
 /srv/lazyos/
   builds/<channel>/<id>/{kernel-x86_64,ramdisk,bootx64.efi,boot.json,manifest.json}
   builds/<channel>/<id>.incoming/     (an upload in progress; renamed when complete and verified)
-  channels.json     {"dev": {"keep": 10, "pinned": ["20261011-1932-2eeee936"]}, ...}
+  channels.json     {"dev": {"keep": 10, "pinned": ["20261011-193200-2eeee936"]}, ...}
   machines.json     {"box": {"mac": "aa:bb:...", "channel": "dev", "timeout_ms": 5000,
                               "next": null, "last_boot": {"id": ..., "at": ...}}}
   access.log
@@ -193,13 +207,14 @@ and a per-request log) is its seed.
 
 | Method and path | Who | What |
 |---|---|---|
-| `GET /api/builds?mac=..` | `netpicker`, tools | JSON: every build's manifest in channel order, this machine's channel, default and `next` (consumed, one shot, and recorded in `last_boot`) |
+| `GET /api/builds?mac=..` | `netpicker`, tools | JSON: every build's manifest and `manifest.sig` in channel order, this machine's channel, default and pending `next`. Read-only: nothing is consumed or recorded |
 | `GET /files/<channel>/<id>/<name>` | `netpicker` (iPXE) | the file, with `Content-Length`; `Range` honoured |
-| `POST /api/machines/<name>/booted {"id": ...}` | `netpicker` | records `last_boot` |
-| `PUT /api/builds/<channel>/<id>/<name>`, then `POST .../commit` | `push.py`, token | files land in `<id>.incoming/`; `commit` checks every digest against the manifest and renames the directory into place, or deletes it |
-| `POST /api/channels/<channel>/pin|unpin|prune` | `push.py`, token | pins, and pruning by `keep` |
-| `POST /api/machines/<name>/next {"id": ...}` | `push.py`, token | the one-shot default for that machine's next boot |
-| `DELETE /api/builds/<channel>/<id>` | token | refused for a pinned build |
+| `POST /api/machines/<name>/booting {"id": ...}` | `netpicker`, after verify, before kexec | consumes `next` (one shot), records the attempt. A failed download or verify never reaches it, so `next` stays pending for the next try |
+| `POST /api/machines/<name>/booted {"id": ...}` | the booted system (`netboot-ack`, a oneshot `init` row that reads `bootos.registry=` from its `lazyos.cfg` when the picker wrote one, §12), or `push.py --follow` relaying `BOOT:IMAGE` from `dbgd` | records `last_boot`. An attempt never confirmed shows as "attempted, not confirmed" |
+| `PUT /api/builds/<channel>/<id>/<name>`, then `POST .../commit` | `push.py`, signed | files land in `<id>.incoming/`; `commit` verifies `manifest.sig` against `keys.json` and every file's digest against the manifest, then renames the directory into place, or deletes it |
+| `POST /api/channels/<channel>/pin\|unpin\|prune` | `push.py`, signed body | pins, and pruning by `keep` |
+| `POST /api/machines/<name>/next {"id": ...}` | `push.py`, signed body | the one-shot default for that machine's next boot |
+| `DELETE /api/builds/<channel>/<id>` | signed body | refused for a pinned build |
 | `GET /boot.ipxe?mac=..`, `GET /builds/<channel>/<id>.ipxe` | iPXE, optional | the menu and the four `imgfetch`/`chain` lines (the spike's `scripts.py` has the shape) |
 
 A machine the registry does not know gets the `dev` channel and a 10 s
@@ -244,9 +259,9 @@ python tools/run_demo.py --netboot --push http://192.168.1.5:8420 --build-only
 ```
 
 `push.py` reads the registry URL from `--registry`, `LAZYOS_REGISTRY` or
-`tools/netboot/registry.local.json` (git-ignored), the token from a file, runs
-the preflight, uploads with the digests from the manifest, commits, and prints
-the id. `--machine NAME` sets that machine's `next`; `--reboot` asks the box
+`tools/netboot/registry.local.json` (git-ignored) and the signing key from
+`target/netboot/key.sec`, runs the preflight, checks `manifest.sig` itself
+before uploading, uploads, commits, and prints the id. `--machine NAME` sets that machine's `next`; `--reboot` asks the box
 through `dbgd` (N4) and `--follow` tails its log until `BOOT:IMAGE:<id>` and
 `SHELL:DESKTOP:PASS` arrive, or a timeout. The launcher gets a *Netboot*
 group on the Advanced tab (the switch, registry URL, channel, machine, a Push
@@ -326,18 +341,29 @@ python tools/dbg/dbgctl.py log --follow                           # the running 
   image in place. One copy of the ramdisk in memory, not two.
 - **The downloaded files arrive in a shared buffer.** The picker fetches into
   a `Buffer` (the shared-page object every interface may carry) and hands it
-  to `init.Shutdown(kexec, kernel, ramdisk)`; the kernel's kexec op pins the
-  frames and reads the kernel ELF from them; the ramdisk's frames are what
-  the new kernel is told about. The op refuses anything that is not a LazyOS
-  kernel (it checks the ELF's `bootloader` config section before touching a
-  frame) and any ELF whose segments fall outside usable RAM or overlap.
-- **Devices are quiet first.** `init.Shutdown(kexec)` runs the ordinary stop
-  order (apps, then services in reverse dependency order, the lifecycle for
-  durable state, `sync`), so `wifid` has powered the chip off (`WIFID:STOP`,
-  the controlled exit the driver already has), `netdrv` stopped its rings,
-  `usbd` halted its controllers, a block driver flushed and stood its disk
-  by. Then `power(kexec)` disables interrupts, masks the I/O APIC and the
-  LAPIC timer, and jumps. The new kernel initialises every device from
+  to a new `init` method, `Kexec(kernel: Buffer, ramdisk: Buffer, reason:
+  String) -> (accepted: Bool, phase: String)`, declared in `idl/init.midl`
+  beside `Shutdown`, whose `mode`, `reason` and `force` contract is left as
+  it is (a `Buffer` is an object field, so it cannot ride in `Shutdown`'s
+  `reason`). The kernel's kexec op pins the frames and reads the kernel ELF
+  from them; the ramdisk's frames are what the new kernel is told about.
+  The op refuses anything that is not a LazyOS kernel (it checks the ELF's
+  `bootloader` config section before touching a frame) and any ELF whose
+  segments fall outside usable RAM or overlap.
+- **Devices are quiet first, every one of them.** `init.Kexec` runs the
+  ordinary stop order (apps, then services in reverse dependency order, the
+  lifecycle for durable state), so `wifid` has powered the chip off
+  (`WIFID:STOP`, the controlled exit the driver already has), `netdrv`
+  stopped its rings, a block driver flushed and stood its disk by. The one
+  deliberate exception of a power-off, `usbd` outliving the stop so the
+  kernel's `sync_all` can flush a `/home` on a stick through it
+  (`shutdown.md`, `OUTLIVE`), is handled by `power(kexec)` itself: after
+  `sync_all` it ends every task that still holds a device claim, which is
+  what task teardown already does for a killed driver (bus mastering off,
+  DMA blocks freed; a `UserDisk` fails fast once its provider is gone), and
+  then **refuses the handover if any claim is still live**, logging the
+  owner. Only then does it disable interrupts, mask the I/O APIC and the
+  LAPIC timer, and jump. The new kernel initialises every device from
   scratch, as after a firmware boot; the xHCI BIOS handoff `usbd` performs is
   idempotent, and `wifid`'s bring-up already copes with a chip the previous
   owner left running (`rtw88::pci::quiesce`).
@@ -382,9 +408,10 @@ honouring the registry's `timeout_ms` and `next`, a "Local copy" row and a
 (`system/net/+/wifi/state`, `netd`'s address) and a progress bar with the
 bytes per second. Keyboard first: arrows, Enter, Escape stops the countdown;
 the mouse works because `xuid` does. It fetches into a shared buffer,
-verifies the manifest's SHA-256 of both files (a corrupt download is a
-message and the menu again, never a boot), posts `booted`, and calls
-`init.Shutdown(kexec, ...)`. Evidence: `PICKER:UP`, `PICKER:LINK:<if>:<addr>`,
+verifies `manifest.sig` against the embedded public key and then the
+manifest's SHA-256 of both files (a forged or corrupt download is a message
+and the menu again, never a boot; decision 4), posts `booting`, and calls
+`init.Kexec`. Evidence: `PICKER:UP`, `PICKER:LINK:<if>:<addr>`,
 `PICKER:LIST:<n>`, `PICKER:FETCH:<id>:<bytes>:<ms>`, `PICKER:VERIFY:PASS|FAIL`,
 `PICKER:KEXEC:<id>|local`. With no link within a bounded wait (association
 plus DHCP, tens of seconds at most) or no registry, it says so and counts
@@ -400,8 +427,17 @@ does not write FAT. Two routes, chosen in B3:
    the spike's `fat16_format.py` is a pure-Python formatter whose output the
    kernel's reader accepts, which fixes the on-disk shape), used by a
    privileged `bootosd` holding write access to the ESP partition and
-   nothing else (the update plan's narrow-capability shape): write
-   `kernel-x86_64.new` and `ramdisk.new`, `fsync`, rename over the old pair.
+   nothing else (the update plan's narrow-capability shape). The kernel and
+   the ramdisk must switch **as one generation**: two renames leave a window
+   in which the loader reads one file from each build. So the writer lays
+   both new cluster chains down first (`fsync`), then switches both
+   root-directory entries in **one sector write**: `kernel-x86_64` and
+   `ramdisk` are kept adjacent in the same root-directory sector (the
+   formatter and the writer place them so and refuse a root where they are
+   not), a 512-byte sector write is atomic on the medium, and the old chains
+   are freed only afterwards. A tear before that write leaves the old pair
+   whole, after it the new pair whole. B3's torn-update test kills QEMU at
+   every step of that sequence.
 2. **The boot OS lives in an ext2 slot** and the ESP holds only the update
    plan's slot-aware loader (U2's forked UEFI stage, which reads a kernel
    out of an ext2 volume through `libs/ext2fs`). LazyOS writes ext2 today;
@@ -467,12 +503,12 @@ variant to `tools/netboot/run.py`.
 | Phase | Deliverable | Evidence |
 |---|---|---|
 | **Q0** The floor, measured (one evening, no code in the OS) | On the box, with the current Wi-Fi stick (`run_demo.py --desktop --wifi --dbgd-control --usb-image`) and `dbgd`: the kernel-to-`connected` time from the log's timestamps (`WIFID:FW:READY`, `WLANMD:STATE wlan0 connected`, `NETD:ADDR`), and the download rate over `wlan0` by fetching the 308 MiB ramdisk from `tools/netboot/spike/serve.py` on the dev machine (`fetch http://<dev>:8420/files/ramdisk -o /tmp/r`, the server's MB/s log and `/tmp` being RAM). Optional: `qemu_spike.py` once more with the server's `--timeout 600000`, to see whether the loader's ramdisk read through iPXE's volume finishes (§13) | §13 filled: association time, MB/s over Wi-Fi, the stick's kernel-to-`init` time; the iPXE verdict if run |
-| **N1** Payload | `build_support/netboot.rs`: `LAZYOS_NETBOOT=1` writes `target/netboot/` (decision 2) and `manifest.json`; `image.id=` in `lazyos.cfg`, `BOOT:IMAGE:<id>`, About shows it; `preflight.py --netboot`; `run_demo.py --netboot`; the launcher group and `catalog.py`; the 308 MiB accounted for and the netboot free space decided | `cargo test -p build-support-tests` (digests match, the id format, a dirty tree marked, both switches write identical bytes); `mount_suite`: `image.id` parsed and logged, a bad value refused without affecting the mount; `tools/lazygui/test_catalog.py` |
-| **N2** Registry and push | `tools/netboot/registry.py` (+ `store.py`, `api.py`, `menu.py` for the optional iPXE text), `push.py`, the systemd unit, `README.md`; the spike's `serve.py` and `scripts.py` folded in | `test_registry.py` against a loopback server: atomic commit (a torn upload leaves no build), digest mismatch refused, the same id with other bytes refused, pin and prune, token on every write, `..` and absolute names refused, `Range`, the JSON (and the menu) for a known machine (channel order, default, `next` consumed exactly once) and for an unknown MAC; `test_push.py` against a fake registry |
-| **B1** kexec | `kernel/src/power/kexec.rs` (+ `kexec/` for the map and the ELF checks), the `power(kexec)` kind, `init.Shutdown(kexec, kernel, ramdisk)` in `idl/init.midl`, `powerctl kexec KERNEL RAMDISK` for a developer at the Terminal, the `BOOT:VIA` field in the vendored common crate | `kexec_suite` (8.2); `tools/test/run.py --accel none` green; `tools/netboot/run.py --kexec`: the dev image boots under OVMF over virtio, `powerctl kexec` of a test copy in `/system/share/netboot/`, the second kernel logs `BOOT:VIA:kexec` and reaches the desktop, then a third |
-| **B2** The boot OS | `LAZYOS_BOOTOS=1` (8.3): manifest, `netpicker` (`tools/xui/new_app.py`, permissions from a `LAZYOS_LABEL_TRACE=1` run), the HTTP client over `netd`, `bootos.*` cfg lines and limits; `run_demo.py --bootos`; the launcher; `target/bootos/{kernel-x86_64,ramdisk}` pushed to channel `bootos` by `push.py --bootos` | `cd xui-app && cargo test -p netpicker` (list parsing with unknown fields, a hostile manifest, the countdown, the digest check); `run.py --bootos`: OVMF boots an ESP image carrying the boot OS, virtio-net to the host registry (`wifisim` over the second card where `tools/wifi/sim_run.py` already provides it, so the Wi-Fi path runs in CI too), the picker lists, fetches the pushed dev build, `PICKER:VERIFY:PASS`, `PICKER:KEXEC`, the dev build's `BOOT:VIA:kexec` and desktop; a corrupted file gives `PICKER:VERIFY:FAIL` and the menu; the registry down gives the local copy; the ramdisk size recorded in §13 |
+| **N1** Payload | `build_support/netboot.rs`: `LAZYOS_NETBOOT=1` writes `target/netboot/` (decision 2), `manifest.json` and, with `LAZYOS_NETBOOT_KEY=<key.sec>`, `manifest.sig` (Ed25519 over the manifest's bytes, `ed25519-dalek` from `nettls-crypto` on the host; a build without the key is pushable but no boot OS will run it); `image.id=` in `lazyos.cfg`, `BOOT:IMAGE:<id>`, About shows it; `preflight.py --netboot`; `run_demo.py --netboot`; the launcher group and `catalog.py`; the 308 MiB accounted for and the netboot free space decided | `cargo test -p build-support-tests` (digests match, the id format, a dirty tree marked, both switches write identical bytes); `mount_suite`: `image.id` parsed and logged, a bad value refused without affecting the mount; `tools/lazygui/test_catalog.py` |
+| **N2** Registry and push | `tools/netboot/registry.py` (+ `store.py`, `api.py`, `menu.py` for the optional iPXE text), `push.py`, `keygen.py`, `ed25519.py` (the RFC 8032 verifier), the systemd unit, `README.md`; the spike's `serve.py` and `scripts.py` folded in | `test_registry.py` against a loopback server: atomic commit (a torn upload leaves no build), a bad or missing `manifest.sig` refused, a key not in `keys.json` refused, digest mismatch refused, the same id with other bytes refused, pin and prune, a signed body on every write and a replayed nonce refused, `..` and absolute names refused, `Range`, the JSON (and the menu) for a known machine (channel order, default, `next` pending until `booting`, consumed exactly once, `booted` recorded only by the acknowledgement) and for an unknown MAC; `test_ed25519.py` on the RFC vectors; `test_push.py` against a fake registry |
+| **B1** kexec | `kernel/src/power/kexec.rs` (+ `kexec/` for the map and the ELF checks), the `power(kexec)` kind (the sync, the claim teardown, the refusal while a claim is live), `init.Kexec(kernel, ramdisk, reason)` in `idl/init.midl`, `powerctl kexec KERNEL RAMDISK` for a developer at the Terminal, the `BOOT:VIA` field in the vendored common crate | `kexec_suite` (8.2, plus: a fake claim held across the sync is torn down and a claim that cannot be ended makes the op refuse); `tools/test/run.py --accel none` green; `tools/netboot/run.py --kexec`: the dev image boots under OVMF over virtio, `powerctl kexec` of a test copy in `/system/share/netboot/`, the second kernel logs `BOOT:VIA:kexec` and reaches the desktop, then a third |
+| **B2** The boot OS | `LAZYOS_BOOTOS=1` (8.3): manifest, `netpicker` (`tools/xui/new_app.py`, permissions from a `LAZYOS_LABEL_TRACE=1` run), the HTTP client over `netd`, the signature check (`LAZYOS_BOOTOS_KEY=<key.pub>` embedded, `ed25519-dalek`), `bootos.*` cfg lines and limits; `run_demo.py --bootos`; the launcher; `target/bootos/{kernel-x86_64,ramdisk}` pushed to channel `bootos` by `push.py --bootos` | `cd xui-app && cargo test -p netpicker` (list parsing with unknown fields, a hostile manifest, the countdown, a bad signature and a digest mismatch each refused before any kexec); `run.py --bootos`: OVMF boots an ESP image carrying the boot OS, virtio-net to the host registry (`wifisim` over the second card where `tools/wifi/sim_run.py` already provides it, so the Wi-Fi path runs in CI too), the picker lists, fetches the pushed dev build, `PICKER:VERIFY:PASS`, `PICKER:KEXEC`, the dev build's `BOOT:VIA:kexec` and desktop; a corrupted file gives `PICKER:VERIFY:FAIL` and the menu; the registry down gives the local copy; the ramdisk size recorded in §13 |
 | **N3** Harness and CI | `tools/netboot/run.py` as above with `--home-disk` (a virtio disk from `tools/mkdisk --home-volume` mounts at `/home`), `--esp`, `--kexec`, `--bootos`, optional `--ipxe` (the spike's path: slirp TFTP, OVMF PXE, the menu); OVMF found as `tools/boot/run.py` finds it plus QEMU's own `share/edk2-x86_64-code.fd` on Windows; `test_run.py` | `.github/workflows/netboot.yml` (Linux runner, OVMF, artifacts like `screenshots.yml`) |
-| **B3** Install and update | `install_box.py` (§7: the ESP, the local pair, the seeded `/conf` of 8.5; later `--home`, `--state`); the update route of 8.4; `push.py --bootos --machine box` | `cargo test -p fat16w` (host, fuzz seeds, `fsck.fat -n` clean in CI) if route 1; harness: update the boot OS from the running system, reboot, the new boot OS's `PICKER:UP` with its id; a torn update (QEMU killed mid-write) still boots one of the two |
+| **B3** Install and update | `install_box.py` (§7: the ESP, the local pair, the seeded `/conf` of 8.5; later `--home`, `--state`); the update route of 8.4; `push.py --bootos --machine box` | `cargo test -p fat16w` (host, fuzz seeds, `fsck.fat -n` clean in CI) if route 1; harness: update the boot OS from the running system, reboot, the new boot OS's `PICKER:UP` with its id; a torn update (QEMU killed before, during and after the one-sector switch) always boots a kernel and ramdisk of the **same** build, checked by `BOOT:IMAGE` against the kernel's revision |
 | **B4** The box | the boot OS on the box's ESP over Wi-Fi; `docs/netboot.md` (the homelab service, the box, firmware settings, "the picker does not appear", recovery is the local copy or the stick); the `compat/hardware.md` row | kernel-to-picker, association and download times over the radio in §13; a pushed build boots with no cable and no key pressed; a file saved to `/home` survives; the registry stopped, the box boots the local copy on its own |
 | **N4** The loop | `dbgd` control method `power.reboot` (asks `init.Shutdown(reboot)`, never the kernel's `power`; refused without the control tier; `dbgwire` allowlist and tests); `push.py --machine --reboot --follow`; `machines.json` documented | `cargo test -p dbgwire`; `tools/dbg/run.py` gains the reboot; on the box: build, push, reboot, desktop, under a minute, hands off |
 | **N5** State on the box (update-plan U0, shared) | `state=LABEL=lazystate`: the state volume is `/` (`/apps`, `/conf`, `/logs`), the ramdisk's OS volume read-only at `/system` (`/docs/os` to `/system/docs`, one `libs/fhs` constant), `pkgd` reconciles core packages up and down; the boot OS mounts the same volume (8.5 target); `run_demo.py --state-disk` | `mount_suite`: the three-volume layout, `EROFS` under `/system`, a missing state volume falls back to the RAM root with a log line; harness `--state-disk`: a setting and an installed app survive a second network boot of a *different* build, a downgrade restores the older core packages, the boot OS joins the network from the state volume's profile; `tools/accounts/run.py` still blocked everywhere |
@@ -549,10 +585,13 @@ markers, the registry's own record, and pixels.
    means `usbd` must come up before the late home mount (it does,
    `INIT:HOME mounted`), with `usb-storage.md`'s timeouts. The SSD home
    (K1/K2) ends this; it is tracked in the GRUB install plan.
-9. **An unauthenticated kernel from the LAN** (decision 4), now over Wi-Fi:
-   anyone on the home network can serve a kernel to the box, as anyone with
-   a stick can. Accepted for this box; `docs/netboot.md` says so on its
-   first page; §12 has the signed path.
+9. **The signing key is the trust anchor** (decision 4): the dev machine's
+   `key.sec` can sign a kernel the box will run, so it is as sensitive as
+   `dbgd`'s control key and lives only there. Rotation is a boot OS built
+   with the new public key (B3's update route) and a `keys.json` edit on the
+   homelab; losing the key means a stick. What stays unauthenticated is the
+   ESP itself (the loader, the boot OS and the local copy), because Secure
+   Boot is off; `docs/netboot.md` says so on its first page.
 10. **Reboot by `dbgd`** adds a remote way to stop the machine to a tool
     whose first version was read-only by design, and the control tier's key
     already buys the whole box (`dbgd.md`). It stays in that tier, goes
@@ -567,10 +606,10 @@ markers, the registry's own record, and pixels.
 
 ## 12. Later
 
-- **Signed builds.** `manifest.json` gains the update plan's U1 shape and an
-  Ed25519 `manifest.sig`; the picker verifies the digests of `kernel-x86_64`
-  and `ramdisk` against a key compiled into the boot OS, and refuses a build
-  that does not verify. The registry serves the signature as one more file.
+- **Several signing keys and a signed boot OS.** `keys.json` and the boot OS
+  can carry more than one public key (a CI release key beside the dev key),
+  and the ESP's own files can be verified by a loader patch once the update
+  plan's shim exists; until then the ESP is trusted as the disk is.
 - **Per-machine configuration**: the picker holds the ramdisk in RAM and its
   1 MiB FAT part is at a fixed offset, so `machines.json` lines
   (`home=UUID=`, `display.max`, `limit.*`, `diag.hold`) can be written into
