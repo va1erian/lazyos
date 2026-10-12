@@ -1,0 +1,20 @@
+# Device firmware the image build installs under fhs::FIRMWARE
+# (/system/share/firmware/<name>; docs/wifi-prerequisites-plan.md 3.8).
+# tools/firmware/fetch.py downloads each file to target/firmware/<name> and
+# checks it; build_support/wifi_embed.rs checks it again and places it.
+# Never committed, never compiled into a program. One line per file:
+#
+#   <name> | <switch> | <sha256> | <bytes> | <licence> | <url>
+#
+# name: vendor-relative, by libs/fwload's rules. switch: the build switch
+# that installs it (`wifi`: LAZYOS_WIFI=1). licence: the name of the file
+# holding the licence text that must travel with it (itself for a licence).
+# url: a commit-pinned location; bumping a file means a new commit, digest
+# and size, and a THIRD_PARTY.md row to match.
+#
+# linux-firmware at afabaf773c4c2e2c841429933a6a084a5af4d14d (2026-10-11),
+# from its upstream on GitLab (kernel-firmware/linux-firmware); the same
+# bytes as git.kernel.org's tree at that commit.
+
+rtw88/rtw8822c_fw.bin | wifi | 3deecb31210986d98cdbfb000391e08d602a6eee4ffc883969faa2b907ab03ba | 202600 | rtw88/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/rtw88/rtw8822c_fw.bin
+rtw88/LICENCE.rtlwifi_firmware.txt | wifi | a61351665b4f264f6c631364f85b907d8f8f41f8b369533ef4021765f9f3b62e | 2115 | rtw88/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/LICENSES/LICENCE.rtlwifi_firmware.txt

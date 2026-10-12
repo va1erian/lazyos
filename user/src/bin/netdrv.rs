@@ -161,8 +161,8 @@ pub extern "C" fn _start() -> ! {
         )),
         Err(errno) => sys::write_str(&format!("NETDRV:CRED unavailable (errno {errno})\n")),
     }
-    let args = Args::from_service();
-    match run(&args) {
+    let mut args = Args::from_service();
+    match run(&mut args) {
         Ok(()) => sys::exit(0),
         Err(Error::Unsupported(reason)) => {
             // A device this driver cannot drive will not become drivable by a
@@ -190,7 +190,22 @@ fn idle() -> ! {
     }
 }
 
-fn run(args: &Args) -> Result<(), Error> {
+/// The simulated radio's air card (`LAZYOS_WIFI_SIM=1` images only): the
+/// card the harness gave [`netpolicy::SIM_AIR_MAC`] is served as
+/// `os.lazy.net.nic/air0`, which `netd` leaves to `wifisim`
+/// (docs/wifi-prerequisites-plan.md section 3.6), whatever `eth` name `devd`
+/// counted it as.
+#[cfg(lazyos_wifi_sim)]
+fn air_card(mac: [u8; 6]) -> bool {
+    mac == netpolicy::SIM_AIR_MAC
+}
+
+#[cfg(not(lazyos_wifi_sim))]
+fn air_card(_mac: [u8; 6]) -> bool {
+    false
+}
+
+fn run(args: &mut Args) -> Result<(), Error> {
     let (row, kind) = device::find(args.dev)?;
     let (mut config, mut settings) = config::Config::load(config::prefix(kind));
     if args.poll {
@@ -210,6 +225,13 @@ fn run(args: &Args) -> Result<(), Error> {
         card.queue_sizes.1,
         if card.irq_armed() { "armed" } else { "polling" }
     ));
+    if air_card(card.engine.mac()) {
+        args.ifname = String::from(netpolicy::SIM_AIR_IFNAME);
+        // Nothing answers ARP on the air: no self-test, no evidence clients.
+        args.selftest = false;
+        args.demo = false;
+        sys::write_str(&format!("NETDRV:AIR ifname={}\n", args.ifname));
+    }
     if args.selftest {
         // Boot evidence (issue #481): `_net` cannot claim another class.
         user::dev::inspect::cross_class_probe("net");
@@ -221,7 +243,11 @@ fn run(args: &Args) -> Result<(), Error> {
         "NETDRV:READY name={name} interface={:#x}\n",
         api::INTERFACE
     ));
-    serve(Service::new(card), &server, &mut config, settings, args)
+    // Unreadable credentials leave no "own uid": then only `_netd` (or
+    // `_wifisim` on the air, or root) may own the card.
+    let own_uid = sys::cred_get(None).map_or(u32::MAX, |cred| cred.uid);
+    let service = Service::new(card, &args.ifname, own_uid);
+    serve(service, &server, &mut config, settings, args)
 }
 
 /// Run the ARP self-test and print its verdict and the interrupt evidence.
@@ -304,6 +330,7 @@ fn serve(
     // One receive buffer for the life of the service (per-call buffers of the
     // bump region are never reclaimed).
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
+    let mut dropped = 0u64;
     loop {
         let park = match (irq, next_demo < DEMO_CLIENTS.len() || demo_child.is_some()) {
             (true, false) => IDLE_TICKS,
@@ -322,6 +349,15 @@ fn serve(
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }
             }
+            // One bad message, not a broken endpoint: a request bigger than
+            // the buffer (no legal one is) was consumed by the kernel but
+            // cannot be read, and a parcel that does not decode cannot be
+            // answered; their senders' deadlines end their waits. Exiting
+            // here would let anyone who can resolve the card take it down.
+            Err(MsgError::Errno(code)) if code == -messenger::errno::E2BIG => {
+                dropped = note_dropped(dropped, "oversized");
+            }
+            Err(MsgError::Parcel(_)) => dropped = note_dropped(dropped, "malformed"),
             Err(error) => return Err(fail(error)),
         }
         service.housekeeping()?;
@@ -351,6 +387,18 @@ fn serve(
         }
         run_demo(&mut demo_child, &mut next_demo);
     }
+}
+
+/// Count a request dropped unread and say so at powers of two (a flood
+/// cannot flood the log); the new count.
+fn note_dropped(dropped: u64, why: &str) -> u64 {
+    let dropped = dropped.saturating_add(1);
+    if dropped.is_power_of_two() {
+        sys::write_str(&format!(
+            "NETDRV:DROPPED {why} request, {dropped} dropped in all\n"
+        ));
+    }
+    dropped
 }
 
 /// Start the evidence clients one at a time and reap them.

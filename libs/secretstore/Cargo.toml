@@ -16,3 +16,10 @@ accountdb = { path = "../accountdb" }
 # `wrap` seals each secret, `hmac` seals the file, `wifi::pbkdf2_sha1` derives
 # the PMK.
 lazyos-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+# `WLAN_UID` is also netpolicy's (the registry's and confd's view of
+# `_wlan`); a test asserts the two agree.
+netpolicy = { path = "../netpolicy" }
+# The profile-id rule a test checks `is_wifi_profile_name` against.
+wlansta = { path = "../wlansta" }

@@ -64,6 +64,9 @@ programs! {
     AUDIOD = "audiod";
     /// `netdrv`, the NIC driver (virtio-net, Intel 8254x).
     NETDRV = "netdrv";
+    /// `wifid`, the RTL8822CE Wi-Fi driver (`LAZYOS_WIFI=1` images,
+    /// docs/wifi-rtw88-plan.md).
+    WIFID = "wifid";
     /// `netd`, the network stack service.
     NETD = "netd";
     /// `sysmond`, the system monitor service.
@@ -147,6 +150,17 @@ programs! {
     /// `dbgd`, the remote inspection service (`LAZYOS_DBGD=1`,
     /// docs/dbgd-plan.md).
     DBGD = "dbgd";
+    /// `wlanmd`, the Wi-Fi station manager (`LAZYOS_WIFI=1`,
+    /// docs/architecture/wifi.md).
+    WLANMD = "wlanmd";
+    /// `wifictl`, the Wi-Fi command line (`LAZYOS_WIFI=1`).
+    WIFICTL = "wifictl";
+    /// `wifisim`, the simulated Wi-Fi radio (`LAZYOS_WIFI_SIM=1`,
+    /// docs/wifi-prerequisites-plan.md section 3.6).
+    WIFISIM = "wifisim";
+    /// `wifiprobe`, the test client `wifisim` runs to drive
+    /// `os.lazy.net.wifi.hw.v1` when no station manager is present.
+    WIFIPROBE = "wifiprobe";
     /// `fetch`, the HTTP/HTTPS client (`LAZYOS_TLS=1`, Linux ABI;
     /// docs/tls-plan.md §7).
     FETCH = "fetch";

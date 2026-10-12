@@ -107,6 +107,8 @@ class Launcher:
         self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "Linux programs dash/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
+        self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
+                       "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")
@@ -128,7 +130,7 @@ class Launcher:
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "nics", "tls",
                                                     "lazyweb", "smb", "dbgd",
-                                                    "dbgd_control", "lazysky")))
+                                                    "dbgd_control", "lazysky", "wifi")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi")))

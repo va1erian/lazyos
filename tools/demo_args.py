@@ -162,6 +162,21 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
                              "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
                              "by design, for development machines only")
+    parser.add_argument("--wifi", action="store_true",
+                        help="networking plus Wi-Fi (LAZYOS_WIFI=1, docs/wifi-rtw88-plan.md): "
+                             "`wifid`, the RTL8822CE driver devd starts as wlan0, and its "
+                             "firmware at /system/share/firmware (fetched and hash-checked by "
+                             "tools/firmware/fetch.py). QEMU has no such card, so it matters on "
+                             "the AMD NUC: add --usb-image --dbgd-control --build-only for its stick")
+    parser.add_argument("--wifi-sim", action="store_true",
+                        help="the simulated Wi-Fi radio (LAZYOS_WIFI_SIM=1, needs the stack: "
+                             "LAZYOS_NETD=1): `wifisim` serves wlan0 over a second virtio-net "
+                             "card connected to fake access points (tools/wifi/fake_ap.py, started "
+                             "here; docs/wifi-prerequisites-plan.md 3.6)")
+    parser.add_argument("--wifi-probe", metavar="MODE",
+                        help="with the simulator, start the hw.v1 test client `wifiprobe MODE` "
+                             "(LAZYOS_WIFI_SIM_ARGS=probe=MODE): scan, open:SSID, "
+                             "wpa2:SSID:PASSPHRASE; implies --wifi-sim")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -232,7 +247,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.dbgd = args.dbgd or args.dbgd_control
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
-    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky
+    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
+    args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

@@ -140,6 +140,21 @@ members = [
     # `no_std` + `alloc`, host-tested and fuzzed.
     "libs/ieee80211",
     "libs/eapol",
+    # The RTL8822CE Wi-Fi chip logic (docs/wifi-rtw88-plan.md).
+    "libs/rtw88",
+    # Device firmware files by vendor-relative name (wifi-prerequisites-plan 3.8).
+    "libs/fwload",
+    # wlanmd's station state machine (docs/wifi-prerequisites-plan.md WP4):
+    # scan, selection, join, handshake, timers and profiles; pure `no_std` +
+    # `alloc`, host-tested and fuzzed.
+    "libs/wlansta",
+    # The soft-MAC both Wi-Fi radio programs share (`wifid`, `wifisim`;
+    # docs/wifi-rtw88-plan.md section 3): pure `no_std` + `alloc`, host-tested
+    # against a fake radio.
+    "libs/wifimac",
+    # The simulated radio's air (802.11 in Ethernet) and software CCMP, for
+    # `wifisim` and the host's `tools/wifi/fake_ap.py`.
+    "libs/simair",
     "libs/usbpolicy",
     "libs/sndpolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
@@ -223,6 +238,9 @@ lazyos-crypto = { path = "libs/crypto" }
 # (docs/tls-plan.md §5.2): Mozilla's root program (CCADB), pinned exactly so
 # the root set changes only with a deliberate bump.
 webpki-root-certs = "=1.0.9"
+# Firmware names are checked with the rules `wifid` loads them by
+# (`build_support/wifi_embed.rs`).
+fwload = { path = "libs/fwload" }
 
 [profile.dev]
 panic = "abort"

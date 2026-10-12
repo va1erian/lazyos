@@ -338,6 +338,8 @@ fn dispatch(
         uid: caller_uid(message)?,
         system: cred.caps & user::sys::CAP_SETUID != 0
             || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
+        // `wlanmd` keeps the Wi-Fi profiles of the machine and of every user.
+        wifi: netpolicy::is_wlanmd(cred.uid, cred.label_id, cred.session),
     };
     let method = message.method();
     match method {

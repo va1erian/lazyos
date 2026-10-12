@@ -350,7 +350,8 @@ fn main() {
 
     // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
     // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
-    drivers::embed(&mut files, desktop);
+    // `LAZYOS_WIFI=1` adds `wifid`, `wlanmd`, `wifictl` and the firmware.
+    drivers::embed(&mut files, desktop, &manifest_dir);
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default

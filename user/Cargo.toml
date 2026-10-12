@@ -75,11 +75,23 @@ rtl8168 = { path = "../libs/rtl8168" }
 hda = { path = "../libs/hda" }
 # `devd`'s driver manifest (issue #497, driver-plan 3.6).
 devmatch = { path = "../libs/devmatch" }
+# The RTL8822CE chip logic and the firmware loader for `wifid`
+# (docs/wifi-rtw88-plan.md).
+rtw88 = { path = "../libs/rtw88" }
+fwload = { path = "../libs/fwload" }
 # USB for `usbd` (docs/usb-hid-plan.md U2): xHCI rings and contexts, and the
 # descriptor and boot-report parsers for hostile device input.
 xhci = { path = "../libs/xhci" }
 usbhid = { path = "../libs/usbhid" }
 usbmsc = { path = "../libs/usbmsc" }
+# The Wi-Fi soft-MAC both radio programs serve through `user::wifi`
+# (docs/wifi-rtw88-plan.md section 3), and the 802.11 frames it speaks.
+wifimac = { path = "../libs/wifimac" }
+ieee80211 = { path = "../libs/ieee80211" }
+# The simulated radio's air and software CCMP (`wifisim`), and the
+# supplicant `wifiprobe` drives.
+simair = { path = "../libs/simair" }
+eapol = { path = "../libs/eapol" }
 # The `_net` uid `init` spawns the driver as, shared with the ACL rules.
 netpolicy = { path = "../libs/netpolicy" }
 # `dbgd`'s wire: JSON-RPC lines, the key handshake and the method table
@@ -90,6 +102,8 @@ dbgwire = { path = "../libs/dbgwire" }
 tracefmt = { path = "../libs/tracefmt" }
 # `mountd`'s mount table and argument checks (docs/smb-plan.md).
 mounttable = { path = "../libs/mounttable" }
+# `wlanmd`'s station state machine (docs/architecture/wifi.md, WP4).
+wlansta = { path = "../libs/wlansta" }
 usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
 # init's restart/backoff/notice decisions (issue #549), host-tested there.
@@ -428,6 +442,31 @@ path = "src/bin/netdrv.rs"
 test = false
 bench = false
 
+# The RTL8822CE Wi-Fi driver (docs/wifi-rtw88-plan.md): `devd` starts it as
+# `wlan0` for the card it found, under `_wifi`. Embedded with `LAZYOS_WIFI=1`.
+[[bin]]
+name = "wifid"
+path = "src/bin/wifid.rs"
+test = false
+bench = false
+
+# The simulated Wi-Fi radio (docs/wifi-prerequisites-plan.md section 3.6):
+# serves os.lazy.net.wifi.hw.v1 and os.lazy.net.nic.v1 as `wlan0` over a
+# second virtio-net card. Embedded with `LAZYOS_WIFI_SIM=1`.
+[[bin]]
+name = "wifisim"
+path = "src/bin/wifisim.rs"
+test = false
+bench = false
+
+# The hw.v1 test client `wifisim` starts under `probe=...`: scan, open and
+# WPA2 joins without the station manager. Embedded with `LAZYOS_WIFI_SIM=1`.
+[[bin]]
+name = "wifiprobe"
+path = "src/bin/wifiprobe.rs"
+test = false
+bench = false
+
 # `nicctl` prints the card's MAC, link and counters, and carries the driver's
 # evidence clients (`arp`, `probe=1`, `soak=<n>`); `NICCTL.ELF` on the image.
 [[bin]]
@@ -536,6 +575,21 @@ bench = false
 [[bin]]
 name = "dbgd"
 path = "src/bin/dbgd.rs"
+test = false
+bench = false
+
+# `wlanmd` (docs/architecture/wifi.md, `LAZYOS_WIFI=1`): the Wi-Fi station
+# manager over `os.lazy.net.wifi.hw.v1`, serving `os.lazy.net.wifi.v1`.
+[[bin]]
+name = "wlanmd"
+path = "src/bin/wlanmd.rs"
+test = false
+bench = false
+
+# `wifictl` (`LAZYOS_WIFI=1`): the Wi-Fi command line over `wlanmd`.
+[[bin]]
+name = "wifictl"
+path = "src/bin/wifictl.rs"
 test = false
 bench = false
 

@@ -24,17 +24,40 @@ pub struct Caller {
     /// write every `user/<uid>/**`. A uid is never enough (issue #623): a
     /// root login session is a user like any other.
     pub system: bool,
+    /// The caller is the Wi-Fi station manager (`wlanmd`, decided by the
+    /// service from the kernel-stamped sender): besides what its uid allows,
+    /// it reads and writes the Wi-Fi profiles, `sys/net/wifi/networks/**`
+    /// and every `user/<uid>/net/wifi/networks/**`, and nothing else
+    /// (docs/wifi-prerequisites-plan.md section 3.7).
+    pub wifi: bool,
 }
 
 impl Caller {
     /// A login session's (or any unprivileged) caller.
     pub const fn user(uid: u32) -> Caller {
-        Caller { uid, system: false }
+        Caller {
+            uid,
+            system: false,
+            wifi: false,
+        }
     }
 
     /// A system service.
     pub const fn system(uid: u32) -> Caller {
-        Caller { uid, system: true }
+        Caller {
+            uid,
+            system: true,
+            wifi: false,
+        }
+    }
+
+    /// The Wi-Fi station manager.
+    pub const fn wifi(uid: u32) -> Caller {
+        Caller {
+            uid,
+            system: false,
+            wifi: true,
+        }
     }
 }
 

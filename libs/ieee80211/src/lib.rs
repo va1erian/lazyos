@@ -16,10 +16,16 @@
 //! * [`bss`] summarises a beacon or probe response ([`Bss`]); [`table`] keeps
 //!   the scan results with ageing and a capacity bound ([`ScanTable`]).
 //!
+//! * [`data`] reads data frame headers and converts between Ethernet and
+//!   802.11 data frames (LLC/SNAP, QoS, A-MSDU); [`ccmp`] builds and parses
+//!   the CCMP header and the CCM nonce and AAD, and keeps the replay window;
+//!   [`class`] says what a received frame is. These serve a soft-MAC radio
+//!   (`libs/wifimac`), whose chip does not convert frames itself
+//!   (docs/wifi-rtw88-plan.md section 1).
+//!
 //! Frames start at the 802.11 MAC header and have **no FCS** (the chip strips
-//! it). Data frames are out of scope: the data path arrives as Ethernet from
-//! the chip. Time is a caller-supplied millisecond counter; the library keeps
-//! no clock.
+//! it). Time is a caller-supplied millisecond counter; the library keeps no
+//! clock.
 //!
 //! Written from IEEE Std 802.11-2020 (clauses 9.2-9.4). No code or structure
 //! was taken from any other implementation; see `THIRD_PARTY.md`.
@@ -49,6 +55,9 @@ extern crate std;
 
 pub mod bss;
 pub mod build;
+pub mod ccmp;
+pub mod class;
+pub mod data;
 pub mod frame;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
@@ -59,6 +68,8 @@ pub mod table;
 mod tests;
 
 pub use bss::{Bss, Security};
+pub use class::{classify, FrameClass};
+pub use data::DataHeader;
 pub use frame::{Body, Header, Mgmt};
 pub use ie::{Element, Elements};
 pub use rsn::{Akm, Cipher, Rsn, RsnCaps};
@@ -85,6 +96,20 @@ pub enum Error {
     IeTooLong,
     /// The RSN element is malformed.
     Rsn(rsn::RsnError),
+    /// Not a data frame (where one was expected).
+    NotData,
+    /// An Ethernet frame that cannot be carried: an 802.3 length field, or an
+    /// MSDU over 2304 octets.
+    BadEthernet,
+    /// A data frame body that is not an RFC 1042 or bridge-tunnel LLC/SNAP
+    /// header.
+    BadLlc,
+    /// A malformed A-MSDU, or one whose first subframe is an injected LLC
+    /// header.
+    BadAmsdu,
+    /// A CCMP header without the Extended IV bit, a short one, or a receive
+    /// sequence counter over eight octets.
+    BadCcmp,
 }
 
 impl Error {
@@ -99,6 +124,11 @@ impl Error {
             Error::BadSsid => "the SSID is longer than 32 octets",
             Error::IeTooLong => "an information element body is over 255 octets",
             Error::Rsn(_) => "the RSN element is malformed",
+            Error::NotData => "not a data frame",
+            Error::BadEthernet => "the Ethernet frame cannot be carried",
+            Error::BadLlc => "the data frame body is not LLC/SNAP",
+            Error::BadAmsdu => "a malformed or injected A-MSDU",
+            Error::BadCcmp => "a malformed CCMP header",
         }
     }
 }

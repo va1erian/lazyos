@@ -2,14 +2,15 @@
 //! which driver row of `init`'s manifest each enumerated PCI function
 //! matches, and which device each row is started for.
 //!
-//! A row names a program `init` knows (`netdrv`, `sndd`); the program's path,
+//! A row names a program `init` knows (`netdrv`, `sndd`, `wifid`); the program's path,
 //! uid, arguments and restart policy are `init`'s, never `devd`'s. Matching is
 //! by exact vendor and device ids, or by PCI class for a register interface
 //! that is the same on every vendor's part (HDA).
 //!
 //! A driver whose card has a name of its own runs once per card: every
-//! network card gets an interface name (`eth0`, `eth1`, ... in the kernel's
-//! enumeration order) and serves `os.lazy.net.nic/<name>`. A driver row whose
+//! network card gets an interface name in the kernel's enumeration order, one
+//! counter per prefix (`eth0`, `eth1`, ... for wired cards, `wlan0`, `wlan1`,
+//! ... for wireless ones), and serves `os.lazy.net.nic/<name>`. A driver row whose
 //! Messenger name is unique (`os.lazy.audio.card`) serves one device: the
 //! first matching device in enumeration order wins and later ones are
 //! reported `busy`.
@@ -27,11 +28,12 @@ use alloc::vec::Vec;
 /// The `_devd` system user `devd` runs as: **no** capabilities. It reads the
 /// kernel's read-only device inventory and talks to `init`; it never claims a
 /// device. (901 `_snd`, 902 `_net`, 903 `_netd`, 904 `_usb`, 905 `_audio`,
-/// 907 `_greeter`, 908 `_accounts`, 909 `_elev`, 910 `_mountd`. Reserved for
-/// the Wi-Fi plan, defined with their programs: 911 `_wifi` (`wifid`, the
-/// chip driver), 912 `_wlan` (`wlanmd`, the station manager), 913 `_wifisim`
-/// (`wifisim`, the CI simulator); docs/wifi-prerequisites-plan.md section 2.
-/// The next free uid after those is 914.)
+/// 907 `_greeter`, 908 `_accounts`, 909 `_elev`, 910 `_mountd`, 911 `_wifi`
+/// (`wifid`, the Wi-Fi chip driver, `netpolicy::WIFI_UID`), 914 `_dbgd`
+/// (`dbgwire::config::DBGD_UID`). Reserved for the Wi-Fi plan, defined with
+/// their programs: 912 `_wlan` (`wlanmd`, the station manager), 913
+/// `_wifisim` (`wifisim`, the CI simulator); docs/wifi-prerequisites-plan.md
+/// section 2. The next free uid is 915.)
 pub const DEVD_UID: u32 = 906;
 
 /// How a manifest entry recognises a function.
@@ -69,6 +71,10 @@ pub const E1000_DEVICES: &[u16] = &[0x100E, 0x100F, 0x1008, 0x1010, 0x1011, 0x10
 /// supported is the driver's answer (it parks on the others).
 pub const RTL8168_DEVICES: &[u16] = &[0x8168];
 
+/// The device ids `wifid` drives (`libs/rtw88`'s `DEVICES`, Realtek's vendor
+/// id); a test keeps the two in step.
+pub const RTW88_DEVICES: &[u16] = &[0xC822];
+
 /// The manifest, in priority order: an entry earlier in the list wins when
 /// two match the same function.
 pub const MANIFEST: &[Entry] = &[
@@ -99,6 +105,15 @@ pub const MANIFEST: &[Entry] = &[
             devices: RTL8168_DEVICES,
         },
         ifname_prefix: Some("eth"),
+    },
+    Entry {
+        driver: "wifid",
+        model: "Realtek RTL8822CE",
+        matches: Match::Ids {
+            vendor: 0x10EC,
+            devices: RTW88_DEVICES,
+        },
+        ifname_prefix: Some("wlan"),
     },
     Entry {
         driver: "sndd",
@@ -241,7 +256,15 @@ mod tests {
             (0x8086, 0x1237, 0x06, 0x00, None),
             (0x8086, 0x10D3, 0x02, 0x00, None),
             // The Wi-Fi next to the box's Ethernet.
-            (0x10EC, 0xC822, 0x02, 0x80, None),
+            (
+                0x10EC,
+                0xC822,
+                0x02,
+                0x80,
+                Some(("wifid", "Realtek RTL8822CE")),
+            ),
+            // Another Realtek Wi-Fi chip (RTL8821CE): not driven yet.
+            (0x10EC, 0xC821, 0x02, 0x80, None),
             (0x1B36, 0x000D, 0x0C, 0x03, None),
         ];
         for (vendor, device, class, subclass, want) in cases {
@@ -310,15 +333,29 @@ mod tests {
         rtl.sort_unstable();
         ours.sort_unstable();
         assert_eq!(rtl, ours);
+        // wifid takes exactly the rtw88 ids, of Realtek's vendor id.
+        let mut rtw: Vec<u16> = rtw88::DEVICES.iter().map(|(id, _)| *id).collect();
+        let mut ours = RTW88_DEVICES.to_vec();
+        rtw.sort_unstable();
+        ours.sort_unstable();
+        assert_eq!(rtw, ours);
+        for &device in RTW88_DEVICES {
+            assert!(rtw88::model(rtw88::VENDOR, device).is_some());
+        }
         // sndd's HDA back end takes exactly this class.
         assert!(hda::is_controller(0x04, 0x03));
         for entry in MANIFEST {
-            assert!(matches!(entry.driver, "netdrv" | "sndd"), "{entry:?}");
+            assert!(
+                matches!(entry.driver, "netdrv" | "sndd" | "wifid"),
+                "{entry:?}"
+            );
         }
     }
 
     #[test]
-    fn the_kabylake_box_gets_its_ethernet_driver_and_nothing_for_its_wifi() {
+    fn the_nuc_gets_its_ethernet_and_its_wifi_each_with_its_own_name() {
+        // The AMD NUC (docs/compat/amd-nuc): the Wi-Fi enumerates before the
+        // Ethernet and still gets `wlan0`, the Ethernet `eth0`.
         let functions = [
             function(1, 0x8086, 0x5916, 0x03, 0x00),
             function(2, 0x8086, 0x9d2f, 0x0c, 0x03),
@@ -330,7 +367,27 @@ mod tests {
             .iter()
             .map(|p| (p.driver, p.id, p.ifname.as_str()))
             .collect();
-        assert_eq!(plan, [("netdrv", 4, "eth0")]);
+        assert_eq!(plan, [("wifid", 3, "wlan0"), ("netdrv", 4, "eth0")]);
+    }
+
+    #[test]
+    fn wireless_cards_count_apart_from_wired_ones() {
+        let functions = [
+            function(1, 0x10EC, 0xC822, 0x02, 0x80),
+            function(2, 0x1AF4, 0x1000, 0x02, 0x00),
+            function(3, 0x10EC, 0xC822, 0x02, 0x80),
+            function(4, 0x8086, 0x100E, 0x02, 0x00),
+        ];
+        let named: Vec<(u16, String)> = plan(&functions)
+            .into_iter()
+            .map(|p| (p.id, p.ifname))
+            .collect();
+        let want = [(1, "wlan0"), (2, "eth0"), (3, "wlan1"), (4, "eth1")];
+        assert_eq!(named.len(), want.len());
+        for ((id, name), (want_id, want_name)) in named.iter().zip(want) {
+            assert_eq!((*id, name.as_str()), (want_id, want_name));
+            assert!(valid_ifname(name), "{name}");
+        }
     }
 
     #[test]

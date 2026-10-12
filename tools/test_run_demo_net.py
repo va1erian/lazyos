@@ -73,6 +73,21 @@ class NetTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertIn("virtio-net-pci,netdev=n0", command)
 
+    def test_wifi_fetches_the_firmware_and_brings_the_network(self) -> None:
+        with mock.patch.object(run_demo, "build_wifi", return_value=True) as firmware:
+            code, command = self.run_net("--wifi")
+        self.assertEqual(code, 0)
+        firmware.assert_called_once()
+        self.assertEqual(self.builds[-1].get("LAZYOS_WIFI"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
+
+    def test_wifi_stops_when_the_firmware_is_unavailable(self) -> None:
+        with mock.patch.object(run_demo, "build_wifi", return_value=False):
+            code, command = self.run_net("--wifi")
+        self.assertEqual(code, 1)
+        self.assertEqual(command, [])
+
     def test_tls_stops_when_the_tools_do_not_build(self) -> None:
         with mock.patch.object(run_demo, "build_tls", return_value=False):
             code, command = self.run_net("--tls")
@@ -138,6 +153,31 @@ class NetTests(unittest.TestCase):
             code, _ = self.run_net("--desktop", "--net")
         self.assertEqual(code, 0)
         built.assert_called_once()
+
+    def run_wifi(self, *argv: str) -> tuple[int, list[str]]:
+        air = run_demo.simnet.qemu_args(5, 6)
+        with mock.patch.object(run_demo.simnet, "start", return_value=(None, air)) as start:
+            result = self.run_net(*argv)
+        start.assert_called_once()
+        return result
+
+    def test_wifi_sim_builds_the_radio_and_attaches_the_air_card(self) -> None:
+        code, command = self.run_wifi("--wifi-sim")
+        self.assertEqual(code, 0)
+        env = self.builds[-1]
+        self.assertEqual((env.get("LAZYOS_WIFI_SIM"), env.get("LAZYOS_NETD"), env.get("LAZYOS_NETD_ARGS")),
+                         ("1", "1", "demo=0"))
+        self.assertNotIn("LAZYOS_WIFI_SIM_ARGS", env)
+        self.assertIn("virtio-net-pci,netdev=air,mac=02:57:53:49:4d:00", command)
+        self.assertIn("socket,id=air,udp=127.0.0.1:5,localaddr=127.0.0.1:6", command)
+        # No user-network card unless `--net` asks for one too.
+        self.assertFalse(any(part.startswith("user,id=n0") for part in command))
+
+    def test_wifi_probe_implies_the_simulator(self) -> None:
+        code, command = self.run_wifi("--wifi-probe", "open:LazyOpen", "--net")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_WIFI_SIM_ARGS"), "probe=open:LazyOpen")
+        self.assertIn("virtio-net-pci,netdev=n0", command)
 
 
 if __name__ == "__main__":

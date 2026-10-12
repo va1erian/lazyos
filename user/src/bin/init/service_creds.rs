@@ -57,6 +57,19 @@ pub(super) const NET_CRED: SysCred = SysCred::new(NET_UID, NET_UID, user::dev::C
 #[cfg(lazyos_net)]
 pub(super) const NET_UID: u32 = netpolicy::NET_UID;
 
+/// The Wi-Fi driver's identity (docs/wifi-rtw88-plan.md): `_wifi` holding
+/// only `CAP_DEV_CLAIM`, which the kernel's class rules narrow to wireless
+/// cards (`netpolicy::WIFI_DRIVER_CLASS_RULES`), and the only uid besides
+/// `_wifisim` that may register a `wlan*` NIC name.
+#[cfg(lazyos_wifi)]
+pub(super) const WIFI_CRED: SysCred = SysCred::new(
+    netpolicy::WIFI_UID,
+    netpolicy::WIFI_UID,
+    user::dev::CAP_DEV_CLAIM,
+    0,
+    0,
+);
+
 /// The device manager's identity (issue #497): its own system uid and **no
 /// capabilities**. It reads the kernel's read-only inventory and asks this
 /// supervisor to start drivers; it never claims a device.
@@ -94,6 +107,21 @@ pub(super) const NETD_CRED: SysCred = SysCred::new(NETD_UID, NETD_UID, 0, 0, 0);
 #[cfg(lazyos_netd)]
 pub(super) const NETD_UID: u32 = netpolicy::NETD_UID;
 
+/// The simulated Wi-Fi radio's identity (docs/wifi-prerequisites-plan.md
+/// section 3.6): `_wifisim` with **no capability**. It claims no device: its
+/// air is a ring with `netdrv`, its radio two Messenger services.
+#[cfg(lazyos_wifi_sim)]
+pub(super) const WIFISIM_CRED: SysCred =
+    SysCred::new(netpolicy::WIFISIM_UID, netpolicy::WIFISIM_UID, 0, 0, 0);
+
+/// `wifisim`'s arguments: `LAZYOS_WIFI_SIM_ARGS` at build time (the harness
+/// passes `probe=<mode>` to start its test client), nothing by default.
+#[cfg(lazyos_wifi_sim)]
+pub(super) const WIFISIM_ARGS: &str = match option_env!("LAZYOS_WIFI_SIM_ARGS") {
+    Some(args) => args,
+    None => "",
+};
+
 /// The account database service's identity (docs/accounts-plan.md U1): the
 /// `_accounts` system uid, owner of `/accounts`, and **no capability**.
 /// Whatever it needs done as root (a home) it asks this supervisor for, and
@@ -121,14 +149,23 @@ pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
     0,
 );
 
+/// The Wi-Fi station manager's identity (docs/architecture/wifi.md): the
+/// `_wlan` system uid and **no capabilities**. It parses the air; the radio
+/// drivers, `keyd` and `confd` recognise it by this identity alone.
+#[cfg(lazyos_wifi)]
+pub(super) const WLAN_CRED: SysCred =
+    SysCred::new(netpolicy::WLAN_UID, netpolicy::WLAN_UID, 0, 0, 0);
+
 /// Every system uid a service runs as or is trusted by. Services authorize
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 10] = [
+const SYSTEM_UIDS: [u32; 14] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
+    netpolicy::WIFI_UID,
+    dbgwire::config::DBGD_UID,
     usbpolicy::USB_UID,
     sndpolicy::AUDIO_UID,
     devmatch::DEVD_UID,
@@ -136,6 +173,8 @@ const SYSTEM_UIDS: [u32; 10] = [
     accountdb::ACCOUNTS_UID,
     accountdb::ELEVD_UID,
     mounttable::MOUNTD_UID,
+    netpolicy::WLAN_UID,
+    netpolicy::WIFISIM_UID,
 ];
 
 const _: () = {
