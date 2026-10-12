@@ -65,6 +65,8 @@ pub(super) struct Sidebar {
     /// The names the list was last filled with, so an unchanged history does
     /// not reset the list's scroll.
     shown: RefCell<Vec<String>>,
+    /// The step the list last highlighted and scrolled to.
+    current: Cell<Option<usize>>,
 }
 
 impl Sidebar {
@@ -76,6 +78,7 @@ impl Sidebar {
             history: Handle::new(),
             open: Cell::new(true),
             shown: RefCell::new(Vec::new()),
+            current: Cell::new(None),
         }
     }
 
@@ -125,14 +128,20 @@ impl Sidebar {
         names.extend(history.redo_names().map(str::to_owned));
         let list = self.history.get();
         let current = history.undo_len();
-        if *self.shown.borrow() != names {
+        let relisted = *self.shown.borrow() != names;
+        if relisted {
             let rows: Vec<&str> = names.iter().map(String::as_str).collect();
             list.set_items(&rows);
             *self.shown.borrow_mut() = names;
         }
-        // Quiet: highlighting the current step must not click it.
-        list.select(Some(current));
-        list.ensure_visible(current);
+        // Quiet: highlighting the current step must not click it. The list is
+        // scrolled to it only when the step or the rows changed, so a wheel
+        // scroll through the list is not undone by the next message.
+        let moved = self.current.replace(Some(current)) != Some(current);
+        if relisted || moved {
+            list.select(Some(current));
+            list.ensure_visible(current);
+        }
         ui.set_visible(list.id(), self.open.get());
     }
 
