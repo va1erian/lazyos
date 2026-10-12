@@ -7,6 +7,7 @@
 //! [`user::messenger::services::error_reply`] as a structured errno.
 
 use alloc::vec::Vec;
+use user::trace;
 
 use audiomix::events::{Event, Kind};
 
@@ -69,7 +70,10 @@ impl Service {
         }
         if failed || session.abandoned() {
             if let Some(session) = self.session.take() {
-                sys::write_str("SNDD:RECLAIM stream reclaimed from its owner\n");
+                trace::line!(
+                    trace::Channel::Sndd,
+                    "RECLAIM stream reclaimed from its owner"
+                );
                 session.close(&mut self.card);
             }
         }

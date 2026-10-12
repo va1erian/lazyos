@@ -40,6 +40,7 @@ use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use libmessenger::{flags, Header, Parcel, VERSION};
 use messenger_generated::os_lazy_echo_v1 as echo;
@@ -67,7 +68,7 @@ pub extern "C" fn _start() -> ! {
             match client(rounds.max(1)) {
                 Ok(()) => 0,
                 Err(message) => {
-                    sys::write_str(&format!("MSGBENCH:FAIL:{message}\n"));
+                    trace::line!(trace::Channel::Msgbench, "FAIL:{message}");
                     1
                 }
             }
@@ -137,7 +138,10 @@ fn notify() -> Vec<u8> {
 /// until the client's side closes.
 fn serve(name: &str) -> u32 {
     let Ok(endpoint) = registry::resolve(name) else {
-        sys::write_str("MSGBENCH:FAIL:server could not resolve its name\n");
+        trace::line!(
+            trace::Channel::Msgbench,
+            "FAIL:server could not resolve its name"
+        );
         return 1;
     };
     let reply = ping_reply();
@@ -155,7 +159,7 @@ fn serve(name: &str) -> u32 {
             return 0;
         }
         if status != 0 {
-            sys::write_str(&format!("MSGBENCH:FAIL:server recv {status}\n"));
+            trace::line!(trace::Channel::Msgbench, "FAIL:server recv {status}");
             return 1;
         }
         if result.value == 0 {
@@ -169,7 +173,7 @@ fn serve(name: &str) -> u32 {
         };
         let status = msg(op::REPLY, &answer, &mut MsgResult::default());
         if status != 0 && status != -errno::ENOENT {
-            sys::write_str(&format!("MSGBENCH:FAIL:server reply {status}\n"));
+            trace::line!(trace::Channel::Msgbench, "FAIL:server reply {status}");
             return 1;
         }
     }
@@ -276,23 +280,26 @@ fn measure(client: &mut Client, rounds: usize) -> Result<(), String> {
     let sum: u128 = samples.iter().map(|&value| value as u128).sum();
     let mean = (sum / samples.len() as u128) as u64;
     let max = samples.last().copied().unwrap_or(0);
-    sys::write_str(&format!(
-        "PERF:msg_rt:n={} p50_us={} p90_us={} p99_us={} max_us={} mean_us={}\n",
+    trace::line!(
+        trace::Channel::Perf,
+        "msg_rt:n={} p50_us={} p90_us={} p99_us={} max_us={} mean_us={}",
         samples.len(),
         us(pick(500)),
         us(pick(900)),
         us(pick(990)),
         us(max),
-        us(mean),
-    ));
+        us(mean)
+    );
     let call_cycles = calls_end.wrapping_sub(start_tsc).max(1) as u128;
     let calls_per_s = (WARMUP + rounds) as u128 * per_us * 1_000_000 / call_cycles;
     let burst_cycles = end_tsc.wrapping_sub(calls_end).max(1) as u128;
     let messages = (BURSTS * (BURST + 1)) as u128;
     let msgs_per_s = messages * per_us * 1_000_000 / burst_cycles;
-    sys::write_str(&format!(
-        "PERF:msg_tput:msgs_per_s={msgs_per_s} calls_per_s={calls_per_s}\nMSGBENCH:DONE\n"
-    ));
+    trace::line!(
+        trace::Channel::Perf,
+        "msg_tput:msgs_per_s={msgs_per_s} calls_per_s={calls_per_s}"
+    );
+    trace::line!(trace::Channel::Msgbench, "DONE");
     Ok(())
 }
 

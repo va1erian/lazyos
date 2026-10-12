@@ -1,10 +1,10 @@
 //! The `soak=N` self-test (issue #169): drive request/reply cycles through the
 //! serve loop and assert the daemon's bump heap did not grow across them.
 
-use alloc::format;
 use alloc::vec::Vec;
 use user::messenger::{self, topics_client};
 use user::sys;
+use user::trace;
 
 use super::broker::Broker;
 
@@ -92,21 +92,31 @@ pub(super) fn finish_soak(broker: &Broker, soak: &Soak) {
         .saturating_mul(SOAK_BYTES_PER_CYCLE)
         .saturating_add(SOAK_BYTES_SLACK);
     if !soak.failed && growth <= budget {
-        sys::write_str(&format!(
-            "MSGRD:SOAK:PASS cycles={} bytes={growth}\n",
+        trace::line!(
+            trace::Channel::Msgrd,
+            "SOAK:PASS cycles={} bytes={growth}",
             soak.cycles_total
-        ));
+        );
     } else {
-        sys::write_str(&format!(
-            "MSGRD:SOAK:FAIL cycles={} left={} bytes={growth} failed={}\n",
-            soak.cycles_total, soak.cycles_left, soak.failed as u8
-        ));
+        trace::line!(
+            trace::Channel::Msgrd,
+            "SOAK:FAIL cycles={} left={} bytes={growth} failed={}",
+            soak.cycles_total,
+            soak.cycles_left,
+            soak.failed as u8
+        );
     }
     let (topics, subs) = broker.counts();
     if topics >= 2 && subs >= 1 {
-        sys::write_str(&format!("MSGRD:TOPICS:PASS topics={topics} subs={subs}\n"));
+        trace::line!(
+            trace::Channel::Msgrd,
+            "TOPICS:PASS topics={topics} subs={subs}"
+        );
     } else {
-        sys::write_str(&format!("MSGRD:TOPICS:FAIL topics={topics} subs={subs}\n"));
+        trace::line!(
+            trace::Channel::Msgrd,
+            "TOPICS:FAIL topics={topics} subs={subs}"
+        );
     }
 }
 

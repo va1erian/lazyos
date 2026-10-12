@@ -26,6 +26,7 @@ use core::panic::PanicInfo;
 use user::messenger;
 use user::messenger::display::{self, Canvas, Client, Color, Rect, ShellEvent};
 use user::sys;
+use user::trace;
 
 /// The probe's own window content size in pixels.
 const WINDOW_W: i32 = 320;
@@ -259,7 +260,10 @@ fn run() -> ! {
     // credential drop cannot be undone, so it runs in a short-lived child.
     let panel_arg = alloc::format!("{panel}");
     if sys::spawn_native(fhs::bin::SHELLPROBE, &["denied", &panel_arg]).is_none() {
-        sys::write_str("SHELLPROBE:DENIED:FAIL:could not start the probe\n");
+        trace::line!(
+            trace::Channel::Shellprobe,
+            "DENIED:FAIL:could not start the probe"
+        );
     }
     let _ = sys::wait(sys::clock() + 500);
 
@@ -279,7 +283,7 @@ fn run() -> ! {
                     focus_seen = true;
                     sys::write_str(FOCUS_MARKER);
                 }
-                Some(ShellEvent::Dismiss) => sys::write_str("SHELLPROBE:DISMISS\n"),
+                Some(ShellEvent::Dismiss) => trace::line!(trace::Channel::Shellprobe, "DISMISS"),
                 Some(ShellEvent::StartMenu) if !hotkey_seen => {
                     hotkey_seen = true;
                     sys::write_str(HOTKEY_MARKER);

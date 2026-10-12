@@ -40,6 +40,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use netstack::Net;
 use user::messenger::net::wire as nic_wire;
@@ -155,17 +156,19 @@ pub extern "C" fn _start() -> ! {
     // The identity the kernel stamped on this task: `_netd` with no
     // capabilities under `init`, root when the kernel boots it directly.
     match sys::cred_get(None) {
-        Ok(cred) => sys::write_str(&format!(
-            "NETD:CRED uid={} caps={:#x}\n",
-            cred.uid, cred.caps
-        )),
-        Err(errno) => sys::write_str(&format!("NETD:CRED unavailable (errno {errno})\n")),
+        Ok(cred) => trace::line!(
+            trace::Channel::Netd,
+            "CRED uid={} caps={:#x}",
+            cred.uid,
+            cred.caps
+        ),
+        Err(errno) => trace::line!(trace::Channel::Netd, "CRED unavailable (errno {errno})"),
     }
     let args = Args::from_service();
     match run(&args) {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            sys::write_str(&format!("NETD:FAIL {message}\n"));
+            trace::line!(trace::Channel::Netd, "FAIL {message}");
             sys::exit(1)
         }
     }
@@ -185,10 +188,11 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     let (published, server) = messenger::create_pair().map_err(fail)?;
     registry::register(NAME, &published, &[api::INTERFACE, sock_api::INTERFACE], 0)
         .map_err(fail)?;
-    sys::write_str(&format!(
-        "NETD:READY name={NAME} interface={:#x}\n",
+    trace::line!(
+        trace::Channel::Netd,
+        "READY name={NAME} interface={:#x}",
         api::INTERFACE
-    ));
+    );
 
     let mut netd = Netd::new(Net::new(seed()?));
     let mut next_refresh = sys::clock() + config::REFRESH_TICKS;
@@ -304,9 +308,10 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
             Err(MsgError::Errno(code)) if code == -errno::E2BIG => {
                 oversize += 1;
                 if oversize.is_power_of_two() {
-                    sys::write_str(&format!(
-                        "NETD:OVERSIZE dropped {oversize} oversized request(s)\n"
-                    ));
+                    trace::line!(
+                        trace::Channel::Netd,
+                        "OVERSIZE dropped {oversize} oversized request(s)"
+                    );
                 }
                 continue;
             }
@@ -369,7 +374,7 @@ fn mac_text(mac: &[u8; 6]) -> alloc::string::String {
 fn run_demo(netd: &Netd, child: &mut Option<u64>, next: &mut usize, waited_enough: bool) {
     if child.is_some() {
         if let Some((pid, status)) = sys::wait(sys::clock()) {
-            sys::write_str(&format!("NETD:DEMO:EXIT pid={pid} status={status}\n"));
+            trace::line!(trace::Channel::Netd, "DEMO:EXIT pid={pid} status={status}");
             *child = None;
         }
     } else if *next < DEMO_CLIENTS.len()
@@ -386,8 +391,8 @@ fn run_demo(netd: &Netd, child: &mut Option<u64>, next: &mut usize, waited_enoug
             sys::spawn_native(program, args)
         };
         match pid {
-            Some(pid) => sys::write_str(&format!("NETD:DEMO:SPAWN pid={pid}\n")),
-            None => sys::write_str("NETD:DEMO:SPAWN failed (client missing?)\n"),
+            Some(pid) => trace::line!(trace::Channel::Netd, "DEMO:SPAWN pid={pid}"),
+            None => trace::line!(trace::Channel::Netd, "DEMO:SPAWN failed (client missing?)"),
         }
         *child = pid;
         // A client that cannot start ends the sequence: the harness then

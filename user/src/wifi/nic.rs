@@ -19,7 +19,7 @@
 //! session process to attach to `wlan0` would read and inject all of its
 //! traffic.
 
-use alloc::format;
+use crate::trace;
 use alloc::vec::Vec;
 
 use nicdrv::engine::{AttachError, CtlError};
@@ -145,7 +145,7 @@ impl<R: Radio> NicService<R> {
 
     fn drop_attachment(&mut self, why: &str) {
         if let Some(attachment) = self.attachment.take() {
-            sys::write_str(&format!("WIFI:NIC:DETACH if={} {why}\n", self.ifname));
+            trace::line!(trace::Channel::Wifi, "NIC:DETACH if={} {why}", self.ifname);
             let _ = sys::buffer_close(attachment.buffer);
             let _ = attachment.notify.release();
         }
@@ -334,10 +334,12 @@ impl<R: Radio> NicService<R> {
                     notify: Endpoint::from_raw(args.notify),
                     next_probe: sys::monotonic_ms() + PROBE_MS,
                 });
-                sys::write_str(&format!(
-                    "WIFI:NIC:ATTACH if={} owner={} ring={ring}\n",
-                    self.ifname, message.sender
-                ));
+                trace::line!(
+                    trace::Channel::Wifi,
+                    "NIC:ATTACH if={} owner={} ring={ring}",
+                    self.ifname,
+                    message.sender
+                );
                 Ok(ring)
             }
             Err(AttachError::Busy) => Err(err(errno::EBUSY)),

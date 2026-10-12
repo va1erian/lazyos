@@ -34,6 +34,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::central::Bus;
 use user::messenger::wifi::{api, Client};
@@ -59,7 +60,7 @@ pub extern "C" fn _start() -> ! {
     let code = match run(&args) {
         Ok(()) => 0,
         Err(text) => {
-            sys::write_str(&format!("WIFICTL:FAIL {text}\n"));
+            trace::line!(trace::Channel::Wifictl, "FAIL {text}");
             1
         }
     };
@@ -152,7 +153,7 @@ fn status(client: &Client, wanted: Option<&str>) -> core::result::Result<(), Str
         None => client.interfaces().map_err(text)?,
     };
     if names.is_empty() {
-        sys::write_str("WIFICTL:STATUS none disabled\n");
+        trace::line!(trace::Channel::Wifictl, "STATUS none disabled");
         return Ok(());
     }
     for name in names {
@@ -215,8 +216,9 @@ fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
         } else {
             n.ssid.as_str()
         };
-        sys::write_str(&format!(
-            "WIFICTL:NET \"{name}\" {security} rssi={} freq={} bss={}{}{}\n",
+        trace::line!(
+            trace::Channel::Wifictl,
+            "NET \"{name}\" {security} rssi={} freq={} bss={}{}{}",
             n.rssi_dbm,
             n.freq_mhz,
             n.bss_count,
@@ -225,8 +227,8 @@ fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
             } else {
                 format!(" id={}", n.id)
             },
-            if n.connected { " connected" } else { "" },
-        ));
+            if n.connected { " connected" } else { "" }
+        );
     }
     sys::write_str(&format!("{ifname}: {} network(s)\n", networks.len()));
     Ok(())
@@ -414,6 +416,6 @@ fn passphrase(ssid: &str) -> core::result::Result<String, String> {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("WIFICTL:FAIL panic\n");
+    trace::line!(trace::Channel::Wifictl, "FAIL panic");
     sys::exit(1)
 }

@@ -29,6 +29,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use ieee80211::frame::Mgmt;
 use ieee80211::{Bss, Security};
@@ -99,8 +100,9 @@ fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, S
             Security::Rsn(_) => "wpa2",
             _ => "other",
         };
-        sys::write_str(&format!(
-            "WIFIPROBE:SCAN:BSS bssid={} ssid={} ch={} rssi={} sec={security} age={} kind={}\n",
+        trace::line!(
+            trace::Channel::Wifiprobe,
+            "SCAN:BSS bssid={} ssid={} ch={} rssi={} sec={security} age={} kind={}",
             mac_text(&bss.bssid),
             bss.ssid_lossy(),
             entry.channel,
@@ -111,9 +113,13 @@ fn scan(client: &mut HwClient, ssids: &[&str]) -> Result<Vec<wire::ScanEntry>, S
             } else {
                 "beacon"
             }
-        ));
+        );
     }
-    sys::write_str(&format!("WIFIPROBE:SCAN:DONE count={}\n", entries.len()));
+    trace::line!(
+        trace::Channel::Wifiprobe,
+        "SCAN:DONE count={}",
+        entries.len()
+    );
     Ok(entries)
 }
 
@@ -139,23 +145,29 @@ fn stay(
     loop {
         let event = client.next_event(sys::monotonic_ms() + 60_000);
         match event {
-            Ok(Some(Event::BeaconLoss)) => sys::write_str("WIFIPROBE:EVENT:BEACONLOSS\n"),
+            Ok(Some(Event::BeaconLoss)) => {
+                trace::line!(trace::Channel::Wifiprobe, "EVENT:BEACONLOSS")
+            }
             Ok(Some(Event::Deauthenticated { reason })) => {
-                sys::write_str(&format!("WIFIPROBE:EVENT:DEAUTH reason={reason}\n"))
+                trace::line!(trace::Channel::Wifiprobe, "EVENT:DEAUTH reason={reason}")
             }
             Ok(Some(Event::RxMgmt { kind, frame, .. })) if kind == wire::FRAME_KIND_EAPOL => {
                 let Some(sup) = sup.as_mut() else { continue };
                 match sup.input(frame.get(14..).unwrap_or(&[])) {
                     Ok(actions) => match join::perform(client, sta, bss, aid, actions) {
-                        Ok(_) => sys::write_str("WIFIPROBE:EVENT:REKEY\n"),
-                        Err(why) => sys::write_str(&format!("WIFIPROBE:EVENT:REKEY:FAIL {why}\n")),
+                        Ok(_) => trace::line!(trace::Channel::Wifiprobe, "EVENT:REKEY"),
+                        Err(why) => {
+                            trace::line!(trace::Channel::Wifiprobe, "EVENT:REKEY:FAIL {why}")
+                        }
                     },
-                    Err(error) => sys::write_str(&format!("WIFIPROBE:EAPOL:REFUSED {error:?}\n")),
+                    Err(error) => {
+                        trace::line!(trace::Channel::Wifiprobe, "EAPOL:REFUSED {error:?}")
+                    }
                 }
             }
             Ok(_) => {}
             Err(why) => {
-                sys::write_str(&format!("WIFIPROBE:FAIL events: {why}\n"));
+                trace::line!(trace::Channel::Wifiprobe, "FAIL events: {why}");
                 sys::exit(1);
             }
         }
@@ -167,9 +179,9 @@ fn hold(client: &mut HwClient, ms: u64) -> Result<(), String> {
     let until = sys::monotonic_ms() + ms;
     while let Some(event) = client.next_event(until)? {
         match event {
-            Event::BeaconLoss => sys::write_str("WIFIPROBE:EVENT:BEACONLOSS\n"),
+            Event::BeaconLoss => trace::line!(trace::Channel::Wifiprobe, "EVENT:BEACONLOSS"),
             Event::Deauthenticated { reason } => {
-                sys::write_str(&format!("WIFIPROBE:EVENT:DEAUTH reason={reason}\n"))
+                trace::line!(trace::Channel::Wifiprobe, "EVENT:DEAUTH reason={reason}")
             }
             _ => {}
         }
@@ -185,37 +197,43 @@ fn suite(client: &mut HwClient, sta: &[u8; 6], args: &[String]) -> ! {
         scan(client, &[])?;
         let directed = scan(client, &[hidden])?;
         match join::pick(&directed, hidden, sys::monotonic_ms()) {
-            Some(bss) => sys::write_str(&format!(
-                "WIFIPROBE:HIDDEN:FOUND ssid={hidden} ch={}\n",
+            Some(bss) => trace::line!(
+                trace::Channel::Wifiprobe,
+                "HIDDEN:FOUND ssid={hidden} ch={}",
                 bss.channel
-            )),
-            None => sys::write_str(&format!("WIFIPROBE:HIDDEN:MISSING ssid={hidden}\n")),
+            ),
+            None => trace::line!(trace::Channel::Wifiprobe, "HIDDEN:MISSING ssid={hidden}"),
         }
         let bss = find(client, wrong)?;
         match join::join_wpa2(client, sta, &bss, passphrase) {
-            Ok(_) => sys::write_str(&format!("WIFIPROBE:WRONG:ACCEPTED ssid={wrong}\n")),
-            Err(why) => sys::write_str(&format!("WIFIPROBE:WRONG:REFUSED ssid={wrong} ({why})\n")),
+            Ok(_) => trace::line!(trace::Channel::Wifiprobe, "WRONG:ACCEPTED ssid={wrong}"),
+            Err(why) => trace::line!(
+                trace::Channel::Wifiprobe,
+                "WRONG:REFUSED ssid={wrong} ({why})"
+            ),
         }
         client.leave(REASON_LEAVING)?;
         let bss = find(client, open)?;
         let aid = join::join_open(client, sta, &bss)?;
-        sys::write_str(&format!(
-            "WIFIPROBE:CONNECTED ssid={open} security=open aid={aid}\n"
-        ));
+        trace::line!(
+            trace::Channel::Wifiprobe,
+            "CONNECTED ssid={open} security=open aid={aid}"
+        );
         hold(client, HOLD_MS)?;
         client.leave(REASON_LEAVING)?;
-        sys::write_str(&format!("WIFIPROBE:LEAVE ssid={open}\n"));
+        trace::line!(trace::Channel::Wifiprobe, "LEAVE ssid={open}");
         let bss = find(client, wpa2)?;
         let (aid, sup) = join::join_wpa2(client, sta, &bss, passphrase)?;
-        sys::write_str(&format!(
-            "WIFIPROBE:CONNECTED ssid={wpa2} security=wpa2 aid={aid}\n"
-        ));
+        trace::line!(
+            trace::Channel::Wifiprobe,
+            "CONNECTED ssid={wpa2} security=wpa2 aid={aid}"
+        );
         Ok((bss, aid, sup))
     })();
     match outcome {
         Ok((bss, aid, sup)) => stay(client, sta, &bss, aid, Some(sup)),
         Err(why) => {
-            sys::write_str(&format!("WIFIPROBE:FAIL {why}\n"));
+            trace::line!(trace::Channel::Wifiprobe, "FAIL {why}");
             sys::exit(1)
         }
     }
@@ -225,14 +243,15 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut client = HwClient::connect(IFNAME, 30_000)?;
     let info = client.info()?;
     let sta: [u8; 6] = info.mac.as_slice().try_into().map_err(|_| "bad MAC")?;
-    sys::write_str(&format!(
-        "WIFIPROBE:INFO if={} mac={} bands={:#x} ciphers={:#x} max_mgmt={}\n",
+    trace::line!(
+        trace::Channel::Wifiprobe,
+        "INFO if={} mac={} bands={:#x} ciphers={:#x} max_mgmt={}",
         info.interface,
         mac_text(&sta),
         info.bands,
         info.ciphers,
         info.max_mgmt
-    ));
+    );
     client.set_country(COUNTRY)?;
     match args.first().map(String::as_str) {
         Some("scan") | None => {
@@ -244,9 +263,10 @@ fn run(args: &[String]) -> Result<(), String> {
             let ssid = args.get(1).ok_or("open needs an SSID")?;
             let bss = find(&mut client, ssid)?;
             let aid = join::join_open(&mut client, &sta, &bss)?;
-            sys::write_str(&format!(
-                "WIFIPROBE:CONNECTED ssid={ssid} security=open aid={aid}\n"
-            ));
+            trace::line!(
+                trace::Channel::Wifiprobe,
+                "CONNECTED ssid={ssid} security=open aid={aid}"
+            );
             stay(&mut client, &sta, &bss, aid, None)
         }
         Some("wpa2") => {
@@ -254,9 +274,10 @@ fn run(args: &[String]) -> Result<(), String> {
             let passphrase = args.get(2).ok_or("wpa2 needs a passphrase")?;
             let bss = find(&mut client, ssid)?;
             let (aid, sup) = join::join_wpa2(&mut client, &sta, &bss, passphrase)?;
-            sys::write_str(&format!(
-                "WIFIPROBE:CONNECTED ssid={ssid} security=wpa2 aid={aid}\n"
-            ));
+            trace::line!(
+                trace::Channel::Wifiprobe,
+                "CONNECTED ssid={ssid} security=wpa2 aid={aid}"
+            );
             stay(&mut client, &sta, &bss, aid, Some(sup))
         }
         Some(other) => Err(format!("unknown mode {other}")),
@@ -271,7 +292,7 @@ pub extern "C" fn _start() -> ! {
     match run(&words) {
         Ok(()) => sys::exit(0),
         Err(why) => {
-            sys::write_str(&format!("WIFIPROBE:FAIL {why}\n"));
+            trace::line!(trace::Channel::Wifiprobe, "FAIL {why}");
             sys::exit(1)
         }
     }
@@ -279,6 +300,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("WIFIPROBE:FAIL panic\n");
+    trace::line!(trace::Channel::Wifiprobe, "FAIL panic");
     sys::exit(1)
 }

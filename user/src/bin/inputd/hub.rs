@@ -6,8 +6,8 @@
 //! place: the endpoint of the focused session. A session whose endpoint fills
 //! up gets the rest from a bounded backlog as it drains (`delivery.rs`).
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::hold::KeyHold;
 use inputmap::router::Error as RouteError;
@@ -417,10 +417,7 @@ impl Hub {
     /// Tell the compositor `surface` has no session (legacy delivery resumes).
     pub(super) fn announce_closed(&mut self, surface: u64) {
         if !self.router.has_session(surface) {
-            sys::write_str(&format!(
-                "INPUTD:SESSION:CLOSE surface={surface}
-"
-            ));
+            trace::line!(trace::Channel::Inputd, "SESSION:CLOSE surface={surface}");
             self.shell_event(
                 shell_wire::METHOD_SESSIONCLOSED,
                 shell_wire::encode_session_closed_args(&shell_wire::SessionClosedArgs { surface }),

@@ -24,9 +24,9 @@
 //! running does not wait at all. Serial: `INIT:AUTOSTART:PASS app=<id>
 //! session=<n>` per app, `INIT:AUTOSTART:FAIL ...` when one cannot start.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use spin::Mutex;
 use user::messenger::{router, services};
@@ -132,7 +132,7 @@ impl Autostart {
             if !super::ready::settled(services) {
                 return;
             }
-            sys::write_str("INIT:AUTOSTART:WAIT pkgd\n");
+            trace::line!(trace::Channel::Init, "AUTOSTART:WAIT pkgd");
             self.stage = Stage::Waiting {
                 until: now + PROVISION_WAIT,
             };
@@ -172,12 +172,13 @@ impl Autostart {
         for shell in opened {
             // The session's own identity, exactly: no capability, no label.
             let caller = SysCred::new(shell.uid, shell.gid, 0, 0, shell.session);
-            sys::write_str(&format!(
-                "INIT:AUTOSTART:SESSION session={} uid={} apps={}\n",
+            trace::line!(
+                trace::Channel::Init,
+                "AUTOSTART:SESSION session={} uid={} apps={}",
                 shell.session,
                 shell.uid,
                 ids.len()
-            ));
+            );
             self.pending
                 .extend(ids.iter().map(|&id| Pending { id, caller }));
         }
@@ -196,10 +197,11 @@ impl Autostart {
         while let Some(next) = self.pending.first() {
             let (id, caller) = (next.id, next.caller);
             if super::sessions::owner(caller.session) != Some(caller.uid) {
-                sys::write_str(&format!(
-                    "INIT:AUTOSTART:SKIP app={id} session={} (ended)\n",
+                trace::line!(
+                    trace::Channel::Init,
+                    "AUTOSTART:SKIP app={id} session={} (ended)",
                     caller.session
-                ));
+                );
                 self.pending.remove(0);
                 continue;
             }
@@ -211,12 +213,18 @@ impl Autostart {
             let session = caller.session;
             match launch(services, broker, installed, &request, &caller, true) {
                 Ok(_) => {
-                    sys::write_str(&format!("INIT:AUTOSTART:PASS app={id} session={session}\n"));
+                    trace::line!(
+                        trace::Channel::Init,
+                        "AUTOSTART:PASS app={id} session={session}"
+                    );
                     self.pending.remove(0);
                     self.attempts = 0;
                 }
                 Err(_) if self.attempts + 1 >= AUTOSTART_ATTEMPTS => {
-                    sys::write_str(&format!("INIT:AUTOSTART:FAIL app={id} session={session}\n"));
+                    trace::line!(
+                        trace::Channel::Init,
+                        "AUTOSTART:FAIL app={id} session={session}"
+                    );
                     self.pending.remove(0);
                     self.attempts = 0;
                 }
@@ -243,11 +251,17 @@ impl Autostart {
         // Without a `pkgd` row there is nothing to provision: ready. A `pkgd`
         // that stopped or ran out of time before `done` left the pass short.
         if done || !listed {
-            sys::write_str("INIT:AUTOSTART:READY pkgd\n");
+            trace::line!(trace::Channel::Init, "AUTOSTART:READY pkgd");
         } else if awaited {
-            sys::write_str("INIT:AUTOSTART:PARTIAL pkgd did not finish provisioning\n");
+            trace::line!(
+                trace::Channel::Init,
+                "AUTOSTART:PARTIAL pkgd did not finish provisioning"
+            );
         } else {
-            sys::write_str("INIT:AUTOSTART:PARTIAL pkgd stopped before provisioning finished\n");
+            trace::line!(
+                trace::Channel::Init,
+                "AUTOSTART:PARTIAL pkgd stopped before provisioning finished"
+            );
         }
         self.stage = Stage::Apps {
             selftest_until: if BOOT_SELFTESTS {

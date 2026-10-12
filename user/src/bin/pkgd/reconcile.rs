@@ -7,12 +7,12 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use lazypkg::Manifest;
 use pkgstore::{layout, tree};
 use user::files;
 use user::messenger::pkgd::Installed;
-use user::sys;
 
 use super::handlers::Pkgd;
 use super::install::{one_line, row_of};
@@ -29,19 +29,24 @@ impl Pkgd {
         if volume_ok {
             match tree::repair_docs(&mut SysFs) {
                 Ok(0) => {}
-                Ok(repairs) => sys::write_str(&format!("PKGD:DOCS:REPAIRED n={repairs}\n")),
+                Ok(repairs) => trace::line!(trace::Channel::Pkgd, "DOCS:REPAIRED n={repairs}"),
                 Err(error) => {
-                    sys::write_str(&format!("PKGD:DOCS:FAIL {}\n", one_line(&describe(&error))))
+                    trace::line!(
+                        trace::Channel::Pkgd,
+                        "DOCS:FAIL {}",
+                        one_line(&describe(&error))
+                    )
                 }
             }
         }
         let rows = match self.registry.list() {
             Ok(rows) => rows,
             Err(error) => {
-                sys::write_str(&format!(
-                    "PKGD:RECONCILE:SKIP the application list is unavailable: {}\n",
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "RECONCILE:SKIP the application list is unavailable: {}",
                     error.message()
-                ));
+                );
                 return;
             }
         };
@@ -51,7 +56,11 @@ impl Pkgd {
                 .map(|path| store::exists(&path))
                 .unwrap_or(false);
             if !present {
-                sys::write_str(&format!("PKGD:RECONCILE:MISSING {}\n", row.system_name));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "RECONCILE:MISSING {}",
+                    row.system_name
+                );
                 if volume_ok {
                     let _ = self.registry.delete(&row.system_name);
                 }
@@ -64,17 +73,19 @@ impl Pkgd {
             });
             match outcome {
                 Ok(()) => activated += 1,
-                Err(text) => sys::write_str(&format!(
-                    "PKGD:RECONCILE:FAIL {}: {}\n",
+                Err(text) => trace::line!(
+                    trace::Channel::Pkgd,
+                    "RECONCILE:FAIL {}: {}",
                     row.system_name,
                     one_line(&text)
-                )),
+                ),
             }
         }
-        sys::write_str(&format!(
-            "PKGD:RECONCILE:PASS n={activated} of={}\n",
+        trace::line!(
+            trace::Channel::Pkgd,
+            "RECONCILE:PASS n={activated} of={}",
             rows.len()
-        ));
+        );
     }
 }
 

@@ -4,6 +4,7 @@ use alloc::format;
 use alloc::string::String;
 use user::messenger::{self, services};
 use user::sys;
+use user::trace;
 
 use super::commands::report;
 use super::selftest::park_tick;
@@ -119,20 +120,25 @@ pub(crate) fn app_selftest() {
                 .iter()
                 .any(|app| app.id == "messengerctl" && app.path == fhs::bin::MESSENGERCTL);
             if has_top && has_self {
-                sys::write_str(&format!("MSGCTL:APPS:PASS count={}\n", apps.len()));
+                trace::line!(trace::Channel::Msgctl, "APPS:PASS count={}", apps.len());
             } else {
-                sys::write_str("MSGCTL:APPS:FAIL registry is missing top/messengerctl\n");
+                trace::line!(
+                    trace::Channel::Msgctl,
+                    "APPS:FAIL registry is missing top/messengerctl"
+                );
             }
         }
-        Err(error) => sys::write_str(&format!("MSGCTL:APPS:FAIL:{}\n", error.message())),
+        Err(error) => trace::line!(trace::Channel::Msgctl, "APPS:FAIL:{}", error.message()),
     }
 
     match services::launch(&endpoint, "top", "", 0) {
-        Ok(result) => sys::write_str(&format!(
-            "MSGCTL:LAUNCH:PASS app={} pid={}\n",
-            result.app, result.pid
-        )),
-        Err(error) => sys::write_str(&format!("MSGCTL:LAUNCH:FAIL:{}\n", error.message())),
+        Ok(result) => trace::line!(
+            trace::Channel::Msgctl,
+            "LAUNCH:PASS app={} pid={}",
+            result.app,
+            result.pid
+        ),
+        Err(error) => trace::line!(trace::Channel::Msgctl, "LAUNCH:FAIL:{}", error.message()),
     }
 
     // The foreign-session probe runs in a short-lived child (see
@@ -140,7 +146,10 @@ pub(crate) fn app_selftest() {
     // root, so this console task must not be the one that self-transitions.
     match sys::spawn_native(fhs::bin::MESSENGERCTL, &["probe"]) {
         Some(pid) => reap_probe(pid),
-        None => sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not spawn the probe\n"),
+        None => trace::line!(
+            trace::Channel::Msgctl,
+            "LAUNCH:DENIED:FAIL could not spawn the probe"
+        ),
     }
 }
 
@@ -154,26 +163,39 @@ pub(crate) fn probe_role() -> ! {
     let endpoint = match resolve_init() {
         Some(endpoint) => endpoint,
         None => {
-            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not resolve init\n");
+            trace::line!(
+                trace::Channel::Msgctl,
+                "LAUNCH:DENIED:FAIL could not resolve init"
+            );
             sys::exit(1);
         }
     };
     let probe = sys::Cred::new(1000, 1000, 0, 0, 4242);
     if sys::cred_set(None, &probe).is_err() {
-        sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL could not enter the probe session\n");
+        trace::line!(
+            trace::Channel::Msgctl,
+            "LAUNCH:DENIED:FAIL could not enter the probe session"
+        );
         sys::exit(1);
     }
     match services::launch(&endpoint, "top", "", 1) {
         Err(error) if error.errno() == Some(-messenger::errno::EPERM) => {
-            sys::write_str("MSGCTL:LAUNCH:DENIED:PASS\n");
+            trace::line!(trace::Channel::Msgctl, "LAUNCH:DENIED:PASS");
             sys::exit(0);
         }
         Ok(_) => {
-            sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL foreign launch was allowed\n");
+            trace::line!(
+                trace::Channel::Msgctl,
+                "LAUNCH:DENIED:FAIL foreign launch was allowed"
+            );
             sys::exit(1);
         }
         Err(error) => {
-            sys::write_str(&format!("MSGCTL:LAUNCH:DENIED:FAIL:{}\n", error.message()));
+            trace::line!(
+                trace::Channel::Msgctl,
+                "LAUNCH:DENIED:FAIL:{}",
+                error.message()
+            );
             sys::exit(1);
         }
     }
@@ -191,7 +213,10 @@ fn reap_probe(pid: u64) {
             None => {}
         }
     }
-    sys::write_str("MSGCTL:LAUNCH:DENIED:FAIL probe did not exit\n");
+    trace::line!(
+        trace::Channel::Msgctl,
+        "LAUNCH:DENIED:FAIL probe did not exit"
+    );
 }
 
 /// Resolve `init`, retrying while the supervisor's registration lands; `None`

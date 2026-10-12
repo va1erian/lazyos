@@ -4,6 +4,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use confd::{dir, ChangeSink, Confd, StoreFs};
 use user::files::{self, Kind};
@@ -101,11 +102,12 @@ pub fn seed_from_lower<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>, chosen
         let mut source = VfsStoreFs::new(source_dir);
         match service.absorb(&mut source) {
             Ok(report) if report.added > 0 || report.skipped > 0 => {
-                sys::write_str(&format!(
-                    "CONFD:SEED from={source_dir} added={} skipped={}
-",
-                    report.added, report.skipped
-                ));
+                trace::line!(
+                    trace::Channel::Confd,
+                    "SEED from={source_dir} added={} skipped={}",
+                    report.added,
+                    report.skipped
+                );
             }
             Ok(_) => {}
             Err(error) => sys::write_str(&format!(
@@ -128,10 +130,12 @@ fn seed_legacy<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>, legacy: &str) 
     let mut source =
         matches!(files::stat(legacy), Ok((_, Kind::Dir))).then(|| VfsStoreFs::new(legacy));
     match service.seed_once(source.as_mut()) {
-        Ok(Some(report)) => sys::write_str(&format!(
-            "CONFD:SEED:ONCE from={legacy} added={} skipped={}\n",
-            report.added, report.skipped
-        )),
+        Ok(Some(report)) => trace::line!(
+            trace::Channel::Confd,
+            "SEED:ONCE from={legacy} added={} skipped={}",
+            report.added,
+            report.skipped
+        ),
         Ok(None) => {}
         Err(error) => sys::write_str(&format!(
             "confd: cannot seed from {legacy}: {}\n",
@@ -149,13 +153,13 @@ pub fn try_upgrade<S: ChangeSink>(service: &mut Confd<VfsStoreFs, S>) -> bool {
     }
     match service.rebind(VfsStoreFs::new(dir::PREFERRED_DIR)) {
         Ok(report) => {
-            sys::write_str(&format!(
-                "CONFD:SEED to={} added={} skipped={}
-",
+            trace::line!(
+                trace::Channel::Confd,
+                "SEED to={} added={} skipped={}",
                 dir::PREFERRED_DIR,
                 report.added,
                 report.skipped
-            ));
+            );
             true
         }
         Err(error) => {

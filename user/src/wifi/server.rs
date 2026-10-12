@@ -10,6 +10,7 @@
 //! delivered is the client's loss. Only the endpoints themselves going away
 //! is fatal.
 
+use crate::trace;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -103,10 +104,12 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
     registry::register(&hw_name, &hw_published, &[hw::INTERFACE], 0).map_err(fail)?;
     registry::register(&nic_name, &nic_published, &[nic_api::INTERFACE], 0).map_err(fail)?;
     let facts = nic.mac().info();
-    sys::write_str(&format!(
-        "WIFI:READY if={ifname} hw={hw_name} nic={nic_name} mtu={} max_mgmt={}\n",
-        facts.mtu, facts.max_mgmt
-    ));
+    trace::line!(
+        trace::Channel::Wifi,
+        "READY if={ifname} hw={hw_name} nic={nic_name} mtu={} max_mgmt={}",
+        facts.mtu,
+        facts.max_mgmt
+    );
     let mut bus = None;
     publish_link(&mut bus, ifname, false, 0);
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
@@ -158,7 +161,10 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
             answer(nic_server, &message, &reply);
         }
         if dropped > reported_drops && now >= next_drop_report {
-            sys::write_str(&format!("WIFI:DROPPED if={ifname} requests={dropped}\n"));
+            trace::line!(
+                trace::Channel::Wifi,
+                "DROPPED if={ifname} requests={dropped}"
+            );
             reported_drops = dropped;
             next_drop_report = now + DROP_REPORT_MS;
         }
@@ -172,7 +178,7 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
         if changed {
             let stats = nic.engine.stats();
             let up = nic.engine.link();
-            sys::write_str(&format!("WIFI:LINK if={ifname} up={up}\n"));
+            trace::line!(trace::Channel::Wifi, "LINK if={ifname} up={up}");
             publish_link(&mut bus, ifname, up, stats.link_changes);
         }
         nic.mac().radio_mut().pump(now)?;

@@ -4,6 +4,7 @@ use alloc::format;
 use alloc::string::String;
 use user::messenger::{self, keyd, topics_client};
 use user::sys;
+use user::trace;
 
 use super::topic_tests::{
     selftest_drop, selftest_fanout, selftest_qos, selftest_retained, selftest_unsubscribe,
@@ -113,8 +114,10 @@ pub(crate) fn keyd_selftest() {
         match keyd::Client::connect() {
             Ok(client) => {
                 match client.keys() {
-                    Ok(keys) => sys::write_str(&format!("KEYD:KEYS:PASS {}\n", keys.len())),
-                    Err(error) => sys::write_str(&format!("KEYD:KEYS:FAIL:{}\n", error.message())),
+                    Ok(keys) => trace::line!(trace::Channel::Keyd, "KEYS:PASS {}", keys.len()),
+                    Err(error) => {
+                        trace::line!(trace::Channel::Keyd, "KEYS:FAIL:{}", error.message())
+                    }
                 }
                 return;
             }

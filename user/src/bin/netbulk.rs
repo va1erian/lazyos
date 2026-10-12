@@ -25,6 +25,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::netsock::{Addr, Client, MAX_CHUNK};
 use user::messenger::netstd::{is_timeout, parse_ipv4, TcpStream};
@@ -142,15 +143,16 @@ fn print(kind: &str, bytes: u64, outcome: Result<u64, String>) -> bool {
         Ok(ticks) => {
             let ms = ticks.max(1) * 10;
             let kbps = bytes / ms;
-            sys::write_str(&format!(
-                "NETBULK:native:{kind}:PASS bytes={bytes} ms={ms} mbps={}.{:02}\n",
+            trace::line!(
+                trace::Channel::Netbulk,
+                "native:{kind}:PASS bytes={bytes} ms={ms} mbps={}.{:02}",
                 kbps / 1000,
                 (kbps % 1000) / 10
-            ));
+            );
             true
         }
         Err(why) => {
-            sys::write_str(&format!("NETBULK:native:{kind}:FAIL:{why}\n"));
+            trace::line!(trace::Channel::Netbulk, "native:{kind}:FAIL:{why}");
             false
         }
     }
@@ -170,16 +172,17 @@ fn parse() -> Option<(Addr, u64, u64, u32)> {
 pub extern "C" fn _start() -> ! {
     let Some((to, bytes, seed, rounds)) = parse() else {
         sys::write_str("usage: netbulk <a.b.c.d> <port> <bytes> [seed] [rounds]\n");
-        sys::write_str("NETBULK:native:FAIL:usage\n");
+        trace::line!(trace::Channel::Netbulk, "native:FAIL:usage");
         sys::exit(2)
     };
     let client = match Client::connect() {
         Ok(client) => Rc::new(client),
         Err(e) => {
-            sys::write_str(&format!(
-                "NETBULK:native:FAIL:no socket service: {}\n",
+            trace::line!(
+                trace::Channel::Netbulk,
+                "native:FAIL:no socket service: {}",
                 e.message()
-            ));
+            );
             sys::exit(1)
         }
     };
@@ -189,12 +192,12 @@ pub extern "C" fn _start() -> ! {
         ok &= print("PUT", bytes, put(&client, to, bytes, seed));
         ok &= print("GET", bytes, get(&client, to, bytes, seed + 1));
     }
-    sys::write_str(&format!("NETBULK:native:done ok={ok}\n"));
+    trace::line!(trace::Channel::Netbulk, "native:done ok={ok}");
     sys::exit(if ok { 0 } else { 1 })
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("NETBULK:native:FAIL:panic\n");
+    trace::line!(trace::Channel::Netbulk, "native:FAIL:panic");
     sys::exit(1)
 }

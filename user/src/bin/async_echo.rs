@@ -28,6 +28,7 @@ use libmessenger::{flags, Decoder, Encoder, Header, Parcel, VERSION};
 use user::messenger::{self, Endpoint, Error, Result};
 use user::messenger_async::{self, Call, Event, Selector};
 use user::sys;
+use user::trace;
 
 #[path = "async_echo/wait.rs"]
 mod wait;
@@ -52,11 +53,11 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("\n");
     let code = match main() {
         Ok(()) => {
-            sys::write_str("ASYNC:ALL:PASS\n");
+            trace::line!(trace::Channel::Async, "ALL:PASS");
             0
         }
         Err(()) => {
-            sys::write_str("ASYNC:ALL:FAIL\n");
+            trace::line!(trace::Channel::Async, "ALL:FAIL");
             1
         }
     };
@@ -211,9 +212,11 @@ pub(crate) fn text_of(parcel: &Parcel) -> Option<String> {
 
 /// Print one step marker; returns whether the step passed.
 pub(crate) fn require(name: &str, passed: bool) -> core::result::Result<(), ()> {
-    sys::write_str("ASYNC:");
-    sys::write_str(name);
-    sys::write_str(if passed { ":PASS\n" } else { ":FAIL\n" });
+    trace::line!(
+        trace::Channel::Async,
+        "{name}:{}",
+        if passed { "PASS" } else { "FAIL" }
+    );
     if passed {
         Ok(())
     } else {

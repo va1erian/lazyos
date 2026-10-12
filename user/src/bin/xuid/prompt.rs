@@ -28,6 +28,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_display_prompt_v1 as wire;
@@ -116,7 +117,11 @@ impl Compositor {
     pub(super) fn open_prompt(&mut self, message: &Message) -> Option<Parcel> {
         let caller = message.caller();
         if !elevpolicy::is_elevd(caller.uid, caller.label_id, caller.session) {
-            sys::write_str(&format!("XUID:PROMPT:DENIED caller_uid={}\n", caller.uid));
+            trace::line!(
+                trace::Channel::Xuid,
+                "PROMPT:DENIED caller_uid={}",
+                caller.uid
+            );
             return Some(refusal(
                 errno::EPERM,
                 "only elevd may ask for an administrator",
@@ -145,7 +150,7 @@ impl Compositor {
         // field takes a key, until `inputd` confirmed no client window has
         // it. Otherwise the request is refused and `elevd` refuses it too.
         if let Err(why) = self.take_prompt_keys() {
-            sys::write_str(&format!("XUID:PROMPT:REFUSED reason={why}\n"));
+            trace::line!(trace::Channel::Xuid, "PROMPT:REFUSED reason={why}");
             return Some(refusal(
                 errno::EAGAIN,
                 "the keyboard could not be taken from the apps for the prompt",
@@ -178,10 +183,12 @@ impl Compositor {
             deadline: sys::clock() + PROMPT_TICKS,
             keys: 0,
         });
-        sys::write_str(&format!(
-            "XUID:PROMPT:UP uid={} label={}\n",
-            args.uid, args.label_id
-        ));
+        trace::line!(
+            trace::Channel::Xuid,
+            "PROMPT:UP uid={} label={}",
+            args.uid,
+            args.label_id
+        );
         self.sync_input_now();
         self.repaint_full();
         None
@@ -371,10 +378,11 @@ impl Compositor {
             wire::PROMPT_OUTCOME_TIMED_OUT => "timedout",
             _ => "cancelled",
         };
-        sys::write_str(&format!(
-            "XUID:PROMPT:DONE outcome={word} keys={}\n",
+        trace::line!(
+            trace::Channel::Xuid,
+            "PROMPT:DONE outcome={word} keys={}",
             prompt.keys
-        ));
+        );
         self.prompt_reply = Some((prompt.txn, parcel));
         self.close_prompt_keys();
         self.sync_input_now();

@@ -34,6 +34,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use ftpwire::{crc32_update, Pattern};
 use session::{describe, drain, send_all, Control};
@@ -155,7 +156,7 @@ fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
     })?;
     drop(data);
     c.finish_transfer()?;
-    sys::write_str(&format!("FTP:LS bytes={bytes}\n"));
+    trace::line!(trace::Channel::Ftp, "LS bytes={bytes}");
     Ok(())
 }
 
@@ -173,7 +174,10 @@ fn cmd_get(c: &mut Control, args: &[String], quiet: bool) -> Result<(), String> 
     drop(data);
     c.finish_transfer()?;
     if !(to_stdout && quiet) {
-        sys::write_str(&format!("FTP:GET {name} bytes={bytes} crc={crc:08x}\n"));
+        trace::line!(
+            trace::Channel::Ftp,
+            "GET {name} bytes={bytes} crc={crc:08x}"
+        );
     }
     Ok(())
 }
@@ -227,7 +231,10 @@ fn cmd_put(c: &mut Control, args: &[String]) -> Result<(), String> {
     let _ = data.shutdown_write();
     drop(data);
     c.finish_transfer()?;
-    sys::write_str(&format!("FTP:PUT {remote} bytes={sent} crc={crc:08x}\n"));
+    trace::line!(
+        trace::Channel::Ftp,
+        "PUT {remote} bytes={sent} crc={crc:08x}"
+    );
     Ok(())
 }
 
@@ -286,7 +293,7 @@ fn run() -> Result<usize, String> {
     if r.class() == 3 {
         c.request("PASS", Some(&opts.pass), &[2])?;
     }
-    sys::write_str("FTP:LOGIN\n");
+    trace::line!(trace::Channel::Ftp, "LOGIN");
     c.request("TYPE", Some("I"), &[2])?;
 
     let mut done = 0;
@@ -318,11 +325,11 @@ fn run() -> Result<usize, String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok(done) => {
-            sys::write_str(&format!("FTP:PASS commands={done}\n"));
+            trace::line!(trace::Channel::Ftp, "PASS commands={done}");
             sys::exit(0)
         }
         Err(message) => {
-            sys::write_str(&format!("FTP:FAIL {message}\n"));
+            trace::line!(trace::Channel::Ftp, "FAIL {message}");
             sys::exit(1)
         }
     }

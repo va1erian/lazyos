@@ -70,6 +70,11 @@ pub mod op {
     /// services' output), also `cfg(lazyos_dbgd)` only.
     #[cfg(lazyos_dbgd)]
     pub const PROGRAM_LOG: u64 = 3;
+    /// The trace mask (`tracefmt::Mask`) as two little-endian words, 16
+    /// bytes, so a program learns which channels print without reading the
+    /// whole snapshot (docs/tracing-plan.md, T2). Zero in a
+    /// `LAZYOS_TRACE=0` kernel. Open to every task: the mask is no secret.
+    pub const TRACE_MASK: u64 = 4;
 }
 
 /// Task state codes in a row's state word. Stable across ABI versions.
@@ -222,6 +227,7 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
     match op {
         op::SIZE => SIZE,
         op::SNAPSHOT => snapshot(a1, a2),
+        op::TRACE_MASK => trace_mask(a1, a2),
         #[cfg(lazyos_dbgd)]
         op::KLOG => log_ring(a1, a2, crate::klog::snapshot_with_total),
         #[cfg(lazyos_dbgd)]
@@ -235,6 +241,24 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
             log_ring(a1, a2, crate::klog::programs_with_total)
         }
         _ => negative(errno::EINVAL),
+    }
+}
+
+/// op 4: the trace mask's two words (see [`op::TRACE_MASK`]).
+fn trace_mask(buf: u64, capacity: u64) -> u64 {
+    if buf == 0 {
+        return negative(errno::EFAULT);
+    }
+    if capacity < 16 {
+        return negative(errno::E2BIG);
+    }
+    let [low, high] = crate::trace::mask_words();
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&low.to_le_bytes());
+    bytes[8..].copy_from_slice(&high.to_le_bytes());
+    match crate::ipc::syscalls::copy_out(buf, &bytes) {
+        Ok(()) => 16,
+        Err(code) => (code as u64).wrapping_neg(),
     }
 }
 

@@ -22,6 +22,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use audioclient::{control_wire as control, wire, Client, Error, MixerControl, UNITY_GAIN};
 use user::audio::{self, Native};
@@ -43,7 +44,7 @@ pub extern "C" fn _start() -> ! {
     let words: Vec<&str> = text.split_whitespace().collect();
     let outcome = match words.as_slice() {
         ["probe"] => probe().map(|checks| {
-            sys::write_str(&format!("MIXER:PROBE:PASS checks={checks}\n"));
+            trace::line!(trace::Channel::Mixer, "PROBE:PASS checks={checks}");
         }),
         _ => command(&words),
     };

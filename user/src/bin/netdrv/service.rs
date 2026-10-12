@@ -12,9 +12,9 @@
 //! core), not in request handlers: a request only changes who is attached and
 //! how.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use nicdrv::engine::{AttachError, CtlError};
 use user::messenger::net::{self as api, wire};
@@ -76,7 +76,7 @@ impl Service {
     /// Release the attachment's buffer and endpoint.
     fn drop_attachment(&mut self, why: &str) {
         if let Some(attachment) = self.attachment.take() {
-            sys::write_str(&format!("NETDRV:DETACH {why}\n"));
+            trace::line!(trace::Channel::Netdrv, "DETACH {why}");
             let _ = sys::buffer_close(attachment.buffer);
             let _ = attachment.notify.release();
         }
@@ -286,10 +286,11 @@ impl Service {
                     notify: Endpoint::from_raw(args.notify),
                     next_probe: sys::clock() + PROBE_TICKS,
                 });
-                sys::write_str(&format!(
-                    "NETDRV:ATTACH owner={} ring={ring} slots={slots}\n",
+                trace::line!(
+                    trace::Channel::Netdrv,
+                    "ATTACH owner={} ring={ring} slots={slots}",
                     message.sender
-                ));
+                );
                 Ok(ring)
             }
             Err(AttachError::Busy) => Err(err(errno::EBUSY)),

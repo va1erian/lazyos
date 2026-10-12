@@ -31,8 +31,8 @@
 //! `INIT:LOGOUT:PASS session=<id> rows=<n> tasks=<n> ticks=<n>`, or
 //! `INIT:LOGOUT:LEFT session=<id> tasks=<n>` when tasks survived every sweep.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use svcpolicy::{logout_deadline, logout_settled, StopMode};
 use user::messenger::router;
@@ -73,12 +73,13 @@ impl Logouts {
             return;
         }
         let started = sys::clock();
-        sys::write_str(&format!("INIT:LOGOUT:BEGIN session={session}\n"));
+        trace::line!(trace::Channel::Init, "LOGOUT:BEGIN session={session}");
         let rows = stop_rows(services, broker, session, started);
-        sys::write_str(&format!(
-            "INIT:LOGOUT:WAIT session={session} rows={rows} quitting={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "LOGOUT:WAIT session={session} rows={rows} quitting={}",
             quitting(services, session)
-        ));
+        );
         self.ending.push(Ending {
             session,
             started,
@@ -184,17 +185,19 @@ fn sweep_session(ending: &Ending, now: u64) {
         }
     }
     if left.is_empty() {
-        sys::write_str(&format!(
-            "INIT:LOGOUT:PASS session={session} rows={} tasks={} ticks={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "LOGOUT:PASS session={session} rows={} tasks={} ticks={}",
             ending.rows,
             killed.len(),
             now.saturating_sub(ending.started)
-        ));
+        );
     } else {
-        sys::write_str(&format!(
-            "INIT:LOGOUT:LEFT session={session} tasks={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "LOGOUT:LEFT session={session} tasks={}",
             left.len()
-        ));
+        );
     }
 }
 

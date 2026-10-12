@@ -9,7 +9,7 @@
 //! means the self-test exercises the same path a real client uses.
 
 use alloc::alloc::{alloc_zeroed, Layout};
-use alloc::format;
+use user::trace;
 
 use framering::{ring_bytes, Ring, MAX_FRAME};
 use nicdrv::arp;
@@ -80,15 +80,16 @@ pub(super) fn run(card: &mut Card, server: &Endpoint) -> Result<(), Error> {
     let _ = card.engine.detach(SELF_OWNER, ring);
     match answered {
         Some(from) => {
-            sys::write_str(&format!(
-                "NET:NIC:PASS mac={} link={} mtu={} rx={} tx={} arp_reply_from={}\n",
+            trace::line!(
+                trace::Channel::Net,
+                "NIC:PASS mac={} link={} mtu={} rx={} tx={} arp_reply_from={}",
                 super::mac_text(&mac),
                 card.engine.link(),
                 card.mtu,
                 card.queue_sizes.0,
                 card.queue_sizes.1,
                 super::mac_text(&from)
-            ));
+            );
             Ok(())
         }
         None => Err(Error::SelfTest("no ARP reply from the gateway")),

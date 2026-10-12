@@ -23,6 +23,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use lazyos_crypto::rng::Entropy;
 use secretstore::{Denied, Error as StoreError, Owner, Store, MACHINE_KEY_LEN};
@@ -49,14 +50,16 @@ impl Secrets {
             key: None,
         };
         match secrets.open(entropy) {
-            Ok(count) => sys::write_str(&format!(
-                "KEYD:SECRETS:PASS count={count} file={}\n",
+            Ok(count) => trace::line!(
+                trace::Channel::Keyd,
+                "SECRETS:PASS count={count} file={}",
                 fhs::state::KEYD_SECRETS
-            )),
-            Err(reason) => sys::write_str(&format!(
-                "KEYD:SECRETS:FAIL reason={reason} file={}\n",
+            ),
+            Err(reason) => trace::line!(
+                trace::Channel::Keyd,
+                "SECRETS:FAIL reason={reason} file={}",
                 fhs::state::KEYD_SECRETS
-            )),
+            ),
         }
         secrets
     }
@@ -103,7 +106,7 @@ impl Secrets {
                     &key,
                 )
                 .map_err(|code| format!("the machine key could not be written errno={code}"))?;
-                sys::write_str("KEYD:SECRETS:KEY created\n");
+                trace::line!(trace::Channel::Keyd, "SECRETS:KEY created");
                 Ok(key)
             }
             Err(code) => Err(format!("the machine key is unreadable errno={code}")),
@@ -168,7 +171,11 @@ impl Secrets {
         let (pmk, fresh) = self.store.pmk(owner, name, ssid).map_err(store_error)?;
         if fresh {
             if let Err(error) = self.persist(entropy) {
-                sys::write_str(&format!("KEYD:SECRETS:CACHE:FAIL {}\n", error.message()));
+                trace::line!(
+                    trace::Channel::Keyd,
+                    "SECRETS:CACHE:FAIL {}",
+                    error.message()
+                );
             }
         }
         Ok(pmk.to_vec())
@@ -204,7 +211,7 @@ impl Secrets {
             &bytes,
         )
         .map_err(|code| {
-            sys::write_str(&format!("KEYD:SECRETS:WRITE:FAIL errno={code}\n"));
+            trace::line!(trace::Channel::Keyd, "SECRETS:WRITE:FAIL errno={code}");
             Error::Errno(-errno::EIO)
         })
     }

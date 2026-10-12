@@ -13,6 +13,7 @@
 
 use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::session_layout::{user_layout_key, USER_FILTER_PATH};
 use inputmap::Layout;
@@ -132,7 +133,7 @@ impl LayoutFeed {
         if wanted != self.wanted {
             self.wanted = wanted;
             let name = wanted.map_or("none", Layout::name);
-            sys::write_str(&format!("XUID:LAYOUT:USER uid={uid} layout={name}\n"));
+            trace::line!(trace::Channel::Xuid, "LAYOUT:USER uid={uid} layout={name}");
         }
     }
 }

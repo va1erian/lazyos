@@ -24,6 +24,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::net::wire as nic_wire;
 use user::messenger::netstack::{wire, Client};
@@ -192,11 +193,11 @@ fn run_sockets(mode: Mode) -> Result<(), String> {
         alloc::rc::Rc::new(user::messenger::netsock::Client::connect().map_err(fail("sockets"))?);
     match mode {
         Mode::SockProbe => sockprobe::run(&sockets)
-            .map(|n| sys::write_str(&format!("NETCTL:SOCKPROBE:PASS checks={n}\n"))),
+            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKPROBE:PASS checks={n}")),
         Mode::SockSoak(n) => socksoak::run(&sockets, n)
-            .map(|n| sys::write_str(&format!("NETCTL:SOCKSOAK:PASS iterations={n}\n"))),
+            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKSOAK:PASS iterations={n}")),
         Mode::SockOwner(id) => sockowner::foreign_owner(&sockets, id)
-            .map(|n| sys::write_str(&format!("NETCTL:SOCKOWNER:PASS refusals={n}\n"))),
+            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKOWNER:PASS refusals={n}")),
         _ => show_sockets(&sockets),
     }
 }
@@ -215,11 +216,12 @@ fn show_sockets(client: &user::messenger::netsock::Client) -> Result<(), String>
 fn run(mode: Mode) -> Result<(), String> {
     match mode {
         Mode::Probe => {
-            return probe::run().map(|n| sys::write_str(&format!("NETCTL:PROBE:PASS checks={n}\n")))
+            return probe::run()
+                .map(|n| trace::line!(trace::Channel::Netctl, "PROBE:PASS checks={n}"))
         }
         Mode::Soak(n) => {
             return soak::run(n)
-                .map(|n| sys::write_str(&format!("NETCTL:SOAK:PASS iterations={n}\n")))
+                .map(|n| trace::line!(trace::Channel::Netctl, "SOAK:PASS iterations={n}"))
         }
         Mode::SockProbe | Mode::SockSoak(_) | Mode::SockOwner(_) | Mode::Sockets => {
             return run_sockets(mode)
@@ -254,9 +256,10 @@ fn run(mode: Mode) -> Result<(), String> {
                 .find(|r| r.prefix_len == 0)
                 .map(|r| ip_text(&r.gateway))
                 .unwrap_or_default();
-            sys::write_str(&format!(
-                "NETCTL:INFO:PASS addr={address} gateway={gateway}\n"
-            ));
+            trace::line!(
+                trace::Channel::Netctl,
+                "INFO:PASS addr={address} gateway={gateway}"
+            );
             Ok(())
         }
         Mode::Probe
@@ -274,7 +277,7 @@ pub extern "C" fn _start() -> ! {
     match outcome {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            sys::write_str(&format!("NETCTL:FAIL {message}\n"));
+            trace::line!(trace::Channel::Netctl, "FAIL {message}");
             sys::exit(1)
         }
     }

@@ -6,6 +6,7 @@ use alloc::format;
 use user::messenger::display::{self, wire, Canvas, Client, Color, Event, Rect, ShellEvent};
 use user::messenger::{self, Endpoint, Error};
 use user::sys;
+use user::trace;
 
 /// The session the probe claims the display for. A probe child in another
 /// session must then be refused the shell role.
@@ -23,7 +24,7 @@ fn pair(marker: &str) -> Option<(Endpoint, Endpoint)> {
     match messenger::create_pair() {
         Ok(pair) => Some(pair),
         Err(_) => {
-            sys::write_str(&format!("SHELLPROBE:{marker}:FAIL:create_pair\n"));
+            trace::line!(trace::Channel::Shellprobe, "{marker}:FAIL:create_pair");
             None
         }
     }
@@ -35,9 +36,10 @@ fn refused<T>(marker: &str, what: &str, result: Result<T, Error>, code: i64) -> 
         Err(Error::Errno(got)) if got == -code => true,
         other => {
             let got = other.err().and_then(|error| error.errno());
-            sys::write_str(&format!(
-                "SHELLPROBE:{marker}:FAIL:{what} gave {got:?}, want -{code}\n"
-            ));
+            trace::line!(
+                trace::Channel::Shellprobe,
+                "{marker}:FAIL:{what} gave {got:?}, want -{code}"
+            );
             false
         }
     }
@@ -49,7 +51,10 @@ fn ok<T>(marker: &str, what: &str, result: Result<T, Error>) -> Option<T> {
         Ok(value) => Some(value),
         Err(error) => {
             let code = error.errno().unwrap_or(0);
-            sys::write_str(&format!("SHELLPROBE:{marker}:FAIL:{what} gave {code}\n"));
+            trace::line!(
+                trace::Channel::Shellprobe,
+                "{marker}:FAIL:{what} gave {code}"
+            );
             None
         }
     }
@@ -58,7 +63,7 @@ fn ok<T>(marker: &str, what: &str, result: Result<T, Error>) -> Option<T> {
 /// Log `SHELLPROBE:<marker>:PASS` when `passed`.
 pub(super) fn verdict(marker: &str, passed: bool) -> bool {
     if passed {
-        sys::write_str(&format!("SHELLPROBE:{marker}:PASS\n"));
+        trace::line!(trace::Channel::Shellprobe, "{marker}:PASS");
     }
     passed
 }
@@ -112,7 +117,7 @@ pub(super) fn panel(client: &Client, screen: Rect) -> Option<(u64, Endpoint)> {
     // Panels are listed last, above every window.
     let last = rows.last().is_some_and(|row| row.id == panel);
     if !placed || !last {
-        sys::write_str("SHELLPROBE:PANEL:FAIL:row\n");
+        trace::line!(trace::Channel::Shellprobe, "PANEL:FAIL:row");
     }
     verdict("PANEL", placed && last).then_some((panel, events))
 }
@@ -137,7 +142,7 @@ pub(super) fn work_area(client: &Client, screen: Rect) -> bool {
 /// [`window_management`], which waits for a `SurfaceChanged` on it).
 pub(super) fn evict(client: &Client, screen: Rect) -> bool {
     if sys::spawn_native(fhs::bin::SHELLPROBE, &["observer"]).is_none() {
-        sys::write_str("SHELLPROBE:EVICT:FAIL:spawn\n");
+        trace::line!(trace::Channel::Shellprobe, "EVICT:FAIL:spawn");
         return false;
     }
     let status = sys::wait(sys::clock() + 500);
@@ -145,9 +150,10 @@ pub(super) fn evict(client: &Client, screen: Rect) -> bool {
     let area = Rect::new(0, 0, screen.w, screen.h - BAR_H);
     let kept = client.get_work_area().is_ok_and(|got| got == area);
     if !subscribed || !kept {
-        sys::write_str(&format!(
-            "SHELLPROBE:EVICT:FAIL:observer={status:?} work area kept={kept}\n"
-        ));
+        trace::line!(
+            trace::Channel::Shellprobe,
+            "EVICT:FAIL:observer={status:?} work area kept={kept}"
+        );
     }
     subscribed && kept
 }
@@ -210,9 +216,10 @@ pub(super) fn window_management(
     );
     let passed = icon_set && minimized && heard && activated && hinted && wrong_role && unknown;
     if !passed {
-        sys::write_str(&format!(
-            "SHELLPROBE:WM:FAIL:icon={icon_set} min={minimized} heard={heard} act={activated}\n"
-        ));
+        trace::line!(
+            trace::Channel::Shellprobe,
+            "WM:FAIL:icon={icon_set} min={minimized} heard={heard} act={activated}"
+        );
     }
     (verdict("WM", passed), heard)
 }
@@ -255,7 +262,7 @@ pub(super) fn log_layer(tag: &str, events: &Endpoint, buf: &mut [u8]) {
             Some(Event::PointerWheel { delta, .. }) => format!("WHEEL {delta}"),
             _ => continue,
         };
-        sys::write_str(&format!("SHELLPROBE:{tag}:{line}\n"));
+        trace::line!(trace::Channel::Shellprobe, "{tag}:{line}");
     }
 }
 
@@ -267,11 +274,14 @@ pub(super) fn log_layer(tag: &str, events: &Endpoint, buf: &mut [u8]) {
 pub(super) fn denied_child(panel: u64) -> ! {
     let plain = sys::Cred::new(1000, 1000, 0, 0, OTHER_SESSION);
     if sys::cred_set(None, &plain).is_err() {
-        sys::write_str("SHELLPROBE:DENIED:FAIL:could not drop privilege\n");
+        trace::line!(
+            trace::Channel::Shellprobe,
+            "DENIED:FAIL:could not drop privilege"
+        );
         sys::exit(1);
     }
     let Ok(client) = Client::connect() else {
-        sys::write_str("SHELLPROBE:DENIED:FAIL:connect\n");
+        trace::line!(trace::Channel::Shellprobe, "DENIED:FAIL:connect");
         sys::exit(1)
     };
     // A refused call still consumes the transferred endpoint, so each gets

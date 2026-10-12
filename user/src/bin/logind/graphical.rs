@@ -34,6 +34,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{
     self, accounts, confd, errno, logind, registry, router, services, Endpoint, Message, Parcel,
@@ -183,16 +184,18 @@ impl Desktop {
             .as_ref()
             .and_then(|endpoint| accounts::lookup_name(endpoint, AUTOLOGIN).ok().flatten());
         let Some(account) = account else {
-            sys::write_str(&format!(
-                "LOGIN:AUTOLOGIN:FAIL user={AUTOLOGIN} reason=unknown-user\n"
-            ));
+            trace::line!(
+                trace::Channel::Login,
+                "AUTOLOGIN:FAIL user={AUTOLOGIN} reason=unknown-user"
+            );
             return;
         };
         match self.open(&account) {
-            Ok(_) => sys::write_str(&format!("LOGIN:AUTOLOGIN:PASS user={AUTOLOGIN}\n")),
-            Err(reason) => sys::write_str(&format!(
-                "LOGIN:AUTOLOGIN:FAIL user={AUTOLOGIN} reason={reason}\n"
-            )),
+            Ok(_) => trace::line!(trace::Channel::Login, "AUTOLOGIN:PASS user={AUTOLOGIN}"),
+            Err(reason) => trace::line!(
+                trace::Channel::Login,
+                "AUTOLOGIN:FAIL user={AUTOLOGIN} reason={reason}"
+            ),
         }
     }
 
@@ -203,7 +206,7 @@ impl Desktop {
         let deadline = Some(sys::clock() + CALL_TICKS);
         match services::launch_by(init, GREETER_APP, "", 0, deadline) {
             Ok(result) => {
-                sys::write_str(&format!("LOGIN:GREETER:PASS pid={}\n", result.pid));
+                trace::line!(trace::Channel::Login, "GREETER:PASS pid={}", result.pid);
                 self.greeter = true;
                 Ok(())
             }
@@ -340,9 +343,10 @@ impl Desktop {
         let pid = match launched {
             Ok(result) => result.pid,
             Err(reason) => {
-                sys::write_str(&format!(
-                    "LOGIN:GRAPHICAL:FAIL session={id} reason={reason}\n"
-                ));
+                trace::line!(
+                    trace::Channel::Login,
+                    "GRAPHICAL:FAIL session={id} reason={reason}"
+                );
                 publish_end(&mut self.bus, account, id, 1);
                 return Err(reason);
             }
@@ -359,14 +363,17 @@ impl Desktop {
             index: self.sessions.len() - 1,
             id,
         });
-        sys::write_str(&format!(
-            "LOGIN:OK:PASS user={} uid={} session={id} pid={pid}\n",
-            account.name, account.uid
-        ));
-        sys::write_str(&format!(
-            "LOGIN:GRAPHICAL:PASS user={} session={id} app={SHELL_APP} pid={pid}\n",
+        trace::line!(
+            trace::Channel::Login,
+            "OK:PASS user={} uid={} session={id} pid={pid}",
+            account.name,
+            account.uid
+        );
+        trace::line!(
+            trace::Channel::Login,
+            "GRAPHICAL:PASS user={} session={id} app={SHELL_APP} pid={pid}",
             account.name
-        ));
+        );
         if let Some(bus) = self.bus.as_mut() {
             let start = logind::wire::LoginStart {
                 user: account.name.clone(),
@@ -397,17 +404,19 @@ impl Desktop {
             ..accounts::UserRecord::default()
         };
         if !publish_end(&mut self.bus, &account, id, 0) {
-            sys::write_str(&format!(
-                "LOGIN:LOGOUT:FAIL session={id} reason=unannounced\n"
-            ));
+            trace::line!(
+                trace::Channel::Login,
+                "LOGOUT:FAIL session={id} reason=unannounced"
+            );
             return;
         }
         self.active = None;
         self.sessions[index].state = String::from("exited");
-        sys::write_str(&format!(
-            "LOGIN:LOGOUT:PASS session={id} user={}\n",
+        trace::line!(
+            trace::Channel::Login,
+            "LOGOUT:PASS session={id} user={}",
             account.name
-        ));
+        );
         publish_session(&mut self.bus, &account, id, 0, "exited");
     }
 }

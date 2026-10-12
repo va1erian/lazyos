@@ -45,6 +45,7 @@ use alloc::format;
 use core::panic::PanicInfo;
 use user::messenger::{self, errno, registry, topics_client};
 use user::sys;
+use user::trace;
 
 use broker::Broker;
 use handlers::serve_topic;
@@ -109,7 +110,11 @@ fn serve() -> messenger::Result<()> {
     // plain boot serves at full speed.
     let mut soak = soak_cycles().map(Soak::start);
     if let Some(soak) = &soak {
-        sys::write_str(&format!("MSGRD:SOAK:START cycles={}\n", soak.cycles_total));
+        trace::line!(
+            trace::Channel::Msgrd,
+            "SOAK:START cycles={}",
+            soak.cycles_total
+        );
     }
     // One receive buffer for the life of the daemon. The user runtime's bump
     // allocator never reclaims per-call buffers, so `Endpoint::recv`'s fresh

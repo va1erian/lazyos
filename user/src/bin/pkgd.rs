@@ -105,6 +105,7 @@ use pkgstore::layout;
 use user::messenger::services::lifecycle;
 use user::messenger::{self, pkgd, registry as names};
 use user::sys;
+use user::trace;
 
 use handlers::Pkgd;
 
@@ -139,9 +140,10 @@ fn run() -> messenger::Result<()> {
     let volume_ok = match store::probe_store() {
         Ok(()) => true,
         Err(reason) => {
-            sys::write_str(&format!(
-                "PKGD:STORE:ABSENT reason=\"{reason}\" installs are refused\n"
-            ));
+            trace::line!(
+                trace::Channel::Pkgd,
+                "STORE:ABSENT reason=\"{reason}\" installs are refused"
+            );
             false
         }
     };
@@ -150,7 +152,7 @@ fn run() -> messenger::Result<()> {
     } else {
         state.audit.set_volatile();
     }
-    sys::write_str("PKGD:UP:PASS\n");
+    trace::line!(trace::Channel::Pkgd, "UP:PASS");
     // Before any request: no development rule set outlives the approvals a
     // previous `pkgd` held in memory.
     state.revoke_stale_dev_labels();
@@ -197,7 +199,7 @@ fn run() -> messenger::Result<()> {
             let _ = server.reply(txn, &reply);
         }
         if sys::sbrk(0).saturating_sub(start_break) > RECYCLE_BYTES {
-            sys::write_str("PKGD:RECYCLE restarting to release memory\n");
+            trace::line!(trace::Channel::Pkgd, "RECYCLE restarting to release memory");
             return Ok(());
         }
     }
@@ -211,7 +213,10 @@ fn stop(reason: &str) {
         Err(code) if code == store::ENOENT => String::from("none"),
         Err(code) => format!("errno {code}"),
     };
-    sys::write_str(&format!("PKGD:STOP sync={synced} reason=\"{reason}\"\n"));
+    trace::line!(
+        trace::Channel::Pkgd,
+        "STOP sync={synced} reason=\"{reason}\""
+    );
 }
 
 #[panic_handler]

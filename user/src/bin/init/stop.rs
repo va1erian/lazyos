@@ -13,8 +13,8 @@
 //! section 5): the caller learns of the reap, not of a signal still in
 //! flight.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use svcpolicy::StopMode;
 use user::messenger::{self, router};
@@ -84,10 +84,11 @@ pub(super) fn stop_app(
             }
         }
     }
-    sys::write_str(&format!(
-        "INIT:STOP:PASS app={app} stopped={}\n",
+    trace::line!(
+        trace::Channel::Init,
+        "STOP:PASS app={app} stopped={}",
         stopped.count
-    ));
+    );
     Ok(stopped)
 }
 

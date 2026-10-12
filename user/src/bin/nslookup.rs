@@ -16,6 +16,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::netstack::Client;
 use user::messenger::{errno, Error as MsgError};
@@ -99,15 +100,15 @@ fn run() -> Result<Outcome, String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok(Outcome::Found(n)) if n > 0 => {
-            sys::write_str(&format!("NSLOOKUP:PASS addresses={n}\n"));
+            trace::line!(trace::Channel::Nslookup, "PASS addresses={n}");
             sys::exit(0)
         }
         Ok(Outcome::Found(_)) | Ok(Outcome::NoSuchName) => {
-            sys::write_str("NSLOOKUP:NXDOMAIN\n");
+            trace::line!(trace::Channel::Nslookup, "NXDOMAIN");
             sys::exit(1)
         }
         Err(message) => {
-            sys::write_str(&format!("NSLOOKUP:FAIL {message}\n"));
+            trace::line!(trace::Channel::Nslookup, "FAIL {message}");
             sys::exit(1)
         }
     }

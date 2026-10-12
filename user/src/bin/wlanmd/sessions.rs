@@ -19,6 +19,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{logind, registry, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
@@ -81,7 +82,7 @@ impl Logins {
         if users == self.users {
             return None;
         }
-        sys::write_str(&format!("WLANMD:USERS {}\n", list(&users)));
+        trace::line!(trace::Channel::Wlanmd, "USERS {}", list(&users));
         self.users = users.clone();
         Some(users)
     }

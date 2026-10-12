@@ -14,6 +14,7 @@
 //! `wlanmd` cannot be replaced by anything that could inject management
 //! frames.
 
+use crate::trace;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -319,12 +320,13 @@ impl HwService {
             Ok(()) => {
                 self.drop_events();
                 self.events = Some(events);
-                crate::sys::write_str(&format!(
-                    "WIFI:HW:ATTACH if={} owner={} uid={}\n",
+                crate::trace::line!(
+                    trace::Channel::Wifi,
+                    "HW:ATTACH if={} owner={} uid={}",
                     self.ifname,
                     message.sender,
                     message.caller().uid
-                ));
+                );
                 Ok(Vec::new())
             }
             Err(refusal) => {
@@ -342,7 +344,7 @@ impl HwService {
 
     /// The owner is gone: the radio goes idle and its channel is let go.
     fn owner_gone<R: Radio>(&mut self, mac: &mut SoftMac<R>, why: &str) {
-        crate::sys::write_str(&format!("WIFI:HW:DETACH if={} {why}\n", self.ifname));
+        crate::trace::line!(trace::Channel::Wifi, "HW:DETACH if={} {why}", self.ifname);
         mac.release();
         self.drop_events();
     }

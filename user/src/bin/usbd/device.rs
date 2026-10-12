@@ -17,9 +17,9 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use usbhid::desc::{self, Config, DeviceDescriptor, Endpoint};
-use user::sys;
 use xhci::context::{slot_state, EndpointContext, HubSlot, InputContext, INPUT_CONTEXTS};
 use xhci::regs::Speed;
 use xhci::ring::{ProducerRing, RawMem};
@@ -153,11 +153,12 @@ impl Device {
         let setup = request::get_descriptor(desc::kind::DEVICE, 0, desc::DEVICE_LEN as u16);
         self.control_in(hc, setup, &mut bytes)?;
         self.descriptor = desc::parse_device(&bytes).map_err(|_| Error::Descriptor("device"))?;
-        sys::write_str(&format!(
-            "USBD:DESC:DEVICE port={} {}\n",
+        trace::line!(
+            trace::Channel::Usbd,
+            "DESC:DEVICE port={} {}",
             self.name,
             hex(&bytes)
-        ));
+        );
         Ok(())
     }
 
@@ -173,11 +174,12 @@ impl Device {
             .ok_or(Error::Descriptor("wTotalLength"))?;
         let setup = request::get_descriptor(desc::kind::CONFIGURATION, 0, total);
         self.control_in(hc, setup, chain)?;
-        sys::write_str(&format!(
-            "USBD:DESC:CONFIG port={} {}\n",
+        trace::line!(
+            trace::Channel::Usbd,
+            "DESC:CONFIG port={} {}",
             self.name,
             hex(chain)
-        ));
+        );
         desc::parse_config(chain).map_err(|_| Error::Descriptor("config chain"))
     }
 
@@ -292,9 +294,10 @@ impl Device {
                 hc.set_device_context(slot, 0);
                 hc.give_region(slot, self.mem);
             }
-            Err(error) => sys::write_str(&format!(
-                "USBD:SLOT:LEAK slot={slot} disable failed: {error}\n"
-            )),
+            Err(error) => trace::line!(
+                trace::Channel::Usbd,
+                "SLOT:LEAK slot={slot} disable failed: {error}"
+            ),
         }
     }
 
@@ -394,13 +397,16 @@ impl Device {
             words[stride],
             u64::from(words[stride + 2]) | u64::from(words[stride + 3]) << 32,
         );
-        sys::write_str(&format!(
-            "USBD:DIAG port={} {failed} slot={slot} ep0state={} ep0dq={ep_dq:#x} ring={ours:#x} mps={} {}\n",
+        // A wedged controller fails every attempt: at most 40 lines per 10 s.
+        static DIAG: tracefmt::Budget = tracefmt::Budget::new(40, 1000);
+        if !trace::within(&DIAG, trace::Channel::Usbd) {
+            return;
+        }
+        trace::line!(trace::Channel::Usbd, "DIAG port={} {failed} slot={slot} ep0state={} ep0dq={ep_dq:#x} ring={ours:#x} mps={} {}",
             self.name,
             ep_dw0 & 7,
             self.max_packet0,
-            hc.state_text()
-        ));
+            hc.state_text());
     }
 
     /// Endpoint `dci`'s state as the controller recorded it (xHCI 6.2.3: 1

@@ -1,7 +1,7 @@
 # Tracing plan: one evidence API instead of ad hoc prints
 
-Status: T0 and T1 landed (the inventory and lint, `libs/tracefmt`, the kernel
-sink); T2 (no_std services) next. Owner: whoever picks up the tracking issue.
+Status: T0, T1 and T2 landed (the inventory and lint, `libs/tracefmt`, the
+kernel sink, the no_std services); T3 (std apps) next. Owner: whoever picks up the tracking issue.
 
 What T0/T1 settled while landing, where it differs from the text below:
 
@@ -24,6 +24,28 @@ What T0/T1 settled while landing, where it differs from the text below:
   Counts at T0 (`python tools/trace/check_adhoc.py`): 846 sites in 224 files
   and 92 prefixes: kernel 27, user 408, xui-app 374, lazyrad-os 5, doom 12,
   emusic 6, quake 13, other 1.
+
+What T2 settled while landing:
+
+- `user/src/trace.rs` is the sink; the macros are `user::trace::{pass, fail,
+  event, line}` (exported at the crate root under private names so bins can
+  use them). The mask is read once, on a program's first line, through a new
+  `system_stats` op (`TRACE_MASK`, 16 bytes), not the 20 KiB snapshot.
+- `user/build.rs` reads `LAZYOS_TRACE` and the three old switches like the
+  kernel's build script does.
+- The mechanical move kept every line's text (`trace::line!(Channel::X,
+  "REST", args)`); only splits that tore (`write_str("ASYNC:")` then the
+  name) became one call. New channels: `Async`, `Theme`, `Wifictl`, `Wlanmd`.
+- A channel budget is per channel, so `Usbd` lost its channel-wide rate (it
+  would have dropped boot and key-edge evidence); `USBD:DIAG` alone is
+  limited, through `trace::within` and a `tracefmt::Budget`.
+- `MCP:FABRIC_STATS:` and `MCP:TASK_SNAPSHOT:` are data (JSON the bridge
+  parses, longer than a trace line) and stay plain writes, exempt in
+  `check_adhoc.py`.
+- Verdicts: `tools/usb/run.py` and `tools/net/run.py --netd` pass. The
+  shutdown, keyd, crash, accounts, fuse, smb and dbg harnesses need the
+  BusyBox build (`tools/abi/busybox.py`) or other tools and were not run in
+  this change.
 
 ## 1. Why
 

@@ -133,6 +133,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::messenger::{self, registry, router, services, wait};
 use user::sys;
+use user::trace;
 
 use autostart::Autostart;
 use installed::InstalledApps;
@@ -193,7 +194,10 @@ fn run() -> messenger::Result<()> {
         // The packaged apps are checked once `pkgd` provisioned them
         // (`autostart`); the built-ins can be checked now.
         if !apps::selftest_builtins() {
-            sys::write_str("INIT:APPS:FAIL the built-in registry is malformed\n");
+            trace::line!(
+                trace::Channel::Init,
+                "APPS:FAIL the built-in registry is malformed"
+            );
         }
         selftest_launch_policy();
         selftest_launch_cap();

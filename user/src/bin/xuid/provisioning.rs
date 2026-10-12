@@ -20,6 +20,7 @@
 use alloc::format;
 use user::messenger::{self, pkgd};
 use user::sys;
+use user::trace;
 
 /// Ticks (100 Hz) `pkgd` may take to register its name: 20 s.
 const APPEAR_TICKS: u64 = 2_000;
@@ -35,24 +36,36 @@ const POLL_NS: u64 = 250_000_000;
 pub(super) fn wait_for_core_packages() {
     let start = sys::clock();
     let Some(client) = connect(start + APPEAR_TICKS) else {
-        sys::write_str("XUID:PROVISION:ABSENT no pkgd, opening the desktop\n");
+        trace::line!(
+            trace::Channel::Xuid,
+            "PROVISION:ABSENT no pkgd, opening the desktop"
+        );
         return;
     };
-    sys::write_str("XUID:PROVISION:WAIT installing the core apps\n");
+    trace::line!(
+        trace::Channel::Xuid,
+        "PROVISION:WAIT installing the core apps"
+    );
     let mut client = client;
     let mut shown = u64::MAX;
     loop {
         let now = sys::clock();
         if now >= start + WAIT_TICKS {
-            sys::write_str("XUID:PROVISION:TIMEOUT opening the desktop\n");
+            trace::line!(
+                trace::Channel::Xuid,
+                "PROVISION:TIMEOUT opening the desktop"
+            );
             return;
         }
         match client.provisioned_until(Some(now + CALL_TICKS)) {
             Ok(state) if state.done => {
-                sys::write_str(&format!(
-                    "XUID:PROVISION:DONE installed={} upgraded={} failed={}\n",
-                    state.installed, state.upgraded, state.failed
-                ));
+                trace::line!(
+                    trace::Channel::Xuid,
+                    "PROVISION:DONE installed={} upgraded={} failed={}",
+                    state.installed,
+                    state.upgraded,
+                    state.failed
+                );
                 return;
             }
             Ok(state) => {
@@ -99,9 +112,10 @@ pub(super) fn hold_for_diagnosis() {
     if seconds == 0 {
         return;
     }
-    sys::write_str(&format!(
-        "XUID:DIAG:HOLD {seconds} s: the desktop opens after this (diag.hold in lazyos.cfg)\n"
-    ));
+    trace::line!(
+        trace::Channel::Xuid,
+        "DIAG:HOLD {seconds} s: the desktop opens after this (diag.hold in lazyos.cfg)"
+    );
     let end = sys::monotonic_ns() + seconds * 1_000_000_000;
     let mut next_note = 0;
     loop {
@@ -112,11 +126,11 @@ pub(super) fn hold_for_diagnosis() {
         let left = (end - now) / 1_000_000_000;
         if left / 10 != next_note {
             next_note = left / 10;
-            sys::write_str(&format!("XUID:DIAG:HOLD {left} s left\n"));
+            trace::line!(trace::Channel::Xuid, "DIAG:HOLD {left} s left");
         }
         let _ = sys::sleep_until_ns(now + 500_000_000);
     }
-    sys::write_str("XUID:DIAG:HOLD over, opening the desktop\n");
+    trace::line!(trace::Channel::Xuid, "DIAG:HOLD over, opening the desktop");
 }
 
 /// A `pkgd` client, retrying until the absolute tick `until`.
