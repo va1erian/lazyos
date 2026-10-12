@@ -89,6 +89,15 @@ def webkit_deps_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/webkit/deps.py", "--require"]}]
 
 
+def webkit_deps_step(cfg: dict) -> list[dict]:
+    """The step that builds the WebKit dependency bundle and `depsproof` (in
+    Docker, tools/webkit/deps.py), when embedded."""
+    if not cfg.get("webkit_deps"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle and depsproof (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]}]
+
+
 def tls_step(cfg: dict) -> list[dict]:
     """The step that builds the HTTPS clients (`fetch`, `curl`, `wget`), when embedded."""
     if not cfg.get("tls"):
