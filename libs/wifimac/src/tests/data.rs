@@ -143,13 +143,51 @@ fn protected_data_uses_one_packet_number_sequence_per_key() {
         pns.push(ccmp::parse_header(&frame[h.len..]).unwrap().0);
     }
     assert_eq!(pns, [1, 2, 3]);
-    // A new pairwise key starts again at 1.
-    m.set_key(OWNER, &key(KeyKind::Pairwise, 0, &[])).unwrap();
-    m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0]))
-        .unwrap();
-    let (frame, _) = last_sent(&m);
+}
+
+fn last_pn(m: &SoftMac<FakeRadio>) -> u64 {
+    let (frame, _) = last_sent(m);
     let h = DataHeader::parse(&frame).unwrap();
-    assert_eq!(ccmp::parse_header(&frame[h.len..]).unwrap().0, 1);
+    ccmp::parse_header(&frame[h.len..]).unwrap().0
+}
+
+#[test]
+fn a_rekey_never_starts_the_packet_numbers_over() {
+    let mut m = wpa2_authorized();
+    let send = |m: &mut SoftMac<FakeRadio>| {
+        m.send_ethernet(&ethernet(&GW, &STA, IP, &[0x45, 0]))
+            .unwrap()
+    };
+    send(&mut m);
+    send(&mut m);
+    // A PTK rekey (or the same key installed again) carries the PN on: a
+    // temporal key installed twice never sees a PN twice.
+    m.set_key(OWNER, &key(KeyKind::Pairwise, 0, &[])).unwrap();
+    send(&mut m);
+    assert_eq!(last_pn(&m), 3);
+    // So does a key deleted and installed again.
+    m.del_key(OWNER, KeyKind::Pairwise as u32, 0).unwrap();
+    m.set_key(OWNER, &key(KeyKind::Pairwise, 0, &[])).unwrap();
+    send(&mut m);
+    assert_eq!(last_pn(&m), 4);
+    // EAPOL under the key shares the sequence.
+    let eapol = ethernet(&AP, &STA, ETHERTYPE_EAPOL, &[2, 3, 0, 95, 2, 1, 2]);
+    m.tx_mgmt(OWNER, FrameKind::Eapol as u32, &eapol).unwrap();
+    assert_eq!(last_pn(&m), 5);
+    // An EAPOL frame too long for the radio is refused before it takes one.
+    let mut long = ethernet(&AP, &STA, ETHERTYPE_EAPOL, &[2, 3, 0, 95]);
+    long.resize(1484 - 10, 0);
+    assert_eq!(
+        m.tx_mgmt(OWNER, FrameKind::Eapol as u32, &long),
+        Err(crate::Error::Invalid)
+    );
+    send(&mut m);
+    assert_eq!(last_pn(&m), 6);
+    // Only the end of the association starts them over.
+    m.leave(OWNER, 3).unwrap();
+    let mut m = wpa2_authorized();
+    send(&mut m);
+    assert_eq!(last_pn(&m), 1);
 }
 
 #[test]

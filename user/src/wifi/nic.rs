@@ -8,6 +8,16 @@
 //! [`SoftMac::send_ethernet`]. The request dispatch follows `netdrv`'s
 //! (`user/src/bin/netdrv/service.rs`): one client, owned by the
 //! kernel-stamped sender of `AttachRing`.
+//!
+//! **Who may be that client** ([`may_drive`]): the kernel does not judge
+//! callers of `os.lazy.net.nic.v1` by `netpolicy::NIC_CLIENT_RULES`, so the
+//! card does it itself. `AttachRing`, `SetRxMode`, `DetachRing` and `Kick`
+//! are for the stack `_netd` (unlabelled, outside any session), root
+//! unlabelled (console diagnostics such as `nicctl`) and, for a simulated
+//! air card (`air*`) alone, `_wifisim`; anyone else gets `EPERM` (a `Kick`
+//! is ignored). `Info` and `Stats` stay open. Without this, the first
+//! session process to attach to `wlan0` would read and inject all of its
+//! traffic.
 
 use alloc::format;
 use alloc::vec::Vec;
@@ -19,6 +29,7 @@ use wifimac::{DataDrop, Radio, SoftMac};
 use crate::messenger::net::{self as api, wire};
 use crate::messenger::{errno, Endpoint, Error as MsgError, Message, Parcel};
 use crate::sys;
+use crate::sys::Cred;
 
 /// Frames moved to the client per pump.
 const RX_BUDGET: u32 = 64;
@@ -90,6 +101,17 @@ impl Doorbell for NoBell {
 
 fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
+}
+
+/// Whether `caller` may own the ring of the card `ifname` and call its
+/// owner-only methods (see the module notes).
+pub fn may_drive(caller: &Cred, ifname: &str) -> bool {
+    let system = caller.label_id == 0 && caller.session == 0;
+    // An air card is the one kind of card the stack never attaches.
+    let air = !netpolicy::stack_attaches(ifname);
+    (system && caller.uid == netpolicy::NETD_UID)
+        || (caller.label_id == 0 && caller.uid == netpolicy::ROOT_UID)
+        || (system && air && caller.uid == netpolicy::WIFISIM_UID)
 }
 
 /// The attached client's shared buffer and notify endpoint.
@@ -190,6 +212,10 @@ impl<R: Radio> NicService<R> {
         }
         let method = message.method();
         let body = &message.parcel.body;
+        let open = matches!(method, wire::METHOD_INFO | wire::METHOD_STATS);
+        if !open && !may_drive(&message.caller(), &self.ifname) {
+            return Err(err(errno::EPERM));
+        }
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
             wire::METHOD_STATS => self.stats()?,

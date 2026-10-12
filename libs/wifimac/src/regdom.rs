@@ -4,6 +4,7 @@
 //! A coarse table, not a regulatory database: it errs towards listening.
 //! The world domain (`00`, what applies before `SetCountry`) probes only on
 //! 2.4 GHz channels 1-11 and listens everywhere else it may tune. A country
+//! is an assigned ISO 3166-1 alpha-2 code (`iso3166`), nothing else. A country
 //! in the FCC group stops at channel 11; any other country code gets
 //! channels 12 and 13 too. On 5 GHz, UNII-1 (36-48) and UNII-3 (149-165) are
 //! active for a named country, the DFS channels (52-64, 100-144) are always
@@ -45,16 +46,12 @@ impl Domain {
     /// The world domain.
     pub const WORLD: Domain = Domain { code: *b"00" };
 
-    /// Parse `00` or two upper-case ASCII letters; anything else is `None`
+    /// Parse `00` or an assigned ISO 3166-1 alpha-2 code in upper case;
+    /// anything else, a made-up code like `ZZ` included, is `None`
     /// (`SetCountry` answers `EINVAL`).
     pub fn parse(text: &str) -> Option<Domain> {
         let code: [u8; 2] = text.as_bytes().try_into().ok()?;
-        let world = code == *b"00";
-        if world || code.iter().all(u8::is_ascii_uppercase) {
-            Some(Domain { code })
-        } else {
-            None
-        }
+        (code == *b"00" || crate::iso3166::is_country(&code)).then_some(Domain { code })
     }
 
     pub fn code(&self) -> [u8; 2] {

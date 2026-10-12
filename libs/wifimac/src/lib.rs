@@ -7,8 +7,8 @@
 //! radio:
 //!
 //! * **`os.lazy.net.wifi.hw.v1` semantics** (`idl/wifi.midl`): one owner
-//!   ([`SoftMac::attach`], everyone else `EACCES`, a detach or the owner's
-//!   exit leaves the radio idle), the `SetCountry` gate and a regulatory table
+//!   ([`SoftMac::attach`], remembered as a whole [`Caller`]: everyone else
+//!   `EACCES`, a detach or the owner's exit leaves the radio idle), the `SetCountry` gate and a regulatory table
 //!   ([`regdom`]), scanning as software channel stepping with a dwell and
 //!   active probes ([`scan`]), paged raw results with their age, `Join`,
 //!   `TxMgmt` (management frames checked and sequenced, EAPOL wrapped in a
@@ -35,7 +35,9 @@ extern crate alloc;
 extern crate std;
 
 mod assoc;
+mod bss;
 pub mod events;
+mod iso3166;
 mod keys;
 mod mac;
 pub mod radio;
@@ -58,11 +60,25 @@ pub use radio::{
 pub use scanning::ScanRequest;
 pub use tx::DataDrop;
 
+/// Who made a `hw.v1` call: the kernel-stamped sender of the request, its
+/// task slot and credentials. The owner is remembered whole at `Attach`, and
+/// a later call is the owner's only when all four match, so a task slot that
+/// another process reuses before the owner's exit was noticed owns nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Caller {
+    /// The sender's task slot.
+    pub task: u64,
+    pub uid: u32,
+    pub label_id: u32,
+    /// The login session; 0 for a system service.
+    pub session: u64,
+}
+
 /// Why a `hw.v1` call was refused. [`Error::errno`] is the code the service
 /// answers with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// Already attached, or a scan is running.
+    /// Already attached, a scan is running, or the transmit queue is full.
     Busy,
     /// The caller is not the attached owner.
     Denied,

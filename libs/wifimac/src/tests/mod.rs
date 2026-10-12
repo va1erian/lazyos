@@ -12,14 +12,22 @@ use ieee80211::ie::IeBuilder;
 use ieee80211::Mac;
 
 use crate::radio::*;
-use crate::{JoinRequest, KeyRequest, SoftMac};
+use crate::{Caller, JoinRequest, KeyRequest, SoftMac};
 
 mod control;
 mod data;
+mod events;
+mod guard;
 mod scan;
 
-pub(crate) const OWNER: u64 = 7;
-pub(crate) const OTHER: u64 = 9;
+/// The station manager: `_wlan`, unlabelled, outside any session.
+pub(crate) const OWNER: Caller = Caller {
+    task: 7,
+    uid: 912,
+    label_id: 0,
+    session: 0,
+};
+pub(crate) const OTHER: Caller = Caller { task: 9, ..OWNER };
 pub(crate) const STA: Mac = [0x02, 0x5A, 0x00, 0x00, 0x00, 0x01];
 pub(crate) const AP: Mac = [0x02, 0xA0, 0x00, 0x00, 0x00, 0x01];
 pub(crate) const AP2: Mac = [0x02, 0xA0, 0x00, 0x00, 0x00, 0x02];

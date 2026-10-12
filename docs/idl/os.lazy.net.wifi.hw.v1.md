@@ -35,18 +35,28 @@ driver identities (`_wifi`, `_wifisim`) hold names there
 that namespace.
 
 **One client.** The first caller of `Attach` owns the radio; its identity
-is the kernel-stamped sender, and every later call or `Detach` by anyone
-else fails with `EACCES` (a second attach with `EBUSY`). `Attach` is
-accepted from `_wlan` alone (`netpolicy::may_attach_wifi_hw`; `EPERM`
-otherwise), so nobody can take the radio before `wlanmd` does. The owner's
-exit, or its event channel reporting the peer gone, detaches it and leaves
-the radio idle: scanning stops, the BSS is left, all keys are deleted.
+is the kernel-stamped sender, its task and its credentials (uid, label,
+session), all of which must match on every later call, and a call or
+`Detach` by anyone else fails with `EACCES` (a second attach with
+`EBUSY`). `Attach` is accepted from `_wlan` alone, unlabelled and outside
+any session (`netpolicy::may_attach_wifi_hw`; `EPERM` otherwise), so
+nobody can take the radio before `wlanmd` does; the simulator also lets
+its own test client (`wifiprobe`, running as `_wifisim`) attach. The
+owner's exit, or its event channel reporting the peer gone, detaches it
+and leaves the radio idle: scanning stops, the BSS is left, all keys are
+deleted.
 
 **Events.** `Attach` carries the client's event channel; the driver sends
 the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
-partially; one that does not fit is dropped and counted.
+partially; one that does not fit is dropped and counted. Anyone in radio
+range can forge frames from the BSS, so `RxMgmt` is rate-limited and is
+the first thing dropped when the client falls behind: `ScanDone`,
+`BeaconLoss` and `Deauthenticated` have room of their own and are kept
+until the client's inbox takes them (a repeat of a `BeaconLoss` or
+`Deauthenticated` the client has not read yet is folded into it). What is
+dropped is counted in `HwStats.mgmt_dropped`.
 
 **Keys cross this interface.** `SetKey` is the one place secret material
 (a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is
