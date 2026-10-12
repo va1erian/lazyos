@@ -8,6 +8,7 @@ All fonts here are redistributed unmodified under permissive licenses.
 | `DroidSans-Bold.ttf` | Droid Sans Bold | the Docs app (headings, emphasis); LazyWriter's bold | Apache-2.0 |
 | `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer"); LazyWriter's Serif family | Apache-2.0 |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono (monospace) | kernel framebuffer console; the xui Terminal | SIL OFL 1.1 |
+| `JetBrainsMono-{Bold,Italic,BoldItalic}.ttf` | JetBrains Mono Bold, Italic and Bold Italic | the xui Terminal (compiled in with the Regular) | SIL OFL 1.1 |
 | `liberation/Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf` | Liberation Sans, Serif and Mono 2.1.5 | LazyWeb's web pages (installed to `/system/share/fonts/liberation` in desktop images) | SIL OFL 1.1 |
 
 ## Credits
@@ -21,6 +22,14 @@ All fonts here are redistributed unmodified under permissive licenses.
   (`LICENSE-Apache-2.0.txt`).
 - **JetBrains Mono** — Copyright 2020 The JetBrains Mono Project Authors
   (<https://github.com/JetBrains/JetBrainsMono>), SIL OFL 1.1 (`OFL.txt`).
+  The Bold, Italic and Bold Italic faces are release v2.304
+  (`JetBrainsMono-2.304.zip`, `fonts/ttf/`), unmodified: sha256
+  `5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb`
+  (Bold, 277828 bytes), `9d0a1f7a708e6af183f1193b7e81d40da294f5c67682c085d8401c60aac8ded4`
+  (Italic, 276840), `4039d5ce0ed225bf9c8b2c8c6436290ae2f356b7e90d70fa666227238324aa3b`
+  (Bold Italic, 279832). The Regular we ship says `Version 2.305` (it is not
+  a published release; v2.304 is the newest); the faces share the same
+  600/1000 em advance, which a test checks.
 - **Liberation Sans, Serif and Mono** — Digitized data copyright (c) 2010
   Google Corporation with Reserved Font Arimo, Tinos and Cousine; copyright
   (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation. SIL OFL 1.1

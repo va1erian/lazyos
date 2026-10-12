@@ -103,6 +103,28 @@ fn dispatch(clipboard: &mut Clipboard, message: &Message) -> messenger::Result<P
             }
             wire::request_reply(&handle?)
         }
+        // The buffer-carrying methods travel on the interface's own id: the
+        // kernel's declared-object gate keys on the header's interface (an
+        // app's manifest allows it along with the two scopes).
+        (wire::INTERFACE, wire::method::OFFER_BUFFER) => {
+            let request = message.decode(wire::wire::decode_offer_buffer_args)?;
+            let cred = actor(message)?;
+            let token =
+                clipboard.offer_buffer(request, cred.session, message.sender, sys::clock())?;
+            wire::token_reply(token)
+        }
+        (wire::INTERFACE, wire::method::FETCH) => {
+            let request = message.decode(wire::wire::decode_fetch_args)?;
+            let cred = actor(message)?;
+            let (token, mime) = (request.token, request.mime.clone());
+            let written = clipboard.fetch(request, cred.session);
+            if let Err(Error::Errno(code)) = &written {
+                if *code == -errno::EACCES {
+                    clipboard.log_denial(&cred, message.sender, &mime, token);
+                }
+            }
+            wire::fetch_reply(written?)
+        }
         (wire::INTERFACE, wire::method::CURRENT) => {
             let cred = actor(message)?;
             wire::current_reply(clipboard.current(cred.session).as_ref())

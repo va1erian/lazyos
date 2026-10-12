@@ -42,12 +42,14 @@ fn offer(owner, sink, mimes, data) {
     msg::connect("os.lazy.clipboard.v1").invoke("Offer", [owner, sink, mimes, data])
 }
 
-/// `Request(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes)`
+/// `Request(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes, size: U64)`
 ///
 /// Read one MIME of an offer. `token` 0 selects the newest offer in the
 /// caller's session that lists `mime`; another session's token fails with
-/// `EACCES` and is audited, an unknown one with `ENOENT`. The reply carries
-/// the payload bytes inline until the shared-buffer mapping op lands.
+/// `EACCES` and is audited, an unknown one with `ENOENT`. `size` is the
+/// payload's length. A payload up to the inline cap rides in `bytes`; a
+/// larger one leaves `bytes` empty and is read with `Fetch`, using the
+/// reply's `token`.
 fn request(token, mime) {
     msg::connect("os.lazy.clipboard.v1").invoke("Request", [token, mime])
 }
@@ -74,6 +76,9 @@ fn ping() {
 fn current() {
     msg::connect("os.lazy.clipboard.v1").invoke("Current", [])
 }
+
+// Not callable from a script (the request carries a channel, buffer
+// or ring): OfferBuffer, Fetch.
 
 /// A `Payload` with every field at its zero value.
 ///

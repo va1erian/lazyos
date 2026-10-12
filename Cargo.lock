@@ -236,6 +236,7 @@ dependencies = [
  "passwd",
  "serde_json",
  "sha2",
+ "terminfo",
  "tracefmt",
  "webpki-root-certs",
 ]
@@ -856,6 +857,7 @@ dependencies = [
  "passwd",
  "serde_json",
  "sha2",
+ "terminfo",
  "tracefmt",
  "user",
  "webpki-root-certs",
@@ -1476,6 +1478,10 @@ dependencies = [
  "rustix",
  "windows-sys",
 ]
+
+[[package]]
+name = "terminfo"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

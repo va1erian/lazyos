@@ -29,9 +29,12 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
 #[test]
 fn every_sample_lands_in_the_samples_directory() {
     let files = samples();
-    assert_eq!(files.len(), 8);
+    // The samples, and the Terminal's terminfo entry `samples_embed` also makes.
+    assert_eq!(files.len(), 9);
     for file in files.files() {
-        assert!(file.path.starts_with(fhs::share::SAMPLES), "{}", file.path);
+        let ok = file.path.starts_with(fhs::share::SAMPLES)
+            || file.path == fhs::share::TERMINFO_XTERM_256COLOR;
+        assert!(ok, "{}", file.path);
     }
     assert!(!bytes(&files, fhs::share::TESTDOC).is_empty());
 }
@@ -90,5 +93,19 @@ fn the_archiver_samples_are_small_archives() {
     assert!(
         zip.len() < 8192 && sevenz.len() < 8192,
         "keep the samples tiny"
+    );
+}
+
+#[test]
+fn the_terminal_terminfo_entry_is_compiled_into_the_image() {
+    let compiled = bytes(&samples(), fhs::share::TERMINFO_XTERM_256COLOR);
+    assert!(fhs::share::TERMINFO_XTERM_256COLOR.starts_with(fhs::share::TERMINFO));
+    let entry = terminfo::read_compiled(&compiled).expect("a valid legacy entry");
+    assert!(entry.names.starts_with("xterm-256color|"));
+    assert_eq!(entry.number("colors"), Some(256));
+    // Reproducible: the same bytes every build.
+    assert_eq!(
+        bytes(&samples(), fhs::share::TERMINFO_XTERM_256COLOR),
+        compiled
     );
 }

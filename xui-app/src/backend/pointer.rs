@@ -2,7 +2,7 @@
 //! translation of window pixels into the target widget's local coordinates.
 
 use xui_core::backend::{Event, WidgetId, WindowId};
-use xui_core::{Modifiers, MouseButton, Rect};
+use xui_core::{MouseButton, Rect};
 
 use crate::sys;
 
@@ -55,7 +55,7 @@ impl LazyOSBackend {
         let event = Event::MouseMove {
             x,
             y,
-            modifiers: Modifiers::NONE,
+            modifiers: self.modifiers.get(),
         };
         self.deliver_pointer(window, target, event);
         self.drag_motion(window, x, y);
@@ -105,7 +105,7 @@ impl LazyOSBackend {
             horizontal: false,
             x,
             y,
-            modifiers: Modifiers::NONE,
+            modifiers: self.modifiers.get(),
         };
         self.deliver_pointer(window, target, event);
     }
@@ -147,7 +147,7 @@ impl LazyOSBackend {
                 .borrow_mut()
                 .press(now, window, x, y, button, id)
         };
-        self.deliver_pointer(window, target, kind.event(x, y, button, Modifiers::NONE));
+        self.deliver_pointer(window, target, kind.event(x, y, button, self.modifiers.get()));
     }
 
     /// Route one pointer release.
@@ -161,7 +161,7 @@ impl LazyOSBackend {
             x,
             y,
             button,
-            modifiers: Modifiers::NONE,
+            modifiers: self.modifiers.get(),
         };
         self.deliver_pointer(window, target, event);
     }

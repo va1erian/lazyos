@@ -508,6 +508,25 @@ fn tray_keys() {
     msg::connect("os.lazy.display.v1").invoke("TrayKeys", [])
 }
 
+/// `SetCloseMode(surface: U64, ask: Bool) -> ()`
+///
+/// Ask the compositor to keep `surface` when the window manager closes it
+/// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
+/// the window stays until the app destroys the surface, so an app that must
+/// ask first (a terminal with a program running) can put its question in
+/// the window. Without it (the default, and for every older client) the
+/// window is dropped as it is sent. Only the creator may call it.
+/// An app can never make its window unclosable: the first close is passed
+/// on and the window kept; if the app has not destroyed the surface three
+/// seconds later (and within 30 s of the first), the next close drops it
+/// whatever the app says (the app's event endpoint closes, so it quits);
+/// only a close more than 30 s after the last one is passed on again.
+/// Calling `SetCloseMode` again changes nothing about that. A shutdown or
+/// logout never depends on it: `init` kills what is left.
+fn set_close_mode(surface, ask) {
+    msg::connect("os.lazy.display.v1").invoke("SetCloseMode", [surface, ask])
+}
+
 // Not callable from a script (the request carries a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 

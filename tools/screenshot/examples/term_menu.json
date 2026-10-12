@@ -1,0 +1,628 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420,
+  "note": "image: LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1 (the bell tone needs a sound card, which this does not use)"
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "TERM:RESIZE:68x19",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "seq 1 300"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:1",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "type": "echo http://example.com/"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:http://example.com/",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -120,
+    -50
+   ]
+  },
+  "button": "right"
+ },
+ {
+  "wait_for": "UI:WIDGET .*name=menu:close",
+  "regex": true,
+  "timeout": 30
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "01_context_menu"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -120,
+    -50
+   ]
+  },
+  "button": "right"
+ },
+ {
+  "wait_for": "UI:WIDGET .*name=menu:find",
+  "regex": true,
+  "timeout": 30
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "menu:find"
+  },
+  "until": "TERM:MENU:find",
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "99"
+ },
+ {
+  "wait_for": "TERM:FIND:3",
+  "timeout": 30
+ },
+ {
+  "wait": 0.7
+ },
+ {
+  "shot": "02_find_99"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "03_find_next"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "f"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "type": "zzzz"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "04_find_no_match"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -260,
+    160
+   ]
+  },
+  "note": "a plain click on the link: nothing opens"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "move_to": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -250,
+    160
+   ]
+  }
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "05_ctrl_hover_link"
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "TERM:LINK:OPEN:http://example.com/",
+  "timeout": 20
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "06_after_link_open"
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -250,
+    160
+   ]
+  },
+  "button": "right"
+ },
+ {
+  "wait_for": "UI:WIDGET .*name=menu:open_link",
+  "regex": true,
+  "timeout": 30
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "menu:open_link"
+  },
+  "until": "TERM:LINK:CONFIRM:http://example.com/",
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "07_open_link_asks"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "printf '\\a'"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:BELL:visual",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "shot": "08_bell_flash"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "cd /tmp"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CWD:/tmp",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "n"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "TERM:NEWWIN:/tmp",
+  "timeout": 30
+ },
+ {
+  "wait_for": "TERM:RESIZE:68x19",
+  "occurrence": 2,
+  "timeout": 60
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "09_new_window"
+ },
+ {
+  "type": "pwd"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:/tmp",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "10_new_window_pwd"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": ","
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "UI:WIDGET .*name=prefs:size_inc",
+  "regex": true,
+  "timeout": 30
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "13_preferences"
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "prefs:size_inc"
+  }
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "prefs:size_inc"
+  }
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "prefs:size_inc"
+  }
+ },
+ {
+  "wait": 0.4
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "prefs:scheme:tango"
+  },
+  "until": "TERM:PREFS:SET:colors/scheme",
+  "timeout": 20
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "14_preferences_live"
+ },
+ {
+  "key": "escape"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "15_after_preferences"
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "grid",
+   "offset": [
+    -120,
+    -50
+   ]
+  },
+  "button": "right"
+ },
+ {
+  "wait_for": "UI:WIDGET .*name=menu:save_output",
+  "regex": true,
+  "timeout": 30
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "menu:save_output"
+  },
+  "until": "TERM:MENU:save_output",
+  "timeout": 20
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "16_save_dialog"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "TERM:SAVE:",
+  "timeout": 20
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "17_saved"
+ },
+ {
+  "type": "wc -c ~/terminal-*.txt"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:OUT:",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "18_wc"
+ },
+ {
+  "type": "sleep 100"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:sleep 100",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:CLOSE:CONFIRM",
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "11_close_confirm"
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "cancel_button"
+  },
+  "until": "TERM:CLOSE:CANCEL",
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "12_close_cancelled"
+ },
+ {
+  "wait": 70.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:CLOSE:CONFIRM",
+  "occurrence": 2,
+  "timeout": 20
+ },
+ {
+  "click_at": {
+   "window": "Terminal",
+   "widget": "close_button"
+  },
+  "until": "TERM:CLOSE:FORCE",
+  "timeout": 20
+ },
+ {
+  "wait_for": "TERM:EXIT:PASS",
+  "timeout": 20
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "n"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "occurrence": 3,
+  "timeout": 60
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "type": "sleep 100"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:sleep 100",
+  "occurrence": 2,
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:CLOSE:CONFIRM",
+  "occurrence": 3,
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "19_unanswered_close"
+ },
+ {
+  "wait": 8.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:QUIT:PASS",
+  "occurrence": 2,
+  "timeout": 20
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "20_forced_close"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:EXIT:PASS",
+  "occurrence": 2,
+  "timeout": 20
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "quit": true
+ }
+]

@@ -94,3 +94,19 @@ pub fn spawn(mut command: Command, rows: u16, cols: u16) -> io::Result<(Master, 
     drop(command);
     Ok((master, child))
 }
+
+impl Master {
+    /// Tell the kernel (and so the program) the grid is now `rows` x `cols`:
+    /// the foreground group gets `SIGWINCH`.
+    pub fn set_size(&self, rows: u16, cols: u16) {
+        let size = libc::winsize {
+            ws_row: rows,
+            ws_col: cols,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: `TIOCSWINSZ` reads one `struct winsize` from a valid pointer
+        // and the descriptor is this process's own master.
+        unsafe { libc::ioctl(self.fd(), libc::TIOCSWINSZ, &size) };
+    }
+}

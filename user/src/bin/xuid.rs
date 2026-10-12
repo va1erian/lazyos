@@ -94,6 +94,8 @@ extern crate alloc;
 
 #[path = "xuid/anim.rs"]
 mod anim;
+#[path = "xuid/closing.rs"]
+mod closing;
 #[path = "xuid/compositor.rs"]
 mod compositor;
 #[path = "xuid/cursor.rs"]

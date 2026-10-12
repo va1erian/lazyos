@@ -2150,8 +2150,12 @@ pub mod os_lazy_clipboard_v1 {
 
     /// `Offer` method id.
     pub const METHOD_OFFER: u32 = 1313375869;
+    /// `OfferBuffer` method id.
+    pub const METHOD_OFFERBUFFER: u32 = 2074208755;
     /// `Request` method id.
     pub const METHOD_REQUEST: u32 = 38093138;
+    /// `Fetch` method id.
+    pub const METHOD_FETCH: u32 = 1396322691;
     /// `Serialize` method id.
     pub const METHOD_SERIALIZE: u32 = 1116160801;
     /// `Ping` method id.
@@ -2254,10 +2258,93 @@ pub mod os_lazy_clipboard_v1 {
         Ok(out)
     }
 
+    /// Publish one large payload (more than the inline cap of 8 KiB, at most
+    /// 16 MiB) for the caller's session. The range `data.offset .. + data.len`
+    /// of the shared pages is the payload: the service copies it once into
+    /// pages of its own (not its heap) and closes the received handle before
+    /// replying, so the offer is a snapshot and the caller may reuse or
+    /// close its pages at once. The snapshot counts against the session's
+    /// retained-bytes budget (64 MiB; the oldest offers are evicted past it).
+    /// Travels on this interface's own id, not a scope id: the kernel's
+    /// declared-object gate keys on the header's interface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OfferBufferArgs {
+        pub owner: alloc::string::String,
+        pub mime: alloc::string::String,
+        pub data: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `OfferBuffer`.
+    pub fn encode_offer_buffer_args(value: &OfferBufferArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.string(1, &value.owner)?;
+        target.string(2, &value.mime)?;
+        target.buffer(3, &value.data, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `OfferBuffer` from its body and the objects the kernel installed
+    /// (`OFFER_BUFFER_OBJECTS`, each claimed by its field).
+    pub fn decode_offer_buffer_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<OfferBufferArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = OfferBufferArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.owner = field.as_str()?.into();
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                3 => {
+                    out.data = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct OfferBufferReply {
+        pub token: u64,
+    }
+
+    pub fn encode_offer_buffer_reply(value: &OfferBufferReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.token)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_offer_buffer_reply(body: &[u8]) -> Result<OfferBufferReply, Error> {
+        let mut out = OfferBufferReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.token = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `OfferBuffer` request carries, in object-list order:
+    /// `data`, `objects[0]`, a shared buffer.
+    pub const OFFER_BUFFER_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
     /// Read one MIME of an offer. `token` 0 selects the newest offer in the
     /// caller's session that lists `mime`; another session's token fails with
-    /// `EACCES` and is audited, an unknown one with `ENOENT`. The reply carries
-    /// the payload bytes inline until the shared-buffer mapping op lands.
+    /// `EACCES` and is audited, an unknown one with `ENOENT`. `size` is the
+    /// payload's length. A payload up to the inline cap rides in `bytes`; a
+    /// larger one leaves `bytes` empty and is read with `Fetch`, using the
+    /// reply's `token`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RequestArgs {
         pub token: u64,
@@ -2294,6 +2381,7 @@ pub mod os_lazy_clipboard_v1 {
         pub mime: alloc::string::String,
         pub lazy: bool,
         pub bytes: alloc::vec::Vec<u8>,
+        pub size: u64,
     }
 
     pub fn encode_request_reply(value: &RequestReply) -> Result<Vec<u8>, Error> {
@@ -2302,6 +2390,7 @@ pub mod os_lazy_clipboard_v1 {
         target.string(2, &value.mime)?;
         target.bool(3, value.lazy)?;
         target.bytes(4, &value.bytes)?;
+        target.u64(5, value.size)?;
         Ok(target.finish())
     }
 
@@ -2322,11 +2411,91 @@ pub mod os_lazy_clipboard_v1 {
                 4 => {
                     out.bytes = field.as_bytes().to_vec();
                 }
+                5 => {
+                    out.size = field.as_u64()?;
+                }
                 _ => {}
             }
         }
         Ok(out)
     }
+
+    /// Copy a large payload (see `Request`) into the caller's buffer: the
+    /// bytes of `token`'s `mime` go to `into`'s range, which must be at least
+    /// `size` long (`E2BIG` otherwise). `token` must be an exact token (0 is
+    /// `EINVAL`), authorised like `Request` (another session's is `EACCES` and
+    /// audited). Replies with the number of bytes written.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FetchArgs {
+        pub token: u64,
+        pub mime: alloc::string::String,
+        pub into: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `Fetch`.
+    pub fn encode_fetch_args(value: &FetchArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.token)?;
+        target.string(2, &value.mime)?;
+        target.buffer(3, &value.into, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Fetch` from its body and the objects the kernel installed
+    /// (`FETCH_OBJECTS`, each claimed by its field).
+    pub fn decode_fetch_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<FetchArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = FetchArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.token = field.as_u64()?;
+                }
+                2 => {
+                    out.mime = field.as_str()?.into();
+                }
+                3 => {
+                    out.into = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FetchReply {
+        pub written: u64,
+    }
+
+    pub fn encode_fetch_reply(value: &FetchReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.written)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_fetch_reply(body: &[u8]) -> Result<FetchReply, Error> {
+        let mut out = FetchReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.written = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Fetch` request carries, in object-list order:
+    /// `into`, `objects[0]`, a shared buffer.
+    pub const FETCH_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Serialize one MIME of a lazy offer on demand. The service calls this on
     /// the offer owner's `sink` endpoint when a paste happens.
@@ -2424,6 +2593,8 @@ pub mod os_lazy_clipboard_v1 {
     /// Every request of this interface that carries objects: its method id
     /// and the declared kinds, in object-list order.
     pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_OFFERBUFFER, OFFER_BUFFER_OBJECTS),
+        (METHOD_FETCH, FETCH_OBJECTS),
     ];
 
     /// The retained per-session offer-announcement topic (issue #307): paste
@@ -3533,6 +3704,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_PANELKEY: u32 = 46;
     /// `TrayKeys` method id.
     pub const METHOD_TRAYKEYS: u32 = 47;
+    /// `SetCloseMode` method id.
+    pub const METHOD_SETCLOSEMODE: u32 = 48;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -5302,6 +5475,49 @@ pub mod os_lazy_display_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.key = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask the compositor to keep `surface` when the window manager closes it
+    /// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
+    /// the window stays until the app destroys the surface, so an app that must
+    /// ask first (a terminal with a program running) can put its question in
+    /// the window. Without it (the default, and for every older client) the
+    /// window is dropped as it is sent. Only the creator may call it.
+    /// An app can never make its window unclosable: the first close is passed
+    /// on and the window kept; if the app has not destroyed the surface three
+    /// seconds later (and within 30 s of the first), the next close drops it
+    /// whatever the app says (the app's event endpoint closes, so it quits);
+    /// only a close more than 30 s after the last one is passed on again.
+    /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
+    /// logout never depends on it: `init` kills what is left.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetCloseModeArgs {
+        pub surface: u64,
+        pub ask: bool,
+    }
+
+    pub fn encode_set_close_mode_args(value: &SetCloseModeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.bool(2, value.ask)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_close_mode_args(body: &[u8]) -> Result<SetCloseModeArgs, Error> {
+        let mut out = SetCloseModeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.ask = field.as_bool()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
@@ -21339,6 +21555,18 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0x536f1f4639cf07f0,
         method: 62355614,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.clipboard.v1.Fetch
+    objects::ObjectDecl {
+        interface: 0x5a8da8f22670b758,
+        method: 1396322691,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.clipboard.v1.OfferBuffer
+    objects::ObjectDecl {
+        interface: 0x5a8da8f22670b758,
+        method: 2074208755,
         kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.display.v1.CreateSurface

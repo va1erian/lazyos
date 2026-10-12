@@ -11,6 +11,9 @@ members = [
     "font-atlas",
     "user",
     "libs/messenger",
+    # The Terminal's terminfo entry: source parser and legacy-format writer used
+    # by the image build (docs/terminal-plan.md T5), host-tested.
+    "libs/terminfo",
     "libs/generated",
     # The native syscalls (`int 0x80`) for every userspace program, native and
     # static-musl alike (issue #666): numbers, ABI blocks and typed wrappers,
@@ -216,6 +219,8 @@ ext2fs = { path = "libs/ext2fs", features = ["check"] }
 # The USB stick image's FAT volumes (`build_support/usb_*.rs`); the same
 # version and features `bootloader` already pulls in.
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
+# The Terminal's terminfo entry is compiled here (docs/terminal-plan.md T5).
+terminfo = { path = "libs/terminfo" }
 # Every destination the build writes names its `libs/fhs` constant
 # (docs/filesystem-plan.md F3).
 fhs = { path = "libs/fhs", features = ["alloc"] }

@@ -148,7 +148,7 @@ The per-session clipboard service (issue #115).
 | Function | IDL | About |
 |---|---|---|
 | `offer(owner, sink, mimes, data)` | `Offer(owner: String, sink: Option<String>, mimes: Array<String>, data: Array<Payload>) -> (token: U64)` | Publish typed payloads for the caller's session and return the new |
-| `request(token, mime)` | `Request(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes)` | Read one MIME of an offer. `token` 0 selects the newest offer in the |
+| `request(token, mime)` | `Request(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes, size: U64)` | Read one MIME of an offer. `token` 0 selects the newest offer in the |
 | `serialize(token, mime)` | `Serialize(token: U64, mime: String) -> (bytes: Bytes)` | Serialize one MIME of a lazy offer on demand. The service calls this on |
 | `ping()` | `Ping() -> ()` | Liveness probe. |
 | `current()` | `Current() -> (offer: Option<OfferMeta>)` | Metadata of the caller session's newest offer, never content; empty |
@@ -156,6 +156,8 @@ The per-session clipboard service (issue #115).
 | `new_offer_meta()` | struct `OfferMeta` | a `OfferMeta` at its zero value |
 | `new_paste_event()` | struct `PasteEvent` | a `PasteEvent` at its zero value |
 | `new_clipboard_denial()` | struct `ClipboardDenial` | a `ClipboardDenial` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `OfferBuffer`, `Fetch`.
 
 | Topic | Payload | Helpers |
 |---|---|---|
@@ -250,6 +252,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
 | `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
 | `tray_keys()` | `TrayKeys() -> () oneway` | Shell event: Super+B (Win+B) went down: move the keyboard to the |
+| `set_close_mode(surface, ask)` | `SetCloseMode(surface: U64, ask: Bool) -> ()` | Ask the compositor to keep `surface` when the window manager closes it |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 

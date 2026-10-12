@@ -39,6 +39,9 @@ mod power;
 mod probe;
 mod service;
 mod services;
+/// `init.Launch(app, arg, 0)`: start an app in the shell's session (the
+/// Terminal's New Window uses it).
+pub use services::launch;
 mod submenu;
 mod taskbar;
 mod theme;

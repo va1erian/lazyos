@@ -6,7 +6,9 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use user::messenger::display::{self, wire, Rect};
 use user::messenger::Endpoint;
+use user::sys;
 
+use super::closing::{close_step, Step};
 use super::compositor::Compositor;
 use super::surface::Surface;
 
@@ -104,13 +106,39 @@ impl Compositor {
     /// and drop it; the full-screen repaint lets the windows below show
     /// through.
     pub(super) fn close_surface(&mut self, id: u64) {
-        if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
-            let _ = display::send_event(
-                &Endpoint::from_raw(surface.events),
+        let now = sys::monotonic_ns();
+        let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) else {
+            return;
+        };
+        let (events, step) = (
+            surface.events,
+            close_step(surface.ask_close, surface.close_asked, now),
+        );
+        match step {
+            Step::Hold => {
+                self.wm_mark("CLOSEHOLD", id);
+                return;
+            }
+            Step::Force => self.wm_mark("CLOSEFORCE", id),
+            Step::Ask => self.wm_mark("CLOSEASK", id),
+            Step::Drop => {}
+        }
+        // `Force` sends nothing: the client was asked once already, and the
+        // closed event endpoint tells it the surface is gone.
+        if step != Step::Force {
+            let sent = display::send_event(
+                &Endpoint::from_raw(events),
                 &mut self.scratch,
                 wire::METHOD_WINDOWCLOSE,
                 Ok(Vec::new()),
             );
+            // A client that cannot be sent the event is dead: drop it too.
+            if step == Step::Ask && sent.is_ok() {
+                if let Some(surface) = self.surfaces.iter_mut().find(|surface| surface.id == id) {
+                    surface.close_asked = Some(now);
+                }
+                return;
+            }
         }
         self.forget_surface(id);
         self.repaint_full();
@@ -283,6 +311,8 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         buf_w: 0,
         buf_h: 0,
         hints: None,
+        ask_close: false,
+        close_asked: None,
         maximized: None,
         snap: None,
         slots: Default::default(),

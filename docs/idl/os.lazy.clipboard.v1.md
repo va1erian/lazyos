@@ -26,10 +26,22 @@ declared reply fields, which never use that id.
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | Offer | 1313375869 | sync | `(owner: String, sink: Option<String>, mimes: Array<String>, data: Array<Payload>) -> (token: U64)` |
-| Request | 38093138 | sync | `(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes)` |
+| OfferBuffer | 2074208755 | sync | `(owner: String, mime: String, data: Buffer) -> (token: U64)` |
+| Request | 38093138 | sync | `(token: U64, mime: String) -> (token: U64, mime: String, lazy: Bool, bytes: Bytes, size: U64)` |
+| Fetch | 1396322691 | sync | `(token: U64, mime: String, into: Buffer) -> (written: U64)` |
 | Serialize | 1116160801 | sync | `(token: U64, mime: String) -> (bytes: Bytes)` |
 | Ping | 2142761129 | sync | `() -> ()` |
 | Current | 869319546 | sync | `() -> (offer: Option<OfferMeta>)` |
+
+## Objects
+
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
+
+| Method | Field | Type | Object |
+|---|---|---|---|
+| OfferBuffer | `data` | `Buffer` | `objects[0]`, a shared buffer |
+| Fetch | `into` | `Buffer` | `objects[0]`, a shared buffer |
 
 ## Topics
 

@@ -168,9 +168,33 @@
         "oneway": false
       },
       {
+        "name": "OfferBuffer",
+        "id": 2074208755,
+        "oneway": false,
+        "objects": [
+          {
+            "name": "data",
+            "kind": "buffer",
+            "index": 0
+          }
+        ]
+      },
+      {
         "name": "Request",
         "id": 38093138,
         "oneway": false
+      },
+      {
+        "name": "Fetch",
+        "id": 1396322691,
+        "oneway": false,
+        "objects": [
+          {
+            "name": "into",
+            "kind": "buffer",
+            "index": 0
+          }
+        ]
       },
       {
         "name": "Serialize",
@@ -559,6 +583,11 @@
         "name": "TrayKeys",
         "id": 47,
         "oneway": true
+      },
+      {
+        "name": "SetCloseMode",
+        "id": 48,
+        "oneway": false
       }
     ],
     "topics": []

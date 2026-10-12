@@ -43,6 +43,12 @@ pub(super) struct Surface {
     /// Content-size bounds from `SetSizeHints`; `None` keeps the window
     /// fixed-size (no resize edges, no maximize button).
     pub(super) hints: Option<SizeHints>,
+    /// `SetCloseMode`: the window stays when the window manager closes it,
+    /// until the app destroys the surface.
+    pub(super) ask_close: bool,
+    /// When the close was first asked of the client (monotonic ns); `None`
+    /// until then; only a close request moves it (`SetCloseMode` does not).
+    pub(super) close_asked: Option<u64>,
     /// The normal window rectangle saved while maximized; `Some` while the
     /// surface is maximized.
     pub(super) maximized: Option<Rect>,

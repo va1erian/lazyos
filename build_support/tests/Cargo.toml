@@ -24,6 +24,8 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
+# The Terminal's terminfo entry (`samples_embed.rs`).
+terminfo = { path = "../../libs/terminfo" }
 lazyos-crypto = { path = "../../libs/crypto" }
 # Firmware names (`wifi_embed.rs`), by the rules the driver loads them with.
 fwload = { path = "../../libs/fwload" }

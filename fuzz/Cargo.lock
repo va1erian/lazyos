@@ -71,6 +71,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,6 +198,7 @@ version = "0.1.0"
 dependencies = [
  "fhs",
  "lazyos-crypto",
+ "tracefmt",
 ]
 
 [[package]]
@@ -405,6 +412,7 @@ dependencies = [
  "inputmap",
  "ipp",
  "lazypkg",
+ "lazyterm",
  "libfuzzer-sys",
  "libmessenger",
  "modplay",
@@ -430,6 +438,14 @@ dependencies = [
  "miniz_oxide",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "lazyterm"
+version = "0.1.0"
+dependencies = [
+ "unicode-width",
+ "vte",
 ]
 
 [[package]]
@@ -485,6 +501,12 @@ checksum = "7da5ac363534dce5fabf69949225e174fbf111a498bf0ff794c8ea1fba9f3dda"
 dependencies = [
  "digest",
 ]
+
+[[package]]
+name = "memchr"
+version = "2.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "messenger-generated"
@@ -801,6 +823,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracefmt"
+version = "0.1.0"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -811,6 +837,12 @@ name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "usbhid"
@@ -833,6 +865,16 @@ version = "0.1.0"
 [[package]]
 name = "virtio-net"
 version = "0.1.0"
+
+[[package]]
+name = "vte"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5924018406ce0063cd67f8e008104968b74b563ee1b85dde3ed1f7cb87d3dbd"
+dependencies = [
+ "arrayvec",
+ "memchr",
+]
 
 [[package]]
 name = "winnow"

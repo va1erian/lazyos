@@ -8,13 +8,15 @@ use user::central;
 use user::messenger::{clipboard as wire, errno, registry, Endpoint, Error};
 use user::sys;
 
-use super::state::{Clipboard, Offer};
+use super::state::{Big, Clipboard, Offer};
 use super::SERIALIZE_DEADLINE;
 
 /// Where a `Request` found its payload.
 enum Reading {
     /// An inline payload the service already holds.
     Eager { mime: String, bytes: Vec<u8> },
+    /// A payload in shared pages: only its size travels in the reply.
+    Big { mime: String, size: usize },
     /// A lazy offer: serialize through the owner endpoint.
     Lazy {
         mime: String,
@@ -69,6 +71,7 @@ impl Clipboard {
             owner_slot,
             mimes,
             data: request.data,
+            big: None,
             sink: request.sink,
             endpoint: None,
             lazy,
@@ -99,6 +102,156 @@ impl Clipboard {
         Ok(token)
     }
 
+    /// `OfferBuffer`: snapshot the range `request.data` names as one payload
+    /// of `mime`. The service copies it once into pages of its own and closes
+    /// the received handle at once, so what is pasted later is what was
+    /// copied, however the owner uses its pages afterwards.
+    pub(super) fn offer_buffer(
+        &mut self,
+        request: wire::wire::OfferBufferArgs,
+        session: u64,
+        owner_slot: u64,
+        tick: u64,
+    ) -> Result<u64, Error> {
+        let handle = request.data.handle;
+        let result = self.keep_buffer(request, session, owner_slot, tick);
+        // Decoded, so the received handle is ours to close whatever happened.
+        let _ = sys::buffer_close(handle);
+        result
+    }
+
+    fn keep_buffer(
+        &mut self,
+        request: wire::wire::OfferBufferArgs,
+        session: u64,
+        owner_slot: u64,
+        tick: u64,
+    ) -> Result<u64, Error> {
+        let (mime, data) = (request.mime, request.data);
+        if mime.is_empty() {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        if mime.len() > wire::MAX_MIME || request.owner.len() > wire::MAX_TEXT {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        let len = usize::try_from(data.len).map_err(|_| Error::Errno(-errno::E2BIG))?;
+        if len == 0 {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        if len > wire::MAX_BUFFER {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        // The kernel knows nothing about the byte range: the mapped size is
+        // the truth about what the pages hold.
+        let (va, size) = sys::buffer_map(data.handle).map_err(Error::Errno)?;
+        if va == 0 || !data.fits(size) {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        let index = self.session_index(session)?;
+        // One copy into pages the owner never sees: the snapshot.
+        let (own, own_va, _) = sys::buffer_create(len as u64).map_err(Error::Errno)?;
+        // SAFETY: the source range lies inside the mapping `buffer_map` just
+        // reported (`data.fits(size)`); the destination is the fresh mapping of
+        // at least `len` bytes `buffer_create` returned. They are different
+        // buffers, so the ranges cannot overlap.
+        unsafe {
+            core::ptr::copy_nonoverlapping((va + data.offset) as *const u8, own_va as *mut u8, len);
+        }
+        self.next_token = self.next_token.wrapping_add(1);
+        let token = self.next_token;
+        let offer = Offer {
+            token,
+            owner: request.owner,
+            session,
+            owner_slot,
+            mimes: alloc::vec![mime.clone()],
+            data: Vec::new(),
+            big: Some(Big {
+                mime,
+                handle: own,
+                va: own_va,
+                len,
+            }),
+            sink: None,
+            endpoint: None,
+            lazy: false,
+            tick,
+        };
+        let info = offer.info();
+        sys::write_str(&format!(
+            "clipboardd: offer #{} owner={} session={} app={} buffer={} mimes=1\n",
+            token, info.owner, session, owner_slot, len
+        ));
+        let history = self.history;
+        let clip = &mut self.sessions[index];
+        clip.offers.push_back(offer);
+        // Evict by count, then by the bytes kept in shared pages.
+        while clip.offers.len() > history
+            || (clip.offers.len() > 1
+                && clip.offers.iter().map(Offer::big_len).sum::<usize>() > wire::MAX_RETAINED)
+        {
+            clip.offers.pop_front();
+        }
+        let session_text = format!("{session}");
+        let _ = wire::publish_session_clipboard_changed(
+            self,
+            &session_text,
+            &wire::to_wire_meta(&info),
+        );
+        Ok(token)
+    }
+
+    /// `Fetch`: copy offer `token`'s buffer-backed `mime` into the caller's
+    /// buffer. The service owns the received handle and closes it here.
+    pub(super) fn fetch(
+        &mut self,
+        request: wire::wire::FetchArgs,
+        session: u64,
+    ) -> Result<u64, Error> {
+        let handle = request.into.handle;
+        let result = self.copy_out(&request, session);
+        let _ = sys::buffer_close(handle);
+        result
+    }
+
+    fn copy_out(&mut self, request: &wire::wire::FetchArgs, session: u64) -> Result<u64, Error> {
+        if request.token == 0 {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        let found = self
+            .sessions
+            .iter()
+            .find(|clip| clip.session == session)
+            .and_then(|clip| {
+                clip.offers
+                    .iter()
+                    .find(|offer| offer.token == request.token)
+            });
+        let Some(offer) = found else {
+            return Err(self.miss(request.token, session));
+        };
+        let Some(big) = offer.big.as_ref().filter(|big| big.mime == request.mime) else {
+            return Err(Error::Errno(-errno::ENOENT));
+        };
+        let into = request.into;
+        if (into.len as usize) < big.len {
+            return Err(Error::Errno(-errno::E2BIG));
+        }
+        let (va, size) = sys::buffer_map(into.handle).map_err(Error::Errno)?;
+        if va == 0 || !into.fits(size) {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        // SAFETY: the source range was checked against its mapping when the
+        // offer was kept and the mapping lives as long as the offer; the
+        // destination range was just checked against its mapping to hold at
+        // least `big.len` bytes (`into.len >= big.len`, `into.fits(size)`).
+        // `copy` tolerates the two ranges overlapping (the same buffer).
+        unsafe {
+            core::ptr::copy(big.va as *const u8, (va + into.offset) as *mut u8, big.len);
+        }
+        Ok(big.len as u64)
+    }
+
     /// Resolve one `Request`: find the offer, then read it inline or through
     /// the owner's `Serialize`.
     pub(super) fn request(
@@ -109,7 +262,7 @@ impl Clipboard {
     ) -> Result<wire::BufferHandle, Error> {
         // Snapshot the hit first: a lazy read may call another task and mutate
         // the endpoint cache, so the session table cannot stay borrowed.
-        let reading = {
+        let (token, reading) = {
             let clip = self.sessions.iter().find(|clip| clip.session == session);
             let offer = clip.and_then(|clip| {
                 if token == 0 {
@@ -124,19 +277,35 @@ impl Clipboard {
                 }
             });
             match offer {
-                Some(offer) if offer.lazy => Reading::Lazy {
-                    mime: String::from(mime),
-                    sink: offer.sink.clone().unwrap_or_default(),
-                    cached: offer.endpoint,
+                Some(offer) if offer.lazy => (
+                    offer.token,
+                    Reading::Lazy {
+                        mime: String::from(mime),
+                        sink: offer.sink.clone().unwrap_or_default(),
+                        cached: offer.endpoint,
+                    },
+                ),
+                Some(offer) if offer.big.is_some() => match &offer.big {
+                    Some(big) if big.mime == mime => (
+                        offer.token,
+                        Reading::Big {
+                            mime: String::from(mime),
+                            size: big.len,
+                        },
+                    ),
+                    _ => return Err(Error::Errno(-errno::ENOENT)),
                 },
                 Some(offer) => match offer.data.iter().find(|(known, _)| known == mime) {
-                    Some((_, bytes)) => Reading::Eager {
-                        mime: String::from(mime),
-                        bytes: bytes.clone(),
-                    },
+                    Some((_, bytes)) => (
+                        offer.token,
+                        Reading::Eager {
+                            mime: String::from(mime),
+                            bytes: bytes.clone(),
+                        },
+                    ),
                     None => return Err(Error::Errno(-errno::ENOENT)),
                 },
-                None => return Err(self.miss(token)),
+                None => return Err(self.miss(token, session)),
             }
         };
         match reading {
@@ -144,7 +313,17 @@ impl Clipboard {
                 token,
                 mime,
                 lazy: false,
+                size: bytes.len() as u64,
                 bytes,
+            }),
+            // The payload stays in its pages: the requester asks for it with
+            // `Fetch`, naming the token resolved here.
+            Reading::Big { mime, size } => Ok(wire::BufferHandle {
+                token,
+                mime,
+                lazy: false,
+                bytes: Vec::new(),
+                size: size as u64,
             }),
             Reading::Lazy { mime, sink, cached } => {
                 let endpoint = match cached {
@@ -161,24 +340,30 @@ impl Clipboard {
                     Some(deadline),
                 )?;
                 let bytes = wire::decode_serialized(&reply)?;
+                if bytes.len() > wire::MAX_DATA {
+                    // A lazy owner answers inline: it cannot exceed a parcel.
+                    return Err(Error::Errno(-errno::E2BIG));
+                }
                 Ok(wire::BufferHandle {
                     token,
                     mime,
                     lazy: true,
+                    size: bytes.len() as u64,
                     bytes,
                 })
             }
         }
     }
 
-    /// The token was not readable in `session`: a token that exists in another
-    /// session is a policy denial, anything else "not found".
-    fn miss(&self, token: u64) -> Error {
+    /// The token was not readable in `session`: a token that exists in
+    /// *another* session is a policy denial; anything else, a token of the
+    /// caller's own session read as a MIME it does not carry included, is
+    /// "not found" (and not an audited denial).
+    fn miss(&self, token: u64, session: u64) -> Error {
         let foreign = token != 0
-            && self
-                .sessions
-                .iter()
-                .any(|clip| clip.offers.iter().any(|offer| offer.token == token));
+            && self.sessions.iter().any(|clip| {
+                clip.session != session && clip.offers.iter().any(|offer| offer.token == token)
+            });
         if foreign {
             Error::Errno(-errno::EACCES)
         } else {
@@ -204,13 +389,7 @@ impl Clipboard {
         self.pastes += 1;
         sys::write_str(&format!(
             "clipboardd: paste #{} uid={} session={} mime={} app={} bytes={} lazy={}\n",
-            self.pastes,
-            cred.uid,
-            cred.session,
-            handle.mime,
-            slot,
-            handle.bytes.len(),
-            handle.lazy
+            self.pastes, cred.uid, cred.session, handle.mime, slot, handle.size, handle.lazy
         ));
         let event = wire::PasteEvent {
             seq: self.pastes,
@@ -218,7 +397,7 @@ impl Clipboard {
             session: cred.session,
             mime: handle.mime.clone(),
             app: slot,
-            bytes: handle.bytes.len() as u64,
+            bytes: handle.size,
             lazy: handle.lazy,
         };
         // Best-effort: the next event reconnects when the broker is

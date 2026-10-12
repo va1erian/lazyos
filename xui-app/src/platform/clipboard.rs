@@ -1,24 +1,31 @@
 //! The `clipboardd` client: text copy/paste shared across LazyOS apps.
 //!
 //! `set_text` publishes an eager `text/plain` offer; `text` requests the newest
-//! offer in the caller's session. Payloads are bounded to [`MAX_BYTES`] on both
-//! paths, and when `clipboardd` is absent (a console image, or before it
-//! starts) the module falls back to a thread-local store, so an app never hangs
-//! or panics without the service.
+//! offer in the caller's session. Payloads are bounded to [`MAX_BYTES`] (16
+//! MiB) on both paths. Up to [`INLINE_BYTES`] they ride inside the parcel;
+//! above it a copy goes into shared pages (`OfferBuffer`: the service takes
+//! one snapshot of them into pages of its own, not its heap) and a paste
+//! reads the size from `Request` and has the service copy the bytes into a
+//! buffer this task creates (`Fetch`). When `clipboardd` is absent (a console
+//! image, or before it starts) the module falls back to a thread-local store,
+//! so an app never hangs or panics without the service.
 //!
 //! `Offer` travels on the `os.lazy.clipboard.write.v1` ACL scope and `Request`
 //! on `os.lazy.clipboard.read.v1` (the MIDL documents these as capability
-//! names, not wire fields), so their `fnv1a64` hashes live here.
+//! names, not wire fields), so their `fnv1a64` hashes live here. The two
+//! methods that carry a buffer travel on the interface's own id: the kernel's
+//! declared-object gate keys on the header's interface.
 //!
 //! The wire calls sit behind the [`Transport`] seam so the fallback and the
 //! size bound can be tested on a host with no LazyOS kernel.
 
 use std::cell::{Cell, RefCell};
 
-use libmessenger::Parcel;
+use libmessenger::Buffer;
 use messenger_generated::os_lazy_clipboard_v1 as wire;
 
 use super::messenger::Service;
+use crate::sys;
 
 /// The service's registered name.
 const NAME: &str = "os.lazy.clipboard";
@@ -30,8 +37,12 @@ const WRITE_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.write.v1");
 const READ_INTERFACE: u64 = fnv1a64("os.lazy.clipboard.read.v1");
 /// The MIME type used for plain text.
 pub const TEXT_MIME: &str = "text/plain";
-/// The largest payload either direction accepts (the service's inline cap).
-pub const MAX_BYTES: usize = 8 * 1024;
+/// The largest payload either direction accepts: 16 MiB, the service's own
+/// bound (`user::messenger::clipboard::MAX_BUFFER`).
+pub const MAX_BYTES: usize = 16 * 1024 * 1024;
+/// The largest payload that travels inside a parcel; a bigger one goes through
+/// shared pages.
+pub const INLINE_BYTES: usize = 8 * 1024;
 /// A human-readable owner label for offers from an xui app.
 const OWNER: &str = "xui-app";
 /// How long one call to `clipboardd` may take (PIT ticks, 100 Hz). A copy or
@@ -40,6 +51,9 @@ const OWNER: &str = "xui-app";
 /// half a second, not the window; the callers already fall back to the
 /// in-process copy on any error.
 const CALL_TICKS: u64 = 50;
+/// A call that moves a large payload: the service maps pages and copies
+/// megabytes, so it may take a few frames' time (5 s at 100 Hz).
+const BULK_CALL_TICKS: u64 = 500;
 
 /// FNV-1a 64, matching `tools/midlc`'s interface-id hash.
 const fn fnv1a64(text: &str) -> u64 {
@@ -75,54 +89,25 @@ struct MessengerTransport;
 
 impl Transport for MessengerTransport {
     fn offer(&self, text: &str) -> Result<(), i64> {
-        let service = Service::try_connect(NAME).ok_or(-2)?;
-        let body = wire::encode_offer_args(&wire::OfferArgs {
-            owner: OWNER.to_owned(),
-            sink: None,
-            mimes: vec![TEXT_MIME.to_owned()],
-            data: vec![wire::Payload {
-                mime: TEXT_MIME.to_owned(),
-                bytes: text.as_bytes().to_vec(),
-            }],
-        })
-        .map_err(|_| -22)?;
-        service
-            .call_within(
-                WRITE_INTERFACE,
-                wire::METHOD_OFFER,
-                ERROR_FIELD,
-                body,
-                CALL_TICKS,
-            )
-            .map(|_| ())
+        offer_payload(TEXT_MIME, text.as_bytes()).map(|_| ())
     }
 
     fn request(&self) -> Result<Vec<u8>, i64> {
-        let service = Service::try_connect(NAME).ok_or(-2)?;
-        let body = wire::encode_request_args(&wire::RequestArgs {
-            token: 0,
-            mime: TEXT_MIME.to_owned(),
-        })
-        .map_err(|_| -22)?;
-        let reply = service.call_within(
-            READ_INTERFACE,
-            wire::METHOD_REQUEST,
-            ERROR_FIELD,
-            body,
-            CALL_TICKS,
-        )?;
-        decode_bytes(&reply)
+        paste_payload(0, TEXT_MIME)
     }
 }
 
-/// Offers `bytes` as `mime` (a drag's payload) and returns the offer token
-/// `DragStart` hands the compositor. Unlike [`set_text`] there is no
-/// in-process fallback: a drag needs the service to reach another app.
-pub fn offer(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
+/// Offers `bytes` as `mime` and returns the offer token: inline up to
+/// [`INLINE_BYTES`], through shared pages above it, never above
+/// [`MAX_BYTES`].
+fn offer_payload(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
     if bytes.len() > MAX_BYTES {
         return Err(-7); // E2BIG
     }
     let service = Service::try_connect(NAME).ok_or(-2)?;
+    if bytes.len() > INLINE_BYTES {
+        return offer_buffer(&service, mime, bytes);
+    }
     let body = wire::encode_offer_args(&wire::OfferArgs {
         owner: OWNER.to_owned(),
         sink: None,
@@ -149,9 +134,72 @@ pub fn offer(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
     Ok(token)
 }
 
-/// Pastes offer `token` as `mime` (a drop's payload), bounded like every
-/// paste. The service refuses another session's token (`-EACCES`).
-pub fn paste(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
+/// `OfferBuffer`: the bytes go into new shared pages, the service snapshots
+/// them during the call, and ours close when it returns.
+fn offer_buffer(service: &Service, mime: &str, bytes: &[u8]) -> Result<u64, i64> {
+    let (handle, va, _) = sys::buffer_create(bytes.len() as u64)?;
+    // SAFETY: `buffer_create` mapped at least `bytes.len()` writable bytes at
+    // `va`, which this task owns until `buffer_close` below.
+    unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), va as *mut u8, bytes.len()) };
+    let sent = wire::encode_offer_buffer_args(&wire::OfferBufferArgs {
+        owner: OWNER.to_owned(),
+        mime: mime.to_owned(),
+        data: Buffer::whole(handle, bytes.len() as u64),
+    })
+    .map_err(|_| -22)
+    .and_then(|(body, objects)| {
+        service.call_moving_within(
+            wire::INTERFACE_ID,
+            wire::METHOD_OFFERBUFFER,
+            ERROR_FIELD,
+            body,
+            objects,
+            BULK_CALL_TICKS,
+        )
+    });
+    let _ = sys::buffer_close(handle);
+    let token = wire::decode_offer_buffer_reply(&sent?.body)
+        .map_err(|_| -22)?
+        .token;
+    if token == 0 {
+        return Err(-22);
+    }
+    Ok(token)
+}
+
+/// What a `Request` reply asks of the reader.
+#[derive(Debug, PartialEq, Eq)]
+enum Plan {
+    /// The whole payload came inline.
+    Inline(Vec<u8>),
+    /// The payload stays in the service's pages: fetch `size` bytes of offer
+    /// `token`.
+    Fetch { token: u64, size: usize },
+}
+
+/// Judge a `Request` reply: the payload's size is bounded by [`MAX_BYTES`]
+/// before anything is allocated, and a reply whose inline bytes disagree with
+/// its size is refused rather than trusted.
+fn plan(reply: wire::RequestReply) -> Result<Plan, i64> {
+    // A service of the previous protocol answers inline with no size.
+    let size = reply.size.max(reply.bytes.len() as u64);
+    if size > MAX_BYTES as u64 {
+        return Err(-7); // E2BIG
+    }
+    if reply.bytes.len() as u64 == size {
+        return Ok(Plan::Inline(reply.bytes));
+    }
+    if !reply.bytes.is_empty() || reply.token == 0 {
+        return Err(-22); // EINVAL: a reply that contradicts itself
+    }
+    Ok(Plan::Fetch {
+        token: reply.token,
+        size: size as usize,
+    })
+}
+
+/// Reads offer `token` (0: the newest) as `mime`, inline or through a buffer.
+fn paste_payload(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
     let service = Service::try_connect(NAME).ok_or(-2)?;
     let body = wire::encode_request_args(&wire::RequestArgs {
         token,
@@ -165,7 +213,58 @@ pub fn paste(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
         body,
         CALL_TICKS,
     )?;
-    decode_bytes(&reply)
+    let reply = wire::decode_request_reply(&reply.body).map_err(|_| -22)?;
+    match plan(reply)? {
+        Plan::Inline(bytes) => Ok(bytes),
+        Plan::Fetch { token, size } => fetch(&service, token, mime, size),
+    }
+}
+
+/// `Fetch`: the service copies `size` bytes into a buffer this task creates.
+fn fetch(service: &Service, token: u64, mime: &str, size: usize) -> Result<Vec<u8>, i64> {
+    let (handle, va, _) = sys::buffer_create(size as u64)?;
+    let sent = wire::encode_fetch_args(&wire::FetchArgs {
+        token,
+        mime: mime.to_owned(),
+        into: Buffer::whole(handle, size as u64),
+    })
+    .map_err(|_| -22)
+    .and_then(|(body, objects)| {
+        service.call_moving_within(
+            wire::INTERFACE_ID,
+            wire::METHOD_FETCH,
+            ERROR_FIELD,
+            body,
+            objects,
+            BULK_CALL_TICKS,
+        )
+    });
+    let result = sent.and_then(|reply| {
+        let written = wire::decode_fetch_reply(&reply.body)
+            .map_err(|_| -22)?
+            .written;
+        if written > size as u64 {
+            return Err(-22);
+        }
+        // SAFETY: `buffer_create` mapped `size` readable bytes at `va`, owned
+        // by this task until `buffer_close` below, and `written <= size`.
+        Ok(unsafe { std::slice::from_raw_parts(va as *const u8, written as usize) }.to_vec())
+    });
+    let _ = sys::buffer_close(handle);
+    result
+}
+
+/// Offers `bytes` as `mime` (a drag's payload) and returns the offer token
+/// `DragStart` hands the compositor. Unlike [`set_text`] there is no
+/// in-process fallback: a drag needs the service to reach another app.
+pub fn offer(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
+    offer_payload(mime, bytes)
+}
+
+/// Pastes offer `token` as `mime` (a drop's payload), bounded like every
+/// paste. The service refuses another session's token (`-EACCES`).
+pub fn paste(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
+    paste_payload(token, mime)
 }
 
 /// Sets the clipboard text, falling back in-process when the service is absent.
@@ -212,15 +311,6 @@ fn local_text() -> Option<String> {
     })
 }
 
-/// Decodes a `Request` reply body into bytes, enforcing [`MAX_BYTES`].
-fn decode_bytes(reply: &Parcel) -> Result<Vec<u8>, i64> {
-    let reply = wire::decode_request_reply(&reply.body).map_err(|_| -22)?;
-    if reply.bytes.len() > MAX_BYTES {
-        return Err(-7);
-    }
-    Ok(reply.bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +339,56 @@ mod tests {
         fn request(&self) -> Result<Vec<u8>, i64> {
             self.0.borrow().clone().ok_or(-2)
         }
+    }
+
+    fn reply(token: u64, bytes: &[u8], size: u64) -> wire::RequestReply {
+        wire::RequestReply {
+            token,
+            mime: TEXT_MIME.to_owned(),
+            lazy: false,
+            bytes: bytes.to_vec(),
+            size,
+        }
+    }
+
+    #[test]
+    fn a_small_reply_is_inline_whatever_its_size_field_says() {
+        assert_eq!(plan(reply(3, b"hi", 2)), Ok(Plan::Inline(b"hi".to_vec())));
+        // The previous protocol had no size field.
+        assert_eq!(plan(reply(3, b"hi", 0)), Ok(Plan::Inline(b"hi".to_vec())));
+        assert_eq!(plan(reply(3, b"", 0)), Ok(Plan::Inline(Vec::new())));
+    }
+
+    #[test]
+    fn a_large_reply_is_fetched_by_its_resolved_token() {
+        let size = (INLINE_BYTES + 1) as u64;
+        assert_eq!(plan(reply(9, b"", size)), Ok(Plan::Fetch { token: 9, size: INLINE_BYTES + 1 }));
+        let max = MAX_BYTES as u64;
+        assert_eq!(plan(reply(9, b"", max)), Ok(Plan::Fetch { token: 9, size: MAX_BYTES }));
+    }
+
+    #[test]
+    fn untrusted_sizes_are_bounded_before_anything_is_allocated() {
+        assert_eq!(plan(reply(9, b"", MAX_BYTES as u64 + 1)), Err(-7));
+        assert_eq!(plan(reply(9, b"", u64::MAX)), Err(-7));
+        assert_eq!(plan(reply(9, b"", u64::MAX / 2)), Err(-7));
+    }
+
+    #[test]
+    fn a_reply_that_contradicts_itself_is_refused() {
+        assert_eq!(plan(reply(9, b"abc", 10)), Err(-22), "inline bytes shorter than the size");
+        assert_eq!(plan(reply(0, b"", 100)), Err(-22), "a fetch needs the resolved token");
+    }
+
+    #[test]
+    fn the_bounds_agree_with_the_service() {
+        assert_eq!(MAX_BYTES, user_max_buffer());
+        assert_eq!(INLINE_BYTES, 8 * 1024);
+    }
+
+    /// The service's bound as the IDL doc and `clipboardd` state it.
+    const fn user_max_buffer() -> usize {
+        16 * 1024 * 1024
     }
 
     #[test]

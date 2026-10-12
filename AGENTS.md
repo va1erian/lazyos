@@ -233,6 +233,31 @@ python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expe
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 ```
 
+## Terminal (`xui-term`)
+
+The desktop Terminal is `xui-app/src/bin/term.rs` and `term/` over the portable
+engine `xui-app/crates/term` (`lazyterm`: parser, grid, scrollback with reflow,
+selection, search, URL matching, settings); plan and as-built notes in
+[`docs/terminal-plan.md`](docs/terminal-plan.md). Settings are `confd` keys
+under `user/<uid>/term/*`, changed live from Preferences (`Ctrl+,`). Menu,
+find bar, close prompt and Preferences are drawn in the window (probe names
+`menu:<item>`, `find:*`, `prefs:*`). Sessions: `term_xterm.json`,
+`term_resize.json`, `term_font.json`, `term_select_copy.json`,
+`term_scrollback.json`, `term_menu.json` (build with
+`LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term`; `term_xterm`
+also `LAZYOS_LINUXAPPS=1`). Markers: `TERM:UP|OUT|EXIT`, `TERM:MENU:<item>`,
+`TERM:FIND:<n>`, `TERM:LINK:OPEN:<url>`, `TERM:BELL:<kind>`,
+`TERM:NEWWIN:<cwd>`, `TERM:CLOSE:CONFIRM|CANCEL|FORCE`, `TERM:PREFS:SET:<key>`,
+`TERM:SAVE:<bytes>`.
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyterm
+FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyterm --release seeded
+cargo test --manifest-path xui-app/Cargo.toml --bin xui-term   # Linux/WSL; snapshots in xui-app/target/snapshots
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/term_menu \
+    --script tools/screenshot/examples/term_menu.json
+```
+
 ## Docs app and the zig toolchain
 
 `xui-docs` renders Markdown on a Blitz view (`xui-blitz`, pure Rust), so

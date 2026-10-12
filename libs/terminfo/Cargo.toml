@@ -1,0 +1,6 @@
+[package]
+name = "terminfo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A terminfo source parser and a writer for the legacy compiled format (docs/terminal-plan.md T5): the image build compiles the Terminal's entry with it, so no `tic` is needed on the build host"

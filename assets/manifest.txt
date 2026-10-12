@@ -12,6 +12,9 @@ fonts/DroidSans.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag a
 fonts/DroidSans-Bold.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag android-4.4_r1, unmodified (fonts/README.md)
 fonts/DroidSerif-Regular.ttf | Apache-2.0 | none | AOSP frameworks/base/data/fonts, tag android-4.4_r1, unmodified (fonts/README.md)
 fonts/JetBrainsMono-Regular.ttf | OFL-1.1 | none | https://github.com/JetBrains/JetBrainsMono, unmodified; compiled into the kernel console and the Terminal (fonts/README.md)
+fonts/JetBrainsMono-Bold.ttf | OFL-1.1 | none | https://github.com/JetBrains/JetBrainsMono release v2.304 (JetBrainsMono-2.304.zip, fonts/ttf/JetBrainsMono-Bold.ttf), unmodified; compiled into the Terminal as its bold, italic and bold italic faces (fonts/README.md)
+fonts/JetBrainsMono-BoldItalic.ttf | OFL-1.1 | none | https://github.com/JetBrains/JetBrainsMono release v2.304 (JetBrainsMono-2.304.zip, fonts/ttf/JetBrainsMono-BoldItalic.ttf), unmodified; compiled into the Terminal as its bold, italic and bold italic faces (fonts/README.md)
+fonts/JetBrainsMono-Italic.ttf | OFL-1.1 | none | https://github.com/JetBrains/JetBrainsMono release v2.304 (JetBrainsMono-2.304.zip, fonts/ttf/JetBrainsMono-Italic.ttf), unmodified; compiled into the Terminal as its bold, italic and bold italic faces (fonts/README.md)
 fonts/LICENSE-Apache-2.0.txt | Apache-2.0 | none | The Apache License 2.0 text, https://www.apache.org/licenses/LICENSE-2.0
 fonts/OFL.txt | OFL-1.1 | none | The SIL Open Font License 1.1 text shipped with JetBrains Mono
 fonts/README.md | GPL-3.0-or-later | none | LazyOS original: the fonts' credits and uses
@@ -42,3 +45,4 @@ wallpapers/Aurora.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural
 wallpapers/Dunes.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py
 wallpapers/LazyOS-Green.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
 wallpapers/LazyOS-Night.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
+terminfo/xterm-256color.src | GPL-3.0-or-later | none | LazyOS original: the Terminal's terminfo entry, compiled by libs/terminfo into /system/share/terminfo/x/xterm-256color at build time (docs/terminal-plan.md T5)

@@ -71,13 +71,56 @@ pub fn request_request(token: u64, mime: &str) -> Result<Parcel> {
     Ok(parcel(READ_INTERFACE, wire::METHOD_REQUEST, body))
 }
 
-/// A `Request` reply carrying the payload (the `BufferHandle` shape).
+/// `OfferBuffer(owner, mime, data)`: one large payload in the shared pages
+/// of `data` (a handle from `buffer_create`, `data.len` bytes). The request
+/// carries the buffer; it travels on the interface's own id, which the
+/// declared-object gate requires.
+pub fn offer_buffer_request(owner: &str, mime: &str, data: libmessenger::Buffer) -> Result<Parcel> {
+    let args = wire::OfferBufferArgs {
+        owner: String::from(owner),
+        mime: String::from(mime),
+        data,
+    };
+    let (body, objects) = wire::encode_offer_buffer_args(&args).map_err(Error::Parcel)?;
+    let mut parcel = parcel(INTERFACE, wire::METHOD_OFFERBUFFER, body);
+    parcel.objects = objects;
+    Ok(parcel)
+}
+
+/// `Fetch(token, mime, into)`: copy a large payload into `into`.
+pub fn fetch_request(token: u64, mime: &str, into: libmessenger::Buffer) -> Result<Parcel> {
+    let args = wire::FetchArgs {
+        token,
+        mime: String::from(mime),
+        into,
+    };
+    let (body, objects) = wire::encode_fetch_args(&args).map_err(Error::Parcel)?;
+    let mut parcel = parcel(INTERFACE, wire::METHOD_FETCH, body);
+    parcel.objects = objects;
+    Ok(parcel)
+}
+
+/// A `Fetch` reply: the bytes written.
+pub fn fetch_reply(written: u64) -> Result<Parcel> {
+    let body = wire::encode_fetch_reply(&wire::FetchReply { written }).map_err(Error::Parcel)?;
+    Ok(parcel(INTERFACE, wire::METHOD_FETCH, body))
+}
+
+/// Decode a `Fetch` reply's byte count.
+pub fn decode_written(parcel: &Parcel) -> Result<u64> {
+    let reply = wire::decode_fetch_reply(&parcel.body).map_err(Error::Parcel)?;
+    Ok(reply.written)
+}
+
+/// A `Request` reply carrying the payload (the `BufferHandle` shape): its
+/// bytes when they are small, else just its size.
 pub fn request_reply(handle: &BufferHandle) -> Result<Parcel> {
     let reply = wire::RequestReply {
         token: handle.token,
         mime: handle.mime.clone(),
         lazy: handle.lazy,
         bytes: handle.bytes.clone(),
+        size: handle.size,
     };
     let body = wire::encode_request_reply(&reply).map_err(Error::Parcel)?;
     Ok(parcel(READ_INTERFACE, wire::METHOD_REQUEST, body))
@@ -202,10 +245,17 @@ pub fn decode_serialize(parcel: &Parcel) -> Result<(u64, String)> {
     Ok((args.token, args.mime))
 }
 
-/// Decode a `Request` reply's payload bytes.
-pub fn decode_bytes(parcel: &Parcel) -> Result<Vec<u8>> {
+/// Decode a `Request` reply: its payload bytes (empty when the payload must
+/// be fetched through a buffer), the payload's size and the resolved token.
+pub fn decode_request_reply(parcel: &Parcel) -> Result<BufferHandle> {
     let reply = wire::decode_request_reply(&parcel.body).map_err(Error::Parcel)?;
-    Ok(reply.bytes)
+    Ok(BufferHandle {
+        token: reply.token,
+        mime: reply.mime,
+        lazy: reply.lazy,
+        size: reply.size.max(reply.bytes.len() as u64),
+        bytes: reply.bytes,
+    })
 }
 
 /// Decode a `Serialize` reply's payload bytes.
