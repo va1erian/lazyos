@@ -136,6 +136,36 @@ fn set_channel_defers_calibration_outside_scans() {
     assert!(d.hal.need_rfk);
     d.prepare_tx();
     assert!(!d.hal.need_rfk);
+    // A scan that returns to the calibrated channel needs no calibration
+    // (the next data frame must not run IQK and DPK); a new channel does,
+    // and coming back before transmitting cancels it again.
+    d.scan_start(MAC).unwrap();
+    d.set_channel(11, Bw::Mhz20, 11).unwrap();
+    d.scan_complete().unwrap();
+    d.set_channel(36, Bw::Mhz20, 36).unwrap();
+    assert!(!d.hal.need_rfk, "back on the calibrated channel");
+    d.set_channel(149, Bw::Mhz20, 149).unwrap();
+    assert!(d.hal.need_rfk, "a new channel");
+    d.set_channel(36, Bw::Mhz20, 36).unwrap();
+    assert!(!d.hal.need_rfk);
+}
+
+#[test]
+fn scan_complete_restores_the_port_even_when_the_firmware_fails() {
+    let mut d = dev();
+    d.add_station(MAC).unwrap();
+    d.hal.rcr |= crate::mac::regs::RCR_CBSSID_BCN;
+    let scan_mac = [0x02, 0, 0, 0, 0, 9];
+    d.scan_start(scan_mac).unwrap();
+    assert_eq!(&d.hci.regs[0x610..0x616], &scan_mac);
+    // A firmware that announces scan notifications, and mailboxes it never
+    // empties.
+    d.fw.feature |= crate::fw::feature::NOTIFY_SCAN;
+    d.hci.force.push((crate::mac::regs::HMETFR, 0x0f, 0x0f));
+    assert!(d.scan_complete().is_err());
+    assert!(!d.hal.flags.scanning);
+    assert_eq!(&d.hci.regs[0x610..0x616], &MAC, "interface address back");
+    assert_ne!(d.hci.peek32(RCR) & crate::mac::regs::RCR_CBSSID_BCN, 0);
 }
 
 #[test]
@@ -289,7 +319,7 @@ fn tx_packets_for_management_and_data() {
     data.extend_from_slice(&MAC);
     data.extend_from_slice(&BSSID);
     data.extend_from_slice(&[0x50, 0x01, 0, 0, 1, 2, 3, 4]);
-    let f = d.tx_data(&data, 0, Some(k)).unwrap();
+    let f = d.tx_data(&data, 0, Some(k), false).unwrap();
     assert_eq!(f.queue, crate::hci::TxQueue::Be);
     assert_eq!((word(&f.pkt, 1) >> 22) & 3, 3, "CCMP by the chip");
     assert_eq!(
@@ -298,7 +328,22 @@ fn tx_packets_for_management_and_data() {
     );
     assert_eq!((word(&f.pkt, 9) >> 12) & 0xfff, 0x15, "sequence number");
     assert_eq!(word(&f.pkt, 4) & 0x7f, 0x1b, "starts at MCS15");
-    let vo = d.tx_data(&data, 6, None).unwrap();
+    // EAPOL-style: the lowest basic rate (ht_peer's basic 0x3: 1 Mb/s),
+    // fixed, no fallback.
+    let eapol = d.tx_data(&data, 0, Some(k), true).unwrap();
+    assert_eq!(word(&eapol.pkt, 4) & 0x7f, 0, "1 Mb/s");
+    assert_eq!(
+        word(&eapol.pkt, 3) & ((1 << 8) | (1 << 10)),
+        (1 << 8) | (1 << 10)
+    );
+    d.hal.vif.basic_rates = 0x150; // 6, 12, 24 Mb/s: no CCK basic rate
+    assert_eq!(
+        word(&d.tx_data(&data, 0, None, true).unwrap().pkt, 4) & 0x7f,
+        4
+    );
+    assert_eq!(word(&d.tx_mgmt(&auth).unwrap().pkt, 4) & 0x7f, 4, "6 Mb/s");
+    d.hal.vif.basic_rates = 0x3;
+    let vo = d.tx_data(&data, 6, None, false).unwrap();
     assert_eq!(
         (vo.queue, (word(&vo.pkt, 1) >> 8) & 0x1f),
         (crate::hci::TxQueue::Vo, 6)
@@ -306,13 +351,13 @@ fn tx_packets_for_management_and_data() {
     let mut bcast = data.clone();
     bcast[4..10].copy_from_slice(&[0xff; 6]);
     assert_eq!(
-        d.tx_data(&bcast, 0, None).unwrap().queue,
+        d.tx_data(&bcast, 0, None, false).unwrap().queue,
         crate::hci::TxQueue::Hi0
     );
 
     assert!(d.tx_mgmt(&data).is_err(), "data is not management");
-    assert!(d.tx_data(&auth, 0, None).is_err());
-    assert!(d.tx_data(&data, 0, Some(9)).is_err(), "no such key");
+    assert!(d.tx_data(&auth, 0, None, false).is_err());
+    assert!(d.tx_data(&data, 0, Some(9), false).is_err(), "no such key");
     assert!(d.tx_mgmt(&[0xB0, 0]).is_err(), "too short");
     let mut beacon = auth.clone();
     beacon[0] = 0x80;

@@ -112,11 +112,13 @@ unsafe impl DmaAlloc for Dma {
         }
         let (handle, phys) =
             dev::dma_alloc(self.device, len as u64, 0).map_err(|_| rtw88::Error::NoMemory)?;
+        // The kernel counts the block from here, whether or not it is used
+        // (never freed: freeing DMA is stopping the device).
+        self.blocks += 1;
         if phys.checked_add(len as u64).is_none_or(|end| end > 1 << 32) {
             return Err(rtw88::Error::Bus("DMA block above 4 GiB"));
         }
         let (virt, _) = sys::buffer_map(handle).map_err(|_| rtw88::Error::NoMemory)?;
-        self.blocks += 1;
         Ok(DmaBuf {
             virt: virt as *mut u8,
             phys,

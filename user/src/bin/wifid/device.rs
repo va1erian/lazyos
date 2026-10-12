@@ -6,6 +6,13 @@
 //! mastering, `map_bar(2)`, and `irq_enable` (MSI: the card offers one
 //! 64-bit-capable vector, docs/compat/amd-nuc). The kernel lets `_wifi`
 //! claim the wireless class and nothing else (`netpolicy`).
+//!
+//! Bus mastering is **not** switched on with the claim: a previous driver
+//! (a reload, a crash) may have left the chip running with its rings
+//! pointing at DMA blocks the kernel has since handed to someone else.
+//! [`claim`] enables memory decode only; `wifid` quiesces the chip through
+//! the BAR (`rtw88::pci::quiesce`) and calls [`enable_bus_master`] just
+//! before the rings are allocated and programmed.
 
 use user::dev::{self, Row};
 use user::messenger::{Endpoint, Message};
@@ -61,26 +68,32 @@ pub(super) struct Claimed {
 
 /// Claim `row` with an interrupt channel (sharing allowed: MSI is the card's
 /// own vector, and a legacy line may be shared), falling back to a polled
-/// claim, and switch on memory decode and bus mastering.
+/// claim, and switch on memory decode (not bus mastering, see the module
+/// docs).
 pub(super) fn claim(row: Row) -> Result<Claimed, StepError> {
     let (handle, irq_channel) = match dev::claim_with_irq(row.id, true) {
         Ok((handle, channel)) => (handle, Some(Endpoint::from_raw(channel))),
         Err(_) => (dev::claim(row.id).map_err(|e| ("claim", e))?, None),
     };
-    let command = dev::cfg_read(handle, COMMAND, 2).map_err(|e| ("pci-command", e))?;
-    dev::cfg_write(
-        handle,
-        COMMAND,
-        2,
-        u64::from(command) | COMMAND_MEMORY | COMMAND_BUS_MASTER,
-    )
-    .map_err(|e| ("pci-command", e))?;
+    set_command(handle, COMMAND_MEMORY)?;
     Ok(Claimed {
         handle,
         row,
         irq_channel,
         mode: None,
     })
+}
+
+/// Let the card master the bus. Only once the chip is quiesced and the
+/// driver is about to program rings in memory it owns.
+pub(super) fn enable_bus_master(claimed: &Claimed) -> Result<(), StepError> {
+    set_command(claimed.handle, COMMAND_BUS_MASTER)
+}
+
+/// Set `bits` in the command register.
+fn set_command(handle: u64, bits: u64) -> Result<(), StepError> {
+    let command = dev::cfg_read(handle, COMMAND, 2).map_err(|e| ("pci-command", e))?;
+    dev::cfg_write(handle, COMMAND, 2, u64::from(command) | bits).map_err(|e| ("pci-command", e))
 }
 
 /// `(revision, subsystem vendor, subsystem device)` from configuration space:

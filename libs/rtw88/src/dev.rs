@@ -77,6 +77,9 @@ pub struct Hal {
     pub rxfltmap1: u16,
     /// Calibrate before the next transmission (`rtwdev->need_rfk`).
     pub need_rfk: bool,
+    /// The centre channel and width the RF was last calibrated on, so a
+    /// re-tune to it sets no [`Hal::need_rfk`].
+    pub rfk_channel: Option<(u8, Bw)>,
     /// Use one spatial stream only (`hal->txrx_1ss`).
     pub txrx_1ss: bool,
     /// The TX FIFO layout (`rtwdev->fifo`), written by `mac_init`.

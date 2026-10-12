@@ -9,7 +9,7 @@
 //! | `set_bssid` | `set_bssid` (`BSS_CHANGED_BSSID`) |
 //! | `set_state` | `assoc` / `disassoc` (`BSS_CHANGED_ASSOC`, `sta_add`) |
 //! | `set_key` / `del_key` | `set_key` / `del_key` (`rtw_ops_set_key`, the CAM) |
-//! | `transmit` | `tx_mgmt` / `tx_data` + `send` (`rtw_tx`) |
+//! | `transmit` | `prepare_tx` (`mgd_prepare_tx`), `tx_mgmt` / `tx_data` + `send` (`rtw_tx`) |
 //!
 //! **Encryption** follows the trait's contract, which is this chip's: a
 //! protected frame arrives with its CCMP header built by the soft-MAC and is
@@ -17,13 +17,22 @@
 //! addressed frame, the group key id otherwise), the chip appending the MIC;
 //! a received frame the chip decrypted keeps both headers and its 8-octet
 //! MIC (`RCR_APP_MIC`), reported as `trailer`. The FCS (`RCR_APP_FCS`) is
-//! cut here.
+//! cut here. Each frame is reported on the channel its PHY status names
+//! (a frame drained after a hop keeps the channel it arrived on).
 //!
 //! **Rates.** The station's association request carries legacy rates only
-//! (`wlanmd` today), so the firmware's rate adaptation is told the band's
-//! legacy set (`PeerCaps`), at 20 MHz.
+//! (`wlanmd` today), so the firmware's rate adaptation is told legacy rates
+//! (`PeerCaps`) at 20 MHz: the BSS's own, read from its beacons and
+//! association response (`rxmeta.rs`), or the band's set when none was
+//! heard. Management frames, and data frames the soft-MAC marks
+//! `basic_rate` (EAPOL), go at the BSS's lowest basic rate: OFDM 6 Mb/s on
+//! a 2.4 GHz BSS without CCK basic rates, as upstream's `rtw_get_mgmt_rate`.
+//!
+//! **Stopping.** Dropping an [`Rtw`] (the service loop ended) powers the
+//! chip off (`rtw_core_stop`), so a controlled exit leaves no DMA running.
 
 use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -33,11 +42,11 @@ use rtw88::Error;
 use user::messenger::Endpoint;
 use wifimac::radio::CIPHER_CCMP128;
 use wifimac::{
-    Band, Channel, KeyInstall, KeyKind, Radio, RadioError, RadioInfo, Received, StaState,
-    TxOptions,
+    Band, Channel, KeyInstall, KeyKind, Radio, RadioError, RadioInfo, Received, StaState, TxOptions,
 };
 
 use super::radio::Chip;
+use super::rxmeta::{self, BssRates};
 use super::{device, trace};
 
 /// Frames held between the chip and the soft-MAC; past this the oldest go.
@@ -50,10 +59,12 @@ const FCS_LEN: usize = 4;
 /// Largest frame handed to `transmit`: a TX slot (2 KiB) less the 48-octet
 /// descriptor, the chip appending MIC and FCS on the air.
 const MAX_FRAME: usize = 2000;
-/// Legacy rates (`PeerCaps` bit order): every rate of the band, and the
-/// mandatory ones as basic.
+/// Legacy rates (`PeerCaps` bit order) when the BSS's were not heard: every
+/// rate of the band, and the mandatory ones as basic.
 const RATES_2G: (u32, u32) = (0x0fff, 0x000f);
 const RATES_5G: (u32, u32) = (0x00ff, 0x0015);
+/// Frame control octet 0 of an Authentication frame (type 0, subtype 11).
+const FC0_AUTH: u8 = 0xb0;
 
 /// One installed key: what the soft-MAC calls it and where the CAM put it.
 #[derive(Clone, Copy)]
@@ -72,8 +83,9 @@ pub(super) struct Rtw {
     keys: Vec<Slot>,
     channel: Channel,
     bssid: Option<[u8; 6]>,
+    /// The BSS's rates, from its beacons or association response.
+    bss_rates: Option<BssRates>,
     aid: u16,
-    scanning: bool,
     buffer: [u8; 256],
     /// Frames dropped: queue overflow, CRC/ICV errors.
     dropped: u64,
@@ -97,11 +109,17 @@ impl Rtw {
             keys: Vec::new(),
             channel: Channel::new(Band::Ghz2, 1),
             bssid: None,
+            bss_rates: None,
             aid: 0,
-            scanning: false,
             buffer: [0; 256],
             dropped: 0,
         }
+    }
+
+    /// Whether the chip is in a scan (the library's flag: set only once
+    /// `scan_start` succeeded, cleared by `scan_complete` even on error).
+    fn scanning(&self) -> bool {
+        self.dev.hal.flags.scanning
     }
 
     /// The CAM entry a protected frame to `addr1` is encrypted with.
@@ -121,11 +139,13 @@ impl Rtw {
             .map(|s| s.cam)
     }
 
-    /// Move every waiting RX buffer to the queue (C2H to the chip library).
+    /// Move every waiting RX buffer to the queue (C2H to the chip library),
+    /// learning the BSS's rates on the way.
     fn drain_rx(&mut self) {
         loop {
             let mut c2h: Vec<Vec<u8>> = Vec::new();
-            let (rx, dropped, channel) = (&mut self.rx, &mut self.dropped, self.channel);
+            let (rx, dropped, tuned) = (&mut self.rx, &mut self.dropped, self.channel);
+            let (bssid, rates) = (self.bssid, &mut self.bss_rates);
             let poll = self.dev.hci.rx_poll(RX_BUDGET, |p| {
                 if p.stat.is_c2h {
                     c2h.push(p.payload().to_vec());
@@ -136,13 +156,21 @@ impl Rtw {
                     *dropped += 1;
                     return;
                 }
+                let frame = &payload[..payload.len() - FCS_LEN];
+                let channel = rxmeta::rx_channel(p.stat).unwrap_or(tuned);
+                if let (Some(bssid), Some(band)) = (bssid, rxmeta::rtw_band(channel.band)) {
+                    let beacons = rates.is_none();
+                    if let Some(heard) = rxmeta::bss_rates(frame, &bssid, band, beacons) {
+                        *rates = Some(heard);
+                    }
+                }
                 if rx.len() >= RX_QUEUE {
                     rx.pop_front();
                     *dropped += 1;
                 }
                 let power = p.stat.rx_power[0].max(p.stat.rx_power[1]);
                 rx.push_back(Received {
-                    frame: payload[..payload.len() - FCS_LEN].to_vec(),
+                    frame: frame.to_vec(),
                     rssi_dbm: power,
                     band: channel.band,
                     channel: channel.number,
@@ -156,6 +184,28 @@ impl Rtw {
             if !poll.more {
                 break;
             }
+        }
+        self.apply_basic_rates();
+    }
+
+    /// Management frames go at the lowest basic rate of the BSS
+    /// (upstream's `bss_conf.basic_rates`, known from authentication on).
+    fn apply_basic_rates(&mut self) {
+        let basic = self
+            .bss_rates
+            .filter(|r| r.band == self.dev.band())
+            .map_or(0, |r| r.basic);
+        self.dev.hal.vif.basic_rates = basic;
+    }
+
+    /// `(supported, basic)` for the rate adaptation: the BSS's, else the
+    /// band's.
+    fn peer_rates(&self) -> (u32, u32) {
+        let band = self.dev.band();
+        match self.bss_rates.filter(|r| r.band == band) {
+            Some(r) => (r.supported, r.basic),
+            None if band == RtwBand::Ghz2 => RATES_2G,
+            None => RATES_5G,
         }
     }
 }
@@ -191,7 +241,7 @@ impl Radio for Rtw {
 
     fn set_address(&mut self, mac: [u8; 6]) -> Result<(), RadioError> {
         self.mac = mac;
-        self.dev.set_port(mac);
+        self.dev.set_addr(mac);
         Ok(())
     }
 
@@ -207,21 +257,27 @@ impl Radio for Rtw {
         let n = channel.number;
         self.dev.set_channel(n, Bw::Mhz20, n).map_err(radio_error)?;
         self.channel = channel;
+        self.apply_basic_rates();
         Ok(())
     }
 
     fn set_bssid(&mut self, bssid: Option<[u8; 6]>, aid: u16) -> Result<(), RadioError> {
+        if bssid != self.bssid {
+            self.bss_rates = None;
+        }
         self.dev.set_bssid(bssid.unwrap_or([0; 6]));
         self.bssid = bssid;
         self.aid = aid;
+        self.apply_basic_rates();
         Ok(())
     }
 
     fn set_scan_filter(&mut self, scanning: bool) -> Result<(), RadioError> {
-        if scanning == self.scanning {
+        if scanning == self.scanning() {
             return Ok(());
         }
-        self.scanning = scanning;
+        // The library's flag follows what happened, so a failure here
+        // leaves `scanning()` telling the truth for the next call.
         if scanning {
             self.dev.scan_start(self.mac)
         } else {
@@ -234,10 +290,7 @@ impl Radio for Rtw {
         match state {
             StaState::Idle | StaState::Authenticated => self.dev.disassoc(),
             StaState::Associated => {
-                let (supp_rates, basic_rates) = match self.dev.band() {
-                    RtwBand::Ghz2 => RATES_2G,
-                    RtwBand::Ghz5 => RATES_5G,
-                };
+                let (supp_rates, basic_rates) = self.peer_rates();
                 let peer = PeerCaps {
                     supp_rates,
                     basic_rates,
@@ -287,9 +340,13 @@ impl Radio for Rtw {
         if frame.len() > MAX_FRAME {
             return Err(RadioError::Invalid);
         }
-        // Upstream calibrates on the first transmission on an operating
-        // channel, not on every scan channel (`need_rfk`).
-        if !self.scanning {
+        // Upstream calibrates in `mgd_prepare_tx`, before the Authentication
+        // frame, never on a scan channel. `need_rfk` is set only when the
+        // channel differs from the one last calibrated, so the first frame
+        // on a new operating channel calibrates too, and nothing else does
+        // (a data frame after a scan returned to the channel finds it clear).
+        let auth = frame.first() == Some(&FC0_AUTH);
+        if !self.scanning() && (auth || self.dev.hal.need_rfk) {
             self.dev.prepare_tx();
         }
         let built = if options.data {
@@ -298,7 +355,8 @@ impl Radio for Rtw {
             } else {
                 None
             };
-            self.dev.tx_data(frame, options.priority, key)
+            self.dev
+                .tx_data(frame, options.priority, key, options.basic_rate)
         } else {
             self.dev.tx_mgmt(frame)
         }
@@ -324,22 +382,42 @@ impl user::wifi::Hardware for Rtw {
     }
 
     fn pump(&mut self, _now_ms: u64) -> Result<(), String> {
+        let mut rx = false;
         if let Some((channel, handle)) = self.irq {
-            while let Ok(Some(message)) = channel.poll_recv_with(&mut self.buffer) {
+            loop {
+                let message = match channel.poll_recv_with(&mut self.buffer) {
+                    Ok(Some(message)) => message,
+                    Ok(None) => break,
+                    // The kernel's end is gone (`EPIPE`): no interrupt will
+                    // ever come again, so the driver must start over.
+                    Err(error) => return Err(format!("interrupt channel: {}", error.message())),
+                };
                 if device::is_interrupt(&message) {
                     let events = self.dev.hci.interrupt();
                     let _ = user::dev::irq_ack(handle);
+                    // `interrupt` leaves `ROK` masked when it reports RX;
+                    // only `rx_poll` unmasks it again.
+                    rx |= events.rx;
                     if events.tx_fifo_overflow {
                         trace::event("TXFOVW", &[("dropped", &self.dropped)]);
                     }
                 }
             }
         }
-        // Drain whether or not a message came: a buffer that landed while
-        // RX was masked raises none (`rx_poll`'s `more`).
-        if self.dev.hci.rx_pending() != 0 {
+        // Also drain with no message: a buffer that landed while RX was
+        // masked raises none (`rx_poll`'s `more`).
+        if rx || self.dev.hci.rx_pending() != 0 {
             self.drain_rx();
         }
         Ok(())
+    }
+}
+
+impl Drop for Rtw {
+    /// Upstream `rtw_core_stop`: interrupts masked, rings released, MAC
+    /// powered off, before the claim (and its DMA blocks) ends with the task.
+    fn drop(&mut self) {
+        self.dev.core_stop();
+        trace::event("STOP", &[("dropped", &self.dropped)]);
     }
 }

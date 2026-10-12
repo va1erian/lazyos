@@ -16,8 +16,11 @@
 //! | [`Hci::tx_write`] ... | `rtw_pci_tx_write_data`, `_tx_kick_off`, `_write_data_rsvd_page`, `_write_data_h2c` |
 //! | [`Pci::phy_cfg`] | `rtw_pci_phy_cfg`, `rtw_pci_link_cfg`, `rtw_dbi_*`, `rtw_mdio_write` |
 //!
-//! **Use from `wifid`.** `Pci::new` once (it allocates the three DMA blocks
-//! of [`ring`]'s budget), then the bring-up: after the chip info is read
+//! **Use from `wifid`.** First [`quiesce`] the chip over the BAR alone, as
+//! a previous driver may have left it running with its rings pointing at
+//! memory it no longer owns; only then switch bus mastering on. `Pci::new`
+//! once (it allocates the three DMA blocks of [`ring`]'s budget), then the
+//! bring-up: after the chip info is read
 //! (`bringup`'s `chip_info_setup`), call [`Pci::phy_cfg`] with the cut and
 //! RFE option, as upstream's probe does, before powering on for real. On
 //! every MSI message call [`Pci::interrupt`]; when it reports `rx`, call
@@ -26,6 +29,7 @@
 
 mod irq;
 mod phycfg;
+mod quiesce;
 pub mod regs;
 pub mod ring;
 mod rxq;
@@ -46,6 +50,7 @@ use crate::hci::{Hci, TxQueue};
 
 pub use irq::IrqEvents;
 pub use phycfg::{IntfPhyPara, IpSel, PCIE_GEN1_PARA_8822C, PCIE_GEN2_PARA_8822C};
+pub use quiesce::{quiesce, Quiesced, CR_POWERED_OFF};
 pub use ring::{Layout, RingSizes};
 pub use rxq::{RxPacket, RxPoll};
 
