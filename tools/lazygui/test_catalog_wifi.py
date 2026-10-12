@@ -38,7 +38,7 @@ class WifiTests(unittest.TestCase):
 
     def test_it_brings_networking_to_qemu(self) -> None:
         self.assertIn("--net", catalog.net_flags({"wifi": True}))
-        self.assertEqual(catalog.net_flags({"wifi": False}), [])
+        self.assertIn("--net", catalog.net_flags({"wifi": False}))  # dbgd is always on
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
         self.assertIn("--wifi", demo_argv(wifi=True, skip_build=False))

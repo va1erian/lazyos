@@ -134,6 +134,32 @@ pub fn restore_frame(user_rsp: u64) -> Option<(UserRegs, u64)> {
     sanitize_regs(&mut regs).then_some((regs, mask))
 }
 
+/// Restore the interrupted x87/SSE state from the frame `rt_sigreturn` was
+/// entered with, into the calling task's live registers. A null `fpstate`
+/// resets to the power-on state (as Linux does); a misaligned or unreadable
+/// image is a forged frame (`None`). MXCSR's reserved bits are cleared by
+/// [`crate::task::fpu::load`].
+pub fn restore_fpstate(user_rsp: u64) -> Option<()> {
+    use crate::task::fpu;
+    let frame = user_rsp.checked_sub(8)?;
+    let ptr = read_word(frame + lf::MCONTEXT + lf::FPSTATE)?;
+    let me = current();
+    if ptr == 0 {
+        fpu::reset_for(me);
+        return Some(());
+    }
+    let size = fpu::IMAGE_SIZE as u64;
+    if ptr % 16 != 0 || ptr < MIN_FRAME_ADDR || ptr.checked_add(size)? > USER_MAX {
+        return None;
+    }
+    let mut image = fpu::FxImage::ZERO;
+    for index in 0..fpu::IMAGE_SIZE / 8 {
+        image.set_word(index, read_word(ptr + 8 * index as u64)?);
+    }
+    fpu::load(me, &image);
+    Some(())
+}
+
 /// Terminate the current process as if it took an unhandled `SIGSEGV` and never
 /// return: used when a frame cannot be built or restored.
 pub fn die_with_segv() -> ! {

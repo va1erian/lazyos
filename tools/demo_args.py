@@ -248,6 +248,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--no-rhai", action="store_true",
                         help="do not (re)build the `rhai` command before the image "
                              "(tools/rhai/build.py; incremental, so cheap when unchanged)")
+    parser.add_argument("--no-busybox", action="store_true",
+                        help="build even when no BusyBox is available (the image then has no "
+                             "console shell and the desktop Terminal cannot start; by default "
+                             "a missing BusyBox fails the build)")
     parser.add_argument("qemu_args", nargs=argparse.REMAINDER,
                         help="extra QEMU args (after `--`)")
     return parser

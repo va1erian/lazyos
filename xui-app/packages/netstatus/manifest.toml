@@ -35,4 +35,5 @@ topics = [
     "subscribe:system/net/+/addr",
     "subscribe:system/net/+/link",
     "subscribe:system/net/interfaces",
+    "subscribe:system/net/+/wifi/state",
 ]

@@ -231,7 +231,7 @@ unsafe fn enter_handler(
 ) -> Option<SweepFinish> {
     let armed = arm_handler(pml4, slot, sig)?;
     let mut regs = regs_from_frame(rsp, FRAME_RIP_INDEX);
-    let Some(result) = prepare_handler(&regs, sig, &armed, kind != Kind::Linux) else {
+    let Some(result) = prepare_handler(&regs, sig, &armed, kind != Kind::Linux, slot) else {
         // No frame can be built: end the task like an unhandled `SIGSEGV`.
         return finish(tasks, slot, 128 + SIGSEGV as u64);
     };

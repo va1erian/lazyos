@@ -137,7 +137,7 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
     // Safety: the caller passes the base of the exception frame it received.
     let mut regs = unsafe { regs_from_frame(frame_rsp, rip_index) };
     // No frame means no handler entry: the caller ends the process.
-    let Some(result) = prepare_handler(&regs, sig, &armed, native) else {
+    let Some(result) = prepare_handler(&regs, sig, &armed, native, slot) else {
         return false;
     };
     crate::task::trace::record_signal(

@@ -21,23 +21,62 @@
 
 use super::MAX_TASKS;
 
-/// One `FXSAVE`/`FXRSTOR` image. The instructions require 16-byte alignment.
-#[repr(C, align(16))]
+/// Size in bytes of one `FXSAVE` image.
+pub const IMAGE_SIZE: usize = 512;
+
+/// One `FXSAVE`/`FXRSTOR` image. The instructions require 16-byte alignment;
+/// 64 keeps the type usable for an `XSAVE` area later.
+#[repr(C, align(64))]
 #[derive(Clone, Copy)]
-struct FxArea([u8; 512]);
+pub struct FxImage([u8; IMAGE_SIZE]);
+
+impl FxImage {
+    /// An all-zero image (not a valid register state until filled).
+    pub const ZERO: FxImage = FxImage([0; IMAGE_SIZE]);
+
+    /// Quadword `index` (0..64) of the image.
+    pub fn word(&self, index: usize) -> u64 {
+        let mut word = [0u8; 8];
+        word.copy_from_slice(&self.0[index * 8..index * 8 + 8]);
+        u64::from_le_bytes(word)
+    }
+
+    /// Replace quadword `index` (0..64).
+    pub fn set_word(&mut self, index: usize, value: u64) {
+        self.0[index * 8..index * 8 + 8].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// Clear the MXCSR bits the CPU reserves, which `FXRSTOR` would fault on.
+    /// The image's own `MXCSR_MASK` field (offset 28) says which are valid;
+    /// zero means the architectural default.
+    fn sanitize(&mut self) {
+        let mut mask = [0u8; 4];
+        mask.copy_from_slice(&self.0[28..32]);
+        let mask = match u32::from_le_bytes(mask) {
+            0 => 0x0000_ffbf,
+            valid => valid,
+        };
+        let mut mxcsr = [0u8; 4];
+        mxcsr.copy_from_slice(&self.0[24..28]);
+        let mxcsr = u32::from_le_bytes(mxcsr) & mask;
+        self.0[24..28].copy_from_slice(&mxcsr.to_le_bytes());
+    }
+}
+
+type FxArea = FxImage;
 
 /// The state `FNINIT` plus the default MXCSR leave: x87 control word 0x037F
 /// (all exceptions masked, extended precision), empty tag word, MXCSR 0x1F80
 /// (all SIMD exceptions masked, round to nearest), every register zero.
 const DEFAULT: FxArea = {
-    let mut bytes = [0u8; 512];
+    let mut bytes = [0u8; IMAGE_SIZE];
     // FCW at offset 0.
     bytes[0] = 0x7f;
     bytes[1] = 0x03;
     // MXCSR at offset 24.
     bytes[24] = 0x80;
     bytes[25] = 0x1f;
-    FxArea(bytes)
+    FxImage(bytes)
 };
 
 /// The saved state of each task slot while it is off the CPU.
@@ -85,6 +124,46 @@ pub(crate) fn inherit_live(slot: usize) {
 pub(crate) fn reset_live(slot: usize) {
     reset(slot);
     restore(slot);
+}
+
+/// `slot`'s current x87/SSE state: the live registers when `slot` is the task
+/// on the CPU (the kernel is soft-float, so they are its user state), else its
+/// saved area. Signal delivery reads it to build a frame, and the timer sweep
+/// delivers to threads that are not running.
+pub fn capture(slot: usize) -> FxImage {
+    if slot == crate::task::current() {
+        let mut image = FxImage::ZERO;
+        // SAFETY: `image` is 512 bytes and 64-byte aligned; `fxsave64` writes
+        // nothing else.
+        unsafe { core::arch::asm!("fxsave64 [{}]", in(reg) &mut image, options(nostack)) };
+        image
+    } else {
+        // SAFETY: in bounds; the sweep and callers run with interrupts off.
+        unsafe { *area(slot) }
+    }
+}
+
+/// Make `image` `slot`'s state (live registers for the running task, else its
+/// saved area). The image comes from user memory, so reserved MXCSR bits are
+/// cleared first: `FXRSTOR` would raise `#GP` in ring 0 on them.
+pub fn load(slot: usize, image: &FxImage) {
+    let mut image = *image;
+    image.sanitize();
+    // SAFETY: as `capture`; the sanitised MXCSR cannot fault `fxrstor64`.
+    unsafe {
+        if slot == crate::task::current() {
+            core::arch::asm!("fxrstor64 [{}]", in(reg) &image, options(nostack));
+        } else {
+            area(slot).write(image);
+        }
+    }
+}
+
+/// Give `slot` the power-on state, as a signal handler starts with (Linux
+/// does the same): the handler must not see, or depend on, the interrupted
+/// code's registers, which the frame holds.
+pub fn reset_for(slot: usize) {
+    load(slot, &DEFAULT);
 }
 
 /// Test view: `slot`'s saved MXCSR.

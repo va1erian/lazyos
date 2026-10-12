@@ -338,9 +338,14 @@ caller's convention. It does not switch tasks itself.
 RIP and `r11` = user RFLAGS and does not change `rsp`. The stub saves the
 user context to `USER_CONTEXT`, saves the user `rsp` in `SAVED_USER_RSP`, and
 moves to the task's kernel stack (`KERNEL_STACK`, the stack top). It then
-pushes 15 qwords (`ENTRY_PUSHED_QWORDS`: user RSP, RFLAGS, RIP and 12
-registers) plus `ENTRY_CALL_PAD`, so `rsp` is 16-aligned at
-`call linux_dispatch`, with the seventh argument (Linux `r9`) at `[rsp]`.
+pushes 18 qwords (`ENTRY_PUSHED_QWORDS`: user RSP, RFLAGS, RIP, 12
+registers, then three zeroed "full return" slots) plus `ENTRY_CALL_PAD`, so
+`rsp` is 16-aligned at `call linux_dispatch`, with the seventh argument
+(Linux `r9`) at `[rsp]`. The exit is `sysretq`, which makes `rcx` and `r11`
+the resume RIP and RFLAGS; `arch::linux::set_full_return(rcx, r11)` (used by
+`rt_sigreturn`, whose interrupted code owns both registers) sets the first
+slot and makes the stub reload every register from the frame and leave
+through `iretq` instead.
 `lazyos_entry_probe` runs the same `entry_body!` macro in tests so a change
 to the push count is caught by `ENTRY_PUSHED_QWORDS`' test.
 

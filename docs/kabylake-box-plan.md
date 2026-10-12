@@ -1,5 +1,7 @@
 # The Kaby Lake box (i3-7100U) — what it needs
 
+> GPU, HDMI audio and hardware decode for this box: [kabylake-gpu-plan.md](kabylake-gpu-plan.md).
+>
 > **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
 > The mini PC meant to be an Intel N150 with an I226-V
 > ([n150-driver-plan.md](n150-driver-plan.md), [i226-driver-plan.md](i226-driver-plan.md))

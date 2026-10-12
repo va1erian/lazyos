@@ -46,7 +46,8 @@ class DriverChoiceTests(unittest.TestCase):
         argv = demo_argv(net=True, nic="e1000")
         self.assertIn("--net", argv)
         self.assertEqual(argv[argv.index("--nic") + 1], "e1000")
-        self.assertNotIn("--nic", demo_argv(net=False, nic="e1000"))
+        # dbgd is always on, so a card is always attached.
+        self.assertIn("--nic", demo_argv(net=False, nic="e1000"))
         # HTTPS brings networking, so the NIC choice too.
         self.assertIn("--nic", demo_argv(tls=True, nic="e1000"))
 

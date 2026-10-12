@@ -40,6 +40,8 @@ members = [
     "crates/calc",
     # LazyGolf's generator, renderer and window; `src/bin/golf.rs` runs it.
     "crates/golf",
+    # About LazyOS: a software 3D renderer and its window; `src/bin/about.rs` runs it.
+    "crates/about",
     # LazySky, a Bluesky client (docs/lazysky-plan.md): the headless core and
     # the portable xui UI; `src/bin/lazysky.rs` runs it on LazyOS.
     "crates/lazysky-core",
@@ -138,6 +140,9 @@ xui-calc = { path = "crates/calc" }
 # LazyGolf (docs/golf-course-generator.md): the course generator, the software
 # renderer and the window; the `xui-golf` binary only launches it.
 xui-golf = { path = "crates/golf" }
+# About LazyOS: the software 3D renderer and the window; the `xui-about`
+# binary only launches it.
+xui-about = { path = "crates/about" }
 # LazySky (docs/lazysky-plan.md): the portable window; the `xui-lazysky`
 # binary only launches it and supplies the LazyOS `Platform`.
 lazysky-ui = { path = "crates/lazysky-ui" }
@@ -275,6 +280,10 @@ opt-level = 3
 [profile.release.package.xui-golf]
 opt-level = 3
 
+# The About window's rasteriser shades every pixel on one CPU each frame.
+[profile.release.package.xui-about]
+opt-level = 3
+
 # The Video Player decodes a picture per frame on one CPU: the release
 # profile's size-optimised code would cost a frame's budget.
 [profile.release.package.lazyvideo]
@@ -285,6 +294,9 @@ opt-level = 3
 
 # Its host tests generate whole courses: unoptimised they take minutes.
 [profile.dev.package.xui-golf]
+opt-level = 3
+
+[profile.dev.package.xui-about]
 opt-level = 3
 
 [[bin]]
@@ -361,3 +373,7 @@ path = "src/bin/video.rs"
 [[bin]]
 name = "xui-lazysky"
 path = "src/bin/lazysky.rs"
+
+[[bin]]
+name = "xui-about"
+path = "src/bin/about.rs"
