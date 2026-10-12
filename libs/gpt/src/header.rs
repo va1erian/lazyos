@@ -110,11 +110,20 @@ impl Header {
         // LBA 0 is the protective MBR; the usable area sits between the two
         // headers and must not hold either one.
         let in_disk = |lba: u64| lba >= 1 && lba < disk_sectors;
+        // Each header names the other: the backup points back at LBA 1, and
+        // the primary's backup lies past its usable area. The primary's need
+        // not be the disk's last sector: a disk grown after partitioning
+        // keeps its backup at the old end, and must still read.
+        let alternate_ok = match self.my_lba {
+            1 => self.alternate_lba > self.last_usable,
+            _ => self.alternate_lba == 1,
+        };
         let usable_ok = self.first_usable <= self.last_usable
             && self.first_usable >= 2
             && in_disk(self.last_usable)
             && !(self.first_usable..=self.last_usable).contains(&self.my_lba)
             && self.alternate_lba != self.my_lba
+            && alternate_ok
             && in_disk(self.alternate_lba);
         if !usable_ok {
             return Err(HeaderError::Bounds);

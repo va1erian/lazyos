@@ -143,7 +143,12 @@ fn both_copies_bad_fail() {
 #[test]
 fn hostile_headers_are_refused() {
     type Case = (&'static str, fn(&mut Header), HeaderError);
-    let cases: [Case; 9] = [
+    let cases: [Case; 10] = [
+        (
+            "alternate inside the disk's front",
+            |h| h.alternate_lba = 2,
+            HeaderError::Bounds,
+        ),
         ("my_lba", |h| h.my_lba = 2, HeaderError::Location),
         (
             "last usable past the disk",
@@ -186,6 +191,28 @@ fn hostile_headers_are_refused() {
         // The backup still carries the disk.
         assert_eq!(table(&disk).unwrap().source, Source::Backup, "{what}");
     }
+}
+
+#[test]
+fn backup_must_point_at_lba_1_and_a_grown_disk_still_reads() {
+    // A backup naming anything but LBA 1 is refused.
+    let mut disk = linux_box();
+    let last = (DISK as usize - 1) * SECTOR;
+    let sector: &[u8; SECTOR] = disk[last..].try_into().unwrap();
+    let mut backup = Header::parse(sector, DISK - 1, DISK).unwrap();
+    backup.alternate_lba = 7;
+    disk[last..].copy_from_slice(&backup.to_sector());
+    let sector: &[u8; SECTOR] = disk[last..].try_into().unwrap();
+    assert_eq!(
+        Header::parse(sector, DISK - 1, DISK),
+        Err(HeaderError::Bounds)
+    );
+    // The same disk grown by 1 MiB: the primary still names the old end.
+    let mut grown = linux_box();
+    grown.resize(grown.len() + (1 << 20), 0);
+    let table = table(&grown).unwrap();
+    assert_eq!(table.source, Source::Primary);
+    assert_eq!(table.entries.len(), 4);
 }
 
 #[test]

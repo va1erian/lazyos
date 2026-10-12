@@ -237,9 +237,22 @@ impl Esp for ImageEsp {
                 .and_then(|()| file.flush())
                 .map_err(fat_error(&temp))?;
             drop(file);
-            // fatfs will not rename over a file: the old one goes first.
-            let _ = at.remove(name);
-            at.rename(&temp, &at, name).map_err(fat_error(name))?;
+            // fatfs will not rename over a file and has no atomic replace.
+            // The old file steps aside first and comes back if the new one
+            // cannot take its name, so a failure leaves the old file in
+            // place; it is deleted only once the new one has the name.
+            let old = format!("{name}.old");
+            let _ = at.remove(&old);
+            let had_old = at.rename(name, &at, &old).is_ok();
+            if let Err(error) = at.rename(&temp, &at, name) {
+                if had_old {
+                    let _ = at.rename(&old, &at, name);
+                }
+                return Err(fat_error(name)(error));
+            }
+            if had_old {
+                at.remove(&old).map_err(fat_error(&old))?;
+            }
         }
         fs.unmount().map_err(fat_error("unmount the ESP"))
     }
