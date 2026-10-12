@@ -4,6 +4,8 @@
 
 use super::*;
 use crate::arch::fault::{self, Fault};
+use crate::arch::fault_report;
+use crate::mem::vma::{Kind, Prot};
 use crate::task::signal;
 use crate::task::TaskState;
 
@@ -340,6 +342,128 @@ pub fn soak_exception_delivery() -> Result<(), String> {
     Ok(())
 }
 
+/// The `code:` line is all `??` for `rip`, and building it allocated no frame.
+fn code_unreadable(rip: u64) -> Result<(), String> {
+    let free = mem::frame_stats().free;
+    let line = fault_report::code_line(rip);
+    let want = format!("user: code at {rip:#x}:{}", " ??".repeat(16));
+    check!(line == want, "rip {rip:#x}: {line:?}, want {want:?}");
+    check!(
+        mem::frame_stats().free == free,
+        "reporting rip {rip:#x} allocated a frame"
+    );
+    Ok(())
+}
+
+fn report_code_cases() -> Result<(), String> {
+    const PAGE: u64 = 4096;
+    let table = mem::kernel_table();
+    // Kernel addresses (text, heap, the physical-memory window): mapped and
+    // readable in this very table, but not user memory.
+    let boxed = alloc::boxed::Box::new([0x90u8; 32]);
+    let kernel = [
+        report_code_cases as usize as u64,
+        &*boxed as *const [u8; 32] as u64,
+        mem::phys_to_virt(PhysAddr::new(0x1000)).as_u64(),
+        0xffff_8000_0000_0000,
+        0xffff_ffff_ffff_f000,
+    ];
+    for rip in kernel {
+        code_unreadable(rip)?;
+    }
+    // Non-canonical, and ranges that run off the end of the address space.
+    for rip in [
+        0x0000_8000_0000_0000,
+        0x0001_0000_0000_0000,
+        0x7fff_8000_0000_0000,
+        0x8000_0000_0000_0000,
+        0xdead_beef_dead_beef,
+        u64::MAX - 5,
+        u64::MAX,
+    ] {
+        code_unreadable(rip)?;
+    }
+    // Unmapped user addresses, including the last bytes below the limit (the
+    // 16 bytes cross it).
+    for rip in [0, 1, 0x7000_dead_0000, 0x0000_7fff_ffff_fff8] {
+        code_unreadable(rip)?;
+    }
+
+    // A page a fault would demand-materialize is left alone, and it is the
+    // one the demand-paging reader would have materialized.
+    // Where the Linux shim maps user memory (the low page-table entries are
+    // the kernel's own, without the user bit).
+    let base = crate::process::linux::MMAP_BASE + 0x4000_0000;
+    mem::vma::insert(
+        table,
+        base,
+        base + 2 * PAGE,
+        Prot::READ | Prot::WRITE,
+        Kind::Anon,
+    );
+    let outcome = (|| {
+        code_unreadable(base)?;
+        code_unreadable(base + PAGE + 7)?;
+        check!(
+            raw_entry(table, base).is_none() && raw_entry(table, base + PAGE).is_none(),
+            "reporting materialized a page"
+        );
+        check!(
+            crate::user_ptr::try_read::<u8>(base).is_ok(),
+            "the control read did not demand-page"
+        );
+        let frame = frame_of(table, base)?;
+        let bytes: [u8; 16] = core::array::from_fn(|i| 0x0f + i as u8);
+        let ptr = mem::phys_to_virt(PhysAddr::new(frame)).as_mut_ptr::<u8>();
+        for (offset, byte) in bytes.iter().enumerate() {
+            // SAFETY: the frame is mapped through the physical-memory window.
+            unsafe {
+                ptr.add(offset).write_volatile(*byte);
+                ptr.add(0xff8 + offset % 8).write_volatile(*byte);
+            }
+        }
+        // All 16 bytes of a present page...
+        let line = fault_report::code_line(base);
+        let hex: alloc::string::String = bytes.iter().map(|b| format!(" {b:02x}")).collect();
+        check!(
+            line == format!("user: code at {base:#x}:{hex}"),
+            "present page: {line:?}"
+        );
+        // ... and the bytes before a page that is not there.
+        let line = fault_report::code_line(base + 0xff8);
+        let head: alloc::string::String =
+            (0..8).map(|i| format!(" {:02x}", bytes[8 + i])).collect();
+        check!(
+            line == format!(
+                "user: code at {:#x}:{head}{}",
+                base + 0xff8,
+                " ??".repeat(8)
+            ),
+            "page edge: {line:?}"
+        );
+        check!(
+            raw_entry(table, base + PAGE).is_none(),
+            "the next page was materialized"
+        );
+        Ok(())
+    })();
+    mem::unmap_range(table, base, base + 2 * PAGE);
+    mem::vma::remove(table, base, base + 2 * PAGE);
+    outcome
+}
+
+/// The fault report prints the bytes at a wild `rip` without faulting,
+/// allocating or paging anything in: kernel addresses, non-canonical ones and
+/// unmapped ones print `??`; a page that is present prints (the part of a
+/// range that crosses into one that is not too).
+pub fn report_code_never_faults() -> Result<(), String> {
+    fresh()?;
+    let trusted = crate::user_ptr::set_trust_kernel_pointers(false);
+    let outcome = report_code_cases();
+    crate::user_ptr::set_trust_kernel_pointers(trusted);
+    outcome
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("fault_exception_enters_handler", exception_enters_handler),
     (
@@ -362,4 +486,5 @@ pub(super) const CASES: &[(&str, Test)] = &[
         user_fault_kills_only_the_faulter,
     ),
     ("fault_soak_generations", soak_fault_generations),
+    ("fault_report_code_never_faults", report_code_never_faults),
 ];
