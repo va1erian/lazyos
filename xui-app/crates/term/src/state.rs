@@ -6,6 +6,8 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::cell::{Attr, Cell};
 use crate::history::History;
+use crate::input::MouseMode;
+use crate::selection::Selection;
 use crate::row::Row;
 use crate::screen::Screen;
 
@@ -47,6 +49,18 @@ struct Stash {
 pub(crate) struct State {
     pub screen: Screen,
     pub history: History,
+    /// The current selection (`selection.rs`) and the characters besides
+    /// alphanumerics a word may hold.
+    pub selection: Option<Selection>,
+    pub word_chars: String,
+    /// Screen rows written since the last feed began: a selection over one
+    /// of them is gone.
+    pub dirty: Vec<bool>,
+    /// Mouse reporting (`?1000`, `?1002`, `?1003`), its SGR encoding (`?1006`)
+    /// and bracketed paste (`?2004`), as the program set them.
+    pub mouse: MouseMode,
+    pub mouse_sgr: bool,
+    pub bracketed_paste: bool,
     stash: Option<Stash>,
     pub row: usize,
     pub col: usize,
@@ -83,6 +97,12 @@ impl State {
         State {
             screen: Screen::new(cols, rows),
             history: History::default(),
+            selection: None,
+            word_chars: String::from("-_./~:@"),
+            dirty: vec![false; rows],
+            mouse: MouseMode::Off,
+            mouse_sgr: false,
+            bracketed_paste: false,
             stash: None,
             row: 0,
             col: 0,
@@ -135,6 +155,7 @@ impl State {
         if col + width > cols {
             if self.autowrap {
                 // The wide character does not fit: pad the last column.
+                self.dirty[self.row] = true;
                 let attr = self.attr;
                 let row = &mut self.screen.rows[self.row];
                 row.sever(cols - 1, attr);
@@ -149,6 +170,7 @@ impl State {
                 col = cols - width;
             }
         }
+        self.dirty[self.row] = true;
         let (attr, row) = (self.attr, &mut self.screen.rows[self.row]);
         row.sever(col, attr);
         if width == 2 {
@@ -226,6 +248,13 @@ impl State {
     pub fn scroll_up(&mut self, n: usize) {
         // Only the main screen scrolled from its very top feeds the history.
         let keep = self.top == 0 && !self.on_alternate();
+        // Rows keep their numbers when the whole main screen scrolls, so only
+        // the row that came in is new; elsewhere the region's text moved.
+        if keep {
+            self.dirty[self.bottom] = true;
+        } else {
+            self.dirty[self.top..=self.bottom].fill(true);
+        }
         let (carry, history) = (&mut self.carry, &mut self.history);
         self.screen
             .scroll_up(self.top, self.bottom, n, self.attr, |row| {
@@ -242,6 +271,7 @@ impl State {
     }
 
     pub fn scroll_down(&mut self, n: usize) {
+        self.dirty[self.top..=self.bottom].fill(true);
         self.screen.scroll_down(self.top, self.bottom, n, self.attr);
     }
 
@@ -347,6 +377,7 @@ impl State {
     /// Switch to (`on`) or back from the alternate screen: what `vi` and
     /// `less` draw on, so the shell's screen comes back as it was.
     pub fn set_alternate(&mut self, on: bool) {
+        self.selection = None;
         if on && self.stash.is_none() {
             let blank = Screen::new(self.cols(), self.height());
             self.stash = Some(Stash {
@@ -374,12 +405,15 @@ impl State {
         std::mem::swap(&mut fresh.completed, &mut self.completed);
         // The history goes, its budget stays, its numbers keep growing.
         std::mem::swap(&mut fresh.history, &mut self.history);
+        fresh.word_chars = std::mem::take(&mut self.word_chars);
         fresh.history.clear();
         *self = fresh;
     }
 
     /// Crop or pad to `cols` x `rows` (no reflow until T4).
     pub fn resize(&mut self, cols: usize, rows: usize) {
+        self.selection = None;
+        self.dirty = vec![false; rows];
         self.row = self.screen.resize(cols, rows, self.row);
         if let Some(main) = &mut self.stash {
             main.row = main.screen.resize(cols, rows, main.row);

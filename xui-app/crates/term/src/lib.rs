@@ -17,7 +17,10 @@ mod edit;
 pub mod fuzz;
 mod handler;
 mod history;
+pub mod input;
+pub mod paste;
 mod row;
+mod selection;
 mod screen;
 mod state;
 #[cfg(test)]
@@ -25,11 +28,16 @@ mod bench;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_input;
+#[cfg(test)]
+mod tests_select;
+#[cfg(test)]
 mod tests_history;
 
 pub use cell::{Attr, Cell, Color, Flags};
 pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
 pub use row::Row;
+pub use selection::{Point, SelectMode};
 
 pub use state::Line;
 use state::State;
@@ -87,7 +95,9 @@ impl Term {
     /// right-trimmed; empty lines are left out. Those are the host's
     /// evidence lines, independent of the window width.
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Line> {
+        self.state.dirty.fill(false);
         self.parser.advance(&mut self.state, bytes);
+        self.validate_selection();
         std::mem::take(&mut self.state.completed)
     }
 
@@ -132,12 +142,29 @@ impl Term {
         self.state.on_alternate()
     }
 
+    /// The mouse reporting level the program asked for (`?1000`/`?1002`/
+    /// `?1003`).
+    pub fn mouse_mode(&self) -> input::MouseMode {
+        self.state.mouse
+    }
+
+    /// Whether mouse reports use the SGR encoding (`?1006`).
+    pub fn mouse_sgr(&self) -> bool {
+        self.state.mouse_sgr
+    }
+
+    /// Whether pasted text should be bracketed (`?2004`).
+    pub fn bracketed_paste(&self) -> bool {
+        self.state.bracketed_paste
+    }
+
     // ---- scrollback ------------------------------------------------------
 
     /// Set the scrollback budget in lines (default [`DEFAULT_SCROLLBACK`]);
     /// `0` keeps nothing. A smaller budget drops the oldest lines at once.
     pub fn set_scrollback(&mut self, lines: usize) {
         self.state.history.set_limit(lines);
+        self.validate_selection();
     }
 
     /// Lines kept in the scrollback.

@@ -31,29 +31,45 @@ use std::process::{Child, Command};
 use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
-use xui_core::{Control, Dip, Key};
+use xui_core::app::Proxy;
+use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, PlatformSpec, TimerId};
+use xui_core::{Control, Dip, Key, Modifiers};
 
+#[path = "term/clicks.rs"]
+mod clicks;
+#[path = "term/clip.rs"]
+mod clip;
 #[path = "term/evidence.rs"]
 mod evidence;
+#[path = "term/geometry.rs"]
+mod geometry;
+#[path = "term/keys.rs"]
+mod keys;
 #[path = "term/paint.rs"]
 mod paint;
 #[path = "term/perf.rs"]
 mod perf;
+#[path = "term/pointer.rs"]
+mod pointer;
 #[path = "term/pty.rs"]
 mod pty;
 #[path = "term/scroll.rs"]
 mod scroll;
 #[path = "term/view.rs"]
 mod view;
+use clicks::Clicks;
+use clip::watch_drops;
 use evidence::{is_prompt, Evidence};
+use lazyterm::input::Button;
 use lazyterm::Term as Engine;
 use paint::{paint, DARK, LIGHT, LINE_H, PAD};
 use perf::{PaintClock, Perf};
-use scroll::{anchored, apply, key_move, wheel_arrows, wheel_move, Move};
+use pointer::{mouse, probe_grid, MouseKind, MouseMsg};
+use scroll::{anchored, apply, Move};
 use view::{max_offset, Layout, Shown};
 
 use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
@@ -76,21 +92,32 @@ const ROWS: usize = 24;
 /// only matters if a wake were ever missed. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
 const FALLBACK_MILLIS: u32 = 1000;
+/// How often queued input is retried while the pty is full.
+const FLUSH_MILLIS: u32 = 10;
+/// The most bytes written to the pty at once (see `flush_out`).
+const INPUT_CHUNK: usize = 1024;
 
 /// One application message.
 enum Msg {
     /// The poll timer fired: drain output, maybe finish.
     Tick,
+    /// A drag past the edge of the grid scrolls on this timer.
+    Autoscroll,
+    /// Input the pty had no room for is waiting: try again.
+    Flush,
     /// A translated character from the keyboard.
     Char(char),
-    /// A key press, and whether Ctrl and Shift were held: arrows, Escape and
-    /// the like, and Ctrl+letter chords (which arrive without a `Char`).
-    /// Enter and Backspace also arrive as `Char`s, which is the path that
-    /// handles them.
-    Key(Key, bool, bool),
-    /// A wheel roll (`delta` is 120 a notch, positive up) and whether Shift
-    /// was held.
-    Wheel(i16, bool),
+    /// A key press with the modifiers held: arrows, Escape and the like, and
+    /// Ctrl+letter chords (which arrive without a `Char`). Enter and
+    /// Backspace also arrive as `Char`s, which is the path that handles them.
+    Key(Key, Modifiers),
+    /// A wheel roll (`delta` is 120 a notch, positive up) at node pixel
+    /// (`x`, `y`) with the modifiers held.
+    Wheel(i16, Modifiers, i32, i32),
+    /// A pointer press, release, move or double-click.
+    Mouse(MouseMsg),
+    /// Files dropped on the window.
+    Dropped(Vec<PathBuf>),
     Close,
 }
 
@@ -123,12 +150,63 @@ struct Terminal {
     /// Lines the view is scrolled back from the bottom, shared with the
     /// painter.
     offset: Rc<Cell<usize>>,
+    /// A selection drag is in progress, the pointer's last position, the
+    /// button a program sees held, and the triple-click memory.
+    drag: bool,
+    last_mouse: (i32, i32),
+    held: Option<Button>,
+    clicks: Clicks,
+    /// The autoscroll timer while a drag needs it (shared with `on_timer`).
+    auto: Rc<Cell<Option<TimerId>>>,
+    /// Bytes for the child the pty would not take yet (a big paste), and the
+    /// timer that retries while there are any.
+    out: Vec<u8>,
+    flush: Rc<Cell<Option<TimerId>>>,
+    /// The paste awaiting confirmation: its text, and its line count for the
+    /// painter's bar.
+    pending_text: Option<String>,
+    pending: Rc<Cell<Option<usize>>>,
 }
 
 impl Terminal {
-    /// Write to the pty without touching the view (answers to queries).
+    /// Write to the pty without touching the view (answers to queries). What
+    /// the pty has no room for stays queued (`flush_out`, `pump`).
     fn send(&mut self, bytes: &[u8]) {
-        let _ = self.master.file().write_all(bytes);
+        self.out.extend_from_slice(bytes);
+        self.flush_out();
+    }
+
+    /// Write the next chunk of the queue. The kernel's line discipline drops
+    /// input it has no room for (4096 bytes) instead of pushing back on the
+    /// writer, so a big paste goes in `INPUT_CHUNK` bytes at a time, one per
+    /// `FLUSH_MILLIS`, and the shell reads each before the next arrives.
+    fn flush_out(&mut self) {
+        while !self.out.is_empty() {
+            let chunk = self.out.len().min(INPUT_CHUNK);
+            match self.master.file().write(&self.out[..chunk]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    self.out.drain(..n);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                // The shell is gone: the drain notices; there is no one to write to.
+                Err(_) => self.out.clear(),
+            }
+        }
+    }
+
+    /// Run the retry timer while input is queued, and not otherwise.
+    fn pump(&mut self, ui: &mut Ui<Msg>) {
+        match (self.out.is_empty(), self.flush.get()) {
+            (false, None) => self.flush.set(Some(ui.set_timer(FLUSH_MILLIS))),
+            (true, Some(id)) => {
+                ui.kill_timer(id);
+                self.flush.set(None);
+            }
+            _ => {}
+        }
     }
 
     /// Write what the user typed: the view returns to the bottom first.
@@ -189,38 +267,6 @@ impl Terminal {
         out
     }
 
-    /// Forward one character to the child, keeping a local echo of the line so
-    /// `TERM:CMD` can report the submitted command.
-    fn key(&mut self, ch: char, ui: &mut Ui<Msg>) {
-        match ch {
-            '\n' | '\r' => {
-                let line = self.typed.trim().to_string();
-                self.typed.clear();
-                self.input(ui, b"\r");
-                if !line.is_empty() {
-                    self.perf.submitted(&self.paint_clock);
-                    println!("TERM:CMD:{line}");
-                    self.evidence.submitted(line);
-                }
-            }
-            '\u{8}' => {
-                self.typed.pop();
-                self.input(ui, b"\x7f");
-            }
-            // Control characters (^C, ^D, ^Z, ^U, ...) go to the line
-            // discipline, which turns them into signals or edits.
-            '\t' => self.input(ui, b"\t"),
-            // Escape arrives through the key path (`key_sequence`).
-            '\u{1b}' => {}
-            c if c.is_control() => self.input(ui, &[c as u8]),
-            c => {
-                self.typed.push(c);
-                self.perf.sent_key();
-                self.input(ui, c.to_string().as_bytes());
-            }
-        }
-    }
-
     fn finish(&self, ui: &mut Ui<Msg>) {
         println!("TERM:EXIT:PASS");
         ui.quit();
@@ -270,34 +316,23 @@ impl App for Terminal {
                     self.finish(ui);
                 }
             }
+            Msg::Autoscroll => self.autoscroll(ui),
+            Msg::Flush => self.flush_out(),
+            // While the paste confirmation is up the keyboard answers it.
+            Msg::Char('\r' | '\n') if self.pending_text.is_some() => self.confirm(ui, true),
+            Msg::Key(Key::ESCAPE, _) if self.pending_text.is_some() => self.confirm(ui, false),
+            Msg::Char(_) | Msg::Key(..) if self.pending_text.is_some() => {}
             Msg::Char(ch) => self.key(ch, ui),
             // Both input paths also deliver Enter and Backspace as `Char`s:
             // handling the key too would send each one twice.
-            Msg::Key(Key::RETURN | Key::BACK, ..) => {}
-            Msg::Key(key, ctrl, shift) => {
-                let scrollable = !self.term.borrow().on_alternate_screen();
-                if let Some(mv) = key_move(key, shift, ctrl, self.page()).filter(|_| scrollable) {
-                    self.scroll(ui, mv);
-                } else if ctrl {
-                    // Ctrl+A..Z: the control byte (^C, ^D, ^Z ...), which the
-                    // line discipline turns into a signal or an edit.
-                    if let Some(byte) = control_byte(key) {
-                        self.input(ui, &[byte]);
-                    }
-                } else if let Some(sequence) = key_sequence(key) {
-                    self.input(ui, sequence);
-                }
-            }
-            Msg::Wheel(delta, shift) => {
-                if self.term.borrow().on_alternate_screen() {
-                    let arrows = wheel_arrows(delta);
-                    self.send(&arrows);
-                } else if let Some(mv) = wheel_move(delta, shift, self.page()) {
-                    self.scroll(ui, mv);
-                }
-            }
+            Msg::Key(Key::RETURN | Key::BACK, _) => {}
+            Msg::Key(key, mods) => self.key_chord(ui, key, mods),
+            Msg::Wheel(delta, mods, x, y) => self.wheel(ui, delta, mods, (x, y)),
+            Msg::Mouse(mouse) => self.mouse(ui, mouse),
+            Msg::Dropped(paths) => self.dropped(ui, paths),
             Msg::Close => self.finish(ui),
         }
+        self.pump(ui);
     }
 }
 
@@ -344,6 +379,13 @@ fn main() {
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
     let offset = Rc::new(Cell::new(0usize));
+    let auto: Rc<Cell<Option<TimerId>>> = Rc::default();
+    let flush: Rc<Cell<Option<TimerId>>> = Rc::default();
+    let pending: Rc<Cell<Option<usize>>> = Rc::default();
+    // Files dropped on the window arrive on the backend's hook; the proxy
+    // turns them into a message once the UI exists.
+    let outbox: Rc<RefCell<Option<Proxy<Msg>>>> = Rc::default();
+    watch_drops(&backend, Rc::clone(&outbox));
     backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
@@ -360,31 +402,67 @@ fn main() {
             let clock = Rc::clone(&paint_clock);
             let layout = Rc::clone(&layout);
             let offset = Rc::clone(&offset);
+            let pending = Rc::clone(&pending);
             let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
                 let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
                 let damage = backend.paint_damage();
-                let laid =
-                    clock.time(|| paint(canvas, palette, &term.borrow(), offset.get(), damage));
-                layout.set(Some(laid));
+                let laid = clock.time(|| {
+                    paint(canvas, palette, &term.borrow(), offset.get(), pending.get(), damage)
+                });
+                if layout.replace(Some(laid)).is_none() {
+                    probe_grid(&laid);
+                }
             }));
         }
         root.on_events(|event| match event {
             Event::Char(ch) => Some(Msg::Char(*ch)),
-            Event::KeyDown { key, modifiers, .. } => {
-                Some(Msg::Key(*key, modifiers.ctrl, modifiers.shift))
-            }
+            Event::KeyDown { key, modifiers, .. } => Some(Msg::Key(*key, *modifiers)),
             Event::MouseWheel {
                 delta,
                 horizontal: false,
+                x,
+                y,
                 modifiers,
-                ..
-            } => Some(Msg::Wheel(*delta, modifiers.shift)),
+            } => Some(Msg::Wheel(*delta, *modifiers, *x, *y)),
+            Event::MouseDown {
+                x,
+                y,
+                button,
+                modifiers,
+            } => Some(mouse(MouseKind::Down(*button), *x, *y, *modifiers)),
+            Event::MouseUp {
+                x,
+                y,
+                button,
+                modifiers,
+            } => Some(mouse(MouseKind::Up(*button), *x, *y, *modifiers)),
+            Event::MouseDoubleClick {
+                x,
+                y,
+                button,
+                modifiers,
+            } => Some(mouse(MouseKind::Double(*button), *x, *y, *modifiers)),
+            Event::MouseMove { x, y, modifiers } => {
+                Some(mouse(MouseKind::Move, *x, *y, *modifiers))
+            }
             _ => None,
         });
+        // The grid is text: the I-beam over it.
+        ui.set_cursor(root.id(), Cursor::Text);
+        *outbox.borrow_mut() = Some(ui.proxy());
         root.focus();
         ui.on_close(|| Some(Msg::Close));
-        ui.on_timer(|_| Some(Msg::Tick));
+        let (timer_auto, timer_flush) = (Rc::clone(&auto), Rc::clone(&flush));
+        ui.on_timer(move |id| {
+            Some(if timer_auto.get() == Some(id) {
+                Msg::Autoscroll
+            } else if timer_flush.get() == Some(id) {
+                Msg::Flush
+            } else {
+                Msg::Tick
+            })
+        });
         ui.set_timer(FALLBACK_MILLIS);
         Terminal {
             child,
@@ -399,35 +477,18 @@ fn main() {
             perf: Perf::default(),
             paint_clock: Rc::clone(&paint_clock),
             offset: Rc::clone(&offset),
+            drag: false,
+            last_mouse: (0, 0),
+            held: None,
+            clicks: Clicks::default(),
+            auto: Rc::clone(&auto),
+            out: Vec::new(),
+            flush: Rc::clone(&flush),
+            pending_text: None,
+            pending: Rc::clone(&pending),
         }
     });
 
     backend.unbind();
     std::process::exit(i32::from(xui_app::launch::finish("TERM", outcome)))
-}
-
-/// The control byte of a Ctrl+letter chord (`Ctrl+C` is 3), or `None`.
-fn control_byte(key: Key) -> Option<u8> {
-    let code = key.code();
-    (u16::from(b'A')..=u16::from(b'Z'))
-        .contains(&code)
-        .then(|| code as u8 - b'A' + 1)
-}
-
-/// The bytes a VT100 sends for a non-text key (`None`: nothing to send).
-fn key_sequence(key: Key) -> Option<&'static [u8]> {
-    Some(match key {
-        Key::ESCAPE => b"\x1b",
-        Key::UP => b"\x1b[A",
-        Key::DOWN => b"\x1b[B",
-        Key::RIGHT => b"\x1b[C",
-        Key::LEFT => b"\x1b[D",
-        Key::HOME => b"\x1b[H",
-        Key::END => b"\x1b[F",
-        Key::INSERT => b"\x1b[2~",
-        Key::DELETE => b"\x1b[3~",
-        Key::PAGE_UP => b"\x1b[5~",
-        Key::PAGE_DOWN => b"\x1b[6~",
-        _ => return None,
-    })
 }

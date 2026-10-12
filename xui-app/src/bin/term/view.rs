@@ -61,8 +61,12 @@ pub fn max_offset(term: &Term, visible: usize) -> usize {
 /// at the top of the view when it is at the bottom, `offset` how many lines
 /// back it is scrolled. `None` is a blank slot.
 pub fn view_line(term: &Term, first: usize, offset: usize, slot: usize) -> Option<LineRef<'_>> {
-    let line = (term.screen_top() + first as u64 + slot as u64).checked_sub(offset as u64)?;
-    term.line(line)
+    term.line(line_number(term, first, offset, slot)?)
+}
+
+/// The absolute number of the line in view slot `slot`.
+pub fn line_number(term: &Term, first: usize, offset: usize, slot: usize) -> Option<u64> {
+    (term.screen_top() + first as u64 + slot as u64).checked_sub(offset as u64)
 }
 
 /// The scrollbar thumb as (top, bottom) inside a track of `track_h` pixels
@@ -125,6 +129,8 @@ pub struct Shown {
     /// The scrollbar's inputs (history lines, offset) while it is up.
     bar: Option<(usize, usize)>,
     rows: Vec<Vec<Cell>>,
+    /// The selected columns of each visible slot.
+    spans: Vec<Option<(usize, usize)>>,
     /// The cursor's slot, column and visibility; `None` while it is not in
     /// the view (scrolled out of it).
     cursor: Option<(usize, usize, bool)>,
@@ -145,6 +151,11 @@ impl Shown {
         let first = first_row(cursor_row, visible, total);
         let rows: Vec<Vec<Cell>> = (0..visible)
             .map(|slot| view_line(term, first, offset, slot).map_or_else(Vec::new, |l| used(l.cells)))
+            .collect();
+        let spans: Vec<Option<(usize, usize)>> = (0..visible)
+            .map(|slot| {
+                line_number(term, first, offset, slot).and_then(|line| term.selection_span(line))
+            })
             .collect();
         let slot = (cursor_row + offset).saturating_sub(first);
         let cursor = (cursor_row >= first && slot < visible)
@@ -167,7 +178,7 @@ impl Shown {
             mark(rows.len().saturating_sub(1));
         } else {
             for (slot, (old, new)) in self.rows.iter().zip(&rows).enumerate() {
-                if old != new {
+                if old != new || self.spans.get(slot) != spans.get(slot) {
                     mark(slot);
                 }
             }
@@ -182,6 +193,7 @@ impl Shown {
         self.first = first;
         self.anchor = anchor;
         self.rows = rows;
+        self.spans = spans;
         self.cursor = cursor;
         self.bar = bar;
         let band = changed.map(|(lo, hi)| {

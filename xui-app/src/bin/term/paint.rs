@@ -5,7 +5,10 @@
 use lazyterm::Term;
 use xui_core::{Canvas, Color, Dip, Rect, TextStyle};
 
-use super::view::{first_row, intersect, max_offset, overlaps, thumb, view_line, Layout};
+use super::geometry::confirm_rects;
+use super::view::{
+    first_row, intersect, line_number, max_offset, overlaps, thumb, view_line, Layout,
+};
 
 /// Text size and the monospace cell it implies (JetBrains Mono is 0.6 em wide).
 pub const FONT: f32 = 15.0;
@@ -18,6 +21,8 @@ pub struct Palette {
     pub bg: Color,
     pub fg: Color,
     pub cursor: Color,
+    /// Behind selected text: readable against `fg` in this theme.
+    pub select: Color,
 }
 
 /// Midnight's navy, a shade deeper than a window so the grid reads as a well.
@@ -25,11 +30,13 @@ pub const DARK: Palette = Palette {
     bg: Color::rgb(0x15, 0x19, 0x28),
     fg: Color::rgb(0xdc, 0xe1, 0xf0),
     cursor: Color::rgb(0x5f, 0xd0, 0x8f),
+    select: Color::rgb(0x2f, 0x52, 0x8f),
 };
 pub const LIGHT: Palette = Palette {
     bg: Color::rgb(0xfb, 0xfb, 0xfb),
     fg: Color::rgb(0x1f, 0x23, 0x28),
     cursor: Color::rgb(0x09, 0x69, 0xda),
+    select: Color::rgb(0xb4, 0xd5, 0xfe),
 };
 
 /// The characters of the first `cols` cells of a line (`None`: a blank slot);
@@ -56,6 +63,7 @@ pub fn paint(
     palette: &Palette,
     term: &Term,
     offset: usize,
+    pending: Option<usize>,
     damage: Option<Rect>,
 ) -> Layout {
     let bounds = canvas.bounds();
@@ -75,6 +83,16 @@ pub fn paint(
     for slot in 0..visible {
         if !overlaps(row_rect(slot), damage) {
             continue;
+        }
+        // The selection sits behind the text.
+        if let Some((from, to)) = line_number(term, first, offset, slot)
+            .and_then(|line| term.selection_span(line))
+            .filter(|&(from, _)| from < visible_cols)
+        {
+            let top = bounds.top + pad + slot as i32 * line_h;
+            let left = bounds.left + pad + (from as f32 * cell_w) as i32;
+            let right = bounds.left + pad + ((to.min(visible_cols - 1) + 1) as f32 * cell_w) as i32;
+            canvas.fill_rect(Rect::new(left, top, right, top + line_h), palette.select);
         }
         let Some(line) = view_line(term, first, offset, slot) else {
             continue;
@@ -111,12 +129,45 @@ pub fn paint(
             canvas.fill_rounded_rect(rect, (right - left) as f32 / 2.0, palette.bg.lerp(palette.fg, 0.45));
         }
     }
-    Layout {
+    let laid = Layout {
         width: bounds.width(),
         height: bounds.height(),
         pad,
         line_h,
         visible,
+    };
+    if let Some(lines) = pending {
+        paint_confirm(canvas, palette, &laid, lines, damage);
+    }
+    laid
+}
+
+/// The paste confirmation bar: the question, a Paste and a Cancel button
+/// (Enter and Escape do the same).
+fn paint_confirm(
+    canvas: &mut dyn Canvas,
+    palette: &Palette,
+    layout: &Layout,
+    lines: usize,
+    damage: Rect,
+) {
+    let c = confirm_rects(layout);
+    if !overlaps(c.bar, damage) {
+        return;
+    }
+    let scale = (layout.pad / PAD).max(1);
+    let style = TextStyle::new(palette.fg, Dip(FONT));
+    canvas.fill_rect(c.bar, palette.bg.lerp(palette.fg, 0.16));
+    canvas.fill_rect(Rect::new(c.bar.left, c.bar.top, c.bar.right, c.bar.top + scale), palette.cursor);
+    let text = |canvas: &mut dyn Canvas, text: &str, rect: Rect| {
+        let at = Rect::new(rect.left, rect.top + (rect.height() - LINE_H * scale) / 2, rect.right, rect.bottom);
+        canvas.draw_text(text, at, &style);
+    };
+    let question = format!("Paste {lines} lines?");
+    text(canvas, &question, Rect::new(c.bar.left + layout.pad, c.bar.top, c.paste.left, c.bar.bottom));
+    for (rect, label) in [(c.paste, "Paste"), (c.cancel, "Cancel")] {
+        canvas.fill_rect(rect, palette.bg.lerp(palette.fg, 0.32));
+        text(canvas, label, Rect::new(rect.left + layout.pad, rect.top, rect.right, rect.bottom));
     }
 }
 
@@ -159,6 +210,18 @@ mod tests {
 
     /// The same, scrolled back `offset` lines.
     fn shoot_at(term: Term, offset: usize, dark: bool, dpi: u32, name: &str) -> Image {
+        shoot_full(term, offset, None, dark, dpi, name)
+    }
+
+    /// The same, with the paste confirmation bar up for `pending` lines.
+    fn shoot_full(
+        term: Term,
+        offset: usize,
+        pending: Option<usize>,
+        dark: bool,
+        dpi: u32,
+        name: &str,
+    ) -> Image {
         fonts();
         let (palette, theme) = if dark {
             (&DARK, Theme::dark())
@@ -173,7 +236,7 @@ mod tests {
                     Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
                         .expect("root node");
                 root.set_painter(Rc::new(move |canvas| {
-                    paint(canvas, palette, &term, offset, None);
+                    paint(canvas, palette, &term, offset, pending, None);
                 }));
                 Host { _root: root }
             },
@@ -283,5 +346,65 @@ mod tests {
         };
         assert!(cursor_probe(&at_bottom), "the cursor at the bottom");
         assert!(!cursor_probe(&back), "and not scrolled back");
+    }
+
+    /// The corner of the cell at (`col`, `row`), where no glyph reaches.
+    fn cell_corner(col: usize, row: usize) -> (i32, i32) {
+        (PAD + (col as f32 * CELL_W) as i32 + 1, PAD + row as i32 * LINE_H + LINE_H - 2)
+    }
+
+    #[test]
+    fn a_selection_is_a_readable_band_behind_the_text() {
+        for (dark, palette, tag) in [(true, &DARK, "dark"), (false, &LIGHT, "light")] {
+            let mut term = Term::new(80, 24);
+            term.feed(b"select these words please\r\nsecond row here");
+            term.select_begin(lazyterm::SelectMode::Char, lazyterm::Point::new(0, 7));
+            term.select_update(lazyterm::Point::new(1, 5));
+            let image = shoot(term, dark, 96, &format!("term-selection-{tag}.png"));
+            let at = |col, row| {
+                let (x, y) = cell_corner(col, row);
+                pixel(&image, x, y)
+            };
+            assert_eq!(at(7, 0), rgb(palette.select), "{tag}: first selected cell");
+            assert_eq!(at(30, 0), rgb(palette.select), "{tag}: the rest of the first row");
+            assert_eq!(at(5, 1), rgb(palette.select), "{tag}: last selected cell");
+            assert_eq!(at(6, 1), rgb(palette.bg), "{tag}: after it");
+            assert_eq!(at(6, 0), rgb(palette.bg), "{tag}: before it");
+            // The band is far enough from the text colour to read it.
+            let contrast = palette.fg.contrast_ratio(palette.select);
+            assert!(contrast >= 4.5, "{tag}: text on the selection has contrast {contrast}");
+        }
+    }
+
+    #[test]
+    fn a_block_selection_paints_only_its_columns() {
+        let mut term = Term::new(80, 24);
+        term.feed(b"abcdefghij\r\nklmnopqrst\r\nuvwxyz");
+        term.select_begin(lazyterm::SelectMode::Block, lazyterm::Point::new(0, 2));
+        term.select_update(lazyterm::Point::new(2, 4));
+        let image = shoot(term, true, 96, "term-selection-block.png");
+        for row in 0..3 {
+            let (x, y) = cell_corner(3, row);
+            assert_eq!(pixel(&image, x, y), rgb(DARK.select), "row {row} column 3");
+            let (x, y) = cell_corner(8, row);
+            assert_eq!(pixel(&image, x, y), rgb(DARK.bg), "row {row} column 8");
+        }
+    }
+
+    #[test]
+    fn the_paste_confirmation_bar_has_two_buttons() {
+        for (dark, palette, tag) in [(true, &DARK, "dark"), (false, &LIGHT, "light")] {
+            let mut term = Term::new(80, 24);
+            term.feed(b"prompt");
+            let image = shoot_full(term, 0, Some(3), dark, 96, &format!("term-confirm-{tag}.png"));
+            let layout = Layout { width: 640, height: 400, pad: PAD, line_h: LINE_H, visible: 19 };
+            let bar = confirm_rects(&layout);
+            let button = palette.bg.lerp(palette.fg, 0.32);
+            assert_eq!(pixel(&image, bar.paste.left + 1, bar.paste.top + 1), rgb(button), "{tag}: Paste");
+            assert_eq!(pixel(&image, bar.cancel.left + 1, bar.cancel.top + 1), rgb(button), "{tag}: Cancel");
+            assert_eq!(pixel(&image, 3, bar.bar.top), rgb(palette.cursor), "{tag}: the bar's top edge");
+            assert_ne!(pixel(&image, 3, bar.bar.top + 5), rgb(palette.bg), "{tag}: the bar has its own fill");
+            assert_eq!(pixel(&image, 3, bar.bar.top - 2), rgb(palette.bg), "{tag}: above the bar");
+        }
     }
 }

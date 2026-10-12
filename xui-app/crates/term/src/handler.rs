@@ -6,6 +6,7 @@
 use vte::{Params, Perform};
 
 use crate::cell::{Color, Flags};
+use crate::input::MouseMode;
 use crate::state::State;
 
 /// The `index`-th parameter's first value, if present.
@@ -149,6 +150,16 @@ impl State {
             match group.first() {
                 Some(7) => self.autowrap = on,
                 Some(25) => self.cursor_visible = on,
+                Some(code @ (1000 | 1002 | 1003)) => {
+                    let level = MouseMode::from_code(*code);
+                    if on {
+                        self.mouse = level;
+                    } else if self.mouse == level {
+                        self.mouse = MouseMode::Off;
+                    }
+                }
+                Some(1006) => self.mouse_sgr = on,
+                Some(2004) => self.bracketed_paste = on,
                 Some(47 | 1047 | 1049) => self.set_alternate(on),
                 _ => {}
             }

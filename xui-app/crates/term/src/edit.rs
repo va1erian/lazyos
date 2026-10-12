@@ -50,6 +50,7 @@ impl State {
     /// Blank `from..to` of `row`. Reaching the end of the row also ends its
     /// wrap: what follows is no longer a continuation of it.
     fn erase_line_span(&mut self, row: usize, from: usize, to: usize) {
+        self.dirty[row] = true;
         let cols = self.cols();
         let line = &mut self.screen.rows[row];
         line.erase(from, to, self.attr);
@@ -62,6 +63,7 @@ impl State {
     pub fn erase_chars(&mut self, n: usize) {
         self.wrap_pending = false;
         let (row, col) = (self.row, self.col);
+        self.dirty[row] = true;
         let line = &mut self.screen.rows[row];
         line.erase(col, col.saturating_add(n), self.attr);
     }
@@ -69,12 +71,14 @@ impl State {
     /// ICH.
     pub fn insert_chars(&mut self, n: usize) {
         self.wrap_pending = false;
+        self.dirty[self.row] = true;
         self.screen.insert_cells(self.row, self.col, n, self.attr);
     }
 
     /// DCH.
     pub fn delete_chars(&mut self, n: usize) {
         self.wrap_pending = false;
+        self.dirty[self.row] = true;
         self.screen.delete_cells(self.row, self.col, n, self.attr);
     }
 
@@ -83,6 +87,7 @@ impl State {
         if self.row < self.top || self.row > self.bottom {
             return;
         }
+        self.dirty[self.row..=self.bottom].fill(true);
         self.screen
             .scroll_down(self.row, self.bottom, n, self.attr);
         self.move_to(self.row, 0);
@@ -93,12 +98,14 @@ impl State {
         if self.row < self.top || self.row > self.bottom {
             return;
         }
+        self.dirty[self.row..=self.bottom].fill(true);
         self.screen.scroll_up(self.row, self.bottom, n, self.attr, |_| {});
         self.move_to(self.row, 0);
     }
 
     /// DECALN: fill the screen with `E` (the alignment pattern) and home.
     pub fn alignment_pattern(&mut self) {
+        self.dirty.fill(true);
         let attr = self.attr;
         for row in &mut self.screen.rows {
             row.erase(0, usize::MAX, attr);

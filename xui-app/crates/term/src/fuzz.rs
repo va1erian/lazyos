@@ -7,7 +7,9 @@
 //! run, as in the other fuzzed libraries). On LazyOS the app builds with
 //! `panic = "abort"`, so a panic here is a crash there.
 
-use crate::Term;
+use crate::input::{mouse_report, Action, Button, Mods, MouseMode};
+use crate::paste::{paste_bytes, shell_quote};
+use crate::{Point, SelectMode, Term};
 
 /// Check every invariant the rest of the code relies on; panics on the first
 /// one that fails.
@@ -25,6 +27,16 @@ pub fn check(term: &Term) {
         assert!(term.line(line).is_some(), "line {line} missing");
     }
     assert!(term.line(term.screen_top() + rows as u64).is_none());
+    if let Some((start, end)) = term.selection_range() {
+        assert!(start <= end, "selection ends out of order");
+        assert!(start.line >= term.first_line(), "selection below the history");
+        assert!(end.line < term.screen_top() + rows as u64, "selection past the screen");
+        assert!(term.selection_text().is_some());
+        for line in start.line..=end.line.min(start.line + 4) {
+            let (from, to) = term.selection_span(line).expect("a span inside the selection");
+            assert!(from <= to && to < cols, "span {from}..={to}");
+        }
+    }
     if state.on_alternate() {
         assert!(state.top == 0 || state.bottom < rows);
     }
@@ -49,6 +61,8 @@ pub fn run(data: &[u8]) {
         let _ = term.feed(chunk);
         let _ = term.take_reply();
         check(&term);
+        exercise(&mut term, chunk);
+        check(&term);
         if chunk[0] % 17 == 0 {
             term.set_scrollback(usize::from(chunk[chunk.len() - 1]) % 40);
             check(&term);
@@ -59,6 +73,47 @@ pub fn run(data: &[u8]) {
                 1 + usize::from(chunk[0]) % 50,
             );
             check(&term);
+        }
+    }
+}
+
+/// Selection, paste and mouse operations driven by `chunk`'s bytes.
+fn exercise(term: &mut Term, chunk: &[u8]) {
+    let byte = |at: usize| usize::from(chunk[at % chunk.len()]);
+    let span = (term.screen_top() - term.first_line()) as usize + term.rows();
+    let at = |a: usize, b: usize| {
+        Point::new(term.first_line() + (a * 7 % (span + 3)) as u64, b * 5 % (term.cols() + 3))
+    };
+    let modes = [SelectMode::Char, SelectMode::Word, SelectMode::Line, SelectMode::Block];
+    let (p, q) = (at(byte(1), byte(2)), at(byte(3), byte(4)));
+    match byte(0) % 9 {
+        0 => term.select_begin(modes[byte(5) % 4], p),
+        1 => {
+            term.select_begin(modes[byte(5) % 4], p);
+            term.select_update(q);
+        }
+        2 => term.select_update(q),
+        3 => term.select_extend(q),
+        4 => term.select_all(),
+        5 => term.select_clear(),
+        6 => {
+            let text = String::from_utf8_lossy(chunk).into_owned();
+            let bracketed = byte(1) % 2 == 0;
+            let out = paste_bytes(&text, bracketed);
+            let inner: &[u8] = if bracketed { &out[6..out.len() - 6] } else { &out };
+            assert!(inner.iter().all(|&b| b >= 0x20 && b != 0x7f || b == 9 || b == 13));
+            assert!(!shell_quote(&text).is_empty());
+        }
+        7 => {
+            let modes = [MouseMode::Off, MouseMode::Click, MouseMode::Drag, MouseMode::Motion];
+            let buttons = [None, Some(Button::Left), Some(Button::Middle), Some(Button::Right), Some(Button::WheelUp), Some(Button::WheelDown)];
+            let actions = [Action::Press, Action::Release, Action::Motion];
+            let mods = Mods { shift: byte(7) & 1 == 1, alt: byte(7) & 2 == 2, ctrl: byte(7) & 4 == 4 };
+            let report = mouse_report(modes[byte(1) % 4], byte(2) % 2 == 0, buttons[byte(3) % 6], actions[byte(4) % 3], mods, byte(5) * 40, byte(6) * 40);
+            assert!(report.is_none_or(|bytes| bytes.starts_with(b"\x1b[")));
+        }
+        _ => {
+            let _ = term.selection_text();
         }
     }
 }
