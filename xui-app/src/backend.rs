@@ -42,6 +42,10 @@ mod origin;
 mod pointer;
 mod render;
 mod session_input;
+#[cfg(target_os = "linux")]
+mod wakeup;
+#[cfg(not(target_os = "linux"))]
+#[path = "backend/wakeup_host.rs"]
 mod wakeup;
 mod zorder;
 
