@@ -12,15 +12,13 @@ tool is everything around that:
 2. serves `tools/net/bulkpeers.py`'s bulk server on this host's LAN address
    (all interfaces; no firewall or system setting is touched);
 3. prints the exact command to type on the box;
-4. waits for the run and collects both ends: the server's record (bytes,
-   timing, the address the box connected from) and the `NETBULK:` lines the
-   box printed, read from its programs log over `dbgd`; the cross-check fails
-   when they disagree or the traffic did not come from the interface under test;
+4. collects both ends: the server's record (bytes, timing, the box's source
+   address) and the box's `NETBULK:` lines read over `dbgd`; the cross-check
+   fails when they disagree or the traffic left by another interface;
 5. prints a table (`--json` for a machine-readable result on stdout).
 
     python tools/net/lan_bulk.py --box 192.168.1.81                  # the NUC over Wi-Fi
     python tools/net/lan_bulk.py --box 192.168.1.81 --iface eth0     # wired, same box
-    python tools/net/lan_bulk.py --box 192.168.1.81 --bytes 33554432 --rounds 3 --json
     python tools/net/lan_bulk.py --dry-run-qemu                      # no hardware: QEMU stands in
 
 The key is `--key HEX`, `--key-file PATH` or `target/dbgd.key`. Exit status:
