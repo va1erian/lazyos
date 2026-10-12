@@ -22,12 +22,20 @@ def zig_version() -> str:
 def libraries() -> list[dict]:
     """One record per installed library, in build order, with sizes."""
     import recipes
+    pins = {dep.name: dep for dep in [*wkpins.DEPS, *wkpins.BUNDLED]}
     out = []
     for name in recipes.ORDER:
         stamp = buildkit.STAMPS / f"{name}.json"
         if not stamp.is_file():
             continue
         record = json.loads(stamp.read_text())
+        # A stamp holds what the build did; what a library is, and under which
+        # licence, is the pin's (a licence fix must not wait for a rebuild).
+        if name in pins:
+            record.update(license=pins[name].license, why=pins[name].why)
+            record.pop("notes", None)
+            if pins[name].notes:
+                record["notes"] = pins[name].notes
         files = record.get("files", [])
         archives = [f for f in files if f.endswith(".a")]
         record["archive_bytes"] = sum((wkpins.PREFIX / f).stat().st_size for f in archives

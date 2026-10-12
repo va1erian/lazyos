@@ -79,8 +79,10 @@ def tokenize(expression: str) -> list[str]:
     return tokens
 
 
-def acceptable(expression: str) -> bool:
-    """Whether the SPDX `expression` allows a GPLv2-compatible choice."""
+def acceptable(expression: str, allowed: set[str] | None = None) -> bool:
+    """Whether the SPDX `expression` allows a GPLv2-compatible choice (or, with
+    `allowed`, one from that set: ``tools/webkit/licenses.py`` brings its own)."""
+    allowed = ACCEPTABLE if allowed is None else allowed
     tokens = tokenize(expression)
     pos = 0
 
@@ -114,7 +116,7 @@ def acceptable(expression: str) -> bool:
                 raise ValueError(f"unbalanced licence expression: {expression!r}")
             pos += 1
             return value
-        return token in ACCEPTABLE
+        return token in allowed
 
     value = parse_or()
     if pos != len(tokens):

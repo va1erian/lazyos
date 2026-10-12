@@ -13,7 +13,10 @@ and the host reference ``target/webkit/depsproof.host.txt``). Then:
    ELF whole into RAM), types ``depsproof https://tls.test:47790/`` at the
    shell and waits for the final ``WEBKIT:W3:PASS`` line;
 4. judges the serial log (``wkjudge.py``) against the host's own run, and what
-   the server saw (SNI, one request for ``/`` from ``depsproof``).
+   the server saw (SNI, one request for ``/`` from ``depsproof``). The guest and
+   the host reference each print the SHA-256 of their own executable
+   (``WEBKIT:W3:BIN``); both must equal that of ``target/webkit/bin/depsproof``,
+   so an image or a reference left over from another build fails with a message.
 
 Usage::
 
@@ -118,7 +121,8 @@ def judge_servers(record, tp, tlscerts) -> list[str]:
 
 
 def report(serial: str, host: str, body: str | None, servers: list[str] | None) -> int:
-    verdicts = wkjudge.judge(serial, host, body, servers)
+    binary = wkjudge.sha256_of(BIN) if BIN.is_file() else None
+    verdicts = wkjudge.judge(serial, host, body, servers, binary)
     for verdict in verdicts:
         print(f"{'PASS' if verdict.ok else 'FAIL'}  {verdict.name}  {verdict.detail}".rstrip())
     if BIN.is_file():

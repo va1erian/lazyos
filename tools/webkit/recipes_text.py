@@ -7,16 +7,18 @@ import shutil
 from pathlib import Path
 
 import buildkit
+import fhspaths
 import toolenv
 import wkpins
 from buildkit import PREFIX
 from registry import Lib, register
 from toolenv import run
 
-#: Where the guest looks (baked into Fontconfig); the image ships these later (W4).
-FONT_DIR = "/system/share/fonts"
-FONT_CONF_DIR = "/system/etc"
-FONT_CACHE_DIR = "/tmp/fontconfig"
+#: Where the guest looks (baked into Fontconfig), from libs/fhs (fhspaths.py);
+#: the image ships the fonts later (W4).
+FONT_DIR = fhspaths.FONT_DIR
+FONT_CONF_DIR = fhspaths.FONT_CONF_DIR
+FONT_CACHE_DIR = fhspaths.FONT_CACHE_DIR
 
 FREETYPE = {"FT_REQUIRE_ZLIB": "ON", "FT_REQUIRE_PNG": "ON", "FT_REQUIRE_BROTLI": "ON",
             "FT_DISABLE_BZIP2": "ON", "FT_DISABLE_HARFBUZZ": "ON",
@@ -41,6 +43,9 @@ LIBPSL = ["--enable-static", "--disable-shared", "--enable-runtime=libicu",
           "--enable-builtin=libicu", "--disable-man", "--disable-gtk-doc"]
 
 
+ICU = wkpins.BUNDLED_BY_NAME["icu"]
+
+
 def _cmake(name: str, options: dict):
     def build(tree: Path, jobs: int) -> None:
         buildkit.cmake_build(name, tree, options, jobs)
@@ -51,19 +56,19 @@ def _icu(tree: Path, jobs: int) -> None:
     """Copy the ICU the ``jsc`` build made (tools/jsc/icu.py) into this prefix."""
     import icu
     source = icu.build(jobs)
-    shutil.copytree(source / "include" / "unicode", PREFIX / "include" / "unicode", dirs_exist_ok=True)
-    (PREFIX / "lib" / "pkgconfig").mkdir(parents=True, exist_ok=True)
+    into = buildkit.staged_prefix()
+    shutil.copytree(source / "include" / "unicode", into / "include" / "unicode", dirs_exist_ok=True)
+    (into / "lib" / "pkgconfig").mkdir(parents=True, exist_ok=True)
     for archive in sorted((source / "lib").glob("libicu*.a")):
-        shutil.copy2(archive, PREFIX / "lib" / archive.name)
+        shutil.copy2(archive, into / "lib" / archive.name)
     for pc in sorted((source / "lib" / "pkgconfig").glob("icu-*.pc")):
         text = pc.read_text().replace(str(source), str(PREFIX))
-        (PREFIX / "lib" / "pkgconfig" / pc.name).write_text(text)
+        (into / "lib" / "pkgconfig" / pc.name).write_text(text)
 
 
 def _fontconfig(tree: Path, jobs: int) -> None:
     """Build for the guest's paths, then keep the sample configuration out of /system."""
-    destdir = wkpins.BUILD / "fontconfig-destdir"
-    shutil.rmtree(destdir, ignore_errors=True)
+    destdir = buildkit.stage()
     build = wkpins.BUILD / "fontconfig"
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True)
@@ -73,10 +78,12 @@ def _fontconfig(tree: Path, jobs: int) -> None:
         build, "fontconfig configure", env=env)
     run(["make", f"-j{jobs}"], build, "fontconfig make", env=env)
     run(["make", "install", f"DESTDIR={destdir}"], build, "fontconfig install", env=env)
-    shutil.copytree(destdir / str(PREFIX).lstrip("/"), PREFIX, dirs_exist_ok=True)
+    # The install also wrote the guest's configuration directory under the
+    # stage; it belongs to the image (W4), so a copy rides in the prefix's share.
     conf = destdir / FONT_CONF_DIR.lstrip("/") / "fonts"
     if conf.is_dir():
-        shutil.copytree(conf, PREFIX / "share" / "fontconfig-etc" / "fonts", dirs_exist_ok=True)
+        shutil.copytree(conf, buildkit.staged_prefix() / "share" / "fontconfig-etc" / "fonts",
+                        dirs_exist_ok=True)
 
 
 def _sqlite(tree: Path, jobs: int) -> None:
@@ -87,13 +94,14 @@ def _sqlite(tree: Path, jobs: int) -> None:
     run([wrap["zcc"], *toolenv.CODEGEN, *SQLITE_DEFS, "-c", str(tree / "sqlite3.c"), "-o", "sqlite3.o"],
         work, "sqlite compile")
     run([wrap["zar"], "rcs", "libsqlite3.a", "sqlite3.o"], work, "sqlite archive")
-    (PREFIX / "lib" / "pkgconfig").mkdir(parents=True, exist_ok=True)
-    (PREFIX / "include").mkdir(parents=True, exist_ok=True)
-    shutil.copy2(work / "libsqlite3.a", PREFIX / "lib" / "libsqlite3.a")
+    into = buildkit.staged_prefix()
+    (into / "lib" / "pkgconfig").mkdir(parents=True, exist_ok=True)
+    (into / "include").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(work / "libsqlite3.a", into / "lib" / "libsqlite3.a")
     for header in ("sqlite3.h", "sqlite3ext.h"):
-        shutil.copy2(tree / header, PREFIX / "include" / header)
+        shutil.copy2(tree / header, into / "include" / header)
     version = wkpins.BY_NAME["sqlite"].source.version
-    (PREFIX / "lib" / "pkgconfig" / "sqlite3.pc").write_text(
+    (into / "lib" / "pkgconfig" / "sqlite3.pc").write_text(
         f"prefix={PREFIX}\nlibdir=${{prefix}}/lib\nincludedir=${{prefix}}/include\n\n"
         f"Name: SQLite\nDescription: SQL database engine\nVersion: {version}\n"
         "Libs: -L${libdir} -lsqlite3\nLibs.private: -lpthread -lm\nCflags: -I${includedir}\n")
@@ -105,9 +113,8 @@ def _libpsl(tree: Path, jobs: int) -> None:
 
 
 register(Lib("icu", [], {"from": "tools/jsc/icu.py"}, _icu, own_tree=True,
-             extra={"version": "74.2", "source_sha": "68db082212a96d6f53e35d60f47d38b962e9f9d207a74cfac78029ae8ff5e08c",
-                    "info": {"url": "https://github.com/unicode-org/icu/releases/download/release-74-2/icu4c-74_2-src.tgz",
-                             "license": "Unicode-3.0", "why": "text segmentation, collation, normalisation (JSC and WebCore); built by tools/jsc"}}))
+             extra={"version": ICU.source.version, "source_sha": ICU.source.sha256,
+                    "info": {"url": ICU.source.url, "license": ICU.license, "why": ICU.why}}))
 register(Lib("freetype", ["zlib", "libpng", "brotli"], FREETYPE, _cmake("freetype", FREETYPE)))
 register(Lib("expat", [], EXPAT, _cmake("expat", EXPAT)))
 register(Lib("harfbuzz", ["icu", "freetype"], HARFBUZZ, _cmake("harfbuzz", HARFBUZZ)))
