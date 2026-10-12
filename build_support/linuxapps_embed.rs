@@ -32,8 +32,7 @@ const PROGRAMS: &[(&str, &str)] = &[
 
 /// Where `tools/jsc/build.py` writes its programs, and what `LAZYOS_JSC=1` embeds.
 const JSC_BUILT: &str = "target/jsc/bin";
-const JSC_PROGRAMS: &[(&str, &str)] =
-    &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
+const JSC_PROGRAMS: &[(&str, &str)] = &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
 
 /// Whether the environment variable `name` is `1`.
 fn switch_on(name: &str) -> bool {
@@ -51,10 +50,24 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     if enabled() {
-        embed_programs(sink, manifest_dir, "LAZYOS_LINUXAPPS", BUILT, PROGRAMS, "tools/linuxapps/build.py");
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_LINUXAPPS",
+            BUILT,
+            PROGRAMS,
+            "tools/linuxapps/build.py",
+        );
     }
     if switch_on("LAZYOS_JSC") {
-        embed_programs(sink, manifest_dir, "LAZYOS_JSC", JSC_BUILT, JSC_PROGRAMS, "tools/jsc/build.py");
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_JSC",
+            JSC_BUILT,
+            JSC_PROGRAMS,
+            "tools/jsc/build.py",
+        );
     }
 }
 
