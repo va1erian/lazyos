@@ -169,9 +169,9 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > reads the code bytes without demand paging (`user_ptr::try_resident_bytes`).
 > Follow-ups: CPUID advertises AVX although the kernel enables no OSXSAVE/XCR0,
 > so any guest that trusts `CPUID.1:ECX` bit 28 alone takes `#UD` (JSC is
-> patched around it; a kernel-side fix is the AVX issue), and a 2 GiB typed
+> patched around it; a kernel-side fix is issue #822), and a 2 GiB typed
 > array that exhausts the frame allocator ends in `SIGSEGV` in the fault path
-> instead of failing the allocation (Linux would OOM-kill; the OOM issue).
+> instead of failing the allocation (Linux would OOM-kill; issue #823).
 
 **Goal:** run ordinary, prebuilt **`x86_64-unknown-linux-musl` static binaries**
 (including Rust programs that link `std`) on LazyOS, by implementing enough of

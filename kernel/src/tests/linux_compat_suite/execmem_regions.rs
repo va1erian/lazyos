@@ -185,7 +185,18 @@ pub fn execmem_mprotect_zero_length() -> Result<(), String> {
     // Unknown prot bits are EINVAL first, with a zero length too, over a
     // reserve, over nothing, and without changing the protection.
     let kept = crate::mem::vma::find_range(crate::mem::kernel_table(), base, base + 8 * PAGE);
-    for bad in [8, 0x10, 0x80, 1 << 31, 1 << 32, 1 << 63, u64::MAX] {
+    // Linux tolerates `PROT_SEM` (8) and one `GROWS` flag, and refuses both
+    // `GROWS` flags together.
+    check!(mprotect(base, 0, RW | 8) == 0, "PROT_SEM was refused");
+    check!(
+        mprotect(base, 0, RW | 0x0100_0000) == 0,
+        "PROT_GROWSDOWN was refused"
+    );
+    check!(
+        mprotect(base, 0, RW | 0x0300_0000) == EINVAL,
+        "both GROWS flags were accepted"
+    );
+    for bad in [0x10, 0x80, 1 << 31, 1 << 32, 1 << 63, u64::MAX] {
         for (addr, len) in [
             (base, 0),
             (base + PAGE, 0),
@@ -209,8 +220,16 @@ pub fn execmem_mprotect_zero_length() -> Result<(), String> {
             mprotect(base + (round % 8) * PAGE, 0, round % 8) == 0,
             "round {round}: len 0"
         );
-        // Any single unknown bit (3..=62), with or without the valid ones.
-        let bad = (1u64 << (3 + round % 60)) | (round % 8);
+        // Any single unknown bit (4..=62, skipping the two `GROWS` bits Linux
+        // strips), with or without the valid ones.
+        let shift = 4 + round % 59;
+        let bad = (1u64
+            << if (24..=25).contains(&shift) {
+                26
+            } else {
+                shift
+            })
+            | (round % 8);
         check!(
             mprotect(base + (round % 8) * PAGE, 0, bad) == EINVAL,
             "round {round}: len 0, prot {bad:#x}"

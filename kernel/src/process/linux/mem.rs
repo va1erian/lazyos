@@ -187,6 +187,13 @@ pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
 
 /// The `prot` bits `mprotect` accepts: `PROT_READ | PROT_WRITE | PROT_EXEC`.
 const PROT_VALID: u64 = 0x7;
+/// `PROT_SEM`: accepted and ignored, as on x86 Linux (it has no meaning there).
+const PROT_SEM: u64 = 0x8;
+/// `PROT_GROWSDOWN` / `PROT_GROWSUP`: Linux strips them (they extend the
+/// range to the stack VMA's edge, which does not apply here) and refuses
+/// only the two together.
+const PROT_GROWSDOWN: u64 = 0x0100_0000;
+const PROT_GROWSUP: u64 = 0x0200_0000;
 
 /// `mprotect(addr, len, prot)`: update the PTE flags for resident pages and
 /// the VMA for the whole range, so pages faulted in later honor the new access
@@ -194,8 +201,13 @@ const PROT_VALID: u64 = 0x7;
 /// address space). A range with no VMA is a no-op: the old shim ignored it, and
 /// we have no signal to deliver an ENOMEM against anyway.
 pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
-    // `PROT_NONE` or any mix of read, write and exec; a bit outside them is
+    // `PROT_NONE` or any mix of read, write and exec, plus the bits Linux
+    // tolerates (`PROT_SEM`, one of the `GROWS` flags); anything else is
     // `EINVAL` whatever the length, so a zero-length call cannot hide one.
+    if prot & (PROT_GROWSDOWN | PROT_GROWSUP) == PROT_GROWSDOWN | PROT_GROWSUP {
+        return err(EINVAL);
+    }
+    let prot = prot & !(PROT_SEM | PROT_GROWSDOWN | PROT_GROWSUP);
     if prot & !PROT_VALID != 0 {
         return err(EINVAL);
     }
