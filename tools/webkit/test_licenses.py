@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fhspaths  # noqa: E402
 import licenses  # noqa: E402
 import wkpins  # noqa: E402
 
@@ -50,7 +51,7 @@ class VerdictTests(unittest.TestCase):
         by_name = {row.split("|")[1].strip().split()[0]: row for row in licenses.rows()}
         for name in ("libwpe", "glstub", "WebKit"):
             self.assertNotIn("depsproof", by_name[name], name)
-            self.assertIn("/system/bin/webprocess", by_name[name], name)
+            self.assertIn(fhspaths.program("WEBPROCESS"), by_name[name], name)
         self.assertIn("depsproof", by_name["zlib"])
 
     def test_libpsl_records_the_list_licence_too(self) -> None:
