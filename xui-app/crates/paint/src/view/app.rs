@@ -12,6 +12,7 @@ use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
 use crate::model::text::TextRasterizer;
 
+use super::LayerStack;
 use super::coloredit::ColorEditor;
 use super::dialogs::{FlattenPrompt, Frames, UnsavedPrompt};
 use super::layerprops::LayerPropsDialog;
@@ -22,7 +23,6 @@ use super::palette::Palette;
 use super::sidebar::Sidebar;
 use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
-use super::LayerStack;
 use super::{Msg, PaintCanvas};
 use crate::model::{Format, LayerProps, Model, Pixel, Side, Tool};
 use crate::storage::Storage;

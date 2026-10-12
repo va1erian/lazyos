@@ -62,6 +62,7 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Th
         canvas.stroke_rect(rect, theme.text, 1.0);
     }
     ants::draw(canvas, state, bounds);
+    ants::draw_lasso(canvas, state, bounds);
     canvas.stroke_rect(bounds, theme.border, 1.0);
     canvas.pop_clip();
 }

@@ -302,3 +302,41 @@ fn dpi_scaled_lengths_follow_the_window() {
     assert_eq!(scaled_px(1, 48), 1, "never below one pixel");
     assert!((scaled(10.0, 144) - 15.0).abs() < 1e-9);
 }
+
+#[test]
+fn a_live_lasso_is_drawn_as_a_polyline_over_the_picture() {
+    let frame = |draw: bool| {
+        session(&disk(), move |stage, ctx| {
+            stage.emit(Msg::Tool(Tool::Lasso));
+            if draw {
+                ctx.probe(stage);
+                let path = [(60, 60), (160, 70), (200, 150), (90, 170)];
+                let (x, y) = picture_at(ctx, path[0].0, path[0].1);
+                stage.inject(Event::MouseDown {
+                    x: x as i32,
+                    y: y as i32,
+                    button: MouseButton::Left,
+                    modifiers: Modifiers::NONE,
+                });
+                for (px, py) in &path[1..] {
+                    let (x, y) = picture_at(ctx, *px, *py);
+                    stage.inject(Event::MouseMove {
+                        x: x as i32,
+                        y: y as i32,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+            }
+        })
+    };
+    let (bare, drawn) = (frame(false), frame(true));
+    let mut differing = 0;
+    for y in 0..bare.height() {
+        for x in 0..bare.width() {
+            if bare.pixel(x, y) != drawn.pixel(x, y) {
+                differing += 1;
+            }
+        }
+    }
+    assert!(differing > 200, "only {differing} pixels show the lasso");
+}

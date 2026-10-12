@@ -176,7 +176,13 @@ impl PaintCanvas {
             state.edges = model.selection().map(|s| s.edges()).unwrap_or_default();
             changed = true;
         }
-        let animate = !ants::is_empty(&state.edges) || state.editing;
+        // The points only grow during a drag and are cleared on release.
+        let lasso = model.lasso_points();
+        if state.lasso.len() != lasso.len() || state.lasso.last() != lasso.last() {
+            state.lasso = lasso.to_vec();
+            changed = true;
+        }
+        let animate = !ants::is_empty(&state.edges) || !state.lasso.is_empty() || state.editing;
         drop(state);
         self.animate_ants(animate);
         if changed {

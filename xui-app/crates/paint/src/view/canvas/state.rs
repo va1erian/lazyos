@@ -45,6 +45,8 @@ pub struct CanvasState {
     /// The selection's outline and the model revision it was built for.
     pub(super) edges: Vec<Edge>,
     pub(super) sel_rev: u64,
+    /// The lasso being drawn, in picture pixels (an open polyline).
+    pub(super) lasso: Vec<(i32, i32)>,
     /// How far the ants have crawled.
     pub(super) phase: u32,
     /// An adjustment shown on the screen image only (the adjustment dialogs).
@@ -75,6 +77,7 @@ impl Default for CanvasState {
             pan: None,
             edges: Vec::new(),
             sel_rev: 0,
+            lasso: Vec::new(),
             phase: 0,
             tweak: None,
             dpi: 96,

@@ -54,6 +54,44 @@ pub(super) fn draw(canvas: &mut dyn Canvas, state: &CanvasState, bounds: Rect) {
     }
 }
 
+/// The lasso being drawn, as an open polyline in the ants' style: white, then
+/// black dashes along each segment.
+pub(super) fn draw_lasso(canvas: &mut dyn Canvas, state: &CanvasState, bounds: Rect) {
+    if state.lasso.len() < 2 {
+        return;
+    }
+    let viewport = state.viewport();
+    let dash = scaled_px(DASH, state.dpi);
+    let phase = state.phase as i32 * dash / DASH;
+    let (white, black) = (Color::rgb(255, 255, 255), Color::rgb(0, 0, 0));
+    let at = |(x, y): (i32, i32)| {
+        let (vx, vy) = viewport.to_view(x, y);
+        (bounds.left + vx, bounds.top + vy)
+    };
+    let mut walked = 0.0f64;
+    for pair in state.lasso.windows(2) {
+        let (a, b) = (at(pair[0]), at(pair[1]));
+        let point = |p: (i32, i32)| Point::new(p.0, p.1);
+        canvas.draw_line(point(a), point(b), white, 1.0);
+        let length = f64::from(b.0 - a.0).hypot(f64::from(b.1 - a.1));
+        if length > 0.0 {
+            // Dashes are laid along the whole line by distance walked.
+            let at_distance = |d: f64| {
+                let t = (d - walked) / length;
+                (
+                    a.0 + (f64::from(b.0 - a.0) * t).round() as i32,
+                    a.1 + (f64::from(b.1 - a.1) * t).round() as i32,
+                )
+            };
+            for (from, to) in black_dashes(walked as i32, (walked + length) as i32, phase, dash) {
+                let (s, e) = (at_distance(f64::from(from)), at_distance(f64::from(to)));
+                canvas.draw_line(point(s), point(e), black, 1.0);
+            }
+        }
+        walked += length;
+    }
+}
+
 /// The black dashes of `from..to` along an axis: the odd cells of a pattern
 /// shifted by `phase`, clipped to the span.
 pub(super) fn black_dashes(from: i32, to: i32, phase: i32, dash: i32) -> Vec<(i32, i32)> {
