@@ -5,7 +5,7 @@
 //! Nothing here blocks the UI thread. The view's paint hook asks
 //! [`Thumbs::paint`] for each visible picture tile: a cached thumbnail is
 //! drawn, anything else falls back to the generic picture icon and, the first
-//! time, queues a job. Two worker threads take jobs newest first (what the
+//! time, queues a job. Worker threads take jobs newest first (what the
 //! user just scrolled to is wanted before what they scrolled past), read the
 //! file through the platform's [`ThumbReader`] (a mounted network share is
 //! just a path, and a slow read only holds up a worker), decode and shrink it
@@ -42,9 +42,9 @@ pub const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const QUEUE_CAP: usize = 96;
 /// Thumbnails kept (about 64 KiB each at most).
 const CACHE_CAP: usize = 512;
-/// Decoder threads. Two keep a slow read from stalling the others without
-/// competing with the UI for the CPU.
-const WORKERS: usize = 2;
+/// Reader threads. A share's reads are latency-bound, so several in flight
+/// fill the pipe; decoding is short next to that.
+const WORKERS: usize = 4;
 /// Space kept between a thumbnail and its tile's edge.
 const MARGIN: i32 = 2;
 
@@ -430,7 +430,7 @@ mod tests {
             picture("notes.txt", 100),
             picture("huge.png", MAX_BYTES + 1),
             picture("empty.png", 0),
-            picture("anim.gif", 100),
+            picture("vector.svg", 100),
         ] {
             assert!(!paint(&rig.thumbs, &entry));
         }
@@ -449,11 +449,11 @@ mod tests {
             let _ = locked(&gate).recv_timeout(Duration::from_secs(10));
             Ok(png(16, 1))
         }));
-        // Both workers pick up a job and block on the gate; the rest queue.
+        // Every worker picks up a job and block on the gate; the rest queue.
         let total = QUEUE_CAP + 40;
         for index in 0..total {
             paint(&rig.thumbs, &picture(&format!("{index:03}.png"), 100));
-            if index == 1 {
+            if index == WORKERS - 1 {
                 wait_for("both workers busy", || locked(&order).len() == WORKERS);
             }
         }
