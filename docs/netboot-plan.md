@@ -243,7 +243,7 @@ and a per-request log) is its seed.
 | `GET /api/builds?mac=..` | `netpicker`, tools | JSON: every build's manifest and `manifest.sig` in channel order, this machine's channel, default and pending `next`. Read-only: nothing is consumed or recorded |
 | `GET /files/<channel>/<id>/<name>` | `netpicker` (iPXE) | the file, with `Content-Length`; `Range` honoured |
 | `POST /api/machines/<name>/booting {"id": ...}` | `netpicker`, after verify, before kexec; **machine-authenticated**: the body (action, nonce, ts, machine, id) carries `X-LazyOS-Machine: <name>:<HMAC-SHA256 hex>` under the machine's `callback_key` (32 random bytes the registry mints when a machine is added, printed once, written into the boot OS's `lazyos.cfg` as `bootos.machine_key=` by `install_box.py`; the same nonce list and clock skew as the signed writes; the dev key's signature is accepted too, for `push.py --follow`), and the body's `machine` and `id` must match the path and a build that exists | records the attempt (`next.attempts += 1`, timestamp). `next` stays **pending**: a failed download, a refused verify or a kexec that never comes up does not lose the one-shot. A `next` with two attempts and no `booted` is dropped by the registry and recorded as `last_boot: {"id", "failed": true}`, so a kernel that cannot boot costs two tries, never a loop; the menu then shows the channel default again |
-| `POST /api/machines/<name>/booted {"id": ...}` | the booted system (`netboot-ack`, a oneshot `init` row that reads `bootos.registry=` from its `lazyos.cfg` when the picker wrote one, §12), or `push.py --follow` relaying `BOOT:IMAGE` from `dbgd`; the same machine or dev-key guard as `booting` | records `last_boot` and, when the id is the pending `next`, consumes it. Only this call confirms a boot |
+| `POST /api/machines/<name>/booted {"id": ...}` | the booted system: `netboot-ack`, a oneshot `init` row of every `LAZYOS_NETBOOT=1` image, reads `netboot.registry=`, `netboot.machine=` and `netboot.machine_key=` from its own `lazyos.cfg` and posts with the machine HMAC (§8.3 says how those lines get there: the picker writes them into the downloaded ramdisk's FAT part after verification, before the kexec; absent, the row exits silently). Or `push.py --follow` relaying `BOOT:IMAGE` from `dbgd` under the dev key, which provisions nothing on the box. The same machine or dev-key guard as `booting` | records `last_boot` and, when the id is the pending `next`, consumes it. Only this call confirms a boot |
 | `POST /api/machines/<name>/add {"mac", "channel"}` | `push.py --add-machine`, signed body | creates the entry and returns its `callback_key` once; `rekey` mints a new one |
 | `PUT /api/builds/<channel>/<id>/<name>`, then `POST .../commit` | `push.py`, signed | files land in `<id>.incoming/`; `commit` verifies `manifest.sig` against `keys.json` and every file's digest against the manifest, then renames the directory into place, or deletes it |
 | `POST /api/channels/<channel>/pin\|unpin\|prune` | `push.py`, signed body | pins, and pruning by `keep` |
@@ -446,7 +446,17 @@ verifies `manifest.sig` against the embedded public key and then the
 manifest's SHA-256 of both files (a forged or corrupt download is a message
 and the menu again, never a boot; decision 4), posts `booting` (an attempt,
 not a confirmation: `next` is consumed only by the started system's
-`booted`, §5), and calls `init.Kexec`. Evidence: `PICKER:UP`, `PICKER:LINK:<if>:<addr>`,
+`booted`, §5), **hands the started system its credentials**, and calls
+`init.Kexec`. The hand-over is three lines appended to `lazyos.cfg` in the
+downloaded ramdisk's 1 MiB FAT part, which the picker holds in RAM at a fixed
+offset: `netboot.registry=<url>`, `netboot.machine=<name>` and
+`netboot.machine_key=<hex>`, copied from the boot OS's own `bootos.*` lines.
+This happens after the signature and digests were checked (the bytes that
+were verified are the bytes the registry served; the patch is the trusted
+boot OS's own, confined to that one file) and is the same mechanism §12's
+per-machine configuration uses later. The started system's `netboot-ack`
+posts `booted` with the HMAC and the key never leaves the two `lazyos.cfg`
+files, both in RAM or on the ESP. Evidence: `PICKER:UP`, `PICKER:LINK:<if>:<addr>`,
 `PICKER:LIST:<n>`, `PICKER:FETCH:<id>:<bytes>:<ms>`, `PICKER:VERIFY:PASS|FAIL`,
 `PICKER:KEXEC:<id>|local`. With no link within a bounded wait (association
 plus DHCP, tens of seconds at most) or no registry, it says so and counts
@@ -656,10 +666,11 @@ markers, the registry's own record, and pixels.
   can carry more than one public key (a CI release key beside the dev key),
   and the ESP's own files can be verified by a loader patch once the update
   plan's shim exists; until then the ESP is trusted as the disk is.
-- **Per-machine configuration**: the picker holds the ramdisk in RAM and its
-  1 MiB FAT part is at a fixed offset, so `machines.json` lines
-  (`home=UUID=`, `display.max`, `limit.*`, `diag.hold`) can be written into
-  `lazyos.cfg` before the kexec, and one build boots many machines.
+- **Per-machine configuration**: the picker already writes the three
+  `netboot.*` lines into the downloaded ramdisk's `lazyos.cfg` before the
+  kexec (§8.3); `machines.json` lines (`home=UUID=`, `display.max`,
+  `limit.*`, `diag.hold`) ride the same path, and one build boots many
+  machines.
 - **The boot OS as the A/B shim.** With the update plan's control block the
   picker shows the two installed slots beside the registry's builds and
   kexecs a slot's kernel from its ext2 volume; U2's forked UEFI stage then
