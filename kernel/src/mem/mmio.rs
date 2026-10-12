@@ -200,6 +200,7 @@ pub fn map_kernel(phys: u64, len: u64) -> Result<u64, &'static str> {
 
 /// [`map_kernel`] for a window that is only ever read (`dev::peek`): the
 /// pages are not writable, so a bug cannot store through them.
+#[cfg(lazyos_dbgd)]
 pub fn map_kernel_read_only(phys: u64, len: u64) -> Result<u64, &'static str> {
     map_kernel_with(phys, len, false)
 }
