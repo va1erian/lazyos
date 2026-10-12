@@ -7,6 +7,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+pub mod driver;
+
 use xui_core::Ui;
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::Rect;
@@ -15,10 +17,35 @@ use xui_paint::{Msg, PaintApp};
 /// The placed widget rectangles, in device pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Areas {
+    /// The tool grid on the left.
     pub toolbar: Rect,
+    /// The canvas.
     pub canvas: Rect,
+    /// The Colors panel on the right.
     pub palette: Rect,
+    /// The status bar.
     pub status: Rect,
+    /// The menu bar.
+    pub menu: Rect,
+}
+
+impl Areas {
+    /// Window coordinates of picture pixel `(x, y)` of the default 320 x 240
+    /// picture (see [`Areas::pixel`]): the picture is centred where it fits.
+    pub fn canvas_at(&self, x: i32, y: i32) -> (i32, i32) {
+        self.pixel(x, y)
+    }
+}
+
+impl Areas {
+    /// The centre of palette swatch `index` at 96 dpi: 8 to a row under the
+    /// 60 px swatch header, 8 px padding, 18 px cells.
+    pub fn swatch(&self, index: i32) -> (i32, i32) {
+        (
+            self.palette.left + 8 + (index % 8) * 18 + 9,
+            self.palette.top + 60 + (index / 8) * 18 + 9,
+        )
+    }
 }
 
 impl Areas {
@@ -40,7 +67,7 @@ impl Areas {
 
 /// The widget identities of a built app, shared with a test's step closure.
 #[derive(Clone, Default)]
-pub struct Widgets(Rc<Cell<Option<[WidgetId; 4]>>>);
+pub struct Widgets(Rc<Cell<Option<[WidgetId; 5]>>>);
 
 impl Widgets {
     /// Remembers the widgets of `app` and passes it through.
@@ -51,6 +78,7 @@ impl Widgets {
                 app.canvas().id(),
                 app.palette().id(),
                 app.status().id(),
+                app.menu().id().expect("the menu bar has a node"),
             ]));
         }
         app
@@ -58,12 +86,13 @@ impl Widgets {
 
     /// Where the layout placed each widget.
     pub fn areas(&self, ui: &Ui<Msg>) -> Areas {
-        let [toolbar, canvas, palette, status] = self.0.get().expect("the app was built");
+        let [toolbar, canvas, palette, status, menu] = self.0.get().expect("the app was built");
         Areas {
             toolbar: ui.bounds(toolbar),
             canvas: ui.bounds(canvas),
             palette: ui.bounds(palette),
             status: ui.bounds(status),
+            menu: ui.bounds(menu),
         }
     }
 }

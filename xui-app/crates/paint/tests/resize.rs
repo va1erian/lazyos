@@ -22,6 +22,7 @@ struct Probe {
     ui: Ui<xui_paint::Msg>,
     backend: Rc<TestBackend>,
     observer: Rc<RefCell<Observer>>,
+    menu: WidgetId,
     canvas: WidgetId,
     toolbar: WidgetId,
     palette: WidgetId,
@@ -76,6 +77,7 @@ fn resized(
                 ui: ui.clone(),
                 backend: Rc::clone(&backend),
                 observer,
+                menu: app.menu().id().expect("the menu bar has a node"),
                 canvas: app.canvas().id(),
                 toolbar: app.toolbar().id(),
                 palette: app.palette().id(),
@@ -88,23 +90,38 @@ fn resized(
     .expect("the resize session ran");
 }
 
-/// Asserts the widget stack re-flowed to `width` x `height`.
+/// Asserts the widgets re-flowed to `width` x `height`: the menu bar on top and
+/// the status bar at the bottom spanning the window, the tool grid, canvas and
+/// Colors panel side by side between them.
 fn assert_reflowed(probe: &Probe, width: i32, height: i32) {
+    let menu = probe.ui.bounds(probe.menu);
     let toolbar = probe.ui.bounds(probe.toolbar);
     let canvas = probe.ui.bounds(probe.canvas);
     let palette = probe.ui.bounds(probe.palette);
     let status = probe.ui.bounds(probe.status);
-    assert_eq!(toolbar.width(), width, "the toolbar spans the new width");
-    assert_eq!(canvas.width(), width, "the canvas spans the new width");
-    assert_eq!(palette.width(), width, "the palette spans the new width");
+    assert_eq!(menu.width(), width, "the menu bar spans the new width");
     assert_eq!(status.width(), width, "the status bar spans the new width");
     assert_eq!(
         status.bottom, height,
         "the status bar sits at the new bottom"
     );
+    assert_eq!(toolbar.left, 0, "the tool grid stays at the left edge");
+    assert_eq!(
+        palette.right, width,
+        "the Colors panel stays at the right edge"
+    );
     assert!(
-        toolbar.bottom <= canvas.top && canvas.bottom <= palette.top,
-        "the stack stays ordered: {toolbar:?} {canvas:?} {palette:?}"
+        toolbar.right <= canvas.left && canvas.right <= palette.left,
+        "the row stays ordered: {toolbar:?} {canvas:?} {palette:?}"
+    );
+    assert_eq!(
+        canvas.width(),
+        width - toolbar.width() - palette.width(),
+        "the canvas takes what the side panels leave"
+    );
+    assert!(
+        menu.bottom <= toolbar.top && canvas.bottom <= status.top && palette.bottom <= status.top,
+        "the bars bracket the work area"
     );
     assert_eq!(probe.bitmap(), "320 x 240", "the document is unchanged");
 }
@@ -127,6 +144,8 @@ fn the_minimum_window_still_reflows_and_clamps() {
             let toolbar = probe.ui.bounds(probe.toolbar);
             let status = probe.ui.bounds(probe.status);
             assert!(toolbar.top <= toolbar.bottom && status.top <= status.bottom);
+            let canvas = probe.ui.bounds(probe.canvas);
+            assert!(canvas.width() > 0, "some canvas is left: {canvas:?}");
         },
     );
 }
@@ -164,22 +183,23 @@ fn a_resize_keeps_the_drawing_and_the_undo_history() {
             // The 320 x 240 picture is centred where it fits the canvas.
             let mut viewport = xui_paint::viewport::Viewport::new();
             viewport.clamp((320, 240), (canvas.width(), canvas.height()));
-            let (ox, oy) = viewport.to_view(0, 0);
-            let y = canvas.top + oy + 40;
+            let (ox, oy) = viewport.to_view(30, 40);
+            let y = canvas.top + oy;
             let down = |x, y| Event::MouseDown {
                 x,
                 y,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,
             };
-            probe.pointer(down(canvas.left + ox + 100, y));
+            let x = canvas.left + ox;
+            probe.pointer(down(x, y));
             probe.pointer(Event::MouseMove {
-                x: canvas.left + ox + 200,
+                x: x + 100,
                 y: y + 30,
                 modifiers: Modifiers::NONE,
             });
             probe.pointer(Event::MouseUp {
-                x: canvas.left + ox + 200,
+                x: x + 100,
                 y: y + 30,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,

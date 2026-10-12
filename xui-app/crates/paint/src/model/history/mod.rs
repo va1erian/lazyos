@@ -11,8 +11,8 @@ mod capture;
 mod edit;
 
 pub use capture::UndoCapture;
-pub use edit::{Edit, LayerCommand};
 pub(crate) use edit::follow;
+pub use edit::{Edit, LayerCommand};
 
 use super::damage::Damage;
 use super::image::Document;

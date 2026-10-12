@@ -1,35 +1,21 @@
 #![forbid(unsafe_code)]
 
-//! The tool-strip glyphs.
+//! The tool-grid glyphs.
 //!
 //! xui gap: G7 — the vendored Lucide set has no brush, eraser, fill, dropper,
-//! line or ellipse, so these six are drawn by hand.
-//!
-//! xui's vendored Lucide set has no paint tools, so the shape tools are drawn
-//! here from canvas primitives; the actions reuse Lucide where an outline
-//! exists (`Undo2`, `Redo2`, `Trash2`, `FilePlus`, `Save`, `FolderOpen`).
+//! line or ellipse, so those are drawn by hand; the pencil, rectangle and picker
+//! reuse Lucide outlines.
 
 use xui_core::Color;
 use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
 use xui_core::icon::{Lucide, draw_icon};
 
-use super::StripItem;
 use crate::model::Tool;
 
-/// Draws the glyph for one strip item centred in `rect`.
-pub(crate) fn draw(canvas: &mut dyn Canvas, item: StripItem, rect: Rect, color: Color, dpi: u32) {
-    match item {
-        StripItem::Tool(tool) => draw_tool(canvas, tool, rect, color, dpi),
-        StripItem::Size(size) => draw_size(canvas, size, rect, color, dpi),
-        StripItem::Undo => draw_icon(canvas, Lucide::Undo2, rect, color, dpi),
-        StripItem::Redo => draw_icon(canvas, Lucide::Redo2, rect, color, dpi),
-        StripItem::Clear => draw_icon(canvas, Lucide::Trash2, rect, color, dpi),
-        StripItem::New => draw_icon(canvas, Lucide::FilePlus, rect, color, dpi),
-        StripItem::Save => draw_icon(canvas, Lucide::Save, rect, color, dpi),
-        StripItem::Open => draw_icon(canvas, Lucide::FolderOpen, rect, color, dpi),
-        StripItem::Resize => draw_resize(canvas, rect, color, dpi),
-    }
+/// Draws the glyph for `tool` centred in `rect`.
+pub(crate) fn draw(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi: u32) {
+    draw_tool(canvas, tool, rect, color, dpi);
 }
 
 /// Insets a cell into its icon box, keeping at least a 4px square.
@@ -119,47 +105,6 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
             );
         }
     }
-}
-
-/// Draws the resize glyph (Lucide has none): a frame with a handle square in
-/// its bottom-right corner and a diagonal towards it.
-fn draw_resize(canvas: &mut dyn Canvas, rect: Rect, color: Color, dpi: u32) {
-    let frame = inset(rect, 6);
-    let stroke = (1.5 * dpi as f32 / 96.0).max(1.0);
-    canvas.stroke_rect(frame, color, stroke);
-    let handle = (frame.width() / 3).max(2);
-    canvas.fill_rect(
-        Rect::new(
-            frame.right - handle,
-            frame.bottom - handle,
-            frame.right,
-            frame.bottom,
-        ),
-        color,
-    );
-    canvas.draw_line(
-        Point::new(
-            frame.left + frame.width() / 4,
-            frame.top + frame.height() / 4,
-        ),
-        Point::new(frame.right - handle, frame.bottom - handle),
-        color,
-        stroke,
-    );
-}
-
-/// Draws a size swatch: the dot the brush would paint.
-fn draw_size(canvas: &mut dyn Canvas, size: u32, rect: Rect, color: Color, dpi: u32) {
-    let box_rect = inset(rect, 4);
-    let largest = crate::model::SIZES[crate::model::SIZES.len() - 1].max(1) as f32;
-    let scale = (box_rect.width().min(box_rect.height()) as f32 / largest).max(1.0);
-    let radius = (size as f32 * scale / 2.0).clamp(1.0, box_rect.width() as f32 / 2.0);
-    let center = Point::new(
-        (box_rect.left + box_rect.right) / 2,
-        (box_rect.top + box_rect.bottom) / 2,
-    );
-    canvas.fill_ellipse(center, radius, radius, color);
-    let _ = dpi;
 }
 
 #[cfg(test)]

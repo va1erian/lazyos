@@ -54,14 +54,24 @@ fn paint_first(dst: &mut [u8], src: &[u8], opacity: u8) {
         dst.copy_from_slice(src);
         return;
     }
-    for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src.as_chunks::<4>().0) {
+    for (d, s) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.as_chunks::<4>().0)
+    {
         *d = source_over([0, 0, 0, 0], *s, opacity);
     }
 }
 
 /// Composites a layer row over `dst`, skipping what cannot change it.
 fn paint_over(dst: &mut [u8], src: &[u8], opacity: u8) {
-    for (d, s) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src.as_chunks::<4>().0) {
+    for (d, s) in dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.as_chunks::<4>().0)
+    {
         if s[3] != 0 {
             *d = source_over(*d, *s, opacity);
         }

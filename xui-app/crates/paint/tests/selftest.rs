@@ -37,15 +37,17 @@ fn a_headless_doodle_renders_and_the_themes_differ() {
                     button,
                     modifiers: Modifiers::NONE,
                 };
-                stage.inject(at(60, 100, MouseButton::Left));
+                // The canvas starts below the menu and options bars and right of
+                // the tool grid (72 x 66 px at 96 dpi); draw inside its corner.
+                stage.inject(at(82, 96, MouseButton::Left));
                 stage.inject(Event::MouseMove {
-                    x: 120,
-                    y: 140,
+                    x: 142,
+                    y: 136,
                     modifiers: Modifiers::NONE,
                 });
                 stage.inject(Event::MouseUp {
-                    x: 120,
-                    y: 140,
+                    x: 142,
+                    y: 136,
                     button: MouseButton::Left,
                     modifiers: Modifiers::NONE,
                 });
@@ -55,8 +57,8 @@ fn a_headless_doodle_renders_and_the_themes_differ() {
     };
     let light = doodle(Theme::light());
     let dark = doodle(Theme::dark());
-    let drew = (90..110).any(|x| {
-        (110..130)
+    let drew = (100..125).any(|x| {
+        (105..128)
             .any(|y| matches!(light.pixel(x, y), Some([r, g, b, _]) if r < 80 && g < 80 && b < 80))
     });
     assert!(drew, "the doodle left no dark pixels");

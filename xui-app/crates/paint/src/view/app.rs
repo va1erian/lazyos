@@ -2,43 +2,64 @@
 
 //! The application: widget construction and the `Msg` -> model glue.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
-use xui_core::widget::{FileSystem, StatusBar};
+use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
 use super::canvas::CanvasMsg;
+use super::coloredit::ColorEditor;
 use super::layout::{self, Observer};
+use super::menu::{self, Enabled};
+use super::options::{Options, step_size};
 use super::palette::Palette;
+use super::shortcuts::{shortcut, tool_hint};
 use super::toolbar::ToolStrip;
 use super::{Msg, PaintCanvas};
-use crate::model::{Model, Side};
+use crate::model::{Model, Pixel, Side, Tool};
 use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
+mod colors;
 mod dialogs;
 mod files;
+mod probe;
 
-use dialogs::{FileDialogs, ResizePrompt};
+use dialogs::{AboutBox, FileDialogs, ResizePrompt};
 
 /// The paint application.
 pub struct PaintApp {
     model: Model,
+    menu: Rc<Menu<Msg>>,
+    options: Options,
     canvas: Rc<PaintCanvas>,
     toolbar: Rc<ToolStrip>,
     palette: Rc<Palette>,
+    editor: ColorEditor,
     status: Rc<StatusBar<Msg>>,
     storage: Rc<dyn Storage>,
     observer: Rc<RefCell<Observer>>,
     cursor: Option<(i32, i32)>,
     message: Option<String>,
+    /// Whether the pixel grid is on (View > Pixel Grid).
+    grid: bool,
+    /// The tool under the pointer in the tool grid, named in the status bar.
+    hint: Option<Tool>,
+    /// The colour being edited and the value it had when the edit began.
+    editing: Option<(Side, Pixel)>,
+    /// Whether a dialog, the editor or a menu has the keyboard; the window's key
+    /// hook reads it so shortcuts stay out of their way.
+    modal: Rc<Cell<bool>>,
     /// The Open/Save As pickers; `None` keeps the path-less Save/Open.
     files: Option<FileDialogs>,
     resize: ResizePrompt,
+    about: AboutBox,
+    /// Where [`Msg::Probe`] reports the named controls, if a host asked.
+    probe: Option<probe::Hook>,
     /// The file the document was last opened from or saved to.
     current_path: Option<PathBuf>,
     /// The last window title set, so an unchanged one is not re-sent.
@@ -97,31 +118,71 @@ impl PaintApp {
         fs: Option<Rc<dyn FileSystem>>,
     ) -> Result<PaintApp> {
         let files = fs.map(|fs| FileDialogs::new(ui, fs)).transpose()?;
-        let io = storage.available() || files.is_some();
         let layout::Widgets {
+            menu,
+            options,
             canvas,
             toolbar,
             palette,
+            editor,
             status,
-        } = layout::mount(ui, io)?;
+        } = layout::mount(ui)?;
+        let modal = Rc::new(Cell::new(false));
+        {
+            let modal = Rc::clone(&modal);
+            // Weak: the menu holds the window, and the window holds this hook.
+            let menu = Rc::downgrade(&menu);
+            ui.on_key(move |key, modifiers| {
+                let menu_open = menu.upgrade().is_some_and(|menu| menu.is_open());
+                shortcut(key, modifiers, modal.get() || menu_open)
+            });
+        }
 
         let mut app = PaintApp {
             model: Model::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            menu,
+            options,
             canvas,
             toolbar,
             palette,
+            editor,
             status,
             storage,
             observer,
             cursor: None,
             message: None,
+            grid: false,
+            hint: None,
+            editing: None,
+            modal,
             files,
             resize: ResizePrompt::default(),
+            about: AboutBox::default(),
+            probe: None,
             current_path: None,
             title: String::new(),
         };
-        app.sync();
+        // Rows of unbuilt features start disabled; the live ones follow the model.
+        menu::init(&app.menu, app.enabled());
+        // Shortcuts reach the app through the focused widget's key events on some
+        // backends, so the canvas has the keyboard from the start.
+        ui.focus(app.canvas.id());
+        app.sync(ui);
         Ok(app)
+    }
+
+    /// Whether Open and Save have something behind them.
+    fn io(&self) -> bool {
+        self.storage.available() || self.files.is_some()
+    }
+
+    /// What the menu's live rows depend on.
+    fn enabled(&self) -> Enabled {
+        Enabled {
+            can_undo: self.model.history().can_undo(),
+            can_redo: self.model.history().can_redo(),
+            io: self.io(),
+        }
     }
 
     /// The drawing model.
@@ -134,9 +195,19 @@ impl PaintApp {
         &self.canvas
     }
 
-    /// The tool strip.
+    /// The tool grid.
     pub fn toolbar(&self) -> &ToolStrip {
         &self.toolbar
+    }
+
+    /// The colour editor's panel (it is hidden until a swatch is clicked).
+    pub fn color_panel(&self) -> Rc<ColorPanel<Msg>> {
+        self.editor.panel()
+    }
+
+    /// The menu bar.
+    pub fn menu(&self) -> Rc<Menu<Msg>> {
+        Rc::clone(&self.menu)
     }
 
     /// The palette.
@@ -154,13 +225,16 @@ impl PaintApp {
         self.message.as_deref()
     }
 
-    /// Rebuilds the painter state, toolbar and status bar from the model.
-    fn sync(&mut self) {
+    /// Rebuilds the painter state, tool grid, menu, options bar and status bar
+    /// from the model.
+    fn sync(&mut self, ui: &Ui<Msg>) {
         self.canvas.sync(&self.model);
-        let io = self.storage.available() || self.files.is_some();
-        self.toolbar.sync(&self.model, io);
+        self.toolbar.sync(&self.model);
         self.palette
             .sync(self.model.primary(), self.model.secondary());
+        self.options.sync(ui, &self.model);
+        menu::sync(&self.menu, self.enabled());
+        self.modal.set(self.modal_open(ui));
         self.refresh_status();
     }
 
@@ -173,7 +247,12 @@ impl PaintApp {
         let (width, height) = self.model.document().size();
         let size = format!("{width} x {height}");
         let tool = self.model.tool().label().to_string();
-        let message = self.message.clone().unwrap_or_default();
+        // A hovered tool names itself over the last message while the pointer is
+        // on the grid.
+        let message = match self.hint {
+            Some(tool) => tool_hint(tool),
+            None => self.message.clone().unwrap_or_default(),
+        };
         self.status.set_text(0, &position);
         self.status.set_text(1, &size);
         self.status.set_text(2, &tool);
@@ -192,6 +271,7 @@ impl PaintApp {
         observer.cursor = self.cursor;
         observer.dragging = self.model.is_dragging();
         observer.zoom_percent = zoom_percent;
+        observer.editing = self.editing.map(|(side, _)| side);
         observer.status = [position, size, tool, message, zoom];
     }
 
@@ -249,11 +329,41 @@ impl PaintApp {
     }
 }
 
+impl PaintApp {
+    /// Selects `tool`. (`update` has already ended a stroke in progress, so a
+    /// key pressed mid-stroke cannot leave pixels the history never saw.)
+    fn select_tool(&mut self, tool: Tool) {
+        self.model.set_tool(tool);
+    }
+
+    /// Runs a command: the View menu's zoom and grid act on the canvas; every
+    /// other one is a feature a later phase builds and only says so.
+    fn run_command(&mut self, command: super::Command) {
+        use super::Command;
+        match command {
+            Command::ZoomIn => self.canvas.zoom_in(),
+            Command::ZoomOut => self.canvas.zoom_out(),
+            Command::ZoomToWindow => self.canvas.zoom_fit(),
+            Command::ActualSize => self.canvas.actual_size(),
+            Command::PixelGrid => {
+                self.grid = !self.grid;
+                self.canvas.set_grid(self.grid);
+                let state = if self.grid { "on" } else { "off" };
+                self.message = Some(format!("Pixel grid {state}"));
+            }
+            other => {
+                self.message = Some(format!("{} is not available yet", other.label()));
+            }
+        }
+    }
+}
+
 impl App for PaintApp {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
-        // A dialog is modal: only its own results and a focus-loss cancel pass.
+        // A dialog (or the colour editor) is modal: only its own results and a
+        // focus-loss cancel pass.
         let passes = matches!(
             msg,
             Msg::OpenChosen
@@ -261,33 +371,66 @@ impl App for PaintApp {
                 | Msg::ResizeChosen
                 | Msg::DialogClosed
                 | Msg::OpenStartup
+                | Msg::ColorEditing(_)
+                | Msg::ColorDone
+                | Msg::ColorCancel
+                | Msg::Probe
                 | Msg::Canvas(CanvasMsg::Cancel)
         );
-        if !passes && self.modal_open() {
+        if !passes && self.modal_open(ui) {
             return;
         }
+        // Anything but canvas input ends a stroke in progress.
+        if !matches!(msg, Msg::Canvas(_)) && self.model.is_dragging() {
+            self.model.end();
+        }
         match msg {
-            Msg::Tool(tool) => self.model.set_tool(tool),
+            Msg::Tool(tool) => self.select_tool(tool),
+            Msg::CycleTool(group) => self.select_tool(group.next(self.model.tool())),
             Msg::Size(size) => self.model.set_size(size),
+            Msg::SizeStep(steps) => self.model.set_size(step_size(self.model.size(), steps)),
             Msg::Palette { color, side } => match side {
                 Side::Primary => self.model.set_primary(color),
                 Side::Secondary => self.model.set_secondary(color),
             },
             Msg::SwapColors => self.model.swap_colors(),
-            Msg::Undo => self.model.undo(),
-            Msg::Redo => self.model.redo(),
+            Msg::ResetColors => self.reset_colors(),
+            Msg::HintTool(tool) => self.hint = tool,
+            Msg::EditColor(side) => self.edit_color(ui, side),
+            Msg::ColorEditing(color) => self.color_editing(color),
+            Msg::ColorDone => self.close_editor(ui, true),
+            Msg::ColorCancel => self.close_editor(ui, false),
+            Msg::Undo => {
+                // The menu cannot relabel a row ("Undo Paintbrush"), so the
+                // status bar names what was undone.
+                let name = self.model.history().undo_name().map(str::to_owned);
+                self.model.undo();
+                self.message = name.map(|name| format!("Undid {name}"));
+            }
+            Msg::Redo => {
+                let name = self.model.history().redo_name().map(str::to_owned);
+                self.model.redo();
+                self.message = name.map(|name| format!("Redid {name}"));
+            }
             Msg::Clear => self.model.clear(),
-            Msg::New => {
-                match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
-                    Ok(()) => {
-                        self.cursor = None;
-                        self.current_path = None;
-                    }
-                    Err(error) => self.message = Some(format!("New failed: {error}")),
+            Msg::New => match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
+                Ok(()) => {
+                    self.cursor = None;
+                    self.current_path = None;
+                }
+                Err(error) => self.message = Some(format!("New failed: {error}")),
+            },
+            Msg::Save => self.save_requested(),
+            Msg::SaveAs => self.save_as_requested(),
+            Msg::Open => self.open_requested(),
+            Msg::Quit => ui.quit(),
+            Msg::About => {
+                if let Err(error) = self.about.show(ui) {
+                    self.message = Some(format!("About failed: {error}"));
                 }
             }
-            Msg::Save => self.save_requested(),
-            Msg::Open => self.open_requested(),
+            Msg::Command(command) => self.run_command(command),
+            Msg::Probe => self.probe(ui),
             Msg::OpenStartup => self.open_startup(),
             Msg::OpenChosen => self.open_chosen(ui),
             Msg::SaveChosen => self.save_chosen(ui),
@@ -302,10 +445,14 @@ impl App for PaintApp {
                 if self.model.is_dragging() {
                     self.model.end();
                 }
+                self.hint = None;
                 self.cursor = Some((x, y));
                 self.model.begin(x, y, side);
             }
             Msg::Canvas(CanvasMsg::Move { x, y }) => {
+                // The pointer is on the canvas, so it is no longer on the grid
+                // (a backend need not send the grid a leave).
+                self.hint = None;
                 self.cursor = Some((x, y));
                 self.model.extend(x, y);
             }
@@ -322,10 +469,11 @@ impl App for PaintApp {
             // the zoom part of the status bar.
             Msg::Canvas(CanvasMsg::View) => {}
         }
-        self.sync();
+        self.sync(ui);
         if self.files.is_some() && self.title != self.title() {
             self.title = self.title();
             ui.set_window_title(&self.title);
+            self.probe(ui);
         }
     }
 }

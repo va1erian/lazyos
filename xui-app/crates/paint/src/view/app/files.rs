@@ -35,9 +35,12 @@ fn with_png_extension(path: PathBuf) -> PathBuf {
 }
 
 impl PaintApp {
-    /// Whether any modal dialog is showing.
-    pub(super) fn modal_open(&self) -> bool {
-        self.resize.is_open() || self.files.as_ref().is_some_and(|files| files.is_open())
+    /// Whether a modal dialog or the colour editor has the window.
+    pub(super) fn modal_open(&self, ui: &Ui<Msg>) -> bool {
+        self.resize.is_open()
+            || self.about.is_open()
+            || self.editor.is_open(ui)
+            || self.files.as_ref().is_some_and(|files| files.is_open())
     }
 
     /// The window title for the current document.
@@ -71,8 +74,12 @@ impl PaintApp {
         }
     }
 
-    fn save_as_requested(&mut self) {
-        let Some(files) = &self.files else { return };
+    /// Save As: always the picker (a plain Save when none is wired).
+    pub(super) fn save_as_requested(&mut self) {
+        let Some(files) = &self.files else {
+            self.save();
+            return;
+        };
         let name = self
             .current_path
             .as_deref()

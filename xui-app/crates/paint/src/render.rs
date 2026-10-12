@@ -70,13 +70,24 @@ pub struct ScreenImage {
 
 /// Builds the image of `flat` as seen through `viewport` in a `view`-sized
 /// window, or `None` when nothing of the picture is visible.
-pub fn render(flat: &Bitmap, viewport: &Viewport, view: (i32, i32), grid: bool) -> Option<ScreenImage> {
+pub fn render(
+    flat: &Bitmap,
+    viewport: &Viewport,
+    view: (i32, i32),
+    grid: bool,
+) -> Option<ScreenImage> {
     let (content_w, content_h) = viewport.content_size(flat.size());
     let (ox, oy) = viewport.origin();
     // A negative origin is the margin a centred picture leaves.
     let (off_x, off_y) = (ox.min(0).saturating_neg(), oy.min(0).saturating_neg());
-    let width = view.0.saturating_sub(off_x).min(content_w.saturating_sub(ox.max(0)));
-    let height = view.1.saturating_sub(off_y).min(content_h.saturating_sub(oy.max(0)));
+    let width = view
+        .0
+        .saturating_sub(off_x)
+        .min(content_w.saturating_sub(ox.max(0)));
+    let height = view
+        .1
+        .saturating_sub(off_y)
+        .min(content_h.saturating_sub(oy.max(0)));
     if width <= 0 || height <= 0 {
         return None;
     }
@@ -86,8 +97,12 @@ pub fn render(flat: &Bitmap, viewport: &Viewport, view: (i32, i32), grid: bool) 
         .map(|x| viewport.to_doc(x + off_x, 0).0.clamp(0, last.0))
         .collect();
     let show_grid = grid && viewport.zoom() >= GRID_ZOOM;
-    let edge_x = |x: i32| show_grid && viewport.to_doc(x + off_x - 1, 0).0 != viewport.to_doc(x + off_x, 0).0;
-    let edge_y = |y: i32| show_grid && viewport.to_doc(0, y + off_y - 1).1 != viewport.to_doc(0, y + off_y).1;
+    let edge_x = |x: i32| {
+        show_grid && viewport.to_doc(x + off_x - 1, 0).0 != viewport.to_doc(x + off_x, 0).0
+    };
+    let edge_y = |y: i32| {
+        show_grid && viewport.to_doc(0, y + off_y - 1).1 != viewport.to_doc(0, y + off_y).1
+    };
     let col_edges: Vec<bool> = (0..width).map(edge_x).collect();
 
     let mut rgba = vec![0u8; width as usize * height as usize * 4];

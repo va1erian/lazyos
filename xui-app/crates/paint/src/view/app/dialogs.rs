@@ -135,3 +135,30 @@ impl ResizePrompt {
         self.text.borrow_mut().take()
     }
 }
+
+/// The About box: one message dialog, built when first shown.
+#[derive(Default)]
+pub(super) struct AboutBox {
+    dialog: Option<Dialog<Msg>>,
+}
+
+impl AboutBox {
+    pub(super) fn is_open(&self) -> bool {
+        self.dialog.as_ref().is_some_and(Dialog::is_open)
+    }
+
+    pub(super) fn show(&mut self, ui: &Ui<Msg>) -> Result<()> {
+        let dialog = match self.dialog.take() {
+            Some(dialog) => dialog,
+            None => Dialog::message(
+                ui,
+                "About Paint",
+                "Paint, an image editor for LazyOS, built on xui.",
+            )?
+            .on_action(|_| Some(Msg::DialogClosed)),
+        };
+        dialog.open();
+        self.dialog = Some(dialog);
+        Ok(())
+    }
+}

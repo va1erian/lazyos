@@ -2,18 +2,58 @@
 
 A minimal MS-Paint-style doodler built on [xui](../xui-core), designed to be the
 test vehicle for xui on a toy OS: it needs `std` and little else, has no
-threads, timers, network, process or filesystem dependency, and every action is
-reachable with the mouse alone.
+threads, network, process or filesystem dependency. It is growing into an image
+editor modelled on Paint.NET ([`docs/paint-plan.md`](../../../docs/paint-plan.md));
+this is the P1 state: menu bar, keyboard shortcuts and the panel layout.
 
 | | |
 |---|---|
 | Canvas | white, 320x240 by default, sides up to 16384 within a 512 MiB budget (layers + cache + undo), zoom 1/16x-32x (Ctrl+wheel), pixel grid from 800% |
-| Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker |
-| Sizes | 1, 2, 4, 8, 16 px |
-| Colours | 16 fixed swatches; left picks primary, right picks secondary |
-| History | delta undo/redo (rectangle of the touched layer, 64 MiB cap), Clear, New |
-| Status bar | cursor position, canvas size, active tool, last save/load message |
+| Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker (tool grid, left) |
+| Sizes | 1, 2, 4, 8, 16 px (options bar, for the tools that use one; `[` and `]`) |
+| Colours | 32 swatches; left picks primary, right picks secondary; click a swatch of the pair to edit it |
+| Menus | File, Edit, View, Image, Layers, Adjustments, Help; rows of unbuilt features are disabled |
+| History | delta undo/redo (rectangle of the touched layer, 64 MiB cap), Clear Image, New |
+| Status bar | cursor position, canvas size, active tool, last message (or the hovered tool), zoom |
 | Persistence | optional `Storage`; `MemoryStorage` by default, `FsStorage` behind `--features fs` |
+
+```text
++--------------------------------------------------------+
+| File Edit View Image Layers Adjustments Help           |  menu bar
+| Brush    Size: [8 px]                                  |  tool options bar
++----+----------------------------------+----------------+
+|tool|                                  | primary/second |
+|grid|   canvas (or the colour editor)  | swap, reset    |
+| x2 |                                  | 32 swatches    |
++----+----------------------------------+----------------+
+| 100, 40 | 320 x 240 | Brush | message                  |  status bar
++--------------------------------------------------------+
+```
+
+### Keys
+
+Paint.NET's keys, from one table (`view/shortcuts.rs`, `BINDINGS`; the menus
+print the same chords). Nothing is taken while a dialog, the colour editor or a
+menu is open.
+
+| Keys | Action |
+|---|---|
+| Ctrl+N / O / S, Ctrl+Shift+S, Ctrl+Q | New, Open, Save, Save As, Quit |
+| Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) | Undo, Redo |
+| Ctrl+Shift+R | Canvas Size (the resize prompt) |
+| P, B, E, F, K | Pencil, Brush, Eraser, Fill (bucket), Color Picker |
+| O (repeat to cycle) | Line, Rectangle, Ellipse |
+| `[`  `]` | Brush size down, up |
+| X, D | Swap, reset the primary and secondary colours |
+| S, M, Z, H, G, T | Select, Move, Zoom, Pan, Gradient, Text: not built yet |
+| Ctrl+X/C/V, Ctrl+Shift+C/V, Ctrl+Alt+V, Del, Backspace, Ctrl+I/A/D | Edit menu (selections, clipboard): not built yet |
+| Ctrl++ / Ctrl+- / Ctrl+B / Ctrl+0 | Zoom in, out, to window, actual size (View menu; Pixel Grid toggles the grid drawn from 800%) |
+| Ctrl+R, Ctrl+Shift+X/F, Ctrl+Shift+N/D, Ctrl+M, F4, Ctrl+Shift+I/G/E | Image, Layers and Adjustments commands: not built yet |
+
+A key for a feature that does not exist yet (`view::Command`, whose
+`available()` is false) only says so in the status bar, and its menu row is
+disabled. A later phase implements it by flipping `available` and adding an arm
+in `PaintApp::update`; the menu and the key table need no change.
 
 ## Running
 
@@ -42,12 +82,20 @@ crates/xui-paint/src/
     history/          Edit deltas and the byte-capped History
     document.rs       Model: fields and accessors
     document/edit.rs  Model actions (begin/extend/end, fill, pick, undo/redo)
-  view/               xui glue: PaintApp, canvas, tool strip, palette, status
-    app.rs            Msg -> model glue, layout and status bar wiring
-    layout.rs         the four rectangles and the Observer mirror
+  view/               xui glue: PaintApp, menu, shortcuts, panels, canvas
+    app.rs            Msg -> model glue and status bar wiring
+    app/              dialogs.rs (pickers, resize, About), files.rs, colors.rs
+                      (colour editor flow), probe.rs (UI probe hook)
+    layout.rs         the window layout (menu, options, grid, canvas, Colors,
+                      status) and the Observer mirror
+    menu.rs           the seven menus as one table; ids, enabling
+    shortcuts.rs      the key table and the pure `shortcut` function
+    command.rs        commands of features a later phase builds (disabled)
+    options.rs        the tool options bar (tool name, brush size)
     canvas.rs         custom canvas node; canvas/paint.rs draws it
-    toolbar.rs        custom tool strip; toolbar/paint.rs draws it
-    palette.rs        custom palette
+    toolbar.rs        custom tool grid (two columns); toolbar/paint.rs draws it
+    palette.rs        the Colors panel: swatch pair, swap/reset, 32 colours
+    coloredit.rs      the colour editor (xui ColorPanel) over the canvas
     icons.rs          hand-drawn paint-tool glyphs
   viewport.rs         zoom and scroll arithmetic (pure)
   render.rs           flattened cache and the nearest-neighbour screen image (pure)
@@ -83,7 +131,7 @@ things an app normally gets from xui:
    # }
    ```
 
-   `main.rs` uses `xui_canvas::WinitBackend`; a toy OS supplies its own. The
+   The LazyOS binary (`xui-app/src/bin/paint.rs`) supplies the backend; a toy OS supplies its own. The
    smallest native backend must implement window/event pumping, node
    create/move/show/clip, `set_painter` plus a `Canvas`, `measure_text`/
    `text_shaper`, `dpi`/`client_rect`, `invalidate`, `set_capture` and
@@ -93,9 +141,10 @@ things an app normally gets from xui:
 
 2. **Optionally, a `Storage`.** `MemoryStorage` needs nothing; `FsStorage`
    (feature `fs`) writes one configured path and refuses symlinks. A host may
-   implement the trait over whatever file API it has. Save/Open cells are only
-   shown when `Storage::available()` is true, and a failed save/load is reported
-   in the status bar and never panics.
+   implement the trait over whatever file API it has. The File menu's Open, Save
+   and Save As rows are enabled only when `Storage::available()` is true (or file
+   dialogs are wired), and a failed save/load is reported in the status bar and
+   never panics.
 
 **File dialogs.** `PaintApp::build_with_files(ui, storage, fs)` (or
 `build_with_files_observed`) wires the xui `FileDialog` for Open and Save As over
@@ -108,15 +157,24 @@ loads the storage's own `default_path()` with no dialog. `set_start_dir` picks
 the pickers' starting directory. Plain `build`/`build_observed` keep the
 path-less behaviour.
 
-**Resize.** The last strip cell opens a prompt pre-filled with the current
-`WxH` (also `W,H` / `W x H`); `Model::resize` keeps the pixels top-left, pads
-white, is one undo step and rejects sides outside `1..=1024`.
+**Resize.** Image > Canvas Size... (Ctrl+Shift+R) opens a prompt pre-filled with
+the current `WxH` (also `W,H` / `W x H`); `Model::resize` keeps the pixels
+top-left, pads white, is one undo step and rejects sides outside `1..=1024`.
+
+**Colours.** A left click on the primary or secondary swatch opens the colour
+editor over the canvas: xui's `ColorPanel` (HSV field, hue slider, hex/RGB/CMYK
+boxes) with OK and Cancel. The colour changes live; Cancel restores it.
+
+**UI probe.** `PaintApp::set_probe(hook)` plus `Msg::Probe` report the named
+control rectangles (`canvas`, `menubar`, `size`, `tool:<Label>`,
+`swatch:primary|secondary`, `swap_colors`, `reset_colors`, `palette:<n>`,
+`color_ok`, `color_cancel`) through the hook; the LazyOS binary prints them as
+`UI:WIDGET` lines in a `LAZYOS_UI_PROBE=1` image so
+`tools/screenshot/examples/xui_paint.json` clicks by name.
 
 `PaintApp::build_observed(ui, storage, observer)` also reports tool, size,
-colours, history and status to an `Observer`, for a host that wants to mirror
-them. `xui_paint::layout(client, dpi, io)` returns the four rectangles the
-widgets occupy (`io` is whether the storage is available, which decides whether
-Save/Open cells take space).
+colours, history, the colour being edited and status to an `Observer`, for a
+host that wants to mirror them.
 
 ## lazyOS notes
 
@@ -146,11 +204,17 @@ All cross-platform, no real window:
 - `tests/model.rs` and the in-module unit tests: rasterization, interpolation,
   brush sizes, flood fill edges, eraser, eyedropper, undo/redo limits, the byte
   cap, PNG round-trip and hostile/out-of-range coordinates.
-- `tests/view.rs` drives the app through `xui_canvas::snapshot::Stage`:
-  toolbar/palette/right-button strokes, undo/redo cells, status updates and the
-  drag lifecycle (mouse-up outside, a second button mid-drag, focus loss).
+- `view/shortcuts/tests.rs` and `view/menu/tests.rs`: the key table (coverage,
+  no collisions, nothing while a dialog is open, tool cycling) and the menu table
+  (ids, the plan's items, mnemonics, enabled rows).
+- `tests/view.rs` drives the app through `xui_canvas::snapshot::Stage`: tool
+  grid and palette clicks, keys, the menu bar, the colour editor, strokes,
+  status updates and the drag lifecycle (mouse-up outside, a second button
+  mid-drag, focus loss).
+- `tests/probe.rs` clicks the centre of every probed rectangle, as `click_at` does.
 - `tests/snapshots.rs` renders light and dark at 96 and 192 DPI at 320x240 and
-  800x600 with pixel predicates, and writes PNGs to `target/snapshots/`.
+  800x600 (plus the Brush options bar and the colour editor) with pixel
+  predicates, and writes PNGs to `target/snapshots/`.
 - `tests/no_io.rs` runs the app with a storage whose every method fails.
 - `tests/deps.rs` asserts the library pulls in no `xui-win32`/`winit` and that
   backend selection lives only in `main.rs`.

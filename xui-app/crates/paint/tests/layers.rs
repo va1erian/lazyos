@@ -21,8 +21,14 @@ fn tools_draw_on_the_active_layer_only() {
     model.add_layer().unwrap();
     assert_eq!(model.document().active(), 1);
     stroke(&mut model, (2, 2), (6, 2));
-    assert_eq!(model.document().layer(1).unwrap().pixels.get(4, 2), Some(RED));
-    assert_eq!(model.document().layer(0).unwrap().pixels.get(4, 2), Some(WHITE));
+    assert_eq!(
+        model.document().layer(1).unwrap().pixels.get(4, 2),
+        Some(RED)
+    );
+    assert_eq!(
+        model.document().layer(0).unwrap().pixels.get(4, 2),
+        Some(WHITE)
+    );
     // The flattened picture shows it; the picker reads the active layer.
     assert_eq!(model.flatten().get(4, 2), Some(RED));
     assert!(model.select_layer(0));
@@ -163,7 +169,11 @@ fn resizing_undoes_with_every_layer_and_pixel() {
     assert_eq!(after.size(), (10, 40));
     assert_eq!(after.layers().len(), 2);
     assert_eq!(after.layer(0).unwrap().pixels.get(5, 1), Some(RED), "kept");
-    assert_eq!(after.layer(0).unwrap().pixels.get(5, 35), Some(WHITE), "bottom pads white");
+    assert_eq!(
+        after.layer(0).unwrap().pixels.get(5, 35),
+        Some(WHITE),
+        "bottom pads white"
+    );
     assert_eq!(
         after.layer(1).unwrap().pixels.get(5, 35),
         Some([0, 0, 0, 0]),
@@ -181,7 +191,9 @@ fn resizing_undoes_with_every_layer_and_pixel() {
 #[test]
 fn the_budget_refuses_documents_and_says_why() {
     // 16384 x 16384 is 1 GiB for one layer: refused before anything allocates.
-    let error = Model::try_new(MAX_SIDE, MAX_SIDE).err().expect("over budget");
+    let error = Model::try_new(MAX_SIDE, MAX_SIDE)
+        .err()
+        .expect("over budget");
     assert!(error.contains("16384 x 16384"), "{error}");
     assert!(error.contains("512 MiB"), "{error}");
     // `new` falls back to the default canvas instead of failing.

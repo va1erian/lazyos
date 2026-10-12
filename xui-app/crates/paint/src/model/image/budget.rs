@@ -79,7 +79,12 @@ impl std::error::Error for BudgetError {}
 
 /// Checks that a `width` x `height` document of `layers` layers, its cache and
 /// the `reserved` bytes (`layers + cache + floating + clipboard + history`) fit.
-pub fn check(width: u32, height: u32, layers: usize, reserved: Reserved) -> Result<(), BudgetError> {
+pub fn check(
+    width: u32,
+    height: u32,
+    layers: usize,
+    reserved: Reserved,
+) -> Result<(), BudgetError> {
     if required_bytes(width, height, layers).saturating_add(reserved.total()) > MEMORY_BUDGET {
         Err(BudgetError {
             width,
@@ -111,7 +116,10 @@ mod tests {
         let reserve = with(0, 0);
         assert!(check(8192, 4096, 2, reserve).is_ok());
         assert!(check(8192, 4096, 3, reserve).is_err());
-        assert!(check(8192, 8192, 1, reserve).is_err(), "layer + cache + undo");
+        assert!(
+            check(8192, 8192, 1, reserve).is_err(),
+            "layer + cache + undo"
+        );
         assert!(check(4096, 8192, 1, reserve).is_ok());
         assert!(check(16384, 16384, 1, Reserved::default()).is_err());
         // The floating and clipboard bitmaps each shrink what is left.

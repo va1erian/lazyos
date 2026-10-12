@@ -69,7 +69,10 @@ fn a_dirty_rectangle_updates_only_itself() {
 
 #[test]
 fn new_documents_respect_the_budget() {
-    assert!(check_budget(4096, 8192, 1, DEFAULT_RESERVE).is_ok(), "256 MiB + undo fits");
+    assert!(
+        check_budget(4096, 8192, 1, DEFAULT_RESERVE).is_ok(),
+        "256 MiB + undo fits"
+    );
     let error = Document::new(16384, 16384, WHITE).unwrap_err();
     assert_eq!(error.layers, 1);
     assert!(Document::from_bitmap(Bitmap::white(2, 2)).is_ok());

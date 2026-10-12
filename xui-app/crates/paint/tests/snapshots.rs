@@ -139,3 +139,150 @@ fn snapshots_at_192_dpi() {
     check(320.0, 240.0, 192);
     check(800.0, 600.0, 192);
 }
+
+/// Renders the app after `msgs`, at `dpi` in `theme`, and saves the PNG as
+/// `target/snapshots/<name>.png`.
+fn render_after(name: &str, msgs: Vec<xui_paint::Msg>, theme: Theme, dpi: u32) -> Image {
+    let image = render_with(
+        Snapshot::new(Dip(800.0), Dip(600.0)).theme(theme).dpi(dpi),
+        |ui| PaintApp::build(ui, Rc::new(MemoryStorage::new())),
+        move |stage| {
+            for msg in msgs {
+                stage.emit(msg);
+            }
+        },
+    )
+    .expect("render xpaint");
+    save(name, &image);
+    image
+}
+
+#[test]
+fn the_options_bar_shows_the_size_for_a_brush_and_hides_it_for_a_pencil() {
+    use xui_paint::{Msg, Tool};
+    for (theme, label) in [(Theme::light(), "light"), (Theme::dark(), "dark")] {
+        for dpi in [96, 192] {
+            let scale = dpi as i32 / 96;
+            let pencil = render_after(
+                "xpaint-pencil-options",
+                vec![Msg::Tool(Tool::Pencil)],
+                theme,
+                dpi,
+            );
+            let brush = render_after(
+                &format!("xpaint-brush-options-{dpi}dpi-{label}"),
+                vec![Msg::Tool(Tool::Brush), Msg::Size(8)],
+                theme,
+                dpi,
+            );
+            // The size box sits right of the tool name, in the options bar
+            // (design y 30..66): it differs between the two tools there.
+            let differs = (150 * scale..260 * scale).any(|x| {
+                (36 * scale..60 * scale)
+                    .any(|y| pencil.pixel(x as u32, y as u32) != brush.pixel(x as u32, y as u32))
+            });
+            assert!(differs, "{label} {dpi}: the Brush shows a size control");
+        }
+    }
+}
+
+#[test]
+fn the_edit_menu_opens_over_the_canvas() {
+    use xui_core::message::{Modifiers, MouseButton};
+    for (theme, label) in [(Theme::light(), "light"), (Theme::dark(), "dark")] {
+        let closed = render_after("xpaint-menu-closed", vec![], theme, 96);
+        let open = render_with(
+            Snapshot::new(Dip(800.0), Dip(600.0)).theme(theme),
+            |ui| PaintApp::build(ui, Rc::new(MemoryStorage::new())),
+            |stage| {
+                // The "Edit" title sits at about x = 75 in the 30 px menu bar.
+                let (x, y) = (75, 14);
+                for event in [
+                    xui_core::backend::Event::MouseDown {
+                        x,
+                        y,
+                        button: MouseButton::Left,
+                        modifiers: Modifiers::NONE,
+                    },
+                    xui_core::backend::Event::MouseUp {
+                        x,
+                        y,
+                        button: MouseButton::Left,
+                        modifiers: Modifiers::NONE,
+                    },
+                ] {
+                    stage.inject(event);
+                }
+            },
+        )
+        .expect("render xpaint");
+        save(&format!("xpaint-edit-menu-{label}"), &open);
+        // The popup drops below the bar over the options bar and the canvas.
+        let differs = (40..300).any(|y| (60..260).any(|x| open.pixel(x, y) != closed.pixel(x, y)));
+        assert!(differs, "{label}: the menu drew nothing");
+    }
+}
+
+#[test]
+fn the_colour_editor_snapshots_replace_the_canvas() {
+    use xui_paint::Msg;
+    use xui_paint::model::Side;
+    for (theme, label) in [(Theme::light(), "light"), (Theme::dark(), "dark")] {
+        for dpi in [96, 192] {
+            let scale = dpi as i32 / 96;
+            let open = render_after(
+                &format!("xpaint-colour-editor-{dpi}dpi-{label}"),
+                vec![Msg::EditColor(Side::Primary)],
+                theme,
+                dpi,
+            );
+            // The picture (320x240 px, centred in the canvas) is gone: some pixel
+            // of its area is not the bitmap white (the editor's own chrome).
+            let (x, y) = ((356 * scale - 150) as u32, (321 * scale + 100) as u32);
+            let hidden = (0..40).any(|d| open.pixel(x + d * 3, y - d * 4) != Some(WHITE));
+            assert!(
+                hidden,
+                "{label} {dpi}: the canvas still shows under the editor"
+            );
+            // Cancel puts the canvas back.
+            let closed = render_after(
+                "xpaint-colour-editor-closed",
+                vec![Msg::EditColor(Side::Primary), Msg::ColorCancel],
+                theme,
+                dpi,
+            );
+            assert_eq!(
+                closed.pixel(x, y),
+                Some(WHITE),
+                "{label} {dpi}: the canvas is back"
+            );
+        }
+    }
+}
+
+#[test]
+fn zooming_in_from_the_view_menu_enlarges_the_picture() {
+    use xui_paint::Msg;
+    use xui_paint::view::Command;
+    for (theme, label) in [(Theme::light(), "light"), (Theme::dark(), "dark")] {
+        let base = render_after("xpaint-zoom-base", vec![], theme, 96);
+        let zoomed = render_after(
+            &format!("xpaint-zoom-200-{label}"),
+            vec![
+                Msg::Command(Command::ZoomToWindow),
+                Msg::Command(Command::PixelGrid),
+            ],
+            theme,
+            96,
+        );
+        // Fit-to-window grows the 320x240 picture past its 100% footprint: the
+        // white now reaches below the old bottom edge (canvas top 66 + 201 + 240).
+        let below = (320, 470);
+        assert_ne!(base.pixel(below.0, below.1), Some(WHITE), "{label}");
+        assert_eq!(
+            zoomed.pixel(below.0, below.1),
+            Some(WHITE),
+            "{label}: zoomed"
+        );
+    }
+}

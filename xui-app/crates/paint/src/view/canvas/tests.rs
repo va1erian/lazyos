@@ -24,7 +24,11 @@ fn pointer_positions_map_through_the_viewport() {
         vp.pan_by(40, 0, doc, view);
     });
     assert_eq!(state.to_doc(0, 0), (10, 0));
-    assert_eq!(state.to_doc(-1, i32::MIN).0, 9, "outside the view still maps");
+    assert_eq!(
+        state.to_doc(-1, i32::MIN).0,
+        9,
+        "outside the view still maps"
+    );
 }
 
 #[test]

@@ -517,6 +517,7 @@ jobs:
           LAZYOS_DESKTOP: "1"
           LAZYOS_XUI_APPS: ${{ steps.app.outputs.paint }}
           LAZYOS_XUI_AUTOSTART: paint
+          LAZYOS_UI_PROBE: "1"
         run: |
           set -euo pipefail
           cargo build

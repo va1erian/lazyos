@@ -146,7 +146,10 @@ impl Bitmap {
             return;
         }
         let at = self.offset(span.x0, span.y0);
-        for pixel in self.pixels[at..at + span.width() as usize * 4].as_chunks_mut::<4>().0 {
+        for pixel in self.pixels[at..at + span.width() as usize * 4]
+            .as_chunks_mut::<4>()
+            .0
+        {
             pixel.copy_from_slice(&fill);
         }
     }

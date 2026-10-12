@@ -86,7 +86,10 @@ impl CanvasState {
     }
 
     /// Applies a viewport change; marks the screen image stale when it differs.
-    pub(super) fn change_viewport(&mut self, change: impl FnOnce(&mut Viewport, (u32, u32), (i32, i32))) -> bool {
+    pub(super) fn change_viewport(
+        &mut self,
+        change: impl FnOnce(&mut Viewport, (u32, u32), (i32, i32)),
+    ) -> bool {
         let before = self.viewport;
         change(&mut self.viewport, self.doc_size, self.view);
         let moved = self.viewport != before;

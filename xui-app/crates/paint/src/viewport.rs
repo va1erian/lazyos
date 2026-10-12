@@ -83,7 +83,9 @@ impl Viewport {
 
     /// The picture's size in view pixels at this zoom (at least 1 x 1).
     pub fn content_size(&self, doc: (u32, u32)) -> (i32, i32) {
-        let scaled = |n: u32| ((f64::from(n) * self.zoom).ceil() as i64).clamp(1, i64::from(i32::MAX)) as i32;
+        let scaled = |n: u32| {
+            ((f64::from(n) * self.zoom).ceil() as i64).clamp(1, i64::from(i32::MAX)) as i32
+        };
         (scaled(doc.0), scaled(doc.1))
     }
 
@@ -179,9 +181,7 @@ impl Viewport {
     /// The picture pixel under the view pixel `(x, y)`; outside the picture
     /// this is outside `0..width`/`0..height`.
     pub fn to_doc(&self, x: i32, y: i32) -> (i32, i32) {
-        let at = |v: i32, origin: i32| {
-            floor_i32((f64::from(v) + f64::from(origin)) / self.zoom)
-        };
+        let at = |v: i32, origin: i32| floor_i32((f64::from(v) + f64::from(origin)) / self.zoom);
         (at(x, self.origin.0), at(y, self.origin.1))
     }
 
@@ -286,7 +286,10 @@ mod tests {
         let mut vp = Viewport::new();
         vp.clamp(DOC, VIEW);
         assert_eq!(vp.origin(), (-240, -180), "it fits: centred");
-        assert!(!vp.pan_by(50, 50, DOC, VIEW), "it all fits: nothing scrolls");
+        assert!(
+            !vp.pan_by(50, 50, DOC, VIEW),
+            "it all fits: nothing scrolls"
+        );
         vp.zoom_to(8.0, (0, 0), DOC, VIEW);
         vp.pan_by(100_000, 100_000, DOC, VIEW);
         assert_eq!(vp.origin(), (320 * 8 - 800, 240 * 8 - 600));
@@ -303,7 +306,10 @@ mod tests {
         vp.actual_size((1600, 1200), VIEW);
         assert_eq!(vp.percent(), 100);
         // Zooming keeps the centre of the view: the middle of the picture.
-        assert_eq!(vp.visible((1600, 1200), VIEW), Rect::new(400, 300, 800, 600));
+        assert_eq!(
+            vp.visible((1600, 1200), VIEW),
+            Rect::new(400, 300, 800, 600)
+        );
     }
 
     #[test]

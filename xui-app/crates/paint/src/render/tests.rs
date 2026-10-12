@@ -12,7 +12,12 @@ fn zoomed(zoom: f64, doc: (u32, u32), view: (i32, i32)) -> Viewport {
 
 fn at(image: &ScreenImage, x: u32, y: u32) -> [u8; 4] {
     let i = ((y * image.width + x) * 4) as usize;
-    [image.rgba[i], image.rgba[i + 1], image.rgba[i + 2], image.rgba[i + 3]]
+    [
+        image.rgba[i],
+        image.rgba[i + 1],
+        image.rgba[i + 2],
+        image.rgba[i + 3],
+    ]
 }
 
 #[test]
@@ -38,7 +43,11 @@ fn zoom_in_is_nearest_neighbour_not_blurred() {
     for (x, y) in [(8, 4), (11, 7)] {
         assert_eq!(at(&image, x, y), BLUE, "({x}, {y})");
     }
-    assert_eq!(at(&image, 3, 4), [255, 255, 255, 255], "no bleed at the edge");
+    assert_eq!(
+        at(&image, 3, 4),
+        [255, 255, 255, 255],
+        "no bleed at the edge"
+    );
 }
 
 #[test]
@@ -70,7 +79,11 @@ fn transparent_pixels_show_a_checkerboard() {
     flat.put(0, 0, RED);
     let image = render(&flat, &Viewport::new(), (100, 100), false).unwrap();
     assert_eq!(at(&image, 0, 0), RED);
-    assert_eq!(at(&image, 9, 1), [DARK, DARK, DARK, 255], "cell (1,0) is dark");
+    assert_eq!(
+        at(&image, 9, 1),
+        [DARK, DARK, DARK, 255],
+        "cell (1,0) is dark"
+    );
     assert_eq!(at(&image, 1, 1), [LIGHT, LIGHT, LIGHT, 255]);
 }
 

@@ -11,7 +11,10 @@
 //! (`save_to`/`load_from`), starting in the file's directory, `$HOME` or `/`.
 //!
 //! Serial evidence: `PAINT:UP:PASS` after the first frame, `PAINT:OPEN:PASS`
-//! after a PNG loads, `PAINT:SAVE:PASS` after a successful save.
+//! after a PNG loads, `PAINT:SAVE:PASS` after a successful save. With the UI
+//! probe on (`LAZYOS_UI_PROBE=1`) the app also prints `UI:WIDGET` lines for its
+//! canvas, tool cells, swatches and palette (`tool:Pencil`, `swatch:primary`,
+//! `palette:3`, ...) so a session clicks them by name.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -19,6 +22,7 @@ use std::rc::Rc;
 
 use xui_app::launch;
 use xui_app::platform::argv;
+use xui_app::probe;
 use xui_app::platform::storage::PngStorage;
 use xui_core::widget::StdFileSystem;
 use xui_paint::storage::Storage;
@@ -27,6 +31,14 @@ use xui_paint::Msg;
 
 /// Window size a compositor lays Paint out at.
 const WINDOW: (i32, i32) = (800, 600);
+
+/// The smallest window: the menu and options bars, the tool grid and the Colors
+/// panel leave a canvas (and the colour editor) room to work in.
+const MIN_WINDOW: (u32, u32) = (560, 420);
+
+/// How many times the UI probe is reported: the window may not be at its final
+/// size or title on the first tick, and the newest line for a name wins.
+const PROBES: u32 = 8;
 
 /// The default save file when no path is given.
 fn default_path() -> PathBuf {
@@ -115,24 +127,39 @@ fn main() {
     launch::run("PAINT", "Paint", WINDOW, move |ui, backend| {
         // Paint's document is fixed; only the viewport follows the window, so
         // it can be resized down to a workable drawing area.
-        backend.set_size_hints(320, 240, 0, 0);
+        backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);
         backend.on_first_frame(|| println!("PAINT:UP:PASS"));
-        let app = PaintApp::build_with_files(ui, storage, Rc::new(StdFileSystem))?;
+        let mut app = PaintApp::build_with_files(ui, storage, Rc::new(StdFileSystem))?;
         app.set_start_dir(start_dir(requested.as_deref()));
-        if requested.is_some() {
-            // A one-shot Open loads the file named on the command line. The
-            // timer kills itself on first fire so an idle Paint costs no
-            // wakeups.
-            let fired = Rc::new(Cell::new(false));
+        let startup = requested.is_some();
+        let probing = probe::enabled();
+        if probing {
+            app.set_probe(|window, name, rect| {
+                probe::widget(window, name, rect.left, rect.top, rect.width(), rect.height());
+            });
+        }
+        if startup || probing {
+            // A one-shot Open loads the file named on the command line, then
+            // (with the probe on) a few slower ticks report the control
+            // rectangles. The timer kills itself when done, so an idle Paint
+            // costs no wakeups.
+            let ticks = Rc::new(Cell::new(0u32));
             let ui_for_timer = ui.clone();
-            ui.set_timer(1);
+            ui.set_timer(if startup { 1 } else { 500 });
             ui.on_timer(move |id| {
-                ui_for_timer.kill_timer(id);
-                if fired.replace(true) {
-                    None
-                } else {
-                    Some(Msg::OpenStartup)
+                let tick = ticks.replace(ticks.get() + 1);
+                if tick == 0 && startup {
+                    ui_for_timer.kill_timer(id);
+                    if probing {
+                        ui_for_timer.set_timer(500);
+                    }
+                    return Some(Msg::OpenStartup);
                 }
+                if probing && tick < PROBES {
+                    return Some(Msg::Probe);
+                }
+                ui_for_timer.kill_timer(id);
+                None
             });
         }
         Ok(app)

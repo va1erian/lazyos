@@ -77,16 +77,20 @@ that `invalidate_rect` records and a backend intersects at paint time.
 
 ## G6 — Keyboard shortcuts and accelerators
 
-**Gap.** The vocabulary has `Event::KeyDown` and `Event::Accelerator(u16)`
-(`crates/xui-core/src/backend/event.rs:80,167`), but there is no portable
-accelerator registration (no `Ui::on_accelerator`; a grep of `app/` finds none)
-and no window-level key mapper. A widget can only handle `KeyDown` while
-focused. **Workaround:** the app is deliberately mouse-only; every action is a
-clickable cell. Marked `// xui gap: G6`.
+**Closed.** The window-level key hook the earlier revision lacked is
+`Ui::on_key(|key, modifiers| -> Option<Msg>)`, which sees every `KeyDown` ahead
+of the focused widget (`crates/xui-core/src/app/runtime.rs`, `Runtime::deliver`).
+Paint maps Paint.NET's keys through `view::shortcuts::shortcut(key, modifiers,
+dialog_open)`, a pure function over one table (`BINDINGS`) that the menus also
+read to print each item's chord. It takes nothing while a dialog, the colour
+editor or a menu is open, so Esc, Enter and typed letters reach the dialog or
+the menu. Two caveats found on the way:
 
-**Proposal:** `Ui::on_accelerator(Key, Modifiers, Fn() -> Option<M>)` in
-`xui-core`, resolved by the runtime before routing, and wired by each backend's
-key path (the Win32 `ACCEL` table, `winit`'s key events).
+- The offscreen test backend only delivers a key event to a *focused* node, so
+  the app focuses its canvas at build time (a real backend delivers it either
+  way).
+- `Menu` items carry only a label, so a chord is printed in the label text
+  (`Save    Ctrl+S`) rather than in a right-aligned column.
 
 ## G7 — Toolbar toggle state and paint-tool icons
 
@@ -130,6 +134,12 @@ button and modifiers (`crates/xui-core/src/widget/colorpicker.rs:125,176`).
 **Workaround:** `view/palette.rs` is a custom node over 16 fixed colours that
 maps left/right to the primary/secondary colour and paints the active pair.
 Marked `// xui gap: G9`.
+
+**Update (P1).** The panel is now 32 colours plus the primary/secondary pair; a
+left click on a swatch opens xui's `ColorPanel` (HSV field, hue slider, hex/RGB
+boxes). `ColorPanel` has no alpha channel (`Color` is RGB), so the editor keeps
+the colour's alpha and a slider waits for the layers phase (P3), which makes
+alpha meaningful in the model.
 
 **Proposal:** `ColorPicker::on_select_with(|color, button, modifiers| ...)` in
 `xui-core`, plus an optional "custom…" swatch that opens a small RGB popup
@@ -214,11 +224,36 @@ minimal framebuffer backend plus `xui-core` needs none of them.
 **Gap.** xui bundles no font. `xui-canvas` shapes with cosmic-text's system font
 database (`crates/xui-canvas/src/text.rs:40`) and `xui-core`'s
 `UnsupportedShaper` returns empty layouts (`crates/xui-core/src/backend/text.rs`).
-With no fonts, labels render nothing. **Workaround:** every action is a
-painted icon or swatch; the tool strip, palette and canvas need no text, and the
-status bar simply shows blank parts. Drawing, tool/colour/size changes, undo,
-clear and new all remain mouse-reachable. Marked `// xui gap: G15`.
+With no fonts, labels render nothing. **Workaround:** the tool grid, swatches and
+canvas are painted icons and colours that need no text, and the status bar
+simply shows blank parts. Drawing and tool/colour changes stay mouse-reachable,
+and the menus and the options bar (which are text) have keyboard shortcuts for
+what exists today (undo, redo, new, open, save, tools, brush size, colours).
+Marked `// xui gap: G15`.
 
 **Proposal:** an optional embedded fallback font (or a built-in box-glyph
 shaper) in `xui-canvas`, selected when `FontSystem` finds no faces, so text
 degrades to legible boxes instead of vanishing.
+
+## G16 — Tooltips for the cells of a custom node
+
+**Gap.** `Tooltip::attach` takes a node and positions its popup under that whole
+node, so it cannot name one cell of the tool grid (a single `Custom` node, G7).
+**Workaround:** the grid reports the hovered tool (`Msg::HintTool`) and the
+status bar shows `Name (key)`, for example `Rectangle (O)`. Marked
+`// xui gap: G16` in `view/toolbar.rs`.
+
+**Proposal:** `Tooltip::attach_rect(target, Fn(Point) -> Option<(Rect, String)>)`,
+or a `Toolbar` with a checkable state (G7) whose items already carry tooltips.
+
+## G17 — Custom content in a `Dialog`
+
+**Gap.** `Dialog` holds a message and an optional entry only, so the colour
+editor (a `ColorPanel` with OK/Cancel) cannot be a modal dialog, and a second
+window cannot be driven by the offscreen test backend. **Workaround:** the
+editor is a titled frame (`group`) stacked over the canvas in a `stack` layout;
+the app hides the canvas while it shows (`view/coloredit.rs`). It is modal by
+convention: `update` drops every message but the editor's own while it is open.
+
+**Proposal:** `Dialog::custom(ui, title, layout)` that mounts an arrange layout
+in the dialog's frame and reports OK/Cancel.

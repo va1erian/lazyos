@@ -10,7 +10,8 @@ use std::rc::Rc;
 
 use xui_canvas::snapshot::{Snapshot, Stage, render_with};
 use xui_core::Dip;
-use xui_core::backend::Event;
+use xui_core::backend::{Event, WidgetId};
+use xui_core::geometry::Rect;
 use xui_core::message::{Key, Modifiers, MouseButton};
 use xui_core::widget::{Entry, FileSystem};
 use xui_paint::Msg;
@@ -105,12 +106,14 @@ impl Storage for DiskStorage {
 
 type Seen = Rc<RefCell<Observer>>;
 
-/// Builds the app over `disk` and runs `step`.
+/// Builds the app over `disk` and runs `step` with the canvas's placed rect.
 fn session(
     disk: &Rc<Disk>,
     startup: Option<&str>,
-    step: impl FnOnce(&Stage<'_, Msg>, &Seen) + 'static,
+    step: impl FnOnce(&Stage<'_, Msg>, &Seen, Rect) + 'static,
 ) {
+    let canvas: Rc<Cell<Option<WidgetId>>> = Rc::new(Cell::new(None));
+    let built = Rc::clone(&canvas);
     let observer: Seen = Rc::new(RefCell::new(Observer::default()));
     let probe = Rc::clone(&observer);
     let storage = Rc::new(DiskStorage {
@@ -123,9 +126,13 @@ fn session(
         move |ui| {
             let app = PaintApp::build_with_files_observed(ui, storage, fs, probe)?;
             app.set_start_dir("/");
+            built.set(Some(app.canvas().id()));
             Ok(app)
         },
-        move |stage| step(stage, &observer),
+        move |stage| {
+            let rect = stage.ui().bounds(canvas.get().expect("built"));
+            step(stage, &observer, rect)
+        },
     )
     .expect("render");
 }
@@ -175,35 +182,66 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     Bitmap::white(width, height).encode_png().unwrap()
 }
 
-/// Strip cell centres: Save is 17, Open 18, Resize 19 (28 px cells).
-fn click_cell(stage: &Stage<'_, Msg>, index: i32) {
-    stage.click(index * 28 + 14, 15);
+/// Commands go through their shortcuts (Ctrl+S, Ctrl+O, Ctrl+Shift+R), which
+/// exercises the window's key hook.
+fn chord(stage: &Stage<'_, Msg>, key: Key, shift: bool) {
+    stage.inject(Event::KeyDown {
+        key,
+        modifiers: Modifiers {
+            ctrl: true,
+            shift,
+            ..Modifiers::NONE
+        },
+        repeat: 1,
+        system: false,
+    });
 }
 
-/// A pencil dot near the middle of the window, which is inside the centred
-/// 320 x 240 picture.
-fn draw_a_dot(stage: &Stage<'_, Msg>) {
-    let y = 290;
-    stage.inject(Event::MouseDown {
-        x: 400,
-        y,
-        button: MouseButton::Left,
-        modifiers: Modifiers::NONE,
-    });
-    stage.inject(Event::MouseUp {
-        x: 400,
-        y,
-        button: MouseButton::Left,
-        modifiers: Modifiers::NONE,
-    });
+fn save(stage: &Stage<'_, Msg>) {
+    chord(stage, Key::S, false)
+}
+fn open(stage: &Stage<'_, Msg>) {
+    chord(stage, Key::O, false)
+}
+fn ask_size(stage: &Stage<'_, Msg>) {
+    chord(stage, Key::R, true)
+}
+
+/// The window position of picture pixel `(x, y)` (centred picture, real viewport).
+fn at(canvas: Rect, x: i32, y: i32) -> (i32, i32) {
+    let mut viewport = xui_paint::viewport::Viewport::new();
+    viewport.clamp((320, 240), (canvas.width(), canvas.height()));
+    let (vx, vy) = viewport.to_view(x, y);
+    (canvas.left + vx, canvas.top + vy)
+}
+
+/// One click 60 px right of and 40 px below the canvas's corner.
+fn draw_a_dot(stage: &Stage<'_, Msg>, canvas: Rect) {
+    let (x, y) = at(canvas, 60, 40);
+    for event in [
+        Event::MouseDown {
+            x,
+            y,
+            button: MouseButton::Left,
+            modifiers: Modifiers::NONE,
+        },
+        Event::MouseUp {
+            x,
+            y,
+            button: MouseButton::Left,
+            modifiers: Modifiers::NONE,
+        },
+    ] {
+        stage.inject(event);
+    }
 }
 
 #[test]
 fn open_loads_the_chosen_png() {
     let disk = Rc::new(Disk::default());
     disk.files.borrow_mut().insert("/a.png".into(), png(50, 30));
-    session(&disk, None, |stage, seen| {
-        click_cell(stage, 18);
+    session(&disk, None, |stage, seen, _canvas| {
+        open(stage);
         type_text(stage, "a.png");
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "Opened a.png");
@@ -218,10 +256,10 @@ fn a_corrupt_png_keeps_the_canvas() {
     disk.files
         .borrow_mut()
         .insert("/bad.png".into(), b"not a png".to_vec());
-    session(&disk, None, |stage, seen| {
-        draw_a_dot(stage);
+    session(&disk, None, |stage, seen, canvas| {
+        draw_a_dot(stage, canvas);
         assert!(seen.borrow().can_undo);
-        click_cell(stage, 18);
+        open(stage);
         type_text(stage, "bad.png");
         key(stage, Key::RETURN);
         assert!(status(seen).starts_with("Open failed"), "{}", status(seen));
@@ -234,21 +272,21 @@ fn a_corrupt_png_keeps_the_canvas() {
 fn cancelling_the_open_dialog_does_nothing() {
     let disk = Rc::new(Disk::default());
     disk.files.borrow_mut().insert("/a.png".into(), png(50, 30));
-    session(&disk, None, |stage, seen| {
-        draw_a_dot(stage);
-        click_cell(stage, 18);
+    session(&disk, None, |stage, seen, canvas| {
+        draw_a_dot(stage, canvas);
+        open(stage);
         key(stage, Key::ESCAPE);
         assert_eq!(status(seen), "");
         assert_eq!(size(seen), "320 x 240");
         assert!(seen.borrow().can_undo);
         // Drawing works again once the dialog is gone.
+        let (x, y) = at(canvas, 90, 90);
         stage.inject(Event::MouseMove {
-            x: 400,
-            y: 291,
+            x,
+            y,
             modifiers: Modifiers::NONE,
         });
-        // The 320-wide picture is centred in the 800-wide canvas: x is 400 - 240.
-        assert_eq!(seen.borrow().cursor.map(|c| c.0), Some(160));
+        assert_eq!(seen.borrow().cursor, Some((90, 90)));
     });
 }
 
@@ -256,9 +294,9 @@ fn cancelling_the_open_dialog_does_nothing() {
 fn save_writes_a_png_and_a_second_save_reuses_the_path() {
     let disk = Rc::new(Disk::default());
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        draw_a_dot(stage);
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, canvas| {
+        draw_a_dot(stage, canvas);
+        save(stage);
         // The suggested name is untitled.png.
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "Saved untitled.png");
@@ -272,7 +310,7 @@ fn save_writes_a_png_and_a_second_save_reuses_the_path() {
 
         // A second Save writes there without a dialog.
         probe.files.borrow_mut().clear();
-        click_cell(stage, 17);
+        save(stage);
         assert_eq!(status(seen), "Saved untitled.png");
         assert!(
             probe
@@ -287,8 +325,8 @@ fn save_writes_a_png_and_a_second_save_reuses_the_path() {
 fn save_appends_png_when_the_extension_is_missing() {
     let disk = Rc::new(Disk::default());
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, _canvas| {
+        save(stage);
         replace_text(stage, "drawing");
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "Saved drawing.png");
@@ -303,8 +341,8 @@ fn an_appended_extension_never_replaces_an_unseen_file() {
         .borrow_mut()
         .insert("/drawing.png".into(), b"precious".to_vec());
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, _canvas| {
+        save(stage);
         replace_text(stage, "drawing");
         key(stage, Key::RETURN);
         assert!(status(seen).starts_with("Not saved"), "{}", status(seen));
@@ -322,8 +360,8 @@ fn overwriting_an_existing_file_asks_the_dialog_to_confirm() {
         .borrow_mut()
         .insert("/untitled.png".into(), b"old".to_vec());
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, _canvas| {
+        save(stage);
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "", "the picker is confirming, nothing saved");
         assert_eq!(
@@ -352,9 +390,9 @@ fn a_failed_write_reports_and_keeps_the_document() {
     let disk = Rc::new(Disk::default());
     disk.fail_writes.set(true);
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        draw_a_dot(stage);
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, canvas| {
+        draw_a_dot(stage, canvas);
+        save(stage);
         key(stage, Key::RETURN);
         assert!(status(seen).starts_with("Save failed"), "{}", status(seen));
         assert!(status(seen).contains("disk full"));
@@ -364,7 +402,7 @@ fn a_failed_write_reports_and_keeps_the_document() {
         // The path was not adopted: the next Save asks again, and works once
         // the disk recovers.
         probe.fail_writes.set(false);
-        click_cell(stage, 17);
+        save(stage);
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "Saved untitled.png");
     });
@@ -374,8 +412,8 @@ fn a_failed_write_reports_and_keeps_the_document() {
 fn cancelling_save_as_writes_nothing() {
     let disk = Rc::new(Disk::default());
     let probe = Rc::clone(&disk);
-    session(&disk, None, move |stage, seen| {
-        click_cell(stage, 17);
+    session(&disk, None, move |stage, seen, _canvas| {
+        save(stage);
         key(stage, Key::ESCAPE);
         assert_eq!(status(seen), "");
         assert!(probe.files.borrow().is_empty());
@@ -389,7 +427,7 @@ fn the_start_up_file_loads_without_a_dialog_and_becomes_the_save_target() {
         .borrow_mut()
         .insert("/start.png".into(), png(40, 20));
     let probe = Rc::clone(&disk);
-    session(&disk, Some("/start.png"), move |stage, seen| {
+    session(&disk, Some("/start.png"), move |stage, seen, _canvas| {
         stage.emit(Msg::OpenStartup);
         assert_eq!(size(seen), "40 x 20");
         probe.files.borrow_mut().clear();
@@ -402,7 +440,7 @@ fn the_start_up_file_loads_without_a_dialog_and_becomes_the_save_target() {
 #[test]
 fn a_missing_start_up_file_is_reported() {
     let disk = Rc::new(Disk::default());
-    session(&disk, Some("/gone.png"), |stage, seen| {
+    session(&disk, Some("/gone.png"), |stage, seen, _canvas| {
         stage.emit(Msg::OpenStartup);
         assert!(status(seen).starts_with("Open failed"));
         assert_eq!(size(seen), "320 x 240");
@@ -412,8 +450,8 @@ fn a_missing_start_up_file_is_reported() {
 #[test]
 fn resize_prompt_is_prefilled_applies_and_is_undoable() {
     let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen| {
-        click_cell(stage, 19);
+    session(&disk, None, |stage, seen, _canvas| {
+        ask_size(stage);
         // Prefilled "320x240": erase it and type a new size.
         replace_text(stage, "64 x 32");
         key(stage, Key::RETURN);
@@ -427,7 +465,7 @@ fn resize_prompt_is_prefilled_applies_and_is_undoable() {
         assert_eq!(size(seen), "64 x 32");
 
         // Reopening shows the current size and Enter keeps it.
-        click_cell(stage, 19);
+        ask_size(stage);
         key(stage, Key::RETURN);
         assert_eq!(status(seen), "Resized to 64 x 32");
         assert_eq!(size(seen), "64 x 32");
@@ -437,9 +475,9 @@ fn resize_prompt_is_prefilled_applies_and_is_undoable() {
 #[test]
 fn a_bad_resize_text_reports_and_changes_nothing() {
     let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen| {
+    session(&disk, None, |stage, seen, _canvas| {
         for bad in ["abc", "0x10", "20000x20000", "16384x16384", "10"] {
-            click_cell(stage, 19);
+            ask_size(stage);
             replace_text(stage, bad);
             key(stage, Key::RETURN);
             assert!(status(seen).starts_with("Resize failed"), "{bad}");
@@ -452,8 +490,8 @@ fn a_bad_resize_text_reports_and_changes_nothing() {
 #[test]
 fn cancelling_resize_changes_nothing() {
     let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen| {
-        click_cell(stage, 19);
+    session(&disk, None, |stage, seen, _canvas| {
+        ask_size(stage);
         replace_text(stage, "10x10");
         key(stage, Key::ESCAPE);
         assert_eq!(size(seen), "320 x 240");

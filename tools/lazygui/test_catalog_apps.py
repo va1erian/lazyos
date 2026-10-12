@@ -386,6 +386,12 @@ class TrayDemoTests(unittest.TestCase):
         self.assertNotIn("LAZYOS_UI_PROBE", other)
         self.assertNotIn("LAZYOS_UI_PROBE", catalog.build_env({**cfg, "mode": "Interactive demo"}))
 
+    def test_the_paint_session_asks_for_the_ui_probe(self) -> None:
+        index = {entry[0]: i for i, entry in enumerate(catalog.SCRIPTS)}
+        cfg = {**self.base(), "mode": "Scripted session", "desktop": True,
+               "xui_autostart": "paint", "script": index["xui_paint.json"]}
+        self.assertEqual(catalog.build_env(cfg)["LAZYOS_UI_PROBE"], "1")
+
     def test_no_normal_session_launches_it(self) -> None:
         # Only `LAZYOS_TRAYDEMO=1` images ship it: `core_apps.json` must not wait for it.
         path = os.path.join(catalog.ROOT, "tools", "screenshot", "examples", "core_apps.json")

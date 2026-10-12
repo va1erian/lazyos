@@ -1,25 +1,33 @@
 #![forbid(unsafe_code)]
 
-//! The xui view: a canvas widget, a tool strip, a palette and the app wiring.
+//! The xui view: the menu bar, the tool options bar, a tool grid, a canvas, the
+//! Colors panel and the app wiring.
 
 mod app;
 mod canvas;
+mod coloredit;
+mod command;
 mod icons;
 mod layout;
+mod menu;
+mod options;
 mod palette;
+pub mod shortcuts;
 mod toolbar;
 
 pub use app::PaintApp;
 pub use canvas::{CanvasMsg, PaintCanvas};
-pub use layout::Observer;
-pub use palette::Palette;
-pub use toolbar::{StripItem, ToolStrip};
+pub use command::Command;
+pub use layout::{COLORS_WIDTH, Observer};
+pub use options::{step_size, uses_size};
+pub use palette::{COLORS, PALETTE, Palette};
+pub use shortcuts::{ToolGroup, shortcut};
+pub use toolbar::ToolStrip;
 
 use xui_core::Color;
 
 use crate::model::Pixel;
 
-// xui gap: G6 — no portable accelerator registration, so the app is mouse-only.
 // xui gap: G11 — the event vocabulary has no touch/pen/pressure.
 /// The message the widgets map input to; [`app::PaintApp::update`] turns it into
 /// model calls.
@@ -38,6 +46,23 @@ pub enum Msg {
     },
     /// Exchange the primary and secondary colours.
     SwapColors,
+    /// Restore the default colours: black primary, white secondary.
+    ResetColors,
+    /// Step the brush size along [`crate::model::SIZES`] (`[` and `]`).
+    SizeStep(i32),
+    /// Select the next tool of a group (a repeated tool key).
+    CycleTool(ToolGroup),
+    /// The pointer is over a tool of the grid, or left it (a status hint).
+    HintTool(Option<crate::model::Tool>),
+    /// Open the colour editor on a side's colour.
+    EditColor(crate::model::Side),
+    /// The editor changed the colour it is editing (opaque; the app keeps the
+    /// colour's alpha).
+    ColorEditing(Pixel),
+    /// Keep the edited colour and close the editor.
+    ColorDone,
+    /// Restore the colour the edit began with and close the editor.
+    ColorCancel,
     /// Undo the last action.
     Undo,
     /// Redo the last undone action.
@@ -48,6 +73,16 @@ pub enum Msg {
     New,
     /// Save through the storage.
     Save,
+    /// Save under a new name (the Save As picker).
+    SaveAs,
+    /// Quit the application.
+    Quit,
+    /// Show the About box.
+    About,
+    /// A command whose feature a later phase builds; see [`Command`].
+    Command(Command),
+    /// Print the named widget rectangles (UI probe images only).
+    Probe,
     /// Load through the storage.
     Open,
     /// Ask for a new canvas size (opens the prompt).
@@ -64,6 +99,12 @@ pub enum Msg {
     DialogClosed,
     /// A canvas interaction.
     Canvas(CanvasMsg),
+}
+
+/// The menu row that raises `msg`, for a host or test that reads the menu bar's
+/// state ([`PaintApp::menu`]).
+pub fn menu_item(msg: Msg) -> Option<xui_core::widget::MenuId> {
+    menu::id_of(msg)
 }
 
 /// A colour as a portable xui [`Color`].

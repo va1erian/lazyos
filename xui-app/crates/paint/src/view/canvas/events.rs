@@ -34,9 +34,7 @@ pub(super) fn handle(
     event: &Event,
 ) -> Option<Msg> {
     match event {
-        Event::MouseDown {
-            x, y, button, ..
-        } => {
+        Event::MouseDown { x, y, button, .. } => {
             let panning = state.borrow().space || *button == MouseButton::Middle;
             if panning {
                 state.borrow_mut().pan = Some((*x, *y));

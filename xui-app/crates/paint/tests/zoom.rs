@@ -23,9 +23,7 @@ const WHITE: [u8; 4] = [255, 255, 255, 255];
 
 type TestStage<'a> = Stage<'a, xui_paint::Msg>;
 
-fn session(
-    step: impl FnOnce(&TestStage<'_>, &Rc<RefCell<Observer>>, &Areas) + 'static,
-) -> Image {
+fn session(step: impl FnOnce(&TestStage<'_>, &Rc<RefCell<Observer>>, &Areas) + 'static) -> Image {
     let observer = Rc::new(RefCell::new(Observer::default()));
     let build_probe = Rc::clone(&observer);
     let widgets = Widgets::default();
@@ -133,7 +131,7 @@ fn zoomed_dot(
 ) -> Image {
     session(move |stage, observer, areas| {
         // The palette's red swatch is index 3, as in the view tests.
-        let swatch = (24 + 3 * 24 + 12, areas.palette.top + 12);
+        let swatch = areas.swatch(3);
         click(stage, swatch);
         click(stage, areas.pixel(DOT.0, DOT.1));
         assert!(observer.borrow().can_undo, "the dot was drawn");
@@ -166,8 +164,8 @@ fn ctrl_wheel_zooms_to_200_percent_with_crisp_pixels() {
     for (dx, dy) in [(-1, 0), (2, 1), (0, -1), (1, 2)] {
         assert_eq!(px(&image, x + dx, y + dy), WHITE, "no blur at ({dx}, {dy})");
     }
-    // The picture fits the canvas across (640 < 800): centred there.
-    assert!(viewport.origin().0 < 0);
+    // The picture fits the canvas down (480 < 510): centred there.
+    assert!(viewport.origin().1 < 0);
 }
 
 #[test]
@@ -201,8 +199,14 @@ fn the_pointer_maps_through_the_zoom() {
             observer.borrow().cursor
         };
         assert_eq!(hover(4, 4, DOT.0, DOT.1), Some(DOT));
-        assert_eq!(hover(4, 4, DOT.0 - 2, DOT.1 - 1), Some((DOT.0 - 2, DOT.1 - 1)));
-        assert_eq!(hover(7, 7, DOT.0 + 1, DOT.1 + 1), Some((DOT.0 + 1, DOT.1 + 1)));
+        assert_eq!(
+            hover(4, 4, DOT.0 - 2, DOT.1 - 1),
+            Some((DOT.0 - 2, DOT.1 - 1))
+        );
+        assert_eq!(
+            hover(7, 7, DOT.0 + 1, DOT.1 + 1),
+            Some((DOT.0 + 1, DOT.1 + 1))
+        );
     });
 }
 
@@ -279,13 +283,12 @@ fn the_wheel_pans_a_zoomed_picture_and_space_drag_pans_too() {
     });
 }
 
-
 #[test]
 fn zooming_out_shows_the_whole_picture_small() {
     let seen = Rc::new(RefCell::new(None));
     let probe = Rc::clone(&seen);
     let image = session(move |stage, _, a| {
-        click(stage, (24 + 3 * 24 + 12, a.palette.top + 12));
+        click(stage, a.swatch(3));
         click(stage, a.pixel(200, 100));
         // 1 -> 2/3 -> 1/2 -> 1/3 -> 1/4.
         wheel(stage, a.pixel(200, 100), -4, ctrl());
@@ -299,7 +302,11 @@ fn zooming_out_shows_the_whole_picture_small() {
     // The whole 320 x 240 picture is 80 x 60 and centred.
     let (x0, y0) = at(&areas, &viewport, 0, 0);
     assert_eq!(px(&image, x0 + 10, y0 + 10), WHITE);
-    assert_ne!(px(&image, x0 - 4, y0 + 10), WHITE, "outside it is the background");
+    assert_ne!(
+        px(&image, x0 - 4, y0 + 10),
+        WHITE,
+        "outside it is the background"
+    );
 }
 
 #[test]
@@ -321,8 +328,14 @@ fn the_eraser_leaves_a_checkerboard() {
     let probe = Rc::clone(&seen);
     let image = session(move |stage, _, areas| {
         *probe.borrow_mut() = Some(*areas);
-        click(stage, (2 * 28 + 14, 15)); // Eraser
-        click(stage, (12 * 28 + 14, 15)); // 16 px
+        // The E key selects the Eraser; the size is set by message.
+        stage.inject(Event::KeyDown {
+            key: Key::E,
+            modifiers: Modifiers::NONE,
+            repeat: 1,
+            system: false,
+        });
+        stage.emit(xui_paint::Msg::Size(16));
         let from = areas.pixel(100, 100);
         let to = areas.pixel(200, 100);
         for event in [

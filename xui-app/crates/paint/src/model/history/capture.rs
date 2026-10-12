@@ -67,7 +67,12 @@ impl UndoCapture {
             if part.is_empty() {
                 continue;
             }
-            let src = Rect::new(part.x0 - at.x0, part.y0 - at.y0, part.width(), part.height());
+            let src = Rect::new(
+                part.x0 - at.x0,
+                part.y0 - at.y0,
+                part.width(),
+                part.height(),
+            );
             before.blit(part.x0 - bounds.x0, part.y0 - bounds.y0, tile, src);
         }
         (layer.crop(bounds)? != before).then_some((bounds, before))
