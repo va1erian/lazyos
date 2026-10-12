@@ -21,7 +21,8 @@ HINT = (f"Guest {qemu_net.GUEST_ADDR} by DHCP; the host is {qemu_net.GATEWAY}. F
 def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var, tls_var=None,
                 lazyweb_var=None, smb_var=None, dbgd_var=None,
                 dbgd_control_var=None, lazysky_var=None, wifi_var=None,
-                dbgd_mmio_var=None) -> None:
+                dbgd_mmio_var=None, dbgd_mmio_claimed_var=None,
+                dbgd_mmio_allow_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
     browser, the SMB client, the forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
@@ -55,6 +56,17 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
         ttk.Checkbutton(parent, text="dbgd register reads: MMIO of allowlisted ranges (LAZYOS_DBGD_MMIO; "
                                      "run_demo --dbgd-mmio; dbgctl.py mmio BDF BAR OFF LEN)",
                         variable=dbgd_mmio_var).pack(anchor="w", padx=20)
+    if dbgd_mmio_claimed_var is not None:
+        ttk.Checkbutton(parent, text="...also of devices a driver has claimed (LAZYOS_DBGD_MMIO_CLAIMED; "
+                                     "run_demo --dbgd-mmio-claimed; the read can race the driver)",
+                        variable=dbgd_mmio_claimed_var).pack(anchor="w", padx=36)
+    if dbgd_mmio_allow_var is not None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x", padx=36, pady=2)
+        ttk.Label(row, text="Readable ranges:").pack(side="left")
+        ttk.Entry(row, textvariable=dbgd_mmio_allow_var).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Label(row, text="VVVV:DDDD:BAR:START-END hex, space separated "
+                            "(LAZYOS_DBGD_MMIO_ALLOW)", foreground="#666").pack(side="left")
     if wifi_var is not None:
         ttk.Checkbutton(parent, text="Wi-Fi: wifid + RTL8822CE firmware (LAZYOS_WIFI; run_demo --wifi; "
                                      "implies the stack; for the AMD NUC, QEMU has no such card)",

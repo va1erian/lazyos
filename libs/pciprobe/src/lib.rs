@@ -6,9 +6,13 @@
 //! Pure `no_std` + `alloc`, host-tested and fuzzed, because the request and
 //! the `lazyos.cfg` lines both come from outside.
 //!
-//! * Configuration space is the first [`CONFIG_BYTES`] of any enumerated
-//!   function (legacy mechanism 1; the kernel has no MMCONFIG yet), any
-//!   alignment, never a write. A config read has no side effect.
+//! * Configuration space is read only when `diag.dbg=1` (as the kernel read
+//!   it), any alignment, never a write. The standard 64-byte header
+//!   ([`HEADER_BYTES`]) is the default; the rest of the legacy 256 bytes
+//!   ([`CONFIG_BYTES`]; the kernel has no MMCONFIG yet) needs
+//!   `diag.dbg.mmio=1` too, because some devices misbehave when their
+//!   device-specific registers are read (why `lspci` limits the full dump
+//!   to root).
 //! * An MMIO read is answered only when `diag.dbg.mmio=1`, only for 32-bit
 //!   aligned dwords, at most [`MAX_MMIO_BYTES`] per request, and only
 //!   inside ranges listed for that exact `vendor:device` and BAR
@@ -34,8 +38,10 @@ use alloc::vec::Vec;
 
 pub use cfg::{parse_range, ALLOW_KEY, CLAIMED_KEY, MMIO_KEY};
 
-/// Bytes of configuration space `dbgd` can read (mechanism 1's 256).
+/// Bytes of configuration space `dbgd` can read at most (mechanism 1's 256).
 pub const CONFIG_BYTES: u64 = 256;
+/// The standard header, readable without the MMIO opt-in.
+pub const HEADER_BYTES: u64 = 64;
 /// Most bytes one MMIO read returns.
 pub const MAX_MMIO_BYTES: u64 = 4096;
 /// Highest BAR index.
@@ -70,8 +76,12 @@ impl Range {
 /// Why a read was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Denied {
+    /// Hardware reads are not switched on at all (`diag.dbg=1`).
+    Disabled,
     /// The MMIO tier is not switched on (`diag.dbg.mmio=1`).
     Off,
+    /// Config bytes 0x40..0x100 need `diag.dbg.mmio=1`.
+    ExtendedConfig,
     /// Zero length, more than the maximum, or the span wraps.
     Length,
     /// Offset or length not a multiple of 4.
@@ -85,7 +95,11 @@ pub enum Denied {
 impl Denied {
     pub fn text(self) -> &'static str {
         match self {
+            Denied::Disabled => "hardware reads are off on this box (diag.dbg=1 in lazyos.cfg)",
             Denied::Off => "MMIO reads are off on this box (diag.dbg.mmio=1 in lazyos.cfg)",
+            Denied::ExtendedConfig => {
+                "config space past the 64-byte header needs diag.dbg.mmio=1 in lazyos.cfg"
+            }
             Denied::Length => "length must be 1..=256 for config space, 4..=4096 for MMIO",
             Denied::Alignment => "MMIO reads are 32-bit: offset and length are multiples of 4",
             Denied::Bar => "BAR index is 0..=5",
@@ -107,6 +121,8 @@ pub struct Segment {
 /// The box's settings and the extra ranges its config adds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Policy {
+    /// `diag.dbg=1`: hardware reads (config header) may be answered.
+    pub enabled: bool,
     /// MMIO reads on at all (`diag.dbg=1` and `diag.dbg.mmio=1`).
     pub mmio: bool,
     /// Reads of a device a driver holds (`diag.dbg.mmio.claimed=1`).
@@ -121,6 +137,7 @@ impl Policy {
     /// The policy of a box that did not ask: nothing but config space.
     pub const fn off() -> Policy {
         Policy {
+            enabled: false,
             mmio: false,
             claimed: false,
             extra: Vec::new(),
@@ -136,11 +153,32 @@ impl Policy {
 
     pub(crate) fn with(mmio: bool, claimed: bool, extra: Vec<Range>, rejected: usize) -> Policy {
         Policy {
+            enabled: true,
             mmio,
             claimed,
             extra,
             rejected,
         }
+    }
+
+    /// A box with `diag.dbg=1` and no MMIO opt-in: the config header only.
+    pub fn config_only() -> Policy {
+        Policy::with(false, false, Vec::new(), 0)
+    }
+
+    /// Check a configuration-space read of `len` bytes at `offset`.
+    pub fn check_config(&self, offset: u64, len: u64) -> Result<(), Denied> {
+        if !self.enabled {
+            return Err(Denied::Disabled);
+        }
+        let end = match offset.checked_add(len) {
+            Some(end) if len >= 1 && end <= CONFIG_BYTES => end,
+            _ => return Err(Denied::Length),
+        };
+        if end > HEADER_BYTES && !self.mmio {
+            return Err(Denied::ExtendedConfig);
+        }
+        Ok(())
     }
 
     /// A policy with MMIO on and these extra ranges (tests, harnesses).
@@ -179,6 +217,9 @@ impl Policy {
         offset: u64,
         len: u64,
     ) -> Result<Vec<Segment>, Denied> {
+        if !self.enabled {
+            return Err(Denied::Disabled);
+        }
         if !self.mmio {
             return Err(Denied::Off);
         }
@@ -211,15 +252,6 @@ impl Policy {
             at = stop;
         }
         Ok(out)
-    }
-}
-
-/// Check a configuration-space read: `1..=256` bytes inside the first 256.
-/// Any alignment (the kernel assembles the bytes).
-pub fn check_config(offset: u64, len: u64) -> Result<(), Denied> {
-    match offset.checked_add(len) {
-        Some(end) if len >= 1 && end <= CONFIG_BYTES => Ok(()),
-        _ => Err(Denied::Length),
     }
 }
 

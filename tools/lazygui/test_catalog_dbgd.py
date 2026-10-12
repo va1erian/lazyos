@@ -39,6 +39,23 @@ class DbgdTests(unittest.TestCase):
         self.assertEqual(on["LAZYOS_DBGD_MMIO"], "1")
         self.assertEqual(on["LAZYOS_DBGD"], "1")
 
+    def test_claimed_reads_and_ranges_are_advanced_controls(self) -> None:
+        cfg = {**self.base(), "desktop": True, "dbgd_mmio_claimed": True,
+               "dbgd_mmio_allow": "8086:5916:0:0x45400-0x45410 1af4:1050:0:0-0x100"}
+        env = catalog.build_env(cfg)
+        self.assertEqual(env["LAZYOS_DBGD_MMIO"], "1", "they mean nothing without the tier")
+        self.assertEqual(env["LAZYOS_DBGD_MMIO_CLAIMED"], "1")
+        self.assertEqual(env["LAZYOS_DBGD_MMIO_ALLOW"],
+                         "8086:5916:0:0x45400-0x45410,1af4:1050:0:0-0x100")
+        quiet = catalog.build_env({**self.base(), "desktop": True})
+        self.assertNotIn("LAZYOS_DBGD_MMIO_CLAIMED", quiet)
+        self.assertNotIn("LAZYOS_DBGD_MMIO_ALLOW", quiet)
+        argv = catalog.dbgd_argv(cfg)
+        self.assertIn("--dbgd-mmio", argv)
+        self.assertIn("--dbgd-mmio-claimed", argv)
+        self.assertEqual(argv.count("--dbgd-mmio-allow"), 2)
+        self.assertEqual(argv[argv.index("--dbgd-mmio-allow") + 1], "8086:5916:0:0x45400-0x45410")
+
     def test_the_card_and_the_port_come_with_it(self) -> None:
         flags = catalog.net_flags({"net": False})
         self.assertIn("--net", flags)

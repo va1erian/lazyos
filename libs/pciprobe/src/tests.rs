@@ -1,10 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::builtin::RANGES;
-use crate::{
-    check_config, format_bdf, parse_bdf, parse_range, Denied, Policy, Range, MAX_EXTRA,
-    MAX_MMIO_BYTES,
-};
+use crate::{format_bdf, parse_bdf, parse_range, Denied, Policy, Range, MAX_EXTRA, MAX_MMIO_BYTES};
 
 const HD620: (u16, u16) = (0x8086, 0x5916);
 const VGA: (u16, u16) = (0x1234, 0x1111);
@@ -34,6 +31,10 @@ fn the_builtin_table_is_sorted_valid_and_disjoint() {
 fn config_is_off_by_default_and_needs_diag_dbg() {
     assert_eq!(
         Policy::off().plan(VGA.0, VGA.1, 2, 0x500, 4),
+        Err(Denied::Disabled)
+    );
+    assert_eq!(
+        Policy::config_only().plan(VGA.0, VGA.1, 2, 0x500, 4),
         Err(Denied::Off)
     );
     for cfg in [
@@ -47,6 +48,9 @@ fn config_is_off_by_default_and_needs_diag_dbg() {
     }
     assert!(on().mmio);
     assert!(!on().claimed);
+    // `diag.dbg=1` alone is the config header, and allow lines are ignored.
+    let header = Policy::from_cfg("diag.dbg=1\ndiag.dbg.mmio.allow=1af4:1050:0:0-4\n");
+    assert!(header.enabled && !header.mmio && header.extra().is_empty());
     assert!(Policy::from_cfg("diag.dbg=1\ndiag.dbg.mmio=1\ndiag.dbg.mmio.claimed=1\n").claimed);
 }
 
@@ -88,11 +92,18 @@ fn gmbus_data_and_the_eld_port_are_refused() {
         p.plan(HD620.0, HD620.1, 0, 0xC50F0, 0x40),
         Err(Denied::NotAllowed)
     );
-    // The ELD data port (HSW_AUD_EDID_DATA_A).
-    assert_eq!(
-        p.plan(HD620.0, HD620.1, 0, 0x65050, 4),
-        Err(Denied::NotAllowed)
-    );
+    // The ELD data ports (HSW_AUD_EDID_DATA_A, _B, _C): both dwords.
+    for port in [0x65050u64, 0x65150, 0x65250] {
+        for dword in [port, port + 4] {
+            assert_eq!(
+                p.plan(HD620.0, HD620.1, 0, dword, 4),
+                Err(Denied::NotAllowed),
+                "{dword:#x}"
+            );
+        }
+        assert!(p.plan(HD620.0, HD620.1, 0, port - 4, 4).is_ok());
+        assert!(p.plan(HD620.0, HD620.1, 0, port + 8, 4).is_ok());
+    }
     assert!(p.plan(HD620.0, HD620.1, 0, 0x65000, 0x50).is_ok());
     // A display register and a pipe register are reachable.
     assert!(p.plan(HD620.0, HD620.1, 0, 0x70008, 4).is_ok());
@@ -102,7 +113,8 @@ fn gmbus_data_and_the_eld_port_are_refused() {
 #[test]
 fn a_request_spans_adjacent_ranges() {
     let p = on();
-    // 0x64ff0..0x65050 is one range; 0x65058.. the next: not adjacent.
+    // 0x60000..0x65050 is one range and 0x65058..0x65150 the next: the ELD
+    // port between them is a hole, not adjacent.
     let across = p.plan(HD620.0, HD620.1, 0, 0x65048, 0x20);
     assert_eq!(across, Err(Denied::NotAllowed));
     let cfg = "diag.dbg=1\ndiag.dbg.mmio=1\ndiag.dbg.mmio.allow=8086:5916:0:0x65050-0x65058\n";
@@ -122,7 +134,9 @@ fn alignment_length_and_bar_bounds() {
         p.plan(VGA.0, VGA.1, 0, 0, MAX_MMIO_BYTES + 4),
         Err(Denied::Length)
     );
-    assert!(p.plan(VGA.0, VGA.1, 0, 0, MAX_MMIO_BYTES).is_ok());
+    assert!(p
+        .plan(HD620.0, HD620.1, 0, 0x80_0000, MAX_MMIO_BYTES)
+        .is_ok());
     assert_eq!(p.plan(VGA.0, VGA.1, 6, 0, 4), Err(Denied::Bar));
     assert_eq!(
         p.plan(VGA.0, VGA.1, 0, u64::MAX - 3, 8),
@@ -135,14 +149,30 @@ fn alignment_length_and_bar_bounds() {
 }
 
 #[test]
-fn config_reads_stay_in_the_first_256_bytes() {
-    assert!(check_config(0, 256).is_ok());
-    assert!(check_config(255, 1).is_ok());
-    assert!(check_config(3, 5).is_ok());
-    assert_eq!(check_config(0, 0), Err(Denied::Length));
-    assert_eq!(check_config(0, 257), Err(Denied::Length));
-    assert_eq!(check_config(256, 1), Err(Denied::Length));
-    assert_eq!(check_config(u64::MAX, 2), Err(Denied::Length));
+fn config_reads_need_diag_dbg_and_the_header_is_the_default() {
+    assert_eq!(Policy::off().check_config(0, 4), Err(Denied::Disabled));
+    let header = Policy::config_only();
+    assert!(header.check_config(0, 64).is_ok());
+    assert!(header.check_config(60, 4).is_ok());
+    assert!(header.check_config(3, 5).is_ok());
+    assert_eq!(header.check_config(0, 65), Err(Denied::ExtendedConfig));
+    assert_eq!(header.check_config(0x40, 4), Err(Denied::ExtendedConfig));
+    assert_eq!(header.check_config(0xFC, 4), Err(Denied::ExtendedConfig));
+    let full = on();
+    assert!(full.check_config(0, 256).is_ok());
+    assert!(full.check_config(255, 1).is_ok());
+    for policy in [&header, &full] {
+        assert_eq!(policy.check_config(0, 0), Err(Denied::Length));
+        assert_eq!(policy.check_config(0, 257), Err(Denied::Length));
+        assert_eq!(policy.check_config(256, 1), Err(Denied::Length));
+        assert_eq!(policy.check_config(u64::MAX, 2), Err(Denied::Length));
+    }
+    // `diag.dbg.mmio=1` without `diag.dbg=1` enables nothing, config too.
+    assert_eq!(
+        Policy::from_cfg("diag.dbg.mmio=1\n").check_config(0, 4),
+        Err(Denied::Disabled)
+    );
+    assert!(Policy::from_cfg("diag.dbg=1\n").check_config(0, 64).is_ok());
 }
 
 #[test]

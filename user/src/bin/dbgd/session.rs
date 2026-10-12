@@ -358,8 +358,21 @@ fn dispatch(
         "devices.list" => handlers::devices_list(),
         "drivers.list" => handlers::drivers_list(),
         "usb.dump" => handlers::usb_dump(),
-        "pci.config" => within_budget(shared, params, 64, |p| super::hw::pci_config(p)),
-        "mmio.read" => within_budget(shared, params, 4, |p| super::hw::mmio_read(p, config)),
+        "pci.config" | "mmio.read" => {
+            // The request line itself, with what it asked to read.
+            audit::note(
+                session.peer,
+                &super::hw::audit_token(name, params),
+                "request",
+            );
+            let default_len = if name == "mmio.read" { 4 } else { 64 };
+            super::hw::within_budget(&mut shared.hardware, now_ms(), params, default_len, |p| {
+                match name {
+                    "mmio.read" => super::hw::mmio_read(p, config),
+                    _ => super::hw::pci_config(p, config),
+                }
+            })
+        }
         "fs.read" => handlers::fs_read(params),
         "hwreport" => handlers::hwreport(&mut shared.scratch),
         "control.begin" => begin_control(session, params, config),
@@ -373,27 +386,6 @@ fn dispatch(
         "app.relaunch" => super::apps::relaunch(params),
         _ => Err((code::METHOD_NOT_FOUND, format!("no handler for {name}"))),
     }
-}
-
-/// Run a hardware read if the byte budget affords its `len` (default
-/// `default_len`), else `RATE_LIMITED` with the wait.
-fn within_budget(
-    shared: &mut Shared,
-    params: &Value,
-    default_len: u64,
-    read: impl FnOnce(&Value) -> Result<String, Failure>,
-) -> Result<String, Failure> {
-    let len = params
-        .get("len")
-        .and_then(Value::as_u64)
-        .unwrap_or(default_len);
-    shared.hardware.take(now_ms(), len).map_err(|wait| {
-        (
-            code::RATE_LIMITED,
-            format!("hardware reads are rate limited; retry in {wait} ms"),
-        )
-    })?;
-    read(params)
 }
 
 fn text_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {

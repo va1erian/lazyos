@@ -28,7 +28,7 @@ pub fn denials() -> Result<Vec<Denial>, i64> {
 }
 
 /// `len` bytes of the PCI function `bdf`'s configuration space, without
-/// claiming it (`dbgd` and root only; `LAZYOS_DBGD=1` kernels). The error
+/// claiming it (`dbgd` only; `LAZYOS_DBGD=1` kernels). The error
 /// is the positive errno.
 pub fn config_read(bdf: u16, offset: u64, len: usize) -> Result<Vec<u8>, i64> {
     lazyos_sys::dev::config_read(bdf, offset, len).map_err(|code| -code)

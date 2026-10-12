@@ -27,7 +27,8 @@ pub mod op {
     /// Inspection: refused claims in the audit ring.
     pub const DENIALS: u64 = 12;
     /// `dbgd`'s read of configuration space, no claim (`LAZYOS_DBGD=1`
-    /// kernels; others answer `-EINVAL`).
+    /// kernels; others answer `-EINVAL`, which is also how a caller tells a
+    /// missing op from a malformed request, `-EDOM`).
     pub const DBG_CONFIG_READ: u64 = 13;
     /// `dbgd`'s read of allowlisted MMIO ranges, no claim.
     pub const DBG_MMIO_READ: u64 = 14;
@@ -116,7 +117,7 @@ mod inspect {
 
     /// `len` bytes of configuration space of the function at `bdf`
     /// (`bus << 8 | device << 3 | function`), without claiming it. Only
-    /// `dbgd` and root may ask (`kernel/src/dev/peek.rs`).
+    /// only `dbgd` may ask (`kernel/src/dev/peek.rs`).
     pub fn config_read(bdf: u16, offset: u64, len: usize) -> Result<Vec<u8>, i64> {
         let mut bytes = vec![0u8; len];
         // SAFETY: the kernel writes at most `len` bytes, the size of `bytes`.

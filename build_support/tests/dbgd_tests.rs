@@ -99,6 +99,12 @@ fn ranges_the_policy_would_refuse_fail_the_build() {
         "10000:5916:0:0-4",
         "zz:5916:0:0-4",
         "8086:5916:0:0-4:1",
+        // from_str_radix takes a sign; the kernel's parser does not.
+        "+8086:5916:0:0-4",
+        "8086:5916:0:+0-+4",
+        "8086:+5916:0:0-4",
+        "8086:5916:+0:0-4",
+        "8086:5916:0:0--4",
     ] {
         assert!(validate_range(bad).is_err(), "{bad}");
         assert!(dbgwire::pciprobe::parse_range(bad).is_none(), "{bad}");

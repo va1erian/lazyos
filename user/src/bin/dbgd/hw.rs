@@ -31,6 +31,7 @@ mod errno {
     pub const EBUSY: i64 = 16;
     pub const ENODEV: i64 = 19;
     pub const EINVAL: i64 = 22;
+    pub const EDOM: i64 = 33;
     pub const ERANGE: i64 = 34;
 }
 
@@ -97,8 +98,11 @@ fn kernel_failure(errno: i64, what: &str) -> Failure {
             "the BAR is not readable memory (an I/O or unassigned BAR, memory decode off, or it overlaps RAM)",
         ),
         errno::ERANGE => (code::INVALID_PARAMS, "the span runs past the end of the BAR"),
+        errno::EDOM => (code::INVALID_PARAMS, "the kernel refused the request as malformed"),
         errno::ENOMEM => (code::UNAVAILABLE, "the kernel's MMIO window budget for dbgd is used up"),
         errno::EFAULT => (code::INTERNAL, "the kernel could not copy the answer out"),
+        // The kernel answers a malformed request with EDOM, so EINVAL here
+        // is the unknown-op answer of a kernel built without the switch.
         errno::EINVAL => (
             code::UNAVAILABLE,
             "the kernel has no hardware-read op (build kernel and image with LAZYOS_DBGD=1)",
@@ -110,7 +114,9 @@ fn kernel_failure(errno: i64, what: &str) -> Failure {
 
 fn denied(why: Denied, function: &Function, bar: u8, config: &Config) -> Failure {
     match why {
-        Denied::Off => (code::DENIED, String::from(why.text())),
+        Denied::Disabled | Denied::Off | Denied::ExtendedConfig => {
+            (code::DENIED, String::from(why.text()))
+        }
         Denied::NotAllowed => {
             let ranges = config.probe.ranges(function.vendor, function.device, bar);
             let listed = if ranges.is_empty() {
@@ -134,12 +140,29 @@ fn denied(why: Denied, function: &Function, bar: u8, config: &Config) -> Failure
     }
 }
 
+/// The audit token of a hardware request: the method with its address, BAR,
+/// offset and length, so the trail says which register was looked at.
+pub(crate) fn audit_token(method: &str, params: &Value) -> String {
+    let bdf = params.get("bdf").and_then(Value::as_str).unwrap_or("?");
+    let bar = params.get("bar").and_then(Value::as_u64).unwrap_or(0);
+    let offset = number(params, "offset", 0);
+    let len = number(params, "len", 0);
+    if method == "mmio.read" {
+        format!("mmio@{bdf}/{bar}+{offset:#x}/{len}")
+    } else {
+        format!("pci@{bdf}+{offset:#x}/{len}")
+    }
+}
+
 /// `pci.config {bdf, offset, len}`.
-pub(crate) fn pci_config(params: &Value) -> Result<String, Failure> {
+pub(crate) fn pci_config(params: &Value, config: &Config) -> Result<String, Failure> {
     let offset = number(params, "offset", 0);
     let len = number(params, "len", 64);
-    pciprobe::check_config(offset, len).map_err(|why| bad(why.text()))?;
     let function = locate(params)?;
+    config
+        .probe
+        .check_config(offset, len)
+        .map_err(|why| denied(why, &function, 0, config))?;
     let bytes = inspect::config_read(function.bdf, offset, len as usize)
         .map_err(|errno| kernel_failure(errno, "pci.config"))?;
     Ok(Object::new()
@@ -173,4 +196,23 @@ pub(crate) fn mmio_read(params: &Value, config: &Config) -> Result<String, Failu
         .uint("len", bytes.len() as u64)
         .str("hex", &auth::hex(&bytes))
         .finish())
+}
+
+/// Run a hardware read if `budget` affords its `len` (default
+/// `default_len`) at `now_ms`, else `RATE_LIMITED` with the wait.
+pub(crate) fn within_budget(
+    budget: &mut dbgwire::probe::Budget,
+    now_ms: u64,
+    params: &Value,
+    default_len: u64,
+    read: impl FnOnce(&Value) -> Result<String, Failure>,
+) -> Result<String, Failure> {
+    let len = number(params, "len", default_len);
+    budget.take(now_ms, len).map_err(|wait| {
+        (
+            code::RATE_LIMITED,
+            format!("hardware reads are rate limited; retry in {wait} ms"),
+        )
+    })?;
+    read(params)
 }

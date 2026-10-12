@@ -6,11 +6,12 @@
 * BAR2 + 0x500 is the Bochs VBE id register, `0xB0C0..=0xB0C5`;
 * BAR2 + 0x418 is an `0x3DA`-class port (input status 1: reading it
   resets the attribute controller's flip-flop), a hole in the allowlist;
-* BAR0 is the framebuffer, in the built-in table.
+* BAR0 is the framebuffer, deliberately not in the built-in table (a
+  memory-type alias of the display path's mapping).
 
-`exercise` runs against an image built with `LAZYOS_DBGD_MMIO=1`;
-`exercise_off` against one without it (config reads still work, MMIO is
-refused with the key to set). Both take the client's `call`, so the
+`exercise` runs against an image built with `LAZYOS_DBGD_MMIO=1` (all 256
+bytes of config space); `exercise_off` against one without it (the 64-byte
+header still reads, the rest and MMIO are refused with the key to set). Both take the client's `call`, so the
 self-test (`test_hw_checks.py`) can feed them a fake and see them fail.
 """
 
@@ -44,16 +45,25 @@ def _dword(reply: dict) -> int:
     return int.from_bytes(bytes.fromhex(reply["hex"])[:4], "little")
 
 
-def config_checks(call: Callable[..., dict], c, bdf: str) -> None:
+def config_checks(call: Callable[..., dict], c, bdf: str, full: bool) -> None:
     ident = call("pci.config", bdf=bdf, offset=0, len=4)
     c.check("pci.config dword 0 is the vendor and device id",
             ident["hex"] == "34121111", str(ident))
     c.check("pci.config echoes the address and ids",
             ident["bdf"] == bdf and ident["vendor"] == "1234" and ident["device"] == "1111")
-    whole = call("pci.config", bdf=bdf, offset=0, len=256)
-    c.check("pci.config reads all 256 bytes", whole["len"] == 256 and len(whole["hex"]) == 512)
+    header = call("pci.config", bdf=bdf, offset=0, len=64)
+    c.check("pci.config reads the 64-byte header", header["len"] == 64 and len(header["hex"]) == 128)
     odd = call("pci.config", bdf=bdf, offset=3, len=5)
-    c.check("pci.config takes an unaligned span", odd["hex"] == whole["hex"][6:16], str(odd))
+    c.check("pci.config takes an unaligned span", odd["hex"] == header["hex"][6:16], str(odd))
+    if full:
+        whole = call("pci.config", bdf=bdf, offset=0, len=256)
+        c.check("pci.config reads all 256 bytes with the MMIO opt-in",
+                whole["len"] == 256 and len(whole["hex"]) == 512 and whole["hex"].startswith(header["hex"]))
+    else:
+        _raises(c, "pci.config refuses bytes past the header without diag.dbg.mmio", DENIED,
+                lambda: call("pci.config", bdf=bdf, offset=0x40, len=4), "diag.dbg.mmio")
+        _raises(c, "pci.config refuses a span over 0x40 without diag.dbg.mmio", DENIED,
+                lambda: call("pci.config", bdf=bdf, offset=0, len=256), "diag.dbg.mmio")
     c.check("pci.config defaults to 64 bytes",
             call("pci.config", bdf=bdf)["len"] == 64)
     _raises(c, "pci.config refuses offset 256", BAD_PARAMS,
@@ -78,8 +88,8 @@ def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict]) -> 
             f"({ident:#x})")
     c.check("mmio.read is stable for a plain register",
             call("mmio.read", bdf=bdf, bar=2, offset=0x500, len=4)["hex"] == first["hex"])
-    fb = call("mmio.read", bdf=bdf, bar=0, offset=0, len=64)
-    c.check("mmio.read of the framebuffer BAR", fb["len"] == 64 and len(fb["hex"]) == 128)
+    _raises(c, "mmio.read refuses the framebuffer BAR (not in the table)", DENIED,
+            lambda: call("mmio.read", bdf=bdf, bar=0, offset=0, len=64), "none listed")
     edid = call("mmio.read", bdf=bdf, bar=2, offset=0, len=128)
     c.check("mmio.read across 128 bytes of the EDID window", edid["len"] == 128)
     _raises(c, "mmio.read refuses a register outside the allowlist", DENIED,
@@ -91,7 +101,7 @@ def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict]) -> 
     _raises(c, "mmio.read refuses an unaligned length", BAD_PARAMS,
             lambda: call("mmio.read", bdf=bdf, bar=2, offset=0x500, len=6))
     _raises(c, "mmio.read refuses more than 4096 bytes", BAD_PARAMS,
-            lambda: call("mmio.read", bdf=bdf, bar=0, offset=0, len=4100))
+            lambda: call("mmio.read", bdf=bdf, bar=2, offset=0, len=4100))
     _raises(c, "mmio.read refuses BAR 6", BAD_PARAMS,
             lambda: call("mmio.read", bdf=bdf, bar=6, offset=0, len=4))
     _raises(c, "mmio.read has no write parameter", BAD_PARAMS,
@@ -106,19 +116,21 @@ def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict]) -> 
 
 
 def rate_limit_checks(call: Callable[..., dict], c, vga: dict) -> None:
-    """Six hundred KiB in a burst exceeds the 512 KiB bucket: some request is
+    """700 KiB in a burst exceeds the 512 KiB bucket: some request is
     told to wait, and the same read works once the bucket has refilled."""
     limited = False
-    for _ in range(160):
+    for _ in range(700):
         try:
-            call("mmio.read", bdf=vga["bdf"], bar=0, offset=0, len=4096)
+            # BAR2's EDID window is 1 KiB: four dwords repeated up to the
+            # budget would be cheap, so ask for the most it holds.
+            call("mmio.read", bdf=vga["bdf"], bar=2, offset=0, len=1024)
         except DbgError as error:
             limited = error.code == RATE_LIMITED
             break
     c.check("a burst of hardware reads is rate limited", limited)
     time.sleep(2.0)
     try:
-        ok = call("mmio.read", bdf=vga["bdf"], bar=0, offset=0, len=64)["len"] == 64
+        ok = call("mmio.read", bdf=vga["bdf"], bar=2, offset=0, len=64)["len"] == 64
     except DbgError:
         ok = False
     c.check("hardware reads work again after the bucket refills", ok)
@@ -132,7 +144,7 @@ def exercise(c, call: Callable[..., dict]) -> None:
     if not c.check("devices.list shows the standard VGA with its address",
                    vga is not None and "bdf" in vga, str(vga)):
         return
-    config_checks(call, c, vga["bdf"])
+    config_checks(call, c, vga["bdf"], full=True)
     others = [d for d in call("devices.list")["devices"]
               if "bdf" in d and (d["vendor"], d["device"]) != VGA]
     mmio_checks(call, c, vga, others)
@@ -144,7 +156,7 @@ def exercise_off(c, call: Callable[..., dict]) -> None:
     if not c.check("devices.list shows the standard VGA with its address",
                    vga is not None and "bdf" in vga, str(vga)):
         return
-    config_checks(call, c, vga["bdf"])
+    config_checks(call, c, vga["bdf"], full=False)
     _raises(c, "mmio.read is refused unless the box turned it on", DENIED,
             lambda: call("mmio.read", bdf=vga["bdf"], bar=2, offset=0x500, len=4),
             "diag.dbg.mmio")

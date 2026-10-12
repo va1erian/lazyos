@@ -60,6 +60,13 @@ jobs:
           # tests (ahci_suite, docs/ahci-plan.md A2).
           - name: ahci
             args: "--machine q35 --ahci"
+          # The `LAZYOS_DBGD=1` kernel: the ops and tests that exist only
+          # there (dbgd's boot-log and program-output ops, its read-only PCI
+          # config and MMIO reads, `dev_peek_*`) are compiled out of every
+          # other leg. QEMU's standard VGA is the real register target.
+          - name: dbgd
+            args: ""
+            dbgd: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +83,9 @@ jobs:
         env:
           LAZYOS_IRQCHIP: ${{ matrix.irqchip }}
           LAZYOS_MSI: ${{ matrix.msi }}
+          LAZYOS_DBGD: ${{ matrix.dbgd }}
+          # `dbgd` listens through the socket service.
+          LAZYOS_NETD: ${{ matrix.dbgd }}
 
       - name: Append report to the job summary
         if: always()

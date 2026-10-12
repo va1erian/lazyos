@@ -429,7 +429,10 @@ fn mmio_is_off_unless_the_config_says_so() {
     let base = "diag.dbg=1\ndiag.dbg.key=00112233445566778899aabbccddeeff\n";
     let off = config::parse(base).unwrap();
     assert!(!off.probe.mmio);
-    let on = config::parse(&alloc::format!("{base}diag.dbg.mmio=1\ndiag.dbg.mmio.claimed=1\n")).unwrap();
+    let on = config::parse(&alloc::format!(
+        "{base}diag.dbg.mmio=1\ndiag.dbg.mmio.claimed=1\n"
+    ))
+    .unwrap();
     assert!(on.probe.mmio && on.probe.claimed);
     // The control tier and the MMIO tier are independent switches.
     assert!(!on.control);

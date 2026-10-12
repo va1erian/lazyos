@@ -39,9 +39,9 @@ pub mod msi;
 mod msi_hw;
 mod notify;
 pub mod ops;
+pub mod pci;
 #[cfg(lazyos_dbgd)]
 pub mod peek;
-pub mod pci;
 pub mod policy;
 pub mod report;
 mod resources;

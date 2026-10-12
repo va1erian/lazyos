@@ -15,6 +15,7 @@ pub const EFAULT: i64 = 14;
 pub const EBUSY: i64 = 16;
 pub const ENODEV: i64 = 19;
 pub const ENOSPC: i64 = 28;
+pub const EDOM: i64 = 33;
 pub const ERANGE: i64 = 34;
 pub const EINVAL: i64 = 22;
 pub const ENOSYS: i64 = 38;

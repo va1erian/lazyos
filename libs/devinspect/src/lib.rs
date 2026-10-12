@@ -231,9 +231,8 @@ impl Device {
     /// The `bb:dd.f` spelling of the PCI address, `None` for a platform
     /// device.
     pub fn bdf_text(&self) -> Option<alloc::string::String> {
-        self.bdf.map(|b| {
-            alloc::format!("{:02x}:{:02x}.{}", b >> 8, (b >> 3) & 0x1F, b & 7)
-        })
+        self.bdf
+            .map(|b| alloc::format!("{:02x}:{:02x}.{}", b >> 8, (b >> 3) & 0x1F, b & 7))
     }
 }
 

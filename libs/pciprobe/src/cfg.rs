@@ -73,8 +73,13 @@ pub(crate) fn parse(cfg: &str) -> Policy {
             _ => {}
         }
     }
-    if !(enabled && mmio) {
+    if !enabled {
         return Policy::off();
+    }
+    if !mmio {
+        // The config header only; allow lines and `claimed` mean nothing
+        // without the MMIO opt-in.
+        return Policy::config_only();
     }
     Policy::with(true, claimed, extra, rejected)
 }

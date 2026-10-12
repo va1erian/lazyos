@@ -66,6 +66,8 @@ class FakeDbgd:
             raise DbgError(-32003, "no PCI function")
         if offset > 255 or len < 1 or offset + len > 256:
             raise DbgError(-32602, "range")
+        if offset + len > 64 and not self.mmio and not self.faults.get("leaks_config"):
+            raise DbgError(-32002, "config space past the 64-byte header needs diag.dbg.mmio=1")
         data = VGA_CONFIG[offset:offset + len]
         return {"bdf": bdf, "vendor": "1234", "device": "1111", "offset": offset,
                 "len": len, "hex": data.hex()}
@@ -83,12 +85,12 @@ class FakeDbgd:
             raise DbgError(-32602, "alignment")
         if bdf != BDF:
             raise DbgError(-32002, "none listed for 1af4:1000 BAR0")
-        allowed = bar == 0 or (bar == 2 and (offset + len <= 0x400
+        allowed = (bar == 2 and (offset + len <= 0x400
                                              or 0x500 <= offset and offset + len <= 0x520))
         if self.faults.get("serves_everything"):
             allowed = True
         if not allowed:
-            raise DbgError(-32002, "the span is not inside a range; allowed for BAR2: 0x0-0x400")
+            raise DbgError(-32002, "none listed for 1234:1111 BAR0; allowed for BAR2: 0x0-0x400")
         if not self.faults.get("never_limits"):
             self.budget -= max(len, 64)
             if self.budget < 0:
@@ -139,6 +141,10 @@ class JudgeTests(unittest.TestCase):
         failed = self.run_judge(FakeDbgd(accepts_write=True))
         self.assertIn("pci.config has no write parameter", failed)
         self.assertIn("mmio.read has no write parameter", failed)
+
+    def test_serving_the_extended_config_space_without_the_opt_in_fails(self) -> None:
+        failed = self.run_judge(FakeDbgd(mmio=False, leaks_config=True), off=True)
+        self.assertIn("pci.config refuses bytes past the header without diag.dbg.mmio", failed)
 
     def test_mmio_on_when_it_should_be_off_fails(self) -> None:
         failed = self.run_judge(FakeDbgd(mmio=True), off=True)

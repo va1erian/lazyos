@@ -79,34 +79,13 @@ pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>, control: bool) ->
     out
 }
 
-/// `VVVV:DDDD:BAR:START-END` in hex, as `pciprobe::parse_range` takes it:
-/// dword aligned, start below end, a BAR 0..=5, at most 64 MiB.
+/// `VVVV:DDDD:BAR:START-END` in hex: the one parser the kernel and `dbgd`
+/// read the line with (`pciprobe::parse_range`), so a line that passes here
+/// is never silently dropped on the box.
 pub fn validate_range(range: &str) -> Result<(), String> {
-    let fail = || {
-        format!("LAZYOS_DBGD_MMIO_ALLOW entry {range:?}: expected VVVV:DDDD:BAR:START-END in hex")
-    };
-    let hex = |text: &str| {
-        let digits = text.strip_prefix("0x").unwrap_or(text);
-        (!digits.is_empty() && digits.len() <= 16)
-            .then(|| u64::from_str_radix(digits, 16).ok())
-            .flatten()
-    };
-    let parts: Vec<&str> = range.split(':').collect();
-    let [vendor, device, bar, span] = parts[..] else {
-        return Err(fail());
-    };
-    let (start, end) = span.split_once('-').ok_or_else(fail)?;
-    let ok = hex(vendor).is_some_and(|v| v <= 0xFFFF)
-        && hex(device).is_some_and(|d| d <= 0xFFFF)
-        && hex(bar).is_some_and(|b| b <= 5);
-    match (ok, hex(start), hex(end)) {
-        (true, Some(start), Some(end))
-            if start < end && start % 4 == 0 && end % 4 == 0 && end - start <= 64 << 20 =>
-        {
-            Ok(())
-        }
-        _ => Err(fail()),
-    }
+    pciprobe::parse_range(range).map(|_| ()).ok_or_else(|| {
+        format!("LAZYOS_DBGD_MMIO_ALLOW entry {range:?}: expected VVVV:DDDD:BAR:START-END in hex, dword aligned, at most 64 MiB")
+    })
 }
 
 /// The `diag.dbg.mmio*` lines: nothing unless `mmio` (the sub-switches

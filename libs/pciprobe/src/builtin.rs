@@ -32,6 +32,9 @@ const fn r(vendor: u16, device: u16, bar: u8, start: u64, end: u64) -> Range {
 /// input status 1 at `0x41a` resets the attribute controller's flip-flop.
 const STD_VGA: u16 = 0x1111;
 const QEMU: u16 = 0x1234;
+// BAR0 (the 16 MiB framebuffer) is deliberately not listed: the display
+// path maps it write-combining, and an uncached alias of the same frames
+// is a memory-type alias the SDM calls unsupported (docs/dbgd-plan.md).
 
 /// Intel HD Graphics 620 (Kaby Lake GT2, `8086:5916`), BAR0 (GTTMMADR):
 /// registers in the low 8 MiB, the global GTT above.
@@ -42,15 +45,19 @@ const QEMU: u16 = 0x1234;
 ///
 /// * `0xC5100..0xC5130`: PCH GMBUS (the data register, `GMBUS3`, pops a
 ///   byte from the I2C FIFO when read);
-/// * `0x65050..0x65058`: `HSW_AUD_EDID_DATA`, the ELD read port (an indexed
-///   register that advances on each read).
+/// * `0x65050`, `0x65150` and `0x65250` (8 bytes each): `HSW_AUD_EDID_DATA`
+///   of transcoders A, B and C, the ELD read port (an indexed register that
+///   advances on each read).
+///
+/// The pipe B/C, transcoder and audio blocks sit behind display power wells:
+/// read `HSW_PWR_WELL_CTL` (`0x45400`) first, because a gated well may not
+/// return cleanly.
 const INTEL: u16 = 0x8086;
 const HD620: u16 = 0x5916;
 
 /// The table, sorted by `(vendor, device, bar, start)` and non-overlapping
 /// (the tests check both).
 pub const RANGES: &[Range] = &[
-    r(QEMU, STD_VGA, 0, 0x0000_0000, 0x0100_0000),
     r(QEMU, STD_VGA, 2, 0x0000_0000, 0x0000_0400),
     r(QEMU, STD_VGA, 2, 0x0000_0500, 0x0000_0520),
     // Forcewake acknowledge bits.
@@ -70,7 +77,9 @@ pub const RANGES: &[Range] = &[
     // Transcoder timings, DDI buffers, AUX channel, DPLLs, pipe CRC, audio
     // configuration (less the ELD port), pipes and planes.
     r(INTEL, HD620, 0, 0x0006_0000, 0x0006_5050),
-    r(INTEL, HD620, 0, 0x0006_5058, 0x0008_0000),
+    r(INTEL, HD620, 0, 0x0006_5058, 0x0006_5150),
+    r(INTEL, HD620, 0, 0x0006_5158, 0x0006_5250),
+    r(INTEL, HD620, 0, 0x0006_5258, 0x0008_0000),
     // PCH display: south interrupt registers, clock gating, LCPLL (less
     // GMBUS).
     r(INTEL, HD620, 0, 0x000C_0000, 0x000C_5100),

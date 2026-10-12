@@ -1,6 +1,6 @@
 //! Fuzz entry point: untrusted bytes in, no panic and no escape out.
 
-use crate::{check_config, format_bdf, parse_bdf, parse_range, Policy, MAX_MMIO_BYTES};
+use crate::{format_bdf, parse_bdf, parse_range, Policy, MAX_MMIO_BYTES};
 
 /// Feed `data` to the config parser, the BDF and range parsers and the
 /// planner. Invariants: nothing panics; every segment of a plan lies inside
@@ -25,7 +25,7 @@ pub fn run(data: &[u8]) {
     };
     let (vendor, device) = (word(0) as u16, (word(0) >> 16) as u16);
     let (offset, len) = (word(8), word(16) % (2 * MAX_MMIO_BYTES));
-    let _ = check_config(word(24), word(32));
+    let _ = policy.check_config(word(24), word(32));
     let candidates = [policy.clone(), Policy::with_ranges(false, policy.extra())];
     // Aim at a real built-in device too, so the allow path is exercised.
     for built in crate::builtin::RANGES.iter().take(1) {

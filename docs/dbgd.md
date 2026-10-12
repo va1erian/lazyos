@@ -51,7 +51,7 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 usb              # xHCI regs, por
 | `tasks`, `sysinfo`, `mem`, `fabric` | scheduler, kernel statistics, memory, Messenger counters |
 | `devices`, `drivers` | PCI inventory with owner and rights; `devd`'s match and driver state |
 | `usb` | `USBD:DUMP:HC` / `PORT` / `DEV`: controller registers, port status, slot and endpoint 0 state |
-| `pci-config BDF [OFFSET [LEN]]` | read-only PCI configuration space of a function (`devices` shows the BDFs), 256 bytes at most, no claim; works while a driver owns the device |
+| `pci-config BDF [OFFSET [LEN]]` | read-only PCI configuration space of a function (`devices` shows the BDFs): the 64-byte header, all 256 bytes on an image built with `LAZYOS_DBGD_MMIO=1`; no claim, works while a driver owns the device |
 | `mmio BDF BAR OFFSET [LEN]` | read-only 32-bit register reads of allowlisted BAR ranges; needs an image built with `LAZYOS_DBGD_MMIO=1` (below) |
 | `hw` | the `HW:*` verdicts of the boot log |
 | `msg-registry`, `msg-services`, `msg-topics`, `topic NAME` | Messenger: names, supervised services, topics, one retained value |
@@ -77,7 +77,7 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 pci-config 00:02.0 0 256
 python tools/dbg/dbgctl.py --host 192.168.1.50 mmio 00:02.0 0 0x70008 16   # BDF BAR OFFSET LEN
 ```
 
-Config space needs nothing but `diag.dbg=1`. MMIO needs the box built with
+Config space needs `diag.dbg=1` for the 64-byte header; bytes 0x40..0x100 and MMIO need the box built with
 `LAZYOS_DBGD_MMIO=1` (`run_demo.py --dbgd-mmio`, or the launcher's *dbgd
 register reads* checkbox) because a register read can wedge hardware, and it
 only answers inside ranges listed for that exact `vendor:device` and BAR:

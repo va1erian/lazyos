@@ -110,6 +110,10 @@ def make_vars() -> dict:
         # Its register reads of allowlisted ranges (LAZYOS_DBGD_MMIO, run_demo
         # --dbgd-mmio): off unless ticked; PCI config reads need no switch.
         "dbgd_mmio": b(value=False),
+        # ...also of devices a driver has claimed (LAZYOS_DBGD_MMIO_CLAIMED),
+        # and extra readable ranges (LAZYOS_DBGD_MMIO_ALLOW): Advanced.
+        "dbgd_mmio_claimed": b(value=False),
+        "dbgd_mmio_allow": s(value=""),
         # Wi-Fi: wifid and its firmware (LAZYOS_WIFI, run_demo --wifi; implies
         # networking).
         "wifi": b(value=False),
