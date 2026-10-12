@@ -23,6 +23,9 @@ membook = { path = "../libs/membook" }
 # The ext2 driver, shared with the host image build (docs/filesystem-plan.md F2);
 # fs/ext2/fsimpl.rs adapts it to the VFS.
 ext2fs = { path = "../libs/ext2fs" }
+# GUID Partition Tables (docs/grub-install-plan.md K2): `block::gpt` reads a
+# disk behind a protective MBR with the parser lazyos-install uses.
+gpt = { path = "../libs/gpt" }
 # The user-space filesystem protocol of syscall 35 (docs/smb-plan.md F1), the
 # same records and payload codecs the daemons link; the suite also serves the
 # library's in-memory tree through the real kernel path.

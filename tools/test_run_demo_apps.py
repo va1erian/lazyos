@@ -65,6 +65,19 @@ class OptInAppTests(RunDemoCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_PICTURES"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
 
+    def test_installer_builds_it_and_writes_the_stick(self) -> None:
+        with mock.patch.object(run_demo, "build_installer", return_value=True) as build:
+            self.assertEqual(self.run_main("--installer")[0], 0)
+        build.assert_called_once()
+        env = self.builds[-1]
+        for switch in ("LAZYOS_INSTALLER", "LAZYOS_USB_IMAGE", "LAZYOS_USB"):
+            self.assertEqual(env.get(switch), "1", switch)
+
+    def test_a_failed_installer_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_installer", return_value=False):
+            self.assertEqual(self.run_main("--installer")[0], 1)
+        self.assertEqual(self.builds, [])
+
 
 if __name__ == "__main__":
     unittest.main()

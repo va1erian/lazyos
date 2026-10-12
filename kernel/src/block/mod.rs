@@ -24,6 +24,7 @@
 pub mod ahci;
 pub mod ata;
 mod dma;
+pub mod gpt;
 pub mod iowait;
 pub mod mem;
 pub mod nvme;

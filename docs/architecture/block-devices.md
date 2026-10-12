@@ -140,6 +140,17 @@ entry point for a disk that appears after boot (the USB stick through `usbd`):
 it registers `<disk>p<n>` once per disk and refuses partition devices. Tests:
 `partition_*` in `tests/partition_suite.rs`.
 
+**GPT (`block/gpt.rs` over `libs/gpt`, docs/grub-install-plan.md K2).** A
+sector 0 with a `0xEE` entry (protective or hybrid MBR) sends the disk to the
+GPT reader: header CRC, entry-array CRC, every LBA field inside the disk and
+consistent, the array clear of the usable area; a bad primary falls back to
+the backup header in the last sector. Entries outside the usable area or
+overlapping another are dropped and logged. The ESP, Microsoft basic data
+and Linux data/root/home types register as `<disk>p<n>` with the GPT index
+(`ahci0p3`, `nvme0p12`); others (swap, BIOS boot, LVM) are not offered. When
+neither copy reads, the MBR's own entries are used, as Linux does with a
+hybrid MBR. Tests: `partition_gpt_*` in `tests/gpt_suite.rs`.
+
 **Ramdisk (#5, the USB stick's RAM root).** The bootloader hands over a
 ramdisk: the USB stick image's whole-disk image (MBR, FAT `lazyos.cfg`, ext2 OS
 volume; [`../usb-stick.md`](../usb-stick.md)) or a bare FAT image from

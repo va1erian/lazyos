@@ -292,11 +292,12 @@ fn configured(
 
 /// The home volume named by `id`, never the root's own device.
 fn find_home(id: &VolumeId, root_device: &str, devices: Devices) -> Option<ext2::Ext2> {
-    find_ext2(devices, Some(root_device), |v| match id {
+    let (volume, device) = find_ext2(devices, Some(root_device), |v| match id {
         VolumeId::Uuid(uuid) => v.uuid() == *uuid,
         VolumeId::Label(label) => v.label() == *label,
-    })
-    .map(|(volume, _)| volume)
+    })?;
+    serial_println!("fs: home {} is {}", describe(id), device.name());
+    Some(volume)
 }
 
 /// FAT (or ext2) at `/`, ramfs at `/tmp`, an ext2 data disk at `/data`; the

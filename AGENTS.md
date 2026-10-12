@@ -920,6 +920,26 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --extra-arg=-no-shutdown
 ```
 
+## Installing beside Linux (`lazyos-install`, `LAZYOS_INSTALLER=1`)
+
+`tools/install` (`lazyos-install`, a static musl Linux program) installs the
+stick onto two GPT partitions of a disk Linux owns and adds a LazyOS entry to
+that Linux's GRUB ([`docs/installing-beside-linux.md`](docs/installing-beside-linux.md),
+plan [`docs/grub-install-plan.md`](docs/grub-install-plan.md)). It includes the
+`build_support/os_*.rs`/`usb_*.rs` modules by path (one set of manifest
+rules); GPT is `libs/gpt`, which the kernel reads disks with too
+(`block/gpt.rs`); the UEFI loader reads its files from its own directory
+(`vendor/bootloader/uefi/src/boot_dir.rs`). `--image FILE` (test mode) runs
+any command against a disk image, no root.
+
+```bash
+python tools/run_demo.py --desktop --installer --build-only   # the stick, with install/lazyos-install
+cargo test -p gpt -p lazyos-install
+python tools/install/run.py               # disk image, install, boot it alone on AHCI/OVMF, power off, host check, boot again
+python tools/install/test_judge.py        # the judge fails when it should
+LAZYOS_TEST_FILTER=partition python tools/test/run.py --accel none   # MBR + GPT kernel cases
+```
+
 ## Account attack harness
 
 `python tools/accounts/run.py` (issue #626, `docs/accounts-plan.md`) boots a

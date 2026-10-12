@@ -27,19 +27,17 @@ pub mod display_cfg;
 pub mod limits_cfg;
 #[path = "os_compose.rs"]
 mod os_compose;
+#[path = "os_source.rs"]
+mod os_source;
 #[path = "os_state.rs"]
 mod os_state;
 #[path = "trace_cfg.rs"]
 pub mod trace_cfg;
 
 use os_compose::{create, update};
-
-/// Where a file's bytes come from.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Source {
-    Path(PathBuf),
-    Bytes(Vec<u8>),
-}
+// `VolumeFile` is lazyos-install's (tools/install); the image build has none.
+#[allow(unused_imports)]
+pub use os_source::{Source, VolumeFile};
 
 /// One file of the OS volume: its absolute path, bytes, mode and owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,7 +316,7 @@ pub(crate) fn volume_error(what: &str, error: Ext2Error) -> String {
 /// Mount the OS volume for writing through a 64 MiB block cache: the build
 /// then writes each block once, in large requests, instead of rewriting the
 /// bitmaps and counters for every block it allocates.
-fn open_cached(io: FileIo) -> Result<Ext2, String> {
+pub fn open_cached(io: FileIo) -> Result<Ext2, String> {
     let mut config = ext2fs::CacheConfig::heap(16 * 1024);
     config.max_request = 1 << 20;
     Ext2::open_cached(Box::new(io), now, config).map_err(|e| volume_error("open", e))
@@ -419,11 +417,7 @@ pub fn write_volume(
         volume
             .mkdir_p(if parent.is_empty() { "/" } else { parent }, 0o755, 0, 0)
             .map_err(|e| volume_error(&format!("mkdir {parent}"), e))?;
-        let bytes = match &file.source {
-            Source::Bytes(bytes) => bytes.clone(),
-            Source::Path(path) => std::fs::read(path)
-                .map_err(|e| format!("read {} for {}: {e}", path.display(), file.path))?,
-        };
+        let bytes = file.source.read(&file.path)?;
         let Placement { uid, gid, .. } = file.placement;
         volume
             .write_file(&file.path, &bytes, file.mode, uid, gid, stamp)

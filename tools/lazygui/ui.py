@@ -106,6 +106,8 @@ class Launcher:
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
         self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
+        self._check(g, "  ...with lazyos-install, to install beside Linux (LAZYOS_INSTALLER)",
+                    "installer")
         self._check(g, "Linux programs dash/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")

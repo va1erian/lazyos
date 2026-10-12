@@ -43,12 +43,15 @@ PROGRESS = re.compile(r"(wrote|verified) (\d+) / (\d+) MiB")
 
 # ----- Logic (no Tk: tools/boot/test_stick_gui.py covers it) -------------
 
-def build_step(release: bool) -> dict:
-    """The build as a `Runner` step: the desktop stick image, nothing booted."""
+def build_step(release: bool, installer: bool = False) -> dict:
+    """The build as a `Runner` step: the desktop stick image, nothing booted;
+    with `installer`, `lazyos-install` on it too (docs/grub-install-plan.md)."""
     argv = [sys.executable, "-u", str(ROOT / "tools" / "run_demo.py"),
             "--desktop", "--usb-image", "--build-only"]
     if release:
         argv.append("--release")
+    if installer:
+        argv.append("--installer")
     return {"label": "build the stick image", "argv": argv}
 
 
@@ -124,6 +127,7 @@ def main() -> int:
     image_var = tk.StringVar(value=str(DEFAULT_IMAGE))
     image_info = tk.StringVar()
     release_var = tk.BooleanVar(value=True)
+    installer_var = tk.BooleanVar(value=False)
     home_var = tk.StringVar(value="1G")
     status_var = tk.StringVar(value="Ready.")
 
@@ -149,6 +153,8 @@ def main() -> int:
     opts.pack(fill="x")
     ttk.Checkbutton(opts, text="Release build (for real hardware)",
                     variable=release_var).pack(side="left")
+    ttk.Checkbutton(opts, text="Installer (beside Linux)",
+                    variable=installer_var).pack(side="left", padx=(6, 0))
     ttk.Label(opts, text="   /home size:").pack(side="left")
     ttk.Combobox(opts, textvariable=home_var, values=HOME_SIZES, width=6).pack(side="left")
     build_btn = ttk.Button(opts, text="Build image")
@@ -231,7 +237,7 @@ def main() -> int:
     def on_build() -> None:
         say("\n")
         status_var.set("Building… (the first build takes a while)")
-        start("build", build_step(release_var.get()), build_env(home_var.get().strip() or "1G"))
+        start("build", build_step(release_var.get(), installer_var.get()), build_env(home_var.get().strip() or "1G"))
 
     def on_write() -> None:
         image = Path(image_var.get())

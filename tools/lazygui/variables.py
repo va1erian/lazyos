@@ -71,6 +71,7 @@ def make_vars() -> dict:
         "xui_autostart": s(value=""),
         "lazyrad": b(value=False),
         "usb_image": b(value=False),
+        "installer": b(value=False),
         # LazyShell on the desktop profile (issue #157); unchecked = LAZYOS_SHELL=0.
         "shell": b(value=True),
         "lazyrad_samples": s(value=""),

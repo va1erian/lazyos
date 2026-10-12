@@ -1,0 +1,69 @@
+name: install-beside-linux
+
+# docs/grub-install-plan.md I3: build the desktop stick, install it with
+# `lazyos-install --image` into a Linux-shaped GPT disk whose ESP boots real
+# GRUB (grub-mkstandalone, a Debian-shaped grub.cfg, `next_entry` as
+# grub-reboot writes it), boot that disk alone on AHCI under OVMF, power off,
+# check both volumes from the host, check the next boot is the "Linux"
+# default, and boot LazyOS again (tools/install/run.py).
+
+on:
+  pull_request:
+    paths:
+      - "tools/install/**"
+      - "libs/gpt/**"
+      - "kernel/src/block/**"
+      - "kernel/src/fs/mounts.rs"
+      - "vendor/bootloader/uefi/**"
+      - "build_support/os_*.rs"
+      - "build_support/usb_*.rs"
+      - ".github/workflows/install.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  install:
+    name: install beside Linux and boot it (GRUB, OVMF, AHCI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools ovmf grub-efi-amd64-bin grub-common
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: install
+          workspaces: |
+            . -> target
+            xui-app -> target
+
+      - uses: ./.github/actions/busybox
+
+      - name: Build the desktop apps
+        run: python tools/xui/build.py
+
+      - name: The judge fails when it should
+        run: python tools/install/test_judge.py
+
+      - name: Install and boot (GRUB)
+        run: python tools/install/run.py --via grub
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-beside-linux
+          path: |
+            shots/install/**/*.log
+            shots/install/**/*.json
+            shots/install/**/*.png
+          if-no-files-found: warn

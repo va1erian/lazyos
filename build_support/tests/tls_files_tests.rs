@@ -7,7 +7,7 @@ use crate::ca_bundle::{
     pem_encode,
 };
 use crate::hosts_embed::{hosts_file, parse_hosts, valid_name, BASE};
-use crate::os_image::{Manifest, OsFiles, Source};
+use crate::os_image::{Manifest, OsFiles};
 
 /// A minimal DER `SEQUENCE` that passes the shape check.
 fn fake_der(len: usize) -> Vec<u8> {
@@ -189,10 +189,7 @@ fn test_hosts_are_validated_and_canonicalised() {
 
 fn bytes_of(files: &OsFiles, path: &str) -> Option<Vec<u8>> {
     let file = files.files().into_iter().find(|file| file.path == path)?;
-    Some(match file.source {
-        Source::Bytes(bytes) => bytes,
-        Source::Path(path) => std::fs::read(path).unwrap(),
-    })
+    Some(file.source.read(path).unwrap())
 }
 
 /// Every environment-driven case in one test: the switches are process-wide.

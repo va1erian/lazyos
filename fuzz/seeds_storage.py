@@ -211,3 +211,19 @@ def ahci_seeds():
         "hostile_ones": bytes([2]) + b"\xff" * 64,
         "empty": b"",
     }
+
+
+def gpt_seeds():
+    """`libs/gpt/src/fuzz.rs` input: mode 1 scripts a valid table (disk size,
+    partition count, each one's gap, length and GUID byte) then damage
+    triples (head or tail, offset, byte); mode 0 is a raw disk."""
+    four = bytes([1, 8, 4]) + bytes([1, 6, 9, 0, 9, 3, 2, 7, 4, 4, 12, 5])
+    return {
+        "one_partition": bytes([1, 4, 1, 0, 15, 1, 0]),
+        "four_partitions": four + bytes([0]),
+        "primary_header_hit": four + bytes([1, 0, 0x02, 0x18, 0xFF]),
+        "backup_array_hit": four + bytes([1, 1, 0x00, 0x20, 0x00]),
+        "both_hit": four + bytes([2, 0, 0x02, 0x10, 0x00, 1, 0x40, 0x00, 0x7F]),
+        "raw_zero_disk": bytes([0]) + bytes(512),
+        "empty": b"",
+    }

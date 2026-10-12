@@ -99,6 +99,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_BLOCK_CACHE_KB` | Block-cache size in KiB; `0` mounts uncached. | - |
 | `LAZYOS_RAMDISK` | Path to a FAT image loaded as the bootloader ramdisk (registered as the `ram0` fallback block device). | - |
 | `LAZYOS_USB_IMAGE` | Build the image as a USB stick (`/home` on the stick). Needs `LAZYOS_USB` and either `LAZYOS_SERVICES` or `LAZYOS_DESKTOP`. | `--usb-image` |
+| `LAZYOS_INSTALLER` | Put `lazyos-install` (built by `tools/install/build.py`) on the stick's FAT partition, to install it beside Linux behind GRUB ([installing-beside-linux.md](installing-beside-linux.md)). | `--installer` |
 | `LAZYOS_USB_HOME_SIZE`, `LAZYOS_USB_ROOT_FREE` | Sizes for the stick's home volume and spare root space. | - |
 | `LAZYOS_DIAG_HOLD` | Seconds (1..600) `xuid` keeps the boot-log panes on screen before the desktop opens, for PCs with no serial port (`diag.hold` in `lazyos.cfg`). | - |
 

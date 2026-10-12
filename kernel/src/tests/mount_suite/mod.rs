@@ -74,6 +74,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "mount_ramdisk_preference_soak",
         ramdisk_root::soak_preference_is_deterministic,
     ),
+    (
+        "mount_ramdisk_cfg_disk_root",
+        ramdisk_root::config_ramdisk_disk_root,
+    ),
+    (
+        "mount_ramdisk_cfg_disk_root_soak",
+        ramdisk_root::soak_config_ramdisk_disk_root,
+    ),
 ];
 
 /// A UUID whose bytes are `seed` repeated, with the matching text form.

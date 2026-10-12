@@ -1,0 +1,36 @@
+[package]
+name = "lazyos-install"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Install LazyOS beside Linux, behind the existing GRUB (docs/grub-install-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "lazyos-install"
+path = "src/main.rs"
+
+[dependencies]
+# The OS volume is formatted, populated and updated with the code that makes
+# every other OS volume (`build_support/os_*.rs`, included by path, decision
+# 5): the ext2 driver with its checker, and what those modules name.
+ext2fs = { path = "../../libs/ext2fs", features = ["check"] }
+fhs = { path = "../../libs/fhs", features = ["alloc"] }
+accountdb = { path = "../../libs/accountdb" }
+tracefmt = { path = "../../libs/tracefmt" }
+lazypkg = { path = "../../libs/lazypkg" }
+getrandom = "0.4.3"
+# The stick's ramdisk FAT (`lazyos.cfg`), the config ramdisk, and the ESP of a
+# disk image in test mode; the version `bootloader` and the build use.
+fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
+# The GPT reader the kernel uses (K2): partition names, types and extents.
+gpt = { path = "../../libs/gpt" }
+# SHA-256 of the ESP files (step 8).
+lazyos-crypto = { path = "../../libs/crypto" }
+
+[target.'cfg(unix)'.dependencies]
+# statvfs (ESP free space) and fsync of directories.
+libc = "0.2"

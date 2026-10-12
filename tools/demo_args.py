@@ -137,6 +137,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="also write target/lazyos-usb.img, the image for a real PC's "
                              "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
+    parser.add_argument("--installer", action="store_true",
+                        help="put lazyos-install on the USB stick (LAZYOS_INSTALLER=1; implies "
+                             "--usb-image; builds it with tools/install/build.py): from Linux it "
+                             "installs the stick beside Linux, behind GRUB "
+                             "(docs/grub-install-plan.md)")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
@@ -249,6 +254,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # in every image.
     args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
+    # The installer travels on the stick.
+    args.usb_image = args.usb_image or args.installer
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

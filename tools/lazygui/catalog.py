@@ -19,7 +19,7 @@ from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
@@ -225,10 +225,13 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
-    if cfg.get("usb_image"):
+    if cfg.get("usb_image") or cfg.get("installer"):
         # Also writes target/lazyos-usb.img, the real-PC USB stick image
         # (docs/usb-stick.md); the run itself still boots target/lazyos.img.
+        # The installer (beside Linux, docs/grub-install-plan.md) rides on it.
         env["LAZYOS_USB_IMAGE"] = "1"
+        if cfg.get("installer"):
+            env["LAZYOS_INSTALLER"] = "1"
         # The stick ships `usbd` and boots `init` to start it: the target PC
         # may have no PS/2 port (the build refuses otherwise).
         env["LAZYOS_USB"] = "1"
@@ -380,7 +383,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.
             argv.append("--lazysky")
-        argv += desktop_app_argv(cfg) + login_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
+        argv += desktop_app_argv(cfg) + login_argv(cfg) + installer_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

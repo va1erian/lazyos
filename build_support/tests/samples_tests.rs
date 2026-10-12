@@ -1,7 +1,7 @@
 //! The sample files every image ships in `/system/share/samples`: the
 //! generated ones (`samples_embed`) and the binary ones (assets).
 
-use crate::os_image::{OsFiles, Sink, Source};
+use crate::os_image::{OsFiles, Sink};
 
 fn samples() -> OsFiles {
     let mut files = OsFiles::default();
@@ -20,10 +20,7 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
         .into_iter()
         .find(|file| file.path == path)
         .unwrap_or_else(|| panic!("{path} is not shipped"));
-    match file.source {
-        Source::Bytes(bytes) => bytes,
-        Source::Path(path) => std::fs::read(path).unwrap(),
-    }
+    file.source.read(path).unwrap()
 }
 
 #[test]
