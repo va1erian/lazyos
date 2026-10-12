@@ -18,6 +18,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -108,10 +109,11 @@ fn control_allowed() -> bool {
 }
 
 fn denied(name: &str, why: &str) -> Error {
-    sys::write_str(&format!(
-        "INIT:RELOAD:DENIED service={} reason=\"{why}\"\n",
+    trace::line!(
+        trace::Channel::Init,
+        "RELOAD:DENIED service={} reason=\"{why}\"",
         elevpolicy::audit::token(name)
-    ));
+    );
     Error::Errno(-errno::EPERM)
 }
 
@@ -140,9 +142,10 @@ fn target(services: &[Service], message: &Message, name: &str) -> messenger::Res
 /// checking it is the binary the client hashed. Returns the copy's path.
 fn install(name: &str, staged: &str, sha256: &str) -> messenger::Result<String> {
     let invalid = |why: &str| {
-        sys::write_str(&format!(
-            "INIT:RELOAD:FAIL service={name} reason=\"{why}\"\n"
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "RELOAD:FAIL service={name} reason=\"{why}\""
+        );
         Error::Errno(-errno::EINVAL)
     };
     if !control::is_staged_path(name, staged) {
@@ -198,7 +201,7 @@ pub(super) fn reload(services: &mut [Service], message: &Message) -> messenger::
     let index = target(services, message, &args.name)?;
     let row = &mut services[index];
     if args.binary.is_empty() {
-        sys::write_str(&format!("INIT:RELOAD:RESTART service={}\n", row.name));
+        trace::line!(trace::Channel::Init, "RELOAD:RESTART service={}", row.name);
     } else {
         let path = install(row.name, &args.binary, &args.sha256)?;
         let ms = u64::from(args.trial_ms).clamp(control::TRIAL_MIN_MS, control::TRIAL_MAX_MS);
@@ -225,7 +228,7 @@ pub(super) fn revert(services: &mut [Service], message: &Message) -> messenger::
     let row = &mut services[index];
     if row.hot.binary.is_some() {
         drop_binary(row, "reverted", "");
-        sys::write_str(&format!("INIT:RELOAD:REVERT service={}\n", row.name));
+        trace::line!(trace::Channel::Init, "RELOAD:REVERT service={}", row.name);
     }
     let pid = restart_now(row)?;
     let body = services::init::wire::encode_revert_service_reply(
@@ -268,10 +271,11 @@ fn drop_binary(row: &mut Service, state: &'static str, detail: &str) {
 }
 
 fn rollback(row: &mut Service, why: &str) {
-    sys::write_str(&format!(
-        "INIT:RELOAD:ROLLBACK service={} reason=\"{why}\"\n",
+    trace::line!(
+        trace::Channel::Init,
+        "RELOAD:ROLLBACK service={} reason=\"{why}\"",
         row.name
-    ));
+    );
     drop_binary(row, "rolled-back", why);
 }
 
@@ -279,10 +283,13 @@ fn rollback(row: &mut Service, why: &str) {
 pub(super) fn spawned(row: &mut Service) {
     if let Some(ticks) = row.hot.trial_ticks.take() {
         row.hot.trial_until = Some(row.started_tick + ticks);
-        sys::write_str(&format!(
-            "INIT:RELOAD:TRIAL service={} pid={} sha256={} ticks={ticks}\n",
-            row.name, row.pid, row.hot.sha256
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "RELOAD:TRIAL service={} pid={} sha256={} ticks={ticks}",
+            row.name,
+            row.pid,
+            row.hot.sha256
+        );
     }
 }
 
@@ -317,10 +324,13 @@ pub(super) fn sweep(services: &mut [Service], now: u64) {
         if due && row.phase == Phase::Running {
             row.hot.trial_until = None;
             row.hot.state = Some("committed");
-            sys::write_str(&format!(
-                "INIT:RELOAD:COMMIT service={} pid={} sha256={}\n",
-                row.name, row.pid, row.hot.sha256
-            ));
+            trace::line!(
+                trace::Channel::Init,
+                "RELOAD:COMMIT service={} pid={} sha256={}",
+                row.name,
+                row.pid,
+                row.hot.sha256
+            );
         }
     }
 }

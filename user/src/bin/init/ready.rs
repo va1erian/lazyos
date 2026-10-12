@@ -12,7 +12,7 @@
 //! after [`READY_TIMEOUT_TICKS`] (`INIT:READY:LATE`), so a hung service
 //! delays its dependents, never the boot.
 
-use alloc::format;
+use user::trace;
 
 use user::messenger::Message;
 use user::sys;
@@ -65,11 +65,12 @@ pub(super) fn observe(services: &mut [Service], message: &Message) -> bool {
         return false;
     }
     row.ready = true;
-    sys::write_str(&format!(
-        "INIT:READY name={} ticks={}\n",
+    trace::line!(
+        trace::Channel::Init,
+        "READY name={} ticks={}",
         row.name,
         sys::clock().saturating_sub(row.started_tick)
-    ));
+    );
     true
 }
 
@@ -84,7 +85,7 @@ pub(super) fn expire(services: &mut [Service], now: u64) -> bool {
         {
             row.ready = true;
             any = true;
-            sys::write_str(&format!("INIT:READY:LATE name={}\n", row.name));
+            trace::line!(trace::Channel::Init, "READY:LATE name={}", row.name);
         }
     }
     any

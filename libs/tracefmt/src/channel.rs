@@ -42,6 +42,7 @@ channels! {
     Accounts => "ACCOUNTS",
     App => "APP",
     Archiver => "ARCHIVER",
+    Async => "ASYNC",
     Audio => "AUDIO",
     Audiod => "AUDIOD",
     Beep => "BEEP",
@@ -125,6 +126,7 @@ channels! {
     Sysmond => "SYSMOND",
     Term => "TERM",
     Test => "TEST",
+    Theme => "THEME",
     Timectl => "TIMECTL",
     Timed => "TIMED",
     Tls => "TLS",
@@ -135,6 +137,12 @@ channels! {
     Volume => "VOLUME",
     Web => "WEB",
     Widget => "WIDGET",
+    Wifid => "WIFID",
+    Wifi => "WIFI",
+    Wifictl => "WIFICTL",
+    Wifiprobe => "WIFIPROBE",
+    Wifisim => "WIFISIM",
+    Wlanmd => "WLANMD",
     Writer => "WRITER",
     Xdemo => "XDEMO",
     Xuiapp => "XUIAPP",
@@ -192,7 +200,7 @@ impl Channel {
     /// prints one `SUPPRESSED` line per window instead.
     pub const fn rate(self) -> Option<Rate> {
         match self {
-            Channel::Ui | Channel::Label | Channel::Usbd => Some(Rate {
+            Channel::Ui | Channel::Label => Some(Rate {
                 lines: 40,
                 window: 1000,
             }),

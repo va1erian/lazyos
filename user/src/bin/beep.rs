@@ -29,6 +29,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use audioclient::{Params, PlaybackStream, UNITY_GAIN};
 use pcm::tone::Tone;
@@ -139,20 +140,21 @@ pub extern "C" fn _start() -> ! {
         Mode::Probe => (
             "BEEP:PROBE",
             probe::run()
-                .map(|checks| sys::write_str(&format!("BEEP:PROBE:PASS checks={checks}\n"))),
+                .map(|checks| trace::print!(trace::Channel::Beep, "PROBE:PASS checks={checks}")),
         ),
         Mode::Intruder { stream } => (
             "BEEP:INTRUDER",
-            probe::run_intruder(stream).map(|()| sys::write_str("BEEP:INTRUDER:PASS\n")),
+            probe::run_intruder(stream)
+                .map(|()| trace::print!(trace::Channel::Beep, "INTRUDER:PASS")),
         ),
         Mode::Starve => (
             "BEEP:STARVE",
-            starve::run().map(|detail| sys::write_str(&format!("BEEP:STARVE:PASS {detail}\n"))),
+            starve::run().map(|detail| trace::print!(trace::Channel::Beep, "STARVE:PASS {detail}")),
         ),
         Mode::Soak(rounds) => (
             "BEEP:SOAK",
             soak::run(rounds)
-                .map(|done| sys::write_str(&format!("BEEP:SOAK:PASS iterations={done}\n"))),
+                .map(|done| trace::print!(trace::Channel::Beep, "SOAK:PASS iterations={done}")),
         ),
     };
     match outcome {
@@ -192,10 +194,12 @@ fn play(args: &Args) -> Result<(), String> {
     if played != total {
         return Err(format!("mixer played {played} of {total} frames"));
     }
-    sys::write_str(&format!(
-        "BEEP:PLAY:PASS freq={} rate={rate} channels={channels} volume={} frames={played}\n",
-        args.freq_hz, args.volume
-    ));
+    trace::print!(
+        trace::Channel::Beep,
+        "PLAY:PASS freq={} rate={rate} channels={channels} volume={} frames={played}",
+        args.freq_hz,
+        args.volume
+    );
     Ok(())
 }
 

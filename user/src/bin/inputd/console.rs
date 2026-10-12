@@ -11,8 +11,8 @@
 //! Serial: `INPUTD:CONSOLE:OPEN session=<id> owner=<slot> focused=<0|1>`,
 //! `INPUTD:CONSOLE:DENY owner=<slot>`.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::input::wire;
 use user::messenger::{errno, Endpoint, Error, Message, Result};
@@ -25,7 +25,11 @@ impl Hub {
     /// `events` is the endpoint the request carried.
     pub(super) fn open_console(&mut self, message: &Message, events: u64) -> Result<Vec<u8>> {
         if sys::input_console_owner() != Ok(message.sender) {
-            sys::write_str(&format!("INPUTD:CONSOLE:DENY owner={}\n", message.sender));
+            trace::line!(
+                trace::Channel::Inputd,
+                "CONSOLE:DENY owner={}",
+                message.sender
+            );
             return Err(Error::Errno(-errno::EACCES));
         }
         let opened = self
@@ -37,12 +41,13 @@ impl Hub {
         }
         self.delivery
             .insert(opened.session, Endpoint::from_raw(events));
-        sys::write_str(&format!(
-            "INPUTD:CONSOLE:OPEN session={} owner={} focused={}\n",
+        trace::line!(
+            trace::Channel::Inputd,
+            "CONSOLE:OPEN session={} owner={} focused={}",
             opened.session,
             message.sender,
             u8::from(opened.focused)
-        ));
+        );
         if opened.focused {
             self.enter(opened.session);
         }

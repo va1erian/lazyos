@@ -15,7 +15,7 @@
 //! name) and five tiers of hubs (`xhci::route`).
 
 use alloc::collections::VecDeque;
-use alloc::format;
+use user::trace;
 
 use usbhid::desc::{Config, Transfer, CLASS_HUB};
 use usbhid::hub::{self, feature, PortSpeed, PortStatus};
@@ -109,8 +109,9 @@ impl HubFn {
                 0
             },
         };
-        sys::write_str(&format!(
-            "USBD:HUB port={} slot={} ports={} reported={} speed={:?} mtt={} depth={}\n",
+        trace::line!(
+            trace::Channel::Usbd,
+            "HUB port={} slot={} ports={} reported={} speed={:?} mtt={} depth={}",
             device.name,
             device.slot,
             ports,
@@ -118,7 +119,7 @@ impl HubFn {
             device.at.speed,
             multi_tt,
             device.at.depth
-        ));
+        );
         let hub = HubFn {
             dci,
             ports,

@@ -17,22 +17,42 @@
 ///
 /// **The data path is not here.** Once the station is authorized, payload
 /// frames travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same
-/// driver serves to `netd` (the chip does the 802.3 to 802.11 conversion and
-/// the encryption). The NIC's link state follows this interface: it is down
-/// until `SetState(Authorized)`. A driver whose chip cannot convert frames is
-/// out of scope for v1.
+/// driver serves to `netd`. The 802.3 to 802.11 conversion happens below this
+/// interface: in the chip's firmware where it offers that, else in the
+/// driver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on
+/// the RTL8822CE. The NIC's link state follows this interface: it is down
+/// until `SetState(Authorized)`.
+///
+/// **Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,
+/// `<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which
+/// it serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi
+/// driver identities (`_wifi`, `_wifisim`) hold names there
+/// (`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing
+/// that namespace.
 ///
 /// **One client.** The first caller of `Attach` owns the radio; its identity
-/// is the kernel-stamped sender, and every later call or `Detach` by anyone
-/// else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
-/// or its event channel reporting the peer gone, detaches it and leaves the
-/// radio idle: scanning stops, the BSS is left, all keys are deleted.
+/// is the kernel-stamped sender, its task and its credentials (uid, label,
+/// session), all of which must match on every later call, and a call or
+/// `Detach` by anyone else fails with `EACCES` (a second attach with
+/// `EBUSY`). `Attach` is accepted from `_wlan` alone, unlabelled and outside
+/// any session (`netpolicy::may_attach_wifi_hw`; `EPERM` otherwise), so
+/// nobody can take the radio before `wlanmd` does; the simulator also lets
+/// its own test client (`wifiprobe`, running as `_wifisim`) attach. The
+/// owner's exit, or its event channel reporting the peer gone, detaches it
+/// and leaves the radio idle: scanning stops, the BSS is left, all keys are
+/// deleted.
 ///
 /// **Events.** `Attach` carries the client's event channel; the driver sends
 /// the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 /// `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 /// at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
-/// partially; one that does not fit is dropped and counted.
+/// partially; one that does not fit is dropped and counted. Anyone in radio
+/// range can forge frames from the BSS, so `RxMgmt` is rate-limited and is
+/// the first thing dropped when the client falls behind: `ScanDone`,
+/// `BeaconLoss` and `Deauthenticated` have room of their own and are kept
+/// until the client's inbox takes them (a repeat of a `BeaconLoss` or
+/// `Deauthenticated` the client has not read yet is folded into it). What is
+/// dropped is counted in `HwStats.mgmt_dropped`.
 ///
 /// **Keys cross this interface.** `SetKey` is the one place secret material
 /// (a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is
@@ -57,16 +77,21 @@ interface os.lazy.net.wifi.hw.v1 {
     /// where transmitting first is not universally allowed, no 6 GHz). The
     /// driver must not transmit on a channel the domain forbids and may refuse
     /// to transmit at all before the first call (`EAGAIN` from `Scan` with
-    /// active probing, `Join`, `TxMgmt`). A code it does not know is `EINVAL`.
-    /// The value comes from `wlanmd`, which reads `sys/net/wifi/country`;
-    /// the driver trusts nobody else for it.
+    /// active probing, `Join`, `TxMgmt`). A code that is not an assigned ISO
+    /// 3166-1 code (`ZZ`) is `EINVAL`. A new domain applies at once: a running
+    /// scan skips the channels it forbids and probes only where it allows,
+    /// and a joined BSS on a channel it forbids is left without transmitting
+    /// and reported as `Deauthenticated` (reason 3). The value comes from
+    /// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
+    /// else for it.
     method SetCountry(alpha2: String = 1) -> ();
     /// Start a scan. The reply is the id `ScanDone` and `ScanResults` name; it
     /// does not wait. Only one scan runs at a time (`EBUSY`). At most
     /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
     /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
     /// the radio or its domain does not have). A scan during an association
-    /// is allowed and may pause traffic for its dwell time.
+    /// is allowed and pauses traffic while the radio is on other channels:
+    /// nothing is sent to the BSS from another channel (see `TxMgmt`).
     method Scan(request: ScanRequest = 1) -> (scan_id: U32 = 1);
     /// Stop the running scan early; `ScanDone` follows with `aborted` set.
     /// Not an error when none runs.
@@ -74,7 +99,7 @@ interface os.lazy.net.wifi.hw.v1 {
     /// One page of a finished (or running) scan's results, in the order the
     /// radio heard them, from entry `first`; at most `max` entries (capped at
     /// 64). `more` says whether a later page holds entries. Each entry is the
-    /// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+    /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
     method ScanResults(scan_id: U32 = 1, first: U32 = 2, max: U32 = 3) -> (results: Array<ScanEntry> = 1, more: Bool = 2);
     /// Tune to the BSS's channel and filter to its address so `TxMgmt` and
@@ -87,21 +112,38 @@ interface os.lazy.net.wifi.hw.v1 {
     /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
     /// (the radio adds the 802.11 header and, once keys are installed, the
     /// encryption). Only while joined (`ENOTCONN`); a frame longer than
-    /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+    /// `HwInfo.max_mgmt` (or, as EAPOL, too long for the radio once
+    /// wrapped) is `EINVAL`. A management frame is from the station to the
+    /// joined BSS (receiver and BSSID, or broadcast in either for a probe
+    /// request), an EAPOL frame to the BSSID; anything else is `EINVAL`. The
+    /// reply means queued, not delivered: while a scan has the radio on
+    /// another channel, or on a passive channel before the BSS was heard
+    /// there, the frame waits (`EBUSY` when too many already wait), and a
+    /// full transmit queue is `EBUSY`. A frame goes out under the keys in
+    /// force when it was queued: message 4 of the 4-way handshake is queued
+    /// just before the pairwise key is installed and must leave unencrypted.
     method TxMgmt(kind: U32 = 1, frame: Bytes = 2) -> ();
     /// Move the radio's association state: a `StaState` ordinal. `Associated`
     /// carries the association id the AP assigned; `Authorized` opens the
     /// controlled port (data frames flow, the NIC's link comes up) and is
-    /// valid only after the pairwise key is installed. Going to a lower state
-    /// is always allowed and takes the link down.
+    /// valid only from `Associated`, and only after the pairwise key is
+    /// installed, or straight after `Associated` for an open network (no key
+    /// at all; a BSS whose scan entry or beacons advertised privacy or an RSN
+    /// element is never open, `EINVAL`). Going to a lower state is always
+    /// allowed and takes the link down; below `Associated` it deletes every
+    /// key.
     method SetState(state: U32 = 1, aid: U32 = 2) -> ();
     /// Install a key in a hardware slot. `kind` is a `KeyKind` ordinal,
     /// `index` the key id (pairwise 0, group 1 to 3, IGTK 4 to 5), `cipher`
     /// a `Cipher` ordinal the radio advertised, `key` its exact length,
     /// `rsc` the receive sequence counter the handshake delivered (little
     /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
-    /// group key). Replaces a key in the same slot atomically. `EINVAL` for a
-    /// length or index that does not fit, `ENOSPC` for no free slot.
+    /// group key). Replaces a key in the same slot atomically. The transmit
+    /// packet number belongs to the association, not the key: a new or
+    /// reinstalled pairwise key continues it, and only leaving the BSS starts
+    /// it over. `EINVAL` for a length or index that does not fit, `ENOSPC`
+    /// for no free slot; when the radio refuses a key, the slot is left
+    /// empty.
     method SetKey(kind: U32 = 1, index: U32 = 2, cipher: U32 = 3, key: Bytes = 4, rsc: Bytes = 5, addr: Bytes = 6) -> ();
     /// Remove a key; not an error when the slot is empty.
     method DelKey(kind: U32 = 1, index: U32 = 2) -> ();
@@ -117,8 +159,15 @@ interface os.lazy.net.wifi.hw.v1 {
     /// are readable with `ScanResults` until the next `Scan`.
     method ScanDone(scan_id: U32 = 1, aborted: Bool = 2) -> () oneway;
     /// Event, driver to client: a management or EAPOL frame addressed to this
-    /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
-    /// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+    /// station arrived from the joined BSS, and the client can be waiting for
+    /// it: an authentication or (re)association response only after
+    /// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
+    /// once the AP answered the association; a retransmission of the last
+    /// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
+    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
+    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
+    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
+    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
     method RxMgmt(kind: U32 = 1, rssi_dbm: I32 = 2, frame: Bytes = 3) -> () oneway;
     /// Event, driver to client: the radio stopped hearing the AP (the
     /// firmware's missed-beacon threshold). The client decides what to do.
@@ -175,7 +224,8 @@ interface os.lazy.net.wifi.hw.v1 {
 
     /// One heard frame: a beacon or probe response, unparsed.
     struct ScanEntry {
-        /// The complete management frame body (without FCS), as received.
+        /// The complete management frame, from the MAC header (the BSSID is
+        /// there), without FCS, as received.
         frame: Bytes = 1,
         /// The channel it was heard on (a number within `band`).
         channel: U32 = 2,
@@ -203,8 +253,8 @@ interface os.lazy.net.wifi.hw.v1 {
         scans: U64 = 1,
         mgmt_rx: U64 = 2,
         mgmt_tx: U64 = 3,
-        /// Frames dropped because the client's queue was full or a frame was
-        /// over `max_mgmt`.
+        /// Events dropped because the client's queue was full or `RxMgmt`
+        /// went over its rate, and frames over `max_mgmt`.
         mgmt_dropped: U64 = 4,
         beacon_losses: U64 = 5,
         deauths: U64 = 6,
@@ -258,9 +308,12 @@ interface os.lazy.net.wifi.hw.v1 {
 ///   `net.wifi.system`); a session user gets `EPERM`. `Connect` to a system
 ///   network is allowed to anyone (the secret never leaves `keyd`).
 ///
-/// **Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`;
-/// `wlanmd` passes it to `keyd` at once, keeps nothing and never logs it, and
-/// no method ever returns one. Everything else here is non-secret: SSIDs,
+/// **Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`
+/// with scope `User`; `wlanmd` passes it to `keyd` at once
+/// (`StoreSecretFor`), keeps nothing and never logs it, and no method ever
+/// returns one. A system network's passphrase never comes here: `elevd`
+/// stores it in `keyd` itself (`net.wifi.system`, under the profile id),
+/// and `keyd` refuses `wlanmd` a `system` secret. Everything else here is non-secret: SSIDs,
 /// BSSIDs, security type, signal. A profile is stored in `confd` (system
 /// networks under `sys/net/wifi/networks/<id>`, a user's under
 /// `user/<uid>/net/wifi/networks/<id>`); the secret lives in `keyd` under the
@@ -289,13 +342,19 @@ interface os.lazy.net.wifi.v1 {
     /// when the caller may use a known network. Profiles of other users are
     /// not shown. At most 128 entries.
     method Networks(ifname: String = 1) -> (list: Array<Network> = 1);
-    /// Remember a network and its secret. `profile.id` must be empty (the
-    /// service picks one and returns it); `scope` is a `Scope` ordinal. The
-    /// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
-    /// characters, or exactly 64 hex digits for a raw PSK) and must be absent
-    /// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
-    /// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
-    /// `EPERM` for scope `System` from anyone but `elevd`.
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
     method AddNetwork(profile: Profile = 1, passphrase: Option<String> = 2) -> (id: String = 1);
     /// Join the network `id` on `ifname`: leave the current one, scan if the
     /// SSID is not in the results, pick the best BSS, authenticate, associate
@@ -420,6 +479,9 @@ interface os.lazy.net.wifi.v1 {
     /// never came. `Deauthenticated`: the AP ended an established link.
     /// `BeaconLoss`: the AP went silent. `PolicyMismatch`: the AP's security
     /// settings differ between its beacon and the handshake. `Radio`: the
-    /// driver reported an error.
-    enum FailReason { None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio }
+    /// driver reported an error. `Unsupported`: the network asks for what
+    /// the station cannot do (a TKIP group cipher in WPA/WPA2 mixed mode,
+    /// management frame protection required, an AKM other than PSK).
+    /// Ordinals are append-only.
+    enum FailReason { None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio, Unsupported }
 }

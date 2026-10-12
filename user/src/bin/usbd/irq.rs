@@ -21,8 +21,8 @@
 //! that lands after the clear sets the flag again and raises a new interrupt,
 //! so none is missed between the drain and the next park.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::dev::{self, Row};
 use user::messenger::{self, wait, Endpoint, Error as MsgError};
@@ -66,7 +66,7 @@ pub(super) fn arm(hc: &mut Hc, endpoint: Option<Endpoint>) {
         return;
     };
     let Ok(mode) = dev::irq_enable(hc.handle) else {
-        sys::write_str(&format!("USBD:IRQ hc={} polled (no line)\n", hc.index));
+        trace::line!(trace::Channel::Usbd, "IRQ hc={} polled (no line)", hc.index);
         return;
     };
     // On MSI or MSI-X the kernel programmed the message; INTx needs the
@@ -79,7 +79,7 @@ pub(super) fn arm(hc: &mut Hc, endpoint: Option<Endpoint>) {
     }
     hc.enable_interrupter(IMOD);
     hc.irq = Some(endpoint);
-    sys::write_str(&format!("USBD:IRQ hc={} armed {mode:?}\n", hc.index));
+    trace::line!(trace::Channel::Usbd, "IRQ hc={} armed {mode:?}", hc.index);
 }
 
 /// Take and acknowledge every interrupt message already queued, without
@@ -99,10 +99,12 @@ fn acknowledge(hc: &mut Hc, buf: &mut [u8]) {
     };
     while let Ok(Some(message)) = endpoint.poll_recv_with(buf) {
         if message.sender != 0 || dev::parse_irq_body(&message.parcel.body).is_none() {
-            sys::write_str(&format!(
-                "USBD:IRQ:REJECT hc={} sender={}\n",
-                hc.index, message.sender
-            ));
+            trace::line!(
+                trace::Channel::Usbd,
+                "IRQ:REJECT hc={} sender={}",
+                hc.index,
+                message.sender
+            );
             continue;
         }
         hc.clear_interrupt();

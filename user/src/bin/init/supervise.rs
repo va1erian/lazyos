@@ -7,6 +7,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{router, services};
 use user::sys;
@@ -240,10 +241,10 @@ pub(super) fn child_exited(
     row.pid = 0;
     row.last_status = Some(status);
     if row.launched {
-        sys::write_str(&format!(
-            "INIT:LAUNCH:EXIT app={name} status={status}
-"
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:EXIT app={name} status={status}"
+        );
     }
     let outcome = decide(exit);
     match outcome {
@@ -259,11 +260,11 @@ pub(super) fn child_exited(
             // The machine-parseable restart/backoff marker: a crashing
             // supervised app (`/system/bin/flaky`) proves the path in a
             // headless boot.
-            sys::write_str(&format!(
-                "INIT:RESTART:PASS name={name} status={status} attempt={} delay={delay}
-",
+            trace::line!(
+                trace::Channel::Init,
+                "RESTART:PASS name={name} status={status} attempt={} delay={delay}",
                 restarts + 1
-            ));
+            );
             publish_state(broker, row, "restarting", 0, restarts, status, "");
         }
         Outcome::Failed { restarts, cause } => {
@@ -275,10 +276,10 @@ pub(super) fn child_exited(
                 cause.detail()
             ));
             if cause == svcpolicy::Cause::Exhausted {
-                sys::write_str(&format!(
-                    "INIT:RESTART:EXHAUSTED name={name} restarts={restarts}
-"
-                ));
+                trace::line!(
+                    trace::Channel::Init,
+                    "RESTART:EXHAUSTED name={name} restarts={restarts}"
+                );
             }
             publish_state(broker, row, "failed", 0, restarts, status, cause.detail());
         }
@@ -309,11 +310,12 @@ fn quit_completed(
     } else {
         "quit"
     };
-    sys::write_str(&format!(
-        "INIT:LAUNCH:EXIT app={} status={status} quit={}\n",
+    trace::line!(
+        trace::Channel::Init,
+        "LAUNCH:EXIT app={} status={status} quit={}",
         row.name,
         u8::from(!row.killed)
-    ));
+    );
     row.phase = Phase::Stopped;
     row.pid = 0;
     row.last_status = Some(status);

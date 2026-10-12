@@ -106,7 +106,9 @@ surfbuf = { path = "../libs/surfbuf" }
 # supply the LazyOS platform (filesystem, launcher, storage, clipboard) and
 # drive them.
 xui-code-editor = { path = "crates/code-editor" }
-xui-paint = { path = "crates/paint" }
+# The `text` feature is the Text tool's rasterizer (cosmic-text + swash, the
+# stack the software backend draws UI text with).
+xui-paint = { path = "crates/paint", features = ["text"] }
 # LazyWriter's app core (state, commands, file logic, widget tree); the
 # `writer` binary supplies the LazyOS platform through `xui_writer::Host`.
 xui-writer = { path = "crates/writer" }

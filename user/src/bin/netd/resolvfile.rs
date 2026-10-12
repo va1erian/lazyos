@@ -14,9 +14,9 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::files::{self, Kind};
-use user::sys;
 
 /// Ticks between attempts after a failed write.
 const RETRY_TICKS: u64 = 500;
@@ -55,11 +55,11 @@ impl ResolvFile {
         };
         match result {
             Ok(what) => {
-                sys::write_str(&format!("NETD:RESOLV {what}\n"));
+                trace::line!(trace::Channel::Netd, "RESOLV {what}");
                 self.written = Some(Vec::from(dns));
             }
             Err(message) => {
-                sys::write_str(&format!("NETD:RESOLV:FAIL {message}\n"));
+                trace::line!(trace::Channel::Netd, "RESOLV:FAIL {message}");
                 self.retry_at = tick + RETRY_TICKS;
             }
         }

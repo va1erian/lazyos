@@ -54,6 +54,7 @@ mod store;
 use alloc::format;
 use alloc::string::{String, ToString};
 use core::panic::PanicInfo;
+use user::trace;
 
 use accountdb::ratelimit::Limiter;
 use accountdb::{Db, User};
@@ -99,22 +100,24 @@ fn run() -> messenger::Result<()> {
     };
     match &state.db {
         Ok(db) => {
-            sys::write_str(&format!(
-                "ACCOUNTS:LOAD:PASS rows={} admins={} file={}\n",
+            trace::line!(
+                trace::Channel::Accounts,
+                "LOAD:PASS rows={} admins={} file={}",
                 db.users.len(),
                 db.admins(),
                 fhs::state::ACCOUNTS_DB
-            ));
+            );
             store::write_views(db);
             manage::ensure_homes(db);
             if db.needs_setup() {
-                sys::write_str("ACCOUNTS:SETUP:NEEDED no account yet\n");
+                trace::line!(trace::Channel::Accounts, "SETUP:NEEDED no account yet");
             }
         }
-        Err(reason) => sys::write_str(&format!(
-            "ACCOUNTS:LOAD:FAIL reason={reason} file={}; no account is served\n",
+        Err(reason) => trace::line!(
+            trace::Channel::Accounts,
+            "LOAD:FAIL reason={reason} file={}; no account is served",
             fhs::state::ACCOUNTS_DB
-        )),
+        ),
     }
     let mut health_sent = false;
     // Reused receive buffer: the user bump allocator never reclaims per-call

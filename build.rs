@@ -41,6 +41,8 @@ mod lazyweb_embed;
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]
 mod modplayer_embed;
+#[path = "build_support/netboot.rs"]
+mod netboot;
 #[path = "build_support/os_disk.rs"]
 mod os_disk;
 #[path = "build_support/os_image.rs"]
@@ -57,10 +59,10 @@ mod pictures_embed;
 mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
-#[path = "build_support/srb2kart_embed.rs"]
-mod srb2kart_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
 #[path = "build_support/ui_probe_embed.rs"]
@@ -69,6 +71,8 @@ mod ui_probe_embed;
 mod usb_fat;
 #[path = "build_support/usb_image.rs"]
 mod usb_image;
+#[path = "build_support/usb_payload.rs"]
+mod usb_payload;
 #[path = "build_support/usb_ramdisk.rs"]
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
@@ -81,19 +85,11 @@ use os_image::Sink;
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
-    let kernel_full =
-        PathBuf::from(std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact"));
-    // The bootloader reads the whole kernel file through BIOS calls, so the
-    // image carries only the loadable part; the full ELF stays in `target/`.
     let kernel = out_dir.join("kernel.trimmed");
-    let full = std::fs::read(&kernel_full).expect("read kernel artifact");
-    let trimmed = elf_trim::trim_to_loadable(&full).unwrap_or(full);
-    std::fs::write(&kernel, trimmed).expect("write trimmed kernel");
-    println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
-    println!("cargo:rerun-if-changed=build_support/drivers.rs");
-    for usb in ["usb_fat", "usb_image", "usb_ramdisk", "usb_stick"] {
-        println!("cargo:rerun-if-changed=build_support/{usb}.rs");
-    }
+    elf_trim::write_trimmed(&kernel);
+    usb_payload::track_sources();
+    // `LAZYOS_NETBOOT=1` names the build once, for `lazyos.cfg` and the payload.
+    let netboot_info = netboot::enabled().then(|| netboot::detect(&manifest_dir));
 
     // `LAZYOS_OS_SIZE` sizes the OS volume (a change needs `LAZYOS_RESET_OS=1`);
     // `LAZYOS_RESET_OS=1` recreates it instead of updating the existing image.
@@ -134,7 +130,8 @@ fn main() {
         (os_image::boot_cfg(plan.uuid, &os_image::limits_cfg::from_env())
             + &os_image::display_cfg::from_env()
             + &os_image::trace_cfg::from_env()
-            + &os_image::dbgd_cfg::from_env(&manifest_dir.join("target/dbgd.key")))
+            + &os_image::dbgd_cfg::from_env(&manifest_dir.join("target/dbgd.key"))
+            + &netboot::image_id_line(netboot_info.as_ref()))
             .into_bytes(),
     );
     let mut files = os_image::OsFiles::default();
@@ -350,7 +347,8 @@ fn main() {
 
     // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
     // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
-    drivers::embed(&mut files, desktop);
+    // `LAZYOS_WIFI=1` adds `wifid`, `wlanmd`, `wifictl` and the firmware.
+    drivers::embed(&mut files, desktop, &manifest_dir);
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default
@@ -465,13 +463,16 @@ fn main() {
         None => os_layout::parse_passwd(&String::from_utf8_lossy(accounts_seed::PASSWD)),
     };
     let dirs = os_layout::dirs(&accounts);
-    // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md): the same
-    // files on a RAM root, booted under UEFI or BIOS, plus a home partition.
-    if usb_image::enabled() {
-        let usb = manifest_dir.join("target").join("lazyos-usb.img");
-        usb_image::build(&kernel, &out_dir, &usb, &dirs, &files.files(), &accounts)
-            .unwrap_or_else(|error| panic!("USB image: {error}"));
-    }
+    // The USB stick image (`LAZYOS_USB_IMAGE=1`, docs/usb-stick.md) and the
+    // netboot payload (`LAZYOS_NETBOOT=1`, docs/netboot-plan.md N1), from one payload.
+    usb_payload::build_outputs(
+        &kernel,
+        &dirs,
+        &accounts,
+        &files.files(),
+        netboot_info.as_ref(),
+    )
+    .unwrap_or_else(|error| panic!("USB payload: {error}"));
     os_image::compose(
         &plan,
         &stable_image,

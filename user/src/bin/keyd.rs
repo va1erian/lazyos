@@ -71,6 +71,7 @@ use core::panic::PanicInfo;
 use user::messenger::keyd::wire as api;
 use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parcel};
 use user::sys;
+use user::trace;
 
 #[path = "keyd/secrets.rs"]
 mod secrets;
@@ -101,16 +102,16 @@ fn run() -> messenger::Result<()> {
     let mut keyd = Keyd::new().ok_or(Error::Errno(-errno::ENOMEM))?;
     keyd.seed_entropy();
     if !keyd.entropy.is_seeded() {
-        sys::write_str("KEYD:SELFTEST:FAIL:no entropy source\n");
+        trace::line!(trace::Channel::Keyd, "SELFTEST:FAIL:no entropy source");
         sys::exit(1);
     }
     load_db(&mut keyd);
     let mut secrets = Secrets::load(&mut keyd.entropy);
     match self_test(&mut keyd) {
-        Ok(()) => sys::write_str("KEYD:SELFTEST:PASS\n"),
+        Ok(()) => trace::line!(trace::Channel::Keyd, "SELFTEST:PASS"),
         // Keep serving: some operations may still be usable, and `init` would
         // restart a service that exits, hiding the failure in a crash loop.
-        Err(detail) => sys::write_str(&format!("KEYD:SELFTEST:FAIL:{detail}\n")),
+        Err(detail) => trace::line!(trace::Channel::Keyd, "SELFTEST:FAIL:{detail}"),
     }
     // Scrub the self-test's own keys and account before this instance starts
     // taking real requests: they must not consume the serving instance's
@@ -122,7 +123,7 @@ fn run() -> messenger::Result<()> {
 
     let (published, server) = messenger::create_pair()?;
     registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
-    sys::write_str("KEYD:READY\n");
+    trace::line!(trace::Channel::Keyd, "READY");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 
@@ -156,10 +157,11 @@ fn load_db(keyd: &mut Keyd) {
         Err(code) => Err(format!("unreadable errno={code}")),
     };
     match loaded {
-        Ok(rows) => sys::write_str(&format!("KEYD:SHADOW:PASS rows={rows} file={path}\n")),
-        Err(reason) => sys::write_str(&format!(
-            "KEYD:SHADOW:FAIL reason={reason} file={path}; no account can log in\n"
-        )),
+        Ok(rows) => trace::line!(trace::Channel::Keyd, "SHADOW:PASS rows={rows} file={path}"),
+        Err(reason) => trace::line!(
+            trace::Channel::Keyd,
+            "SHADOW:FAIL reason={reason} file={path}; no account can log in"
+        ),
     }
 }
 
@@ -290,7 +292,7 @@ fn dispatch(
         }
         api::METHOD_STORESECRET => {
             let args = api::decode_store_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::Store)?;
+            let owner = secret_owner(message, &args.scope, &args.name, Op::Store)?;
             let name = bounded_text(args.name)?;
             let secret = bounded_bytes(args.secret, MAX_BYTES)?;
             secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
@@ -298,14 +300,14 @@ fn dispatch(
         }
         api::METHOD_DELETESECRET => {
             let args = api::decode_delete_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::Delete)?;
+            let owner = secret_owner(message, &args.scope, &args.name, Op::Delete)?;
             let name = bounded_text(args.name)?;
             secrets.delete(&mut keyd.entropy, owner, &name)?;
             Ok(wire::ok_reply(api::METHOD_DELETESECRET))
         }
         api::METHOD_LISTSECRETS => {
             let args = api::decode_list_secrets_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::List)?;
+            let owner = secret_owner(message, &args.scope, "", Op::List)?;
             reply(
                 api::METHOD_LISTSECRETS,
                 api::encode_list_secrets_reply(&api::ListSecretsReply {
@@ -313,11 +315,33 @@ fn dispatch(
                 }),
             )
         }
+        api::METHOD_STORESECRETFOR => {
+            let args = api::decode_store_secret_for_args(body).map_err(parse)?;
+            let op = Op::StoreFor {
+                owner_uid: args.owner,
+            };
+            let owner = secret_owner(message, &args.scope, &args.name, op)?;
+            let name = bounded_text(args.name)?;
+            let secret = bounded_bytes(args.secret, MAX_BYTES)?;
+            secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
+            Ok(wire::ok_reply(api::METHOD_STORESECRETFOR))
+        }
+        api::METHOD_DELETESECRETFOR => {
+            let args = api::decode_delete_secret_for_args(body).map_err(parse)?;
+            let op = Op::DeleteFor {
+                owner_uid: args.owner,
+            };
+            let owner = secret_owner(message, &args.scope, &args.name, op)?;
+            let name = bounded_text(args.name)?;
+            secrets.delete(&mut keyd.entropy, owner, &name)?;
+            Ok(wire::ok_reply(api::METHOD_DELETESECRETFOR))
+        }
         api::METHOD_WIFIPMK => {
             let args = api::decode_wifi_pmk_args(body).map_err(parse)?;
             let owner = secret_owner(
                 message,
                 &args.scope,
+                &args.name,
                 Op::Pmk {
                     owner_uid: args.owner,
                 },
@@ -349,17 +373,18 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
     Ok(message.caller().uid)
 }
 
-/// Whose secret `op` on `scope` is about, if the sender may do it
+/// Whose secret `op` on `scope` and `name` is about, if the sender may do it
 /// (`secretstore::authorize`: the sender's kernel-stamped uid, label and
-/// session decide, never uid 0 or a capability).
-fn secret_owner(message: &Message, scope: &str, op: Op) -> messenger::Result<Owner> {
+/// session decide, never uid 0 or a capability; `wlanmd` names Wi-Fi
+/// profiles only).
+fn secret_owner(message: &Message, scope: &str, name: &str, op: Op) -> messenger::Result<Owner> {
     let caller = message.caller();
     let caller = Caller {
         uid: caller.uid,
         label_id: caller.label_id,
         session: caller.session,
     };
-    authorize(caller, scope, op).map_err(denied_error)
+    authorize(caller, scope, name, op).map_err(denied_error)
 }
 
 /// A text field within the accepted length.

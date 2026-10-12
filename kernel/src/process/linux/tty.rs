@@ -164,14 +164,13 @@ pub(super) fn write_pty(fd: u64, ptr: u64, len: u64) -> u64 {
         Ok(bytes) => bytes.to_vec(),
         Err(_) => return err(EFAULT),
     };
-    if master {
-        let (n, signals) = pty.master_write(&bytes);
-        for (signal, foreground) in signals {
-            crate::tty::signal_foreground(foreground, crate::tty::signal_number(signal));
-        }
-        return n as u64;
-    }
-    match pty.slave_write(&bytes, pty.nonblock(false)) {
+    let nonblock = pty.nonblock(master);
+    let wrote = if master {
+        pty.master_write(&bytes, nonblock)
+    } else {
+        pty.slave_write(&bytes, nonblock)
+    };
+    match wrote {
         Ok(n) => n as u64,
         Err(error) => pty_error(error),
     }

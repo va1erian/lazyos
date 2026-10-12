@@ -9,6 +9,7 @@ use alloc::string::String;
 use user::messenger::display::{self, Canvas, Color, DragKind, Rect};
 use user::messenger::{clipboard, errno, Error};
 use user::sys;
+use user::trace;
 
 use super::app::{attach, connect_clipboard, connect_display, is_timeout, App};
 use super::{H, PAYLOAD, PROBE_TICKS, W};
@@ -86,7 +87,7 @@ pub(super) fn target() -> ! {
         target_draw(canvas, &TargetState::default())
     });
     let mut state = TargetState::default();
-    sys::write_str("DND:TARGET:PASS\n");
+    trace::line!(trace::Channel::Dnd, "TARGET:PASS");
     loop {
         match app
             .events
@@ -131,7 +132,7 @@ fn receive_drop(
 ) {
     let Some(client) = clipboard else {
         state.status = "NO CLIPBOARD";
-        sys::write_str("DND:DROP:FAIL:no clipboardd\n");
+        trace::line!(trace::Channel::Dnd, "DROP:FAIL:no clipboardd");
         app.redraw(&|canvas| target_draw(canvas, state));
         return;
     };
@@ -141,20 +142,21 @@ fn receive_drop(
             state.size = bytes.len() as i64;
             if bytes == PAYLOAD {
                 state.status = "RECEIVED";
-                sys::write_str(&format!(
-                    "DND:DROP:PASS token={} mime={} bytes={}\n",
+                trace::line!(
+                    trace::Channel::Dnd,
+                    "DROP:PASS token={} mime={} bytes={}",
                     event.token,
                     event.mime,
                     bytes.len()
-                ));
+                );
             } else {
                 state.status = "MISMATCH";
-                sys::write_str("DND:DROP:FAIL:payload mismatch\n");
+                trace::line!(trace::Channel::Dnd, "DROP:FAIL:payload mismatch");
             }
         }
         Err(error) => {
             state.status = "DENIED";
-            sys::write_str(&format!("DND:DROP:FAIL:paste {}\n", error.message()));
+            trace::line!(trace::Channel::Dnd, "DROP:FAIL:paste {}", error.message());
         }
     }
     app.redraw(&|canvas| target_draw(canvas, state));
@@ -168,7 +170,7 @@ fn receive_drop(
 fn denial_probe(token: u64, mime: &str) {
     let token = format!("{token}");
     let Some(pid) = sys::spawn_native(fhs::bin::DRAGDEMO, &["probe", &token, mime]) else {
-        sys::write_str("DND:DENIED:FAIL:could not start the probe\n");
+        trace::line!(trace::Channel::Dnd, "DENIED:FAIL:could not start the probe");
         return;
     };
     let deadline = sys::clock() + PROBE_TICKS;
@@ -179,7 +181,7 @@ fn denial_probe(token: u64, mime: &str) {
             }
         }
     }
-    sys::write_str("DND:DENIED:FAIL:the probe did not exit\n");
+    trace::line!(trace::Channel::Dnd, "DENIED:FAIL:the probe did not exit");
 }
 
 impl Default for TargetState {

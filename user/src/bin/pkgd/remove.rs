@@ -5,11 +5,11 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use pkgstore::access::Caller;
 use pkgstore::{layout, provision, tree};
 use user::messenger::pkgd::{Failure, Installed};
-use user::sys;
 
 use super::handlers::{
     fail, registry_down, Pkgd, EAGAIN, EINVAL, EIO, ENOENT, EPERM, PROVISIONING,
@@ -50,13 +50,17 @@ impl Pkgd {
         match self.remove_row(&row) {
             Ok(()) => {
                 self.audit.record(&event("remove", &subject, uid, true, ""));
-                sys::write_str(&format!("PKGD:REMOVE:PASS {}\n", row.system_name));
+                trace::line!(trace::Channel::Pkgd, "REMOVE:PASS {}", row.system_name);
                 Ok(())
             }
             Err(failure) => {
                 self.audit
                     .record(&event("remove", &subject, uid, false, &failure.text));
-                sys::write_str(&format!("PKGD:REMOVE:FAIL {}\n", one_line(&failure.text)));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "REMOVE:FAIL {}",
+                    one_line(&failure.text)
+                );
                 Err(failure)
             }
         }
@@ -65,15 +69,17 @@ impl Pkgd {
     fn remove_row(&mut self, row: &Installed) -> Result<(), Failure> {
         // Stop it first: nothing running should outlive its files and policy.
         match self.registry.stop(&row.system_name) {
-            Ok(count) => sys::write_str(&format!(
-                "PKGD:REMOVE:STOPPED {} {count}\n",
+            Ok(count) => trace::line!(
+                trace::Channel::Pkgd,
+                "REMOVE:STOPPED {} {count}",
                 row.system_name
-            )),
-            Err(error) => sys::write_str(&format!(
-                "PKGD:REMOVE:STOP:FAIL {}: {}\n",
+            ),
+            Err(error) => trace::line!(
+                trace::Channel::Pkgd,
+                "REMOVE:STOP:FAIL {}: {}",
                 row.system_name,
                 error.message()
-            )),
+            ),
         }
         if let Ok(manifest) = stored_manifest(&row.install_dir) {
             for handler in &manifest.mime {

@@ -65,6 +65,29 @@ jobs:
           python -m pip install cryptography
           python tools/wifi/make_eapol_vectors.py --check
 
+      # libs/rtw88's generated RTL8822C register tables (docs/wifi-rtw88-plan.md):
+      # regenerated from Linux's rtw8822c_table.c at the pinned commit.
+      - name: RTL8822C tables are current (upstream fetched at the pinned commit)
+        run: |
+          python tools/wifi/test_gen_rtw88_tables.py
+          python tools/wifi/gen_rtw88_tables.py --check --fetch "$RUNNER_TEMP/rtw88-upstream"
+
+      # The Wi-Fi stack's host tests (docs/wifi-rtw88-plan.md, docs/architecture/wifi.md):
+      # the RTL8822CE library, the soft-MAC, the station, the simulated air,
+      # the firmware loader and keyd's secret rules; then the judges and the
+      # fake AP (each must fail when it should), the firmware pin and the
+      # licence register.
+      - name: Wi-Fi libraries (host)
+        run: cargo test -p rtw88 -p wifimac -p wlansta -p simair -p fwload -p secretstore -p lazyos-crypto
+      - name: Wi-Fi judges, fake AP, firmware pin and licences
+        run: |
+          python -m pip install cryptography
+          python tools/wifi/test_judge.py
+          python tools/wifi/test_judge_wlanmd.py
+          python tools/wifi/test_fake_ap.py
+          python tools/firmware/test_fetch.py
+          python tools/wifi/licenses.py
+
       - name: Pcap analyzer (it must fail when it should)
         run: |
           python tools/net/test_analyze_pcap.py
@@ -126,6 +149,45 @@ jobs:
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: fuzz/artifacts/**
+          if-no-files-found: warn
+
+  # The station stack end to end on the simulated radio against fake_ap.py's
+  # independent authenticator: with the hw.v1 probe, and with the real
+  # wlanmd driven through wifictl (tools/wifi/sim_run.py).
+  wifi-sim:
+    name: wifi-sim (${{ matrix.station }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        station: [probe, wlanmd]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/qemu
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      # The wlanmd row types wifictl at a BusyBox shell.
+      - uses: ./.github/actions/busybox
+
+      - name: Fake AP dependencies and the firmware LAZYOS_WIFI embeds
+        run: |
+          python -m pip install cryptography
+          python tools/firmware/fetch.py --switch wifi
+
+      - name: Boot, join, judge
+        run: python tools/wifi/sim_run.py --station ${{ matrix.station }} --out shots/wifi_sim
+
+      - name: Upload the AP log, capture and serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wifi-sim-${{ matrix.station }}
+          path: shots/wifi_sim/**
           if-no-files-found: warn
 
   harness:

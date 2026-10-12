@@ -18,6 +18,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use lazypkg::{Manifest, Package};
 use pkgstore::access::Caller;
@@ -95,7 +96,11 @@ impl Pkgd {
     ) -> Failure {
         self.audit
             .record(&event("denied", subject, uid, false, &failure.text));
-        sys::write_str(&format!("PKGD:{marker}:FAIL {}\n", one_line(&failure.text)));
+        trace::line!(
+            trace::Channel::Pkgd,
+            "{marker}:FAIL {}",
+            one_line(&failure.text)
+        );
         failure
     }
 
@@ -238,16 +243,22 @@ impl Pkgd {
             Ok(row) => {
                 self.audit
                     .record(&event("install", &subject, uid, true, ""));
-                sys::write_str(&format!(
-                    "PKGD:INSTALL:PASS {} {}\n",
-                    row.system_name, row.install_dir
-                ));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "INSTALL:PASS {} {}",
+                    row.system_name,
+                    row.install_dir
+                );
                 Ok(row)
             }
             Err(failure) => {
                 self.audit
                     .record(&event("install", &subject, uid, false, &failure.text));
-                sys::write_str(&format!("PKGD:INSTALL:FAIL {}\n", one_line(&failure.text)));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "INSTALL:FAIL {}",
+                    one_line(&failure.text)
+                );
                 Err(failure)
             }
         }
@@ -311,7 +322,11 @@ impl Pkgd {
         }
         // The app is active: its documentation replaces the old one whole.
         if let Err(error) = tree::commit_docs(&mut SysFs, &row.system_name, staged) {
-            sys::write_str(&format!("PKGD:DOCS:FAIL {}\n", one_line(&describe(&error))));
+            trace::line!(
+                trace::Channel::Pkgd,
+                "DOCS:FAIL {}",
+                one_line(&describe(&error))
+            );
         }
         Ok(row)
     }
@@ -337,7 +352,7 @@ impl Pkgd {
         }
         match policy::load(manifest) {
             // The evidence that the kernel holds the app's label policy.
-            Ok(rules) => sys::write_str(&format!("PKGD:POLICY:PASS app:{app} rules={rules}\n")),
+            Ok(rules) => trace::line!(trace::Channel::Pkgd, "POLICY:PASS app:{app} rules={rules}"),
             Err(error) => {
                 self.unregister_all(app, &registered);
                 return Err(format!("loading its permissions: {}", error.text()));
@@ -402,10 +417,11 @@ impl Pkgd {
         }
         if let Ok(path) = layout::install_path(&old.install_dir) {
             if let Err(error) = tree::remove_tree(&mut SysFs, &path) {
-                sys::write_str(&format!(
-                    "PKGD:UPGRADE:CLEANUP:FAIL {}\n",
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "UPGRADE:CLEANUP:FAIL {}",
                     one_line(&describe(&error))
-                ));
+                );
             }
         }
     }

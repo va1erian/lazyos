@@ -11,9 +11,9 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, errno, router, services, Message, Parcel};
-use user::sys;
 
 use super::service::{Phase, Service};
 use super::shutdown;
@@ -26,7 +26,24 @@ pub(super) const DRIVER_ROWS: &[ServiceSpec] = &[
     super::state::SNDD_ROW,
     #[cfg(lazyos_net)]
     super::state::NETDRV_ROW,
+    #[cfg(lazyos_wifi)]
+    WIFID_ROW,
 ];
+
+/// The Wi-Fi driver (docs/wifi-rtw88-plan.md), present only on
+/// `LAZYOS_WIFI=1` images and started only by `devd`, for an RTL8822CE it
+/// found, as `ifname=wlanN`; it runs as `_wifi` with `CAP_DEV_CLAIM`
+/// (`service_creds::WIFI_CRED`). Started by hand without a card it says
+/// `WIFID:FAIL:no-device` and exits 0, so `OnFailure` restarts it only after
+/// a crash. `dbgctl reload wifid` replaces its binary (`reload.rs`).
+#[cfg(lazyos_wifi)]
+pub(super) const WIFID_ROW: ServiceSpec = ServiceSpec {
+    name: "wifid",
+    path: fhs::bin::WIFID,
+    args: "",
+    restart: super::state::Restart::OnFailure,
+    deps: &[],
+};
 
 /// Whether a row's task is or will be running (it holds the driver's place).
 fn active(row: &Service) -> bool {
@@ -55,10 +72,12 @@ pub(super) fn start(
             && row.pid == message.sender
     });
     if !from_devd {
-        sys::write_str(&format!(
-            "INIT:DRIVER:DENIED driver={} caller={}\n",
-            request.driver, message.sender
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "DRIVER:DENIED driver={} caller={}",
+            request.driver,
+            message.sender
+        );
         return Err(errno_error(errno::EPERM));
     }
     if shutdown::stopping() {
@@ -104,10 +123,13 @@ pub(super) fn start(
     services.push(row);
     let index = services.len() - 1;
     spawn_service(services, index, broker);
-    sys::write_str(&format!(
-        "INIT:DRIVER:START driver={} {device_arg} pid={} ifname={}\n",
-        spec.name, services[index].pid, request.ifname
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "DRIVER:START driver={} {device_arg} pid={} ifname={}",
+        spec.name,
+        services[index].pid,
+        request.ifname
+    );
     reply(true, services[index].pid)
 }
 

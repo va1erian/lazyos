@@ -6,9 +6,10 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, router, services};
-use user::sys::{self, Cred as SysCred};
+use user::sys::Cred as SysCred;
 
 use super::apps::{available_count, find_app, selftest_builtins, SHELL_APP_ID};
 use super::installed::{alias_of, InstalledApps};
@@ -67,7 +68,10 @@ impl LaunchSelftest {
             Ok(_) => self.done = true,
             Err(_) if self.attempts >= LAUNCH_SELFTEST_ATTEMPTS => {
                 self.done = true;
-                sys::write_str("INIT:LAUNCH:FAIL app=top (spawn unavailable)\n");
+                trace::line!(
+                    trace::Channel::Init,
+                    "LAUNCH:FAIL app=top (spawn unavailable)"
+                );
             }
             Err(_) => self.due = now + LAUNCH_SELFTEST_RETRY,
         }
@@ -88,9 +92,12 @@ pub(super) fn selftest_launch_policy() {
     let owner_ok = authorize(&owner, 7).is_ok();
     let root_ok = authorize(&system, 8).is_ok();
     if denied && owner_ok && root_ok {
-        sys::write_str("INIT:LAUNCH:DENIED:PASS\n");
+        trace::line!(trace::Channel::Init, "LAUNCH:DENIED:PASS");
     } else {
-        sys::write_str("INIT:LAUNCH:DENIED:FAIL policy check failed\n");
+        trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:DENIED:FAIL policy check failed"
+        );
     }
 }
 
@@ -110,7 +117,10 @@ pub(super) fn selftest_launch_cap() {
     // spawns. `top` is the launch self-test's target, which the desktop profile
     // does not ship, so use `messengerctl`, which every services image carries.
     let Some(app) = find_app("messengerctl") else {
-        return sys::write_str("INIT:LAUNCH:CAP:FAIL messengerctl is not registered\n");
+        return trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:CAP:FAIL messengerctl is not registered"
+        );
     };
     const SESSION: u64 = 4243;
     let cred = SysCred::new(1000, 1000, 0, 0, SESSION);
@@ -136,11 +146,12 @@ pub(super) fn selftest_launch_cap() {
         Err(messenger::Error::Errno(code)) if code == -messenger::errno::EAGAIN
     );
     if capped && services.len() == LAUNCH_CAP_PER_SESSION {
-        sys::write_str(&format!(
-            "INIT:LAUNCH:CAP:PASS session={SESSION} cap={LAUNCH_CAP_PER_SESSION}\n"
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:CAP:PASS session={SESSION} cap={LAUNCH_CAP_PER_SESSION}"
+        );
     } else {
-        sys::write_str("INIT:LAUNCH:CAP:FAIL cap did not hold\n");
+        trace::line!(trace::Channel::Init, "LAUNCH:CAP:FAIL cap did not hold");
     }
 }
 
@@ -179,9 +190,12 @@ pub(super) fn selftest_launch_args() {
         argv(&row, 0)[1..] == ["--client", "/a b/c d.txt", "attempt=1"]
     });
     if refused && plain && spaced && empty && urls && whole {
-        sys::write_str("INIT:LAUNCH:ARGS:PASS\n");
+        trace::line!(trace::Channel::Init, "LAUNCH:ARGS:PASS");
     } else {
-        sys::write_str("INIT:LAUNCH:ARGS:FAIL argument validation broke\n");
+        trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:ARGS:FAIL argument validation broke"
+        );
     }
 }
 
@@ -193,7 +207,10 @@ pub(super) fn selftest_launch_args() {
 /// name=lazyshell` when it happens). Prints `INIT:SHELL:PASS`.
 pub(super) fn selftest_shell_supervision() {
     let Some(app) = find_app(SHELL_APP_ID) else {
-        return sys::write_str("INIT:SHELL:FAIL lazyshell is not registered\n");
+        return trace::line!(
+            trace::Channel::Init,
+            "SHELL:FAIL lazyshell is not registered"
+        );
     };
     let cred = SysCred::new(1000, 1000, 0, 0, 5);
     let row = Service::from_app(app, None, cred);
@@ -206,9 +223,12 @@ pub(super) fn selftest_shell_supervision() {
             .iter()
             .all(|status| restarts_after(row.restart, *status));
     if row.launched && client && stamped && always {
-        sys::write_str("INIT:SHELL:PASS restart=always\n");
+        trace::line!(trace::Channel::Init, "SHELL:PASS restart=always");
     } else {
-        sys::write_str("INIT:SHELL:FAIL shell row is not supervised as always-restart\n");
+        trace::line!(
+            trace::Channel::Init,
+            "SHELL:FAIL shell row is not supervised as always-restart"
+        );
     }
 }
 

@@ -17,7 +17,7 @@ gives 3 GB to the Vega GPU (`Detected VRAM RAM=3072M`; the e820 map tops out at
 | HDA, HDMI (ATI R6xx) at 04:00.1 | `1002:15de` | `sndd` by class; no analog |
 | HDA, Conexant SN6140 at 04:00.6 | `1022:15e3` | `sndd` by class; **to confirm** which controller `devd` picks |
 | Vega GPU | `1002:15d8` | UEFI GOP framebuffer only |
-| RTL8822CE Wi-Fi, Realtek BT | `10ec:c822` | out of scope ([`../../wifi-plan.md`](../../wifi-plan.md)) |
+| RTL8822CE Wi-Fi, Realtek BT | `10ec:c822` | `wifid` (`LAZYOS_WIFI=1`): **works**, WPA2 on 5 GHz, DHCP, 2026-10-12 ([`../../wifi-rtw88-plan.md`](../../wifi-rtw88-plan.md) §5.6); Bluetooth unused |
 
 ## First boot: reset right after the loader's last line (fixed)
 

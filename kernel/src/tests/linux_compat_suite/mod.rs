@@ -14,6 +14,7 @@ mod files;
 mod futex;
 mod locks;
 mod msg;
+mod ptyflow;
 mod readthrough;
 mod resources;
 mod select;
@@ -27,6 +28,7 @@ use files::*;
 use futex::*;
 use locks::*;
 use msg::*;
+use ptyflow::*;
 use resources::*;
 use select::*;
 use termios::*;
@@ -194,6 +196,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_termios_roundtrip", termios_roundtrip),
     ("compat_termios_canonical_line", termios_canonical_line),
     ("compat_termios_soak", termios_soak),
+    ("compat_pty_flow_raw", pty_flow_raw),
+    ("compat_pty_flow_canonical", pty_flow_canonical),
+    (
+        "compat_pty_flow_blocked_writer_woken",
+        pty_flow_blocked_writer_woken,
+    ),
+    ("compat_pty_flow_soak", pty_flow_soak),
     ("compat_pty_slave_owner", pty_slave_owner),
     ("compat_ctty_job_control", ctty_job_control),
     ("compat_ctty_soak", ctty_soak),

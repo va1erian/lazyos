@@ -10,10 +10,10 @@
 
 use alloc::format;
 use alloc::string::{String, ToString};
+use user::trace;
 
 use accountdb::{Db, LoadError};
 use user::files;
-use user::sys;
 
 /// `ENOENT` and `EFBIG` from `user::files`.
 const ENOENT: i64 = 2;
@@ -65,8 +65,11 @@ pub(crate) fn write_views(db: &Db) {
             continue;
         }
         match files::write_file(path, text.as_bytes()) {
-            Ok(()) => sys::write_str(&format!("ACCOUNTS:VIEW:PASS file={path}\n")),
-            Err(code) => sys::write_str(&format!("ACCOUNTS:VIEW:FAIL file={path} errno={code}\n")),
+            Ok(()) => trace::line!(trace::Channel::Accounts, "VIEW:PASS file={path}"),
+            Err(code) => trace::line!(
+                trace::Channel::Accounts,
+                "VIEW:FAIL file={path} errno={code}"
+            ),
         }
     }
 }

@@ -10,6 +10,8 @@ extern crate alloc;
 
 pub mod sys;
 
+pub mod trace;
+
 pub mod audio;
 
 pub mod audio_events;
@@ -28,5 +30,7 @@ pub mod central;
 pub mod messenger_async;
 
 pub mod task_snapshot;
+
+pub mod wifi;
 
 mod heap;

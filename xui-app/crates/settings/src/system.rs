@@ -43,6 +43,11 @@ pub trait System {
     fn os_revision(&self) -> Option<String> {
         None
     }
+    /// The build's image id (`<yyyymmdd-HHMMSS>-<rev8>[-dirty]`), when the
+    /// boot config named one (a `LAZYOS_NETBOOT=1` build, docs/netboot-plan.md).
+    fn os_image(&self) -> Option<String> {
+        None
+    }
     /// Seconds since boot, when known.
     fn uptime_secs(&self) -> Option<u64>;
     /// Where the settings live, or `None` when `confd` cannot be reached.
@@ -52,6 +57,18 @@ pub trait System {
     fn wallpapers(&self) -> Vec<String> {
         Vec::new()
     }
+}
+
+/// The image id the kernel appends to `/proc/version` (` image <id>`,
+/// `kernel/src/process/linux/procinfo.rs`), when it names one: 1 to 64 of
+/// `[0-9A-Za-z._-]`, the kernel's own rule for the id.
+pub fn image_from_proc_version(text: &str) -> Option<String> {
+    let (_, id) = text.trim_end().rsplit_once(" image ")?;
+    let valid = (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    valid.then(|| id.to_owned())
 }
 
 /// An in-memory [`System`] for tests and previews.
@@ -122,6 +139,10 @@ impl System for MemSystem {
 
     fn os_revision(&self) -> Option<String> {
         Some(String::from("0123456789abcdef0123456789abcdef01234567"))
+    }
+
+    fn os_image(&self) -> Option<String> {
+        Some(String::from("20261012-093000-01234567"))
     }
 
     fn uptime_secs(&self) -> Option<u64> {

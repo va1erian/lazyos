@@ -17,6 +17,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use fused::daemon::{serve_one, Buffers};
 use fused::memfs::MemFs;
@@ -73,7 +74,7 @@ fn run() -> Result<(), String> {
     let mut fs = MemFs::new(opts.capacity, MAX_NODES, cred.uid, cred.gid, now);
     let mut mount = sys::fuse::Mount::register(&opts.name, opts.flags)
         .map_err(|e| format!("mount /mnt/{}: errno {e}", opts.name))?;
-    sys::write_str(&format!("MEMFUSE:UP /mnt/{}\n", opts.name));
+    trace::line!(trace::Channel::Memfuse, "UP /mnt/{}", opts.name);
     let mut buffers = Buffers::new();
     loop {
         serve_one(&mut fs, &mut mount, &mut buffers).map_err(|e| format!("serve: errno {e}"))?;
@@ -85,7 +86,7 @@ pub extern "C" fn _start() -> ! {
     match run() {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            sys::write_str(&format!("MEMFUSE:FAIL {message}\n"));
+            trace::line!(trace::Channel::Memfuse, "FAIL {message}");
             sys::exit(1)
         }
     }
@@ -93,6 +94,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("MEMFUSE:FAIL panic\n");
+    trace::line!(trace::Channel::Memfuse, "FAIL panic");
     sys::exit(1)
 }

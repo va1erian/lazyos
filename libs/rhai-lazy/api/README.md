@@ -491,6 +491,8 @@ The secrets and crypto service (issue #102).
 | `delete_secret(scope, name)` | `DeleteSecret(scope: String, name: String) -> ()` | Forget the secret `name` of `scope` (the same rules as `StoreSecret`; |
 | `list_secrets(scope)` | `ListSecrets(scope: String) -> (names: Array<String>)` | The names of the caller's `user` secrets, or of the `system` ones |
 | `wifi_pmk(scope, name, ssid, owner)` | `WifiPmk(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)` | The WPA2 pairwise master key of the passphrase `name` of `scope` for |
+| `store_secret_for(scope, name, secret, owner)` | `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()` | Keep `secret` under `name` for the user `owner` (scope `user`). |
+| `delete_secret_for(scope, name, owner)` | `DeleteSecretFor(scope: String, name: String, owner: U32) -> ()` | Forget the secret `name` of `owner` in `scope` (the rules of |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
 
 ## `sys::lifecycle`
@@ -945,7 +947,7 @@ The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisi
 | `interfaces()` | `Interfaces() -> (names: Array<String>)` | The wireless interfaces `wlanmd` manages, by name (`wlan0`). |
 | `scan(ifname, ssids)` | `Scan(ifname: String, ssids: Array<String>) -> ()` | Ask for a fresh scan; returns at once, the results arrive on |
 | `networks(ifname)` | `Networks(ifname: String) -> (list: Array<Network>)` | The current scan results merged with the known profiles: one entry per |
-| `add_network(profile, passphrase)` | `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)` | Remember a network and its secret. `profile.id` must be empty (the |
+| `add_network(profile, passphrase)` | `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)` | Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the |
 | `connect(ifname, id)` | `Connect(ifname: String, id: String) -> ()` | Join the network `id` on `ifname`: leave the current one, scan if the |
 | `disconnect(ifname)` | `Disconnect(ifname: String) -> ()` | Leave the current network and do not reconnect until asked (auto- |
 | `forget(id)` | `Forget(id: String) -> ()` | Delete a profile and its secret. Disconnects first if it is the |
@@ -958,7 +960,7 @@ The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisi
 - `SECURITY` = the `Security` variants; `SECURITY_OPEN`, `SECURITY_WPA2_PSK`, `SECURITY_UNSUPPORTED`
 - `SCOPE` = the `Scope` variants; `SCOPE_USER`, `SCOPE_SYSTEM`
 - `CONN_STATE` = the `ConnState` variants; `CONN_STATE_DISABLED`, `CONN_STATE_IDLE`, `CONN_STATE_SCANNING`, `CONN_STATE_AUTHENTICATING`, `CONN_STATE_ASSOCIATING`, `CONN_STATE_HANDSHAKE`, `CONN_STATE_CONNECTED`, `CONN_STATE_FAILED`
-- `FAIL_REASON` = the `FailReason` variants; `FAIL_REASON_NONE`, `FAIL_REASON_NOT_FOUND`, `FAIL_REASON_REJECTED`, `FAIL_REASON_BAD_PASSPHRASE`, `FAIL_REASON_TIMEOUT`, `FAIL_REASON_DEAUTHENTICATED`, `FAIL_REASON_BEACON_LOSS`, `FAIL_REASON_POLICY_MISMATCH`, `FAIL_REASON_RADIO`
+- `FAIL_REASON` = the `FailReason` variants; `FAIL_REASON_NONE`, `FAIL_REASON_NOT_FOUND`, `FAIL_REASON_REJECTED`, `FAIL_REASON_BAD_PASSPHRASE`, `FAIL_REASON_TIMEOUT`, `FAIL_REASON_DEAUTHENTICATED`, `FAIL_REASON_BEACON_LOSS`, `FAIL_REASON_POLICY_MISMATCH`, `FAIL_REASON_RADIO`, `FAIL_REASON_UNSUPPORTED`
 
 | Topic | Payload | Helpers |
 |---|---|---|

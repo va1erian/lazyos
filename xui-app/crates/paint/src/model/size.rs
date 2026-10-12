@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn accepts_the_limits() {
         assert_eq!(parse_size("1x1"), Ok((1, 1)));
-        assert_eq!(parse_size("1024x1024"), Ok((1024, 1024)));
+        assert_eq!(parse_size("16384x16384"), Ok((16384, 16384)));
     }
 
     #[test]
@@ -67,8 +67,8 @@ mod tests {
             "x480",
             "0x10",
             "10x0",
-            "1025x10",
-            "10x1025",
+            "16385x10",
+            "10x16385",
             "-5x10",
             "+5x10",
             "1x2x3",

@@ -24,6 +24,7 @@ use core::panic::PanicInfo;
 use user::central;
 use user::messenger::{self, clipboard, errno, Error};
 use user::sys;
+use user::trace;
 
 /// MIME type the demo copies and pastes.
 const DEMO_MIME: &str = "text/plain";
@@ -74,11 +75,12 @@ fn run() -> messenger::Result<()> {
     if !bytes.starts_with(b"lazy@") || bytes.len() <= b"lazy@".len() {
         fail("PASTE", "payload is not the lazily materialized value");
     }
-    sys::write_str(&format!(
-        "CLIP:PASTE:PASS token={} bytes={}\n",
+    trace::line!(
+        trace::Channel::Clip,
+        "PASTE:PASS token={} bytes={}",
         info.token,
         bytes.len()
-    ));
+    );
 
     // Cross-session policy probe: move to another session, then ask for the
     // same token. The service's `clipboard.read` scope must refuse it and log
@@ -89,7 +91,7 @@ fn run() -> messenger::Result<()> {
     }
     match client.paste_token(info.token, DEMO_MIME) {
         Err(Error::Errno(code)) if code == -errno::EACCES => {
-            sys::write_str("CLIP:DENIED:PASS\n");
+            trace::line!(trace::Channel::Clip, "DENIED:PASS");
         }
         Ok(_) => fail("DENIED", "cross-session paste was allowed"),
         Err(error) => fail("DENIED", error.message()),
@@ -144,7 +146,7 @@ fn big_offer_probes(client: &clipboard::Client) -> messenger::Result<()> {
 
 /// Print `CLIP:<name>:FAIL:<detail>` and exit non-zero.
 fn fail(name: &str, detail: &str) -> ! {
-    sys::write_str(&format!("CLIP:{name}:FAIL:{detail}\n"));
+    trace::line!(trace::Channel::Clip, "{name}:FAIL:{detail}");
     sys::exit(1)
 }
 

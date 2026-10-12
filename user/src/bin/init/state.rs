@@ -82,6 +82,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "netd" {
         return Some(NETD_CRED);
     }
+    #[cfg(lazyos_wifi)]
+    if name == "wifid" {
+        return Some(WIFI_CRED);
+    }
     #[cfg(lazyos_netd)]
     if name == "mountd" {
         return Some(MOUNTD_CRED);
@@ -90,9 +94,17 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "dbgd" {
         return Some(DBGD_CRED);
     }
+    #[cfg(lazyos_wifi_sim)]
+    if name == "wifisim" {
+        return Some(WIFISIM_CRED);
+    }
     #[cfg(lazyos_devd)]
     if name == "devd" {
         return Some(DEVD_CRED);
+    }
+    #[cfg(lazyos_wifi)]
+    if name == "wlanmd" {
+        return Some(WLAN_CRED);
     }
     let _ = name;
     None
@@ -344,6 +356,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &["netd"],
     },
+    // The Wi-Fi station manager (docs/architecture/wifi.md), on
+    // `LAZYOS_WIFI=1` images, as `_wlan` with no capabilities. It lists the
+    // registry for radios itself and idles (state `Disabled`) without one;
+    // profiles come from `confd`, PMKs from `keyd`.
+    #[cfg(lazyos_wifi)]
+    ServiceSpec {
+        name: "wlanmd",
+        path: fhs::bin::WLANMD,
+        args: "",
+        restart: Restart::Always,
+        deps: &["confd", "keyd"],
+    },
     // The remote inspection service (docs/dbgd-plan.md, issue #701), present
     // only in `LAZYOS_DBGD=1` images. It reads `diag.dbg.*` from
     // `lazyos.cfg` itself and exits 0 (so is not restarted) when it is off.
@@ -354,6 +378,17 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: "",
         restart: Restart::OnFailure,
         deps: &["netd"],
+    },
+    // The simulated Wi-Fi radio (docs/wifi-prerequisites-plan.md 3.6), only
+    // in `LAZYOS_WIFI_SIM=1` images: `wlan0` over the air card `air0`. It
+    // waits for that card's driver itself, so it has no start dependency.
+    #[cfg(lazyos_wifi_sim)]
+    ServiceSpec {
+        name: "wifisim",
+        path: fhs::bin::WIFISIM,
+        args: WIFISIM_ARGS,
+        restart: Restart::Always,
+        deps: &[],
     },
     // The system monitor (issue #144): `sysmond` wraps the kernel's
     // system-stats syscall as `os.lazy.system.v1` and republishes retained

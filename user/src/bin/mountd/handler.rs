@@ -1,9 +1,9 @@
 //! Request dispatch for `os.lazy.mount.v1`. Every decision is
 //! `libs/mounttable`'s; this file decodes, spawns and encodes.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use mounttable::{daemon_args, daemon_env, validate_kind, Kind, Table};
 use user::messenger::mount::{self as api, wire};
@@ -51,7 +51,7 @@ fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result
         &args.password,
     )
     .map_err(|reason| {
-        sys::write_str(&format!("MOUNTD:REFUSED {reason}\n"));
+        trace::line!(trace::Channel::Mountd, "REFUSED {reason}");
         Error::Errno(-errno::EINVAL)
     })?;
     table.admit(&request).map_err(table_error)?;
@@ -76,11 +76,12 @@ fn mount(table: &mut Table, message: &Message, args: &wire::MountArgs) -> Result
     )
     .map_err(Error::Errno)?;
     table.add(&request, caller.uid, pid, sys::clock());
-    sys::write_str(&format!(
-        "MOUNTD:START {} kind={} pid={pid}\n",
+    trace::line!(
+        trace::Channel::Mountd,
+        "START {} kind={} pid={pid}",
         request.name,
         request.kind.name()
-    ));
+    );
     Ok(crate::mount_point(&request.name))
 }
 
@@ -92,7 +93,7 @@ fn unmount(table: &mut Table, message: &Message, name: &str) -> Result<()> {
         // Its exit is reaped later and matches no mount any more.
         let _ = sys::kill(pid, sys::SIG_TERM);
     }
-    sys::write_str(&format!("MOUNTD:STOP {name}\n"));
+    trace::line!(trace::Channel::Mountd, "STOP {name}");
     Ok(())
 }
 

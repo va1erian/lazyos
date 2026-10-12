@@ -58,11 +58,11 @@ mod ring;
 #[path = "logd/serve.rs"]
 mod serve;
 
-use alloc::format;
 use core::panic::PanicInfo;
 use user::messenger::services::lifecycle;
 use user::messenger::{self, registry, services, wait, Endpoint, Error, Message};
 use user::sys;
+use user::trace;
 
 use feeds::{Feeds, Source, CONNECT_RETRY_TICKS, DENIAL_FALLBACK_TICKS};
 use journal::Journals;
@@ -162,12 +162,13 @@ fn run() -> messenger::Result<()> {
             feeds.drain_local(&mut log, &mut buffer);
             feeds.drain_central(&mut log, &mut buffer);
             log.journals.sync(sys::clock());
-            sys::write_str(&format!(
-                "LOGD:STOP records={} verified={} persisted={} reason=\"{reason}\"\n",
+            trace::line!(
+                trace::Channel::Logd,
+                "STOP records={} verified={} persisted={} reason=\"{reason}\"",
                 log.ring.total,
                 log.ring.verify().0,
                 log.journals.persisted()
-            ));
+            );
             return Ok(());
         }
         answer(&server, &mut log, &message)?;

@@ -388,6 +388,54 @@ pub fn soak_snapshot_task_churn() -> Result<(), String> {
     Ok(())
 }
 
+/// op 4 hands a program the trace mask in 16 bytes (docs/tracing-plan.md,
+/// T2): the words `trace::mask_words` holds, a short buffer is refused with
+/// `-E2BIG`, a bad destination with `-EFAULT` before a byte is written, and
+/// ten thousand reads (every service's first trace line makes one) change
+/// nothing and leak nothing.
+pub fn trace_mask_op() -> Result<(), String> {
+    fresh();
+    let expected = crate::trace::mask_words();
+    let mut canary = [0x5a5a_5a5a_5a5a_5a5au64; 4];
+    let kernel_buf = canary.as_mut_ptr() as u64;
+    let frames_before = mem::frame_stats().live();
+    in_space(|| {
+        let code = process::dispatch_for_test(14, sysinfo::op::TRACE_MASK, SPACE, 16);
+        check!(code == 16, "trace mask op -> {code:#x}");
+        for (index, want) in expected.iter().enumerate() {
+            // Safety: the scratch pages are mapped readable while installed.
+            let got = unsafe { core::ptr::read_volatile((SPACE as *const u64).add(index)) };
+            check!(got == *want, "word {index}: {got:#x}, expected {want:#x}");
+        }
+        let code = process::dispatch_for_test(14, sysinfo::op::TRACE_MASK, SPACE, 15);
+        check!(
+            code == failed(7),
+            "short buffer -> {code:#x}, expected -E2BIG"
+        );
+        for buf in [0, kernel_buf, 0xdead_0000] {
+            let code = process::dispatch_for_test(14, sysinfo::op::TRACE_MASK, buf, 16);
+            check!(
+                code == failed(14),
+                "bad buffer {buf:#x} -> {code:#x}, expected -EFAULT"
+            );
+        }
+        for round in 0..10_000 {
+            let code = process::dispatch_for_test(14, sysinfo::op::TRACE_MASK, SPACE, 16);
+            check!(code == 16, "round {round}: trace mask op -> {code:#x}");
+        }
+        Ok(())
+    })?;
+    check!(
+        canary.iter().all(|&word| word == 0x5a5a_5a5a_5a5a_5a5a),
+        "a refused trace mask read wrote into the kernel buffer"
+    );
+    check!(
+        mem::frame_stats().live() == frames_before,
+        "the trace mask op leaked frames"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("sysinfo_snapshot_abi_contract", snapshot_abi_contract),
     (
@@ -400,4 +448,5 @@ pub(super) const CASES: &[(&str, Test)] = &[
         snapshot_reflects_spawned_task,
     ),
     ("sysinfo_soak_snapshot_task_churn", soak_snapshot_task_churn),
+    ("sysinfo_trace_mask_op", trace_mask_op),
 ];

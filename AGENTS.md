@@ -341,6 +341,24 @@ python tools/video/make_sample.py --check
 cargo run --release --manifest-path xui-app/Cargo.toml -p lazyvideo --example decode_bench -- clip.avi
 ```
 
+## Paint (`os.lazy.paint`)
+
+`xui-paint` is a core desktop app in every desktop image: a layered image
+editor (selections, clipboard, shapes, gradient, text in Liberation, adjustments;
+OpenRaster, PNG, JPEG, BMP) in `xui-app/crates/paint` (portable, host-tested and
+snapshot-tested), launched by `xui-app/src/bin/paint.rs`; plan and status in
+[`docs/paint-plan.md`](docs/paint-plan.md), keys and layout in the crate's
+README. Sessions (`LAZYOS_XUI_AUTOSTART=paint LAZYOS_UI_PROBE=1`):
+`tools/screenshot/examples/xui_paint.json` and `xui_paint_editor.json`; markers
+`PAINT:UP:PASS`, `PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>`,
+`PAINT:SAVE:PASS:<path>:<format>`. In a session step `offset` goes inside the
+`click_at` target and the window name is the current title.
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-paint            # also --features text
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint_editor     --script tools/screenshot/examples/xui_paint_editor.json
+```
+
 ## LazyGolf (`os.lazy.golf`)
 
 `xui-golf` is a core desktop app: a procedural 18-hole course generator and
@@ -955,6 +973,48 @@ changes only through `elevd`'s `net.wifi.system`; the PMK goes to `wlanmd`
 cargo test -p secretstore -p elevpolicy
 python tools/keyd/run.py            # build, three boots, judge (KEYD:SECRETS: PASS)
 python tools/keyd/test_judge.py     # the judge fails when it should
+```
+
+## Wi-Fi on the AMD NUC (`LAZYOS_WIFI=1`)
+
+`LAZYOS_WIFI=1` (needs `LAZYOS_NETD=1`; `run_demo.py --wifi`, the launcher's
+*Wi-Fi* checkboxes) ships `wifid`, the RTL8822CE driver `devd` starts as
+`wlan0` for `10ec:c822` (uid 911 `_wifi`, the kernel's `wireless` device
+class only), and its firmware at `fhs::FIRMWARE`
+(`/system/share/firmware/rtw88/`), downloaded and hash-checked by
+`tools/firmware/fetch.py` from `tools/firmware/manifest.txt`, never
+committed or `include_bytes!`'d; drivers read it through `libs/fwload`.
+QEMU has no such card: the loop is a stick and `dbgd`
+([`docs/wifi-rtw88-plan.md`](docs/wifi-rtw88-plan.md) section 5).
+
+```bash
+python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only   # the NUC stick
+python tools/dbg/dbgctl.py --host <ip> log --source programs --follow              # WIFID:*
+python tools/dbg/dbgctl.py --host <ip> reload wifid                                # after a rebuild
+cargo test -p fwload -p devmatch -p netpolicy
+python tools/firmware/fetch.py --check && python tools/firmware/test_fetch.py
+python tools/wifi/licenses.py           # Wi-Fi crates' licences, THIRD_PARTY.md rows
+
+## Wi-Fi soft-MAC and simulator (`LAZYOS_WIFI_SIM=1`)
+
+Both radio programs (`wifid` on the RTL8822CE, `wifisim` in CI) are a
+`wifimac::Radio` under one soft-MAC (`libs/wifimac`: `hw.v1` semantics,
+scanning, keys, 802.3/802.11 and CCMP packet numbers) served by
+`user::wifi::run` as `os.lazy.net.wifi.hw/wlan0` and `os.lazy.net.nic/wlan0`
+(kind wireless); see [`docs/architecture/wifi.md`](docs/architecture/wifi.md).
+`wifisim` (uid 913) carries 802.11 in Ethernet (EtherType 0x88B5,
+`libs/simair`) over a second virtio-net card the harness gives the MAC
+`02:57:53:49:4d:00`: `netdrv` serves it as `air0`, which `netd` never attaches.
+`tools/wifi/fake_ap.py` is the other end (open, WPA2, hidden, two-BSS
+networks, an independent authenticator, DHCP, faults); `wifiprobe` drives
+`hw.v1` when `wlanmd` is absent.
+
+```bash
+cargo test -p ieee80211 -p wifimac -p simair
+python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP, ping, faults (wifiprobe)
+python tools/wifi/sim_run.py --station wlanmd   # the same through wlanmd + wifictl as `user` (needs BusyBox)
+python tools/wifi/test_judge.py; python tools/wifi/test_judge_wlanmd.py; python tools/wifi/test_fake_ap.py
+python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
 ```
 
 ## Device manager (`devd`) and driver choices

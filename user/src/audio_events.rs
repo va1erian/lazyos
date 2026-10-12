@@ -12,7 +12,7 @@
 //! matched=<n>` for every event but `Period`, whose first per stream is
 //! logged as `AUDIO:EVENT ... kind=period` and the rest counted.
 
-use alloc::format;
+use crate::trace;
 use alloc::vec::Vec;
 
 use audiomix::events::{Event, Kind};
@@ -81,14 +81,15 @@ impl EventPublisher {
                 }
                 self.logged_periods.push(event.stream);
             }
-            sys::write_str(&format!(
-                "AUDIO:EVENT card={} stream={} kind={} frames={} matched={}\n",
+            trace::line!(
+                trace::Channel::Audio,
+                "EVENT card={} stream={} kind={} frames={} matched={}",
                 self.card,
                 event.stream,
                 name(event.kind),
                 event.frames,
                 matched.map_or(-1, |count| count as i64)
-            ));
+            );
         }
     }
 

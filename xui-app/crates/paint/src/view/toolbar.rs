@@ -1,11 +1,16 @@
 #![forbid(unsafe_code)]
 
-//! The tool strip: a custom-painted row of tool, brush-size and action cells.
+//! The tool grid: a custom-painted block of tool cells, two to a row, down the
+//! left of the window.
 //!
 //! xui's [`Toolbar`](xui_core::widget::Toolbar) has no persistent selected state
-//! and no way to report which mouse button or modifier was used, so the strip is
+//! and no way to report which mouse button or modifier was used, so the grid is
 //! one [`NodeKind::Custom`](xui_core::backend::NodeKind::Custom) node here that
 //! paints its own glyphs and maps clicks to [`Msg`].
+//!
+//! xui's [`Tooltip`](xui_core::widget::Tooltip) attaches to a whole node, so it
+//! cannot name one cell of this grid. The grid reports the hovered tool instead
+//! ([`Msg::HintTool`]) and the status bar shows its name and key.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -17,140 +22,79 @@ use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
 use xui_core::widget::{Control, Placeable};
 
-use super::Msg;
+use super::{KeyOwner, Msg};
 use crate::model::{Model, Tool};
 
-/// The design size of one strip cell.
-const CELL: xui_core::Dip = xui_core::Dip(28.0);
-
-/// One clickable cell in the strip.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StripItem {
-    /// Selects a tool.
-    Tool(Tool),
-    /// Selects a brush diameter.
-    Size(u32),
-    /// Undo.
-    Undo,
-    /// Redo.
-    Redo,
-    /// Clear the canvas.
-    Clear,
-    /// Start a new document.
-    New,
-    /// Save through the storage.
-    Save,
-    /// Load through the storage.
-    Open,
-    /// Resize the canvas.
-    Resize,
-}
-
-impl StripItem {
-    /// The ordering group, used to draw a separator between groups.
-    fn group(self) -> u8 {
-        match self {
-            StripItem::Tool(_) => 0,
-            StripItem::Size(_) => 1,
-            _ => 2,
-        }
-    }
-}
+/// The design size of one cell.
+const CELL: xui_core::Dip = xui_core::Dip(32.0);
+/// How many cells a row holds.
+pub const COLUMNS: i32 = 2;
+/// The design width the grid asks of the layout: its cells plus a margin.
+pub const WIDTH: xui_core::Dip = xui_core::Dip(COLUMNS as f32 * 32.0 + 8.0);
 
 /// The cell size in device pixels.
 fn cell_px(dpi: u32) -> i32 {
     CELL.to_px(dpi).value().max(10)
 }
 
-/// The flow rect of cell `index`, top-left packed and wrapping. Pure
-/// arithmetic, so a paint or hit-test allocates nothing.
+/// The flow rect of cell `index`: [`COLUMNS`] to a row, packed from the
+/// top-left with a small margin. Pure arithmetic, so a paint or hit-test
+/// allocates nothing.
 fn item_rect(bounds: Rect, dpi: u32, index: usize) -> Rect {
     let cell = cell_px(dpi);
-    let per_row = (bounds.width() / cell).max(1) as usize;
-    let row = (index / per_row) as i32;
-    let column = (index % per_row) as i32;
-    let left = bounds.left + column * cell;
-    let top = bounds.top + row * cell;
+    let margin = cell / 8;
+    let row = (index as i32) / COLUMNS;
+    let column = (index as i32) % COLUMNS;
+    let left = bounds.left + margin + column * cell;
+    let top = bounds.top + margin + row * cell;
     Rect::new(left, top, left + cell, top + cell)
 }
 
-/// The strip height needed for `count` cells at `width`, in device pixels.
-pub fn preferred_height(count: usize, width: i32, dpi: u32) -> i32 {
-    let cell = cell_px(dpi);
-    let per_row = (width / cell).max(1) as usize;
-    let rows = count.div_ceil(per_row).max(1);
-    rows as i32 * cell
-}
-
-/// The strip's shared state.
+/// The grid's shared state.
 struct State {
-    items: Vec<StripItem>,
+    items: Vec<Tool>,
     bounds: Cell<Rect>,
     dpi: Cell<u32>,
-    active_tool: Cell<Tool>,
-    active_size: Cell<u32>,
-    can_undo: Cell<bool>,
-    can_redo: Cell<bool>,
-    can_io: Cell<bool>,
+    active: Cell<Tool>,
     hover: Cell<Option<usize>>,
     pressed: Cell<Option<usize>>,
 }
 
 impl State {
-    fn enabled(&self, item: StripItem) -> bool {
-        match item {
-            StripItem::Undo => self.can_undo.get(),
-            StripItem::Redo => self.can_redo.get(),
-            StripItem::Save | StripItem::Open => self.can_io.get(),
-            _ => true,
-        }
-    }
-
     fn rect(&self, index: usize) -> Rect {
         item_rect(self.bounds.get(), self.dpi.get(), index)
     }
 
     fn index_at(&self, point: Point) -> Option<usize> {
-        (0..self.items.len())
-            .find(|index| self.rect(*index).contains(point))
-            .filter(|index| self.enabled(self.items[*index]))
-    }
-
-    fn is_active(&self, item: StripItem) -> bool {
-        match item {
-            StripItem::Tool(tool) => self.active_tool.get() == tool,
-            StripItem::Size(size) => self.active_size.get() == size,
-            _ => false,
-        }
+        (0..self.items.len()).find(|index| self.rect(*index).contains(point))
     }
 }
 
 mod paint;
 
-// xui gap: G7 — `Toolbar` has no persistent active state, and G15 — no font is
-// bundled, so every cell is an icon or swatch drawn by this custom node.
-/// A flow layout of tool, size and action cells.
+// xui gap: G7 — `Toolbar` has no persistent active state, G15 — no font is
+// bundled, and G16 — a `Tooltip` cannot name one cell, so every cell is an icon
+// drawn by this custom node and the hovered tool is named in the status bar.
+/// A grid of tool cells.
 pub struct ToolStrip {
     control: Control<Msg>,
     state: Rc<State>,
+    keys: KeyOwner,
 }
 
 impl ToolStrip {
-    /// Creates a strip of `items`; the window layout places it.
-    pub fn new(ui: &Ui<Msg>, items: Vec<StripItem>) -> Result<ToolStrip> {
+    /// Creates the grid of every tool; the window layout places it.
+    pub fn new(ui: &Ui<Msg>) -> Result<ToolStrip> {
         let control = Control::new(
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
+        let keys = KeyOwner::new(false);
         let state = Rc::new(State {
-            items,
+            items: Tool::ALL.to_vec(),
             bounds: Cell::new(Rect::default()),
             dpi: Cell::new(ui.dpi()),
-            active_tool: Cell::new(Tool::Pencil),
-            active_size: Cell::new(1),
-            can_undo: Cell::new(false),
-            can_redo: Cell::new(false),
-            can_io: Cell::new(false),
+            active: Cell::new(Tool::Pencil),
             hover: Cell::new(None),
             pressed: Cell::new(None),
         });
@@ -167,33 +111,43 @@ impl ToolStrip {
             let state = Rc::clone(&state);
             let ui = ui.clone();
             let id = control.id();
-            control.on_events(move |event| handle(&ui, id, &state, event));
+            let keys = keys.clone();
+            control.on_events(move |event| {
+                keys.follow(event);
+                handle(&ui, id, &state, event)
+            });
         }
 
-        Ok(ToolStrip { control, state })
+        Ok(ToolStrip {
+            control,
+            state,
+            keys,
+        })
     }
 
-    /// The strip's node identity.
+    /// Whether the control has the keyboard.
+    pub fn key_owner(&self) -> KeyOwner {
+        self.keys.clone()
+    }
+
+    /// The grid's node identity.
     pub fn id(&self) -> WidgetId {
         self.control.id()
     }
 
-    /// The device-pixel rect of cell `index`, for tests.
-    pub fn item_rect(&self, index: usize) -> Option<Rect> {
-        (index < self.state.items.len()).then(|| self.state.rect(index))
+    /// The device-pixel rect of `tool`'s cell, for tests.
+    pub fn tool_rect(&self, tool: Tool) -> Option<Rect> {
+        let index = self.state.items.iter().position(|item| *item == tool)?;
+        Some(self.state.rect(index))
     }
 
-    /// Refreshes the active tool/size and the enabled actions from `model`.
-    pub fn sync(&self, model: &Model, storage_available: bool) {
-        self.state.active_tool.set(model.tool());
-        self.state.active_size.set(model.size());
-        self.state.can_undo.set(model.history().can_undo());
-        self.state.can_redo.set(model.history().can_redo());
-        self.state.can_io.set(storage_available);
+    /// Refreshes the active tool from `model`.
+    pub fn sync(&self, model: &Model) {
+        self.state.active.set(model.tool());
         self.control.invalidate();
     }
 
-    /// Shows or hides the strip.
+    /// Shows or hides the grid.
     pub fn set_visible(&self, visible: bool) {
         self.control.set_visible(visible);
     }
@@ -204,11 +158,11 @@ impl Placeable<Msg> for ToolStrip {
         self.control.id()
     }
 
-    /// As tall as the cells need once they wrap at the offered width.
+    /// As tall as the cells need; the layout gives the width.
     fn measure(&self, _ui: &Ui<Msg>, constraints: Constraints) -> Size {
-        let width = constraints.max_width.unwrap_or(i32::MAX);
-        let height = preferred_height(self.state.items.len(), width, constraints.dpi);
-        Size::new(0, height)
+        let rows = (self.state.items.len() as i32 + COLUMNS - 1) / COLUMNS;
+        let cell = cell_px(constraints.dpi);
+        Size::new(0, rows * cell + cell / 4)
     }
 
     /// Hit-testing and the cell flow follow the placed rect.
@@ -223,17 +177,17 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &Rc<State>, event: &Event) -> Optio
         Event::MouseMove { x, y, .. } => {
             let bounds = state.bounds.get();
             let index = state.index_at(Point::new(bounds.left + x, bounds.top + y));
-            if state.hover.get() != index {
-                state.hover.set(index);
-                ui.invalidate(id);
+            if state.hover.get() == index {
+                return None;
             }
-            None
+            state.hover.set(index);
+            ui.invalidate(id);
+            Some(Msg::HintTool(index.map(|index| state.items[index])))
         }
         Event::MouseLeave | Event::CaptureChanged => {
-            state.hover.set(None);
             state.pressed.set(None);
             ui.invalidate(id);
-            None
+            state.hover.replace(None).map(|_| Msg::HintTool(None))
         }
         Event::MouseDown {
             x,
@@ -245,7 +199,7 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &Rc<State>, event: &Event) -> Optio
             let index = state.index_at(Point::new(bounds.left + x, bounds.top + y))?;
             state.pressed.set(Some(index));
             ui.invalidate(id);
-            Some(message(state.items[index]))
+            Some(Msg::Tool(state.items[index]))
         }
         Event::MouseUp { .. } => {
             state.pressed.set(None);
@@ -253,21 +207,6 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &Rc<State>, event: &Event) -> Optio
             None
         }
         _ => None,
-    }
-}
-
-/// The message an item raises.
-fn message(item: StripItem) -> Msg {
-    match item {
-        StripItem::Tool(tool) => Msg::Tool(tool),
-        StripItem::Size(size) => Msg::Size(size),
-        StripItem::Undo => Msg::Undo,
-        StripItem::Redo => Msg::Redo,
-        StripItem::Clear => Msg::Clear,
-        StripItem::New => Msg::New,
-        StripItem::Save => Msg::Save,
-        StripItem::Open => Msg::Open,
-        StripItem::Resize => Msg::ResizeAsk,
     }
 }
 

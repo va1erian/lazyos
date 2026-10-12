@@ -21,9 +21,12 @@
 // `net.wifi.system`); a session user gets `EPERM`. `Connect` to a system
 // network is allowed to anyone (the secret never leaves `keyd`).
 //
-// **Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`;
-// `wlanmd` passes it to `keyd` at once, keeps nothing and never logs it, and
-// no method ever returns one. Everything else here is non-secret: SSIDs,
+// **Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`
+// with scope `User`; `wlanmd` passes it to `keyd` at once
+// (`StoreSecretFor`), keeps nothing and never logs it, and no method ever
+// returns one. A system network's passphrase never comes here: `elevd`
+// stores it in `keyd` itself (`net.wifi.system`, under the profile id),
+// and `keyd` refuses `wlanmd` a `system` secret. Everything else here is non-secret: SSIDs,
 // BSSIDs, security type, signal. A profile is stored in `confd` (system
 // networks under `sys/net/wifi/networks/<id>`, a user's under
 // `user/<uid>/net/wifi/networks/<id>`); the secret lives in `keyd` under the
@@ -78,13 +81,19 @@ fn networks(ifname) {
 
 /// `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)`
 ///
-/// Remember a network and its secret. `profile.id` must be empty (the
-/// service picks one and returns it); `scope` is a `Scope` ordinal. The
-/// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
-/// characters, or exactly 64 hex digits for a raw PSK) and must be absent
-/// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
-/// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
-/// `EPERM` for scope `System` from anyone but `elevd`.
+/// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+/// caller's network and its secret; `profile.id` must be empty (the
+/// service picks one and returns it), and the passphrase is required for
+/// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+/// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+/// `System` (from `elevd` alone): only the profile, under the id
+/// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+/// `elevd` already stored in `keyd` under that id; the passphrase must be
+/// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+/// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+/// passphrase, or a name that matches several heard networks; `EPERM` for
+/// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+/// one owner.
 fn add_network(profile, passphrase) {
     msg::connect("os.lazy.net.wifi.v1").invoke("AddNetwork", [profile, passphrase])
 }
@@ -218,7 +227,7 @@ export const CONN_STATE_CONNECTED = "Connected";
 export const CONN_STATE_FAILED = "Failed";
 
 // The variants of `FailReason`, in wire order.
-export const FAIL_REASON = ["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio"];
+export const FAIL_REASON = ["None", "NotFound", "Rejected", "BadPassphrase", "Timeout", "Deauthenticated", "BeaconLoss", "PolicyMismatch", "Radio", "Unsupported"];
 
 export const FAIL_REASON_NONE = "None";
 
@@ -237,6 +246,8 @@ export const FAIL_REASON_BEACON_LOSS = "BeaconLoss";
 export const FAIL_REASON_POLICY_MISMATCH = "PolicyMismatch";
 
 export const FAIL_REASON_RADIO = "Radio";
+
+export const FAIL_REASON_UNSUPPORTED = "Unsupported";
 
 // Filter for every event of the topic `system/net/{ifname}/wifi/state` (payload `WifiState`, qos latest, retained).
 // Scans completed since the service started.

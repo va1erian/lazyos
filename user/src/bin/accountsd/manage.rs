@@ -8,6 +8,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use accountdb::ops::OpError;
 use accountdb::policy::{authorize, Allowed, Change, Who};
@@ -43,13 +44,14 @@ pub(crate) fn create(
         return Err(Refusal(errno::EIO, text));
     }
     state.db = Ok(db);
-    sys::write_str(&format!(
-        "ACCOUNTS:CREATE:PASS user={} uid={} admin={} by={}\n",
+    trace::line!(
+        trace::Channel::Accounts,
+        "CREATE:PASS user={} uid={} admin={} by={}",
         user.name,
         user.uid,
         u8::from(args.admin),
         by(who)
-    ));
+    );
     home("create", &user.name, user.uid, user.gid)?;
     Ok(record(&user))
 }
@@ -77,13 +79,14 @@ pub(crate) fn delete(
     store::persist(&db).map_err(|text| Refusal(errno::EIO, text))?;
     state.db = Ok(db);
     forget(&user.name);
-    sys::write_str(&format!(
-        "ACCOUNTS:DELETE:PASS user={} uid={} home={} by={}\n",
+    trace::line!(
+        trace::Channel::Accounts,
+        "DELETE:PASS user={} uid={} home={} by={}",
         user.name,
         user.uid,
         args.home,
         by(who)
-    ));
+    );
     match op {
         Some(op) => home(op, &user.name, user.uid, user.gid),
         None => Ok(()),
@@ -124,11 +127,12 @@ pub(crate) fn set_password(
         return Err(Refusal(errno::EIO, text));
     }
     state.db = Ok(db);
-    sys::write_str(&format!(
-        "ACCOUNTS:PASSWORD:PASS user={} by={}\n",
+    trace::line!(
+        trace::Channel::Accounts,
+        "PASSWORD:PASS user={} by={}",
         args.name,
         by(who)
-    ));
+    );
     Ok(())
 }
 
@@ -143,12 +147,13 @@ pub(crate) fn set_admin(
     db.set_admin(&args.name, args.admin).map_err(op_refusal)?;
     store::persist(&db).map_err(|text| Refusal(errno::EIO, text))?;
     state.db = Ok(db);
-    sys::write_str(&format!(
-        "ACCOUNTS:ADMIN:PASS user={} admin={} by={}\n",
+    trace::line!(
+        trace::Channel::Accounts,
+        "ADMIN:PASS user={} admin={} by={}",
         args.name,
         u8::from(args.admin),
         by(who)
-    ));
+    );
     Ok(())
 }
 
@@ -159,10 +164,13 @@ fn authorized(state: &State, message: &Message, change: Change<'_>) -> Result<Wh
     match authorize(database(state)?, who, change) {
         Ok(_) => Ok(who),
         Err(refusal) => {
-            sys::write_str(&format!(
-                "ACCOUNTS:DENIED change={change:?} caller_uid={} label={} session={}\n",
-                caller.uid, caller.label_id, caller.session
-            ));
+            trace::line!(
+                trace::Channel::Accounts,
+                "DENIED change={change:?} caller_uid={} label={} session={}",
+                caller.uid,
+                caller.label_id,
+                caller.session
+            );
             Err(denied(refusal))
         }
     }
@@ -208,10 +216,11 @@ fn undo_provision(name: &str, old: Option<&Verifier>) {
         None => client.forget(name),
     });
     if let Err(error) = restored {
-        sys::write_str(&format!(
-            "ACCOUNTS:PASSWORD:UNDO:FAIL user={name} error={}\n",
+        trace::line!(
+            trace::Channel::Accounts,
+            "PASSWORD:UNDO:FAIL user={name} error={}",
             error.message()
-        ));
+        );
     }
 }
 
@@ -245,14 +254,15 @@ fn home(op: &str, name: &str, uid: u32, gid: u32) -> Result<(), Refusal> {
     });
     match result {
         Ok(()) => {
-            sys::write_str(&format!("ACCOUNTS:HOME:PASS op={op} user={name}\n"));
+            trace::line!(trace::Channel::Accounts, "HOME:PASS op={op} user={name}");
             Ok(())
         }
         Err(error) => {
-            sys::write_str(&format!(
-                "ACCOUNTS:HOME:FAIL op={op} user={name} error={}\n",
+            trace::line!(
+                trace::Channel::Accounts,
+                "HOME:FAIL op={op} user={name} error={}",
                 error.message()
-            ));
+            );
             Err(Refusal(
                 errno::EIO,
                 String::from("the account changed, but its home could not be updated"),

@@ -26,23 +26,33 @@ fn a_stroke_is_one_undo_step_and_interpolates() {
 fn a_shape_preview_is_not_an_undo_step() {
     let mut model = model();
     model.set_tool(Tool::Line);
+    model.set_size(1);
     model.begin(0, 0, Side::Primary);
     model.extend(10, 10);
-    assert!(model.preview().is_some());
+    assert_ne!(model.bitmap().get(5, 5), Some(WHITE), "the layer shows it");
     assert_eq!(model.history().undo_len(), 0, "a preview is not history");
+    model.extend(10, 0);
+    assert_eq!(
+        model.bitmap().get(5, 5),
+        Some(WHITE),
+        "the old frame is gone"
+    );
     model.end();
-    assert!(model.preview().is_none());
     assert_eq!(model.history().undo_len(), 1);
 }
 
 #[test]
-fn a_cancelled_drag_does_not_leave_the_tool_stuck() {
+fn a_cancelled_drag_leaves_nothing_behind() {
     let mut model = model();
     model.begin(2, 2, Side::Primary);
+    model.extend(20, 20);
+    assert_ne!(model.bitmap().get(2, 2), Some(WHITE));
     model.cancel();
     assert!(!model.is_dragging());
+    assert_eq!(model.bitmap().get(2, 2), Some(WHITE));
+    assert_eq!(model.history().undo_len(), 0);
     model.extend(20, 20);
-    assert_eq!(model.history().undo_len(), 1);
+    assert_eq!(model.history().undo_len(), 0, "no drag to extend");
 }
 
 #[test]
@@ -73,7 +83,14 @@ fn fill_and_eraser_and_picker_behave() {
     model.set_tool(Tool::Eraser);
     model.begin(0, 0, Side::Primary);
     model.end();
-    assert_eq!(model.bitmap().get(0, 0), Some(WHITE));
+    assert_eq!(model.bitmap().get(0, 0), Some([0, 0, 0, 0]), "alpha 0");
+    model.undo();
+    assert_eq!(model.bitmap().get(0, 0), Some(RED));
+    // The right button paints the secondary colour instead.
+    model.set_secondary([0, 0, 255, 255]);
+    model.begin(0, 0, Side::Secondary);
+    model.end();
+    assert_eq!(model.bitmap().get(0, 0), Some([0, 0, 255, 255]));
 }
 
 #[test]
@@ -103,10 +120,10 @@ fn load_and_reset_clear_the_history() {
     let mut model = model();
     model.begin(0, 0, Side::Primary);
     model.end();
-    model.load(Bitmap::white(8, 8));
+    model.load(Bitmap::white(8, 8)).unwrap();
     assert_eq!(model.bitmap().size(), (8, 8));
     assert!(!model.history().can_undo());
-    model.reset(4, 4);
+    model.reset(4, 4).unwrap();
     assert_eq!(model.bitmap().size(), (4, 4));
     assert!(!model.history().can_undo());
 }
@@ -117,8 +134,26 @@ fn clear_is_an_undoable_step() {
     model.set_primary(RED);
     model.begin(0, 0, Side::Primary);
     model.end();
-    model.clear();
+    model.clear().unwrap();
     assert_eq!(model.bitmap().get(0, 0), Some(WHITE));
     model.undo();
     assert_eq!(model.bitmap().get(0, 0), Some(RED));
+}
+
+#[test]
+fn an_undo_entry_larger_than_the_history_cap_is_counted() {
+    let model = model();
+    let mib = 1024 * 1024u64;
+    // Two 8192x4096 layers (256 MiB) plus their cache (128 MiB) fit next to
+    // the 64 MiB history cap...
+    assert!(model.check_fits(8192, 4096, 2).is_ok());
+    // ...but not when the undo entry about to be kept is the 256 MiB old
+    // document: one entry stays held even past the cap.
+    assert!(
+        model
+            .check_fits_recording(8192, 4096, 2, 256 * mib)
+            .is_err()
+    );
+    // An entry under the cap changes nothing.
+    assert!(model.check_fits_recording(8192, 4096, 2, mib).is_ok());
 }

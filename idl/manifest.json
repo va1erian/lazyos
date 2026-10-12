@@ -1158,6 +1158,16 @@
         "name": "WifiPmk",
         "id": 249445660,
         "oneway": false
+      },
+      {
+        "name": "StoreSecretFor",
+        "id": 1701625789,
+        "oneway": false
+      },
+      {
+        "name": "DeleteSecretFor",
+        "id": 268809353,
+        "oneway": false
       }
     ],
     "topics": []

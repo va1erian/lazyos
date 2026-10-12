@@ -36,6 +36,9 @@ SIMPLE_GROUPS = (
     ("networking", "Networking", "Internet through QEMU, the Network and Net Tools apps, "
                                  "HTTPS with curl, wget and fetch.",
      ("net", "tls")),
+    ("wifi", "Wi-Fi", "The Wi-Fi driver and firmware for the AMD NUC's RTL8822CE (turns "
+                      "Networking on; QEMU has no such card).",
+     ("wifi",)),
     ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
                    "(turns Networking on).",
      ("lazyweb", "mail", "lazysky")),
@@ -60,7 +63,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
-                  usb_image: bool = False, lazysky: bool = False,
+                  usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
                   srb2kart: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
@@ -83,7 +86,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
     the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
     the emusic package (Desktop only, like ``doom``); ``usb_image`` also writes
-    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md);
+    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
+    the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
     ``net``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
@@ -131,7 +135,10 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or lazysky,
+        "net": net or tls or wifi or lazysky,
+        "wifi": wifi,
+        # The simulated radio is an Advanced-only test switch.
+        "wifi_sim": False,
         "net_forwards": "",
         "net_restrict": False,
         "nics": "1",
@@ -143,6 +150,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,
+        # The netboot payload is an Advanced-only control, like the kernel limits.
+        "netboot": False,
+        "netboot_key": "",
         "autologin": DEFAULT_ACCOUNT if desktop and autologin and not setup else "",
         "setup": desktop and setup,
         "display_mode": HIDPI_MODE if hidpi else "",

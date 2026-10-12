@@ -26,9 +26,9 @@
 
 extern crate alloc;
 
-use alloc::format;
 use alloc::vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::audio as api;
 use user::messenger::{self, errno, registry, Error as MsgError};
@@ -56,15 +56,17 @@ const DEMO_TICKS: u64 = 10;
 pub extern "C" fn _start() -> ! {
     sys::write_str("audiod: system mixer\n");
     if let Ok(cred) = sys::cred_get(None) {
-        sys::write_str(&format!(
-            "AUDIOD:CRED uid={} caps={:#x}\n",
-            cred.uid, cred.caps
-        ));
+        trace::line!(
+            trace::Channel::Audiod,
+            "CRED uid={} caps={:#x}",
+            cred.uid,
+            cred.caps
+        );
     }
     match run(demo_requested()) {
         Ok(()) => sys::exit(0),
         Err(error) => {
-            sys::write_str(&format!("AUDIOD:FAIL {}\n", error.message()));
+            trace::line!(trace::Channel::Audiod, "FAIL {}", error.message());
             sys::exit(1)
         }
     }
@@ -88,7 +90,7 @@ fn run(demo: bool) -> Result<(), MsgError> {
         &[api::INTERFACE, api::CONTROL_INTERFACE],
         0,
     )?;
-    sys::write_str(&format!("AUDIOD:READY name={}\n", api::NAME));
+    trace::line!(trace::Channel::Audiod, "READY name={}", api::NAME);
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 

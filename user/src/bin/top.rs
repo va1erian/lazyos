@@ -25,6 +25,7 @@ use core::panic::PanicInfo;
 use user::messenger;
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskRow, TaskState, WaitKind};
+use user::trace;
 
 /// How many snapshots to render.
 const REFRESHES: usize = 3;
@@ -38,13 +39,11 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("top: LazyOS system monitor (issue #144)\n");
     match run() {
         Ok(()) => {
-            sys::write_str("SYS:TOP:PASS\n");
+            trace::print!(trace::Channel::Sys, "TOP:PASS");
             sys::exit(0)
         }
         Err(reason) => {
-            sys::write_str("SYS:TOP:FAIL:");
-            sys::write_str(&reason);
-            sys::write_str("\n");
+            trace::print!(trace::Channel::Sys, "TOP:FAIL:{reason}");
             sys::exit(1)
         }
     }

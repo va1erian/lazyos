@@ -53,6 +53,8 @@ def advanced_cfg(ui) -> dict:
         "xui_autostart": ui.v["xui_autostart"].get(),
         "lazyrad": ui.v["lazyrad"].get(),
         "usb_image": ui.v["usb_image"].get(),
+        "netboot": ui.v["netboot"].get(),
+        "netboot_key": ui.v["netboot_key"].get().strip(),
         "shell": ui.v["shell"].get(),
         "lazyrad_samples": ui.v["lazyrad_samples"].get().strip(),
         "devices": ui.v["devices"].get(),
@@ -65,7 +67,7 @@ def advanced_cfg(ui) -> dict:
         "net_restrict": ui.v["net_restrict"].get(),
         "nics": ui.v["nics"].get().strip(),
         "linuxapps": ui.v["linuxapps"].get(),
-        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control")},
+        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "wifi", "wifi_sim")},
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
         "tls": ui.v["tls"].get() or ui.v["mail"].get(),
         "journal": ui.v["journal"].get(),

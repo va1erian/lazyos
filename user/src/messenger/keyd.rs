@@ -185,6 +185,36 @@ impl Client {
         self.call(wire::METHOD_DELETESECRET, body).map(|_| ())
     }
 
+    /// Keep a named secret for `owner` (`user`) or the machine (`system`,
+    /// `owner` 0); `wlanmd` only (`-EPERM` for anyone else).
+    pub fn store_secret_for(
+        &self,
+        scope: &str,
+        name: &str,
+        secret: &[u8],
+        owner: u32,
+    ) -> Result<()> {
+        let body = wire::encode_store_secret_for_args(&wire::StoreSecretForArgs {
+            scope: String::from(scope),
+            name: String::from(name),
+            secret: secret.to_vec(),
+            owner,
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_STORESECRETFOR, body).map(|_| ())
+    }
+
+    /// Forget a secret kept with [`Client::store_secret_for`].
+    pub fn delete_secret_for(&self, scope: &str, name: &str, owner: u32) -> Result<()> {
+        let body = wire::encode_delete_secret_for_args(&wire::DeleteSecretForArgs {
+            scope: String::from(scope),
+            name: String::from(name),
+            owner,
+        })
+        .map_err(Error::Parcel)?;
+        self.call(wire::METHOD_DELETESECRETFOR, body).map(|_| ())
+    }
+
     /// The names of the caller's `user` secrets, or of the `system` ones.
     pub fn list_secrets(&self, scope: &str) -> Result<Vec<String>> {
         let body = wire::encode_list_secrets_args(&wire::ListSecretsArgs {

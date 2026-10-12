@@ -71,6 +71,9 @@ def make_vars() -> dict:
         "xui_autostart": s(value=""),
         "lazyrad": b(value=False),
         "usb_image": b(value=False),
+        # The netboot payload target/netboot (LAZYOS_NETBOOT) and its signing key file.
+        "netboot": b(value=False),
+        "netboot_key": s(value=""),
         # LazyShell on the desktop profile (issue #157); unchecked = LAZYOS_SHELL=0.
         "shell": b(value=True),
         "lazyrad_samples": s(value=""),
@@ -92,12 +95,18 @@ def make_vars() -> dict:
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
         "smb": b(value=False),
+        # The simulated Wi-Fi radio against fake access points (LAZYOS_WIFI_SIM,
+        # run_demo --wifi-sim; implies the stack).
+        "wifi_sim": b(value=False),
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
         # implies networking).
         "dbgd": b(value=False),
         # Its control tier: restart and hot reload (LAZYOS_DBGD_CONTROL,
         # run_demo --dbgd-control; implies dbgd).
         "dbgd_control": b(value=False),
+        # Wi-Fi: wifid and its firmware (LAZYOS_WIFI, run_demo --wifi; implies
+        # networking).
+        "wifi": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the

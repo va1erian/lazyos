@@ -5,7 +5,8 @@
 //! function against the static driver manifest (`libs/devmatch`), and asks
 //! `init` to start each matched driver row for the device it found
 //! (`os.lazy.init.v1.StartDriver`; the driver gets `dev=<id>`, and a network
-//! card also `ifname=<name>`: `eth0`, `eth1`, ... in enumeration order). It then serves
+//! card also `ifname=<name>`: `eth0`, `eth1`, ... for wired cards and `wlan0`,
+//! `wlan1`, ... for wireless ones, each in enumeration order). It then serves
 //! `os.lazy.devd.v1` (`idl/devd.midl`) and keeps one retained topic per device,
 //! `system/devices/<id>`, current: each device's match, its driver, who holds
 //! the claim and whether its driver let it go. A driver that crashes is
@@ -24,11 +25,11 @@
 
 extern crate alloc;
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::central;
 use user::messenger::devd::{self as api, wire};
@@ -50,16 +51,18 @@ const CONNECT_ATTEMPTS: usize = 200;
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     match sys::cred_get(None) {
-        Ok(cred) => sys::write_str(&format!(
-            "DEVD:CRED uid={} caps={:#x}\n",
-            cred.uid, cred.caps
-        )),
-        Err(code) => sys::write_str(&format!("DEVD:CRED unavailable (errno {code})\n")),
+        Ok(cred) => trace::line!(
+            trace::Channel::Devd,
+            "CRED uid={} caps={:#x}",
+            cred.uid,
+            cred.caps
+        ),
+        Err(code) => trace::line!(trace::Channel::Devd, "CRED unavailable (errno {code})"),
     }
     match run() {
         Ok(()) => sys::exit(0),
         Err(why) => {
-            sys::write_str(&format!("DEVD:FAIL {why}\n"));
+            trace::line!(trace::Channel::Devd, "FAIL {why}");
             sys::exit(1)
         }
     }
@@ -88,11 +91,12 @@ fn run() -> Result<(), &'static str> {
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)
         .map_err(|_| "cannot register os.lazy.devd")?;
     let matched = tracked.iter().filter(|t| t.entry.is_some()).count();
-    sys::write_str(&format!(
-        "DEVD:READY name={} devices={} matched={matched}\n",
+    trace::line!(
+        trace::Channel::Devd,
+        "READY name={} devices={} matched={matched}",
         api::NAME,
         tracked.len()
-    ));
+    );
     services::init::notify_ready();
     let mut bus = central::Bus::connect_retry(CONNECT_ATTEMPTS).ok();
     publish_changes(&mut bus, &mut tracked);
@@ -111,13 +115,14 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
             continue;
         };
         let (driver, ifname) = (planned.driver, planned.ifname.as_str());
-        sys::write_str(&format!(
-            "DEVD:MATCH id={id} {:04x}:{:04x} class={} driver={driver} model={} ifname={ifname}\n",
+        trace::line!(
+            trace::Channel::Devd,
+            "MATCH id={id} {:04x}:{:04x} class={} driver={driver} model={} ifname={ifname}",
             item.device.vendor,
             item.device.device,
             item.device.class_name(),
             planned.entry.model
-        ));
+        );
         item.ifname = String::from(ifname);
         match drivers::start_driver(init, driver, u64::from(id), ifname) {
             Ok(started) => {
@@ -125,25 +130,29 @@ fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
                 if item.device.owner.is_none() {
                     item.state = State::Starting;
                 }
-                sys::write_str(&format!(
-                    "DEVD:START driver={driver} dev={id} ifname={ifname} pid={} new={}\n",
-                    started.pid, started.started
-                ));
+                trace::line!(
+                    trace::Channel::Devd,
+                    "START driver={driver} dev={id} ifname={ifname} pid={} new={}",
+                    started.pid,
+                    started.started
+                );
             }
             // The image does not ship this driver (an e1000 QEMU adds by
             // default to a sound-only image): nothing to start, not a fault.
             Err(MsgError::Init(code)) if code == errno::ENOENT => {
                 item.state = State::NoDriver;
-                sys::write_str(&format!(
-                    "DEVD:NODRIVER driver={driver} dev={id} (not in this image)\n"
-                ));
+                trace::line!(
+                    trace::Channel::Devd,
+                    "NODRIVER driver={driver} dev={id} (not in this image)"
+                );
             }
             Err(error) => {
                 item.state = State::Failed;
-                sys::write_str(&format!(
-                    "DEVD:START:FAIL driver={driver} dev={id} {}\n",
+                trace::line!(
+                    trace::Channel::Devd,
+                    "START:FAIL driver={driver} dev={id} {}",
                     error.message()
-                ));
+                );
             }
         }
     }
@@ -155,10 +164,14 @@ fn publish_changes(bus: &mut Option<central::Bus>, tracked: &mut [Tracked]) {
     for item in tracked.iter_mut() {
         let record = item.record();
         if item.logged.as_ref() != Some(&record) {
-            sys::write_str(&format!(
-                "DEVD:DEVICE id={} state={} driver={} owner={}\n",
-                record.id, record.state, record.driver, record.owner
-            ));
+            trace::line!(
+                trace::Channel::Devd,
+                "DEVICE id={} state={} driver={} owner={}",
+                record.id,
+                record.state,
+                record.driver,
+                record.owner
+            );
             item.logged = Some(record.clone());
         }
         if item.published.as_ref() == Some(&record) {
@@ -171,11 +184,12 @@ fn publish_changes(bus: &mut Option<central::Bus>, tracked: &mut [Tracked]) {
             Ok(_) => item.published = Some(record),
             Err(error) if !item.publish_failed => {
                 item.publish_failed = true;
-                sys::write_str(&format!(
-                    "DEVD:PUBLISH:ERR id={} {}\n",
+                trace::line!(
+                    trace::Channel::Devd,
+                    "PUBLISH:ERR id={} {}",
                     record.id,
                     error.message()
-                ));
+                );
             }
             Err(_) => {}
         }
@@ -200,7 +214,7 @@ fn check_topics(bus: &mut Option<central::Bus>, tracked: &[Tracked]) -> bool {
         .filter(|info| info.retained && info.topic.starts_with("system/devices/"))
         .count();
     if retained >= tracked.len() {
-        sys::write_str(&format!("DEVD:TOPICS:PASS retained={retained}\n"));
+        trace::line!(trace::Channel::Devd, "TOPICS:PASS retained={retained}");
         return true;
     }
     false
@@ -222,7 +236,11 @@ fn rescan(tracked: &mut [Tracked], reported: &mut bool) {
         .collect();
     if !*reported && !started.is_empty() && started.iter().all(|t| t.state == State::Claimed) {
         *reported = true;
-        sys::write_str(&format!("DEVD:CLAIMED:PASS drivers={}\n", started.len()));
+        trace::line!(
+            trace::Channel::Devd,
+            "CLAIMED:PASS drivers={}",
+            started.len()
+        );
     }
 }
 

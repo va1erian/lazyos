@@ -126,8 +126,12 @@ fn stat() -> String {
     format!("cpu  {line}\ncpu0 {line}\nbtime 0\nprocesses 0\n")
 }
 
+/// `/proc/version`: the Linux-shaped line, then ` image <id>` when the boot
+/// config named the build (`LAZYOS_NETBOOT=1`, `crate::fs::boot_image`), which
+/// Settings -> About reads.
 fn version() -> String {
-    String::from("LazyOS version 0.1.0 (x86_64) Linux-compatible ABI\n")
+    let image = crate::fs::boot_image::get().map_or_else(String::new, |id| format!(" image {id}"));
+    format!("LazyOS version 0.1.0 (x86_64) Linux-compatible ABI{image}\n")
 }
 
 fn filesystems() -> String {

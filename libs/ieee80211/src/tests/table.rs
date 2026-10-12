@@ -38,12 +38,100 @@ fn bss_from_a_wpa2_beacon() {
 }
 
 #[test]
-fn channel_comes_from_the_chip_then_the_ds_element() {
+fn the_ds_element_names_the_2ghz_channel_not_the_receiver() {
+    // An AP on channel 11 heard on channel 9 (the channels overlap) is on 11.
     let ies = beacon_ies(b"x", 11);
     let frame = build::beacon(&AP, 1, fields(cap::ESS), &ies);
-    assert_eq!(bss_from(&frame, 1, -40, 0).unwrap().channel, 1);
-    let bss = bss_from(&frame, 0, -40, 0).unwrap();
+    let bss = bss_from(&frame, 9, -40, 0).unwrap();
     assert_eq!((bss.channel, bss.ds_channel), (11, Some(11)));
+    assert_eq!(bss_from(&frame, 0, -40, 0).unwrap().channel, 11);
+    // No DS element: the receive channel stands.
+    let bare = IeBuilder::new().ssid(b"x").unwrap().finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &bare);
+    assert_eq!(bss_from(&frame, 9, -40, 0).unwrap().channel, 9);
+}
+
+#[test]
+fn the_ht_operation_element_names_the_5ghz_primary_channel() {
+    let mut op = [0u8; 22];
+    op[0] = 40;
+    let ies = IeBuilder::new()
+        .ssid(b"x")
+        .unwrap()
+        .raw(61, &op)
+        .unwrap()
+        .finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &ies);
+    let bss = bss_from(&frame, 36, -40, 0).unwrap();
+    assert_eq!(
+        (bss.channel, bss.ht_primary, bss.ds_channel),
+        (40, Some(40), None)
+    );
+    // A claim from the other band is not believed.
+    op[0] = 6;
+    let ies = IeBuilder::new()
+        .ssid(b"x")
+        .unwrap()
+        .raw(61, &op)
+        .unwrap()
+        .ds_channel(3)
+        .unwrap()
+        .finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &ies);
+    assert_eq!(bss_from(&frame, 36, -40, 0).unwrap().channel, 36);
+    assert_eq!(
+        bss_from(&frame, 1, -40, 0).unwrap().channel,
+        3,
+        "DS first on 2.4 GHz"
+    );
+    // A short HT Operation element is malformed and ignored.
+    let ies = IeBuilder::new()
+        .ssid(b"x")
+        .unwrap()
+        .raw(61, &[40, 0])
+        .unwrap()
+        .finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &ies);
+    let bss = bss_from(&frame, 36, -40, 0).unwrap();
+    assert_eq!((bss.channel, bss.ht_primary), (36, None));
+}
+
+#[test]
+fn operating_channel_rules() {
+    use crate::bss::operating_channel as op;
+    assert_eq!(op(7, Some(6), None), 6);
+    assert_eq!(op(7, None, Some(6)), 6);
+    assert_eq!(op(7, Some(0), None), 7);
+    assert_eq!(op(7, Some(44), Some(44)), 7);
+    assert_eq!(op(36, Some(6), Some(40)), 40);
+    assert_eq!(op(36, Some(149), None), 149);
+    assert_eq!(op(0, Some(6), Some(1)), 1);
+    assert_eq!(op(0, None, None), 0);
+}
+
+#[test]
+fn wmm_is_noted_even_past_the_vendor_cap() {
+    let mut ies = IeBuilder::new().ssid(b"x").unwrap();
+    for i in 0..40u8 {
+        ies = ies.raw(221, &[1, 2, 3, i]).unwrap();
+    }
+    let ies = ies
+        .raw(221, &[0x00, 0x50, 0xF2, 2, 1, 1, 0])
+        .unwrap()
+        .finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &ies);
+    assert!(bss_from(&frame, 1, 0, 0).unwrap().wmm);
+    // A WMM TSPEC (subtype 2) or the WPS element (type 4) is not WMM.
+    let other = IeBuilder::new()
+        .ssid(b"x")
+        .unwrap()
+        .raw(221, &[0x00, 0x50, 0xF2, 2, 2, 1])
+        .unwrap()
+        .raw(221, &[0x00, 0x50, 0xF2, 4, 0x10, 0x4A])
+        .unwrap()
+        .finish();
+    let frame = build::beacon(&AP, 1, fields(cap::ESS), &other);
+    assert!(!bss_from(&frame, 1, 0, 0).unwrap().wmm);
 }
 
 #[test]

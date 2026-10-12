@@ -21,6 +21,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use usbmsc::bot::{Pipe as Transport, Setup, XferError};
 use user::sys;
@@ -179,13 +180,11 @@ impl Link<'_> {
     fn report(&mut self, inbound: bool, len: usize, outcome: &str, started: u64) {
         let dci = self.pipe(inbound).dci;
         let (state, dequeue) = self.device.endpoint_state(self.hc, dci);
-        sys::write_str(&format!(
-            "USBD:MSC:XFER port={} {} len={len} result={outcome} waited_ms={} epstate={state} epdq={dequeue:#x} {}\n",
+        trace::line!(trace::Channel::Usbd, "MSC:XFER port={} {} len={len} result={outcome} waited_ms={} epstate={state} epdq={dequeue:#x} {}",
             self.device.name,
             if inbound { "in" } else { "out" },
             sys::clock().saturating_sub(started) * 10,
-            self.hc.state_text()
-        ));
+            self.hc.state_text());
     }
 
     /// A transfer that failed or timed out: `Gone` when the device left,

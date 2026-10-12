@@ -13,6 +13,15 @@ pub const SYSTEM_ETC: &str = "/system/etc";
 /// Read-only data: MIME types, samples ([`crate::share`]).
 pub const SYSTEM_SHARE: &str = "/system/share";
 
+/// Device firmware the drivers load at run time, one directory per vendor
+/// (`rtw88/rtw8822c_fw.bin`), each with the licence text it ships under
+/// beside it (`rtw88/LICENCE.rtlwifi_firmware.txt`). Separate files, never
+/// compiled into a program (docs/wifi-prerequisites-plan.md 3.8); a driver
+/// opens one through `libs/fwload`, which refuses any name outside this tree.
+/// Written by the image build from `tools/firmware/fetch.py`'s pinned
+/// downloads (`LAZYOS_WIFI=1` images).
+pub const FIRMWARE: &str = "/system/share/firmware";
+
 /// Core packages: one `<system_name>.lzp` per app the image ships, which
 /// `pkgd` installs into `/apps` at startup (`pkgstore::provision`).
 pub const SYSTEM_PACKAGES: &str = "/system/packages";
@@ -38,5 +47,6 @@ mod tests {
         }
         assert!(IMAGE_MANIFEST.starts_with(SYSTEM));
         assert!(PACKAGES_INDEX.starts_with(SYSTEM_PACKAGES));
+        assert_eq!(FIRMWARE.strip_prefix(SYSTEM_SHARE), Some("/firmware"));
     }
 }

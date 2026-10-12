@@ -22,6 +22,8 @@ const FULL: u32 = rights::DEV_ALL & !rights::DEV_IRQ;
 /// A device of each class the test exercises, without an interrupt line.
 struct Devices {
     net: DeviceId,
+    /// A Wi-Fi card (`02/80`): the wireless class, not `net`.
+    wireless: DeviceId,
     usb: DeviceId,
     audio: DeviceId,
     storage: DeviceId,
@@ -34,6 +36,7 @@ impl Devices {
         let of = |class, subclass| add_device(Spec::nic(None).with_class(class, subclass));
         Ok(Devices {
             net: of(0x02, 0x00)?,
+            wireless: of(0x02, 0x80)?,
             usb: of(0x0C, 0x03)?,
             audio: of(0x04, 0x01)?,
             storage: of(0x01, 0x06)?,
@@ -42,9 +45,10 @@ impl Devices {
         })
     }
 
-    fn all(&self) -> [DeviceId; 6] {
+    fn all(&self) -> [DeviceId; 7] {
         [
             self.net,
+            self.wireless,
             self.usb,
             self.audio,
             self.storage,
@@ -54,9 +58,10 @@ impl Devices {
     }
 
     /// `(uid, the device of its own class, that class)` for each driver.
-    fn drivers(&self) -> [(u32, DeviceId, &'static Class); 3] {
+    fn drivers(&self) -> [(u32, DeviceId, &'static Class); 4] {
         [
             (netpolicy::NET_UID, self.net, &class::NET),
+            (netpolicy::WIFI_UID, self.wireless, &class::WIRELESS),
             (usbpolicy::USB_UID, self.usb, &class::USB),
             (sndpolicy::SND_UID, self.audio, &class::AUDIO),
         ]
@@ -153,10 +158,11 @@ pub fn sys_boot_policy_confines_each_driver_to_its_class() -> Result<(), String>
     Ok(())
 }
 
-/// The installed rules are exactly the three driver crates' tables.
+/// The installed rules are exactly the driver crates' tables.
 pub fn sys_boot_policy_is_the_driver_tables() -> Result<(), String> {
     let rules = crate::dev::policy::boot_rules();
     let expected = netpolicy::NET_DRIVER_CLASS_RULES.len()
+        + netpolicy::WIFI_DRIVER_CLASS_RULES.len()
         + usbpolicy::USB_DRIVER_CLASS_RULES.len()
         + sndpolicy::SND_DRIVER_CLASS_RULES.len();
     check!(
@@ -166,6 +172,7 @@ pub fn sys_boot_policy_is_the_driver_tables() -> Result<(), String> {
     );
     let classes = [
         class::NET.interface_id,
+        class::WIRELESS.interface_id,
         class::USB.interface_id,
         class::AUDIO.interface_id,
     ];
@@ -196,7 +203,7 @@ pub fn sys_boot_policy_stress_claim_release() -> Result<(), String> {
     let devices = Devices::add()?;
     crate::dev::policy::install_boot_policy();
     let drivers = devices.drivers();
-    let mut slots = [0; 3];
+    let mut slots = [0; 4];
     for (slot, (uid, _, _)) in slots.iter_mut().zip(drivers) {
         *slot = spawn_driver(driver(uid))?;
     }

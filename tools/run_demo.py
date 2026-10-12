@@ -32,6 +32,10 @@ Examples
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
+    python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
+    python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
+    python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
+    python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --lazysky       # desktop + networking + the LazySky Bluesky client
@@ -78,8 +82,8 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_lazyrad, build_lazysky, build_lazyweb, build_linuxapps,
-    build_mail,
-    build_modplayer, build_pictures, build_quake, build_rhai, build_srb2kart, build_tls, build_xui_apps,
+    build_mail, build_modplayer, build_pictures, build_quake, build_rhai, build_srb2kart, build_tls,
+    build_wifi, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -88,6 +92,9 @@ import busybox  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
 import qemu_net  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "wifi"))
+import simnet  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
@@ -268,7 +275,8 @@ def main(argv: list[str]) -> int:
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
-                                      (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY")):
+                                      (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),
+                                      (args.wifi, build_wifi, "LAZYOS_WIFI")):
             if not wanted:
                 continue
             if not build():
@@ -295,6 +303,11 @@ def main(argv: list[str]) -> int:
             # talk to host servers only `tools/net/run.py` starts.
             env["LAZYOS_NETD"] = "1"
             env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
+        if args.wifi_sim:
+            # The simulated radio and the stack it is a card of; no harness
+            # clients (`demo=0`), as for `--net`.
+            env.update(simnet.build_env(args.wifi_probe))
+            env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
             # One build for every missing app: the desktop's own, and the
@@ -318,6 +331,15 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_USB"] = "1"
             if not args.desktop:
                 env["LAZYOS_SERVICES"] = "1"
+        if args.netboot:
+            # The network payload is the stick's (docs/netboot-plan.md N1):
+            # the same profile rule, so the same switches as `--usb-image`.
+            env["LAZYOS_NETBOOT"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
+            if args.netboot_key:
+                env["LAZYOS_NETBOOT_KEY"] = args.netboot_key
         if args.devices:
             if not build_xui_apps():
                 return 1
@@ -333,6 +355,9 @@ def main(argv: list[str]) -> int:
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
+        if args.netboot:
+            print("netboot payload in target/netboot "
+                  "(check: python tools/boot/preflight.py --netboot target/netboot)", flush=True)
         if args.build_only:
             return 0
 
@@ -386,6 +411,12 @@ def main(argv: list[str]) -> int:
             return 1
         command += net_qemu
         print(qemu_net.describe(forwards, args.net_restrict), flush=True)
+    fake_ap = None
+    if args.wifi_sim:
+        log = ROOT / "target" / "wifi-sim-ap.log"
+        fake_ap, air = simnet.start(log=log)
+        command += air
+        print(simnet.describe(log), flush=True)
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]
@@ -396,7 +427,10 @@ def main(argv: list[str]) -> int:
     command += extra
 
     print("running:", " ".join(command), flush=True)
-    return subprocess.call(command)
+    try:
+        return subprocess.call(command)
+    finally:
+        simnet.stop(fake_ap)
 
 
 if __name__ == "__main__":

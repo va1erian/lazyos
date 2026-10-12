@@ -47,6 +47,7 @@ use alloc::vec::Vec;
 use core::panic::PanicInfo;
 use user::messenger::{self, accounts, logind, registry, router, services, wait, Endpoint, Parcel};
 use user::sys::{self, Cred};
+use user::trace;
 
 /// How long to wait before looking for the accounts service again (PIT
 /// ticks). `init` starts `logind` after `accountsd`, so this only
@@ -219,10 +220,12 @@ fn prompt_login(
         started,
     });
     let index = sessions.len() - 1;
-    sys::write_str(&format!(
-        "LOGIN:OK:PASS user={} uid={} session={id} pid={pid}\n",
-        user.name, user.uid
-    ));
+    trace::line!(
+        trace::Channel::Login,
+        "OK:PASS user={} uid={} session={id} pid={pid}",
+        user.name,
+        user.uid
+    );
     if let Some(bus) = bus.as_mut() {
         let start = logind::wire::LoginStart {
             user: user.name.clone(),
@@ -269,7 +272,10 @@ const LOGIN_SCRIPT: &str =
 /// Record a refused attempt, print its serial marker, and rate-limit the next
 /// prompt.
 fn deny(bus: &mut Option<router::Bus>, name: &str, reason: &str) {
-    sys::write_str(&format!("LOGIN:DENIED:PASS user={name} reason={reason}\n"));
+    trace::line!(
+        trace::Channel::Login,
+        "DENIED:PASS user={name} reason={reason}"
+    );
     if let Some(bus) = bus.as_mut() {
         let event = logind::wire::LoginDenied {
             user: String::from(name),

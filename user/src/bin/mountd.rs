@@ -33,6 +33,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use mounttable::Table;
 use user::messenger::mount as api;
@@ -60,7 +61,11 @@ fn run() -> messenger::Result<()> {
         &[api::INTERFACE, lifecycle::INTERFACE],
         0,
     )?;
-    sys::write_str(&format!("MOUNTD:READY interface={:#x}\n", api::INTERFACE));
+    trace::line!(
+        trace::Channel::Mountd,
+        "READY interface={:#x}",
+        api::INTERFACE
+    );
     services::init::notify_ready();
 
     let mut table = Table::new();
@@ -110,11 +115,15 @@ fn housekeeping(table: &mut Table) {
         .collect();
     for name in up {
         table.mounted(&name);
-        sys::write_str(&format!("MOUNTD:UP {name}\n"));
+        trace::line!(trace::Channel::Mountd, "UP {name}");
     }
     for (name, pid) in table.expire(sys::clock()) {
         let _ = sys::kill(pid, sys::SIG_KILL);
-        sys::write_str(&format!("MOUNTD:FAIL {name} {}\n", mounttable::TIMED_OUT));
+        trace::line!(
+            trace::Channel::Mountd,
+            "FAIL {name} {}",
+            mounttable::TIMED_OUT
+        );
     }
 }
 
@@ -123,7 +132,7 @@ fn reap(table: &mut Table) {
     while let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
         if let Some(entry) = table.exited(pid, status) {
             let reason = entry.state.detail();
-            sys::write_str(&format!("MOUNTD:FAIL {} {reason}\n", entry.name));
+            trace::line!(trace::Channel::Mountd, "FAIL {} {reason}", entry.name);
         }
     }
 }
@@ -134,7 +143,7 @@ fn stop_all(table: &Table, reason: &str) {
     for pid in table.daemons() {
         let _ = sys::kill(pid, sys::SIG_TERM);
     }
-    sys::write_str(&format!("MOUNTD:STOP reason=\"{reason}\"\n"));
+    trace::line!(trace::Channel::Mountd, "STOP reason=\"{reason}\"");
 }
 
 /// `/mnt/<name>`.
@@ -144,6 +153,6 @@ pub(crate) fn mount_point(name: &str) -> String {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("MOUNTD:FAIL panic\n");
+    trace::line!(trace::Channel::Mountd, "FAIL panic");
     sys::exit(1)
 }

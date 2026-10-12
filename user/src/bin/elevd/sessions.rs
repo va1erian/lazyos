@@ -11,8 +11,8 @@
 //!
 //! Serial: `ELEVD:SESSION:END session=<id>`.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use elevpolicy::sessions::Sessions;
 use user::messenger::{logind, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
@@ -62,7 +62,7 @@ impl Feed {
             match sub.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
                 Ok(Some(event)) => {
                     if let Some(id) = self.note(&event) {
-                        sys::write_str(&format!("ELEVD:SESSION:END session={id}\n"));
+                        trace::line!(trace::Channel::Elevd, "SESSION:END session={id}");
                         ended.push(id);
                     }
                 }

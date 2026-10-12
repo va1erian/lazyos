@@ -24,6 +24,7 @@ use user::messenger::{self, Error, Result};
 use user::messenger_async::{self, Call, FIELD_SERVED, FIELD_SHUTTING_DOWN};
 use user::service;
 use user::sys;
+use user::trace;
 
 /// Interface id this service speaks.
 const IFACE: u64 = 0xE5C0_0002;
@@ -64,11 +65,11 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("\n");
     let code = match main() {
         Ok(()) => {
-            sys::write_str("ASYNC:SERVICE:PASS\n");
+            trace::line!(trace::Channel::Async, "SERVICE:PASS");
             0
         }
         Err(()) => {
-            sys::write_str("ASYNC:SERVICE:FAIL\n");
+            trace::line!(trace::Channel::Async, "SERVICE:FAIL");
             1
         }
     };
@@ -202,9 +203,11 @@ fn field_bool(parcel: &Parcel, id: u16) -> Option<bool> {
 
 /// Print one step marker; returns whether the step passed.
 fn require(name: &str, passed: bool) -> core::result::Result<(), ()> {
-    sys::write_str("ASYNC:");
-    sys::write_str(name);
-    sys::write_str(if passed { ":PASS\n" } else { ":FAIL\n" });
+    trace::line!(
+        trace::Channel::Async,
+        "{name}:{}",
+        if passed { "PASS" } else { "FAIL" }
+    );
     if passed {
         Ok(())
     } else {

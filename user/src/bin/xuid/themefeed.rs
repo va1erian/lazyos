@@ -29,6 +29,7 @@ use user::messenger::confd::{wire, Client};
 use user::messenger::topics_client::Qos;
 use user::messenger::{DEFAULT_BUFFER, EXPIRED_DEADLINE};
 use user::sys;
+use user::trace;
 
 use super::theme;
 
@@ -225,7 +226,7 @@ impl ThemeFeed {
         }
         let changed = theme::set_palette(&uitheme::resolve(&settings));
         if changed {
-            sys::write_str("THEME:APPLIED\n");
+            trace::line!(trace::Channel::Theme, "APPLIED");
         }
         changed
     }

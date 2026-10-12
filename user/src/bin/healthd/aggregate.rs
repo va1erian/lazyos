@@ -10,6 +10,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::messenger::{router, services};
 use user::sys;
+use user::trace;
 
 use super::{HealthRow, REPORT_TTL};
 
@@ -273,8 +274,8 @@ pub(crate) fn records(rows: &[HealthRow]) -> Vec<services::HealthRecord> {
 /// Print the machine-parseable evidence line for a status transition.
 fn announce(name: &str, status: &str) {
     if status == "ok" {
-        sys::write_str(&format!("HEALTH:SVC:PASS {name}\n"));
+        trace::line!(trace::Channel::Health, "SVC:PASS {name}");
     } else {
-        sys::write_str(&format!("HEALTH:SVC:FAIL {name} ({status})\n"));
+        trace::line!(trace::Channel::Health, "SVC:FAIL {name} ({status})");
     }
 }

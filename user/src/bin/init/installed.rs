@@ -21,6 +21,7 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::trace;
 
 use confd::Value;
 use deskmenu::hidden::{self, Hidden};
@@ -262,7 +263,7 @@ pub(super) fn report_label(pid: u64, id: &str) {
         .and_then(|cred| sys::label_name(cred.label_id, &mut name).ok())
         .and_then(|len| core::str::from_utf8(&name[..len]).ok());
     match label {
-        Some(label) => sys::write_str(&format!("PKGD:LAUNCH:LABEL {label} pid={pid}\n")),
-        None => sys::write_str(&format!("PKGD:LAUNCH:LABEL:FAIL {id} pid={pid}\n")),
+        Some(label) => trace::line!(trace::Channel::Pkgd, "LAUNCH:LABEL {label} pid={pid}"),
+        None => trace::line!(trace::Channel::Pkgd, "LAUNCH:LABEL:FAIL {id} pid={pid}"),
     }
 }

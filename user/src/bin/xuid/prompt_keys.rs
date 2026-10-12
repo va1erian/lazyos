@@ -32,6 +32,7 @@
 //! `XUID:PROMPT:REFUSED reason=<why>`.
 
 use alloc::string::String;
+use user::trace;
 
 use user::messenger::display::key;
 use user::messenger::input::{mods, KeyInput, KeySession, SHELL_NAME};
@@ -77,7 +78,10 @@ impl Compositor {
             // No link: safe only when there is no `inputd` to feed a client.
             return match registry::resolve(SHELL_NAME) {
                 Err(Error::Errno(code)) if code == -errno::ENOENT => {
-                    sys::write_str("XUID:PROMPT:KEYS source=kernel reason=no-inputd\n");
+                    trace::line!(
+                        trace::Channel::Xuid,
+                        "PROMPT:KEYS source=kernel reason=no-inputd"
+                    );
                     Ok(KeySource::Kernel)
                 }
                 Ok(endpoint) => {
@@ -91,7 +95,7 @@ impl Compositor {
             Ok(session) => {
                 self.prompt_keys = Some(session);
                 self.input.told_focus = Some(Some(PROMPT_SURFACE));
-                sys::write_str("XUID:PROMPT:KEYS source=inputd\n");
+                trace::line!(trace::Channel::Xuid, "PROMPT:KEYS source=inputd");
                 Ok(KeySource::Inputd)
             }
             Err(why) => {
@@ -167,7 +171,7 @@ impl Compositor {
                 // `inputd` went away: the kernel stream takes over.
                 Err(_) => {
                     self.prompt_keys = None;
-                    sys::write_str("XUID:PROMPT:KEYS source=kernel\n");
+                    trace::line!(trace::Channel::Xuid, "PROMPT:KEYS source=kernel");
                     return;
                 }
             }

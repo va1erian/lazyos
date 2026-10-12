@@ -18,8 +18,8 @@
 
 extern crate alloc;
 
-use alloc::format;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::timed as api;
 use user::messenger::{self, errno, registry, services, wait, Error};
@@ -54,11 +54,12 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
-    sys::write_str(&format!(
-        "TIMED:READY unix={} interface={:#x}\n",
+    trace::line!(
+        trace::Channel::Timed,
+        "READY unix={} interface={:#x}",
         now().0,
         api::INTERFACE
-    ));
+    );
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 
@@ -112,7 +113,7 @@ fn housekeeping(state: &mut State, demo: &mut demo::Demo, announced: &mut bool, 
     let mut changed = state.sync_zone();
     changed |= state.poll_changes(rung);
     if changed {
-        sys::write_str(&format!("TIMED:ZONE zone={}\n", state.zone.name));
+        trace::line!(trace::Channel::Timed, "ZONE zone={}", state.zone.name);
         // A zone change must reach `time/tick` subscribers promptly.
         state.next_tick = 0;
     }
@@ -121,10 +122,12 @@ fn housekeeping(state: &mut State, demo: &mut demo::Demo, announced: &mut bool, 
     if state.announced && !*announced {
         *announced = true;
         let local = state.local(unix);
-        sys::write_str(&format!(
-            "TIMED:TICK:PASS unix={unix} offset={} zone={}\n",
-            local.offset, state.zone.name
-        ));
+        trace::line!(
+            trace::Channel::Timed,
+            "TICK:PASS unix={unix} offset={} zone={}",
+            local.offset,
+            state.zone.name
+        );
     }
     demo.step(state);
 }

@@ -67,6 +67,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use api::wire;
 use confd::{dir, ChangeSink, Confd};
@@ -194,7 +195,10 @@ fn run() -> messenger::Result<()> {
     service
         .sink_mut()
         .report_health(if persistent { "ok" } else { "degraded" }, &detail);
-    sys::write_str(&format!("CONFD:READY dir={dir} persistent={persistent}\n"));
+    trace::line!(
+        trace::Channel::Confd,
+        "READY dir={dir} persistent={persistent}"
+    );
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 
@@ -230,7 +234,7 @@ fn run() -> messenger::Result<()> {
         };
         if ready & wait::CHILD_READY != 0 && sys::wait(sys::clock().max(1)).is_some() {
             demo_children -= 1;
-            sys::write_str("CONFD:CTL:EXIT\n");
+            trace::line!(trace::Channel::Confd, "CTL:EXIT");
         }
         let received = if ready & 1 != 0 {
             server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE))
@@ -270,10 +274,7 @@ fn run() -> messenger::Result<()> {
                 service
                     .sink_mut()
                     .report_health("ok", &format!("store={dir}"));
-                sys::write_str(&format!(
-                    "CONFD:MIGRATED dir={dir}
-"
-                ));
+                trace::line!(trace::Channel::Confd, "MIGRATED dir={dir}");
             }
         }
     }
@@ -287,9 +288,10 @@ fn stop(dir: &str, reason: &str) {
         Ok(()) => String::from("ok"),
         Err(code) => format!("errno {code}"),
     };
-    sys::write_str(&format!(
-        "CONFD:STOP dir={dir} sync={synced} reason=\"{reason}\"\n"
-    ));
+    trace::line!(
+        trace::Channel::Confd,
+        "STOP dir={dir} sync={synced} reason=\"{reason}\""
+    );
 }
 
 /// Whether the manifest asked for the `confctl` self-test (`demo=1`).
@@ -305,14 +307,15 @@ fn demo_from_args() -> bool {
 fn spawn_demo() -> u64 {
     match sys::spawn_native(DEMO_PROGRAM.0, &[DEMO_PROGRAM.1]) {
         Some(pid) => {
-            sys::write_str(&format!("CONFD:CTL:START pid={pid}\n"));
+            trace::line!(trace::Channel::Confd, "CTL:START pid={pid}");
             1
         }
         None => {
-            sys::write_str(&format!(
-                "CONFD:CTL:FAIL: cannot spawn {}\n",
+            trace::line!(
+                trace::Channel::Confd,
+                "CTL:FAIL: cannot spawn {}",
                 fhs::bin::CONFCTL
-            ));
+            );
             0
         }
     }
@@ -338,6 +341,8 @@ fn dispatch(
         uid: caller_uid(message)?,
         system: cred.caps & user::sys::CAP_SETUID != 0
             || elevpolicy::is_elevd(cred.uid, cred.label_id, cred.session),
+        // `wlanmd` keeps the Wi-Fi profiles of the machine and of every user.
+        wifi: netpolicy::is_wlanmd(cred.uid, cred.label_id, cred.session),
     };
     let method = message.method();
     match method {

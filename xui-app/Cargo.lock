@@ -6973,6 +6973,8 @@ dependencies = [
 name = "xui-paint"
 version = "0.0.0"
 dependencies = [
+ "cosmic-text",
+ "tiny-skia",
  "xui-app-testkit",
  "xui-canvas",
  "xui-core",

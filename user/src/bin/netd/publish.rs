@@ -3,14 +3,13 @@
 //! (`system/net/interfaces`) and the network-up event, republished only when
 //! something changed.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use netstack::{Net, Source};
 use user::central;
 use user::messenger::netstack::wire;
-use user::sys;
 
 use super::lists::{interface_infos, text};
 use super::ports::Ports;
@@ -154,7 +153,7 @@ impl Publisher {
             if net.unit(slot).is_some_and(|unit| unit.id == seen.id) {
                 continue;
             }
-            sys::write_str(&format!("NETD:ADDR none if={}\n", seen.name));
+            trace::line!(trace::Channel::Netd, "ADDR none if={}", seen.name);
             if !self.retiring.contains(&seen.name) {
                 self.retiring.push(seen.name.clone());
             }
@@ -201,8 +200,9 @@ impl Publisher {
         };
         let state = unit.stack.state();
         if let Some(addr) = state.addr {
-            sys::write_str(&format!(
-                "NETD:ADDR {}/{} gw={} dns={} source={} if={}\n",
+            trace::line!(
+                trace::Channel::Netd,
+                "ADDR {}/{} gw={} dns={} source={} if={}",
                 text(addr),
                 state.prefix_len,
                 state.gateway.map_or(String::from("none"), text),
@@ -213,9 +213,9 @@ impl Publisher {
                     "static"
                 },
                 unit.name
-            ));
+            );
         } else {
-            sys::write_str(&format!("NETD:ADDR none if={}\n", unit.name));
+            trace::line!(trace::Channel::Netd, "ADDR none if={}", unit.name);
         }
     }
 

@@ -21,6 +21,8 @@ mod hosts_embed;
 mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
+#[path = "../netboot.rs"]
+mod netboot;
 #[path = "../os_disk.rs"]
 mod os_disk;
 #[path = "../os_image.rs"]
@@ -33,10 +35,10 @@ mod os_manifest;
 mod os_recover;
 #[path = "../pictures_embed.rs"]
 mod pictures_embed;
-#[path = "../srb2kart_embed.rs"]
-mod srb2kart_embed;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
+#[path = "../srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "../tls_embed.rs"]
 mod tls_embed;
 #[path = "../usb_fat.rs"]
@@ -45,6 +47,8 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
+#[path = "../wifi_embed.rs"]
+mod wifi_embed;
 
 #[cfg(test)]
 mod accounts_tests;
@@ -69,6 +73,8 @@ mod lazyweb_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]
+mod netboot_tests;
+#[cfg(test)]
 mod pictures_tests;
 #[cfg(test)]
 mod recover_tests;
@@ -88,3 +94,5 @@ mod usb_root_tests;
 mod usb_tests;
 #[cfg(test)]
 mod wallpapers_tests;
+#[cfg(test)]
+mod wifi_tests;

@@ -137,6 +137,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="also write target/lazyos-usb.img, the image for a real PC's "
                              "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
+    parser.add_argument("--netboot", action="store_true",
+                        help="also write target/netboot/, the stick's payload as loose files for "
+                             "the netboot registry: kernel-x86_64, ramdisk, bootx64.efi, boot.json "
+                             "and manifest.json with digests (LAZYOS_NETBOOT=1 LAZYOS_USB=1, a "
+                             "services session; docs/netboot-plan.md N1, docs/usb-stick.md); "
+                             "check it with tools/boot/preflight.py --netboot target/netboot. The "
+                             "run still boots target/lazyos.img")
+    parser.add_argument("--netboot-key", metavar="PATH",
+                        help="with --netboot, sign manifest.json with the Ed25519 key in PATH "
+                             "(LAZYOS_NETBOOT_KEY: key.sec, the 32-byte seed as 64 hex characters), "
+                             "writing manifest.sig; without it the payload is unsigned and the "
+                             "registry refuses it")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
@@ -162,6 +174,21 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
                              "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
                              "by design, for development machines only")
+    parser.add_argument("--wifi", action="store_true",
+                        help="networking plus Wi-Fi (LAZYOS_WIFI=1, docs/wifi-rtw88-plan.md): "
+                             "`wifid`, the RTL8822CE driver devd starts as wlan0, and its "
+                             "firmware at /system/share/firmware (fetched and hash-checked by "
+                             "tools/firmware/fetch.py). QEMU has no such card, so it matters on "
+                             "the AMD NUC: add --usb-image --dbgd-control --build-only for its stick")
+    parser.add_argument("--wifi-sim", action="store_true",
+                        help="the simulated Wi-Fi radio (LAZYOS_WIFI_SIM=1, needs the stack: "
+                             "LAZYOS_NETD=1): `wifisim` serves wlan0 over a second virtio-net "
+                             "card connected to fake access points (tools/wifi/fake_ap.py, started "
+                             "here; docs/wifi-prerequisites-plan.md 3.6)")
+    parser.add_argument("--wifi-probe", metavar="MODE",
+                        help="with the simulator, start the hw.v1 test client `wifiprobe MODE` "
+                             "(LAZYOS_WIFI_SIM_ARGS=probe=MODE): scan, open:SSID, "
+                             "wpa2:SSID:PASSPHRASE; implies --wifi-sim")
     parser.add_argument("--journal", nargs="?", const="1", metavar="BLOCKS",
                         help="give the OS volume an ext2 journal (LAZYOS_JOURNAL): metadata "
                              "commits are logged and replayed after a crash, so an unclean "
@@ -232,7 +259,15 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.dbgd = args.dbgd or args.dbgd_control
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
-    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky
+    args.net = args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
+    args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
+    if args.netboot_key:
+        if not args.netboot:
+            parser.error("--netboot-key needs --netboot")
+        if not Path(args.netboot_key).is_file():
+            parser.error(f"--netboot-key: {args.netboot_key} is not a file")
+        # The build runs in the repository root, not where this was typed.
+        args.netboot_key = str(Path(args.netboot_key).resolve())
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

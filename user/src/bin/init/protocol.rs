@@ -5,12 +5,11 @@
 //! Split out of `init.rs` (issue #194); `Shutdown` and the `Launch` refusal
 //! while it runs are docs/shutdown.md.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, router, services, Endpoint, Message, Parcel};
-use user::sys;
 
 use super::apps::app_infos;
 use super::apps::GREETER_APP_ID;
@@ -134,10 +133,11 @@ pub(super) fn serve_app_pending(
             // An app's line must never take the supervisor down: a reply
             // that cannot be delivered is that caller's loss alone.
             if let Err(error) = server.reply_or_drop(txn, &reply) {
-                sys::write_str(&format!(
-                    "INIT:APP:REPLY:FAIL err={}\n",
+                trace::line!(
+                    trace::Channel::Init,
+                    "APP:REPLY:FAIL err={}",
                     error.errno().unwrap_or(0)
-                ));
+                );
             }
         }
     }
@@ -240,7 +240,7 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
                 // The login screen comes back once the ended session's apps
                 // are gone (or their grace ran out): `logind` retries.
                 if request.app == GREETER_APP_ID && logouts.holds_greeter() {
-                    sys::write_str("INIT:LOGOUT:GREETER:HELD\n");
+                    trace::line!(trace::Channel::Init, "LOGOUT:GREETER:HELD");
                     return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
                 }
                 let caller = actor(message)?;
@@ -253,15 +253,16 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
                             request.session
                         };
                         if error.errno() == Some(-messenger::errno::EPERM) {
-                            sys::write_str(&format!(
-                                "INIT:LAUNCH:DENIED:PASS app={} caller_uid={} caller_session={} target={}\n",
-                                request.app, caller.uid, caller.session, target
-                            ));
+                            trace::line!(trace::Channel::Init, "LAUNCH:DENIED:PASS app={} caller_uid={} caller_session={} target={}",
+                                request.app, caller.uid, caller.session, target);
                         } else if error.errno() == Some(-messenger::errno::EAGAIN) {
-                            sys::write_str(&format!(
-                                "INIT:LAUNCH:CAP:PASS app={} session={} cap={}\n",
-                                request.app, target, LAUNCH_CAP_PER_SESSION
-                            ));
+                            trace::line!(
+                                trace::Channel::Init,
+                                "LAUNCH:CAP:PASS app={} session={} cap={}",
+                                request.app,
+                                target,
+                                LAUNCH_CAP_PER_SESSION
+                            );
                         }
                         Err(error)
                     }

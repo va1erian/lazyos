@@ -9,6 +9,7 @@
 
 use alloc::format;
 use user::sys;
+use user::trace;
 
 use crate::state::State;
 
@@ -74,7 +75,10 @@ impl Demo {
             },
             Phase::AwaitReset(deadline) => {
                 if state.zone.name == timezone::DEFAULT_ZONE {
-                    sys::write_str("TIMED:DEMO:PASS confd write -> notify -> zone follows\n");
+                    trace::line!(
+                        trace::Channel::Timed,
+                        "DEMO:PASS confd write -> notify -> zone follows"
+                    );
                     self.spawn_client(now);
                 } else if now > deadline {
                     self.fail("the confd change was not observed");
@@ -93,7 +97,7 @@ impl Demo {
     fn spawn_client(&mut self, now: u64) {
         match sys::spawn_native(CLIENT.0, &[CLIENT.1]) {
             Some(pid) => {
-                sys::write_str(&format!("TIMED:CLIENT:START pid={pid}\n"));
+                trace::line!(trace::Channel::Timed, "CLIENT:START pid={pid}");
                 self.phase = Phase::Client(now + TIMEOUT_TICKS);
             }
             None => self.fail(&format!("cannot spawn {}", fhs::bin::TIMECTL)),
@@ -101,9 +105,7 @@ impl Demo {
     }
 
     fn fail(&mut self, why: &str) {
-        sys::write_str("TIMED:DEMO:FAIL ");
-        sys::write_str(why);
-        sys::write_str("\n");
+        trace::line!(trace::Channel::Timed, "DEMO:FAIL {why}");
         self.phase = Phase::Done;
     }
 }

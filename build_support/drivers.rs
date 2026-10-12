@@ -12,6 +12,10 @@ use std::path::PathBuf;
 
 use crate::os_image::Sink;
 
+// Wi-Fi (`LAZYOS_WIFI=1`): `wifid`, `wlanmd`, `wifictl` and the firmware.
+#[path = "wifi_embed.rs"]
+mod wifi_embed;
+
 fn enabled(variable: &str) -> bool {
     println!("cargo:rerun-if-env-changed={variable}");
     std::env::var_os(variable).as_deref() == Some(OsStr::new("1"))
@@ -45,7 +49,7 @@ fn fixture(variable: &str, name: &str) -> Option<PathBuf> {
 
 /// Embed the drivers this build asked for. The desktop profile always ships the
 /// sound stack, so its shell has `beep`.
-pub fn embed(sink: &mut dyn Sink, desktop: bool) {
+pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path) {
     let sound = desktop || enabled("LAZYOS_SOUND");
     let usb = enabled("LAZYOS_USB");
     let netd = enabled("LAZYOS_NETD");
@@ -86,6 +90,14 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         netd || !enabled("LAZYOS_SMB"),
         "LAZYOS_SMB=1 needs LAZYOS_NETD=1 (the socket service smb connects through)"
     );
+    assert!(
+        netd || !enabled("LAZYOS_WIFI"),
+        "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (Wi-Fi is a network interface)"
+    );
+    assert!(
+        netd || !enabled("LAZYOS_WIFI_SIM"),
+        "LAZYOS_WIFI_SIM=1 needs LAZYOS_NETD=1 (the radio is a card of the stack)"
+    );
     // `LAZYOS_NETD=1` adds the stack service and its tools, and needs the driver.
     if net {
         add(sink, fhs::bin::NETDRV, "netdrv");
@@ -120,6 +132,12 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
         if enabled("LAZYOS_SMB") {
             add(sink, fhs::bin::SMB, "smb");
         }
+        // The simulated Wi-Fi radio and its test client
+        // (docs/wifi-prerequisites-plan.md section 3.6), on request.
+        if enabled("LAZYOS_WIFI_SIM") {
+            add(sink, fhs::bin::WIFISIM, "wifisim");
+            add(sink, fhs::bin::WIFIPROBE, "wifiprobe");
+        }
         // `netfix`, the `std::net` Linux fixture the `AF_INET` shim is judged
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
@@ -136,4 +154,5 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool) {
             sink.add_file(fhs::bin::NETBULK_LINUX, path);
         }
     }
+    wifi_embed::embed(sink, manifest_dir);
 }

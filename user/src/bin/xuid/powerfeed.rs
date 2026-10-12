@@ -12,6 +12,7 @@
 //! and `init` publishes its first phase before it stops anything.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use user::trace;
 
 use alloc::vec::Vec;
 use user::messenger::display::{Canvas, Face, Rect};
@@ -42,7 +43,7 @@ fn show(mode: u32) -> bool {
     MODE.store(mode, Ordering::Relaxed);
     let raised = !ACTIVE.swap(true, Ordering::Relaxed);
     if raised {
-        sys::write_str("XUID:POWER:OVERLAY\n");
+        trace::line!(trace::Channel::Xuid, "POWER:OVERLAY");
     }
     raised
 }

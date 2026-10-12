@@ -27,9 +27,9 @@
 //! stopped=<n>`.
 
 use alloc::collections::VecDeque;
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use libmessenger::{flags, Header, VERSION};
 use messenger_generated::os_lazy_init_app_events_v1 as events;
@@ -159,22 +159,29 @@ pub(super) fn watch(services: &mut [Service], message: &Message) -> messenger::R
     if let Some(old) = row.life.watch.replace(channel) {
         let _ = old.release();
     }
-    sys::write_str(&format!(
-        "INIT:APP:WATCH app={} pid={}\n",
-        row.name, row.pid
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "APP:WATCH app={} pid={}",
+        row.name,
+        row.pid
+    );
     while let Some(args) = row.life.reopens.pop_front() {
         if send_reopen(&channel, &args) {
-            sys::write_str(&format!("INIT:APP:REOPEN:SENT app={} queued=1\n", row.name));
+            trace::line!(
+                trace::Channel::Init,
+                "APP:REOPEN:SENT app={} queued=1",
+                row.name
+            );
         }
     }
     if row.life.quit && row.phase == Phase::Stopping {
         let grace = grace_left(row.stop_deadline, sys::clock());
         if send_quit(&channel, grace) {
-            sys::write_str(&format!(
-                "INIT:APP:QUIT:SENT app={} grace_ms={grace}\n",
+            trace::line!(
+                trace::Channel::Init,
+                "APP:QUIT:SENT app={} grace_ms={grace}",
                 row.name
-            ));
+            );
         }
     }
     Ok(reply(app_wire::METHOD_WATCH))
@@ -203,16 +210,16 @@ pub(super) fn reopen(row: &mut Service, args: &str) {
     let name = row.name;
     if let Some(watch) = row.life.watch {
         if send_reopen(&watch, args) {
-            sys::write_str(&format!("INIT:APP:REOPEN:SENT app={name}\n"));
+            trace::line!(trace::Channel::Init, "APP:REOPEN:SENT app={name}");
             return;
         }
     }
     if row.life.reopens.len() >= REOPEN_QUEUE {
         row.life.reopens.pop_front();
-        sys::write_str(&format!("INIT:APP:REOPEN:DROPPED app={name}\n"));
+        trace::line!(trace::Channel::Init, "APP:REOPEN:DROPPED app={name}");
     }
     row.life.reopens.push_back(String::from(args));
-    sys::write_str(&format!("INIT:APP:REOPEN:QUEUED app={name}\n"));
+    trace::line!(trace::Channel::Init, "APP:REOPEN:QUEUED app={name}");
 }
 
 /// Start stopping the launched `row` at `now` by the one rule
@@ -251,16 +258,19 @@ fn begin_terminate(row: &mut Service, now: u64) {
     match sys::kill(row.pid, sys::SIG_TERM) {
         // Gone already: its exit is queued for the supervision loop.
         Ok(()) | Err(-3) => {}
-        Err(code) => sys::write_str(&format!(
-            "INIT:STOP:TERM:FAIL app={} pid={} errno={code}\n",
-            row.name, row.pid
-        )),
+        Err(code) => trace::line!(
+            trace::Channel::Init,
+            "STOP:TERM:FAIL app={} pid={} errno={code}",
+            row.name,
+            row.pid
+        ),
     }
-    sys::write_str(&format!(
-        "INIT:APP:TERM:SENT app={} grace_ms={}\n",
+    trace::line!(
+        trace::Channel::Init,
+        "APP:TERM:SENT app={} grace_ms={}",
         row.name,
         grace_left(row.stop_deadline, now)
-    ));
+    );
 }
 
 /// Whether `row` was asked to stop and is still waiting out its grace.
@@ -274,14 +284,16 @@ fn begin_quit(row: &mut Service, now: u64) {
     enter_grace(row, now);
     let grace = grace_left(row.stop_deadline, now);
     match row.life.watch {
-        Some(watch) if send_quit(&watch, grace) => sys::write_str(&format!(
-            "INIT:APP:QUIT:SENT app={} grace_ms={grace}\n",
+        Some(watch) if send_quit(&watch, grace) => trace::line!(
+            trace::Channel::Init,
+            "APP:QUIT:SENT app={} grace_ms={grace}",
             row.name
-        )),
-        _ => sys::write_str(&format!(
-            "INIT:APP:QUIT:HELD app={} grace_ms={grace}\n",
+        ),
+        _ => trace::line!(
+            trace::Channel::Init,
+            "APP:QUIT:HELD app={} grace_ms={grace}",
             row.name
-        )),
+        ),
     }
 }
 
@@ -293,16 +305,20 @@ pub(super) fn sweep(services: &mut [Service], now: u64) {
         if !due || now < row.stop_deadline || row.pid == 0 {
             continue;
         }
-        sys::write_str(&format!(
-            "INIT:APP:QUIT:TIMEOUT app={} pid={}\n",
-            row.name, row.pid
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "APP:QUIT:TIMEOUT app={} pid={}",
+            row.name,
+            row.pid
+        );
         row.killed = true;
         if let Err(code) = sys::kill(row.pid, sys::SIG_KILL) {
-            sys::write_str(&format!(
-                "INIT:STOP:KILL:FAIL app={} pid={} errno={code}\n",
-                row.name, row.pid
-            ));
+            trace::line!(
+                trace::Channel::Init,
+                "STOP:KILL:FAIL app={} pid={} errno={code}",
+                row.name,
+                row.pid
+            );
         }
     }
 }
@@ -372,10 +388,12 @@ impl Stops {
     }
 
     fn answer(&self, pending: &Pending) {
-        sys::write_str(&format!(
-            "INIT:STOP:DONE app={} stopped={}\n",
-            pending.app, pending.stopped
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "STOP:DONE app={} stopped={}",
+            pending.app,
+            pending.stopped
+        );
         if let Ok(reply) = services::stop_reply(pending.stopped) {
             let _ = self.server.reply_or_drop(pending.txn, &reply);
         }
