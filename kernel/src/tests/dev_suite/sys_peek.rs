@@ -69,7 +69,13 @@ impl From<Fail> for String {
 /// `config_read` into a fresh buffer: the bytes or the `-errno`.
 fn config(bdf: u64, offset: u64, len: u64) -> Result<Vec<u8>, Fail> {
     let mut buf = vec![FILL; len.max(1) as usize + 8];
-    let got = sys(OP_DBG_CONFIG_READ, bdf, offset, len, buf.as_mut_ptr() as u64);
+    let got = sys(
+        OP_DBG_CONFIG_READ,
+        bdf,
+        offset,
+        len,
+        buf.as_mut_ptr() as u64,
+    );
     if got < 0 {
         return Err(Fail(got));
     }
@@ -104,7 +110,11 @@ fn mmio(bdf: u64, bar: u64, offset: u64, len: u64) -> Result<Vec<u8>, Fail> {
     Ok(buf)
 }
 
-fn expect_err<T: core::fmt::Debug>(got: Result<T, Fail>, errno: i64, what: &str) -> Result<(), String> {
+fn expect_err<T: core::fmt::Debug>(
+    got: Result<T, Fail>,
+    errno: i64,
+    what: &str,
+) -> Result<(), String> {
     check!(
         matches!(&got, Err(Fail(e)) if *e == -errno),
         "{what}: {got:?}, expected -{errno}"
@@ -143,7 +153,10 @@ fn add_with_ids(vendor: u16, device: u16, bars: Vec<Bar>) -> Result<DeviceId, St
 pub fn peek_callers() -> Result<(), String> {
     let fx = Fixture::new()?;
     add_device(Spec::nic(None))?;
-    let _peek = Peek::with(Policy::with_ranges(false, &[range(0x1AF4, 0x1000, 0, 0, 0x100)]));
+    let _peek = Peek::with(Policy::with_ranges(
+        false,
+        &[range(0x1AF4, 0x1000, 0, 0, 0x100)],
+    ));
 
     for (uid, label, want) in [
         (DRIVER_UID, 0, Some(EPERM)),
@@ -189,7 +202,11 @@ pub fn peek_config_bounds_and_identity() -> Result<(), String> {
     ] {
         expect_err(config(GHOST_BDF, offset, len), EINVAL, what)?;
     }
-    expect_err(config(0xFD00, 0, 4), ENODEV, "an address nothing enumerated")?;
+    expect_err(
+        config(0xFD00, 0, 4),
+        ENODEV,
+        "an address nothing enumerated",
+    )?;
     expect_err(config(0x1_0000, 0, 4), EINVAL, "a BDF over 16 bits")?;
     // A faulting buffer is EFAULT, with nothing leaked.
     {
@@ -254,11 +271,26 @@ pub fn peek_mmio_allowlist() -> Result<(), String> {
         false,
         &[range(0x1AF4, 0x1000, 0, 0x10, 0x30)],
     ));
-    check!(mmio(GHOST_BDF, 0, 0x10, 0x20)?.len() == 0x20, "the whole range");
+    check!(
+        mmio(GHOST_BDF, 0, 0x10, 0x20)?.len() == 0x20,
+        "the whole range"
+    );
     check!(mmio(GHOST_BDF, 0, 0x2C, 4)?.len() == 4, "the last dword");
-    expect_err(mmio(GHOST_BDF, 0, 0x0C, 4), EACCES, "a dword before the range")?;
-    expect_err(mmio(GHOST_BDF, 0, 0x30, 4), EACCES, "a dword after the range")?;
-    expect_err(mmio(GHOST_BDF, 0, 0x2C, 8), EACCES, "a span leaving the range")?;
+    expect_err(
+        mmio(GHOST_BDF, 0, 0x0C, 4),
+        EACCES,
+        "a dword before the range",
+    )?;
+    expect_err(
+        mmio(GHOST_BDF, 0, 0x30, 4),
+        EACCES,
+        "a dword after the range",
+    )?;
+    expect_err(
+        mmio(GHOST_BDF, 0, 0x2C, 8),
+        EACCES,
+        "a span leaving the range",
+    )?;
     expect_err(mmio(GHOST_BDF, 1, 0x10, 4), EACCES, "another BAR")?;
     expect_err(mmio(GHOST_BDF, 0, 0x11, 4), EINVAL, "an unaligned offset")?;
     expect_err(mmio(GHOST_BDF, 0, 0x10, 6), EINVAL, "an unaligned length")?;
@@ -283,9 +315,16 @@ pub fn peek_builtin_holes() -> Result<(), String> {
         expect_err(mmio(GHOST_BDF, 0, gmbus, 4), EACCES, "a GMBUS register")?;
     }
     expect_err(mmio(GHOST_BDF, 0, 0x65050, 4), EACCES, "the ELD data port")?;
-    expect_err(mmio(GHOST_BDF, 0, 0xC50F0, 0x40), EACCES, "a span over GMBUS")?;
+    expect_err(
+        mmio(GHOST_BDF, 0, 0xC50F0, 0x40),
+        EACCES,
+        "a span over GMBUS",
+    )?;
     check!(mmio(GHOST_BDF, 0, 0x70008, 4)?.len() == 4, "PIPECONF A");
-    check!(mmio(GHOST_BDF, 0, 0x60000, 0x40)?.len() == 0x40, "transcoder timings");
+    check!(
+        mmio(GHOST_BDF, 0, 0x60000, 0x40)?.len() == 0x40,
+        "transcoder timings"
+    );
     leave(&fx);
     Ok(())
 }
@@ -305,14 +344,19 @@ pub fn peek_claims_and_bad_bars() -> Result<(), String> {
             mem_bar(2, ram.as_u64(), 0x1000),
         ],
     )?;
-    let ranges: Vec<Range> = (0..4).map(|bar| range(0x1AF4, 0x1000, bar, 0, 0x4000)).collect();
+    let ranges: Vec<Range> = (0..4)
+        .map(|bar| range(0x1AF4, 0x1000, bar, 0, 0x4000))
+        .collect();
     let driver = spawn_driver(driver_cred())?;
     let reader = spawn_driver(dbgd())?;
 
     enter(reader)?;
     {
         let _peek = Peek::with(Policy::with_ranges(false, &ranges));
-        check!(mmio(GHOST_BDF, 0, 0, 16)?.len() == 16, "an unclaimed device");
+        check!(
+            mmio(GHOST_BDF, 0, 0, 16)?.len() == 16,
+            "an unclaimed device"
+        );
         expect_err(mmio(GHOST_BDF, 1, 0, 4), ENXIO, "an I/O BAR")?;
         expect_err(mmio(GHOST_BDF, 2, 0, 4), ENXIO, "a BAR over RAM")?;
         expect_err(mmio(GHOST_BDF, 3, 0, 4), ENXIO, "an absent BAR")?;
@@ -324,10 +368,16 @@ pub fn peek_claims_and_bad_bars() -> Result<(), String> {
         enter(reader)?;
         expect_err(mmio(GHOST_BDF, 0, 0, 4), EBUSY, "a claimed device")?;
         // Config space is read regardless of a claim.
-        check!(config(GHOST_BDF, 0, 4)?.len() == 4, "config of a claimed device");
+        check!(
+            config(GHOST_BDF, 0, 4)?.len() == 4,
+            "config of a claimed device"
+        );
 
         enter(driver)?;
-        expect_ok(sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0), "release")?;
+        expect_ok(
+            sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0),
+            "release",
+        )?;
         enter(reader)?;
         check!(mmio(GHOST_BDF, 0, 0, 4)?.len() == 4, "after the release");
     }
@@ -337,10 +387,16 @@ pub fn peek_claims_and_bad_bars() -> Result<(), String> {
     enter(reader)?;
     {
         let _peek = Peek::with(Policy::with_ranges(true, &ranges));
-        check!(mmio(GHOST_BDF, 0, 0, 4)?.len() == 4, "a claimed device, allowed");
+        check!(
+            mmio(GHOST_BDF, 0, 0, 4)?.len() == 4,
+            "a claimed device, allowed"
+        );
     }
     enter(driver)?;
-    expect_ok(sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0), "release")?;
+    expect_ok(
+        sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0),
+        "release",
+    )?;
     leave(&fx);
     mem::free_frame(ram);
     Ok(())
@@ -356,10 +412,17 @@ pub fn peek_config_lines() -> Result<(), String> {
     peek::apply_config("diag.dbg.mmio=1\ndiag.dbg.mmio.allow=1af4:1000:0:0-100\n");
     expect_err(mmio(GHOST_BDF, 0, 0, 4), EACCES, "no diag.dbg=1")?;
     peek::apply_config("diag.dbg=1\ndiag.dbg.mmio=1\ndiag.dbg.mmio.allow=1af4:1000:0:0-100\n");
-    check!(mmio(GHOST_BDF, 0, 0, 0x100)?.len() == 0x100, "the allow line");
+    check!(
+        mmio(GHOST_BDF, 0, 0, 0x100)?.len() == 0x100,
+        "the allow line"
+    );
     expect_err(mmio(GHOST_BDF, 0, 0x100, 4), EACCES, "past the allow line")?;
     peek::apply_config("diag.dbg=1\n");
-    expect_err(mmio(GHOST_BDF, 0, 0, 4), EACCES, "after the box turned it off")?;
+    expect_err(
+        mmio(GHOST_BDF, 0, 0, 4),
+        EACCES,
+        "after the box turned it off",
+    )?;
     leave(&fx);
     Ok(())
 }
@@ -389,7 +452,10 @@ pub fn peek_real_vga() -> Result<(), String> {
     expect_err(mmio(bdf, 2, 0x418, 4), EACCES, "the VGA input-status port")?;
     check!(mmio(bdf, 0, 0, 64)?.len() == 64, "the framebuffer BAR");
     // The same bytes twice: a plain register read has no side effect.
-    check!(mmio(bdf, 2, 0x500, 4)? == mmio(bdf, 2, 0x500, 4)?, "a stable id");
+    check!(
+        mmio(bdf, 2, 0x500, 4)? == mmio(bdf, 2, 0x500, 4)?,
+        "a stable id"
+    );
     leave(&fx);
     Ok(())
 }
@@ -418,11 +484,17 @@ pub fn peek_soak() -> Result<(), String> {
         match round % 5 {
             0 => {
                 // Spans the two adjacent ranges.
-                check!(mmio(GHOST_BDF, 0, 0x7C, 8)?.len() == 8, "round {round}: joined ranges");
+                check!(
+                    mmio(GHOST_BDF, 0, 0x7C, 8)?.len() == 8,
+                    "round {round}: joined ranges"
+                );
             }
             1 => expect_err(mmio(GHOST_BDF, 0, 0x100, 4), EACCES, "past the ranges")?,
             2 => {
-                check!(config(GHOST_BDF, (round % 252) & !3, 4)?.len() == 4, "config");
+                check!(
+                    config(GHOST_BDF, (round % 252) & !3, 4)?.len() == 4,
+                    "config"
+                );
             }
             3 => expect_err(mmio(GHOST_BDF, 0, 1, 4), EINVAL, "unaligned")?,
             _ => {
@@ -431,7 +503,10 @@ pub fn peek_soak() -> Result<(), String> {
                 enter(reader)?;
                 expect_err(mmio(GHOST_BDF, 0, 0, 4), EBUSY, "claimed")?;
                 enter(driver)?;
-                expect_ok(sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0), "release")?;
+                expect_ok(
+                    sys(crate::dev::syscall::OP_RELEASE, handle, 0, 0, 0),
+                    "release",
+                )?;
                 enter(reader)?;
             }
         }
@@ -441,15 +516,24 @@ pub fn peek_soak() -> Result<(), String> {
         "the mapped window grew from {pages} to {} pages",
         peek::mapped_pages_for_test()
     );
-    check!(mem::slab::stats().live_bytes == slab, "slab grew across reads");
-    check!(mem::frame_stats().live() == frames, "frames grew across reads");
+    check!(
+        mem::slab::stats().live_bytes == slab,
+        "slab grew across reads"
+    );
+    check!(
+        mem::frame_stats().live() == frames,
+        "frames grew across reads"
+    );
     leave(&fx);
     Ok(())
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_peek_callers", peek_callers),
-    ("dev_peek_config_bounds_and_identity", peek_config_bounds_and_identity),
+    (
+        "dev_peek_config_bounds_and_identity",
+        peek_config_bounds_and_identity,
+    ),
     ("dev_peek_mmio_allowlist", peek_mmio_allowlist),
     ("dev_peek_builtin_holes", peek_builtin_holes),
     ("dev_peek_claims_and_bad_bars", peek_claims_and_bad_bars),

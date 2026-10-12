@@ -66,7 +66,10 @@ fn locate(params: &Value) -> Result<Function, Failure> {
     let found = devices.iter().find(|d| d.bdf == Some(bdf)).ok_or_else(|| {
         (
             code::UNAVAILABLE,
-            format!("no PCI function at {} (see devices.list)", pciprobe::format_bdf(bdf)),
+            format!(
+                "no PCI function at {} (see devices.list)",
+                pciprobe::format_bdf(bdf)
+            ),
         )
     })?;
     Ok(Function {
