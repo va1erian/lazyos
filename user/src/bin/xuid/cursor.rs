@@ -181,9 +181,11 @@ impl CursorOverlay {
 
 impl Compositor {
     /// Where the cursor belongs now: the newest pointer an animation read,
-    /// else the handled one; `None` while the shutdown overlay hides it.
+    /// else the handled one; `None` while the shutdown overlay or the blank
+    /// screen hides it.
     pub(super) fn cursor_target(&self) -> Option<(i32, i32)> {
-        (!super::powerfeed::active()).then(|| self.held.pointer(self.pointer))
+        (!super::powerfeed::active() && !super::idle::blanked())
+            .then(|| self.held.pointer(self.pointer))
     }
 
     /// Move the sprite to where the pointer is, presenting only the old and

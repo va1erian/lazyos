@@ -60,6 +60,9 @@ pub(super) struct ThemeFeed {
     /// The cursor size read from confd and the size the compositor last took.
     cursor_size: u32,
     cursor_taken: u32,
+    /// Minutes of quiet before the screen blanks (`sys/ui/screen/off_minutes`,
+    /// `0`: never); `idle.rs` follows it.
+    screen_off: u32,
 }
 
 impl ThemeFeed {
@@ -78,7 +81,13 @@ impl ThemeFeed {
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             cursor_size: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_taken: uitheme::DEFAULT_CURSOR_SIZE,
+            screen_off: uitheme::DEFAULT_SCREEN_OFF_MINUTES,
         }
+    }
+
+    /// Minutes of quiet before the screen blanks; `0` is never.
+    pub(super) fn screen_off_minutes(&self) -> u32 {
+        self.screen_off
     }
 
     /// Decide the UI scale for this compositor's lifetime (docs/hidpi-plan.md):
@@ -223,6 +232,15 @@ impl ThemeFeed {
         self.settings = settings;
         if let Ok(value) = client.get(uitheme::KEY_CURSOR_SIZE) {
             self.cursor_size = uitheme::cursor_size_from_value(value.as_ref());
+        }
+        // The user's own delay shadows the machine's, like the theme keys.
+        if let Ok(machine) = client.get(uitheme::KEY_SCREEN_OFF) {
+            let own = self
+                .user
+                .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_SCREEN_OFF))
+                .and_then(|path| client.get(&path).ok().flatten());
+            self.screen_off =
+                uitheme::screen_off_from_value(uitheme::overlay(machine, own).as_ref());
         }
         let changed = theme::set_palette(&uitheme::resolve(&settings));
         if changed {

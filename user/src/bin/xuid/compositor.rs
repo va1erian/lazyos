@@ -16,6 +16,7 @@ use super::layoutfeed::LayoutFeed;
 use super::loginfeed::LoginFeed;
 use super::opening::Opening;
 use super::origin::OpenHint;
+use super::idle::IdleTimer;
 use super::powerfeed::PowerFeed;
 use super::prompt::Prompt;
 use super::resize::ResizeDrag;
@@ -90,6 +91,8 @@ pub(super) struct Compositor {
     pub(super) layoutfeed: LayoutFeed,
     /// `init`'s shutdown progress (the shutting-down overlay).
     pub(super) powerfeed: PowerFeed,
+    /// The quiet time before the screen blanks (`idle.rs`).
+    pub(super) idle: IdleTimer,
     /// `logind`'s logouts (who owns the display next).
     pub(super) loginfeed: LoginFeed,
     /// The compositor's side of `inputd` (`docs/input-plan.md`).
@@ -147,6 +150,7 @@ impl Compositor {
             themefeed,
             layoutfeed: LayoutFeed::new(),
             powerfeed: PowerFeed::new(),
+            idle: IdleTimer::new(user::sys::clock()),
             loginfeed: LoginFeed::new(),
             input: InputLink::new(),
             held: HeldInput::new(),
