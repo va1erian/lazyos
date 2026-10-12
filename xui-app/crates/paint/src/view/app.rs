@@ -425,7 +425,11 @@ impl App for PaintApp {
                 self.model.redo();
                 self.message = name.map(|name| format!("Redid {name}"));
             }
-            Msg::Clear => self.model.clear(),
+            Msg::Clear => {
+                if let Err(error) = self.model.clear() {
+                    self.message = Some(format!("Clear failed: {error}"));
+                }
+            }
             Msg::New => match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
                 Ok(()) => {
                     self.cursor = None;
