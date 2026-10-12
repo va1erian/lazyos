@@ -22,7 +22,9 @@ Needs BusyBox (`python tools/abi/busybox.py`), the xui apps and `rhai`
 `shots/accounts/` (session scripts, serial logs, `audit_*.txt`). The image logs
 `user` straight in (`LAZYOS_AUTOLOGIN=user`, issue #623) through the same path
 as the login screen, and carries the probe packages `probe_packages.py` builds
-into `target/accounts-assets/`.
+into `target/accounts-assets/`. It is built with networking
+(`LAZYOS_NETD=1`) and every boot has a virtio-net card (`--net`), so the NIC
+attacks find `eth0` owned by `netd`.
 
 ## What it does
 
@@ -64,6 +66,9 @@ delete a canary file, and remove whatever they created.
 | `read_keyd_secrets` | `cat /conf/svc/keyd/machine.key`: keyd's machine key, with the secrets file beside it, is root's alone (WP2) |
 | `wifi_pmk` | rhai: `keyd` `WifiPmk` for admin's secret; the PMK is `wlanmd`'s alone (WP2) |
 | `wifi_system_store` | rhai: `keyd` `StoreSecret` in the `system` scope without `elevd`'s approval (WP2) |
+| `wifi_store_for` | rhai: `keyd` `StoreSecretFor` (admin's Wi-Fi profile id, then the `system` scope) and `DeleteSecretFor`; `wlanmd`'s alone, user profiles only (WP2, review of the Wi-Fi stack) |
+| `nic_attach` | `nicctl arp` as the session: `AttachRing` on `eth0`. The driver takes owner methods from `_netd`, its own identity and root only (`netpolicy::may_own_nic`), else a session attaching before `netd` (or while it restarts) would read and inject every frame. `EBUSY` (netd holds the rings) is not proof: ERROR |
+| `nic_rx_mode` | rhai: `SetRxMode` (promiscuous) on `os.lazy.net.nic/eth0`; `EPERM` from the same identity check (`EACCES`, "not the attached owner", is not proof) |
 | `read_home_admin` | `ls /home/admin` |
 | `signal_service` | `kill -CONT` the `logd` service |
 | `autostart_root` | install `org.acct.autoprobe` (a package with `autostart`, as `user`); at the next login it must open in the session as `user`, never as root (judged from the verify boot's `INIT:AUTOSTART:*` lines) |

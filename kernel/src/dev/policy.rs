@@ -73,6 +73,7 @@ fn compile(spec: Spec) -> Rule {
 /// The device-class rules of every driver `init` can start.
 pub fn boot_rules() -> Vec<Rule> {
     specs!(netpolicy::NET_DRIVER_CLASS_RULES)
+        .chain(specs!(netpolicy::WIFI_DRIVER_CLASS_RULES))
         .chain(specs!(usbpolicy::USB_DRIVER_CLASS_RULES))
         .chain(specs!(sndpolicy::SND_DRIVER_CLASS_RULES))
         .map(compile)

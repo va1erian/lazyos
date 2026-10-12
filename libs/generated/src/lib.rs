@@ -9426,6 +9426,10 @@ pub mod os_lazy_keyd_v1 {
     pub const METHOD_LISTSECRETS: u32 = 1353484194;
     /// `WifiPmk` method id.
     pub const METHOD_WIFIPMK: u32 = 249445660;
+    /// `StoreSecretFor` method id.
+    pub const METHOD_STORESECRETFOR: u32 = 1701625789;
+    /// `DeleteSecretFor` method id.
+    pub const METHOD_DELETESECRETFOR: u32 = 268809353;
 
     /// Check a username/password pair against the stored Argon2id verifier.
     /// Accepted only from the accounts service (the `_accounts` system uid,
@@ -10021,9 +10025,12 @@ pub mod os_lazy_keyd_v1 {
     /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
     /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
     /// (a uid) owns, so a PMK is never given for another user's secret by
-    /// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
-    /// secret, `EINVAL` for a secret that is not a valid passphrase or an
-    /// SSID outside 1..=32 octets.
+    /// naming it; for `system`, `owner` must be 0. `name` must be a Wi-Fi
+    /// profile id (`w` and 12 lowercase hex digits), so no PMK is ever
+    /// derived from a secret that is not a network's (`EPERM` otherwise).
+    /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
+    /// passphrase (8 to 63 octets of UTF-8 without control characters) or
+    /// raw PSK, or an SSID outside 1..=32 octets.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct WifiPmkArgs {
         pub scope: alloc::string::String,
@@ -10081,6 +10088,90 @@ pub mod os_lazy_keyd_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.pmk = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Keep `secret` under `name` for the user `owner` (scope `user`).
+    /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
+    /// any session), which takes a passphrase in `os.lazy.net.wifi.v1`
+    /// `AddNetwork` for the user who called it, and only for a `name` that is
+    /// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
+    /// any other name and the `system` scope (written by `elevd` alone) get
+    /// `EPERM`. Otherwise the rules of `StoreSecret`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StoreSecretForArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub secret: alloc::vec::Vec<u8>,
+        pub owner: u32,
+    }
+
+    pub fn encode_store_secret_for_args(value: &StoreSecretForArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.bytes(3, &value.secret)?;
+        target.u32(4, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_store_secret_for_args(body: &[u8]) -> Result<StoreSecretForArgs, Error> {
+        let mut out = StoreSecretForArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.secret = field.as_bytes().to_vec();
+                }
+                4 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the secret `name` of `owner` in `scope` (the rules of
+    /// `StoreSecretFor`; `ENOENT` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteSecretForArgs {
+        pub scope: alloc::string::String,
+        pub name: alloc::string::String,
+        pub owner: u32,
+    }
+
+    pub fn encode_delete_secret_for_args(value: &DeleteSecretForArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.scope)?;
+        target.string(2, &value.name)?;
+        target.u32(3, value.owner)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_secret_for_args(body: &[u8]) -> Result<DeleteSecretForArgs, Error> {
+        let mut out = DeleteSecretForArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scope = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.owner = field.as_u32()?;
+                }
+                _ => {}
             }
         }
         Ok(out)
@@ -19409,7 +19500,8 @@ pub mod os_lazy_net_wifi_hw_v1 {
         Ok(out)
     }
 
-    /// The complete management frame body (without FCS), as received.
+    /// The complete management frame, from the MAC header (the BSSID is
+    /// there), without FCS, as received.
     /// The channel it was heard on (a number within `band`).
     /// A `Band` ordinal.
     /// Signal strength in dBm as the radio measured it.
@@ -19625,9 +19717,13 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// where transmitting first is not universally allowed, no 6 GHz). The
     /// driver must not transmit on a channel the domain forbids and may refuse
     /// to transmit at all before the first call (`EAGAIN` from `Scan` with
-    /// active probing, `Join`, `TxMgmt`). A code it does not know is `EINVAL`.
-    /// The value comes from `wlanmd`, which reads `sys/net/wifi/country`;
-    /// the driver trusts nobody else for it.
+    /// active probing, `Join`, `TxMgmt`). A code that is not an assigned ISO
+    /// 3166-1 code (`ZZ`) is `EINVAL`. A new domain applies at once: a running
+    /// scan skips the channels it forbids and probes only where it allows,
+    /// and a joined BSS on a channel it forbids is left without transmitting
+    /// and reported as `Deauthenticated` (reason 3). The value comes from
+    /// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
+    /// else for it.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetCountryArgs {
         pub alpha2: alloc::string::String,
@@ -19655,7 +19751,8 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
     /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
     /// the radio or its domain does not have). A scan during an association
-    /// is allowed and may pause traffic for its dwell time.
+    /// is allowed and pauses traffic while the radio is on other channels:
+    /// nothing is sent to the BSS from another channel (see `TxMgmt`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ScanArgs {
         pub request: ScanRequest,
@@ -19727,7 +19824,7 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// One page of a finished (or running) scan's results, in the order the
     /// radio heard them, from entry `first`; at most `max` entries (capped at
     /// 64). `more` says whether a later page holds entries. Each entry is the
-    /// raw management frame body, **unparsed**: parsing it is `wlanmd`'s job.
+    /// raw management frame, **unparsed**: parsing it is `wlanmd`'s job.
     /// An unknown `scan_id` is `ENOENT`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ScanResultsArgs {
@@ -19832,7 +19929,16 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
     /// (the radio adds the 802.11 header and, once keys are installed, the
     /// encryption). Only while joined (`ENOTCONN`); a frame longer than
-    /// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
+    /// `HwInfo.max_mgmt` (or, as EAPOL, too long for the radio once
+    /// wrapped) is `EINVAL`. A management frame is from the station to the
+    /// joined BSS (receiver and BSSID, or broadcast in either for a probe
+    /// request), an EAPOL frame to the BSSID; anything else is `EINVAL`. The
+    /// reply means queued, not delivered: while a scan has the radio on
+    /// another channel, or on a passive channel before the BSS was heard
+    /// there, the frame waits (`EBUSY` when too many already wait), and a
+    /// full transmit queue is `EBUSY`. A frame goes out under the keys in
+    /// force when it was queued: message 4 of the 4-way handshake is queued
+    /// just before the pairwise key is installed and must leave unencrypted.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct TxMgmtArgs {
         pub kind: u32,
@@ -19866,8 +19972,12 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// Move the radio's association state: a `StaState` ordinal. `Associated`
     /// carries the association id the AP assigned; `Authorized` opens the
     /// controlled port (data frames flow, the NIC's link comes up) and is
-    /// valid only after the pairwise key is installed. Going to a lower state
-    /// is always allowed and takes the link down.
+    /// valid only from `Associated`, and only after the pairwise key is
+    /// installed, or straight after `Associated` for an open network (no key
+    /// at all; a BSS whose scan entry or beacons advertised privacy or an RSN
+    /// element is never open, `EINVAL`). Going to a lower state is always
+    /// allowed and takes the link down; below `Associated` it deletes every
+    /// key.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetStateArgs {
         pub state: u32,
@@ -19903,8 +20013,12 @@ pub mod os_lazy_net_wifi_hw_v1 {
     /// a `Cipher` ordinal the radio advertised, `key` its exact length,
     /// `rsc` the receive sequence counter the handshake delivered (little
     /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
-    /// group key). Replaces a key in the same slot atomically. `EINVAL` for a
-    /// length or index that does not fit, `ENOSPC` for no free slot.
+    /// group key). Replaces a key in the same slot atomically. The transmit
+    /// packet number belongs to the association, not the key: a new or
+    /// reinstalled pairwise key continues it, and only leaving the BSS starts
+    /// it over. `EINVAL` for a length or index that does not fit, `ENOSPC`
+    /// for no free slot; when the radio refuses a key, the slot is left
+    /// empty.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetKeyArgs {
         pub kind: u32,
@@ -20068,8 +20182,15 @@ pub mod os_lazy_net_wifi_hw_v1 {
     }
 
     /// Event, driver to client: a management or EAPOL frame addressed to this
-    /// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
-    /// `rssi_dbm` the signal in dBm. The bytes are unparsed and hostile.
+    /// station arrived from the joined BSS, and the client can be waiting for
+    /// it: an authentication or (re)association response only after
+    /// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
+    /// once the AP answered the association; a retransmission of the last
+    /// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
+    /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
+    /// a whole management frame (from the MAC header, no FCS), or EAPOL as
+    /// an 802.3 frame (destination, source, ethertype 0x888E, then the
+    /// EAPOL PDU), decrypted. The bytes are unparsed and hostile.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RxMgmtArgs {
         pub kind: u32,
@@ -20210,6 +20331,8 @@ pub mod os_lazy_net_wifi_v1 {
     pub const FAIL_REASON_POLICY_MISMATCH: u32 = 7;
     /// `FailReason::Radio` wire value.
     pub const FAIL_REASON_RADIO: u32 = 8;
+    /// `FailReason::Unsupported` wire value.
+    pub const FAIL_REASON_UNSUPPORTED: u32 = 9;
 
     /// A heard network, merged with what is known about it.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -20587,13 +20710,19 @@ pub mod os_lazy_net_wifi_v1 {
         Ok(out)
     }
 
-    /// Remember a network and its secret. `profile.id` must be empty (the
-    /// service picks one and returns it); `scope` is a `Scope` ordinal. The
-    /// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
-    /// characters, or exactly 64 hex digits for a raw PSK) and must be absent
-    /// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
-    /// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
-    /// `EPERM` for scope `System` from anyone but `elevd`.
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AddNetworkArgs {
         pub profile: Profile,

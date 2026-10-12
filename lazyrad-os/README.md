@@ -96,6 +96,26 @@ another reboot `lazyrad_home_reboot.json` finds
 `/home/admin/projects/MyApp/MyApp.lrp` and `proof.txt`, and nothing under
 `/apps/<id>/*/data`.
 
+## Debugging
+
+The IDE's debugger (F9 breakpoints, F5 runs under it when one is set,
+F8 / Shift+F8 / Ctrl+Shift+F8 step, Locals, Call Stack and Immediate tabs) works
+here through the launcher seam, with no thread on either side
+([`docs/lazyrad-plan.md`](../docs/lazyrad-plan.md) section 8):
+
+| Piece | Where |
+|---|---|
+| start the player with `--client --debug <dir>` and a non-blocking stdin | `src/launcher.rs` (`PollingLauncher`, unlabelled IDE) and `src/devplay.rs` (`DevLauncher`, packaged IDE) |
+| queue the IDE's command lines in front of that stdin (`EAGAIN`, partial writes, `EPIPE`, a bound) | `src/input.rs` |
+| the player's side: poll a non-blocking stdin from its main thread | `src/debugio.rs`, installed by `lrplay` when started with `--debug` |
+| serial evidence | `LRPLAY:DEBUG:PASS`; `LRIDE:BREAK`, `LRIDE:STEP`, `LRIDE:PAUSE`, `LRIDE:STOPERR` (`:PASS:<item>:<line>`) and `LRIDE:LOCALS:PASS:<n>` |
+
+`tools/screenshot/examples/lazyrad_debug.json` is the session (a `form_load`
+with a breakpoint on its third line; the packaged IDE's development run asks the
+Installer first, as in `lazyrad_devplay.json`). The pin must name a LazyRAD
+commit that has `lazyrad-debug-proto`, `Launcher::launch_with` and
+`IdeEvent::DebugStopped`; `src/` does not compile against an older one.
+
 ## Running
 
 ```bash

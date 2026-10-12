@@ -34,6 +34,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aead"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
+dependencies = [
+ "crypto-common",
+ "generic-array",
+]
+
+[[package]]
 name = "aes"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -218,6 +228,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "fwload",
  "getrandom",
  "lazyos-crypto",
  "lazypkg",
@@ -243,6 +254,18 @@ name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
+name = "ccm"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae3c82e4355234767756212c570e29833699ab63e6ffd161887314cc5b43847"
+dependencies = [
+ "aead",
+ "cipher",
+ "ctr",
+ "subtle",
+]
 
 [[package]]
 name = "cfg-if"
@@ -328,6 +351,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctr"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "cursorgfx"
 version = "0.1.0"
 
@@ -406,6 +438,7 @@ dependencies = [
  "e1000",
  "hda",
  "rtl8168",
+ "rtw88",
 ]
 
 [[package]]
@@ -570,6 +603,13 @@ dependencies = [
 [[package]]
 name = "fuzzkit"
 version = "0.1.0"
+
+[[package]]
+name = "fwload"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+]
 
 [[package]]
 name = "generic-array"
@@ -751,6 +791,7 @@ dependencies = [
  "ext2fs",
  "fatfs",
  "fhs",
+ "fwload",
  "getrandom",
  "kernel",
  "lazyos-crypto",
@@ -768,6 +809,7 @@ dependencies = [
  "aes",
  "aes-kw",
  "argon2",
+ "ccm",
  "cmac",
  "hkdf",
  "hmac",
@@ -1089,6 +1131,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rtw88"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1125,6 +1174,8 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "lazyos-crypto",
+ "netpolicy",
+ "wlansta",
 ]
 
 [[package]]
@@ -1208,6 +1259,14 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "simair"
+version = "0.1.0"
+dependencies = [
+ "ieee80211",
+ "lazyos-crypto",
 ]
 
 [[package]]
@@ -1529,13 +1588,16 @@ dependencies = [
  "devinspect",
  "devmatch",
  "e1000",
+ "eapol",
  "elevpolicy",
  "fhs",
  "font-atlas",
  "framering",
  "ftpwire",
  "fused",
+ "fwload",
  "hda",
+ "ieee80211",
  "inputmap",
  "lazyos-crypto",
  "lazyos-sys",
@@ -1552,7 +1614,9 @@ dependencies = [
  "pcm",
  "pkgstore",
  "rtl8168",
+ "rtw88",
  "secretstore",
+ "simair",
  "smbfs",
  "smbwire",
  "sndpolicy",
@@ -1568,6 +1632,8 @@ dependencies = [
  "virtio",
  "virtio-net",
  "virtio-snd",
+ "wifimac",
+ "wlansta",
  "xhci",
 ]
 
@@ -1664,6 +1730,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wifimac"
+version = "0.1.0"
+dependencies = [
+ "ieee80211",
+]
+
+[[package]]
 name = "windows-link"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1683,6 +1756,16 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+
+[[package]]
+name = "wlansta"
+version = "0.1.0"
+dependencies = [
+ "eapol",
+ "fuzzkit",
+ "ieee80211",
+ "lazyos-crypto",
+]
 
 [[package]]
 name = "wyz"

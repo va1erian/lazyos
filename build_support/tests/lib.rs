@@ -33,10 +33,10 @@ mod os_manifest;
 mod os_recover;
 #[path = "../pictures_embed.rs"]
 mod pictures_embed;
-#[path = "../srb2kart_embed.rs"]
-mod srb2kart_embed;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
+#[path = "../srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "../tls_embed.rs"]
 mod tls_embed;
 #[path = "../usb_fat.rs"]
@@ -45,6 +45,8 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
+#[path = "../wifi_embed.rs"]
+mod wifi_embed;
 
 #[cfg(test)]
 mod accounts_tests;
@@ -88,3 +90,5 @@ mod usb_root_tests;
 mod usb_tests;
 #[cfg(test)]
 mod wallpapers_tests;
+#[cfg(test)]
+mod wifi_tests;

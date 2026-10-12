@@ -10,7 +10,12 @@
 //! * as an RSN element body and as a whole RSN element: whatever parses must
 //!   build and parse back to an equal value;
 //! * as a script against a [`ScanTable`]: the capacity bound and BSSID
-//!   uniqueness hold after every step.
+//!   uniqueness hold after every step;
+//! * as a received data frame: classify it, parse its header, decapsulate it
+//!   (an A-MSDU included) and encapsulate every MSDU again, which must give
+//!   the same Ethernet frames back; build its CCMP framing and header;
+//! * as a replay-window script: no slot ever accepts a PN at or below one it
+//!   accepted.
 //!
 //! Nothing may panic, and every slice a parse hands back lies inside the input.
 
@@ -18,6 +23,8 @@ use std::vec::Vec;
 
 use crate::bss::{Bss, Security};
 use crate::build::{self, BeaconFields};
+use crate::ccmp::{self, Replay};
+use crate::data::{self, DataHeader, Direction, Encap};
 use crate::frame::{Body, Mgmt};
 use crate::ie::{ElementIter, Elements, MAX_SSID, MAX_VENDOR};
 use crate::rsn::Rsn;
@@ -28,6 +35,70 @@ pub fn run(data: &[u8]) {
     frame_checks(data);
     rsn_checks(data);
     table_script(data);
+    data_checks(data);
+    replay_script(data);
+}
+
+fn data_checks(frame: &[u8]) {
+    let _ = crate::classify(frame);
+    if let Ok(f) = ccmp::framing(frame) {
+        assert!(f.header_len <= frame.len());
+        assert!([22, 24, 28, 30].contains(&f.aad.len()), "AAD length");
+        if let Ok((pn, key)) = ccmp::parse_header(&frame[f.header_len..]) {
+            assert!(pn <= ccmp::PN_MAX && key < 4);
+            assert_eq!(ccmp::parse_header(&ccmp::header(pn, key)), Ok((pn, key)));
+        }
+    }
+    let Ok(h) = DataHeader::parse(frame) else {
+        return;
+    };
+    assert!(h.len <= frame.len());
+    let body = &frame[h.len..];
+    let mut out = Vec::new();
+    if data::decap(&h, body, &mut out).is_err() {
+        assert!(out.is_empty(), "a refused frame delivered something");
+        return;
+    }
+    let total: usize = out.iter().map(Vec::len).sum();
+    assert!(
+        total <= body.len() + 6 * out.len(),
+        "decap grew the payload"
+    );
+    if h.amsdu() {
+        return;
+    }
+    for eth in &out {
+        assert!(eth.len() >= data::ETH_HEADER);
+        let how = Encap {
+            direction: Direction::FromDs,
+            bssid: h.addr2,
+            tid: h.tid(),
+            sequence: h.seq_number(),
+            security: None,
+        };
+        let again = data::encap(eth, &how).expect("a decapsulated frame encapsulates");
+        let h2 = DataHeader::parse(&again).unwrap();
+        let mut back = Vec::new();
+        data::decap(&h2, &again[h2.len..], &mut back).unwrap();
+        assert_eq!(&back, core::slice::from_ref(eth));
+    }
+}
+
+fn replay_script(data: &[u8]) {
+    let Some((&rsc, ops)) = data.split_first() else {
+        return;
+    };
+    let mut window = Replay::new(u64::from(rsc));
+    let mut ops = ops;
+    while let Some((op, rest)) = ops.split_first_chunk::<3>() {
+        ops = rest;
+        let tid = (op[0] & 0x10 == 0).then_some(op[0] & 0x0F);
+        let pn = u64::from(u16::from_le_bytes([op[1], op[2]]));
+        let before = window.last(tid);
+        let accepted = window.accept(tid, pn);
+        assert_eq!(accepted, pn > before);
+        assert!(window.last(tid) >= before, "the window went back");
+    }
 }
 
 fn inside(outer: &[u8], inner: &[u8]) -> bool {
@@ -54,6 +125,19 @@ fn frame_checks(data: &[u8]) {
         let rebuilt = build::beacon(&h.addr3, h.seq_number(), fields, b.ies);
         if let Ok(again) = Mgmt::parse(&rebuilt) {
             assert!(matches!(again.body, Body::Beacon(x) if x == b));
+        }
+    }
+    for rx in [0, 6, 36] {
+        if let Some(bss) = Bss::from_frame(&frame, rx, -50, 1) {
+            let claims = [Some(rx), bss.ds_channel, bss.ht_primary];
+            assert!(
+                claims.contains(&Some(bss.channel)) || bss.channel == 0,
+                "channel from nowhere"
+            );
+            if rx != 0 {
+                assert!(bss.channel != 0, "a heard BSS lost its channel");
+                assert_eq!(rx > 14, bss.channel > 14, "the channel changed band");
+            }
         }
     }
     if let Some(bss) = Bss::from_frame(&frame, 6, -50, 1) {
@@ -101,6 +185,7 @@ fn synthetic(id: u8, rssi: i8, at: u64) -> Bss {
         hidden: false,
         channel: 1,
         ds_channel: None,
+        ht_primary: None,
         rssi,
         capability: crate::cap::ESS,
         interval: 100,
@@ -110,6 +195,7 @@ fn synthetic(id: u8, rssi: i8, at: u64) -> Bss {
         ht: false,
         vht: false,
         he: false,
+        wmm: false,
         rates: Vec::new(),
         last_seen: at,
         from_probe_response: false,
@@ -196,6 +282,43 @@ mod seeded {
             let flips = rng.below(6) as usize;
             rng.flip_bits(&mut frame, flips);
             let cut = rng.below(frame.len() as u64 / 2) as usize;
+            frame.truncate(frame.len() - cut);
+            run(&frame);
+        });
+    }
+
+    /// Data frames built from random Ethernet frames (some as A-MSDUs, some
+    /// with a CCMP header), then mutated.
+    #[test]
+    fn mutated_data_frames() {
+        for_seeds("ieee80211_data_frames", |_, rng| {
+            let n = rng.below(60) as usize;
+            let mut eth = rng.bytes(12);
+            eth.extend_from_slice(
+                &rng.pick(&[0x0800u16, 0x86DD, 0x888E, 0x8137, 0x0806])
+                    .to_be_bytes(),
+            );
+            eth.extend_from_slice(&rng.bytes(n));
+            let how = Encap {
+                direction: *rng.pick(&[Direction::ToDs, Direction::FromDs]),
+                bssid: [2, 1, 1, 1, 1, 1],
+                tid: rng.one_in(2).then(|| rng.below(16) as u8),
+                sequence: rng.next_u32() as u16,
+                security: rng
+                    .one_in(3)
+                    .then(|| ccmp::header(rng.next_u64(), rng.byte())),
+            };
+            let mut frame = data::encap(&eth, &how).unwrap();
+            if how.tid.is_some() && how.security.is_none() && rng.one_in(2) {
+                frame.truncate(26);
+                frame[24] |= data::QOS_AMSDU_PRESENT as u8;
+                let body = data::amsdu_body(&[&eth, &eth]).unwrap();
+                frame.extend_from_slice(&body);
+            }
+            run(&frame);
+            let flips = rng.below(4) as usize;
+            rng.flip_bits(&mut frame, flips);
+            let cut = rng.below(frame.len() as u64 / 3 + 1) as usize;
             frame.truncate(frame.len() - cut);
             run(&frame);
         });

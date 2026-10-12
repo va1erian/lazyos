@@ -79,9 +79,33 @@ pub(crate) fn scope(path: &str) -> Scope {
 pub(crate) fn can_read(path: &str, caller: Caller) -> bool {
     match scope(path) {
         Scope::System => true,
-        Scope::User(owner) => caller.uid == owner || caller.system,
+        Scope::User(owner) => caller.uid == owner || caller.system || wifi_delegate(path, caller),
         Scope::Unclaimed => false,
     }
+}
+
+/// The subtree a Wi-Fi profile lives in, below `sys` or `user/<uid>`.
+const WIFI_PROFILES: &str = "net/wifi/networks";
+
+/// Whether `path` (valid) is a Wi-Fi profile key or its subtree root:
+/// `sys/net/wifi/networks[/...]` or `user/<uid>/net/wifi/networks[/...]`.
+fn is_wifi_profile(path: &str) -> bool {
+    let rest = match path.strip_prefix("sys/") {
+        Some(rest) => rest,
+        None => match path.strip_prefix("user/").and_then(|r| r.split_once('/')) {
+            Some((owner, rest)) if owner.parse::<u32>().is_ok() => rest,
+            _ => return false,
+        },
+    };
+    match rest.strip_prefix(WIFI_PROFILES) {
+        Some(tail) => tail.is_empty() || tail.starts_with('/'),
+        None => false,
+    }
+}
+
+/// The station manager's delegation: the Wi-Fi profiles, whoever owns them.
+fn wifi_delegate(path: &str, caller: Caller) -> bool {
+    caller.wifi && is_wifi_profile(path)
 }
 
 /// Whether `caller` may write `path` (`sys/**` is the system services'
@@ -90,8 +114,8 @@ pub(crate) fn can_read(path: &str, caller: Caller) -> bool {
 /// no capability and writes only `user/0/**`.
 pub(crate) fn can_write(path: &str, caller: Caller) -> bool {
     match scope(path) {
-        Scope::System => caller.system,
-        Scope::User(owner) => caller.uid == owner || caller.system,
+        Scope::System => caller.system || wifi_delegate(path, caller),
+        Scope::User(owner) => caller.uid == owner || caller.system || wifi_delegate(path, caller),
         Scope::Unclaimed => false,
     }
 }
@@ -137,5 +161,49 @@ mod tests {
         assert!(!can_write("user", system));
         assert!(!can_read("user/alice", system));
         assert!(!can_write("user/alice", system));
+    }
+
+    #[test]
+    fn the_station_manager_reaches_the_wifi_profiles_and_nothing_else() {
+        let wlan = Caller::wifi(912);
+        for path in [
+            "sys/net/wifi/networks",
+            "sys/net/wifi/networks/w0/ssid",
+            "user/1000/net/wifi/networks/w0/ssid",
+            "user/0/net/wifi/networks",
+        ] {
+            assert!(can_read(path, wlan) && can_write(path, wlan), "{path}");
+        }
+        for path in [
+            "sys/net/wifi/country",
+            "sys/net/wifi",
+            "sys/net/wifi/networksx",
+            "sys/net/eth0/mode",
+            "user/1000/net/wifi/other",
+            "user/1000/net/wifi/networksx/a",
+            "user/1000/settings",
+            "user/abc/net/wifi/networks/x",
+            "user",
+        ] {
+            assert!(!can_write(path, wlan), "{path}");
+        }
+        assert!(!can_read("user/1000/settings", wlan));
+        assert!(
+            can_write("user/912/anything", wlan),
+            "its own subtree, as for any uid"
+        );
+        // A user still owns their own profiles, and no one else's.
+        assert!(can_write(
+            "user/1000/net/wifi/networks/w0/ssid",
+            Caller::user(1000)
+        ));
+        assert!(!can_write(
+            "user/1000/net/wifi/networks/w0/ssid",
+            Caller::user(1001)
+        ));
+        assert!(!can_write(
+            "sys/net/wifi/networks/w0/ssid",
+            Caller::user(1000)
+        ));
     }
 }

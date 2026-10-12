@@ -70,7 +70,7 @@ GUEST = "/system/share/accounts"
 
 #: The attack session's commands, in order (attack.sh or a rhai script each).
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_store",
-                 "read_keyd_secrets", "read_home_admin",
+                 "read_keyd_secrets", "read_home_admin", "nic_attach",
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",
@@ -80,7 +80,9 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",
     # WP2: keyd's named secrets (the Wi-Fi PMK is wlanmd's, system secrets elevd's).
-    "wifi_pmk", "wifi_system_store",
+    "wifi_pmk", "wifi_system_store", "wifi_store_for",
+    # The NIC's owner methods are netd's (netpolicy::may_own_nic).
+    "nic_rx_mode",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.
     "direct_time", "direct_zone", "direct_restart", "prompt_spoof", "input_focus",
     "display_read",
@@ -109,8 +111,11 @@ def build(apps: bool = True) -> bool:
     demo_builds.build_rhai()
     # The session logs `user` straight in (LAZYOS_AUTOLOGIN, issue #623);
     # the verify boot clicks the Terminal by name (LAZYOS_UI_PROBE).
+    # Networking too (every session boots with a NIC, `--net`): the NIC
+    # attacks need a card for `netd` to own.
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
+               LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
     if apps and subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT,
                                env=env).returncode:
@@ -257,7 +262,7 @@ def boot(name: str, steps: list[dict], out: Path, image: Path, accel: str,
     started = time.time()
     result = subprocess.run([sys.executable, "tools/screenshot/qemu_session.py",
                              "--image", str(image), "--accel", accel, "--out", str(session),
-                             "--script", str(script), "--extra-arg=-no-shutdown"]
+                             "--script", str(script), "--extra-arg=-no-shutdown", "--net"]
                             + (["--memory", memory] if memory else []),
                             cwd=ROOT, capture_output=True, text=True)
     print(f"{name}: session {'ok' if result.returncode == 0 else 'FAILED'} "

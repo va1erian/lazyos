@@ -19,9 +19,12 @@ the caller's own network: any session user, for networks they own.
 `net.wifi.system`); a session user gets `EPERM`. `Connect` to a system
 network is allowed to anyone (the secret never leaves `keyd`).
 
-**Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`;
-`wlanmd` passes it to `keyd` at once, keeps nothing and never logs it, and
-no method ever returns one. Everything else here is non-secret: SSIDs,
+**Secrets.** A passphrase is accepted on exactly one call, `AddNetwork`
+with scope `User`; `wlanmd` passes it to `keyd` at once
+(`StoreSecretFor`), keeps nothing and never logs it, and no method ever
+returns one. A system network's passphrase never comes here: `elevd`
+stores it in `keyd` itself (`net.wifi.system`, under the profile id),
+and `keyd` refuses `wlanmd` a `system` secret. Everything else here is non-secret: SSIDs,
 BSSIDs, security type, signal. A profile is stored in `confd` (system
 networks under `sys/net/wifi/networks/<id>`, a user's under
 `user/<uid>/net/wifi/networks/<id>`); the secret lives in `keyd` under the
@@ -107,4 +110,4 @@ shared structured error field (`services::error_field`).
 
 ## enum `FailReason`
 
-- None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio
+- None, NotFound, Rejected, BadPassphrase, Timeout, Deauthenticated, BeaconLoss, PolicyMismatch, Radio, Unsupported

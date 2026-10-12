@@ -26,7 +26,7 @@ NIC driver the box needs), read `target/dbgd.key`, and
 
 | Switch | What it does |
 |---|---|
-| `LAZYOS_DBGD=1` | The kernel's two log ops (syscall 14 ops 2 and 3, `cfg(lazyos_dbgd)`), the program-output ring, the `dbgd` binary in `/system/bin`, its row in `init`'s manifest (uid 911, no capability), its `diag.dbg.*` lines. Needs `LAZYOS_NETD=1`. |
+| `LAZYOS_DBGD=1` | The kernel's two log ops (syscall 14 ops 2 and 3, `cfg(lazyos_dbgd)`), the program-output ring, the `dbgd` binary in `/system/bin`, its row in `init`'s manifest (uid 914 `_dbgd`, no capability; 911 is `_wifi`), its `diag.dbg.*` lines. Needs `LAZYOS_NETD=1`. |
 | `LAZYOS_DBGD_KEY=<hex>` | The key (16 to 64 bytes of hex). Unset: one is made once and kept in `target/dbgd.key`. |
 | `LAZYOS_DBGD_PORT`, `LAZYOS_DBGD_PEER` | TCP port (9701); the only IPv4 address that may connect. |
 | `LAZYOS_DBGD_CONTROL=1` | `diag.dbg.control=1`: the control tier below. Off by default. |
@@ -86,7 +86,7 @@ panes but was never kept: the `USBD:DIAG` line of the bring-up existed only
 on a screen. A `LAZYOS_DBGD=1` kernel keeps it in a second 64 KiB ring
 (`kernel/src/klog.rs`, written by `serial::mirror`, read by op 3), kept
 apart so a chatty program cannot push the boot out of the boot log. Op 3 is
-refused (`EPERM`) to every uid but root and `dbgd`'s (911): service output can
+refused (`EPERM`) to every uid but root and `dbgd`'s (914): service output can
 hold anything a service logs, unlike the boot log (open like `dmesg`).
 
 `usbd` rewrites `/transient/usbd.dump` (at most every 2 s, when the bus
@@ -105,7 +105,7 @@ is built to be refused by default:
 * **Authenticated**: HMAC challenge, fresh nonce per connection, constant-time
   compare, mutual proof, lockout with growing delay (shared across connections).
 * **Peer-restricted** (`diag.dbg.peer`) when set; checked before the nonce.
-* **Least authority**: uid 911, no capability, read-only calls; `fs.read` is
+* **Least authority**: uid 914, no capability, read-only calls; `fs.read` is
   an allowlist of roots minus a list of secrets, on top of the VFS's own
   permissions.
 * **Bounded input**: line, JSON depth, element count and string length caps;
@@ -162,7 +162,7 @@ rollback. The MCP bridge has the same as `service_reload`, `service_restart`,
 |---|---|
 | Build | `LAZYOS_DBGD_CONTROL=1` writes `diag.dbg.control=1`; without it the line is absent |
 | `dbgd` | `Config::control`; a `Control` method is `-32002` unless the box allows it **and** the session called `control.begin {"confirm":"control"}` (per connection: a reconnect starts read-only; the opening is a `DBGD:SECURITY ... control opened` record) |
-| `init` | `ReloadService`, `RevertService` (`idl/init.midl`) accepted only from `dbgd`'s kernel-stamped identity (uid 911, unlabelled, no session) **and** when `init` itself reads `diag.dbg.control=1` in `lazyos.cfg` |
+| `init` | `ReloadService`, `RevertService` (`idl/init.midl`) accepted only from `dbgd`'s kernel-stamped identity (uid 914, unlabelled, no session) **and** when `init` itself reads `diag.dbg.control=1` in `lazyos.cfg` |
 | Both | `dbgwire::control::reloadable`: a plain name, never `messengerd` (it claims the bootstrap channel once per boot) or `dbgd` (the connection watching the reload) |
 
 ### Methods

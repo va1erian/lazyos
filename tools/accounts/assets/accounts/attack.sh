@@ -84,6 +84,21 @@ read_home_admin)
     out=$(ls /home/admin 2>&1)
     res $? "$out"
     ;;
+nic_attach)
+    # Attach frame rings to eth0 (`nicctl arp`: AttachRing, then an ARP
+    # exchange), as the session: whoever holds the rings reads and injects
+    # every frame. The driver refuses an owner method to anyone but `_netd`,
+    # its own identity and root (`netpolicy::may_own_nic`): EPERM, whose
+    # Messenger text is "not allowed to perform". "already been claimed"
+    # (EBUSY) is only netd's attachment, not the policy: an ERROR here.
+    out=$(nicctl arp 2>&1)
+    rc=$?
+    case "$out" in
+    *"NICCTL:ARP:PASS"*) echo "ACCT:ATTACK:$name:SUCCEEDED:attached" ;;
+    *"attach: "*"allowed to perform"*) echo "ACCT:ATTACK:$name:BLOCKED:EPERM" ;;
+    *) res $rc "$out" ;;
+    esac
+    ;;
 signal_service)
     pid=$(rhai $SHARE/svc_pid.rhai 2>/dev/null)
     if [ -z "$pid" ] || [ "$pid" = 0 ]; then

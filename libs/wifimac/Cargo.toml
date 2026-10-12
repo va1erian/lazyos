@@ -1,0 +1,14 @@
+[package]
+name = "wifimac"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Wi-Fi soft-MAC shared by wifid and wifisim: os.lazy.net.wifi.hw.v1 semantics, scanning, keys and the 802.3/802.11 data path over a Radio trait"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "wifimac"
+path = "src/lib.rs"
+
+[dependencies]
+ieee80211 = { path = "../ieee80211" }
