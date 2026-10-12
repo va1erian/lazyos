@@ -39,7 +39,7 @@ fn naive_polygon(points: &[(i32, i32)], clip: Rect) -> Option<Selection> {
             }
         }
         crossings.sort_by(f64::total_cmp);
-        for pair in crossings.chunks_exact(2) {
+        for pair in crossings.as_chunks::<2>().0 {
             for x in clip.x0..clip.x1 {
                 if pair[0] <= f64::from(x) && f64::from(x) < pair[1] {
                     mask[(y - clip.y0) as usize * clip.width() as usize + (x - clip.x0) as usize] =
