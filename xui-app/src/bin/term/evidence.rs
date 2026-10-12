@@ -2,6 +2,8 @@
 //! first output line, found among the lines the screen completed (the shell's
 //! echo of the command and bare prompts are skipped).
 
+use std::collections::VecDeque;
+
 use lazyterm::Line;
 
 /// A completed row only continues on the next one while a row-wide line is
@@ -29,12 +31,21 @@ pub fn is_prompt(line: &str) -> bool {
     }
 }
 
-/// The command in flight and the evidence state around it.
+/// The most submitted commands remembered at once: a paste can submit many
+/// before the shell has echoed the first.
+const QUEUE_MAX: usize = 16;
+
+/// The commands in flight and the evidence state around them. Commands are
+/// submitted in order (typed, or pasted with newlines) and the shell runs
+/// them in order: the echo of the next queued command starts its turn, and
+/// the first line after that echo that is not the next echo is its output.
 #[derive(Default)]
 pub struct Evidence {
-    /// The last submitted command and whether its first output line is still
-    /// expected.
-    last_cmd: Option<String>,
+    /// Submitted commands whose echo has not been seen yet.
+    queue: VecDeque<String>,
+    /// The command whose echo was last seen, and whether its first output
+    /// line is still expected.
+    current: Option<String>,
     awaiting_output: bool,
     /// The text of the full-width rows just completed. BusyBox's line editor
     /// breaks a command that reaches the last column with its own newline
@@ -45,10 +56,13 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    /// A command was submitted (Enter): its first output line is next.
+    /// A command was submitted (Enter, typed or pasted): its echo and then
+    /// its first output line are next.
     pub fn submitted(&mut self, command: String) {
-        self.last_cmd = Some(command);
-        self.awaiting_output = true;
+        if self.queue.len() == QUEUE_MAX {
+            self.queue.pop_front();
+        }
+        self.queue.push_back(command);
     }
 
     /// One line the screen completed. Returns the `TERM:OUT` payload when it
@@ -64,19 +78,27 @@ impl Evidence {
         if marker.is_empty() || is_prompt(marker) {
             return None;
         }
-        // Skip the shell's echo of the command it is about to run; the next
-        // non-empty line is the output.
-        if let Some(command) = &self.last_cmd {
-            let echo = |text: &str| text.trim().ends_with(command.as_str());
-            if self.awaiting_output && (echo(marker) || echo(&joined)) {
-                return None;
-            }
+        let echoes = |command: &str| {
+            marker.ends_with(command) || joined.trim().ends_with(command)
+        };
+        // The echo of a queued command starts its turn: whatever the one
+        // before produced (or nothing) is over. Commands ahead of the echoed
+        // one never reached the shell (keys typed into `vi`, say): forget them.
+        if let Some(at) = self.queue.iter().position(|command| echoes(command)) {
+            self.queue.drain(..at);
+            self.current = self.queue.pop_front();
+            self.awaiting_output = true;
+            return None;
         }
-        if self.awaiting_output {
-            self.awaiting_output = false;
-            return Some(marker.to_string());
+        if !self.awaiting_output {
+            return None;
         }
-        None
+        // The shell's echo of the current command is not its output.
+        if self.current.as_deref().is_some_and(echoes) {
+            return None;
+        }
+        self.awaiting_output = false;
+        Some(marker.to_string())
     }
 }
 
@@ -173,5 +195,49 @@ mod tests {
         evidence.submitted("echo x".into());
         let got = outs(&mut evidence, &mut term, b"/ # echo x\r\nabcdefghijklmno\r\n");
         assert_eq!(got, ["abcdefghijklmno"]);
+    }
+
+    #[test]
+    fn a_pasted_batch_reports_each_commands_first_output_line() {
+        let mut term = Term::new(80, 24);
+        let mut evidence = Evidence::default();
+        for command in ["38", "39", "40"] {
+            evidence.submitted(command.into());
+        }
+        // The shell echoes and runs them one after the other.
+        let got = outs(
+            &mut evidence,
+            &mut term,
+            b"/ $ 38\r\n38: not found\r\n/ $ 39\r\n39: not found\r\n/ $ 40\r\n40: not found\r\n/ $ ",
+        );
+        assert_eq!(got, ["38: not found", "39: not found", "40: not found"]);
+    }
+
+    #[test]
+    fn a_command_with_no_output_does_not_swallow_the_next_ones() {
+        let mut term = Term::new(80, 24);
+        let mut evidence = Evidence::default();
+        evidence.submitted("true".into());
+        evidence.submitted("echo hi".into());
+        let got = outs(&mut evidence, &mut term, b"/ $ true\r\n/ $ echo hi\r\nhi\r\n/ $ ");
+        assert_eq!(got, ["hi"]);
+    }
+
+    #[test]
+    fn lines_before_any_submission_are_not_output() {
+        let mut term = Term::new(80, 24);
+        let mut evidence = Evidence::default();
+        assert!(outs(&mut evidence, &mut term, b"boot noise\r\n/ $ ").is_empty());
+    }
+
+    #[test]
+    fn keys_typed_into_a_program_do_not_block_later_commands() {
+        let mut term = Term::new(80, 24);
+        let mut evidence = Evidence::default();
+        // `:q` was submitted to vi, which echoes nothing.
+        evidence.submitted(":q".into());
+        evidence.submitted("echo DONE".into());
+        let got = outs(&mut evidence, &mut term, b"/ $ echo DONE\r\nDONE\r\n/ $ ");
+        assert_eq!(got, ["DONE"]);
     }
 }

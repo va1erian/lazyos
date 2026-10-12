@@ -130,6 +130,13 @@ fn multi_line_pastes_need_confirmation_unless_bracketed() {
     assert_eq!(line_count("a\nb\nc"), 3);
     assert_eq!(line_count("a\r\nb\r\n"), 2);
     assert_eq!(line_count(""), 0);
+    // A selection that starts on blank cells begins with an empty line: it is
+    // a line (the shell would run it), so it counts; a trailing newline ends
+    // the last line and starts none.
+    assert_eq!(line_count("\n39\n40\n41\n42\n4"), 6);
+    assert_eq!(line_count("38\n39\n40\n41\n42\n"), 5);
+    assert_eq!(line_count("one"), 1);
+    assert_eq!(line_count("\n"), 1);
 }
 
 #[test]

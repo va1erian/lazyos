@@ -69,8 +69,8 @@ impl Client {
     }
 
     /// `OfferBuffer`: publish one payload of up to [`MAX_BUFFER`] bytes. The
-    /// bytes go into fresh shared pages the service keeps a handle to, so this
-    /// task's own handle closes as soon as the call returns.
+    /// bytes go into fresh shared pages the service snapshots during the call,
+    /// so this task's own handle closes as soon as the call returns.
     pub fn copy_large(&self, owner: &str, mime: &str, bytes: &[u8]) -> Result<u64> {
         if bytes.is_empty() || bytes.len() > MAX_BUFFER {
             return Err(Error::Errno(-errno::E2BIG));

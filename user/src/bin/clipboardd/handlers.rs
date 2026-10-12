@@ -102,9 +102,10 @@ impl Clipboard {
         Ok(token)
     }
 
-    /// `OfferBuffer`: keep the shared pages `buffer` names as one payload of
-    /// `mime`. The service owns the received handle from here: it is closed
-    /// when the offer is evicted, or at once when the offer is refused.
+    /// `OfferBuffer`: snapshot the range `request.data` names as one payload
+    /// of `mime`. The service copies it once into pages of its own and closes
+    /// the received handle at once, so what is pasted later is what was
+    /// copied, however the owner uses its pages afterwards.
     pub(super) fn offer_buffer(
         &mut self,
         request: wire::wire::OfferBufferArgs,
@@ -114,9 +115,8 @@ impl Clipboard {
     ) -> Result<u64, Error> {
         let handle = request.data.handle;
         let result = self.keep_buffer(request, session, owner_slot, tick);
-        if result.is_err() {
-            let _ = sys::buffer_close(handle);
-        }
+        // Decoded, so the received handle is ours to close whatever happened.
+        let _ = sys::buffer_close(handle);
         result
     }
 
@@ -148,6 +148,19 @@ impl Clipboard {
             return Err(Error::Errno(-errno::EINVAL));
         }
         let index = self.session_index(session)?;
+        // One copy into pages the owner never sees: the snapshot.
+        let (own, own_va, _) = sys::buffer_create(len as u64).map_err(Error::Errno)?;
+        // SAFETY: the source range lies inside the mapping `buffer_map` just
+        // reported (`data.fits(size)`); the destination is the fresh mapping of
+        // at least `len` bytes `buffer_create` returned. They are different
+        // buffers, so the ranges cannot overlap.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                (va + data.offset) as *const u8,
+                own_va as *mut u8,
+                len,
+            );
+        }
         self.next_token = self.next_token.wrapping_add(1);
         let token = self.next_token;
         let offer = Offer {
@@ -159,8 +172,8 @@ impl Clipboard {
             data: Vec::new(),
             big: Some(Big {
                 mime,
-                handle: data.handle,
-                va: va + data.offset,
+                handle: own,
+                va: own_va,
                 len,
             }),
             sink: None,
@@ -215,7 +228,7 @@ impl Clipboard {
             .find(|clip| clip.session == session)
             .and_then(|clip| clip.offers.iter().find(|offer| offer.token == request.token));
         let Some(offer) = found else {
-            return Err(self.miss(request.token));
+            return Err(self.miss(request.token, session));
         };
         let Some(big) = offer.big.as_ref().filter(|big| big.mime == request.mime) else {
             return Err(Error::Errno(-errno::ENOENT));
@@ -272,13 +285,16 @@ impl Clipboard {
                         cached: offer.endpoint,
                     },
                 ),
-                Some(offer) if offer.big.is_some() => (
-                    offer.token,
-                    Reading::Big {
-                        mime: String::from(mime),
-                        size: offer.big_len(),
-                    },
-                ),
+                Some(offer) if offer.big.is_some() => match &offer.big {
+                    Some(big) if big.mime == mime => (
+                        offer.token,
+                        Reading::Big {
+                            mime: String::from(mime),
+                            size: big.len,
+                        },
+                    ),
+                    _ => return Err(Error::Errno(-errno::ENOENT)),
+                },
                 Some(offer) => match offer.data.iter().find(|(known, _)| known == mime) {
                     Some((_, bytes)) => (
                         offer.token,
@@ -289,7 +305,7 @@ impl Clipboard {
                     ),
                     None => return Err(Error::Errno(-errno::ENOENT)),
                 },
-                None => return Err(self.miss(token)),
+                None => return Err(self.miss(token, session)),
             }
         };
         match reading {
@@ -339,14 +355,15 @@ impl Clipboard {
         }
     }
 
-    /// The token was not readable in `session`: a token that exists in another
-    /// session is a policy denial, anything else "not found".
-    fn miss(&self, token: u64) -> Error {
+    /// The token was not readable in `session`: a token that exists in
+    /// *another* session is a policy denial; anything else, a token of the
+    /// caller's own session read as a MIME it does not carry included, is
+    /// "not found" (and not an audited denial).
+    fn miss(&self, token: u64, session: u64) -> Error {
         let foreign = token != 0
-            && self
-                .sessions
-                .iter()
-                .any(|clip| clip.offers.iter().any(|offer| offer.token == token));
+            && self.sessions.iter().any(|clip| {
+                clip.session != session && clip.offers.iter().any(|offer| offer.token == token)
+            });
         if foreign {
             Error::Errno(-errno::EACCES)
         } else {

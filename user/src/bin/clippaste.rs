@@ -94,11 +94,51 @@ fn run() -> messenger::Result<()> {
         Ok(_) => fail("DENIED", "cross-session paste was allowed"),
         Err(error) => fail("DENIED", error.message()),
     }
+    // The large-offer probes run last: the session keeps one offer, so they
+    // would evict the one the denial probe above names.
+    big_offer_probes(&client)?;
     // Release the broker-side subscription slot now that the paste and
     // denial probe are done: this demo client is about to exit, but a leaked
     // subscription would still fill the broker's bounded table on repeated
     // runs.
     let _ = changes.unsubscribe();
+    Ok(())
+}
+
+/// Bytes of the large offer the probes make (past the inline cap).
+const BIG_LEN: usize = 20_000;
+/// MIME type of the large probe offer.
+const BIG_MIME: &str = "application/x-clip-probe";
+
+/// The shared-buffer path: an `OfferBuffer` is a snapshot (the owner writes
+/// its pages again after offering and the paste still reads the original), a
+/// paste of it reads back every byte, and a MIME the offer does not carry is
+/// "not found" rather than a denial.
+fn big_offer_probes(client: &clipboard::Client) -> messenger::Result<()> {
+    let (handle, va, _) = sys::buffer_create(BIG_LEN as u64).map_err(Error::Errno)?;
+    // SAFETY: `buffer_create` mapped at least `BIG_LEN` writable bytes at `va`,
+    // owned by this task until the buffer is closed below.
+    let pages = unsafe { core::slice::from_raw_parts_mut(va as *mut u8, BIG_LEN) };
+    pages.fill(0xAA);
+    let request = clipboard::offer_buffer_request(
+        "clippaste",
+        BIG_MIME,
+        libmessenger::Buffer::whole(handle, BIG_LEN as u64),
+    )?;
+    let token = clipboard::decode_token(&client.endpoint().call(&request, None)?)?;
+    // The owner keeps using its pages.
+    pages.fill(0x55);
+    let _ = sys::buffer_close(handle);
+    let bytes = client.paste_token(token, BIG_MIME)?;
+    if bytes.len() != BIG_LEN || bytes.iter().any(|&byte| byte != 0xAA) {
+        fail("SNAPSHOT", "the paste is not what was copied");
+    }
+    sys::write_str(&format!("CLIP:SNAPSHOT:PASS bytes={}\n", bytes.len()));
+    match client.paste_token(token, "image/png") {
+        Err(Error::Errno(code)) if code == -errno::ENOENT => sys::write_str("CLIP:MIME:PASS\n"),
+        Ok(_) => fail("MIME", "a MIME the offer lacks was served"),
+        Err(error) => fail("MIME", error.message()),
+    }
     Ok(())
 }
 

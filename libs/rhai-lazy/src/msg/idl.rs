@@ -301,7 +301,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "OfferBuffer",
                 id: 2074208755,
                 oneway: false,
-                doc: "Publish one large payload (more than the inline cap of 8 KiB, at most\n16 MiB) for the caller's session. The bytes live in `data`'s shared\npages, which the service keeps (it holds its own handle, so the caller\nmay close theirs at once) until the offer is evicted; nothing is\ncopied into the service's heap. The range `data.offset .. + data.len`\nis the payload. Travels on this interface's own id, not a scope id:\nthe kernel's declared-object gate keys on the header's interface.",
+                doc: "Publish one large payload (more than the inline cap of 8 KiB, at most\n16 MiB) for the caller's session. The range `data.offset .. + data.len`\nof the shared pages is the payload: the service copies it once into\npages of its own (not its heap) and closes the received handle before\nreplying, so the offer is a snapshot and the caller may reuse or\nclose its pages at once. The snapshot counts against the session's\nretained-bytes budget (64 MiB; the oldest offers are evicted past it).\nTravels on this interface's own id, not a scope id: the kernel's\ndeclared-object gate keys on the header's interface.",
                 params: &[Field { name: "owner", id: 1, ty: Ty::String }, Field { name: "mime", id: 2, ty: Ty::String }, Field { name: "data", id: 3, ty: Ty::Buffer }],
                 returns: &[Field { name: "token", id: 1, ty: Ty::U64 }],
                 objects: &[Object { name: "data", channel: None }],

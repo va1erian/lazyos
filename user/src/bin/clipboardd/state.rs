@@ -11,10 +11,10 @@ use user::sys;
 
 use super::MAX_SESSIONS;
 
-/// A large payload that stays in the shared pages its owner offered: this
-/// service holds its own handle to them (and a mapping), so nothing is copied
-/// into the heap and the pages go back to the system when the offer is
-/// evicted.
+/// A large payload, snapshotted into shared pages of this service's own (the
+/// owner's pages are copied once at `OfferBuffer` and never kept): nothing
+/// goes through the heap, and the pages go back to the system when the offer
+/// is evicted.
 pub(super) struct Big {
     pub(super) mime: String,
     pub(super) handle: u64,

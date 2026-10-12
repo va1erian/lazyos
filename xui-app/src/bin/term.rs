@@ -23,7 +23,7 @@
 //! `TERM:EXIT:PASS` when the shell exits or the window is closed, and
 //! `TERM:SPAWN:FAIL:<reason>` when the child cannot start.
 
-use std::io::{Read, Write};
+
 use std::os::unix::io::RawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
@@ -33,7 +33,7 @@ use xui_app::themed::run_themed;
 use xui_core::app::{App, Ui};
 use xui_core::app::Proxy;
 use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, PlatformSpec, TimerId};
-use xui_core::{Control, Dip, Key, Modifiers};
+use xui_core::{Control, Dip, Key};
 
 #[path = "term/clicks.rs"]
 mod clicks;
@@ -45,6 +45,10 @@ mod evidence;
 mod geometry;
 #[path = "term/keys.rs"]
 mod keys;
+#[path = "term/msg.rs"]
+mod msg;
+#[path = "term/output.rs"]
+mod output;
 #[path = "term/paint.rs"]
 mod paint;
 #[path = "term/perf.rs"]
@@ -64,12 +68,13 @@ use lazyterm::input::Button;
 use lazyterm::Term as Engine;
 use paint::{paint, DARK, LIGHT, LINE_H, PAD};
 use perf::{PaintClock, Perf};
-use pointer::{mouse, probe_grid, MouseKind, MouseMsg};
-use scroll::{anchored, apply, Move};
-use view::{max_offset, Layout, Shown};
+use msg::Msg;
+use pointer::{mouse, probe_grid, MouseKind};
+
+use view::{Layout, Shown};
 
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+
 use std::rc::Rc;
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
@@ -94,32 +99,8 @@ const ROWS: usize = 24;
 const FALLBACK_MILLIS: u32 = 1000;
 /// How often queued input is retried while the pty is full.
 const FLUSH_MILLIS: u32 = 10;
-/// The most bytes written to the pty at once (see `flush_out`).
+/// The most bytes written to the pty at once (see `output.rs`).
 const INPUT_CHUNK: usize = 1024;
-
-/// One application message.
-enum Msg {
-    /// The poll timer fired: drain output, maybe finish.
-    Tick,
-    /// A drag past the edge of the grid scrolls on this timer.
-    Autoscroll,
-    /// Input the pty had no room for is waiting: try again.
-    Flush,
-    /// A translated character from the keyboard.
-    Char(char),
-    /// A key press with the modifiers held: arrows, Escape and the like, and
-    /// Ctrl+letter chords (which arrive without a `Char`). Enter and
-    /// Backspace also arrive as `Char`s, which is the path that handles them.
-    Key(Key, Modifiers),
-    /// A wheel roll (`delta` is 120 a notch, positive up) at node pixel
-    /// (`x`, `y`) with the modifiers held.
-    Wheel(i16, Modifiers, i32, i32),
-    /// A pointer press, release, move or double-click.
-    Mouse(MouseMsg),
-    /// Files dropped on the window.
-    Dropped(Vec<PathBuf>),
-    Close,
-}
 
 /// Put a descriptor into non-blocking mode so the poll timer's read never
 /// stalls the UI thread.
@@ -169,104 +150,6 @@ struct Terminal {
 }
 
 impl Terminal {
-    /// Write to the pty without touching the view (answers to queries). What
-    /// the pty has no room for stays queued (`flush_out`, `pump`).
-    fn send(&mut self, bytes: &[u8]) {
-        self.out.extend_from_slice(bytes);
-        self.flush_out();
-    }
-
-    /// Write the next chunk of the queue. The kernel's line discipline drops
-    /// input it has no room for (4096 bytes) instead of pushing back on the
-    /// writer, so a big paste goes in `INPUT_CHUNK` bytes at a time, one per
-    /// `FLUSH_MILLIS`, and the shell reads each before the next arrives.
-    fn flush_out(&mut self) {
-        while !self.out.is_empty() {
-            let chunk = self.out.len().min(INPUT_CHUNK);
-            match self.master.file().write(&self.out[..chunk]) {
-                Ok(0) => break,
-                Ok(n) => {
-                    self.out.drain(..n);
-                    break;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                // The shell is gone: the drain notices; there is no one to write to.
-                Err(_) => self.out.clear(),
-            }
-        }
-    }
-
-    /// Run the retry timer while input is queued, and not otherwise.
-    fn pump(&mut self, ui: &mut Ui<Msg>) {
-        match (self.out.is_empty(), self.flush.get()) {
-            (false, None) => self.flush.set(Some(ui.set_timer(FLUSH_MILLIS))),
-            (true, Some(id)) => {
-                ui.kill_timer(id);
-                self.flush.set(None);
-            }
-            _ => {}
-        }
-    }
-
-    /// Write what the user typed: the view returns to the bottom first.
-    fn input(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
-        self.scroll(ui, Move::Bottom);
-        self.send(bytes);
-    }
-
-    /// Repaint what changed on screen (the rows, or the scrollbar).
-    fn refresh(&mut self, ui: &mut Ui<Msg>) {
-        let changed = self
-            .shown
-            .update(&self.term.borrow(), self.layout.get(), self.offset.get());
-        if let Some(rect) = changed {
-            ui.invalidate_rect(self.root.id(), rect);
-        }
-    }
-
-    /// Move the view on the user's request: `TERM:SCROLL:<offset>` when it
-    /// changes. A full-screen program has no scrollback, so nothing moves.
-    fn scroll(&mut self, ui: &mut Ui<Msg>, mv: Move) {
-        let max = max_offset(&self.term.borrow(), self.page());
-        let offset = apply(mv, self.offset.get(), max);
-        if offset != self.offset.get() {
-            self.offset.set(offset);
-            println!("TERM:SCROLL:{offset}");
-            self.refresh(ui);
-        }
-    }
-
-    /// Keep the view on its text while output arrives: `top` was the
-    /// screen's top line before it.
-    fn follow(&mut self, top: u64) {
-        let term = self.term.borrow();
-        let max = max_offset(&term, self.page());
-        self.offset
-            .set(anchored(self.offset.get(), top, term.screen_top(), max));
-    }
-
-    /// The lines a page scroll moves: what the window shows.
-    fn page(&self) -> usize {
-        self.layout.get().map_or(ROWS, |layout| layout.visible)
-    }
-
-    /// Drain the master without blocking; return the bytes read.
-    fn drain(&mut self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut chunk = [0u8; 4096];
-        while !self.hung_up {
-            match self.master.file().read(&mut chunk) {
-                Ok(0) => self.hung_up = true,
-                Ok(n) => out.extend_from_slice(&chunk[..n]),
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                // `EIO`: every slave descriptor closed, the shell is gone.
-                Err(_) => self.hung_up = true,
-            }
-        }
-        out
-    }
-
     fn finish(&self, ui: &mut Ui<Msg>) {
         println!("TERM:EXIT:PASS");
         ui.quit();

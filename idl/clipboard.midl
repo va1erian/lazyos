@@ -23,12 +23,14 @@ interface os.lazy.clipboard.v1 {
     /// owner serves `Serialize`, and leaves `data` empty.
     method Offer(owner: String = 1, sink: Option<String> = 2, mimes: Array<String> = 3, data: Array<Payload> = 4) -> (token: U64 = 1);
     /// Publish one large payload (more than the inline cap of 8 KiB, at most
-    /// 16 MiB) for the caller's session. The bytes live in `data`'s shared
-    /// pages, which the service keeps (it holds its own handle, so the caller
-    /// may close theirs at once) until the offer is evicted; nothing is
-    /// copied into the service's heap. The range `data.offset .. + data.len`
-    /// is the payload. Travels on this interface's own id, not a scope id:
-    /// the kernel's declared-object gate keys on the header's interface.
+    /// 16 MiB) for the caller's session. The range `data.offset .. + data.len`
+    /// of the shared pages is the payload: the service copies it once into
+    /// pages of its own (not its heap) and closes the received handle before
+    /// replying, so the offer is a snapshot and the caller may reuse or
+    /// close its pages at once. The snapshot counts against the session's
+    /// retained-bytes budget (64 MiB; the oldest offers are evicted past it).
+    /// Travels on this interface's own id, not a scope id: the kernel's
+    /// declared-object gate keys on the header's interface.
     method OfferBuffer(owner: String = 1, mime: String = 2, data: Buffer = 3) -> (token: U64 = 1);
     /// Read one MIME of an offer. `token` 0 selects the newest offer in the
     /// caller's session that lists `mime`; another session's token fails with

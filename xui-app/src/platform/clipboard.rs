@@ -3,8 +3,8 @@
 //! `set_text` publishes an eager `text/plain` offer; `text` requests the newest
 //! offer in the caller's session. Payloads are bounded to [`MAX_BYTES`] (16
 //! MiB) on both paths. Up to [`INLINE_BYTES`] they ride inside the parcel;
-//! above it a copy goes into shared pages (`OfferBuffer`: the service keeps a
-//! handle to the pages, nothing is copied through its heap) and a paste
+//! above it a copy goes into shared pages (`OfferBuffer`: the service takes
+//! one snapshot of them into pages of its own, not its heap) and a paste
 //! reads the size from `Request` and has the service copy the bytes into a
 //! buffer this task creates (`Fetch`). When `clipboardd` is absent (a console
 //! image, or before it starts) the module falls back to a thread-local store,
@@ -134,8 +134,8 @@ fn offer_payload(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
     Ok(token)
 }
 
-/// `OfferBuffer`: the bytes go into new shared pages, the service takes its
-/// own handle to them during the call, and ours closes when it returns.
+/// `OfferBuffer`: the bytes go into new shared pages, the service snapshots
+/// them during the call, and ours close when it returns.
 fn offer_buffer(service: &Service, mime: &str, bytes: &[u8]) -> Result<u64, i64> {
     let (handle, va, _) = sys::buffer_create(bytes.len() as u64)?;
     // SAFETY: `buffer_create` mapped at least `bytes.len()` writable bytes at
