@@ -159,6 +159,9 @@ pub(super) fn sys_pread64(fd: u64, ptr: u64, len: u64, offset: u64) -> u64 {
             }
         }
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::pread(file, ptr, len, offset)),
+        FdKind::Memfd => {
+            super::memfd::with_memfd(fd, |mem| super::memfd::pread(mem, ptr, len, offset))
+        }
         FdKind::Closed => err(EBADF),
         _ => err(ESPIPE),
     }
@@ -173,6 +176,9 @@ pub(super) fn sys_pwrite64(fd: u64, ptr: u64, len: u64, offset: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::File => write_file(fd, ptr, len, Some(offset)),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::pwrite(file, ptr, len, offset)),
+        FdKind::Memfd => {
+            super::memfd::with_memfd(fd, |mem| super::memfd::pwrite(mem, ptr, len, offset))
+        }
         FdKind::Closed => err(EBADF),
         _ => err(ESPIPE),
     }

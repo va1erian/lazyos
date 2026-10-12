@@ -64,6 +64,14 @@ pub enum Kind {
     Stack,
     /// A `brk`/`sbrk` heap, populated on first touch.
     Heap,
+    /// A `MAP_SHARED` mapping of a memfd, mapped eagerly. Its pages belong to
+    /// the memfd, which holds the user-memory charge, so unmapping it gives
+    /// no quota back; `fork` keeps the pages shared (`pte::SHARED`).
+    Shared,
+    /// A `MAP_SHARED | MAP_ANONYMOUS` mapping, mapped eagerly and shared with
+    /// `fork` children. The mapping's creator holds the charge, as for
+    /// [`Kind::Anon`].
+    SharedAnon,
 }
 
 /// One page-aligned protection range: `start < end`, both 4 KiB aligned.
@@ -247,6 +255,15 @@ pub fn find(table: PhysAddr, va: u64) -> Option<Vma> {
     let spaces = SPACES.lock();
     let space = spaces.iter().find(|space| space.pml4 == table.as_u64())?;
     space.vmas.iter().copied().find(|vma| vma.contains(va))
+}
+
+/// Whether `va` lies in a VMA that does not permit writing. A page with no
+/// VMA (unit tests map frames by hand) is not second-guessed. Copy-on-write
+/// asks it: a private view of a memfd is mapped COW whatever its protection,
+/// so that `mprotect(PROT_WRITE)` cannot reach the file's frame, and a store
+/// to a read-only view must stay a fault.
+pub fn forbids_write(table: PhysAddr, va: u64) -> bool {
+    find(table, va).is_some_and(|vma| !vma.prot.has_write())
 }
 
 /// Every VMA intersecting `[start, end)`, clipped to the range.

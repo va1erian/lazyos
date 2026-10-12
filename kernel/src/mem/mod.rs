@@ -6,6 +6,7 @@ pub mod dma;
 mod frames;
 mod heap;
 mod layout;
+pub mod memfd;
 pub mod mmio;
 mod protect;
 pub mod pte;

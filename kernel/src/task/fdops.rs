@@ -113,6 +113,7 @@ pub fn fd_kind(fd: usize) -> FdKind {
             Fd::Inet { .. } => FdKind::Inet,
             Fd::Pty { .. } => FdKind::Pty,
             Fd::Endpoint { .. } => FdKind::Endpoint,
+            Fd::Memfd { .. } => FdKind::Memfd,
         },
         _ => FdKind::Closed,
     }
@@ -192,6 +193,7 @@ pub fn fd_status(fd: usize) -> Option<u64> {
         Fd::Unbound { nonblock: flag, .. } => Some(2 | (u64::from(*flag) * O_NONBLOCK)),
         Fd::Inet { sock } => Some(2 | (u64::from(sock.nonblock()) * O_NONBLOCK)),
         Fd::Pty { pty, master } => Some(2 | (u64::from(pty.nonblock(*master)) * O_NONBLOCK)),
+        Fd::Memfd { .. } => Some(2), // O_RDWR
     }
 }
 
@@ -209,7 +211,11 @@ pub fn fd_set_status(fd: usize, nonblock: bool) -> bool {
     match entry {
         Fd::Closed => false,
         // An endpoint descriptor never blocks: nothing to switch.
-        Fd::Terminal | Fd::File { .. } | Fd::Vfs { .. } | Fd::Endpoint { .. } => true,
+        Fd::Terminal
+        | Fd::File { .. }
+        | Fd::Vfs { .. }
+        | Fd::Endpoint { .. }
+        | Fd::Memfd { .. } => true,
         Fd::Pipe { pipe, end } => {
             pipe.set_nonblock(*end, nonblock);
             true

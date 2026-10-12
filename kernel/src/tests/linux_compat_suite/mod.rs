@@ -16,10 +16,12 @@ mod fdshare;
 mod files;
 mod futex;
 mod locks;
+mod memfd;
 mod msg;
 mod ptyflow;
 mod readthrough;
 mod resources;
+mod scmrights;
 mod select;
 mod termios;
 mod threadsig;
@@ -34,9 +36,11 @@ use fdshare::*;
 use files::*;
 use futex::*;
 use locks::*;
+use memfd::*;
 use msg::*;
 use ptyflow::*;
 use resources::*;
+use scmrights::*;
 use select::*;
 use termios::*;
 use threadsig::*;
@@ -177,6 +181,49 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
     ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
+    ("compat_scmrights_round_trip", scmrights_round_trip),
+    ("compat_scmrights_cloexec", scmrights_cloexec),
+    ("compat_scmrights_ctrunc", scmrights_ctrunc),
+    ("compat_scmrights_refusals", scmrights_refusals),
+    (
+        "compat_scmrights_dropped_message_closes",
+        scmrights_dropped_message_closes,
+    ),
+    (
+        "compat_scmrights_receiver_exit_releases",
+        scmrights_receiver_exit_releases,
+    ),
+    ("compat_scmrights_peek", scmrights_peek),
+    (
+        "compat_scmrights_stream_boundaries",
+        scmrights_stream_boundaries,
+    ),
+    ("compat_scmrights_seqpacket", scmrights_seqpacket),
+    (
+        "compat_scmrights_in_flight_limits",
+        scmrights_in_flight_limits,
+    ),
+    ("compat_scmrights_soak", scmrights_soak),
+    ("compat_memfd_file_operations", memfd_file_operations),
+    (
+        "compat_memfd_shared_between_spaces",
+        memfd_shared_between_spaces,
+    ),
+    (
+        "compat_memfd_shared_survives_fork",
+        memfd_shared_survives_fork,
+    ),
+    (
+        "compat_memfd_private_mapping_copies_on_write",
+        memfd_private_mapping_copies_on_write,
+    ),
+    ("compat_memfd_mmap_refusals", memfd_mmap_refusals),
+    (
+        "compat_memfd_mprotect_mremap_madvise",
+        memfd_mprotect_mremap_madvise,
+    ),
+    ("compat_memfd_accounting", memfd_accounting),
+    ("compat_memfd_soak", memfd_soak),
     ("compat_select_and_ppoll", select_and_ppoll),
     ("compat_select_timeout_and_ebadf", select_timeout_and_ebadf),
     ("compat_select_soak", select_soak),

@@ -119,9 +119,11 @@ pub fn msg_sendmsg_recvmsg() -> Result<(), String> {
         16,
         0,
     ];
+    // An all-zero control buffer is a malformed message (length 0), not a
+    // silently ignored one; real control messages are scmrights.rs's.
     check!(
-        sys(SENDMSG, &[a, cmsg.as_ptr() as u64, 0]) == EOPNOTSUPP,
-        "control data accepted"
+        sys(SENDMSG, &[a, cmsg.as_ptr() as u64, 0]) == EINVAL,
+        "malformed control data accepted"
     );
     check!(
         sys_checked(SENDMSG, &[a, 8, 0]) == EFAULT,

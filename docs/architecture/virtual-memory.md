@@ -19,7 +19,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | Item | Values |
 |---|---|
 | `Prot` | `READ=1`, `WRITE=2`, `EXEC=4` (numeric values match Linux `PROT_*`) |
-| `Kind` | `Anon`, `File`, `Stack`, `Heap` |
+| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon` |
 | `Vma` | page-aligned `start < end`, `prot`, `kind` |
 
 - VMAs are keyed by PML4 **physical** address in `SPACES: Mutex<Vec<Space>>`, so
@@ -66,9 +66,16 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
   `STACK_TOP` (512 GiB up to `USER_TOP`) nothing is mapped, so an overflow is a
   `SIGSEGV`.
 
-- `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED` (`linux.rs:237`); it records an
-  `Anon` VMA and charges per-uid `UserMemory` quota. `mprotect` rewrites the
-  PTE flags of the resident pages (a COW page that is still shared keeps its
+- `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED`; it records an
+  `Anon` VMA and charges per-uid `UserMemory` quota. `MAP_SHARED` is real
+  for a memfd and for anonymous memory (`process/linux/mmapfile.rs`): the
+  range is mapped eagerly with the frames' `pte::SHARED` bit set (software bit
+  52), so `fork` shares the frame writable instead of copy-on-write
+  (`mem/cow.rs`), and a `Shared` VMA (a memfd's pages, charged to the memfd,
+  see `mem/memfd.rs`) gives no quota back at `munmap`. A `MAP_PRIVATE` memfd
+  mapping is a read-only COW view of the memfd's frames; `cow_fault` refuses
+  a write the VMA does not permit. `mprotect` rewrites the PTE
+  flags of the resident pages (a COW page that is still shared keeps its
   frame, see "Executable memory"). `munmap` drops VMAs and unmaps leaves.
 - Native `sbrk` grows a `Heap` VMA, populated on first touch; shrinking removes
   and unmaps. It refuses growth past `NATIVE_HEAP_LIMIT` or over another
@@ -84,7 +91,10 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
 **Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`,
 `mremap` (grow, shrink, and move with `MREMAP_MAYMOVE`/`MREMAP_FIXED`; one whole
 VMA only, overlapping source and destination refused with `EINVAL`).
-Missing: file-backed demand paging, shared mappings.
+Shared mappings of memfds and of anonymous memory work (issue #771).
+Missing: file-backed demand paging, `MAP_SHARED` of regular files, a
+`PROT_NONE` shared mapping (it would need a fault path that finds the shared
+frame again).
 
 ## Executable memory (JIT-style W^X)
 

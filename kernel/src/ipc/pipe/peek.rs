@@ -6,7 +6,7 @@ use super::*;
 
 impl Ring {
     /// Copy the oldest `min(len, dst.len())` bytes out without advancing.
-    fn peek_into(&self, dst: &mut [u8]) -> usize {
+    pub(super) fn peek_into(&self, dst: &mut [u8]) -> usize {
         let n = self.len.min(dst.len());
         let first = (self.buf.len() - self.head).min(n);
         dst[..first].copy_from_slice(&self.buf[self.head..self.head + first]);
@@ -32,32 +32,7 @@ impl Pipe {
         nonblock: bool,
         deadline: Option<u64>,
     ) -> Result<usize, Error> {
-        if end != End::Read {
-            return Err(Error::BadEnd);
-        }
-        if dst.is_empty() {
-            return Ok(0);
-        }
-        loop {
-            {
-                let ring = self.state.lock();
-                if ring.mode == Mode::Seqpacket {
-                    if let Some(&message) = ring.frames.front() {
-                        let n = message.min(dst.len());
-                        return Ok(ring.peek_into(&mut dst[..n]));
-                    }
-                } else if !ring.is_empty() {
-                    return Ok(ring.peek_into(dst));
-                }
-                if self.writers.load(Ordering::Acquire) == 0 {
-                    return Ok(0); // EOF
-                }
-            }
-            if nonblock {
-                return Err(Error::WouldBlock);
-            }
-            block_on(&self.read_wq, deadline)?;
-        }
+        self.peek_rights(end, dst, nonblock, deadline, None)
     }
 
     /// Bytes queued for reading (the `FIONREAD` answer); for a seqpacket

@@ -58,6 +58,7 @@ ORDER = [
     "epollstress",
     "msgpoll",
     "unixstress",
+    "scmrights",
     "persist",
     "statxio",
     "cwd",

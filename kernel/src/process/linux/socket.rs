@@ -8,17 +8,17 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::ipc::pipe::{Side, SocketPair};
+use crate::ipc::pipe::{Rights, Side, SocketPair};
 use crate::ipc::unix;
 use crate::task::{self, Fd, FdKind, SocketKind, WakeReason};
 use crate::user_ptr;
 
 use super::errno::{
     err, EADDRINUSE, EAFNOSUPPORT, EAGAIN, EBADF, ECONNREFUSED, EINTR, EINVAL, EMFILE, ENOENT,
-    ENOPROTOOPT, ENOTCONN, ENOTSOCK,
+    ENOPROTOOPT, ENOTCONN, ENOTSOCK, EOPNOTSUPP,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
-use super::io::write_stream_opts;
+use super::io::write_stream_rights;
 use super::scatter::{Received, Scatter};
 
 /// `shutdown(2)` directions.
@@ -287,11 +287,28 @@ pub(super) fn sys_get_sockname(fd: u64, addr: u64, addrlen: u64, peer: bool) -> 
 /// destination is ignored (std passes a null address) and this is a stream
 /// write; a non-socket fd is `-ENOTSOCK`, as Linux reports.
 pub(super) fn sys_sendto(fd: u64, buf: u64, len: u64, to: (u64, u64), dont_wait: bool) -> u64 {
+    sys_sendto_rights(fd, buf, len, to, (dont_wait, &mut None))
+}
+
+/// [`sys_sendto`] that queues `rights` beside the bytes (`sendmsg` with
+/// `SCM_RIGHTS`). Only a connected `AF_UNIX` socket can carry them; the other
+/// kinds refuse before anything is sent. `send` is `(dont_wait, rights)`.
+pub(super) fn sys_sendto_rights(
+    fd: u64,
+    buf: u64,
+    len: u64,
+    to: (u64, u64),
+    send: (bool, &mut Option<Rights>),
+) -> u64 {
+    let (dont_wait, rights) = send;
     if super::inet::is_inet(fd) {
+        if rights.is_some() {
+            return err(EOPNOTSUPP);
+        }
         return super::inet::sys_sendto(fd, buf, len, to, dont_wait);
     }
     match task::fd_kind(fd as usize) {
-        FdKind::Socket => write_stream_opts(fd, buf, len, dont_wait),
+        FdKind::Socket => write_stream_rights(fd, buf, len, dont_wait, rights),
         _ => err(ENOTSOCK),
     }
 }
@@ -305,12 +322,13 @@ pub(super) fn recv_into(
     dest: &Scatter,
     from: (u64, u64),
     opts: task::RecvOpts,
+    sink: Option<&mut Vec<Fd>>,
 ) -> Received {
     if super::inet::is_inet(fd) {
         return super::inet::recv_into(fd, dest, from, opts);
     }
     match task::fd_kind(fd as usize) {
-        FdKind::Socket => super::io::recv_stream(fd, dest, opts),
+        FdKind::Socket => super::io::recv_stream_rights(fd, dest, opts, sink),
         _ => Received::of(err(ENOTSOCK)),
     }
 }

@@ -277,7 +277,7 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
     // this same table.
     let old = unsafe { *entry };
-    if old & PTE_USER == 0 || old & COW_BIT == 0 {
+    if old & PTE_USER == 0 || old & COW_BIT == 0 || vma::forbids_write(table, va) {
         return false;
     }
     // COW only defers the copy of a page the address space may write. A fork

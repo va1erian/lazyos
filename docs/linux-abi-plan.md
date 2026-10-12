@@ -57,7 +57,7 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > * **new syscalls**: `select`, `pselect6`, `ppoll`, `sched_yield`,
 >   `sched_getparam`/`getscheduler`/`get_priority_*`, `flock` and `fcntl`
 >   record locks (`F_GETLK`/`F_SETLK`/`F_SETLKW`, OFD forms), `sendmsg`/
->   `recvmsg` (no ancillary data), `MSG_PEEK`/`MSG_DONTWAIT`/`MSG_WAITALL`,
+>   `recvmsg` (`SCM_RIGHTS` since round 4), `MSG_PEEK`/`MSG_DONTWAIT`/`MSG_WAITALL`,
 >   `getrlimit`/`setrlimit`/`prlimit64` (the real limits; only no-op changes
 >   accepted), `sysinfo`, `times`, `getrusage`, `getgroups`/`setgroups`,
 >   `readlinkat`, `faccessat`/`faccessat2`, `dup3`, `renameat2`
@@ -77,12 +77,57 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >
 > Still missing, by how much software it blocks: dynamic linking (static-PIE
 > and static binaries only); `rt_sigtimedwait`/`sigqueue` payloads;
-> `timerfd`/`signalfd`/`inotify`/
-> `memfd_create`; `alarm`/`setitimer`; descriptor passing (`SCM_RIGHTS`);
-> `SIGTTIN`/`SIGTTOU` job-control stops; symlinks and hard links in the
-> filesystems; record locks are not dropped when *one* descriptor of the file
-> closes (only at unlock or exit). The kernel test suite for all of this is
+> `timerfd`/`signalfd`/`inotify`; `alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`
+> job-control stops; symlinks and hard links in the filesystems; record locks
+> are not dropped when *one* descriptor of the file closes (only at unlock or
+> exit); memfd seals (`F_ADD_SEALS`) and `MAP_SHARED` of regular files (round
+> 4 below). The kernel test suite for all of this is
 > `kernel/src/tests/linux_compat_suite/`.
+>
+> **Round 4 (issue #771): descriptor passing and shared memory**, the two
+> facilities a multi-process program (WebKit2's IPC, Chromium, Wayland
+> clients, D-Bus) hands buffers between processes with:
+>
+> * **`SCM_RIGHTS`** over `AF_UNIX` stream and seqpacket sockets
+>   (`process/linux/scm.rs`, `ipc/pipe/rights.rs`). `sendmsg` clones the
+>   listed descriptors (at most `SCM_MAX_FD` = 253 a message, `EINVAL`
+>   beyond; `EBADF` for a closed one) into the socket's queue beside the
+>   message's bytes, so the sender may close its own copies at once.
+>   `recvmsg` installs them in the receiver's table when it consumes the
+>   message (lowest free numbers; `MSG_CMSG_CLOEXEC` sets `FD_CLOEXEC`); ones
+>   that do not fit the control buffer or the table are closed and
+>   `MSG_CTRUNC` is set. A stream read stops at the end of a message that
+>   carried descriptors, `read`/`recv`/a `recvmsg` with no control buffer
+>   consume and close them, `MSG_PEEK` hands out duplicates and leaves them
+>   queued. A message nobody received is dropped, closing its descriptors,
+>   when the receiving end's last descriptor closes or its owner exits.
+>   Descriptors in flight count against the sender's `Fds` quota and a global
+>   ceiling of four descriptor tables (`ETOOMANYREFS`). `SCM_CREDENTIALS` is
+>   still `EOPNOTSUPP` and any other control message `EINVAL`; a message with
+>   no data bytes carries nothing (as on a Linux stream); a socket sent
+>   through itself is not reclaimed once both ends close (Linux needs its
+>   garbage collector for that cycle).
+> * **`memfd_create`** (319, `MFD_CLOEXEC`; `MFD_ALLOW_SEALING` is accepted
+>   but there are no seals): a sparse file in page frames of its own
+>   (`mem/memfd.rs`), not the scratch ramfs, whose `Vec<u8>` file data cannot
+>   be mapped into a second address space. `read`/`write`/`pread64`/`pwrite64`/
+>   `lseek`/`ftruncate`/`fstat`/`dup`, `/proc/self/fd/N` reads
+>   `/memfd:<name> (deleted)`. Pages are charged once, to the creating uid's
+>   `UserMemory` quota and to a global budget of `limit.scratch_max` bytes
+>   (`ENOSPC`/`EFBIG`), when first written or mapped.
+> * **`mmap(MAP_SHARED)`** of a memfd, and `MAP_SHARED | MAP_ANONYMOUS`
+>   (`process/linux/mmapfile.rs`): mapped eagerly, the same frames in every
+>   mapper (page-table bit `pte::SHARED`), kept shared by `fork`, usable with
+>   `mprotect`, `munmap` and `MAP_FIXED`. A `MAP_PRIVATE` memfd mapping is a
+>   copy-on-write view. Limits: a `PROT_NONE` shared mapping is `EINVAL`,
+>   `mremap` can shrink or move but not grow one, `MADV_DONTNEED` leaves it
+>   alone, truncating a memfd smaller does not `SIGBUS` a process that still
+>   maps the cut pages (they stay valid until unmapped), and `MAP_SHARED` of a
+>   regular file is still `ENODEV` rather than silently private.
+>
+> Evidence: `kernel/src/tests/linux_compat_suite/{scmrights,memfd}.rs` (with
+> soaks that check descriptors, pipes, frames and quota against their
+> baselines) and the `scmrights` fixture (`ABI:scmrights:PASS`).
 
 > **JIT-style executable memory: supported (#773).** `mmap` with `PROT_EXEC`,
 > W^X flips with `mprotect` (RW -> RX -> RW, with another thread executing the

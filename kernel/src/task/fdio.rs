@@ -21,6 +21,17 @@ pub struct RecvOpts {
 
 /// [`fd_stream_read`] with `recv` modifiers.
 pub fn fd_stream_recv(fd: usize, dst: &mut [u8], opts: RecvOpts) -> Result<usize, pipe::Error> {
+    fd_stream_recv_rights(fd, dst, opts, None)
+}
+
+/// [`fd_stream_recv`] that gives the descriptors sent beside the bytes
+/// (`SCM_RIGHTS`) to `sink`; with none, a socket read closes them.
+pub fn fd_stream_recv_rights(
+    fd: usize,
+    dst: &mut [u8],
+    opts: RecvOpts,
+    sink: Option<&mut Vec<Fd>>,
+) -> Result<usize, pipe::Error> {
     enum Source {
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
@@ -53,8 +64,9 @@ pub fn fd_stream_recv(fd: usize, dst: &mut [u8], opts: RecvOpts) -> Result<usize
     match (source, opts.peek) {
         (Source::Pipe(pipe, end), false) => pipe.read(end, dst, nonblock),
         (Source::Pipe(pipe, end), true) => pipe.peek(end, dst, nonblock),
-        (Source::Socket(pair, side), false) => pair.read_until(side, dst, nonblock, deadline),
-        (Source::Socket(pair, side), true) => pair.peek_until(side, dst, nonblock, deadline),
+        (Source::Socket(pair, side), peek) => {
+            pair.recv_rights(side, dst, (nonblock, peek), deadline, sink)
+        }
     }
 }
 
@@ -91,6 +103,18 @@ pub fn fd_stream_write(fd: usize, src: &[u8]) -> Result<usize, pipe::Error> {
 
 /// [`fd_stream_write`] that never blocks when `dont_wait` (`MSG_DONTWAIT`).
 pub fn fd_stream_send(fd: usize, src: &[u8], dont_wait: bool) -> Result<usize, pipe::Error> {
+    fd_stream_send_rights(fd, src, dont_wait, &mut None)
+}
+
+/// [`fd_stream_send`] that queues `rights` (`SCM_RIGHTS`) beside the bytes it
+/// stores. They stay in `rights` when nothing was stored, for the caller to
+/// close.
+pub fn fd_stream_send_rights(
+    fd: usize,
+    src: &[u8],
+    dont_wait: bool,
+    rights: &mut Option<pipe::Rights>,
+) -> Result<usize, pipe::Error> {
     enum Sink {
         Pipe(Arc<Pipe>, End),
         Socket(Arc<SocketPair>, Side),
@@ -122,7 +146,7 @@ pub fn fd_stream_send(fd: usize, src: &[u8], dont_wait: bool) -> Result<usize, p
     let nonblock = nonblock || dont_wait;
     match sink {
         Sink::Pipe(pipe, end) => pipe.write(src, end, nonblock),
-        Sink::Socket(pair, side) => pair.write_until(side, src, nonblock, deadline),
+        Sink::Socket(pair, side) => pair.write_rights(side, src, nonblock, deadline, rights),
     }
 }
 

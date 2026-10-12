@@ -92,6 +92,7 @@ pub(super) fn fd_target(fd: usize) -> Option<String> {
         Fd::Event { .. } => String::from("anon_inode:[eventfd]"),
         Fd::Epoll { .. } => String::from("anon_inode:[eventpoll]"),
         Fd::Endpoint { .. } => String::from("anon_inode:[messenger]"),
+        Fd::Memfd { mem } => super::memfd::link_text(mem),
         Fd::Pty { pty, master: false } => format!("/dev/pts/{}", pty.index()),
         Fd::Pty { master: true, .. } => String::from("/dev/ptmx"),
     })

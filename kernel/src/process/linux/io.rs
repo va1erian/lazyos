@@ -120,6 +120,7 @@ pub(super) fn sys_write(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::File => write_file(fd, ptr, len, None),
         FdKind::Vfs => vfsfd::with_file(fd, |file| vfsfd::write(file, ptr, len)),
         FdKind::EventFd => write_eventfd(fd, ptr, len),
+        FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::write(mem, ptr, len)),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
         // Readiness only: messages are taken with the Messenger `recv`.
@@ -161,6 +162,18 @@ pub(super) fn write_stream(fd: u64, ptr: u64, len: u64) -> u64 {
 
 /// [`write_stream`] that never blocks when `dont_wait` (`MSG_DONTWAIT`).
 pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) -> u64 {
+    write_stream_rights(fd, ptr, len, dont_wait, &mut None)
+}
+
+/// [`write_stream_opts`] that queues `rights` (`SCM_RIGHTS`) beside the bytes
+/// it stores; they stay in `rights` when nothing was stored.
+pub(super) fn write_stream_rights(
+    fd: u64,
+    ptr: u64,
+    len: u64,
+    dont_wait: bool,
+    rights: &mut Option<pipe::Rights>,
+) -> u64 {
     if len == 0 {
         return 0;
     }
@@ -178,7 +191,7 @@ pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) ->
             Ok(bytes) => buf.copy_from_slice(bytes),
             Err(_) => return err(EFAULT),
         }
-        return match task::fd_stream_send(fd as usize, &buf, dont_wait) {
+        return match task::fd_stream_send_rights(fd as usize, &buf, dont_wait, rights) {
             Ok(n) => n as u64,
             Err(pipe::Error::WouldBlock) => err(EAGAIN),
             Err(pipe::Error::BrokenPipe) => err(EPIPE),
@@ -197,7 +210,7 @@ pub(super) fn write_stream_opts(fd: u64, ptr: u64, len: u64, dont_wait: bool) ->
         Ok(bytes) => buf.copy_from_slice(bytes),
         Err(_) => return err(EFAULT),
     }
-    match task::fd_stream_send(fd as usize, buf, dont_wait) {
+    match task::fd_stream_send_rights(fd as usize, buf, dont_wait, rights) {
         Ok(n) => n as u64,
         Err(error) => pipe_error(error),
     }
@@ -241,6 +254,7 @@ pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
         FdKind::Pipe | FdKind::Socket => read_stream(fd, ptr, len),
         FdKind::Inet => super::inet::sys_read(fd, ptr, len),
         FdKind::EventFd => read_eventfd(fd, ptr, len),
+        FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::read(mem, ptr, len)),
         FdKind::Unbound => err(ENOTCONN),
         FdKind::Closed | FdKind::Epoll | FdKind::Listener => err(EBADF),
         // Readiness only: messages are taken with the Messenger `recv`.
@@ -270,6 +284,17 @@ pub(super) fn read_stream_opts(fd: u64, ptr: u64, len: u64, opts: task::RecvOpts
 
 /// [`read_stream_opts`] into any destination, reporting a truncated message.
 pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Received {
+    recv_stream_rights(fd, dest, opts, None)
+}
+
+/// [`recv_stream`] that gives the descriptors sent beside the bytes
+/// (`SCM_RIGHTS`) to `sink`; with none they are closed.
+pub(super) fn recv_stream_rights(
+    fd: u64,
+    dest: &Scatter,
+    opts: task::RecvOpts,
+    sink: Option<&mut Vec<crate::task::Fd>>,
+) -> Received {
     let len = dest.len();
     let seqpacket = task::fd_kind(fd as usize) == FdKind::Socket && task::fd_seqpacket(fd as usize);
     // A stream has nothing to give an empty buffer; a message socket still
@@ -287,7 +312,7 @@ pub(super) fn recv_stream(fd: u64, dest: &Scatter, opts: task::RecvOpts) -> Rece
     let Some(buf) = stage(&mut stack, &mut heap, want) else {
         return Received::of(err(ENOMEM));
     };
-    let n = match task::fd_stream_recv(fd as usize, buf, opts) {
+    let n = match task::fd_stream_recv_rights(fd as usize, buf, opts, sink) {
         Ok(n) => n,
         Err(pipe::Error::WouldBlock) => return Received::of(err(EAGAIN)),
         Err(pipe::Error::BrokenPipe) => return Received::of(err(EPIPE)),

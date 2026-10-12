@@ -100,6 +100,9 @@ pub(super) fn sys_lseek(fd: u64, offset: u64, whence: u64) -> u64 {
         FdKind::Vfs => {
             super::vfsfd::with_file(fd, |file| super::vfsfd::seek(file, offset as i64, whence))
         }
+        FdKind::Memfd => {
+            super::memfd::with_memfd(fd, |mem| super::memfd::seek(mem, offset as i64, whence))
+        }
         FdKind::Terminal
         | FdKind::Pty
         | FdKind::Pipe

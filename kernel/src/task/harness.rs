@@ -187,6 +187,7 @@ pub fn fd_kind_at(slot: usize, fd: usize) -> super::FdKind {
             super::Fd::Unbound { .. } => super::FdKind::Unbound,
             super::Fd::Inet { .. } => super::FdKind::Inet,
             super::Fd::Endpoint { .. } => super::FdKind::Endpoint,
+            super::Fd::Memfd { .. } => super::FdKind::Memfd,
         },
         _ => super::FdKind::Closed,
     }
