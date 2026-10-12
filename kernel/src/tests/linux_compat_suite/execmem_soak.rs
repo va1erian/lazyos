@@ -184,11 +184,13 @@ fn patch_imm(addr: u64, imm: u32) {
 
 /// The executing thread: while the page is RX (and the flipper is not in its
 /// RW window) call it and check it returns the current generation.
+///
+/// It runs with interrupts off and hands the CPU over with `yield_now`, so the
+/// two threads interleave at known points (a thread that enabled interrupts
+/// and was finished mid-slice left later timing tests flaky). Preemption
+/// landing inside the page is covered in ring 3 by the `jitmem` ABI fixture.
 extern "C" fn runner() -> ! {
     let me = task::current();
-    // Like user code: the tick may take the CPU at any instruction, including
-    // inside the page.
-    x86_64::instructions::interrupts::enable();
     let mut last = u32::MAX;
     loop {
         if STOP.load(Ordering::SeqCst) {
