@@ -127,13 +127,17 @@ fn one_call(rng: &mut u64, seen: &mut Seen) -> Result<(), String> {
     observe(seen, before, weight)?;
 
     let policy = [OTHER, BATCH, IDLE][(next(rng) % 3) as usize];
-    let level = if next(rng) % 2 == 0 {
+    let level = if next(rng).is_multiple_of(2) {
         (next(rng) % 40) as i32 - 20
     } else {
         i32::from(before.nice) + (next(rng) % 7) as i32 - 3
     }
     .clamp(-20, 19);
-    let flags = if next(rng) % 2 == 0 { RESET_ON_FORK } else { 0 };
+    let flags = if next(rng).is_multiple_of(2) {
+        RESET_ON_FORK
+    } else {
+        0
+    };
     let allowed = level >= i32::from(before.nice)
         && (!before.is_idle() || policy == IDLE)
         && (!before.reset_on_fork || flags & RESET_ON_FORK != 0);
@@ -232,7 +236,7 @@ pub fn schedattr_two_thread_soak() -> Result<(), String> {
                 EPOCH.fetch_add(1, Ordering::SeqCst);
                 let policy = [OTHER, BATCH, IDLE][(next(&mut rng) % 3) as usize];
                 let level = (next(&mut rng) % 40) as i32 - 20;
-                let flags = if next(&mut rng) % 2 == 0 {
+                let flags = if next(&mut rng).is_multiple_of(2) {
                     RESET_ON_FORK
                 } else {
                     0

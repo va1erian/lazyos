@@ -47,7 +47,7 @@ pub fn sched_read(slot: usize) -> Option<SchedState> {
 
 /// The stored attributes and the live weight of `slot` in one hold of the
 /// task-table lock, so they are a consistent pair (tests and diagnostics).
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
+#[cfg(lazyos_tests)]
 pub fn sched_snapshot(slot: usize) -> Option<(SchedState, u16)> {
     TASKS
         .lock()

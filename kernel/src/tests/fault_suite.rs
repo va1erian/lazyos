@@ -362,7 +362,7 @@ fn report_code_cases() -> Result<(), String> {
     // readable in this very table, but not user memory.
     let boxed = alloc::boxed::Box::new([0x90u8; 32]);
     let kernel = [
-        report_code_cases as usize as u64,
+        report_code_cases as *const () as u64,
         &*boxed as *const [u8; 32] as u64,
         mem::phys_to_virt(PhysAddr::new(0x1000)).as_u64(),
         0xffff_8000_0000_0000,

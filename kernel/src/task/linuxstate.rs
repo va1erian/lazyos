@@ -250,6 +250,7 @@ pub fn with_extras<R>(f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
 }
 
 /// Run `f` on slot `slot`'s extras (`None` if the slot is empty).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn with_extras_of<R>(slot: usize, f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
     TASKS
         .lock()
