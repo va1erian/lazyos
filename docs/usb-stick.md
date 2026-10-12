@@ -36,8 +36,9 @@ and `tools/boot/run.py` set both.
 Every build writes a fresh stick image (new UUIDs, an empty home partition):
 what persists lives on the stick, never in the file.
 
-**Measured (desktop profile, this build):** the ramdisk is 104 MiB (38 MiB of
-files plus the 64 MiB of free space, the FAT `/boot` and the MBR); the stick
+**Measured (desktop profile, an older build):** the ramdisk was 104 MiB (38 MiB of
+files plus the 64 MiB of free space, the FAT `/boot` and the MBR); it is much
+larger now, see [the ramdisk's size](#the-ramdisks-size). The stick
 image is 1134 MiB (1 GiB of it the home partition, sparse on the host). Writing
 it adds 2.6 to 3.0 s to a build. Booting under QEMU without KVM (TCG, so far
 slower than any PC), from `usb-storage` only:
@@ -65,6 +66,66 @@ first real-PC boot had only the 64 MiB and lost 6 of 20 apps to `no space
 left` (issue #703). `pkgd` prints the free space left once it is done
 (`PKGD:PROVISION:DONE ... failed=0 free=<bytes>`), and `tools/boot/run.py`
 fails a desktop boot with a failed package or under 16 MiB free.
+
+## The network payload (`LAZYOS_NETBOOT=1`)
+
+The same payload, as loose files, for booting over a network instead of from
+a stick ([`netboot-plan.md`](netboot-plan.md), phase N1). Add the switch to
+the build (it follows the stick's profile rule: `LAZYOS_USB=1` and a services
+or desktop session) and `target/netboot/` appears next to `target/lazyos.img`:
+
+```bash
+LAZYOS_DESKTOP=1 LAZYOS_USB=1 LAZYOS_NETBOOT=1 LAZYOS_NETBOOT_KEY=target/netboot/key.sec cargo build
+python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only   # the same
+python tools/boot/preflight.py --netboot target/netboot                                          # judge it
+```
+
+| File | Content |
+|---|---|
+| `kernel-x86_64`, `ramdisk`, `bootx64.efi`, `boot.json` | what `LAZYOS_USB_IMAGE=1` puts in the stick's FAT, byte for byte: with both switches the ramdisk is written once and copied, so the two outputs cannot differ |
+| `manifest.json` | `id`, `revision` (40 hex or `unknown`), `dirty`, `built_at` (UTC), `host`, `switches` (the `LAZYOS_*` variables set at build time, sorted) and `files`: `{"size", "sha256"}` of each of the four files above |
+| `manifest.sig` | only with `LAZYOS_NETBOOT_KEY=<key.sec>` (the 32-byte Ed25519 seed as 64 hex characters): the signature (RFC 8032, pure Ed25519) over the exact bytes of `manifest.json`, 128 lowercase hex characters and a newline. Without a key the build warns that the payload is unsigned and cannot be pushed |
+
+The build id is `<yyyymmdd-HHMMSS>-<rev8>[-dirty]`: the UTC build time, the
+first 8 digits of the revision `uname` reports (`00000000` outside a
+checkout) and `-dirty` when `git status --porcelain` is not empty. It is also
+written into `lazyos.cfg` as `image.id=<id>` (the ramdisk's, and the dev
+image's `/boot/lazyos.cfg` when `LAZYOS_NETBOOT=1`); the kernel logs it once as
+`BOOT:IMAGE:<id>` when it reads the config, appends it to `/proc/version`
+(` image <id>`) and Settings -> About shows it as *Image*. A value outside
+`[0-9A-Za-z._-]{1,64}` is refused with a log line and changes nothing else.
+
+## The ramdisk's size
+
+A netbooted machine downloads the whole ramdisk, so its size is the boot
+time. With `LAZYOS_NETBOOT=1` the build prints where it comes from, as one
+`cargo:warning=` line, for example (a desktop build, 17 core packages, no
+sample packages):
+
+```text
+netboot ramdisk 208 MiB = files 72 MiB + core packages unpacked at first boot 70 MiB
+  + free space 64 MiB (LAZYOS_USB_ROOT_FREE) + regrown 0 MiB + MBR and /boot 2 MiB
+```
+
+| Part | What it is |
+|---|---|
+| files | the OS volume's files, each rounded up to 4 KiB blocks, plus 2 % and 4 MiB of file system overhead: the binaries in `/system/bin`, the fonts, the docs, **and every core package as an archive** in `/system/packages` (and any sample packages: Doom is 10 MiB, Quake 18) |
+| core packages unpacked | the room for what `pkgd` unpacks into `/apps` at the first boot (issue #703): a second copy of every package, its `docs/**.md` twice. It is empty space in the file, but the file is downloaded whole |
+| free space | `LAZYOS_USB_ROOT_FREE`, 64 MiB by default: what `/conf`, `/logs`, `/tmp` and anything else written to the RAM root can use |
+| MBR and `/boot` | 2 MiB |
+
+The 308 MiB of the first stick build of 2026-10-11 is the same sum for the
+fullest desktop (23 core packages, Doom, Quake, the LazyRAD IDE and LazyWeb):
+118 MiB of files (the core packages' archives 50, `/system/bin` 31, the sample
+packages 30, fonts 4, docs 2), about 128 MiB once rounded, plus 114 MiB of
+room to unpack the packages, 64 MiB free and 2 MiB of boot volume. The 104 MiB
+quoted above was 38 MiB of files before the core packages (#509), the sample
+packages and the unpack room (#703) existed; those three account for the
+growth. Roughly 180 of the 308 MiB are empty space or a second copy, which
+the plan's levers (a smaller `LAZYOS_USB_ROOT_FREE` for a machine whose state
+lives on a disk, a compressed ramdisk, no unpack room once `/apps` lives on a
+state volume) attack. `LAZYOS_USB_ROOT_FREE` applies to the stick and the
+network payload alike, since they are one ramdisk.
 
 ## Write it to a stick
 

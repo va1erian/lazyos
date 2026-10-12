@@ -21,6 +21,8 @@ mod hosts_embed;
 mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
+#[path = "../netboot.rs"]
+mod netboot;
 #[path = "../os_disk.rs"]
 mod os_disk;
 #[path = "../os_image.rs"]
@@ -70,6 +72,8 @@ mod lazysky_tests;
 mod lazyweb_tests;
 #[cfg(test)]
 mod limits_tests;
+#[cfg(test)]
+mod netboot_tests;
 #[cfg(test)]
 mod pictures_tests;
 #[cfg(test)]

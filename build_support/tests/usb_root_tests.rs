@@ -158,6 +158,7 @@ fn the_ram_root_takes_every_package_unpacked() {
     let settings = Settings {
         uuid: [7; 16],
         root_free: 0,
+        image_id: None,
     };
     usb_ramdisk::write(&path, &settings, &[], &files).unwrap();
     let image = std::fs::read(&path).unwrap();

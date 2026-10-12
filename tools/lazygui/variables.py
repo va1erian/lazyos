@@ -71,6 +71,9 @@ def make_vars() -> dict:
         "xui_autostart": s(value=""),
         "lazyrad": b(value=False),
         "usb_image": b(value=False),
+        # The netboot payload target/netboot (LAZYOS_NETBOOT) and its signing key file.
+        "netboot": b(value=False),
+        "netboot_key": s(value=""),
         # LazyShell on the desktop profile (issue #157); unchecked = LAZYOS_SHELL=0.
         "shell": b(value=True),
         "lazyrad_samples": s(value=""),

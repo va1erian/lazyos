@@ -141,7 +141,11 @@ same volume instances (no overlay):
 There is no `/data` probe in this mode. A config naming a root that is not
 found logs `fs: root <uuid> not found; booting the legacy layout` and boots the
 legacy layout, which is also the recovery boot. `lazyos.cfg` is `key=value`
-lines (`root`, `home`, `root_flags`, `home_flags`; `#` comments), read through
+lines (`root`, `home`, `root_flags`, `home_flags`; `#` comments; the `limit.*`,
+`display.*`, `diag.*` and `image.*` lines are read by their own modules and
+skipped here, so a bad one never costs the mount: `image.id=` is the build's
+name, `[0-9A-Za-z._-]{1,64}`, logged once as `BOOT:IMAGE:<id>` by
+`fs/boot_image.rs`), read through
 the FAT backend before any mount, at most 4 KiB, UTF-8, no duplicate keys; any
 violation ignores the whole file (`fs: lazyos.cfg ignored: <reason>`).
 `bootcfg::parse` is pure so the suite can fuzz it by hand.

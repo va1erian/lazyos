@@ -2,6 +2,7 @@
 """Check a LazyOS stick image before it is written to a real stick.
 
     python3 tools/boot/preflight.py [target/lazyos-usb.img] [--stick-bytes N]
+    python3 tools/boot/preflight.py --netboot target/netboot
 
 Read-only. It re-derives from the bytes of the image everything the firmware
 and the loader rely on, so a build that quietly produced a layout a strict
@@ -18,6 +19,10 @@ UEFI would refuse is caught on the host, not in front of the target PC:
 
 Exit status 0 when every check passes. With `--stick-bytes` (the capacity of
 the stick as `write_stick.py --list` shows it) it also checks the image fits.
+
+`--netboot DIR` checks the loose files `LAZYOS_NETBOOT=1` writes (the PE
+loader, the ramdisk's MBR and `lazyos.cfg` with `root=` and `image.id=`, the
+ext2 label) and `manifest.json` against them (`preflight_netboot.py`).
 `--json` prints the results as JSON for scripts.
 """
 
@@ -253,40 +258,60 @@ def check_image(image, r, stick_bytes):
         r.check(f"{name} on the boot partition", e is not None and e[3] > 0, f"{e[3]} bytes" if e else "missing")
         sizes[name] = e
 
-    # The ramdisk: a whole-disk image with its own MBR.
     rd = sizes.get("ramdisk")
     if rd:
         data = fat.read_chain(rd[2], rd[3])
-        rimg = type("Mem", (), {"read": lambda s, o, n: data[o : o + n], "size": len(data)})()
-        rp = mbr_entries(data[:SECTOR])
-        r.check("ramdisk has an MBR with two partitions", data[510:512] == b"\x55\xaa" and len(rp) == 2,
-                ", ".join(f"{p['index']}:{p['type']:#04x}@{p['start']}" for p in rp))
-        if len(rp) == 2:
-            cfg_fat = Fat(rimg, rp[0]["start"] * SECTOR)
-            cfg = cfg_fat.find("lazyos.cfg")
-            if r.check("ramdisk: lazyos.cfg present", cfg is not None):
-                text = cfg_fat.read_chain(cfg[2], cfg[3]).decode("ascii", "replace")
-                r.check("lazyos.cfg names root=UUID= and home=LABEL=lazyhome",
-                        "root=UUID=" in text and "home=LABEL=lazyhome" in text, text.strip().replace("\n", " | "))
-            ok, label = ext2_label(rimg, rp[1]["start"] * SECTOR)
-            r.check("ramdisk root is ext2 'lazyos'", ok and label == "lazyos", f"ext2={ok} label={label!r}")
-            r.warn("ramdisk size", f"{len(data) / MIB:.0f} MiB (the BIOS loader reads it slowly; UEFI is fast)")
+        check_ramdisk(type("Mem", (), {"read": lambda s, o, n: data[o : o + n], "size": len(data)})(), r)
 
     ok, label = ext2_label(image, home["start"] * SECTOR)
     r.check("home partition is ext2 'lazyhome'", ok and label == "lazyhome", f"ext2={ok} label={label!r}")
+
+
+def check_ramdisk(rimg, r, size_note="the BIOS loader reads it slowly; UEFI is fast"):
+    """The ramdisk: a whole-disk image with its own MBR. `rimg` has `read` and `size`.
+
+    Returns the text of its `lazyos.cfg` (empty when there is none)."""
+    text = ""
+    rp = mbr_entries(rimg.read(0, SECTOR))
+    r.check("ramdisk has an MBR with two partitions", rimg.read(510, 2) == b"\x55\xaa" and len(rp) == 2,
+            ", ".join(f"{p['index']}:{p['type']:#04x}@{p['start']}" for p in rp))
+    if len(rp) == 2:
+        cfg_fat = Fat(rimg, rp[0]["start"] * SECTOR)
+        cfg = cfg_fat.find("lazyos.cfg")
+        if r.check("ramdisk: lazyos.cfg present", cfg is not None):
+            text = cfg_fat.read_chain(cfg[2], cfg[3]).decode("ascii", "replace")
+            r.check("lazyos.cfg names root=UUID= and home=LABEL=lazyhome",
+                    "root=UUID=" in text and "home=LABEL=lazyhome" in text, text.strip().replace("\n", " | "))
+        ok, label = ext2_label(rimg, rp[1]["start"] * SECTOR)
+        r.check("ramdisk root is ext2 'lazyos'", ok and label == "lazyos", f"ext2={ok} label={label!r}")
+        r.warn("ramdisk size", f"{rimg.size / MIB:.0f} MiB ({size_note})")
+    return text
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("image", nargs="?", default="target/lazyos-usb.img")
     ap.add_argument("--stick-bytes", type=int, default=0, help="stick capacity in bytes")
+    ap.add_argument("--netboot", metavar="DIR",
+                    help="check the loose files of LAZYOS_NETBOOT=1's output directory "
+                         "(target/netboot) instead of a stick image")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
-    path = Path(args.image)
-    if not path.is_file():
-        print(f"preflight: {path} not found (build it: docs/usb-stick.md)", file=sys.stderr)
-        return 2
-    report, _ = run(path, args.stick_bytes)
+    if args.netboot:
+        path = Path(args.netboot)
+        if not path.is_dir():
+            print(f"preflight: {path} is not a directory (build it: LAZYOS_NETBOOT=1, docs/usb-stick.md)",
+                  file=sys.stderr)
+            return 2
+        from preflight_netboot import run as run_netboot
+
+        report = run_netboot(path)
+    else:
+        path = Path(args.image)
+        if not path.is_file():
+            print(f"preflight: {path} not found (build it: docs/usb-stick.md)", file=sys.stderr)
+            return 2
+        report, _ = run(path, args.stick_bytes)
     failed = [row for row in report.rows if not row["ok"]]
     if args.json:
         print(json.dumps({"image": str(path), "ok": not failed, "checks": report.rows}, indent=2))
