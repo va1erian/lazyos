@@ -167,6 +167,28 @@ fn seeded_mutations_never_panic() {
 }
 
 #[test]
+fn large_hostile_inputs_are_handled_in_bounded_time() {
+    let png = Bitmap::new(5, 4, [1, 2, 3, 255]).encode_png().unwrap();
+    let start = std::time::Instant::now();
+    // A stack.xml near its size limit, made of the shapes that were quadratic:
+    // entity starts with no end, nested openers, unterminated quotes.
+    for filler in ["&", "&#", "<a ", "<!-", "\"'", "&amp"] {
+        let xml = format!(
+            "<image w=\"5\" h=\"4\"><layer name=\"{}\" src=\"data/layer0.png\"/></image>",
+            filler.repeat(3 << 20)
+        );
+        run(&with_xml(xml.as_bytes(), &png));
+        let bare = filler.repeat(3 << 20);
+        run(bare.as_bytes());
+    }
+    assert!(
+        start.elapsed().as_secs_f64() < 60.0,
+        "{:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
 fn every_truncation_of_a_valid_file_is_handled() {
     let doc = layered();
     for format in [Format::OpenRaster, Format::Bmp, Format::Png] {

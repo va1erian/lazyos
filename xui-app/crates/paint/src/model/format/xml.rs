@@ -156,6 +156,9 @@ fn scan(b: &[u8], from: usize, stop: impl Fn(u8) -> bool) -> usize {
     (from..b.len()).find(|&n| stop(b[n])).unwrap_or(b.len())
 }
 
+/// How far after its `&` an entity's `;` may be (`&#x10FFFF;` needs 9).
+const SEMI_REACH: usize = 10;
+
 /// Decodes `&lt; &gt; &amp; &quot; &apos; &#N; &#xN;`; anything else is kept.
 fn decode(s: &str) -> String {
     if !s.contains('&') {
@@ -166,7 +169,9 @@ fn decode(s: &str) -> String {
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
-        let Some(semi) = rest.find(';').filter(|&n| n <= 10) else {
+        // Look only as far as the longest entity we decode: a search to the
+        // end of the value for every `&` is quadratic on a value of `&`s.
+        let Some(semi) = rest.bytes().take(SEMI_REACH + 1).position(|c| c == b';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -209,8 +214,14 @@ pub fn escape(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            // Control characters are not allowed in XML 1.0 at all.
-            c if (c as u32) < 0x20 && !matches!(c, '\t' | '\n' | '\r') => {}
+            // A parser normalizes raw whitespace in an attribute to a space:
+            // only a character reference keeps it.
+            '\n' => out.push_str("&#10;"),
+            '\t' => out.push_str("&#9;"),
+            '\r' => out.push_str("&#13;"),
+            // Other control characters and U+FFFE / U+FFFF are not allowed in
+            // XML 1.0 at all.
+            c if (c as u32) < 0x20 || matches!(c, '\u{fffe}' | '\u{ffff}') => {}
             c => out.push(c),
         }
     }
@@ -274,6 +285,29 @@ mod tests {
         let s = "a<b>&\"c'd é";
         let t = tags(&format!("<a v=\"{}\"/>", escape(s)), 5).unwrap();
         assert_eq!(t[0].attr("v"), Some(s));
-        assert_eq!(escape("x\u{1}y"), "xy");
+        assert_eq!(escape("x\u{1}y\u{ffff}z"), "xyz");
+    }
+
+    #[test]
+    fn whitespace_in_an_attribute_survives_as_references() {
+        let s = "line one\nline\ttwo\r";
+        let escaped = escape(s);
+        assert!(!escaped.contains(['\n', '\t', '\r']), "{escaped:?}");
+        let t = tags(&format!("<a v=\"{escaped}\"/>"), 5).unwrap();
+        assert_eq!(t[0].attr("v"), Some(s));
+    }
+
+    #[test]
+    fn a_value_of_ampersands_decodes_in_linear_time() {
+        // 4 MiB of `&` with no `;` took minutes when every `&` searched to
+        // the end of the value.
+        let value = "&".repeat(4 << 20);
+        let start = std::time::Instant::now();
+        let t = tags(&format!("<a v=\"{value}\"/>"), 5).unwrap();
+        assert_eq!(t[0].attr("v").map(str::len), Some(4 << 20));
+        assert!(start.elapsed().as_secs_f64() < 5.0, "{:?}", start.elapsed());
+        // The longest entity still decodes; one byte longer is text.
+        let t = tags(r#"<a v="&#x10FFFF; &#x0010FFFF;"/>"#, 5).unwrap();
+        assert_eq!(t[0].attr("v"), Some("\u{10ffff} &#x0010FFFF;"));
     }
 }

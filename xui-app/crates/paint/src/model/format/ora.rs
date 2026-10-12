@@ -19,7 +19,7 @@ use super::xml::{self, Kind, Tag};
 use super::zip::{ZipReader, ZipWriter};
 use super::{HISTORY_RESERVE, png_size_ok, sniff_size};
 use crate::model::bitmap::{Bitmap, MAX_SIDE};
-use crate::model::image::{Document, Layer, MEMORY_BUDGET, Reserved, check_budget, required_bytes};
+use crate::model::image::{Document, Layer, MEMORY_BUDGET, check_budget, required_bytes};
 use crate::model::ops::{box_fit, placed};
 
 /// The contents of the `mimetype` entry.
@@ -143,19 +143,29 @@ pub fn read(bytes: &[u8]) -> Result<Document, String> {
     // Before any picture is decoded: the document itself must fit.
     let reserved = HISTORY_RESERVE;
     check_budget(width, height, raw.len(), reserved).map_err(|e| e.to_string())?;
+    // What the finished document, its cache and the undo reserve hold, which
+    // nothing read from the file may eat into.
+    let held = required_bytes(width, height, raw.len()).saturating_add(reserved.total());
     let mut layers = Vec::with_capacity(raw.len());
     let mut active = 0;
-    let mut read_total = 0usize;
+    let mut decoded = 0u64;
     // Bottom first: stack.xml lists the top layer first.
     for (n, layer) in raw.iter().rev().enumerate() {
+        // An entry is read whole, so it can be no bigger than what is left of
+        // the budget; and `src` may name the same entry many times, so the
+        // decoding work is bounded across the layers, below.
         let data = zip
-            .read(&layer.src, (MEMORY_BUDGET / 2) as usize)?
+            .read(&layer.src, MEMORY_BUDGET.saturating_sub(held) as usize)?
             .ok_or_else(|| format!("layer picture {:?} is missing", layer.src))?;
-        read_total = read_total.saturating_add(data.len());
-        if read_total as u64 > MEMORY_BUDGET {
-            return Err("the layer pictures are too large".to_string());
-        }
-        let pixels = decode_layer(&data, (width, height), raw.len(), reserved)?;
+        let pixels = decode_layer(
+            &data,
+            Placement {
+                canvas: (width, height),
+                offset: (layer.x, layer.y),
+                held: held.saturating_add(data.len() as u64),
+            },
+            &mut decoded,
+        )?;
         let canvas = if pixels.size() == (width, height) && layer.x == 0 && layer.y == 0 {
             pixels
         } else {
@@ -178,18 +188,43 @@ pub fn read(bytes: &[u8]) -> Result<Document, String> {
     Document::from_layers(layers, active)
 }
 
-/// Decodes one layer PNG after checking its header size against what the
-/// budget leaves, since decoding allocates the whole picture (twice, briefly).
-fn decode_layer(
-    data: &[u8],
+/// Where a layer picture goes, for the checks made before it is decoded.
+struct Placement {
     canvas: (u32, u32),
-    layers: usize,
-    reserved: Reserved,
-) -> Result<Bitmap, String> {
+    offset: (i32, i32),
+    /// Bytes already spoken for: the document, the reserve and the file data.
+    held: u64,
+}
+
+/// The most pixels all the layer pictures of one file may decode to: a quarter
+/// of the budget in bytes, so the work stays bounded however often `stack.xml`
+/// names one small entry.
+const MAX_DECODED_PIXELS: u64 = MEMORY_BUDGET / 4;
+
+/// Decodes one layer PNG after checking its header size against what the
+/// budget leaves, since decoding allocates the whole picture (twice, briefly),
+/// against the canvas it lands on and against the decoding done so far.
+fn decode_layer(data: &[u8], at: Placement, decoded: &mut u64) -> Result<Bitmap, String> {
     let (w, h) = sniff_size(data).ok_or("a layer picture is not a PNG or JPEG")?;
-    let held = required_bytes(canvas.0, canvas.1, layers).saturating_add(reserved.total());
-    if !png_size_ok(w, h, held) {
+    if !png_size_ok(w, h, at.held) {
         return Err(format!("a layer picture of {w} x {h} is too large"));
+    }
+    // A picture is cropped to the canvas, so one much bigger than the canvas
+    // and its offset is not a layer of this picture.
+    let reach = |side: u32, offset: i32| {
+        u64::from(side).saturating_mul(2) + u64::from(offset.unsigned_abs())
+    };
+    if u64::from(w) > reach(at.canvas.0, at.offset.0)
+        || u64::from(h) > reach(at.canvas.1, at.offset.1)
+    {
+        return Err(format!(
+            "a layer picture of {w} x {h} is far larger than the {} x {} image",
+            at.canvas.0, at.canvas.1
+        ));
+    }
+    *decoded = decoded.saturating_add(u64::from(w) * u64::from(h));
+    if *decoded > MAX_DECODED_PIXELS {
+        return Err("the layer pictures are too large".to_string());
     }
     Bitmap::decode(data).map_err(|e| format!("a layer picture is damaged: {e}"))
 }

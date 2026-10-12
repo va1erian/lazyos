@@ -27,6 +27,8 @@ mod bmp_tests;
 #[cfg(test)]
 mod fuzz;
 #[cfg(test)]
+mod limits_tests;
+#[cfg(test)]
 mod tests;
 
 use std::path::Path;

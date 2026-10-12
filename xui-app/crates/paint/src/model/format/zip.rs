@@ -184,8 +184,14 @@ impl<'a> ZipReader<'a> {
             if compressed == 0xFFFF_FFFF || size == 0xFFFF_FFFF || offset == 0xFFFF_FFFF {
                 return Err("zip64 archives are not supported".to_string());
             }
+            let name = String::from_utf8_lossy(name).into_owned();
+            // Two entries of one name make the picture depend on which a
+            // reader finds first: refuse rather than guess.
+            if entries.iter().any(|e: &Entry| e.name == name) {
+                return Err(format!("the archive has two entries named {name}"));
+            }
             entries.push(Entry {
-                name: String::from_utf8_lossy(name).into_owned(),
+                name,
                 method,
                 crc,
                 compressed: compressed as usize,
@@ -233,6 +239,15 @@ impl<'a> ZipReader<'a> {
             return Err(bad());
         }
         let name_len = usize::from(u16_at(self.data, entry.offset + 26).ok_or_else(bad)?);
+        // The local header must agree with the directory about which entry
+        // this is.
+        let local_name = self
+            .data
+            .get(entry.offset + 30..entry.offset + 30 + name_len)
+            .ok_or_else(bad)?;
+        if local_name != entry.name.as_bytes() {
+            return Err(format!("{name}: the local header names another entry"));
+        }
         let extra = usize::from(u16_at(self.data, entry.offset + 28).ok_or_else(bad)?);
         let from = entry.offset + 30 + name_len + extra;
         let raw = from
