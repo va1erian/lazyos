@@ -158,13 +158,13 @@ tests, the `SRB2KART` trace channel, the OS size default. Session
 from Games, menus, start a race, screenshots). Done when a race renders and
 steers in QEMU under WHPX, and the screenshots show it.
 
-**K2 — sound.** `i_sound.c` on vendored `stb_vorbis` (both music `O_*` lumps
-and sound effects are Ogg Vorbis; DMX lumps as a fallback for addons), a
-mixer of N channels with volume and separation, `LOOPPOINT=`/`LOOPMS=`
-looping, pre-decoding the effects a race uses on a worker thread (the Vita
-port's lesson: first-play decode stalls up to 2.4 s), feeding
-`audioclient::PlaybackStream`. Judged by recording, like the other sound
-work.
+**K2 — sound.** Planned, with Doom's, in
+[`game-sound-plan.md`](game-sound-plan.md) (stage S3; its S0 spike is done):
+`i_sound.c` forwards to a shared Rust mixer (`libs/gamemix`), effects
+(1057 Ogg Vorbis, 199 DMX, 7 WAV) decoded with `lewton` on a worker thread
+into a capped cache, the 124 Ogg tracks streamed with their
+`LOOPPOINT=`/`LOOPMS=` loops and fades, one stream to `audiod` from a pull
+thread. Judged by recording, like the other sound work.
 
 **K3 — direct-IP netplay.** Drop `NONET`; `i_tcp.c` over the Linux ABI's UDP
 sockets (port 5029; datagrams ≤ 1472 bytes, no broadcast, so no LAN
