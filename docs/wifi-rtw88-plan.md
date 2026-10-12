@@ -96,7 +96,7 @@ wired Ethernet (the RTL8168, `eth0`) carries `dbgd`, and every change to
 | Firmware at `fhs::FIRMWARE` = `/system/share/firmware/<vendor>/<file>`, licence beside it | `tools/firmware/manifest.txt` (pinned: linux-firmware `afabaf773c4c`, SHA-256, size), `tools/firmware/fetch.py` (into `target/firmware/`, `--check` re-downloads and verifies), placed by the image build after a second hash check and tracked by `/system/.image-manifest` |
 | `libs/fwload` | vendor-relative names only (`[A-Za-z0-9._-]` segments, no `..`, nothing absolute), size cap checked before reading |
 | `devd` match | `libs/devmatch`: `10ec:c822` -> `wifid`, prefix `wlan` (one counter per prefix: `wlan0`, `wlan1`, ... apart from `eth0`, `eth1`, ...); a test keeps it equal to `rtw88::DEVICES` |
-| Identity | `_wifi` (uid 911, `netpolicy::WIFI_UID`) with only `CAP_DEV_CLAIM`; the kernel's class rules give it the new **wireless** device class (PCI `02/80` and base class `0D`, `dev::class::WIRELESS`) and nothing else, and `_net` no longer gets Wi-Fi cards. `dbgd` moved from 911 to 914 (`_dbgd`): 911 had been given to both |
+| Identity | `_wifi` (uid 911, `netpolicy::WIFI_UID`) with only `CAP_DEV_CLAIM`; the kernel's class rules give it the new **wireless** device class (PCI `02/80` and the 802.11 subclasses `0D/20`, `0D/21`; the rest of `0D`, Bluetooth included, is `other`; `dev::class::WIRELESS`) and nothing else, and `_net` no longer gets Wi-Fi cards. `dbgd` moved from 911 to 914 (`_dbgd`): 911 had been given to both |
 | Front ends | `python tools/run_demo.py --wifi` (implies `--net`, fetches the firmware); the launcher's Simple tab *Wi-Fi* group and the Advanced tab's Networking checkbox |
 | Licences | `THIRD_PARTY.md` (rtw88 at `d6d3455d8751` with the BSD-3-Clause notice, the firmware blob and its licence file), `python tools/wifi/licenses.py` |
 
@@ -141,6 +141,13 @@ In the launcher: Advanced tab, tick *Desktop*, *USB stick image too*,
 *Wi-Fi* and *dbgd control*, then *Build image*; write the stick with
 `python tools/boot/stick_gui.py`. The `dbgd` key is in `target/dbgd.key`
 (`LAZYOS_DBGD_PEER=<your ip>` restricts who may connect).
+
+**Keep that key private.** With the control tier, whoever holds it can
+`reload` any service with a binary of their own, run under that service's
+identity: `wifid` (a DMA-capable driver: all of memory) or `wlanmd` (the one
+service `keyd` hands Wi-Fi PMKs to, so every saved network's key). Set
+`LAZYOS_DBGD_PEER`, do not copy the key off the development machine, and
+build the stick without `--dbgd-control` once the driver work is done.
 
 ### 5.3 Boot and read it
 
@@ -238,10 +245,21 @@ its `dev=` and `ifname=` arguments across restarts), not on `dbgwire`'s
 never-reload list, so `init` kills it, runs the uploaded binary in its place
 and rolls back if the new run exits within the trial. A run that parks after
 a `WIFID:FAIL` is alive, so it commits: read its dump, fix, reload again.
-The kill ends the claim (the kernel stops the card's DMA and frees the
-blocks), so the new run finds the chip as the old one left it: the bring-up
-finds the MAC on (`CR` reads 0xea) and its power-on cycles it off first,
-as upstream's `rtw_mac_power_on` does.
+The kill ends the claim: the kernel turns the card's bus mastering off and
+frees the DMA blocks, but the chip stays powered, its ring base registers
+still holding the freed blocks' addresses and its RX DMA enabled (a panic
+or a crash leaves it the same way). Turning bus mastering back on as is
+would let it write received frames into pages the kernel has handed to
+someone else. So the new run claims with memory decode only, quiesces the
+chip through the BAR (`rtw88::pci::quiesce`: every `HIMR` cleared, the
+`CR` DMA enables cleared and the PCIe DMA interface reset, the MAC powered
+off by the card-disable flow; `WIFID:QUIESCE was_running=... cr_before=...
+cr_after=...`, `cr_after` 0xea when the MAC is off), and switches bus
+mastering on only just before the rings are allocated and programmed; the
+bring-up then powers a cold MAC on. A controlled exit (the service loop
+ending) powers the chip off first (`WIFID:STOP`). A `WIFID:FAIL:list` or
+`WIFID:FAIL:claim` (`EBUSY` while the old claim is torn down) exits 1 for
+`init` to retry; only failures after the BAR is mapped park.
 
 ### 5.5 How the station side runs on the card
 
@@ -252,7 +270,14 @@ After bring-up `wifid` hands the chip to the shared soft-MAC
 `assoc`/`disassoc` (legacy rates: `wlanmd`'s association request carries no
 HT/VHT yet), keys go to the CAM, a protected frame is sent with the CAM
 entry its CCMP key id names, and received frames lose their FCS and report
-the chip's decryption with an 8-octet MIC trailer. The same soft-MAC passes
+the chip's decryption with an 8-octet MIC trailer and the channel their PHY
+status names. The RF calibration (IQK, DPK: hundreds of milliseconds) runs
+before an Authentication frame or the first frame on a channel other than
+the one last calibrated, never on a scan channel nor after a scan returned
+to the operating channel. Management frames and EAPOL (`basic_rate`) go at
+the BSS's lowest basic rate, read from its beacons and association response
+(OFDM 6 Mb/s on a 2.4 GHz BSS with no CCK basic rate), and the firmware's
+rate adaptation is given the BSS's legacy rates. The same soft-MAC passes
 `tools/wifi/sim_run.py --station wlanmd` against the simulated radio, so on
 the card only this adapter and `libs/rtw88` are new.
 

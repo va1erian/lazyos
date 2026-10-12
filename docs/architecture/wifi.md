@@ -286,7 +286,7 @@ their displayed form (refusing a guess between look-alikes).
 - Register `os.lazy.net.wifi.hw/<ifname>` and `os.lazy.net.nic/<ifname>` with
   the same `<ifname>`; refuse `Attach` from anyone but `_wlan`
   (`netpolicy::may_attach_wifi_hw`, `EPERM`) and owner-only calls from
-  anyone but the attached task.
+  anyone but the attached task with the credentials it attached with.
 - `ScanResults` entries and `RxMgmt(Mgmt)` frames start at the 802.11 MAC
   header (no FCS); `RxMgmt(Eapol)` and `TxMgmt(Eapol)` are 802.3 frames
   (destination, source, 0x888E, PDU). `ScanDone` once per scan, after its
@@ -367,42 +367,80 @@ id and receiver.
 
 `SoftMac<R: Radio>` is `hw.v1` as pure logic with the clock injected:
 
-* **Owner.** `attach(sender)` (`Busy` when owned); every other call from
-  anyone else is `Denied`; `detach` and `release` (the owner exited or its
-  channel broke) stop the scan, deauthenticate, delete every key and forget
-  the country and the queued events.
+* **Owner.** `attach(caller)` (`Busy` when owned) remembers a `Caller`:
+  the task slot and its credentials (uid, label, session), all compared on
+  every later call, so a slot reused by another process before the owner's
+  exit is noticed owns nothing; every other call from anyone else is
+  `Denied`; `detach` and `release` (the owner exited or its channel broke)
+  stop the scan, deauthenticate, delete every key and forget the country
+  and the queued events.
 * **Country.** Nothing transmits before `SetCountry` (`Again` from an active
-  scan, `Join`, `TxMgmt`); a passive scan runs in the world domain. The
-  domain table (`regdom`) is coarse: the world domain probes only on 1-11,
-  the FCC group stops at 11, other countries get 12-13; UNII-1 and UNII-3 are
-  active for a named country, DFS channels always passive, no 6 GHz.
+  scan, `Join`, `TxMgmt`); a passive scan runs in the world domain. A code
+  must be `00` or an assigned ISO 3166-1 alpha-2 code (`iso3166`, 249
+  codes; `ZZ` is `Invalid`). The domain table (`regdom`) is coarse: the
+  world domain probes only on 1-11, the FCC group stops at 11, other
+  countries get 12-13; UNII-1 and UNII-3 are active for a named country, DFS
+  channels always passive, no 6 GHz. A new country re-plans a running scan
+  (forbidden channels skipped, probes only where now allowed) and leaves a
+  joined BSS whose channel it forbids, silently, reporting
+  `Deauthenticated` (reason 3).
 * **Scan.** Software stepping: tune, one probe request per SSID (or a
   wildcard) where the domain allows probing, dwell 50 ms active / 120 ms
   passive (or the request's 10-1000 ms), next. Beacons and probe responses
-  heard meanwhile are kept raw, the latest per BSSID and kind, at most 256
-  and 256 KiB; `ScanResults` pages them with their age (64 entries and 12 KiB
-  of frames per page). A scan while joined returns to the BSS's channel and
-  pauses the beacon watch.
+  heard meanwhile are kept raw, the latest per BSSID and kind, each at most
+  `max_mgmt` octets, at most 256 and 256 KiB; a full table drops its
+  weakest entry for a new one at least as strong, and a copy heard on
+  another (adjacent) channel replaces an entry only when stronger.
+  `ScanResults` pages them with their age (64 entries and 12 KiB of frames
+  per page). A scan while joined returns to the BSS's channel and pauses the
+  beacon watch.
+* **Where it transmits.** The soft-MAC tracks the channel the radio is
+  tuned to. Nothing goes to the BSS while a scan step has the radio
+  elsewhere, nor, on a channel the domain lists as passive, before the BSS
+  was heard there (a fresh scan entry or a beacon since the join): `TxMgmt`
+  frames are built at once (sequence, PN, the keys in force) and held, at
+  most 16, until the radio may send them; the network stack's frames stay in
+  its ring (`tx_ready` is false). A deauthentication on `Leave` retunes to
+  the BSS first. Probe requests go out only on scan steps where the domain
+  allows probing.
 * **Join** tunes and filters to the BSS and learns from its scan entry (then
   its beacons) the beacon interval and whether it speaks QoS (HT or WMM):
   data goes as QoS data with the TID from the user priority, or plain data.
 * **TxMgmt.** A management frame must be a station subtype (association,
   reassociation, probe, disassociation, authentication, deauthentication,
   action) with no flags and our own transmitter address; the soft-MAC sets
-  its sequence number. EAPOL (802.3, from our address) goes as a data frame
-  to the BSS, in the clear before the pairwise key and protected after it.
+  its sequence number. Its receiver and BSSID must be the BSS's (a probe
+  request may be broadcast in either). EAPOL (802.3, from our address to
+  the BSSID) goes as a data frame to the BSS, in the clear before the
+  pairwise key and protected after it; one too long for the radio once
+  wrapped is refused before it takes a PN.
 * **SetState** drives the network card's link: up only in `Authorized`,
-  which needs the pairwise key once any key exists (an open network has
-  none). Below `Authorized` the receive queue is emptied.
+  which comes only from `Associated` and needs the pairwise key once any key
+  exists or the BSS advertised privacy or RSN (in the scan entry the join
+  learned from, or any beacon since; sticky for the join). Below
+  `Authorized` the receive queue is emptied; below `Associated` the keys are
+  deleted.
 * **Keys.** CCMP-128 only: pairwise id 0-1, group id 1-3, for the joined
-  BSSID; IGTKs are refused (no management frame protection). A key's TX PN
-  starts at 1 and is never wrapped; each key has its replay window.
-* **Events** (at most 64 queued, the rest dropped and counted): `ScanDone`;
-  `RxMgmt` (authentication, (re)association responses, deauthentication,
-  disassociation and action frames from the joined BSS to us, and EAPOL as
-  802.3); `BeaconLoss` (no beacon from the BSS on its channel for ten
-  intervals, at least a second, once per silence); `Deauthenticated` (which
-  also closes the port and deletes the keys).
+  BSSID; IGTKs are refused (no management frame protection). The TX PN
+  belongs to the association: it starts at 1, is never wrapped, and carries
+  on across a rekey or a key deleted and installed again (only leaving the
+  BSS, a deauthentication or a state below `Associated` starts it over), so
+  a temporal key installed twice never repeats a PN. Each key has its replay
+  window. A key the radio refuses leaves its slot empty in both the radio
+  and the table.
+* **Events** (at most 64 queued, `RxMgmt` at most 48 of them): `ScanDone`;
+  `RxMgmt` (from the joined BSS to us, and only when the owner can be
+  waiting for it: an authentication or (re)association response after its
+  request was sent, action frames once associated, EAPOL as 802.3 once the
+  AP answered the association, deauthentication and disassociation always;
+  a retransmission of the last unprotected unicast frame is dropped; at
+  most 32 a second); `BeaconLoss` (no beacon from the BSS on its channel for
+  ten intervals, at least a second, the interval capped at 1000 ms, once per
+  silence); `Deauthenticated` (which also closes the port and deletes the
+  keys; never rate-limited). A control event that finds the queue full
+  evicts the oldest `RxMgmt`; a repeat of an unread `BeaconLoss` or
+  `Deauthenticated` folds into it; drops count in `mgmt_dropped`. When the
+  owner's inbox is full, the event goes back to the front of the queue.
 * **Data path.** Received data must come From-DS from the BSSID to us or a
   group; a protected frame needs `decrypted` and a fresh PN in its key's
   window; plaintext is refused once the BSS is protected; our own reflected
@@ -417,14 +455,27 @@ id and receiver.
 `user::wifi::run(radio, ifname, own_uid)` registers
 `os.lazy.net.wifi.hw/<ifname>` and `os.lazy.net.nic/<ifname>` and serves both
 from one loop that also waits on the radio's wake-up endpoint
-(`Hardware::wake_endpoint`) and pumps it (`Hardware::pump`). The card side is
-`netdrv`'s engine (`libs/nicdrv`) over `MacRings`, the soft-MAC's data path
-as the engine's card, so `netd` sees the same rings and the same hostile-client
-rules. The owner's events go on the channel it passed in `Attach`; a dead
-channel (or one the once-a-second probe finds dead) releases the radio. Who
-may attach: an unlabelled system service outside any session running as
-`_wlan` (912), root (console diagnostics) or the radio program's own uid (a
-probe it spawned). `netd` sizes an interface's frames by the card's MTU.
+(`Hardware::wake_endpoint`) and pumps it (`Hardware::pump`). Nothing a client
+sends ends the loop: a request too large for the 16 KiB receive buffer (the
+kernel dequeues it, then answers `E2BIG`) or one that does not decode is
+dropped and counted (`WIFI:DROPPED`), a reply that cannot be delivered is
+the client's loss; only the service endpoints going away is fatal. The loop
+polls again at once when the radio's receive budget ran out. The card side
+is `netdrv`'s engine (`libs/nicdrv`) over `MacRings`, the soft-MAC's data
+path as the engine's card, so `netd` sees the same rings and the same
+hostile-client rules. The owner's events go on the channel it passed in
+`Attach`; a dead channel (or one the once-a-second probe finds dead, which
+also drains whatever the owner sent there) releases the radio. Who may
+attach: an unlabelled system service outside any session running as
+`_wlan` (912), and in `wifisim` alone `_wifisim` itself the same way (the
+`wifiprobe` it spawns); root is not named. Who may drive the card
+(`AttachRing`, `SetRxMode`, `DetachRing`, `Kick`; the kernel does not apply
+`netpolicy::NIC_CLIENT_RULES`, so `nic::may_drive` does): `_netd`
+unlabelled outside any session, root unlabelled (console diagnostics), and
+`_wifisim` for an `air*` card only; `Info` and `Stats` are open. The
+temporal key of a `SetKey` is wiped from the decoded arguments, the parcel
+and the receive buffer once handled. `netd` sizes an interface's frames by
+the card's MTU.
 
 ### `wifisim` and the simulated air
 

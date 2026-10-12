@@ -155,16 +155,15 @@ pub(crate) fn wifi_secret_name(name: &str) -> Result<String, &'static str> {
     }
 }
 
-/// A Wi-Fi passphrase (8 to 63 printable ASCII characters) or a raw PSK (64
-/// hex digits), as the standard allows; anything else would only fail later,
+/// A Wi-Fi passphrase (8 to 63 octets of UTF-8, no control character, as
+/// routers accept) or a raw PSK (64 hex digits): `secretstore::valid_wifi_key`,
+/// the rule `keyd` derives the PMK by. Anything else would only fail later,
 /// when `wlanmd` asks `keyd` for the key.
 pub(crate) fn wifi_passphrase(text: &str) -> Result<String, &'static str> {
-    let printable = text.bytes().all(|byte| (0x20..=0x7e).contains(&byte));
-    let raw_psk = text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
-    if printable && ((8..=63).contains(&text.len()) || raw_psk) {
+    if secretstore::valid_wifi_key(text.as_bytes()) {
         Ok(text.to_string())
     } else {
-        Err("a Wi-Fi password is 8 to 63 printable characters, or 64 hex digits")
+        Err("a Wi-Fi password is 8 to 63 bytes of printable text, or 64 hex digits")
     }
 }
 

@@ -11,7 +11,7 @@
 
 use alloc::vec::Vec;
 
-use crate::dev::{Dev, RF_2T2R};
+use crate::dev::{Band, Dev, RF_2T2R};
 use crate::error::{Error, Result};
 use crate::hci::{Hci, TxQueue};
 use crate::station::StaInfo;
@@ -73,12 +73,24 @@ impl<H: Hci> Dev<H> {
 
     /// A data frame with user priority `tid`. `hw_key` is the CAM entry the
     /// chip encrypts with ([`Dev::set_key`]'s result); the frame must then
-    /// already carry its CCMP header and the Protected bit.
-    pub fn tx_data(&self, frame: &[u8], tid: u8, hw_key: Option<u8>) -> Result<TxFrame> {
+    /// already carry its CCMP header and the Protected bit. `basic_rate`
+    /// sends it at the BSS's lowest basic rate, fixed, as management frames
+    /// go (EAPOL: the handshake must not depend on the rate adaptation
+    /// having found a working rate yet).
+    pub fn tx_data(
+        &self,
+        frame: &[u8],
+        tid: u8,
+        hw_key: Option<u8>,
+        basic_rate: bool,
+    ) -> Result<TxFrame> {
         if frame_type(frame)?.0 != 2 {
             return Err(Error::Invalid("not a data frame"));
         }
         let mut p = self.tx_params(tid & 7);
+        if basic_rate {
+            p.fix_rate = Some(self.lowest_basic_rate());
+        }
         if let Some(k) = hw_key {
             p.sec_type = self
                 .key_type(k)
@@ -91,6 +103,19 @@ impl<H: Hci> Dev<H> {
             p.sta = self.hal.vif.sta.as_ref().map(|si| self.sta_tx(si));
         }
         self.build(frame, &p)
+    }
+
+    /// The lowest basic rate of the BSS in the current band (the band's
+    /// lowest rate before one is known), as upstream's `rtw_get_mgmt_rate`.
+    pub fn lowest_basic_rate(&self) -> u8 {
+        let lowest = match self.hal.current_band_type {
+            Band::Ghz2 => tx::DESC_RATE1M,
+            Band::Ghz5 => tx::DESC_RATE6M,
+        };
+        match self.hal.vif.basic_rates {
+            0 => lowest,
+            rates => lowest + rates.trailing_zeros() as u8,
+        }
     }
 
     /// What upstream's `rtw_tx_data_pkt_info_update` reads from the AP's

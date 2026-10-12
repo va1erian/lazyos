@@ -130,6 +130,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "modplayer": desktop and modplayer,
         "net": net or tls or wifi,
         "wifi": wifi,
+        # The simulated radio is an Advanced-only test switch.
+        "wifi_sim": False,
         "net_forwards": "",
         "net_restrict": False,
         "nics": "1",

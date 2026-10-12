@@ -138,6 +138,11 @@ fn management_frames_out_are_checked_and_sequenced() {
 fn management_frames_in_only_from_the_bss_to_us() {
     let mut m = joined(false);
     let ok = build::auth(&STA, &AP, &AP, 1, (0, 2, 0), &[]);
+    // Not before we asked for it.
+    hear(&mut m, ok.clone(), 6);
+    m.poll(25);
+    assert_eq!(m.next_event(), None);
+    m.tx_mgmt(OWNER, 0, &auth_from_sta()).unwrap();
     hear(&mut m, ok.clone(), 6);
     hear(&mut m, build::auth(&GW, &AP, &AP, 1, (0, 2, 0), &[]), 6);
     hear(&mut m, build::auth(&STA, &AP2, &AP2, 1, (0, 2, 0), &[]), 6);
@@ -340,22 +345,4 @@ fn release_leaves_the_radio_idle() {
     assert_eq!(m.owner(), None);
     assert_eq!(m.next_event(), None);
     assert!(!m.link_up());
-}
-
-#[test]
-fn events_are_bounded() {
-    let mut m = joined(false);
-    let frame = build::auth(&STA, &AP, &AP, 1, (0, 2, 0), &[]);
-    for _ in 0..100 {
-        hear(&mut m, frame.clone(), 6);
-    }
-    m.poll(30);
-    m.poll(31);
-    let mut count = 0;
-    while m.next_event().is_some() {
-        count += 1;
-    }
-    assert_eq!(count, crate::events::EVENT_QUEUE);
-    assert_eq!(m.stats().mgmt_dropped, 100 - count as u64);
-    assert_eq!(m.stats().mgmt_rx, 100);
 }

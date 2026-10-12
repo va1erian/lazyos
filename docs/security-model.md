@@ -406,14 +406,25 @@ capabilities = []
   anyone logs in). A `system` change is accepted from `elevd`'s identity
   alone (`net.wifi.system`, after an administrator approved it on the
   trusted prompt), never from uid 0 or a capability. `StoreSecretFor` and
-  `DeleteSecretFor` let `wlanmd` alone keep a secret for someone else: the
-  user who added a network through `os.lazy.net.wifi.v1` `AddNetwork`, or
-  the machine for a `system` network, which `wlanmd` accepts from `elevd`
-  alone (so the approval is checked one hop earlier; `wlanmd` already holds
-  every PMK, so writing secrets gives it nothing more). No method returns a
-  stored secret. The one use is `WifiPmk`, the WPA2 pairwise master key for
-  an SSID, answered only to `wlanmd` (the `_wlan` system uid, uid 912,
+  `DeleteSecretFor` let `wlanmd` alone keep a `user` secret for someone
+  else: the user who added a network through `os.lazy.net.wifi.v1`
+  `AddNetwork` (the uid comes from that call's kernel-stamped sender). They
+  are refused in the `system` scope: a machine-wide network's passphrase is
+  stored by `elevd` itself (`net.wifi.system`, under the network's profile
+  id), so a `system` secret still needs an administrator. No method returns
+  a stored secret. The one use is `WifiPmk`, the WPA2 pairwise master key
+  for an SSID, answered only to `wlanmd` (the `_wlan` system uid, uid 912,
   unlabelled, outside any session) and cached sealed beside the secret.
+  `wlanmd` parses frames off the air, so it is the service most likely to
+  be compromised, and `keyd` gives it no more than Wi-Fi needs: all three of
+  its methods must name a Wi-Fi profile id (`w` and 12 lowercase hex
+  digits, the ids `wlanmd` mints), so it can neither overwrite or delete a
+  user's other secrets nor obtain a PMK (a PBKDF2 of the secret, open to an
+  offline dictionary attack) of a secret that is not a Wi-Fi network's.
+  What a compromised `wlanmd` still has is every Wi-Fi PMK and the right to
+  replace or delete a user's Wi-Fi passphrases. A Wi-Fi passphrase is 8-63
+  octets of UTF-8 without control characters (routers accept UTF-8;
+  PBKDF2 hashes the octets) or 64 hex digits (a raw PSK).
   Limits: names 1-64 of `[A-Za-z0-9._:-]`, secrets 1-256 bytes, 16 per owner,
   64 in all.
   **At rest:** `/conf/svc/keyd/secrets` (0600, root, in the 0700 `/conf`)

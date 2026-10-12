@@ -60,15 +60,49 @@ fn psk_refuses_bad_passphrase_and_ssid() {
         pbkdf2_sha1(b"has\x00control", b"net"),
         Err(Error::BadLength)
     );
+    // Octets, not characters: 21 three-octet characters are 63 octets, 22
+    // are too many.
+    assert!(pbkdf2_sha1("€".repeat(21).as_bytes(), b"net").is_ok());
     assert_eq!(
-        pbkdf2_sha1("pässword1".as_bytes(), b"net"),
+        pbkdf2_sha1("€".repeat(22).as_bytes(), b"net"),
         Err(Error::BadLength)
     );
+    for bad in [
+        &b"password\n"[..],
+        b"pass\x7fword",
+        "pass\u{85}word".as_bytes(), // C1 control
+        b"pass\xc3word",             // not UTF-8
+        b"\xff\xfe\xfd\xfc\xfb\xfa\xf9\xf8",
+    ] {
+        assert_eq!(pbkdf2_sha1(bad, b"net"), Err(Error::BadLength), "{bad:?}");
+    }
     assert_eq!(pbkdf2_sha1(b"password", b""), Err(Error::BadLength));
     assert_eq!(pbkdf2_sha1(b"password", &[b's'; 33]), Err(Error::BadLength));
     // The bounds themselves are legal.
     assert!(pbkdf2_sha1(&[b'a'; 63], &[b's'; 32]).is_ok());
     assert!(pbkdf2_sha1(b"12345678", b"x").is_ok());
+}
+
+#[test]
+fn psk_takes_utf8_passphrases_as_octets() {
+    // hostapd hashes the UTF-8 octets as they are; so must we. From Python:
+    // hashlib.pbkdf2_hmac("sha1", "pässword1".encode(), b"net", 4096, 32).
+    let pmk = pbkdf2_sha1("pässword1".as_bytes(), b"net").unwrap();
+    assert_eq!(
+        encode(&pmk),
+        "f7a7a5bf4b0eb2d20eb9b971c2a1c7759553549f21fe54288eab760d068ef890"
+    );
+    assert!(valid_passphrase("contraseña segura".as_bytes()));
+    assert!(valid_passphrase("パスワードです".as_bytes()));
+    assert!(!valid_passphrase("短い".as_bytes()), "6 octets");
+}
+
+#[test]
+fn a_raw_psk_is_64_hex_digits() {
+    assert!(is_raw_psk(&[b'a'; 64]));
+    assert!(is_raw_psk(&[b'F'; 64]));
+    assert!(!is_raw_psk(&[b'a'; 63]));
+    assert!(!is_raw_psk(&[b'g'; 64]));
 }
 
 // --- PRF-n (SHA-1) ----------------------------------------------------------

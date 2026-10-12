@@ -290,7 +290,7 @@ fn dispatch(
         }
         api::METHOD_STORESECRET => {
             let args = api::decode_store_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::Store)?;
+            let owner = secret_owner(message, &args.scope, &args.name, Op::Store)?;
             let name = bounded_text(args.name)?;
             let secret = bounded_bytes(args.secret, MAX_BYTES)?;
             secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
@@ -298,14 +298,14 @@ fn dispatch(
         }
         api::METHOD_DELETESECRET => {
             let args = api::decode_delete_secret_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::Delete)?;
+            let owner = secret_owner(message, &args.scope, &args.name, Op::Delete)?;
             let name = bounded_text(args.name)?;
             secrets.delete(&mut keyd.entropy, owner, &name)?;
             Ok(wire::ok_reply(api::METHOD_DELETESECRET))
         }
         api::METHOD_LISTSECRETS => {
             let args = api::decode_list_secrets_args(body).map_err(parse)?;
-            let owner = secret_owner(message, &args.scope, Op::List)?;
+            let owner = secret_owner(message, &args.scope, "", Op::List)?;
             reply(
                 api::METHOD_LISTSECRETS,
                 api::encode_list_secrets_reply(&api::ListSecretsReply {
@@ -318,7 +318,7 @@ fn dispatch(
             let op = Op::StoreFor {
                 owner_uid: args.owner,
             };
-            let owner = secret_owner(message, &args.scope, op)?;
+            let owner = secret_owner(message, &args.scope, &args.name, op)?;
             let name = bounded_text(args.name)?;
             let secret = bounded_bytes(args.secret, MAX_BYTES)?;
             secrets.put(&mut keyd.entropy, owner, &name, &secret)?;
@@ -329,7 +329,7 @@ fn dispatch(
             let op = Op::DeleteFor {
                 owner_uid: args.owner,
             };
-            let owner = secret_owner(message, &args.scope, op)?;
+            let owner = secret_owner(message, &args.scope, &args.name, op)?;
             let name = bounded_text(args.name)?;
             secrets.delete(&mut keyd.entropy, owner, &name)?;
             Ok(wire::ok_reply(api::METHOD_DELETESECRETFOR))
@@ -339,6 +339,7 @@ fn dispatch(
             let owner = secret_owner(
                 message,
                 &args.scope,
+                &args.name,
                 Op::Pmk {
                     owner_uid: args.owner,
                 },
@@ -370,17 +371,18 @@ fn caller_uid(message: &Message) -> messenger::Result<u32> {
     Ok(message.caller().uid)
 }
 
-/// Whose secret `op` on `scope` is about, if the sender may do it
+/// Whose secret `op` on `scope` and `name` is about, if the sender may do it
 /// (`secretstore::authorize`: the sender's kernel-stamped uid, label and
-/// session decide, never uid 0 or a capability).
-fn secret_owner(message: &Message, scope: &str, op: Op) -> messenger::Result<Owner> {
+/// session decide, never uid 0 or a capability; `wlanmd` names Wi-Fi
+/// profiles only).
+fn secret_owner(message: &Message, scope: &str, name: &str, op: Op) -> messenger::Result<Owner> {
     let caller = message.caller();
     let caller = Caller {
         uid: caller.uid,
         label_id: caller.label_id,
         session: caller.session,
     };
-    authorize(caller, scope, op).map_err(denied_error)
+    authorize(caller, scope, name, op).map_err(denied_error)
 }
 
 /// A text field within the accepted length.

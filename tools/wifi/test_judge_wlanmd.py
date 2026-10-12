@@ -120,6 +120,18 @@ class WlanmdJudgeTest(unittest.TestCase):
         run.ap.remove("AP:REKEY:G2:OK index=2 ssid=LazyWPA2")
         self.assert_fails(name, run, "REKEY")
 
+    def test_ap_complaints_fail_the_join_but_not_after_a_fault(self):
+        name = "WPA2 join, CCMP data, DHCP and ping"
+        run = good()
+        run.ap.insert(1, "AP:DATA:PLAINTEXT:DROPPED")
+        self.assert_fails(name, run, "PLAINTEXT")
+        run = good()
+        run.ap.insert(1, "AP:CCMP:NOKEY")
+        self.assert_fails(name, run, "NOKEY")
+        run = good()
+        run.ap.append("AP:DATA:NOT_AUTHORIZED")
+        self.assertEqual(sim_judge.ap_complaints(run), [])
+
 
 if __name__ == "__main__":
     unittest.main()

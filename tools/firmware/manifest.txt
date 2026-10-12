@@ -1,7 +1,7 @@
 # Device firmware the image build installs under fhs::FIRMWARE
 # (/system/share/firmware/<name>; docs/wifi-prerequisites-plan.md 3.8).
 # tools/firmware/fetch.py downloads each file to target/firmware/<name> and
-# checks it; build_support/firmware_embed.rs checks it again and places it.
+# checks it; build_support/wifi_embed.rs checks it again and places it.
 # Never committed, never compiled into a program. One line per file:
 #
 #   <name> | <switch> | <sha256> | <bytes> | <licence> | <url>

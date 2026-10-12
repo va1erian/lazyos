@@ -3,7 +3,7 @@
 
 The pins are ``tools/firmware/manifest.txt`` (name, build switch, digest,
 size, licence, commit-pinned URL). Files land in ``target/firmware/<name>``,
-where the image build (``build_support/firmware_embed.rs``) checks them again
+where the image build (``build_support/wifi_embed.rs``) checks them again
 and places them at ``/system/share/firmware/<name>`` (``fhs::FIRMWARE``).
 Firmware is never committed and never compiled into a program
 (docs/wifi-prerequisites-plan.md 3.8).

@@ -5,8 +5,9 @@
 //! Linux's `rtw88`, which is dual-licensed `GPL-2.0 OR BSD-3-Clause`; this
 //! crate is a Rust translation of the parts a station needs, taken under
 //! BSD-3-Clause, with every module naming the upstream file and functions it
-//! follows (pinned commit in [`UPSTREAM`]). `THIRD_PARTY.md` carries the
-//! notice. Never read `mac80211`/`cfg80211` (GPL-2.0-only) while working here.
+//! follows (pinned commit in [`UPSTREAM`]). Upstream: Copyright(c)
+//! 2018-2019 Realtek Corporation. `THIRD_PARTY.md` carries the full
+//! BSD-3-Clause notice and every image ships it at `/docs/os/THIRD_PARTY.md`. Never read `mac80211`/`cfg80211` (GPL-2.0-only) while working here.
 //!
 //! The crate mirrors upstream's split so a reader can hold the two side by
 //! side:

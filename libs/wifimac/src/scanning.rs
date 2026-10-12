@@ -9,7 +9,7 @@ use crate::mac::SoftMac;
 use crate::radio::{Band, Channel, Radio};
 use crate::regdom::{Domain, Use};
 use crate::scan::{self, Page, Step};
-use crate::Error;
+use crate::{Caller, Error};
 
 /// `Scan`'s request, as the wire carries it (validated here).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -78,7 +78,7 @@ impl<R: Radio> SoftMac<R> {
     }
 
     /// `Scan`: start stepping channels; returns the scan id at once.
-    pub fn scan(&mut self, caller: u64, request: &ScanRequest, now: u64) -> Result<u32, Error> {
+    pub fn scan(&mut self, caller: Caller, request: &ScanRequest, now: u64) -> Result<u32, Error> {
         self.owned(caller)?;
         if self.scanner.running.is_some() {
             return Err(Error::Busy);
@@ -101,7 +101,7 @@ impl<R: Radio> SoftMac<R> {
     }
 
     /// `AbortScan`: not an error when that scan is not running.
-    pub fn abort_scan(&mut self, caller: u64, scan_id: u32, now: u64) -> Result<(), Error> {
+    pub fn abort_scan(&mut self, caller: Caller, scan_id: u32, now: u64) -> Result<(), Error> {
         self.owned(caller)?;
         if self.scanner.running_id() == Some(scan_id) {
             self.finish_scan(true, now);
@@ -113,7 +113,7 @@ impl<R: Radio> SoftMac<R> {
     /// octets of frames (what one reply can carry).
     pub fn scan_results(
         &self,
-        caller: u64,
+        caller: Caller,
         scan_id: u32,
         first: u32,
         max: u32,
@@ -139,7 +139,7 @@ impl<R: Radio> SoftMac<R> {
         run.index = Some(next);
         run.until_ms = now + u64::from(step.dwell_ms);
         let ssids = run.ssids.clone();
-        if let Err(error) = self.radio.tune(step.channel) {
+        if let Err(error) = self.tune(step.channel) {
             // A channel the radio cannot tune is skipped at the next poll.
             self.radio_failed(error);
             return;
@@ -155,19 +155,27 @@ impl<R: Radio> SoftMac<R> {
         let Some(run) = self.scanner.running.take() else {
             return;
         };
-        let _ = self.radio.set_scan_filter(false);
-        if let Some(bss) = self.bss.as_mut() {
-            // Beacons could not be heard off the channel: start counting again.
-            bss.last_beacon = now;
-            bss.loss_reported = false;
-            let channel = bss.channel;
-            if let Err(error) = self.radio.tune(channel) {
-                self.radio_failed(error);
-            }
-        }
+        self.end_scan_radio(now);
         self.emit(Event::ScanDone {
             scan_id: run.id,
             aborted,
         });
+    }
+
+    /// The radio's side of ending a scan: stop hearing every BSS, return to
+    /// the joined BSS's channel and send what waited for it.
+    pub(crate) fn end_scan_radio(&mut self, now: u64) {
+        let _ = self.radio.set_scan_filter(false);
+        let Some(bss) = self.bss.as_mut() else {
+            return;
+        };
+        // Beacons could not be heard off the channel: start counting again.
+        bss.last_beacon = now;
+        bss.loss_reported = false;
+        let channel = bss.channel;
+        if let Err(error) = self.tune(channel) {
+            self.radio_failed(error);
+        }
+        self.flush_pending();
     }
 }

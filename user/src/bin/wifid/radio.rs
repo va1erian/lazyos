@@ -11,9 +11,13 @@
 //! [`Failure`] naming the step; `wifid.rs` prints it with the register dump
 //! and parks with the claim held.
 //!
-//! A `dbgctl reload wifid` kills the old driver with the chip up; that needs
-//! nothing here: `rtw_mac_power_on`'s translation finds the MAC already on
-//! (`CR` reads 0xea) and cycles it off and on, as upstream does.
+//! A `dbgctl reload wifid` (or a crash) kills the old driver with the chip
+//! up: the kernel turns bus mastering off and frees its DMA blocks, but the
+//! chip keeps its ring addresses and RX DMA enabled. So `wifid.rs` quiesces
+//! it (`rtw88::pci::quiesce`: interrupts masked, DMA stopped, MAC powered
+//! off) before switching bus mastering on and calling [`bring_up`], whose
+//! power-on then starts from a cold MAC (`CR` reads 0xea). A controlled
+//! exit powers the chip off itself (`hardware.rs`, `Rtw`'s `Drop`).
 
 use alloc::format;
 use alloc::string::String;

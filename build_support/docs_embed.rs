@@ -23,6 +23,13 @@ const DISK_ROOT: &str = "docs";
 
 /// The repository README, collected as `docs/README.md`.
 const README: &str = "README.md";
+/// The third-party register, collected as `docs/THIRD_PARTY.md`: the
+/// notices BSD-3-Clause and the firmware licences require a binary
+/// distribution (an image on its own) to carry, e.g. Realtek's for the
+/// rtw88-derived `libs/rtw88`.
+const THIRD_PARTY: &str = "THIRD_PARTY.md";
+/// Files at the repository root collected beside the docs tree.
+const ROOT_DOCS: [&str; 2] = [README, THIRD_PARTY];
 
 /// Skip a file larger than this. The bootloader reads the whole image over slow
 /// BIOS calls at every boot, so a runaway document must not bloat it.
@@ -48,14 +55,17 @@ pub fn collect(manifest_dir: &Path) -> Result<Vec<Doc>, String> {
     let mut found: BTreeMap<String, PathBuf> = BTreeMap::new();
     collect_dir(&manifest_dir.join(DISK_ROOT), manifest_dir, &mut found)?;
 
-    let readme = manifest_dir.join(README);
-    if readme.is_file() {
-        // A real `docs/readme.MD` (any case) wins over the root README: two
+    for name in ROOT_DOCS {
+        let source = manifest_dir.join(name);
+        if !source.is_file() {
+            continue;
+        }
+        // A real `docs/readme.MD` (any case) wins over the root file: two
         // spellings of one document must not both reach the volume, since
         // the readers open `/docs/README.md` by exactly that name.
-        let dest = format!("{DISK_ROOT}/{README}");
+        let dest = format!("{DISK_ROOT}/{name}");
         if !found.keys().any(|key| key.eq_ignore_ascii_case(&dest)) {
-            found.insert(dest, readme);
+            found.insert(dest, source);
         }
     }
 
@@ -170,15 +180,14 @@ fn read_file(path: &Path) -> Result<Vec<u8>, String> {
 /// The host tests (`build_support/tests`) exercise [`collect`] and this.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     // A directory is watched recursively, so an added or removed doc triggers a
-    // rebuild; the README is watched separately (it lives outside `docs/`).
+    // rebuild; the root files are watched separately (outside `docs/`).
     println!(
         "cargo:rerun-if-changed={}",
         manifest_dir.join(DISK_ROOT).display()
     );
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join(README).display()
-    );
+    for name in ROOT_DOCS {
+        println!("cargo:rerun-if-changed={}", manifest_dir.join(name).display());
+    }
 
     let docs = match collect(manifest_dir) {
         Ok(docs) => docs,
@@ -258,6 +267,17 @@ mod tests {
             ]
         );
         assert_eq!(docs[2].bytes, b"boot");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_third_party_register_travels_with_the_image() {
+        let root = temp_root("third-party");
+        write(&root, "README.md", b"readme");
+        write(&root, "THIRD_PARTY.md", b"notices");
+        let docs = collect(&root).unwrap();
+        assert_eq!(dests(&docs), ["docs/README.md", "docs/THIRD_PARTY.md"]);
+        assert_eq!(docs[1].bytes, b"notices");
         let _ = std::fs::remove_dir_all(&root);
     }
 
