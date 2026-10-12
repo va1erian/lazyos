@@ -135,6 +135,83 @@ pub fn partition_names() -> Result<(), String> {
     Ok(())
 }
 
+/// The installed-beside-Linux layout (docs/grub-install-plan.md K3): a
+/// config-only ramdisk whose `lazyos.cfg` names root and home by UUID on a
+/// disk. The ramdisk still decides `lazyos.cfg` and `/boot`, while `/` and
+/// `/home` come from the disk, in every order the devices can register in.
+pub fn config_ramdisk_disk_root() -> Result<(), String> {
+    let config = format!(
+        "root=UUID={}
+home=UUID={}
+",
+        uuid(0xA1).1,
+        uuid(0xB2).1
+    );
+    let rig = rig(Some(&config));
+    let cfg = config_only_ramdisk(rig);
+    let orders: [[&'static dyn BlockDevice; 3]; 3] = [
+        [rig.root, rig.home, cfg],
+        [cfg, rig.root, rig.home],
+        [rig.home, cfg, rig.root],
+    ];
+    let want = ["/", "/boot", "/transient", "/tmp", "/home"];
+    for (index, devices) in orders.iter().enumerate() {
+        let tables = mounts::build_preferring(devices, Some("mt-cr"));
+        check!(
+            tables.root_device == Some("mt-root"),
+            "order {index}: root on {:?}",
+            tables.root_device
+        );
+        let points: Vec<String> = tables.native.mounts().into_iter().map(|(p, _)| p).collect();
+        check!(points == want, "order {index}: mounts {points:?}");
+    }
+    Ok(())
+}
+
+/// The config-only ramdisk of [`config_ramdisk_disk_root`]: the rig's boot
+/// volume under a ramdisk-like name.
+fn config_only_ramdisk(rig: &'static Rig) -> &'static Alias {
+    static CFG: spin::Once<Alias> = spin::Once::new();
+    CFG.call_once(|| Alias {
+        name: "mt-cr",
+        disk: rig.boot,
+    })
+}
+
+/// Soak of the installed layout: 300 builds in rotating orders mount the
+/// same root and home from the disk without growing the heap.
+pub fn soak_config_ramdisk_disk_root() -> Result<(), String> {
+    let config = format!(
+        "root=UUID={}
+home=UUID={}
+",
+        uuid(0xA1).1,
+        uuid(0xB2).1
+    );
+    let rig = rig(Some(&config));
+    let cfg = config_only_ramdisk(rig);
+    let mut devices: [&'static dyn BlockDevice; 3] = [cfg, rig.root, rig.home];
+    let _ = mounts::build_preferring(&devices, Some("mt-cr")); // warm caches
+    let measure = || crate::mem::slab::stats().live_bytes + crate::mem::heap_stats().used;
+    let before = measure();
+    for round in 0..300usize {
+        devices.rotate_left(round % 3);
+        let tables = mounts::build_preferring(&devices, Some("mt-cr"));
+        check!(
+            tables.root_device == Some("mt-root") && tables.native.mounts().len() == 5,
+            "round {round}: root on {:?}, {} mounts",
+            tables.root_device,
+            tables.native.mounts().len()
+        );
+    }
+    let after = measure();
+    check!(
+        after <= before + 16 * 1024,
+        "300 builds grew the heap from {before} to {after}"
+    );
+    Ok(())
+}
+
 /// Soak: 300 builds in rotating orders all pick the same root.
 pub fn soak_preference_is_deterministic() -> Result<(), String> {
     let rig = rig(Some(&format!("root=UUID={}\n", uuid(0xA1).1)));

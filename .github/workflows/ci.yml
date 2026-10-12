@@ -138,6 +138,19 @@ jobs:
           FUZZ_CASES: "2000"
       - name: Clippy (ext2fs, tests and fuzz entry point)
         run: cargo clippy -p ext2fs --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: GPT reader and writer (hostile tables, backup fallback, seeded fuzz)
+        run: cargo test -p gpt
+        env:
+          FUZZ_CASES: "5000"
+      - name: Clippy (gpt, tests and fuzz entry point)
+        run: cargo clippy -p gpt --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
+      - name: lazyos-install (plan refusals, install/update/uninstall on a disk image)
+        run: cargo test -p lazyos-install
+      - name: Clippy (lazyos-install, host and Linux)
+        run: |
+          cargo clippy -p lazyos-install --all-targets -- -D warnings -D clippy::undocumented_unsafe_blocks
+          rustup target add x86_64-unknown-linux-musl
+          cargo clippy -p lazyos-install --all-targets --target x86_64-unknown-linux-musl -- -D warnings -D clippy::undocumented_unsafe_blocks
       - name: Package store and consent table (every IDL interface has an explanation)
         run: cargo test -p pkgstore
       - name: Image build modules (layout, manifest diff, 64 MiB guard, create vs update)

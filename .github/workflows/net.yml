@@ -114,8 +114,9 @@ jobs:
       matrix:
         # ext2fs: the F2 filesystem driver's mutate-and-check script target; this
         # is the only cargo-fuzz job in CI, so it lives with the others, as does
-        # nvme (the kernel NVMe driver's hostile-controller target).
-        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol]
+        # nvme (the kernel NVMe driver's hostile-controller target) and gpt
+        # (the partition tables the kernel and lazyos-install read).
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, gpt, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol]
     steps:
       - uses: actions/checkout@v4
 

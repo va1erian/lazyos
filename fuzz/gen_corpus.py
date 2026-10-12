@@ -30,8 +30,8 @@ from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seed
 from seeds_smb import smbwire_seeds
 from seeds_wifi import eapol_seeds, ieee80211_seeds
 from seeds_storage import (
-    acpi_seeds, ext2fs_seeds, mscdesc_seeds, mscreply_seeds, mscsession_seeds, nvme_seeds,
-    ahci_seeds,
+    acpi_seeds, ext2fs_seeds, gpt_seeds, mscdesc_seeds, mscreply_seeds, mscsession_seeds,
+    nvme_seeds, ahci_seeds,
 )
 
 ROOT = Path(__file__).resolve().parent / "seeds"
@@ -57,6 +57,7 @@ TARGETS = {
     "pwgraster": pwgraster_seeds,
     "nvme": nvme_seeds,
     "ahci": ahci_seeds,
+    "gpt": gpt_seeds,
     "passwd": passwd_seeds,
     "accountdb": accountdb_seeds,
     "elevpolicy": elevpolicy_seeds,

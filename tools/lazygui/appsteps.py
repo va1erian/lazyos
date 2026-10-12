@@ -1,6 +1,6 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
 player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail,
-the Wi-Fi firmware),
+the Wi-Fi firmware, the stick's `lazyos-install`),
 run before `cargo build`, and the switches of the opt-in desktop apps (the tray demo, the
 Picture Viewer).
 `catalog` re-exports them; they live apart to keep it small."""
@@ -155,10 +155,24 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--pictures"] if wants_pictures(cfg) and building else []))
 
 
+def installer_step(cfg: dict) -> list[dict]:
+    """The step that builds `lazyos-install`, when the stick carries it
+    (docs/grub-install-plan.md I2)."""
+    if not cfg.get("installer"):
+        return []
+    return [{"label": "Build lazyos-install (static musl)",
+             "argv": [PY, "tools/install/build.py", "--require"]}]
+
+
+def installer_argv(cfg: dict) -> list[str]:
+    """run_demo's `--installer`, which builds it and sets the stick switches."""
+    return ["--installer"] if cfg.get("installer") and not cfg.get("skip_build") else []
+
+
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
-            + wifi_step(cfg))
+            + wifi_step(cfg) + installer_step(cfg))

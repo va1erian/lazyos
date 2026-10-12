@@ -98,6 +98,10 @@ members = [
     # parsing for the kernel's AHCI driver (docs/ahci-plan.md A1): pure
     # `no_std` logic with host tests against a model HBA and seeded fuzz.
     "libs/ahci",
+    # GUID Partition Tables (docs/grub-install-plan.md K2): the kernel's GPT
+    # reader and lazyos-install's, plus a writer for tests; pure `no_std` +
+    # `alloc`, host-tested and fuzzed.
+    "libs/gpt",
     # Networking libraries (docs/networking-plan.md N0): the shared frame ring,
     # the virtio-net wire definitions, and the seeded-input helper the in-tree
     # fuzz-style tests use. Pure `no_std` logic (fuzzkit is host only).
@@ -187,6 +191,10 @@ members = [
     # Host tests of the image build (`build_support/os_*.rs`, docs_embed): the
     # layout table, the manifest diff, the 64 MiB guard and create-vs-update.
     "build_support/tests",
+    # `lazyos-install` (docs/grub-install-plan.md I2): installs LazyOS beside
+    # Linux behind its GRUB, from the stick; a static musl Linux program built
+    # by `tools/install/build.py` and shipped on the stick (LAZYOS_INSTALLER=1).
+    "tools/install",
 ]
 # The xui app is an ordinary static-musl `std` program with its own workspace:
 # it is built by `tools/xui/build.py` and embedded in the image, never by the

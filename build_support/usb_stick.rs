@@ -190,7 +190,7 @@ pub fn compose(
 }
 
 /// Format `io` as the home volume and create `dirs` on it.
-fn format_home(io: FileIo, uuid: [u8; 16], dirs: &[DirSpec]) -> Result<(), String> {
+pub fn format_home(io: FileIo, uuid: [u8; 16], dirs: &[DirSpec]) -> Result<(), String> {
     let size = ext2fs::BlockIo::sector_count(&io) * SECTOR;
     let stamp = os_image::now();
     ext2fs::format(&io, Geometry::for_size(size), HOME_LABEL, uuid, stamp)

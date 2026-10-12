@@ -23,6 +23,7 @@ Advanced tab has a "USB stick image too" box). The stick image is opt-in:
 | `LAZYOS_USB_IMAGE=1` | off | also write `target/lazyos-usb.img` |
 | `LAZYOS_USB=1` | off | required with `LAZYOS_USB_IMAGE=1`: ships `usbd` and lists it in `init`'s manifest |
 | `LAZYOS_USB_HOME_SIZE` | `1G` | size of the `lazyhome` partition (`16M` minimum; `K`/`M`/`G` suffixes) |
+| `LAZYOS_INSTALLER=1` | off | also put `install/lazyos-install`, `install/40_lazyos.in` and `install/README.txt` on the FAT partition, so the stick can install itself beside Linux, behind its GRUB ([`installing-beside-linux.md`](installing-beside-linux.md)); needs `python tools/install/build.py` first (`run_demo.py --installer` runs it and implies `--usb-image`) |
 | `LAZYOS_USB_ROOT_FREE` | `64M` | free space left on the RAM root after the files are written **and** the core packages are unpacked into `/apps` at first boot (the build adds their unpacked size itself, issue #703) |
 | `LAZYOS_DIAG_HOLD` | unset | seconds (1 to 600): `lazyos.cfg` gets `diag.hold=<n>` and `xuid` keeps the console log panes on screen that long before the desktop opens, so the driver lines (`USBD:*`, `NETDRV:*`) of a PC with no serial port can be read and photographed; the panes wrap long lines |
 

@@ -1,0 +1,10 @@
+#!/bin/sh
+exec tail -n +3 $0
+# LazyOS (docs/grub-install-plan.md), written by lazyos-install; `lazyos-install uninstall` removes it.
+menuentry "LazyOS" --class lazyos --id lazyos {
+	insmod part_gpt
+	insmod fat
+	insmod chain
+	search --no-floppy --fs-uuid --set=root @ESP_UUID@
+	chainloader /EFI/lazyos/BOOTX64.EFI
+}

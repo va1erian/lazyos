@@ -1,8 +1,9 @@
 # Plan: install LazyOS beside Linux, behind the existing GRUB
 
-> **Status: draft, revision 2 (2026-10-10). Decision 1 (the installer runs
-> from Linux) is confirmed. I0's survey additions are in
-> `tools/boot/survey_linux_box.sh`; nothing else is built.**
+> **Status: I0 to I3 implemented (2026-10-12); I4 (the box) is next.**
+> Decision 1 (the installer runs from Linux) is confirmed. What landed is
+> under "Implementation status" below; the user guide is
+> [`installing-beside-linux.md`](installing-beside-linux.md).
 > Target: the Kaby Lake box ([`kabylake-box-plan.md`](kabylake-box-plan.md):
 > a 512 GB M.2 SATA SSD behind an AHCI controller, UEFI, a Linux install
 > already on it), and any UEFI PC set up the same way. Builds on
@@ -43,6 +44,40 @@ with `tools/boot/redact_survey.py`):
 - **ESP space is ample** (292 MiB free for a kernel and a 1 MiB ramdisk).
 - `sgdisk` is not installed by default; the installer reads GPT itself and
   must not require it.
+
+## Implementation status
+
+- **K2** `libs/gpt` (no_std + alloc, host-tested, seeded fuzz and a cargo-fuzz
+  target) reads a GPT behind a protective or hybrid MBR: header and array
+  CRCs, every LBA field bounded, primary then backup, entries outside the
+  usable area or overlapping dropped. `kernel/src/block/gpt.rs` registers the
+  ESP, basic-data and Linux types as `<disk>p<n>` with GPT numbering
+  (two-digit names now work); an unreadable GPT falls back to the MBR
+  entries. Kernel cases `partition_gpt_*`, including a damage soak.
+- **K3** `mount_ramdisk_cfg_disk_root` and its soak: a config-only ramdisk
+  names `root=UUID=` and `home=UUID=` on a disk; the ramdisk still decides
+  `lazyos.cfg` and `/boot`. The kernel now also logs `fs: home <id> is <dev>`.
+- **K4** settled on the loader patch: `vendor/bootloader/uefi/src/boot_dir.rs`
+  reads every file from the loaded image's own directory when the kernel is
+  there, else the volume root (the stick is unchanged). Host-tested with
+  `rustc --test`; proven under OVMF by I3.
+- **I2** `tools/install` (`lazyos-install`): the `build_support/os_*.rs` and
+  `usb_*.rs` modules included by path, as `build_support/tests` does (risk 8
+  needed no extraction: `Source::Volume` streams files from the stick's OS
+  volume). `--image` test mode runs every command against a disk image.
+  `LAZYOS_INSTALLER=1`, `run_demo.py --installer`, the launcher's Advanced
+  tab and the stick maker's *Installer* box put it on the stick.
+  `cargo test -p lazyos-install` covers the refusals and an install, update,
+  status and uninstall on a disk image.
+- **I3** `tools/install/run.py`: the disk is made without root or Linux disk
+  tools (`examples/testdisk.rs`), the loader is real GRUB (`--via grub`,
+  `grub-mkstandalone`, CI) or OVMF's shell starting `\EFI\lazyos\BOOTX64.EFI`
+  as `chainloader` does (`--via shell`, any host). The shell variant passed
+  on Windows/WHPX: desktop from `ahci0p3`, `/home` on `ahci0p4`, clean
+  power-off, both volumes clean from the host, second boot over the first's
+  state. The GRUB variant runs in `.github/workflows/install.yml`.
+  Departures from the table below: test mode replaces loop devices and root,
+  and `grub-reboot` is modelled by writing `grubenv`'s `next_entry`.
 
 ## Goal and scope
 

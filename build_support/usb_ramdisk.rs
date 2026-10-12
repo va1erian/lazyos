@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use ext2fs::{Ext2, Geometry};
 
 use crate::os_disk::{FileIo, SECTOR};
-use crate::os_image::{self, write_volume, OsFile, Source};
+use crate::os_image::{self, write_volume, OsFile};
 use crate::os_layout::DirSpec;
 
 /// Where the FAT `/boot` partition starts, and its size, in sectors.
@@ -187,12 +187,7 @@ pub fn estimate_os_bytes(dirs: &[DirSpec], files: &[OsFile]) -> Result<u64, Stri
     const BLOCK: u64 = 4096;
     let mut data = 0u64;
     for file in files {
-        let len = match &file.source {
-            Source::Bytes(bytes) => bytes.len() as u64,
-            Source::Path(path) => std::fs::metadata(path)
-                .map_err(|e| format!("{}: {e}", path.display()))?
-                .len(),
-        };
+        let len = file.source.len()?;
         let blocks = len.div_ceil(BLOCK);
         data += (blocks + blocks.div_ceil(1024) + 1) * BLOCK;
     }
@@ -220,12 +215,7 @@ pub fn installed_package_bytes(files: &[OsFile]) -> Result<u64, String> {
         if !(file.path.starts_with(&core) && file.path.ends_with(".lzp")) {
             continue;
         }
-        let bytes = match &file.source {
-            Source::Bytes(bytes) => bytes.clone(),
-            Source::Path(path) => {
-                std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?
-            }
-        };
+        let bytes = file.source.read(&file.path)?;
         let package = lazypkg::Package::open(&bytes)
             .map_err(|e| format!("{}: not a package: {e:?}", file.path))?;
         let mut dirs = std::collections::BTreeSet::new();

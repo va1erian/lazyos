@@ -20,7 +20,7 @@ use uefi::{
     proto::{
         ProtocolPointer,
         console::gop::{GraphicsOutput, PixelFormat},
-        device_path::DevicePath,
+        device_path::{DevicePath, DevicePathNodeEnum},
         loaded_image::LoadedImage,
         media::file::{File, FileAttribute, FileInfo, FileMode},
         network::pxe::{BaseCode, DhcpV4Packet},
@@ -31,6 +31,7 @@ use x86_64::{
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
 };
 
+mod boot_dir;
 mod memory_descriptor;
 mod mode_pick;
 
@@ -201,6 +202,15 @@ fn load_file_from_disk(name: &CStr16) -> Option<&'static mut [u8]> {
     let mut file_system = boot::get_image_file_system(boot::image_handle()).ok()?;
 
     let mut root = file_system.open_volume().unwrap();
+    // LazyOS patch (boot_dir.rs): every file comes from the image's own
+    // directory when that directory holds the kernel, else from the root.
+    let mut path = [0u16; boot_dir::MAX_PATH];
+    let in_dir = image_dir_path(KERNEL_FILE.disk, &mut path)
+        .is_some_and(|kernel| root.open(kernel, FileMode::Read, FileAttribute::empty()).is_ok());
+    let name = match in_dir {
+        true => image_dir_path(name, &mut path).unwrap_or(name),
+        false => name,
+    };
     let file_handle_result = root.open(name, FileMode::Read, FileAttribute::empty());
     let file_handle = file_handle_result.ok()?;
 
@@ -217,6 +227,22 @@ fn load_file_from_disk(name: &CStr16) -> Option<&'static mut [u8]> {
     file.read(file_slice).unwrap();
 
     Some(file_slice)
+}
+
+/// `name` in the directory of this image's file path, built in `out`; `None`
+/// when the image sits at the volume root or its path is unknown.
+fn image_dir_path<'a>(name: &CStr16, out: &'a mut [u16; boot_dir::MAX_PATH]) -> Option<&'a CStr16> {
+    let loaded_image = boot::open_protocol_exclusive::<LoadedImage>(boot::image_handle()).ok()?;
+    let file_path = loaded_image.file_path()?;
+    let nodes = file_path
+        .node_iter()
+        .filter_map(|node| match node.as_enum() {
+            Ok(DevicePathNodeEnum::MediaFilePath(file)) => Some(file.path_name().into_iter()),
+            _ => None,
+        });
+    let name = name.to_u16_slice().iter().copied();
+    let len = boot_dir::join_nodes(nodes, name, out)?;
+    CStr16::from_u16_with_nul(&out[..len]).ok()
 }
 
 /// Try to load a kernel from a TFTP boot server.

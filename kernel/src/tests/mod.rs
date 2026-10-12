@@ -186,6 +186,7 @@ mod firmware_suite;
 mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
+mod gpt_suite;
 mod guard_suite;
 mod hardening_suite;
 mod heap_slab_suite;
@@ -300,6 +301,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     ahci_suite::CASES,
     block_sleep_suite::CASES,
     partition_suite::CASES,
+    gpt_suite::CASES,
     mount_suite::CASES,
     boot_trace_suite::CASES,
     trace_suite::CASES,

@@ -40,7 +40,7 @@ fn mbr(entries: &[[u8; 16]]) -> [u8; SECTOR_SIZE] {
     sector
 }
 
-fn used(table: &[Option<partition::Entry>; 4]) -> Vec<u8> {
+fn used(table: &[Option<partition::Entry>; 4]) -> Vec<u32> {
     table.iter().flatten().map(|entry| entry.index).collect()
 }
 

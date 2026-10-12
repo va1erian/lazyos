@@ -53,6 +53,7 @@ def advanced_cfg(ui) -> dict:
         "xui_autostart": ui.v["xui_autostart"].get(),
         "lazyrad": ui.v["lazyrad"].get(),
         "usb_image": ui.v["usb_image"].get(),
+        "installer": ui.v["installer"].get(),
         "netboot": ui.v["netboot"].get(),
         "netboot_key": ui.v["netboot_key"].get().strip(),
         "shell": ui.v["shell"].get(),

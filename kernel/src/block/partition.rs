@@ -1,19 +1,22 @@
-//! MBR partitions as block devices (docs/filesystem-plan.md F1).
+//! MBR and GPT partitions as block devices (docs/filesystem-plan.md F1,
+//! docs/grub-install-plan.md K2).
 //!
-//! After the drivers attach, every whole-disk device has its MBR parsed and
-//! each usable entry is registered as `<disk>p<n>` (1-based like the MBR
-//! index). The partition table is untrusted input: an entry is used only when
+//! After the drivers attach, every whole-disk device has its partition table
+//! parsed and each usable entry is registered as `<disk>p<n>` (1-based like
+//! the MBR slot or the GPT index; a protective MBR sends the disk to
+//! [`super::gpt`]). The partition table is untrusted input: an entry is used only when
 //! its extent lies wholly inside the disk and overlaps no other entry, and a
 //! bad one is logged and skipped, never clamped.
 //!
 //! Slots are a fixed static pool so the registry keeps holding
 //! `&'static dyn BlockDevice` without a heap. Only whole disks are scanned,
-//! never partitions; GPT/extended tables are out of scope. [`scan_all`] skips
+//! never partitions; extended MBR tables are out of scope. [`scan_all`] skips
 //! `ram0`, which [`super::mem::register_ramdisk`] scans itself because it
 //! registers after the drivers; [`scan_disk`] is the entry point for any
 //! device that appears later (the USB stick through `usbd`, track 5).
 
 use super::{check_range, BlockDevice, BlockError, Wait, SECTOR_SIZE};
+use alloc::vec::Vec;
 use core::str;
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Once;
@@ -31,11 +34,16 @@ const TYPE_GPT_PROTECTIVE: u8 = 0xEE;
 const TYPE_LINUX: u8 = 0x83;
 const TYPES_FAT: [u8; 5] = [0x01, 0x04, 0x06, 0x0B, 0x0C];
 
+/// The kinds a GPT entry is registered as (MBR type codes, for the log).
+pub const KIND_LINUX: u8 = TYPE_LINUX;
+pub const KIND_FAT32_LBA: u8 = 0x0C;
+pub const KIND_ESP: u8 = 0xEF;
+
 /// One validated MBR entry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Entry {
-    /// 1-based MBR slot.
-    pub index: u8,
+    /// 1-based MBR slot or GPT index.
+    pub index: u32,
     pub kind: u8,
     pub lba: u64,
     pub sectors: u64,
@@ -64,7 +72,7 @@ pub fn parse_mbr(
     }
     let table = &mbr[TABLE_OFFSET..SIGNATURE_OFFSET];
     for (slot, raw) in table.as_chunks::<ENTRY_LEN>().0.iter().enumerate() {
-        let index = slot as u8 + 1;
+        let index = slot as u32 + 1;
         let kind = raw[4];
         let lba = u64::from(u32::from_le_bytes([raw[8], raw[9], raw[10], raw[11]]));
         let sectors = u64::from(u32::from_le_bytes([raw[12], raw[13], raw[14], raw[15]]));
@@ -76,7 +84,9 @@ pub fn parse_mbr(
             continue;
         }
         if kind == TYPE_GPT_PROTECTIVE {
-            serial_println!("block: {disk}: GPT is not supported (protective MBR)");
+            serial_println!(
+                "block: {disk}p{index}: protective entry of an unreadable GPT, skipped"
+            );
             continue;
         }
         if kind != TYPE_LINUX && !TYPES_FAT.contains(&kind) {
@@ -236,13 +246,28 @@ struct NameBuf {
 }
 
 impl NameBuf {
-    fn new(disk: &str, index: u8) -> Option<NameBuf> {
-        let disk = disk.as_bytes();
-        let len = disk.len() + 2;
+    fn new(disk: &str, index: u32) -> Option<NameBuf> {
         let mut bytes = [0u8; 16];
-        bytes.get_mut(..len)?[..disk.len()].copy_from_slice(disk);
-        bytes[disk.len()] = b'p';
-        bytes[disk.len() + 1] = b'0' + index;
+        let disk = disk.as_bytes();
+        bytes.get_mut(..disk.len())?.copy_from_slice(disk);
+        let mut len = disk.len();
+        *bytes.get_mut(len)? = b'p';
+        len += 1;
+        let mut digits = [0u8; 10];
+        let mut count = 0;
+        let mut rest = index;
+        loop {
+            digits[count] = b'0' + (rest % 10) as u8;
+            count += 1;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        for &digit in digits[..count].iter().rev() {
+            *bytes.get_mut(len)? = digit;
+            len += 1;
+        }
         Some(NameBuf { bytes, len })
     }
 
@@ -302,10 +327,11 @@ fn register_entry(
     Some(partition)
 }
 
-/// Read the MBR of one whole disk and register its partitions as
-/// `<disk>p<n>`; returns how many were registered. Call it once per disk: a
-/// second scan finds the names taken and spends pool slots for nothing. A
-/// partition device is refused (no nested tables).
+/// Read the partition table of one whole disk (GPT behind a protective MBR,
+/// else the MBR) and register its partitions as `<disk>p<n>`; returns how
+/// many were registered. Call it once per disk: a second scan finds the names
+/// taken and spends pool slots for nothing. A partition device is refused (no
+/// nested tables).
 pub fn scan_disk(disk: &'static dyn BlockDevice) -> usize {
     let mut mbr = [0u8; SECTOR_SIZE];
     if disk.is_partition()
@@ -314,9 +340,14 @@ pub fn scan_disk(disk: &'static dyn BlockDevice) -> usize {
     {
         return 0;
     }
-    parse_mbr(&mbr, disk.sector_count(), disk.name())
+    let entries: Vec<Entry> = super::gpt::entries(disk, &mbr).unwrap_or_else(|| {
+        parse_mbr(&mbr, disk.sector_count(), disk.name())
+            .into_iter()
+            .flatten()
+            .collect()
+    });
+    entries
         .iter()
-        .flatten()
         .filter(|entry| register_entry(disk, entry).is_some())
         .count()
 }

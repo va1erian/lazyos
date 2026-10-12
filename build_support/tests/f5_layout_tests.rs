@@ -40,10 +40,7 @@ fn core_dir(name: &str) -> PathBuf {
 }
 
 fn source_bytes(source: &Source) -> Vec<u8> {
-    match source {
-        Source::Bytes(bytes) => bytes.clone(),
-        Source::Path(path) => std::fs::read(path).unwrap(),
-    }
+    source.read("test").unwrap()
 }
 
 #[test]

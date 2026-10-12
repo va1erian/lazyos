@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
-`--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
+`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
 """
@@ -98,6 +98,12 @@ def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""
     return required("the HTTPS tools", "nettls/build.py", ("--require",))
+
+
+def build_installer() -> bool:
+    """`lazyos-install` (`--installer`), the static musl program the stick
+    carries to install itself beside Linux (`tools/install/build.py`)."""
+    return required("lazyos-install", "install/build.py", ("--require",))
 
 
 def build_wifi() -> bool:

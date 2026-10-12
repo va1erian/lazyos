@@ -1,0 +1,19 @@
+[package]
+name = "gpt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "GUID Partition Table reading (hostile input) and writing, shared by the kernel and lazyos-install"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "gpt"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte entry point shared by the in-tree seeded tests
+# and the cargo-fuzz target (`fuzz/fuzz_targets/gpt.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
