@@ -123,7 +123,8 @@ class MainTests(RunDemoCase):
         from lazygui.test_osvolume import make_image
         small = make_image(self.dir, 512)
         with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small), \
-                mock.patch.object(run_demo, "build_srb2kart", return_value=True):
+                mock.patch.object(run_demo, "build_srb2kart", return_value=True), \
+                mock.patch.object(run_demo, "build_xui_shell", return_value=True):
             code, _ = self.run_main("--desktop", "--srb2kart")
             self.assertEqual(code, 1, "no terminal to ask: left untouched")
             self.assertEqual(self.builds, [])
