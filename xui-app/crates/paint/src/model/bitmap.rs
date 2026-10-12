@@ -4,8 +4,10 @@
 
 use xui_core::image::{Image, ImageError};
 
+use super::rect::Rect;
+
 /// The largest canvas side, in pixels.
-pub const MAX_SIDE: u32 = 1024;
+pub const MAX_SIDE: u32 = 16384;
 /// The smallest canvas side, in pixels.
 pub const MIN_SIDE: u32 = 1;
 
@@ -46,10 +48,20 @@ impl Bitmap {
         Bitmap::new(width, height, WHITE)
     }
 
+    /// A fully transparent bitmap.
+    pub fn transparent(width: u32, height: u32) -> Bitmap {
+        Bitmap::new(width, height, [0, 0, 0, 0])
+    }
+
     /// A white `width` x `height` bitmap with this one's pixels copied to the
     /// top-left, cropped when smaller. Sides are clamped like [`Bitmap::new`].
     pub fn resized(&self, width: u32, height: u32) -> Bitmap {
-        let mut out = Bitmap::white(width, height);
+        self.resized_with(width, height, WHITE)
+    }
+
+    /// Like [`Bitmap::resized`], with new area filled with `fill`.
+    pub fn resized_with(&self, width: u32, height: u32, fill: Pixel) -> Bitmap {
+        let mut out = Bitmap::new(width, height, fill);
         let columns = self.width.min(out.width) as usize * 4;
         let rows = self.height.min(out.height) as usize;
         for row in 0..rows {
@@ -58,6 +70,102 @@ impl Bitmap {
             out.pixels[to..to + columns].copy_from_slice(&self.pixels[from..from + columns]);
         }
         out
+    }
+
+    /// The bitmap's own bounds as a [`Rect`] at the origin.
+    pub fn rect(&self) -> Rect {
+        Rect::new(0, 0, self.width, self.height)
+    }
+
+    /// A copy of the part of `rect` inside the bitmap, or `None` when that is
+    /// empty.
+    pub fn crop(&self, rect: Rect) -> Option<Bitmap> {
+        let rect = rect.intersect(self.rect());
+        if rect.is_empty() {
+            return None;
+        }
+        let (w, h) = (rect.width() as usize, rect.height() as usize);
+        let mut pixels = Vec::with_capacity(w * h * 4);
+        for y in rect.y0..rect.y1 {
+            let at = self.offset(rect.x0, y);
+            pixels.extend_from_slice(&self.pixels[at..at + w * 4]);
+        }
+        Some(Bitmap {
+            width: w as u32,
+            height: h as u32,
+            pixels,
+        })
+    }
+
+    /// Copies `src_rect` of `src` (clipped to `src`) to `(x, y)` here, clipped
+    /// to this bitmap.
+    pub fn blit(&mut self, x: i32, y: i32, src: &Bitmap, src_rect: Rect) {
+        let src_rect = src_rect.intersect(src.rect());
+        // Where the source rectangle lands, clipped to this bitmap.
+        let dst = Rect::new(x, y, src_rect.width(), src_rect.height()).intersect(self.rect());
+        if dst.is_empty() {
+            return;
+        }
+        let sx = src_rect.x0 + (dst.x0 - x);
+        let sy = src_rect.y0 + (dst.y0 - y);
+        let bytes = dst.width() as usize * 4;
+        for row in 0..dst.height() as i32 {
+            let from = src.offset(sx, sy + row);
+            let to = self.offset(dst.x0, dst.y0 + row);
+            self.pixels[to..to + bytes].copy_from_slice(&src.pixels[from..from + bytes]);
+        }
+    }
+
+    /// Swaps the pixels of the rectangle at `(x, y)` the size of `other` with
+    /// `other`; the rectangle must lie inside this bitmap, else nothing moves
+    /// and `false` is returned.
+    pub fn swap_region(&mut self, x: i32, y: i32, other: &mut Bitmap) -> bool {
+        let rect = Rect::new(x, y, other.width, other.height);
+        if rect.intersect(self.rect()) != rect {
+            return false;
+        }
+        let bytes = other.width as usize * 4;
+        for row in 0..other.height as usize {
+            let at = self.offset(x, y + row as i32);
+            let theirs = row * bytes;
+            self.pixels[at..at + bytes].swap_with_slice(&mut other.pixels[theirs..theirs + bytes]);
+        }
+        true
+    }
+
+    /// Fills the pixels `x0..x1` of row `y` (clipped) with `fill`.
+    pub fn fill_span(&mut self, y: i32, x0: i32, x1: i32, fill: Pixel) {
+        let span = Rect {
+            x0,
+            y0: y,
+            x1,
+            y1: y.saturating_add(1),
+        }
+        .intersect(self.rect());
+        if span.is_empty() {
+            return;
+        }
+        let at = self.offset(span.x0, span.y0);
+        for pixel in self.pixels[at..at + span.width() as usize * 4].as_chunks_mut::<4>().0 {
+            pixel.copy_from_slice(&fill);
+        }
+    }
+
+    /// The byte offset of `(x, y)`, which must be inside.
+    fn offset(&self, x: i32, y: i32) -> usize {
+        (y as usize * self.width as usize + x as usize) * 4
+    }
+
+    /// `count` pixels of row `y` starting at column `x`, as bytes; the span must
+    /// lie inside the bitmap.
+    pub fn row(&self, y: i32, x: i32, count: usize) -> &[u8] {
+        let at = self.offset(x, y);
+        &self.pixels[at..at + count * 4]
+    }
+
+    /// The mutable RGBA8 pixels.
+    pub fn pixels_mut(&mut self) -> &mut [u8] {
+        &mut self.pixels
     }
 
     /// The width in pixels.
@@ -180,10 +288,8 @@ mod tests {
     #[test]
     fn dimensions_are_clamped_and_valid() {
         assert_eq!(Bitmap::white(0, 0).size(), (1, 1));
-        assert_eq!(
-            Bitmap::white(u32::MAX, u32::MAX).size(),
-            (MAX_SIDE, MAX_SIDE)
-        );
+        assert_eq!(Bitmap::white(u32::MAX, 1).size(), (MAX_SIDE, 1));
+        assert_eq!(Bitmap::white(1, u32::MAX).size(), (1, MAX_SIDE));
         assert_eq!(Bitmap::white(1, 1).byte_len(), 4);
         assert_eq!(Bitmap::white(3, 2).byte_len(), 3 * 2 * 4);
     }
@@ -219,5 +325,39 @@ mod tests {
         .unwrap();
         let bitmap = Bitmap::from_image(&big);
         assert_eq!(bitmap.size(), (MAX_SIDE, 8));
+    }
+
+    #[test]
+    fn crop_blit_and_swap_agree() {
+        let mut bitmap = Bitmap::white(6, 4);
+        bitmap.put(2, 1, [1, 2, 3, 4]);
+        let rect = Rect::new(1, 1, 3, 2);
+        let mut piece = bitmap.crop(rect).unwrap();
+        assert_eq!(piece.size(), (3, 2));
+        assert_eq!(piece.get(1, 0), Some([1, 2, 3, 4]));
+        // Swapping in a different piece hands back the old one.
+        let mut other = Bitmap::new(3, 2, [9, 9, 9, 9]);
+        assert!(bitmap.swap_region(1, 1, &mut other));
+        assert_eq!(other, piece);
+        assert_eq!(bitmap.get(2, 1), Some([9, 9, 9, 9]));
+        // Blitting the original back restores it.
+        bitmap.blit(1, 1, &piece, piece.rect());
+        assert_eq!(bitmap.get(2, 1), Some([1, 2, 3, 4]));
+        // A region outside the bitmap is refused, not clipped.
+        assert!(!bitmap.swap_region(5, 3, &mut piece));
+        assert!(bitmap.crop(Rect::new(10, 10, 2, 2)).is_none());
+    }
+
+    #[test]
+    fn blit_clips_and_spans_fill() {
+        let mut bitmap = Bitmap::white(4, 4);
+        let src = Bitmap::new(3, 3, [5, 5, 5, 255]);
+        bitmap.blit(-1, -1, &src, src.rect());
+        assert_eq!(bitmap.get(0, 0), Some([5, 5, 5, 255]));
+        assert_eq!(bitmap.get(1, 1), Some([5, 5, 5, 255]));
+        assert_eq!(bitmap.get(2, 2), Some(WHITE));
+        bitmap.fill_span(3, -4, 100, [1, 1, 1, 1]);
+        assert_eq!(bitmap.get(3, 3), Some([1, 1, 1, 1]));
+        assert_eq!(bitmap.get(0, 3), Some([1, 1, 1, 1]));
     }
 }

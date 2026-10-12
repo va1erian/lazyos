@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
-//! The model's actions: begin/extend/end, fill, pick, undo/redo, clear and
-//! load. A child of `model` so it can touch the document's private fields.
+//! The tool actions: begin/extend/end, fill and pick. A child of `model` so it
+//! can touch the document's private fields. Every tool draws on the active
+//! layer and records a delta: the rectangle it overwrote.
 
 use super::{Drag, Model, Pixel, PreviewKind, Side, Tool};
-use crate::model::{Bitmap, MAX_BRUSH, MAX_SIDE, MIN_SIDE, Preview, WHITE, fill, raster};
+use crate::model::history::UndoCapture;
+use crate::model::{Edit, MAX_BRUSH, Preview, WHITE, fill, raster};
 
 impl Model {
     /// Selects a tool, dropping any in-progress preview.
@@ -34,7 +36,8 @@ impl Model {
         std::mem::swap(&mut self.primary, &mut self.secondary);
     }
 
-    /// The paint colour for a side (the eraser always paints the background).
+    /// The paint colour for a side (the eraser always paints the background;
+    /// writing alpha 0 is P3's change to the eraser).
     pub fn color_for(&self, side: Side) -> Pixel {
         if self.tool == Tool::Eraser {
             return WHITE;
@@ -45,7 +48,7 @@ impl Model {
         }
     }
 
-    /// Begins an action at canvas pixel `(x, y)`.
+    /// Begins an action at document pixel `(x, y)`.
     pub fn begin(&mut self, x: i32, y: i32, side: Side) {
         match self.tool {
             Tool::Pencil | Tool::Brush | Tool::Eraser => {
@@ -55,13 +58,15 @@ impl Model {
                 } else {
                     self.size
                 };
-                let before = self.bitmap.clone();
-                raster::stamp(&mut self.bitmap, x, y, diameter, color);
+                let layer = self.doc.active();
+                let mut capture = UndoCapture::new();
+                self.draw_dab(layer, &mut capture, (x, y), (x, y), diameter, color);
                 self.drag = Some(Drag::Freehand {
+                    layer,
                     last: (x, y),
                     diameter,
                     color,
-                    before,
+                    capture,
                 });
                 self.bump();
             }
@@ -72,39 +77,44 @@ impl Model {
                 });
                 self.preview = Some(self.preview_of((x, y), (x, y), side));
             }
-            Tool::Fill => {
-                let color = self.color_for(side);
-                let before = self.bitmap.clone();
-                if fill::flood_fill(&mut self.bitmap, x, y, color) {
-                    self.history.record(before);
-                    self.bump();
-                }
-            }
+            Tool::Fill => self.fill_at(x, y, side),
             Tool::Picker => self.pick(x, y, side),
         }
     }
 
     /// Extends an in-progress action to `(x, y)`.
     pub fn extend(&mut self, x: i32, y: i32) {
-        match &mut self.drag {
-            Some(Drag::Freehand {
+        let Some(drag) = self.drag.take() else {
+            return;
+        };
+        self.drag = Some(match drag {
+            Drag::Freehand {
+                layer,
                 last,
                 diameter,
                 color,
-                ..
-            }) => {
-                if *last != (x, y) {
-                    raster::line(&mut self.bitmap, *last, (x, y), *diameter, *color);
-                    *last = (x, y);
+                mut capture,
+            } => {
+                let last = if last != (x, y) {
+                    self.draw_dab(layer, &mut capture, last, (x, y), diameter, color);
                     self.bump();
+                    (x, y)
+                } else {
+                    last
+                };
+                Drag::Freehand {
+                    layer,
+                    last,
+                    diameter,
+                    color,
+                    capture,
                 }
             }
-            Some(Drag::Shape { start, side }) => {
-                let (start, side) = (*start, *side);
+            Drag::Shape { start, side } => {
                 self.preview = Some(self.preview_of(start, (x, y), side));
+                Drag::Shape { start, side }
             }
-            None => {}
-        }
+        });
     }
 
     /// Finishes an action, committing it to the history as one step.
@@ -113,28 +123,25 @@ impl Model {
             return;
         };
         match drag {
-            Drag::Freehand { before, .. } => {
-                if self.bitmap != before {
-                    self.history.record(before);
-                }
-            }
+            Drag::Freehand { layer, capture, .. } => self.commit(layer, capture),
             Drag::Shape { start, side } => {
                 let end = self.preview.map(|p| p.to).unwrap_or(start);
-                let before = self.bitmap.clone();
+                let layer = self.doc.active();
                 let color = self.color_for(side);
                 let diameter = self.size;
-                match self.tool {
-                    Tool::Line => raster::line(&mut self.bitmap, start, end, diameter, color),
-                    Tool::Rectangle => {
-                        raster::rectangle(&mut self.bitmap, start, end, diameter, color)
+                let mut capture = UndoCapture::new();
+                if let Some(target) = self.doc.layer_mut(layer) {
+                    capture.touch(&target.pixels, raster::reach(start, end, diameter));
+                    let bitmap = &mut target.pixels;
+                    match self.tool {
+                        Tool::Line => raster::line(bitmap, start, end, diameter, color),
+                        Tool::Rectangle => raster::rectangle(bitmap, start, end, diameter, color),
+                        Tool::Ellipse => raster::ellipse(bitmap, start, end, diameter, color),
+                        _ => {}
                     }
-                    Tool::Ellipse => raster::ellipse(&mut self.bitmap, start, end, diameter, color),
-                    _ => {}
                 }
-                if self.bitmap != before {
-                    self.history.record(before);
-                    self.bump();
-                }
+                self.commit(layer, capture);
+                self.bump();
             }
         }
         self.preview = None;
@@ -151,9 +158,9 @@ impl Model {
         self.drag.is_some()
     }
 
-    /// Samples the pixel at `(x, y)` into the given side.
+    /// Samples the pixel at `(x, y)` of the active layer into the given side.
     pub fn pick(&mut self, x: i32, y: i32, side: Side) {
-        let Some(pixel) = self.bitmap.get(x, y) else {
+        let Some(pixel) = self.bitmap().get(x, y) else {
             return;
         };
         match side {
@@ -162,76 +169,77 @@ impl Model {
         }
     }
 
-    /// Undoes the last committed action.
-    pub fn undo(&mut self) {
-        if let Some(previous) = self.history.undo(&self.bitmap) {
-            self.bitmap = previous;
-            self.preview = None;
-            self.drag = None;
-            self.bump();
+    /// Stamps the segment `from`..`to` on `layer`, backing up what it covers
+    /// first and marking it for repaint.
+    fn draw_dab(
+        &mut self,
+        layer: usize,
+        capture: &mut UndoCapture,
+        from: (i32, i32),
+        to: (i32, i32),
+        diameter: u32,
+        color: Pixel,
+    ) {
+        let Some(target) = self.doc.layer_mut(layer) else {
+            return;
+        };
+        let area = raster::reach(from, to, diameter).intersect(target.pixels.rect());
+        if area.is_empty() {
+            return;
+        }
+        capture.touch(&target.pixels, area);
+        raster::line(&mut target.pixels, from, to, diameter, color);
+        self.damage_rect(area);
+    }
+
+    /// Turns a finished capture into one history entry named for the tool.
+    fn commit(&mut self, layer: usize, capture: UndoCapture) {
+        let Some(target) = self.doc.layer(layer) else {
+            return;
+        };
+        let touched = capture.bounds();
+        if let Some((rect, before)) = capture.finish(&target.pixels) {
+            self.damage_rect(rect);
+            self.history.record(Edit::Pixels {
+                name: self.tool.label().to_string(),
+                layer,
+                rect,
+                before,
+            });
+        } else if !touched.is_empty() {
+            self.damage_rect(touched);
         }
     }
 
-    /// Redoes the last undone action.
-    pub fn redo(&mut self) {
-        if let Some(next) = self.history.redo(&self.bitmap) {
-            self.bitmap = next;
-            self.preview = None;
-            self.drag = None;
-            self.bump();
+    /// The bucket: fills the clicked region of the active layer.
+    fn fill_at(&mut self, x: i32, y: i32, side: Side) {
+        let color = self.color_for(side);
+        let layer = self.doc.active();
+        let Some(target) = self.doc.layer_mut(layer) else {
+            return;
+        };
+        let Some(filled) = fill::flood_fill_spans(&mut target.pixels, x, y, color) else {
+            return;
+        };
+        // Every filled pixel was `target`: rebuild the picture before the fill.
+        let Some(mut before) = target.pixels.crop(filled.bounds) else {
+            return;
+        };
+        for (row, x0, x1) in &filled.spans {
+            before.fill_span(
+                row - filled.bounds.y0,
+                x0 - filled.bounds.x0,
+                x1 - filled.bounds.x0,
+                filled.target,
+            );
         }
-    }
-
-    /// Clears the canvas to white as one undo step.
-    pub fn clear(&mut self) {
-        let before = self.bitmap.clone();
-        self.bitmap.fill(WHITE);
-        self.preview = None;
-        self.drag = None;
-        if self.bitmap != before {
-            self.history.record(before);
-            self.bump();
-        }
-    }
-
-    /// Resizes the canvas to `width` x `height`: the old pixels stay at the
-    /// top-left (cropped when smaller) and new area is white. One undo step;
-    /// the same size is a no-op. A side outside `MIN_SIDE..=MAX_SIDE` is
-    /// rejected and changes nothing.
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), String> {
-        let range = MIN_SIDE..=MAX_SIDE;
-        if !range.contains(&width) || !range.contains(&height) {
-            return Err(format!(
-                "size must be {MIN_SIDE}-{MAX_SIDE} pixels per side"
-            ));
-        }
-        self.end();
-        if self.bitmap.size() == (width, height) {
-            return Ok(());
-        }
-        let resized = self.bitmap.resized(width, height);
-        let before = std::mem::replace(&mut self.bitmap, resized);
-        self.history.record(before);
-        self.preview = None;
-        self.bump();
-        Ok(())
-    }
-
-    /// Replaces the document with a fresh white bitmap and an empty history.
-    pub fn reset(&mut self, width: u32, height: u32) {
-        self.bitmap = Bitmap::white(width, height);
-        self.history.clear();
-        self.preview = None;
-        self.drag = None;
-        self.bump();
-    }
-
-    /// Replaces the bitmap with a decoded one and empties the history.
-    pub fn load(&mut self, bitmap: Bitmap) {
-        self.bitmap = bitmap;
-        self.history.clear();
-        self.preview = None;
-        self.drag = None;
+        self.damage_rect(filled.bounds);
+        self.history.record(Edit::Pixels {
+            name: self.tool.label().to_string(),
+            layer,
+            rect: filled.bounds,
+            before,
+        });
         self.bump();
     }
 
@@ -250,7 +258,7 @@ impl Model {
         }
     }
 
-    fn bump(&mut self) {
+    pub(super) fn bump(&mut self) {
         self.revision = self.revision.wrapping_add(1);
     }
 }

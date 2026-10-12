@@ -7,11 +7,11 @@ reachable with the mouse alone.
 
 | | |
 |---|---|
-| Canvas | white, 320x240 by default, up to 1024x768, scrollable/clipped |
+| Canvas | white, 320x240 by default, sides up to 16384 within a 512 MiB budget (layers + cache + undo), zoom 1/16x-32x (Ctrl+wheel), pixel grid from 800% |
 | Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker |
 | Sizes | 1, 2, 4, 8, 16 px |
 | Colours | 16 fixed swatches; left picks primary, right picks secondary |
-| History | byte-bounded undo/redo (8 MiB), Clear, New |
+| History | delta undo/redo (rectangle of the touched layer, 64 MiB cap), Clear, New |
 | Status bar | cursor position, canvas size, active tool, last save/load message |
 | Persistence | optional `Storage`; `MemoryStorage` by default, `FsStorage` behind `--features fs` |
 
@@ -37,6 +37,9 @@ crates/xui-paint/src/
     fill.rs           iterative scanline flood fill (no recursion)
     history.rs        byte-capped undo/redo snapshots
     tool.rs           Tool, Side, SIZES
+    image/            Document and Layer, flatten by rectangle, memory budget
+    blend.rs          straight-alpha source-over
+    history/          Edit deltas and the byte-capped History
     document.rs       Model: fields and accessors
     document/edit.rs  Model actions (begin/extend/end, fill, pick, undo/redo)
   view/               xui glue: PaintApp, canvas, tool strip, palette, status
@@ -46,6 +49,8 @@ crates/xui-paint/src/
     toolbar.rs        custom tool strip; toolbar/paint.rs draws it
     palette.rs        custom palette
     icons.rs          hand-drawn paint-tool glyphs
+  viewport.rs         zoom and scroll arithmetic (pure)
+  render.rs           flattened cache and the nearest-neighbour screen image (pure)
   storage.rs          Storage trait, MemoryStorage, FailingStorage, FsStorage
   selftest.rs         the scripted PASS/FAIL checks
   main.rs             backend selection and the binary

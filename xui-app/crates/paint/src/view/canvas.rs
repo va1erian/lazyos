@@ -1,70 +1,62 @@
 #![forbid(unsafe_code)]
 
-//! The canvas widget: a custom-painted node that shows the bitmap, a live shape
-//! preview and a brush cursor, and maps pointer input to canvas coordinates.
+//! The canvas widget: a custom-painted node that shows the picture at the
+//! viewport's zoom, a live shape preview and a brush cursor, and maps pointer
+//! input to picture coordinates.
 
+mod events;
 mod paint;
+mod state;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Event, NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
-use xui_core::image::Image;
 use xui_core::layout::Constraints;
-use xui_core::message::MouseButton;
 use xui_core::widget::{Control, Placeable};
 
 use super::Msg;
-use crate::model::{Bitmap, Preview, Side};
+use crate::model::{Model, Side};
+use crate::viewport::Viewport;
+
+pub use state::CanvasState;
 
 // xui gap: G1 — a `Custom` node with a painter and event closures is built from
 // the public `Control` primitive rather than a dedicated canvas widget.
-/// A canvas interaction, in canvas pixels (the bitmap's own coordinates).
+/// A canvas interaction, in picture pixels (the document's own coordinates,
+/// whatever the zoom).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CanvasMsg {
     /// A button went down.
     Down {
-        /// Canvas x.
+        /// Picture x.
         x: i32,
-        /// Canvas y.
+        /// Picture y.
         y: i32,
         /// Which paint side the button selects.
         side: Side,
     },
     /// The pointer moved while a button may be down.
     Move {
-        /// Canvas x.
+        /// Picture x.
         x: i32,
-        /// Canvas y.
+        /// Picture y.
         y: i32,
     },
-    /// A button went up at the given canvas position.
+    /// A button went up at the given picture position.
     Up {
-        /// Canvas x.
+        /// Picture x.
         x: i32,
-        /// Canvas y.
+        /// Picture y.
         y: i32,
     },
     /// The drag was interrupted (focus or capture lost).
     Cancel,
 }
 
-/// What the canvas painter reads. Kept separate from the model so a painter
-/// never borrows the model or mutates it.
-#[derive(Default)]
-pub struct CanvasState {
-    image: Option<Image>,
-    revision: u64,
-    offset: (i32, i32),
-    bitmap_size: (i32, i32),
-    preview: Option<Preview>,
-    cursor: Option<(i32, i32)>,
-    brush: u32,
-}
-
-/// A scrollable viewport over the model's bitmap.
+/// A zoomable, scrollable view over the model's document.
 pub struct PaintCanvas {
     control: Control<Msg>,
     state: Rc<RefCell<CanvasState>>,
@@ -84,7 +76,7 @@ impl PaintCanvas {
             let state = Rc::clone(&state);
             let theme = ui.theme_handle();
             control.set_painter(Rc::new(move |canvas| {
-                paint::paint(canvas, &state.borrow(), &theme.get());
+                paint::paint(canvas, &mut state.borrow_mut(), &theme.get());
             }));
         }
 
@@ -97,7 +89,7 @@ impl PaintCanvas {
                 if ui.is_design_mode() && event.is_input() {
                     return None;
                 }
-                handle(&ui, id, &state, &releasing, event)
+                events::handle(&ui, id, &state, &releasing, event)
             });
         }
 
@@ -109,39 +101,74 @@ impl PaintCanvas {
         self.control.id()
     }
 
-    /// Refreshes the painter's cached image and preview from `bitmap`/`revision`
-    /// and the model's preview, rebuilding the [`Image`] only when the bitmap
-    /// changed.
-    pub fn sync(&self, bitmap: &Bitmap, revision: u64, preview: Option<Preview>, brush: u32) {
-        let changed = {
-            let mut state = self.state.borrow_mut();
-            let changed = state.revision != revision;
-            if changed {
-                // xui gap: G5 — no dirty rect reaches a painter, so the whole
-                // node repaints; cache the Image by revision to stay cheap.
-                state.image = Some(bitmap.to_image());
-                state.revision = revision;
-            }
-            state.bitmap_size = (bitmap.width() as i32, bitmap.height() as i32);
-            // A shrinking bitmap must not leave the viewport scrolled past it.
-            if state.clamp_offset(self.control.bounds()) {
-                self.control.invalidate();
-            }
-            if state.preview != preview || state.brush != brush {
-                state.preview = preview;
-                state.brush = brush;
-                self.control.invalidate();
-            }
-            changed
-        };
+    /// Brings the view up to date with the model: the flattened cache takes
+    /// only the rectangles the model reports changed, the screen image is
+    /// rebuilt lazily by the painter, and a shrinking document cannot leave the
+    /// viewport scrolled past it.
+    pub fn sync(&self, model: &Model) {
+        let mut state = self.state.borrow_mut();
+        let mut changed = state.update(model.document(), model.take_damage());
+        // The model may have been replaced wholesale (New, Open): keep the
+        // viewport's picture size in step.
+        let preview = model.preview();
+        let brush = model.size();
+        if state.preview != preview || state.brush != brush {
+            state.preview = preview;
+            state.brush = brush;
+            changed = true;
+        }
+        drop(state);
         if changed {
             self.control.invalidate();
         }
     }
 
-    /// The current scroll offset in device pixels.
+    /// The viewport (zoom and scroll).
+    pub fn viewport(&self) -> Viewport {
+        *self.state.borrow().viewport()
+    }
+
+    /// The zoom as a whole percent.
+    pub fn zoom_percent(&self) -> u32 {
+        self.state.borrow().viewport().percent()
+    }
+
+    /// The scroll offset in view pixels.
     pub fn offset(&self) -> (i32, i32) {
-        self.state.borrow().offset
+        self.state.borrow().viewport().origin()
+    }
+
+    /// Zooms in one step around the centre of the view.
+    pub fn zoom_in(&self) {
+        self.zoom(|vp, doc, view| vp.zoom_in((view.0 / 2, view.1 / 2), doc, view));
+    }
+
+    /// Zooms out one step around the centre of the view.
+    pub fn zoom_out(&self) {
+        self.zoom(|vp, doc, view| vp.zoom_out((view.0 / 2, view.1 / 2), doc, view));
+    }
+
+    /// Zooms so the whole picture fits the view.
+    pub fn zoom_fit(&self) {
+        self.zoom(|vp, doc, view| vp.fit(doc, view));
+    }
+
+    /// Zooms to 100%.
+    pub fn actual_size(&self) {
+        self.zoom(|vp, doc, view| vp.actual_size(doc, view));
+    }
+
+    /// Shows or hides the pixel grid (drawn from 800%).
+    pub fn set_grid(&self, grid: bool) {
+        self.state.borrow_mut().set_grid(grid);
+        self.control.invalidate();
+    }
+
+    fn zoom(&self, change: impl FnOnce(&mut Viewport, (u32, u32), (i32, i32))) {
+        let moved = self.state.borrow_mut().change_viewport(change);
+        if moved {
+            self.control.invalidate();
+        }
     }
 
     /// Shows or hides the node.
@@ -160,131 +187,11 @@ impl Placeable<Msg> for PaintCanvas {
         Size::new(0, 0)
     }
 
-    /// A smaller viewport must not stay scrolled past the bitmap.
+    /// A smaller view must not stay scrolled past the picture.
     fn placed(&self, _ui: &Ui<Msg>, rect: Rect) {
-        if self.state.borrow_mut().clamp_offset(rect) {
+        if self.state.borrow_mut().set_view(rect) {
             self.control.invalidate();
         }
-    }
-}
-
-impl CanvasState {
-    /// Clamps the scroll offset so a `view`-sized viewport stays over the
-    /// bitmap; returns whether it moved.
-    fn clamp_offset(&mut self, view: Rect) -> bool {
-        let clamped = (
-            self.offset
-                .0
-                .clamp(0, (self.bitmap_size.0 - view.width()).max(0)),
-            self.offset
-                .1
-                .clamp(0, (self.bitmap_size.1 - view.height()).max(0)),
-        );
-        let moved = clamped != self.offset;
-        self.offset = clamped;
-        moved
-    }
-}
-
-/// Converts a local pointer position to a canvas position.
-fn canvas_at(state: &CanvasState, x: i32, y: i32) -> (i32, i32) {
-    (
-        x.saturating_add(state.offset.0),
-        y.saturating_add(state.offset.1),
-    )
-}
-
-/// Maps which side a button paints.
-fn side_of(button: MouseButton) -> Option<Side> {
-    match button {
-        MouseButton::Left => Some(Side::Primary),
-        MouseButton::Right => Some(Side::Secondary),
-        _ => None,
-    }
-}
-
-/// The canvas event mapper.
-fn handle(
-    ui: &Ui<Msg>,
-    id: WidgetId,
-    state: &Rc<RefCell<CanvasState>>,
-    releasing: &Rc<Cell<bool>>,
-    event: &Event,
-) -> Option<Msg> {
-    match event {
-        Event::MouseDown { x, y, button, .. } => {
-            let side = side_of(*button)?;
-            ui.focus(id);
-            ui.set_capture(id);
-            let (cx, cy) = canvas_at(&state.borrow(), *x, *y);
-            Some(Msg::Canvas(CanvasMsg::Down { x: cx, y: cy, side }))
-        }
-        Event::MouseMove { x, y, .. } => {
-            let (cx, cy) = {
-                let mut state = state.borrow_mut();
-                let at = canvas_at(&state, *x, *y);
-                state.cursor = Some(at);
-                at
-            };
-            ui.invalidate(id);
-            Some(Msg::Canvas(CanvasMsg::Move { x: cx, y: cy }))
-        }
-        Event::MouseUp { x, y, .. } => {
-            let at = canvas_at(&state.borrow(), *x, *y);
-            // xui gap: G2 — release_capture raises a synchronous CaptureChanged
-            // that must not read as a fresh interruption.
-            releasing.set(true);
-            ui.release_capture();
-            releasing.set(false);
-            Some(Msg::Canvas(CanvasMsg::Up { x: at.0, y: at.1 }))
-        }
-        Event::MouseLeave => {
-            // Only hide the brush ring: with capture held, a leave does not end
-            // a drag (a source that emits one anyway must not cancel it).
-            let had = state.borrow_mut().cursor.take().is_some();
-            if had {
-                ui.invalidate(id);
-            }
-            None
-        }
-        Event::CaptureChanged | Event::KillFocus => {
-            if releasing.get() {
-                return None;
-            }
-            state.borrow_mut().cursor = None;
-            ui.invalidate(id);
-            Some(Msg::Canvas(CanvasMsg::Cancel))
-        }
-        Event::MouseWheel {
-            delta, horizontal, ..
-        } => {
-            let step = i32::from(*delta) * 24;
-            if *horizontal {
-                scroll_ui(ui, id, state, step, 0);
-            } else {
-                scroll_ui(ui, id, state, 0, step);
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Scrolls the viewport, clamped to the bitmap.
-fn scroll_ui(ui: &Ui<Msg>, id: WidgetId, state: &Rc<RefCell<CanvasState>>, dx: i32, dy: i32) {
-    let (bitmap, bounds) = {
-        let state = state.borrow();
-        (state.bitmap_size, ui.bounds(id))
-    };
-    let mut state = state.borrow_mut();
-    let next = (
-        (state.offset.0 + dx).clamp(0, (bitmap.0 - bounds.width()).max(0)),
-        (state.offset.1 + dy).clamp(0, (bitmap.1 - bounds.height()).max(0)),
-    );
-    if next != state.offset {
-        state.offset = next;
-        drop(state);
-        ui.invalidate(id);
     }
 }
 

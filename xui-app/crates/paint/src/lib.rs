@@ -24,9 +24,11 @@
 //! renders (xui gap: G15). See `GAPS.md` for the full list.
 
 pub mod model;
+pub mod render;
 pub mod selftest;
 pub mod storage;
 pub mod view;
+pub mod viewport;
 
 pub use model::{Bitmap, Model, Tool};
 pub use storage::{MemoryStorage, Storage};
@@ -37,6 +39,6 @@ pub const DEFAULT_WIDTH: u32 = 320;
 /// The default canvas height in pixels.
 pub const DEFAULT_HEIGHT: u32 = 240;
 /// The largest canvas side in pixels.
-pub const MAX_CANVAS_SIDE: u32 = 1024;
-/// The byte cap on the undo/redo history (8 MiB).
-pub const HISTORY_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_CANVAS_SIDE: u32 = 16384;
+/// The byte cap on the undo/redo history (64 MiB).
+pub const HISTORY_BYTES: usize = 64 * 1024 * 1024;

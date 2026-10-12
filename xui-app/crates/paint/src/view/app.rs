@@ -156,12 +156,7 @@ impl PaintApp {
 
     /// Rebuilds the painter state, toolbar and status bar from the model.
     fn sync(&mut self) {
-        self.canvas.sync(
-            self.model.bitmap(),
-            self.model.revision(),
-            self.model.preview(),
-            self.model.size(),
-        );
+        self.canvas.sync(&self.model);
         let io = self.storage.available() || self.files.is_some();
         self.toolbar.sync(&self.model, io);
         self.palette
@@ -175,7 +170,7 @@ impl PaintApp {
             Some((x, y)) => format!("{x}, {y}"),
             None => "--".to_string(),
         };
-        let (width, height) = self.model.bitmap().size();
+        let (width, height) = self.model.document().size();
         let size = format!("{width} x {height}");
         let tool = self.model.tool().label().to_string();
         let message = self.message.clone().unwrap_or_default();
@@ -200,7 +195,7 @@ impl PaintApp {
     fn save(&mut self) {
         let result = self
             .model
-            .bitmap()
+            .flatten()
             .encode_png()
             .map_err(|error| error.to_string())
             .and_then(|bytes| self.storage.save(&bytes));
@@ -217,12 +212,17 @@ impl PaintApp {
             return false;
         };
         match crate::model::Bitmap::decode(&bytes) {
-            Ok(bitmap) => {
-                self.model.load(bitmap);
-                self.cursor = None;
-                self.message = Some("Opened".to_string());
-                true
-            }
+            Ok(bitmap) => match self.model.load(bitmap) {
+                Ok(()) => {
+                    self.cursor = None;
+                    self.message = Some("Opened".to_string());
+                    true
+                }
+                Err(error) => {
+                    self.message = Some(format!("Open failed: {error}"));
+                    false
+                }
+            },
             Err(error) => {
                 self.message = Some(format!("Open failed: {error}"));
                 false
@@ -274,9 +274,13 @@ impl App for PaintApp {
             Msg::Redo => self.model.redo(),
             Msg::Clear => self.model.clear(),
             Msg::New => {
-                self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-                self.cursor = None;
-                self.current_path = None;
+                match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
+                    Ok(()) => {
+                        self.cursor = None;
+                        self.current_path = None;
+                    }
+                    Err(error) => self.message = Some(format!("New failed: {error}")),
+                }
             }
             Msg::Save => self.save_requested(),
             Msg::Open => self.open_requested(),
@@ -284,7 +288,7 @@ impl App for PaintApp {
             Msg::OpenChosen => self.open_chosen(ui),
             Msg::SaveChosen => self.save_chosen(ui),
             Msg::ResizeAsk => {
-                if let Err(error) = self.resize.show(ui, self.model.bitmap().size()) {
+                if let Err(error) = self.resize.show(ui, self.model.document().size()) {
                     self.message = Some(format!("Resize failed: {error}"));
                 }
             }

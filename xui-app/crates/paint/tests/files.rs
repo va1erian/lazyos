@@ -435,7 +435,7 @@ fn resize_prompt_is_prefilled_applies_and_is_undoable() {
 fn a_bad_resize_text_reports_and_changes_nothing() {
     let disk = Rc::new(Disk::default());
     session(&disk, None, |stage, seen| {
-        for bad in ["abc", "0x10", "5000x5000", "10"] {
+        for bad in ["abc", "0x10", "20000x20000", "16384x16384", "10"] {
             click_cell(stage, 19);
             replace_text(stage, bad);
             key(stage, Key::RETURN);

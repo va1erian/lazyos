@@ -103,10 +103,10 @@ fn load_and_reset_clear_the_history() {
     let mut model = model();
     model.begin(0, 0, Side::Primary);
     model.end();
-    model.load(Bitmap::white(8, 8));
+    model.load(Bitmap::white(8, 8)).unwrap();
     assert_eq!(model.bitmap().size(), (8, 8));
     assert!(!model.history().can_undo());
-    model.reset(4, 4);
+    model.reset(4, 4).unwrap();
     assert_eq!(model.bitmap().size(), (4, 4));
     assert!(!model.history().can_undo());
 }

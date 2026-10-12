@@ -114,12 +114,14 @@ impl PaintApp {
             return;
         };
         match Bitmap::decode(&bytes) {
-            Ok(bitmap) => {
-                self.model.load(bitmap);
-                self.cursor = None;
-                self.current_path = Some(path.to_path_buf());
-                self.message = Some(format!("Opened {name}"));
-            }
+            Ok(bitmap) => match self.model.load(bitmap) {
+                Ok(()) => {
+                    self.cursor = None;
+                    self.current_path = Some(path.to_path_buf());
+                    self.message = Some(format!("Opened {name}"));
+                }
+                Err(error) => self.message = Some(format!("Open failed: {name}: {error}")),
+            },
             Err(error) => self.message = Some(format!("Open failed: {name}: {error}")),
         }
     }
@@ -130,7 +132,7 @@ impl PaintApp {
         let name = display_name(path);
         let result = self
             .model
-            .bitmap()
+            .flatten()
             .encode_png()
             .map_err(|error| error.to_string())
             .and_then(|bytes| self.storage.save_to(path, &bytes));

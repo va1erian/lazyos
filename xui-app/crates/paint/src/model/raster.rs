@@ -6,6 +6,7 @@
 //! hostile `i32::MIN`/`i32::MAX` pair can never overflow the Bresenham deltas.
 
 use super::bitmap::{Bitmap, Pixel};
+use super::rect::Rect;
 
 /// Coordinates are clamped to this magnitude before any arithmetic.
 const LIMIT: i32 = 1 << 20;
@@ -17,6 +18,22 @@ fn bounds(from: (i32, i32), to: (i32, i32)) -> (i32, i32, i32, i32) {
     let (x0, y0) = (from.0.clamp(-LIMIT, LIMIT), from.1.clamp(-LIMIT, LIMIT));
     let (x1, y1) = (to.0.clamp(-LIMIT, LIMIT), to.1.clamp(-LIMIT, LIMIT));
     (x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1))
+}
+
+/// The pixels a brush of `diameter` can touch through the points `from` and
+/// `to`: for one dab pass the same point twice, for a line its two ends, for a
+/// rectangle or ellipse its two corners. Used to back up what a draw
+/// overwrites, so it must cover every stamp the functions below make.
+pub fn reach(from: (i32, i32), to: (i32, i32), diameter: u32) -> Rect {
+    let (left, top, right, bottom) = bounds(from, to);
+    let radius = diameter.clamp(1, MAX_BRUSH).div_ceil(2) as i32;
+    Rect {
+        x0: left,
+        y0: top,
+        x1: right + 1,
+        y1: bottom + 1,
+    }
+    .inflate(radius + 1)
 }
 
 /// Stamps a filled disc of `diameter` centred on `(cx, cy)`.

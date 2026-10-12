@@ -6,23 +6,40 @@
 use std::collections::VecDeque;
 
 use super::bitmap::{Bitmap, Pixel};
+use super::rect::Rect;
 
 /// Flood-fills the connected region of the colour at `(x, y)` with `color`.
 ///
 /// Returns whether any pixel changed. An out-of-bounds seed, or one already the
 /// target colour, is a no-op.
+#[cfg(test)]
 pub fn flood_fill(bitmap: &mut Bitmap, x: i32, y: i32, color: Pixel) -> bool {
-    let Some(target) = bitmap.get(x, y) else {
-        return false;
-    };
+    flood_fill_spans(bitmap, x, y, color).is_some()
+}
+
+/// What a fill changed. Every filled pixel was `target` before, so the
+/// spans are enough to rebuild the "before" picture for undo.
+pub struct Filled {
+    /// The bounding rectangle of the filled pixels.
+    pub bounds: Rect,
+    /// The colour every filled pixel had.
+    pub target: Pixel,
+    /// The filled runs as `(y, x0, x1)`, `x1` exclusive.
+    pub spans: Vec<(i32, i32, i32)>,
+}
+
+/// Like [`flood_fill`], returning the changed runs, or `None` for a no-op.
+pub fn flood_fill_spans(bitmap: &mut Bitmap, x: i32, y: i32, color: Pixel) -> Option<Filled> {
+    let target = bitmap.get(x, y)?;
     if target == color {
-        return false;
+        return None;
     }
+    let mut spans = Vec::new();
+    let mut bounds = Rect::EMPTY;
     let width = bitmap.width() as i32;
     let height = bitmap.height() as i32;
     let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
     queue.push_back((x, y));
-    let mut changed = false;
     while let Some((seed_x, seed_y)) = queue.pop_front() {
         if bitmap.get(seed_x, seed_y) != Some(target) {
             continue;
@@ -37,8 +54,14 @@ pub fn flood_fill(bitmap: &mut Bitmap, x: i32, y: i32, color: Pixel) -> bool {
         }
         for px in left..=right {
             bitmap.put(px, seed_y, color);
-            changed = true;
         }
+        spans.push((seed_y, left, right + 1));
+        bounds = bounds.union(Rect {
+            x0: left,
+            y0: seed_y,
+            x1: right + 1,
+            y1: seed_y + 1,
+        });
         for row in [seed_y - 1, seed_y + 1] {
             if row < 0 || row >= height {
                 continue;
@@ -56,7 +79,11 @@ pub fn flood_fill(bitmap: &mut Bitmap, x: i32, y: i32, color: Pixel) -> bool {
             }
         }
     }
-    changed
+    Some(Filled {
+        bounds,
+        target,
+        spans,
+    })
 }
 
 #[cfg(test)]

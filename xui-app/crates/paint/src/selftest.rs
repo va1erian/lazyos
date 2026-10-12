@@ -10,7 +10,7 @@
 
 use std::io::Write;
 
-use crate::model::{Bitmap, History, MAX_SIDE, Model, Pixel, Side, Tool, WHITE};
+use crate::model::{Bitmap, Edit, History, MAX_SIDE, Model, Pixel, Rect, Side, Tool, WHITE};
 use crate::storage::{FailingStorage, MemoryStorage, Storage};
 
 const RED: Pixel = [255, 0, 0, 255];
@@ -166,7 +166,12 @@ pub fn run(out: &mut dyn Write) -> bool {
         {
             let mut history = History::new(32 * 1024);
             for seed in 0..8u8 {
-                history.record(Bitmap::new(64, 64, [seed, 0, 0, 255]));
+                history.record(Edit::Pixels {
+                    name: "t".to_string(),
+                    layer: 0,
+                    rect: Rect::new(0, 0, 64, 64),
+                    before: Bitmap::new(64, 64, [seed, 0, 0, 255]),
+                });
             }
             history.bytes() <= history.cap() && history.undo_len() >= 1
         },
