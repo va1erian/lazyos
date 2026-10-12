@@ -37,7 +37,6 @@ extern crate std;
 mod assoc;
 mod bss;
 pub mod events;
-mod iso3166;
 mod keys;
 mod mac;
 pub mod radio;

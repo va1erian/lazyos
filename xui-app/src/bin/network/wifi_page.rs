@@ -158,6 +158,9 @@ pub(super) struct Wifi {
     pub(super) join: Option<wifiview::JoinKind>,
     /// A saved network that `Connect` did not know yet: asked again each tick.
     pub(super) pending: Option<Pending>,
+    /// Started as `network /wifi` (the tray's Wi-Fi menu): open the page as
+    /// soon as the radio is found.
+    pub(super) open_when_found: bool,
 }
 
 /// A join to retry: the profile id, its name and the tries left.
@@ -171,7 +174,7 @@ pub(super) struct Pending {
 pub(super) const JOIN_RETRIES: u32 = 15;
 
 impl Wifi {
-    pub(super) fn new(forget_dialog: Dialog<Msg>) -> Wifi {
+    pub(super) fn new(forget_dialog: Dialog<Msg>, open_when_found: bool) -> Wifi {
         Wifi {
             view: View::Wired,
             ifname: None,
@@ -187,6 +190,7 @@ impl Wifi {
             probed_rows: Vec::new(),
             join: None,
             pending: None,
+            open_when_found,
         }
     }
 }
@@ -249,6 +253,9 @@ impl Network {
         self.ui.set_visible(self.w.wifi_button.get().id(), true);
         self.wifi.button_probe = true;
         self.wifi.ifname = Some(ifname);
+        if std::mem::take(&mut self.wifi.open_when_found) {
+            self.wifi_open();
+        }
     }
 
     /// Show one page of the window.

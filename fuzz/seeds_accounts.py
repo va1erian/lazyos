@@ -77,6 +77,8 @@ def elevpolicy_seeds():
         "wifi_add": request("net.wifi.add", "LazyWPA2", "wpa2", "0", "lazy-wpa2-pass"),
         "wifi_add_open": request("net.wifi.add", "Cafe", "open", "1", ""),
         "wifi_forget": request("net.wifi.forget", "w0123456789ab"),
+        "wifi_country": request("net.wifi.country", "FR"),
+        "wifi_country_world": request("net.wifi.country", "00"),
         "unknown": request("sh", "-c", "rm -rf /"),
         "traversal": request("pkg.install", "/transient/../system/bin/init"),
         "system_account": request("account.create", "_accounts", "x", "admin"),

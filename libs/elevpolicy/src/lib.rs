@@ -29,6 +29,7 @@
 //! | `net.wifi.system` | `store`, name, passphrase; or `delete`, name | `keyd` `StoreSecret`/`DeleteSecret` in the `system` scope |
 //! | `net.wifi.add` | SSID, `open`/`wpa2`, hidden `1`/`0`, passphrase | `keyd` `StoreSecret` (`system`) under a new id, then `wlanmd` `AddNetwork` (scope `System`) |
 //! | `net.wifi.forget` | profile id | `wlanmd` `Forget`, then `keyd` `DeleteSecret` (`system`) |
+//! | `net.wifi.country` | ISO 3166-1 alpha-2 code, or `00` | `confd` `Set` of `sys/net/wifi/country` |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -102,6 +103,7 @@ pub const MAX_SECRET: usize = 64;
 pub const POWER_PREFIX: &str = "sys/power/";
 /// The confd subtree `net.config` writes (`sys/net/<card>/...`).
 pub const NET_PREFIX: &str = "sys/net/";
+pub use wifi::WIFI_COUNTRY_KEY;
 /// Latest clock `time.set` accepts (2200-01-01, as `timed`).
 const MAX_TIME: i64 = 7_258_118_400;
 
@@ -206,6 +208,13 @@ pub enum Operation {
     WifiForget {
         id: String,
     },
+    /// The Wi-Fi regulatory country: an assigned ISO 3166-1 alpha-2 code in
+    /// capitals, or `00` (the world domain). It decides which channels the
+    /// radio may transmit on, so it is a machine setting an administrator
+    /// approves; a code that is not on the list is refused before any prompt.
+    WifiCountry {
+        code: String,
+    },
 }
 
 /// What `net.wifi.system` does to the machine's own Wi-Fi secrets, the ones
@@ -250,6 +259,7 @@ pub const NAMES: &[&str] = &[
     "net.wifi.system",
     "net.wifi.add",
     "net.wifi.forget",
+    "net.wifi.country",
 ];
 
 impl Operation {
@@ -441,6 +451,7 @@ impl Operation {
             }
             "net.wifi.add" => wifi::parse_add(args)?,
             "net.wifi.forget" => wifi::parse_forget(args)?,
+            "net.wifi.country" => wifi::parse_country(args)?,
             _ => return Err("not an operation elevd performs"),
         };
         Ok(op)
@@ -472,6 +483,7 @@ impl Operation {
             Operation::WifiSystem(_) => 16,
             Operation::WifiAdd { .. } => 17,
             Operation::WifiForget { .. } => 18,
+            Operation::WifiCountry { .. } => 19,
         }
     }
 

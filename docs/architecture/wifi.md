@@ -253,7 +253,9 @@ from `confd` (again every 10 s; a read that fails keeps the profiles known,
 that is not an assigned ISO 3166-1 code by `wifimac::regdom` is `00` too) to
 each radio with `SetCountry` (the world domain when the radio refuses the
 code, no attach when it refuses that too; a changed key is applied within
-10 s), auto-connects to the best known system network and to the networks of
+10 s; the key is set from Settings' Wi-Fi page through `elevd`'s
+`net.wifi.country <code>`, which checks the code against `libs/iso3166`, the
+one list `wifimac` and the page use), auto-connects to the best known system network and to the networks of
 the users logged in, and serves `wifi.v1` with the rules of
 `wlansta::policy`: `AddNetwork` scope `System` only from `elevd` and
 without a passphrase (the profile under the id whose secret `elevd` stored

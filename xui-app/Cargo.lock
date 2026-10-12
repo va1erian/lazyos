@@ -2554,6 +2554,10 @@ name = "ipp"
 version = "0.1.0"
 
 [[package]]
+name = "iso3166"
+version = "0.1.0"
+
+[[package]]
 name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6263,6 +6267,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
+name = "wifitray"
+version = "0.1.0"
+dependencies = [
+ "trayclient",
+]
+
+[[package]]
 name = "winapi-util"
 version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6760,6 +6771,7 @@ dependencies = [
  "timezone",
  "trayclient",
  "uitheme",
+ "wifitray",
  "xui-archiver",
  "xui-calc",
  "xui-canvas",
@@ -6977,6 +6989,7 @@ dependencies = [
  "deskmenu",
  "fhs",
  "inputmap",
+ "iso3166",
  "timezone",
  "uitheme",
  "xui-canvas",

@@ -51,6 +51,9 @@ members = [
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
+    # The Network Status applet's Wi-Fi icon, tooltip and menu (host-tested);
+    # `src/bin/netstatus.rs` feeds it.
+    "crates/wifi-tray",
 ]
 
 [dependencies]
@@ -141,6 +144,8 @@ lazysky-core = { path = "crates/lazysky-core" }
 lazyshell = { path = "crates/shell" }
 # Easing, the toast spring and the `sys/ui/motion` setting (docs/notify-plan.md).
 lazymotion = { path = "crates/motion" }
+# The Network Status applet's Wi-Fi icon, tooltip and menu as pure functions.
+wifitray = { path = "crates/wifi-tray" }
 # Named Lucide outlines (docs/icons.md): the tray draws `lucide` icons by name.
 lazyicons = { path = "crates/named-icons" }
 # One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).

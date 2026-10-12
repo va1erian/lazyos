@@ -104,6 +104,12 @@ impl Slot {
     /// refuses that one). `Err` when it takes neither: the caller drops it.
     pub fn apply_country(&mut self, country: &str) -> messenger::Result<()> {
         self.country = set_country(&self.radio, &self.ifname, country)?;
+        // Evidence for the harness (`tools/wifi/tray_run.py`): a changed
+        // `sys/net/wifi/country` reached the radio, as the code it took.
+        sys::write_str(&format!(
+            "WLANMD:RADIO:COUNTRY:SET {} {}\n",
+            self.ifname, self.country
+        ));
         Ok(())
     }
 

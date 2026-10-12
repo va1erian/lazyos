@@ -12,3 +12,5 @@ path = "src/lib.rs"
 
 [dependencies]
 ieee80211 = { path = "../ieee80211" }
+# The assigned country codes `SetCountry` accepts.
+iso3166 = { path = "../iso3166" }

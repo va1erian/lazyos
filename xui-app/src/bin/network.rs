@@ -404,6 +404,14 @@ impl Network {
     }
 }
 
+/// Whether the app was started on the Wi-Fi page: `init.Launch` passes the
+/// tray's `/wifi` as the one argument.
+fn opens_on_wifi() -> bool {
+    std::env::args()
+        .skip(1)
+        .any(|arg| arg == wifitray::NETWORK_WIFI_ARG)
+}
+
 fn main() {
     launch::run("NETAPP", "Network", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
@@ -420,7 +428,7 @@ fn main() {
         let mut app = Network {
             w,
             ui: ui.clone(),
-            wifi: wifi_page::Wifi::new(forget),
+            wifi: wifi_page::Wifi::new(forget, opens_on_wifi()),
             store: ConfdStore::new(),
             status: None,
             selected: None,

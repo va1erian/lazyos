@@ -66,6 +66,7 @@ impl Operation {
                 passphrase.clone()
             ],
             Operation::WifiForget { id } => one(id),
+            Operation::WifiCountry { code } => one(code),
         }
     }
 }

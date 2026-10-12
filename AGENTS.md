@@ -975,6 +975,20 @@ python tools/wifi/test_judge.py; python tools/wifi/test_judge_wlanmd.py; python 
 python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
 ```
 
+**Desktop front ends (issue #777).** The Network Status tray applet
+(`xui-app/src/bin/netstatus.rs`, `radio.rs`) shows the radio on a desktop with
+a wireless interface: a Wi-Fi fan icon (an alpha mask drawn by
+`xui-app/crates/wifi-tray`, bars from `wifi::bars`), a tooltip, and a menu of
+the heard networks that connects, saves an open one, or opens the Network app
+on its Wi-Fi page (`init.Launch` with the argument `/wifi`) for a secured one.
+Settings has a Wi-Fi page for the regulatory country (`sys/net/wifi/country`,
+the list is `libs/iso3166`), written through `elevd`'s `net.wifi.country`. Both
+are judged by one session: `python tools/wifi/tray_run.py` (builds the
+`LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_WIFI=1 LAZYOS_WIFI_SIM=1` image, starts
+the fake APs, plays `tools/screenshot/examples/wifi_tray.json`;
+`python tools/wifi/test_tray_judge.py` is the judge's self-test;
+`cargo test --manifest-path xui-app/Cargo.toml -p wifitray -p xui-settings`).
+
 ## Device manager (`devd`) and driver choices
 
 With a sound or network driver in the image, `init` starts `devd` (uid 906, no

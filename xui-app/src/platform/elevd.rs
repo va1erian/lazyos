@@ -31,6 +31,10 @@ const NAME: &str = "os.lazy.elevd";
 const REQUEST_TICKS: u64 = 40_000;
 /// The confd subtree only a system service (or `elevd`) writes.
 const SYSTEM_PREFIX: &str = "sys/";
+/// The Wi-Fi regulatory country (`elevpolicy::WIFI_COUNTRY_KEY`): written
+/// through its own operation, which checks the code against the ISO 3166-1
+/// list and says on the prompt what it limits.
+const WIFI_COUNTRY_KEY: &str = "sys/net/wifi/country";
 
 /// Ask `elevd` for `operation` with `args`: its detail and values, or the
 /// refusal (cancelled, not approved, the service's own error).
@@ -203,9 +207,13 @@ impl ConfigStore for ElevatingStore {
             return ConfigStore::set(&self.0, key, value);
         }
         let (kind, text) = value_args(&value);
-        request_within("conf.set", &[key, kind, &text], REQUEST_TICKS)
-            .map(|_| ())
-            .map_err(|error| describe(&error))
+        let asked = match (key, &value) {
+            (WIFI_COUNTRY_KEY, Value::Str(code)) => {
+                request_within("net.wifi.country", &[code], REQUEST_TICKS)
+            }
+            _ => request_within("conf.set", &[key, kind, &text], REQUEST_TICKS),
+        };
+        asked.map(|_| ()).map_err(|error| describe(&error))
     }
 
     fn delete(&self, key: &str) -> Result<(), SettingsError> {

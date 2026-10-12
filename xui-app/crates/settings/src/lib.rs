@@ -39,6 +39,8 @@ pub mod time_ops;
 pub mod time_page;
 pub mod user_theme;
 pub mod wallpaper_ops;
+pub mod wifi_ops;
+pub mod wifi_page;
 pub mod windows_page;
 
 pub use accounts::{Account, Accounts, MemAccounts};

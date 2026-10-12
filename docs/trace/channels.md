@@ -33,7 +33,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `DOCS` | `Docs` | `docs` | xui-app | sessions | programs |
 | `DOOM` | `Doom` | `doom` | doom | sessions, tools/input | programs |
 | `EDITOR` | `Editor` | `editor` | xui-app | sessions, tools/screenshot | programs |
-| `ELEVD` | `Elevd` | `elevd` | other, user | sessions, tools/accounts, tools/screenshot | programs |
+| `ELEVD` | `Elevd` | `elevd` | other, user | sessions, tools/accounts, tools/screenshot, tools/wifi | programs |
 | `EMUSIC` | `Emusic` | `emusic` | emusic | sessions, tools/emusic | programs |
 | `FABMON` | `Fabmon` | `fabmon` | xui-app | sessions | programs |
 | `FAULT` | `Fault` | `fault` | kernel | tools/wifi | programs |
@@ -44,11 +44,11 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `GOLF` | `Golf` | `golf` | xui-app | sessions | programs |
 | `GREETER` | `Greeter` | `greeter` | xui-app | sessions, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
-| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
+| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/wifi, tools/xui | programs |
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/wifi | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
 | `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/storage, tools/tray, tools/wifi | programs |
@@ -67,13 +67,13 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MSGRD` | `Msgrd` | `msgrd` | user | - | programs |
 | `NC` | `Nc` | `nc` | other, user | tools/net | programs |
 | `NET` | `Net` | `net` | user | tools/net | programs |
-| `NETAPP` | `Netapp` | `netapp` | xui-app | sessions | programs |
+| `NETAPP` | `Netapp` | `netapp` | xui-app | sessions, tools/wifi | programs |
 | `NETBULK` | `Netbulk` | `netbulk` | other, user | - | programs |
 | `NETCTL` | `Netctl` | `netctl` | user | tools/net | programs |
 | `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/lazysky, tools/net, tools/web, tools/wifi | programs |
 | `NETDRIVES` | `Netdrives` | `netdrives` | xui-app | tools/fuse | programs |
 | `NETDRV` | `Netdrv` | `netdrv` | user | tools/irqpath.py, tools/net, tools/perf, tools/test_irqpath.py, tools/wifi | programs |
-| `NETSTATUS` | `Netstatus` | `netstatus` | xui-app | sessions | programs |
+| `NETSTATUS` | `Netstatus` | `netstatus` | xui-app | sessions, tools/wifi | programs |
 | `NETTOOLS` | `Nettools` | `nettools` | xui-app | sessions | programs |
 | `NICCTL` | `Nicctl` | `nicctl` | user | tools/net | programs |
 | `NSLOOKUP` | `Nslookup` | `nslookup` | user | tools/net | programs |
@@ -87,8 +87,8 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel | - | programs |
-| `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
-| `SHELL` | `Shell` | `shell` | kernel suite, other, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/screenshot, tools/services, tools/shutdown | programs |
+| `SETTINGS` | `Settings` | `settings` | xui-app | sessions, tools/wifi | programs |
+| `SHELL` | `Shell` | `shell` | kernel suite, other, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/screenshot, tools/services, tools/shutdown, tools/wifi | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SMB` | `Smb` | `smb` | user | tools/smb | programs |
 | `SMBFUSE` | `Smbfuse` | `smbfuse` | user | tools/fuse, tools/smb | programs |
@@ -103,15 +103,15 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
 | `TIMED` | `Timed` | `timed` | user | tools/services | programs |
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
-| `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/tray | programs |
+| `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/tray, tools/wifi | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
-| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot | programs |
+| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot, tools/wifi | programs |
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEB` | `Web` | `web` | xui-app | sessions, tools/web | programs |
 | `WIDGET` | `Widget` | `widget` | xui-app | sessions | programs |
 | `WIFID` | `Wifid` | `wifid` | user | - | programs |
-| `WIFI` | `Wifi` | `wifi` | user | tools/wifi | programs |
+| `WIFI` | `Wifi` | `wifi` | user | sessions, tools/wifi | programs |
 | `WIFIPROBE` | `Wifiprobe` | `wifiprobe` | user | tools/wifi | programs |
 | `WIFISIM` | `Wifisim` | `wifisim` | user | tools/wifi | programs |
 | `WRITER` | `Writer` | `writer` | xui-app | sessions, tools/print | programs |

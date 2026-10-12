@@ -9,7 +9,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use elevpolicy::{value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX};
+use elevpolicy::{
+    value_args, Operation, Value, WifiChange, NET_PREFIX, POWER_PREFIX, WIFI_COUNTRY_KEY,
+};
 use user::messenger::{accounts, confd, errno, keyd, pkgd, services, timed};
 use user::sys;
 
@@ -137,6 +139,14 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
             passphrase,
         } => super::wifi::add(ssid, *wpa2, *hidden, passphrase),
         Operation::WifiForget { id } => super::wifi::forget(id),
+        Operation::WifiCountry { code } => {
+            // `wlanmd` re-reads the key every few seconds and gives it to
+            // each radio, so this write is the whole change.
+            conf()?
+                .set(WIFI_COUNTRY_KEY, &Value::Str(code.clone()))
+                .map_err(Refusal::of)?;
+            done(format!("Wi-Fi country set to {code}"))
+        }
         Operation::WifiSystem(change) => {
             // `keyd` takes a `system` secret from `elevd`'s identity alone,
             // so this call is what the approval bought. The detail names the

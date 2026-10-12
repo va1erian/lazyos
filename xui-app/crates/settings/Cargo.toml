@@ -20,6 +20,9 @@ timezone = { path = "../../../libs/timed" }
 # The account name and password rules accountsd applies, so the Accounts
 # page refuses exactly what the service would.
 accountdb = { path = "../../../libs/accountdb" }
+# The country list the Wi-Fi page offers: the one `elevd` and the radio's
+# regulatory table check a code against.
+iso3166 = { path = "../../../libs/iso3166" }
 # Where the image ships the Lucide licence notice the About page points to.
 fhs = { path = "../../../libs/fhs" }
 

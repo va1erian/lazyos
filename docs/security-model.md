@@ -479,8 +479,9 @@ Implemented by `elevd` (docs/accounts-plan.md U2, issue #625;
   **operation** of a fixed table (`pkg.install`, `pkg.update-core`,
   `pkg.remove`, `conf.*`, `time.set`, `account.*`, `power.policy`,
   `net.config`, `service.restart`, `net.wifi.system`, `net.wifi.add`,
-  `net.wifi.forget`) with checked arguments; `elevd` (its own `_elev` uid,
-  no capability) performs it itself once an administrator approved, and the
+  `net.wifi.forget`, `net.wifi.country`) with checked arguments; `elevd`
+  (its own `_elev` uid, no capability) performs it itself once an
+  administrator approved, and the
   services accept that path from its kernel-stamped identity alone.
 - Elevation always prompts: `xuid` draws the prompt over a dimmed screen,
   above every client and the shell; while it is up no client gets a key or a

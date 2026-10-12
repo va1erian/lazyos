@@ -1,4 +1,5 @@
-//! `net.wifi.add` and `net.wifi.forget`: a Wi-Fi network for every user.
+//! `net.wifi.add` and `net.wifi.forget`: a Wi-Fi network for every user;
+//! `net.wifi.country`: the regulatory country.
 //!
 //! A user saves their own network with `wlanmd` directly (`AddNetwork`,
 //! scope `User`). A network for **all users** (also before anyone logs in)
@@ -19,6 +20,10 @@ use alloc::string::{String, ToString};
 use crate::text::{self, plain};
 use crate::values::wifi_passphrase;
 use crate::Operation;
+
+/// The key `net.wifi.country` writes: the regulatory country `wlanmd` gives
+/// every radio (docs/architecture/wifi.md).
+pub const WIFI_COUNTRY_KEY: &str = "sys/net/wifi/country";
 
 /// Longest SSID, in octets (IEEE 802.11).
 pub const MAX_SSID: usize = 32;
@@ -84,6 +89,18 @@ pub(crate) fn parse_forget(args: &[String]) -> Result<Operation, &'static str> {
     } else {
         Err("not a Wi-Fi network id")
     }
+}
+
+/// `net.wifi.country`: an assigned ISO 3166-1 alpha-2 code (any case,
+/// kept in capitals) or `00`; anything else is refused before a prompt.
+pub(crate) fn parse_country(args: &[String]) -> Result<Operation, &'static str> {
+    let [code] = args else {
+        return Err("wrong number of arguments");
+    };
+    let code = iso3166::parse(code).ok_or("not an ISO 3166-1 country code or 00")?;
+    Ok(Operation::WifiCountry {
+        code: code.iter().map(|b| char::from(*b)).collect(),
+    })
 }
 
 /// The prompt text of `net.wifi.add`: never the passphrase.

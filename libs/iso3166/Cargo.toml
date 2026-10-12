@@ -1,0 +1,11 @@
+[package]
+name = "iso3166"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The officially assigned ISO 3166-1 alpha-2 country codes with English short names: the Wi-Fi regulatory country's one list (wifimac, elevd, Settings)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "iso3166"
+path = "src/lib.rs"

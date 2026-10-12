@@ -7,7 +7,7 @@ use std::rc::Rc;
 use xui_core::app::Ui;
 use xui_core::HasText;
 
-use super::{say, user_theme, ConfigStore, Msg, SettingsApp, UserTheme};
+use super::{say, user_theme, wifi_ops, ConfigStore, Msg, SettingsApp, UserTheme};
 
 /// What a change that waited on an administrator (or a slow service) reports
 /// back from its worker thread, ready to show.
@@ -17,6 +17,8 @@ pub enum Done {
     Theme(std::result::Result<user_theme::Published, String>),
     /// The status line after the keyboard layout was made the default.
     Keyboard(String),
+    /// The status line after the Wi-Fi country was written.
+    Wifi(String),
     /// The worker ended without an answer (it panicked).
     Lost,
 }
@@ -44,6 +46,13 @@ impl SettingsApp {
         };
         self.elevated(ui, move |_store, machine| {
             Done::Theme(user_theme::make_default(machine, uid))
+        });
+    }
+
+    /// Write the Wi-Fi regulatory country `code` (asks an administrator).
+    pub(super) fn set_country(&mut self, ui: &Ui<Msg>, code: &'static str) {
+        self.elevated(ui, move |_store, machine| {
+            Done::Wifi(wifi_ops::apply(machine, Some(code)))
         });
     }
 
@@ -118,6 +127,12 @@ impl SettingsApp {
             Done::Lost => self
                 .status
                 .set_text("The change stopped unexpectedly; nothing was confirmed."),
+            Done::Wifi(text) => {
+                self.pages
+                    .wifi
+                    .load(self.machine.as_ref(), self.system.as_ref());
+                say(&self.status, text);
+            }
             Done::Keyboard(text) => {
                 self.pages
                     .keyboard
