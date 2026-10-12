@@ -198,6 +198,15 @@ fn fat_error(what: &str) -> impl Fn(io::Error) -> String + '_ {
     move |e| format!("{what}: {e}")
 }
 
+/// Write `bytes` as `name` in `at`, created (or truncated) in place.
+fn write_new(at: &fatfs::Dir<'_, Window>, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let mut file = at.create_file(name).map_err(fat_error(name))?;
+    file.truncate().map_err(fat_error(name))?;
+    file.write_all(bytes)
+        .and_then(|()| file.flush())
+        .map_err(fat_error(name))
+}
+
 fn create_dirs<'a>(fs: &'a Fs, dir: &str) -> Result<fatfs::Dir<'a, Window>, String> {
     let mut at = fs.root_dir();
     for part in dir.split('/').filter(|p| !p.is_empty()) {
@@ -231,27 +240,31 @@ impl Esp for ImageEsp {
         {
             let at = create_dirs(&fs, dir)?;
             let temp = format!("{name}.new");
-            let mut file = at.create_file(&temp).map_err(fat_error(&temp))?;
-            file.truncate().map_err(fat_error(&temp))?;
-            file.write_all(bytes)
-                .and_then(|()| file.flush())
-                .map_err(fat_error(&temp))?;
-            drop(file);
-            // fatfs will not rename over a file and has no atomic replace.
-            // The old file steps aside first and comes back if the new one
-            // cannot take its name, so a failure leaves the old file in
-            // place; it is deleted only once the new one has the name.
-            let old = format!("{name}.old");
-            let _ = at.remove(&old);
-            let had_old = at.rename(name, &at, &old).is_ok();
-            if let Err(error) = at.rename(&temp, &at, name) {
-                if had_old {
-                    let _ = at.rename(&old, &at, name);
+            write_new(&at, &temp, bytes)?;
+            // fatfs will not rename over a file, has no atomic replace, and
+            // its rename is not transactional either. So the old bytes are
+            // kept in memory, and if the new file cannot take the name they
+            // are written back as a fresh file: recovery never depends on a
+            // second rename. A failed recovery reports both errors.
+            let previous = match at.open_file(name) {
+                Ok(mut file) => {
+                    let mut old = Vec::new();
+                    file.read_to_end(&mut old).map_err(fat_error(name))?;
+                    Some(old)
                 }
-                return Err(fat_error(name)(error));
+                Err(_) => None,
+            };
+            if previous.is_some() {
+                at.remove(name).map_err(fat_error(name))?;
             }
-            if had_old {
-                at.remove(&old).map_err(fat_error(&old))?;
+            if let Err(error) = at.rename(&temp, &at, name) {
+                let error = fat_error(name)(error);
+                if let Some(old) = previous {
+                    if let Err(restore) = write_new(&at, name, &old) {
+                        return Err(format!("{error}; restoring the old {name}: {restore}"));
+                    }
+                }
+                return Err(error);
             }
         }
         fs.unmount().map_err(fat_error("unmount the ESP"))
