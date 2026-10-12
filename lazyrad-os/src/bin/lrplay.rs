@@ -20,6 +20,7 @@
 //! `LRPLAY:UP:PASS` after the first frame reached the compositor,
 //! `LRPLAY:EVENT:PASS` after the first script event handler ran,
 //! `LRPLAY:EXIT:PASS` after the loop ended cleanly,
+//! `LRPLAY:DEBUG:PASS` when it was started under the IDE's debugger (`--debug`),
 //! `LRPLAY:MODPLAY:PASS:title=.. audio=0|1 rate=..` when a script starts a
 //! song (`LRPLAY:MODPLAY:FAIL:<why>` when its sound stops with an error),
 //! `LRPLAY:MODEND:PASS:elapsed_ms=..` when one has played out, and
@@ -98,7 +99,20 @@ fn main() -> ExitCode {
     // builds its font database once.
     xui_app::font::register_mono();
     let first_event = Rc::new(MARK.once("EVENT"));
-    let code = run_with_backend(&[project.to_string_lossy().into_owned()], &mut |runtime| {
+    // Under the IDE's debugger (`--debug`): commands arrive on stdin, which a
+    // helper thread could not read here, so the transport polls it from this
+    // thread (`lazyrad_os::debugio`). Events go to stdout, which is why the
+    // serial markers above go to the console device instead.
+    let mut player_args = Vec::new();
+    if parsed.debug {
+        lazyrad_player::debug::install_transport(|| {
+            Rc::new(lazyrad_os::debugio::StdinTransport::stdio())
+        });
+        player_args.push("--debug".to_owned());
+        MARK.pass("DEBUG");
+    }
+    player_args.push(project.to_string_lossy().into_owned());
+    let code = run_with_backend(&player_args, &mut |runtime| {
         let backend = LazyOSBackend::connect().map_err(|code| {
             MARK.fail("BIND", &format!("code {code}"));
             format!("cannot reach the display (error {code})")

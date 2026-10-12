@@ -8,7 +8,11 @@
 //! frame reached the compositor, `LRIDE:OPEN:PASS:<project>` when a project
 //! opened, `LRIDE:RUN:PASS:<project>` when Run started the player and
 //! `LRIDE:CHILD:PASS:exit=<code>` when it ended, `LRIDE:EXIT:PASS` after a clean
-//! exit, `LRIDE:<STAGE>:FAIL:<why>` otherwise.
+//! exit, `LRIDE:<STAGE>:FAIL:<why>` otherwise. Under the debugger a stop prints
+//! `LRIDE:BREAK:PASS:<item>:<line>` (a breakpoint), `LRIDE:STEP:PASS:<item>:<line>`
+//! (after a step), `LRIDE:PAUSE:PASS:<item>:<line>` (Break),
+//! `LRIDE:STOPERR:PASS:<item>:<line>` (a script error) and `LRIDE:LOCALS:PASS:<n>`
+//! (the Locals pane has `n` rows).
 //!
 //! Run packaged (under an `app:` label), Play runs the project under its own
 //! development label (`lazyrad_os::devplay`). `--play-dev <project>` does one
@@ -21,7 +25,7 @@ use std::rc::Rc;
 
 use std::path::PathBuf;
 
-use lazyrad_ide::{IdeEvent, RunOptions};
+use lazyrad_ide::{IdeEvent, RunOptions, StopKind};
 use lazyrad_os::args;
 use lazyrad_os::handoff::HandoffInstaller;
 use lazyrad_os::marker::Markers;
@@ -56,6 +60,23 @@ fn project_to_open() -> Result<Option<PathBuf>, String> {
         Some(parent) if is_lrp => parent.to_path_buf(),
         _ => full,
     }))
+}
+
+/// The serial evidence for one stop of a program under the debugger:
+/// `LRIDE:BREAK:PASS:<item>:<line>` at a breakpoint, `LRIDE:STEP:PASS:...` after a
+/// step, `LRIDE:PAUSE:PASS:...` for a Break, `LRIDE:STOPERR:PASS:...` for a script
+/// error, and `LRIDE:LOCALS:PASS:<n>` whenever the Locals pane has `n` rows.
+fn report_stop(kind: StopKind, item: &str, line: usize, locals: usize) {
+    let stage = match kind {
+        StopKind::Breakpoint => "BREAK",
+        StopKind::Step => "STEP",
+        StopKind::Break => "PAUSE",
+        StopKind::Error => "STOPERR",
+    };
+    MARK.pass_with(stage, &format!("{item}:{line}"));
+    if locals > 0 {
+        MARK.pass_with("LOCALS", &locals.to_string());
+    }
 }
 
 fn main() -> ExitCode {
@@ -132,6 +153,12 @@ fn main() -> ExitCode {
         IdeEvent::PackageFailed(why) => MARK.fail("PKG:INSTALL", why),
         IdeEvent::AppLaunched(id) => MARK.pass_with("PKG:LAUNCH", id),
         IdeEvent::DocumentEdited(name, chars) => MARK.pass_with("EDIT", &format!("{name} {chars}")),
+        IdeEvent::DebugStopped {
+            kind,
+            item,
+            line,
+            locals,
+        } => report_stop(*kind, item, *line, *locals),
     });
     let options = RunOptions {
         spec,

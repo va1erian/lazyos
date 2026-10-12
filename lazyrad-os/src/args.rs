@@ -10,6 +10,10 @@
 //!   `["--project", "resources/project"]`;
 //! * a developer at a shell.
 //!
+//! The IDE's debugger adds `--debug` to the first form (`--client --debug
+//! <project>`): the player then speaks the debug protocol on stdin and stdout
+//! ([`crate::debugio`]).
+//!
 //! # Where a produced app finds its project (decision D1a)
 //!
 //! An installed `.lzp` lives at `/apps/<system_name>/<version>-<hash>/`
@@ -61,6 +65,9 @@ pub const DEFAULT_PROJECT: &str = "resources/project";
 pub struct PlayerArgs {
     /// `--client` was present (the backend also detects the mode itself).
     pub client: bool,
+    /// `--debug` was present: the IDE started this player under the debugger,
+    /// and its stdin and stdout carry the debug protocol.
+    pub debug: bool,
     /// The project named by `--project` or positionally, unresolved.
     pub project: Option<PathBuf>,
     /// The documents to open, in order, unresolved.
@@ -114,6 +121,8 @@ where
         let text = arg.to_string_lossy();
         if text == "--client" {
             parsed.client = true;
+        } else if text == "--debug" {
+            parsed.debug = true;
         } else if text.starts_with("attempt=") {
             // `init`'s retry counter; meaningless here.
         } else if text == "--project" {
@@ -325,6 +334,21 @@ mod tests {
             args.project,
             Some(PathBuf::from("/system/share/lazyrad/hello"))
         );
+    }
+
+    #[test]
+    fn the_debug_flag_is_understood_beside_client_and_the_project() {
+        let args = parse(&["--client", "--debug", "/home/user/projects/hello"]).unwrap();
+        assert!(args.client && args.debug);
+        assert_eq!(
+            args.project,
+            Some(PathBuf::from("/home/user/projects/hello"))
+        );
+        // Without it the player is not a debug run, whatever else is given.
+        assert!(!parse(&["--client", "/p"]).unwrap().debug);
+        // It is a flag, not a path: never taken for a project or a document.
+        let args = parse_docs(&["--debug"]).unwrap();
+        assert!(args.debug && args.project.is_none() && args.documents.is_empty());
     }
 
     #[test]
