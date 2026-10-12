@@ -47,6 +47,21 @@ class WebkitDepsTests(unittest.TestCase):
         if env:
             self.assertEqual(env.get("LAZYOS_WEBKIT_DEPS"), "1")
 
+    def test_the_gui_gives_it_networking_and_a_card(self) -> None:
+        # depsproof's curl check fetches over HTTPS: the stack in the image and
+        # a QEMU card must come with the checkbox, as run_demo --webkit-deps does.
+        cfg = {**self.base(), "desktop": False, "webkit_deps": True}
+        self.assertTrue(catalog.wants_net(cfg))
+        env = catalog.build_env(cfg)
+        self.assertEqual((env["LAZYOS_NETD"], env["LAZYOS_NETD_ARGS"]), ("1", "demo=0"))
+        self.assertIn("--net", catalog.net_flags(cfg))
+        self.assertNotIn("--net", catalog.net_flags({**cfg, "webkit_deps": False}))
+        session = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
+                   "accel": "auto", "memory": "2G", "qemu": "", "out": "shots",
+                   "timeout": "300", "tablet": False, "script": 0, "webkit_deps": True}
+        plan = catalog.build_plan(session)
+        self.assertIn("--net", plan[-1]["argv"])
+
     def test_it_builds_after_jsc(self) -> None:
         steps = catalog.app_steps({"jsc": True, "webkit_deps": True, "tls": True})
         self.assertEqual([s["argv"][1] for s in steps],
