@@ -19,6 +19,15 @@ pub fn check(term: &Term) {
     assert!(state.bottom < rows, "region below the screen");
     assert_eq!(state.tabs.len(), cols, "tab stops");
     assert_eq!(state.screen.rows.len(), rows, "row count");
+    assert!(state.history.is_consistent(), "history");
+    assert_eq!(term.screen_top(), term.first_line() + term.scrollback_len() as u64);
+    for line in term.first_line()..term.screen_top() + rows as u64 {
+        assert!(term.line(line).is_some(), "line {line} missing");
+    }
+    assert!(term.line(term.screen_top() + rows as u64).is_none());
+    if state.on_alternate() {
+        assert!(state.top == 0 || state.bottom < rows);
+    }
     for (index, row) in state.screen.rows.iter().enumerate() {
         assert_eq!(row.cells.len(), cols, "row {index} width");
         assert!(row.is_consistent(), "row {index} wide characters");
@@ -40,6 +49,10 @@ pub fn run(data: &[u8]) {
         let _ = term.feed(chunk);
         let _ = term.take_reply();
         check(&term);
+        if chunk[0] % 17 == 0 {
+            term.set_scrollback(usize::from(chunk[chunk.len() - 1]) % 40);
+            check(&term);
+        }
         if chunk[0] % 31 == 0 {
             term.resize(
                 1 + usize::from(chunk[chunk.len() - 1]) % 120,
@@ -75,6 +88,7 @@ impl Rng {
 /// Typical terminal traffic the mutations start from: a shell prompt, an
 /// editor redraw, wide characters, a scroll region, colours.
 pub const SEEDS: &[&[u8]] = &[
+    b"\x08\x05a\nb\nc\nd\ne\nf\n\x1b[3J\x1b[1;3r\x1b[3;1H\n\n\x1bM\x1b[S\x1b[?1049h\n\n\n\n\n\x1b[?1049l\x1bc\n\n\n\n",
     b"\x4f\x17/ # echo hi\r\nhi\r\n/ # ",
     b"\x4f\x17\x1b[?1049h\x1b[H\x1b[2Jpager\x1b[5;1H:\x1b[?1049l",
     b"\x4f\x17\x1b[2;10r\x1b[10;1Hone\ntwo\ntwo\x1b[1;24r\x1bM\x1bM",

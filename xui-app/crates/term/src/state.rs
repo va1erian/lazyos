@@ -5,6 +5,7 @@
 use unicode_width::UnicodeWidthChar;
 
 use crate::cell::{Attr, Cell};
+use crate::history::History;
 use crate::row::Row;
 use crate::screen::Screen;
 
@@ -45,6 +46,7 @@ struct Stash {
 
 pub(crate) struct State {
     pub screen: Screen,
+    pub history: History,
     stash: Option<Stash>,
     pub row: usize,
     pub col: usize,
@@ -80,6 +82,7 @@ impl State {
     pub fn new(cols: usize, rows: usize) -> State {
         State {
             screen: Screen::new(cols, rows),
+            history: History::default(),
             stash: None,
             row: 0,
             col: 0,
@@ -221,16 +224,21 @@ impl State {
     }
 
     pub fn scroll_up(&mut self, n: usize) {
-        let gone = self.screen.scroll_up(self.top, self.bottom, n, self.attr);
-        if self.top == 0 && !self.on_alternate() {
-            for row in gone {
-                if row.wrapped && self.carry.len() < CARRY_MAX {
-                    self.carry.push_str(&row.text(false));
-                } else {
-                    self.carry.clear();
+        // Only the main screen scrolled from its very top feeds the history.
+        let keep = self.top == 0 && !self.on_alternate();
+        let (carry, history) = (&mut self.carry, &mut self.history);
+        self.screen
+            .scroll_up(self.top, self.bottom, n, self.attr, |row| {
+                if !keep {
+                    return;
                 }
-            }
-        }
+                if row.wrapped && carry.len() < CARRY_MAX {
+                    carry.push_str(&row.text(false));
+                } else {
+                    carry.clear();
+                }
+                history.push(row);
+            });
     }
 
     pub fn scroll_down(&mut self, n: usize) {
@@ -364,6 +372,9 @@ impl State {
         let mut fresh = State::new(self.cols(), self.height());
         std::mem::swap(&mut fresh.reply, &mut self.reply);
         std::mem::swap(&mut fresh.completed, &mut self.completed);
+        // The history goes, its budget stays, its numbers keep growing.
+        std::mem::swap(&mut fresh.history, &mut self.history);
+        fresh.history.clear();
         *self = fresh;
     }
 

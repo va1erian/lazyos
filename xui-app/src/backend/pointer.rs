@@ -105,7 +105,7 @@ impl LazyOSBackend {
             horizontal: false,
             x,
             y,
-            modifiers: Modifiers::NONE,
+            modifiers: self.modifiers.get(),
         };
         self.deliver_pointer(window, target, event);
     }

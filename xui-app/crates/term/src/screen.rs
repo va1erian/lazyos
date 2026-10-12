@@ -26,16 +26,24 @@ impl Screen {
         self.rows.len()
     }
 
-    /// Scroll rows `top..=bottom` up by `n`: the first `n` leave (returned,
-    /// oldest first) and blank rows enter at the bottom.
-    pub fn scroll_up(&mut self, top: usize, bottom: usize, n: usize, attr: Attr) -> Vec<Row> {
-        let n = n.min(bottom + 1 - top);
-        let out: Vec<Row> = self.rows.drain(top..top + n).collect();
-        for _ in 0..n {
-            self.rows
-                .insert(bottom + 1 - n, Row::new(self.cols, attr));
+    /// Scroll rows `top..=bottom` up by `n`: each of the first `n` is shown to
+    /// `sink` as it leaves, then recycled as a blank row at the bottom (no
+    /// allocation per scrolled row).
+    pub fn scroll_up(
+        &mut self,
+        top: usize,
+        bottom: usize,
+        n: usize,
+        attr: Attr,
+        mut sink: impl FnMut(&Row),
+    ) {
+        for _ in 0..n.min(bottom + 1 - top) {
+            let mut row = self.rows.remove(top);
+            sink(&row);
+            row.cells.fill(Cell::blank(attr));
+            row.wrapped = false;
+            self.rows.insert(bottom, row);
         }
-        out
     }
 
     /// Scroll rows `top..=bottom` down by `n`: the last `n` are dropped and

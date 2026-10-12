@@ -16,6 +16,7 @@ mod edit;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 mod handler;
+mod history;
 mod row;
 mod screen;
 mod state;
@@ -23,8 +24,11 @@ mod state;
 mod bench;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_history;
 
 pub use cell::{Attr, Cell, Color, Flags};
+pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
 pub use row::Row;
 
 pub use state::Line;
@@ -36,6 +40,16 @@ pub const MAX_ROWS: usize = 1000;
 
 fn clamp_size(cols: usize, rows: usize) -> (usize, usize) {
     (cols.clamp(1, MAX_COLS), rows.clamp(1, MAX_ROWS))
+}
+
+/// One line of the scrollback or the screen, as the painter reads it.
+/// History lines are stored without their trailing blanks, so `cells` can be
+/// shorter than the screen is wide: what is missing is blank.
+#[derive(Clone, Copy)]
+pub struct LineRef<'a> {
+    pub cells: &'a [Cell],
+    /// The text continued on the next line by autowrap.
+    pub wrapped: bool,
 }
 
 /// A virtual terminal screen driven by a program's output.
@@ -116,5 +130,55 @@ impl Term {
     /// Whether the alternate screen (`vi`, `less`) is up.
     pub fn on_alternate_screen(&self) -> bool {
         self.state.on_alternate()
+    }
+
+    // ---- scrollback ------------------------------------------------------
+
+    /// Set the scrollback budget in lines (default [`DEFAULT_SCROLLBACK`]);
+    /// `0` keeps nothing. A smaller budget drops the oldest lines at once.
+    pub fn set_scrollback(&mut self, lines: usize) {
+        self.state.history.set_limit(lines);
+    }
+
+    /// Lines kept in the scrollback.
+    pub fn scrollback_len(&self) -> usize {
+        self.state.history.len()
+    }
+
+    /// Forget the scrollback (`CSI 3 J`).
+    pub fn clear_scrollback(&mut self) {
+        self.state.history.clear();
+    }
+
+    /// The absolute number of the oldest line still kept. Lines are numbered
+    /// from the first one that ever scrolled off; numbers are never reused, so
+    /// an anchor stored as one stays valid until its text is evicted.
+    pub fn first_line(&self) -> u64 {
+        self.state.history.first()
+    }
+
+    /// The absolute number of the screen's top row: the scrollback is
+    /// `first_line()..screen_top()`, the screen the `rows()` after it. It only
+    /// grows, by one for every row that leaves the top of the main screen
+    /// (kept or not), which is how a scrolled-back view stays on its text.
+    pub fn screen_top(&self) -> u64 {
+        self.state.history.end()
+    }
+
+    /// The line numbered `line` (scrollback or screen), if it still exists.
+    pub fn line(&self, line: u64) -> Option<LineRef<'_>> {
+        let top = self.screen_top();
+        if line < top {
+            let row = self.state.history.get(line)?;
+            return Some(LineRef {
+                cells: &row.cells,
+                wrapped: row.wrapped,
+            });
+        }
+        let row = self.state.screen.rows.get(usize::try_from(line - top).ok()?)?;
+        Some(LineRef {
+            cells: &row.cells,
+            wrapped: row.wrapped,
+        })
     }
 }

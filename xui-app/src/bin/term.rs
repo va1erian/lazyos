@@ -42,13 +42,16 @@ mod paint;
 mod perf;
 #[path = "term/pty.rs"]
 mod pty;
+#[path = "term/scroll.rs"]
+mod scroll;
 #[path = "term/view.rs"]
 mod view;
 use evidence::{is_prompt, Evidence};
 use lazyterm::Term as Engine;
 use paint::{paint, DARK, LIGHT, LINE_H, PAD};
 use perf::{PaintClock, Perf};
-use view::{Layout, Shown};
+use scroll::{anchored, apply, key_move, wheel_arrows, wheel_move, Move};
+use view::{max_offset, Layout, Shown};
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -76,10 +79,14 @@ enum Msg {
     Tick,
     /// A translated character from the keyboard.
     Char(char),
-    /// A key press, and whether Ctrl was held: arrows, Escape and the like,
-    /// and Ctrl+letter chords (which arrive without a `Char`). Enter and
-    /// Backspace also arrive as `Char`s, which is the path that handles them.
-    Key(Key, bool),
+    /// A key press, and whether Ctrl and Shift were held: arrows, Escape and
+    /// the like, and Ctrl+letter chords (which arrive without a `Char`).
+    /// Enter and Backspace also arrive as `Char`s, which is the path that
+    /// handles them.
+    Key(Key, bool, bool),
+    /// A wheel roll (`delta` is 120 a notch, positive up) and whether Shift
+    /// was held.
+    Wheel(i16, bool),
     Close,
 }
 
@@ -109,11 +116,57 @@ struct Terminal {
     /// `TERM:PERF` evidence (`term/perf.rs`).
     perf: Perf,
     paint_clock: Rc<PaintClock>,
+    /// Lines the view is scrolled back from the bottom, shared with the
+    /// painter.
+    offset: Rc<Cell<usize>>,
 }
 
 impl Terminal {
+    /// Write to the pty without touching the view (answers to queries).
     fn send(&mut self, bytes: &[u8]) {
         let _ = self.master.file().write_all(bytes);
+    }
+
+    /// Write what the user typed: the view returns to the bottom first.
+    fn input(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
+        self.scroll(ui, Move::Bottom);
+        self.send(bytes);
+    }
+
+    /// Repaint what changed on screen (the rows, or the scrollbar).
+    fn refresh(&mut self, ui: &mut Ui<Msg>) {
+        let changed = self
+            .shown
+            .update(&self.term.borrow(), self.layout.get(), self.offset.get());
+        if let Some(rect) = changed {
+            ui.invalidate_rect(self.root.id(), rect);
+        }
+    }
+
+    /// Move the view on the user's request: `TERM:SCROLL:<offset>` when it
+    /// changes. A full-screen program has no scrollback, so nothing moves.
+    fn scroll(&mut self, ui: &mut Ui<Msg>, mv: Move) {
+        let max = max_offset(&self.term.borrow(), self.page());
+        let offset = apply(mv, self.offset.get(), max);
+        if offset != self.offset.get() {
+            self.offset.set(offset);
+            println!("TERM:SCROLL:{offset}");
+            self.refresh(ui);
+        }
+    }
+
+    /// Keep the view on its text while output arrives: `top` was the
+    /// screen's top line before it.
+    fn follow(&mut self, top: u64) {
+        let term = self.term.borrow();
+        let max = max_offset(&term, self.page());
+        self.offset
+            .set(anchored(self.offset.get(), top, term.screen_top(), max));
+    }
+
+    /// The lines a page scroll moves: what the window shows.
+    fn page(&self) -> usize {
+        self.layout.get().map_or(ROWS, |layout| layout.visible)
     }
 
     /// Drain the master without blocking; return the bytes read.
@@ -134,12 +187,12 @@ impl Terminal {
 
     /// Forward one character to the child, keeping a local echo of the line so
     /// `TERM:CMD` can report the submitted command.
-    fn key(&mut self, ch: char) {
+    fn key(&mut self, ch: char, ui: &mut Ui<Msg>) {
         match ch {
             '\n' | '\r' => {
                 let line = self.typed.trim().to_string();
                 self.typed.clear();
-                self.send(b"\r");
+                self.input(ui, b"\r");
                 if !line.is_empty() {
                     self.perf.submitted(&self.paint_clock);
                     println!("TERM:CMD:{line}");
@@ -148,18 +201,18 @@ impl Terminal {
             }
             '\u{8}' => {
                 self.typed.pop();
-                self.send(b"\x7f");
+                self.input(ui, b"\x7f");
             }
             // Control characters (^C, ^D, ^Z, ^U, ...) go to the line
             // discipline, which turns them into signals or edits.
-            '\t' => self.send(b"\t"),
+            '\t' => self.input(ui, b"\t"),
             // Escape arrives through the key path (`key_sequence`).
             '\u{1b}' => {}
-            c if c.is_control() => self.send(&[c as u8]),
+            c if c.is_control() => self.input(ui, &[c as u8]),
             c => {
                 self.typed.push(c);
                 self.perf.sent_key();
-                self.send(c.to_string().as_bytes());
+                self.input(ui, c.to_string().as_bytes());
             }
         }
     }
@@ -185,10 +238,12 @@ impl App for Terminal {
             Msg::Tick => {
                 let bytes = self.drain();
                 if !bytes.is_empty() {
-                    let (completed, reply) = {
+                    let (top, completed, reply) = {
                         let mut term = self.term.borrow_mut();
-                        (term.feed(&bytes), term.take_reply())
+                        let top = term.screen_top();
+                        (top, term.feed(&bytes), term.take_reply())
                     };
+                    self.follow(top);
                     // Answers to cursor-position and device-attribute queries
                     // go back to the program; ones that wait for them hang.
                     if !reply.is_empty() {
@@ -199,10 +254,7 @@ impl App for Terminal {
                             println!("TERM:OUT:{marker}");
                         }
                     }
-                    let changed = self.shown.update(&self.term.borrow(), self.layout.get());
-                    if let Some(rect) = changed {
-                        ui.invalidate_rect(self.root.id(), rect);
-                    }
+                    self.refresh(ui);
                     let at_prompt = {
                         let term = self.term.borrow();
                         let row = term.row_text(term.cursor().0);
@@ -214,20 +266,30 @@ impl App for Terminal {
                     self.finish(ui);
                 }
             }
-            Msg::Char(ch) => self.key(ch),
+            Msg::Char(ch) => self.key(ch, ui),
             // Both input paths also deliver Enter and Backspace as `Char`s:
             // handling the key too would send each one twice.
-            Msg::Key(Key::RETURN | Key::BACK, _) => {}
-            Msg::Key(key, true) => {
-                // Ctrl+A..Z: the control byte (^C, ^D, ^Z ...), which the
-                // line discipline turns into a signal or an edit.
-                if let Some(byte) = control_byte(key) {
-                    self.send(&[byte]);
+            Msg::Key(Key::RETURN | Key::BACK, ..) => {}
+            Msg::Key(key, ctrl, shift) => {
+                let scrollable = !self.term.borrow().on_alternate_screen();
+                if let Some(mv) = key_move(key, shift, ctrl, self.page()).filter(|_| scrollable) {
+                    self.scroll(ui, mv);
+                } else if ctrl {
+                    // Ctrl+A..Z: the control byte (^C, ^D, ^Z ...), which the
+                    // line discipline turns into a signal or an edit.
+                    if let Some(byte) = control_byte(key) {
+                        self.input(ui, &[byte]);
+                    }
+                } else if let Some(sequence) = key_sequence(key) {
+                    self.input(ui, sequence);
                 }
             }
-            Msg::Key(key, false) => {
-                if let Some(sequence) = key_sequence(key) {
-                    self.send(sequence);
+            Msg::Wheel(delta, shift) => {
+                if self.term.borrow().on_alternate_screen() {
+                    let arrows = wheel_arrows(delta);
+                    self.send(&arrows);
+                } else if let Some(mv) = wheel_move(delta, shift, self.page()) {
+                    self.scroll(ui, mv);
                 }
             }
             Msg::Close => self.finish(ui),
@@ -277,6 +339,7 @@ fn main() {
     let term = Rc::new(RefCell::new(Engine::new(COLS, ROWS)));
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
+    let offset = Rc::new(Cell::new(0usize));
     backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
@@ -292,17 +355,27 @@ fn main() {
             let theme = ui.theme_handle();
             let clock = Rc::clone(&paint_clock);
             let layout = Rc::clone(&layout);
+            let offset = Rc::clone(&offset);
             let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
                 let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
                 let damage = backend.paint_damage();
-                let laid = clock.time(|| paint(canvas, palette, &term.borrow(), damage));
+                let laid =
+                    clock.time(|| paint(canvas, palette, &term.borrow(), offset.get(), damage));
                 layout.set(Some(laid));
             }));
         }
         root.on_events(|event| match event {
             Event::Char(ch) => Some(Msg::Char(*ch)),
-            Event::KeyDown { key, modifiers, .. } => Some(Msg::Key(*key, modifiers.ctrl)),
+            Event::KeyDown { key, modifiers, .. } => {
+                Some(Msg::Key(*key, modifiers.ctrl, modifiers.shift))
+            }
+            Event::MouseWheel {
+                delta,
+                horizontal: false,
+                modifiers,
+                ..
+            } => Some(Msg::Wheel(*delta, modifiers.shift)),
             _ => None,
         });
         root.focus();
@@ -321,6 +394,7 @@ fn main() {
             layout: Rc::clone(&layout),
             perf: Perf::default(),
             paint_clock: Rc::clone(&paint_clock),
+            offset: Rc::clone(&offset),
         }
     });
 

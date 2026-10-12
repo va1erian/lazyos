@@ -5,7 +5,7 @@ use crate::state::State;
 
 impl State {
     /// ED: `0` cursor to the end of the screen, `1` start to the cursor,
-    /// `2` everything. (The cursor stays where it is, as in xterm.)
+    /// `2` everything, `3` the scrollback. (The cursor stays where it is, as in xterm.)
     pub fn erase_display(&mut self, mode: usize) {
         let cols = self.cols();
         self.wrap_pending = false;
@@ -28,6 +28,7 @@ impl State {
                     self.erase_line_span(all, 0, cols);
                 }
             }
+            3 => self.history.clear(),
             _ => {}
         }
     }
@@ -92,7 +93,7 @@ impl State {
         if self.row < self.top || self.row > self.bottom {
             return;
         }
-        self.screen.scroll_up(self.row, self.bottom, n, self.attr);
+        self.screen.scroll_up(self.row, self.bottom, n, self.attr, |_| {});
         self.move_to(self.row, 0);
     }
 

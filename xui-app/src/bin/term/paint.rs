@@ -5,7 +5,7 @@
 use lazyterm::Term;
 use xui_core::{Canvas, Color, Dip, Rect, TextStyle};
 
-use super::view::{first_row, intersect, overlaps, Layout};
+use super::view::{first_row, intersect, max_offset, overlaps, thumb, view_line, Layout};
 
 /// Text size and the monospace cell it implies (JetBrains Mono is 0.6 em wide).
 pub const FONT: f32 = 15.0;
@@ -32,11 +32,10 @@ pub const LIGHT: Palette = Palette {
     cursor: Color::rgb(0x09, 0x69, 0xda),
 };
 
-/// The characters of the first `cols` cells of row `index`; the right half of
-/// a wide character is not a character.
-fn row_string(term: &Term, index: usize, cols: usize) -> String {
-    term.row(index)
-        .cells
+/// The characters of the first `cols` cells of a line (`None`: a blank slot);
+/// the right half of a wide character is not a character.
+fn line_string(cells: &[lazyterm::Cell], cols: usize) -> String {
+    cells
         .iter()
         .take(cols)
         .filter(|cell| cell.is_glyph())
@@ -44,7 +43,9 @@ fn row_string(term: &Term, index: usize, cols: usize) -> String {
         .collect()
 }
 
-/// Paint the bottom of the screen that fits the window, with a block cursor:
+/// Paint the view of the screen that fits the window, scrolled back `offset`
+/// lines into the history, with a block cursor and, while scrolled back, a
+/// thin scrollbar in the right gutter:
 /// only the rows inside `damage` (window pixels; `None` paints them all),
 /// since only the damage reaches the window's frame. Returns the layout, so
 /// the next drain can turn changed rows into a rectangle.
@@ -54,6 +55,7 @@ pub fn paint(
     canvas: &mut dyn Canvas,
     palette: &Palette,
     term: &Term,
+    offset: usize,
     damage: Option<Rect>,
 ) -> Layout {
     let bounds = canvas.bounds();
@@ -66,26 +68,27 @@ pub fn paint(
     let visible = (((bounds.height() - 2 * pad) / line_h).max(1) as usize).min(rows);
     let (cursor_row, cursor_col) = term.cursor();
     let first = first_row(cursor_row, visible, rows);
-    let last = (first + visible).min(rows);
     let row_rect = |slot: usize| {
         let top = bounds.top + pad + slot as i32 * line_h;
         Rect::new(bounds.left, top, bounds.right, top + line_h)
     };
-    for (slot, index) in (first..last).enumerate() {
+    for slot in 0..visible {
         if !overlaps(row_rect(slot), damage) {
             continue;
         }
-        let text = row_string(term, index, visible_cols.min(term.cols()));
+        let Some(line) = view_line(term, first, offset, slot) else {
+            continue;
+        };
+        let text = line_string(line.cells, visible_cols.min(term.cols()));
         let top = bounds.top + pad + slot as i32 * line_h;
         let rect = Rect::new(bounds.left + pad, top, bounds.right - pad, top + line_h);
         canvas.draw_text(&text, rect, &TextStyle::new(palette.fg, Dip(FONT)));
     }
-    if term.cursor_visible()
-        && cursor_row >= first
-        && cursor_row < last
-        && cursor_col < visible_cols
+    // The cursor is a screen row: it is in view only while its slot is.
+    let slot = (cursor_row + offset).saturating_sub(first);
+    if term.cursor_visible() && cursor_row >= first && slot < visible && cursor_col < visible_cols
     {
-        let top = bounds.top + pad + (cursor_row - first) as i32 * line_h;
+        let top = bounds.top + pad + slot as i32 * line_h;
         let left = bounds.left + pad + (cursor_col as f32 * cell_w) as i32;
         let rect = Rect::new(
             left,
@@ -95,6 +98,17 @@ pub fn paint(
         );
         if overlaps(rect, damage) {
             canvas.fill_rect(rect, palette.cursor);
+        }
+    }
+    let track_top = bounds.top + pad;
+    let track_h = bounds.height() - 2 * pad;
+    let min_h = 16 * scale;
+    if let Some((top, bottom)) = thumb(track_top, track_h, max_offset(term, visible), offset, visible, min_h) {
+        // A thin pill in the right gutter, between the background and the text.
+        let (left, right) = (bounds.right - pad * 7 / 10, bounds.right - pad * 3 / 10);
+        let rect = Rect::new(left, top, right, bottom);
+        if overlaps(rect, damage) {
+            canvas.fill_rounded_rect(rect, (right - left) as f32 / 2.0, palette.bg.lerp(palette.fg, 0.45));
         }
     }
     Layout {
@@ -140,6 +154,11 @@ mod tests {
 
     /// `term` painted at `dpi` in `dark` or light, saved as `name`.
     fn shoot(term: Term, dark: bool, dpi: u32, name: &str) -> Image {
+        shoot_at(term, 0, dark, dpi, name)
+    }
+
+    /// The same, scrolled back `offset` lines.
+    fn shoot_at(term: Term, offset: usize, dark: bool, dpi: u32, name: &str) -> Image {
         fonts();
         let (palette, theme) = if dark {
             (&DARK, Theme::dark())
@@ -154,7 +173,7 @@ mod tests {
                     Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
                         .expect("root node");
                 root.set_painter(Rc::new(move |canvas| {
-                    paint(canvas, palette, &term, None);
+                    paint(canvas, palette, &term, offset, None);
                 }));
                 Host { _root: root }
             },
@@ -238,5 +257,31 @@ mod tests {
         term.feed("\x1b[1;31mred bold\x1b[0m \u{4e2d}\u{6587} plain\r\n".as_bytes());
         let image = shoot(term, false, 96, "term-wide-attrs.png");
         assert!(has_ink(&image, LIGHT.bg, (PAD, PAD, PAD + 200, PAD + LINE_H - 3)));
+    }
+
+    fn long_output() -> Term {
+        let mut term = Term::new(80, 24);
+        for line in 1..=300 {
+            term.feed(format!("line {line} of the output\r\n").as_bytes());
+        }
+        term
+    }
+
+    #[test]
+    fn a_scrolled_back_view_shows_old_lines_a_scrollbar_and_no_cursor() {
+        let at_bottom = shoot_at(long_output(), 0, true, 96, "term-scroll-bottom.png");
+        let back = shoot_at(long_output(), 120, true, 96, "term-scroll-back.png");
+        // No scrollbar at the bottom, a pill in the gutter when scrolled back.
+        let gutter = (640 - PAD, PAD, 640, 400 - PAD);
+        assert!(!has_ink(&at_bottom, DARK.bg, gutter), "hidden at offset 0");
+        assert!(has_ink(&back, DARK.bg, gutter), "shown while scrolled back");
+        // The text differs and the cursor is not in view.
+        let text = (PAD, PAD, 300, 400 - PAD);
+        assert!(has_ink(&back, DARK.bg, text));
+        let cursor_probe = |image: &Image| {
+            (0..400).any(|y| (PAD..PAD + 9).any(|x| pixel(image, x, y) == rgb(DARK.cursor)))
+        };
+        assert!(cursor_probe(&at_bottom), "the cursor at the bottom");
+        assert!(!cursor_probe(&back), "and not scrolled back");
     }
 }
