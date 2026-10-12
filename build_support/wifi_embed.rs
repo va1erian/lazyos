@@ -55,14 +55,18 @@ fn on(variable: &str) -> bool {
 /// Whether a build with `wifi` can ship it.
 pub fn requirements(wifi: bool, netd: bool, devd_off: bool) -> Result<(), String> {
     if wifi && !netd {
-        return Err("LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (a wireless card is one of netd's \
+        return Err(
+            "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (a wireless card is one of netd's \
                     interfaces); `python tools/run_demo.py --wifi` sets it"
-            .into());
+                .into(),
+        );
     }
     if wifi && devd_off {
-        return Err("LAZYOS_WIFI=1 needs devd (drop LAZYOS_DEVD=0): only devd starts wifid, \
+        return Err(
+            "LAZYOS_WIFI=1 needs devd (drop LAZYOS_DEVD=0): only devd starts wifid, \
                     for the card it found"
-            .into());
+                .into(),
+        );
     }
     Ok(())
 }
@@ -95,7 +99,8 @@ pub fn parse_manifest(text: &str) -> Result<Vec<Pin>, String> {
         for file in [name, licence] {
             fwload::check_name(file).map_err(|why| at(format!("`{file}`: {why}")))?;
         }
-        let sha256 = hex_digest(digest).ok_or_else(|| at("the digest is not 64 hex digits".into()))?;
+        let sha256 =
+            hex_digest(digest).ok_or_else(|| at("the digest is not 64 hex digits".into()))?;
         let size: u64 = size
             .parse()
             .ok()
@@ -119,7 +124,10 @@ pub fn parse_manifest(text: &str) -> Result<Vec<Pin>, String> {
         .iter()
         .find(|pin| !pins.iter().any(|other| other.name == pin.licence))
     {
-        return Err(format!("{}: its licence {} is not listed", pin.name, pin.licence));
+        return Err(format!(
+            "{}: its licence {} is not listed",
+            pin.name, pin.licence
+        ));
     }
     Ok(pins)
 }
@@ -139,7 +147,12 @@ pub fn selected<'a>(pins: &'a [Pin], switch: &str) -> Vec<&'a Pin> {
 /// Whether `bytes` are exactly what `pin` names.
 pub fn check_bytes(pin: &Pin, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 != pin.size {
-        return Err(format!("{}: {} bytes, pinned {}", pin.name, bytes.len(), pin.size));
+        return Err(format!(
+            "{}: {} bytes, pinned {}",
+            pin.name,
+            bytes.len(),
+            pin.size
+        ));
     }
     if lazyos_crypto::sha256::sha256(bytes) != pin.sha256 {
         return Err(format!("{}: SHA-256 does not match the pin", pin.name));
@@ -149,15 +162,25 @@ pub fn check_bytes(pin: &Pin, bytes: &[u8]) -> Result<(), String> {
 
 /// `(destination, source)` for every file of `switch`, each checked in the
 /// cache `cache`.
-pub fn firmware_files(pins: &[Pin], switch: &str, cache: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+pub fn firmware_files(
+    pins: &[Pin],
+    switch: &str,
+    cache: &Path,
+) -> Result<Vec<(String, PathBuf)>, String> {
     let mut files = Vec::new();
     for pin in selected(pins, switch) {
         let source = cache.join(&pin.name);
         let bytes = std::fs::read(&source).map_err(|error| {
-            format!("{} is missing ({error}); run `python tools/firmware/fetch.py`", source.display())
+            format!(
+                "{} is missing ({error}); run `python tools/firmware/fetch.py`",
+                source.display()
+            )
         })?;
         check_bytes(pin, &bytes).map_err(|why| {
-            format!("{why} ({}); run `python tools/firmware/fetch.py`", source.display())
+            format!(
+                "{why} ({}); run `python tools/firmware/fetch.py`",
+                source.display()
+            )
         })?;
         files.push((format!("{}/{}", fhs::FIRMWARE, pin.name), source));
     }
@@ -202,8 +225,8 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     let text = std::fs::read_to_string(&manifest)
         .unwrap_or_else(|error| panic!("{}: {error}", manifest.display()));
     let pins = parse_manifest(&text).unwrap_or_else(|why| panic!("{}: {why}", manifest.display()));
-    let files = firmware_files(&pins, SWITCH, &cache)
-        .unwrap_or_else(|why| panic!("LAZYOS_WIFI=1: {why}"));
+    let files =
+        firmware_files(&pins, SWITCH, &cache).unwrap_or_else(|why| panic!("LAZYOS_WIFI=1: {why}"));
     for (dest, source) in files {
         println!("cargo:rerun-if-changed={}", source.display());
         sink.add_file(&dest, source);

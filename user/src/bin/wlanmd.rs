@@ -120,7 +120,9 @@ fn run() -> messenger::Result<()> {
             daemon.discover();
             next_discovery = sys::clock() + DISCOVER_TICKS;
         }
-        let deadline = daemon.next_deadline().map_or(next_discovery, |at| at.min(next_discovery));
+        let deadline = daemon
+            .next_deadline()
+            .map_or(next_discovery, |at| at.min(next_discovery));
         let mut endpoints: Vec<Endpoint> = Vec::with_capacity(1 + MAX_RADIOS);
         endpoints.push(server);
         endpoints.extend(daemon.radios.iter().map(|slot| slot.events));
@@ -222,10 +224,9 @@ impl Daemon {
                     let actions = self.radios[index].station.start(now_ms());
                     self.radios[index].execute(&mut self.store, actions);
                 }
-                Err(error) => sys::write_str(&format!(
-                    "WLANMD:RADIO:FAIL {ifname} {}\n",
-                    error.message()
-                )),
+                Err(error) => {
+                    sys::write_str(&format!("WLANMD:RADIO:FAIL {ifname} {}\n", error.message()))
+                }
             }
         }
     }

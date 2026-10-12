@@ -277,7 +277,10 @@ fn forget(daemon: &mut Daemon, caller: Caller, id: &str) -> Result<()> {
         return Ok(());
     };
     daemon.store.erase(&profile);
-    sys::write_str(&alloc::format!("WLANMD:FORGET {id} owner={}\n", owner_text(profile.owner)));
+    sys::write_str(&alloc::format!(
+        "WLANMD:FORGET {id} owner={}\n",
+        owner_text(profile.owner)
+    ));
     daemon.reload_profiles();
     Ok(())
 }

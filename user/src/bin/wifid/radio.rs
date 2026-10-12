@@ -93,14 +93,19 @@ fn start(dev: &mut Chip, firmware: &[u8]) -> Result<[u8; 6], Failure> {
         .map_err(|e| chip_failure("chip-info", e))?;
     report_chip(dev);
     let (cut, rfe) = (dev.hal.cut_version, dev.efuse.rfe_option);
-    dev.hci.phy_cfg(cut, rfe).map_err(|e| chip_failure("pci-phy", e))?;
+    dev.hci
+        .phy_cfg(cut, rfe)
+        .map_err(|e| chip_failure("pci-phy", e))?;
     dev.core_start(firmware)
         .map_err(|e| chip_failure("core-start", e))?;
     let fw = &dev.fw;
     trace::event(
         "FW:READY",
         &[
-            ("version", &format!("{}.{}.{}", fw.version, fw.sub_version, fw.sub_index).as_str()),
+            (
+                "version",
+                &format!("{}.{}.{}", fw.version, fw.sub_version, fw.sub_index).as_str(),
+            ),
             ("h2c", &fw.h2c_version),
             ("feature", &trace::Hex32(fw.feature)),
             ("iqk", &dev.dm.iqk_done),
@@ -109,7 +114,8 @@ fn start(dev: &mut Chip, firmware: &[u8]) -> Result<[u8; 6], Failure> {
     );
     report_coex(dev);
     let mac = dev.mac_addr();
-    dev.add_station(mac).map_err(|e| chip_failure("station", e))?;
+    dev.add_station(mac)
+        .map_err(|e| chip_failure("station", e))?;
     trace::event("MAC", &[("addr", &trace::Mac(mac))]);
     Ok(mac)
 }

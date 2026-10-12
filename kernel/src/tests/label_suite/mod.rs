@@ -16,9 +16,9 @@ mod calls;
 mod identity;
 mod names;
 mod nic_names;
-mod wifi_names;
 mod session_topics;
 mod soak;
+mod wifi_names;
 
 /// Scratch user address space for the syscall-level tests.
 const SPACE: u64 = 0x0060_0000;

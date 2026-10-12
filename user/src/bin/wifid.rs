@@ -137,7 +137,10 @@ pub extern "C" fn _start() -> ! {
     let Some((row, model)) = found else {
         // Nothing to drive will become drivable by a restart: say so once
         // and exit cleanly (`OnFailure` does not restart a clean exit).
-        trace::fail("no-device", format_args!("no RTL8822CE (dev={:?})", args.dev));
+        trace::fail(
+            "no-device",
+            format_args!("no RTL8822CE (dev={:?})", args.dev),
+        );
         sys::exit(0)
     };
     trace::event(
@@ -219,7 +222,10 @@ fn run(
     identity.report();
     chip::dump("boot", &regs, chip::SYSTEM_REGS);
     if identity.bus_dead() {
-        return Err(failure("chip", format!("REG_SYS_CFG1 reads {:#010x}", identity.sys_cfg1)));
+        return Err(failure(
+            "chip",
+            format!("REG_SYS_CFG1 reads {:#010x}", identity.sys_cfg1),
+        ));
     }
     // Before bus mastering: a previous driver's rings may still point at
     // memory it no longer owns.
@@ -235,7 +241,10 @@ fn run(
     let mode = device::arm(&mut claimed).map_err(step_failure)?;
     trace::event("IRQ", &[("mode", &device::mode_name(mode))]);
     let image = firmware::load().map_err(|why| {
-        failure("firmware", format!("{}/{}: {why}", fhs::FIRMWARE, rtw88::FIRMWARE))
+        failure(
+            "firmware",
+            format!("{}/{}: {why}", fhs::FIRMWARE, rtw88::FIRMWARE),
+        )
     })?;
     firmware::report(&image);
     // The rings are allocated and programmed next, in memory this task owns.

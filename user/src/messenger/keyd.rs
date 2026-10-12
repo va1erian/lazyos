@@ -187,7 +187,13 @@ impl Client {
 
     /// Keep a named secret for `owner` (`user`) or the machine (`system`,
     /// `owner` 0); `wlanmd` only (`-EPERM` for anyone else).
-    pub fn store_secret_for(&self, scope: &str, name: &str, secret: &[u8], owner: u32) -> Result<()> {
+    pub fn store_secret_for(
+        &self,
+        scope: &str,
+        name: &str,
+        secret: &[u8],
+        owner: u32,
+    ) -> Result<()> {
         let body = wire::encode_store_secret_for_args(&wire::StoreSecretForArgs {
             scope: String::from(scope),
             name: String::from(name),

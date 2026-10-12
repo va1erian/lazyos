@@ -130,7 +130,10 @@ fn frame_checks(data: &[u8]) {
     for rx in [0, 6, 36] {
         if let Some(bss) = Bss::from_frame(&frame, rx, -50, 1) {
             let claims = [Some(rx), bss.ds_channel, bss.ht_primary];
-            assert!(claims.contains(&Some(bss.channel)) || bss.channel == 0, "channel from nowhere");
+            assert!(
+                claims.contains(&Some(bss.channel)) || bss.channel == 0,
+                "channel from nowhere"
+            );
             if rx != 0 {
                 assert!(bss.channel != 0, "a heard BSS lost its channel");
                 assert_eq!(rx > 14, bss.channel > 14, "the channel changed band");

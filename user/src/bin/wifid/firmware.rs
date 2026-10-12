@@ -86,7 +86,10 @@ pub(super) fn report(image: &[u8]) {
     let name = rtw88::FIRMWARE;
     let bytes = image.len();
     let Some(h) = header(image) else {
-        trace::event("FW:FILE", &[("name", &name), ("bytes", &bytes), ("header", &"short")]);
+        trace::event(
+            "FW:FILE",
+            &[("name", &name), ("bytes", &bytes), ("header", &"short")],
+        );
         return;
     };
     let signature = format!("{:#06x}", h.signature);

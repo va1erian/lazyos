@@ -57,10 +57,7 @@ fn the_rtw88_firmware_and_linux_style_names_are_accepted() {
     ] {
         assert_eq!(check_name(name), Ok(()), "{name}");
     }
-    assert_eq!(
-        path_of(FW).unwrap(),
-        format!("{}/{FW}", fhs::FIRMWARE)
-    );
+    assert_eq!(path_of(FW).unwrap(), format!("{}/{FW}", fhs::FIRMWARE));
 }
 
 #[test]
@@ -107,7 +104,10 @@ fn the_cap_is_checked_before_anything_is_read() {
     let mut tree = Tree::with(FW, vec![7; 4097]);
     assert_eq!(
         load(&mut tree, FW, 4096),
-        Err(Error::TooLarge { len: 4097, max: 4096 })
+        Err(Error::TooLarge {
+            len: 4097,
+            max: 4096
+        })
     );
     assert_eq!(tree.reads, 0, "an oversized file is never read");
     assert_eq!(load(&mut tree, FW, 4097).map(|b| b.len()), Ok(4097));
@@ -131,7 +131,10 @@ fn missing_empty_and_changing_files_are_errors() {
     );
     let mut shrunk = Tree::with(FW, vec![1; 20]);
     shrunk.lie_about_size = Some(32);
-    assert!(matches!(load(&mut shrunk, FW, 64), Err(Error::Changed { .. })));
+    assert!(matches!(
+        load(&mut shrunk, FW, 64),
+        Err(Error::Changed { .. })
+    ));
 }
 
 #[test]
@@ -186,5 +189,8 @@ fn seeded_names_never_escape() {
             assert!(!segment.contains(['\\', '\0', ' ', ':']), "{path}");
         }
     }
-    assert!(accepted > 100, "the soak exercised the accept path: {accepted}");
+    assert!(
+        accepted > 100,
+        "the soak exercised the accept path: {accepted}"
+    );
 }

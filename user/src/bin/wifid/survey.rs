@@ -97,7 +97,11 @@ impl Survey {
 
     fn heard(&mut self, bssid: [u8; 6], rx_dbm: i8) {
         let channel = self.channel;
-        if let Some(b) = self.bss.iter_mut().find(|b| b.bssid == bssid && b.channel == channel) {
+        if let Some(b) = self
+            .bss
+            .iter_mut()
+            .find(|b| b.bssid == bssid && b.channel == channel)
+        {
             b.beacons += 1;
             b.best_dbm = b.best_dbm.max(rx_dbm);
         } else if self.bss.len() < MAX_BSS {
@@ -149,4 +153,3 @@ impl Survey {
         self.bss.clear();
     }
 }
-

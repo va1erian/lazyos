@@ -167,7 +167,9 @@ impl Radio {
 
     pub fn info(&self) -> Result<hw::HwInfo> {
         let reply = self.call(hw::METHOD_INFO, Vec::new(), Vec::new())?;
-        Ok(hw::decode_info_reply(&reply.body).map_err(Error::Parcel)?.info)
+        Ok(hw::decode_info_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .info)
     }
 
     /// `Attach`, transferring `events` (a handle this task holds; gone from
@@ -181,7 +183,8 @@ impl Radio {
     }
 
     pub fn detach(&self) -> Result<()> {
-        self.call(hw::METHOD_DETACH, Vec::new(), Vec::new()).map(|_| ())
+        self.call(hw::METHOD_DETACH, Vec::new(), Vec::new())
+            .map(|_| ())
     }
 
     pub fn set_country(&self, alpha2: &str) -> Result<()> {
@@ -189,7 +192,8 @@ impl Radio {
             alpha2: String::from(alpha2),
         })
         .map_err(Error::Parcel)?;
-        self.call(hw::METHOD_SETCOUNTRY, body, Vec::new()).map(|_| ())
+        self.call(hw::METHOD_SETCOUNTRY, body, Vec::new())
+            .map(|_| ())
     }
 
     /// `Scan` every channel, actively, probing for `ssids`.
@@ -203,13 +207,16 @@ impl Radio {
         };
         let body = hw::encode_scan_args(&hw::ScanArgs { request }).map_err(Error::Parcel)?;
         let reply = self.call(hw::METHOD_SCAN, body, Vec::new())?;
-        Ok(hw::decode_scan_reply(&reply.body).map_err(Error::Parcel)?.scan_id)
+        Ok(hw::decode_scan_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .scan_id)
     }
 
     pub fn abort_scan(&self, scan_id: u32) -> Result<()> {
         let body =
             hw::encode_abort_scan_args(&hw::AbortScanArgs { scan_id }).map_err(Error::Parcel)?;
-        self.call(hw::METHOD_ABORTSCAN, body, Vec::new()).map(|_| ())
+        self.call(hw::METHOD_ABORTSCAN, body, Vec::new())
+            .map(|_| ())
     }
 
     /// Every entry of scan `scan_id`, page by page into `buf`, at most
@@ -262,7 +269,14 @@ impl Radio {
     /// `SetKey` with CCMP-128. Every copy of the key this side makes (the
     /// arguments, the encoded body, the wire bytes) is wiped as soon as the
     /// call returns.
-    pub fn set_key(&self, kind: u32, index: u32, key: &[u8], rsc: &[u8], addr: &[u8]) -> Result<()> {
+    pub fn set_key(
+        &self,
+        kind: u32,
+        index: u32,
+        key: &[u8],
+        rsc: &[u8],
+        addr: &[u8],
+    ) -> Result<()> {
         let mut args = hw::SetKeyArgs {
             kind,
             index,
@@ -307,7 +321,9 @@ impl Client {
 
     pub fn interfaces(&self) -> Result<Vec<String>> {
         let reply = self.call(api::METHOD_INTERFACES, Vec::new())?;
-        Ok(api::decode_interfaces_reply(&reply.body).map_err(Error::Parcel)?.names)
+        Ok(api::decode_interfaces_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .names)
     }
 
     pub fn scan(&self, ifname: &str, ssids: Vec<String>) -> Result<()> {
@@ -325,21 +341,28 @@ impl Client {
         })
         .map_err(Error::Parcel)?;
         let reply = self.call(api::METHOD_NETWORKS, body)?;
-        Ok(api::decode_networks_reply(&reply.body).map_err(Error::Parcel)?.list)
+        Ok(api::decode_networks_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .list)
     }
 
     /// `AddNetwork`; the passphrase crosses once, to `wlanmd`, which hands
     /// it to `keyd`. This side's copies of it (the argument, the encoded
     /// body, the wire bytes) are wiped before it returns.
     pub fn add_network(&self, profile: api::Profile, passphrase: Option<String>) -> Result<String> {
-        let mut args = api::AddNetworkArgs { profile, passphrase };
+        let mut args = api::AddNetworkArgs {
+            profile,
+            passphrase,
+        };
         let body = api::encode_add_network_args(&args).map_err(Error::Parcel);
         if let Some(text) = args.passphrase.take() {
             wipe(text);
         }
         let request = parcel(api::INTERFACE_ID, api::METHOD_ADDNETWORK, body?, Vec::new());
         let reply = call_secret(&self.endpoint, request, None)?;
-        Ok(api::decode_add_network_reply(&reply.body).map_err(Error::Parcel)?.id)
+        Ok(api::decode_add_network_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .id)
     }
 
     pub fn connect_network(&self, ifname: &str, id: &str) -> Result<()> {
@@ -360,8 +383,10 @@ impl Client {
     }
 
     pub fn forget(&self, id: &str) -> Result<()> {
-        let body = api::encode_forget_args(&api::ForgetArgs { id: String::from(id) })
-            .map_err(Error::Parcel)?;
+        let body = api::encode_forget_args(&api::ForgetArgs {
+            id: String::from(id),
+        })
+        .map_err(Error::Parcel)?;
         self.call(api::METHOD_FORGET, body).map(|_| ())
     }
 
@@ -371,6 +396,8 @@ impl Client {
         })
         .map_err(Error::Parcel)?;
         let reply = self.call(api::METHOD_STATUS, body)?;
-        Ok(api::decode_status_reply(&reply.body).map_err(Error::Parcel)?.status)
+        Ok(api::decode_status_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .status)
     }
 }

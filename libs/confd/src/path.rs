@@ -188,10 +188,22 @@ mod tests {
             assert!(!can_write(path, wlan), "{path}");
         }
         assert!(!can_read("user/1000/settings", wlan));
-        assert!(can_write("user/912/anything", wlan), "its own subtree, as for any uid");
+        assert!(
+            can_write("user/912/anything", wlan),
+            "its own subtree, as for any uid"
+        );
         // A user still owns their own profiles, and no one else's.
-        assert!(can_write("user/1000/net/wifi/networks/w0/ssid", Caller::user(1000)));
-        assert!(!can_write("user/1000/net/wifi/networks/w0/ssid", Caller::user(1001)));
-        assert!(!can_write("sys/net/wifi/networks/w0/ssid", Caller::user(1000)));
+        assert!(can_write(
+            "user/1000/net/wifi/networks/w0/ssid",
+            Caller::user(1000)
+        ));
+        assert!(!can_write(
+            "user/1000/net/wifi/networks/w0/ssid",
+            Caller::user(1001)
+        ));
+        assert!(!can_write(
+            "sys/net/wifi/networks/w0/ssid",
+            Caller::user(1000)
+        ));
     }
 }

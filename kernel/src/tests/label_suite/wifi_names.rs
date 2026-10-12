@@ -39,12 +39,18 @@ pub fn only_owners_register() -> Result<(), String> {
         let chip = task_with(netpolicy::WIFI_UID, CAP_DEV_CLAIM, "", 0)?;
         let sim = task_with(netpolicy::WIFISIM_UID, 0, "", 0)?;
         let wlan = task_with(netpolicy::WLAN_UID, 0, "", 0)?;
-        check!(register_as(chip, RADIO)? == 0, "_wifi was refused its radio");
+        check!(
+            register_as(chip, RADIO)? == 0,
+            "_wifi was refused its radio"
+        );
         check!(
             register_as(sim, "os.lazy.net.wifi.hw/wlan1")? == 0,
             "_wifisim was refused its radio"
         );
-        check!(register_as(wlan, STATION)? == 0, "_wlan was refused its name");
+        check!(
+            register_as(wlan, STATION)? == 0,
+            "_wlan was refused its name"
+        );
         // Each owner is confined to its own namespace.
         check!(
             register_as(wlan, "os.lazy.net.wifi.hw/wlan9")? == failed(EACCES),
@@ -128,7 +134,10 @@ pub fn soak_owners_and_impostors() -> Result<(), String> {
                 );
             }
             check!(register_as(sim, &radio)? == 0, "cycle {index}: sim refused");
-            check!(register_as(wlan, STATION)? == 0, "cycle {index}: wlan refused");
+            check!(
+                register_as(wlan, STATION)? == 0,
+                "cycle {index}: wlan refused"
+            );
         }
         for entry in registry::list() {
             check!(

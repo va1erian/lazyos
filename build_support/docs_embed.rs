@@ -186,7 +186,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         manifest_dir.join(DISK_ROOT).display()
     );
     for name in ROOT_DOCS {
-        println!("cargo:rerun-if-changed={}", manifest_dir.join(name).display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir.join(name).display()
+        );
     }
 
     let docs = match collect(manifest_dir) {

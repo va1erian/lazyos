@@ -92,7 +92,11 @@ impl Bss {
             bssid,
             hidden: ssid_is_hidden(ssid),
             ssid: ssid.to_vec(),
-            channel: operating_channel(rx_channel, elements.ds_channel, elements.ht_primary_channel()),
+            channel: operating_channel(
+                rx_channel,
+                elements.ds_channel,
+                elements.ht_primary_channel(),
+            ),
             ds_channel: elements.ds_channel,
             ht_primary: elements.ht_primary_channel(),
             rssi,

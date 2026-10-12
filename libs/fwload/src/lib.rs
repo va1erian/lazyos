@@ -69,11 +69,17 @@ pub enum NameError {
 pub enum Error {
     Name(NameError),
     /// The file is larger than the cap the driver gave.
-    TooLarge { len: u64, max: usize },
+    TooLarge {
+        len: u64,
+        max: usize,
+    },
     /// The file is empty.
     Empty,
     /// The file's size changed between the size check and the read.
-    Changed { expected: u64, read: usize },
+    Changed {
+        expected: u64,
+        read: usize,
+    },
     /// The reader failed: a positive errno (`ENOENT` for a missing file).
     Io(i64),
 }

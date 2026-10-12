@@ -264,7 +264,10 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LAZYOS_WIFID_MODE");
     println!("cargo:rustc-check-cfg=cfg(lazyos_wifi)");
     if env::var_os("LAZYOS_WIFI").as_deref() == Some(std::ffi::OsStr::new("1")) {
-        assert!(netd, "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (wlan0 is one of netd's interfaces)");
+        assert!(
+            netd,
+            "LAZYOS_WIFI=1 needs LAZYOS_NETD=1 (wlan0 is one of netd's interfaces)"
+        );
         println!("cargo:rustc-cfg=lazyos_wifi");
     }
 

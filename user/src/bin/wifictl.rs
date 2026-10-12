@@ -47,7 +47,8 @@ const PASSPHRASE_VAR: &str = "WIFICTL_PASSPHRASE";
 const SCAN_WAIT_TICKS: u64 = 2_000;
 const CONNECT_WAIT_TICKS: u64 = 3_000;
 
-const USAGE: &str = "usage: wifictl [status|scan|list|disconnect] [IF] | connect [--hidden [--open]] SSID [IF] \
+const USAGE: &str =
+    "usage: wifictl [status|scan|list|disconnect] [IF] | connect [--hidden [--open]] SSID [IF] \
                      | connect --id ID [IF] | forget ID\n";
 /// Longest passphrase typed (a raw PSK is 64 hex digits).
 const MAX_SECRET: usize = 64;
@@ -66,12 +67,15 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn run(args: &[&str]) -> core::result::Result<(), String> {
-    let (command, rest) = args.split_first().map_or(("status", &[][..]), |(c, r)| (*c, r));
+    let (command, rest) = args
+        .split_first()
+        .map_or(("status", &[][..]), |(c, r)| (*c, r));
     if matches!(command, "-h" | "--help" | "help") {
         sys::write_str(USAGE);
         return Ok(());
     }
-    let client = Client::connect().map_err(|e| format!("wlanmd is not running ({})", e.message()))?;
+    let client =
+        Client::connect().map_err(|e| format!("wlanmd is not running ({})", e.message()))?;
     let pick = |at: usize| interface(&client, rest.get(at).copied());
     match command {
         "status" => status(&client, rest.first().copied()),
@@ -125,7 +129,9 @@ fn print_status(ifname: &str, s: &api::WifiState) {
     }
     if let Ok(bssid) = <[u8; 6]>::try_from(s.bssid.as_slice()) {
         let [a, b, c, d, e, f] = bssid;
-        line.push_str(&format!(" bssid={a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{f:02x}"));
+        line.push_str(&format!(
+            " bssid={a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{f:02x}"
+        ));
     }
     if s.freq_mhz != 0 {
         line.push_str(&format!(" freq={} rssi={}", s.freq_mhz, s.rssi_dbm));
@@ -163,7 +169,11 @@ fn scan(client: &Client, ifname: &str) -> core::result::Result<(), String> {
 }
 
 /// Ask for a scan probing for `ssids` and wait until one finishes.
-fn wait_scan(client: &Client, ifname: &str, ssids: Vec<String>) -> core::result::Result<(), String> {
+fn wait_scan(
+    client: &Client,
+    ifname: &str,
+    ssids: Vec<String>,
+) -> core::result::Result<(), String> {
     let mut bus = Bus::connect().ok();
     let subscription = bus.as_mut().and_then(|bus| {
         let filter = api::name_system_net_wifi_scan(ifname).ok()?;
@@ -174,7 +184,8 @@ fn wait_scan(client: &Client, ifname: &str, ssids: Vec<String>) -> core::result:
         // One already runs (auto-connect's, say), or this user just asked:
         // wait for that one.
         Err(Error::Errno(code))
-            if code == -user::messenger::errno::EBUSY || code == -user::messenger::errno::EAGAIN => {}
+            if code == -user::messenger::errno::EBUSY
+                || code == -user::messenger::errno::EAGAIN => {}
         Err(error) => return Err(text(error)),
     }
     let deadline = sys::clock() + SCAN_WAIT_TICKS;
@@ -199,13 +210,21 @@ fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
     let networks = client.networks(ifname).map_err(text)?;
     for n in &networks {
         let security = Security::from_wire(n.security).map_or("?", Security::name);
-        let name = if n.ssid.is_empty() { "(hidden)" } else { n.ssid.as_str() };
+        let name = if n.ssid.is_empty() {
+            "(hidden)"
+        } else {
+            n.ssid.as_str()
+        };
         sys::write_str(&format!(
             "WIFICTL:NET \"{name}\" {security} rssi={} freq={} bss={}{}{}\n",
             n.rssi_dbm,
             n.freq_mhz,
             n.bss_count,
-            if n.id.is_empty() { String::new() } else { format!(" id={}", n.id) },
+            if n.id.is_empty() {
+                String::new()
+            } else {
+                format!(" id={}", n.id)
+            },
             if n.connected { " connected" } else { "" },
         ));
     }
@@ -274,21 +293,35 @@ fn named(client: &Client, ifname: &str, ssid: &str) -> core::result::Result<Stri
     let heard: Vec<&api::Network> = networks.iter().filter(|n| n.ssid == ssid).collect();
     let known: Vec<&&api::Network> = heard.iter().filter(|n| !n.id.is_empty()).collect();
     match (heard.as_slice(), known.as_slice()) {
-        ([], _) => Err(format!("\"{ssid}\" was not heard; run `wifictl scan` first")),
+        ([], _) => Err(format!(
+            "\"{ssid}\" was not heard; run `wifictl scan` first"
+        )),
         (_, [one]) => Ok(one.id.clone()),
         // New (several shown alike included: `wlanmd` takes the exact name
         // first and refuses a guess between look-alikes).
         ([first, ..], []) => add(client, ssid, first.security, false),
         (_, _) => {
             let ids: Vec<&str> = known.iter().map(|n| n.id.as_str()).collect();
-            Err(format!("several networks show as \"{ssid}\": use `wifictl connect --id ID` ({})", ids.join(", ")))
+            Err(format!(
+                "several networks show as \"{ssid}\": use `wifictl connect --id ID` ({})",
+                ids.join(", ")
+            ))
         }
     }
 }
 
 /// Remember a hidden network (or find it remembered) and return its id.
-fn hidden(client: &Client, ifname: &str, ssid: &str, open: bool) -> core::result::Result<String, String> {
-    let security = if open { Security::Open } else { Security::Wpa2Psk };
+fn hidden(
+    client: &Client,
+    ifname: &str,
+    ssid: &str,
+    open: bool,
+) -> core::result::Result<String, String> {
+    let security = if open {
+        Security::Open
+    } else {
+        Security::Wpa2Psk
+    };
     match add(client, ssid, security as u32, true) {
         Ok(id) => return Ok(id),
         Err(why) if why != EXISTS => return Err(why),
@@ -308,11 +341,20 @@ fn hidden(client: &Client, ifname: &str, ssid: &str, open: bool) -> core::result
 const EXISTS: &str = "already remembered";
 
 /// Remember a network for this user; asks for the passphrase of a WPA2 one.
-fn add(client: &Client, ssid: &str, security: u32, hidden: bool) -> core::result::Result<String, String> {
+fn add(
+    client: &Client,
+    ssid: &str,
+    security: u32,
+    hidden: bool,
+) -> core::result::Result<String, String> {
     let passphrase = match Security::from_wire(security) {
         Some(Security::Open) => None,
         Some(Security::Wpa2Psk) => Some(passphrase(ssid)?),
-        _ => return Err(format!("\"{ssid}\" uses a security this system cannot join")),
+        _ => {
+            return Err(format!(
+                "\"{ssid}\" uses a security this system cannot join"
+            ))
+        }
     };
     let profile = api::Profile {
         id: String::new(),

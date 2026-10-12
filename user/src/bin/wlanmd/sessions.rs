@@ -135,7 +135,9 @@ impl Logins {
 /// The uid an event says left, if it says one did.
 fn ended_uid(event: &router::Event) -> Option<u32> {
     if event.topic == logind::wire::TOPIC_SYSTEM_EVENTS_LOGIN_END {
-        return logind::wire::decode_login_end(&event.payload).ok().map(|end| end.uid);
+        return logind::wire::decode_login_end(&event.payload)
+            .ok()
+            .map(|end| end.uid);
     }
     let record = logind::wire::decode_login_session(&event.payload).ok()?;
     (!LIVE.contains(&record.state.as_str())).then_some(record.uid)

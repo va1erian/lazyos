@@ -149,7 +149,9 @@ impl Slot {
                 Ok(Feedback::Event(Event::ScanStarted { scan_id }))
             }
             Action::AbortScan { scan_id } => {
-                self.radio.abort_scan(scan_id).map_err(fail(HwOp::AbortScan))?;
+                self.radio
+                    .abort_scan(scan_id)
+                    .map_err(fail(HwOp::AbortScan))?;
                 Ok(Feedback::None)
             }
             Action::Join {
@@ -194,7 +196,12 @@ impl Slot {
             }
             Action::FetchPmk { id, owner, ssid } => {
                 let answer = store.pmk(&id, owner, &ssid);
-                Ok(Feedback::Actions(self.station.pmk(crate::now_ms(), owner, &id, answer)))
+                Ok(Feedback::Actions(self.station.pmk(
+                    crate::now_ms(),
+                    owner,
+                    &id,
+                    answer,
+                )))
             }
         }
     }
@@ -328,7 +335,10 @@ fn entry(e: hw::ScanEntry) -> ScanEntry {
 fn set_country(radio: &Radio, ifname: &str, country: &str) -> messenger::Result<String> {
     match radio.set_country(country) {
         Ok(()) => return Ok(String::from(country)),
-        Err(error) => sys::write_str(&format!("WLANMD:RADIO:COUNTRY {ifname} {country} {}\n", error.message())),
+        Err(error) => sys::write_str(&format!(
+            "WLANMD:RADIO:COUNTRY {ifname} {country} {}\n",
+            error.message()
+        )),
     }
     radio.set_country(WORLD)?;
     Ok(String::from(WORLD))
@@ -344,7 +354,11 @@ pub(crate) fn wire_state(status: &Status, viewer: Viewer) -> api::WifiState {
         bssid: status.bssid.map(|b| b.to_vec()).unwrap_or_default(),
         rssi_dbm: status.rssi_dbm,
         freq_mhz: status.freq_mhz,
-        id: if shown { status.id.clone() } else { String::new() },
+        id: if shown {
+            status.id.clone()
+        } else {
+            String::new()
+        },
         reason: status.reason as u32,
         changes: status.changes,
     }

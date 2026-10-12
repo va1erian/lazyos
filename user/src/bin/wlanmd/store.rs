@@ -152,7 +152,12 @@ impl Store {
                 };
                 fields.push((field, value));
             }
-            let get = |name: &str| fields.iter().find(|(f, _)| *f == name).and_then(|(_, v)| v.clone());
+            let get = |name: &str| {
+                fields
+                    .iter()
+                    .find(|(f, _)| *f == name)
+                    .and_then(|(_, v)| v.clone())
+            };
             if let Some(profile) = profile::parse(owner, &id, get) {
                 profiles.push(profile);
             }
@@ -164,7 +169,11 @@ impl Store {
     /// so a reader never sees half a profile); undone if a step fails. An
     /// owner holds at most `profile::MAX_PER_OWNER` profiles (`ENOSPC`).
     pub fn add(&mut self, profile: &Profile, passphrase: Option<&str>) -> Result<(), Error> {
-        let owned = self.profiles.iter().filter(|p| p.owner == profile.owner).count();
+        let owned = self
+            .profiles
+            .iter()
+            .filter(|p| p.owner == profile.owner)
+            .count();
         if owned >= profile::MAX_PER_OWNER {
             return Err(Error::Errno(-errno::ENOSPC));
         }
@@ -172,13 +181,21 @@ impl Store {
         if let Some(secret) = passphrase {
             let keyd = self.keyd().ok_or(Error::Errno(-errno::EAGAIN))?;
             if let Err(error) = keyd.store_secret_for(scope, &profile.id, secret.as_bytes(), uid) {
-                sys::write_str(&format!("WLANMD:ADD:FAIL {} keyd {}\n", profile.id, error.message()));
+                sys::write_str(&format!(
+                    "WLANMD:ADD:FAIL {} keyd {}\n",
+                    profile.id,
+                    error.message()
+                ));
                 return Err(error);
             }
         }
         let written = self.write_fields(profile);
         if let Err(error) = &written {
-            sys::write_str(&format!("WLANMD:ADD:FAIL {} confd {}\n", profile.id, error.message()));
+            sys::write_str(&format!(
+                "WLANMD:ADD:FAIL {} confd {}\n",
+                profile.id,
+                error.message()
+            ));
             self.erase(profile);
         }
         written
@@ -195,7 +212,10 @@ impl Store {
     fn set_fields(&mut self, profile: &Profile) -> Result<(), Error> {
         let client = self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
         for (field, value) in profile::fields(profile) {
-            client.set(&profile::key(profile.owner, &profile.id, field), &to_conf(value))?;
+            client.set(
+                &profile::key(profile.owner, &profile.id, field),
+                &to_conf(value),
+            )?;
         }
         Ok(())
     }
