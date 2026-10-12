@@ -104,7 +104,7 @@ fn message_of(error: MacError) -> &'static str {
         MacError::Invalid => "invalid request for this radio or domain",
         MacError::NotFound => "no such scan",
         MacError::NotConnected => "not joined to a BSS",
-        MacError::NoSpace => "no free key slot",
+        MacError::NoSpace => "no free key slot, or the key's packet numbers are spent",
         MacError::Radio => "the radio failed",
     }
 }
