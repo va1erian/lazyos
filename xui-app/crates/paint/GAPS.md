@@ -257,3 +257,23 @@ convention: `update` drops every message but the editor's own while it is open.
 
 **Proposal:** `Dialog::custom(ui, title, layout)` that mounts an arrange layout
 in the dialog's frame and reports OK/Cancel.
+
+## G18 — Images and controls in `ListView` cells
+
+**Gap.** `ListView` cells are text only, so the Layers panel's rows (an eye,
+a thumbnail, a name) cannot be list rows. **Workaround:** the panel is a custom
+`Control` node that paints and hit-tests its own rows (`view/layers.rs`,
+`view/layers/thumb.rs`), marked `// xui gap: G18`.
+
+**Proposal:** `ListView` cell renderers that can draw an image and a checkbox
+glyph, with the clicked part reported (`Cell::Image`, `Cell::Toggle`).
+
+## G19 — Alpha in `ColorPanel`
+
+**Gap.** `ColorPanel` edits RGB only, so a colour's alpha cannot be set in it.
+**Workaround:** an Alpha slider sits under the panel in the colour editor and
+the app keeps the colour's alpha when the panel reports an RGB change
+(`view/coloredit.rs`, `view/app/colors.rs`), marked `// xui gap: G19`.
+
+**Proposal:** `ColorPanel::with_alpha(true)` adding an alpha strip and an
+alpha field, reporting RGBA.
