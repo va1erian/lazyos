@@ -13,18 +13,18 @@ import judge  # noqa: E402
 W1 = "JSC:W1:UP\nJSC:W1:PASS:cxx\nJSC:W1:PASS:icu\nJSC:W1:PASS\n"
 
 
-def shell(prefix: str, passed: int = 255, total: int = 255) -> str:
+def shell(prefix: str, passed: int = 255, total: int = 255, signals: int = 32) -> str:
     lines = [f"{prefix}UP:PASS", f"{prefix}START:1234"]
     lines += [f"{prefix}RUN:PASS:{name}" for name in judge.RUNS]
-    lines += [f"{prefix}TIME:hot:900", f"{prefix}STRESS:{passed}/{total}",
-              f"{prefix}STRESS:TIME:90000"]
+    lines += [f"{prefix}TIME:hot:900", f"{prefix}SIGNALS:suspend:{signals}",
+              f"{prefix}STRESS:{passed}/{total}", f"{prefix}STRESS:TIME:90000"]
     return "\n".join(lines) + "\n"
 
 
 W2 = shell("JSC:", 250) + shell("JSC:JIT:", 252)
 GOOD = W1 + W2 + "ABI:jsc:PASS\n"
-#: Every verdict a log needs: W1 (3), per shell UP + RUNS + STRESS, the fixture.
-EVERYTHING = 3 + 2 * (1 + len(judge.RUNS) + 1) + 1
+#: Every verdict a log needs: W1 (3), per shell UP + RUNS + SIGNALS + STRESS, the fixture.
+EVERYTHING = 3 + 2 * (1 + len(judge.RUNS) + len(judge.SIGNAL_RUNS) + 1) + 1
 
 
 def failing(serial: str, stages=("w1", "w2")) -> list[str]:
@@ -55,7 +55,7 @@ class JudgeTests(unittest.TestCase):
         # The JIT shell's markers must not satisfy the interpreter's checks.
         serial = W1 + shell("JSC:JIT:") + "ABI:jsc:PASS\n"
         self.assertEqual(sorted(failing(serial)),
-                         sorted(["JSC:UP:PASS", "JSC:STRESS",
+                         sorted(["JSC:UP:PASS", "JSC:STRESS", "JSC:SIGNALS:suspend",
                                  *[f"JSC:RUN:PASS:{n}" for n in judge.RUNS]]))
 
     def test_a_failure_line_fails_even_with_every_pass_marker(self):
@@ -115,8 +115,38 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(judge.stress_failures(serial, "JSC:"), {"nope.js": "timeout"})
         self.assertEqual(judge.stress_failures(serial, "JSC:JIT:"),
                          {"x.js": "exit status: 3 Exception; bad"})
-        # Failing stress files are counted by the rate, not "no failure lines".
-        self.assertTrue(judge.passed(judge.judge(serial)))
+        # They are not "no failure lines": the stress verdict names them.
+        self.assertNotIn("no failure lines", failing(serial))
+
+    def test_an_unexpected_stress_failure_fails_even_above_the_rate(self):
+        # 254/255 clears the 98% floor, but an unknown name is a regression.
+        for prefix in judge.SHELLS:
+            serial = (W1 + shell("JSC:", 254) + shell("JSC:JIT:", 254) + "ABI:jsc:PASS\n"
+                      + f"{prefix}STRESS:FAIL:new-regression.js:timeout\n")
+            self.assertEqual(failing(serial), [f"{prefix}STRESS"], prefix)
+            detail = {v.name: v.detail for v in judge.judge(serial)}[f"{prefix}STRESS"]
+            self.assertIn("new-regression.js", detail)
+
+    def test_the_known_stress_failure_alone_passes(self):
+        (known,) = judge.KNOWN_STRESS_FAILURES
+        serial = (W1 + shell("JSC:", 254) + shell("JSC:JIT:", 254) + "ABI:jsc:PASS\n"
+                  + f"JSC:STRESS:FAIL:{known}:signal 11\n"
+                  + f"JSC:JIT:STRESS:FAIL:{known}:signal 11\n")
+        self.assertEqual(failing(serial), [])
+        # One known name plus one unknown is still a failure.
+        self.assertEqual(failing(serial + "JSC:STRESS:FAIL:other.js:timeout\n"), ["JSC:STRESS"])
+
+    def test_thread_signals_must_be_counted_for_suspend(self):
+        for prefix in judge.SHELLS:
+            marker = f"{prefix}SIGNALS:suspend"
+            zero = GOOD.replace(f"{marker}:32\n", f"{marker}:0\n")
+            self.assertEqual(failing(zero), [marker], prefix)
+            missing = "".join(line + "\n" for line in GOOD.splitlines()
+                              if not line.startswith(marker))
+            self.assertEqual(failing(missing), [marker], prefix)
+        self.assertEqual(judge.signals(GOOD), {"suspend": 32})
+        self.assertEqual(judge.signals(GOOD + "JSC:JIT:SIGNALS:gc:5\n", "JSC:JIT:"),
+                         {"suspend": 32, "gc": 5})
 
     def test_stress_time(self):
         self.assertEqual(judge.stress_ms(GOOD), 90000)

@@ -94,12 +94,16 @@ the collector suspend it with a thread-directed `SIGUSR1`), then each file of
 JSC:W1:PASS            JSC:UP:PASS          JSC:START:<ms>
 JSC:RUN:PASS:<name>    JSC:TIME:<name>:<ms> JSC:RUN:FAIL:<name>:<reason>
 JSC:STRESS:<pass>/<total>  JSC:STRESS:FAIL:<file>:<reason>  JSC:STRESS:TIME:<ms>
+JSC:SIGNALS:<name>:<n> (gc, suspend)
 JSC:RUN:BEGIN:<name>   JSC:STRESS:RUN:<file>    (they name what the kernel lines after them belong to)
 ```
 
 `judge.py` reads the serial log; a missing marker is a failure, never a pass,
-and the stress summary must reach 98% of at least 200 files in each shell
-(`run.py` also prints the JIT's speedup per script and every stress failure).
+the stress summary must reach 98% of at least 200 files in each shell and
+no file may fail but `get-array-length-reuse.js`, and `JSC:SIGNALS:suspend:<n>`
+(the thread-directed signals the process had sent, from
+`LazyOS_ThreadSignals` in `/proc/self/status`) must be above zero in both
+shells (`run.py` also prints the JIT's speedup per script and every stress failure).
 The stress subset is chosen by a fixed rule in `stress.py` (files of
 `JSTests/stress` starting `g` or `n`, up to 40 KB, without `//@ skip`,
 `requireOptions`, `$vm`, WebAssembly, modules, `load`, `$262` or `$.agent`),

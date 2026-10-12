@@ -49,6 +49,10 @@ import pins  # noqa: E402
 REPO = "https://github.com/WebKit/WebKit.git"
 #: The commit the `webkitgtk-2.54.1` tag points to (`git ls-remote --tags`).
 COMMIT = "628d6ce1850e17225185a5807a9d0aa375bae2be"
+#: What the checkout's marker file holds once it is done: the commit, fetched
+#: without line-end conversion (an older checkout, made with the user's
+#: `core.autocrlf`, is fetched again).
+FETCHED = COMMIT + " raw"
 CHECKOUT = pins.ROOT / "target" / "jsc-work" / "jstests"
 STRESS = CHECKOUT / "JSTests" / "stress"
 #: What `LAZYOS_JSC=1` embeds, and the fixture reads.
@@ -77,19 +81,23 @@ EXCLUDED = [
 _EXCLUDED = re.compile("|".join(f"(?:{pattern})" for pattern in EXCLUDED))
 
 
-def fit(name: str, text: str) -> bool:
-    """Whether the rule selects the file `name` with contents `text`."""
-    return (name.endswith(".js") and name[:1] in LETTERS and len(text.encode()) <= MAX_BYTES
-            and _EXCLUDED.search(text) is None)
+def fit(name: str, data: bytes) -> bool:
+    """Whether the rule selects the file `name` with contents `data`.
+
+    The exclusions match on a lossy UTF-8 decoding; the bytes themselves are
+    never changed (a test may hold CRLF line ends or invalid UTF-8 on purpose).
+    """
+    return (name.endswith(".js") and name[:1] in LETTERS and len(data) <= MAX_BYTES
+            and _EXCLUDED.search(data.decode("utf-8", errors="replace")) is None)
 
 
-def selected(directory: Path = STRESS) -> list[tuple[str, str]]:
-    """``(name, text)`` of every selected file, sorted by name."""
+def selected(directory: Path = STRESS) -> list[tuple[str, bytes]]:
+    """``(name, bytes)`` of every selected file, sorted by name."""
     found = []
     for path in sorted(directory.glob("*.js")):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if fit(path.name, text):
-            found.append((path.name, text))
+        data = path.read_bytes()
+        if fit(path.name, data):
+            found.append((path.name, data))
     return found
 
 
@@ -111,11 +119,14 @@ def git(*args: str, cwd: Path) -> None:
 
 def fetch() -> Path:
     """`JSTests/stress` at :data:`COMMIT`, cloned once (sparse, no blobs but the ones wanted)."""
-    if (CHECKOUT / ".lazyos-fetched").is_file():
+    marker = CHECKOUT / ".lazyos-fetched"
+    if marker.is_file() and marker.read_text().strip() == FETCHED:
         return STRESS
     remove_tree(CHECKOUT)
     CHECKOUT.mkdir(parents=True)
     git("init", "-q", cwd=CHECKOUT)
+    # Byte-exact files: no CRLF conversion on a Windows checkout.
+    git("config", "core.autocrlf", "false", cwd=CHECKOUT)
     git("remote", "add", "origin", REPO, cwd=CHECKOUT)
     git("sparse-checkout", "set", "--cone", "JSTests/stress", cwd=CHECKOUT)
     git("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", COMMIT, cwd=CHECKOUT)
@@ -124,7 +135,7 @@ def fetch() -> Path:
                           capture_output=True, text=True).stdout.strip()
     if head != COMMIT:
         raise SystemExit(f"stress: checked out {head}, wanted {COMMIT}")
-    (CHECKOUT / ".lazyos-fetched").write_text(COMMIT + "\n")
+    marker.write_text(FETCHED + "\n")
     return STRESS
 
 
@@ -133,8 +144,8 @@ def bundle(out: Path = BUNDLE) -> list[str]:
     files = selected(fetch())
     remove_tree(out)
     out.mkdir(parents=True)
-    for name, text in files:
-        (out / name).write_text(text, encoding="utf-8", newline="\n")
+    for name, data in files:
+        (out / name).write_bytes(data)
     names = [name for name, _ in files]
     (out / "index.txt").write_text("".join(f"{name}\n" for name in names), newline="\n")
     return names

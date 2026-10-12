@@ -24,8 +24,8 @@ tools/jsc/build.py` then `python tools/jsc/run.py`):
 | Classes, private fields, Promises, async generators, `Intl.NumberFormat`, `toUpperCase` | `JSC:RUN:PASS:promise` |
 | `jsc-jit` (`build.py --jit`) | `ENABLE_JIT=ON`, `ENABLE_C_LOOP=OFF`, LLInt in assembly, baseline and DFG; **FTL off** (B3 does not build with WebAssembly off at this revision); **52.0 MiB**; incremental build 7 minutes, two small source patches (below) |
 | JIT speedup over `jsc` in the guest (WHPX, one CPU, `tier:dfg` confirmed) | `gc` script 1.8x to 2.1x, `hot` (fib(30), a 20 M-iteration loop, a 60 k sort) 2.6x to 2.7x, four SharedArrayBuffer agents 1.8x to 2.5x; `promise` (short, 130 ms) 0.8x and the timer-bound `suspend` script 1.0x: the JIT's start-up cost shows where there is nothing to compile. Runs on a loaded host vary by about 20%; native Linux gets 4x on the same `hot` code, so the guest loses part of it (one CPU: the compile thread competes with the mutator) |
-| `JSTests/stress` subset (`tools/jsc/stress.py`, 255 files starting `g` or `n`, 262 KiB, WebKit commit of the `webkitgtk-2.54.1` tag) | **254/255 in `jsc` and 254/255 in `jsc-jit`** (99.6%), each file with a 10 s limit, about 58 s per shell. The one failure in both is `get-array-length-reuse.js` (`//@ memoryHog!`): it zero-fills a 2 GiB typed array in a 2 GiB guest, so the frame allocator runs out and the process dies with `SIGSEGV` (Linux would OOM-kill it). With `--memory 4G` both shells pass **255/255**. The judge requires 98% |
-| Per-thread signal path (§4.2) with the real consumer | seen: the `suspend` script (main thread idle in the run loop on timers, collector working) makes the collector thread `tkill` the main thread with `SIGUSR1`, 32 sends in `jsc` and 24 in `jsc-jit`, each answered by the handler (`rt_sigsuspend`, `rt_sigreturn`); not by `agents` or `gc`, see §4.2 |
+| `JSTests/stress` subset (`tools/jsc/stress.py`, 255 files starting `g` or `n`, 262 KiB, WebKit commit of the `webkitgtk-2.54.1` tag) | **254/255 in `jsc` and 254/255 in `jsc-jit`** (99.6%), each file with a 10 s limit, about 58 s per shell. The one failure in both is `get-array-length-reuse.js` (`//@ memoryHog!`): it zero-fills a 2 GiB typed array in a 2 GiB guest, so the frame allocator runs out and the process dies with `SIGSEGV` (Linux would OOM-kill it). With `--memory 4G` both shells pass **255/255**. The judge requires 98% of the files and fails on any failing name but that one |
+| Per-thread signal path (§4.2) with the real consumer | **guarded**: the `suspend` script (main thread idle in the run loop on timers, collector working) makes the collector thread `tkill` the main thread with `SIGUSR1`; the kernel counts thread-directed sends per process (`LazyOS_ThreadSignals` in `/proc/self/status`), the script prints it (`JSC:SIGNALS:suspend:<n>`) and the judge requires more than zero in both shells (last run: 32 in `jsc`, 24 in `jsc-jit`, 0 in `gc`). That the handler runs is `suspend`'s output; not sent by `agents` or `gc`, see §4.2 |
 | `sched_setattr` (314) | implemented with `sched_getattr` (315); no `ENOSYS 314` line in the run |
 
 Built in Docker (`tools/jsc/Dockerfile`, Debian 12 with zig from pip): a
@@ -145,11 +145,16 @@ and the handler running (`rt_sigsuspend`, `rt_sigreturn`). Four
 main thread calls `fullGC()` send **no** signal: each agent is a VM with a
 heap of its own, so no collector has to stop another thread, and a script that
 calls `fullGC()` itself stops at a safepoint. The earlier claim that a single
-JS thread never uses the signal was wrong for the idle case. The evidence was a
-temporary `serial_println!` in `sys_tkill` (not committed): 32 and 24 sends in
-the `suspend` script for `jsc` and `jsc-jit`, 16 in two of the stress files
-(`get-by-val-hoist-above-structure*.js`, which also wait on timers), none in
-`gc`, `hot` or `agents`.
+JS thread never uses the signal was wrong for the idle case. The first
+evidence was a temporary `serial_println!` in `sys_tkill` (not committed): 32
+and 24 sends in the `suspend` script for `jsc` and `jsc-jit`, 16 in two of the
+stress files (`get-by-val-hoist-above-structure*.js`, which also wait on
+timers), none in `gc`, `hot` or `agents`. It is now a permanent guard: the
+kernel keeps a per-process count of `tkill`/`tgkill` sends, `/proc/self/status`
+shows it as `LazyOS_ThreadSignals`, the `gc` and `suspend` scripts print it as
+their last line and the fixture reports `JSC:SIGNALS:<name>:<n>`; the judge
+requires `suspend` to be above zero in both shells, so a collector that stops
+suspending with signals (or a kernel that stops delivering them) fails the run.
 
 ### 4.3 Executable memory (#773)
 

@@ -44,6 +44,12 @@ pub struct LinuxExtras {
     pub ctty: Option<Arc<crate::tty::pty::Pty>>,
     /// What `sched_setattr` last set (read back by `sched_getattr`).
     pub sched: SchedState,
+    /// Thread-directed signals (`tkill`/`tgkill` with a real signal) the
+    /// process has sent. Kept on the thread-group leader only and read as
+    /// `LazyOS_ThreadSignals` in `/proc/self/status`: a guard that the
+    /// per-thread signal path is used (JavaScriptCore's collector suspends a
+    /// parked mutator with one).
+    pub thread_signals: u64,
 }
 
 /// A thread's Linux scheduling attributes. Only the plain policies are ever
@@ -144,6 +150,7 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         console: None,
         ctty: parent.linux.ctty.clone(),
         sched: parent.linux.sched.for_child(),
+        thread_signals: 0,
     }
 }
 
@@ -166,6 +173,20 @@ pub fn tgid() -> usize {
         Some(0) | None => me,
         Some(leader) => leader,
     }
+}
+
+/// Count one thread-directed signal sent by the calling task's process. It
+/// lands on the thread-group leader; if the leader's slot is already gone the
+/// count is lost, which only a diagnostic can notice.
+pub fn note_thread_signal() {
+    with_extras_of(tgid(), |extras| {
+        extras.thread_signals = extras.thread_signals.saturating_add(1);
+    });
+}
+
+/// How many thread-directed signals the calling task's process has sent.
+pub fn thread_signals() -> u64 {
+    with_extras_of(tgid(), |extras| extras.thread_signals).unwrap_or(0)
 }
 
 /// The signal that ended `slot` (0 for a normal exit; tests and diagnostics).
