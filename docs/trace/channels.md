@@ -99,7 +99,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |

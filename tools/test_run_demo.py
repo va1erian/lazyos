@@ -82,6 +82,12 @@ class RunDemoCase(unittest.TestCase):
         self.home = self.dir / "home.img"
         self.builds: list[dict] = []
         self.commands: list[list[str]] = []
+        # A build switch in the caller's environment (CI exports LAZYOS_RESET_OS=1)
+        # must not leak into the plans these tests judge.
+        ambient = {k: v for k, v in os.environ.items() if not k.startswith("LAZYOS_")}
+        env_patch = mock.patch.dict(os.environ, ambient, clear=True)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
         # The OS volume sizing reads the build's image: use none, not the developer's.
         patcher = mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", self.dir / "os.img")
         patcher.start()
@@ -116,7 +122,8 @@ class MainTests(RunDemoCase):
     def test_a_too_small_os_volume_is_caught_before_the_build(self) -> None:
         from lazygui.test_osvolume import make_image
         small = make_image(self.dir, 512)
-        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small),                 mock.patch.object(run_demo, "build_srb2kart", return_value=True):
+        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small), \
+                mock.patch.object(run_demo, "build_srb2kart", return_value=True):
             code, _ = self.run_main("--desktop", "--srb2kart")
             self.assertEqual(code, 1, "no terminal to ask: left untouched")
             self.assertEqual(self.builds, [])
