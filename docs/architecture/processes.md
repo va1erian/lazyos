@@ -211,6 +211,11 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `sched_getaffinity`, `getcpu` (309), and the scheduler calls below).
   Everything else logs `ENOSYS <nr> <name>`; the bench's
   `coverage.py` summarises what real programs still hit.
+- **Thread-directed signal count.** `tkill`/`tgkill` with a real signal add
+  one to a counter on the sender's thread-group leader
+  (`LinuxExtras::thread_signals`), shown as `LazyOS_ThreadSignals` in
+  `/proc/self/status`; the `jsc` fixture's scripts read it and the judge
+  requires it to be positive for `suspend` (`compat_threadsig_*count*`).
 - **Scheduling attributes** (`process/linux/{schedattr,procattr}.rs`,
   `task/schedupdate.rs`). `sched_yield` (24), `sched_getparam` (143),
   `sched_getscheduler` (145), `sched_get_priority_max`/`min` (146, 147),
@@ -222,8 +227,13 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   (`task::sched_update`), so two threads of a user cannot pass the "cannot
   lower nice / leave `SCHED_IDLE` / clear `reset_on_fork`" checks against a
   stale state, and the stored nice value and the live weight never disagree
-  (a task the CPU guard has demoted gets the new weight when its window
-  ends). The `pid` argument is a thread id (a task slot) checked on all 64
+  after a `sched_setattr` (a task the CPU guard has demoted gets the new
+  weight when its window ends; the native `task::set_priority` and
+  `raise_priority`, which kernel code and tools call, reset the weight to the
+  class default and leave the stored nice value alone). As in Linux
+  `SCHED_IDLE` takes no nice value: it keeps the task's own and needs no
+  privilege for the one asked. `sched_getattr` writes `min(size, 56)` bytes
+  and an `E2BIG` always writes 56 back. The `pid` argument is a thread id (a task slot) checked on all 64
   bits (`EINVAL` above `INT_MAX`, `ESRCH` for an empty slot); without
   `CAP_SYS_ADMIN` a caller may change only tasks of its own process (same
   thread-group leader and uid), never another process of its uid such as a
@@ -231,8 +241,9 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `sched_setscheduler` (144), `sched_setparam` (142), `setpriority` (141) and
   `getpriority` (140) are not offered (`ENOSYS`, pinned by
   `compat_schedattr_other_setters_not_offered`), so no other call can move
-  the policy or nice value behind `sched_getattr`; callers use
-  `sched_setattr`. Tests: `compat_schedattr_*` (including the two-thread soak
+  the policy or nice value behind `sched_getattr`. WTF calls `sched_setattr`
+  directly; musl's `pthread_setschedparam` (`sched_setscheduler`) and
+  `pthread_setschedprio` (`sched_setparam`) get `ENOSYS`. Tests: `compat_schedattr_*` (including the two-thread soak
   and the guard-demotion case).
 - File I/O runs against the ABI's own mount table. In the configured layout it
   mounts the same volumes as the native table (ext2 `/`, `/home`, ramfs `/tmp`;

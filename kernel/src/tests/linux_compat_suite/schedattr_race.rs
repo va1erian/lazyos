@@ -157,7 +157,11 @@ fn one_call(rng: &mut u64, seen: &mut Seen) -> Result<(), String> {
         let want = SchedState {
             policy: policy as u8,
             reset_on_fork: flags != 0,
-            nice: if policy == IDLE { before.nice } else { level as i8 },
+            nice: if policy == IDLE {
+                before.nice
+            } else {
+                level as i8
+            },
         };
         if got != 0 || after != want {
             return Err(format!(

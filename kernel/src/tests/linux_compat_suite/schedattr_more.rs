@@ -55,7 +55,11 @@ pub fn schedattr_idle_ignores_nice() -> Result<(), String> {
         );
         check!(setattr(0, &attr(IDLE, -5)) == 0, "IDLE with nice -5");
         check!(getattr(0)?.nice == 10, "IDLE with nice -5 moved the nice");
-        check!(me_weight() == task::MIN_WEIGHT, "IDLE weight {}", me_weight());
+        check!(
+            me_weight() == task::MIN_WEIGHT,
+            "IDLE weight {}",
+            me_weight()
+        );
         // Leaving IDLE is still privileged, and a refusal changes nothing.
         check!(setattr(0, &attr(OTHER, 10)) == EPERM, "leave IDLE");
         Ok(())
@@ -78,7 +82,13 @@ pub fn schedattr_getattr_end_of_mapping() -> Result<(), String> {
     let base = crate::process::linux::MMAP_BASE + 0x4200_0000;
     let table = mem::kernel_table();
     scoped(USER, || {
-        vma::insert(table, base, base + PAGE, Prot::READ | Prot::WRITE, Kind::Anon);
+        vma::insert(
+            table,
+            base,
+            base + PAGE,
+            Prot::READ | Prot::WRITE,
+            Kind::Anon,
+        );
         let outcome = (|| {
             let at = base + PAGE - u64::from(SIZE);
             for size in [u64::from(SIZE), 128, PAGE] {

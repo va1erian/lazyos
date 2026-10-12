@@ -153,7 +153,10 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > non-zero tail bytes is `E2BIG` (Linux's size handshake). Still missing, and
 > `ENOSYS` so that nothing can change the policy or nice value behind
 > `sched_getattr`: `sched_setscheduler`/`sched_setparam` (142, 144),
-> `setpriority`/`getpriority` (140, 141), `sched_setaffinity`. Tests:
+> `setpriority`/`getpriority` (140, 141), `sched_setaffinity` (so musl's
+> `pthread_setschedparam` and `pthread_setschedprio`, which call the first
+> two, fail; WTF calls `sched_setattr` directly). `SCHED_IDLE` ignores the
+> attr's nice value and keeps the task's own, as Linux does. Tests:
 > `compat_schedattr_*` (a two-thread soak, the same-process rule, dead slots,
 > odd pids, the guard-demotion case).
 >

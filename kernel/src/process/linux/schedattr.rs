@@ -92,7 +92,7 @@ fn read_attr(uattr: u64) -> Result<Attr, u64> {
     } else {
         declared as usize
     };
-    if size > PAGE || size < SIZE_VER0 {
+    if !(SIZE_VER0..=PAGE).contains(&size) {
         let _ = user_ptr::try_write::<u32>(uattr, SIZE_NOW as u32);
         return Err(err(E2BIG));
     }
