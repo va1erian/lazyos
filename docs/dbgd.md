@@ -124,6 +124,14 @@ LAZYOS_DESKTOP=1 LAZYOS_USB_IMAGE=1 LAZYOS_NETD=1 LAZYOS_DBGD=1 LAZYOS_DBGD_CONT
 python tools/run_demo.py --dbgd-control      # the same in QEMU
 ```
 
+The control tier makes the pre-shared key worth the whole box: a `reload`
+replaces a service with any binary the key holder uploads, under that
+service's identity, so a reloaded driver has its DMA (all of memory) and a
+reloaded `wlanmd` gets every Wi-Fi PMK from `keyd`. Keep `target/dbgd.key`
+private, set `LAZYOS_DBGD_PEER`, and use a control image only while you
+develop on the box (the NUC Wi-Fi loop in
+[wifi-rtw88-plan.md](wifi-rtw88-plan.md) section 5 recommends one).
+
 Then, after each change to a service or driver, rebuild with the **same
 switches** (so the binary matches the box) and push it:
 

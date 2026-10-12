@@ -109,7 +109,17 @@ mod tests {
     fn only_the_radio_drivers_hold_radio_names() {
         assert!(may_register_wifi_hw_name(WIFI_UID, 0, 0));
         assert!(may_register_wifi_hw_name(WIFISIM_UID, 0, 0));
-        for uid in [ROOT_UID, NET_UID, NETD_UID, WLAN_UID, 906, 909, 914, 1000, u32::MAX] {
+        for uid in [
+            ROOT_UID,
+            NET_UID,
+            NETD_UID,
+            WLAN_UID,
+            906,
+            909,
+            914,
+            1000,
+            u32::MAX,
+        ] {
             assert!(!may_register_wifi_hw_name(uid, 0, 0), "{uid}");
         }
         assert!(!may_register_wifi_hw_name(WIFI_UID, 1, 0));

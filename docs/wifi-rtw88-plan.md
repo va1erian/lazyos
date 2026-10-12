@@ -96,7 +96,7 @@ wired Ethernet (the RTL8168, `eth0`) carries `dbgd`, and every change to
 | Firmware at `fhs::FIRMWARE` = `/system/share/firmware/<vendor>/<file>`, licence beside it | `tools/firmware/manifest.txt` (pinned: linux-firmware `afabaf773c4c`, SHA-256, size), `tools/firmware/fetch.py` (into `target/firmware/`, `--check` re-downloads and verifies), placed by the image build after a second hash check and tracked by `/system/.image-manifest` |
 | `libs/fwload` | vendor-relative names only (`[A-Za-z0-9._-]` segments, no `..`, nothing absolute), size cap checked before reading |
 | `devd` match | `libs/devmatch`: `10ec:c822` -> `wifid`, prefix `wlan` (one counter per prefix: `wlan0`, `wlan1`, ... apart from `eth0`, `eth1`, ...); a test keeps it equal to `rtw88::DEVICES` |
-| Identity | `_wifi` (uid 911, `netpolicy::WIFI_UID`) with only `CAP_DEV_CLAIM`; the kernel's class rules give it the new **wireless** device class (PCI `02/80` and base class `0D`, `dev::class::WIRELESS`) and nothing else, and `_net` no longer gets Wi-Fi cards. `dbgd` moved from 911 to 914 (`_dbgd`): 911 had been given to both |
+| Identity | `_wifi` (uid 911, `netpolicy::WIFI_UID`) with only `CAP_DEV_CLAIM`; the kernel's class rules give it the new **wireless** device class (PCI `02/80` and the 802.11 subclasses `0D/20`, `0D/21`; the rest of `0D`, Bluetooth included, is `other`; `dev::class::WIRELESS`) and nothing else, and `_net` no longer gets Wi-Fi cards. `dbgd` moved from 911 to 914 (`_dbgd`): 911 had been given to both |
 | Front ends | `python tools/run_demo.py --wifi` (implies `--net`, fetches the firmware); the launcher's Simple tab *Wi-Fi* group and the Advanced tab's Networking checkbox |
 | Licences | `THIRD_PARTY.md` (rtw88 at `d6d3455d8751` with the BSD-3-Clause notice, the firmware blob and its licence file), `python tools/wifi/licenses.py` |
 
@@ -141,6 +141,13 @@ In the launcher: Advanced tab, tick *Desktop*, *USB stick image too*,
 *Wi-Fi* and *dbgd control*, then *Build image*; write the stick with
 `python tools/boot/stick_gui.py`. The `dbgd` key is in `target/dbgd.key`
 (`LAZYOS_DBGD_PEER=<your ip>` restricts who may connect).
+
+**Keep that key private.** With the control tier, whoever holds it can
+`reload` any service with a binary of their own, run under that service's
+identity: `wifid` (a DMA-capable driver: all of memory) or `wlanmd` (the one
+service `keyd` hands Wi-Fi PMKs to, so every saved network's key). Set
+`LAZYOS_DBGD_PEER`, do not copy the key off the development machine, and
+build the stick without `--dbgd-control` once the driver work is done.
 
 ### 5.3 Boot and read it
 
