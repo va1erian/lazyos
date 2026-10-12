@@ -48,10 +48,6 @@ const JSC_TESTS_BUILT: &str = "target/jsc/jsc-tests";
 const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
 
-/// Where `tools/webkit/deps.py` writes `depsproof`, and what `LAZYOS_WEBKIT_DEPS=1` embeds.
-const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
-const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
-
 /// Whether the environment variable `name` is `1`.
 fn switch_on(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| value == "1")
@@ -126,16 +122,6 @@ fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
         let Some(name) = name.to_str() else { continue };
         println!("cargo:rerun-if-changed={}", entry.path().display());
         sink.add_file(&format!("{image_dir}/{name}"), entry.path());
-    }
-    if switch_on("LAZYOS_WEBKIT_DEPS") {
-        embed_programs(
-            sink,
-            manifest_dir,
-            "LAZYOS_WEBKIT_DEPS",
-            WEBKIT_DEPS_BUILT,
-            WEBKIT_DEPS_PROGRAMS,
-            "tools/webkit/deps.py",
-        );
     }
 }
 
