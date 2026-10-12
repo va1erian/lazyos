@@ -8,15 +8,19 @@
 use std::sync::mpsc::TryRecvError;
 use std::time::{Duration, Instant};
 
+mod pacing;
+mod playing;
+use pacing::{Bench, Stats};
+
 use xui_core::Image;
 
-use crate::fly::{yaw_of, Flyer, Held, EYE};
+use crate::fly::{Flyer, Held};
 use crate::gen::Params;
 use crate::loading::Loading;
-use crate::math::{polyline_at, Vec3};
+use crate::math::Vec3;
 use crate::minimap::Minimap;
-use crate::render::{resolve_into, Camera, Frame, Mode, RenderJob, Scene};
-use crate::scale::adapt;
+use crate::play::Play;
+use crate::render::{resolve_into, Camera, Frame, GridArrow, Mode, Overlay, RenderJob, Scene};
 
 /// What the game tells its host (the LazyOS binary prints it as serial
 /// evidence).
@@ -43,6 +47,26 @@ pub enum Report {
         min_fps: u32,
         avg_fps: f32,
     },
+    /// The ball was struck.
+    Shot {
+        hole: u8,
+        stroke: u32,
+        club: String,
+        power: f32,
+    },
+    /// The ball first touched the ground.
+    Landed {
+        hole: u8,
+        stroke: u32,
+        material: String,
+        carry: f32,
+    },
+    /// A penalty stroke (water, out of bounds).
+    Penalty { hole: u8, stroke: u32, kind: String },
+    /// The ball is in the cup.
+    Holed { hole: u8, strokes: u32, par: u8 },
+    /// The hole was given up at the stroke limit.
+    PickedUp { hole: u8, strokes: u32, par: u8 },
 }
 
 /// The overhead map's size, pixels at 96 DPI.
@@ -50,13 +74,19 @@ pub const MAP_SIZE: usize = 200;
 /// How often the water's palette animation advances: often enough to look
 /// continuous (each step only re-resolves the frame).
 const WATER_PERIOD: Duration = Duration::from_millis(60);
-const BENCH_SECONDS: f32 = 24.0;
-/// A gap between drawn frames longer than this is a pause, not a slow frame.
-const IDLE_GAP: Duration = Duration::from_millis(250);
 /// The flying part, once a course exists.
 pub struct Running {
     pub scene: Scene,
+    /// The free camera: the practice and spectator view (`F`), and the
+    /// benchmark's.
     pub flyer: Flyer,
+    /// The hole being played: the camera follows its ball while `free` is
+    /// off.
+    pub play: Play,
+    /// Whether the free camera is in use instead of the shot camera.
+    pub free: bool,
+    /// The camera the last frame was drawn from.
+    camera: Camera,
     frame: Frame,
     /// The scale `frame` was rendered at: it is always presented at that
     /// scale, even after `scale` has moved on, until a new frame replaces it.
@@ -69,6 +99,9 @@ pub struct Running {
     pub auto_scale: bool,
     pub authentic: bool,
     job: Option<RenderJob>,
+    overlay: Overlay,
+    /// The slope grid of the green being putted on, kept per hole.
+    grid: Option<(usize, Vec<GridArrow>)>,
     dirty: bool,
     settled: bool,
     last_input: Instant,
@@ -78,25 +111,6 @@ pub struct Running {
     size: (usize, usize),
     stats: Stats,
     bench: Option<Bench>,
-}
-
-#[derive(Default)]
-struct Stats {
-    window_start: Option<Instant>,
-    /// When the last frame was drawn: a pause longer than [`IDLE_GAP`]
-    /// starts a new window, so a still camera never counts as slow frames.
-    last_frame: Option<Instant>,
-    frames: u32,
-    work: f32,
-    /// The last second's numbers, for the HUD.
-    fps: u32,
-    work_ms: f32,
-}
-
-struct Bench {
-    started: Instant,
-    seconds: Vec<u32>,
-    frames: u32,
 }
 
 pub struct Game {
@@ -134,7 +148,10 @@ impl Game {
     pub fn loading(&self) -> Option<(String, f32)> {
         self.loading.as_ref().map(|l| {
             let (label, done) = l.snapshot();
-            (format!("{label} - {} s", l.started.elapsed().as_secs()), done)
+            (
+                format!("{label} - {} s", l.started.elapsed().as_secs()),
+                done,
+            )
         })
     }
 
@@ -198,9 +215,16 @@ impl Running {
         if let Some(first) = scene.course.holes.first() {
             flyer.to_tee(first, |x, z| scene.bake.height_at(x, z));
         }
-        Running {
+        let mut play = Play::tee_off(&scene.course.holes, &scene.bake, 0);
+        play.seed = scene.course.seed;
+        play.set_up(&scene.course, &scene.bake);
+        let camera = flyer.camera;
+        let mut run = Running {
             scene,
             flyer,
+            play,
+            free: false,
+            camera,
             frame: Frame::new(1, 1),
             frame_scale: 1,
             image: None,
@@ -211,6 +235,8 @@ impl Running {
             auto_scale: true,
             authentic: false,
             job: None,
+            overlay: Overlay::default(),
+            grid: None,
             dirty: true,
             settled: true,
             last_input: now,
@@ -220,7 +246,15 @@ impl Running {
             size: (0, 0),
             stats: Stats::default(),
             bench: None,
-        }
+        };
+        run.sync_play();
+        run
+    }
+
+    /// The camera the view is drawn from: the free camera, or the shot
+    /// camera for the ball in play.
+    pub fn camera(&self) -> Camera {
+        self.camera
     }
 
     /// Something moved the camera (a key, the mouse, a teleport).
@@ -241,6 +275,9 @@ impl Running {
     }
 
     pub fn start_bench(&mut self) {
+        if !self.free {
+            self.toggle_free();
+        }
         self.bench = Some(Bench {
             started: Instant::now(),
             seconds: Vec::new(),
@@ -283,6 +320,8 @@ impl Running {
         let size = scene.bake.size as f32;
         if self.bench.is_some() {
             self.fly_bench(now, reports);
+        } else if !self.free {
+            self.play_step(held, dt, reports);
         } else if self
             .flyer
             .update(held, dt, size, |x, z| scene.bake.height_at(x, z))
@@ -312,7 +351,8 @@ impl Running {
         if drew || water {
             self.present();
         }
-        drew || water
+        // The swing meter moves without the picture changing.
+        drew || water || self.swinging()
     }
 
     /// Renders a whole frame and keeps the books on how long it took.
@@ -326,25 +366,39 @@ impl Running {
         if (self.frame.width, self.frame.height) != (w, h) {
             self.frame = Frame::new(w, h);
         }
-        let camera = self.flyer.camera;
-        let mut job = RenderJob::new(&self.scene, &camera, w, h, mode, time);
+        let camera = self.shot_camera();
+        self.camera = camera;
+        let mut job = RenderJob::new(&self.scene, &camera, w, h, mode, time)
+            .with_overlay(self.overlay.clone());
         job.step(&mut self.frame, &self.scene, None);
         self.count(start.elapsed().as_secs_f32() * 1000.0, now, reports);
+    }
+
+    /// The camera for the next frame.
+    fn shot_camera(&self) -> Camera {
+        if self.free || self.bench.is_some() {
+            return self.flyer.camera;
+        }
+        let aspect = self.size.1 as f32 / self.size.0.max(1) as f32;
+        self.play.camera(&self.scene.bake, aspect)
     }
 
     /// Authentic mode: a few more chunks of the progressive repaint.
     fn paint_in(&mut self, time: f32) -> bool {
         if self.job.is_none() {
-            let camera = self.flyer.camera;
+            let camera = self.camera;
             let (w, h) = (self.frame.width, self.frame.height);
-            self.job = Some(RenderJob::new(
-                &self.scene,
-                &camera,
-                w,
-                h,
-                Mode::Authentic { chunks: 3 },
-                time,
-            ));
+            self.job = Some(
+                RenderJob::new(
+                    &self.scene,
+                    &camera,
+                    w,
+                    h,
+                    Mode::Authentic { chunks: 3 },
+                    time,
+                )
+                .with_overlay(self.overlay.clone()),
+            );
         }
         let job = self.job.as_mut().expect("just set");
         if job.step(
@@ -377,84 +431,5 @@ impl Running {
             &mut rgba,
         );
         self.image = Image::from_rgba(w as u32, h as u32, rgba).ok();
-    }
-
-    /// Counts a drawn frame; once a second reports and adapts the scale.
-    fn count(&mut self, work_ms: f32, now: Instant, reports: &mut Vec<Report>) {
-        let stats = &mut self.stats;
-        if stats
-            .last_frame
-            .is_some_and(|last| now.duration_since(last) > IDLE_GAP)
-        {
-            // The camera rested: drop the partial window instead of reading
-            // the pause as a frame rate.
-            stats.window_start = None;
-            stats.frames = 0;
-            stats.work = 0.0;
-        }
-        stats.last_frame = Some(now);
-        let start = *stats.window_start.get_or_insert(now);
-        stats.frames += 1;
-        stats.work += work_ms;
-        if let Some(bench) = self.bench.as_mut() {
-            bench.frames += 1;
-        }
-        let elapsed = now.duration_since(start).as_secs_f32();
-        if elapsed < 1.0 {
-            return;
-        }
-        stats.fps = (stats.frames as f32 / elapsed).round() as u32;
-        stats.work_ms = stats.work / stats.frames as f32;
-        stats.window_start = Some(now);
-        stats.frames = 0;
-        stats.work = 0.0;
-        let (fps, work) = (stats.fps, stats.work_ms);
-        if let Some(bench) = self.bench.as_mut() {
-            bench.seconds.push(fps);
-        }
-        reports.push(Report::Fps {
-            fps,
-            scale: self.scale,
-            width: self.frame.width,
-            height: self.frame.height,
-            work_ms: work,
-        });
-        if self.auto_scale {
-            let scale = adapt(self.scale, work, fps);
-            if scale != self.scale {
-                // Draw the next frame at the new scale; this one keeps its own.
-                self.scale = scale;
-                self.dirty = true;
-            }
-        }
-    }
-
-    /// The benchmark: fly every hole tee to green at 35 m, timed.
-    fn fly_bench(&mut self, now: Instant, reports: &mut Vec<Report>) {
-        let bench = self.bench.as_ref().expect("benching");
-        let t = now.duration_since(bench.started).as_secs_f32() / BENCH_SECONDS;
-        if t >= 1.0 {
-            let bench = self.bench.take().expect("benching");
-            // The first second warms up (the scale settles).
-            let counted = &bench.seconds[bench.seconds.len().min(1)..];
-            let min = counted.iter().copied().min().unwrap_or(0);
-            let avg = counted.iter().sum::<u32>() as f32 / counted.len().max(1) as f32;
-            reports.push(Report::Bench {
-                frames: bench.frames,
-                min_fps: min,
-                avg_fps: avg,
-            });
-            return;
-        }
-        let holes = &self.scene.course.holes;
-        let along = t * holes.len() as f32;
-        let hole = &holes[(along as usize).min(holes.len() - 1)];
-        let (p, dir) = polyline_at(&hole.centerline, along.fract() * hole.length_m);
-        let ground = self.scene.bake.height_at(p.x, p.y);
-        let cam = &mut self.flyer.camera;
-        cam.eye = Vec3::new(p.x, ground + 35.0 + EYE, p.y);
-        cam.yaw = yaw_of(dir);
-        cam.pitch = -0.3;
-        self.moved();
     }
 }

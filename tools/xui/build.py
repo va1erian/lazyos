@@ -131,6 +131,9 @@ BINS = {
     WEB_PACKAGE: WEB_ELF,
     # LazyGolf: Fly over a procedurally generated golf course.
     "xui-golf": "xui-golf.elf",
+    # LazySky: a Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1`
+    # image ships it; its crates are small and build with the other apps.
+    "xui-lazysky": "xui-lazysky.elf",
     # Video Player: Play video files.
     "xui-video": "xui-video.elf",
 }

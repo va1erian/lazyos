@@ -324,7 +324,16 @@ a mid-90s indexed-colour software renderer to fly over, both in the portable
 crate `xui-app/crates/golf` (`xui-golf`; the design is
 [`docs/golf-course-generator.md`](docs/golf-course-generator.md)). The bin
 only launches it; the crate's `golf` example runs the same app as a desktop
-window through xui's winit backend. Session:
+window through xui's winit backend. The game opens on the shot camera at the
+first tee: aim with Left/Right, club with Up/Down, **Space** is the swing
+meter's three clicks (start, power at the tick, accuracy on the line; `X`
+cancels), PageUp / E and PageDown / Q tilt the view, `F` is the free camera the session below flies. Gameplay (ball
+flight, bounce and roll, putting, caddy, flight cameras) is
+[`docs/golf-gameplay-plan.md`](docs/golf-gameplay-plan.md), in
+`xui-app/crates/golf/src/play/`; host tests `--test play --test shot
+--test camera --test round` (the last plays holes through the real state
+machine). Playing markers: `GOLF:SHOT`, `GOLF:LAND`, `GOLF:PENALTY`,
+`GOLF:HOLED`; session `tools/screenshot/examples/xui_golf_play.json`. Session:
 `tools/screenshot/examples/xui_golf.json` (`LAZYOS_XUI_AUTOSTART=golf`;
 markers `GOLF:UP:PASS`, `GOLF:READY:<seed>:par=<par>:ms=<ms>:<name>`,
 `GOLF:FPS:<fps>:scale=<n>:<w>x<h>:work=<ms>` once a second while drawing,
@@ -409,6 +418,32 @@ game in the 4:3 box); `preset slop` in the console switches a session to the
 deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
 `/tmp/quake-result.txt`); v1 is silent and pointer-free like Doom's (the
 `Pcm` records already ride the bridge).
+
+## SRB2Kart (an installable `.lzp` package, data fetched at build time)
+
+SRB2Kart is `srb2kart/` (Kart-Public v1.6, Kart Krew's kart racer, fetched at
+a pinned revision and compiled with zig, plus a C platform backend and a Rust
+layer on `xui-app`'s client window) shipped as the package `org.lazy.srb2kart`
+with **the engine only**: its game data (`srb2.srb`, `*.kart`, ~220 MB) is
+Kart Krew's, unlicensed, so the image build downloads it from their own v1.6
+release (SHA-256 pinned in `tools/srb2kart/fetch.py`) and writes it to
+`/system/share/srb2kart/` (`fhs::share::SRB2KART_DATA`) beside a
+`CREDITS.txt`. **Never commit, upload, attach or publish the data or an image
+containing it** (CI artifacts carry screenshots and logs, no image); keep the
+credits wherever the game appears. See [`srb2kart/README.md`](srb2kart/README.md)
+and [`docs/srb2kart-port-plan.md`](docs/srb2kart-port-plan.md).
+
+```bash
+python tools/srb2kart/build.py            # engine + srb2kart.elf + target/pkg/srb2kart.lzp + target/srb2kart/data/
+python tools/run_demo.py --srb2kart       # desktop + the package + the data; the OS volume defaults to 1G (--reset-os for an older image)
+cargo test -p build-support-tests         # srb2kart_embed paths, the 1G default
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/srb2kart \
+    --script tools/screenshot/examples/srb2kart.json   # needs LAZYOS_SRB2KART=1, LAZYOS_RESET_OS=1 and LAZYOS_UI_PROBE=1
+```
+
+Markers (channel `SRB2KART`): `SRB2KART:UP:PASS mode=window|headless`,
+`SRB2KART:DATA:FAIL`, `SRB2KART:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/srb2kart-result.txt`), `SRB2KART:QUIT:PASS`. v1 is silent (K2 adds sound).
 
 ## Real Linux programs (`LAZYOS_LINUXAPPS=1`)
 
@@ -502,6 +537,34 @@ downloads a file (`WEB:DOWNLOAD:DONE:<name>:<bytes>`, saved to `~/Downloads`),
 hands a `mailto:` link to the OS (`WEB:LAUNCH:<url>:OK|FAIL`) and opens
 `about:history` (**Ctrl+H**) and `about:downloads` (**Ctrl+J**)
 ([`tools/web/README.md`](tools/web/README.md)).
+
+## LazySky Bluesky client (`LAZYOS_LAZYSKY=1`)
+
+LazySky (`os.lazy.lazysky`) is a Bluesky client built as a headless core
+(`xui-app/crates/lazysky-core`: no xui type, no LazyOS crate, so it also runs
+under `sky_cli`) and a portable xui window (`xui-app/crates/lazysky-ui`, which
+also has a `desktop` example for Windows/Linux/macOS); `xui-app/src/bin/lazysky.rs`
+only launches it and supplies the LazyOS `Platform`. Its feed is one
+custom-painted, virtualized `FeedView` with anchored scrolling; text is shaped
+on a layout thread and pictures decoded on image threads, and the UI thread
+never does network I/O, JSON, decoding or shaping (the plan's R1 to R8,
+`docs/lazysky-plan.md` section 5). **Never push a clip on the feed's normal
+paint path**: an active clip made every draw several times dearer (the paint
+bench catches it). The package (`xui-app/packages/lazysky`) is shipped only by
+`LAZYOS_LAZYSKY=1` images, which need `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
+See [`docs/lazysky.md`](docs/lazysky.md).
+
+```bash
+python tools/run_demo.py --lazysky        # desktop + networking + the client
+cd xui-app && cargo test -p lazysky-core -p lazysky-ui
+cargo test -p lazysky-ui --release --test bench -- --ignored --nocapture   # paint p99 <= 4 ms
+cargo run --release -p lazysky-ui --example desktop --features desktop     # the window on the host
+python tools/nettls/licenses.py --lazysky # GPLv2-compatible tree (no ring/aws-lc/tokio/reqwest)
+```
+
+The offscreen window tests write `xui-app/target/snapshots/lazysky-*.png`:
+Read them. Serial markers are `SKY:*` (listed in `docs/lazysky.md`); a
+password or token must never appear in any log.
 
 ## Rhai scripting (`rhai` command and `msg` module)
 

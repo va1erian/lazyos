@@ -17,6 +17,8 @@ mod core_packages;
 mod docs_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
+#[path = "../lazysky_embed.rs"]
+mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
 #[path = "../os_disk.rs"]
@@ -31,6 +33,8 @@ mod os_manifest;
 mod os_recover;
 #[path = "../pictures_embed.rs"]
 mod pictures_embed;
+#[path = "../srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
 #[path = "../tls_embed.rs"]
@@ -61,6 +65,8 @@ mod image_tests;
 #[cfg(test)]
 mod layout_tests;
 #[cfg(test)]
+mod lazysky_tests;
+#[cfg(test)]
 mod lazyweb_tests;
 #[cfg(test)]
 mod limits_tests;
@@ -70,6 +76,8 @@ mod pictures_tests;
 mod recover_tests;
 #[cfg(test)]
 mod samples_tests;
+#[cfg(test)]
+mod srb2kart_tests;
 #[cfg(test)]
 mod state_tests;
 #[cfg(test)]

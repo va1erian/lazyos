@@ -27,6 +27,7 @@ from lazygui.test_catalog_wifisim import WifiSimTests  # noqa: E402,F401
 from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_wifi import WifiTests  # noqa: E402,F401
 from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401
+from lazygui.test_catalog_srb2kart import Srb2kartTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
 from lazygui.test_usb_image import UsbImageTests  # noqa: E402,F401

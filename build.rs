@@ -33,6 +33,8 @@ mod evidence_embed;
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/lazysky_embed.rs"]
+mod lazysky_embed;
 #[path = "build_support/lazyweb_embed.rs"]
 mod lazyweb_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -55,6 +57,8 @@ mod pictures_embed;
 mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
 #[path = "build_support/tls_embed.rs"]
@@ -71,8 +75,6 @@ mod usb_ramdisk;
 mod usb_stick;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
-#[path = "build_support/wifi_embed.rs"]
-mod wifi_embed;
 
 use os_image::Sink;
 
@@ -106,7 +108,7 @@ fn main() {
             == Some(std::ffi::OsStr::new("1")),
         os_size: match std::env::var("LAZYOS_OS_SIZE") {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
-            Err(_) => os_disk::DEFAULT_OS_SIZE,
+            Err(_) => os_disk::default_size_env(),
         },
         journal: os_image::journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
             .unwrap_or_else(|error| panic!("{error}")),
@@ -348,8 +350,8 @@ fn main() {
 
     // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
     // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
-    drivers::embed(&mut files, desktop);
-    wifi_embed::embed(&mut files, &manifest_dir); // `LAZYOS_WIFI=1`: wifid + firmware
+    // `LAZYOS_WIFI=1` adds `wifid`, `wlanmd`, `wifictl` and the firmware.
+    drivers::embed(&mut files, desktop, &manifest_dir);
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default
@@ -387,6 +389,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
     println!("cargo:rerun-if-changed=build_support/core_packages.rs");
     println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
+    println!("cargo:rerun-if-changed=build_support/lazysky_embed.rs");
     println!("cargo:rerun-if-changed=build_support/pictures_embed.rs");
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
@@ -442,6 +445,9 @@ fn main() {
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
     // through pkgd.
     doom_embed::embed(&mut files, &manifest_dir);
+    // SRB2Kart (`LAZYOS_SRB2KART=1`): the engine package and, fetched at build
+    // time, its game data in /system/share/srb2kart (never published).
+    srb2kart_embed::embed(&mut files, &manifest_dir);
     // The emusic package (`LAZYOS_EMUSIC=1`), a sample user package too.
     emusic_embed::embed(&mut files, &manifest_dir);
     // The Quake package (`LAZYOS_QUAKE=1`), a sample user package too.

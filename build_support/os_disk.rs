@@ -20,12 +20,30 @@ pub const OS_START_LBA: u64 = 131_072;
 pub const OS_PART_TYPE: u8 = 0x83;
 /// Default OS volume size (`LAZYOS_OS_SIZE`).
 pub const DEFAULT_OS_SIZE: u64 = 512 << 20;
+/// Default OS volume size with `LAZYOS_SRB2KART=1`: its game data is about
+/// 250 MB, too much for [`DEFAULT_OS_SIZE`].
+pub const SRB2KART_OS_SIZE: u64 = 1 << 30;
 /// Smallest OS volume the build accepts.
 pub const MIN_OS_SIZE: u64 = 128 << 20;
 
 const TABLE: usize = 0x1BE;
 const ENTRY: usize = 16;
 const SIGNATURE: usize = 510;
+
+/// The OS volume size when `LAZYOS_OS_SIZE` is unset.
+pub fn default_size(srb2kart: bool) -> u64 {
+    if srb2kart {
+        SRB2KART_OS_SIZE
+    } else {
+        DEFAULT_OS_SIZE
+    }
+}
+
+/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1` asks for the larger one.
+pub fn default_size_env() -> u64 {
+    println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
+    default_size(std::env::var_os("LAZYOS_SRB2KART").is_some_and(|value| value == "1"))
+}
 
 /// `LAZYOS_OS_SIZE`: bytes with an optional `K`, `M` or `G` suffix (binary),
 /// at least [`MIN_OS_SIZE`], rounded down to a whole 4 KiB block.

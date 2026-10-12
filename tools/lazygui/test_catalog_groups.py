@@ -36,7 +36,7 @@ class SimpleGroups(unittest.TestCase):
 
     def test_games_have_doom_and_the_lazyrad_brickbreaker(self) -> None:
         cfg = desktop("games")
-        self.assertTrue(cfg["doom"] and cfg["lazyrad"])
+        self.assertTrue(cfg["doom"] and cfg["quake"] and cfg["srb2kart"] and cfg["lazyrad"])
         self.assertIn("LAZYOS_DOOM", catalog.build_env(cfg))
         self.assertIn("lazyrad-os/samples/brickbreaker", catalog.build_env(cfg)["LAZYRAD_SAMPLES"])
 

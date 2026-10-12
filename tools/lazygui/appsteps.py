@@ -38,6 +38,15 @@ def quake_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/quake/build.py", "--require"]}]
 
 
+def srb2kart_step(cfg: dict) -> list[dict]:
+    """The step that builds SRB2Kart (engine package + Kart Krew's game data),
+    when the image embeds it."""
+    if not cfg.get("srb2kart"):
+        return []
+    return [{"label": "Build SRB2Kart (engine package + fetched game data)",
+             "argv": [PY, "tools/srb2kart/build.py", "--require"]}]
+
+
 def emusic_step(cfg: dict) -> list[dict]:
     """The step that builds the emusic package, when the image embeds it."""
     if not cfg.get("emusic"):
@@ -86,6 +95,14 @@ def lazyweb_step(cfg: dict) -> list[dict]:
     if not cfg.get("lazyweb"):
         return []
     return [{"label": "Build xui apps with LazyWeb", "argv": [PY, "tools/xui/build.py"]}]
+def lazysky_step(cfg: dict) -> list[dict]:
+    """The step that builds the LazySky client (with the other xui apps and
+    their core packages), when the image embeds it."""
+    if not cfg.get("lazysky"):
+        return []
+    return [{"label": "Build xui apps with LazySky", "argv": [PY, "tools/xui/build.py"]}]
+
+
 def mail_step(cfg: dict) -> list[dict]:
     """The step that builds Mail (esMail; docs/mail.md) with the other xui apps
     and repackages them, when a desktop image embeds it."""
@@ -141,6 +158,7 @@ def desktop_app_argv(cfg: dict) -> list[str]:
 def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
-            + emusic_step(cfg)
+            + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
-            + tls_step(cfg) + lazyweb_step(cfg) + mail_step(cfg) + wifi_step(cfg))
+            + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + wifi_step(cfg))

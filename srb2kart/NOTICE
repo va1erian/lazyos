@@ -1,0 +1,45 @@
+SRB2Kart for LazyOS (the `org.lazy.srb2kart` package)
+=====================================================
+
+This package combines two works:
+
+1. The game engine: SRB2Kart (Kart-Public v1.6, https://github.com/STJr/Kart-Public),
+   by Kart Krew, derived from Sonic Robo Blast 2 by Sonic Team Junior, which
+   derives from Doom Legacy (the Doom Legacy team), itself derived from id
+   Software's Linux Doom source. Copyright (C) 1993-1996 id Software, Inc.;
+   (C) 1998-2000 Doom Legacy team; (C) Sonic Team Junior; (C) Kart Krew.
+   Licensed under the GNU General Public License, version 2 or (at your
+   option) any later version.
+
+2. The LazyOS platform layer (`srb2kart/` in the LazyOS tree): the Rust program
+   and C backend that implement the engine's platform hooks on the LazyOS
+   display and input services. Licensed under the GNU General Public License,
+   version 3 or (at your option) any later version.
+
+   The engine is statically linked into `bin/srb2kart.elf`, so the binary as
+   a whole is distributed under the GNU GPL, version 3 or later.
+
+The game data is NOT part of this package and is NOT covered by the GPL. The
+SRB2Kart v1.6 data files (`srb2.srb`, `*.kart`) are (C) Kart Krew. The image
+build downloads them unmodified from Kart Krew's own release
+(https://github.com/STJr/Kart-Public/releases/download/v1.6/AssetsLinuxOnly.zip)
+and places them in /system/share/srb2kart; LazyOS does not redistribute them.
+See `srb2kart/CREDITS.txt` (installed beside the data). Sonic the Hedgehog and
+related characters are trademarks of SEGA. SRB2Kart is a fan game, not
+affiliated with or endorsed by SEGA or Sonic Team.
+
+Corresponding source
+--------------------
+
+The complete corresponding source of `bin/srb2kart.elf` is:
+
+* the LazyOS tree at the revision this package was built from (`srb2kart/`,
+  `xui-app/`, `libs/messenger/`, `libs/fhs/`, `libs/generated/`,
+  `tools/srb2kart/`), and
+* Kart-Public v1.6 (the source archive pinned by SHA-256 in
+  `tools/srb2kart/fetch.py`), fetched unmodified and compiled by
+  `srb2kart/build.rs` (any overlaid file is listed in `srb2kart/README.md`).
+
+`python tools/srb2kart/build.py` rebuilds the package from those two sources.
+The same source is available from whoever gave you this package, on request,
+for at least three years.

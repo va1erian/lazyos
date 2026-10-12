@@ -84,6 +84,20 @@ impl Bake {
         }
     }
 
+    /// The objects whose base lies within `radius` of ground point `p`
+    /// (a chunk lookup, so cheap enough to ask many times a frame).
+    pub fn objects_near(&self, p: Vec2, radius: f32) -> impl Iterator<Item = &Object> + '_ {
+        let last = self.chunks_x.saturating_sub(1);
+        let cell = |v: f32| ((v.max(0.0) as usize) / CHUNK).min(last);
+        let (x0, x1) = (cell(p.x - radius), cell(p.x + radius));
+        let (z0, z1) = (cell(p.y - radius), cell(p.y + radius));
+        (z0..=z1)
+            .flat_map(move |cz| (x0..=x1).map(move |cx| cz * self.chunks_x + cx))
+            .flat_map(move |c| self.chunks[c].objects.iter())
+            .map(move |&i| &self.objects[i as usize])
+            .filter(move |o| o.position.distance(p) <= radius)
+    }
+
     /// The surface height at a cell, clamped to the grid.
     #[inline]
     pub fn height(&self, x: usize, z: usize) -> f32 {

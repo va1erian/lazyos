@@ -50,6 +50,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_DOOM` | `doom.lzp` sample package. | `tools/doom/build.py` | `--doom` |
 | `LAZYOS_EMUSIC` | `emusic.lzp` sample package. | `tools/emusic/build.py` | `--emusic` |
 | `LAZYOS_LAZYWEB` | LazyWeb browser core package. | desktop, `LAZYOS_NETD` | `--lazyweb` |
+| `LAZYOS_LAZYSKY` | LazySky Bluesky client core package. | desktop, `LAZYOS_NETD` | `--lazysky` |
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
@@ -136,6 +137,7 @@ The build refuses combinations that cannot work and says why:
 
 - `LAZYOS_DBGD=1` and `LAZYOS_SMB=1` need `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
+- `LAZYOS_LAZYSKY=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
 - `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
   `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;

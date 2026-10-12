@@ -7,8 +7,10 @@ A design for generating a playable 18-hole course from a seed, and for drawing i
 Implemented in `xui-app/crates/golf` (crate `xui-golf`) and shipped as the
 LazyGolf app (`os.lazy.golf`): every Part I stage (`src/gen/`) and Part II
 milestones 1-7 (`src/render/`, `src/minimap.rs`), with a free-flying camera
-instead of the shot sequence for now (milestones 8-9: ball physics, swing
-meter and scorecard are still to come). Where the code departs from this
+instead of the shot sequence for now (milestones 8-9: the ball's flight
+(`src/play/`), its overlay and the address camera exist (the game opens
+on the shot camera; `F` is the free camera); the swing meter, flight
+cameras and scorecard are still to come; see [`golf-gameplay-plan.md`](golf-gameplay-plan.md)). Where the code departs from this
 design:
 
 - **Depth buffer for everything.** Terrain is depth-tested too, so fly mode

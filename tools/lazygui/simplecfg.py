@@ -25,8 +25,9 @@ SIMPLE_INTERFACES = [
 #: Games (the brickbreaker sample and the player), Multimedia (the MOD player is
 #: a LazyRAD app) and Dev; the Picture Viewer is always in a Desktop image.
 SIMPLE_GROUPS = (
-    ("games", "Games", "LazyGolf, Doom, Quake and the LazyRAD brickbreaker.",
-     ("doom", "quake", "lazyrad")),
+    ("games", "Games", "LazyGolf, Doom, Quake, SRB2Kart (fetches Kart Krew's ~220 MB game data; "
+                       "1G OS volume; never publish the image) and the LazyRAD brickbreaker.",
+     ("doom", "quake", "srb2kart", "lazyrad")),
     ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
      ("emusic", "modplayer")),
     ("dev", "Dev", "The LazyRAD IDE and its samples, the Linux command-line programs "
@@ -38,8 +39,9 @@ SIMPLE_GROUPS = (
     ("wifi", "Wi-Fi", "The Wi-Fi driver and firmware for the AMD NUC's RTL8822CE (turns "
                       "Networking on; QEMU has no such card).",
      ("wifi",)),
-    ("web", "Web", "The LazyWeb browser and Mail (turns Networking on).",
-     ("lazyweb", "mail")),
+    ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
+                   "(turns Networking on).",
+     ("lazyweb", "mail", "lazysky")),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
@@ -61,7 +63,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
-                  usb_image: bool = False, wifi: bool = False) -> dict:
+                  usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
+                  srb2kart: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -84,7 +87,9 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
     the emusic package (Desktop only, like ``doom``); ``usb_image`` also writes
     ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
-    the Wi-Fi driver and its firmware (either interface; it implies ``net``). Machine settings
+    the Wi-Fi driver and its firmware (either interface; it implies ``net``);
+    ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
+    ``net``). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -94,6 +99,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         raise ValueError(f"unknown interface: {interface!r}")
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
+    lazysky = desktop and lazysky
     tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
@@ -126,9 +132,10 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devices": desktop and devices,
         "doom": desktop and doom,
         "quake": desktop and quake,
+        "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or wifi,
+        "net": net or tls or wifi or lazysky,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
@@ -139,6 +146,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "tls": tls,
         "journal": False,
         "lazyweb": lazyweb,
+        "lazysky": lazysky,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,

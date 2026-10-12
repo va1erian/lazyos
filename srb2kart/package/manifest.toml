@@ -1,0 +1,30 @@
+# SRB2Kart as an installable package (docs/packages.md, docs/srb2kart-port-plan.md).
+#
+# Only this manifest, the icons and the docs are checked in: `tools/srb2kart/build.py`
+# adds `bin/srb2kart.elf` (the Kart-Public engine and its LazyOS platform layer)
+# and the licence files before it builds `target/pkg/srb2kart.lzp`. The game
+# data is NOT in the package: it is Kart Krew's, fetched at build time and
+# placed by the image build in /system/share/srb2kart (see srb2kart/CREDITS.txt).
+
+[app]
+name = "SRB2Kart"
+system_name = "org.lazy.srb2kart"
+author = "LazyOS (engine and game: Kart Krew, Sonic Team Junior, Doom Legacy team, id Software)"
+version = "0.1.0"
+description = "SRB2Kart v1.6, the kart racer by Kart Krew on the Sonic Robo Blast 2 engine, with the software renderer. Left/Right steer, A accelerate, S drift, D brake, Space uses the item; see the docs page for all controls. The game data (c) Kart Krew comes from the image, not from this package. A fan game, not affiliated with or endorsed by SEGA or Sonic Team."
+category = "games"
+
+[entry]
+binary = "bin/srb2kart.elf"
+# A desktop app is a client of the `xuid` compositor. The game finds its data
+# in /system/share/srb2kart (written by the image build).
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+
+[permissions]
+# The compositor for its window and `inputd` for its keyboard session; nothing
+# else. Its config and saves go to its own folder in the player's home
+# (`$HOME/.apps/org.lazy.srb2kart`).
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+files = ["write:$HOME/.apps/org.lazy.srb2kart"]

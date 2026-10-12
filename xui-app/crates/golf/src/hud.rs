@@ -8,11 +8,26 @@ use xui_core::geometry::{Point, Rect};
 use xui_core::{Color, Dip};
 
 use crate::game::Game;
+use crate::hud_play;
 
 const MARGIN: i32 = 10;
 const LINE: i32 = 17;
 
-const HELP: [(&str, &str); 11] = [
+const HELP_PLAY: [(&str, &str); 10] = [
+    ("Space", "swing: start, power, accuracy"),
+    ("X", "cancel the swing"),
+    ("Left / Right", "aim (Shift: fast)"),
+    ("PgUp PgDn / E Q", "look up, down"),
+    ("Up Down / wheel", "longer, shorter club"),
+    ("N / P / Home", "next, previous hole, first"),
+    ("F", "free camera"),
+    ("T / R / M", "authentic, resolution, map"),
+    ("H", "hide this help"),
+    ("Esc", "quit"),
+];
+
+const HELP_FLY: [(&str, &str); 12] = [
+    ("F", "back to the shot camera"),
     ("W A S D, arrows", "fly, turn"),
     ("Space E / C Q", "up / down"),
     ("Shift", "fast"),
@@ -67,7 +82,7 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
         None => canvas.fill_rect(bounds, Color::hex(0x000000)),
     }
     let course = &run.scene.course;
-    let eye = run.flyer.camera.eye;
+    let eye = run.camera().eye;
     let mut lines = vec![
         course.name.clone(),
         format!(
@@ -80,12 +95,33 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
             course.quality
         ),
     ];
-    let index = course.hole_of.at(eye.x, eye.z) as usize;
+    let index = if run.free {
+        course.hole_of.at(eye.x, eye.z) as usize
+    } else {
+        run.play.hole
+    };
     if let Some(hole) = course.holes.get(index) {
         lines.push(format!(
             "Hole {}  par {}  {:.0} m  stroke index {}",
             hole.number, hole.par, hole.length_m, hole.handicap_index
         ));
+    }
+    if !run.free {
+        let play = &run.play;
+        lines.push(format!(
+            "Stroke {}  {}  aim {:.0} m  pin {:.0} m",
+            play.stroke + 1,
+            play.club().name,
+            play.distance,
+            play.distance_to_pin(&course.holes)
+        ));
+        let (strokes, par) = card(play, &course.holes);
+        if par > 0 {
+            lines.push(format!(
+                "Round {strokes} on {par} par ({:+})",
+                strokes as i32 - par as i32
+            ));
+        }
     }
     let (fps, work) = run.fps();
     let (w, h) = run.resolution();
@@ -95,12 +131,14 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
         format!("x{}", run.scale)
     };
     lines.push(format!("{fps} fps  {work:.1} ms  {w}x{h} {scale}"));
-    let ground = run.scene.bake.height_at(eye.x, eye.z);
-    lines.push(format!(
-        "{:.0} m/s  {:.0} m up",
-        run.flyer.speed,
-        eye.y - ground
-    ));
+    if run.free {
+        let ground = run.scene.bake.height_at(eye.x, eye.z);
+        lines.push(format!(
+            "{:.0} m/s  {:.0} m up",
+            run.flyer.speed,
+            eye.y - ground
+        ));
+    }
     if run.authentic {
         lines.push("Authentic mode: the view paints itself in".into());
     }
@@ -116,16 +154,17 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
     bevel_panel(canvas, panel);
     text_lines(canvas, panel, &lines, s, true);
     if game.show_help {
+        let help: &[(&str, &str)] = if run.free { &HELP_FLY } else { &HELP_PLAY };
         let panel = Rect::new(
             bounds.left + MARGIN * s,
-            bounds.bottom - MARGIN * s - (LINE * HELP.len() as i32 + 10) * s,
+            bounds.bottom - MARGIN * s - (LINE * help.len() as i32 + 10) * s,
             bounds.left + MARGIN * s + 330 * s,
             bounds.bottom - MARGIN * s,
         );
         if panel.top > bounds.top + 140 * s {
             bevel_panel(canvas, panel);
-            let keys: Vec<String> = HELP.iter().map(|(k, _)| k.to_string()).collect();
-            let what: Vec<String> = HELP.iter().map(|(_, w)| w.to_string()).collect();
+            let keys: Vec<String> = help.iter().map(|(k, _)| k.to_string()).collect();
+            let what: Vec<String> = help.iter().map(|(_, w)| w.to_string()).collect();
             text_lines(canvas, panel, &keys, s, false);
             let right = Rect::new(panel.left + 118 * s, panel.top, panel.right, panel.bottom);
             text_lines(canvas, right, &what, s, false);
@@ -134,6 +173,18 @@ pub fn paint(canvas: &mut dyn Canvas, game: &Game) {
     if game.show_map {
         map(canvas, run, bounds, s);
     }
+    if !run.free {
+        hud_play::paint(canvas, run, bounds, s);
+    }
+}
+
+/// Strokes and par over the holes finished on the card.
+fn card(play: &crate::play::Play, holes: &[crate::Hole]) -> (u32, u32) {
+    play.scores
+        .iter()
+        .zip(holes)
+        .filter_map(|(s, h)| s.map(|s| (s, u32::from(h.par))))
+        .fold((0, 0), |(a, b), (s, p)| (a + s, b + p))
 }
 
 /// The overhead map with the camera's position and heading.

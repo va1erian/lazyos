@@ -1,7 +1,7 @@
 """The optional build steps `run_demo.py` runs before `cargo build`.
 
 Each runs one tool script quietly and reports a failure in one line; the
-explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--emusic`, `--modplayer`,
+explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
 `--pictures`, `--linuxapps`, `--tls`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
@@ -68,6 +68,13 @@ def build_quake() -> bool:
     return required("Quake", "quake/build.py", ("--require",))
 
 
+def build_srb2kart() -> bool:
+    """SRB2Kart (`tools/srb2kart/build.py`: the Kart-Public engine and its
+    LazyOS platform layer, Kart Krew's game data, then `target/pkg/srb2kart.lzp`
+    and `target/srb2kart/data/`); a missing toolchain or download stops the run."""
+    return required("SRB2Kart", "srb2kart/build.py", ("--require",))
+
+
 def build_emusic() -> bool:
     """The emusic package (`tools/emusic/build.py`: the program, then
     `target/pkg/emusic.lzp`); `EMUSIC_SRC` names a local emusic clone. A
@@ -110,6 +117,19 @@ def build_lazyweb() -> bool:
     if LAZYWEB_ELF.is_file() or (build_xui_apps() and LAZYWEB_ELF.is_file()):
         return True
     print(f"error: {LAZYWEB_ELF} was not built "
+          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
+    return False
+
+
+#: LazySky's client binary (`tools/xui/build.py` builds it with the other apps).
+LAZYSKY_ELF = ROOT / "target" / "xui" / "xui-lazysky.elf"
+
+
+def build_lazysky() -> bool:
+    """LazySky (`--lazysky`): the xui apps when its binary is missing."""
+    if LAZYSKY_ELF.is_file() or (build_xui_apps() and LAZYSKY_ELF.is_file()):
+        return True
+    print(f"error: {LAZYSKY_ELF} was not built "
           "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
     return False
 

@@ -1,0 +1,19 @@
+SRB2Kart game data: credits
+===========================
+
+SRB2Kart v1.6 game data (srb2.srb and the *.kart files in this directory)
+(c) Kart Krew.
+
+It was downloaded unmodified from
+https://github.com/STJr/Kart-Public/releases/download/v1.6/AssetsLinuxOnly.zip
+SHA-256: see tools/srb2kart/fetch.py
+by the build of this image, and is not redistributed by LazyOS.
+
+SRB2Kart is made by Kart Krew on the Sonic Robo Blast 2 engine by Sonic Team
+Junior (derived from Doom Legacy and id Software's Doom source). The engine is
+free software under the GNU GPL, version 2 or later; this data is not.
+
+Sonic the Hedgehog and related characters are trademarks of SEGA. SRB2Kart is
+a fan game, not affiliated with or endorsed by SEGA or Sonic Team.
+
+The game's own credits screen is as its authors wrote it.

@@ -166,6 +166,15 @@ pub const DOOM_TMP: &str = "/tmp/doom";
 /// (`doom/src/headless.rs`).
 pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 
+/// SRB2Kart's config (`kartconfig.cfg`) and saves when the player has no
+/// home (otherwise its per-user folder, `$HOME/.apps/org.lazy.srb2kart`).
+/// Written by the `org.lazy.srb2kart` package.
+pub const SRB2KART_TMP: &str = "/tmp/srb2kart";
+
+/// The verdict line SRB2Kart's headless mode writes for a harness to read
+/// (`srb2kart/src/headless.rs`).
+pub const SRB2KART_RESULT: &str = "/tmp/srb2kart-result.txt";
+
 /// Quake's saves and `config.cfg` when the player has no home (otherwise
 /// its per-user folder, `$HOME/.apps/org.lazy.quake`). Written by the
 /// `org.lazy.quake` package.
@@ -251,5 +260,7 @@ mod tests {
     fn doom_scratch_lives_on_the_ramfs() {
         assert!(DOOM_TMP.starts_with(TMP));
         assert!(DOOM_RESULT.starts_with(TMP));
+        assert!(SRB2KART_TMP.starts_with(TMP));
+        assert!(SRB2KART_RESULT.starts_with(TMP));
     }
 }

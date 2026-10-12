@@ -79,6 +79,7 @@ def make_vars() -> dict:
         "simple_devices": b(value=False),
         "doom": b(value=False),
         "quake": b(value=False),
+        "srb2kart": b(value=False),
         "emusic": b(value=False),
         "modplayer": b(value=False),
         # Networking (LAZYOS_NETD + a QEMU user-mode card, run_demo --net).
@@ -108,6 +109,9 @@ def make_vars() -> dict:
         # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
         # desktop, networking and HTTPS).
         "lazyweb": b(value=False),
+        # The LazySky Bluesky client (LAZYOS_LAZYSKY, run_demo --lazysky;
+        # implies the desktop and networking).
+        "lazysky": b(value=False),
         # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
         "mail": b(value=False),
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).

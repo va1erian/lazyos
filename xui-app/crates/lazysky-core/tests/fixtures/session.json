@@ -1,0 +1,21 @@
+{
+ "accessJwt": "ACCESS.TOKEN.SECRET",
+ "refreshJwt": "REFRESH.TOKEN.SECRET",
+ "did": "did:plc:me",
+ "handle": "me.bsky.test",
+ "email": "me@example.test",
+ "didDoc": {
+  "@context": [
+   "https://www.w3.org/ns/did/v1"
+  ],
+  "id": "did:plc:me",
+  "service": [
+   {
+    "id": "#atproto_pds",
+    "type": "AtprotoPersonalDataServer",
+    "serviceEndpoint": "https://pds.bsky.test"
+   }
+  ]
+ },
+ "active": true
+}

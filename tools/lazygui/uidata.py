@@ -57,6 +57,7 @@ def advanced_cfg(ui) -> dict:
         "lazyrad_samples": ui.v["lazyrad_samples"].get().strip(),
         "devices": ui.v["devices"].get(),
         "doom": ui.v["doom"].get(), "quake": ui.v["quake"].get(),
+        "srb2kart": ui.v["srb2kart"].get(),
         "emusic": ui.v["emusic"].get(),
         "modplayer": ui.v["modplayer"].get(),
         "net": ui.v["net"].get(),
@@ -68,6 +69,6 @@ def advanced_cfg(ui) -> dict:
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
         "tls": ui.v["tls"].get() or ui.v["mail"].get(),
         "journal": ui.v["journal"].get(),
-        **{app: ui.v[app].get() for app in ("lazyweb", "mail", "traydemo", "pictures")},
+        **{app: ui.v[app].get() for app in ("lazyweb", "lazysky", "mail", "traydemo", "pictures")},
         "script": SCRIPTS.index(names[0]) if names else 0,
     }

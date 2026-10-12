@@ -14,7 +14,7 @@ use xui_core::message::{Key, MouseButton};
 use xui_core::widget::{Control, Placeable};
 
 use crate::app::Msg;
-use crate::fly::{action_for, EYE};
+use crate::fly::{action_for, EYE, WHEEL_NOTCH};
 use crate::game::Game;
 use crate::hud;
 use crate::math::Vec3;
@@ -158,6 +158,12 @@ fn apply(
 ) -> Option<Msg> {
     match *event {
         Event::KeyDown { key, repeat, .. } => {
+            if let Some(run) = game.run.as_mut().filter(|r| !r.free) {
+                if play_key(run, key, repeat) {
+                    after.invalidate = true;
+                    return None;
+                }
+            }
             if let Some(action) = action_for(key) {
                 game.held.press(action);
                 return None;
@@ -188,7 +194,7 @@ fn apply(
             }
         }
         Event::MouseMove { x, y, .. } => {
-            let (Some(d), Some(run)) = (drag.get(), game.run.as_mut()) else {
+            let (Some(d), Some(run)) = (drag.get(), game.run.as_mut().filter(|r| r.free)) else {
                 return None;
             };
             let (dx, dy) = ((x - d.x) as f32, (y - d.y) as f32);
@@ -213,13 +219,52 @@ fn apply(
             ..
         } => {
             if let Some(run) = game.run.as_mut() {
-                run.flyer.wheel(delta);
+                if run.free {
+                    run.flyer.wheel(delta);
+                } else {
+                    // A notch toward you is a shorter club.
+                    let steps = (f32::from(delta) / WHEEL_NOTCH).round() as isize;
+                    // A trackpad's small deltas round to nothing: no step,
+                    // which would otherwise reset a shortened aim. And the
+                    // club is not the player's to change in a stroke.
+                    if steps != 0 && !run.play.in_stroke() {
+                        run.play.step_club(-steps.signum());
+                        run.sync_play();
+                    }
+                }
                 after.invalidate = true;
             }
         }
         _ => {}
     }
     None
+}
+
+/// The keys of playing a hole: Space is the swing meter's click (and skips
+/// a shot's replay), X backs out of a swing, Up / W and Down / S choose the
+/// club while lining up. Returns whether the key was one of them.
+fn play_key(run: &mut crate::game::Running, key: Key, repeat: u16) -> bool {
+    if key == Key::SPACE || key == Key::RETURN {
+        if repeat <= 1 {
+            run.click();
+        }
+        return true;
+    }
+    if key == Key::X || key == Key::BACK {
+        run.cancel_swing();
+        return true;
+    }
+    if run.play.in_stroke() {
+        return false;
+    }
+    let step = match key {
+        k if k == Key::UP || k == Key::W => -1,
+        k if k == Key::DOWN || k == Key::S => 1,
+        _ => return false,
+    };
+    run.play.step_club(step);
+    run.sync_play();
+    true
 }
 
 /// A key that is not a movement.
@@ -237,8 +282,12 @@ fn command(game: &mut Game, key: Key) {
         return;
     };
     let holes = run.scene.course.holes.len();
-    let eye = run.flyer.camera.eye;
-    let here = usize::from(run.scene.course.hole_of.at(eye.x, eye.z));
+    let eye = run.camera().eye;
+    let here = if run.free {
+        usize::from(run.scene.course.hole_of.at(eye.x, eye.z))
+    } else {
+        run.play.hole
+    };
     let target = match key {
         k if k == Key::N => Some(if here < holes { (here + 1) % holes } else { 0 }),
         k if k == Key::P => Some(if here < holes {
@@ -247,6 +296,10 @@ fn command(game: &mut Game, key: Key) {
             holes - 1
         }),
         k if k == Key::HOME => Some(0),
+        k if k == Key::F => {
+            run.toggle_free();
+            None
+        }
         k if k == Key::T => {
             run.authentic = !run.authentic;
             None
@@ -265,7 +318,11 @@ fn command(game: &mut Game, key: Key) {
         let bake = &run.scene.bake;
         let hole = &run.scene.course.holes[n];
         run.flyer.to_tee(hole, |x, z| bake.height_at(x, z));
-        run.moved();
+        if run.free {
+            run.moved();
+        } else {
+            run.start_hole(n);
+        }
     }
 }
 
@@ -287,6 +344,9 @@ fn teleport(game: &mut Game, b: Rect, s: i32, x: i32, y: i32) -> bool {
     let k = run.scene.bake.size as f32 / size as f32;
     let (wx, wz) = ((x - r.left) as f32 * k, (y - r.top) as f32 * k);
     let ground = run.scene.bake.height_at(wx, wz);
+    if !run.free {
+        run.toggle_free();
+    }
     run.flyer.camera.eye = Vec3::new(wx, ground + 60.0 + EYE, wz);
     run.flyer.camera.pitch = -0.4;
     run.moved();
