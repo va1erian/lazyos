@@ -1038,6 +1038,8 @@ python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP
 python tools/wifi/sim_run.py --station wlanmd   # the same through wlanmd + wifictl as `user` (needs BusyBox)
 python tools/wifi/test_judge.py; python tools/wifi/test_judge_wlanmd.py; python tools/wifi/test_fake_ap.py
 python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
+python tools/run_demo.py --desktop --wifi --wifi-sim   # Network app Wi-Fi tab, tray bars (needs the firmware: tools/firmware/fetch.py --switch wifi)
+python tools/wifi/ui_run.py               # the Wi-Fi tab driven by widget name against fake_ap.py, judged
 ```
 
 ## Device manager (`devd`) and driver choices
