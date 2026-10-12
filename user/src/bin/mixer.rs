@@ -44,7 +44,7 @@ pub extern "C" fn _start() -> ! {
     let words: Vec<&str> = text.split_whitespace().collect();
     let outcome = match words.as_slice() {
         ["probe"] => probe().map(|checks| {
-            trace::line!(trace::Channel::Mixer, "PROBE:PASS checks={checks}");
+            trace::print!(trace::Channel::Mixer, "PROBE:PASS checks={checks}");
         }),
         _ => command(&words),
     };

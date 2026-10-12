@@ -70,7 +70,7 @@ impl Session {
                 entry.info.end_of_file, entry.name
             ));
         }
-        trace::line!(trace::Channel::Smb, "LIST n={}", entries.len());
+        trace::print!(trace::Channel::Smb, "LIST n={}", entries.len());
         Ok(())
     }
 
@@ -112,7 +112,7 @@ impl Session {
         let closed = self.client.close(&opened.file_id).map_err(|e| explain(&e));
         result.and(closed)?;
         if !(to_stdout && self.quiet) {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Smb,
                 "GET {name} bytes={total} crc={crc:08x}"
             );
@@ -179,7 +179,7 @@ impl Session {
         })();
         let closed = self.client.close(&opened.file_id).map_err(|e| explain(&e));
         result.and(closed)?;
-        trace::line!(
+        trace::print!(
             trace::Channel::Smb,
             "PUT {remote} bytes={sent} crc={crc:08x}"
         );

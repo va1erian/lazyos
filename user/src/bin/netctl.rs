@@ -193,11 +193,11 @@ fn run_sockets(mode: Mode) -> Result<(), String> {
         alloc::rc::Rc::new(user::messenger::netsock::Client::connect().map_err(fail("sockets"))?);
     match mode {
         Mode::SockProbe => sockprobe::run(&sockets)
-            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKPROBE:PASS checks={n}")),
+            .map(|n| trace::print!(trace::Channel::Netctl, "SOCKPROBE:PASS checks={n}")),
         Mode::SockSoak(n) => socksoak::run(&sockets, n)
-            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKSOAK:PASS iterations={n}")),
+            .map(|n| trace::print!(trace::Channel::Netctl, "SOCKSOAK:PASS iterations={n}")),
         Mode::SockOwner(id) => sockowner::foreign_owner(&sockets, id)
-            .map(|n| trace::line!(trace::Channel::Netctl, "SOCKOWNER:PASS refusals={n}")),
+            .map(|n| trace::print!(trace::Channel::Netctl, "SOCKOWNER:PASS refusals={n}")),
         _ => show_sockets(&sockets),
     }
 }
@@ -217,11 +217,11 @@ fn run(mode: Mode) -> Result<(), String> {
     match mode {
         Mode::Probe => {
             return probe::run()
-                .map(|n| trace::line!(trace::Channel::Netctl, "PROBE:PASS checks={n}"))
+                .map(|n| trace::print!(trace::Channel::Netctl, "PROBE:PASS checks={n}"))
         }
         Mode::Soak(n) => {
             return soak::run(n)
-                .map(|n| trace::line!(trace::Channel::Netctl, "SOAK:PASS iterations={n}"))
+                .map(|n| trace::print!(trace::Channel::Netctl, "SOAK:PASS iterations={n}"))
         }
         Mode::SockProbe | Mode::SockSoak(_) | Mode::SockOwner(_) | Mode::Sockets => {
             return run_sockets(mode)
@@ -256,7 +256,7 @@ fn run(mode: Mode) -> Result<(), String> {
                 .find(|r| r.prefix_len == 0)
                 .map(|r| ip_text(&r.gateway))
                 .unwrap_or_default();
-            trace::line!(
+            trace::print!(
                 trace::Channel::Netctl,
                 "INFO:PASS addr={address} gateway={gateway}"
             );
@@ -277,7 +277,7 @@ pub extern "C" fn _start() -> ! {
     match outcome {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            trace::line!(trace::Channel::Netctl, "FAIL {message}");
+            trace::print!(trace::Channel::Netctl, "FAIL {message}");
             sys::exit(1)
         }
     }

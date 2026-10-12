@@ -114,9 +114,9 @@ pub(crate) fn keyd_selftest() {
         match keyd::Client::connect() {
             Ok(client) => {
                 match client.keys() {
-                    Ok(keys) => trace::line!(trace::Channel::Keyd, "KEYS:PASS {}", keys.len()),
+                    Ok(keys) => trace::print!(trace::Channel::Keyd, "KEYS:PASS {}", keys.len()),
                     Err(error) => {
-                        trace::line!(trace::Channel::Keyd, "KEYS:FAIL:{}", error.message())
+                        trace::print!(trace::Channel::Keyd, "KEYS:FAIL:{}", error.message())
                     }
                 }
                 return;

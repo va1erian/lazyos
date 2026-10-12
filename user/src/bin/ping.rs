@@ -128,15 +128,15 @@ fn run() -> Result<(u32, u32), String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok((sent, received)) if sent == received => {
-            trace::line!(trace::Channel::Ping, "PASS sent={sent} received={received}");
+            trace::print!(trace::Channel::Ping, "PASS sent={sent} received={received}");
             sys::exit(0)
         }
         Ok((sent, received)) => {
-            trace::line!(trace::Channel::Ping, "FAIL sent={sent} received={received}");
+            trace::print!(trace::Channel::Ping, "FAIL sent={sent} received={received}");
             sys::exit(1)
         }
         Err(message) => {
-            trace::line!(trace::Channel::Ping, "FAIL {message}");
+            trace::print!(trace::Channel::Ping, "FAIL {message}");
             sys::exit(1)
         }
     }

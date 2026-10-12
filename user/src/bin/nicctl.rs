@@ -79,16 +79,16 @@ pub extern "C" fn _start() -> ! {
         Mode::Show => show(),
         Mode::Arp => arp(),
         Mode::Probe => probe::run()
-            .map(|checks| trace::line!(trace::Channel::Nicctl, "PROBE:PASS checks={checks}")),
+            .map(|checks| trace::print!(trace::Channel::Nicctl, "PROBE:PASS checks={checks}")),
         Mode::Intruder(ring) => probe::run_intruder_role(ring)
-            .map(|checks| trace::line!(trace::Channel::Nicctl, "INTRUDER:PASS checks={checks}")),
+            .map(|checks| trace::print!(trace::Channel::Nicctl, "INTRUDER:PASS checks={checks}")),
         Mode::Soak(n) => soak::run(n)
-            .map(|done| trace::line!(trace::Channel::Nicctl, "SOAK:PASS iterations={done}")),
+            .map(|done| trace::print!(trace::Channel::Nicctl, "SOAK:PASS iterations={done}")),
     };
     match outcome {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            trace::line!(trace::Channel::Nicctl, "FAIL {message}");
+            trace::print!(trace::Channel::Nicctl, "FAIL {message}");
             sys::exit(1)
         }
     }
@@ -120,7 +120,7 @@ fn show() -> Result<(), alloc::string::String> {
         "errors   {} runts, {} oversize, {} ring errors\nirq      {} interrupts, {} link changes\n",
         stats.runts, stats.oversize, stats.ring_errors, stats.interrupts, stats.link_changes
     ));
-    trace::line!(
+    trace::print!(
         trace::Channel::Nicctl,
         "INFO:PASS mac={} link={}",
         mac_text(&info.mac),
@@ -143,7 +143,7 @@ fn arp() -> Result<(), alloc::string::String> {
     let _ = client.detach(attachment.ring);
     attachment.close();
     let from = answered?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Nicctl,
         "ARP:PASS gateway={} mac={}",
         "10.0.2.2",

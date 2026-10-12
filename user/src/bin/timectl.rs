@@ -98,7 +98,7 @@ fn selftest(client: &Client) -> Result<(), String> {
         _ => return fail("a negative time was not refused with EINVAL"),
     }
     client.set_zone("UTC").map_err(text)?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Timectl,
         "SELFTEST:PASS paris_offset={}",
         paris.tz_offset_s

@@ -190,8 +190,8 @@ fn run() -> Result<usize, String> {
     // The password is no longer needed: overwrite it rather than leave it
     // in a freed block of the heap.
     secret.into_bytes().fill(0);
-    trace::line!(trace::Channel::Smb, "DIALECT {:#06x}", logon.dialect);
-    trace::line!(
+    trace::print!(trace::Channel::Smb, "DIALECT {:#06x}", logon.dialect);
+    trace::print!(
         trace::Channel::Smb,
         "LOGON user={} domain={} signing={} spnego={}",
         opts.user,
@@ -202,7 +202,7 @@ fn run() -> Result<usize, String> {
     client
         .tree_connect(&opts.server, &opts.share)
         .map_err(|e| link::explain(&e))?;
-    trace::line!(trace::Channel::Smb, "TREE share={}", opts.share);
+    trace::print!(trace::Channel::Smb, "TREE share={}", opts.share);
     let mut session = cmds::Session::new(client, opts.quiet, opts.verbose);
     let done = session.run_all(&opts.script)?;
     session.close();
@@ -213,11 +213,11 @@ fn run() -> Result<usize, String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok(done) => {
-            trace::line!(trace::Channel::Smb, "PASS commands={done}");
+            trace::print!(trace::Channel::Smb, "PASS commands={done}");
             sys::exit(0)
         }
         Err(message) => {
-            trace::line!(trace::Channel::Smb, "FAIL reason={message}");
+            trace::print!(trace::Channel::Smb, "FAIL reason={message}");
             sys::exit(1)
         }
     }

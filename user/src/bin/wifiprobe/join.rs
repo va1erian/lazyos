@@ -61,7 +61,7 @@ pub fn associate(
         _ => return Err(String::from("authentication refused")),
     }
     client.set_state(wire::STA_STATE_AUTHENTICATED, 0)?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Wifiprobe,
         "AUTH:PASS bssid={}",
         hex(&bss.bssid)
@@ -82,7 +82,7 @@ pub fn associate(
         _ => return Err(String::from("association refused")),
     };
     client.set_state(wire::STA_STATE_ASSOCIATED, u32::from(aid))?;
-    trace::line!(trace::Channel::Wifiprobe, "ASSOC:PASS aid={aid}");
+    trace::print!(trace::Channel::Wifiprobe, "ASSOC:PASS aid={aid}");
     Ok(aid)
 }
 
@@ -130,7 +130,7 @@ pub fn perform(
             }
             Action::InstallPtk { tk, .. } => {
                 client.set_key(wire::KEY_KIND_PAIRWISE, 0, tk.expose(), &[], &bss.bssid)?;
-                trace::line!(trace::Channel::Wifiprobe, "KEYS:PTK");
+                trace::print!(trace::Channel::Wifiprobe, "KEYS:PTK");
             }
             Action::InstallGtk {
                 index, key, rsc, ..
@@ -142,7 +142,7 @@ pub fn perform(
                     &rsc,
                     &bss.bssid,
                 )?;
-                trace::line!(trace::Channel::Wifiprobe, "KEYS:GTK index={index}");
+                trace::print!(trace::Channel::Wifiprobe, "KEYS:GTK index={index}");
             }
             Action::Authorized => {
                 client.set_state(wire::STA_STATE_AUTHORIZED, u32::from(aid))?;
@@ -192,7 +192,7 @@ pub fn join_wpa2(
                     return Ok((aid, sup));
                 }
             }
-            Err(error) => trace::line!(trace::Channel::Wifiprobe, "EAPOL:REFUSED {error:?}"),
+            Err(error) => trace::print!(trace::Channel::Wifiprobe, "EAPOL:REFUSED {error:?}"),
         }
     }
     Err(String::from("the 4-way handshake did not finish"))

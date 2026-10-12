@@ -143,7 +143,7 @@ fn print(kind: &str, bytes: u64, outcome: Result<u64, String>) -> bool {
         Ok(ticks) => {
             let ms = ticks.max(1) * 10;
             let kbps = bytes / ms;
-            trace::line!(
+            trace::print!(
                 trace::Channel::Netbulk,
                 "native:{kind}:PASS bytes={bytes} ms={ms} mbps={}.{:02}",
                 kbps / 1000,
@@ -152,7 +152,7 @@ fn print(kind: &str, bytes: u64, outcome: Result<u64, String>) -> bool {
             true
         }
         Err(why) => {
-            trace::line!(trace::Channel::Netbulk, "native:{kind}:FAIL:{why}");
+            trace::print!(trace::Channel::Netbulk, "native:{kind}:FAIL:{why}");
             false
         }
     }
@@ -172,13 +172,13 @@ fn parse() -> Option<(Addr, u64, u64, u32)> {
 pub extern "C" fn _start() -> ! {
     let Some((to, bytes, seed, rounds)) = parse() else {
         sys::write_str("usage: netbulk <a.b.c.d> <port> <bytes> [seed] [rounds]\n");
-        trace::line!(trace::Channel::Netbulk, "native:FAIL:usage");
+        trace::print!(trace::Channel::Netbulk, "native:FAIL:usage");
         sys::exit(2)
     };
     let client = match Client::connect() {
         Ok(client) => Rc::new(client),
         Err(e) => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Netbulk,
                 "native:FAIL:no socket service: {}",
                 e.message()
@@ -192,12 +192,12 @@ pub extern "C" fn _start() -> ! {
         ok &= print("PUT", bytes, put(&client, to, bytes, seed));
         ok &= print("GET", bytes, get(&client, to, bytes, seed + 1));
     }
-    trace::line!(trace::Channel::Netbulk, "native:done ok={ok}");
+    trace::print!(trace::Channel::Netbulk, "native:done ok={ok}");
     sys::exit(if ok { 0 } else { 1 })
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    trace::line!(trace::Channel::Netbulk, "native:FAIL:panic");
+    trace::print!(trace::Channel::Netbulk, "native:FAIL:panic");
     sys::exit(1)
 }

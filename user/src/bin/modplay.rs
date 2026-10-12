@@ -89,7 +89,7 @@ pub extern "C" fn _start() -> ! {
     match play(&args) {
         Ok(()) => sys::exit(0),
         Err(reason) => {
-            trace::line!(trace::Channel::Modplay, "PLAY:FAIL {reason}");
+            trace::print!(trace::Channel::Modplay, "PLAY:FAIL {reason}");
             sys::exit(1)
         }
     }
@@ -116,7 +116,7 @@ fn load(source: &Source) -> Result<(Module, String), String> {
 
 fn play(args: &Args) -> Result<(), String> {
     let (module, title) = load(&args.source)?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Modplay,
         "LOAD title=\"{title}\" orders={} patterns={}",
         module.orders.len(),
@@ -138,7 +138,7 @@ fn play(args: &Args) -> Result<(), String> {
     if played != queued {
         return Err(format!("driver played {played} of {queued} frames"));
     }
-    trace::line!(
+    trace::print!(
         trace::Channel::Modplay,
         "PLAY:PASS frames={played} rate={rate} unsupported_effects={}",
         player.unsupported_effects()

@@ -60,7 +60,7 @@ pub extern "C" fn _start() -> ! {
     let code = match run(&args) {
         Ok(()) => 0,
         Err(text) => {
-            trace::line!(trace::Channel::Wifictl, "FAIL {text}");
+            trace::print!(trace::Channel::Wifictl, "FAIL {text}");
             1
         }
     };
@@ -153,7 +153,7 @@ fn status(client: &Client, wanted: Option<&str>) -> core::result::Result<(), Str
         None => client.interfaces().map_err(text)?,
     };
     if names.is_empty() {
-        trace::line!(trace::Channel::Wifictl, "STATUS none disabled");
+        trace::print!(trace::Channel::Wifictl, "STATUS none disabled");
         return Ok(());
     }
     for name in names {
@@ -216,7 +216,7 @@ fn list(client: &Client, ifname: &str) -> core::result::Result<(), String> {
         } else {
             n.ssid.as_str()
         };
-        trace::line!(
+        trace::print!(
             trace::Channel::Wifictl,
             "NET \"{name}\" {security} rssi={} freq={} bss={}{}{}",
             n.rssi_dbm,
@@ -416,6 +416,6 @@ fn passphrase(ssid: &str) -> core::result::Result<String, String> {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    trace::line!(trace::Channel::Wifictl, "FAIL panic");
+    trace::print!(trace::Channel::Wifictl, "FAIL panic");
     sys::exit(1)
 }

@@ -156,7 +156,7 @@ fn cmd_ls(c: &mut Control, args: &[String]) -> Result<(), String> {
     })?;
     drop(data);
     c.finish_transfer()?;
-    trace::line!(trace::Channel::Ftp, "LS bytes={bytes}");
+    trace::print!(trace::Channel::Ftp, "LS bytes={bytes}");
     Ok(())
 }
 
@@ -174,7 +174,7 @@ fn cmd_get(c: &mut Control, args: &[String], quiet: bool) -> Result<(), String> 
     drop(data);
     c.finish_transfer()?;
     if !(to_stdout && quiet) {
-        trace::line!(
+        trace::print!(
             trace::Channel::Ftp,
             "GET {name} bytes={bytes} crc={crc:08x}"
         );
@@ -231,7 +231,7 @@ fn cmd_put(c: &mut Control, args: &[String]) -> Result<(), String> {
     let _ = data.shutdown_write();
     drop(data);
     c.finish_transfer()?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Ftp,
         "PUT {remote} bytes={sent} crc={crc:08x}"
     );
@@ -293,7 +293,7 @@ fn run() -> Result<usize, String> {
     if r.class() == 3 {
         c.request("PASS", Some(&opts.pass), &[2])?;
     }
-    trace::line!(trace::Channel::Ftp, "LOGIN");
+    trace::print!(trace::Channel::Ftp, "LOGIN");
     c.request("TYPE", Some("I"), &[2])?;
 
     let mut done = 0;
@@ -325,11 +325,11 @@ fn run() -> Result<usize, String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok(done) => {
-            trace::line!(trace::Channel::Ftp, "PASS commands={done}");
+            trace::print!(trace::Channel::Ftp, "PASS commands={done}");
             sys::exit(0)
         }
         Err(message) => {
-            trace::line!(trace::Channel::Ftp, "FAIL {message}");
+            trace::print!(trace::Channel::Ftp, "FAIL {message}");
             sys::exit(1)
         }
     }

@@ -69,7 +69,7 @@ impl Hid {
     /// Decode one report and publish what it means; returns whether it
     /// pressed a key. `trace` echoes each edge on serial for the harness.
     pub(super) fn report(&mut self, report: &[u8], trace: bool) -> bool {
-        if trace {
+        if trace && trace::enabled(trace::Channel::Usbd) {
             let hex: alloc::string::String = report.iter().map(|b| format!("{b:02x}")).collect();
             trace::line!(trace::Channel::Usbd, "REPORT {hex}");
         }

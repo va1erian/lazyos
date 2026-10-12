@@ -100,15 +100,15 @@ fn run() -> Result<Outcome, String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok(Outcome::Found(n)) if n > 0 => {
-            trace::line!(trace::Channel::Nslookup, "PASS addresses={n}");
+            trace::print!(trace::Channel::Nslookup, "PASS addresses={n}");
             sys::exit(0)
         }
         Ok(Outcome::Found(_)) | Ok(Outcome::NoSuchName) => {
-            trace::line!(trace::Channel::Nslookup, "NXDOMAIN");
+            trace::print!(trace::Channel::Nslookup, "NXDOMAIN");
             sys::exit(1)
         }
         Err(message) => {
-            trace::line!(trace::Channel::Nslookup, "FAIL {message}");
+            trace::print!(trace::Channel::Nslookup, "FAIL {message}");
             sys::exit(1)
         }
     }

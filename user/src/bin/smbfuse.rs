@@ -301,7 +301,7 @@ fn run() -> Result<(), Failed> {
         .map_err(|e| (Failure::Share, explain(&e)))?;
     let mut mount = sys::fuse::Mount::register(&name, 0)
         .map_err(|e| (Failure::Mount, format!("mount {point}: errno {e}")))?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Smbfuse,
         "UP {point} dialect={:#06x} signing={}",
         logon.dialect,
@@ -324,7 +324,7 @@ fn run() -> Result<(), Failed> {
         }
         if tree.stats().reconnects != reconnects {
             reconnects = tree.stats().reconnects;
-            trace::line!(trace::Channel::Smbfuse, "RECONNECT n={reconnects}");
+            trace::print!(trace::Channel::Smbfuse, "RECONNECT n={reconnects}");
         }
     }
 }
@@ -334,7 +334,7 @@ pub extern "C" fn _start() -> ! {
     match run() {
         Ok(()) => sys::exit(0),
         Err((failure, message)) => {
-            trace::line!(trace::Channel::Smbfuse, "FAIL {message}");
+            trace::print!(trace::Channel::Smbfuse, "FAIL {message}");
             sys::exit(failure as u32)
         }
     }
@@ -342,6 +342,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    trace::line!(trace::Channel::Smbfuse, "FAIL panic");
+    trace::print!(trace::Channel::Smbfuse, "FAIL panic");
     sys::exit(1)
 }

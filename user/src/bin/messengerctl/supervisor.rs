@@ -120,25 +120,25 @@ pub(crate) fn app_selftest() {
                 .iter()
                 .any(|app| app.id == "messengerctl" && app.path == fhs::bin::MESSENGERCTL);
             if has_top && has_self {
-                trace::line!(trace::Channel::Msgctl, "APPS:PASS count={}", apps.len());
+                trace::print!(trace::Channel::Msgctl, "APPS:PASS count={}", apps.len());
             } else {
-                trace::line!(
+                trace::print!(
                     trace::Channel::Msgctl,
                     "APPS:FAIL registry is missing top/messengerctl"
                 );
             }
         }
-        Err(error) => trace::line!(trace::Channel::Msgctl, "APPS:FAIL:{}", error.message()),
+        Err(error) => trace::print!(trace::Channel::Msgctl, "APPS:FAIL:{}", error.message()),
     }
 
     match services::launch(&endpoint, "top", "", 0) {
-        Ok(result) => trace::line!(
+        Ok(result) => trace::print!(
             trace::Channel::Msgctl,
             "LAUNCH:PASS app={} pid={}",
             result.app,
             result.pid
         ),
-        Err(error) => trace::line!(trace::Channel::Msgctl, "LAUNCH:FAIL:{}", error.message()),
+        Err(error) => trace::print!(trace::Channel::Msgctl, "LAUNCH:FAIL:{}", error.message()),
     }
 
     // The foreign-session probe runs in a short-lived child (see
@@ -146,7 +146,7 @@ pub(crate) fn app_selftest() {
     // root, so this console task must not be the one that self-transitions.
     match sys::spawn_native(fhs::bin::MESSENGERCTL, &["probe"]) {
         Some(pid) => reap_probe(pid),
-        None => trace::line!(
+        None => trace::print!(
             trace::Channel::Msgctl,
             "LAUNCH:DENIED:FAIL could not spawn the probe"
         ),
@@ -163,7 +163,7 @@ pub(crate) fn probe_role() -> ! {
     let endpoint = match resolve_init() {
         Some(endpoint) => endpoint,
         None => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Msgctl,
                 "LAUNCH:DENIED:FAIL could not resolve init"
             );
@@ -172,7 +172,7 @@ pub(crate) fn probe_role() -> ! {
     };
     let probe = sys::Cred::new(1000, 1000, 0, 0, 4242);
     if sys::cred_set(None, &probe).is_err() {
-        trace::line!(
+        trace::print!(
             trace::Channel::Msgctl,
             "LAUNCH:DENIED:FAIL could not enter the probe session"
         );
@@ -180,18 +180,18 @@ pub(crate) fn probe_role() -> ! {
     }
     match services::launch(&endpoint, "top", "", 1) {
         Err(error) if error.errno() == Some(-messenger::errno::EPERM) => {
-            trace::line!(trace::Channel::Msgctl, "LAUNCH:DENIED:PASS");
+            trace::print!(trace::Channel::Msgctl, "LAUNCH:DENIED:PASS");
             sys::exit(0);
         }
         Ok(_) => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Msgctl,
                 "LAUNCH:DENIED:FAIL foreign launch was allowed"
             );
             sys::exit(1);
         }
         Err(error) => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Msgctl,
                 "LAUNCH:DENIED:FAIL:{}",
                 error.message()
@@ -213,7 +213,7 @@ fn reap_probe(pid: u64) {
             None => {}
         }
     }
-    trace::line!(
+    trace::print!(
         trace::Channel::Msgctl,
         "LAUNCH:DENIED:FAIL probe did not exit"
     );

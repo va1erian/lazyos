@@ -386,6 +386,12 @@ impl Device {
     /// recorded, endpoint 0's state and the dequeue pointer it has reached
     /// (against the ring's base `ours`), and the controller's own status.
     fn snapshot(&mut self, hc: &Hc, failed: &Error) {
+        // A wedged controller fails every attempt: at most 40 lines per 10 s,
+        // checked before the reads and the allocation that only feed it.
+        static DIAG: tracefmt::Budget = tracefmt::Budget::new(40, 1000);
+        if !trace::within(&DIAG, trace::Channel::Usbd) {
+            return;
+        }
         let stride = if hc.info.context_64 { 16 } else { 8 };
         let ours = self.ep0.dequeue_pointer();
         let words = self.mem.dwords(OUTPUT, 2 * stride);
@@ -397,11 +403,6 @@ impl Device {
             words[stride],
             u64::from(words[stride + 2]) | u64::from(words[stride + 3]) << 32,
         );
-        // A wedged controller fails every attempt: at most 40 lines per 10 s.
-        static DIAG: tracefmt::Budget = tracefmt::Budget::new(40, 1000);
-        if !trace::within(&DIAG, trace::Channel::Usbd) {
-            return;
-        }
         trace::line!(trace::Channel::Usbd, "DIAG port={} {failed} slot={slot} ep0state={} ep0dq={ep_dq:#x} ring={ours:#x} mps={} {}",
             self.name,
             ep_dw0 & 7,

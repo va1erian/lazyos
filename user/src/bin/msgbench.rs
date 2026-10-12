@@ -68,7 +68,7 @@ pub extern "C" fn _start() -> ! {
             match client(rounds.max(1)) {
                 Ok(()) => 0,
                 Err(message) => {
-                    trace::line!(trace::Channel::Msgbench, "FAIL:{message}");
+                    trace::print!(trace::Channel::Msgbench, "FAIL:{message}");
                     1
                 }
             }
@@ -138,7 +138,7 @@ fn notify() -> Vec<u8> {
 /// until the client's side closes.
 fn serve(name: &str) -> u32 {
     let Ok(endpoint) = registry::resolve(name) else {
-        trace::line!(
+        trace::print!(
             trace::Channel::Msgbench,
             "FAIL:server could not resolve its name"
         );
@@ -159,7 +159,7 @@ fn serve(name: &str) -> u32 {
             return 0;
         }
         if status != 0 {
-            trace::line!(trace::Channel::Msgbench, "FAIL:server recv {status}");
+            trace::print!(trace::Channel::Msgbench, "FAIL:server recv {status}");
             return 1;
         }
         if result.value == 0 {
@@ -173,7 +173,7 @@ fn serve(name: &str) -> u32 {
         };
         let status = msg(op::REPLY, &answer, &mut MsgResult::default());
         if status != 0 && status != -errno::ENOENT {
-            trace::line!(trace::Channel::Msgbench, "FAIL:server reply {status}");
+            trace::print!(trace::Channel::Msgbench, "FAIL:server reply {status}");
             return 1;
         }
     }
@@ -280,7 +280,7 @@ fn measure(client: &mut Client, rounds: usize) -> Result<(), String> {
     let sum: u128 = samples.iter().map(|&value| value as u128).sum();
     let mean = (sum / samples.len() as u128) as u64;
     let max = samples.last().copied().unwrap_or(0);
-    trace::line!(
+    trace::print!(
         trace::Channel::Perf,
         "msg_rt:n={} p50_us={} p90_us={} p99_us={} max_us={} mean_us={}",
         samples.len(),
@@ -295,11 +295,11 @@ fn measure(client: &mut Client, rounds: usize) -> Result<(), String> {
     let burst_cycles = end_tsc.wrapping_sub(calls_end).max(1) as u128;
     let messages = (BURSTS * (BURST + 1)) as u128;
     let msgs_per_s = messages * per_us * 1_000_000 / burst_cycles;
-    trace::line!(
+    trace::print!(
         trace::Channel::Perf,
         "msg_tput:msgs_per_s={msgs_per_s} calls_per_s={calls_per_s}"
     );
-    trace::line!(trace::Channel::Msgbench, "DONE");
+    trace::print!(trace::Channel::Msgbench, "DONE");
     Ok(())
 }
 

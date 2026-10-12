@@ -292,7 +292,7 @@ fn run_client(opts: &Options, sockets: &Rc<Client>, stack: &Stack) -> Result<Tal
         return run_udp(opts, sockets, to, &data);
     }
     let stream = TcpStream::connect(sockets, to, CONNECT_MS).map_err(fail("connect"))?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Nc,
         "CONNECTED {}.{}.{}.{}:{}",
         ip[0],
@@ -397,10 +397,10 @@ fn run_interactive(stream: &TcpStream) -> Result<Tally, String> {
 
 fn run_listener(opts: &Options, sockets: &Rc<Client>) -> Result<Tally, String> {
     let listener = TcpListener::bind(sockets, opts.port, 1).map_err(fail("listen"))?;
-    trace::line!(trace::Channel::Nc, "LISTENING port={}", opts.port);
+    trace::print!(trace::Channel::Nc, "LISTENING port={}", opts.port);
     let accept_ms = opts.idle_secs.saturating_mul(1000).min(60_000);
     let (stream, peer) = listener.accept(accept_ms).map_err(fail("accept"))?;
-    trace::line!(
+    trace::print!(
         trace::Channel::Nc,
         "ACCEPTED {}.{}.{}.{}:{}",
         peer.ip[0],
@@ -466,7 +466,7 @@ fn run() -> Result<(Tally, bool), String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok((tally, true)) => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Nc,
                 "PASS sent={} received={}",
                 tally.sent,
@@ -475,7 +475,7 @@ pub extern "C" fn _start() -> ! {
             sys::exit(0)
         }
         Ok((tally, false)) => {
-            trace::line!(
+            trace::print!(
                 trace::Channel::Nc,
                 "FAIL sent={} received={} wrong={}",
                 tally.sent,
@@ -485,7 +485,7 @@ pub extern "C" fn _start() -> ! {
             sys::exit(1)
         }
         Err(message) => {
-            trace::line!(trace::Channel::Nc, "FAIL {message}");
+            trace::print!(trace::Channel::Nc, "FAIL {message}");
             sys::exit(1)
         }
     }

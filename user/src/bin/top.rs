@@ -39,11 +39,11 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("top: LazyOS system monitor (issue #144)\n");
     match run() {
         Ok(()) => {
-            trace::line!(trace::Channel::Sys, "TOP:PASS");
+            trace::print!(trace::Channel::Sys, "TOP:PASS");
             sys::exit(0)
         }
         Err(reason) => {
-            trace::fail!(trace::Channel::Sys, "TOP", "{reason}");
+            trace::print!(trace::Channel::Sys, "TOP:FAIL:{reason}");
             sys::exit(1)
         }
     }

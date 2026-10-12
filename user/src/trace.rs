@@ -66,7 +66,9 @@ pub fn emit(channel: Channel, build: impl FnOnce(&mut LineBuf<LINE_MAX>)) -> boo
     if !ENABLED {
         return false;
     }
-    load_mask();
+    if !enabled(channel) {
+        return false;
+    }
     TRACER.emit(
         &ConsoleSink,
         crate::sys::monotonic_ms() / 10,
@@ -93,6 +95,13 @@ pub fn within(budget: &tracefmt::Budget, channel: Channel) -> bool {
             true
         }
     }
+}
+
+/// Write one line whatever the mask and the switch say: the output of a
+/// command line tool (`wifictl list`, `ping`), which is its product and not
+/// evidence about it. Same line grammar and one write, so it cannot tear.
+pub fn emit_always(build: impl FnOnce(&mut LineBuf<LINE_MAX>)) {
+    TRACER.emit_always(&ConsoleSink, build);
 }
 
 /// `PREFIX:STAGE:PASS` or `PREFIX:STAGE:PASS:detail`.
@@ -150,6 +159,19 @@ macro_rules! __trace_event {
 }
 
 /// `PREFIX:` and the formatted text, flattened to one line.
+/// `PREFIX:` and the formatted text, flattened to one line, written even
+/// with `LAZYOS_TRACE=0` or the channel masked: for a command's result.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __trace_print {
+    ($channel:expr, $($text:tt)+) => {{
+        let channel = $channel;
+        $crate::trace::emit_always(|buf| {
+            let _ = ::tracefmt::write::line(buf, channel, format_args!($($text)+));
+        });
+    }};
+}
+
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __trace_line {
@@ -168,4 +190,5 @@ macro_rules! __trace_line {
 #[allow(unused_imports)] // the whole API; not every macro has a caller
 pub use {
     __trace_event as event, __trace_fail as fail, __trace_line as line, __trace_pass as pass,
+    __trace_print as print,
 };

@@ -140,21 +140,21 @@ pub extern "C" fn _start() -> ! {
         Mode::Probe => (
             "BEEP:PROBE",
             probe::run()
-                .map(|checks| trace::line!(trace::Channel::Beep, "PROBE:PASS checks={checks}")),
+                .map(|checks| trace::print!(trace::Channel::Beep, "PROBE:PASS checks={checks}")),
         ),
         Mode::Intruder { stream } => (
             "BEEP:INTRUDER",
             probe::run_intruder(stream)
-                .map(|()| trace::line!(trace::Channel::Beep, "INTRUDER:PASS")),
+                .map(|()| trace::print!(trace::Channel::Beep, "INTRUDER:PASS")),
         ),
         Mode::Starve => (
             "BEEP:STARVE",
-            starve::run().map(|detail| trace::line!(trace::Channel::Beep, "STARVE:PASS {detail}")),
+            starve::run().map(|detail| trace::print!(trace::Channel::Beep, "STARVE:PASS {detail}")),
         ),
         Mode::Soak(rounds) => (
             "BEEP:SOAK",
             soak::run(rounds)
-                .map(|done| trace::line!(trace::Channel::Beep, "SOAK:PASS iterations={done}")),
+                .map(|done| trace::print!(trace::Channel::Beep, "SOAK:PASS iterations={done}")),
         ),
     };
     match outcome {
@@ -194,7 +194,7 @@ fn play(args: &Args) -> Result<(), String> {
     if played != total {
         return Err(format!("mixer played {played} of {total} frames"));
     }
-    trace::line!(
+    trace::print!(
         trace::Channel::Beep,
         "PLAY:PASS freq={} rate={rate} channels={channels} volume={} frames={played}",
         args.freq_hz,
