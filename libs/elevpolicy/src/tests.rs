@@ -98,6 +98,9 @@ fn wifi_system_changes_are_checked_and_never_show_the_passphrase() {
     for good in [
         &["store", "office", "correct horse"][..],
         &["store", "raw.psk", raw][..],
+        // Routers take UTF-8 passphrases; the limit is 63 octets.
+        &["store", "office", "caf\u{e9} au lait"][..],
+        &["store", "office", &"\u{20ac}".repeat(21)][..],
         &["delete", "office"][..],
     ] {
         let op = parse("net.wifi.system", good).unwrap();
@@ -111,13 +114,16 @@ fn wifi_system_changes_are_checked_and_never_show_the_passphrase() {
         "Save the Wi-Fi password 'office' for all users, before login too"
     );
     let too_long = "x".repeat(64);
+    let too_many_octets = "\u{20ac}".repeat(22);
     for bad in [
         &[][..],
         &["store"][..],
         &["store", "office"][..],
         &["store", "office", "short"][..],
         &["store", "office", &too_long][..],
-        &["store", "office", "caf\u{e9} au lait"][..],
+        &["store", "office", &too_many_octets][..],
+        &["store", "office", "correct\nhorse"][..],
+        &["store", "office", "correct\u{85}horse"][..],
         &["store", "of fice", "correct horse"][..],
         &["store", "", "correct horse"][..],
         &["store", "office", "correct horse", "extra"][..],

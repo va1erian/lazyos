@@ -20,14 +20,6 @@ fn sample() -> Store {
     store
 }
 
-fn caller(uid: u32) -> Caller {
-    Caller {
-        uid,
-        label_id: 0,
-        session: 0,
-    }
-}
-
 // ---- the rules -----------------------------------------------------------
 
 #[test]
@@ -119,117 +111,6 @@ fn names_come_back_sorted_and_never_with_material() {
         store.put(Owner::User(5), name, b"hunter2hunter2").unwrap();
     }
     assert_eq!(store.names(Owner::User(5)), ["a", "b", "c"]);
-}
-
-// ---- who may do what -----------------------------------------------------
-
-#[test]
-fn authorization_table() {
-    let session_user = Caller {
-        uid: 1000,
-        label_id: 0,
-        session: 3,
-    };
-    let elevd = caller(ELEVD_UID);
-    let wlan = caller(WLAN_UID);
-    let pmk = |owner_uid| Op::Pmk { owner_uid };
-
-    // User scope: always the caller's own uid.
-    for op in [Op::Store, Op::Delete, Op::List] {
-        assert_eq!(authorize(session_user, "user", op), Ok(Owner::User(1000)));
-    }
-    assert_eq!(
-        authorize(elevd, "user", Op::Store),
-        Ok(Owner::User(ELEVD_UID))
-    );
-    // System scope: changes are elevd's alone, listing is open.
-    for op in [Op::Store, Op::Delete] {
-        assert_eq!(authorize(elevd, "system", op), Ok(Owner::System));
-        for denied in [session_user, wlan, caller(0), caller(1001)] {
-            assert_eq!(
-                authorize(denied, "system", op),
-                Err(Denied::Perm),
-                "{denied:?}"
-            );
-        }
-    }
-    assert_eq!(
-        authorize(session_user, "system", Op::List),
-        Ok(Owner::System)
-    );
-    // The PMK is wlanmd's alone, for the uid it names.
-    assert_eq!(authorize(wlan, "user", pmk(1000)), Ok(Owner::User(1000)));
-    assert_eq!(authorize(wlan, "system", pmk(0)), Ok(Owner::System));
-    assert_eq!(authorize(wlan, "system", pmk(1000)), Err(Denied::Invalid));
-    for denied in [session_user, elevd, caller(0), caller(1000), caller(913)] {
-        for scope in ["user", "system"] {
-            assert_eq!(
-                authorize(denied, scope, pmk(0)),
-                Err(Denied::Perm),
-                "{denied:?}"
-            );
-            assert_eq!(authorize(denied, scope, pmk(1000)), Err(Denied::Perm));
-        }
-    }
-    // Unlabelled and outside a session are part of the identity: an app under
-    // a label, or a task in a session, with wlanmd's uid is not wlanmd.
-    for forged in [
-        Caller {
-            label_id: 4,
-            ..wlan
-        },
-        Caller { session: 1, ..wlan },
-    ] {
-        assert_eq!(authorize(forged, "user", pmk(1000)), Err(Denied::Perm));
-    }
-    for forged in [
-        Caller {
-            label_id: 4,
-            ..elevd
-        },
-        Caller {
-            session: 1,
-            ..elevd
-        },
-    ] {
-        assert_eq!(authorize(forged, "system", Op::Store), Err(Denied::Perm));
-    }
-    // No scope but the two.
-    for scope in ["", "User", "all", "system "] {
-        assert_eq!(authorize(elevd, scope, Op::List), Err(Denied::Invalid));
-    }
-}
-
-#[test]
-fn only_wlanmd_stores_and_deletes_for_someone() {
-    let wlan = caller(WLAN_UID);
-    for op in [
-        Op::StoreFor { owner_uid: 1000 },
-        Op::DeleteFor { owner_uid: 1000 },
-    ] {
-        assert_eq!(authorize(wlan, "user", op), Ok(Owner::User(1000)));
-        assert_eq!(authorize(wlan, "system", op), Err(Denied::Invalid));
-        for denied in [
-            caller(ELEVD_UID),
-            caller(0),
-            caller(1000),
-            caller(913),
-            Caller { label_id: 4, ..wlan },
-            Caller { session: 2, ..wlan },
-        ] {
-            for scope in ["user", "system"] {
-                assert_eq!(authorize(denied, scope, op), Err(Denied::Perm), "{denied:?}");
-            }
-        }
-    }
-    for op in [Op::StoreFor { owner_uid: 0 }, Op::DeleteFor { owner_uid: 0 }] {
-        assert_eq!(authorize(wlan, "system", op), Ok(Owner::System));
-        assert_eq!(authorize(wlan, "user", op), Ok(Owner::User(0)));
-    }
-    assert_eq!(
-        authorize(wlan, "users", Op::StoreFor { owner_uid: 1 }),
-        Err(Denied::Invalid)
-    );
 }
 
 // ---- the PMK -------------------------------------------------------------

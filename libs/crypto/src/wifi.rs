@@ -35,7 +35,7 @@ pub const MIC_LEN: usize = 16;
 
 /// PBKDF2 iteration count fixed by 802.11 (Annex J.4).
 const PSK_ROUNDS: u32 = 4096;
-/// A WPA passphrase is 8..=63 printable ASCII characters (802.11 Annex M.4).
+/// A WPA passphrase is 8..=63 octets (802.11 Annex M.4).
 const PASSPHRASE_LEN: core::ops::RangeInclusive<usize> = 8..=63;
 /// An SSID is 1..=32 octets (a zero-length SSID is the wildcard, not a name).
 const SSID_LEN: core::ops::RangeInclusive<usize> = 1..=32;
@@ -44,16 +44,32 @@ const PRF_MAX: usize = 256 * 20;
 /// The KDF output length `L` is a 16-bit count of bits.
 const KDF_MAX: usize = 0xFFFF / 8;
 
+/// Whether `passphrase` is one [`pbkdf2_sha1`] takes: 8..=63 octets of valid
+/// UTF-8 with no control character.
+///
+/// Annex M.4 says printable ASCII, but PBKDF2 works on octets and home
+/// routers (hostapd, every vendor UI) accept UTF-8, so a network named with
+/// an `é` or a `€` in its password must be joinable. Control characters stay
+/// out: no router UI can type them, and they are how a passphrase pasted
+/// with a stray newline would go wrong silently.
+pub fn valid_passphrase(passphrase: &[u8]) -> bool {
+    PASSPHRASE_LEN.contains(&passphrase.len())
+        && core::str::from_utf8(passphrase).is_ok_and(|text| !text.chars().any(char::is_control))
+}
+
+/// Whether `text` is a raw PSK: exactly 64 hex digits (either case).
+pub fn is_raw_psk(text: &[u8]) -> bool {
+    text.len() == PMK_LEN * 2 && text.iter().all(u8::is_ascii_hexdigit)
+}
+
 /// WPA2-PSK: derive the 256-bit PMK from a passphrase and the SSID.
 ///
 /// `PBKDF2-HMAC-SHA1(passphrase, ssid, 4096, 256 bits)`. The passphrase must
-/// be 8..=63 printable ASCII bytes and the SSID 1..=32 bytes, as the standard
-/// requires; anything else is [`Error::BadLength`] (a 64-hex-digit PSK is
-/// already a PMK and does not go through here).
+/// pass [`valid_passphrase`] and the SSID be 1..=32 bytes; anything else is
+/// [`Error::BadLength`] (a 64-hex-digit PSK is already a PMK and does not go
+/// through here).
 pub fn pbkdf2_sha1(passphrase: &[u8], ssid: &[u8]) -> Result<[u8; PMK_LEN], Error> {
-    let printable = passphrase.iter().all(|byte| (32..=126).contains(byte));
-    if !PASSPHRASE_LEN.contains(&passphrase.len()) || !printable || !SSID_LEN.contains(&ssid.len())
-    {
+    if !valid_passphrase(passphrase) || !SSID_LEN.contains(&ssid.len()) {
         return Err(Error::BadLength);
     }
     let mut pmk = [0u8; PMK_LEN];

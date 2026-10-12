@@ -10025,9 +10025,12 @@ pub mod os_lazy_keyd_v1 {
     /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
     /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
     /// (a uid) owns, so a PMK is never given for another user's secret by
-    /// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
-    /// secret, `EINVAL` for a secret that is not a valid passphrase or an
-    /// SSID outside 1..=32 octets.
+    /// naming it; for `system`, `owner` must be 0. `name` must be a Wi-Fi
+    /// profile id (`w` and 12 lowercase hex digits), so no PMK is ever
+    /// derived from a secret that is not a network's (`EPERM` otherwise).
+    /// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
+    /// passphrase (8 to 63 octets of UTF-8 without control characters) or
+    /// raw PSK, or an SSID outside 1..=32 octets.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct WifiPmkArgs {
         pub scope: alloc::string::String,
@@ -10090,12 +10093,13 @@ pub mod os_lazy_keyd_v1 {
         Ok(out)
     }
 
-    /// Keep `secret` under `name` for someone else: the user `owner` (scope
-    /// `user`) or the machine (scope `system`, `owner` 0). Answered only to
-    /// `wlanmd` (the `_wlan` system uid, unlabelled, outside any session),
-    /// which takes a passphrase in `os.lazy.net.wifi.v1` `AddNetwork` and
-    /// checks there who may add what (a `system` network only from `elevd`);
-    /// everyone else gets `EPERM`. Otherwise the rules of `StoreSecret`.
+    /// Keep `secret` under `name` for the user `owner` (scope `user`).
+    /// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
+    /// any session), which takes a passphrase in `os.lazy.net.wifi.v1`
+    /// `AddNetwork` for the user who called it, and only for a `name` that is
+    /// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
+    /// any other name and the `system` scope (written by `elevd` alone) get
+    /// `EPERM`. Otherwise the rules of `StoreSecret`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StoreSecretForArgs {
         pub scope: alloc::string::String,

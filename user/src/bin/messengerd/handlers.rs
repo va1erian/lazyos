@@ -9,7 +9,9 @@ use user::sys;
 use super::broker::{
     peek, Broker, Delivery, Outcome, Pending, Subscription, MAX_PENDING, MAX_SUBSCRIPTIONS,
 };
-use super::filter::{is_system_topic, may_publish_system, valid_topic, Filter};
+use super::filter::{
+    holds_nic_name, is_system_topic, may_publish_system, nic_link_ifname, valid_topic, Filter,
+};
 
 impl Broker {
     /// Serve one topics request from the task in slot `sender`, whose
@@ -60,6 +62,13 @@ impl Broker {
                         && !sndpolicy::may_publish_audio_event(uid, &topic)
                     {
                         return Err(messenger::Error::Topics(errno::EACCES));
+                    }
+                    // A driver uid speaks for the card it serves, not for
+                    // every card (root is the console's boot identity).
+                    if let Some(ifname) = nic_link_ifname(&topic) {
+                        if uid != 0 && !holds_nic_name(sender, ifname) {
+                            return Err(messenger::Error::Topics(errno::EACCES));
+                        }
                     }
                 }
                 let matched = self.publish(&topic, sender, payload, retained);

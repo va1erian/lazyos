@@ -488,7 +488,7 @@ The secrets and crypto service (issue #102).
 | `delete_secret(scope, name)` | `DeleteSecret(scope: String, name: String) -> ()` | Forget the secret `name` of `scope` (the same rules as `StoreSecret`; |
 | `list_secrets(scope)` | `ListSecrets(scope: String) -> (names: Array<String>)` | The names of the caller's `user` secrets, or of the `system` ones |
 | `wifi_pmk(scope, name, ssid, owner)` | `WifiPmk(scope: String, name: String, ssid: Bytes, owner: U32) -> (pmk: Bytes)` | The WPA2 pairwise master key of the passphrase `name` of `scope` for |
-| `store_secret_for(scope, name, secret, owner)` | `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()` | Keep `secret` under `name` for someone else: the user `owner` (scope |
+| `store_secret_for(scope, name, secret, owner)` | `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()` | Keep `secret` under `name` for the user `owner` (scope `user`). |
 | `delete_secret_for(scope, name, owner)` | `DeleteSecretFor(scope: String, name: String, owner: U32) -> ()` | Forget the secret `name` of `owner` in `scope` (the rules of |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
 
