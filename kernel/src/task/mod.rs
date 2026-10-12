@@ -101,6 +101,7 @@ pub mod kthread;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;
+pub mod nice;
 pub mod pollwait;
 mod preempt;
 mod runq;

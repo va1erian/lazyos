@@ -42,6 +42,48 @@ pub struct LinuxExtras {
     /// The controlling pseudo-terminal (`TIOCSCTTY`, or opening a slave),
     /// which `/dev/tty` opens; `None` means the console window.
     pub ctty: Option<Arc<crate::tty::pty::Pty>>,
+    /// What `sched_setattr` last set (read back by `sched_getattr`).
+    pub sched: SchedState,
+}
+
+/// A thread's Linux scheduling attributes. Only the plain policies are ever
+/// stored (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`); the nice value also
+/// sets the task's stride weight ([`super::nice`]), the policy only `IDLE`.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct SchedState {
+    /// `SCHED_OTHER` (0), `SCHED_BATCH` (3) or `SCHED_IDLE` (5).
+    pub policy: u8,
+    /// `SCHED_FLAG_RESET_ON_FORK`: a child starts with a nice value of 0 at
+    /// most, and without the flag itself.
+    pub reset_on_fork: bool,
+    /// -20..=19.
+    pub nice: i8,
+}
+
+impl SchedState {
+    /// What a forked or cloned child starts with: the same, but a negative
+    /// nice value is lost to `reset_on_fork`, and the flag is not inherited.
+    pub fn for_child(self) -> SchedState {
+        SchedState {
+            policy: self.policy,
+            reset_on_fork: false,
+            nice: if self.reset_on_fork {
+                self.nice.max(0)
+            } else {
+                self.nice
+            },
+        }
+    }
+
+    /// The weight a child starts with: its parent's (`weight`), or the
+    /// class default when `reset_on_fork` took away a negative nice value.
+    pub fn child_weight(self, class: PriorityClass, weight: u16) -> u16 {
+        if self.reset_on_fork && self.nice < 0 {
+            class.default_weight()
+        } else {
+            weight
+        }
+    }
 }
 
 /// Source of fresh share-group ids (never 0).
@@ -93,6 +135,7 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         no_new_privs: parent.linux.no_new_privs,
         console: None,
         ctty: parent.linux.ctty.clone(),
+        sched: parent.linux.sched.for_child(),
     }
 }
 
@@ -103,6 +146,7 @@ pub(super) fn for_fork(parent: &Task) -> LinuxExtras {
         comm: parent.linux.comm,
         no_new_privs: parent.linux.no_new_privs,
         ctty: parent.linux.ctty.clone(),
+        sched: parent.linux.sched.for_child(),
         ..LinuxExtras::default()
     }
 }
@@ -193,6 +237,15 @@ pub fn share_groups(slot: usize) -> (u32, u32) {
 /// Run `f` on the calling task's extras (`None` if the slot is empty).
 pub fn with_extras<R>(f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
     TASKS.lock()[current()]
+        .as_mut()
+        .map(|task| f(&mut task.linux))
+}
+
+/// Run `f` on slot `slot`'s extras (`None` if the slot is empty).
+pub fn with_extras_of<R>(slot: usize, f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
+    TASKS
+        .lock()
+        .get_mut(slot)?
         .as_mut()
         .map(|task| f(&mut task.linux))
 }

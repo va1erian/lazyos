@@ -133,6 +133,22 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > soaks that check descriptors, pipes, frames and quota against their
 > baselines) and the `scmrights` fixture (`ABI:scmrights:PASS`).
 
+> **`sched_setattr`/`sched_getattr` (314, 315): supported (W2).** The plain
+> policies (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are
+> accepted, kept per thread, read back by `sched_getattr` and
+> `sched_getscheduler` (with `SCHED_RESET_ON_FORK`), inherited by `clone`/
+> `fork`, and mapped onto the stride scheduler's per-task weight
+> (`task/nice.rs`; `SCHED_IDLE` weighs the least). As on Linux with
+> `RLIMIT_NICE` 0, lowering a nice value, leaving `SCHED_IDLE`, clearing
+> `reset_on_fork` and touching another user's task need privilege
+> (`CAP_SYS_ADMIN` stands in for `CAP_SYS_NICE`); `SCHED_FIFO`/`SCHED_RR`/
+> `SCHED_DEADLINE` are `EPERM` without it and `EINVAL` with it (there is no
+> such policy to give), the utilization-clamp flags are `EOPNOTSUPP`, a bad
+> flag word is `EINVAL` and a `sched_attr` that is too small or has unknown
+> non-zero tail bytes is `E2BIG` (Linux's size handshake). Still missing:
+> `sched_setscheduler`/`sched_setparam` (142, 144), `setpriority`/
+> `getpriority` (140, 141), `sched_setaffinity`. Tests: `compat_schedattr_*`.
+>
 > **JIT-style executable memory: supported (#773).** `mmap` with `PROT_EXEC`,
 > W^X flips with `mprotect` (RW -> RX -> RW, with another thread executing the
 > page), RWX, `mremap` and `fork` keeping the rights, `SIGSEGV` with

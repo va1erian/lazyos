@@ -245,6 +245,7 @@ pub fn spawn_thread_sharing(
     // Threads inherit their creator's scheduling class and weight, like
     // Linux threads share a nice value (the assigned ones, not a guard demotion).
     let (class, weight) = parent.guard.inherited(parent.class, parent.weight);
+    let weight = parent.linux.sched.child_weight(class, weight);
     // A thread starts in its creator's directory (later `chdir`s are per task).
     let cwd = parent.cwd.clone();
     let context = crate::arch::linux::user_context();
@@ -334,6 +335,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
     };
     // `fork` inherits the parent's assigned class and weight (not a guard demotion).
     let (class, weight) = parent.guard.inherited(parent.class, parent.weight);
+    let weight = parent.linux.sched.child_weight(class, weight);
     let bump = bump_for_pml4(pml4);
     let context = crate::arch::linux::user_context();
     // `fork` inherits the parent's `FD_CLOEXEC` flags (they are per-descriptor,

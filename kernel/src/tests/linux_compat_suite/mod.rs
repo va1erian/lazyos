@@ -21,6 +21,7 @@ mod msg;
 mod ptyflow;
 mod readthrough;
 mod resources;
+mod schedattr;
 mod scmrights;
 mod select;
 mod termios;
@@ -40,6 +41,7 @@ use memfd::*;
 use msg::*;
 use ptyflow::*;
 use resources::*;
+use schedattr::*;
 use scmrights::*;
 use select::*;
 use termios::*;
@@ -328,6 +330,33 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_ramfs_open_soak_copies_nothing",
         readthrough::ramfs_open_soak_copies_nothing,
     ),
+    (
+        "compat_schedattr_set_and_get_back",
+        schedattr_set_and_get_back,
+    ),
+    (
+        "compat_schedattr_nice_maps_to_weight",
+        schedattr_nice_maps_to_weight,
+    ),
+    (
+        "compat_schedattr_realtime_refused",
+        schedattr_realtime_refused,
+    ),
+    (
+        "compat_schedattr_argument_errors",
+        schedattr_argument_errors,
+    ),
+    ("compat_schedattr_size_rules", schedattr_size_rules),
+    (
+        "compat_schedattr_privilege_rules",
+        schedattr_privilege_rules,
+    ),
+    ("compat_schedattr_keep_flags", schedattr_keep_flags),
+    (
+        "compat_schedattr_children_inherit",
+        schedattr_children_inherit,
+    ),
+    ("compat_schedattr_soak", schedattr_soak),
     ("execmem_wx_cycle", execmem_wx_cycle),
     ("execmem_rwx_page", execmem_rwx_page),
     ("execmem_prot_bits_map_to_pte", execmem_prot_bits_map_to_pte),

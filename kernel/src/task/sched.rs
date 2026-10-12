@@ -205,6 +205,22 @@ pub fn set_weight(slot: usize, weight: u16) -> bool {
     }
 }
 
+/// Give a task the weight a Linux nice value (or `SCHED_IDLE`) asks for, from
+/// its assigned class's default ([`nice`]); the class itself is not changed.
+/// Returns whether the slot holds a task.
+pub fn set_nice_weight(slot: usize, level: i32, idle: bool) -> bool {
+    let mut tasks = TASKS.lock();
+    match tasks.get_mut(slot).and_then(|task| task.as_mut()) {
+        Some(task) => {
+            let base = task.guard.home(task.class).default_weight();
+            task.guard
+                .assign_weight(&mut task.weight, nice::weight(base, level, idle));
+            true
+        }
+        None => false,
+    }
+}
+
 /// A task's weight, or `None` for an empty or invalid slot.
 #[allow(dead_code)] // tool/test API; callers arrive with the scheduler features
 pub fn weight(slot: usize) -> Option<u16> {

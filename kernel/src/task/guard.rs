@@ -77,6 +77,17 @@ impl State {
         self.used = 0;
     }
 
+    /// Assign `weight` to the task whose live weight is `live`: while demoted
+    /// the live weight is the demotion's, and the new one is what the window's
+    /// end restores.
+    pub(super) fn assign_weight(&mut self, live: &mut u16, weight: u16) {
+        if self.home.is_some() {
+            self.weight = weight;
+        } else {
+            *live = weight;
+        }
+    }
+
     /// The class and weight a child (`clone`, `fork`) starts with: the
     /// parent's assigned ones, never a demotion that is about to be undone.
     pub fn inherited(&self, class: PriorityClass, weight: u16) -> (PriorityClass, u16) {
