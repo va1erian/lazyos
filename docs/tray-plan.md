@@ -506,6 +506,30 @@ exit, an app ignoring `Quit` is killed after the grace
 start-up shows the notice; `tools/shutdown/run.py` still green; Volume's
 wheel changes the level and `tools/sound/run.py` hears it.
 
+**Network Status and Wi-Fi (issue #777).** On a machine with a wireless
+interface (`wlanmd` publishes `system/net/<if>/wifi/state`) the Network
+Status applet shows the radio instead of the link outline, unless a cable
+carries the connection and the radio is idle. There is no Wi-Fi outline in
+`lazyicons` (a pinned xui), so the icon is an alpha **mask** the shell tints
+(`Icon.mask`, 32 x 32), drawn by `xui-app/crates/wifi-tray` (`glyph`): a fan
+of a dot and three arcs with 1 to 4 segments lit for the signal
+(`wifi::bars`), all faint for not connected, lit step by step at a lower
+alpha while joining (the item is `Attention`, and the applet advances the
+phase on each look), and struck through when the radio is unavailable. The
+tooltip names the network, the signal, the band and the address. The item
+opens its menu on a click (`Activation::Menu`, set when the radio first
+appears): up to eight heard networks strongest first with their lock and
+bars in words, the one in use checked; a saved or an open network connects
+(an open unsaved one is saved for the user first), a secured unsaved one
+opens the Network app on its Wi-Fi page (`init.Launch` with the argument
+`/wifi`, the one absolute path `Launch` takes: the tray never asks for a
+passphrase), plus Search again, Disconnect and Network settings. The state
+arrives on the retained topic; `Status` (the signal, every 2 s while
+connected), `Networks` and `Scan` are bounded calls on a timer that back off
+when `wlanmd` does not answer. All the decisions are pure and host-tested
+(`cargo test --manifest-path xui-app/Cargo.toml -p wifitray`); the session is
+`python tools/wifi/tray_run.py` (`tools/screenshot/examples/wifi_tray.json`).
+
 ### T4 - Flyouts (M)
 `Role::Popup` and `AllowPopup` in xuid; the flyout API in `xui_app::tray`;
 Volume's slider flyout.

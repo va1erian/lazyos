@@ -108,7 +108,8 @@ impl Net {
 
     /// Whether an interface other than the radio `wireless` is usable.
     fn wired_up(&self, wireless: Option<&str>) -> bool {
-        self.usable().any(|(name, _)| Some(name.as_str()) != wireless)
+        self.usable()
+            .any(|(name, _)| Some(name.as_str()) != wireless)
     }
 }
 
@@ -199,11 +200,7 @@ fn refresh(res: &Resident, net: &Net, radio: Option<&Radio>, phase: u8, sent: &m
         .filter(|link| prefer_wifi(Some(link), net.wired_up(wireless)))
         .map(|link| show(link, phase));
     let (tooltip, status, glyph) = match &shown {
-        Some(shown) => (
-            shown.tooltip.clone(),
-            shown.status,
-            Some(shown.glyph),
-        ),
+        Some(shown) => (shown.tooltip.clone(), shown.status, Some(shown.glyph)),
         None => (net.tooltip(), net.status(), None),
     };
     let glyph_name = glyph.map(|glyph| glyph.name());

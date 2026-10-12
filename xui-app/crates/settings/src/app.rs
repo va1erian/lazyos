@@ -24,11 +24,10 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::{
     build, column, icon_view_with, label, list, panel, row, Build, Handle, LayoutExt, Mounted,
 };
-use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
-use xui_core::geometry::Size;
-use xui_core::layout::{Constraints, Insets};
-use xui_core::widget::{Control, IconSize, Label, ListView, Panel, Placeable};
-use xui_core::{Color, Dip, HasText, Point, Rect, Rgba};
+use xui_core::backend::Result;
+use xui_core::layout::Insets;
+use xui_core::widget::{IconSize, Label, ListView, Panel};
+use xui_core::{Color, Dip, HasText};
 
 use crate::about_page::AboutPage;
 use crate::accounts::Accounts;
@@ -48,6 +47,7 @@ use crate::wifi_ops;
 use crate::wifi_page::{WifiMsg, WifiPage};
 use crate::windows_page::WindowsPage;
 
+mod backdrop;
 mod elevated;
 pub use elevated::Done;
 
@@ -177,7 +177,7 @@ impl SettingsApp {
         );
         ui.root(
             row().children((
-                build(sidebar_backdrop).bind(&sidebar).width(SIDEBAR_W),
+                build(backdrop::sidebar_backdrop).bind(&sidebar).width(SIDEBAR_W),
                 column()
                     .padding(Insets::new(Dip(16.0), Dip(10.0), Dip(16.0), Dip(8.0)))
                     .gap(8)
@@ -447,42 +447,6 @@ fn say(status: &Label<Msg>, text: String) {
     if !text.is_empty() {
         status.set_text(&text);
     }
-}
-
-/// The sidebar's own background: the window darkened, with a hairline on its
-/// right edge, so the section list reads as a column apart from the page. A
-/// container, so the section list sits inside it.
-struct Backdrop(Control<Msg>);
-
-/// A painted container has no content to size it: the layout gives it its
-/// width and the window's height.
-impl Placeable<Msg> for Backdrop {
-    fn id(&self) -> WidgetId {
-        self.0.id()
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
-        Size::new(0, 0)
-    }
-}
-
-fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Backdrop> {
-    let back = Control::new(ui, &NodeSpec::new(NodeKind::Container, Rect::default()))?;
-    let theme = ui.theme_handle();
-    back.set_painter(Rc::new(move |canvas| {
-        let theme = theme.get();
-        let b = canvas.bounds();
-        xui_core::theme::look::backdrop(canvas, theme.background);
-        let shade = if theme.is_dark { 0x40 } else { 0x0C };
-        canvas.fill_rect_rgba(b, Rgba::with_alpha(0, 0, 0, shade));
-        canvas.draw_line(
-            Point::new(b.right - 1, b.top),
-            Point::new(b.right - 1, b.bottom),
-            theme.border,
-            1.0,
-        );
-    }));
-    Ok(Backdrop(back))
 }
 
 #[cfg(test)]

@@ -64,8 +64,7 @@ impl WifiPage {
                 label("").bind(&current),
                 label("").bind(&suggestion),
                 row().child(
-                    button("Use the suggestion")
-                        .on_click(Msg::Wifi(WifiMsg::ApplySuggestion)),
+                    button("Use the suggestion").on_click(Msg::Wifi(WifiMsg::ApplySuggestion)),
                 ),
                 edit()
                     .placeholder("Search the countries")
@@ -118,10 +117,12 @@ impl WifiPage {
         *self.suggested.borrow_mut() = suggested.map(|(_, code)| code);
         self.search.set_text("");
         self.show(&wifi_ops::filter(&self.entries, ""));
-        let at = stored
-            .as_deref()
-            .or(Some(iso3166::WORLD))
-            .and_then(|code| self.visible.borrow().iter().position(|i| self.entries[*i].code == code));
+        let at = stored.as_deref().or(Some(iso3166::WORLD)).and_then(|code| {
+            self.visible
+                .borrow()
+                .iter()
+                .position(|i| self.entries[*i].code == code)
+        });
         self.list.select(at);
         if let Some(at) = at {
             self.list.ensure_visible(at);
@@ -159,9 +160,11 @@ impl WifiPage {
                 let rows = wifi_ops::filter(&self.entries, &text);
                 self.show(&rows);
                 // The first match is the one a plain Enter-less flow picks.
-                self.list.select(if rows.is_empty() { None } else { Some(0) });
+                self.list
+                    .select(if rows.is_empty() { None } else { Some(0) });
                 match rows.len() {
                     0 => String::from("No country matches."),
+                    1 => String::from("1 country matches."),
                     n => format!("{n} countries match."),
                 }
             }

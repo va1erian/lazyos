@@ -245,7 +245,11 @@ fn the_wifi_country_is_a_listed_code_and_nothing_else() {
         "Set the Wi-Fi country to France (FR), which limits the radio's channels"
     );
     let world = parse("net.wifi.country", &["00"]).unwrap();
-    assert!(world.summary().contains("World (00)"), "{}", world.summary());
+    assert!(
+        world.summary().contains("World (00)"),
+        "{}",
+        world.summary()
+    );
     for bad in [
         &[][..],
         &[""][..],

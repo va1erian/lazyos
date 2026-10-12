@@ -67,8 +67,14 @@ fn at_most_eight_named_networks_are_listed() {
         .filter(|r| r.id >= NETWORK_BASE && r.id < RESCAN - 1)
         .count();
     assert_eq!(listed, MAX_NETWORKS);
-    assert!(!labels(&menu).iter().any(|l| l.contains("net08")), "weakest dropped");
-    assert!(!labels(&menu).iter().any(|l| l.starts_with("  (")), "hidden skipped");
+    assert!(
+        !labels(&menu).iter().any(|l| l.contains("net08")),
+        "weakest dropped"
+    );
+    assert!(
+        !labels(&menu).iter().any(|l| l.starts_with("  (")),
+        "hidden skipped"
+    );
 }
 
 #[test]
@@ -101,7 +107,10 @@ fn a_click_decides_by_what_is_known_of_the_network() {
         },
     ];
     let menu = build(&idle(), &heard);
-    assert_eq!(menu.action(NETWORK_BASE), Action::Connect { id: "w9".into() });
+    assert_eq!(
+        menu.action(NETWORK_BASE),
+        Action::Connect { id: "w9".into() }
+    );
     assert_eq!(
         menu.action(NETWORK_BASE + 1),
         Action::JoinOpen {
@@ -171,5 +180,8 @@ fn a_hostile_name_cannot_inject_control_characters() {
     let heard = [net("evil\u{7}\nname", -40, false, "")];
     let menu = build(&idle(), &heard);
     assert!(menu.rows[2].label.starts_with("evilname  ("));
-    assert!(menu.rows.iter().all(|r| !r.label.chars().any(char::is_control)));
+    assert!(menu
+        .rows
+        .iter()
+        .all(|r| !r.label.chars().any(char::is_control)));
 }

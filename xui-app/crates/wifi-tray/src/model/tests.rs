@@ -40,14 +40,21 @@ fn a_connection_without_measurements_still_says_something() {
         ..connected()
     };
     let shown = show(&bare, 0);
-    assert_eq!(shown.tooltip, "Wi-Fi: connected to LazyWPA2, signal very weak");
+    assert_eq!(
+        shown.tooltip,
+        "Wi-Fi: connected to LazyWPA2, signal very weak"
+    );
     assert_eq!(shown.glyph, Glyph::Bars(1), "never the disconnected look");
 }
 
 #[test]
 fn every_state_has_its_own_icon_and_words() {
     let cases = [
-        (State::Unavailable, Glyph::Unavailable, "Wi-Fi: not available"),
+        (
+            State::Unavailable,
+            Glyph::Unavailable,
+            "Wi-Fi: not available",
+        ),
         (State::Idle, Glyph::Disconnected, "Wi-Fi: not connected"),
         (
             State::Searching,
@@ -101,8 +108,17 @@ fn joining_animates_and_asks_for_attention() {
 
 #[test]
 fn only_a_settled_connection_is_active() {
-    for state in [State::Unavailable, State::Idle, State::Searching, State::Failed] {
-        assert_eq!(show(&link(state), 0).status, wire::STATUS_PASSIVE, "{state:?}");
+    for state in [
+        State::Unavailable,
+        State::Idle,
+        State::Searching,
+        State::Failed,
+    ] {
+        assert_eq!(
+            show(&link(state), 0).status,
+            wire::STATUS_PASSIVE,
+            "{state:?}"
+        );
     }
     assert_eq!(show(&link(State::Connected), 0).status, wire::STATUS_ACTIVE);
 }

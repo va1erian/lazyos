@@ -14,7 +14,12 @@ fn masks_are_32_by_32_straight_rgba_with_white_ink() {
         let mask = glyph.mask();
         assert_eq!((mask.width, mask.height), (SIDE, SIDE));
         assert_eq!(mask.rgba.len(), (SIDE * SIDE * 4) as usize);
-        assert!(mask.rgba.chunks_exact(4).all(|p| p[..3] == [255, 255, 255]));
+        assert!(mask
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[..3] == [255, 255, 255]));
         let icon = mask.icon();
         assert!(icon.mask.is_some() && icon.lucide.is_none() && icon.pixels.is_empty());
     }
@@ -53,10 +58,15 @@ fn a_lit_segment_is_solid_and_an_unlit_one_faint() {
 #[test]
 fn disconnected_has_no_solid_pixel_and_connecting_is_dimmer_than_connected() {
     let disconnected = Glyph::Disconnected.mask();
-    assert!(disconnected.rgba.chunks_exact(4).all(|p| p[3] < 255));
+    assert!(disconnected
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|p| p[3] < 255));
     assert!(disconnected.ink() > 0);
     let joining = Glyph::Connecting(3).mask();
-    assert!(joining.rgba.chunks_exact(4).all(|p| p[3] < 255));
+    assert!(joining.rgba.as_chunks::<4>().0.iter().all(|p| p[3] < 255));
     assert!(joining.ink() > disconnected.ink());
     assert!(joining.ink() < Glyph::Bars(4).mask().ink());
 }

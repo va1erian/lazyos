@@ -310,8 +310,9 @@ def main(argv: list[str]) -> int:
         if args.desktop:
             env["LAZYOS_DESKTOP"] = "1"
             # One build for every missing app: the desktop's own, and the
-            # network apps a `--net` desktop also ships.
-            needed = (DESKTOP_ELFS + (NET_APPS if args.net else [])
+            # network apps a `--net` desktop also ships (the simulated Wi-Fi
+            # radio is a card of that stack: the Network Status applet shows it).
+            needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi or args.wifi_sim else [])
                       + (TRAYDEMO_APPS if args.traydemo else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1

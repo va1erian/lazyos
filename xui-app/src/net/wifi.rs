@@ -395,34 +395,6 @@ pub fn forget(id: &str) -> Result<(), Error> {
     .map(drop)
 }
 
-/// `init`'s registered name, and the Network app's id.
-const INIT: &str = "os.lazy.init";
-const NETWORK_APP: &str = "os.lazy.network";
-
-/// Open the Network app in the caller's session (`init.Launch`); `arg` is
-/// empty or one absolute path, which is all `Launch` takes (the Network app
-/// reads `/wifi` as "start on the Wi-Fi page"). Not resent: a window may
-/// already have been started.
-pub fn open_network_app(arg: &str) -> Result<(), Error> {
-    use messenger_generated::os_lazy_init_v1 as init_wire;
-    let body = decoded(init_wire::encode_launch_args(&init_wire::LaunchArgs {
-        app: String::from(NETWORK_APP),
-        args: String::from(arg),
-        session: 0,
-    }))?;
-    let service = Service::try_connect(INIT).ok_or(Error::NotRunning)?;
-    service
-        .call_within(
-            init_wire::INTERFACE_ID,
-            init_wire::METHOD_LAUNCH,
-            ERROR_FIELD,
-            body,
-            CALL_TICKS,
-        )
-        .map(drop)
-        .map_err(Error::Code)
-}
-
 /// Overwrite a secret's bytes before freeing it.
 pub fn wipe_string(secret: String) {
     let mut bytes = secret.into_bytes();

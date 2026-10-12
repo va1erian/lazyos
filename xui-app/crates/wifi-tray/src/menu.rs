@@ -82,7 +82,13 @@ impl Menu {
 
 /// Build the menu for `link` and the networks `heard`.
 pub fn build(link: &Link, heard: &[NetworkRow]) -> Menu {
-    let mut rows = vec![row(HEADER, &header(link), wire::MENU_KIND_NORMAL, false, false)];
+    let mut rows = vec![row(
+        HEADER,
+        &header(link),
+        wire::MENU_KIND_NORMAL,
+        false,
+        false,
+    )];
     let mut actions = vec![(HEADER, Action::None)];
     rows.push(separator(HEADER + 1));
     let shown = listed(heard);
@@ -108,7 +114,13 @@ pub fn build(link: &Link, heard: &[NetworkRow]) -> Menu {
         actions.push((id, pick(network)));
     }
     rows.push(separator(RESCAN - 1));
-    rows.push(row(RESCAN, "Search again", wire::MENU_KIND_NORMAL, true, false));
+    rows.push(row(
+        RESCAN,
+        "Search again",
+        wire::MENU_KIND_NORMAL,
+        true,
+        false,
+    ));
     actions.push((RESCAN, Action::Rescan));
     let leaving = matches!(link.state, State::Connected | State::Joining);
     rows.push(row(

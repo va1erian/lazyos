@@ -107,7 +107,9 @@ impl Operation {
                 // `parse` only builds this from the list, so the name exists.
                 let bytes: [u8; 2] = code.as_bytes().try_into().unwrap_or(*b"00");
                 let name = iso3166::display_name(&bytes).unwrap_or("unknown");
-                format!("Set the Wi-Fi country to {name} ({code}), which limits the radio's channels")
+                format!(
+                    "Set the Wi-Fi country to {name} ({code}), which limits the radio's channels"
+                )
             }
         }
     }

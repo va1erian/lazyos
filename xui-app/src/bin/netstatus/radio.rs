@@ -9,9 +9,12 @@
 //! a stall. What decides the icon, the tooltip and the menu is the pure
 //! crate `wifitray`.
 
+use messenger_generated::errors::ERROR_FIELD;
+use messenger_generated::os_lazy_init_v1 as init_wire;
 use messenger_generated::os_lazy_net_wifi_v1 as wire;
 use wifitray::{Action, Link, Menu, NetworkRow, State, NETWORK_WIFI_ARG};
 use xui_app::net::wifi::{self, ConnState, Security};
+use xui_app::platform::messenger::Service;
 
 /// Ticks (100 Hz) between looks at the signal while connected.
 const STATUS_TICKS: u64 = 200;
@@ -21,6 +24,33 @@ const NETWORKS_TICKS: u64 = 1000;
 const SCAN_TICKS: u64 = 3000;
 /// Ticks to wait after a failed call.
 const BACKOFF_TICKS: u64 = 1000;
+
+/// `init`'s registered name, and the Network app's id.
+const INIT: &str = "os.lazy.init";
+const NETWORK_APP: &str = "os.lazy.network";
+
+/// Open the Network app in this session (`init.Launch`); `arg` is empty or
+/// one absolute path, which is all `Launch` takes (the Network app reads
+/// `/wifi` as "start on the Wi-Fi page"). Not resent: a window may already
+/// have been started.
+fn open_network_app(arg: &str) -> Result<(), wifi::Error> {
+    let body = init_wire::encode_launch_args(&init_wire::LaunchArgs {
+        app: String::from(NETWORK_APP),
+        args: String::from(arg),
+        session: 0,
+    })
+    .map_err(|_| wifi::Error::Code(-22))?;
+    let init = Service::try_connect(INIT).ok_or(wifi::Error::NotRunning)?;
+    init.call_within(
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_LAUNCH,
+        ERROR_FIELD,
+        body,
+        wifi::CALL_TICKS,
+    )
+    .map(drop)
+    .map_err(wifi::Error::Code)
+}
 
 /// One wireless interface and what is known of it.
 pub struct Radio {
@@ -39,9 +69,7 @@ fn state_of(state: ConnState) -> State {
         ConnState::Disabled => State::Unavailable,
         ConnState::Idle => State::Idle,
         ConnState::Scanning => State::Searching,
-        ConnState::Authenticating | ConnState::Associating | ConnState::Handshake => {
-            State::Joining
-        }
+        ConnState::Authenticating | ConnState::Associating | ConnState::Handshake => State::Joining,
         ConnState::Connected => State::Connected,
         ConnState::Failed => State::Failed,
     }
@@ -184,8 +212,10 @@ impl Radio {
             self.menu
                 .rows
                 .iter()
-                .filter(|row| (wifitray::menu::NETWORK_BASE..wifitray::menu::RESCAN - 1)
-                    .contains(&row.id))
+                .filter(
+                    |row| (wifitray::menu::NETWORK_BASE..wifitray::menu::RESCAN - 1)
+                        .contains(&row.id)
+                )
                 .count()
         );
         true
@@ -211,7 +241,7 @@ impl Radio {
             }
             Action::Configure => {
                 println!("NETSTATUS:WIFI:ACTION configure");
-                report("OPEN", wifi::open_network_app(NETWORK_WIFI_ARG));
+                report("OPEN", open_network_app(NETWORK_WIFI_ARG));
             }
             Action::Disconnect => {
                 println!("NETSTATUS:WIFI:ACTION disconnect");
@@ -223,7 +253,7 @@ impl Radio {
             }
             Action::Settings => {
                 println!("NETSTATUS:WIFI:ACTION settings");
-                report("OPEN", wifi::open_network_app(""));
+                report("OPEN", open_network_app(""));
             }
         }
         if acted {

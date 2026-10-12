@@ -14,9 +14,9 @@ use xui_settings::accounts_page::AccountsMsg;
 use xui_settings::app::WINDOW;
 use xui_settings::keyboard_page::KeyboardMsg;
 use xui_settings::menu_page::MenuMsg;
+use xui_settings::store::{AppChoice, ConfigStore, Value};
 use xui_settings::wifi_ops;
 use xui_settings::wifi_page::WifiMsg;
-use xui_settings::store::{AppChoice, ConfigStore, Value};
 use xui_settings::{keyboard, theme_ops, Accounts, MemAccounts, MemStore, MemSystem, Msg};
 use xui_settings::{Section, SettingsApp};
 
@@ -257,11 +257,52 @@ fn the_wifi_country_is_chosen_from_the_list_and_written_once_on_apply() {
             &drive(mem.clone(), people(), approved),
             "settings-wifi-applied.png",
         );
-        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), Some(Value::Str("FR".into())));
+        assert_eq!(
+            mem.get(wifi_ops::KEY_COUNTRY),
+            Some(Value::Str("FR".into()))
+        );
         // The world domain is in the list too.
-        let world = vec![page, wifi(WifiMsg::Filter("world".into())), wifi(WifiMsg::Apply)];
+        let world = vec![
+            page,
+            wifi(WifiMsg::Filter("world".into())),
+            wifi(WifiMsg::Apply),
+        ];
         drive(mem.clone(), people(), world);
-        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), Some(Value::Str("00".into())));
+        assert_eq!(
+            mem.get(wifi_ops::KEY_COUNTRY),
+            Some(Value::Str("00".into()))
+        );
+    });
+}
+
+#[test]
+fn the_suggestion_is_the_country_of_the_time_zone() {
+    watchdog(|| {
+        let mem = Rc::new(store(Mode::Dark));
+        let system = MemSystem::default();
+        system.now.borrow_mut().as_mut().unwrap().zone = "Europe/Paris".into();
+        let messages = vec![
+            Msg::Section(Section::Wifi.index()),
+            Msg::Wifi(WifiMsg::ApplySuggestion),
+        ];
+        let shared = mem.clone();
+        let image = render_with(
+            Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
+            move |ui| {
+                SettingsApp::build(ui, shared, Rc::new(system), Rc::new(MemAccounts::default()))
+            },
+            move |stage| {
+                for msg in messages {
+                    stage.emit(msg);
+                }
+            },
+        )
+        .expect("the headless render");
+        save(&image, "settings-wifi-suggestion.png");
+        assert_eq!(
+            mem.get(wifi_ops::KEY_COUNTRY),
+            Some(Value::Str("FR".into()))
+        );
     });
 }
 

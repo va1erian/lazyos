@@ -21,8 +21,15 @@ use crate::sys;
 const HOVER_TICKS: u64 = 50;
 /// Ticks after which the tooltip closes by itself (4 s of showing).
 const SHOWN_TICKS: u64 = HOVER_TICKS + 400;
-/// The panel's width, one line's height and the padding (design pixels).
+/// The panel's width (design pixels): at least [`WIDTH`], wider for a long
+/// tooltip (the Wi-Fi applet's names the network, signal, band and address)
+/// up to [`MAX_WIDTH`], estimated from the text since a panel is sized
+/// before it is drawn.
 const WIDTH: i32 = 240;
+const MAX_WIDTH: i32 = 520;
+/// Design pixels one character of the 12 dp text takes, rounded up.
+const CHAR_W: i32 = 6;
+/// One line's height and the padding (design pixels).
 const LINE: i32 = 18;
 const PAD: i32 = 6;
 /// Gap between the panel and the bar.
@@ -98,12 +105,13 @@ fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: String, cell: lazyshell::Rec
     };
     let lines = if text.tooltip.is_empty() { 1 } else { 2 };
     let height = lines * LINE + 2 * PAD;
-    let x = (cell.x + cell.w / 2 - WIDTH / 2).clamp(0, (ctx.screen.0 - WIDTH).max(0));
+    let width = panel_width(&text.tooltip);
+    let x = (cell.x + cell.w / 2 - width / 2).clamp(0, (ctx.screen.0 - width).max(0));
     let y = ctx.screen.1 - BAR_H - GAP - height;
     let s = ctx.scale();
     ctx.backend
         .set_next_role(SurfaceRole::Panel { x: x * s, y: y * s });
-    let spec = PlatformSpec::new("LazyOS").size(Dip(WIDTH as f32), Dip(height as f32));
+    let spec = PlatformSpec::new("LazyOS").size(Dip(width as f32), Dip(height as f32));
     let built = Rc::clone(ctx);
     match ui.open_window(spec, move |ui| Tip::build(built, text, ui)) {
         Ok(handle) => {
@@ -114,6 +122,12 @@ fn open<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>, app: String, cell: lazyshell::Rec
             format!("SHELL:TRAY:TOOLTIP:FAIL {error}")
         }),
     }
+}
+
+/// The panel's width for `tooltip`.
+fn panel_width(tooltip: &str) -> i32 {
+    let chars = i32::try_from(tooltip.chars().count()).unwrap_or(i32::MAX / CHAR_W);
+    (chars.saturating_mul(CHAR_W) + 2 * PAD).clamp(WIDTH, MAX_WIDTH)
 }
 
 /// The tooltip panel's app. It holds its painted node: dropping the
@@ -167,5 +181,25 @@ fn paint(canvas: &mut dyn Canvas, ctx: &Ctx, text: &Text) {
             &TextStyle::new(ink, Dip(12.0)).middle(),
         );
         canvas.pop_clip();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_tooltip_keeps_the_usual_width_and_a_long_one_grows_to_a_cap() {
+        assert_eq!(panel_width(""), WIDTH);
+        assert_eq!(panel_width("Wi-Fi: not connected"), WIDTH);
+        let long =
+            "Wi-Fi: connected to LazyOpen, signal excellent (-40 dBm), 2.4 GHz, 192.168.77.100";
+        let width = panel_width(long);
+        assert!(width > WIDTH && width <= MAX_WIDTH, "{width}");
+        assert!(
+            width >= long.chars().count() as i32 * 5,
+            "room for every character"
+        );
+        assert_eq!(panel_width(&"x".repeat(10_000)), MAX_WIDTH);
     }
 }

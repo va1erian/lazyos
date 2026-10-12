@@ -21,14 +21,14 @@ const LIT: u32 = 255;
 /// Alpha of a lit segment while connecting.
 const JOINING: u32 = 170;
 /// Alpha of a segment that is not lit.
-const FAINT: u32 = 70;
+const FAINT: u32 = 100;
 
 /// The fan's centre, where the dot sits.
 const CENTRE: (f32, f32) = (16.0, 26.0);
 const DOT_RADIUS: f32 = 2.5;
 /// The arcs' radii, innermost first, and their stroke.
 const ARC_RADII: [f32; 3] = [7.5, 12.5, 17.5];
-const STROKE: f32 = 2.6;
+const STROKE: f32 = 3.0;
 /// How far from straight up an arc reaches on each side (degrees).
 const FAN_HALF_ANGLE: f32 = 47.0;
 /// The strike-through of an unavailable radio, corner to corner.
@@ -135,7 +135,12 @@ impl Mask {
 
     /// Total alpha, a measure of how much ink the icon has.
     pub fn ink(&self) -> u64 {
-        self.rgba.chunks_exact(4).map(|p| u64::from(p[3])).sum()
+        self.rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| u64::from(p[3]))
+            .sum()
     }
 }
 
