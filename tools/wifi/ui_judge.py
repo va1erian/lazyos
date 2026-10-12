@@ -70,7 +70,19 @@ def judge(serial: str, ap: str, shots: list[Path], passphrase: str) -> dict[str,
         f"NETAPP:WIFI:FAILED reason=the password is probably wrong ssid={WRONG}",
     ])
 
-    verdict["forget removes a saved network"] = _ordered(serial, ["NETAPP:WIFI:FORGET ssid="])
+    verdict["forget removes a saved network"] = _ordered(serial, [f"NETAPP:WIFI:FORGET ssid={HIDDEN}"])
+
+    verdict["an administrator approves a network for all users"] = _ordered(serial, [
+        "ELEVD:REQUEST op=net.wifi.add",
+        "NETAPP:WIFI:CONNECT ssid=LazyRoam",
+        "NETAPP:WIFI:CONNECTED ssid=LazyRoam",
+        "ELEVD:REQUEST op=net.wifi.forget",
+        "NETAPP:WIFI:FORGET ssid=LazyRoam",
+    ]) + ([] if "owner=system" in serial else ["wlanmd never reported a system profile (`WLANMD:ADD ... owner=system`)"]) + (
+        [] if any(line.startswith("AP:AUTHORIZED ssid=LazyRoam") for line in ap_lines)
+        else ["the AP never authorized the station on LazyRoam"]) + [
+        f"`{line}` was not granted" for line in serial.splitlines()
+        if line.startswith("ELEVD:REQUEST op=net.wifi.") and "outcome=granted" not in line]
 
     secrets = []
     for name, text in (("the serial log", serial), ("the AP's log", ap)):

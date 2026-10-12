@@ -26,3 +26,24 @@ settings back into the form.
 Settings the stack would not accept are refused with the reason instead of
 being saved. See `docs/networking-host-access.md` for reaching this machine
 from the host.
+
+## Wi-Fi
+
+On a machine with a wireless card a **Wi-Fi** button appears beside Next card
+and opens the Wi-Fi page. It lists the networks heard (a lock marks one that
+needs a password), strongest first, with "Connected" or "Saved" where it
+applies, and refreshes itself.
+
+* **Connect** (or a double-click) joins a saved network, saves and joins an
+  open one, and asks for the password of a new protected one. A password is
+  8 to 63 characters, or 64 hex digits; it is kept for you only and is never
+  shown, logged or kept by this window.
+* **Other network...** joins a network that is not listed or is hidden: give
+  its name, whether it needs a password, and the password.
+* **Available to all users** (on the password form) saves the network for
+  everyone on this computer, even before login. That is a system setting, so
+  an administrator approves it on the prompt.
+* **Disconnect** leaves the network and stays off until you connect again.
+  **Forget** deletes a saved network and its password after asking; one saved
+  for all users needs an administrator to approve.
+* **Back** returns to the wired page.

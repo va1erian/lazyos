@@ -34,10 +34,17 @@ NETAPP:WIFI:JOIN:OPEN other
 NETAPP:WIFI:CONNECT ssid=LazyHidden
 NETAPP:WIFI:CONNECTED ssid=LazyHidden
 NETAPP:WIFI:FORGET ssid=LazyHidden
+ELEVD:REQUEST op=net.wifi.add uid=1000 label=7 session=1 admin=admin outcome=granted summary="x"
+WLANMD:ADD w0123456789ab owner=system
+NETAPP:WIFI:CONNECT ssid=LazyRoam
+NETAPP:WIFI:CONNECTED ssid=LazyRoam
+ELEVD:REQUEST op=net.wifi.forget uid=1000 label=7 session=1 admin=admin outcome=granted summary="y"
+NETAPP:WIFI:FORGET ssid=LazyRoam
 """
 AP = """\
 AP:AUTHORIZED ssid=LazyWPA2 sta=02:57:53:49:4d:00 security=wpa2
 AP:AUTHORIZED ssid=LazyHidden sta=02:57:53:49:4d:00 security=open
+AP:AUTHORIZED ssid=LazyRoam sta=02:57:53:49:4d:00 security=wpa2
 """
 
 
@@ -67,10 +74,14 @@ class UiJudgeTest(unittest.TestCase):
             self.assertIn(check, self.failed(run(SERIAL.replace(needle, ""))), needle)
 
     def test_the_ap_must_have_authorized_the_station(self) -> None:
-        self.assertEqual(
-            self.failed(run(ap="AP:AUTHORIZED ssid=LazyHidden sta=x security=open\n")),
-            ["the password form joins a WPA2 network"],
-        )
+        ap = AP.replace("ssid=LazyWPA2", "ssid=LazyNope")
+        self.assertEqual(self.failed(run(ap=ap)), ["the password form joins a WPA2 network"])
+        ap = AP.replace("ssid=LazyRoam", "ssid=LazyNope")
+        self.assertEqual(self.failed(run(ap=ap)), ["an administrator approves a network for all users"])
+
+    def test_a_refused_system_request_fails(self) -> None:
+        refused = SERIAL.replace("admin=admin outcome=granted", "admin= outcome=denied", 1)
+        self.assertEqual(self.failed(run(refused)), ["an administrator approves a network for all users"])
 
     def test_a_small_list_fails(self) -> None:
         self.assertEqual(
