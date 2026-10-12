@@ -520,6 +520,29 @@ python tools/jsc/run.py --accel none # boot and judge (add --stage w1 for the C+
 python tools/jsc/test_judge.py
 ```
 
+## WebKit dependency bundle (`LAZYOS_WEBKIT_DEPS=1`: `depsproof`)
+
+`tools/webkit/deps.py` builds every library WebCore and the WebKit layer need
+at WebKitGTK 2.54.1 (zlib, brotli, libpng, libjpeg-turbo, libwebp, FreeType,
+expat, HarfBuzz, Fontconfig, libxml2, SQLite, libpsl, OpenSSL, nghttp2, curl,
+ICU, and Skia from inside the WebKit tarball) as static musl archives with zig,
+in the `jsc` build's Docker container, into one prefix, with
+`target/webkit/deps.json`, plus `depsproof`, a C++ program that uses each
+library. `LAZYOS_WEBKIT_DEPS=1` (`run_demo.py --webkit-deps`, which implies
+networking and `--big-app`) puts it in `/system/bin`; `python
+tools/webkit/run.py` builds a console image with the TLS harness's test CA,
+fetches a page from the host's TLS server and judges `WEBKIT:W3:PASS:<lib>`
+and the pixels against the same program's run on the build host
+(`tools/webkit/test_judge.py` is the judge's self-test). Plan, library table and
+decisions: [`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) §5 W3,
+details in `tools/webkit/README.md`.
+
+```bash
+python tools/webkit/deps.py            # Docker: the libraries, Skia, depsproof -> target/webkit
+python tools/webkit/run.py --accel auto # boot and judge
+python tools/webkit/test_judge.py
+```
+
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
 `nettls/` (a standalone workspace, like `rhai-host/`) builds one static-musl

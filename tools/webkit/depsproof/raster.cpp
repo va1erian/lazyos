@@ -14,6 +14,7 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPixmap.h"
+#include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
 #include "include/ports/SkFontMgr_fontconfig.h"
@@ -22,6 +23,7 @@
 #include <fontconfig/fontconfig.h>
 
 #include <cstdio>
+#include <memory>
 #include <cstring>
 
 namespace proof {
@@ -40,6 +42,24 @@ int inked(const SkPixmap& pixels, int left, int top, int right, int bottom) {
     return count;
 }
 
+// Why a font manager found nothing: what it lists, whether the file reads, and
+// whether Skia's FreeType scanner takes the file when it is handed it directly.
+std::string diagnose(SkFontMgr* manager) {
+    std::string out = " families=" + std::to_string(manager->countFamilies());
+    const std::string path = font_directory() + "/LiberationSans-Regular.ttf";
+    std::unique_ptr<SkStreamAsset> stream = SkStream::MakeFromFile(path.c_str());
+    if (!stream) return out + " no-stream";
+    out += " length=" + std::to_string(stream->getLength());
+    uint8_t head[4] = {};
+    stream->peek(head, 4);
+    out += " head=" + hex(head, 4);
+    sk_sp<SkTypeface> direct = SkFontScanner_Make_FreeType()->MakeFromStream(std::move(stream), SkFontArguments());
+    out += direct ? " direct=ok" : " direct=none";
+    sk_sp<SkTypeface> legacy = manager->legacyMakeTypeface("Liberation Sans", SkFontStyle());
+    out += legacy ? " legacy=ok" : " legacy=none";
+    return out;
+}
+
 }  // namespace
 
 Outcome check_skia() {
@@ -49,7 +69,7 @@ Outcome check_skia() {
     sk_sp<SkFontMgr> manager = SkFontMgr_New_FontConfig(config, SkFontScanner_Make_FreeType());  // owns config
     if (!manager) return fail("SkFontMgr_New_FontConfig");
     sk_sp<SkTypeface> face = manager->matchFamilyStyle("Liberation Sans", SkFontStyle());
-    if (!face) return fail("no typeface for Liberation Sans");
+    if (!face) return fail("no typeface for Liberation Sans:" + diagnose(manager.get()));
     SkString family;
     face->getFamilyName(&family);
     if (std::strcmp(family.c_str(), "Liberation Sans") != 0) return fail(std::string("typeface ") + family.c_str());

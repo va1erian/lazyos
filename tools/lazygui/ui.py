@@ -113,6 +113,8 @@ class Launcher:
         self._check(g, "Linux programs dash/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
         self._check(g, "JavaScriptCore jsc shell, built in Docker (LAZYOS_JSC; run_demo --jsc; "
                        "big-app profile)", "jsc")
+        self._check(g, "WebKit dependency bundle: depsproof, built in Docker (LAZYOS_WEBKIT_DEPS; "
+                       "run_demo --webkit-deps; networking, big-app profile)", "webkit_deps")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
