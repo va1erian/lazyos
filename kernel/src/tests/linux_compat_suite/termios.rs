@@ -15,20 +15,20 @@ const ENOTTY: u64 = neg(25);
 const ENXIO: u64 = neg(6);
 const EIO: u64 = neg(5);
 
-fn tcgets(fd: u64) -> Result<Termios, String> {
+pub(super) fn tcgets(fd: u64) -> Result<Termios, String> {
     let mut raw = [0u8; t::SIZE];
     let got = sys(IOCTL, &[fd, TCGETS, raw.as_mut_ptr() as u64]);
     check!(got == 0, "TCGETS({fd}) = {got:#x}");
     Ok(Termios::from_bytes(&raw))
 }
 
-fn tcsets(fd: u64, termios: Termios) -> u64 {
+pub(super) fn tcsets(fd: u64, termios: Termios) -> u64 {
     let raw = termios.to_bytes();
     sys(IOCTL, &[fd, TCSETS, raw.as_ptr() as u64])
 }
 
 /// Open a pty pair: `(master, slave)`.
-fn openpty() -> Result<(u64, u64), String> {
+pub(super) fn openpty() -> Result<(u64, u64), String> {
     let ptmx = cpath("/dev/ptmx");
     let master = sys(2, &[ptmx.as_ptr() as u64, 2, 0]);
     check!((master as i64) >= 3, "open /dev/ptmx: {master:#x}");
@@ -52,11 +52,11 @@ fn openpty() -> Result<(u64, u64), String> {
     Ok((master, slave))
 }
 
-fn write(fd: u64, data: &[u8]) -> u64 {
+pub(super) fn write(fd: u64, data: &[u8]) -> u64 {
     sys(1, &[fd, data.as_ptr() as u64, data.len() as u64])
 }
 
-fn read(fd: u64, buf: &mut [u8]) -> u64 {
+pub(super) fn read(fd: u64, buf: &mut [u8]) -> u64 {
     sys(0, &[fd, buf.as_mut_ptr() as u64, buf.len() as u64])
 }
 
