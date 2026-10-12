@@ -26,6 +26,7 @@
 //! (and their charge); a process that still maps one keeps the frame alive
 //! until it unmaps it, where Linux would raise `SIGBUS` on the next touch.
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -54,10 +55,11 @@ pub enum MemfdError {
 
 /// The pages and the size, under one lock.
 struct State {
-    /// One slot per page: `Some(frame)` once materialised. Its length is at
-    /// least the size in pages and grows further only for a mapping past the
-    /// end of the file.
-    pages: Vec<Option<u64>>,
+    /// The materialised pages by index. A hole has no entry, so a sparse
+    /// file (`ftruncate` to the budget, a mapping past the end) costs no
+    /// kernel heap until a page is written or mapped: one small node per
+    /// resident page, each already paid for as a frame.
+    pages: BTreeMap<usize, u64>,
     size: u64,
 }
 
@@ -95,7 +97,7 @@ impl Memfd {
             uid,
             offset: AtomicU64::new(0),
             state: Mutex::new(State {
-                pages: Vec::new(),
+                pages: BTreeMap::new(),
                 size: 0,
             }),
         }))
@@ -128,31 +130,23 @@ impl Memfd {
     /// Pages materialised in this memfd (a hole holds none).
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn resident_pages(&self) -> usize {
-        self.state.lock().pages.iter().flatten().count()
+        self.state.lock().pages.len()
     }
 
-    /// Make sure `pages` has a slot for page `index`, within the budget.
-    fn reserve_slot(state: &mut State, index: usize) -> Result<(), MemfdError> {
-        if index < state.pages.len() {
-            return Ok(());
-        }
+    /// Whether page `index` lies within the budget one memfd may hold.
+    fn within_budget(index: usize) -> Result<(), MemfdError> {
         if index >= page_budget() {
             return Err(MemfdError::TooBig);
         }
-        let more = index + 1 - state.pages.len();
-        state
-            .pages
-            .try_reserve_exact(more)
-            .map_err(|_| MemfdError::NoMemory)?;
-        state.pages.resize(index + 1, None);
         Ok(())
     }
 
     /// Materialise page `index` (a zeroed frame, charged once) unless it
-    /// exists, and return its frame.
+    /// exists, and return its frame. Growing the map is the one allocation
+    /// here, one small node per resident page.
     fn page_locked(&self, state: &mut State, index: usize) -> Result<u64, MemfdError> {
-        Self::reserve_slot(state, index)?;
-        if let Some(frame) = state.pages[index] {
+        Self::within_budget(index)?;
+        if let Some(&frame) = state.pages.get(&index) {
             return Ok(frame);
         }
         LIVE_PAGES
@@ -169,7 +163,7 @@ impl Memfd {
             LIVE_PAGES.fetch_sub(1, Ordering::AcqRel);
             return Err(MemfdError::NoMemory);
         };
-        state.pages[index] = Some(frame.as_u64());
+        state.pages.insert(index, frame.as_u64());
         Ok(frame.as_u64())
     }
 
@@ -197,12 +191,9 @@ impl Memfd {
         let mut freed: Vec<u64> = Vec::new();
         {
             let mut state = self.state.lock();
-            if size > state.size {
-                Self::reserve_slot(&mut state, pages.saturating_sub(1))?;
-            } else {
-                let keep = pages.min(state.pages.len());
-                let tail = state.pages.split_off(keep);
-                freed.extend(tail.into_iter().flatten());
+            if size <= state.size {
+                let tail = state.pages.split_off(&pages);
+                freed.extend(tail.into_values());
                 zero_tail(&state, size);
             }
             state.size = size;
@@ -233,7 +224,7 @@ impl Memfd {
             let at = offset + done as u64;
             let (index, within) = ((at / FRAME_SIZE) as usize, (at % FRAME_SIZE) as usize);
             let piece = (count - done).min(FRAME_SIZE as usize - within);
-            match state.pages.get(index).copied().flatten() {
+            match state.pages.get(&index).copied() {
                 Some(frame) => copy_from_frame(frame, within, &mut dst[done..done + piece]),
                 None => dst[done..done + piece].fill(0),
             }
@@ -264,7 +255,7 @@ impl Memfd {
             let at = offset + done as u64;
             let (index, within) = ((at / FRAME_SIZE) as usize, (at % FRAME_SIZE) as usize);
             let piece = (src.len() - done).min(FRAME_SIZE as usize - within);
-            if let Some(frame) = state.pages[index] {
+            if let Some(&frame) = state.pages.get(&index) {
                 copy_to_frame(frame, within, &src[done..done + piece]);
             }
             done += piece;
@@ -280,9 +271,9 @@ fn zero_tail(state: &State, size: u64) {
     if within == 0 {
         return;
     }
-    if let Some(Some(frame)) = state.pages.get((size / FRAME_SIZE) as usize) {
+    if let Some(&frame) = state.pages.get(&((size / FRAME_SIZE) as usize)) {
         let zeros = [0u8; FRAME_SIZE as usize];
-        copy_to_frame(*frame, within, &zeros[within..]);
+        copy_to_frame(frame, within, &zeros[within..]);
     }
 }
 
@@ -321,8 +312,7 @@ impl Drop for Memfd {
     /// goes (a mapping that outlives it keeps the frame), with its charge.
     fn drop(&mut self) {
         let frames: Vec<u64> = core::mem::take(&mut self.state.get_mut().pages)
-            .into_iter()
-            .flatten()
+            .into_values()
             .collect();
         for frame in frames {
             self.release_page(frame);

@@ -95,9 +95,9 @@ pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
 mod kernel_task;
+mod kstack;
 #[cfg(lazyos_tests)]
 pub mod kthread;
-mod kstack;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;

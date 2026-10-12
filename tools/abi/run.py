@@ -31,6 +31,9 @@ import sys
 import threading
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lazygui.limits import limit_env  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURE_DIR = ROOT / "target" / "abi" / "fixtures"
 # One image per row, copied out of `target/lazyos.img` after its build, so the
@@ -365,11 +368,10 @@ def main() -> int:
     args = parser.parse_args()
     global GUEST_MEMORY
     GUEST_MEMORY = args.memory
-    for item in args.limit:
-        key, sep, value = item.partition("=")
-        if not sep or not key or not value:
-            parser.error(f"--limit expects KEY=VALUE, got {item!r}")
-        os.environ[f"LAZYOS_LIMIT_{key.upper()}"] = value
+    try:
+        os.environ.update(limit_env(args.limit))
+    except ValueError as error:
+        parser.error(str(error))
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 

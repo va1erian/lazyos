@@ -22,9 +22,13 @@
 //!   global ceiling, so a process cannot park an unbounded number of open
 //!   files in a socket it never reads (`ETOOMANYREFS`).
 //!
-//! A descriptor of a socket sent through that same socket keeps the socket
-//! alive after both ends are closed (Linux needs a garbage collector for the
-//! cycle; there is none here).
+//! A socket end sent through its own pair, or a socket whose queue already
+//! holds descriptors, is refused (`ETOOMANYREFS`): either is the edge that
+//! can close a cycle of sockets carrying each other, which nothing would ever
+//! read or purge, leaking the in-flight budget for the rest of the boot.
+//! Linux reclaims such cycles with a garbage collector; there is none here,
+//! and a connection socket is sent with an empty queue (WebKit's pattern),
+//! which the rule allows ([`Rights::would_cycle`]).
 //!
 //! Locking: descriptors are dropped only with the ring unlocked, since
 //! closing a socket or pipe end takes other rings' locks and wakes queues.
@@ -96,6 +100,19 @@ impl Rights {
     /// How many descriptors this carries.
     pub fn len(&self) -> usize {
         self.fds.len()
+    }
+
+    /// Whether queueing these descriptors on `dest` could close a cycle of
+    /// sockets carrying each other: one of them is an end of `dest` itself,
+    /// or of a pair whose queue already holds descriptors. A cycle needs
+    /// every pair in it to carry one, so its last edge always starts from a
+    /// pair that already carries, and refusing that edge keeps the graph a
+    /// forest without a collector.
+    pub fn would_cycle(&self, dest: &SocketPair) -> bool {
+        self.fds.iter().any(|fd| match fd {
+            Fd::Socket { pair, .. } => core::ptr::eq(&**pair, dest) || pair.carries_rights(),
+            _ => false,
+        })
     }
 
     /// The descriptors, handed to their new owner; the in-flight charge ends.
@@ -385,8 +402,7 @@ impl Pipe {
         drop(records);
     }
 
-    /// Messages with descriptors queued (test and soak observable).
-    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
+    /// Messages with descriptors queued.
     pub fn queued_rights(&self) -> usize {
         self.state.lock().records.len()
     }
@@ -436,5 +452,11 @@ impl SocketPair {
     #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn queued_rights(&self, side: Side) -> usize {
         self.directions(side).0.queued_rights()
+    }
+
+    /// Whether either direction holds descriptors in flight.
+    pub fn carries_rights(&self) -> bool {
+        let (read, write) = self.directions(Side::A);
+        read.queued_rights() + write.queued_rights() > 0
     }
 }

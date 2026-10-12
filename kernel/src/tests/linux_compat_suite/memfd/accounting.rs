@@ -237,3 +237,41 @@ pub fn memfd_soak() -> Result<(), String> {
     check!(after == frames, "frames {frames} -> {after}");
     Ok(())
 }
+
+/// A sparse memfd costs no kernel heap for its holes: `ftruncate` to the
+/// whole budget materialises nothing and allocates nothing, so one uid
+/// cannot fill the heap with empty files (a dense slot vector once cost 16
+/// bytes a page). The last page still reads as zeros and takes a write.
+pub fn memfd_sparse_costs_no_heap() -> Result<(), String> {
+    fresh()?;
+    let budget = crate::limits::scratch_max() / PAGE;
+    let heap_before = mem::heap_stats().used;
+    let fd = memfd_create("sparse", 0);
+    check!(
+        sys(77, &[fd, budget * PAGE]) == 0,
+        "ftruncate to the budget"
+    );
+    let grew = mem::heap_stats().used.saturating_sub(heap_before);
+    check!(
+        grew < 4096,
+        "ftruncate to {budget} pages cost {grew} bytes of kernel heap"
+    );
+    let file = memfd_of(fd)?;
+    check!(file.resident_pages() == 0, "a hole materialised pages");
+    let last = (budget - 1) * PAGE;
+    check!(pread_fd(fd, 4, last) == [0, 0, 0, 0], "a hole reads zeros");
+    check!(
+        sys(18, &[fd, b"end".as_ptr() as u64, 3, last]) == 3,
+        "pwrite to the last page"
+    );
+    check!(
+        file.resident_pages() == 1,
+        "one resident page after the write"
+    );
+    check!(pread_fd(fd, 3, last) == b"end", "read it back");
+    check!(sys(77, &[fd, 0]) == 0, "ftruncate to nothing");
+    check!(file.resident_pages() == 0, "shrinking kept a page");
+    drop(file);
+    close_fd(fd);
+    Ok(())
+}

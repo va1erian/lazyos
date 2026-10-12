@@ -26,13 +26,12 @@ pub(super) fn fresh() {
 pub(super) const SPACE: u64 = 0x0040_0000;
 
 /// Room for the larger of the two snapshots (system stats, task list).
-const SPACE_PAGES: u64 =
-    (if sysinfo::SIZE > task::introspect::TaskSnapshot::SIZE as u64 {
-        sysinfo::SIZE
-    } else {
-        task::introspect::TaskSnapshot::SIZE as u64
-    } + 4095)
-        / 4096;
+const SPACE_PAGES: u64 = (if sysinfo::SIZE > task::introspect::TaskSnapshot::SIZE as u64 {
+    sysinfo::SIZE
+} else {
+    task::introspect::TaskSnapshot::SIZE as u64
+} + 4095)
+    / 4096;
 
 /// Run `f` with [`SPACE`] mapped into a fresh user address space.
 pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {

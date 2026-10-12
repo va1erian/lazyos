@@ -294,7 +294,10 @@ pub fn memfd_private_mapping_copies_on_write() -> Result<(), String> {
         "mprotect left the file's frame writable"
     );
     a.store(ro, b"mprotected")?;
-    check!(a.frame(ro)? != frame, "the store after mprotect did not copy");
+    check!(
+        a.frame(ro)? != frame,
+        "the store after mprotect did not copy"
+    );
     check!(
         pread_fd(fd, 10, 0) == b"file conte",
         "mprotect then store reached the file"

@@ -413,3 +413,66 @@ pub fn scmrights_soak() -> Result<(), String> {
     task::harness::reset();
     Ok(())
 }
+
+/// A socket end sent through its own pair, or a pair already carrying
+/// descriptors, is refused with `ETOOMANYREFS`: those are the edges that
+/// could close a cycle of sockets carrying each other, which nothing would
+/// read or purge (there is no garbage collector), leaking the in-flight
+/// budget. A pair with an empty queue travels, as a new connection does.
+pub fn scmrights_cycles_refused() -> Result<(), String> {
+    let pipes_before = pipe::Pipe::live();
+    let p = processes()?;
+    check!(send_fds(p.a, b"s", &[p.a]) == ETOOMANYREFS, "a through a");
+    check!(send_fds(p.a, b"s", &[p.b]) == ETOOMANYREFS, "b through a");
+    check!(
+        send_fds(p.a, b"s", &[p.w, p.b]) == ETOOMANYREFS,
+        "b beside a pipe end through a"
+    );
+    check!(
+        pipe::in_flight() == 0,
+        "a refusal left {} descriptors in flight",
+        pipe::in_flight()
+    );
+    // An idle pair travels; the carrying pair is then pinned until read.
+    check!(
+        send_fds(p.a, b"c", &[p.sa]) == 1,
+        "an idle seqpacket end through a"
+    );
+    check!(
+        send_fds(p.sa, b"x", &[p.b]) == ETOOMANYREFS,
+        "an end of a carrying pair through sa"
+    );
+    check!(
+        send_fds(p.sa, b"x", &[p.a]) == ETOOMANYREFS,
+        "the other end of a carrying pair through sa"
+    );
+    check!(
+        send_fds(p.sa, b"y", &[p.w]) == 1,
+        "a pipe end through sa still travels"
+    );
+    let mut buf = [0u8; 4];
+    let got = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        got.n == 1 && got.fds.len() == 1,
+        "receive the carried end: n={:#x} fds={}",
+        got.n,
+        got.fds.len()
+    );
+    close(got.fds[0]);
+    check!(send_fds(p.sa, b"x", &[p.b]) == 1, "an idle pair through sa");
+    for _ in 0..2 {
+        let got = recv_fds(p.sb, &mut buf, Some(4), 0);
+        check!(got.fds.len() == 1, "receive what sa carried");
+        close(got.fds[0]);
+    }
+    for fd in [p.a, p.b, p.sa, p.sb, p.r, p.w] {
+        close(fd);
+    }
+    task::harness::switch_current(p.child);
+    for fd in [p.a, p.b, p.sa, p.sb, p.r, p.w] {
+        close(fd);
+    }
+    task::harness::switch_current(p.leader);
+    task::harness::reset();
+    settled(pipes_before)
+}

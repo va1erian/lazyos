@@ -188,6 +188,7 @@ fn queue(pml4: u64, target: usize, sig: u8, info: SigInfo, scope: Scope) -> Opti
 /// not (Linux's `complete_signal`, which also tries the target thread first).
 fn eligible_thread(pml4: u64, preferred: usize, sig: u8) -> Option<usize> {
     let mut slots = SlotList::new();
+    let preferred_live;
     {
         let tasks = TASKS.lock();
         let live = |slot: usize| {
@@ -195,9 +196,7 @@ fn eligible_thread(pml4: u64, preferred: usize, sig: u8) -> Option<usize> {
                 .as_ref()
                 .is_some_and(|task| task.pml4 == pml4 && task.state != TaskState::Done)
         };
-        if live(preferred) {
-            slots.push(preferred);
-        }
+        preferred_live = live(preferred);
         for slot in 1..MAX_TASKS {
             if slot != preferred && live(slot) {
                 slots.push(slot);
@@ -205,9 +204,11 @@ fn eligible_thread(pml4: u64, preferred: usize, sig: u8) -> Option<usize> {
         }
     }
     peek(|_, threads| {
-        slots
-            .iter()
-            .find(|&slot| threads[slot].blocked & bit(sig) == 0)
+        let takes = |slot: usize| threads[slot].blocked & bit(sig) == 0;
+        if preferred_live && takes(preferred) {
+            return Some(preferred);
+        }
+        slots.iter().find(|&slot| takes(slot))
     })
 }
 

@@ -119,11 +119,12 @@ here ([architecture/virtual-memory.md](architecture/virtual-memory.md),
 A WebKit2 browser is three or four processes and several dozen threads, and
 a modern page sits at a few hundred MB. Measured, not guessed, with the
 `bigapp` fixture (threads until `clone` fails, memory until `ENOMEM`,
-descriptors until `EMFILE`, then four children at once):
+descriptors until `EMFILE`, then four children at once; the thread count
+moves by a few with what else the boot runs):
 
 | Guest RAM | Threads before | after | Memory | Descriptors before | after |
 |---|---|---|---|---|---|
-| 1 GiB | 254 | 1014 | 760 MiB | 1024 | 8192 |
+| 1 GiB | 254 | 1016 | 760 MiB | 1024 | 8192 |
 | 4 GiB | 254 | 1022 | 3064 MiB | 1024 | 8192 |
 
 The task table is 1024 slots, kernel stacks come from the heap while a task

@@ -279,7 +279,10 @@ pub fn task_max_defaults() -> Result<(), String> {
         "limit.task_max=999999 -> {high:?}"
     );
     let low = sets("limit.task_max=1");
-    check!(low.len() == 1 && low[0].value == 64, "limit.task_max=1 -> {low:?}");
+    check!(
+        low.len() == 1 && low[0].value == 64,
+        "limit.task_max=1 -> {low:?}"
+    );
     Ok(())
 }
 

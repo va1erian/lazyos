@@ -211,6 +211,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_scmrights_in_flight_limits",
         scmrights_in_flight_limits,
     ),
+    ("compat_scmrights_cycles_refused", scmrights_cycles_refused),
     ("compat_scmrights_soak", scmrights_soak),
     ("compat_memfd_file_operations", memfd_file_operations),
     (
@@ -231,6 +232,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         memfd_mprotect_mremap_madvise,
     ),
     ("compat_memfd_accounting", memfd_accounting),
+    (
+        "compat_memfd_sparse_costs_no_heap",
+        memfd_sparse_costs_no_heap,
+    ),
     ("compat_memfd_soak", memfd_soak),
     ("compat_select_and_ppoll", select_and_ppoll),
     ("compat_select_timeout_and_ebadf", select_timeout_and_ebadf),

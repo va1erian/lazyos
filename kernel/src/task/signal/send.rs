@@ -113,7 +113,7 @@ fn kill_group(caller: usize, pgid: usize, sig: u8, info: SigInfo) -> Result<(), 
             }
         }
     }
-    if targets.len == 0 {
+    if targets.is_empty() {
         return Err(SignalError::NoSuchProcess);
     }
     send_many(caller, &targets, sig, info)
@@ -169,7 +169,7 @@ fn kill_all(caller: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
             }
         }
     }
-    if targets.len == 0 {
+    if targets.is_empty() {
         return Err(SignalError::NoSuchProcess);
     }
     send_many(caller, &targets, sig, info)

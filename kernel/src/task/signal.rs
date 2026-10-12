@@ -113,25 +113,33 @@ const UNCATCHABLE: u64 = bit(SIGKILL) | bit(SIGSTOP);
 /// where the heap lock may be held by the preempted task, so they must not
 /// allocate; `MAX_TASKS` is small enough to collect into a stack array.
 struct SlotList {
-    slots: [usize; MAX_TASKS],
-    len: usize,
+    /// One bit per slot: 128 bytes at 1024 slots, so a list lives on the
+    /// kernel stack of a signal path without costing it 8 KiB (issue #774).
+    words: [u64; MAX_TASKS / 64],
 }
 
 impl SlotList {
     fn new() -> Self {
         SlotList {
-            slots: [0; MAX_TASKS],
-            len: 0,
+            words: [0; MAX_TASKS / 64],
         }
     }
 
     fn push(&mut self, slot: usize) {
-        self.slots[self.len] = slot;
-        self.len += 1;
+        self.words[slot / 64] |= 1 << (slot % 64);
     }
 
+    fn is_empty(&self) -> bool {
+        self.words.iter().all(|word| *word == 0)
+    }
+
+    /// The slots in ascending order.
     fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-        self.slots[..self.len].iter().copied()
+        self.words.iter().enumerate().flat_map(|(index, &word)| {
+            (0..64)
+                .filter(move |bit| word & (1 << bit) != 0)
+                .map(move |bit| index * 64 + bit)
+        })
     }
 }
 
