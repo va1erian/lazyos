@@ -147,6 +147,7 @@ impl Model {
                     base,
                     mode,
                     points: vec![(x, y)],
+                    rastered: 1,
                 });
             }
             _ => {
@@ -187,16 +188,54 @@ impl Model {
                 base,
                 mode,
                 mut points,
+                mut rastered,
             } => {
                 if points.last() != Some(&(x, y)) {
                     points.push((x, y));
-                    let shape = Selection::polygon(&points, self.doc.bounds());
-                    self.show_selection(&base, shape.as_ref(), mode);
+                    // Rasterizing and combining cost the polygon's area, so
+                    // a long lasso is redone only after it has grown by a
+                    // sixteenth (always on release); the view draws the
+                    // exact outline from `lasso_points` meanwhile.
+                    if points.len() >= rastered + (rastered / 16).max(1) {
+                        rastered = points.len();
+                        let shape = Selection::polygon(&points, self.doc.bounds());
+                        self.show_selection(&base, shape.as_ref(), mode);
+                    }
                 }
-                Drag::Lasso { base, mode, points }
+                Drag::Lasso {
+                    base,
+                    mode,
+                    points,
+                    rastered,
+                }
             }
             other => other,
         }
+    }
+
+    /// The points of the lasso being drawn, in picture pixels, for the view to
+    /// draw as an open polyline over the picture; empty when no lasso drag is
+    /// live. The selection itself may trail the last few points until release.
+    pub fn lasso_points(&self) -> &[(i32, i32)] {
+        match &self.drag {
+            Some(Drag::Lasso { points, .. }) => points,
+            _ => &[],
+        }
+    }
+
+    /// Finishes a lasso: the polygon of every point, then the history step.
+    pub(super) fn end_lasso(
+        &mut self,
+        base: Option<Selection>,
+        mode: CombineMode,
+        points: &[(i32, i32)],
+        rastered: usize,
+    ) {
+        if rastered != points.len() {
+            let shape = Selection::polygon(points, self.doc.bounds());
+            self.show_selection(&base, shape.as_ref(), mode);
+        }
+        self.end_select(base);
     }
 
     /// Records the selection a finished drag left.

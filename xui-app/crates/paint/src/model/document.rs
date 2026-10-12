@@ -59,6 +59,8 @@ enum Drag {
         base: Option<Selection>,
         mode: CombineMode,
         points: Vec<(i32, i32)>,
+        /// How many points the selection shown was rasterized from.
+        rastered: usize,
     },
     /// The selection's outline being dragged (Move Selection).
     MoveOutline {

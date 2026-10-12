@@ -235,6 +235,30 @@ fn select_all_invert_and_deselect_are_undoable() {
 }
 
 #[test]
+fn a_long_lasso_exposes_its_points_and_ends_with_every_one_of_them() {
+    let mut m = Model::new(200, 200);
+    m.set_tool(Tool::Lasso);
+    assert!(m.lasso_points().is_empty());
+    let ring = |i: i32| {
+        let a = f64::from(i) * std::f64::consts::TAU / 400.0;
+        (100 + (80.0 * a.cos()) as i32, 100 + (80.0 * a.sin()) as i32)
+    };
+    let first = ring(0);
+    m.begin_with(first.0, first.1, Side::Primary, NONE);
+    for i in 1..400 {
+        let p = ring(i);
+        m.extend_with(p.0, p.1, NONE);
+        assert_eq!(m.lasso_points().len(), i as usize + 1, "exact, per move");
+    }
+    m.end();
+    assert!(m.lasso_points().is_empty());
+    assert!(selected(&m, 100, 100) && !selected(&m, 5, 5));
+    // The last points count: the ring closes, the right edge is in.
+    assert!(selected(&m, 170, 100));
+    assert_eq!(m.history().undo_len(), 1);
+}
+
+#[test]
 fn the_lasso_fills_a_polygon_by_the_even_odd_rule() {
     let mut m = Model::new(40, 40);
     m.set_tool(Tool::Lasso);

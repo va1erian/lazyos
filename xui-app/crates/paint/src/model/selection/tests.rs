@@ -26,6 +26,52 @@ fn picture(s: &Selection, area: Rect) -> Vec<String> {
         .collect()
 }
 
+/// The even-odd rule the long way: every edge against every row.
+fn naive_polygon(points: &[(i32, i32)], clip: Rect) -> Option<Selection> {
+    let mut mask = vec![0u8; clip.area()];
+    for y in clip.y0..clip.y1 {
+        let mut crossings = Vec::new();
+        for (i, a) in points.iter().enumerate() {
+            let b = points[(i + 1) % points.len()];
+            if (a.1 <= y) != (b.1 <= y) {
+                let t = f64::from(y - a.1) / f64::from(b.1 - a.1);
+                crossings.push(f64::from(a.0) + t * f64::from(b.0 - a.0));
+            }
+        }
+        crossings.sort_by(f64::total_cmp);
+        for pair in crossings.chunks_exact(2) {
+            for x in clip.x0..clip.x1 {
+                if pair[0] <= f64::from(x) && f64::from(x) < pair[1] {
+                    mask[(y - clip.y0) as usize * clip.width() as usize + (x - clip.x0) as usize] =
+                        255;
+                }
+            }
+        }
+    }
+    Selection::from_mask(clip, mask)
+}
+
+#[test]
+fn the_edge_table_polygon_equals_the_every_edge_every_row_one() {
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = |range: i32| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % range as u64) as i32 - range / 4
+    };
+    for count in [3usize, 4, 5, 9, 40, 200] {
+        for _ in 0..20 {
+            let points: Vec<(i32, i32)> = (0..count).map(|_| (next(48), next(48))).collect();
+            assert_eq!(
+                Selection::polygon(&points, ALL),
+                naive_polygon(&points, ALL),
+                "{points:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_rectangle_has_no_mask_and_an_empty_one_is_nothing() {
     let s = rect(2, 3, 4, 5);

@@ -125,7 +125,13 @@ impl Model {
             Drag::Stroke(stroke) => self.end_stroke(stroke),
             Drag::Shape(shape) => self.end_shape(shape),
             Drag::Gradient(gradient) => self.end_gradient(gradient),
-            Drag::Select { base, .. } | Drag::Lasso { base, .. } => self.end_select(base),
+            Drag::Select { base, .. } => self.end_select(base),
+            Drag::Lasso {
+                base,
+                mode,
+                points,
+                rastered,
+            } => self.end_lasso(base, mode, &points, rastered),
             Drag::MoveOutline { base, .. } => self.end_move_outline(base),
             // The lifted pixels stay in the air until committed, and a moved
             // text block stays editable.

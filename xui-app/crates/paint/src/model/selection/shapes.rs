@@ -11,6 +11,35 @@
 use super::Selection;
 use crate::model::rect::Rect;
 
+/// A polygon edge with a height: it crosses the rows `top..bottom`
+/// (half-open on y, so a vertex on a row is counted once).
+#[derive(Clone, Copy)]
+struct Edge {
+    top: i32,
+    bottom: i32,
+    /// The endpoint the x is measured from, and the slope per row.
+    a: (i32, i32),
+    b: (i32, i32),
+}
+
+impl Edge {
+    /// The edge from `a` to `b`, `None` when it is horizontal.
+    fn new(a: (i32, i32), b: (i32, i32)) -> Option<Edge> {
+        (a.1 != b.1).then(|| Edge {
+            top: a.1.min(b.1),
+            bottom: a.1.max(b.1),
+            a,
+            b,
+        })
+    }
+
+    /// Where the edge crosses the row `y`.
+    fn x_at(&self, y: i32) -> f64 {
+        let t = f64::from(y - self.a.1) / f64::from(self.b.1 - self.a.1);
+        f64::from(self.a.0) + t * f64::from(self.b.0 - self.a.0)
+    }
+}
+
 /// Coordinates beyond this are clamped before any arithmetic.
 const LIMIT: i32 = 1 << 24;
 
@@ -63,17 +92,25 @@ impl Selection {
         }
         let width = area.width() as usize;
         let mut mask = vec![0u8; area.area()];
+        // An edge table: the edges with a height, top first. A row only looks
+        // at the edges that cross it, so the cost is the edges plus the area,
+        // not the edges times the rows.
+        let mut edges: Vec<Edge> = pts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| Edge::new(*a, pts[(i + 1) % pts.len()]))
+            .collect();
+        edges.sort_by_key(|e| e.top);
+        let (mut next, mut active) = (0, Vec::<Edge>::new());
         let mut crossings: Vec<f64> = Vec::new();
         for y in area.y0..area.y1 {
-            crossings.clear();
-            for (i, a) in pts.iter().enumerate() {
-                let b = pts[(i + 1) % pts.len()];
-                // Half-open on y, so a vertex on the row is counted once.
-                if (a.1 <= y) != (b.1 <= y) {
-                    let t = f64::from(y - a.1) / f64::from(b.1 - a.1);
-                    crossings.push(f64::from(a.0) + t * f64::from(b.0 - a.0));
-                }
+            while next < edges.len() && edges[next].top <= y {
+                active.push(edges[next]);
+                next += 1;
             }
+            active.retain(|e| y < e.bottom);
+            crossings.clear();
+            crossings.extend(active.iter().map(|e| e.x_at(y)));
             crossings.sort_by(f64::total_cmp);
             for pair in crossings.as_chunks::<2>().0 {
                 // Pixel x is in when pair.0 <= x < pair.1.
