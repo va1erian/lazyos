@@ -194,9 +194,7 @@ impl Wifi {
 /// Hide the Wi-Fi pages and the Wi-Fi button until an interface is found.
 pub(super) fn start_hidden(ui: &Ui<Msg>, w: &Widgets) {
     ui.set_visible(w.wifi.page.get().id(), false);
-    for id in w.wifi.join.group_ids() {
-        ui.set_visible(id, false);
-    }
+    w.wifi.join.show(ui, None);
     ui.set_visible(w.wifi_button.get().id(), false);
 }
 
@@ -261,17 +259,8 @@ impl Network {
             ui.set_visible(id, view == View::Wired);
         }
         ui.set_visible(self.w.wifi.page.get().id(), view == View::List);
-        let [known, other] = self.w.wifi.join.group_ids();
-        let kind = self.wifi.join.as_ref();
-        let joining = view == View::Join;
-        ui.set_visible(
-            known,
-            joining && matches!(kind, Some(wifiview::JoinKind::Known { .. })),
-        );
-        ui.set_visible(
-            other,
-            joining && matches!(kind, Some(wifiview::JoinKind::Other)),
-        );
+        let kind = self.wifi.join.as_ref().filter(|_| view == View::Join);
+        self.w.wifi.join.show(ui, kind);
         self.wifi.probe_pending = view != View::Wired;
     }
 
@@ -361,12 +350,19 @@ impl Network {
             status.ssid
         );
         match status.state {
-            ConnState::Connected => println!("NETAPP:WIFI:CONNECTED ssid={}", status.ssid),
-            ConnState::Failed => println!(
-                "NETAPP:WIFI:FAILED reason={} ssid={}",
-                wifi::reason_text(status.reason).unwrap_or("unknown"),
-                status.ssid
-            ),
+            ConnState::Connected => {
+                println!("NETAPP:WIFI:CONNECTED ssid={}", status.ssid);
+                // "Connecting to ..." has come true: the status line says so.
+                self.wifi_say("");
+            }
+            ConnState::Failed => {
+                println!(
+                    "NETAPP:WIFI:FAILED reason={} ssid={}",
+                    wifi::reason_text(status.reason).unwrap_or("unknown"),
+                    status.ssid
+                );
+                self.wifi_say("");
+            }
             _ => {}
         }
         self.wifi.reported = Some(now);

@@ -32,8 +32,8 @@
   {"click_at": {"window": "Network", "widget": "join_secret"}},
   {"type": "not-its-password"},
   {"click_at": {"window": "Network", "widget": "join_ok"}, "until": "NETAPP:WIFI:CONNECT ssid=LazyWrong", "timeout": 90, "retries": 0},
-  {"wait_for": "NETAPP:WIFI:FAILED reason=the password is probably wrong ssid=LazyWrong", "timeout": 180},
-  {"wait": 2.5},
+  {"wait_for": "NETAPP:WIFI:FAILED reason=the password is probably wrong ssid=LazyWrong", "timeout": 180, "note": "the station may fall back to LazyWPA2 within seconds: shoot the failure at once"},
+  {"wait": 0.4},
   {"shot": "06_wrong_password"},
 
   {"click_at": {"window": "Network", "widget": "wifi_other"}, "until": "NETAPP:WIFI:JOIN:OPEN other", "timeout": 60, "retries": 2},

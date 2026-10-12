@@ -21,6 +21,7 @@
 use xui_app::net::wifi::{self, Security};
 use xui_app::net::wifiview::{self, Join, JoinKind};
 use xui_app::platform::elevd;
+use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
 
@@ -146,9 +147,21 @@ impl JoinWidgets {
         self.other.layout(true)
     }
 
-    /// The group ids of the known form and of the other form.
-    pub(super) fn group_ids(&self) -> [WidgetId; 2] {
-        [self.known.group.get().id(), self.other.group.get().id()]
+    /// Show the form `kind` uses and hide the other (`None`: both). The
+    /// other form's second radio button is a node of its own that hiding the
+    /// group does not reach: it is hidden and shown with the group.
+    pub(super) fn show(&self, ui: &Ui<Msg>, kind: Option<&JoinKind>) {
+        ui.set_visible(
+            self.known.group.get().id(),
+            matches!(kind, Some(JoinKind::Known { .. })),
+        );
+        let other = matches!(kind, Some(JoinKind::Other));
+        ui.set_visible(self.other.group.get().id(), other);
+        if let Some(security) = self.other.security.try_get() {
+            for id in security.ids() {
+                ui.set_visible(id, other);
+            }
+        }
     }
 
     /// The form `kind` uses.
