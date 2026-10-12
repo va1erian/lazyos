@@ -53,6 +53,7 @@ ORDER = [
     "bigapp",
     "procstress",
     "sigstress",
+    "threadsig",
     "epollstress",
     "msgpoll",
     "unixstress",

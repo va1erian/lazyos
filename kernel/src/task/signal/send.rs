@@ -7,7 +7,8 @@
 //! entry point (pid, tid, group, everyone) can skip it.
 
 use super::{
-    send_checked, send_to_slot, slot_info, Expect, SigInfo, SignalError, SlotList, NSIG, SIGCONT,
+    send_checked, send_to_slot, send_to_thread, slot_info, Expect, Scope, SigInfo, SignalError,
+    SlotList, NSIG, SIGCONT,
 };
 use crate::ipc::credentials::{self, CAP_KILL};
 use crate::task::{process, TaskState, KERNEL_TASK, MAX_TASKS, TASKS};
@@ -66,7 +67,8 @@ pub fn kill(caller: usize, pid: i64, sig: u8, info: SigInfo) -> Result<(), Signa
     }
 }
 
-/// `tkill(tid, sig)` / `tgkill(tgid, tid, sig)` after the shim validated `tgid`.
+/// `tkill(tid, sig)` / `tgkill(tgid, tid, sig)` after the shim validated `tgid`:
+/// the signal is queued for thread `tid` alone and delivered on it.
 pub fn send_tid(caller: usize, tid: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
     if sig as usize >= NSIG {
         return Err(SignalError::Invalid);
@@ -74,7 +76,7 @@ pub fn send_tid(caller: usize, tid: usize, sig: u8, info: SigInfo) -> Result<(),
     if tid == KERNEL_TASK || slot_info(tid).is_none() {
         return Err(SignalError::NoSuchProcess);
     }
-    send_to_slot(caller, tid, sig, info)
+    send_to_thread(caller, tid, sig, info)
 }
 
 /// Send to every slot in `targets`, Linux-style: success if any delivery
@@ -140,7 +142,8 @@ pub fn kill_terminal_group(pgid: usize, sid: usize, sig: u8) -> Result<(), Signa
     let mut delivered = false;
     for target in targets.iter() {
         let info = SigInfo::kernel();
-        delivered |= send_checked(KERNEL_TASK, target, sig, info, Some(expect)).is_ok();
+        delivered |=
+            send_checked(KERNEL_TASK, target, sig, info, Some(expect), Scope::Process).is_ok();
     }
     if delivered {
         Ok(())

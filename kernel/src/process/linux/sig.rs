@@ -1,9 +1,11 @@
 //! Signal syscalls (issue #60): `rt_sigaction`, `rt_sigprocmask`,
-//! `rt_sigreturn`, `sigaltstack`, `kill`, `tkill`, and `tgkill`. The actual
-//! disposition table, pending/blocked masks, and delivery onto the user stack
-//! live in [`crate::task::signal`]; this module is only the ABI-facing
-//! encode/decode of its types plus the three ways to target a signal at a
-//! pid, a tid, or a `(tgid, tid)` pair.
+//! `rt_sigreturn`, `rt_sigpending`, `sigaltstack`, `kill`, `tkill`, and
+//! `tgkill`. The actual disposition table, pending/blocked masks, and delivery
+//! onto the user stack live in [`crate::task::signal`]; this module is only the
+//! ABI-facing encode/decode of its types plus the three ways to target a signal
+//! at a pid, a tid, or a `(tgid, tid)` pair. The mask and the alternate stack
+//! are the calling *thread's*, `tkill`/`tgkill` queue on one thread, and
+//! `kill` on the process (issue #772).
 
 use crate::task;
 use crate::task::signal::{self, Disposition, SignalError};
@@ -112,6 +114,19 @@ pub(super) fn sys_rt_sigprocmask(how: u64, set: u64, oldset: u64, sigsetsize: u6
     0
 }
 
+/// `rt_sigpending(set, sigsetsize)`: the signals raised while blocked that
+/// wait for the calling thread, its own and its process's.
+pub(super) fn sys_rt_sigpending(set: u64, sigsetsize: u64) -> u64 {
+    if sigsetsize != 8 {
+        return err(EINVAL);
+    }
+    let pending = signal::kernel_to_linux_sigset(signal::pending_blocked(task::current()));
+    if crate::user_ptr::try_write::<u64>(set, pending).is_err() {
+        return err(EFAULT);
+    }
+    0
+}
+
 /// `rt_sigsuspend(mask, sigsetsize)`: install `mask` as the blocked set, park
 /// until a signal it lets through arrives, and fail with `-EINTR` once that
 /// signal has been delivered. The mask that was in force is restored when the
@@ -206,7 +221,7 @@ pub(super) fn sys_kill(pid: u64, sig: u64) -> u64 {
     }
 }
 
-/// `tkill(tid, sig)`: send to one thread of the caller's process.
+/// `tkill(tid, sig)`: send to one thread; it alone takes the signal.
 pub(super) fn sys_tkill(tid: u64, sig: u64) -> u64 {
     let me = task::current();
     let info = signal::SigInfo::user(me, signal::SI_TKILL);

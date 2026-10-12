@@ -22,12 +22,13 @@ pub(super) struct Armed {
     pub(super) info: SigInfo,
 }
 
-/// The next pending signal the mask lets through, with its disposition.
-/// `SIGKILL` cannot be blocked and goes first: nothing (a handler, a stop)
-/// may run ahead of a kill.
-pub(super) fn next_deliverable(pml4: u64) -> Option<(u8, Disposition)> {
-    with_signals(pml4, |state| {
-        let ready = state.pending & !clean_mask(state.blocked);
+/// The next pending signal thread `slot` may take, with its disposition: from
+/// the thread's own set or the process's shared one, whatever the thread's
+/// mask lets through. `SIGKILL` cannot be blocked and goes first: nothing (a
+/// handler, a stop) may run ahead of a kill.
+pub(super) fn next_deliverable(pml4: u64, slot: usize) -> Option<(u8, Disposition)> {
+    with_both(pml4, slot, |state, thread| {
+        let ready = (state.pending | thread.pending) & !clean_mask(thread.blocked);
         let sig = if ready & bit(SIGKILL) != 0 {
             Some(SIGKILL)
         } else {
@@ -44,15 +45,20 @@ pub(super) fn fatal_status(pml4: u64, sig: u8) -> u64 {
     with_signals(pml4, |state| state.group_exit.unwrap_or(128 + sig as u64))
 }
 
-pub(super) fn clear_pending(pml4: u64, sig: u8) {
-    with_signals(pml4, |state| state.pending &= !bit(sig));
+/// Drop `sig` from both of thread `slot`'s pending sets (it is being ignored).
+pub(super) fn clear_pending(pml4: u64, slot: usize, sig: u8) {
+    with_both(pml4, slot, |state, thread| {
+        state.pending &= !bit(sig);
+        thread.pending &= !bit(sig);
+    });
 }
 
-/// Consume `sig` into a handler: clear it from pending, apply the action mask
-/// (plus the signal itself unless `SA_NODEFER`), arm the alternate stack, and
-/// honour `SA_RESETHAND`.
+/// Consume `sig` into a handler on thread `slot`: clear it from pending (the
+/// thread's own set first, as Linux dequeues private signals before shared
+/// ones), apply the action mask (plus the signal itself unless `SA_NODEFER`),
+/// arm the alternate stack, and honour `SA_RESETHAND`.
 pub(super) fn arm_handler(pml4: u64, slot: usize, sig: u8) -> Option<Armed> {
-    with_signals(pml4, |state| {
+    with_both(pml4, slot, |state, thread| {
         let Disposition::Handler {
             handler,
             flags,
@@ -64,34 +70,34 @@ pub(super) fn arm_handler(pml4: u64, slot: usize, sig: u8) -> Option<Armed> {
         };
         // After `rt_sigsuspend` the frame must restore the mask the suspend
         // replaced, not the temporary one the handler runs under.
-        let saved_mask = match state.suspend_restore {
-            Some((owner, mask)) if owner == slot => {
-                state.suspend_restore = None;
-                mask
-            }
-            _ => state.blocked,
-        };
-        let mut next = state.blocked | mask;
+        let saved_mask = thread.suspend_restore.take().unwrap_or(thread.blocked);
+        let mut next = thread.blocked | mask;
         if flags & SA_NODEFER == 0 {
             next |= bit(sig);
         }
-        state.blocked = clean_mask(next);
-        state.pending &= !bit(sig);
-        let use_altstack = flags & SA_ONSTACK != 0 && state.altstack.enabled && !state.on_altstack;
+        thread.blocked = clean_mask(next);
+        let info = if thread.pending & bit(sig) != 0 {
+            thread.pending &= !bit(sig);
+            thread.infos[sig as usize]
+        } else {
+            state.pending &= !bit(sig);
+            state.infos[sig as usize]
+        };
+        let use_altstack =
+            flags & SA_ONSTACK != 0 && thread.altstack.enabled && !thread.on_altstack;
         if use_altstack {
-            state.on_altstack = true;
+            thread.on_altstack = true;
         }
         if flags & SA_RESETHAND != 0 {
             state.actions[sig as usize] = Disposition::Default;
         }
-        let info = state.infos[sig as usize];
         Some(Armed {
             handler,
             flags,
             restorer,
             mask,
             saved_mask,
-            altstack: state.altstack,
+            altstack: thread.altstack,
             use_altstack,
             info,
         })
@@ -264,7 +270,7 @@ pub(super) fn apply_action(
 ) -> bool {
     let action = match disposition {
         Disposition::Ignore => {
-            clear_pending(pml4, sig);
+            clear_pending(pml4, slot, sig);
             return true;
         }
         Disposition::Default => default_action(sig),
@@ -287,8 +293,8 @@ pub(super) fn apply_action(
         }
     };
     match action {
-        DefaultAction::Ignore => clear_pending(pml4, sig),
-        DefaultAction::Cont => clear_pending(pml4, sig),
+        DefaultAction::Ignore => clear_pending(pml4, slot, sig),
+        DefaultAction::Cont => clear_pending(pml4, slot, sig),
         DefaultAction::Term | DefaultAction::Core => {
             if default_action(sig) == DefaultAction::Core {
                 serial_println!("signal: task {} core-dumped on signal {sig}", current());
@@ -336,7 +342,7 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     // pending signal whose action is to ignore it needs none.
     let mut regs: Option<UserRegs> = None;
     let mut restart = restart_plan(result, restart);
-    while let Some((sig, disposition)) = next_deliverable(pml4) {
+    while let Some((sig, disposition)) = next_deliverable(pml4, slot) {
         if default_action(sig) == DefaultAction::Stop && disposition == Disposition::Default {
             stop_process(pml4);
             wait_continued();
@@ -355,7 +361,7 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     }
     // `rt_sigsuspend` woke without a handler frame consuming its saved mask (the
     // signal's action ignored it): the original mask comes back now.
-    suspend_end_for(pml4, slot);
+    suspend_end_for(slot);
     result
 }
 

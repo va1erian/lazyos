@@ -188,7 +188,9 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `fchownat`, `utimensat`/`utime`/`utimes`/`futimesat`,
   `mkdir`/`mkdirat`, `rmdir`, `rename`/`renameat`, `unlink`/`unlinkat` with
   `AT_REMOVEDIR`), memory (`mmap`, `mprotect`, `munmap`, `mremap`, `brk`),
-  signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `sigaltstack`),
+  signals (`rt_sigaction`, `rt_sigprocmask`, `rt_sigpending`, `rt_sigreturn`,
+  `sigaltstack`; the mask and the alternate stack are per thread, see
+  [wait-signals.md](wait-signals.md)),
   process (`clone`, `fork`, `execve`, `exit`, `exit_group`, `wait4`, `kill`,
   `tkill`, `tgkill`, `set_tid_address`, `futex`), ids/groups (`getpid`/`gettid`,
   `getppid`, `setpgid`, `setsid`, `getpgid`, `getsid`), pipes/sockets (`pipe`,
@@ -309,8 +311,10 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   when the last reader closes (no SIGPIPE; see the module docs). `F_GETFL`/
   `F_SETFL` carry `O_NONBLOCK`, `F_GETFD`/`F_SETFD` carry `FD_CLOEXEC`, and
   `execve` closes marked descriptors while `fork` inherits them.
-- `execve` replaces the image, resets the signal table, and tears down the old
-  PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
+- `execve` replaces the image, resets the dispositions (the process's signal
+  state is keyed by its PML4), keeps the calling thread's blocked mask and
+  pending signals as Linux does but not its alternate stack, and tears down
+  the old PML4 when it has no other users. The ABI bench injects `/system/bin/abi-init` via
   `LAZYOS_INIT`; `/system/bin/busybox` runs BusyBox `sh` on the shim, and results are
   generated into `docs/compat/` (git-ignored) by `tools/abi/run.py`.
 - `execve` of a `#!` script (`process/linux/shebang.rs`, issue #491) runs the
@@ -398,7 +402,7 @@ epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
-linking; per-thread signal masks and targeting; `timerfd`/`signalfd`/`inotify`/
+linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`/
 `memfd_create`; `alarm`/`setitimer`; `SCM_RIGHTS`; `SIGTTIN`/`SIGTTOU`; the
 umask is global, not per process. `link`/`symlink` answer `EPERM` (no
 filesystem stores links). The `persist` fixture also sets and re-checks mode,

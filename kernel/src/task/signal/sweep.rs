@@ -20,8 +20,7 @@ use crate::task::trace;
 /// the task table lock is dropped.
 #[derive(Clone, Copy)]
 pub struct SweepFinish {
-    /// The task that was ended (diagnostics).
-    #[allow(dead_code)]
+    /// The task that was ended (its process dies with it on a fatal signal).
     pub slot: u16,
     /// Its parent, to receive `SIGCHLD` once the table lock is dropped.
     pub parent: u16,
@@ -53,9 +52,10 @@ const NO_FINISH: SweepFinish = SweepFinish {
 /// table in place and returns the terminations (with their length) for
 /// post-processing after the lock is dropped.
 ///
-/// Only runnable tasks of a process with a deliverable signal are visited
-/// (P6.1): one pass over the signal registry finds those processes, and
-/// nothing else runs when none has one, which is nearly every entry.
+/// Only runnable threads with a deliverable signal are visited (P6.1): one
+/// pass over the signal tables finds them, and nothing else runs when there
+/// are none, which is nearly every entry. A thread's deliverable signals are
+/// its own pending set and its process's shared one, less what it blocks.
 ///
 /// # Safety
 /// `tasks` must be the live task table; each `Task::rsp` must point at an
@@ -66,20 +66,10 @@ pub unsafe fn sweep(
 ) -> ([SweepFinish; SWEEP_BATCH], usize) {
     let mut finished = [NO_FINISH; SWEEP_BATCH];
     let mut finished_len = 0;
-    let ready = deliverable_spaces();
-    if ready.is_empty() {
-        return (finished, finished_len);
-    }
-    for slot in crate::task::runq::runnable_any().iter() {
+    let ready = deliverable_slots(tasks);
+    for slot in ready.iter() {
         if finished_len == SWEEP_BATCH {
             break;
-        }
-        let in_ready = slot != KERNEL_TASK
-            && tasks[slot]
-                .as_ref()
-                .is_some_and(|task| ready.contains(task.pml4));
-        if !in_ready {
-            continue;
         }
         if let Some(finish) = sweep_slot(tasks, slot, active_pml4) {
             finished[finished_len] = finish;
@@ -89,58 +79,44 @@ pub unsafe fn sweep(
     (finished, finished_len)
 }
 
-/// Address spaces with a signal their mask lets through, collected without
-/// allocating (scheduler context) or creating registry entries.
-struct Spaces {
-    pml4s: [u64; SPACES_BATCH],
-    len: usize,
-    /// More processes had a deliverable signal than `pml4s` holds: `contains`
-    /// then asks the registry about each candidate instead.
-    overflow: bool,
-}
-
-/// Processes remembered per sweep (1 KiB of stack, see [`SWEEP_BATCH`]).
-const SPACES_BATCH: usize = 128;
-
-impl Spaces {
-    fn is_empty(&self) -> bool {
-        self.len == 0 && !self.overflow
-    }
-
-    fn contains(&self, pml4: u64) -> bool {
-        self.pml4s[..self.len].contains(&pml4) || (self.overflow && has_deliverable(pml4))
-    }
-}
-
-/// One pass over the registry: the processes [`sweep_slot`] has work for.
-fn deliverable_spaces() -> Spaces {
-    let mut spaces = Spaces {
-        pml4s: [0; SPACES_BATCH],
-        len: 0,
-        overflow: false,
-    };
-    for state in SIGNALS.lock().iter() {
-        if state.pending & !clean_mask(state.blocked) == 0 {
-            continue;
+/// The runnable threads with a signal their mask lets through, collected
+/// without allocating (scheduler context) or creating registry entries.
+fn deliverable_slots(tasks: &[Option<Task>; MAX_TASKS]) -> SlotList {
+    let mut ready = SlotList::new();
+    let runnable = crate::task::runq::runnable_any();
+    peek(|procs, threads| {
+        // Nearly always nothing is waiting in any process's shared set, and
+        // the scan below then only reads each runnable thread's own.
+        let any_shared = procs.iter().any(|state| state.pending != 0);
+        for slot in runnable.iter() {
+            let Some(task) = tasks[slot].as_ref().filter(|_| slot != KERNEL_TASK) else {
+                continue;
+            };
+            let mut pending = threads[slot].pending;
+            if any_shared {
+                if let Some(state) = procs.iter().find(|state| state.pml4 == task.pml4) {
+                    pending |= state.pending;
+                }
+            }
+            if pending & !clean_mask(threads[slot].blocked) != 0 {
+                ready.push(slot);
+            }
         }
-        if spaces.len < SPACES_BATCH {
-            spaces.pml4s[spaces.len] = state.pml4;
-            spaces.len += 1;
-        } else {
-            spaces.overflow = true;
-        }
-    }
-    spaces
+    });
+    ready
 }
 
-/// Whether `pml4` has a signal its mask lets through (a lookup: it never
-/// creates the registry entry `with_signals` would).
-fn has_deliverable(pml4: u64) -> bool {
-    SIGNALS
-        .lock()
-        .iter()
-        .find(|state| state.pml4 == pml4)
-        .is_some_and(|state| state.pending & !clean_mask(state.blocked) != 0)
+/// Whether thread `slot` of process `pml4` has a signal its mask lets through
+/// (a lookup: it never creates the registry entry `with_signals` would).
+fn has_deliverable(pml4: u64, slot: usize) -> bool {
+    peek(|procs, threads| {
+        let thread = &threads[slot];
+        let shared = procs
+            .iter()
+            .find(|state| state.pml4 == pml4)
+            .map_or(0, |state| state.pending);
+        (thread.pending | shared) & !clean_mask(thread.blocked) != 0
+    })
 }
 
 /// Whether a wait that `slot` was woken from with `Interrupted` must end and
@@ -157,7 +133,7 @@ pub fn wait_interrupted(slot: usize) -> bool {
     let Some((pml4, kind)) = super::slot_info(slot) else {
         return false;
     };
-    kind == super::Kind::Linux && has_deliverable(pml4)
+    kind == super::Kind::Linux && has_deliverable(pml4, slot)
 }
 
 /// Deliver to the task the scheduler is about to resume, whose address space
@@ -172,7 +148,7 @@ pub fn deliver_on_resume(slot: usize) -> Option<SweepFinish> {
     let mut tasks = TASKS.lock();
     // Nearly every switch: nothing pending, so skip the frame inspection.
     let pml4 = tasks[slot].as_ref()?.pml4;
-    if !has_deliverable(pml4) {
+    if !has_deliverable(pml4, slot) {
         return None;
     }
     // SAFETY: `tasks` is the live table and the scheduler stores an interrupt
@@ -204,11 +180,11 @@ unsafe fn sweep_slot(
     if !frame_is_user(rsp, FRAME_RIP_INDEX) {
         return None;
     }
-    while let Some((sig, disposition)) = next_deliverable(pml4) {
+    while let Some((sig, disposition)) = next_deliverable(pml4, slot) {
         match disposition {
-            Disposition::Ignore => clear_pending(pml4, sig),
+            Disposition::Ignore => clear_pending(pml4, slot, sig),
             Disposition::Default => match default_action(sig) {
-                DefaultAction::Ignore | DefaultAction::Cont => clear_pending(pml4, sig),
+                DefaultAction::Ignore | DefaultAction::Cont => clear_pending(pml4, slot, sig),
                 DefaultAction::Stop => {
                     // INVARIANT: `tasks[slot]` was `Some` above and `tasks`
                     // is held exclusively for the whole call, so the slot is
@@ -291,6 +267,13 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
     }
     NEEDS_REDRAW.store(true, core::sync::atomic::Ordering::Relaxed);
     for done in finished {
+        // A fatal signal ends the whole thread group, not the one thread the
+        // sweep happened to catch (Linux's group exit): the rest follow it.
+        if (129..=128 + 64).contains(&done.status) {
+            if let Some((pml4, _)) = slot_info(done.slot as usize) {
+                kill_process(pml4, u64::from(done.status));
+            }
+        }
         let parent = done.parent as usize;
         if parent != KERNEL_TASK && parent != 0 {
             post_sigchld(parent);

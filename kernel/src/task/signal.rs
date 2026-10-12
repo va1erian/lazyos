@@ -3,16 +3,20 @@
 //!
 //! The model is deliberately small but Linux-shaped:
 //!
-//! * state is **per process**, keyed by the address space (`pml4`). Tasks that
-//!   share a PML4 are threads of one process, so a `kill(pid)` reaches all of
-//!   them and one pending set serves the group. This is the documented
-//!   simplification: real Linux keeps the blocked mask per thread.
+//! * state is split the way POSIX threads split it (issue #772, [`registry`]):
+//!   dispositions and the shared pending set of process-directed signals are
+//!   **per process**, keyed by the address space (`pml4`; tasks that share one
+//!   are threads of one process); the blocked mask, the pending set of
+//!   thread-directed signals (`tkill`/`tgkill`, faults) and the alternate
+//!   stack are **per thread**, keyed by the task slot. A process-directed
+//!   signal (`kill`) is taken by one thread that does not block it.
 //! * each signal has a [`Disposition`]: default kernel action, ignore, or a
 //!   user handler. [`default_action`] classifies the standard dispositions
 //!   (term/stop/cont/ignore/core), and `SIGKILL`/`SIGSTOP` are never catchable.
-//! * `send` queues a pending bit and wakes a blocked thread with
-//!   [`WakeReason::Interrupted`] so the blocking syscall returns `EINTR` at a
-//!   point where the signal can be delivered. Fatal signals (`SIGKILL`, and
+//! * `send` queues a pending bit and wakes the blocked thread that may take it
+//!   (the target of a thread-directed signal; one eligible thread for a
+//!   process-directed one) with [`WakeReason::Interrupted`] so the blocking
+//!   syscall returns `EINTR` at a point where the signal can be delivered. Fatal signals (`SIGKILL`, and
 //!   defaults of term/core signals) end the whole thread group synchronously.
 //! * `SIGCHLD` is queued even though its default is ignore: the pending bit is
 //!   the observable record of the child event, and parents that installed a
@@ -44,6 +48,7 @@ use super::{
 };
 use crate::user_ptr;
 
+mod access;
 mod consts;
 mod control;
 mod deliver;
@@ -51,6 +56,7 @@ mod fault;
 mod frames;
 pub mod harden;
 mod native;
+mod registry;
 mod send;
 mod sweep;
 mod types;
@@ -62,56 +68,17 @@ pub use harden::{die_with_segv, restore_frame};
 pub use native::{deliver_native, native_fatal_pending};
 pub use send::{kill, kill_terminal_group, send_tid};
 
+pub use access::*;
 pub use consts::*;
 pub use control::*;
 pub use deliver::*;
 pub use frames::*;
+use registry::*;
+pub use registry::{exec_thread, forget, fork_inherit, registry_locked, thread_born};
 pub use types::*;
 
-/// Stride of one process's signal state, fixed by the array above.
-struct Signals {
-    pml4: u64,
-    pending: u64,
-    blocked: u64,
-    actions: [Disposition; NSIG],
-    infos: [SigInfo; NSIG],
-    altstack: AltStack,
-    /// True while a handler delivered with `SA_ONSTACK` runs, so a nested
-    /// signal reuses the current stack instead of re-entering the alt stack.
-    on_altstack: bool,
-    /// `(task slot, mask)` `rt_sigsuspend` replaced: restored when the handler it
-    /// woke for returns (it becomes that frame's saved mask), or at once when no
-    /// handler ran. Only the suspending task consumes it, so a sibling thread's
-    /// unrelated syscall cannot end another thread's suspend.
-    suspend_restore: Option<(usize, u64)>,
-    /// The exit status of a group exit in progress (a `SIGKILL`, or a fatal
-    /// default that one thread already acted on): Linux's
-    /// `signal->group_exit_code`. Threads parked inside the kernel when it
-    /// began finish with this status once they leave the kernel, whatever
-    /// signal they meet on the way out.
-    group_exit: Option<u64>,
-}
-
-impl Signals {
-    fn new(pml4: u64) -> Self {
-        Signals {
-            pml4,
-            pending: 0,
-            blocked: 0,
-            actions: [Disposition::Default; NSIG],
-            infos: [SigInfo::user(0, SI_USER); NSIG],
-            altstack: AltStack::DISABLED,
-            on_altstack: false,
-            suspend_restore: None,
-            group_exit: None,
-        }
-    }
-}
-
-/// Process signal state, keyed by address space. A process's PML4 is created at
-/// `spawn`/`fork`, freed at reap/exec, and never changes while live, so the key
-/// is stable exactly as long as the process is.
-static SIGNALS: Mutex<Vec<Signals>> = Mutex::new(Vec::new());
+#[cfg(lazyos_tests)]
+pub use registry::harness;
 
 /// Bit for `sig` in a 64-bit set.
 const fn bit(sig: u8) -> u64 {
@@ -184,48 +151,6 @@ fn lowest_signal(mask: u64) -> Option<u8> {
     }
 }
 
-/// Run `f` with the signal state of `pml4`, creating it on first use.
-fn with_signals<R>(pml4: u64, f: impl FnOnce(&mut Signals) -> R) -> R {
-    let mut all = SIGNALS.lock();
-    let index = match all.iter().position(|state| state.pml4 == pml4) {
-        Some(index) => index,
-        None => {
-            all.push(Signals::new(pml4));
-            all.len() - 1
-        }
-    };
-    f(&mut all[index])
-}
-
-/// Whether the registry lock is held right now (the NMI hang report, issue #382).
-pub fn registry_locked() -> bool {
-    SIGNALS.is_locked()
-}
-
-/// Drop a torn-down address space's signal state.
-pub fn forget(pml4: u64) {
-    SIGNALS.lock().retain(|state| state.pml4 != pml4);
-}
-
-/// Inherit signal state across `fork`: dispositions, blocked mask and alt stack
-/// copy over; a fresh process starts with nothing pending. Ignored signals stay
-/// ignored, exactly like Linux; installed handlers are inherited too.
-pub fn fork_inherit(parent: u64, child: u64) {
-    let mut all = SIGNALS.lock();
-    let inherited = match all.iter().find(|state| state.pml4 == parent) {
-        Some(state) => {
-            let mut copy = Signals::new(child);
-            copy.blocked = state.blocked;
-            copy.actions = state.actions;
-            copy.altstack = state.altstack;
-            copy
-        }
-        None => Signals::new(child),
-    };
-    all.retain(|state| state.pml4 != child);
-    all.push(inherited);
-}
-
 /// The `(pml4, kind)` of a live slot.
 fn slot_info(slot: usize) -> Option<(u64, Kind)> {
     let tasks = TASKS.lock();
@@ -241,210 +166,6 @@ fn current_info() -> Option<(usize, u64)> {
     slot_info(slot).map(|(pml4, _)| (slot, pml4))
 }
 
-/// Dispositions and masks for the Linux shim (`rt_sigaction`/`procmask`/
-/// `sigaltstack`). All of these resolve the slot to its process first, then
-/// touch only the signal registry: the lock order is always task table ->
-/// signal registry, never the reverse.
-pub fn action(slot: usize, sig: u8) -> Disposition {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return Disposition::Default;
-    };
-    with_signals(pml4, |state| state.actions[sig as usize])
-}
-
-pub fn set_action(slot: usize, sig: u8, disposition: Disposition) -> Result<(), SignalError> {
-    if sig as usize >= NSIG {
-        return Err(SignalError::Invalid);
-    }
-    if sig == SIGKILL || sig == SIGSTOP {
-        return Err(SignalError::Invalid);
-    }
-    if let Disposition::Handler {
-        handler, restorer, ..
-    } = disposition
-    {
-        if handler != SIG_DFL && handler != SIG_IGN && restorer == 0 {
-            // musl always passes a restorer; without one the handler could not
-            // return into `rt_sigreturn`, and we do not map a vsyscall page.
-            return Err(SignalError::Invalid);
-        }
-    }
-    let Some((pml4, _)) = slot_info(slot) else {
-        return Err(SignalError::NoSuchProcess);
-    };
-    with_signals(pml4, |state| state.actions[sig as usize] = disposition);
-    Ok(())
-}
-
-pub fn blocked(slot: usize) -> u64 {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return 0;
-    };
-    with_signals(pml4, |state| state.blocked)
-}
-
-pub fn set_blocked(slot: usize, mask: u64) {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return;
-    };
-    with_signals(pml4, |state| state.blocked = clean_mask(mask));
-}
-
-/// Start an `rt_sigsuspend`: remember the current mask (restored after the
-/// handler it wakes for) and install `temp` in its place.
-pub fn suspend_begin(slot: usize, temp: u64) {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return;
-    };
-    with_signals(pml4, |state| {
-        // A nested suspend keeps the outermost mask.
-        if state.suspend_restore.is_none() {
-            state.suspend_restore = Some((slot, state.blocked));
-        }
-        state.blocked = clean_mask(temp);
-    });
-}
-
-/// End a suspend that no handler frame consumed: put the replaced mask back.
-/// A no-op when none is outstanding. (The syscall path uses
-/// [`suspend_end_for`] from `deliver_linux`; this slot-keyed form is the tests'.)
-#[cfg(lazyos_tests)]
-pub fn suspend_end(slot: usize) {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return;
-    };
-    suspend_end_for(pml4, slot);
-}
-
-/// Test view of a sibling thread's syscall return: try to end `slot`'s suspend
-/// as if task `other` (sharing its address space) had run `deliver_linux`.
-#[cfg(lazyos_tests)]
-pub fn suspend_end_as_other(slot: usize, other: usize) {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return;
-    };
-    suspend_end_for(pml4, other);
-}
-
-/// [`suspend_end`] for a task already identified by its address space: only the
-/// suspend that `slot` began is ended.
-pub(super) fn suspend_end_for(pml4: u64, slot: usize) {
-    with_signals(pml4, |state| {
-        if let Some((owner, mask)) = state.suspend_restore {
-            if owner == slot {
-                state.suspend_restore = None;
-                state.blocked = clean_mask(mask);
-            }
-        }
-    });
-}
-
-/// Whether `rt_sigsuspend` may return: a signal the current mask lets through
-/// is pending *and* its action is not "ignore" (POSIX: the call returns only
-/// after a handler runs or the process terminates). Pending signals that would
-/// be ignored are discarded here so they cannot end the wait.
-pub fn suspend_wake_ready(slot: usize) -> bool {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return false;
-    };
-    with_signals(pml4, |state| loop {
-        let ready = state.pending & !state.blocked;
-        let Some(sig) = lowest_signal(ready) else {
-            return false;
-        };
-        let ignored = match state.actions[sig as usize] {
-            Disposition::Ignore => true,
-            Disposition::Default => matches!(
-                default_action(sig),
-                DefaultAction::Ignore | DefaultAction::Cont
-            ),
-            Disposition::Handler { .. } => false,
-        };
-        if !ignored {
-            return true;
-        }
-        state.pending &= !bit(sig);
-    })
-}
-
-pub fn altstack(slot: usize) -> AltStack {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return AltStack::DISABLED;
-    };
-    with_signals(pml4, |state| state.altstack)
-}
-
-/// Install an alternate stack. Returns [`SignalError::Invalid`] for a stack
-/// Linux would reject: `SS_DISABLE` is always fine, otherwise the range must be
-/// non-empty, at least [`MINSIGSTKSZ`] bytes, and lie wholly in user space.
-pub fn set_altstack(slot: usize, stack: AltStack) -> Result<(), SignalError> {
-    if stack.enabled
-        && (stack.sp == 0
-            || stack.size < MINSIGSTKSZ
-            || harden::altstack_top(stack.sp, stack.size).is_none())
-    {
-        return Err(SignalError::Invalid);
-    }
-    let Some((pml4, _)) = slot_info(slot) else {
-        return Err(SignalError::NoSuchProcess);
-    };
-    with_signals(pml4, |state| state.altstack = stack);
-    Ok(())
-}
-
-#[allow(dead_code)] // introspection used by the in-kernel tests
-pub fn pending(slot: usize) -> u64 {
-    let Some((pml4, _)) = slot_info(slot) else {
-        return 0;
-    };
-    with_signals(pml4, |state| state.pending)
-}
-
-/// Whether `slot`'s process is being killed: `SIGKILL` is pending (a kill,
-/// or the group exit a fatal signal started). A task parked inside the kernel
-/// is not ended where it sleeps (it may hold a lock or a request slot); it is
-/// woken with [`WakeReason::Interrupted`] and dies on its way back to user
-/// mode. A kernel wait that would otherwise park again after such a wake
-/// checks this so the task gets there.
-pub fn killed(slot: usize) -> bool {
-    if slot == KERNEL_TASK {
-        return false;
-    }
-    let Some((pml4, _)) = slot_info(slot) else {
-        return false;
-    };
-    // A lookup, not `with_signals`: every wait asks, and must not create
-    // registry entries for processes that never used signals.
-    SIGNALS
-        .lock()
-        .iter()
-        .find(|state| state.pml4 == pml4)
-        .is_some_and(|state| state.pending & bit(SIGKILL) != 0)
-}
-
-/// `execve` replaced address space `old` with `new`: a kill that was pending
-/// for the old image (the task was parked loading the new one) carries over,
-/// so the new image dies on its first return to user mode instead of
-/// escaping the kill.
-pub fn carry_kill(old: u64, new: u64) {
-    let exit = {
-        let all = SIGNALS.lock();
-        let Some(state) = all
-            .iter()
-            .find(|state| state.pml4 == old && state.pending & bit(SIGKILL) != 0)
-        else {
-            return;
-        };
-        state.group_exit
-    };
-    with_signals(new, |state| {
-        state.pending |= bit(SIGKILL);
-        if state.group_exit.is_none() {
-            state.group_exit = exit;
-        }
-    });
-}
-
 /// The thread group id of a slot: Linux reports the leader's pid, and LazyOS
 /// pids are slots, so the group is identified by the lowest occupied slot that
 /// shares the address space (the leader spawned before any thread).
@@ -456,18 +177,4 @@ pub fn tgid_of(slot: usize) -> usize {
     (0..MAX_TASKS)
         .find(|&index| tasks[index].as_ref().is_some_and(|task| task.pml4 == pml4))
         .unwrap_or(slot)
-}
-
-/// Test-harness hooks (issue #62): reset the registry between tests.
-#[cfg(lazyos_tests)]
-pub mod harness {
-    /// Clear all process signal state.
-    pub fn reset() {
-        super::SIGNALS.lock().clear();
-    }
-
-    /// Number of process entries (leak check for tests).
-    pub fn registry_len() -> usize {
-        super::SIGNALS.lock().len()
-    }
 }

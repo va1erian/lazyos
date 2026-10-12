@@ -46,6 +46,7 @@ pub fn spawn_kernel_thread(
     let pass = virtual_now(&tasks);
     credentials::reset_for_task(index);
     fpu::reset(index);
+    signal::thread_born(index, None);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,

@@ -28,6 +28,7 @@ Tooling that measures how far LazyOS is from running prebuilt
 | `memstress` | Allocator growth, `brk`, `mmap`/`mprotect`/`munmap`, `mremap`. |
 | `procstress` | `std::process` spawn with pipes, exit status, environment. |
 | `sigstress` | Signal masks, handlers and delivery. |
+| `threadsig` | Per-thread signal masks and thread-directed signals, JavaScriptCore's stop-the-world pattern (issue #772): 8 threads, each sent `SIGUSR1` with `pthread_kill`; every handler must run on the thread it was aimed at and park on a futex (all eight at once, so one handler's blocked signal must not hold it back from the others) until the collector releases it, 1000 rounds; then a process-directed `SIGUSR2` the main thread blocks must be handled by another thread. |
 | `epollstress` | `eventfd` + `epoll` level/edge readiness, timeouts, add/mod/del. |
 | `msgpoll` | A Messenger endpoint (`ENDPOINT_FD`, `lazyos_sys::msg::Pollable`) and a `UnixStream` in one `epoll` set: each wakes it alone, a message sent by another thread wakes a blocked `epoll_wait(-1)`, a drained endpoint goes quiet, a closed peer reads `EPOLLIN \| EPOLLHUP` (issue #667). Each step prints `ABI:msgpoll:STEP:<name>`. |
 | `unixstress` | `UnixStream` pair/EOF/shutdown, pathname bind/connect/accept, `SOCK_SEQPACKET` boundaries. |

@@ -94,6 +94,7 @@ mod fs_base;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+mod kernel_task;
 #[cfg(lazyos_tests)]
 pub mod kthread;
 mod kstack;
@@ -118,6 +119,7 @@ pub use fdlimit::*;
 pub use fdops::*;
 pub use fdtable::{fd_max, FdTable};
 pub use fdtypes::*;
+pub use kernel_task::register_kernel;
 pub use lifecycle::*;
 pub use linuxstate::{LinuxExtras, ThreadShare};
 pub use memstate::*;

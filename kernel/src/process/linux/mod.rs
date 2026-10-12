@@ -306,6 +306,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         112 => procctl::sys_setsid(),                   // setsid
         121 => procctl::sys_getpgid(a1),                // getpgid
         124 => procctl::sys_getsid(a1),                 // getsid
+        127 => sig::sys_rt_sigpending(a1, a2),          // rt_sigpending(set, size)
         130 => sig::sys_rt_sigsuspend(a1, a2),          // rt_sigsuspend(mask, size)
         131 => sig::sys_sigaltstack(a1, a2),
         132 => attr::sys_utime(a1, a2),      // utime(path, times)

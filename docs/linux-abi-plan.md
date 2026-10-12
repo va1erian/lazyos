@@ -38,7 +38,16 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   its group leader; `/proc/self/exe` names the running program.
 > * **signals**: `SA_RESTART` restarts interrupted transfers, waits and lock
 >   calls; `pause`; `ppoll`/`pselect6`/`epoll_pwait` install their mask like
->   `sigsuspend`.
+>   `sigsuspend`. **Per-thread signals** (issue #772): the blocked mask and the
+>   alternate stack belong to a thread (a new thread inherits its creator's
+>   mask, `fork` the calling thread's, `execve` keeps it), `tkill`/`tgkill`,
+>   `SIGPIPE` and faults queue on the thread's own pending set and run the
+>   handler on that thread alone (waking only it), `kill`/`SIGCHLD`/the
+>   terminal's signals wait in the process's shared set and go to one thread
+>   that does not block them (the target first), dispositions stay per process
+>   and a fatal default ends the whole group; `rt_sigpending` reports the
+>   union. This is what a JavaScriptCore-style stop-the-world needs (the
+>   `threadsig` fixture; `compat_threadsig_*` kernel tests).
 > * **terminals**: a real line discipline (`kernel/src/tty/`) with
 >   `TCGETS`/`TCSETS*`, canonical editing and echo, `VMIN`/`VTIME`, `ISIG`
 >   to the foreground group (`TIOCSPGRP`), window size; pseudo-terminals
@@ -67,8 +76,8 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   `EINVAL` (what `realpath` needs).
 >
 > Still missing, by how much software it blocks: dynamic linking (static-PIE
-> and static binaries only); a per-thread signal mask and per-thread signal
-> targeting (both still per process); `timerfd`/`signalfd`/`inotify`/
+> and static binaries only); `rt_sigtimedwait`/`sigqueue` payloads;
+> `timerfd`/`signalfd`/`inotify`/
 > `memfd_create`; `alarm`/`setitimer`; descriptor passing (`SCM_RIGHTS`);
 > `SIGTTIN`/`SIGTTOU` job-control stops; symlinks and hard links in the
 > filesystems; record locks are not dropped when *one* descriptor of the file

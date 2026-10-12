@@ -1,4 +1,4 @@
-//! Task creation: kernel task, spawn, threads, fork and initial frames.
+//! Task creation: spawn, threads, fork and initial frames.
 //!
 //! A program's address space is built (and its image streamed in from disk)
 //! before the task table is locked: loading touches the filesystem, which must
@@ -7,40 +7,6 @@
 use super::*;
 use crate::process::image::Image;
 
-/// Register the kernel task (the multiplexer running in ring 0).
-pub fn register_kernel() {
-    let mut tasks = TASKS.lock();
-    tasks[KERNEL_TASK] = Some(Task {
-        name: "kernel",
-        kind: Kind::Native,
-        pml4: mem::kernel_table().as_u64(),
-        kstack_top: 0,
-        kstack: None,
-        rsp: 0,
-        state: TaskState::Runnable,
-        // The multiplexer serves input and painting: an interactive workload.
-        // `mux::run` parks it between frames, which bounds its CPU share.
-        class: PriorityClass::Interactive,
-        weight: PriorityClass::Interactive.default_weight(),
-        pass: 0,
-        cpu_ticks: 0,
-        wake_reason: None,
-        clear_child_tid: 0,
-        parent: 0,
-        pgid: KERNEL_TASK,
-        sid: KERNEL_TASK,
-        exit_status: 0,
-        heap_break: 0,
-        fs_base: 0,
-        fds: FdTable::standard(),
-        cwd: None,
-        linux: LinuxExtras::default(),
-        output: Vec::new(),
-        input: VecDeque::new(),
-        guard: guard::State::new(),
-    });
-    super::runq::sync(&tasks, KERNEL_TASK);
-}
 /// Create a user task from an ELF image. Returns its slot index.
 ///
 /// The program is started by the kernel: it has no parent and leads its own
@@ -188,6 +154,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     // A new program starts with clean x87/SSE registers, not the slot's
     // previous owner's.
     fpu::reset(index);
+    signal::thread_born(index, None);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Native,
@@ -292,6 +259,9 @@ pub fn spawn_thread_sharing(
     // Like its registers, a thread's floating-point state starts as its
     // creator's.
     fpu::inherit_live(index);
+    // A thread starts with its creator's blocked mask, nothing pending and no
+    // alternate stack (Linux `clone`).
+    signal::thread_born(index, Some(creator));
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,
@@ -432,6 +402,9 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // POSIX `fork` inherits dispositions, the calling thread's blocked mask
+    // and alternate stack; pending signals do not cross the fork.
+    signal::fork_inherit(parent_index, pml4, index, child_table.as_u64());
     drop(tasks);
 
     // The child's break and mmap cursor continue where the parent's are.
@@ -441,9 +414,6 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
             ..bump
         });
     }
-    // POSIX `fork` inherits dispositions, the blocked mask and the alternate
-    // stack; pending signals do not cross the fork.
-    signal::fork_inherit(pml4, child_table.as_u64());
     Ok(index)
 }
 

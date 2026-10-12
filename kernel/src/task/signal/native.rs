@@ -26,14 +26,14 @@ use super::*;
 /// Linux syscall's return), a default-fatal signal ends the task here.
 pub fn native_fatal_pending(slot: usize) -> Option<u8> {
     let (pml4, _) = slot_info(slot)?;
-    while let Some((sig, disposition)) = next_deliverable(pml4) {
+    while let Some((sig, disposition)) = next_deliverable(pml4, slot) {
         match (disposition, default_action(sig)) {
             (Disposition::Default, DefaultAction::Term | DefaultAction::Core) => {
                 return Some(sig);
             }
             (Disposition::Ignore, _)
             | (Disposition::Default, DefaultAction::Ignore | DefaultAction::Cont) => {
-                clear_pending(pml4, sig);
+                clear_pending(pml4, slot, sig);
             }
             // A stop, or a handler a native task cannot have installed: the
             // scheduler's sweep owns those.

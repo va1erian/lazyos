@@ -389,6 +389,11 @@ pub fn frame_regs(slot: usize) -> Option<super::signal::UserRegs> {
     Some(unsafe { super::signal::regs_from_frame(frame, super::signal::FRAME_RIP_INDEX) })
 }
 
+/// The saved-frame pointer of `slot` (what a fault handler is handed).
+pub fn frame_base(slot: usize) -> Option<u64> {
+    frame_of(slot)
+}
+
 /// The saved-frame pointer of `slot`.
 fn frame_of(slot: usize) -> Option<u64> {
     TASKS.lock()[slot].as_ref().map(|task| task.rsp)
@@ -446,8 +451,8 @@ pub(super) fn run_nap_hook() {
 }
 
 /// Wake `index` from its wait with `Interrupted`, as a deliverable signal
-/// does (`signal::wake_blocked_threads` skips the kernel task, which the
-/// suite runs as).
+/// does (`signal::wake_blocked_thread` is for a signal's own wake; this
+/// one serves the suite's kernel task).
 pub fn interrupt(index: usize) {
     super::wake_task_with(index, WakeReason::Interrupted);
 }

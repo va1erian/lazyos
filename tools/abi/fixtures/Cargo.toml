@@ -58,6 +58,12 @@ path = "src/bigapp.rs"
 name = "sigstress"
 path = "src/sigstress.rs"
 
+# Per-thread signal masks and thread-directed signals: the JavaScriptCore
+# stop-the-world pattern (issue #772).
+[[bin]]
+name = "threadsig"
+path = "src/threadsig.rs"
+
 [[bin]]
 name = "epollstress"
 path = "src/epollstress.rs"

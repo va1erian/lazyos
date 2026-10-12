@@ -8,7 +8,7 @@
 
 use super::{
     apply_regs_to_frame, arm_handler, bit, current_info, prepare_handler, regs_from_frame,
-    with_signals, Disposition, Kind, SigInfo, FPE_INTDIV, ILL_ILLOPC, SA_SIGINFO, SEGV_ACCERR,
+    with_both, Disposition, Kind, SigInfo, FPE_INTDIV, ILL_ILLOPC, SA_SIGINFO, SEGV_ACCERR,
     SEGV_MAPERR, SIGFPE, SIGILL, SIGSEGV, SI_KERNEL, TASKS,
 };
 
@@ -94,14 +94,20 @@ fn deliver(frame_rsp: u64, rip_index: usize, sig: u8, info: SigInfo) -> bool {
     };
     // A synchronous fault cannot wait for an unblock: the instruction would
     // just fault again. Linux force-kills instead, and so do we.
-    let deliverable = with_signals(pml4, |state| {
-        matches!(state.actions[sig as usize], Disposition::Handler { .. })
-            && state.blocked & bit(sig) == 0
+    // The fault belongs to this thread: its mask decides, and the signal
+    // waits in (and is taken from) its own pending set.
+    let deliverable = with_both(pml4, slot, |state, thread| {
+        let deliverable = matches!(state.actions[sig as usize], Disposition::Handler { .. })
+            && thread.blocked & bit(sig) == 0;
+        if deliverable {
+            thread.pending |= bit(sig);
+            thread.infos[sig as usize] = info;
+        }
+        deliverable
     });
     if !deliverable {
         return false;
     }
-    with_signals(pml4, |state| state.infos[sig as usize] = info);
     let Some(armed) = arm_handler(pml4, slot, sig) else {
         return false;
     };

@@ -19,6 +19,7 @@ mod readthrough;
 mod resources;
 mod select;
 mod termios;
+mod threadsig;
 mod wait;
 
 use ctty::*;
@@ -32,6 +33,7 @@ use ptyflow::*;
 use resources::*;
 use select::*;
 use termios::*;
+use threadsig::*;
 use wait::*;
 
 /// `-errno` as the dispatcher returns it.
@@ -211,6 +213,39 @@ pub(super) const CASES: &[(&str, Test)] = &[
         terminal_signal_stays_in_session,
     ),
     ("compat_terminal_signal_soak", terminal_signal_soak),
+    (
+        "compat_threadsig_masks_belong_to_threads",
+        threadsig_masks_belong_to_threads,
+    ),
+    (
+        "compat_threadsig_tgkill_targets_one_thread",
+        threadsig_tgkill_targets_one_thread,
+    ),
+    (
+        "compat_threadsig_kill_lands_on_unblocked_thread",
+        threadsig_kill_lands_on_unblocked_thread,
+    ),
+    (
+        "compat_threadsig_wakes_only_the_target",
+        threadsig_wakes_only_the_target,
+    ),
+    (
+        "compat_threadsig_sigpending_is_the_union",
+        threadsig_sigpending_is_the_union,
+    ),
+    (
+        "compat_threadsig_fault_uses_the_faulting_threads_mask",
+        threadsig_fault_uses_the_faulting_threads_mask,
+    ),
+    (
+        "compat_threadsig_fatal_default_ends_the_group",
+        threadsig_fatal_default_ends_the_group,
+    ),
+    (
+        "compat_threadsig_recycled_slot_starts_clean",
+        threadsig_recycled_slot_starts_clean,
+    ),
+    ("compat_threadsig_soak", threadsig_soak),
     (
         "compat_ramfs_opens_read_through",
         readthrough::ramfs_opens_read_through,

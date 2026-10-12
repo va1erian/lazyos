@@ -112,6 +112,7 @@ fn spawn_linux_in<I: Image + ?Sized>(
     }
     // A new program starts with clean x87/SSE registers.
     fpu::reset(index);
+    signal::thread_born(index, None);
     tasks[index] = Some(Task {
         name,
         kind: Kind::Linux,

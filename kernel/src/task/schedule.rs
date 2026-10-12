@@ -166,6 +166,18 @@ pub(super) fn flag_finished(tasks: &[Option<Task>; MAX_TASKS], cur: usize) {
 /// else is runnable, exactly as in `select_next`.
 fn resume(mut next: usize, cur: usize) -> u64 {
     loop {
+        // The sweep's group exit (`finish_sweep`) runs after `next` was
+        // chosen and may have ended it: pick again rather than resume a
+        // finished task into user mode.
+        {
+            let mut tasks = TASKS.lock();
+            if next != cur && !runnable(&tasks, next) {
+                next = select_next(&mut tasks, cur);
+                if !runnable(&tasks, next) {
+                    next = cur;
+                }
+            }
+        }
         let rsp = install(next);
         let Some(ended) = signal::deliver_on_resume(next) else {
             return rsp;

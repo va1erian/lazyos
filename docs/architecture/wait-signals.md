@@ -30,8 +30,18 @@ delivery.
 
 **Signal state** (`signal.rs`, issue #60)
 
-- Per **process** (keyed by `pml4`), not per thread: `pending`, `blocked`,
-  `actions[NSIG]`, `infos[NSIG]`, `altstack`, `on_altstack`. `NSIG = 65`.
+- Split as POSIX threads split it (`signal/registry.rs`, issue #772). Per
+  **process** (`Signals`, keyed by `pml4`, a `Vec`): the dispositions
+  `actions[NSIG]`, the shared `pending` set of process-directed signals (and
+  its `infos[NSIG]`), `group_exit`. Per **thread** (`ThreadSig`, a fixed
+  `[ThreadSig; MAX_TASKS]` in `.bss` indexed by task slot): `blocked`, the
+  thread's own `pending` set (and `infos[NSIG]`), `altstack`, `on_altstack`,
+  `suspend_restore`. `NSIG = 65`. Locks: task table, then the process table,
+  then the thread table. A slot's `ThreadSig` is reset when its task is
+  created (`thread_born`, `fork_inherit`), so a recycled slot starts clean; a
+  thread starts with its creator's mask and no alternate stack, a `fork` child
+  with the calling thread's mask and alternate stack, `execve` keeps the mask
+  and pending set (`exec_thread`).
 - `Disposition`: `Default`, `Ignore`, or `Handler { handler, flags, restorer,
   mask }`. `SIGKILL`/`SIGSTOP` are uncatchable (`UNCATCHABLE`).
 - `SIGKILL` and a task parked inside the kernel (#558): a task whose saved
@@ -45,9 +55,21 @@ delivery.
   `execve` carries a pending kill over to the new image.
 - `default_action` classifies term / core / stop / cont / ignore.
 - `kill` implements Linux pid encoding: pid, 0 (own group), -1 (all but init),
-  negative (process group). `send_tid`/`kill` share `send_to_slot`.
-- Fatal signals terminate the whole thread group (`terminate_process`); stop
-  signals park every live thread until `SIGCONT`. `SIGCHLD` is recorded even
+  negative (process group). `kill` and the kernel's signals (`SIGCHLD`, the
+  terminal's) are **process-directed** (`send_to_slot`): the bit goes in the
+  shared set and one live thread that does not block it is woken (the target
+  slot first, else the lowest slot, Linux's `complete_signal`); whichever such
+  thread reaches a delivery boundary first takes it, and it stays pending
+  while every thread blocks it. `tkill`/`tgkill`/`SIGPIPE` are
+  **thread-directed** (`send_to_thread`/`send_tid`): the bit goes in the
+  target's own set, only the target is woken, and no other thread takes it,
+  whatever its mask. A synchronous fault (`deliver_fault`) is the faulting
+  thread's too: its own mask decides. Delivery (`next_deliverable`) looks at
+  the thread's set plus the shared one, less the thread's mask; `SIGKILL`
+  first. `rt_sigpending` reports that union restricted to the thread's mask.
+- Fatal signals terminate the whole thread group (`terminate_process`, and
+  the timer sweep's `finish_sweep` ends the rest of the group of a thread it
+  killed); stop signals park every live thread until `SIGCONT`. `SIGCHLD` is recorded even
   under its default-ignore disposition (`post_sigchld`).
 
 **Delivery boundaries**
@@ -76,8 +98,11 @@ delivery.
 
 **Invariants / decisions**
 
-- The blocked mask and pending set are process-wide, a documented simplification
-  of Linux's per-thread model.
+- A process-directed signal can wake the target thread and be taken by a
+  sibling first (the sweep delivers to whichever runnable thread it meets):
+  the woken thread then returns `EINTR` with nothing to deliver, as before this
+  split every sleeping thread did. Handler stacks: `on_altstack` is set when a
+  handler enters the alternate stack and is not cleared again (pre-existing).
 - Kernel signal sets use bit `1 << sig`; Linux `sigset_t` uses bit `sig - 1`.
   `linux_sigset_to_kernel`/`kernel_to_linux_sigset` translate at every Linux
   ABI boundary (`rt_sigaction` `sa_mask`, `rt_sigprocmask` set/oldset, and the
@@ -91,7 +116,13 @@ delivery.
   resets `blocked` composition through `arm_handler`.
 
 **Status.** Working: `kill`/`tkill`/`tgkill`, masks, alt stacks, handlers,
-`SIGSEGV` on unresolvable faults, stop/cont, `SIGCHLD` to `wait4`. Missing:
-`sigqueue` payloads, per-thread masks, `SIGTTIN`/`SIGTTOU`. The terminal
+`SIGSEGV` on unresolvable faults, stop/cont, `SIGCHLD` to `wait4`, per-thread
+masks and thread-directed signals. Missing: `sigqueue` payloads,
+`rt_sigtimedwait`, `SIGTTIN`/`SIGTTOU`. Tests: the signal suite
+(`signal_suite/`) and `linux_compat_suite/threadsig*` (per-thread masks,
+`tgkill` targeting, process signals landing on an unblocked thread, wake
+targeting, `rt_sigpending`, faults, group exit, slot recycling, a 3000-signal
+soak), plus the `threadsig` ABI fixture (JavaScriptCore's stop-the-world:
+8 threads, `pthread_kill`, 1000 rounds). The terminal
 layer (`kernel/src/tty/`) sends `SIGINT`/`SIGQUIT`/`SIGTSTP` to the foreground
 group and `SIGHUP` when a pty's master closes, `SIGWINCH` on a resize.

@@ -2,16 +2,38 @@
 
 use super::*;
 
-/// Queue `sig` for `target` (a thread; process state is shared) and, for
-/// actionable signals, wake a blocked thread so the event reaches a syscall
-/// boundary. Uncachable signals act immediately.
+/// Who a signal is aimed at, and so which pending set it waits in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Scope {
+    /// The process `target` belongs to (`kill`, `SIGCHLD`, the terminal): the
+    /// shared set, taken by one thread that does not block it.
+    Process,
+    /// The thread `target` and no other (`tkill`/`tgkill`, `SIGPIPE`): its own
+    /// set, taken by that thread alone, whatever its siblings block.
+    Thread,
+}
+
+/// Queue `sig` for the process of `target` and, for actionable signals, wake
+/// one blocked thread that may take it so the event reaches a syscall
+/// boundary. Uncatchable signals act immediately.
 pub fn send_to_slot(
     caller: usize,
     target: usize,
     sig: u8,
     info: SigInfo,
 ) -> Result<(), SignalError> {
-    send_checked(caller, target, sig, info, None)
+    send_checked(caller, target, sig, info, None, Scope::Process)
+}
+
+/// Queue `sig` for thread `target` alone (`tkill`/`tgkill`, a `SIGPIPE`): it is
+/// delivered on that thread and wakes that thread, no other.
+pub fn send_to_thread(
+    caller: usize,
+    target: usize,
+    sig: u8,
+    info: SigInfo,
+) -> Result<(), SignalError> {
+    send_checked(caller, target, sig, info, None, Scope::Thread)
 }
 
 /// The process group and session a terminal's signal is meant for. The
@@ -24,16 +46,17 @@ pub struct Expect {
     pub sid: usize,
 }
 
-/// [`send_to_slot`], refusing (`NoSuchProcess`) a target that no longer
-/// matches `expect`. The match is taken under the task-table lock together
-/// with the address space the signal is then queued on, so the identity
-/// checked is the identity signalled.
+/// [`send_to_slot`] / [`send_to_thread`] (by `scope`), refusing
+/// (`NoSuchProcess`) a target that no longer matches `expect`. The match is
+/// taken under the task-table lock together with the address space the signal
+/// is then queued on, so the identity checked is the identity signalled.
 pub(super) fn send_checked(
     caller: usize,
-    target: usize,
+    mut target: usize,
     sig: u8,
     info: SigInfo,
     expect: Option<Expect>,
+    scope: Scope,
 ) -> Result<(), SignalError> {
     if sig as usize >= NSIG {
         return Err(SignalError::Invalid);
@@ -49,7 +72,9 @@ pub(super) fn send_checked(
     if sig == 0 {
         return Ok(());
     }
-    // A signal to a zombie is dropped, like Linux.
+    // A signal to a zombie is dropped, like Linux. A process-directed one
+    // aimed at an exited thread (the group leader may leave first) goes to a
+    // live thread of the same process instead.
     {
         let tasks = TASKS.lock();
         let task = tasks[target].as_ref();
@@ -62,7 +87,13 @@ pub(super) fn send_checked(
             }
         }
         if task.is_some_and(|task| task.state == TaskState::Done) {
-            return Ok(());
+            let sibling = (scope == Scope::Process)
+                .then(|| live_thread_of(&tasks, pml4))
+                .flatten();
+            match sibling {
+                Some(sibling) => target = sibling,
+                None => return Ok(()),
+            }
         }
     }
     let info = SigInfo {
@@ -102,14 +133,10 @@ pub(super) fn send_checked(
         return Ok(());
     }
 
-    let blocked_now = with_signals(pml4, |state| {
-        state.pending |= bit(sig);
-        state.infos[sig as usize] = info;
-        state.blocked & bit(sig) != 0
-    });
-    if blocked_now {
+    let Some(taker) = queue(pml4, target, sig, info, scope) else {
+        // Queued, but every thread that could take it blocks it for now.
         return Ok(());
-    }
+    };
     let stop_default =
         disposition == Disposition::Default && default_action(sig) == DefaultAction::Stop;
     if stop_default {
@@ -119,9 +146,83 @@ pub(super) fn send_checked(
     // Only a handler (or a term/core default) can run user code, so only those
     // interrupt a blocking syscall. `SIGCHLD` with default ignore stays quiet.
     if !ignored {
-        wake_blocked_threads(pml4);
+        wake_blocked_thread(taker);
     }
     Ok(())
+}
+
+/// A live task of address space `pml4`, if any thread of it still runs.
+fn live_thread_of(tasks: &[Option<Task>; MAX_TASKS], pml4: u64) -> Option<usize> {
+    (1..MAX_TASKS).find(|&slot| {
+        tasks[slot]
+            .as_ref()
+            .is_some_and(|task| task.pml4 == pml4 && task.state != TaskState::Done)
+    })
+}
+
+/// Put `sig` in the pending set `scope` names and return the thread that
+/// should be woken for it: `target` itself for a thread-directed signal
+/// (`None` while that thread blocks it), and for a process-directed one the
+/// target thread if it may take the signal, else the first thread of the
+/// process that may (`None` when all block it: it waits in the shared set
+/// until one unblocks).
+fn queue(pml4: u64, target: usize, sig: u8, info: SigInfo, scope: Scope) -> Option<usize> {
+    match scope {
+        Scope::Thread => with_thread(target, |thread| {
+            thread.pending |= bit(sig);
+            thread.infos[sig as usize] = info;
+            (thread.blocked & bit(sig) == 0).then_some(target)
+        }),
+        Scope::Process => {
+            with_signals(pml4, |state| {
+                state.pending |= bit(sig);
+                state.infos[sig as usize] = info;
+            });
+            eligible_thread(pml4, target, sig)
+        }
+    }
+}
+
+/// The thread a process-directed `sig` should go to: `preferred` if it is live
+/// and does not block `sig`, else the lowest live slot of the process that does
+/// not (Linux's `complete_signal`, which also tries the target thread first).
+fn eligible_thread(pml4: u64, preferred: usize, sig: u8) -> Option<usize> {
+    let mut slots = SlotList::new();
+    {
+        let tasks = TASKS.lock();
+        let live = |slot: usize| {
+            tasks[slot]
+                .as_ref()
+                .is_some_and(|task| task.pml4 == pml4 && task.state != TaskState::Done)
+        };
+        if live(preferred) {
+            slots.push(preferred);
+        }
+        for slot in 1..MAX_TASKS {
+            if slot != preferred && live(slot) {
+                slots.push(slot);
+            }
+        }
+    }
+    peek(|_, threads| {
+        slots
+            .iter()
+            .find(|&slot| threads[slot].blocked & bit(sig) == 0)
+    })
+}
+
+/// Interrupt `slot` if it is parked in a blocking call, so the call returns
+/// `EINTR` at a point where the signal can be delivered on that thread. A
+/// thread parked as stopped stays parked until `SIGCONT`; every other queue is
+/// fine to wake directly because the waiter re-reads its state through
+/// `take_wake_reason`.
+pub(super) fn wake_blocked_thread(slot: usize) {
+    let parked = TASKS.lock()[slot].as_ref().is_some_and(
+        |task| matches!(task.state, TaskState::Blocked { wait, .. } if wait != WaitKind::Signal),
+    );
+    if parked {
+        wake_task_with(slot, WakeReason::Interrupted);
+    }
 }
 
 /// Kill the process `pml4` (Linux's group exit), the way `SIGKILL` does.
@@ -259,52 +360,34 @@ pub(super) fn stop_process(pml4: u64) {
 /// Resume every task sharing `pml4` that a stop signal parked. Pending stop
 /// signals are discarded: a `SIGCONT` cancels them, like Linux.
 pub(super) fn continue_process(pml4: u64) {
-    with_signals(pml4, |state| {
-        state.pending &=
-            !(bit(SIGSTOP) | bit(SIGTSTP) | bit(SIGTTIN) | bit(SIGTTOU) | bit(SIGCONT));
-    });
-    let mut slots = SlotList::new();
+    const STOPS: u64 =
+        (1 << SIGSTOP) | (1 << SIGTSTP) | (1 << SIGTTIN) | (1 << SIGTTOU) | (1 << SIGCONT);
+    with_signals(pml4, |state| state.pending &= !STOPS);
+    let mut stopped = SlotList::new();
+    let mut threads = SlotList::new();
     {
         let tasks = TASKS.lock();
         for slot in 1..MAX_TASKS {
-            if tasks[slot].as_ref().is_some_and(|task| {
-                task.pml4 == pml4
-                    && matches!(
-                        task.state,
-                        TaskState::Blocked {
-                            wait: WaitKind::Signal,
-                            ..
-                        }
-                    )
-            }) {
-                slots.push(slot);
+            let Some(task) = tasks[slot].as_ref().filter(|task| task.pml4 == pml4) else {
+                continue;
+            };
+            threads.push(slot);
+            if matches!(
+                task.state,
+                TaskState::Blocked {
+                    wait: WaitKind::Signal,
+                    ..
+                }
+            ) {
+                stopped.push(slot);
             }
         }
     }
-    for slot in slots.iter() {
+    for slot in threads.iter() {
+        with_thread(slot, |thread| thread.pending &= !STOPS);
+    }
+    for slot in stopped.iter() {
         wake_task_with(slot, WakeReason::Woken);
-    }
-}
-
-/// Wake blocked threads of the process so their syscall (or wait loop) can see
-/// the signal. Threads parked as stopped stay parked until `SIGCONT`; every
-/// other queue is fine to wake directly because the waiter re-reads its state
-/// through `take_wake_reason`.
-pub(super) fn wake_blocked_threads(pml4: u64) {
-    let mut slots = SlotList::new();
-    {
-        let tasks = TASKS.lock();
-        for slot in 1..MAX_TASKS {
-            if tasks[slot].as_ref().is_some_and(|task| {
-                task.pml4 == pml4
-                    && matches!(task.state, TaskState::Blocked { wait, .. } if wait != WaitKind::Signal)
-            }) {
-                slots.push(slot);
-            }
-        }
-    }
-    for slot in slots.iter() {
-        wake_task_with(slot, WakeReason::Interrupted);
     }
 }
 
@@ -316,12 +399,5 @@ pub fn post_sigchld(parent: usize) {
     if parent == 0 || parent == KERNEL_TASK {
         return;
     }
-    let Some((pml4, _)) = slot_info(parent) else {
-        return;
-    };
-    let disposition = with_signals(pml4, |state| state.actions[SIGCHLD as usize]);
     let _ = send_to_slot(KERNEL_TASK, parent, SIGCHLD, SigInfo::kernel());
-    if matches!(disposition, Disposition::Handler { .. }) {
-        wake_blocked_threads(pml4);
-    }
 }
