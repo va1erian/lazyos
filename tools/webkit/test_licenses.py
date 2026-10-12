@@ -36,6 +36,23 @@ class VerdictTests(unittest.TestCase):
         self.assertIn("openssl", wkpins.NEVER_IN_LAZYWEB)
         self.assertIn("LazyWeb", dep.notes)
 
+    def test_webkit_itself_is_judged_and_registered(self) -> None:
+        dep = wkpins.WEBKIT
+        self.assertIn(dep, licenses.libraries())
+        self.assertEqual(dep.license, "LGPL-2.1-or-later AND BSD-2-Clause")
+        self.assertEqual(self.problem(dep), "")
+        self.assertEqual(licenses.verdict(dep, NETTLS)[:2], (True, True))
+        rows = [row for row in licenses.rows() if row.startswith("| WebKit 2.54.1 |")]
+        self.assertEqual(len(rows), 1)
+        self.assertIn("webprocess", rows[0])
+
+    def test_port_only_libraries_say_they_are_linked_into_the_port(self) -> None:
+        by_name = {row.split("|")[1].strip().split()[0]: row for row in licenses.rows()}
+        for name in ("libwpe", "glstub", "WebKit"):
+            self.assertNotIn("depsproof", by_name[name], name)
+            self.assertIn("/system/bin/webprocess", by_name[name], name)
+        self.assertIn("depsproof", by_name["zlib"])
+
     def test_libpsl_records_the_list_licence_too(self) -> None:
         self.assertEqual(wkpins.BY_NAME["libpsl"].license, "MIT AND MPL-2.0")
 

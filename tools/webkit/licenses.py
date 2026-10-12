@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the licences of the WebKit dependency bundle (``tools/webkit``).
 
-The libraries end up in ``depsproof`` now and in the WebKit binary later
+The libraries end up in ``depsproof`` and, statically, in the WebKit port's programs
 (LGPL-2.1 WebKit, shipped in a GPL-3.0-or-later image), in the spirit of
 ``tools/nettls/licenses.py`` and ``tools/wifi/licenses.py``:
 
@@ -13,7 +13,7 @@ The libraries end up in ``depsproof`` now and in the WebKit binary later
    be linked into LazyWeb (GPL-2.0-only) or the ``nettls`` stack, and LazyWeb's
    sources do not reference this bundle or depend on OpenSSL;
 3. ``THIRD_PARTY.md`` has a row for every library (name, version, full
-   SHA-256, licence expression) and for the embedded font; ``--rows`` prints
+   SHA-256, licence expression), for WebKit itself and for the embedded font; ``--rows`` prints
    the rows to paste;
 4. when ``target/webkit/deps.json`` exists (a build ran), its licences are the
    pins' and none is missing from the allowlist.
@@ -72,7 +72,8 @@ def nettls_licenses():
 
 
 def libraries() -> list[wkpins.Dep]:
-    return [*wkpins.DEPS, *wkpins.BUNDLED]
+    """The bundle's libraries and WebKit itself (the licences of everything that is shipped)."""
+    return [*wkpins.DEPS, *wkpins.BUNDLED, wkpins.WEBKIT]
 
 
 def verdict(dep: wkpins.Dep, nettls) -> tuple[bool, bool, str]:
@@ -98,24 +99,23 @@ def verdict(dep: wkpins.Dep, nettls) -> tuple[bool, bool, str]:
 
 
 def table(nettls) -> list[str]:
-    lines = [f"{"library":<24}{'version':<12}{'licence':<34}{'GPLv2 code':<11}notes"]
+    lines = [f"{"library":<24}{'version':<12}{'licence':<40}{'GPLv2 code':<11}notes"]
     for dep in libraries():
         _, gpl2, _ = verdict(dep, nettls)
-        lines.append(f"{dep.name:<24}{dep.source.version:<12}{dep.license:<34}{'yes' if gpl2 else 'NO':<11}"
+        lines.append(f"{dep.name:<24}{dep.source.version:<12}{dep.license:<40}{'yes' if gpl2 else 'NO':<11}"
                      f"{dep.notes}")
     for data in wkpins.DATA_FILES:
-        lines.append(f"{data.name:<24}{data.version:<12}{data.license:<34}{'(data)':<11}{data.path}")
+        lines.append(f"{data.name:<24}{data.version:<12}{data.license:<40}{'(data)':<11}{data.path}")
     return lines
 
 
 def rows() -> list[str]:
     """The ``THIRD_PARTY.md`` rows: name and version, origin, licence, files."""
-    where = "linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`)"
     out = []
     for dep in libraries():
         extra = f"; {dep.notes}" if dep.notes else ""
         out.append(f"| {dep.name} {dep.source.version} | `{dep.source.url}`, SHA-256 `{dep.source.sha256}` "
-                   f"| {dep.license}{extra} | {where} |")
+                   f"| {dep.license}{extra} | {dep.linked or wkpins.DEPSPROOF_LINK} |")
     for data in wkpins.DATA_FILES:
         out.append(f"| {data.name} {data.version} | `{data.path}` (`assets/manifest.txt`) | {data.license} "
                    f"| compiled into `/system/bin/depsproof` as its test font |")

@@ -414,14 +414,14 @@ then `python tools/webkit/port.py` and `python tools/webkit/port_run.py`):
 |---|---|
 | Configuration | `PORT=LazyOS`: curl and OpenSSL (the bundle's 3.5), Skia on the CPU, FreeType/Fontconfig/HarfBuzz, libwpe's types, the generic run loop, `USE_COORDINATED_GRAPHICS`, **JIT on** (LLInt, baseline, DFG; no FTL), static JSC, system malloc, no video, WebGL, WebRTC, Web Audio, WebAssembly, GPU process, sandbox, remote inspector |
 | Compiled and linked | all of WTF, bmalloc, JavaScriptCore, PAL, Skia, WebCore and WebKit (8288 ninja steps, unified sources); `WebProcess` **107.4 MiB**, `NetworkProcess` **107.4 MiB**, `webkit-smoke` **104.4 MiB**, stripped static-PIE (ICU's 30 MB of data is in each) |
-| Build | **9 min 19 s** from a fresh container state on a 20-core host with 15 GiB for Docker (extraction, 11 patches, 85 fetched files, configure, 8288 steps at `-j13`: 8 min 7 s, link, strip, the host run); zig's cache wiped first. A rebuild after editing one port file: seconds |
+| Build | **9 min 19 s** from a fresh container state on a 20-core host with 15 GiB for Docker (extraction, 11 patches, 77 fetched files, configure, 8288 steps at `-j13`: 8 min 7 s, link, strip, the host run); zig's cache wiped first. A rebuild after editing one port file: seconds |
 | On LazyOS (WHPX, 4 GiB, console image with networking) | `WEBKIT:W4:UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, `LOAD:about:blank`, `LOAD:data:text/html,...`, `TITLE:hello lazyos`, `PAINT:800x600:6cf525bf`, `PASS`; from `exec` of `webkit-smoke` to the first finished load 3.7 s (two 107 MB ELFs read whole, a fork and exec each, JSC and Skia initialised), the data page 50 ms later |
 | The same programs on the Linux build host | the same checksum, the same ink (42 pixels, `x` at 8,15 to 15,22): `port.py` runs `webkit-smoke` once in the container (`target/webkit/smoke.host.txt`) and `port_run.py` requires the guest to equal it, so layout, fonts, Skia and the IPC compute the same page on LazyOS as on Linux |
 
 *What had to be written.* The tarball is GTK's (libsoup, GLib): it has every
 `*/playstation/*` source and none of the PlayStation CMake, none of the libwpe
 directories the PlayStation WebKit layer uses, and none of `platform/network/curl`
-or the curl parts of WebKit (85 files, `webkit/port/upstream.txt`, fetched from
+or the curl parts of WebKit (77 files, `webkit/port/upstream.txt`, fetched from
 git by blob digest). The PlayStation port was also found to be unbuildable with
 Skia at this revision as it stands (its Cairo-era code names `epoxy`, GLES3
 enums, a `SkiaPaintingEngine::create()` that has since gained an argument, a
@@ -437,12 +437,22 @@ JavaScriptCore, PAL, WebCore and WebKit; `ProcessLauncherLazyOS.cpp` (fork and
 with a message); `WPELoaderLazyOS.cpp` (libwpe is linked static and asks for a
 backend; there is none). Also: libwpe 1.16.2 (static, no xkbcommon) and a
 do-nothing EGL/GLESv2 generated from the Khronos headers join the dependency
-bundle (`tools/webkit/recipes_port.py`), `fonts.conf` is written into the image
-(`/system/etc/fonts`) with the Liberation fonts, and W3's `lazyos_mmap` shim is
+bundle (`tools/webkit/recipes_port.py`), `fonts.conf` (generated from `webkit/port/fonts.conf.in` with the paths of
+`libs/fhs`) is written into the image (`/system/etc/fonts`) with the Liberation fonts, and W3's `lazyos_mmap` shim is
 linked into the port's Skia. The platform macro is `PLATFORM(LAZYOS)`, not
 `PLATFORM(PLAYSTATION)`, whose tests in WTF, JavaScriptCore and bmalloc choose
 console code (patch `0003` renames the 44 tests in WebCore and WebKit only), so
 those three stay exactly the proven `jsc-jit` configuration.
+
+*Security.* With the sandbox, the GPU process and the remote inspector off, the
+WebProcess runs with the privileges of the UI process that launched it (the
+same uid, the same capabilities, the same file system view; the only isolation
+is the process boundary and the IPC types). That is acceptable for the W4 smoke
+program, which loads a `data:` URL; a browser that shows the web needs the
+sandbox first (W5 and later: a per-process label and a reduced set of
+capabilities for the WebProcess, `docs/security-model.md`). The NetworkProcess
+keeps its cookie jar (`cookie.jar.db`) in the working directory it inherits,
+which W5 replaces with a per-user data directory.
 
 *Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
 PlayStation port's classic one: the WebProcess paints dirty rectangles into a
