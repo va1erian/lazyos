@@ -2,11 +2,13 @@
 //! window when the window manager asks it to (`WindowClose`). Only the creator
 //! may set it, and it only applies to windows (not the desktop or panels).
 //!
-//! An app must never make its window unclosable: the first close is passed on
-//! to the app, which has [`GRACE_NS`] to answer (by destroying the surface or
-//! by calling `SetCloseMode` again, which re-arms the question); a close after
-//! that forgets the surface whatever the app says, so a hung or hostile client
-//! cannot keep a window. A shutdown or logout never goes through here: `init`
+//! An app must never make its window unclosable. The rule is on the time of
+//! the last close request that was passed on, and nothing the app does moves
+//! it: a close is passed on when none was in the last [`EXPIRY_NS`]; a repeat
+//! within [`GRACE_NS`] is ignored; a repeat after that, but within the expiry,
+//! forgets the surface whatever the app says. A hung or hostile client (even one
+//! that calls `SetCloseMode` again and again) cannot keep a window from a user
+//! who closes it twice. A shutdown or logout never goes through here: `init`
 //! kills what is left, and the compositor drops a dead owner's surfaces.
 
 use libmessenger::Parcel;
@@ -35,8 +37,6 @@ impl Compositor {
         }
         if let Some(surface) = self.surfaces.iter_mut().find(|s| s.id == args.surface) {
             surface.ask_close = args.ask;
-            // The client answered the last question (it stays): ask afresh.
-            surface.close_asked = None;
         }
         empty_reply(message.method())
     }
@@ -44,6 +44,10 @@ impl Compositor {
 
 /// How long an app has to answer a close request before a second one wins.
 pub(super) const GRACE_NS: u64 = 3_000_000_000;
+
+/// After this long a close request is forgotten: the next one asks again (an
+/// app whose user cancelled its prompt gets to ask once more).
+pub(super) const EXPIRY_NS: u64 = 30_000_000_000;
 
 /// What closing a surface does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -63,8 +67,11 @@ pub(super) fn close_step(ask_close: bool, asked_at: Option<u64>, now: u64) -> St
     match (ask_close, asked_at) {
         (false, _) => Step::Drop,
         (true, None) => Step::Ask,
-        (true, Some(at)) if now.saturating_sub(at) >= GRACE_NS => Step::Force,
-        (true, Some(_)) => Step::Hold,
+        (true, Some(at)) => match now.saturating_sub(at) {
+            age if age < GRACE_NS => Step::Hold,
+            age if age < EXPIRY_NS => Step::Force,
+            _ => Step::Ask,
+        },
     }
 }
 
@@ -83,6 +90,8 @@ mod tests {
         assert_eq!(close_step(true, None, 100), Step::Ask);
         assert_eq!(close_step(true, Some(100), 100 + GRACE_NS - 1), Step::Hold);
         assert_eq!(close_step(true, Some(100), 100 + GRACE_NS), Step::Force);
+        assert_eq!(close_step(true, Some(100), 100 + EXPIRY_NS - 1), Step::Force);
+        assert_eq!(close_step(true, Some(100), 100 + EXPIRY_NS), Step::Ask);
         // A clock that went backwards never wedges the window.
         assert_eq!(close_step(true, Some(100), 50), Step::Hold);
     }

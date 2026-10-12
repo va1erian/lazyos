@@ -5488,10 +5488,11 @@ pub mod os_lazy_display_v1 {
     /// window is dropped as it is sent. Only the creator may call it.
     /// An app can never make its window unclosable: the first close is passed
     /// on and the window kept; if the app has not destroyed the surface three
-    /// seconds later, the next close drops it whatever the app says (the app's
-    /// event endpoint closes, so it quits). Calling `SetCloseMode` again
-    /// re-arms the question (an app whose user cancelled does this). A
-    /// shutdown or logout never depends on it: `init` kills what is left.
+    /// seconds later (and within 30 s of the first), the next close drops it
+    /// whatever the app says (the app's event endpoint closes, so it quits);
+    /// only a close more than 30 s after the last one is passed on again.
+    /// Calling `SetCloseMode` again changes nothing about that. A shutdown or
+    /// logout never depends on it: `init` kills what is left.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetCloseModeArgs {
         pub surface: u64,

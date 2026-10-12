@@ -492,6 +492,9 @@
   "shot": "12_close_cancelled"
  },
  {
+  "wait": 70.0
+ },
+ {
   "key_down": "alt"
  },
  {

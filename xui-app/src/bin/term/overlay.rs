@@ -148,9 +148,6 @@ impl Terminal {
                     self.finish(ui);
                 } else {
                     println!("TERM:CLOSE:CANCEL");
-                    // Re-arm the compositor's question: without it a second
-                    // close after its grace period would drop the window.
-                    self.backend.ask_before_close();
                 }
             }
             None => {}

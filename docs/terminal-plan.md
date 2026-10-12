@@ -350,7 +350,7 @@ Closing while a job runs needs a veto from the compositor: display method
 forgetting the surface, but an app can never make its window unclosable: the
 first close is passed on, and a close more than 3 s later drops the surface
 whatever the app says (the app quits when its event endpoint closes;
-`TERM:QUIT:PASS`); a cancelled prompt re-arms it. The busy test reads the kernel task table (`jobs.rs`),
+`TERM:QUIT:PASS`); a close within 30 s of the first always wins, and one after that asks again. The busy test reads the kernel task table (`jobs.rs`),
 since ash has no job control (evidence `TERM:CLOSE:CHECK`). Pointer events now
 carry modifiers (Ctrl+click, Shift+right click). Evidence: `TERM:MENU:<item>`,
 `TERM:LINK:OPEN:<url>`, `TERM:FIND:<n>`, `TERM:BELL:<kind>`,

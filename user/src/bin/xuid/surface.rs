@@ -47,7 +47,7 @@ pub(super) struct Surface {
     /// until the app destroys the surface.
     pub(super) ask_close: bool,
     /// When the close was first asked of the client (monotonic ns); `None`
-    /// until then and again after the client re-arms `SetCloseMode`.
+    /// until then; only a close request moves it (`SetCloseMode` does not).
     pub(super) close_asked: Option<u64>,
     /// The normal window rectangle saved while maximized; `Some` while the
     /// surface is maximized.
