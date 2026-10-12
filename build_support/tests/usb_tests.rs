@@ -76,6 +76,7 @@ fn ramdisk_carries_the_config_and_the_os_volume() {
     let settings = Settings {
         uuid,
         root_free: 8 * MIB,
+        image_id: Some("20261012-093000-0123abcd".into()),
     };
     let written = usb_ramdisk::write(&path, &settings, &all_dirs, &files).unwrap();
     let image = std::fs::read(&path).unwrap();
@@ -99,6 +100,7 @@ fn ramdisk_carries_the_config_and_the_os_volume() {
         "{cfg}"
     );
     assert!(cfg.contains("home=LABEL=lazyhome"), "{cfg}");
+    assert!(cfg.contains("image.id=20261012-093000-0123abcd\n"), "{cfg}");
 
     let os = partition(&image, os_lba, os_sectors);
     assert_eq!(fsck(&os), Vec::<String>::new());
@@ -135,6 +137,7 @@ fn ramdisk_estimate_covers_many_small_files_and_a_big_one() {
     let settings = Settings {
         uuid: [1; 16],
         root_free: 0,
+        image_id: None,
     };
     let written = usb_ramdisk::write(&path, &settings, &[], &files).unwrap();
     let image = std::fs::read(&path).unwrap();

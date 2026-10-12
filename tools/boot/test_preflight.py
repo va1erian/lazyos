@@ -6,15 +6,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
+import io
+import json
 import struct
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import preflight  # noqa: E402
+import preflight_netboot  # noqa: E402
 
 
 def mbr(entries):
@@ -95,6 +101,151 @@ class Parsers(unittest.TestCase):
             image.f.close()
         failed = [row["check"] for row in report.rows if not row["ok"]]
         self.assertIn("image structures are readable", failed)
+
+
+ID = "20261012-093000-01234567"
+REV = "0123456789abcdef0123456789abcdef01234567"
+
+
+def netboot_dir(root, mutate=None, signed=True, image_id=ID):
+    """A `target/netboot` the way the build writes it; `mutate(manifest)` edits the manifest
+    before it is written (digests are computed from the files first)."""
+    files = {
+        "kernel-x86_64": b"\x7fELF\x02\x01\x01" + bytes(9) + struct.pack("<H", 2) + struct.pack("<H", 0x3E) + bytes(100),
+        "ramdisk": bytes(range(256)) * 40,
+        "bootx64.efi": pe(),
+        "boot.json": b'{\n  "frame_buffer": {}\n}',
+    }
+    for name, data in files.items():
+        (root / name).write_bytes(data)
+    manifest = {
+        "id": ID,
+        "revision": REV,
+        "dirty": False,
+        "built_at": "2026-10-12T09:30:00Z",
+        "host": "devbox",
+        "switches": ["LAZYOS_DESKTOP", "LAZYOS_USB"],
+        "files": {
+            name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+            for name, data in files.items()
+        },
+    }
+    if mutate:
+        mutate(manifest)
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if signed:
+        (root / "manifest.sig").write_bytes(b"ab" * 64 + b"\n")
+    return image_id
+
+
+class Netboot(unittest.TestCase):
+    """`--netboot DIR`: the manifest against the files (the ramdisk's own structure is checked
+    on a real build, so the structure check is replaced by its result here)."""
+
+    def judge(self, mutate=None, signed=True, image_id=ID, damage=None):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            netboot_dir(root, mutate, signed)
+            if damage:
+                damage(root)
+            cfg = f"root=UUID=x\nhome=LABEL=lazyhome\nimage.id={image_id}\n" if image_id else "root=UUID=x\n"
+            with mock.patch.object(preflight_netboot, "check_ramdisk", lambda rimg, r, size_note="": cfg):
+                return preflight_netboot.run(root)
+
+    def failed(self, report):
+        return [row["check"] for row in report.rows if not row["ok"]]
+
+    def test_a_good_payload_passes(self):
+        report = self.judge()
+        self.assertEqual(self.failed(report), [])
+        self.assertFalse(any(row.get("warn") for row in report.rows))
+
+    def test_an_unsigned_payload_passes_with_a_warning(self):
+        report = self.judge(signed=False)
+        self.assertEqual(self.failed(report), [])
+        self.assertTrue(any(row.get("warn") and "manifest.sig" in row["check"] for row in report.rows))
+
+    def test_a_malformed_signature_fails(self):
+        for text in ("ab" * 63 + "\n", "AB" * 64 + "\n", "ab" * 64, "zz" * 64 + "\n"):
+            def damage(root, text=text):
+                (root / "manifest.sig").write_bytes(text.encode())
+
+            self.assertIn("manifest.sig is 128 lowercase hex digits and a newline",
+                          self.failed(self.judge(damage=damage)), repr(text))
+
+    def test_a_file_that_changed_after_the_manifest_fails(self):
+        def damage(root):
+            (root / "ramdisk").write_bytes(b"x" * 10)
+
+        self.assertIn("ramdisk: size and sha256 match the manifest", self.failed(self.judge(damage=damage)))
+
+    def test_same_size_different_bytes_fails_on_the_digest(self):
+        def damage(root):
+            data = bytearray((root / "boot.json").read_bytes())
+            data[3] ^= 1
+            (root / "boot.json").write_bytes(bytes(data))
+
+        self.assertIn("boot.json: size and sha256 match the manifest", self.failed(self.judge(damage=damage)))
+
+    def test_a_missing_file_fails(self):
+        def damage(root):
+            (root / "bootx64.efi").unlink()
+
+        self.assertIn("bootx64.efi exists and is not empty", self.failed(self.judge(damage=damage)))
+
+    def test_the_kernel_must_be_an_x86_64_elf(self):
+        def damage(root):
+            (root / "kernel-x86_64").write_bytes(b"MZ" + bytes(100))
+
+        self.assertIn("kernel-x86_64 is an x86-64 ELF", self.failed(self.judge(damage=damage)))
+
+    def test_the_image_id_must_be_in_the_config_and_match_the_manifest(self):
+        self.assertIn("lazyos.cfg has image.id=<id> of 1 to 64 of [0-9A-Za-z._-]",
+                      self.failed(self.judge(image_id=None)))
+        self.assertIn("lazyos.cfg has image.id=<id> of 1 to 64 of [0-9A-Za-z._-]",
+                      self.failed(self.judge(image_id="has space")))
+        self.assertIn("the ramdisk's image.id is the manifest's id",
+                      self.failed(self.judge(image_id="20261012-093000-ffffffff")))
+
+    def test_manifest_fields_are_checked(self):
+        cases = {
+            "manifest id is <yyyymmdd-HHMMSS>-<rev8>[-dirty]": lambda m: m.update(id="nope"),
+            "manifest revision is 40 hex digits or unknown": lambda m: m.update(revision="abc"),
+            "manifest dirty is a bool that agrees with the id": lambda m: m.update(dirty=True),
+            "the id's revision part is the manifest's revision": lambda m: m.update(revision="f" * 40),
+            "manifest built_at is ISO 8601 UTC (2026-10-12T09:30:00Z)": lambda m: m.update(built_at="yesterday"),
+            "the id's time is the manifest's built_at": lambda m: m.update(built_at="2026-10-12T09:31:00Z"),
+            "manifest host is a non-empty string": lambda m: m.update(host=""),
+            "manifest switches are the sorted LAZYOS_* names": lambda m: m.update(switches=["LAZYOS_USB", "LAZYOS_A"]),
+            "manifest lists exactly the four payload files": lambda m: m["files"].pop("ramdisk"),
+            "ramdisk: manifest entry is {size, sha256}": lambda m: m["files"]["ramdisk"].update(sha256="ABC"),
+        }
+        for expected, mutate in cases.items():
+            self.assertIn(expected, self.failed(self.judge(mutate)), expected)
+
+    def test_unknown_revision_and_dirty_ids(self):
+        def unknown(m):
+            m.update(revision="unknown", id="20261012-093000-00000000")
+
+        self.assertEqual(self.failed(self.judge(unknown, image_id="20261012-093000-00000000")), [])
+
+        def dirty(m):
+            m.update(dirty=True, id=ID + "-dirty")
+
+        self.assertEqual(self.failed(self.judge(dirty, image_id=ID + "-dirty")), [])
+
+    def test_main_takes_a_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            netboot_dir(Path(directory))
+            cfg = f"root=UUID=x\nimage.id={ID}\n"
+            argv = ["preflight.py", "--netboot", directory]
+            with mock.patch.object(preflight_netboot, "check_ramdisk", lambda rimg, r, size_note="": cfg), \
+                    mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(preflight.main(), 0)
+            self.assertIn("PREFLIGHT:PASS", out.getvalue())
+            with mock.patch.object(sys, "argv", ["preflight.py", "--netboot", directory + "/nope"]), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(preflight.main(), 2)
 
 
 if __name__ == "__main__":

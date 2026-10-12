@@ -127,3 +127,14 @@ pub fn trim_to_loadable(elf: &[u8]) -> Option<Vec<u8>> {
     out[0x3E..0x40].copy_from_slice(&((headers.len() - 1) as u16).to_le_bytes());
     Some(out)
 }
+
+/// Write the kernel artifact (`CARGO_BIN_FILE_KERNEL_kernel`) to `out`, trimmed.
+/// The bootloader reads the whole kernel file through BIOS calls, so the image
+/// carries only the loadable part; the full ELF stays in `target/`.
+pub fn write_trimmed(out: &std::path::Path) {
+    println!("cargo:rerun-if-changed=build_support/elf_trim.rs");
+    let artifact = std::env::var_os("CARGO_BIN_FILE_KERNEL_kernel").expect("kernel artifact");
+    let full = std::fs::read(artifact).expect("read kernel artifact");
+    let trimmed = trim_to_loadable(&full).unwrap_or(full);
+    std::fs::write(out, trimmed).expect("write trimmed kernel");
+}

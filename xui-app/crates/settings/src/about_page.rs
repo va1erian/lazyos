@@ -53,6 +53,7 @@ pub fn credits() -> [String; 3] {
 pub struct AboutPage {
     version: Rc<Label<Msg>>,
     revision: Rc<Label<Msg>>,
+    image: Rc<Label<Msg>>,
     uptime: Rc<Label<Msg>>,
     store: Rc<Label<Msg>>,
     persistence: Rc<Label<Msg>>,
@@ -62,11 +63,12 @@ pub struct AboutPage {
 impl AboutPage {
     /// Lays the page out in the container `page`.
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<AboutPage> {
-        let values: [Handle<Label<Msg>>; 5] = Default::default();
+        let values: [Handle<Label<Msg>>; 6] = Default::default();
         let mut cells = Vec::new();
         for (caption, value) in [
             "Version",
             "Revision",
+            "Image",
             "Uptime",
             "Settings store",
             "Persistence",
@@ -92,10 +94,11 @@ impl AboutPage {
                 ),
             )),
         )?;
-        let [version, revision, uptime, store, persistence] = values;
+        let [version, revision, image, uptime, store, persistence] = values;
         Ok(AboutPage {
             version: version.get(),
             revision: revision.get(),
+            image: image.get(),
             uptime: uptime.get(),
             store: store.get(),
             persistence: persistence.get(),
@@ -111,6 +114,8 @@ impl AboutPage {
                 .os_revision()
                 .unwrap_or_else(|| String::from("unknown")),
         );
+        self.image
+            .set_text(&system.os_image().unwrap_or_else(|| String::from("none")));
         self.uptime.set_text(
             &system
                 .uptime_secs()
@@ -148,6 +153,20 @@ mod tests {
         status.persistent = false;
         assert!(persistence_text(Some(&status)).contains("lost"));
         assert!(persistence_text(None).contains("not running"));
+    }
+
+    #[test]
+    fn the_image_id_is_the_proc_version_suffix_the_kernel_writes() {
+        use crate::system::image_from_proc_version as image;
+        let line = "LazyOS version 0.1.0 (x86_64) Linux-compatible ABI image 20261012-093000-01234567-dirty\n";
+        assert_eq!(image(line).as_deref(), Some("20261012-093000-01234567-dirty"));
+        // A build with no id has no suffix; nothing else is taken for one.
+        assert_eq!(image("LazyOS version 0.1.0 (x86_64) Linux-compatible ABI\n"), None);
+        assert_eq!(image(""), None);
+        assert_eq!(image("x image \n"), None);
+        assert_eq!(image(&format!("x image {}", "a".repeat(65))), None);
+        assert_eq!(image("x image has space"), None);
+        assert_eq!(image(&format!("x image {}", "a".repeat(64))).map(|id| id.len()), Some(64));
     }
 
     #[test]
