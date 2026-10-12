@@ -142,6 +142,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "--usb-image; builds it with tools/install/build.py): from Linux it "
                              "installs the stick beside Linux, behind GRUB "
                              "(docs/grub-install-plan.md)")
+    parser.add_argument("--netboot", action="store_true",
+                        help="also write target/netboot/, the stick's payload as loose files for "
+                             "the netboot registry: kernel-x86_64, ramdisk, bootx64.efi, boot.json "
+                             "and manifest.json with digests (LAZYOS_NETBOOT=1 LAZYOS_USB=1, a "
+                             "services session; docs/netboot-plan.md N1, docs/usb-stick.md); "
+                             "check it with tools/boot/preflight.py --netboot target/netboot. The "
+                             "run still boots target/lazyos.img")
+    parser.add_argument("--netboot-key", metavar="PATH",
+                        help="with --netboot, sign manifest.json with the Ed25519 key in PATH "
+                             "(LAZYOS_NETBOOT_KEY: key.sec, the 32-byte seed as 64 hex characters), "
+                             "writing manifest.sig; without it the payload is unsigned and the "
+                             "registry refuses it")
     parser.add_argument("--linuxapps", action="store_true",
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
@@ -256,6 +268,13 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer
+    if args.netboot_key:
+        if not args.netboot:
+            parser.error("--netboot-key needs --netboot")
+        if not Path(args.netboot_key).is_file():
+            parser.error(f"--netboot-key: {args.netboot_key} is not a file")
+        # The build runs in the repository root, not where this was typed.
+        args.netboot_key = str(Path(args.netboot_key).resolve())
     if args.dbgd and not args.net_forward:
         # The default forwards plus dbgd's port, so `dbgctl` works at once.
         args.net_forward = list(qemu_net.DEFAULT_FORWARDS) + ["9701:9701"]

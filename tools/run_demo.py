@@ -35,6 +35,7 @@ Examples
     python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
     python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
+    python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
@@ -332,6 +333,15 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_USB"] = "1"
             if not args.desktop:
                 env["LAZYOS_SERVICES"] = "1"
+        if args.netboot:
+            # The network payload is the stick's (docs/netboot-plan.md N1):
+            # the same profile rule, so the same switches as `--usb-image`.
+            env["LAZYOS_NETBOOT"] = "1"
+            env["LAZYOS_USB"] = "1"
+            if not args.desktop:
+                env["LAZYOS_SERVICES"] = "1"
+            if args.netboot_key:
+                env["LAZYOS_NETBOOT_KEY"] = args.netboot_key
         if args.devices:
             if not build_xui_apps():
                 return 1
@@ -347,6 +357,9 @@ def main(argv: list[str]) -> int:
         result = subprocess.run(cargo, cwd=ROOT, env=env)
         if result.returncode != 0:
             return result.returncode
+        if args.netboot:
+            print("netboot payload in target/netboot "
+                  "(check: python tools/boot/preflight.py --netboot target/netboot)", flush=True)
         if args.build_only:
             return 0
 

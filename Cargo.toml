@@ -249,6 +249,13 @@ webpki-root-certs = "=1.0.9"
 # Firmware names are checked with the rules `wifid` loads them by
 # (`build_support/wifi_embed.rs`).
 fwload = { path = "libs/fwload" }
+# `LAZYOS_NETBOOT=1` (docs/netboot-plan.md N1): `target/netboot/manifest.json`
+# lists each file's SHA-256, and `LAZYOS_NETBOOT_KEY` signs it with Ed25519
+# (`build_support/netboot.rs`, `netboot_manifest.rs`). `serde_json` writes the
+# loader's `boot.json` exactly as `bootloader` does.
+ed25519-dalek = { version = "2", default-features = false }
+sha2 = "0.10"
+serde_json = "1"
 
 [profile.dev]
 panic = "abort"

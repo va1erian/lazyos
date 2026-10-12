@@ -43,12 +43,15 @@ pub const DEFAULT_ROOT_FREE: u64 = 64 << 20;
 const SIZE_ATTEMPTS: u32 = 4;
 
 /// What the ramdisk carries besides the files.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Settings {
     /// The OS volume's UUID, named by `lazyos.cfg`.
     pub uuid: [u8; 16],
     /// Free bytes to leave on the ext2 volume after the files are written.
     pub root_free: u64,
+    /// The build id for `lazyos.cfg`'s `image.id=` line (`LAZYOS_NETBOOT=1`,
+    /// docs/netboot-plan.md N1); none writes no line.
+    pub image_id: Option<String>,
 }
 
 /// What [`write`] produced.
@@ -58,6 +61,13 @@ pub struct Written {
     pub bytes: u64,
     /// The ext2 OS partition.
     pub os_bytes: u64,
+    /// What the partition was sized from: the files ([`estimate_os_bytes`]),
+    /// the room for the core packages `pkgd` unpacks at first boot
+    /// ([`installed_package_bytes`]) and [`Settings::root_free`]. `os_bytes`
+    /// is larger when the first guess had to be regrown.
+    pub files_bytes: u64,
+    pub packages_bytes: u64,
+    pub free_bytes: u64,
 }
 
 /// Where the generated `dbgd` key is kept (`target/dbgd.key`).
@@ -80,12 +90,24 @@ pub fn write(
     cfg += &os_image::display_cfg::from_env();
     cfg += &os_image::trace_cfg::from_env();
     cfg += &os_image::dbgd_cfg::from_env(&dbgd_key_file());
+    if let Some(id) = &settings.image_id {
+        cfg += &format!("image.id={id}\n");
+    }
     let fat = fat_volume(cfg.as_bytes())?;
-    let mut os_bytes =
-        estimate_os_bytes(dirs, files)? + installed_package_bytes(files)? + settings.root_free;
+    let files_bytes = estimate_os_bytes(dirs, files)?;
+    let packages_bytes = installed_package_bytes(files)?;
+    let free_bytes = settings.root_free;
+    let mut os_bytes = files_bytes + packages_bytes + free_bytes;
     for _ in 0..SIZE_ATTEMPTS {
         match write_once(path, settings, &fat, os_bytes, dirs, files) {
-            Ok(written) => return Ok(written),
+            Ok(written) => {
+                return Ok(Written {
+                    files_bytes,
+                    packages_bytes,
+                    free_bytes,
+                    ..written
+                })
+            }
             Err(Grow::NoSpace) => os_bytes = round_up(os_bytes + os_bytes / 4, 1 << 20),
             Err(Grow::Failed(error)) => return Err(error),
         }
@@ -147,6 +169,9 @@ fn write_once(
         Ok(_) => Ok(Written {
             bytes: total,
             os_bytes,
+            files_bytes: 0,
+            packages_bytes: 0,
+            free_bytes: 0,
         }),
         Err(error) if error.contains("NoSpace") => Err(Grow::NoSpace),
         Err(error) => Err(failed(error)),

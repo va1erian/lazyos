@@ -38,6 +38,7 @@
 //! shutdown hook that makes it consistent on disk.
 
 mod abi_attr;
+pub mod boot_image;
 pub mod bootcfg;
 mod coherence;
 pub mod ext2;

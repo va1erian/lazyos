@@ -78,6 +78,14 @@ fn revision() -> Option<String> {
     (!sha.is_empty() && sha != "unknown").then(|| sha.to_owned())
 }
 
+/// The build's image id: the ` image <id>` the kernel appends to
+/// `/proc/version` when `lazyos.cfg` named one (`kernel/src/boot_image.rs`).
+#[cfg(target_os = "linux")]
+fn image() -> Option<String> {
+    let text = std::fs::read_to_string("/proc/version").ok()?;
+    xui_settings::system::image_from_proc_version(&text)
+}
+
 /// `[sysname, release, version, machine]` from `uname(2)`.
 #[cfg(target_os = "linux")]
 fn uname_fields() -> Option<[String; 4]> {
@@ -112,6 +120,11 @@ fn uname() -> Option<String> {
 
 #[cfg(not(target_os = "linux"))]
 fn revision() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn image() -> Option<String> {
     None
 }
 
@@ -201,6 +214,10 @@ impl System for OsSystem {
 
     fn os_revision(&self) -> Option<String> {
         revision()
+    }
+
+    fn os_image(&self) -> Option<String> {
+        image()
     }
 
     fn uptime_secs(&self) -> Option<u64> {

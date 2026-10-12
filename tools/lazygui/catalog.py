@@ -17,6 +17,7 @@ from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-expor
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
+from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
@@ -284,7 +285,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         # stack set above.
         env["LAZYOS_LAZYSKY"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
-    env.update(driver_env(cfg))  # LAZYOS_DEVD (issue #497)
+    env.update(driver_env(cfg) | netboot_env(cfg))  # LAZYOS_DEVD (#497); target/netboot (netboot plan N1)
     return env
 
 

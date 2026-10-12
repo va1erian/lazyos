@@ -10,6 +10,7 @@ use crate::block::SECTOR_SIZE;
 
 mod config;
 mod flags;
+mod image_id;
 mod layout;
 mod library_image;
 mod power_cycle;
@@ -18,6 +19,23 @@ mod ramdisk_root;
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mount_cfg_parses_every_key", config::parses_every_key),
     ("mount_cfg_hostile_inputs", config::hostile_inputs),
+    (
+        "mount_image_id_valid_is_parsed",
+        image_id::valid_id_is_parsed,
+    ),
+    (
+        "mount_image_id_missing_line_changes_nothing",
+        image_id::missing_line_changes_nothing,
+    ),
+    (
+        "mount_image_id_bad_is_refused_mount_unaffected",
+        image_id::bad_id_is_refused_without_touching_the_mount,
+    ),
+    (
+        "mount_image_id_overlong_is_refused",
+        image_id::overlong_id_is_refused,
+    ),
+    ("mount_image_id_soak_random_ids", image_id::soak_random_ids),
     ("mount_flag_lists", flags::flag_lists),
     (
         "mount_ro_refuses_every_mutation",

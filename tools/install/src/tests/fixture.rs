@@ -92,6 +92,7 @@ pub fn write_stick(stick: &Path, files: &[OsFile], kernel: &[u8]) {
     let settings = usb_ramdisk::Settings {
         uuid: crate::os_image::new_uuid(),
         root_free: 1 << 20,
+        image_id: None,
     };
     usb_ramdisk::write(
         &stick.join("ramdisk"),

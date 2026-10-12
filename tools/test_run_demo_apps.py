@@ -7,8 +7,11 @@ Run: python tools/test_run_demo_apps.py
 
 from __future__ import annotations
 
+import io
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest import mock
 
@@ -77,6 +80,50 @@ class OptInAppTests(RunDemoCase):
         with mock.patch.object(run_demo, "build_installer", return_value=False):
             self.assertEqual(self.run_main("--installer")[0], 1)
         self.assertEqual(self.builds, [])
+
+
+class NetbootTests(RunDemoCase):
+    """`--netboot` and `--netboot-key`: the stick's profile rule, plus the payload switch."""
+
+    def test_netboot_sets_the_payload_and_stick_switches(self) -> None:
+        code, _command = self.run_main("--netboot")
+        self.assertEqual(code, 0)
+        env = self.builds[-1]
+        for switch in ("LAZYOS_NETBOOT", "LAZYOS_USB", "LAZYOS_SERVICES"):
+            self.assertEqual(env.get(switch), "1", switch)
+        self.assertNotIn("LAZYOS_NETBOOT_KEY", env)
+        self.assertNotIn("LAZYOS_USB_IMAGE", env)
+
+    def test_netboot_on_the_desktop_needs_no_services_switch(self) -> None:
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _command = self.run_main("--desktop", "--netboot")
+        self.assertEqual(code, 0)
+        env = self.builds[-1]
+        self.assertEqual(env.get("LAZYOS_NETBOOT"), "1")
+        self.assertEqual(env.get("LAZYOS_DESKTOP"), "1")
+        self.assertNotIn("LAZYOS_SERVICES", env)
+
+    def test_the_key_is_passed_as_an_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "key.sec"
+            key.write_text("00" * 32 + "\n")
+            code, _command = self.run_main("--netboot", "--netboot-key", str(key))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_NETBOOT_KEY"), str(key.resolve()))
+
+    def test_a_key_without_netboot_or_a_missing_key_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "key.sec"
+            key.write_text("00" * 32 + "\n")
+            for argv in (["--netboot-key", str(key)],
+                         ["--netboot", "--netboot-key", str(Path(directory) / "missing")]):
+                with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+                    run_demo.main(argv + ["--build-only"])
+        self.assertEqual(self.builds, [])
+
+    def test_without_the_flag_nothing_is_set(self) -> None:
+        self.run_main()
+        self.assertNotIn("LAZYOS_NETBOOT", self.builds[-1])
 
 
 if __name__ == "__main__":
