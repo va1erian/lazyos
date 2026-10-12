@@ -134,8 +134,17 @@ fn privileged() -> bool {
     credentials::of(task::current()).has_cap(CAP_SYS_ADMIN)
 }
 
-/// The slot `pid` names (0 is the caller), or the errno.
-fn target(pid: u64) -> Result<usize, u64> {
+/// Largest pid the calls accept (`pid_t` is an `int`; the register holds the
+/// rest of the 64 bits, which must not be dropped: 1 << 32 is not the caller).
+const PID_MAX: u64 = i32::MAX as u64;
+
+/// The slot `pid` names (0 is the caller), or the errno: `EINVAL` for a value
+/// that is no `pid_t` (checked on all 64 bits, before any lookup), `ESRCH` for
+/// a slot with no task. A tid is the task's slot, as `gettid` reports it.
+pub(super) fn target(pid: u64) -> Result<usize, u64> {
+    if pid > PID_MAX {
+        return Err(err(EINVAL));
+    }
     let slot = if pid == 0 {
         task::current()
     } else {
@@ -164,7 +173,7 @@ pub(super) fn policy_of(slot: usize) -> Option<u64> {
 
 /// `sched_setattr(pid, attr, flags)`.
 pub(super) fn sys_sched_setattr(pid: u64, uattr: u64, flags: u64) -> u64 {
-    if uattr == 0 || (pid as i32) < 0 || flags as u32 != 0 {
+    if uattr == 0 || pid > PID_MAX || flags as u32 != 0 {
         return err(EINVAL);
     }
     let attr = match read_attr(uattr) {
@@ -185,6 +194,8 @@ pub(super) fn sys_sched_setattr(pid: u64, uattr: u64, flags: u64) -> u64 {
 struct Caller {
     allowed: bool,
     uid: u32,
+    /// The caller's thread-group leader (`getpid`).
+    leader: usize,
 }
 
 /// Validate and apply `attr` to `slot`; the errno on refusal. The decision,
@@ -195,6 +206,7 @@ fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
     let caller = Caller {
         allowed: privileged(),
         uid: credentials::of(task::current()).uid,
+        leader: task::linuxstate::tgid(),
     };
     match task::sched_update(slot, |target| decide(attr, &caller, &target)) {
         Ok(()) => Ok(()),
@@ -248,7 +260,10 @@ fn decide(attr: &Attr, caller: &Caller, target: &SchedTarget) -> Result<SchedSta
     let raises = new_nice < i32::from(old.nice);
     let leaves_idle = old.is_idle() && policy != SCHED_IDLE;
     let unsets_reset = old.reset_on_fork && !reset_on_fork;
-    if !caller.allowed && (target.cred.uid != caller.uid || raises || leaves_idle || unsets_reset) {
+    // Without privilege only the caller's own process is its to re-weight: a
+    // native service task that happens to share the uid is not.
+    let foreign = target.cred.uid != caller.uid || target.leader != caller.leader;
+    if !caller.allowed && (foreign || raises || leaves_idle || unsets_reset) {
         return Err(EPERM);
     }
     Ok(SchedState {
@@ -261,7 +276,7 @@ fn decide(attr: &Attr, caller: &Caller, target: &SchedTarget) -> Result<SchedSta
 /// `sched_getattr(pid, attr, size, flags)`.
 pub(super) fn sys_sched_getattr(pid: u64, uattr: u64, size: u64, flags: u64) -> u64 {
     let size = size as usize;
-    if uattr == 0 || (pid as i32) < 0 || !(SIZE_VER0..=PAGE).contains(&size) || flags as u32 != 0 {
+    if uattr == 0 || pid > PID_MAX || !(SIZE_VER0..=PAGE).contains(&size) || flags as u32 != 0 {
         return err(EINVAL);
     }
     let slot = match target(pid) {
