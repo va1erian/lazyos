@@ -369,3 +369,40 @@ Still open (answer at G0/G1, none blocks starting):
 - **One box**: every stage is a flash, test, observe loop on the single
   machine; a second Gen9 machine would be useful for G0 comparisons but is
   not required.
+
+## 10. Status of prep work (hardware-independent, no QEMU)
+
+Landed on branch `gpu-prep-g0`; none of it touches the kernel, `user/`,
+`idl/` or `build.rs`, and none of it has run on the box.
+
+- **G0, Linux side**: `tools/boot/survey_gpu.sh` (also called by
+  `survey_linux_box.sh` into `<survey>/gpu/`) collects, read-only, the
+  `lspci -vvv` of 00:02.0 and 00:1f.3 with `GMCH_CTRL`/`BDSM`/`ASLS`, an
+  `intel_reg dump` and a PROT_READ mmap of the display register ranges,
+  i915's debugfs decode (`i915_display_info`, `i915_dmc_info`, `i915_ddb_info`,
+  `i915_vbt` blob), raw and decoded EDID, ELD, the HDA codec dump, `aplay -l`
+  and the i915/HDA/DMC/GuC/HuC log lines.
+  `docs/compat/kabylake/gpu/README.md` says what to run and what to redact
+  and commit. **Not run on the box yet**: this is the first G0 deliverable.
+- **`libs/gen9gfx`** (`cargo test -p gen9gfx`; seeded fuzz shared with
+  `fuzz/fuzz_targets/gen9gfx.rs`): `Mmio` trait, `edid` and `cea` (base block,
+  CEA extension: timings, VICs, SADs, speaker allocation, HDMI and HDMI Forum
+  vendor blocks), `eld` (parse, build from an EDID), `vbt` (header, block
+  walk, child devices: DDI port, DDC pin, HDMI/DVI/DP/DP++, LSPCON),
+  `hdmi_audio` (N/CTS table and computed form), and `regs` (a short list of
+  Gen9 offsets, each marked `TO CONFIRM against dump`). Fixtures are
+  synthesised by `build`, not real dumps; replace or add real EDID/VBT from the
+  box's capture once it exists.
+- **Finding for G2**: at 241.5 MHz the default N (6144 at 48 kHz, 4096 at
+  32 kHz) divides exactly, so CTS is an integer there; at 44.1 kHz the
+  default N 6272 does not (CTS 268333.33), but any multiple of 336 in range
+  does (`hdmi_audio::exact`). Programming an exact N, or checking that
+  hardware CTS auto mode accepts the default, is a G2 decision.
+
+**Next, in order, none started**: (1) run the capture on the box and settle
+section 2's "to confirm" list, correcting `libs/gen9gfx::regs`; (2) the
+`dbgd` read ops G0 and G1 need (`pci.config` and `mmio.read`, which docs/dbgd-plan.md lists as
+not in v1 and `dbgwire` does not have; plus a VBT/EDID copy) and the device
+claim for 00:02.0 in `dev/claims.rs`; (3) G1: the `gpud` skeleton
+(`user/src/bin/gpud/`, `idl/gpu.midl`, `set_scanout` in the kernel, the
+`LAZYOS_GEN9GFX` switch and launcher flags of section 8).
