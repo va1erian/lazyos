@@ -192,8 +192,10 @@ impl Terminal {
     pub(super) fn request_grid(&self, grid: (usize, usize)) {
         let m = self.look.borrow().metrics;
         let scale = m.scale.max(1);
-        let width = (grid.0 as i32 * m.cell_w + 2 * m.pad) / scale;
-        let height = (grid.1 as i32 * m.line_h + 2 * m.pad) / scale;
+        // Round up, as `size_hints` does: a rounded-down design size loses a
+        // physical pixel at scale 2 and the grid comes back one cell short.
+        let width = (grid.0 as i32 * m.cell_w + 2 * m.pad + scale - 1) / scale;
+        let height = (grid.1 as i32 * m.line_h + 2 * m.pad + scale - 1) / scale;
         self.backend.request_size(width.max(1) as u32, height.max(1) as u32);
     }
 

@@ -107,7 +107,7 @@ the Config app and `rhai` (`sys::confd::set`) all change open windows at once.
 | `select/word_chars` | str | `-_./~:@` | extra characters a double-click keeps in a word |
 | `paste/confirm_multiline` | bool | `true` | ask before pasting text with newlines |
 | `bell` | str | `visual` | `none`, `visual`, `sound`, `notify` |
-| `window/size` | str | `80x24` | initial columns x rows |
+| `window/size` | str | (unset) | initial columns x rows, e.g. `80x24`; unset, `window/last_size` or the window decides |
 | `shell` | str | (BusyBox `sh`) | a program path, validated through `libs/fhs` |
 
 Zoom (`Ctrl+=`, `Ctrl+-`, `Ctrl+0`) is per window and not stored.
@@ -239,7 +239,8 @@ on its character, wide characters never split, the scrollback budget applies)
 and returns a `Remap` the Terminal uses to keep a scrolled-back view on its
 text; a selection is cleared by a resize (mapping columns per cell was not
 worth it). The alternate screen is cropped or padded. Then `TIOCSWINSZ`.
-`window/size` (`80x24`, validated 20..500 x 5..200) sets the first grid, which
+`window/size` (unset by default; a value like `80x24`, validated 20..500 x
+5..200) sets the first grid, which
 the Terminal asks the compositor for (`request_size`); `window/last_size` is
 written two seconds after the user last resized the window (never for a font
 or zoom change, never while zoomed) and used when `window/size` is unset, so

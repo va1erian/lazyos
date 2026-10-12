@@ -254,7 +254,8 @@ also `LAZYOS_LINUXAPPS=1`). Markers: `TERM:UP|OUT|EXIT`, `TERM:MENU:<item>`,
 cargo test --manifest-path xui-app/Cargo.toml -p lazyterm
 FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyterm --release seeded
 cargo test --manifest-path xui-app/Cargo.toml --bin xui-term   # Linux/WSL; snapshots in xui-app/target/snapshots
-python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/term_menu \n    --script tools/screenshot/examples/term_menu.json
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/term_menu \
+    --script tools/screenshot/examples/term_menu.json
 ```
 
 ## Docs app and the zig toolchain
