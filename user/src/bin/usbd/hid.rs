@@ -12,6 +12,7 @@
 
 use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use usbhid::boot::{parse_mouse, BootKeyboard, BootMouse, KeyEdge, MouseOut};
 use usbhid::desc::Protocol;
@@ -68,9 +69,9 @@ impl Hid {
     /// Decode one report and publish what it means; returns whether it
     /// pressed a key. `trace` echoes each edge on serial for the harness.
     pub(super) fn report(&mut self, report: &[u8], trace: bool) -> bool {
-        if trace {
+        if trace && trace::enabled(trace::Channel::Usbd) {
             let hex: alloc::string::String = report.iter().map(|b| format!("{b:02x}")).collect();
-            sys::write_str(&format!("USBD:REPORT {hex}\n"));
+            trace::line!(trace::Channel::Usbd, "REPORT {hex}");
         }
         let mut records = Vec::new();
         match &mut self.decoder {
@@ -134,12 +135,13 @@ impl Hid {
 /// `t=` is the tick (10 ms) it was published, so a harness can tell `usbd`'s
 /// delivery latency from `inputd`'s (which stamps its own lines the same way).
 fn trace_key(edge: &KeyEdge) {
-    sys::write_str(&format!(
-        "USBD:KEY usage={:#x} {} t={}\n",
+    trace::line!(
+        trace::Channel::Usbd,
+        "KEY usage={:#x} {} t={}",
         edge.usage,
         if edge.pressed { "down" } else { "up" },
         sys::clock()
-    ));
+    );
 }
 
 fn key(edge: KeyEdge) -> SourceRecord {

@@ -8,6 +8,7 @@ use alloc::format;
 use user::messenger::display::{self, Canvas, Color, DragKind, Event, Rect};
 use user::messenger::{errno, Error};
 use user::sys;
+use user::trace;
 
 use super::app::{attach, connect_clipboard, connect_display, is_timeout, App};
 use super::{DEMO_MIME, DRAG_THRESHOLD, H, ITEM, PAYLOAD, W};
@@ -85,8 +86,8 @@ pub(super) fn source() -> ! {
         .as_ref()
         .and_then(|client| client.copy("dragdemo", &[(DEMO_MIME, PAYLOAD)]).ok());
     match token {
-        Some(token) => sys::write_str(&format!("DND:SOURCE:PASS token={token}\n")),
-        None => sys::write_str("DND:SKIP:no clipboardd offer\n"),
+        Some(token) => trace::line!(trace::Channel::Dnd, "SOURCE:PASS token={token}"),
+        None => trace::line!(trace::Channel::Dnd, "SKIP:no clipboardd offer"),
     }
     let mut state = SourceState {
         token,
@@ -112,7 +113,7 @@ pub(super) fn source() -> ! {
                             state.status = "DROPPED";
                         } else {
                             state.status = "CANCELLED";
-                            sys::write_str("DND:CANCEL:PASS\n");
+                            trace::line!(trace::Channel::Dnd, "CANCEL:PASS");
                         }
                         app.redraw(&|canvas| source_draw(canvas, &state));
                     }
@@ -146,13 +147,14 @@ fn handle_source_input(app: &mut App, state: &mut SourceState, event: Event) {
                             Ok(()) => {
                                 state.dragging = true;
                                 state.status = "DRAGGING";
-                                sys::write_str(&format!(
-                                    "DND:START:PASS token={token} mime={DEMO_MIME}\n"
-                                ));
+                                trace::line!(
+                                    trace::Channel::Dnd,
+                                    "START:PASS token={token} mime={DEMO_MIME}"
+                                );
                             }
                             Err(_) => {
                                 state.press = None;
-                                sys::write_str("DND:START:FAIL:compositor refused\n");
+                                trace::line!(trace::Channel::Dnd, "START:FAIL:compositor refused");
                             }
                         }
                     }

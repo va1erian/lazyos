@@ -25,6 +25,15 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("text/x-shellscript", "os.lazy.editor", &["open", "edit"]),
     ("image/png", "os.lazy.paint", &["open", "edit"]),
     ("image/png", "os.lazy.files", &["reveal"]),
+    // JPEG and BMP: the Picture Viewer opens, Paint edits. The viewer is an
+    // optional package (`LAZYOS_PICTURES=1`), so [`DEFAULT_FALLBACKS`] names
+    // Paint for `open` when the image does not ship it.
+    ("image/jpeg", "os.lazy.pictures", &["open", "view"]),
+    ("image/jpeg", "os.lazy.paint", &["edit"]),
+    ("image/bmp", "os.lazy.pictures", &["open", "view"]),
+    ("image/bmp", "os.lazy.paint", &["edit"]),
+    ("image/openraster", "os.lazy.paint", &["open", "edit"]),
+    ("image/openraster", "os.lazy.files", &["reveal"]),
     // LazyWriter documents (issue #533).
     (
         "application/x-lazywriter",
@@ -62,7 +71,11 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
 /// Fallback apps for a `(mime, verb)` whose primary the image does not ship:
 /// `(mime, verb, app)`. The open path swaps to the fallback when `init` reports
 /// the primary's ELF is not installed (see `handlers::open_path`).
-const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[("text/markdown", "open", "os.lazy.editor")];
+const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[
+    ("text/markdown", "open", "os.lazy.editor"),
+    ("image/jpeg", "open", "os.lazy.paint"),
+    ("image/bmp", "open", "os.lazy.paint"),
+];
 
 /// One open-with registration: the app for `(mime, verb)`, plus an optional
 /// fallback to use when the primary's ELF is not shipped.

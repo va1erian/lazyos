@@ -7,8 +7,8 @@
 //! have exited. The host judges the recording (`tools/sound/run.py`), the
 //! markers only say when the guest is done.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::sys;
 
@@ -81,7 +81,10 @@ impl Demo {
             let Some((pid, status)) = sys::wait(sys::clock()) else {
                 break;
             };
-            sys::write_str(&format!("AUDIOD:DEMO:EXIT pid={pid} status={status}\n"));
+            trace::line!(
+                trace::Channel::Audiod,
+                "DEMO:EXIT pid={pid} status={status}"
+            );
             self.running.retain(|&child| child != pid);
         }
         if !self.running.is_empty() || self.next >= STEPS.len() || !card_ready {
@@ -90,13 +93,16 @@ impl Demo {
         for &(program, args) in STEPS[self.next] {
             match sys::spawn_native(program, args) {
                 Some(pid) => {
-                    sys::write_str(&format!("AUDIOD:DEMO:SPAWN pid={pid}\n"));
+                    trace::line!(trace::Channel::Audiod, "DEMO:SPAWN pid={pid}");
                     self.running.push(pid);
                 }
                 None => {
                     // A client that cannot start ends the run: the harness
                     // then reports the missing marker instead of waiting.
-                    sys::write_str("AUDIOD:DEMO:SPAWN failed (client ELF missing?)\n");
+                    trace::line!(
+                        trace::Channel::Audiod,
+                        "DEMO:SPAWN failed (client ELF missing?)"
+                    );
                     self.next = STEPS.len();
                     return;
                 }

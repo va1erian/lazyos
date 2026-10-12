@@ -9,13 +9,12 @@
 //! `INPUTD:GRAB:OFF session=<id> reason=<n>`, `INPUTD:GRAB:REQUEST ...`,
 //! `INPUTD:GRAB:ESCAPE`.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::grab::{Change, Reason, Refused, Requested};
 use user::messenger::input::{shell_wire, wire};
 use user::messenger::{errno, Error, Message, Result};
-use user::sys;
 
 use super::hub::Hub;
 
@@ -41,10 +40,11 @@ impl Hub {
                     .session(args.session)
                     .and_then(|s| s.surface)
                     .unwrap_or(0);
-                sys::write_str(&format!(
-                    "INPUTD:GRAB:REQUEST session={} surface={surface}\n",
+                trace::line!(
+                    trace::Channel::Inputd,
+                    "GRAB:REQUEST session={} surface={surface}",
                     args.session
-                ));
+                );
                 if !self.shell_attached() {
                     // Nobody to approve it: a grab is never self-granted.
                     if let Some(change) = self.grabs.approve(args.session, false, focused) {
@@ -89,7 +89,7 @@ impl Hub {
 
     /// The reserved escape chord: revert any grab, tell the compositor.
     pub(super) fn escape_chord(&mut self) {
-        sys::write_str("INPUTD:GRAB:ESCAPE\n");
+        trace::line!(trace::Channel::Inputd, "GRAB:ESCAPE");
         if let Some(change) = self.grabs.escape() {
             self.grant_changed(change);
         }
@@ -119,16 +119,19 @@ impl Hub {
         self.engine.set_grabbed(holder.is_some());
         if change.active {
             let surface = self.surface_of(change.session);
-            sys::write_str(&format!(
-                "INPUTD:GRAB:ON session={} surface={}\n",
+            trace::line!(
+                trace::Channel::Inputd,
+                "GRAB:ON session={} surface={}",
                 change.session,
                 surface.unwrap_or(0)
-            ));
+            );
         } else {
-            sys::write_str(&format!(
-                "INPUTD:GRAB:OFF session={} reason={}\n",
-                change.session, change.reason as u32
-            ));
+            trace::line!(
+                trace::Channel::Inputd,
+                "GRAB:OFF session={} reason={}",
+                change.session,
+                change.reason as u32
+            );
         }
         if change.reason != Reason::Closed {
             let body = wire::encode_grant_changed_args(&wire::GrantChangedArgs {

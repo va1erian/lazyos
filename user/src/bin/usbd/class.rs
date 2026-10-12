@@ -20,14 +20,13 @@
 //! after every interface was bound.
 
 use alloc::boxed::Box;
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use usbhid::desc::{
     Config, HidInterface, Interface, Protocol, CLASS_HID, CLASS_HUB, CLASS_MASS_STORAGE,
 };
 use usbhid::report::{self, Pointer};
-use user::sys;
 use xhci::trb::{request, Trb};
 
 use super::device::{hex, Device, DATA_BYTES};
@@ -218,8 +217,7 @@ fn bind_hid(
         _ => "MOUSE",
     };
     let mode = if layout.is_some() { "report" } else { "boot" };
-    sys::write_str(&format!(
-        "USBD:HID:{what} port={} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={} protocol={}\n",
+    trace::line!(trace::Channel::Usbd, "HID:{what} port={} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={} protocol={}",
         device.name,
         device.slot,
         device.descriptor.vendor,
@@ -227,8 +225,7 @@ fn bind_hid(
         hid.number,
         dci,
         hc.regions,
-        mode
-    ));
+        mode);
     Ok(Some(Function::Hid { dci, hid: source }))
 }
 
@@ -253,10 +250,11 @@ fn wheel_layout(hc: &mut Hc, device: &mut Device, hid: &HidInterface) -> Option<
 }
 
 fn note(device: &Device, interface: u8, what: &str, error: &Error) {
-    sys::write_str(&format!(
-        "USBD:HID:NOTE port={} interface={interface} {what} refused ({error}), continuing\n",
+    trace::line!(
+        trace::Channel::Usbd,
+        "HID:NOTE port={} interface={interface} {what} refused ({error}), continuing",
         device.name
-    ));
+    );
 }
 
 /// The interface's report descriptor, parsed for a pointer.
@@ -272,11 +270,12 @@ fn read_report_layout(
     let mut bytes = [0u8; DATA_BYTES];
     let setup = request::get_report_descriptor(hid.number, len as u16);
     device.control_in(hc, setup, &mut bytes[..len])?;
-    sys::write_str(&format!(
-        "USBD:DESC:REPORT port={} {}\n",
+    trace::line!(
+        trace::Channel::Usbd,
+        "DESC:REPORT port={} {}",
         device.name,
         hex(&bytes[..len])
-    ));
+    );
     report::parse_pointer(&bytes[..len])
         .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
 }

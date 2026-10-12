@@ -18,8 +18,9 @@ use alloc::vec::Vec;
 
 use super::termios::*;
 
-/// Most bytes of input held at once (Linux's `N_TTY_BUF_SIZE`). Input past it
-/// is dropped (and, in canonical mode, the line can still be ended).
+/// Most bytes of input held at once (Linux's `N_TTY_BUF_SIZE`). A pty master
+/// writer waits for room ([`Ldisc::admits`]); the console's keys past it are
+/// dropped. In canonical mode the line being edited can always be ended.
 pub const MAX_INPUT: usize = 4096;
 
 /// A signal the discipline asks the terminal's owner to raise.
@@ -147,38 +148,103 @@ impl Ldisc {
         n
     }
 
+    /// Whether an ordinary byte would be taken now ([`Ldisc::admits`]): a pty
+    /// master's `POLLOUT`.
+    pub fn writable(&self) -> bool {
+        if self.termios.canonical() {
+            self.lines.is_empty() || self.used() < MAX_INPUT - 1
+        } else {
+            self.ready.len() < MAX_INPUT
+        }
+    }
+
+    /// Whether typed `byte` can be fed now without being lost for want of
+    /// room; `false` means the writer waits for a read, which can drain what
+    /// is queued. Bytes that need no room (signals, editing, an ignored CR)
+    /// are always admitted, and so is anything while canonical input holds no
+    /// complete line: no read could make room, so an overlong line drops its
+    /// excess and its end still fits (Linux's rule).
+    pub fn admits(&self, byte: u8) -> bool {
+        let t = self.termios;
+        let Some(byte) = self.map_input(byte) else {
+            return true;
+        };
+        if !self.literal && self.signal_for(byte).is_some() {
+            return true;
+        }
+        if !t.canonical() {
+            return self.ready.len() < MAX_INPUT;
+        }
+        if self.lines.is_empty() {
+            return true;
+        }
+        let used = self.used();
+        if self.literal {
+            return used < MAX_INPUT - 1;
+        }
+        let extended = t.lflag & IEXTEN != 0;
+        if t.is_cc(VERASE, byte)
+            || t.is_cc(VKILL, byte)
+            || (extended && (t.is_cc(VWERASE, byte) || t.is_cc(VLNEXT, byte)))
+        {
+            true
+        } else if t.is_cc(VEOF, byte) {
+            // Moves no byte, but each end-of-file mark is a queued line.
+            self.lines.len() < MAX_INPUT
+        } else if byte == b'\n' || t.is_cc(VEOL, byte) || (extended && t.is_cc(VEOL2, byte)) {
+            used < MAX_INPUT
+        } else {
+            used < MAX_INPUT - 1
+        }
+    }
+
+    /// Bytes held: the line being edited and those waiting for a read.
+    fn used(&self) -> usize {
+        self.edit.len() + self.ready.len()
+    }
+
+    /// Input mapping (`IGNCR`, `ICRNL`, `INLCR`); `None` drops the byte.
+    fn map_input(&self, byte: u8) -> Option<u8> {
+        let iflag = self.termios.iflag;
+        match byte {
+            b'\r' if iflag & IGNCR != 0 => None,
+            b'\r' if iflag & ICRNL != 0 => Some(b'\n'),
+            b'\n' if iflag & INLCR != 0 => Some(b'\r'),
+            other => Some(other),
+        }
+    }
+
+    /// The signal `byte` raises under `ISIG`, if any.
+    fn signal_for(&self, byte: u8) -> Option<Signal> {
+        let t = self.termios;
+        if !t.signals() {
+            None
+        } else if t.is_cc(VINTR, byte) {
+            Some(Signal::Interrupt)
+        } else if t.is_cc(VQUIT, byte) {
+            Some(Signal::Quit)
+        } else if t.is_cc(VSUSP, byte) {
+            Some(Signal::Suspend)
+        } else {
+            None
+        }
+    }
+
     /// Feed one typed byte. Echo goes to `echo` (already post-processed for
     /// output); a returned signal is for the foreground group.
     pub fn input(&mut self, byte: u8, echo: &mut Vec<u8>) -> Option<Signal> {
-        let t = self.termios;
-        let byte = match byte {
-            b'\r' if t.iflag & IGNCR != 0 => return None,
-            b'\r' if t.iflag & ICRNL != 0 => b'\n',
-            b'\n' if t.iflag & INLCR != 0 => b'\r',
-            other => other,
-        };
+        let byte = self.map_input(byte)?;
         if self.literal {
             self.literal = false;
             self.insert(byte, echo);
             return None;
         }
-        if t.signals() {
-            let signal = if t.is_cc(VINTR, byte) {
-                Some(Signal::Interrupt)
-            } else if t.is_cc(VQUIT, byte) {
-                Some(Signal::Quit)
-            } else if t.is_cc(VSUSP, byte) {
-                Some(Signal::Suspend)
-            } else {
-                None
-            };
-            if let Some(signal) = signal {
-                self.flush_input();
-                self.echo_char(byte, echo);
-                return Some(signal);
-            }
+        if let Some(signal) = self.signal_for(byte) {
+            self.flush_input();
+            self.echo_char(byte, echo);
+            return Some(signal);
         }
-        if !t.canonical() {
+        if !self.termios.canonical() {
             if self.ready.len() < MAX_INPUT {
                 self.ready.push_back(byte);
                 self.echo_char(byte, echo);

@@ -12,10 +12,9 @@
 //! Serial: `XUID:GRAB:ASK surface=<id> allow=<0|1>`,
 //! `XUID:GRAB:HELD surface=<id>|none`, `XUID:GRAB:ESCAPE`.
 
-use alloc::format;
+use user::trace;
 
 use user::messenger::input::{wire, ShellEvent};
-use user::sys;
 
 use super::compositor::Compositor;
 
@@ -31,11 +30,11 @@ impl Compositor {
             ShellEvent::GrabChanged(surface) => {
                 self.input.grab = surface;
                 match surface {
-                    Some(id) => sys::write_str(&format!("XUID:GRAB:HELD surface={id}\n")),
-                    None => sys::write_str("XUID:GRAB:HELD surface=none\n"),
+                    Some(id) => trace::line!(trace::Channel::Xuid, "GRAB:HELD surface={id}"),
+                    None => trace::line!(trace::Channel::Xuid, "GRAB:HELD surface=none"),
                 }
             }
-            ShellEvent::EscapeChord => sys::write_str("XUID:GRAB:ESCAPE\n"),
+            ShellEvent::EscapeChord => trace::line!(trace::Channel::Xuid, "GRAB:ESCAPE"),
             // The compositor keeps its own hotkey table (`keys.rs`).
             _ => {}
         }
@@ -52,10 +51,11 @@ impl Compositor {
             && self.focused == Some(surface)
             && on_screen
             && self.prompt.is_none();
-        sys::write_str(&format!(
-            "XUID:GRAB:ASK surface={surface} allow={}\n",
+        trace::line!(
+            trace::Channel::Xuid,
+            "GRAB:ASK surface={surface} allow={}",
             u8::from(allow)
-        ));
+        );
         if let Some(link) = self.input.link.as_ref() {
             // A refusal (the request was withdrawn meanwhile) changes nothing.
             let _ = link.approve_grant(session, allow);

@@ -22,6 +22,7 @@ use core::panic::PanicInfo;
 use user::messenger;
 use user::messenger::display::{self, Canvas, Client, Color, Event, FrameEvent, Rect, Swapchain};
 use user::sys;
+use user::trace;
 
 /// Surface content size in pixels.
 const W: i32 = 360;
@@ -141,7 +142,7 @@ fn run() -> ! {
                             if chain.frame_done(seq) {
                                 frames_done += 1;
                                 if frames_done == 1 {
-                                    sys::write_str("XDEMO:UP:PASS\n");
+                                    trace::line!(trace::Channel::Xdemo, "UP:PASS");
                                 }
                             }
                         }

@@ -61,9 +61,11 @@ were rewritten against the real apps (the previous drafts guessed the dialogs):
   dialog), then Ctrl+O / Ctrl+A / path / Enter to reopen. A final
   Ctrl+A/Ctrl+C/Ctrl+End/Enter/Ctrl+V round-trips the selection through
   `clipboardd`.
-* **Paint** — the app is mouse-only (no accelerators), so the script clicks the
-  toolbar cells by coordinate: draw a stroke, click Undo, click Redo, click
-  Save. `PAINT:SAVE:PASS:/tmp/xpaint.png`.
+* **Paint** — an image built with `LAZYOS_UI_PROBE=1`, so the script clicks the
+  tool grid, palette, swatches and menu bar by name (`click_at`): pick the
+  Brush and red, draw a stroke, Ctrl+Z, Ctrl+Y, open the Edit menu, edit the
+  primary colour, press `O`, then Ctrl+Shift+S and save.
+  `PAINT:SAVE:PASS:/tmp/xpaint.png`.
 * **Files** — click the `HELLO.TXT` tile in the `/` icon view and press Enter;
   `mimed` resolves `text/plain` to the Editor, which opens the file
   (`FILES:OPEN:PASS:/HELLO.TXT`, `EDITOR:OPEN:PASS:/HELLO.TXT`). A final click

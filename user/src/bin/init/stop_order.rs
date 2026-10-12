@@ -11,8 +11,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-
-use user::sys;
+use user::trace;
 
 /// The tier of an ordinary service: stops first.
 const TIER_SERVICE: u8 = 1;
@@ -126,8 +125,8 @@ fn round_of(rounds: &[Vec<usize>], index: usize) -> usize {
 /// cycle still stops. Prints `INIT:SHUTDOWN:ORDER:PASS`.
 pub(super) fn selftest_stop_order() {
     match check_order() {
-        Ok(()) => sys::write_str("INIT:SHUTDOWN:ORDER:PASS\n"),
-        Err(detail) => sys::write_str(&format!("INIT:SHUTDOWN:ORDER:FAIL {detail}\n")),
+        Ok(()) => trace::line!(trace::Channel::Init, "SHUTDOWN:ORDER:PASS"),
+        Err(detail) => trace::line!(trace::Channel::Init, "SHUTDOWN:ORDER:FAIL {detail}"),
     }
 }
 

@@ -38,6 +38,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::sys;
 
@@ -121,21 +122,23 @@ pub extern "C" fn _start() -> ! {
     // The identity the kernel stamped on this task: `_usb` with only
     // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE | CAP_BLOCK_PROVIDER` under `init`.
     match sys::cred_get(None) {
-        Ok(cred) => sys::write_str(&format!(
-            "USBD:CRED uid={} caps={:#x}\n",
-            cred.uid, cred.caps
-        )),
-        Err(errno) => sys::write_str(&format!("USBD:CRED unavailable (errno {errno})\n")),
+        Ok(cred) => trace::line!(
+            trace::Channel::Usbd,
+            "CRED uid={} caps={:#x}",
+            cred.uid,
+            cred.caps
+        ),
+        Err(errno) => trace::line!(trace::Channel::Usbd, "CRED unavailable (errno {errno})"),
     }
     match run() {
         Ok(()) => sys::exit(0),
         Err(Error::NoController) => {
             // Not an error: this machine has no xHCI controller.
-            sys::write_str("USBD:XHCI:NONE\n");
+            trace::line!(trace::Channel::Usbd, "XHCI:NONE");
             sys::exit(0)
         }
         Err(error) => {
-            sys::write_str(&format!("USBD:FATAL {error}\n"));
+            trace::line!(trace::Channel::Usbd, "FATAL {error}");
             sys::exit(1)
         }
     }
@@ -189,10 +192,12 @@ fn run() -> Result<(), Error> {
                 controllers.push(Controller::new(hc));
             }
             Err(error) => {
-                sys::write_str(&format!(
-                    "USBD:XHCI:FAIL hc={index} vendor={:#06x} device={:#06x} {error}\n",
-                    row.vendor, row.device
-                ));
+                trace::line!(
+                    trace::Channel::Usbd,
+                    "XHCI:FAIL hc={index} vendor={:#06x} device={:#06x} {error}",
+                    row.vendor,
+                    row.device
+                );
                 last_error = Some(error);
             }
         }
@@ -212,10 +217,11 @@ fn run() -> Result<(), Error> {
     // stick present at boot was looked at.
     let _ = sys::storage_scanned();
     let devices: usize = controllers.iter().map(Controller::devices).sum();
-    sys::write_str(&format!(
-        "USBD:READY devices={devices} controllers={}\n",
+    trace::line!(
+        trace::Channel::Usbd,
+        "READY devices={devices} controllers={}",
         controllers.len()
-    ));
+    );
     let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
     let mut dump = Dump::new();
     dump.write(&mut controllers, true);
@@ -298,8 +304,7 @@ fn report(hc: &Hc, row: &user::dev::Row) {
             _ => {}
         }
     }
-    sys::write_str(&format!(
-        "USBD:XHCI hc={} vendor={:#06x} device={:#06x} version={:#x} ports={} usb2={usb2} usb3={usb3} slots={} scratchpads={} csz64={} ac64={} ppc={} handoff={:?}\n",
+    trace::line!(trace::Channel::Usbd, "XHCI hc={} vendor={:#06x} device={:#06x} version={:#x} ports={} usb2={usb2} usb3={usb3} slots={} scratchpads={} csz64={} ac64={} ppc={} handoff={:?}",
         hc.index,
         row.vendor,
         row.device,
@@ -310,12 +315,11 @@ fn report(hc: &Hc, row: &user::dev::Row) {
         info.context_64,
         info.addressing_64,
         info.port_power,
-        info.handoff
-    ));
+        info.handoff);
 }
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    sys::write_str(&format!("USBD:PANIC {info}\n"));
+    trace::line!(trace::Channel::Usbd, "PANIC {info}");
     sys::exit(2)
 }

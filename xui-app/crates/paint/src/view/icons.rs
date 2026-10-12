@@ -1,35 +1,21 @@
 #![forbid(unsafe_code)]
 
-//! The tool-strip glyphs.
+//! The tool-grid glyphs.
 //!
 //! xui gap: G7 — the vendored Lucide set has no brush, eraser, fill, dropper,
-//! line or ellipse, so these six are drawn by hand.
-//!
-//! xui's vendored Lucide set has no paint tools, so the shape tools are drawn
-//! here from canvas primitives; the actions reuse Lucide where an outline
-//! exists (`Undo2`, `Redo2`, `Trash2`, `FilePlus`, `Save`, `FolderOpen`).
+//! line or ellipse, so those are drawn by hand; the pencil, rectangle and picker
+//! reuse Lucide outlines.
 
 use xui_core::Color;
 use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
 use xui_core::icon::{Lucide, draw_icon};
 
-use super::StripItem;
 use crate::model::Tool;
 
-/// Draws the glyph for one strip item centred in `rect`.
-pub(crate) fn draw(canvas: &mut dyn Canvas, item: StripItem, rect: Rect, color: Color, dpi: u32) {
-    match item {
-        StripItem::Tool(tool) => draw_tool(canvas, tool, rect, color, dpi),
-        StripItem::Size(size) => draw_size(canvas, size, rect, color, dpi),
-        StripItem::Undo => draw_icon(canvas, Lucide::Undo2, rect, color, dpi),
-        StripItem::Redo => draw_icon(canvas, Lucide::Redo2, rect, color, dpi),
-        StripItem::Clear => draw_icon(canvas, Lucide::Trash2, rect, color, dpi),
-        StripItem::New => draw_icon(canvas, Lucide::FilePlus, rect, color, dpi),
-        StripItem::Save => draw_icon(canvas, Lucide::Save, rect, color, dpi),
-        StripItem::Open => draw_icon(canvas, Lucide::FolderOpen, rect, color, dpi),
-        StripItem::Resize => draw_resize(canvas, rect, color, dpi),
-    }
+/// Draws the glyph for `tool` centred in `rect`.
+pub(crate) fn draw(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi: u32) {
+    draw_tool(canvas, tool, rect, color, dpi);
 }
 
 /// Insets a cell into its icon box, keeping at least a 4px square.
@@ -99,6 +85,56 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
             ];
             canvas.fill_polygon(&points, color);
         }
+        Tool::RectSelect => dashed_rect(canvas, box_rect, color, stroke),
+        Tool::EllipseSelect => dashed_ellipse(canvas, box_rect, color, stroke),
+        Tool::Lasso => {
+            // An open loop, as a lasso is drawn, with a tail.
+            let (w, h) = (box_rect.width(), box_rect.height());
+            let at = |fx: f32, fy: f32| {
+                Point::new(
+                    box_rect.left + (w as f32 * fx) as i32,
+                    box_rect.top + (h as f32 * fy) as i32,
+                )
+            };
+            let loop_points = [
+                at(0.15, 0.55),
+                at(0.2, 0.25),
+                at(0.5, 0.1),
+                at(0.8, 0.25),
+                at(0.85, 0.5),
+                at(0.6, 0.65),
+                at(0.35, 0.65),
+                at(0.25, 0.55),
+            ];
+            for pair in loop_points.windows(2) {
+                canvas.draw_line(pair[0], pair[1], color, stroke);
+            }
+            canvas.draw_line(at(0.35, 0.65), at(0.3, 0.95), color, stroke);
+        }
+        Tool::MagicWand => {
+            // A wand from the bottom-left with a spark at its tip.
+            let tip = Point::new(
+                box_rect.right - box_rect.width() / 4,
+                box_rect.top + box_rect.height() / 4,
+            );
+            canvas.draw_line(
+                Point::new(box_rect.left, box_rect.bottom),
+                tip,
+                color,
+                stroke * 1.5,
+            );
+            let ray = (box_rect.width() / 4).max(2);
+            for (dx, dy) in [(ray, 0), (-ray, 0), (0, ray), (0, -ray)] {
+                canvas.draw_line(tip, Point::new(tip.x + dx, tip.y + dy), color, stroke);
+            }
+        }
+        Tool::MovePixels => move_cross(canvas, box_rect, color, stroke, true),
+        Tool::MoveSelection => move_cross(canvas, box_rect, color, stroke, false),
+        Tool::RoundedRectangle => rounded_box(canvas, box_rect, color, stroke),
+        Tool::Gradient => gradient_box(canvas, box_rect, color, stroke),
+        Tool::Text => text_glyph(canvas, box_rect, color, stroke),
+        Tool::Zoom => magnifier(canvas, box_rect, color, stroke),
+        Tool::Pan => open_hand(canvas, box_rect, color, stroke),
         Tool::Fill => {
             // A bucket: a tilted quad plus a drop.
             let points = [
@@ -121,45 +157,207 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
     }
 }
 
-/// Draws the resize glyph (Lucide has none): a frame with a handle square in
-/// its bottom-right corner and a diagonal towards it.
-fn draw_resize(canvas: &mut dyn Canvas, rect: Rect, color: Color, dpi: u32) {
-    let frame = inset(rect, 6);
-    let stroke = (1.5 * dpi as f32 / 96.0).max(1.0);
-    canvas.stroke_rect(frame, color, stroke);
-    let handle = (frame.width() / 3).max(2);
-    canvas.fill_rect(
-        Rect::new(
-            frame.right - handle,
-            frame.bottom - handle,
-            frame.right,
-            frame.bottom,
-        ),
+/// A rectangle outline with cut corners: the Rounded Rectangle.
+fn rounded_box(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let cut = (rect.width().min(rect.height()) / 4).max(2);
+    let (l, t, r, b) = (rect.left, rect.top, rect.right, rect.bottom);
+    let outline = [
+        (Point::new(l + cut, t), Point::new(r - cut, t)),
+        (Point::new(r - cut, t), Point::new(r, t + cut)),
+        (Point::new(r, t + cut), Point::new(r, b - cut)),
+        (Point::new(r, b - cut), Point::new(r - cut, b)),
+        (Point::new(r - cut, b), Point::new(l + cut, b)),
+        (Point::new(l + cut, b), Point::new(l, b - cut)),
+        (Point::new(l, b - cut), Point::new(l, t + cut)),
+        (Point::new(l, t + cut), Point::new(l + cut, t)),
+    ];
+    for (from, to) in outline {
+        canvas.draw_line(from, to, color, stroke);
+    }
+}
+
+/// A box filled with stripes that thicken left to right: the Gradient.
+fn gradient_box(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    canvas.stroke_rect(rect, color, stroke);
+    let stripes = 5;
+    for i in 0..stripes {
+        let x = rect.left + (rect.width() * (2 * i + 1)) / (2 * stripes);
+        let thickness = stroke * (0.4 + 0.6 * i as f32);
+        canvas.draw_line(
+            Point::new(x, rect.top + 2),
+            Point::new(x, rect.bottom - 2),
+            color,
+            thickness,
+        );
+    }
+}
+
+/// A capital T: the Text tool (no font is bundled, G15).
+fn text_glyph(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let mid = (rect.left + rect.right) / 2;
+    let heavy = stroke * 1.6;
+    canvas.draw_line(
+        Point::new(rect.left, rect.top + 1),
+        Point::new(rect.right, rect.top + 1),
         color,
+        heavy,
     );
     canvas.draw_line(
-        Point::new(
-            frame.left + frame.width() / 4,
-            frame.top + frame.height() / 4,
-        ),
-        Point::new(frame.right - handle, frame.bottom - handle),
+        Point::new(mid, rect.top + 1),
+        Point::new(mid, rect.bottom),
+        color,
+        heavy,
+    );
+    let serif = (rect.width() / 5).max(2);
+    canvas.draw_line(
+        Point::new(mid - serif, rect.bottom),
+        Point::new(mid + serif, rect.bottom),
         color,
         stroke,
     );
 }
 
-/// Draws a size swatch: the dot the brush would paint.
-fn draw_size(canvas: &mut dyn Canvas, size: u32, rect: Rect, color: Color, dpi: u32) {
-    let box_rect = inset(rect, 4);
-    let largest = crate::model::SIZES[crate::model::SIZES.len() - 1].max(1) as f32;
-    let scale = (box_rect.width().min(box_rect.height()) as f32 / largest).max(1.0);
-    let radius = (size as f32 * scale / 2.0).clamp(1.0, box_rect.width() as f32 / 2.0);
-    let center = Point::new(
-        (box_rect.left + box_rect.right) / 2,
-        (box_rect.top + box_rect.bottom) / 2,
+/// A magnifying glass with a plus: Zoom.
+fn magnifier(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let radius = rect.width().min(rect.height()) as f32 * 0.34;
+    let centre = Point::new(
+        rect.left + (radius * 1.15) as i32,
+        rect.top + (radius * 1.15) as i32,
     );
-    canvas.fill_ellipse(center, radius, radius, color);
-    let _ = dpi;
+    canvas.stroke_ellipse(centre, radius, radius, color, stroke);
+    let reach = (radius * 0.55) as i32;
+    canvas.draw_line(
+        Point::new(centre.x - reach, centre.y),
+        Point::new(centre.x + reach, centre.y),
+        color,
+        stroke,
+    );
+    canvas.draw_line(
+        Point::new(centre.x, centre.y - reach),
+        Point::new(centre.x, centre.y + reach),
+        color,
+        stroke,
+    );
+    let from = Point::new(
+        centre.x + (radius * 0.72) as i32,
+        centre.y + (radius * 0.72) as i32,
+    );
+    canvas.draw_line(
+        from,
+        Point::new(rect.right, rect.bottom),
+        color,
+        stroke * 2.0,
+    );
+}
+
+/// An open hand: a palm and four fingers, with a thumb. Pan.
+fn open_hand(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let (w, h) = (rect.width(), rect.height());
+    let at = |fx: f32, fy: f32| {
+        Point::new(
+            rect.left + (w as f32 * fx) as i32,
+            rect.top + (h as f32 * fy) as i32,
+        )
+    };
+    canvas.fill_polygon(
+        &[
+            at(0.2, 0.5),
+            at(0.85, 0.5),
+            at(0.8, 0.85),
+            at(0.5, 1.0),
+            at(0.3, 0.85),
+        ],
+        color,
+    );
+    for (fx, top) in [(0.3, 0.2), (0.45, 0.08), (0.6, 0.05), (0.75, 0.15)] {
+        canvas.draw_line(at(fx, 0.55), at(fx, top), color, stroke * 1.7);
+    }
+    canvas.draw_line(at(0.22, 0.65), at(0.02, 0.4), color, stroke * 1.7);
+}
+
+/// A rectangle outline made of dashes, the look of a selection.
+fn dashed_rect(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let dash = (stroke * 2.0).round().max(2.0) as i32;
+    let mut run = |from: Point, to: Point| {
+        let (dx, dy) = ((to.x - from.x).signum(), (to.y - from.y).signum());
+        let length = (to.x - from.x).abs().max((to.y - from.y).abs());
+        let mut at = 0;
+        while at < length {
+            let end = (at + dash).min(length);
+            canvas.draw_line(
+                Point::new(from.x + dx * at, from.y + dy * at),
+                Point::new(from.x + dx * end, from.y + dy * end),
+                color,
+                stroke,
+            );
+            at += dash * 2;
+        }
+    };
+    run(
+        Point::new(rect.left, rect.top),
+        Point::new(rect.right, rect.top),
+    );
+    run(
+        Point::new(rect.right, rect.top),
+        Point::new(rect.right, rect.bottom),
+    );
+    run(
+        Point::new(rect.right, rect.bottom),
+        Point::new(rect.left, rect.bottom),
+    );
+    run(
+        Point::new(rect.left, rect.bottom),
+        Point::new(rect.left, rect.top),
+    );
+}
+
+/// An ellipse outline made of dashes.
+fn dashed_ellipse(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let (cx, cy) = (
+        (rect.left + rect.right) as f32 / 2.0,
+        (rect.top + rect.bottom) as f32 / 2.0,
+    );
+    let (rx, ry) = (rect.width() as f32 / 2.0, rect.height() as f32 / 2.0);
+    let steps = 16;
+    for step in (0..steps).step_by(2) {
+        let point = |i: i32| {
+            let angle = i as f32 / steps as f32 * std::f32::consts::TAU;
+            Point::new(
+                (cx + rx * angle.cos()).round() as i32,
+                (cy + ry * angle.sin()).round() as i32,
+            )
+        };
+        canvas.draw_line(point(step), point(step + 1), color, stroke);
+    }
+}
+
+/// Four arrows from the centre; with `solid` a filled square in the middle
+/// (the pixels), without a hollow one (only the outline).
+fn move_cross(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32, solid: bool) {
+    let (cx, cy) = ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
+    let reach = rect.width().min(rect.height()) / 2;
+    let head = (reach / 3).max(2);
+    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+        let tip = Point::new(cx + dx * reach, cy + dy * reach);
+        canvas.draw_line(Point::new(cx, cy), tip, color, stroke);
+        let back = Point::new(tip.x - dx * head, tip.y - dy * head);
+        let side = Point::new(-dy * head, dx * head);
+        canvas.fill_polygon(
+            &[
+                tip,
+                Point::new(back.x + side.x, back.y + side.y),
+                Point::new(back.x - side.x, back.y - side.y),
+            ],
+            color,
+        );
+    }
+    let half = (reach / 4).max(1);
+    let square = Rect::new(cx - half, cy - half, cx + half, cy + half);
+    if solid {
+        canvas.fill_rect(square, color);
+    } else {
+        canvas.stroke_rect(square, color, stroke);
+    }
 }
 
 #[cfg(test)]

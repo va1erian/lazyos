@@ -6,6 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::central::Bus;
 use user::messenger::wifi::{api, hw, Radio};
@@ -279,21 +280,23 @@ impl Slot {
         let generation = self.station.scan_generation();
         if self.printed_changes != Some(status.changes) {
             self.printed_changes = Some(status.changes);
-            sys::write_str(&format!(
-                "WLANMD:STATE {} {} reason={} ssid=\"{}\"\n",
+            trace::line!(
+                trace::Channel::Wlanmd,
+                "STATE {} {} reason={} ssid=\"{}\"",
                 self.ifname,
                 status.state.name(),
                 status.reason.name(),
                 status.ssid
-            ));
+            );
         }
         let count = self.station.networks(wlansta::Viewer::System).len() as u32;
         if self.printed_generation != generation {
             self.printed_generation = generation;
-            sys::write_str(&format!(
-                "WLANMD:SCAN {} gen={generation} networks={count}\n",
+            trace::line!(
+                trace::Channel::Wlanmd,
+                "SCAN {} gen={generation} networks={count}",
                 self.ifname
-            ));
+            );
         }
         let Some(bus) = bus else {
             return;
@@ -335,10 +338,11 @@ fn entry(e: hw::ScanEntry) -> ScanEntry {
 fn set_country(radio: &Radio, ifname: &str, country: &str) -> messenger::Result<String> {
     match radio.set_country(country) {
         Ok(()) => return Ok(String::from(country)),
-        Err(error) => sys::write_str(&format!(
-            "WLANMD:RADIO:COUNTRY {ifname} {country} {}\n",
+        Err(error) => trace::line!(
+            trace::Channel::Wlanmd,
+            "RADIO:COUNTRY {ifname} {country} {}",
             error.message()
-        )),
+        ),
     }
     radio.set_country(WORLD)?;
     Ok(String::from(WORLD))

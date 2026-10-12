@@ -2,8 +2,12 @@
 
 //! The tool vocabulary and the brush sizes.
 
-/// The Brush sizes offered by the toolbar, in pixels.
-pub const SIZES: [u32; 5] = [1, 2, 4, 8, 16];
+/// The widths `[` and `]` step through, in pixels: fine steps for thin lines,
+/// coarse ones up to the widest brush the stroke engine accepts.
+pub const SIZES: [u32; 25] = [
+    1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 100, 128, 160, 200, 256, 320, 400,
+    500,
+];
 
 /// Which paint colour a button points at: the primary (usually left) or the
 /// secondary (usually right).
@@ -25,6 +29,27 @@ impl Side {
     }
 }
 
+/// The modifier keys held during a pointer event. Selection tools read them
+/// (Ctrl adds, Alt intersects, Shift keeps a square or circle).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mods {
+    /// Ctrl (or the Windows key).
+    pub ctrl: bool,
+    /// Shift.
+    pub shift: bool,
+    /// Alt.
+    pub alt: bool,
+}
+
+impl Mods {
+    /// No modifier held.
+    pub const NONE: Mods = Mods {
+        ctrl: false,
+        shift: false,
+        alt: false,
+    };
+}
+
 /// One drawing tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -36,19 +61,41 @@ pub enum Tool {
     Eraser,
     /// A straight line.
     Line,
-    /// A rectangle outline.
+    /// A rectangle.
     Rectangle,
-    /// An ellipse outline.
+    /// An ellipse.
     Ellipse,
     /// A flood fill with the clicked colour.
     Fill,
     /// The eyedropper: picks a colour from the canvas.
     Picker,
+    /// Selects a rectangle.
+    RectSelect,
+    /// Selects an ellipse.
+    EllipseSelect,
+    /// Selects the polygon the pointer draws.
+    Lasso,
+    /// Selects the pixels of a similar colour.
+    MagicWand,
+    /// Lifts the selected pixels and moves them.
+    MovePixels,
+    /// Moves the selection's outline only.
+    MoveSelection,
+    /// A rectangle with rounded corners.
+    RoundedRectangle,
+    /// A blend from the primary to the secondary colour.
+    Gradient,
+    /// Typed text, editable until it is committed.
+    Text,
+    /// Zooms the view: a click in, a right click out, a drag to a rectangle.
+    Zoom,
+    /// Pans the view by dragging.
+    Pan,
 }
 
 impl Tool {
     /// Every tool, in toolbar order.
-    pub const ALL: [Tool; 8] = [
+    pub const ALL: [Tool; 19] = [
         Tool::Pencil,
         Tool::Brush,
         Tool::Eraser,
@@ -57,16 +104,48 @@ impl Tool {
         Tool::Ellipse,
         Tool::Fill,
         Tool::Picker,
+        Tool::RectSelect,
+        Tool::EllipseSelect,
+        Tool::Lasso,
+        Tool::MagicWand,
+        Tool::MovePixels,
+        Tool::MoveSelection,
+        Tool::RoundedRectangle,
+        Tool::Gradient,
+        Tool::Text,
+        Tool::Zoom,
+        Tool::Pan,
     ];
 
     /// Whether the tool draws a rubber-banded shape (preview, then commit).
     pub const fn is_shape(self) -> bool {
-        matches!(self, Tool::Line | Tool::Rectangle | Tool::Ellipse)
+        matches!(
+            self,
+            Tool::Line | Tool::Rectangle | Tool::RoundedRectangle | Tool::Ellipse
+        )
     }
 
     /// Whether the tool paints freehand while dragging.
     pub const fn is_freehand(self) -> bool {
         matches!(self, Tool::Pencil | Tool::Brush | Tool::Eraser)
+    }
+
+    /// Whether the tool makes a selection.
+    pub const fn is_selector(self) -> bool {
+        matches!(
+            self,
+            Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand
+        )
+    }
+
+    /// Whether the tool changes the view and never the picture.
+    pub const fn is_view(self) -> bool {
+        matches!(self, Tool::Zoom | Tool::Pan)
+    }
+
+    /// Whether the tool moves the selection or its pixels.
+    pub const fn is_move(self) -> bool {
+        matches!(self, Tool::MovePixels | Tool::MoveSelection)
     }
 
     /// A short human label for the status bar.
@@ -80,6 +159,17 @@ impl Tool {
             Tool::Ellipse => "Ellipse",
             Tool::Fill => "Fill",
             Tool::Picker => "Picker",
+            Tool::RectSelect => "Rectangle Select",
+            Tool::EllipseSelect => "Ellipse Select",
+            Tool::Lasso => "Lasso Select",
+            Tool::MagicWand => "Magic Wand",
+            Tool::MovePixels => "Move Selected Pixels",
+            Tool::MoveSelection => "Move Selection",
+            Tool::RoundedRectangle => "Rounded Rectangle",
+            Tool::Gradient => "Gradient",
+            Tool::Text => "Text",
+            Tool::Zoom => "Zoom",
+            Tool::Pan => "Pan",
         }
     }
 }

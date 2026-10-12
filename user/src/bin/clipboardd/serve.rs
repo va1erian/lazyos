@@ -1,9 +1,9 @@
 //! Service entry point: the serve loop, credential lookup and request
 //! dispatch.
 
-use alloc::format;
 use user::messenger::{self, clipboard as wire, errno, registry, wait, Error, Message, Parcel};
 use user::sys;
+use user::trace;
 
 use super::args::{demo_from_args, history_from_args, spawn_demo};
 use super::state::Clipboard;
@@ -14,8 +14,8 @@ pub(super) fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
     let mut clipboard = Clipboard::new(history);
-    sys::write_str(&format!("CLIPBOARD:HISTORY:{history}\n"));
-    sys::write_str("CLIPBOARD:READY\n");
+    trace::line!(trace::Channel::Clipboard, "HISTORY:{history}");
+    trace::line!(trace::Channel::Clipboard, "READY");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
     // The demo pair (if requested) starts right here, so its two ELF loads

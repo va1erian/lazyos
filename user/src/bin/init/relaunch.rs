@@ -8,9 +8,9 @@
 //! Same gate as a service reload (`reload.rs`): `dbgd`'s identity and the
 //! box's `diag.dbg.control=1`. Serial lines: `INIT:RELAUNCH:PASS|FAIL`.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, errno, router, services, Error, Message, Parcel};
 use user::sys::{self, Cred as SysCred, CAP_SETUID};
@@ -34,10 +34,11 @@ pub(super) fn relaunch(
     let args = services::init::wire::decode_relaunch_app_args(&message.parcel.body)
         .map_err(Error::Parcel)?;
     if !super::reload::authorized(message) || !dbgwire::control::valid_app_id(&args.app) {
-        sys::write_str(&format!(
-            "INIT:RELAUNCH:DENIED app={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "RELAUNCH:DENIED app={}",
             elevpolicy::audit::token(&args.app)
-        ));
+        );
         return Err(Error::Errno(-errno::EPERM));
     }
     if super::shutdown::stopping() {
@@ -60,15 +61,17 @@ pub(super) fn relaunch(
         match launch(services, broker, installed, &request, &SUPERVISOR, false) {
             Ok(result) => {
                 started += 1;
-                sys::write_str(&format!(
-                    "INIT:RELAUNCH:PASS app={id} pid={} session={session}\n",
+                trace::line!(
+                    trace::Channel::Init,
+                    "RELAUNCH:PASS app={id} pid={} session={session}",
                     result.pid
-                ));
+                );
             }
-            Err(error) => sys::write_str(&format!(
-                "INIT:RELAUNCH:FAIL app={id} session={session} errno={}\n",
+            Err(error) => trace::line!(
+                trace::Channel::Init,
+                "RELAUNCH:FAIL app={id} session={session} errno={}",
                 error.errno().map_or(0, |e| -e)
-            )),
+            ),
         }
     }
     let body =

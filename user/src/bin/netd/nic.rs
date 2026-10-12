@@ -15,11 +15,11 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use netstack::{IfKind, Stack};
 use user::messenger::net::{self as nic, Client, Shared};
 use user::messenger::registry;
-use user::sys;
 
 /// Slots per ring: 256 frames of burst each way (a 1 MiB buffer), more than
 /// a 256 KiB TCP window in full-size segments, so a window's worth of
@@ -191,7 +191,7 @@ impl Nic {
             let _ = client.detach(shared.ring);
         }
         shared.close();
-        sys::write_str(&format!("NETD:NIC:DETACH if={} {why}\n", self.ifname));
+        trace::line!(trace::Channel::Netd, "NIC:DETACH if={} {why}", self.ifname);
     }
 
     /// Tell the driver the transmit ring has frames. A dead driver makes the

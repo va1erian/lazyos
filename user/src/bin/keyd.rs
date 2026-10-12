@@ -71,6 +71,7 @@ use core::panic::PanicInfo;
 use user::messenger::keyd::wire as api;
 use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parcel};
 use user::sys;
+use user::trace;
 
 #[path = "keyd/secrets.rs"]
 mod secrets;
@@ -101,16 +102,16 @@ fn run() -> messenger::Result<()> {
     let mut keyd = Keyd::new().ok_or(Error::Errno(-errno::ENOMEM))?;
     keyd.seed_entropy();
     if !keyd.entropy.is_seeded() {
-        sys::write_str("KEYD:SELFTEST:FAIL:no entropy source\n");
+        trace::line!(trace::Channel::Keyd, "SELFTEST:FAIL:no entropy source");
         sys::exit(1);
     }
     load_db(&mut keyd);
     let mut secrets = Secrets::load(&mut keyd.entropy);
     match self_test(&mut keyd) {
-        Ok(()) => sys::write_str("KEYD:SELFTEST:PASS\n"),
+        Ok(()) => trace::line!(trace::Channel::Keyd, "SELFTEST:PASS"),
         // Keep serving: some operations may still be usable, and `init` would
         // restart a service that exits, hiding the failure in a crash loop.
-        Err(detail) => sys::write_str(&format!("KEYD:SELFTEST:FAIL:{detail}\n")),
+        Err(detail) => trace::line!(trace::Channel::Keyd, "SELFTEST:FAIL:{detail}"),
     }
     // Scrub the self-test's own keys and account before this instance starts
     // taking real requests: they must not consume the serving instance's
@@ -122,7 +123,7 @@ fn run() -> messenger::Result<()> {
 
     let (published, server) = messenger::create_pair()?;
     registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
-    sys::write_str("KEYD:READY\n");
+    trace::line!(trace::Channel::Keyd, "READY");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 
@@ -156,10 +157,11 @@ fn load_db(keyd: &mut Keyd) {
         Err(code) => Err(format!("unreadable errno={code}")),
     };
     match loaded {
-        Ok(rows) => sys::write_str(&format!("KEYD:SHADOW:PASS rows={rows} file={path}\n")),
-        Err(reason) => sys::write_str(&format!(
-            "KEYD:SHADOW:FAIL reason={reason} file={path}; no account can log in\n"
-        )),
+        Ok(rows) => trace::line!(trace::Channel::Keyd, "SHADOW:PASS rows={rows} file={path}"),
+        Err(reason) => trace::line!(
+            trace::Channel::Keyd,
+            "SHADOW:FAIL reason={reason} file={path}; no account can log in"
+        ),
     }
 }
 

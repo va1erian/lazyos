@@ -14,8 +14,8 @@
 //! Images without the USB driver have no provider: nothing is held there.
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use user::trace;
 
-use alloc::format;
 use user::sys::{self, settle_state};
 
 use super::service::{Phase, Service};
@@ -83,6 +83,6 @@ pub(super) fn step(services: &[Service], now: u64) -> bool {
         Err(_) => "settle refused",
     };
     DONE.store(true, Ordering::Relaxed);
-    sys::write_str(&format!("INIT:HOME {why}\n"));
+    trace::line!(trace::Channel::Init, "HOME {why}");
     true
 }

@@ -31,6 +31,7 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::netsock::{Addr, Client};
 use user::messenger::netstack::Client as Stack;
@@ -291,10 +292,15 @@ fn run_client(opts: &Options, sockets: &Rc<Client>, stack: &Stack) -> Result<Tal
         return run_udp(opts, sockets, to, &data);
     }
     let stream = TcpStream::connect(sockets, to, CONNECT_MS).map_err(fail("connect"))?;
-    sys::write_str(&format!(
-        "NC:CONNECTED {}.{}.{}.{}:{}\n",
-        ip[0], ip[1], ip[2], ip[3], opts.port
-    ));
+    trace::print!(
+        trace::Channel::Nc,
+        "CONNECTED {}.{}.{}.{}:{}",
+        ip[0],
+        ip[1],
+        ip[2],
+        ip[3],
+        opts.port
+    );
     if opts.interactive {
         return run_interactive(&stream);
     }
@@ -391,13 +397,18 @@ fn run_interactive(stream: &TcpStream) -> Result<Tally, String> {
 
 fn run_listener(opts: &Options, sockets: &Rc<Client>) -> Result<Tally, String> {
     let listener = TcpListener::bind(sockets, opts.port, 1).map_err(fail("listen"))?;
-    sys::write_str(&format!("NC:LISTENING port={}\n", opts.port));
+    trace::print!(trace::Channel::Nc, "LISTENING port={}", opts.port);
     let accept_ms = opts.idle_secs.saturating_mul(1000).min(60_000);
     let (stream, peer) = listener.accept(accept_ms).map_err(fail("accept"))?;
-    sys::write_str(&format!(
-        "NC:ACCEPTED {}.{}.{}.{}:{}\n",
-        peer.ip[0], peer.ip[1], peer.ip[2], peer.ip[3], peer.port
-    ));
+    trace::print!(
+        trace::Channel::Nc,
+        "ACCEPTED {}.{}.{}.{}:{}",
+        peer.ip[0],
+        peer.ip[1],
+        peer.ip[2],
+        peer.ip[3],
+        peer.port
+    );
     let mut tally = Tally {
         sent: 0,
         received: 0,
@@ -455,21 +466,26 @@ fn run() -> Result<(Tally, bool), String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok((tally, true)) => {
-            sys::write_str(&format!(
-                "NC:PASS sent={} received={}\n",
-                tally.sent, tally.received
-            ));
+            trace::print!(
+                trace::Channel::Nc,
+                "PASS sent={} received={}",
+                tally.sent,
+                tally.received
+            );
             sys::exit(0)
         }
         Ok((tally, false)) => {
-            sys::write_str(&format!(
-                "NC:FAIL sent={} received={} wrong={}\n",
-                tally.sent, tally.received, tally.wrong
-            ));
+            trace::print!(
+                trace::Channel::Nc,
+                "FAIL sent={} received={} wrong={}",
+                tally.sent,
+                tally.received,
+                tally.wrong
+            );
             sys::exit(1)
         }
         Err(message) => {
-            sys::write_str(&format!("NC:FAIL {message}\n"));
+            trace::print!(trace::Channel::Nc, "FAIL {message}");
             sys::exit(1)
         }
     }

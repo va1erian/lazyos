@@ -11,6 +11,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
+use user::trace;
 
 use rtl8168::regs::{int, DUMP_BYTES, MIN_BAR_BYTES};
 use rtl8168::{phy, phy_541, setup, Mmio, Regs, Rings, SetupError, TxWatchdog};
@@ -108,11 +109,14 @@ pub(super) fn dump_regs(label: &str, regs: &impl Regs) {
 /// Report the link the chip sees, with the register dump for `label`.
 pub(super) fn report_link(label: &str, regs: &impl Regs) {
     match setup::link(regs) {
-        Some(link) => sys::write_str(&format!(
-            "NETDRV:RTL8168:LINK {label} up={} mbps={} full_duplex={}\n",
-            link.up, link.mbps, link.full_duplex
-        )),
-        None => sys::write_str(&format!("NETDRV:RTL8168:LINK {label} unreadable\n")),
+        Some(link) => trace::line!(
+            trace::Channel::Netdrv,
+            "RTL8168:LINK {label} up={} mbps={} full_duplex={}",
+            link.up,
+            link.mbps,
+            link.full_duplex
+        ),
+        None => trace::line!(trace::Channel::Netdrv, "RTL8168:LINK {label} unreadable"),
     }
     dump_regs(label, regs);
 }
@@ -140,9 +144,10 @@ pub(super) fn open(claimed: &Claimed, settings: &Settings) -> Result<(Brought, S
     let mut rings = unsafe { Rings::new(regs, region.block(), rx_entries, tx_entries) }?;
     let phy_id = phy::start_autoneg(rings.regs_mut(), sys::nap).map_err(Error::Rtl)?;
     phy_541::apply(rings.regs_mut(), sys::nap).map_err(Error::Rtl)?;
-    sys::write_str(&format!(
-        "NETDRV:RTL8168 xid={xid:#05x} phy_id={phy_id:#010x}\n"
-    ));
+    trace::line!(
+        trace::Channel::Netdrv,
+        "RTL8168 xid={xid:#05x} phy_id={phy_id:#010x}"
+    );
     report_link("open", rings.regs());
     let link = setup::link(rings.regs()).is_some_and(|link| link.up);
     let brought = Brought {

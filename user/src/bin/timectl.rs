@@ -16,6 +16,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::timed::Client;
 use user::messenger::{errno, Error};
@@ -97,10 +98,11 @@ fn selftest(client: &Client) -> Result<(), String> {
         _ => return fail("a negative time was not refused with EINVAL"),
     }
     client.set_zone("UTC").map_err(text)?;
-    sys::write_str(&format!(
-        "TIMECTL:SELFTEST:PASS paris_offset={}\n",
+    trace::print!(
+        trace::Channel::Timectl,
+        "SELFTEST:PASS paris_offset={}",
         paris.tz_offset_s
-    ));
+    );
     Ok(())
 }
 

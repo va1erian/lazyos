@@ -15,8 +15,8 @@
 //! `LOGIN:CONSOLE:KERNEL why=<reason>` on the first fallback.
 
 use alloc::collections::VecDeque;
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::input::{self as api, wire};
 use user::messenger::{create_pair, registry, services, Endpoint, Error, DEFAULT_BUFFER};
@@ -61,14 +61,18 @@ impl ConsoleKeys {
         }
         match open() {
             Ok(session) => {
-                sys::write_str(&format!("LOGIN:CONSOLE:INPUTD session={}\n", session.id));
+                trace::line!(
+                    trace::Channel::Login,
+                    "CONSOLE:INPUTD session={}",
+                    session.id
+                );
                 self.session = Some(session);
             }
             Err(why) => {
                 let _ = sys::input_console_release();
                 if !self.warned {
                     self.warned = true;
-                    sys::write_str(&format!("LOGIN:CONSOLE:KERNEL why={why}\n"));
+                    trace::line!(trace::Channel::Login, "CONSOLE:KERNEL why={why}");
                 }
             }
         }

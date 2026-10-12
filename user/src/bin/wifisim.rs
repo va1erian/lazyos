@@ -25,10 +25,10 @@
 
 extern crate alloc;
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::sys;
 
@@ -56,10 +56,12 @@ pub extern "C" fn _start() -> ! {
     sys::write_str("wifisim: simulated Wi-Fi radio\n");
     let uid = match sys::cred_get(None) {
         Ok(cred) => {
-            sys::write_str(&format!(
-                "WIFISIM:CRED uid={} caps={:#x}\n",
-                cred.uid, cred.caps
-            ));
+            trace::line!(
+                trace::Channel::Wifisim,
+                "CRED uid={} caps={:#x}",
+                cred.uid,
+                cred.caps
+            );
             cred.uid
         }
         Err(_) => netpolicy::WIFISIM_UID,
@@ -71,25 +73,25 @@ pub extern "C" fn _start() -> ! {
             Ok(radio) => break radio,
             Err(why) => {
                 if !said {
-                    sys::write_str(&format!("WIFISIM:WAIT {why}\n"));
+                    trace::line!(trace::Channel::Wifisim, "WAIT {why}");
                     said = true;
                 }
                 let _ = sys::sleep_ns(RETRY_MS * 1_000_000);
             }
         }
     };
-    sys::write_str(&format!("WIFISIM:AIR if={air_name} attached\n"));
+    trace::line!(trace::Channel::Wifisim, "AIR if={air_name} attached");
     if let Some(args) = probe_args() {
         let words: Vec<&str> = args.iter().map(String::as_str).collect();
         match sys::spawn_native(fhs::bin::WIFIPROBE, &words) {
-            Some(pid) => sys::write_str(&format!("WIFISIM:PROBE:SPAWN pid={pid}\n")),
-            None => sys::write_str("WIFISIM:PROBE:SPAWN failed\n"),
+            Some(pid) => trace::line!(trace::Channel::Wifisim, "PROBE:SPAWN pid={pid}"),
+            None => trace::line!(trace::Channel::Wifisim, "PROBE:SPAWN failed"),
         }
     }
     match user::wifi::run(radio, IFNAME, uid) {
         Ok(()) => sys::exit(0),
         Err(why) => {
-            sys::write_str(&format!("WIFISIM:FAIL {why}\n"));
+            trace::line!(trace::Channel::Wifisim, "FAIL {why}");
             sys::exit(1)
         }
     }

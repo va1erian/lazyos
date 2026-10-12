@@ -39,6 +39,7 @@ use user::central;
 use user::messenger::{self, errno, registry, services, wait, Error, Message, Parcel};
 use user::sys;
 use user::sysinfo::{self, Snapshot, TaskState};
+use user::trace;
 
 /// How often the retained stats topics are republished (PIT ticks, 100 Hz).
 ///
@@ -74,7 +75,7 @@ fn run() -> messenger::Result<()> {
     sys::write_str("sysmond: registered as ");
     sys::write_str(services::SYSMOND_NAME);
     sys::write_str("\n");
-    sys::write_str("SYSMOND:REGISTER:PASS\n");
+    trace::line!(trace::Channel::Sysmond, "REGISTER:PASS");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 
@@ -100,11 +101,11 @@ fn run() -> messenger::Result<()> {
                     announced = true;
                     // The broker's own view of the `system/stats/*` topics is
                     // the evidence that both reached the central broker.
-                    sys::write_str(&format!("SYSMOND:SNAPSHOT:PASS topics={topics}\n"));
+                    trace::line!(trace::Channel::Sysmond, "SNAPSHOT:PASS topics={topics}");
                 }
                 Ok(_) => {}
                 Err(code) => {
-                    sys::write_str(&format!("SYSMOND:SNAPSHOT:FAIL {code}\n"));
+                    trace::line!(trace::Channel::Sysmond, "SNAPSHOT:FAIL {code}");
                 }
             }
             next_publish = sys::clock() + PUBLISH_TICKS;

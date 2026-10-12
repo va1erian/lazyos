@@ -58,6 +58,7 @@ mod sessions;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use accountdb::ratelimit::Limiter;
 use elevpolicy::approvals::{Approvals, Caller};
@@ -127,7 +128,7 @@ fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(NAME, &published, &[wire::INTERFACE_ID], 0)?;
     services::init::notify_ready();
-    sys::write_str("ELEVD:UP:PASS\n");
+    trace::line!(trace::Channel::Elevd, "UP:PASS");
     let mut state = State {
         server,
         approvals: Approvals::new(),

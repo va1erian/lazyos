@@ -205,6 +205,22 @@ fn main() {
     if env::var_os("LAZYOS_UI_PROBE").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_ui_probe");
     }
+    // Tracing (docs/tracing-plan.md, T2): `LAZYOS_TRACE=0` compiles
+    // `user::trace`'s macros out; the old switches imply it back on, like the
+    // kernel's build script reads them.
+    println!("cargo:rerun-if-env-changed=LAZYOS_TRACE");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_trace)");
+    {
+        let on = |name: &str| {
+            println!("cargo:rerun-if-env-changed={name}");
+            env::var_os(name).as_deref() == Some(std::ffi::OsStr::new("1"))
+        };
+        let aliased = ["LAZYOS_LABEL_TRACE", "LAZYOS_USB_TRACE", "LAZYOS_UI_PROBE"].map(on);
+        let trace_off = env::var_os("LAZYOS_TRACE").as_deref() == Some(std::ffi::OsStr::new("0"));
+        if aliased.contains(&true) || !trace_off {
+            println!("cargo:rustc-cfg=lazyos_trace");
+        }
+    }
     // `LAZYOS_USB_TRACE=1` (test images only, set by `tools/usb/run.py`):
     // `usbd` echoes every report and key edge on serial for the harness's
     // judge. Never on by default: the trace would carry typed passwords.

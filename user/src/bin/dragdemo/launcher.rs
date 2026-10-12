@@ -7,6 +7,7 @@
 use alloc::format;
 use user::messenger::clipboard;
 use user::sys;
+use user::trace;
 
 use super::app::park_tick;
 use super::CONNECT_ATTEMPTS;
@@ -23,11 +24,11 @@ pub(super) fn launcher() -> ! {
                 started += 1;
                 sys::write_str(&format!("dragdemo: started {role} (pid {pid})\n"));
             }
-            None => sys::write_str(&format!("DND:LAUNCH:FAIL:{role}\n")),
+            None => trace::line!(trace::Channel::Dnd, "LAUNCH:FAIL:{role}"),
         }
     }
     if started == 2 {
-        sys::write_str("DND:LAUNCH:PASS\n");
+        trace::line!(trace::Channel::Dnd, "LAUNCH:PASS");
     }
     loop {
         let _ = sys::wait(sys::clock() + 10);
@@ -48,7 +49,7 @@ fn ensure_clipboard() {
     match sys::spawn_native(fhs::bin::CLIPBOARDD, &[]) {
         Some(pid) => sys::write_str(&format!("dragdemo: started clipboardd (pid {pid})\n")),
         None => {
-            sys::write_str("DND:LAUNCH:FAIL:clipboardd did not start\n");
+            trace::line!(trace::Channel::Dnd, "LAUNCH:FAIL:clipboardd did not start");
         }
     }
 }

@@ -1,78 +1,110 @@
 #![forbid(unsafe_code)]
 
-//! The canvas painter: the bitmap, the shape preview and the brush ring.
+//! The canvas painter: the screen image 1:1, the brush ring, the text caret
+//! and block, the Zoom tool's rubber band and the marching ants.
+//!
+//! Shapes, gradients and text are real pixels in the layer while they are
+//! being made (the model repaints them per frame), so nothing here previews
+//! them; what is drawn here is never part of the picture.
 
-use xui_core::Theme;
 use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
+use xui_core::{Color, Theme};
 
-use super::super::color_of;
-use super::CanvasState;
-use crate::model::{Preview, PreviewKind};
+use super::ants;
+use super::state::CanvasState;
+use crate::model::{Rect as PixelRect, Tool};
+use crate::viewport::scaled_px;
 
-pub(super) fn paint(canvas: &mut dyn Canvas, state: &CanvasState, theme: &Theme) {
+const WHITE: Color = Color::rgb(255, 255, 255);
+const BLACK: Color = Color::rgb(0, 0, 0);
+
+/// Ticks of the canvas timer per half period of the caret's blink.
+const BLINK_TICKS: u32 = 3;
+
+pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Theme) {
     let bounds = canvas.bounds();
+    state.set_dpi(canvas.dpi());
+    state.set_view(bounds);
     canvas.clear(theme.background);
     canvas.push_clip(bounds);
 
-    if let Some(image) = &state.image {
-        let width = image.width() as i32;
-        let height = image.height() as i32;
-        let left = bounds.left - state.offset.0;
-        let top = bounds.top - state.offset.1;
+    // The screen image is already scaled to the zoom and covers only what is
+    // visible, so it is drawn 1:1: xui's bilinear filter has nothing to blur.
+    if let Some((image, (x, y))) = state.screen() {
+        let (width, height) = (image.width() as i32, image.height() as i32);
+        let (left, top) = (bounds.left + x, bounds.top + y);
         canvas.draw_image(image, Rect::new(left, top, left + width, top + height));
     }
-    if let Some(preview) = state.preview {
-        draw_preview(canvas, bounds, state.offset, &preview);
-    }
-    if let Some(cursor) = state.cursor {
-        let center = Point::new(
-            bounds.left + cursor.0 - state.offset.0,
-            bounds.top + cursor.1 - state.offset.1,
-        );
+    let zoom = state.viewport().zoom();
+    // The view position of the middle of picture pixel `point`.
+    let at = |point: (i32, i32)| {
+        let (x, y) = state.viewport().to_view(point.0, point.1);
+        let half = (zoom / 2.0).round() as i32;
+        Point::new(bounds.left + x + half, bounds.top + y + half)
+    };
+    if let Some(cursor) = state.cursor
+        && matches!(state.tool, Tool::Pencil | Tool::Brush | Tool::Eraser)
+    {
         // xui gap: G4 — `Cursor` has no crosshair and the offscreen backend
         // ignores cursors, so the canvas paints its own brush ring.
-        let radius = (state.brush.max(1) as f32 / 2.0).max(1.0);
-        canvas.stroke_ellipse(center, radius, radius, theme.text, 1.0);
+        let width = if state.tool == Tool::Pencil {
+            1
+        } else {
+            state.brush
+        };
+        let radius = (width.max(1) as f32 * zoom as f32 / 2.0).max(1.0);
+        canvas.stroke_ellipse(at(cursor), radius, radius, theme.text, 1.0);
     }
+    draw_text_overlay(canvas, state, theme, bounds);
+    if let Some((a, b)) = state.marquee {
+        let rect = corner_box(state, bounds, PixelRect::from_points(a, b));
+        canvas.stroke_rect(rect, theme.text, 1.0);
+    }
+    ants::draw(canvas, state, bounds);
+    ants::draw_lasso(canvas, state, bounds);
     canvas.stroke_rect(bounds, theme.border, 1.0);
     canvas.pop_clip();
 }
 
-/// Draws a rubber-banded shape in canvas coordinates, mapped into the node.
-fn draw_preview(canvas: &mut dyn Canvas, bounds: Rect, offset: (i32, i32), preview: &Preview) {
-    let at = |point: (i32, i32)| {
-        Point::new(
-            bounds.left + point.0 - offset.0,
-            bounds.top + point.1 - offset.1,
-        )
-    };
-    let color = color_of(preview.color);
-    let from = at(preview.from);
-    let to = at(preview.to);
-    match preview.kind {
-        PreviewKind::Line => canvas.draw_line(from, to, color, preview.diameter as f32),
-        PreviewKind::Rectangle => {
-            let rect = Rect::new(
-                from.x.min(to.x),
-                from.y.min(to.y),
-                from.x.max(to.x).max(from.x.min(to.x) + 1),
-                from.y.max(to.y).max(from.y.min(to.y) + 1),
-            );
-            canvas.stroke_rect(rect, color, preview.diameter.max(1) as f32);
-        }
-        PreviewKind::Ellipse => {
-            let cx = (from.x + to.x) as f32 / 2.0;
-            let cy = (from.y + to.y) as f32 / 2.0;
-            let rx = (to.x - from.x).unsigned_abs() as f32 / 2.0;
-            let ry = (to.y - from.y).unsigned_abs() as f32 / 2.0;
-            canvas.stroke_ellipse(
-                Point::new(cx.round() as i32, cy.round() as i32),
-                rx.max(1.0),
-                ry.max(1.0),
-                color,
-                preview.diameter.max(1) as f32,
-            );
-        }
+/// A picture rectangle in view coordinates, placed in the node.
+fn corner_box(state: &CanvasState, bounds: Rect, rect: PixelRect) -> Rect {
+    let vp = state.viewport();
+    let (x0, y0) = vp.to_view(rect.x0, rect.y0);
+    let (x1, y1) = vp.to_view(rect.x1, rect.y1);
+    Rect::new(
+        bounds.left + x0,
+        bounds.top + y0,
+        bounds.left + x1.max(x0 + 1),
+        bounds.top + y1.max(y0 + 1),
+    )
+}
+
+/// The text block's outline, its drag handle and the blinking caret.
+fn draw_text_overlay(canvas: &mut dyn Canvas, state: &CanvasState, theme: &Theme, bounds: Rect) {
+    if !state.editing {
+        return;
+    }
+    if let Some((block, handle)) = state.block {
+        canvas.stroke_rect(corner_box(state, bounds, block), theme.border, 1.0);
+        let handle = corner_box(state, bounds, handle);
+        canvas.fill_rect(handle, theme.accent);
+        canvas.stroke_rect(handle, theme.border, 1.0);
+    }
+    let visible = (state.phase / BLINK_TICKS).is_multiple_of(2);
+    if let (true, Some((x, y, height))) = (visible, state.caret) {
+        let zoom = state.viewport().zoom() as f32;
+        let (ox, oy) = state.viewport().origin();
+        let left = bounds.left + (x * zoom).round() as i32 - ox;
+        let top = bounds.top + (y * zoom).round() as i32 - oy;
+        let bottom = top + (height * zoom).round().max(2.0) as i32;
+        // Black with a white edge, so it shows on any picture.
+        let wide = scaled_px(2, state.dpi);
+        let edge = scaled_px(1, state.dpi);
+        canvas.fill_rect(
+            Rect::new(left - edge, top - edge, left + wide + edge, bottom + edge),
+            WHITE,
+        );
+        canvas.fill_rect(Rect::new(left, top, left + wide, bottom), BLACK);
     }
 }

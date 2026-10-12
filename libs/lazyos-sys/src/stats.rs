@@ -13,6 +13,27 @@ pub mod system_stats_op {
     pub const KLOG: u64 = 2;
     /// The same for what programs wrote to the terminal.
     pub const PROGRAM_LOG: u64 = 3;
+    /// The trace mask, two little-endian words (16 bytes) into `a1`.
+    pub const TRACE_MASK: u64 = 4;
+}
+
+/// The kernel's trace mask: bit `n` of the two words is the channel with
+/// index `n` in `tracefmt::Channel` (both zero when the kernel compiled its
+/// tracing out). One small call, not the whole snapshot.
+pub fn trace_mask() -> Result<[u64; 2], i64> {
+    let mut bytes = [0u8; 16];
+    // SAFETY: the kernel writes at most `bytes.len()` bytes into `bytes`.
+    let code = unsafe {
+        crate::raw::syscall3(
+            nr::SYSTEM_STATS,
+            system_stats_op::TRACE_MASK,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+        )
+    };
+    value(code)?;
+    let word = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+    Ok([word(0), word(8)])
 }
 
 /// The size in bytes of the snapshot this kernel writes.

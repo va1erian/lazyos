@@ -4,7 +4,7 @@
 //! `devctl` prints them; [`cross_class_probe`] is the boot evidence that a
 //! driver uid cannot claim another driver's class.
 
-use alloc::format;
+use crate::trace;
 use alloc::vec::Vec;
 
 use devinspect::{Denial, Device, Rule};
@@ -35,17 +35,19 @@ pub fn denials() -> Result<Vec<Denial>, i64> {
 pub fn cross_class_probe(tag: &str) {
     let cred = sys::cred_get(None).unwrap_or_default();
     if cred.uid == 0 {
-        sys::write_str(&format!(
-            "DEV:CROSSCLAIM:{tag}:SKIP uid=0 (root is not confined)\n"
-        ));
+        trace::line!(
+            trace::Channel::Dev,
+            "CROSSCLAIM:{tag}:SKIP uid=0 (root is not confined)"
+        );
         return;
     }
     let devices = match inventory() {
         Ok(devices) => devices,
         Err(errno) => {
-            sys::write_str(&format!(
-                "DEV:CROSSCLAIM:{tag}:FAIL inventory errno={errno}\n"
-            ));
+            trace::line!(
+                trace::Channel::Dev,
+                "CROSSCLAIM:{tag}:FAIL inventory errno={errno}"
+            );
             return;
         }
     };
@@ -63,28 +65,31 @@ pub fn cross_class_probe(tag: &str) {
             Err(errno::EACCES) => refused += 1,
             Ok(handle) => {
                 let _ = super::release(handle);
-                sys::write_str(&format!(
-                    "DEV:CROSSCLAIM:{tag}:FAIL uid={} claimed device {} ({})\n",
+                trace::line!(
+                    trace::Channel::Dev,
+                    "CROSSCLAIM:{tag}:FAIL uid={} claimed device {} ({})",
                     cred.uid,
                     device.id,
                     device.class_name()
-                ));
+                );
                 return;
             }
             Err(errno) => {
-                sys::write_str(&format!(
-                    "DEV:CROSSCLAIM:{tag}:FAIL uid={} device {} ({}) errno={errno}, want EACCES\n",
+                trace::line!(
+                    trace::Channel::Dev,
+                    "CROSSCLAIM:{tag}:FAIL uid={} device {} ({}) errno={errno}, want EACCES",
                     cred.uid,
                     device.id,
                     device.class_name()
-                ));
+                );
                 return;
             }
         }
     }
-    sys::write_str(&format!(
-        "DEV:CROSSCLAIM:{tag}:PASS uid={} own={} refused={refused}\n",
+    trace::line!(
+        trace::Channel::Dev,
+        "CROSSCLAIM:{tag}:PASS uid={} own={} refused={refused}",
         cred.uid,
         own.len()
-    ));
+    );
 }

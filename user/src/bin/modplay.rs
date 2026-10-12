@@ -22,6 +22,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use modplay::{Module, Options, Player};
 use user::{files, sys};
@@ -88,7 +89,7 @@ pub extern "C" fn _start() -> ! {
     match play(&args) {
         Ok(()) => sys::exit(0),
         Err(reason) => {
-            sys::write_str(&format!("MODPLAY:PLAY:FAIL {reason}\n"));
+            trace::print!(trace::Channel::Modplay, "PLAY:FAIL {reason}");
             sys::exit(1)
         }
     }
@@ -115,11 +116,12 @@ fn load(source: &Source) -> Result<(Module, String), String> {
 
 fn play(args: &Args) -> Result<(), String> {
     let (module, title) = load(&args.source)?;
-    sys::write_str(&format!(
-        "MODPLAY:LOAD title=\"{title}\" orders={} patterns={}\n",
+    trace::print!(
+        trace::Channel::Modplay,
+        "LOAD title=\"{title}\" orders={} patterns={}",
         module.orders.len(),
         module.pattern_count()
-    ));
+    );
     let mut sink = Sink::open()?;
     let mut player = Player::new(&module, sink.rate(), args.options);
     let mut buf = vec![0i16; CHUNK_FRAMES * 2];
@@ -136,10 +138,11 @@ fn play(args: &Args) -> Result<(), String> {
     if played != queued {
         return Err(format!("driver played {played} of {queued} frames"));
     }
-    sys::write_str(&format!(
-        "MODPLAY:PLAY:PASS frames={played} rate={rate} unsupported_effects={}\n",
+    trace::print!(
+        trace::Channel::Modplay,
+        "PLAY:PASS frames={played} rate={rate} unsupported_effects={}",
         player.unsupported_effects()
-    ));
+    );
     Ok(())
 }
 

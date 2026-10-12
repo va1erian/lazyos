@@ -31,9 +31,9 @@
 
 extern crate alloc;
 
-use alloc::format;
 use alloc::vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use pcm::tone::Tone;
 use user::messenger::audio::{self as api};
@@ -126,21 +126,26 @@ pub extern "C" fn _start() -> ! {
     // The identity the kernel stamped on this task: `_snd` with only
     // `CAP_DEV_CLAIM` under `init`, root when the kernel boots it directly.
     match sys::cred_get(None) {
-        Ok(cred) => sys::write_str(&format!(
-            "SNDD:CRED uid={} caps={:#x}\n",
-            cred.uid, cred.caps
-        )),
-        Err(errno) => sys::write_str(&format!("SNDD:CRED unavailable (errno {errno})\n")),
+        Ok(cred) => trace::line!(
+            trace::Channel::Sndd,
+            "CRED uid={} caps={:#x}",
+            cred.uid,
+            cred.caps
+        ),
+        Err(errno) => trace::line!(trace::Channel::Sndd, "CRED unavailable (errno {errno})"),
     }
     let args = Args::from_service();
     match run(&args) {
         Ok(()) => sys::exit(0),
         Err(Error::NoDevice) => {
-            sys::write_str("SNDD:NODEV no supported sound card on this machine\n");
+            trace::line!(
+                trace::Channel::Sndd,
+                "NODEV no supported sound card on this machine"
+            );
             sys::exit(0)
         }
         Err(error) => {
-            sys::write_str(&format!("SND:PLAY:FAIL {}\n", error.describe()));
+            trace::line!(trace::Channel::Snd, "PLAY:FAIL {}", error.describe());
             sys::exit(1)
         }
     }
@@ -148,15 +153,17 @@ pub extern "C" fn _start() -> ! {
 
 fn run(args: &Args) -> Result<(), Error> {
     let mut card = Card::open(args.dev)?;
-    sys::write_str(&format!(
-        "SNDD:CARD model={} streams={}\n",
+    trace::line!(
+        trace::Channel::Sndd,
+        "CARD model={} streams={}",
         card.model(),
         card.streams()
-    ));
+    );
     let infos = card.pcm_infos()?;
     for (index, info) in infos.iter().enumerate() {
-        sys::write_str(&format!(
-            "SNDD:PCM stream={index} dir={} formats={:#x} rates={:#x} channels={}-{}\n",
+        trace::line!(
+            trace::Channel::Sndd,
+            "PCM stream={index} dir={} formats={:#x} rates={:#x} channels={}-{}",
             if info.direction == direction::OUTPUT {
                 "out"
             } else {
@@ -166,7 +173,7 @@ fn run(args: &Args) -> Result<(), Error> {
             virtio_snd::params::rate_bitmap(info),
             info.channels_min,
             info.channels_max
-        ));
+        );
     }
     if args.demo {
         // Boot evidence (issue #481): `_snd` cannot claim another class.
@@ -203,16 +210,25 @@ fn self_test(card: &mut Card, infos: &[PcmInfo], args: &Args) -> Result<(), Erro
     if played != frames {
         return Err(Error::Params);
     }
-    sys::write_str(&format!(
-        "SND:PLAY:PASS freq={} rate={} channels={} frames={played}\n",
-        args.freq_hz, grant.rate_hz, grant.channels
-    ));
+    trace::line!(
+        trace::Channel::Snd,
+        "PLAY:PASS freq={} rate={} channels={} frames={played}",
+        args.freq_hz,
+        grant.rate_hz,
+        grant.channels
+    );
     // Interrupt evidence: when the line was armed, the tone's completions must
     // have raised interrupts; an unroutable line just means polling alone.
     match card.irq_report() {
-        (false, _) => sys::write_str("SNDD:IRQ:POLLING line not routable, polling only\n"),
-        (true, 0) => sys::write_str("SND:IRQ:FAIL armed but no interrupt arrived\n"),
-        (true, delivered) => sys::write_str(&format!("SND:IRQ:PASS delivered={delivered}\n")),
+        (false, _) => trace::line!(
+            trace::Channel::Sndd,
+            "IRQ:POLLING line not routable, polling only"
+        ),
+        (true, 0) => trace::line!(
+            trace::Channel::Snd,
+            "IRQ:FAIL armed but no interrupt arrived"
+        ),
+        (true, delivered) => trace::line!(trace::Channel::Snd, "IRQ:PASS delivered={delivered}"),
     }
     Ok(())
 }
@@ -223,12 +239,12 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
     let fail = |error: MsgError| Error::Messenger(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
     registry::register(api::CARD_NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
-    sys::write_str(&format!(
-        "SNDD:READY name={} interface={:#x}
-",
+    trace::line!(
+        trace::Channel::Sndd,
+        "READY name={} interface={:#x}",
         api::CARD_NAME,
         api::INTERFACE
-    ));
+    );
 
     // `system/audio/{card}/event` (issue #453): `virtio-snd0` or `intel-hda0`.
     let mut publisher = user::audio_events::EventPublisher::new(card.event_name());

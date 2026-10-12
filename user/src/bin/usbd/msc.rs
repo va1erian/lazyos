@@ -23,6 +23,7 @@
 
 use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use usbhid::desc::{Interface, Transfer};
 use usbmsc::bot::{reset_recovery, XferError};
@@ -72,10 +73,8 @@ impl Msc {
             return Ok(None);
         };
         if interface.subclass != SUBCLASS_SCSI || interface.protocol != PROTOCOL_BOT {
-            sys::write_str(&format!(
-                "USBD:MSC:SKIP port={} interface={} subclass={:#04x} protocol={:#04x} (not SCSI Bulk-Only)\n",
-                device.name, interface.number, interface.subclass, interface.protocol
-            ));
+            trace::line!(trace::Channel::Usbd, "MSC:SKIP port={} interface={} subclass={:#04x} protocol={:#04x} (not SCSI Bulk-Only)",
+                device.name, interface.number, interface.subclass, interface.protocol);
             return Ok(None);
         }
         let pipes = Pipes {
@@ -135,13 +134,11 @@ impl Msc {
             Ok(id) => id,
             Err(errno) => return skip(&name, &format!("register errno {errno}")),
         };
-        sys::write_str(&format!(
-            "USBD:MSC:DISK port={name} slot={slot} id=usb{} vendor={vendor:#06x} product={product:#06x} blocks={blocks} wp={} burst={} packet={}\n",
+        trace::line!(trace::Channel::Usbd, "MSC:DISK port={name} slot={slot} id=usb{} vendor={vendor:#06x} product={product:#06x} blocks={blocks} wp={} burst={} packet={}",
             self.id,
             u8::from(disk.write_protected),
             self.pipes.bulk_in.context.max_burst,
-            self.pipes.bulk_in.context.max_packet,
-        ));
+            self.pipes.bulk_in.context.max_packet);
         self.disk = Some(disk);
         self.buffer = alloc::vec![0u8; BULK_WINDOW];
         true
@@ -175,11 +172,12 @@ impl Msc {
             Err(errno) => {
                 // The kernel no longer serves this disk; its own log says
                 // why (`block: usb<n>: ... timed out`).
-                sys::write_str(&format!(
-                    "USBD:MSC:FAIL id=usb{} next errno {errno} ({})\n",
+                trace::line!(
+                    trace::Channel::Usbd,
+                    "MSC:FAIL id=usb{} next errno {errno} ({})",
                     self.id,
                     next_errno_text(errno)
-                ));
+                );
                 self.dead = true;
                 false
             }
@@ -222,13 +220,11 @@ impl Msc {
         let after = disk.bot.stats;
         let ms = sys::monotonic_ms().saturating_sub(started);
         if trace || result.is_err() || ms >= SLOW_MS {
-            sys::write_str(&format!(
-                "USBD:MSC:REQ id=usb{id} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}\n",
+            trace::line!(trace::Channel::Usbd, "MSC:REQ id=usb{id} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}",
                 op_name(request.op),
                 request.lba,
                 after.stalls - before.stalls,
-                after.resets - before.resets,
-            ));
+                after.resets - before.resets);
         }
         let status = match result {
             Ok(()) => storage_status::OK,
@@ -247,12 +243,13 @@ impl Msc {
         };
         if status == storage_status::GONE {
             self.dead = true;
-            sys::write_str(&format!("USBD:MSC:GONE id=usb{id} ({result:?})\n"));
+            trace::line!(trace::Channel::Usbd, "MSC:GONE id=usb{id} ({result:?})");
         }
         if let Err(errno) = sys::storage_complete(id, request.tag, status, data) {
-            sys::write_str(&format!(
-                "USBD:MSC:FAIL id=usb{id} complete errno {errno}\n"
-            ));
+            trace::line!(
+                trace::Channel::Usbd,
+                "MSC:FAIL id=usb{id} complete errno {errno}"
+            );
         }
     }
 
@@ -275,7 +272,10 @@ impl Msc {
             None => Ok(()),
         };
         if let Err(error) = out_of_time(result, &link, &mut pending) {
-            sys::write_str(&format!("USBD:MSC:FAIL id=usb{id} idle flush {error:?}\n"));
+            trace::line!(
+                trace::Channel::Usbd,
+                "MSC:FAIL id=usb{id} idle flush {error:?}"
+            );
         }
         self.reset_pending = pending;
     }
@@ -289,7 +289,11 @@ impl Msc {
         if !self.dead {
             let _ = sys::storage_remove(self.id);
         }
-        sys::write_str(&format!("USBD:MSC:GONE id=usb{} (detached)\n", self.id));
+        trace::line!(
+            trace::Channel::Usbd,
+            "MSC:GONE id=usb{} (detached)",
+            self.id
+        );
     }
 }
 
@@ -346,6 +350,6 @@ fn op_name(op: u64) -> &'static str {
 }
 
 fn skip(port: &str, why: &str) -> bool {
-    sys::write_str(&format!("USBD:MSC:SKIP port={port} {why}\n"));
+    trace::line!(trace::Channel::Usbd, "MSC:SKIP port={port} {why}");
     false
 }

@@ -1,36 +1,50 @@
 #![forbid(unsafe_code)]
 
 //! The window layout and the state mirror a host or test can read.
+//!
+//! ```text
+//! +--------------------------------------------------------+
+//! | File Edit View Image Layers Adjustments Help           |  menu bar
+//! | Pencil   Size: [4 px]                                  |  tool options bar
+//! +----+----------------------------------+----------------+
+//! |tool|                                  | Colors         |
+//! |grid|  canvas (or the colour editor)   | primary/second |
+//! | 2  |                                  | 32 swatches    |
+//! |    |                                  | Layers + strip |
+//! |    |                                  | History        |
+//! +----+----------------------------------+----------------+
+//! | 100, 40 | 320 x 240 | Pencil | message                 |  status bar
+//! +--------------------------------------------------------+
+//! ```
+//!
+//! The right column holds the Colors panel, the Layers panel with its button
+//! strip and the collapsible History list ([`super::sidebar`]).
 
 use std::rc::Rc;
 
+use xui_core::Dip;
 use xui_core::app::Ui;
-use xui_core::arrange::{Handle, LayoutExt, build, column, status_bar};
+use xui_core::arrange::{Handle, LayoutExt, build, column, row, stack, status_bar};
 use xui_core::backend::Result;
-use xui_core::widget::StatusBar;
+use xui_core::widget::{Menu, StatusBar};
 
+use super::coloredit::ColorEditor;
+use super::dialogs::Frames;
+use super::layerprops::LayerPropsDialog;
+use super::menu;
+use super::options::{self, Options};
 use super::palette::Palette;
-use super::toolbar::{StripItem, ToolStrip};
-use super::{Msg, PaintCanvas};
-use crate::model::{Pixel, SIZES, Tool};
+use super::sidebar::Sidebar;
+use super::toolbar::{self, ToolStrip};
+use super::{AdjustKind, Msg, PaintCanvas};
+use crate::model::{Pixel, Side, Tool};
 
-/// The tool, size and action cells, in order. Save/Open are included only when
-/// the storage is available; Resize is last so the other indices are stable.
-pub(super) fn strip_items(io: bool) -> Vec<StripItem> {
-    let mut items: Vec<StripItem> = Tool::ALL.into_iter().map(StripItem::Tool).collect();
-    items.extend(SIZES.into_iter().map(StripItem::Size));
-    items.extend([
-        StripItem::Undo,
-        StripItem::Redo,
-        StripItem::Clear,
-        StripItem::New,
-    ]);
-    if io {
-        items.extend([StripItem::Save, StripItem::Open]);
-    }
-    items.push(StripItem::Resize);
-    items
-}
+/// The menu bar's design height.
+const MENU_HEIGHT: Dip = Dip(30.0);
+/// The options bar's design height.
+const OPTIONS_HEIGHT: Dip = Dip(36.0);
+/// The right column's design width: eight 18 px swatches and their margins.
+pub const COLORS_WIDTH: Dip = Dip(160.0);
 
 // xui gap: G12 — the runtime owns the app and there is no public handle to it
 // after `render_with`, so a test reads this mirror instead.
@@ -59,8 +73,32 @@ pub struct Observer {
     pub cursor: Option<(i32, i32)>,
     /// Whether a drag is in progress.
     pub dragging: bool,
-    /// The four status-bar parts.
-    pub status: [String; 4],
+    /// The zoom in whole percent.
+    pub zoom_percent: u32,
+    /// How far the picture is scrolled, in view pixels.
+    pub view_origin: (i32, i32),
+    /// The colour the editor is changing, while it is open.
+    pub editing: Option<Side>,
+    /// The selection's `(x, y, width, height)`, if there is one.
+    pub selection: Option<(i32, i32, u32, u32)>,
+    /// Whether lifted or pasted pixels are waiting to be placed.
+    pub floating: bool,
+    /// Whether a text block is being edited.
+    pub text_editing: bool,
+    /// Each layer's name, visibility and opacity, bottom layer first.
+    pub layers: Vec<(String, bool, u8)>,
+    /// The active layer's index.
+    pub active_layer: usize,
+    /// How many edits are applied, and how many in all (applied plus undone).
+    pub history: (usize, usize),
+    /// Whether Layer Properties is open.
+    pub props_open: bool,
+    /// The window title (`name.ext* - Paint`).
+    pub title: String,
+    /// Whether the picture has unsaved changes.
+    pub dirty: bool,
+    /// The five status-bar parts: position, size, tool, message, zoom.
+    pub status: [String; 5],
 }
 
 impl Default for Observer {
@@ -74,6 +112,18 @@ impl Default for Observer {
             can_redo: false,
             cursor: None,
             dragging: false,
+            zoom_percent: 100,
+            view_origin: (0, 0),
+            editing: None,
+            selection: None,
+            floating: false,
+            text_editing: false,
+            layers: Vec::new(),
+            active_layer: 0,
+            history: (0, 0),
+            props_open: false,
+            title: String::new(),
+            dirty: false,
             status: Default::default(),
         }
     }
@@ -81,29 +131,82 @@ impl Default for Observer {
 
 /// The window's widgets, created by [`mount`].
 pub(super) struct Widgets {
+    pub menu: Rc<Menu<Msg>>,
+    pub options: Options,
     pub canvas: Rc<PaintCanvas>,
     pub toolbar: Rc<ToolStrip>,
     pub palette: Rc<Palette>,
+    pub editor: ColorEditor,
+    pub props: LayerPropsDialog,
+    pub frames: Frames,
+    pub sidebar: Sidebar,
     pub status: Rc<StatusBar<Msg>>,
 }
 
-/// Builds the window: the tool strip across the top, the canvas taking the
-/// rest, the palette and the status bar along the bottom. The strip and the
-/// palette wrap their cells, so their height follows the window's width. `io`
-/// is whether the storage is available, which adds the Save/Open cells.
-pub(super) fn mount(ui: &Ui<Msg>, io: bool) -> Result<Widgets> {
-    let (canvas, toolbar, palette, status) =
-        (Handle::new(), Handle::new(), Handle::new(), Handle::new());
-    ui.root(column().children((
-        build(move |ui| ToolStrip::new(ui, strip_items(io))).bind(&toolbar),
-        build(PaintCanvas::new).bind(&canvas).fill(1),
-        build(Palette::new).bind(&palette),
-        status_bar(&["--", "320 x 240", "Pencil"]).bind(&status),
-    )))?;
+/// Builds the window: the menu bar and the options bar across the top, the tool
+/// grid, the canvas (with the colour editor stacked over it) and the Colors
+/// panel in the middle, the status bar along the bottom.
+pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
+    let (menu_handle, canvas, toolbar, palette, status) = (
+        Handle::new(),
+        Handle::new(),
+        Handle::new(),
+        Handle::new(),
+        Handle::new(),
+    );
+    let options = Options::new(families);
+    let editor = ColorEditor::new();
+    let props = LayerPropsDialog::new();
+    let frames = Frames::new();
+    let (resize, canvas_size) = frames.over_canvas();
+    let sidebar = Sidebar::new();
+    ui.root(
+        column().children((
+            menu::bar().bind(&menu_handle).height(MENU_HEIGHT),
+            options::row(&options).fixed(OPTIONS_HEIGHT),
+            row()
+                .children((
+                    build(ToolStrip::new).bind(&toolbar).width(toolbar::WIDTH),
+                    stack()
+                        .children((
+                            // The adjustment strips sit under the canvas so the
+                            // picture stays in view for the preview.
+                            column().children((
+                                build(PaintCanvas::new).bind(&canvas).fill(1),
+                                frames
+                                    .brightness
+                                    .layout()
+                                    .fixed(AdjustKind::BrightnessContrast.height()),
+                                frames
+                                    .hue
+                                    .layout()
+                                    .fixed(AdjustKind::HueSaturation.height()),
+                            )),
+                            editor.layout(),
+                            props.layout(),
+                            resize,
+                            canvas_size,
+                        ))
+                        .fill(1),
+                    sidebar.layout(&palette).width(COLORS_WIDTH),
+                ))
+                .fill(1),
+            status_bar(&["--", "320 x 240", "Pencil", "", "100%"]).bind(&status),
+        )),
+    )?;
+    editor.hide_initially(ui);
+    props.hide_initially(ui);
+    frames.hide_initially(ui);
     Ok(Widgets {
+        menu: menu_handle.get(),
+        options,
         canvas: canvas.get(),
         toolbar: toolbar.get(),
         palette: palette.get(),
+        editor,
+        props,
+        frames,
+        sidebar,
         status: status.get(),
     })
 }

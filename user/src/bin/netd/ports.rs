@@ -8,15 +8,14 @@
 //! out of the registry for [`GONE_TICKS`] is a card that was removed, and its
 //! interface goes with it; that is a normal event, not an error.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use netstack::config::Mode;
 use netstack::net::MAX_INTERFACES;
 use netstack::{Net, RingDevice, Stack};
 use user::messenger::net::{self as nic_api, wire as nic_wire};
-use user::sys;
 
 use super::config::Config;
 use super::nic::Nic;
@@ -85,10 +84,11 @@ impl Ports {
             Err(error) => {
                 // Said once, then every tenth time; the next scan tries again.
                 if self.list_errors.is_multiple_of(10) {
-                    sys::write_str(&format!(
-                        "NETD:NIC:LIST:FAIL the registry cannot be listed: {}\n",
+                    trace::line!(
+                        trace::Channel::Netd,
+                        "NIC:LIST:FAIL the registry cannot be listed: {}",
                         error.message()
-                    ));
+                    );
                 }
                 self.list_errors += 1;
                 return;
@@ -124,7 +124,7 @@ impl Ports {
                 // (the registry is shared: anyone may register a name).
                 None if full => {}
                 None => {
-                    sys::write_str(&format!("NETD:NIC:FOUND if={}\n", card.ifname));
+                    trace::line!(trace::Channel::Netd, "NIC:FOUND if={}", card.ifname);
                     let mut nic = Nic::new(&card.ifname);
                     nic.owner_uid = card.owner_uid as u32;
                     self.list.push(Port {
@@ -147,7 +147,7 @@ impl Ports {
         if self.list.is_empty() {
             // Say it once, then every tenth time: no card is a normal state.
             if self.empty_logged.is_multiple_of(10) {
-                sys::write_str("NETD:NIC:WAIT no NIC driver is registered\n");
+                trace::line!(trace::Channel::Netd, "NIC:WAIT no NIC driver is registered");
             }
             self.empty_logged += 1;
         }
@@ -166,14 +166,14 @@ impl Ports {
             if self.refused.len() >= REFUSED_LOGGED {
                 self.refused.clear();
             }
-            sys::write_str(&format!(
-                "NETD:NIC:REFUSED name={} uid={} label={} session={}
-",
+            trace::line!(
+                trace::Channel::Netd,
+                "NIC:REFUSED name={} uid={} label={} session={}",
                 nic_api::service_name(&card.ifname),
                 card.owner_uid,
                 card.owner_label,
                 card.owner_session
-            ));
+            );
             self.refused.push(key);
         }
         false
@@ -190,7 +190,7 @@ impl Ports {
                 }
                 port.nic.forget_attachment("card removed");
                 port.nic.release();
-                sys::write_str(&format!("NETD:NIC:GONE if={}\n", port.ifname));
+                trace::line!(trace::Channel::Netd, "NIC:GONE if={}", port.ifname);
             }
             !gone
         });
@@ -236,19 +236,24 @@ impl Ports {
                 match port.nic.attach(&mut unit.stack, tick) {
                     Ok(()) => {
                         if let Some(card) = port.nic.card {
-                            sys::write_str(&format!(
-                                "NETD:NIC:ATTACHED if={} mac={} mtu={} link={}\n",
+                            trace::line!(
+                                trace::Channel::Netd,
+                                "NIC:ATTACHED if={} mac={} mtu={} link={}",
                                 port.ifname,
                                 super::mac_text(&card.mac),
                                 card.mtu,
                                 card.link
-                            ));
+                            );
                             net.set_attached(slot, true);
                             net.set_link(slot, card.link);
                         }
                     }
                     Err(message) => {
-                        sys::write_str(&format!("NETD:NIC:WAIT if={} {message}\n", port.ifname));
+                        trace::line!(
+                            trace::Channel::Netd,
+                            "NIC:WAIT if={} {message}",
+                            port.ifname
+                        );
                     }
                 }
             }
@@ -273,7 +278,7 @@ impl Ports {
             }
             if let (Some(link), Some(slot)) = (port.nic.refresh_link(), port.slot) {
                 net.set_link(slot, link);
-                sys::write_str(&format!("NETD:LINK if={} up={link}\n", port.ifname));
+                trace::line!(trace::Channel::Netd, "LINK if={} up={link}", port.ifname);
             }
         }
     }
@@ -307,10 +312,11 @@ impl Ports {
             if mode == port.mode {
                 continue;
             }
-            sys::write_str(&format!(
-                "NETD:RESTART if={} the configuration changed\n",
+            trace::line!(
+                trace::Channel::Netd,
+                "RESTART if={} the configuration changed",
                 port.ifname
-            ));
+            );
             port.mode = mode;
             // The interface goes first: its device stops reading the rings.
             if let Some(slot) = port.slot.take() {
@@ -330,7 +336,11 @@ impl Port {
         let card = match self.nic.try_probe(tick) {
             Ok(card) => card,
             Err(message) => {
-                sys::write_str(&format!("NETD:NIC:WAIT if={} {message}\n", self.ifname));
+                trace::line!(
+                    trace::Channel::Netd,
+                    "NIC:WAIT if={} {message}",
+                    self.ifname
+                );
                 return false;
             }
         };
@@ -352,10 +362,11 @@ impl Port {
                 true
             }
             Err(error) => {
-                sys::write_str(&format!(
-                    "NETD:NIC:WAIT if={} cannot add the interface: {error:?}\n",
+                trace::line!(
+                    trace::Channel::Netd,
+                    "NIC:WAIT if={} cannot add the interface: {error:?}",
                     self.ifname
-                ));
+                );
                 false
             }
         }

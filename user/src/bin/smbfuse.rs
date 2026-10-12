@@ -47,6 +47,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use fused::daemon::{serve_one, Buffers};
 use smbfs::{Connect, Options, SmbFs};
@@ -300,11 +301,12 @@ fn run() -> Result<(), Failed> {
         .map_err(|e| (Failure::Share, explain(&e)))?;
     let mut mount = sys::fuse::Mount::register(&name, 0)
         .map_err(|e| (Failure::Mount, format!("mount {point}: errno {e}")))?;
-    sys::write_str(&format!(
-        "SMBFUSE:UP {point} dialect={:#06x} signing={}\n",
+    trace::print!(
+        trace::Channel::Smbfuse,
+        "UP {point} dialect={:#06x} signing={}",
         logon.dialect,
-        if logon.signing { "on" } else { "off" },
-    ));
+        if logon.signing { "on" } else { "off" }
+    );
     let options = Options {
         uid,
         gid,
@@ -322,7 +324,7 @@ fn run() -> Result<(), Failed> {
         }
         if tree.stats().reconnects != reconnects {
             reconnects = tree.stats().reconnects;
-            sys::write_str(&format!("SMBFUSE:RECONNECT n={reconnects}\n"));
+            trace::print!(trace::Channel::Smbfuse, "RECONNECT n={reconnects}");
         }
     }
 }
@@ -332,7 +334,7 @@ pub extern "C" fn _start() -> ! {
     match run() {
         Ok(()) => sys::exit(0),
         Err((failure, message)) => {
-            sys::write_str(&format!("SMBFUSE:FAIL {message}\n"));
+            trace::print!(trace::Channel::Smbfuse, "FAIL {message}");
             sys::exit(failure as u32)
         }
     }
@@ -340,6 +342,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("SMBFUSE:FAIL panic\n");
+    trace::print!(trace::Channel::Smbfuse, "FAIL panic");
     sys::exit(1)
 }

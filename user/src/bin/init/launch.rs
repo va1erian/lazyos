@@ -7,6 +7,7 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, logind, router, services, Message};
 use user::sys::{self, Cred as SysCred};
@@ -295,9 +296,10 @@ fn reopen_existing(
     };
     super::lifecycle::reopen(row, &args);
     let pid = row.pid;
-    sys::write_str(&format!(
-        "INIT:LAUNCH:EXISTING app={id} pid={pid} session={session}\n"
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "LAUNCH:EXISTING app={id} pid={pid} session={session}"
+    );
     Ok(Some(services::LaunchResult {
         app: id.to_string(),
         pid,
@@ -340,9 +342,10 @@ fn start_row(
     let id = row.name;
     let index = services.len();
     services.push(row);
-    sys::write_str(&format!(
-        "INIT:LAUNCH:PASS app={id} pid={pid} session={session}\n"
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "LAUNCH:PASS app={id} pid={pid} session={session}"
+    );
     publish_state(broker, &services[index], "running", pid, 0, 0, "");
     Ok(services::LaunchResult {
         app: id.to_string(),

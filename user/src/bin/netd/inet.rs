@@ -22,6 +22,7 @@
 //! its slot.
 
 use alloc::vec::Vec;
+use user::trace;
 
 use netstack::{Kind, Net, SockAddr, SockError};
 use user::sys::{self, INET_ADDR_BLOCK, INET_REQUEST_BYTES};
@@ -173,7 +174,10 @@ impl Inet {
     /// The kernel no longer counts this task as the pump's server (another
     /// one attached): forget the sockets and try again later.
     pub(super) fn lost(&mut self, tick: u64) {
-        sys::write_str("NETD:INET:LOST another task attached to the AF_INET table\n");
+        trace::line!(
+            trace::Channel::Netd,
+            "INET:LOST another task attached to the AF_INET table"
+        );
         self.attached = false;
         self.entries.clear();
         self.next_attach = tick + ATTACH_RETRY_TICKS;
@@ -200,7 +204,7 @@ impl Inet {
                 Ok(()) => {
                     self.attached = true;
                     self.entries.clear();
-                    sys::write_str("NETD:INET:ATTACHED\n");
+                    trace::line!(trace::Channel::Netd, "INET:ATTACHED");
                 }
                 Err(_) => {
                     // Not root or `_netd`, or the kernel is without the pump.

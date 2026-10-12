@@ -74,6 +74,10 @@ DIAGNOSTIC_PREFIXES = frozenset(
         "DBGD:",
         "USBD:DUMP:",
         "PANIC:",
+        # Data, not evidence: a JSON object the MCP bridge parses, longer
+        # than a trace line may be.
+        "MCP:FABRIC_STATS:",
+        "MCP:TASK_SNAPSHOT:",
     }
 )
 

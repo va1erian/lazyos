@@ -14,8 +14,8 @@
 //! `INIT:APP:NOTICE:PASS app=<id> matched=<n>` once published (`FAIL
 //! err=<errno>` otherwise).
 
-use alloc::format;
 use alloc::string::ToString;
+use user::trace;
 
 use svcpolicy::{clean_reason, describe_status, Cause, Outcome};
 use user::central;
@@ -76,27 +76,31 @@ impl Notices {
     /// Log `failure` and publish it, reconnecting once to a restarted broker.
     pub(super) fn publish(&mut self, failure: &Failure) {
         let event = &failure.event;
-        sys::write_str(&format!(
-            "INIT:APP:FAILED app={} status={} startup={} reason={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "APP:FAILED app={} status={} startup={} reason={}",
             failure.app,
             event.status,
             u8::from(event.startup),
             event.reason
-        ));
+        );
         let mut outcome = self.try_publish(failure);
         if outcome.is_err() {
             self.bus = None;
             outcome = self.try_publish(failure);
         }
         match outcome {
-            Ok(matched) => sys::write_str(&format!(
-                "INIT:APP:NOTICE:PASS app={} matched={matched}\n",
+            Ok(matched) => trace::line!(
+                trace::Channel::Init,
+                "APP:NOTICE:PASS app={} matched={matched}",
                 failure.app
-            )),
-            Err(code) => sys::write_str(&format!(
-                "INIT:APP:NOTICE:FAIL app={} err={}\n",
-                failure.app, -code
-            )),
+            ),
+            Err(code) => trace::line!(
+                trace::Channel::Init,
+                "APP:NOTICE:FAIL app={} err={}",
+                failure.app,
+                -code
+            ),
         }
     }
 
@@ -134,10 +138,12 @@ pub(super) fn report(services: &mut [Service], message: &Message) {
         return;
     };
     let reason = clean_reason(&args.reason);
-    sys::write_str(&format!(
-        "INIT:APP:REASON app={} pid={} reason={reason}\n",
-        row.name, row.pid
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "APP:REASON app={} pid={} reason={reason}",
+        row.name,
+        row.pid
+    );
     row.reason = (!reason.is_empty()).then_some(reason);
 }
 

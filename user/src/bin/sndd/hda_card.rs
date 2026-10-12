@@ -13,10 +13,10 @@
 
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
-use alloc::format;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr;
+use user::trace;
 
 use hda::codec::{find_output, read_graph, Graph, Path};
 use hda::cursor::Cursor;
@@ -90,7 +90,7 @@ pub(super) struct HdaCard {
 
 fn hda_error<E: core::fmt::Debug>(what: &'static str) -> impl Fn(E) -> Error {
     move |error| {
-        sys::write_str(&format!("SNDD:HDA:ERR {what}: {error:?}\n"));
+        trace::line!(trace::Channel::Sndd, "HDA:ERR {what}: {error:?}");
         Error::Hda(what)
     }
 }
@@ -139,13 +139,14 @@ impl HdaCard {
                 .regs_mut()
                 .write32(INTCTL, intctl::GIE | 1 << stream_bit);
         }
-        sys::write_str(&format!(
-            "SNDD:HDA codec={codec} afg={} pin={} dac={} hops={} pcm={pcm:#x} channels={channels}\n",
+        trace::line!(
+            trace::Channel::Sndd,
+            "HDA codec={codec} afg={} pin={} dac={} hops={} pcm={pcm:#x} channels={channels}",
             graph.afg,
             path.pin(),
             path.dac(),
             path.len
-        ));
+        );
         Ok(HdaCard {
             claimed,
             controller,
@@ -468,7 +469,7 @@ impl HdaCard {
     /// line before the kernel is told to unmask it.
     fn handle_irq(&mut self, message: &user::messenger::Message) {
         if message.sender != 0 || user::dev::parse_irq_body(&message.parcel.body).is_none() {
-            sys::write_str(&format!("SNDD:IRQ:REJECT sender={}\n", message.sender));
+            trace::line!(trace::Channel::Sndd, "IRQ:REJECT sender={}", message.sender);
             return;
         }
         self.irqs += 1;
