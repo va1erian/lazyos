@@ -26,11 +26,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use xui_app::{font, launch};
 use xui_app::platform::argv;
 use xui_app::platform::clipboard as system_clipboard;
+use xui_app::platform::storage::{PngStorage, EDITOR_MAX_LOAD_BYTES};
 use xui_app::probe;
-use xui_app::platform::storage::PngStorage;
+use xui_app::{font, launch};
 use xui_core::widget::StdFileSystem;
 use xui_paint::model::text::{CosmicRasterizer, TextRasterizer};
 use xui_paint::storage::Storage;
@@ -189,7 +189,7 @@ fn main() {
     let path = requested.clone().unwrap_or_else(default_path);
     let default_file = path.clone();
     let storage = Rc::new(ReportingStorage {
-        inner: PngStorage::new(path),
+        inner: PngStorage::new(path).with_max_load(EDITOR_MAX_LOAD_BYTES),
     });
 
     launch::run("PAINT", "Paint", WINDOW, move |ui, backend| {
@@ -213,8 +213,10 @@ fn main() {
             let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
             app.set_probe(move |window, name, rect| {
                 let at = (rect.left, rect.top, rect.width(), rect.height());
-                let key = format!("{window}
-{name}");
+                let key = format!(
+                    "{window}
+{name}"
+                );
                 if seen.borrow().get(&key) != Some(&at) {
                     seen.borrow_mut().insert(key, at);
                     probe::widget(window, name, at.0, at.1, at.2, at.3);

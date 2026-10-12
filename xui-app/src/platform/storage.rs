@@ -17,12 +17,23 @@ use xui_paint::storage::Storage;
 /// A PNG store at one path.
 pub struct PngStorage {
     path: PathBuf,
+    max_load: u64,
 }
 
 impl PngStorage {
-    /// A store backed by `path`.
+    /// A store backed by `path`, reading files up to [`DEFAULT_MAX_LOAD_BYTES`].
     pub fn new(path: impl Into<PathBuf>) -> PngStorage {
-        PngStorage { path: path.into() }
+        PngStorage {
+            path: path.into(),
+            max_load: DEFAULT_MAX_LOAD_BYTES,
+        }
+    }
+
+    /// The same store reading files up to `bytes`: an editor that opens
+    /// layered files asks for more than a viewer of single pictures needs.
+    pub fn with_max_load(mut self, bytes: u64) -> PngStorage {
+        self.max_load = bytes;
+        self
     }
 
     /// The path this store reads and writes.
@@ -31,13 +42,17 @@ impl PngStorage {
     }
 }
 
-/// The largest file a load will read; a bigger one is refused unread. A
-/// layered OpenRaster file holds one PNG per layer, so this is well above what
-/// a single PNG needs; the editor checks the picture against its own memory
-/// budget before decoding.
-const MAX_LOAD_BYTES: u64 = 256 * 1024 * 1024;
+/// The largest file a load reads unless the store is told otherwise; a bigger
+/// one is refused unread (32 MiB, enough for a large single picture).
+pub const DEFAULT_MAX_LOAD_BYTES: u64 = 32 * 1024 * 1024;
 
-/// A temp path next to `target`, so the rename stays on one filesystem.
+/// What the image editor asks for: a layered OpenRaster file holds one PNG per
+/// layer, so it is well above what one PNG needs. The editor checks the picture
+/// against its own memory budget before decoding.
+pub const EDITOR_MAX_LOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// A temp path next to `target`, so the rename stays on one filesystem. The
+/// name is only a guess at a free one: [`write_temp`] creates it exclusively.
 fn temp_path(target: &Path) -> PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -66,23 +81,41 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if !writable(path) {
         return Err("refusing to write a symlink or a missing directory".to_string());
     }
-    let temp = temp_path(path);
-    let result = write_temp(&temp, bytes).and_then(|()| fs::rename(&temp, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
+    // The name is predictable, so something may sit there already (a symlink
+    // planted for the write to follow): `create_new` refuses it and the next
+    // name is tried.
+    let mut last = None;
+    for _ in 0..TEMP_TRIES {
+        let temp = temp_path(path);
+        match write_temp(&temp, bytes) {
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => last = Some(error),
+            written => {
+                let result = written.and_then(|()| fs::rename(&temp, path));
+                if result.is_err() {
+                    let _ = fs::remove_file(&temp);
+                }
+                return result.map_err(|error| error.to_string());
+            }
+        }
     }
-    result.map_err(|error| error.to_string())
+    Err(last.map_or_else(|| "no free temp name".to_string(), |e| e.to_string()))
 }
 
-/// Reads `path`, refusing anything over [`MAX_LOAD_BYTES`].
-fn read_bounded(path: &Path) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_LOAD_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    (bytes.len() as u64 <= MAX_LOAD_BYTES).then_some(bytes)
+/// How many temp names a write tries before giving up.
+const TEMP_TRIES: usize = 8;
+
+/// Reads `path`, refusing anything over `max` bytes before reading it.
+fn read_bounded(path: &Path, max: u64) -> Option<Vec<u8>> {
+    let file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    if len > max {
+        return None;
+    }
+    // Exactly what the file holds; `take` keeps a file that grows meanwhile
+    // from going past the cap.
+    let mut bytes = Vec::with_capacity(usize::try_from(len).ok()?);
+    file.take(max + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.len() as u64 <= max).then_some(bytes)
 }
 
 impl Storage for PngStorage {
@@ -91,7 +124,7 @@ impl Storage for PngStorage {
     }
 
     fn load(&self) -> Option<Vec<u8>> {
-        read_bounded(&self.path)
+        read_bounded(&self.path, self.max_load)
     }
 
     fn available(&self) -> bool {
@@ -103,7 +136,7 @@ impl Storage for PngStorage {
     }
 
     fn load_from(&self, path: &Path) -> Option<Vec<u8>> {
-        read_bounded(path)
+        read_bounded(path, self.max_load)
     }
 
     fn supports_paths(&self) -> bool {
@@ -117,7 +150,12 @@ impl Storage for PngStorage {
 
 /// Writes `bytes` to `temp`, flushing and syncing before the caller renames it.
 fn write_temp(temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut file = fs::File::create(temp)?;
+    // `create_new` (O_EXCL) fails on anything already there, a symlink
+    // included, instead of following it.
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(temp)?;
     file.write_all(bytes)?;
     file.flush()?;
     file.sync_all()
@@ -207,6 +245,41 @@ mod tests {
         std::os::unix::fs::symlink(&other, &path).unwrap();
         assert!(storage.save(b"bad").is_err());
         assert_eq!(fs::read(&other).unwrap(), b"safe");
+    }
+
+    #[test]
+    fn a_load_over_the_cap_is_refused_before_it_is_read() {
+        let dir = TempDir::new("cap");
+        let path = dir.file("big.png");
+        fs::write(&path, vec![7u8; 1000]).unwrap();
+        let small = PngStorage::new(dir.file("a.png")).with_max_load(999);
+        assert_eq!(small.load_from(&path), None);
+        let exact = PngStorage::new(dir.file("a.png")).with_max_load(1000);
+        assert_eq!(exact.load_from(&path).map(|b| b.len()), Some(1000));
+        // The default is the viewer's, the editor asks for more.
+        assert_eq!(DEFAULT_MAX_LOAD_BYTES, 32 * 1024 * 1024);
+        assert!(EDITOR_MAX_LOAD_BYTES > DEFAULT_MAX_LOAD_BYTES);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_temp_name_is_not_followed() {
+        let dir = TempDir::new("planted");
+        let victim = dir.file("victim.txt");
+        fs::write(&victim, b"keep").unwrap();
+        let temp = dir.file("a.png.tmp-planted");
+        std::os::unix::fs::symlink(&victim, &temp).unwrap();
+        let error = write_temp(&temp, b"redirected").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            fs::read(&victim).unwrap(),
+            b"keep",
+            "the link was not written"
+        );
+        // A save still lands on a free name.
+        let target = dir.file("a.png");
+        write_atomic(&target, b"saved").unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"saved");
     }
 
     #[test]
