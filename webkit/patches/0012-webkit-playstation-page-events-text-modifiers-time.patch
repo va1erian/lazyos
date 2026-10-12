@@ -1,0 +1,146 @@
+WebKit: the PlayStation page events carry text, modifiers, time and the held button.
+
+WKPageHandleKeyboardEvent, WKPageHandleMouseEvent and WKPageHandleWheelEvent are the
+C API a UI process sends input through (the PlayStation port's, which the LazyOS UI
+process uses). As shipped they drop what a window system tells them:
+
+ * keyboard: the text of the key was always "", so a character never reached a text
+   field (the factory takes a null string to mean "what the key code stands for", and
+   an empty one for "types nothing"); now WKKeyboardEvent.text is passed, null when the
+   key has none. The modifiers (TODO in the source) are translated from
+   WKEventModifiers to libwpe's bits;
+ * mouse: the time was always 0, so WebKit's double-click detection (a time and a
+   distance) counted every click at one spot as one more click of a series; now it is
+   the monotonic clock. A move with a button held names that button in the modifiers,
+   which is how WebKit knows a drag (text selection), and a press has its button down;
+ * wheel: both axes were always sent, and WebKit takes only the sign of an axis event,
+   so a zero scrolled one line to the right on every vertical step; now only an axis
+   that moved is sent, with the modifiers.
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -66,15 +66,57 @@
+ #endif
+ }
+ 
++// WKEventModifiers (shift 1, control 2, alt 4, meta 8) as libwpe's keyboard modifiers.
++static uint32_t wpeKeyboardModifiers(uint32_t modifiers)
++{
++    uint32_t wpe = 0;
++    if (modifiers & kWKEventModifiersControlKey)
++        wpe |= wpe_input_keyboard_modifier_control;
++    if (modifiers & kWKEventModifiersShiftKey)
++        wpe |= wpe_input_keyboard_modifier_shift;
++    if (modifiers & kWKEventModifiersAltKey)
++        wpe |= wpe_input_keyboard_modifier_alt;
++    if (modifiers & kWKEventModifiersMetaKey)
++        wpe |= wpe_input_keyboard_modifier_meta;
++    return wpe;
++}
++
++// The pointer modifiers: the keyboard ones, and the button that is down (a move with a
++// button held is a drag, which WebKit only knows from the modifiers).
++static uint32_t wpePointerModifiers(uint32_t modifiers, WKEventMouseButton heldButton)
++{
++    uint32_t wpe = wpeKeyboardModifiers(modifiers);
++    switch (heldButton) {
++    case kWKEventMouseButtonLeftButton:
++        wpe |= wpe_input_pointer_modifier_button1;
++        break;
++    case kWKEventMouseButtonRightButton:
++        wpe |= wpe_input_pointer_modifier_button2;
++        break;
++    case kWKEventMouseButtonMiddleButton:
++        wpe |= wpe_input_pointer_modifier_button3;
++        break;
++    default:
++        break;
++    }
++    return wpe;
++}
++
++// Events carry a time: double-click detection compares it, so it must move.
++static uint32_t eventTime()
++{
++    return static_cast<uint32_t>(MonotonicTime::now().secondsSinceEpoch().milliseconds());
++}
++
+ void WKPageHandleKeyboardEvent(WKPageRef pageRef, WKKeyboardEvent event)
+ {
+     using WebKit::NativeWebKeyboardEvent;
+ 
+     wpe_input_keyboard_event wpeEvent;
+-    wpeEvent.time = 0;
++    wpeEvent.time = eventTime();
+     wpeEvent.key_code = event.virtualKeyCode;
+     wpeEvent.hardware_key_code = event.virtualKeyCode;
+-    wpeEvent.modifiers = 0; // TODO: Handle modifiers.
++    wpeEvent.modifiers = wpeKeyboardModifiers(event.modifiers);
+     switch (event.type) {
+     case kWKEventKeyDown:
+         wpeEvent.pressed = true;
+@@ -90,7 +132,9 @@
+     NativeWebKeyboardEvent::HandledByInputMethod handledByInputMethod = NativeWebKeyboardEvent::HandledByInputMethod::No;
+     std::optional<Vector<WebCore::CompositionUnderline>> preeditUnderlines;
+     std::optional<WebKit::EditingRange> preeditSelectionRange;
+-    WebKit::toImpl(pageRef)->handleKeyboardEvent(NativeWebKeyboardEvent(&wpeEvent, ""_s, false, handledByInputMethod, WTF::move(preeditUnderlines), WTF::move(preeditSelectionRange)));
++    // The text the key types; a key with none (length 0) gets what its key code stands for.
++    String text = event.length > 0 && event.text ? String::fromUTF8(std::span<const char> { event.text, static_cast<size_t>(event.length) }) : String();
++    WebKit::toImpl(pageRef)->handleKeyboardEvent(NativeWebKeyboardEvent(&wpeEvent, text, false, handledByInputMethod, WTF::move(preeditUnderlines), WTF::move(preeditSelectionRange)));
+ }
+ 
+ void WKPageHandleMouseEvent(WKPageRef pageRef, WKMouseEvent event)
+@@ -134,10 +178,11 @@
+         ASSERT_NOT_REACHED();
+         return;
+     }
+-    wpeEvent.time = 0;
++    wpeEvent.time = eventTime();
+     wpeEvent.x = event.position.x;
+     wpeEvent.y = event.position.y;
+-    wpeEvent.modifiers = 0; // TODO: Handle modifiers.
++    // A press has its button down; a move names the button held (none: a plain move).
++    wpeEvent.modifiers = wpePointerModifiers(event.modifiers, event.type == kWKEventMouseUp ? kWKEventMouseButtonNoButton : event.button);
+ 
+     const float deviceScaleFactor = 1;
+ 
+@@ -153,21 +198,24 @@
+     int positionX = event.position.x;
+     int positionY = event.position.y;
+ 
+-    struct wpe_input_axis_event xEvent = {
+-        wpe_input_axis_event_type_motion,
+-        0, positionX, positionY,
+-        1, static_cast<int32_t>(event.delta.width), 0
+-    };
+-
+-    WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&xEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
+-
+-    struct wpe_input_axis_event yEvent = {
+-        wpe_input_axis_event_type_motion,
+-        0, positionX, positionY,
+-        0, static_cast<int32_t>(event.delta.height), 0
+-    };
+-
+-    WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&yEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
++    // One event per axis that moved: WebKit takes only the sign of an axis event as one
++    // line step, so a zero must not be sent (it would count as a step to the right).
++    if (event.delta.width) {
++        struct wpe_input_axis_event xEvent = {
++            wpe_input_axis_event_type_motion,
++            eventTime(), positionX, positionY,
++            1, static_cast<int32_t>(event.delta.width), wpeKeyboardModifiers(event.modifiers)
++        };
++        WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&xEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
++    }
++    if (event.delta.height) {
++        struct wpe_input_axis_event yEvent = {
++            wpe_input_axis_event_type_motion,
++            eventTime(), positionX, positionY,
++            0, static_cast<int32_t>(event.delta.height), wpeKeyboardModifiers(event.modifiers)
++        };
++        WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&yEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
++    }
+ }
+ 
+ void WKPagePaint(WKPageRef pageRef, unsigned char* surfaceData, WKSize wkSurfaceSize, WKRect wkPaintRect)

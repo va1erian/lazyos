@@ -23,6 +23,7 @@ the guest's word, is the evidence the judge reads (`judge.py`).
 
 from __future__ import annotations
 
+import html
 import socket
 import ssl
 import sys
@@ -31,6 +32,7 @@ import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import wiki
 
@@ -44,6 +46,18 @@ TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css", ".png": "image
 #: A file the browser cannot show, served as an attachment: it downloads it.
 DOWNLOAD_PATH = "/files/oldnet-kit.zip"
 DOWNLOAD_NAME = "oldnet-kit.zip"
+
+
+#: The WebKit browser harness's form target (its runner, app_run.py): answers a GET with a page whose
+#: title is `echo:<q>`, so what a browser typed into the field comes back as evidence.
+ECHO_PATH = "/webkit/echo"
+
+
+def echo_page(path: str) -> bytes:
+    """The page `ECHO_PATH` answers with: the query's `q`, escaped, as title and heading."""
+    text = html.escape(parse_qs(urlsplit(path).query).get("q", [""])[0])
+    return (f"<!doctype html><html><head><meta charset=\"utf-8\"><title>echo:{text}</title></head>"
+            f"<body style=\"font:28px sans-serif\"><h1>echo:{text}</h1></body></html>\n").encode()
 
 
 def download_payload() -> bytes:
@@ -134,6 +148,9 @@ class Handler(BaseHTTPRequestHandler):
             if copy is None:
                 return 404, [("Content-Type", "text/html")], b"<html><body>404</body></html>\n"
             return 200, [("Content-Type", copy[0]), ("Cache-Control", "max-age=604800")], copy[1]
+        if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == ECHO_PATH:
+            return 200, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], \
+                echo_page(self.path)
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == DOWNLOAD_PATH:
             return 200, [("Content-Type", "application/zip"),
                          ("Content-Disposition", f'attachment; filename="{DOWNLOAD_NAME}"')], \

@@ -155,3 +155,16 @@ add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp")
 target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers")
 target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR} ${Fontconfig_INCLUDE_DIRS})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
+
+# The desktop UI process (webkit/port/app/, docs W5): WebKit's run loop in C++, the xui
+# window in a Rust static library (xui-app/crates/webkit, built by tools/webkit/app.py;
+# LAZYOS_UI_LIBRARY names it). Without the library the target does not exist, so the
+# W4 programs build as before.
+if (LAZYOS_UI_LIBRARY)
+    add_executable(webkit-app
+        "${LAZYOS_PORT_DIR}/app/main.cpp"
+        "${LAZYOS_PORT_DIR}/app/engine.cpp"
+    )
+    target_include_directories(webkit-app PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
+    target_link_libraries(webkit-app PRIVATE WebKit "${LAZYOS_UI_LIBRARY}")
+endif ()

@@ -1,0 +1,42 @@
+# WebKit: a core LazyOS app, packaged by `tools/xui/core_packages.py` (docs/webkit-port-plan.md W5).
+#
+# WebKit2 itself, ported (LGPL-2.1; the build pins WebKitGTK 2.54.1): a UI process with this
+# window, a WebProcess per page and a NetworkProcess, over the Unix IPC. It is one static
+# program (`webkit-app`, about 108 MB: ICU's data is inside, and LazyOS loads a program whole
+# into RAM) that starts `/system/bin/webprocess` and `/system/bin/networkprocess`, which a
+# `LAZYOS_WEBKIT=1` image ships beside it. The build copies the built program
+# (`target/xui/xui-webkit.elf`, from `python tools/webkit/app.py`) into a scratch copy of
+# this tree; `version` is replaced by the workspace version and `autostart` is set from
+# `LAZYOS_XUI_AUTOSTART`. Only a desktop image with the network stack ships it
+# (`LAZYOS_WEBKIT=1`, `python tools/run_demo.py --webkit`). LazyWeb stays the shipped browser;
+# this one claims no file or link type.
+
+[app]
+name = "WebKit"
+system_name = "org.lazy.webkit"
+author = "LazyOS"
+version = "0.1.0"
+description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS"
+category = "internet"
+
+[entry]
+binary = "bin/webkit.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# Provisional, modelled on LazyWeb: the window and sockets (the `outbound` network
+# permission); WebProcess and NetworkProcess are children of the app and run under its label.
+# Derive the final list from a run under it (`LAZYOS_LABEL_TRACE=1`, docs/packages.md).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.net.stack.v1",
+]
+network = ["outbound"]
+# WebKit's cookies, cache and local storage, in the app's own folder.
+files = ["write:$HOME/.apps/org.lazy.webkit"]

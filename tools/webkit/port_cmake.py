@@ -24,7 +24,11 @@ from toolenv import BuildError, run
 BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
-OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke"}
+OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
+           "webkit-app": "webkit-app"}
+#: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
+#: ``webkit-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
+UI_LIBRARY = wkpins.OUT / "lib" / "libxui_webkit.a"
 #: Static archives of the bundle, in an order a single-pass linker would accept
 #: (every archive after the ones that use it). lld does not need the order.
 STATIC_LIBRARIES = [
@@ -45,7 +49,9 @@ def options() -> dict[str, str]:
     wrap = toolenv.wrappers()
     flags = " ".join(toolenv.CODEGEN)
     libs = ";".join(str(PREFIX / "lib" / name) for name in STATIC_LIBRARIES)
+    window = {"LAZYOS_UI_LIBRARY": str(UI_LIBRARY)} if UI_LIBRARY.is_file() else {}
     return {
+        **window,
         "PORT": "LazyOS", "CMAKE_BUILD_TYPE": "Release", "DEVELOPER_MODE": "OFF",
         "ENABLE_TOOLS": "OFF", "ENABLE_MINIBROWSER": "OFF", "USE_HEADER_MAPS": "OFF",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],

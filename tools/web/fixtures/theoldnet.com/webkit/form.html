@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebKit form</title>
+<style>
+  body { margin: 0; font: 22px sans-serif; background: #f4ffe8; }
+  /* The text field is 400 x 44 at (20, 20) of the page, where the harness clicks. */
+  #q { position: absolute; left: 20px; top: 20px; width: 400px; height: 44px; font-size: 26px; box-sizing: border-box; }
+  #go { position: absolute; left: 20px; top: 84px; width: 200px; height: 50px; font-size: 24px; }
+  p { position: absolute; left: 20px; top: 160px; width: 600px; }
+</style>
+</head>
+<body>
+<form action="/webkit/echo" method="get">
+  <input id="q" name="q" type="text" autocomplete="off">
+  <input id="go" type="submit" value="Send">
+</form>
+<p>Type here and press Enter: the server answers with an echo page.</p>
+</body>
+</html>

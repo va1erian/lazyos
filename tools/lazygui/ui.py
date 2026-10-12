@@ -115,8 +115,11 @@ class Launcher:
                        "big-app profile)", "jsc")
         self._check(g, "WebKit dependency bundle: depsproof, built in Docker (LAZYOS_WEBKIT_DEPS; "
                        "run_demo --webkit-deps; implies networking and the big-app profile)", "webkit_deps")
-        self._check(g, "WebKit port: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
-                       "(LAZYOS_WEBKIT; run_demo --webkit; networking, big-app profile)", "webkit")
+        self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
+                       "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
+                    "webkit_port")
+        self._check(g, "WebKit browser, org.lazy.webkit, built in Docker (LAZYOS_WEBKIT; run_demo "
+                       "--webkit; desktop, networking, big-app profile, 1 GiB OS volume)", "webkit")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")

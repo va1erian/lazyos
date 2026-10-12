@@ -7035,6 +7035,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-webkit"
+version = "0.1.0"
+dependencies = [
+ "xui-app",
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-writer"
 version = "0.1.0"
 dependencies = [

@@ -11,7 +11,8 @@ the very last build step. This works the size out first, shared by the GUI
 * an existing image that is too small has to be recreated (``--reset-os``).
 
 The sizes mirror `build_support/os_disk.rs` (`DEFAULT_OS_SIZE`,
-`SRB2KART_OS_SIZE`, `OS_START_LBA`).
+`SRB2KART_OS_SIZE`, `OS_START_LBA`). "Large" selections are SRB2Kart (its game data) and
+the WebKit browser (three static programs of about 108 MB).
 """
 
 from __future__ import annotations
@@ -86,12 +87,17 @@ def configured() -> bool:
     return bool(os.environ.get("LAZYOS_OS_SIZE", "").strip())
 
 
+def large(cfg: dict) -> bool:
+    """Whether a launcher configuration selects a feature that needs the large volume."""
+    return bool(cfg.get("srb2kart") or cfg.get("webkit"))
+
+
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
     """:func:`too_small` for a launcher configuration: ``(have MiB, need MiB)``
     when the existing image cannot hold the selection, else ``None``."""
     if configured() or cfg.get("skip_build"):
         return None
-    return too_small(Path(image), bool(cfg.get("srb2kart")))
+    return too_small(Path(image), large(cfg))
 
 
 def check(cfg: dict, image: str | Path) -> None:
@@ -113,7 +119,7 @@ def env(cfg: dict, image: str | Path) -> dict[str, str]:
     or the caller set one."""
     if configured():
         return {}
-    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")))
+    size, _reset = plan(Path(image), large(cfg))
     return {"LAZYOS_OS_SIZE": str(size)} if size else {}
 
 

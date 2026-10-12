@@ -19,10 +19,11 @@
 //! whole WebKit dependency bundle (`tools/webkit/deps.py`, built in the same
 //! container into `target/webkit/bin/`; docs/webkit-port-plan.md W3).
 //!
-//! `LAZYOS_WEBKIT=1` embeds the WebKit port (`tools/webkit/port.py`, W4): the
-//! `WebProcess` and `NetworkProcess` it launches, the headless UI process
-//! `webkit-smoke`, and the Fontconfig configuration they read
-//! (`webkit/port/fonts.conf` at `fhs::etc::FONTS_CONF`).
+//! `LAZYOS_WEBKIT_PORT=1` embeds the WebKit port's console proof (`tools/webkit/port.py`,
+//! W4): the `WebProcess` and `NetworkProcess` it launches, the headless UI process
+//! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf` at
+//! `fhs::etc::FONTS_CONF`). `LAZYOS_WEBKIT=1` is the browser (`webkit_embed`, W5): the same two
+//! processes and configuration, without the proof, beside the app's core package.
 
 use std::path::Path;
 
@@ -53,9 +54,14 @@ const JSC_TESTS_BUILT: &str = "target/jsc/jsc-tests";
 const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
 
-/// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT=1` embeds.
+/// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT_PORT=1`
+/// embeds; `LAZYOS_WEBKIT=1` embeds the first two (the browser starts them).
 const WEBKIT_BUILT: &str = "target/webkit/bin";
-const WEBKIT_PROGRAMS: &[(&str, &str)] = &[
+const WEBKIT_PROCESSES: &[(&str, &str)] = &[
+    ("WebProcess", fhs::bin::WEBPROCESS),
+    ("NetworkProcess", fhs::bin::NETWORKPROCESS),
+];
+const WEBKIT_PORT_PROGRAMS: &[(&str, &str)] = &[
     ("WebProcess", fhs::bin::WEBPROCESS),
     ("NetworkProcess", fhs::bin::NETWORKPROCESS),
     ("webkit-smoke", fhs::bin::WEBKIT_SMOKE),
@@ -83,6 +89,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     if enabled() {
         embed_programs(
             sink,
@@ -118,13 +125,19 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             "tools/webkit/deps.py",
         );
     }
-    if switch_on("LAZYOS_WEBKIT") {
+    for (switch, programs) in [
+        ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
+        ("LAZYOS_WEBKIT", WEBKIT_PROCESSES),
+    ] {
+        if !switch_on(switch) {
+            continue;
+        }
         embed_programs(
             sink,
             manifest_dir,
-            "LAZYOS_WEBKIT",
+            switch,
             WEBKIT_BUILT,
-            WEBKIT_PROGRAMS,
+            programs,
             "tools/webkit/port.py",
         );
         let conf = manifest_dir.join(WEBKIT_FONTS_CONF);

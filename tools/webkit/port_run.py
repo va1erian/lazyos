@@ -4,7 +4,7 @@
 Needs ``python tools/webkit/port.py`` first (``target/webkit/bin/{WebProcess,
 NetworkProcess,webkit-smoke}``). Then:
 
-1. builds a console image with ``LAZYOS_WEBKIT=1`` (the three programs in
+1. builds a console image with ``LAZYOS_WEBKIT_PORT=1`` (the three programs in
    ``/system/bin`, ``fonts.conf`` in ``/system/etc/fonts``) and networking;
 2. boots it headless with 4 GiB (three static WebKit processes of tens of MB
    each, loaded whole into RAM), types ``webkit-smoke`` at the shell and waits
@@ -51,11 +51,12 @@ def build_image(extra: dict[str, str]) -> str | None:
     if shell is None:
         return "no BusyBox for the console shell (see tools/abi/busybox.py)"
     env = dict(os.environ, LAZYOS_CLI="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
-               LAZYOS_WEBKIT="1", LAZYOS_RESET_OS="1", LAZYOS_BUSYBOX=str(shell), **extra)
-    for stale in ("LAZYOS_DESKTOP", "LAZYOS_TLS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS", "LAZYOS_WEBKIT_DEPS"):
+               LAZYOS_WEBKIT_PORT="1", LAZYOS_RESET_OS="1", LAZYOS_BUSYBOX=str(shell), **extra)
+    for stale in ("LAZYOS_DESKTOP", "LAZYOS_TLS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS", "LAZYOS_WEBKIT_DEPS",
+                  "LAZYOS_WEBKIT"):
         env.pop(stale, None)
     env.setdefault("LAZYOS_OS_SIZE", "768M")
-    print("webkit: cargo build (LAZYOS_WEBKIT=1, console, networking)", flush=True)
+    print("webkit: cargo build (LAZYOS_WEBKIT_PORT=1, console, networking)", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
         return "cargo build failed:\n" + result.stderr[-4000:]

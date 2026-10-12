@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>js-off</title>
+<style>
+  body { margin: 0; font: 22px sans-serif; background: #fff8e0; }
+  #out { position: absolute; left: 20px; top: 20px; width: 560px; height: 60px; background: #2a7; color: #fff; padding: 12px; }
+</style>
+</head>
+<body>
+<p id="out">script has not run</p>
+<script>
+// Script that has to run in the page: it computes, rewrites the page and sets document.title,
+// which the UI process reads back (WEBKIT:W5:JS) and the window shows in its caption.
+var sum = 0;
+for (var i = 1; i <= 10; i++) sum += i * i;
+var words = ['java', 'script', 'works'].map(function (w) { return w.toUpperCase(); }).join('-');
+document.getElementById('out').textContent = 'script says ' + sum + ' ' + words;
+document.title = 'js-on:' + sum;
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# The WebKit browser's window (docs/webkit-port-plan.md W5): the toolbar, the
+# address field, the page view that shows the bitmap WebKit paints and forwards
+# the mouse and keyboard to it, and the C ABI the WebKit UI process
+# (`webkit/port/app`, C++) calls. Built as a static library: the UI process is a
+# C++ program linked by zig with WebKit's own static libraries and this one
+# (`tools/webkit/app.py`); the window logic stays portable and host-tested
+# against a recording engine.
+#
+# The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is
+# GPL-3.0-or-later like the rest of the tree.
+[package]
+name = "xui-webkit"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "WebKit's window for LazyOS: chrome, page view and the UI-process C ABI"
+
+[lib]
+name = "xui_webkit"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+
+# The compositor-client backend (`LazyOSBackend`) is only used by the C ABI,
+# which is built for LazyOS only.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+xui-app = { path = "../.." }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }

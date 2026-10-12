@@ -25,10 +25,11 @@ def wants_tls(cfg: dict) -> bool:
 
 def wants_net(cfg: dict) -> bool:
     """Whether the image has the network stack and QEMU a network card (the
-    SMB client, Wi-Fi and the WebKit dependency proof, whose curl check fetches
-    over HTTPS, need it too)."""
+    SMB client, Wi-Fi, the WebKit dependency proof, whose curl check fetches
+    over HTTPS, and the WebKit port and browser need it too)."""
     return bool(cfg.get("net") or cfg.get("smb") or cfg.get("lazysky") or wants_dbgd(cfg)
-                or wants_tls(cfg) or wants_wifi(cfg) or cfg.get("webkit_deps"))
+                or wants_tls(cfg) or wants_wifi(cfg) or cfg.get("webkit_deps")
+                or cfg.get("webkit_port") or cfg.get("webkit"))
 
 
 def wants_wifi(cfg: dict) -> bool:
