@@ -12,7 +12,7 @@ and the clipboard.
 | Canvas | white, 320x240 by default, sides up to 16384 within a 512 MiB budget (layers + cache + undo), zoom 1/16x-32x (Ctrl+wheel), pixel grid from 800% |
 | Tools | Pencil, Brush, Eraser, Line, Rectangle, Ellipse, Fill, Picker, Rectangle / Ellipse / Lasso Select, Magic Wand, Move Selected Pixels, Move Selection (tool grid, left) |
 | Selections | a bounding rectangle plus an optional 8-bit mask (hard-edged in v1); every pixel tool, the bucket, Fill and Erase Selection clip to it; marching ants drawn over the picture |
-| Sizes | 1, 2, 4, 8, 16 px (options bar, for the tools that use one; `[` and `]`) |
+| Sizes | 25 widths from 1 to 500 px (`model::SIZES`: 1-6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 100, 128, 160, 200, 256, 320, 400, 500; options bar, for the tools that use one; `[` and `]` step through them) |
 | Colours | 32 swatches; left picks primary, right picks secondary; click a swatch of the pair to edit it |
 | Menus | File, Edit, View, Image, Layers, Adjustments, Help; rows of unbuilt features are disabled |
 | History | delta undo/redo (rectangle of the touched layer, 64 MiB cap), Clear Image, New |
@@ -37,7 +37,9 @@ and the clipboard.
 
 Paint.NET's keys, from one table (`view/shortcuts.rs`, `BINDINGS`; the menus
 print the same chords). Nothing is taken while a dialog, the colour editor or a
-menu is open.
+menu is open, and plain keys (letters, Delete, Backspace, the arrows) are left to
+a number or text field in the options bar while it has the keyboard: only Ctrl
+chords and the function keys are claimed there.
 
 | Keys | Action |
 |---|---|
@@ -50,7 +52,7 @@ menu is open.
 | X, D | Swap, reset the primary and secondary colours |
 | S (repeat to cycle) | Rectangle Select, Ellipse Select, Lasso, Magic Wand |
 | M (repeat to cycle) | Move Selected Pixels, Move Selection |
-| Z, H, G, T | Zoom, Pan, Gradient, Text: not built yet |
+| Z, H, G, T | Zoom, Pan, Gradient, Text |
 | Ctrl+A / D / I | Select All, Deselect, Invert Selection |
 | Del, Backspace | Erase Selection, Fill Selection (primary colour) |
 | Ctrl+X / C / Shift+C | Cut, Copy, Copy Merged |
@@ -60,7 +62,7 @@ menu is open.
 | Ctrl++ / Ctrl+- / Ctrl+B / Ctrl+0 | Zoom in, out, to window, actual size (View menu; Pixel Grid toggles the grid drawn from 800%) |
 | Ctrl+Shift+F, Ctrl+Shift+N/D, Ctrl+M, F4 | Flatten, New Layer, Duplicate Layer, Merge Layer Down, Layer Properties |
 | Ctrl+Shift+I / G / E | Invert Colors, Black and White, Sepia (instant, clipped to the selection) |
-| Enter, Esc | OK, Cancel in the Resize, Canvas Size, Brightness/Contrast and Hue/Saturation dialogs |
+| Enter, Esc | OK, Cancel in the Resize, Canvas Size, Brightness/Contrast, Hue/Saturation, colour editor and Layer Properties frames (Enter does nothing extra when a button has the keyboard: the button answers) |
 
 A key for a feature that does not exist yet (`view::Command`, whose
 `available()` is false) only says so in the status bar, and its menu row is
@@ -170,6 +172,8 @@ crates/xui-paint/src/
     layers.rs         the Layers panel: custom rows (eye, thumbnail, name); layers/thumb.rs
     sidebar.rs        right column: Layers + button strip + collapsible History list
     layerprops.rs     Layer Properties frame (name, visible, opacity; live preview)
+    keyfocus.rs       which of the window's own controls has the keyboard (plain keys)
+    app/saved.rs      unsaved changes: the history position when the file was written
     icons.rs          hand-drawn paint-tool glyphs
   viewport.rs         zoom and scroll arithmetic (pure)
   render.rs           flattened cache and the nearest-neighbour screen image (pure)
@@ -231,9 +235,10 @@ loads the storage's own `default_path()` with no dialog. `set_start_dir` picks
 the pickers' starting directory. Plain `build`/`build_observed` keep the
 path-less behaviour.
 
-**Resize.** Image > Canvas Size... (Ctrl+Shift+R) opens a prompt pre-filled with
-the current `WxH` (also `W,H` / `W x H`); `Model::resize` keeps the pixels
-top-left, pads white, is one undo step and rejects sides outside `1..=1024`.
+**Resize.** Image > Resize... (Ctrl+R) scales the picture; Image > Canvas
+Size... (Ctrl+Shift+R) opens a dialog with the width and height, a 9-cell anchor
+and a fill for the new area (transparent or the secondary colour). Both are one
+undo step and take sides from 1 to `MAX_SIDE` (16384) within the memory budget.
 
 **Colours.** A left click on the primary or secondary swatch opens the colour
 editor over the canvas: xui's `ColorPanel` (HSV field, hue slider, hex/RGB/CMYK
