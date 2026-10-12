@@ -18,6 +18,7 @@ mod futex;
 mod locks;
 mod memfd;
 mod msg;
+mod msg_gather;
 mod ptyflow;
 mod readthrough;
 mod resources;
@@ -42,6 +43,7 @@ use futex::*;
 use locks::*;
 use memfd::*;
 use msg::*;
+use msg_gather::*;
 use ptyflow::*;
 use resources::*;
 use schedattr::*;
@@ -198,6 +200,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_msg_seqpacket_gather_soak",
         msg_seqpacket_gather_soak,
     ),
+    (
+        "compat_msg_gather_carries_rights",
+        msg_gather_carries_rights,
+    ),
+    (
+        "compat_msg_gather_refusals_keep_rights",
+        msg_gather_refusals_keep_rights,
+    ),
+    ("compat_msg_writev_gather_errors", msg_writev_gather_errors),
+    ("compat_msg_gather_segment_limit", msg_gather_segment_limit),
+    ("compat_msg_gather_near_capacity", msg_gather_near_capacity),
+    (
+        "compat_msg_gather_dontwait_full_queue",
+        msg_gather_dontwait_full_queue,
+    ),
+    ("compat_msg_gather_large_soak", msg_gather_large_soak),
     ("compat_scmrights_round_trip", scmrights_round_trip),
     ("compat_scmrights_cloexec", scmrights_cloexec),
     ("compat_scmrights_ctrunc", scmrights_ctrunc),
