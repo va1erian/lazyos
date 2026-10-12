@@ -166,6 +166,7 @@ pub(super) fn sys_rt_sigreturn() -> u64 {
         signal::die_with_segv();
     };
     signal::set_blocked(task::current(), mask);
+    signal::returned_to(task::current(), regs.rsp);
     signal::apply_linux_frame_syscall(&regs);
     regs.rax
 }

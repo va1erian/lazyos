@@ -324,7 +324,8 @@ pub fn deliver_linux(result: u64) {
 /// records the `syscall` instruction itself (`rip - 2`) and the number in
 /// `rax`, so returning from the handler issues the call again with its
 /// original arguments (they are all callee-saved in the frame); without it
-/// the caller sees `EINTR`. Returns the value `rax` should hold now.
+/// the caller sees `EINTR`. When the call was interrupted but no handler ran,
+/// it is re-issued whatever the flags. Returns the value `rax` should hold now.
 pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     let Some((slot, pml4)) = current_info() else {
         return result;
@@ -356,6 +357,15 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
         rewind_for_restart(frame, flags, &mut restart);
         apply_action(pml4, slot, sig, disposition, frame);
     }
+    // An interrupted call on whose thread no handler ran (the signal was
+    // ignored, a stop and continue, or a sibling thread took it) is issued
+    // again, as Linux does for `ERESTARTSYS`/`ERESTARTNOHAND`.
+    let mut result = result;
+    if let Some(nr) = restart {
+        let frame = regs.get_or_insert_with(|| saved_regs_from_stack(result));
+        rewind_unhandled(frame, nr);
+        result = nr;
+    }
     if let Some(regs) = regs {
         apply_linux_frame_syscall(&regs);
     }
@@ -363,6 +373,16 @@ pub fn deliver_linux_restartable(result: u64, restart: Option<u64>) -> u64 {
     // signal's action ignored it): the original mask comes back now.
     suspend_end_for(slot);
     result
+}
+
+/// Point the frame back at the `syscall` instruction (two bytes before the
+/// resume address) with the call's number in `rax`, so the call runs again
+/// with its original arguments.
+pub fn rewind_unhandled(frame: &mut UserRegs, nr: u64) {
+    /// `syscall` is two bytes (`0f 05`).
+    const SYSCALL_LEN: u64 = 2;
+    frame.rip -= SYSCALL_LEN;
+    frame.rax = nr;
 }
 
 /// The syscall a handler may restart: `restart` (the number of a call Linux

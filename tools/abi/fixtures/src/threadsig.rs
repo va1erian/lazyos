@@ -16,7 +16,9 @@
 mod common;
 
 use std::os::unix::thread::JoinHandleExt;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{
+    AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+};
 use std::time::{Duration, Instant};
 
 const SYS_RT_SIGACTION: u64 = 13;
@@ -239,6 +241,144 @@ fn mutator(index: usize) {
     }
 }
 
+const SYS_CLOCK_NANOSLEEP: u64 = 230;
+const SYS_SIGALTSTACK: u64 = 131;
+const CLOCK_MONOTONIC: u64 = 1;
+const SIGALRM: usize = 14;
+const SA_ONSTACK: u64 = 0x0800_0000;
+const EINTR: i64 = 4;
+
+/// The sleeper's `clock_nanosleep` result and how long it took (ms).
+static SLEEPER_TID: AtomicI32 = AtomicI32::new(0);
+static SLEEPER_RET: AtomicI64 = AtomicI64::new(i64::MIN);
+static SLEEPER_MS: AtomicU64 = AtomicU64::new(0);
+static SPINNER_TID: AtomicI32 = AtomicI32::new(0);
+static SPINNER_STOP: AtomicBool = AtomicBool::new(false);
+
+/// Stack for `SA_ONSTACK` handlers, and where each of them ran.
+const ALT_LEN: usize = 65536;
+static ALT_BASE: AtomicUsize = AtomicUsize::new(0);
+static ALT_RUNS: AtomicUsize = AtomicUsize::new(0);
+static ALT_INSIDE: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn alarm_handler(_sig: i32, _info: *const i32, _ucontext: *const u8) {
+    let marker = 0u8;
+    let here = core::hint::black_box(&marker) as *const u8 as usize;
+    let base = ALT_BASE.load(Ordering::SeqCst);
+    if (base..base + ALT_LEN).contains(&here) {
+        ALT_INSIDE.fetch_add(1, Ordering::SeqCst);
+    }
+    ALT_RUNS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Two consecutive `SA_ONSTACK` signals both run on the alternate stack.
+fn altstack_phase(first: &mut Option<String>) {
+    let memory: &'static mut [u8] = Box::leak(vec![0u8; ALT_LEN].into_boxed_slice());
+    ALT_BASE.store(memory.as_ptr() as usize, Ordering::SeqCst);
+    let stack = [memory.as_ptr() as u64, 0, ALT_LEN as u64];
+    let rc = unsafe { syscall6(SYS_SIGALTSTACK, [stack.as_ptr() as u64, 0, 0, 0, 0, 0]) };
+    check(first, rc == 0, || "sigaltstack failed".to_string());
+    let action = KernelSigaction {
+        handler: alarm_handler as usize,
+        flags: SA_SIGINFO | SA_RESTART | SA_RESTORER | SA_ONSTACK,
+        restorer: __abi_restore_rt as *const () as usize,
+        mask: 0,
+    };
+    let args = [SIGALRM as u64, &action as *const _ as u64, 0, 8, 0, 0];
+    check(
+        first,
+        unsafe { syscall6(SYS_RT_SIGACTION, args) } == 0,
+        || "rt_sigaction SIGALRM failed".to_string(),
+    );
+    let pid = unsafe { syscall6(SYS_GETPID, [0; 6]) } as u64;
+    for _ in 0..2 {
+        unsafe { syscall6(SYS_KILL, [pid, SIGALRM as u64, 0, 0, 0, 0]) };
+    }
+    let (runs, inside) = (
+        ALT_RUNS.load(Ordering::SeqCst),
+        ALT_INSIDE.load(Ordering::SeqCst),
+    );
+    check(first, runs == 2 && inside == 2, || {
+        format!(
+            "{inside} of {runs} SA_ONSTACK handlers ran on the alternate stack, expected 2 of 2"
+        )
+    });
+}
+
+/// A thread asleep in `clock_nanosleep(2 s)` while a process-directed signal
+/// goes to the process: if another thread takes it, the sleeper must not see
+/// an interruption and sleeps the full time (+-200 ms). If the sleeper itself
+/// ran the handler, `EINTR` is the right answer.
+fn sleeper_phase(first: &mut Option<String>, main_tid: i32) {
+    let sleeper = std::thread::spawn(|| {
+        SLEEPER_TID.store(gettid(), Ordering::SeqCst);
+        let ts = [2u64, 0];
+        let start = Instant::now();
+        let args = [CLOCK_MONOTONIC, 0, ts.as_ptr() as u64, 0, 0, 0];
+        let ret = unsafe { syscall6(SYS_CLOCK_NANOSLEEP, args) };
+        SLEEPER_MS.store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
+        SLEEPER_RET.store(ret, Ordering::SeqCst);
+    });
+    // Spawned second, so the lower slot is the sleeper's: it is the thread
+    // the kernel prefers to wake. The spinner is the one in user mode.
+    let spinner = std::thread::spawn(|| {
+        SPINNER_TID.store(gettid(), Ordering::SeqCst);
+        while !SPINNER_STOP.load(Ordering::SeqCst) {
+            std::hint::spin_loop();
+        }
+    });
+    let start = Instant::now();
+    while SLEEPER_TID.load(Ordering::SeqCst) == 0 || SPINNER_TID.load(Ordering::SeqCst) == 0 {
+        if start.elapsed() > STEP_TIMEOUT {
+            common::fail("threadsig", "the sleeper phase did not start");
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    let usr2 = 1u64 << (SIGUSR2 - 1);
+    sigprocmask(SIG_BLOCK, usr2);
+    let before = USR2_RUNS.load(Ordering::SeqCst);
+    let pid = unsafe { syscall6(SYS_GETPID, [0; 6]) } as u64;
+    unsafe { syscall6(SYS_KILL, [pid, SIGUSR2 as u64, 0, 0, 0, 0]) };
+    let start = Instant::now();
+    while USR2_RUNS.load(Ordering::SeqCst) == before && start.elapsed() < STEP_TIMEOUT {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let ran_on = USR2_TID.load(Ordering::SeqCst);
+    SPINNER_STOP.store(true, Ordering::SeqCst);
+    check(
+        first,
+        sleeper.join().is_ok() && spinner.join().is_ok(),
+        || "a phase thread panicked".to_string(),
+    );
+    sigprocmask(SIG_UNBLOCK, usr2);
+    let (ret, ms) = (
+        SLEEPER_RET.load(Ordering::SeqCst),
+        SLEEPER_MS.load(Ordering::SeqCst),
+    );
+    let sleeper_tid = SLEEPER_TID.load(Ordering::SeqCst);
+    check(first, ran_on != main_tid && ran_on != 0, || {
+        format!("the signal ran on tid {ran_on} (main {main_tid})")
+    });
+    println!(
+        "ABI:threadsig:STEP:sleeper:{}:ret={ret}:ms={ms}",
+        if ran_on == sleeper_tid {
+            "self"
+        } else {
+            "sibling"
+        }
+    );
+    if ran_on == sleeper_tid {
+        check(first, ret == -EINTR, || {
+            format!("the sleeper ran the handler, yet clock_nanosleep returned {ret}")
+        });
+    } else {
+        check(first, ret == 0 && (1800..=2200).contains(&ms), || {
+            format!("a sibling took the signal, yet the sleeper returned {ret} after {ms} ms (expected 0 after 2000 +-200)")
+        });
+    }
+}
+
 fn check(first: &mut Option<String>, ok: bool, reason: impl FnOnce() -> String) {
     if !ok && first.is_none() {
         *first = Some(reason());
@@ -342,6 +482,9 @@ fn main() {
             NOT_BLOCKED.load(Ordering::SeqCst)
         )
     });
+    sleeper_phase(&mut first, main_tid);
+    altstack_phase(&mut first);
+
     // The mutators' masks never leaked into the collector's.
     check(&mut first, sigprocmask(SIG_BLOCK, 0) == 0, || {
         "the main thread's mask changed".to_string()

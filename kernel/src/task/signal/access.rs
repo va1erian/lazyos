@@ -145,6 +145,20 @@ pub fn set_altstack(slot: usize, stack: AltStack) -> Result<(), SignalError> {
     Ok(())
 }
 
+/// `rt_sigreturn` put thread `slot` back on `rsp`: once that is outside the
+/// alternate stack, the handler that entered it has returned and the next
+/// `SA_ONSTACK` signal may enter it again.
+pub fn returned_to(slot: usize, rsp: u64) {
+    with_thread(slot, |thread| {
+        let stack = thread.altstack;
+        let inside =
+            stack.enabled && (stack.sp..stack.sp.saturating_add(stack.size)).contains(&rsp);
+        if !inside {
+            thread.on_altstack = false;
+        }
+    });
+}
+
 /// Signals pending for thread `slot`: its own set and its process's shared one.
 #[allow(dead_code)] // introspection used by the in-kernel tests
 pub fn pending(slot: usize) -> u64 {

@@ -56,6 +56,8 @@ fn wait_ready(deadline: Option<u64>, mut scan: impl FnMut() -> u64) -> u64 {
         match task::wait_poll_keyed_ns(deadline) {
             WakeReason::Woken => {}
             WakeReason::TimedOut => return scan(),
+            // Woken for a signal a sibling thread took: wait on.
+            WakeReason::Interrupted if !signal::wait_interrupted(task::current()) => {}
             WakeReason::Interrupted => return err(EINTR),
         }
     }

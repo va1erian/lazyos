@@ -245,6 +245,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_threadsig_recycled_slot_starts_clean",
         threadsig_recycled_slot_starts_clean,
     ),
+    (
+        "compat_threadsig_sibling_takes_the_signal_without_interrupting",
+        threadsig_sibling_takes_the_signal_without_interrupting,
+    ),
     ("compat_threadsig_soak", threadsig_soak),
     (
         "compat_ramfs_opens_read_through",

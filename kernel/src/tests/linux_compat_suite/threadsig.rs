@@ -9,9 +9,11 @@ use crate::task::wait::WaitQueue;
 use crate::task::{TaskState, WaitKind, WakeReason};
 
 mod group;
+mod restart;
 mod soak;
 
 use group::*;
+pub use restart::threadsig_sibling_takes_the_signal_without_interrupting;
 pub use soak::threadsig_soak;
 
 /// A mask set on one thread changes no other thread's; a thread starts with

@@ -99,10 +99,14 @@ delivery.
 **Invariants / decisions**
 
 - A process-directed signal can wake the target thread and be taken by a
-  sibling first (the sweep delivers to whichever runnable thread it meets):
-  the woken thread then returns `EINTR` with nothing to deliver, as before this
-  split every sleeping thread did. Handler stacks: `on_altstack` is set when a
-  handler enters the alternate stack and is not cleared again (pre-existing).
+  sibling first (the sweep delivers to whichever runnable thread it meets).
+  The woken thread must not see that as an interruption: when a call is
+  interrupted (`-EINTR`) and no handler ran on its thread, `deliver_linux_restartable`
+  rewinds the frame to the `syscall` (`rewind_unhandled`) for the restartable
+  calls, and the sleeps and readiness waits (`nanosleep`/`clock_nanosleep`,
+  `ppoll`/`pselect6`, `epoll_wait`, `pause`) check `wait_interrupted` and wait
+  on. `rt_sigreturn` clears `on_altstack` (`returned_to`) once the restored
+  `rsp` is outside the alternate stack, so every `SA_ONSTACK` signal enters it.
 - Kernel signal sets use bit `1 << sig`; Linux `sigset_t` uses bit `sig - 1`.
   `linux_sigset_to_kernel`/`kernel_to_linux_sigset` translate at every Linux
   ABI boundary (`rt_sigaction` `sa_mask`, `rt_sigprocmask` set/oldset, and the
