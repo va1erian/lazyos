@@ -904,6 +904,7 @@ dependencies = [
  "lazyos-crypto",
  "lazypkg",
  "libc",
+ "pciprobe",
  "tracefmt",
 ]
 

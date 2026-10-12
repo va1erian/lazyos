@@ -28,6 +28,9 @@ getrandom = "0.4.3"
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
 # The GPT reader the kernel uses (K2): partition names, types and extents.
 gpt = { path = "../../libs/gpt" }
+# `build_support/dbgd_cfg.rs` (included by path) validates the dbgd range
+# lines with the same parser the kernel uses.
+pciprobe = { path = "../../libs/pciprobe" }
 # SHA-256 of the ESP files (step 8).
 lazyos-crypto = { path = "../../libs/crypto" }
 
