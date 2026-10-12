@@ -120,16 +120,23 @@ def judge_servers(record, tp, tlscerts) -> list[str]:
     return problems
 
 
-def report(serial: str, host: str, body: str | None, servers: list[str] | None) -> int:
+def report(serial: str, host: str, body: str | None, servers: list[str] | None,
+           partial: bool = False) -> int:
+    """Print the verdicts. `partial` (a saved log judged on its own) has no
+    host servers to ask, so the two network verdicts print as NOT CHECKED and
+    the result is `WEBKIT:W3:HARNESS:PARTIAL`, never `PASS`."""
     binary = wkjudge.sha256_of(BIN) if BIN.is_file() else None
     verdicts = wkjudge.judge(serial, host, body, servers, binary)
     for verdict in verdicts:
         print(f"{'PASS' if verdict.ok else 'FAIL'}  {verdict.name}  {verdict.detail}".rstrip())
+    if partial:
+        print("NOT CHECKED  curl fetched the page the server holds  (no host servers in --judge-only)")
+        print("NOT CHECKED  the harness server saw the handshake and the request  (same)")
     if BIN.is_file():
         print(f"depsproof: {BIN.stat().st_size / 1048576:.1f} MiB")
     ok = wkjudge.passed(verdicts)
-    print("WEBKIT:W3:HARNESS:" + ("PASS" if ok else "FAIL"))
-    return 0 if ok else 1
+    print("WEBKIT:W3:HARNESS:" + ("FAIL" if not ok else "PARTIAL" if partial else "PASS"))
+    return 0 if ok and not partial else 1
 
 
 def main() -> int:
@@ -148,7 +155,7 @@ def main() -> int:
     host = HOST_RUN.read_text(errors="replace") if HOST_RUN.is_file() else ""
 
     if args.judge_only:
-        return report(Path(args.judge_only).read_text(errors="replace"), host, None, None)
+        return report(Path(args.judge_only).read_text(errors="replace"), host, None, None, partial=True)
     if not BIN.is_file() or not host:
         print("webkit: target/webkit/bin/depsproof is missing (python tools/webkit/deps.py)", file=sys.stderr)
         return 1
