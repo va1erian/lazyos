@@ -19,7 +19,7 @@ mod outline;
 mod shapes;
 
 pub use combine::CombineMode;
-pub(crate) use crop::crop_document;
+pub(crate) use crop::clear_outside_mask;
 pub use outline::Edge;
 
 use super::rect::Rect;

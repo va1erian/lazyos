@@ -8,6 +8,7 @@
 mod budget;
 mod flatten;
 mod layer;
+mod rebuild;
 
 pub use budget::{BudgetError, MEMORY_BUDGET, Reserved, check as check_budget, required_bytes};
 pub use layer::{Layer, LayerProps};
@@ -67,24 +68,6 @@ impl Document {
             height: bitmap.height(),
             layers: vec![Layer::new(BACKGROUND, bitmap)],
             active: 0,
-            selection: None,
-        }
-    }
-
-    /// A document of `layers` (all `width` x `height`) with no selection. The
-    /// caller has checked the budget.
-    pub(crate) fn from_parts(
-        width: u32,
-        height: u32,
-        layers: Vec<Layer>,
-        active: usize,
-    ) -> Document {
-        let active = active.min(layers.len().saturating_sub(1));
-        Document {
-            width,
-            height,
-            layers,
-            active,
             selection: None,
         }
     }

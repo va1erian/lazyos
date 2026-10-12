@@ -14,6 +14,9 @@ mod clip;
 mod edit;
 mod float;
 mod layers;
+mod adjust;
+mod image_ops;
+mod io;
 mod ops;
 mod select;
 
@@ -256,3 +259,6 @@ impl Model {
         &self.history
     }
 }
+
+#[cfg(test)]
+mod image_tests;

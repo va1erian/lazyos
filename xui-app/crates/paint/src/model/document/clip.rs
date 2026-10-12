@@ -10,8 +10,7 @@
 //! clipboard intact.
 
 use super::Model;
-use crate::model::selection::crop_document;
-use crate::model::{Bitmap, Document, Edit, Tool, check_budget, div255};
+use crate::model::{Bitmap, Document, Tool, check_budget, div255};
 
 /// A copied picture.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,22 +155,13 @@ impl Model {
     /// its mask transparent, as one undo step. The selection is gone after.
     pub fn crop_to_selection(&mut self) -> Result<(), String> {
         self.settle();
-        let Some(mut cropped) = crop_document(&self.doc) else {
-            return Err(if self.doc.selection().is_some() {
-                "The selection is the whole picture".to_string()
-            } else {
-                "Nothing is selected".to_string()
-            });
+        let Some(selection) = self.doc.selection().cloned() else {
+            return Err("Nothing is selected".to_string());
         };
-        self.doc.swap_contents(&mut cropped);
-        // `cropped` now holds the old document, which is what undo restores.
-        self.history.record(Edit::Document {
-            name: "Crop to Selection".to_string(),
-            before: Box::new(cropped),
-        });
-        self.preview = None;
-        self.damage_all();
-        self.selection_changed();
-        Ok(())
+        let area = selection.bounds().intersect(self.doc.bounds());
+        if area == self.doc.bounds() && selection.is_rect() {
+            return Err("The selection is the whole picture".to_string());
+        }
+        self.crop_masked(area, Some(&selection))
     }
 }

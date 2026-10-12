@@ -115,6 +115,10 @@ crates/xui-paint/src/
     history/          Edit deltas and the byte-capped History
     document.rs       Model: fields and accessors
     document/edit.rs  Model actions (begin/extend/end, fill, pick, undo/redo)
+    document/image_ops.rs  resize, canvas size, crop, flip/rotate, flatten, merge down
+    document/adjust.rs     Adjustments on the active layer; document/io.rs open/save bytes
+    ops/              pure image operations: resample, flips/turns, adjustments (P5)
+    format/           OpenRaster, BMP, magic-byte dispatch, a stored/inflate zip (P6)
   view/               xui glue: PaintApp, menu, shortcuts, panels, canvas
     app.rs            Msg -> model glue and status bar wiring
     app/              dialogs.rs (pickers, resize, About), files.rs, colors.rs
@@ -255,3 +259,19 @@ All cross-platform, no real window:
 
 See [GAPS.md](GAPS.md) for the xui limitations found while building this and the
 local workarounds used.
+
+## Image operations and file formats (model only; the menus wire them later)
+
+`Model` methods, each one named undo step: `resize_image`, `canvas_size`,
+`crop(Rect)`, `flip_image`/`rotate_image`, `flip_layer`/`rotate_layer`,
+`flatten_image`, `merge_layer_down`, `adjust(Adjustment)` /
+`adjust_in(Adjustment, Rect)`, and `open_bytes` / `save_bytes(Format)` /
+`needs_flatten(Format)`. The pure functions are in `model::ops`; the formats
+in `model::format` (open by magic bytes, save by `Format::from_path`).
+
+| Format | Open | Save | Layers |
+|---|---|---|---|
+| OpenRaster `.ora` | yes | yes | yes (name, opacity, visibility, active) |
+| PNG | yes | yes | flattened copy |
+| BMP (1/4/8/24/32 bit) | yes | yes (24 bit, or 32 bit with alpha) | flattened copy |
+| JPEG | yes | no | flattened |

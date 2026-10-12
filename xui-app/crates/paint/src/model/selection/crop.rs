@@ -4,38 +4,7 @@
 
 use super::Selection;
 use crate::model::div255;
-use crate::model::image::{Document, Layer};
 use crate::model::{Bitmap, Rect};
-
-/// A copy of `doc` cropped to its selection's bounds, with every layer's
-/// pixels outside the mask made transparent (scaled by the coverage at a soft
-/// edge) and no selection left. `None` when nothing is selected or the
-/// selection already is the whole picture.
-pub(crate) fn crop_document(doc: &Document) -> Option<Document> {
-    let selection = doc.selection()?;
-    let area = selection.bounds().intersect(doc.bounds());
-    if area.is_empty() || (area == doc.bounds() && selection.is_rect()) {
-        return None;
-    }
-    let layers: Option<Vec<Layer>> = doc
-        .layers()
-        .iter()
-        .map(|layer| {
-            let mut pixels = layer.pixels.crop(area)?;
-            clear_outside_mask(&mut pixels, area, selection);
-            Some(Layer {
-                pixels,
-                ..layer.clone()
-            })
-        })
-        .collect();
-    Some(Document::from_parts(
-        area.width(),
-        area.height(),
-        layers?,
-        doc.active(),
-    ))
-}
 
 /// Makes the pixels of `pixels` (a crop of the picture at `area`) that the
 /// selection does not cover transparent, scaling alpha by the coverage at a

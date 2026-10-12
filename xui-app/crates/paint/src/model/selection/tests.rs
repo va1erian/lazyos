@@ -2,7 +2,7 @@
 //! outline and crop.
 
 use super::*;
-use crate::model::{Bitmap, Document, WHITE};
+use crate::model::{Bitmap, WHITE};
 
 const ALL: Rect = Rect {
     x0: 0,
@@ -306,31 +306,16 @@ fn the_outline_traces_the_boundary() {
 }
 
 #[test]
-fn crop_cuts_every_layer_and_clears_outside_the_mask() {
-    let mut doc = Document::new(16, 16, WHITE).unwrap();
-    doc.set_selection(Selection::ellipse(Rect::new(4, 4, 8, 8), doc.bounds()));
-    let cropped = crop_document(&doc).unwrap();
-    assert_eq!(cropped.size(), (8, 8));
-    assert!(cropped.selection().is_none());
-    let layer = &cropped.active_layer().pixels;
-    assert_eq!(
-        layer.get(0, 0),
-        Some([0, 0, 0, 0]),
-        "corner is outside the ellipse"
-    );
-    assert_eq!(layer.get(4, 4), Some(WHITE));
-    // A rectangle keeps every pixel; the whole picture crops to nothing.
-    let mut doc = Document::new(16, 16, [9, 9, 9, 255]).unwrap();
-    doc.set_selection(Selection::rect(Rect::new(2, 2, 5, 3)));
-    let cropped = crop_document(&doc).unwrap();
-    assert_eq!(cropped.size(), (5, 3));
-    assert_eq!(
-        cropped.active_layer().pixels.get(0, 0),
-        Some([9, 9, 9, 255])
-    );
-    doc.set_selection(Selection::rect(doc.bounds()));
-    assert!(crop_document(&doc).is_none());
-    doc.set_selection(None);
-    assert!(crop_document(&doc).is_none());
-    let _ = Bitmap::white(1, 1);
+fn clear_outside_mask_makes_the_uncovered_transparent() {
+    let area = Rect::new(4, 4, 8, 8);
+    let ellipse = Selection::ellipse(area, Rect::new(0, 0, 16, 16)).unwrap();
+    let mut pixels = Bitmap::white(8, 8);
+    clear_outside_mask(&mut pixels, area, &ellipse);
+    assert_eq!(pixels.get(0, 0), Some([0, 0, 0, 0]), "corner is outside");
+    assert_eq!(pixels.get(4, 4), Some(WHITE));
+    // A rectangle keeps every pixel.
+    let rectangle = Selection::rect(area).unwrap();
+    let mut pixels = Bitmap::white(8, 8);
+    clear_outside_mask(&mut pixels, area, &rectangle);
+    assert_eq!(pixels.get(0, 0), Some(WHITE));
 }
