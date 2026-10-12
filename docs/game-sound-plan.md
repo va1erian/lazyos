@@ -55,13 +55,13 @@ calls `Poll`).
 | Pitch and speed (SRB2Kart) | **Ignored**, as upstream's SDL build does: `I_SetSongSpeed` returns `false`, `pitch` is unused | Parity with the official release; the voice can step at any rate, so pitch is a small follow-up if wanted. |
 | SRB2Kart's other music | The XM track (`O_KMAP36`) and the 3 MIDI lumps: `I_LoadSong` returns `false` (the map plays silent), logged once as `SRB2KART:SOUND:SKIP <name> <format>` | One map out of the set; an XM player is out of scope (`libs/modplay` is ProTracker only). |
 | Fade callbacks | The output thread runs the fade ramp; the game thread fires the callback from `I_UpdateSound` once the ramp reports done | The callbacks change engine state (`S_StopMusic`), which must stay on the game thread. |
-| Doom music | **OPL FM synthesis from `GENMIDI`**: Chocolate Doom **3.1.0** (`chocolate-doom-3.1.0.tar.gz`, SHA-256 `f2c64843dcec312032b180c3b2f34b4cb26c4dcdaa7375a1601a3b1df11ef84d`), fetched like doomgeneric, never vendored. Compiled as-is: `src/i_oplmusic.c`, `src/midifile.c`, `opl/opl3.c` (Nuked OPL3), `opl/opl_queue.c`. **Not** `opl/opl.c` (it needs SDL's mutex and condition variable for `OPL_Delay`) | `i_oplmusic.c` plays both MUS (through `mus2mid`) and the MIDI Freedoom ships; `GENMIDI` is in the IWAD, so nothing new ships. A General MIDI synth would need a SoundFont (size, licence) for a sound Doom never had on DOS. |
+| Doom music | **Decided: OPL FM synthesis from `GENMIDI`**: Chocolate Doom **3.1.0** (`chocolate-doom-3.1.0.tar.gz`, SHA-256 `f2c64843dcec312032b180c3b2f34b4cb26c4dcdaa7375a1601a3b1df11ef84d`), fetched like doomgeneric, never vendored. Compiled as-is: `src/i_oplmusic.c`, `src/midifile.c`, `opl/opl3.c` (Nuked OPL3), `opl/opl_queue.c`. **Not** `opl/opl.c` (it needs SDL's mutex and condition variable for `OPL_Delay`) | `i_oplmusic.c` plays both MUS (through `mus2mid`) and the MIDI Freedoom ships; `GENMIDI` is in the IWAD, so nothing new ships. A General MIDI synth would need a SoundFont (size, licence) for a sound Doom never had on DOS. |
 | The OPL glue | `doom/c/opl_lazyos.c` implements the `opl.h` API that `opl.c` and `opl_sdl.c` provide upstream (`OPL_Init` returning OPL3, `OPL_WriteRegister`, the callback queue, `OPL_Lock`/`Unlock`, pause, `OPL_SetSampleRate`) over a pull function `lz_opl_render(frames)` the output thread calls; Nuked OPL3 renders at 48 kHz itself (`OPL3_GenerateResampled`). `DG_music_module` wraps `music_opl_module`. A force-included `doom/c/choco_compat.h` declares `opl_driver_ver_t` and `I_SetOPLDriverVer` (Chocolate 3.x's `i_sound.h` has them, doomgeneric's does not) | Keeps "no upstream file patched"; `opl_sdl.c` (521 lines) is the model. The `const snddevice_t *` field difference between the two `i_sound.h` is a qualifier warning only. |
 | Doom's build | `FEATURE_SOUND` defined; `doom/c/stub/SDL_mixer.h` (empty) on the include path; our module defines `use_libsamplerate = 0` and `libsamplerate_scale` | The two gotchas above, without patching `i_sound.c`. |
 | Missing card | `Audio::try_connect()` returning `None` (or the stream failing) makes the game **silent, never fatal**: `<GAME>:SOUND:OFF reason=...`; a retry every 5 s picks up a restarted `audiod` | A desktop with no sound card must play exactly as today. |
 | Headless | Headless mixes through the same `gamemix` into a buffer on its virtual clock and prints a sound CRC beside the frame CRC; it never opens a stream. The frame CRCs (`crc=b3580eb0` for Kart's check) must not change | Sound must not touch game state; a changed frame CRC is the alarm. |
 | Permissions | `os.lazy.audio.v1` added to both manifests (emusic's line), confirmed by a `LAZYOS_LABEL_TRACE=1` run with no `LABEL:DENY` | AGENTS.md: permissions come from a traced run. |
-| Launchers | `--doom` and `--srb2kart` imply `--sound auto` (as `--emusic` and `--modplayer` do in `tools/demo_args.py`); the GUI's `session_sound` adds the card for them; tests in `tools/test_run_demo_apps.py` and `tools/lazygui/test_catalog.py` | Every app launchable from both front ends, with its sound. |
+| Launchers | **Decided:** `--doom` and `--srb2kart` imply `--sound auto` (as `--emusic` and `--modplayer` do in `tools/demo_args.py`); the GUI's `session_sound` adds the card for them; tests in `tools/test_run_demo_apps.py` and `tools/lazygui/test_catalog.py` | Every app launchable from both front ends, with its sound. |
 
 ## The seam
 
@@ -235,9 +235,9 @@ thread its turn promptly under WHPX, and TCG needs the deeper queue.
   as the data itself, never committed, uploaded or attached. The census
   tool prints only counts and sizes.
 
-## Open questions for the owner
+## Owner decisions (2026-10-12)
 
-1. OPL synthesis for Doom's music (authentic, four Chocolate Doom files and
-   our glue), or effects only for now?
-2. Should `--doom`/`--srb2kart` add a sound card by default, as `--emusic`
-   does?
+1. **Doom's music is OPL** (the retro FM sound): S4 stays as planned, not
+   deferred.
+2. **`--doom` and `--srb2kart` add a sound card by default**, as `--emusic`
+   does (the Launchers row above); the GUI's session runs record it.
