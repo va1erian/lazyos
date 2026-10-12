@@ -60,7 +60,9 @@ impl Model {
         self.selection_changed();
     }
 
-    /// Clears the active layer to white as one undo step.
+    /// Clears the active layer as one undo step: to white for the bottom
+    /// layer, to transparent for any layer above it (as a resize pads), so
+    /// clearing an upper layer never paints an opaque sheet over the rest.
     ///
     /// Refused, with nothing changed, when the undo copy of the layer would
     /// not fit the memory budget.
@@ -75,7 +77,9 @@ impl Model {
         };
         let rect = target.pixels.rect();
         let before = target.pixels.clone();
-        target.pixels.fill(WHITE);
+        target
+            .pixels
+            .fill(if layer == 0 { WHITE } else { [0, 0, 0, 0] });
         if target.pixels != before {
             self.history.record(Edit::Pixels {
                 name: "Clear".to_string(),

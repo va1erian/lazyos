@@ -5,6 +5,7 @@
 
 use super::live::{ClipMask, Live, clip_of};
 use super::{Drag, Model};
+use crate::model::tools::Sample;
 use crate::model::tools::{Gradient, PaintMode, StrokeBuffer, bucket_mask_in, pick};
 use crate::model::{Edit, Rect, Side};
 
@@ -19,12 +20,24 @@ pub(super) struct GradientDrag {
 
 impl Model {
     pub(super) fn begin_gradient(&mut self, x: i32, y: i32, side: Side) {
+        // The gradient repaints the selection (or the layer) on every move and
+        // backs all of it up: ask once, before the first frame.
+        let layer = self.doc.layer(self.doc.active()).map(|l| l.pixels.rect());
+        let clip = ClipMask::of(self.doc.selection());
+        let area = clip
+            .as_ref()
+            .map_or(layer.unwrap_or(Rect::EMPTY), ClipMask::rect)
+            .intersect(layer.unwrap_or(Rect::EMPTY));
+        if let Err(error) = self.check_capture(area) {
+            self.notice = Some(error);
+            return;
+        }
         self.drag = Some(Drag::Gradient(GradientDrag {
             live: Live::new(self.doc.active()),
             start: (x, y),
             end: (x, y),
             side,
-            clip: ClipMask::of(self.doc.selection()),
+            clip,
         }));
     }
 
@@ -91,9 +104,28 @@ impl Model {
     /// colour, through the selection, as one history entry.
     pub(super) fn fill_at(&mut self, x: i32, y: i32, side: Side) {
         let color = self.color_for(side);
+        // The region search holds a bit set, and sampling the image a whole
+        // flattened copy, beside the document.
+        let (w, h) = self.doc.size();
+        let pixels = u64::from(w) * u64::from(h);
+        let sampled = if self.fill.sample == Sample::Image {
+            pixels * 4
+        } else {
+            0
+        };
+        if let Err(error) = self.check_extra_fits(sampled + pixels / 8) {
+            self.notice = Some(error);
+            return;
+        }
         let Some(mask) = bucket_mask_in(&self.doc, (x, y), &self.fill) else {
             return;
         };
+        // The mask, the stroke buffer's coverage and snapshot and the undo
+        // copy of the region: 1 + 1 + 4 + 4 bytes a pixel.
+        if let Err(error) = self.check_extra_fits(mask.rect().area() as u64 * 10) {
+            self.notice = Some(error);
+            return;
+        }
         let layer = self.doc.active();
         let clip = ClipMask::of(self.doc.selection());
         let Some(target) = self.doc.layer_mut(layer) else {

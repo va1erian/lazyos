@@ -100,6 +100,19 @@ impl Model {
             return;
         };
         let area = target.pixels.rect();
+        // Ask before the masks and the capture grow: the shape stays inside
+        // the box of its corners, grown by the stroke width.
+        let reach_box = Rect::from_points(drag.start, drag.end)
+            .inflate(options.width.ceil() as i32 + 2)
+            .intersect(area);
+        if let Err(error) = self.check_capture(drag.live.span_with(reach_box)) {
+            // The preview stays as it was: it cannot grow any further.
+            self.notice = Some(error);
+            return;
+        }
+        let Some(target) = self.doc.layer_mut(drag.live.layer) else {
+            return;
+        };
         let shape = coverage(tool, drag.start, drag.end, &options, area);
         let reach = [&shape.fill, &shape.outline]
             .into_iter()

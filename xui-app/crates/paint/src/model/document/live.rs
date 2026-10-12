@@ -67,6 +67,11 @@ impl Live {
         }
     }
 
+    /// What the capture would span if `reach` were painted too.
+    pub(super) fn span_with(&self, reach: Rect) -> Rect {
+        self.capture.bounds().union(reach)
+    }
+
     /// Takes back the last frame, lets `paint` draw the next (it may touch
     /// only `reach`, and returns what it changed) and returns the pixels that
     /// differ from what was shown before.

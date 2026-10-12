@@ -92,7 +92,9 @@ impl Model {
         }
         .ok_or_else(|| "Nothing is selected".to_string())?;
         let area = selection.bounds();
+        // The lifted bitmap, and the capture of the layer under it.
         self.check_extra_fits(area.area() as u64 * 4)?;
+        self.check_capture(area)?;
         let layer = self.doc.active();
         let target = &mut self.doc.layer_mut(layer).ok_or("no such layer")?.pixels;
         let mut bitmap = target.crop(area).ok_or("Nothing is selected")?;
@@ -158,6 +160,7 @@ impl Model {
         name: &'static str,
     ) -> Result<(), String> {
         self.check_extra_fits(bitmap.byte_len() as u64)?;
+        self.check_capture(Rect::new(at.0, at.1, bitmap.width(), bitmap.height()))?;
         let outline = Selection::rect(Rect::new(at.0, at.1, bitmap.width(), bitmap.height()))
             .ok_or("Nothing to paste")?;
         let float = Float {
@@ -180,6 +183,22 @@ impl Model {
     /// Moves the float to `pos`, recomputing the layer under both footprints
     /// and carrying the selection along.
     fn move_float_to(&mut self, pos: (i32, i32)) {
+        // The capture grows to every place the float has been: ask before it
+        // reaches a new one, and stay where it is when that would not fit.
+        if let Some(float) = &self.float {
+            let layer = self
+                .doc
+                .layer(float.layer)
+                .map_or(Rect::EMPTY, |l| l.pixels.rect());
+            let span = float
+                .capture
+                .bounds()
+                .union(float.footprint(pos).intersect(layer));
+            if let Err(error) = self.check_capture(span) {
+                self.notice = Some(error);
+                return;
+            }
+        }
         let Some(mut float) = self.float.take() else {
             return;
         };

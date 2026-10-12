@@ -12,6 +12,10 @@ use super::{
     Side, Tool, WHITE, check_budget,
 };
 
+/// What an undo capture holds at its peak per pixel it spans: the backed-up
+/// tiles and the assembled "before" picture (4 + 4 bytes).
+const CAPTURE_BYTES_PER_PIXEL: u64 = 8;
+
 mod adjust;
 mod clip;
 mod edit;
@@ -233,6 +237,14 @@ impl Model {
         reserved.floating = reserved.floating.saturating_add(extra);
         let (w, h) = self.doc.size();
         check_budget(w, h, self.doc.layers().len(), reserved).map_err(|e| e.to_string())
+    }
+
+    /// Checks that an undo capture spanning `area` fits next to the document:
+    /// the tiles it backs up, and beside them (as the action commits) the
+    /// assembled "before" picture. A float, a gradient or a shape holds one
+    /// for as long as it is live, so each asks before it grows.
+    pub fn check_capture(&self, area: Rect) -> Result<(), String> {
+        self.check_extra_fits(area.area() as u64 * CAPTURE_BYTES_PER_PIXEL)
     }
 
     /// Records the size of the floating selection's bitmap for the budget.

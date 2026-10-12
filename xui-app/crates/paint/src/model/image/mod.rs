@@ -183,10 +183,8 @@ impl Document {
             .enumerate()
             .map(|(i, layer)| {
                 let fill = if i == 0 { super::WHITE } else { [0, 0, 0, 0] };
-                Layer {
-                    pixels: layer.pixels.resized_with(width, height, fill),
-                    ..layer.clone()
-                }
+                // Not `..layer.clone()`: that would copy the old pixels first.
+                layer.with_pixels(layer.pixels.resized_with(width, height, fill))
             })
             .collect();
         Document {

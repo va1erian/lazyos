@@ -33,6 +33,26 @@ fn floating() -> Model {
 }
 
 #[test]
+fn clearing_an_upper_layer_leaves_it_transparent() {
+    let mut m = picture();
+    m.add_layer().unwrap();
+    m.set_primary(RED);
+    m.begin(2, 2, Side::Primary);
+    m.end();
+    m.clear().unwrap();
+    let layers = m.document().layers();
+    assert_eq!(layers[1].pixels.get(2, 2), Some([0, 0, 0, 0]));
+    assert_eq!(
+        layers[0].pixels.get(1, 1),
+        Some(RED),
+        "the layer below stays"
+    );
+    m.select_layer(0);
+    m.clear().unwrap();
+    assert_eq!(m.document().layers()[0].pixels.get(1, 1), Some(WHITE));
+}
+
+#[test]
 fn a_press_while_a_drag_is_live_records_that_drag_first() {
     for tool in [Tool::Pencil, Tool::Line, Tool::Gradient, Tool::Fill] {
         let mut m = Model::new(8, 8);
