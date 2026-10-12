@@ -54,6 +54,11 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(failing(serial, ("w1",)), [])
         self.assertTrue(failing(serial, ("w1", "w2")))
 
+    def test_script_times(self):
+        serial = GOOD + "JSC:TIME:gc:2500\nJSC:TIME:promise:90\n"
+        self.assertEqual(judge.times(serial), {"gc": 2500, "promise": 90})
+        self.assertEqual(judge.times(W1), {})
+
     def test_startup_time(self):
         self.assertEqual(judge.startup_ms(GOOD), 1234)
         self.assertIsNone(judge.startup_ms(W1))

@@ -108,6 +108,8 @@ def report(serial: str, stages: tuple[str, ...]) -> int:
     ms = judge.startup_ms(serial)
     if ms is not None:
         print(f"jsc -e 'print(1+1)' took {ms} ms in the guest")
+    for name, took in judge.times(serial).items():
+        print(f"script {name} took {took} ms in the guest")
     for name in ("jsc", "cxxproof"):
         if (BIN / name).is_file():
             print(f"{name}: {(BIN / name).stat().st_size / 1048576:.1f} MiB")

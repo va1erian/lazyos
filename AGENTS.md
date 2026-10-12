@@ -500,6 +500,26 @@ dash,sqlite3,jq,rg`), and `linuxapps_console.json`/`linuxapps_desktop.json`
 drive them interactively (the desktop Terminal runs its shell on a pty, so
 `vi`, `less`, `^C` and cooked-mode REPLs work). See `tools/linuxapps/README.md`.
 
+## JavaScriptCore (`LAZYOS_JSC=1`: `jsc`, `cxxproof`)
+
+`tools/jsc/build.py` builds WebKit's `JSCOnly` port (WebKitGTK 2.54.1, the
+C-loop interpreter, ICU 74.2 with its data inside) and a C++ toolchain proof
+as static musl programs with zig, **inside Docker** (`tools/jsc/Dockerfile`,
+Debian 12 with cmake, ninja, ruby, perl; `--no-docker` on a Linux host runs
+the same steps). `LAZYOS_JSC=1` (`run_demo.py --jsc`, which implies
+`--big-app`) puts `jsc` and `cxxproof` in `/system/bin`; `python
+tools/jsc/run.py` builds the image, boots it with 2 GiB and judges the
+`JSC:W1:*`, `JSC:UP:PASS` and `JSC:RUN:PASS:<name>` markers
+(`tools/jsc/test_judge.py` is the judge's self-test). Plan, numbers and the
+problems found: [`docs/webkit-port-plan.md`](docs/webkit-port-plan.md),
+details in `tools/jsc/README.md`.
+
+```bash
+python tools/jsc/build.py            # Docker: ICU, cxxproof, jsc -> target/jsc/bin
+python tools/jsc/run.py --accel none # boot and judge (add --stage w1 for the C++/ICU proof alone)
+python tools/jsc/test_judge.py
+```
+
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
 `nettls/` (a standalone workspace, like `rhai-host/`) builds one static-musl

@@ -7,7 +7,7 @@ that hangs or crashes must not look like success.
 Markers: ``JSC:W1:PASS:cxx``, ``JSC:W1:PASS:icu``, ``JSC:W1:PASS`` (the C++
 toolchain and ICU, stage W1); ``JSC:UP:PASS``, ``JSC:START:<ms>`` and
 ``JSC:RUN:PASS:<name>`` for ``arith``, ``gc`` and ``promise`` (the shell,
-stage W2); ``JSC:W1:FAIL:...`` / ``JSC:RUN:FAIL:<name>:<reason>`` say why not.
+stage W2), each script followed by ``JSC:TIME:<name>:<ms>``; ``JSC:W1:FAIL:...`` / ``JSC:RUN:FAIL:<name>:<reason>`` say why not.
 """
 
 from __future__ import annotations
@@ -64,6 +64,11 @@ def startup_ms(serial: str) -> int | None:
     """How long the guest's first ``jsc -e`` took, from ``JSC:START:<ms>``."""
     found = re.search(r"^JSC:START:(\d+)\s*$", serial, re.M)
     return int(found.group(1)) if found else None
+
+
+def times(serial: str) -> dict[str, int]:
+    """Milliseconds each script took in the guest, from ``JSC:TIME:<name>:<ms>``."""
+    return {name: int(ms) for name, ms in re.findall(r"^JSC:TIME:(\w+):(\d+)\s*$", serial, re.M)}
 
 
 def passed(verdicts: list[Verdict]) -> bool:

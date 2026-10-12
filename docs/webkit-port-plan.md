@@ -1,11 +1,35 @@
 # A WebKit port — exploration and plan
 
-Status: **W0 built** (2026-10-12): the four kernel prerequisites landed
-(issues #771 to #774, this plan's §4), so nothing in the kernel stops a
-WebKit2 port any more; W1 (the toolchain proof) is not started. Decisions
-taken: WebKit2 is the engine (§2), the port is modeled on the PlayStation
-port with WebKit's C API as the seam to a Rust xui window (§5), and the port
-files live out of tree like `doom/` and `quake/` (§7).
+Status: **W0, W1 and W2 built** (2026-10-12). The four kernel prerequisites
+landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
+`JSCOnly` shell `jsc` (C-loop interpreter) runs on LazyOS. Next is W3 (the
+dependency bundle) or flipping the JIT on in W2. Decisions taken: WebKit2 is
+the engine (§2), the port is modeled on the PlayStation port with WebKit's C
+API as the seam to a Rust xui window (§5), and the port files live out of
+tree like `doom/` and `quake/` (§7).
+
+**W1/W2 results** (`tools/jsc/`, [README](../tools/jsc/README.md); `python
+tools/jsc/build.py` then `python tools/jsc/run.py`):
+
+| | |
+|---|---|
+| C++ proof `cxxproof` | 30.8 MiB static-PIE (about 30 MiB of it ICU's data): libc++, 8 threads, exceptions, RTTI, TLS destructors, `std::filesystem`, `ucnv`/`uloc`/`Normalizer2`/`BreakIterator`; prints `JSC:W1:PASS` on LazyOS at the first run |
+| `jsc` | WebKitGTK 2.54.1 `JSCOnly`, C-loop, ICU 74.2: **44.5 MiB** stripped, **no source patches** (flags only, see the README) |
+| Build | __BUILD__ |
+| `jsc -e 'print(1+1)'` on LazyOS | 170 to 230 ms from `exec` to exit under WHPX (a 45 MB ELF read whole from ext2, ICU initialised, concurrent GC threads started) |
+| 1.5 M allocations, 4 concurrent marker threads, `gc()`/`edenGC()` | 1.2 s under WHPX, correct result |
+| Classes, private fields, Promises, async generators, `Intl.NumberFormat`, `toUpperCase` | `JSC:RUN:PASS:promise` |
+
+Built in Docker (`tools/jsc/Dockerfile`, Debian 12 with zig from pip): a
+WebKit build is thousands of small files and needs ruby, perl, cmake and
+ninja, which a container and a named volume keep off a Windows bind mount;
+the same `build.py` runs on a Linux host with `--no-docker`.
+
+Not done: JavaScriptCore's own test suite (W2's second half), the JIT, and
+any evidence that the collector's *signal* path (`pthread_kill` of another
+mutator, §4.2) ran: with one JS thread the concurrent collector stops the
+mutator by handshake, not by signal, so §4.2 is exercised by the `threadsig`
+fixture but not yet by JSC.
 
 Scope: what it would take to run a mainstream browser engine on LazyOS, and
 the shortest credible path to a page rendered by WebKit in a desktop window.
@@ -207,6 +231,23 @@ interpreted, no video, no GPU, two to three months in.
 
 ## 6. The problems that will surface
 
+* **`sched_setattr` (syscall 314) is `ENOSYS`.** WTF's `Thread::setThreadQoS`
+  (`wtf/posix/ThreadingPOSIX.cpp`) calls it to lower a GC marker thread's
+  priority and treats failure as "not supported", so nothing breaks (eight
+  `ENOSYS 314` lines in the gc script with four markers). A no-op that
+  accepts the call would silence the log; it is the only gap JSC met.
+* **Binary size.** `jsc` is 44.5 MiB because ICU's data (about 30 MB: every
+  locale, converter and break rule) is inside; there is no file-backed `mmap`
+  to load `icudt74l.dat`. An ICU data filter (locales, converters) would cut
+  most of it; not done. Each running `jsc` costs that much RAM for code alone.
+* **Toolchain holes met** (all handled by flags, `tools/jsc/webkit.py`): the
+  release tarball lacks `Tools/Scripts/hmaptool` (`-DUSE_HEADER_MAPS=OFF`);
+  `ENABLE_SAMPLING_PROFILER` conflicts with the C-loop; simdutf's AVX-512
+  paths do not compile under zig's clang without `evex512`, and LazyOS enables
+  no AVX state anyway (`-DSIMDUTF_IMPLEMENTATION_{ICELAKE,HASWELL,WESTMERE}=0`);
+  ICU's cross build needs its tools built for the host first, and
+  `--disable-tools` silently leaves a 1 KB stub `libicudata.a`; the WebKitGTK
+  tarball holds symlinks Windows cannot extract (hence the container).
 * **Memory for code.** LazyOS loads a static ELF whole into RAM, with no
   demand paging and no sharing of text between processes. Three WebKit
   processes at 40 to 60 MB stripped each is roughly 150 MB resident for

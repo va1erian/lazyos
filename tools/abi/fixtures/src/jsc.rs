@@ -4,7 +4,8 @@
 //!
 //! The markers are the evidence and go to the serial log, one per line:
 //! everything `cxxproof` prints (`JSC:W1:*`), then `JSC:UP:PASS` once `jsc`
-//! answers, `JSC:START:<ms>` (how long `jsc -e` took), and `JSC:RUN:PASS:<name>` or
+//! answers, `JSC:START:<ms>` (how long `jsc -e` took), `JSC:TIME:<name>:<ms>` per
+//! script, and `JSC:RUN:PASS:<name>` or
 //! `JSC:RUN:FAIL:<name>:<reason>` for each script: arithmetic, a script that
 //! allocates enough to force collections with concurrent marker threads on,
 //! and one with classes, Promises, async generators and Intl (ICU). The
@@ -20,17 +21,17 @@ use std::time::Instant;
 const BIN: &str = "/system/bin";
 const SCRATCH: &str = "/tmp/jsc";
 
-/// Allocates a few hundred thousand objects, keeps one in a hundred, and asks
+/// Allocates a million and a half objects, keeps one in twenty, and asks
 /// for collections: the concurrent marker threads suspend the mutator with
 /// signals (per-thread signals, docs/webkit-port-plan.md 4.2).
 const GC_SCRIPT: &str = r#"
 let keep = [];
 let total = 0;
-for (let i = 0; i < 300000; i++) {
+for (let i = 0; i < 1500000; i++) {
   let o = { a: i, b: [i, i + 1, i + 2], s: "str" + i };
-  if (i % 100 == 0) keep.push(o);
+  if (i % 20 == 0) keep.push(o);
   total += o.b.length;
-  if (i % 50000 == 0) gc();
+  if (i % 250000 == 0) gc(); else if (i % 50000 == 0) edenGC();
 }
 fullGC();
 let sum = 0;
@@ -38,7 +39,7 @@ for (const o of keep) sum += o.a;
 print("gc-ok:" + total + ":" + keep.length + ":" + sum);
 "#;
 
-const GC_WANT: &str = "gc-ok:900000:3000:449850000\n";
+const GC_WANT: &str = "gc-ok:4500000:75000:56249250000\n";
 
 const PROMISE_SCRIPT: &str = r#"
 class Animal {
@@ -91,9 +92,13 @@ fn tidy(text: &str) -> String {
 
 /// Run a `jsc` check and report it as `JSC:RUN:PASS|FAIL:<name>`.
 fn check(name: &str, args: &[&str], want: &str) -> bool {
-    match run("jsc", args) {
+    let began = Instant::now();
+    let result = run("jsc", args);
+    let ms = began.elapsed().as_millis();
+    match result {
         Ok((true, out, _)) if out == want => {
             println!("JSC:RUN:PASS:{name}");
+            println!("JSC:TIME:{name}:{ms}");
             true
         }
         Ok((true, out, _)) => {

@@ -78,8 +78,7 @@ def build(jobs: int) -> Path:
         raise BuildError(f"ninja finished but {built} is missing")
     out = pins.OUT / "jsc"
     out.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(built, out)
-    out.chmod(0o755)
     # Stripped: debugging a guest crash uses addresses, not the host's symbols.
-    run([*toolenv.zig_command(), "objcopy", "--strip-all", str(out)], pins.WORK, "strip jsc")
+    run(["strip", "--strip-all", "-o", str(out), str(built)], pins.WORK, "strip jsc")
+    out.chmod(0o755)
     return out
