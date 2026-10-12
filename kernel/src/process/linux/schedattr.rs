@@ -22,7 +22,7 @@
 //! bytes, with the size it knows written back.
 
 use crate::ipc::credentials::{self, CAP_SYS_ADMIN};
-use crate::task::{self, linuxstate::SchedState, nice};
+use crate::task::{self, linuxstate::SchedState, nice, SchedTarget, UpdateError};
 use crate::user_ptr;
 use alloc::vec;
 
@@ -147,21 +147,19 @@ fn target(pid: u64) -> Result<usize, u64> {
     Ok(slot)
 }
 
-/// What `slot` has set (the default for a task that never called).
-fn state_of(slot: usize) -> SchedState {
-    task::linuxstate::with_extras_of(slot, |extras| extras.sched).unwrap_or_default()
-}
-
-/// The policy and flags `sched_getscheduler` reports for `slot`.
-pub(super) fn policy_of(slot: usize) -> u64 {
+/// The policy and flags `sched_getscheduler` reports for `slot` (`None` when
+/// the slot holds no task).
+pub(super) fn policy_of(slot: usize) -> Option<u64> {
     const RESET_ON_FORK: u64 = 0x4000_0000;
-    let state = state_of(slot);
-    u64::from(state.policy)
-        | if state.reset_on_fork {
-            RESET_ON_FORK
-        } else {
-            0
-        }
+    let state = task::sched_read(slot)?;
+    Some(
+        u64::from(state.policy)
+            | if state.reset_on_fork {
+                RESET_ON_FORK
+            } else {
+                0
+            },
+    )
 }
 
 /// `sched_setattr(pid, attr, flags)`.
@@ -183,9 +181,32 @@ pub(super) fn sys_sched_setattr(pid: u64, uattr: u64, flags: u64) -> u64 {
     }
 }
 
-/// Validate and apply `attr` to `slot`; the errno on refusal.
+/// Who is asking, as far as the rules go.
+struct Caller {
+    allowed: bool,
+    uid: u32,
+}
+
+/// Validate and apply `attr` to `slot`; the errno on refusal. The decision,
+/// the stored state and the weight are one step under the task-table lock
+/// ([`task::sched_update`]), so no other thread's change can fall between the
+/// checks and the store.
 fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
-    let old = state_of(slot);
+    let caller = Caller {
+        allowed: privileged(),
+        uid: credentials::of(task::current()).uid,
+    };
+    match task::sched_update(slot, |target| decide(attr, &caller, &target)) {
+        Ok(()) => Ok(()),
+        Err(UpdateError::NoSuchTask) => Err(ESRCH),
+        Err(UpdateError::Refused(errno)) => Err(errno),
+    }
+}
+
+/// The state `attr` asks `target` to have, or the errno that refuses it. Runs
+/// under the task-table lock: pure, no allocation.
+fn decide(attr: &Attr, caller: &Caller, target: &SchedTarget) -> Result<SchedState, u64> {
+    let old = target.state;
     if attr.flags & !FLAG_ALL != 0 {
         return Err(EINVAL);
     }
@@ -221,27 +242,20 @@ fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
         level
     };
 
-    let allowed = privileged();
     if realtime || deadline {
-        return Err(if allowed { EINVAL } else { EPERM });
+        return Err(if caller.allowed { EINVAL } else { EPERM });
     }
-    let cred = credentials::of(slot);
-    let mine = credentials::of(task::current());
     let raises = new_nice < i32::from(old.nice);
-    let leaves_idle = old.policy == SCHED_IDLE as u8 && policy != SCHED_IDLE;
+    let leaves_idle = old.is_idle() && policy != SCHED_IDLE;
     let unsets_reset = old.reset_on_fork && !reset_on_fork;
-    if !allowed && (cred.uid != mine.uid || raises || leaves_idle || unsets_reset) {
+    if !caller.allowed && (target.cred.uid != caller.uid || raises || leaves_idle || unsets_reset) {
         return Err(EPERM);
     }
-
-    let state = SchedState {
+    Ok(SchedState {
         policy: policy as u8,
         reset_on_fork,
         nice: new_nice as i8,
-    };
-    task::set_nice_weight(slot, new_nice, policy == SCHED_IDLE);
-    task::linuxstate::with_extras_of(slot, |extras| extras.sched = state);
-    Ok(())
+    })
 }
 
 /// `sched_getattr(pid, attr, size, flags)`.
@@ -254,7 +268,9 @@ pub(super) fn sys_sched_getattr(pid: u64, uattr: u64, size: u64, flags: u64) -> 
         Ok(slot) => slot,
         Err(errno) => return errno,
     };
-    let state = state_of(slot);
+    let Some(state) = task::sched_read(slot) else {
+        return err(ESRCH);
+    };
     let written = size.min(SIZE_NOW);
     let mut raw = vec![0u8; size];
     raw[0..4].copy_from_slice(&(written as u32).to_le_bytes());

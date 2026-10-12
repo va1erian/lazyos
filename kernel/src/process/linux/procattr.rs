@@ -215,7 +215,7 @@ pub(super) fn sys_sched_getscheduler(pid: u64) -> u64 {
     if task::priority(slot).is_none() {
         return err(ESRCH);
     }
-    super::schedattr::policy_of(slot)
+    super::schedattr::policy_of(slot).unwrap_or_else(|| err(ESRCH))
 }
 
 /// `sched_getparam(pid, param)`: priority 0, as for any `SCHED_OTHER` task.

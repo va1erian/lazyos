@@ -23,6 +23,7 @@ mod readthrough;
 mod resources;
 mod schedattr;
 mod schedattr_more;
+mod schedattr_race;
 mod scmrights;
 mod select;
 mod termios;
@@ -44,6 +45,7 @@ use ptyflow::*;
 use resources::*;
 use schedattr::*;
 use schedattr_more::*;
+use schedattr_race::*;
 use scmrights::*;
 use select::*;
 use termios::*;
@@ -359,6 +361,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         schedattr_children_inherit,
     ),
     ("compat_schedattr_soak", schedattr_soak),
+    (
+        "compat_schedattr_two_thread_soak",
+        schedattr_two_thread_soak,
+    ),
     ("execmem_mprotect_zero_length", execmem_mprotect_zero_length),
     ("execmem_wx_cycle", execmem_wx_cycle),
     ("execmem_rwx_page", execmem_rwx_page),
