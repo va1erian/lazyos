@@ -62,11 +62,17 @@ impl Model {
     }
 
     /// Clears the active layer to white as one undo step.
-    pub fn clear(&mut self) {
+    ///
+    /// Refused, with nothing changed, when the undo copy of the layer would
+    /// not fit the memory budget.
+    pub fn clear(&mut self) -> Result<(), String> {
         self.settle();
         let layer = self.doc.active();
+        let (width, height) = self.doc.size();
+        let copy = width as u64 * height as u64 * 4;
+        self.check_fits_recording(width, height, self.doc.layers().len(), copy)?;
         let Some(target) = self.doc.layer_mut(layer) else {
-            return;
+            return Ok(());
         };
         let rect = target.pixels.rect();
         let before = target.pixels.clone();
@@ -82,6 +88,7 @@ impl Model {
             self.damage_all();
             self.bump();
         }
+        Ok(())
     }
 
     /// Resizes the canvas to `width` x `height`: the old pixels stay at the
@@ -100,9 +107,11 @@ impl Model {
         if self.doc.size() == (width, height) {
             return Ok(());
         }
-        // Before allocating: the new layers, the old ones still held by the
-        // undo entry, and the cache are all live at once.
-        self.check_fits(width, height, self.doc.layers().len())?;
+        // Before allocating: the new layers, the old ones held by the undo
+        // entry (kept even past the history cap), and the cache are all live
+        // at once.
+        let old = self.doc.bytes() as u64;
+        self.check_fits_recording(width, height, self.doc.layers().len(), old)?;
         let mut resized = self.doc.resized(width, height);
         self.doc.swap_contents(&mut resized);
         // `resized` now holds the old document: exactly what undo restores.
