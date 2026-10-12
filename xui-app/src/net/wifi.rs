@@ -49,6 +49,17 @@ pub enum Error {
 }
 
 impl Error {
+    /// Whether the service was only busy (`EAGAIN`, or a scan already under
+    /// way, `EBUSY`): not a failure to show, the caller asks again later.
+    pub fn is_busy(self) -> bool {
+        matches!(self, Error::Code(code) if -code == EAGAIN || -code == EBUSY)
+    }
+
+    /// Whether the service refused the caller (`EPERM`, `EACCES`).
+    pub fn is_denied(self) -> bool {
+        matches!(self, Error::Code(code) if -code == EPERM || -code == EACCES)
+    }
+
     /// The failure in words, for a status line.
     pub fn describe(self) -> String {
         match self {

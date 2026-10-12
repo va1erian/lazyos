@@ -10,7 +10,9 @@
 //! * [`web`]: the fetch and web-server threads over `std::net`;
 //! * [`drives`]: the Network Drives form and table (pure, host tested);
 //! * [`mounts`]: the typed, bounded client of `os.lazy.mount.v1`;
-//! * [`wifi`]: the typed, bounded client of `wlanmd` (`os.lazy.net.wifi.v1`).
+//! * [`wifi`]: the typed, bounded client of `wlanmd` (`os.lazy.net.wifi.v1`);
+//! * [`wifiview`]: the Network app's Wi-Fi page without the window: rows,
+//!   plans, the join form's checks, the status line (pure, host tested).
 
 pub mod apply;
 pub mod drives;
@@ -20,3 +22,4 @@ pub mod mounts;
 pub mod stack;
 pub mod web;
 pub mod wifi;
+pub mod wifiview;

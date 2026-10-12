@@ -11,12 +11,19 @@
 //! (`xui_app::net::model::plan`), so a setup the stack would replace with DHCP
 //! is refused with the reason instead of being saved.
 //!
+//! With a wireless interface (`wlanmd`, `LAZYOS_WIFI=1`) a **Wi-Fi** button
+//! appears beside Next card and opens the Wi-Fi page in the same window: the
+//! networks heard, connect (a password form for a new WPA2 network, "Other
+//! network..." for a hidden one), disconnect and forget; see
+//! `network/wifi_page.rs` and `network/wifi_join.rs`.
+//!
 //! Serial evidence: `NETAPP:UP:PASS` after the first frame;
 //! `NETAPP:STATUS:PASS addr=<cidr> gw=<ip>` whenever the address changes
 //! (`NETAPP:STATUS:NOSTACK` once when `netd` is absent);
 //! `NETAPP:APPLY:PASS mode=<dhcp|static> if=<card>`, `NETAPP:APPLY:REFUSED` (the form) or
 //! `NETAPP:APPLY:FAIL` (cancelled or not approved) on Apply;
-//! `NETAPP:RENEW:PASS`/`FAIL` on Renew; `NETAPP:CLOSE:PASS` on close.
+//! `NETAPP:RENEW:PASS`/`FAIL` on Renew; `NETAPP:CLOSE:PASS` on close. The
+//! Wi-Fi page prints `NETAPP:WIFI:*` lines (`wifi_page.rs`).
 
 use xui_app::launch;
 use xui_app::net::apply;
@@ -25,9 +32,18 @@ use xui_app::net::stack;
 use xui_app::platform::confd_store::ConfdStore;
 use xui_app::platform::elevd;
 use xui_core::app::{App, Ui};
+use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
-use xui_core::widget::RadioGroup;
+use xui_core::widget::{Dialog, DialogAction, RadioGroup};
 use xui_settings::store::{ConfigStore, Value};
+
+#[path = "network/wifi_join.rs"]
+mod wifi_join;
+#[path = "network/wifi_page.rs"]
+mod wifi_page;
+
+/// The window title, which the UI probe lines name.
+const TITLE: &str = "Network";
 
 /// The window size when a compositor lays the app out.
 const WINDOW: (i32, i32) = (600, 470);
@@ -42,6 +58,19 @@ enum Msg {
     Revert,
     NextCard,
     Close,
+    /// The Wi-Fi page: open, back to the wired page, scan, and its buttons.
+    WifiOpen,
+    WifiBack,
+    WifiScan,
+    WifiConnect,
+    WifiDisconnect,
+    WifiForget,
+    WifiOther,
+    /// The Forget confirmation was answered (`true`: forget it).
+    ForgetAnswer(bool),
+    /// The join form: Cancel and Connect.
+    JoinCancel,
+    JoinOk,
 }
 
 /// The status rows: caption, then the line it shows.
@@ -56,6 +85,12 @@ struct Widgets {
     gateway: Handle<Edit<Msg>>,
     dns: Handle<Edit<Msg>>,
     message: Handle<Label<Msg>>,
+    /// The wired page's two groups, hidden while the Wi-Fi page shows.
+    status_group: Handle<GroupBox<Msg>>,
+    config_group: Handle<GroupBox<Msg>>,
+    /// Opens the Wi-Fi page; shown once a wireless interface exists.
+    wifi_button: Handle<Button<Msg>>,
+    wifi: wifi_page::WifiWidgets,
 }
 
 impl Widgets {
@@ -91,7 +126,8 @@ impl Widgets {
                 group(
                     "Status",
                     grid([Track::Fixed(Dip(100.0)), Track::Fill(1)]).children(status),
-                ),
+                )
+                .bind(&self.status_group),
                 group(
                     "Configuration",
                     column().gap(8).children((
@@ -106,16 +142,34 @@ impl Widgets {
                             button("Renew lease").on_click(Msg::Renew).width(120),
                             button("Revert").on_click(Msg::Revert).width(90),
                             button("Next card").on_click(Msg::NextCard).width(100),
+                            button("Wi-Fi")
+                                .on_click(Msg::WifiOpen)
+                                .bind(&self.wifi_button)
+                                .width(80),
                         )),
                     )),
-                ),
+                )
+                .bind(&self.config_group),
                 label("").bind(&self.message).fixed(44),
+                self.wifi.page_layout(),
+                self.wifi.join_layout(),
             ))
+    }
+
+    /// The wired page's widgets, shown and hidden together.
+    fn wired_ids(&self) -> [WidgetId; 3] {
+        [
+            self.status_group.get().id(),
+            self.config_group.get().id(),
+            self.message.get().id(),
+        ]
     }
 }
 
 struct Network {
     w: Widgets,
+    ui: Ui<Msg>,
+    wifi: wifi_page::Wifi,
     store: ConfdStore,
     status: Option<NetStatus>,
     /// The interface being shown and edited, by name; `None` follows the
@@ -134,7 +188,10 @@ impl App for Network {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Tick => self.refresh(),
+            Msg::Tick => {
+                self.refresh();
+                self.wifi_tick();
+            }
             Msg::Apply => self.apply(),
             Msg::Renew => self.renew(),
             Msg::Revert => {
@@ -145,6 +202,16 @@ impl App for Network {
                     .set_text("Form reset to the saved configuration.");
             }
             Msg::NextCard => self.next_card(),
+            Msg::WifiOpen => self.wifi_open(),
+            Msg::WifiBack => self.wifi_back(),
+            Msg::WifiScan => self.wifi_scan_now(),
+            Msg::WifiConnect => self.wifi_connect(),
+            Msg::WifiDisconnect => self.wifi_disconnect(),
+            Msg::WifiForget => self.wifi_forget_ask(),
+            Msg::WifiOther => self.wifi_other(),
+            Msg::ForgetAnswer(yes) => self.wifi_forget_answer(yes),
+            Msg::JoinCancel => self.join_cancel(),
+            Msg::JoinOk => self.join_submit(),
             Msg::Close => {
                 println!("NETAPP:CLOSE:PASS");
                 ui.quit();
@@ -340,8 +407,15 @@ fn main() {
             .inspect_err(|error| println!("NETAPP:BUILD:FAIL:{error}"))?;
         ui.every(REFRESH_MILLIS, Msg::Tick);
         ui.on_close(|| Some(Msg::Close));
+        let forget = Dialog::confirm(ui, "Forget this network?", "")?
+            .accept_label("Forget")
+            .on_action(|action| Some(Msg::ForgetAnswer(matches!(action, DialogAction::Accept(_)))));
+        // The Wi-Fi pages and the Wi-Fi button wait for a wireless interface.
+        wifi_page::start_hidden(ui, &w);
         let mut app = Network {
             w,
+            ui: ui.clone(),
+            wifi: wifi_page::Wifi::new(forget),
             store: ConfdStore::new(),
             status: None,
             selected: None,
