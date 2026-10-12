@@ -107,6 +107,65 @@ class RegistryProcessTests(unittest.TestCase):
         self.assertEqual(out.returncode, 2)
 
 
+class MachineKeyCliTests(unittest.TestCase):
+    """`registry.py --machine-key NAME` is the only way a callback key is made."""
+
+    def run_cli(self, root, *args):
+        return subprocess.run([sys.executable, "-I", str(HERE / "registry.py"), "--root", str(root), *args],
+                              capture_output=True, text=True)
+
+    def test_mints_prints_once_and_re_mints(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            (root / "machines.json").write_text(json.dumps({"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "dev"}}))
+            first = self.run_cli(root, "--machine-key", "box")
+            self.assertEqual(first.returncode, 0, first.stderr)
+            key = next(l.split(": ")[1] for l in first.stdout.splitlines() if l.startswith("callback key for box"))
+            self.assertRegex(key, "^[0-9a-f]{64}$")
+            self.assertIn(f"bootos.machine_key={key}", first.stdout)
+            self.assertEqual(json.loads((root / "machines.json").read_text())["box"]["callback_key"], key)
+            self.assertEqual(json.loads((root / "machines.json").read_text())["box"]["mac"], "aa:bb:cc:dd:ee:ff")
+            second = self.run_cli(root, "--machine-key", "box")
+            new = next(l.split(": ")[1] for l in second.stdout.splitlines() if l.startswith("callback key for box"))
+            self.assertNotEqual(new, key)
+            self.assertEqual(json.loads((root / "machines.json").read_text())["box"]["callback_key"], new)
+
+    def test_the_old_key_is_refused_after_a_re_mint_by_a_running_server(self):
+        import auth
+        import fixtures
+        h = fixtures.Harness(machines={"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "dev"}})
+        self.addCleanup(h.close)
+        build = h.push("b", fixtures.build_id(1))[0]
+
+        def key_from(result):
+            return next(l.split(": ")[1] for l in result.stdout.splitlines() if l.startswith("callback key for"))
+
+        old = key_from(self.run_cli(h.root, "--machine-key", "box"))
+        body, header = auth.sign_machine(old, "box", "booting", {"id": build["id"]})
+        self.assertEqual(h.json("POST", "/api/machines/box/booting", body, {auth.MACHINE_HEADER: header})[0], 200)
+        new = key_from(self.run_cli(h.root, "--machine-key", "box"))
+        body, header = auth.sign_machine(old, "box", "booting", {"id": build["id"]})
+        self.assertEqual(h.json("POST", "/api/machines/box/booting", body, {auth.MACHINE_HEADER: header})[0], 401)
+        body, header = auth.sign_machine(new, "box", "booting", {"id": build["id"]})
+        self.assertEqual(h.json("POST", "/api/machines/box/booting", body, {auth.MACHINE_HEADER: header})[0], 200)
+
+    def test_an_unknown_machine_is_an_error_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp) / "vol"
+            out = self.run_cli(root, "--machine-key", "ghost")
+            self.assertEqual(out.returncode, 1)
+            self.assertIn("unknown machine", out.stderr)
+            self.assertFalse(root.exists())
+
+    def test_the_environment_root_is_used_as_in_the_container(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            (Path(tmp) / "machines.json").write_text(json.dumps({"box": {"mac": "aa:bb:cc:dd:ee:ff"}}))
+            out = subprocess.run([sys.executable, "-I", str(HERE / "registry.py"), "--machine-key", "box"],
+                                 env={**os.environ, "LAZYOS_REGISTRY_ROOT": tmp}, capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertIn("callback_key", (Path(tmp) / "machines.json").read_text())
+
+
 class KeygenTests(unittest.TestCase):
     def run_keygen(self, *args):
         out, err = io.StringIO(), io.StringIO()

@@ -17,6 +17,7 @@ import ed25519
 import fixtures
 import keys
 import push
+import registry
 from fixtures import build_id
 
 
@@ -268,25 +269,25 @@ class ManageTests(PushCase):
 
 
 class MachineCommandTests(PushCase):
-    def test_add_machine_prints_the_key_once_with_the_cfg_hint(self):
+    def test_add_machine_sends_no_key_and_says_where_to_mint_one(self):
         reg = self.fake()
         code, out, _ = self.run_main(reg, "--add-machine", "box", "--mac", "AA-BB-CC-DD-EE-FF", "--channel", "box")
         self.assertEqual(code, 0, out)
         self.assertEqual(reg.kinds(), [("POST", "/api/machines/box/add")])
         doc = self.verify_signed(reg.requests[0], "add")
         self.assertEqual((doc["machine"], doc["mac"], doc["channel"]), ("box", "AA-BB-CC-DD-EE-FF", "box"))
+        self.assertNotIn("callback key (", out)
+        self.assertIn("docker exec lazyos-registry python -I /app/registry.py --machine-key box", out)
         self.assertIn("bootos.machine_key=", out)
-        self.assertIn("shown once", out)
 
     def test_add_machine_needs_a_mac(self):
         code, _, err = self.run_main(self.fake(), "--add-machine", "box")
         self.assertEqual(code, 1)
         self.assertIn("--mac", err)
 
-    def test_rekey(self):
-        reg = self.fake()
-        self.assertEqual(self.run_main(reg, "--rekey-machine", "box")[0], 0)
-        self.assertEqual(self.verify_signed(reg.requests[0], "rekey")["machine"], "box")
+    def test_there_is_no_rekey_command(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            push.main(["--registry", "http://x", "--rekey-machine", "box"])
 
     def test_booting_with_the_dev_key_and_with_a_machine_key(self):
         reg = self.fake()
@@ -310,6 +311,42 @@ class MachineCommandTests(PushCase):
         code, _, err = self.run_main(self.fake(), "--booting", self.bid)
         self.assertEqual(code, 1)
         self.assertIn("--machine", err)
+
+
+class MalformedManifestTests(PushCase):
+    """A manifest of the wrong shape is a `push:` error, never a traceback, and sends nothing."""
+
+    def refused(self, text):
+        (self.dir / "manifest.json").write_text(text)
+        reg = self.fake()
+        code, _, err = self.run_main(reg)
+        self.assertEqual(code, 1, text)
+        self.assertTrue(err.startswith("push: "), err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(reg.requests, [])
+        return err
+
+    def test_shapes(self):
+        sha = "0" * 64
+        good = {"id": self.bid, "files": {"ramdisk": {"size": 1, "sha256": sha}}}
+        for bad in ([1, 2], "text", 5, None, {}, {"id": self.bid},
+                    {"id": 5, "files": good["files"]}, {"id": None, "files": good["files"]},
+                    {"id": self.bid, "files": []}, {"id": self.bid, "files": "x"},
+                    {"id": self.bid, "files": {"ramdisk": 5}}, {"id": self.bid, "files": {"ramdisk": []}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": "1", "sha256": sha}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": True, "sha256": sha}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": -1, "sha256": sha}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": 1.5, "sha256": sha}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": 1}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": 1, "sha256": "abc"}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": 1, "sha256": sha.upper().replace("0", "A")}}},
+                    {"id": self.bid, "files": {"ramdisk": {"size": 1, "sha256": 7}}}):
+            with self.subTest(bad=bad):
+                self.refused(json.dumps(bad))
+
+    def test_not_json_and_not_a_build_id(self):
+        self.refused("{not json")
+        self.refused(json.dumps({"id": "nope", "files": {}}))
 
 
 class RegistryUrlTests(unittest.TestCase):
@@ -355,7 +392,8 @@ class RealRegistryTests(PushCase):
         reg = type("R", (), {"url": self.h.url})
         code, out, err = self.run_main(reg, "--add-machine", "box", "--mac", "aa:bb:cc:dd:ee:ff")
         self.assertEqual(code, 0, err)
-        key = next(l.split(": ")[1] for l in out.splitlines() if l.startswith("callback key"))
+        self.assertNotIn("callback key (", out)
+        key = registry.mint_machine_key(self.h.root, "box")      # on the registry host, never over the wire
         self.assertEqual(self.run_main(reg)[0], 0)                       # push the build
         os.environ.pop("LAZYOS_MACHINE_KEY", None)
         args = ["--machine", "box", "--machine-key", key]

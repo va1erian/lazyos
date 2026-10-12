@@ -6,6 +6,8 @@ import unittest
 
 import auth
 import fixtures
+import registry
+import store as store_mod
 from fixtures import build_id
 
 MAC = "aa:bb:cc:dd:ee:ff"
@@ -19,7 +21,12 @@ class MachineAuthCase(unittest.TestCase):
         self.h.push("b", self.bid)
         status, doc = self.h.signed("POST", "/api/machines/box/add", "add", {"mac": MAC, "channel": "dev"})
         self.assertEqual(status, 201, doc)
-        self.key = doc["callback_key"]
+        self.assertNotIn("callback_key", doc)           # no key crosses the wire
+        self.key = self.mint("box")
+
+    def mint(self, name):
+        """What `registry.py --machine-key NAME` does, on the registry host."""
+        return registry.mint_machine_key(self.h.root, name)
 
     def machine_post(self, action, key=None, machine="box", path_machine="box", fields=None,
                      now=None, nonce=None, bid=None):
@@ -34,19 +41,22 @@ class MachineAuthCase(unittest.TestCase):
 
 
 class AddTests(MachineAuthCase):
-    def test_add_returns_a_random_key_once_and_stores_the_entry(self):
-        self.assertRegex(self.key, "^[0-9a-f]{64}$")
-        entry = self.entry()
-        self.assertEqual((entry["mac"], entry["channel"], entry["next"]), (MAC, "dev", None))
-        self.assertEqual(entry["callback_key"], self.key)
+    def test_add_creates_the_entry_without_a_key(self):
         status, doc = self.h.signed("POST", "/api/machines/nuc/add", "add",
                                     {"mac": "AA-BB-CC-DD-EE-01", "channel": "box", "timeout_ms": 2000})
         self.assertEqual(status, 201)
-        self.assertNotEqual(doc["callback_key"], self.key)
-        self.assertEqual(self.entry("nuc")["mac"], "aa:bb:cc:dd:ee:01")
-        self.assertEqual(self.entry("nuc")["timeout_ms"], 2000)
+        self.assertNotIn("callback_key", json.dumps(doc))
+        entry = self.entry("nuc")
+        self.assertEqual((entry["mac"], entry["channel"], entry["timeout_ms"]), ("aa:bb:cc:dd:ee:01", "box", 2000))
+        self.assertNotIn("callback_key", entry)
 
-    def test_the_key_is_never_listed(self):
+    def test_minting_makes_a_random_64_hex_key_and_stores_it(self):
+        self.assertRegex(self.key, "^[0-9a-f]{64}$")
+        self.assertEqual(self.entry()["callback_key"], self.key)
+        self.h.signed("POST", "/api/machines/nuc/add", "add", {"mac": "00:00:00:00:00:05"})
+        self.assertNotEqual(self.mint("nuc"), self.key)
+
+    def test_the_key_is_never_listed_or_logged(self):
         listing = self.h.request("GET", f"/api/builds?mac={MAC}")[2].decode()
         self.assertIn('"box"', listing)
         self.assertNotIn(self.key, listing)
@@ -65,19 +75,33 @@ class AddTests(MachineAuthCase):
         self.assertEqual(add("other", {"mac": "00:00:00:00:00:02", "timeout_ms": True}), 400)
         self.assertNotIn("other", json.loads((self.h.root / "machines.json").read_text()))
 
-    def test_add_and_rekey_are_signed_writes(self):
+    def test_add_is_a_signed_write_and_there_is_no_rekey_route(self):
         self.assertEqual(self.h.json("POST", "/api/machines/nuc/add",
                                      json.dumps({"mac": "00:00:00:00:00:02"}).encode())[0], 401)
-        self.assertEqual(self.h.json("POST", "/api/machines/box/rekey", b"{}")[0], 401)
-        self.assertEqual(self.h.signed("POST", "/api/machines/ghost/rekey", "rekey")[0], 404)
+        for method in ("POST", "GET"):
+            status, _ = self.h.signed(method, "/api/machines/box/rekey", "rekey")
+            self.assertIn(status, (404, 405))
+        self.assertEqual(self.entry()["callback_key"], self.key)
 
-    def test_rekey_replaces_the_key(self):
-        status, doc = self.h.signed("POST", "/api/machines/box/rekey", "rekey")
-        self.assertEqual(status, 200)
-        new = doc["callback_key"]
+    def test_minting_for_an_unknown_machine_is_refused(self):
+        with self.assertRaises(store_mod.StoreError) as ctx:
+            self.mint("ghost")
+        self.assertEqual(ctx.exception.status, 404)
+        self.assertNotIn("ghost", json.loads((self.h.root / "machines.json").read_text()))
+
+    def test_re_minting_kills_the_old_key(self):
+        new = self.mint("box")
         self.assertNotEqual(new, self.key)
-        self.assertEqual(self.machine_post("booting", key=self.key)[0], 401)   # the old key is dead
+        self.assertEqual(self.machine_post("booting", key=self.key)[0], 401)
         self.assertEqual(self.machine_post("booting", key=new)[0], 200)
+
+    def test_a_machine_without_a_key_refuses_hmac_and_accepts_the_dev_key(self):
+        self.h.signed("POST", "/api/machines/nuc/add", "add", {"mac": "00:00:00:00:00:06"})
+        for key in (self.key, "00" * 32, "ab" * 32):
+            status, doc = self.machine_post("booting", key=key, machine="nuc", path_machine="nuc")
+            self.assertEqual(status, 401, key)
+        self.assertNotIn("last_attempt", self.entry("nuc"))
+        self.assertEqual(self.h.signed("POST", "/api/machines/nuc/booting", "booting", {"id": self.bid})[0], 200)
 
 
 class HmacTests(MachineAuthCase):
@@ -154,7 +178,7 @@ class HmacTests(MachineAuthCase):
 
     def test_the_header_naming_another_machine_than_the_path_is_refused(self):
         status, doc = self.h.signed("POST", "/api/machines/laptop/add", "add", {"mac": "00:00:00:00:00:03"})
-        body, header = auth.sign_machine(doc["callback_key"], "laptop", "booting", {"id": self.bid})
+        body, header = auth.sign_machine(self.mint("laptop"), "laptop", "booting", {"id": self.bid})
         status, _ = self.h.json("POST", "/api/machines/box/booting", body, {auth.MACHINE_HEADER: header})
         self.assertEqual(status, 400)
 

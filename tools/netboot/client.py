@@ -103,9 +103,6 @@ class Client:
             fields["timeout_ms"] = timeout_ms
         return self.signed("POST", f"/api/machines/{name}/add", "add", fields)
 
-    def rekey_machine(self, name: str) -> dict:
-        return self.signed("POST", f"/api/machines/{name}/rekey", "rekey", {"machine": name})
-
     def callback(self, machine: str, action: str, build_id: str, machine_key: str | None = None) -> dict:
         """Post `booting` or `booted`: signed with the machine's callback key (HMAC) if given, else the dev key."""
         path = f"/api/machines/{machine}/{action}"

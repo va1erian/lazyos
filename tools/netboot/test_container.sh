@@ -125,6 +125,13 @@ fi
     "$URL/api/builds" > "$WORK/after.json"
 if grep -q 20261012-094000 "$WORK/after.json"; then fail "the tampered build is listed"; fi
 
+echo "== a machine is added over HTTP (no key), its key is minted inside the container"
+"$PY" "$HERE/push.py" --registry "$URL" --dir "$WORK/payload" --add-machine box --mac aa:bb:cc:dd:ee:ff \
+    | tee "$WORK/add.out"
+if grep -q "callback key (" "$WORK/add.out"; then fail "add printed a key"; fi
+docker exec "$NAME" python -I /app/registry.py --machine-key box | tee "$WORK/mint.out"
+grep -Eq "bootos.machine_key=[0-9a-f]{64}" "$WORK/mint.out" || fail "the minted key is missing"
+
 echo "== not root, healthy, and the data survives a restart"
 UID_LINE="$(docker exec "$NAME" sh -c 'grep "^Uid:" /proc/1/status')"
 echo "$UID_LINE"

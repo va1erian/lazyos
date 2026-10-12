@@ -9,9 +9,13 @@ is configured (see the Dockerfile): `LAZYOS_REGISTRY_BIND` (`0.0.0.0:8420`),
 `LAZYOS_REGISTRY_ROOT` (`/srv/lazyos` in the image, else `./registry`),
 `LAZYOS_REGISTRY_KEYS` (`<root>/keys.json`), `LAZYOS_REGISTRY_KEEP` (10),
 `LAZYOS_REGISTRY_LOG` (`<root>/access.log`, or `-` for stdout) and
-`LAZYOS_REGISTRY_URL` (the address iPXE clients should use, when it is not
-the `Host` they asked for). `--healthcheck` asks a running server's
-`/healthz` and exits 0 or 1 (the image's `HEALTHCHECK`).
+`LAZYOS_REGISTRY_URL` (the address the optional iPXE scripts name; they are
+served only when it is set, and never use a request's `Host`). `--healthcheck` asks a running server's
+`/healthz` and exits 0 or 1 (the image's `HEALTHCHECK`). `--machine-key NAME`
+mints (or re-mints) the callback key of a machine already in `machines.json`,
+prints it once and exits; it is the only way a key is made, and it is run on
+the registry host: `docker exec lazyos-registry python -I /app/registry.py
+--machine-key box`.
 
 Builds, channels, machines, keys: README.md. Standard library only.
 """
@@ -32,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # `python -I` drops th
 
 import api  # noqa: E402
 import httpfiles  # noqa: E402
+import machines  # noqa: E402
 import store as store_mod  # noqa: E402
 
 DEFAULT_BIND = "0.0.0.0:8420"
@@ -97,8 +102,7 @@ def make_handler(app: api.Api, log):
             length = self.headers.get("Content-Length")
             return api.Request(
                 self.command, segments, query, self.headers, self.rfile,
-                int(length) if length and length.isdigit() else None,
-                self.headers.get("Host", ""), self.client_address[0])
+                int(length) if length and length.isdigit() else None, self.client_address[0])
 
         def _send(self, status: int, headers: dict, body: bytes, started: float, note: str = "") -> None:
             self.send_response(status)
@@ -180,6 +184,11 @@ def serve(root: Path, bind: str = DEFAULT_BIND, keys_path: Path | None = None,
     return server
 
 
+def mint_machine_key(root: Path, name: str, keys_path: Path | None = None) -> str:
+    """Mint the callback key of machine `name` in `root`'s `machines.json` (StoreError if it is not there)."""
+    return machines.Machines(store_mod.Store(Path(root), keys_path)).mint_key(name)
+
+
 def healthcheck(bind: str, timeout: float = 3.0) -> int:
     host, port = split_bind(bind)
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}/healthz"
@@ -204,11 +213,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--log", default=env("LAZYOS_REGISTRY_LOG"),
                     help="access log file, or - for stdout (default $LAZYOS_REGISTRY_LOG or <root>/access.log)")
     ap.add_argument("--public-url", default=env("LAZYOS_REGISTRY_URL"),
-                    help="the registry's address in the iPXE scripts (default: the request's Host)")
+                    help="the registry's address in the iPXE scripts; without it /boot.ipxe is 404 (never taken from Host)")
     ap.add_argument("--healthcheck", action="store_true", help="GET /healthz of --bind and exit 0 or 1")
+    ap.add_argument("--machine-key", metavar="NAME",
+                    help="mint (or re-mint) the callback key of a machine in machines.json, print it once, exit")
     args = ap.parse_args(argv)
     if args.healthcheck:
         return healthcheck(args.bind)
+    if args.machine_key:
+        try:
+            key = mint_machine_key(Path(args.root), args.machine_key, Path(args.keys) if args.keys else None)
+        except store_mod.StoreError as e:
+            print(f"registry: {e.message}", file=sys.stderr)
+            return 1
+        print(f"callback key for {args.machine_key} (shown once): {key}")
+        print(f"put it in the boot OS's lazyos.cfg as  bootos.machine_key={key}")
+        return 0
     if args.keep < 1:
         ap.error("--keep must be at least 1")
     try:

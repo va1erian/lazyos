@@ -65,6 +65,16 @@ class DirectoryTests(unittest.TestCase):
         self.assertEqual(self.fetch()[0], "keep")
         self.assertEqual((self.out / "ipxe.sha256").read_text(), stamp)
 
+    def test_keep_writes_a_missing_record_and_never_rewrites_one(self):
+        self.fetch()
+        record = self.out / "ipxe.sha256"
+        record.unlink()
+        self.assertEqual(self.fetch()[0], "keep")
+        self.assertTrue(record.read_text().startswith(common.sha256_file(self.out / "ipxe.efi")))
+        record.write_text("hand-edited record\n")
+        self.assertEqual(self.fetch()[0], "keep")
+        self.assertEqual(record.read_text(), "hand-edited record\n")
+
     def test_different_bytes_need_force(self):
         _, first = self.fetch()
         other = self.dir / "other.efi"

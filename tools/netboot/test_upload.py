@@ -4,6 +4,7 @@ import unittest
 
 import auth
 import ed25519
+import store as store_mod
 import fixtures
 import keys
 from fixtures import build_id
@@ -114,6 +115,68 @@ class ManifestFirstTests(UploadCase):
         self.assertEqual(status, 409)
 
 
+class CommitRaceTests(UploadCase):
+    """The commit claims the upload (a private rename) before it hashes it."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = self.h.server.store
+        self.final = self.h.root / "builds" / "dev" / self.bid
+        self.open_upload()
+        for name in self.build["files"]:
+            self.assertEqual(self.put(name)[0], 201)
+
+    def intrude_during_verify(self, intrusion):
+        original = self.store._verify_incoming
+
+        def verify_then_intrude(directory):
+            result = original(directory)
+            intrusion(directory)
+            return result
+
+        self.store._verify_incoming = verify_then_intrude
+        self.addCleanup(setattr, self.store, "_verify_incoming", original)
+
+    def test_a_file_written_after_the_claim_does_not_reach_the_build(self):
+        seen = {}
+
+        def intrusion(claimed):
+            incoming = self.store.incoming_dir("dev", self.bid)
+            self.assertFalse(incoming.exists())               # the upload moved to a private name
+            self.assertIn(".verifying-", claimed.name)
+            seen["late_put"] = self.put("kernel-x86_64", b"EVIL" * 100)[0]
+            incoming.mkdir()                                    # the worst case: a directory appears
+            (incoming / "evil.bin").write_bytes(b"evil")
+
+        self.intrude_during_verify(intrusion)
+        status, doc = self.h.signed("POST", f"/api/builds/dev/{self.bid}/commit", "commit")
+        self.assertEqual(status, 201, doc)
+        self.assertEqual(seen["late_put"], 403)                # manifest-first: no incoming, no file
+        self.assertEqual(sorted(p.name for p in self.final.iterdir()),
+                         sorted([*self.build["files"], "manifest.json", "manifest.sig"]))
+        self.assertEqual((self.final / "kernel-x86_64").read_bytes(), self.build["files"]["kernel-x86_64"])
+        self.assertEqual([p.name for p in (self.h.root / "builds" / "dev").glob("*.verifying-*")], [])
+
+    def test_a_second_commit_while_the_upload_is_claimed_is_404(self):
+        seen = {}
+
+        def intrusion(_claimed):
+            with self.assertRaises(store_mod.StoreError) as ctx:
+                self.store.commit("dev", self.bid)
+            seen["status"], seen["message"] = ctx.exception.status, ctx.exception.message
+
+        self.intrude_during_verify(intrusion)
+        self.assertEqual(self.h.signed("POST", f"/api/builds/dev/{self.bid}/commit", "commit")[0], 201)
+        self.assertEqual(seen["status"], 404)
+        self.assertIn("claimed", seen["message"])
+
+    def test_a_refused_commit_removes_the_claimed_directory(self):
+        (self.h.root / "builds" / "dev" / f"{self.bid}.incoming" / "ramdisk").write_bytes(b"z" * 200_000)
+        status, _ = self.h.signed("POST", f"/api/builds/dev/{self.bid}/commit", "commit")
+        self.assertEqual(status, 422)
+        self.assertEqual(list((self.h.root / "builds" / "dev").iterdir()), [])
+
+
 def raw_changed(raw: bytes) -> bytes:
     return raw.replace(b"devbox", b"evilbx")
 
@@ -153,7 +216,7 @@ class BoundFieldTests(unittest.TestCase):
                                          {**fields, "channel": "dev"}), 200, action)
 
     def test_machine_actions_need_the_machine(self):
-        for action, fields in (("next", {"id": self.bid}), ("rekey", {}), ("booting", {"id": self.bid}),
+        for action, fields in (("next", {"id": self.bid}), ("booting", {"id": self.bid}),
                                ("booted", {"id": self.bid})):
             self.assertEqual(self.signed("POST", f"/api/machines/box/{action}", action, fields), 400, action)
             self.assertEqual(self.signed("POST", f"/api/machines/box/{action}", action,

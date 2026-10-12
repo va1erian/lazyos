@@ -143,6 +143,7 @@ class ServerTests(unittest.TestCase):
             self.assertIn(f"/files/{name}", body.decode())
 
     def test_manifest_json_is_read_when_present(self):
+        self.addCleanup((self.root / "manifest.json").unlink, missing_ok=True)
         (self.root / "manifest.json").write_text(json.dumps(
             [{"name": "kernel-x86_64", "size": 1, "sha256": "12" * 32},
              {"name": "ramdisk", "size": 1 << 20, "sha256": "34" * 32}]))

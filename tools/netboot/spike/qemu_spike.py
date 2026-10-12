@@ -10,6 +10,10 @@ first. The machine has OVMF in two pflash units (a fresh private copy of the
 variable store under `target/netboot/`, so no run inherits another's boot
 entries), **no disk**, a USB keyboard and mouse on a `qemu-xhci`, serial in a
 file, and a QMP socket (`tools/screenshot/qemu_qmp.py` can screenshot it).
+The QMP monitor listens on a free loopback TCP port (picked with
+`bind(("127.0.0.1", 0))`, like every harness there) and is unauthenticated:
+anything on this machine that finds the port can drive the guest, so the
+launcher is for a single-user dev machine.
 
 * `--mode pxe` (default): a `virtio-net-pci` with its option ROM off, so OVMF's
   own network stack PXE-boots from slirp's TFTP (`tftp=DIR,bootfile=ipxe.efi`)

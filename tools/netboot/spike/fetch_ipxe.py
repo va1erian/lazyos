@@ -10,7 +10,16 @@ empty, or holding only this tool's earlier output), is only read as bytes
 (never run by this tool), must parse as a PE32+ x86-64 EFI application, and
 its SHA-256 and the download date are written to `ipxe.sha256`. A later run
 that downloads different bytes refuses to replace the file unless `--force`,
-so the digest you tested stays the digest you have.
+so the digest you tested stays the digest you have. When the bytes are
+already there and `ipxe.sha256` is not, the record is written (an existing
+record is never rewritten).
+
+iPXE boots unauthenticated code over plain HTTP, by design: the registry's
+files are fetched and run with no signature check (docs/netboot-plan.md,
+decision 1 and risk 11). This is the optional, measurement-only path; the
+signed path is the LazyOS boot OS, whose picker verifies `manifest.sig` before
+it kexecs anything. So `--box-host` (and everything this tool writes for a
+real machine) is for a lab network you control, never a shared one.
 
 Also writes, from the templates the server uses (`scripts.py`):
 `autoexec.ipxe` (the spike's, falls into the iPXE shell on failure),
@@ -128,9 +137,12 @@ def fetch(out: Path, url: str, force: bool, source: Path | None, now: datetime.d
     target = out / BINARY
     action = decide(common.sha256_file(target) if target.exists() else None, digest, force)
     out.mkdir(parents=True, exist_ok=True)
+    record = out / DIGEST_FILE
     if action != "keep":
         write_atomic(target, data)
-        (out / DIGEST_FILE).write_text(digest_record(digest, source.as_posix() if source else url, now))
+        record.write_text(digest_record(digest, source.as_posix() if source else url, now))
+    elif not record.exists():  # same bytes, but the record is gone: restore it, never rewrite one
+        record.write_text(digest_record(digest, source.as_posix() if source else url, now))
     return action, digest
 
 

@@ -195,12 +195,12 @@ def format_image(out: Path, files: dict[str, Path], label: str = "LAZYOSESP",
         node.cluster, count = next_cluster, max(1, -(-(n * 32) // csz))
         chains.append((next_cluster, count))
         next_cluster += count
-    file_clusters: dict[int, tuple[int, int]] = {}
+    file_clusters: dict[tuple[int, str], tuple[int, int]] = {}  # (id(node), name) -> (first, count)
     for node, _ in nodes:
         for name in sorted(node.files):
             size = node.files[name].stat().st_size
             count = -(-size // csz)
-            file_clusters[id(node.files[name])] = (next_cluster if count else 0, count)
+            file_clusters[(id(node), name)] = (next_cluster if count else 0, count)
             if count:
                 chains.append((next_cluster, count))
             next_cluster += count
@@ -230,7 +230,7 @@ def format_image(out: Path, files: dict[str, Path], label: str = "LAZYOSESP",
             if is_dir:
                 entries.append(dir_entry(short, 0x10, node.dirs[name].cluster, 0))
             else:
-                first, _ = file_clusters[id(node.files[name])]
+                first, _ = file_clusters[(id(node), name)]
                 entries.append(dir_entry(short, 0x20, first, node.files[name].stat().st_size))
         return b"".join(entries)
 
@@ -250,8 +250,8 @@ def format_image(out: Path, files: dict[str, Path], label: str = "LAZYOSESP",
             image.seek(base + (data_start + (node.cluster - 2) * spc) * SECTOR)
             image.write(render(node, parent))
         for node, _ in nodes:
-            for source in node.files.values():
-                first, count = file_clusters[id(source)]
+            for name, source in node.files.items():
+                first, count = file_clusters[(id(node), name)]
                 if count:
                     image.seek(base + (data_start + (first - 2) * spc) * SECTOR)
                     with open(source, "rb") as f:

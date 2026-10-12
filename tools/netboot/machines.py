@@ -5,7 +5,7 @@ entry, which an administrator may also edit by hand; the registry maintains
 the rest:
 
     {"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "dev", "timeout_ms": 5000,
-             "callback_key": "<64 hex>",   # minted by add/rekey, shown once, never listed
+             "callback_key": "<64 hex>",   # minted on the registry host, never listed
              "next": {"id": "<build id>", "at": "<iso>", "attempts": 0} | null,
              "last_attempt": {"id": ..., "at": ...},     # POST .../booting
              "last_boot":    {"id": ..., "at": ...}}}    # POST .../booted
@@ -17,9 +17,12 @@ machine.
 
 `callback_key` (32 random bytes as hex) is what authenticates the machine's own
 `booting` and `booted` calls (HMAC-SHA256 over the body, `auth.verify_machine`);
-the boot OS keeps it in its `lazyos.cfg` as `bootos.machine_key=`. The dev
-key's signature is accepted for the same two calls. A machine with no key
-(a hand-written entry) can only be driven with the dev key until `rekey`.
+the boot OS keeps it in its `lazyos.cfg` as `bootos.machine_key=`. No key ever
+crosses the wire: the HTTP `add` creates the entry without one, and
+`registry.py --root R --machine-key NAME` mints (or re-mints, which kills the
+old key) it on the registry host and prints it once. The dev key's signature is
+accepted for the same two calls; a machine with no key can only be driven with
+it.
 
 `next` is a one-shot that survives a failed try. `booting` (the picker, after
 it verified the files, before the kexec) records an attempt and leaves `next`
@@ -87,7 +90,7 @@ class Machines:
         return key if isinstance(key, str) else None
 
     def add(self, name: str, mac: object, channel: object = None, timeout_ms: object = None) -> dict:
-        """Create a machine; returns its entry's public fields and the new `callback_key` (once)."""
+        """Create a machine without a callback key; returns its public fields."""
         if not names.is_name(name):
             raise StoreError(400, f"bad machine name: {name[:80]!r}")
         norm = names.normalize_mac(mac)
@@ -100,26 +103,29 @@ class Machines:
         if timeout_ms is not None and not (isinstance(timeout_ms, int) and not isinstance(timeout_ms, bool)
                                            and timeout_ms >= 0):
             raise StoreError(400, "timeout_ms must be a non-negative integer")
-        key = auth.new_callback_key()
         with self.lock:
             doc = self.all()
             if name in doc:
-                raise StoreError(409, f"machine {name!r} exists (rekey mints a new callback key)")
+                raise StoreError(409, f"machine {name!r} exists")
             clash = next((n for n, e in doc.items() if names.normalize_mac(e.get("mac")) == norm), None)
             if clash:
                 raise StoreError(409, f"mac {norm} already belongs to machine {clash!r}")
-            entry = {"mac": norm, "channel": channel, "next": None, "callback_key": key}
+            entry = {"mac": norm, "channel": channel, "next": None}
             if timeout_ms is not None:
                 entry["timeout_ms"] = timeout_ms
             doc[name] = entry
             jsonio.write_json(self.path, doc)
-        return {"machine": name, "mac": norm, "channel": channel, "callback_key": key}
+        return {"machine": name, "mac": norm, "channel": channel}
 
-    def rekey(self, name: str) -> dict:
-        """Mint a new callback key for an existing machine (the old one stops working)."""
+    def mint_key(self, name: str) -> str:
+        """Mint a callback key for an existing machine; a previous key stops working.
+
+        Only the registry host calls this (`registry.py --machine-key`): a key
+        is never created or returned by a request.
+        """
         key = auth.new_callback_key()
         self._update(name, lambda m: m.update(callback_key=key))
-        return {"machine": name, "callback_key": key}
+        return key
 
     def channel_of(self, entry: dict | None) -> str:
         channel = (entry or {}).get("channel")

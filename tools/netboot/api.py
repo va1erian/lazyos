@@ -11,14 +11,14 @@ lets the tests run most checks without one.
     POST   /api/builds/<channel>/<id>/commit       signed
     DELETE /api/builds/<channel>/<id>              signed
     POST   /api/channels/<channel>/pin|unpin|prune signed
-    POST   /api/machines/<name>/next|add|rekey     signed
+    POST   /api/machines/<name>/next|add           signed
     POST   /api/machines/<name>/booting|booted     signed by the machine (HMAC) or the dev key
     GET    /boot.ipxe?mac=..   GET /builds/<channel>/<id>.ipxe     optional iPXE
 
 A signed route takes the body described in `auth.py`. The fields that name the
 route's target are mandatory in the body and must equal the path's: `channel`
 and `id` for `commit` and `delete`, `channel` for `pin`, `unpin` and `prune`,
-`machine` for `next`, `add`, `rekey`, `booting` and `booted`; so a captured
+`machine` for `next`, `add`, `booting` and `booted`; so a captured
 request cannot be pointed at another target. A file may be uploaded only once
 its signed manifest is in place (`store.Store.put_file`).
 """
@@ -48,7 +48,6 @@ class Request:
     headers: object = field(default_factory=dict)   # .get(name) (http.client.HTTPMessage or dict)
     body: object = None          # file-like, positioned at the first body byte
     length: int | None = None    # Content-Length, None when absent
-    host: str = ""               # the Host header, for iPXE's absolute URLs
     client: str = ""
 
 
@@ -97,7 +96,7 @@ class Api:
                 return self._commit(req, seg[2], seg[3])
             if len(seg) == 4 and seg[:2] == ["api", "channels"] and seg[3] in ("pin", "unpin", "prune"):
                 return self._channel_action(req, seg[2], seg[3])
-            if len(seg) == 4 and seg[:2] == ["api", "machines"] and seg[3] in ("next", "add", "rekey", "booting", "booted"):
+            if len(seg) == 4 and seg[:2] == ["api", "machines"] and seg[3] in ("next", "add", "booting", "booted"):
                 return self._machine_action(req, seg[2], seg[3])
         if method == "DELETE" and len(seg) == 4 and seg[:2] == ["api", "builds"]:
             return self._delete(req, seg[2], seg[3])
@@ -158,10 +157,16 @@ class Api:
         who = doc["machine"]["name"] or ("unknown " + mac if mac else "anonymous")
         return json_response(doc, note=f"machine={who}")
 
-    def _reg_url(self, req: Request) -> str:
-        return self.public_url or f"http://{req.host or 'localhost'}"
+    def _ipxe_unavailable(self) -> Response | None:
+        """The iPXE scripts name this registry by absolute URLs, which come only from the
+        configured public URL: a `Host` header is client-controlled and is never used."""
+        if self.public_url:
+            return None
+        return Response(404, b"iPXE scripts need --public-url (LAZYOS_REGISTRY_URL)\n", TEXT)
 
     def _ipxe_menu(self, req: Request) -> Response:
+        if (refused := self._ipxe_unavailable()) is not None:
+            return refused
         mac = self._mac(req)
         listing = self.machines.listing(mac)
         machine = listing["machine"]
@@ -173,17 +178,19 @@ class Api:
             builds = ([other] if other else []) + builds
         default = (listing["default"] or {}).get("id")
         title = f"on {mac}" if mac else "registry"
-        text = menu.boot_menu(self._reg_url(req), title, builds, default, listing["timeout_ms"], pending)
+        text = menu.boot_menu(self.public_url, title, builds, default, listing["timeout_ms"], pending)
         return Response(body=text.encode(), content_type=TEXT)
 
     def _ipxe_build(self, req: Request, channel: str, build_id: str) -> Response:
+        if (refused := self._ipxe_unavailable()) is not None:
+            return refused
         if not (names.is_name(channel) and names.is_build_id(build_id)):
             return error(404, "not found")
         build = self.store.load_build(channel, build_id)
         if build is None:
             return error(404, "no such build")
         try:
-            text = menu.build_script(self._reg_url(req), build)
+            text = menu.build_script(self.public_url, build)
         except ValueError as e:
             return error(404, str(e))
         return Response(body=text.encode(), content_type=TEXT)
@@ -278,9 +285,7 @@ class Api:
         fields = self._signed(req, action, machine=name)
         if action == "next":
             result = self.machines.set_next(name, fields.get("id"))
-        elif action == "add":
+        else:  # add: the entry has no callback key; one is minted on the registry host (registry.py --machine-key)
             result = self.machines.add(name, fields.get("mac"), fields.get("channel"), fields.get("timeout_ms"))
             return json_response({"ok": True, **result}, 201, note=f"machine={name} added")
-        else:
-            result = self.machines.rekey(name)
         return json_response({"ok": True, **result}, note=f"machine={name} {action}")

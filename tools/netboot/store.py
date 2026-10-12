@@ -218,7 +218,10 @@ class Store:
         existing = [p for p in directory.iterdir() if not p.name.startswith(".")]
         if len(existing) >= MAX_UPLOAD_FILES and not (directory / name).exists():
             raise StoreError(400, f"too many files in one upload (limit {MAX_UPLOAD_FILES})")
-        written = self._write_part(directory, name, stream, length)
+        try:
+            written = self._write_part(directory, name, stream, length)
+        except FileNotFoundError:  # a commit claimed (renamed) the directory under this PUT
+            raise StoreError(409, "the upload was claimed by a commit while this file was written") from None
         if is_manifest and (directory / MANIFEST).exists() and (directory / SIGNATURE).exists():
             try:
                 self._open_manifest(directory, build_id)
@@ -327,14 +330,19 @@ class Store:
         uploaded files are exactly the manifest's, with its sizes and SHA-256.
         The same id again with the same manifest is a no-op (a retried push);
         with any other bytes it is refused.
+
+        The commit first claims the upload by renaming `<id>.incoming` to a
+        private `<id>.verifying-<8 hex>` under the lock, and verifies that
+        directory. A PUT that arrives after the claim finds no incoming
+        directory, so (manifest-first) it is refused, and a second commit finds
+        nothing to claim: no byte can enter a build after it was hashed.
         """
         _check(names.is_name(channel), "channel", channel)
         _check(names.is_build_id(build_id), "build id", build_id)
-        incoming = self.incoming_dir(channel, build_id)
-        if not incoming.is_dir():
-            raise StoreError(404, f"nothing uploaded for {channel}/{build_id}")
+        claimed = self._claim(channel, build_id)
+        published = False
         try:
-            raw, signer, size = self._verify_incoming(incoming)
+            raw, signer, size = self._verify_incoming(claimed)
             if self._parse_manifest(raw).get("id") != build_id:
                 raise StoreError(400, f'{MANIFEST} "id" is not {build_id}')
             with self.lock:
@@ -345,27 +353,41 @@ class Store:
                     if not same:
                         raise StoreError(409, f"build {build_id} already exists in channel {existing} "
                                               "with other contents; ids are never overwritten")
-                    shutil.rmtree(incoming, ignore_errors=True)
                     return {"id": build_id, "channel": channel, "already": True, "key": signer}
-                for leftover in incoming.glob(".*"):  # a PUT in flight must not ride along
+                for leftover in claimed.glob(".*"):  # a PUT that was in flight must not ride along
                     leftover.unlink(missing_ok=True)
-                os.rename(incoming, self.build_dir(channel, build_id))
+                os.rename(claimed, self.build_dir(channel, build_id))
+                published = True
                 jsonio.fsync_dir(self.builds_dir / channel)
                 self._register_channel(channel)
-        except StoreError:
-            shutil.rmtree(incoming, ignore_errors=True)
-            raise
+        finally:
+            if not published:  # refused, a no-op or an error: the claimed upload goes
+                shutil.rmtree(claimed, ignore_errors=True)
         return {"id": build_id, "channel": channel, "already": False, "key": signer, "size": size}
 
+    def _claim(self, channel: str, build_id: str) -> Path:
+        """Rename the incoming directory to a private one nobody else can write into."""
+        with self.lock:
+            incoming = self.incoming_dir(channel, build_id)
+            if not incoming.is_dir():
+                raise StoreError(404, f"nothing uploaded for {channel}/{build_id}, "
+                                      "or another commit claimed it")
+            claimed = incoming.with_name(f"{build_id}.verifying-{os.urandom(4).hex()}")
+            try:
+                os.rename(incoming, claimed)
+            except OSError as e:  # e.g. Windows, while a PUT still holds a file open
+                raise StoreError(409, f"the upload is still being written ({e.strerror})") from e
+            return claimed
+
     def sweep_incoming(self) -> int:
-        """Remove uploads nobody finished (older than a day) and empty channel directories."""
+        """Remove uploads nobody finished (incoming or abandoned mid-commit, older than a day) and empty channels."""
         removed, now = 0, self.clock()
         try:
             channels = [c for c in self.builds_dir.iterdir() if c.is_dir()]
         except OSError:
             return 0
         for channel in channels:
-            for entry in channel.glob("*.incoming"):
+            for entry in [*channel.glob("*.incoming"), *channel.glob("*.verifying-*")]:
                 newest = max([entry.stat().st_mtime] + [p.stat().st_mtime for p in entry.iterdir()])
                 if now - newest > STALE_INCOMING_S:
                     shutil.rmtree(entry, ignore_errors=True)

@@ -6,8 +6,9 @@
     python tools/netboot/push.py --machine box --id 20261012-093000-2eeee936   # roll back: next = an old build
     python tools/netboot/push.py --list | --pin ID | --unpin ID | --prune [--keep N] | --delete ID
     python tools/netboot/push.py --register-key         # print the keys.json entry for key.pub
-    python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]   # prints its callback key once
-    python tools/netboot/push.py --rekey-machine box    # a new callback key
+    python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]
+    # then, on the registry host (keys are minted there, never sent):
+    #   docker exec lazyos-registry python -I /app/registry.py --machine-key box
     python tools/netboot/push.py --machine box --booting ID | --booted ID [--machine-key HEX]   # what the boot OS posts
 
 The registry is `--registry`, `$LAZYOS_REGISTRY` or the `registry` field of
@@ -90,8 +91,15 @@ def check_build(directory: Path, pub: bytes) -> dict:
         manifest = json.loads(raw)
         files = manifest["files"]
         build_id = manifest["id"]
+        well_formed = isinstance(build_id, str) and isinstance(files, dict) and all(
+            isinstance(e, dict) and isinstance(e.get("size"), int) and not isinstance(e.get("size"), bool)
+            and e["size"] >= 0 and isinstance(e.get("sha256"), str) and bool(names.HEX64.match(e["sha256"]))
+            for e in files.values())
     except (ValueError, KeyError, TypeError):
-        raise PushError("manifest.json is not a netboot manifest (needs \"id\" and \"files\")") from None
+        well_formed = False
+    if not well_formed:
+        raise PushError('manifest.json is not a netboot manifest (needs a string "id" and a "files" object '
+                        'of {"size": int, "sha256": 64 hex} entries)')
     if not names.is_build_id(build_id):
         raise PushError(f"manifest id {build_id!r} is not <yyyymmdd-HHMMSS>-<rev8>[-dirty]")
     try:
@@ -174,7 +182,6 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--add-machine", metavar="NAME", help="create a machine entry; prints its callback key once")
     ap.add_argument("--mac", help="with --add-machine: the machine's MAC address")
     ap.add_argument("--timeout-ms", type=int, help="with --add-machine: the menu timeout")
-    ap.add_argument("--rekey-machine", metavar="NAME", help="mint a new callback key for a machine")
     ap.add_argument("--booting", metavar="ID", help="with --machine: record a boot attempt, as the picker does")
     ap.add_argument("--booted", metavar="ID", help="with --machine: confirm a boot, as the booted system does")
     ap.add_argument("--machine-key", default=os.environ.get("LAZYOS_MACHINE_KEY"),
@@ -206,14 +213,10 @@ def run(args, say=print) -> int:
         if not args.mac:
             raise PushError("--add-machine needs --mac")
         result = cli.add_machine(args.add_machine, args.mac, args.channel, args.timeout_ms)
-        say(f"added machine {args.add_machine} ({result['mac']}, channel {result['channel']})")
-        say(f"callback key (shown once): {result['callback_key']}")
-        say(f"put it in the boot OS's lazyos.cfg as  bootos.machine_key={result['callback_key']}")
-        return 0
-    if args.rekey_machine:
-        result = cli.rekey_machine(args.rekey_machine)
-        say(f"new callback key for {args.rekey_machine} (shown once): {result['callback_key']}")
-        say("the old key no longer works; update bootos.machine_key= in the boot OS's lazyos.cfg")
+        say(f"added machine {args.add_machine} ({result['mac']}, channel {result['channel']}); it has no callback key yet")
+        say("mint one on the registry host (a key is never sent over the wire), e.g.:")
+        say(f"  docker exec lazyos-registry python -I /app/registry.py --machine-key {args.add_machine}")
+        say("then put it in the boot OS's lazyos.cfg as  bootos.machine_key=<key>")
         return 0
     if args.booting or args.booted:
         if not args.machine:

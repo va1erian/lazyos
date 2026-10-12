@@ -13,8 +13,10 @@ MACHINES = {"box": {"mac": MAC, "channel": "box", "timeout_ms": 3000},
 
 
 class MachineCase(unittest.TestCase):
+    public_url = None   # the iPXE scripts need one (IpxeTests sets it)
+
     def setUp(self):
-        self.h = fixtures.Harness(machines=json.loads(json.dumps(MACHINES)))
+        self.h = fixtures.Harness(machines=json.loads(json.dumps(MACHINES)), public_url=self.public_url)
         self.addCleanup(self.h.close)
         # dev: two builds; box: one
         self.dev = [build_id(1), build_id(2)]
@@ -204,7 +206,10 @@ class NextTests(MachineCase):
 
 
 class IpxeTests(MachineCase):
-    def get(self, path, host="registry.lan:8420"):
+    public_url = "http://registry.lan:8420"
+
+    def get(self, path, host="evil.example:1"):
+        """GET with a hostile Host header: the scripts must use the configured public URL only."""
         status, _, body = self.h.request("GET", path, headers={"Host": host})
         return status, body.decode()
 
@@ -246,10 +251,18 @@ class IpxeTests(MachineCase):
             items = [l.split()[1] for l in text.splitlines() if l.startswith("item ") and l.split()[1] != "--gap"]
             self.assertEqual(sorted(items), sorted(labels - {"menu"}))
 
-    def test_public_url_overrides_the_host_header(self):
-        h = fixtures.Harness(public_url="http://10.0.2.2:8420")
+    def test_the_host_header_is_never_used(self):
+        for path in ("/boot.ipxe", f"/builds/box/{self.box[0]}.ipxe"):
+            for host in ("evil.example:1", "registry.lan:8420", ""):
+                status, text = self.get(path, host)
+                self.assertEqual(status, 200, path)
+                self.assertNotIn("evil.example", text)
+                self.assertIn("http://registry.lan:8420", text)
+
+    def test_a_trailing_slash_in_the_public_url_is_dropped(self):
+        h = fixtures.Harness(public_url="http://10.0.2.2:8420/")
         self.addCleanup(h.close)
-        status, _, body = h.request("GET", "/boot.ipxe", headers={"Host": "127.0.0.1:1"})
+        _, _, body = h.request("GET", "/boot.ipxe")
         self.assertIn("set reg http://10.0.2.2:8420\n", body.decode())
 
     def test_build_script(self):
@@ -265,6 +278,21 @@ class IpxeTests(MachineCase):
         self.assertEqual(self.get(f"/builds/dev/{self.box[0]}.ipxe")[0], 404)
         self.assertEqual(self.get("/builds/box/nope.ipxe")[0], 404)
         self.assertEqual(self.get("/builds/box/..%2f..%2fkeys.ipxe")[0], 404)
+
+
+class NoPublicUrlTests(MachineCase):
+    """Without --public-url the iPXE scripts are not served at all."""
+
+    def test_both_scripts_are_404_with_the_reason(self):
+        for path in (f"/boot.ipxe?mac={MAC}", "/boot.ipxe", f"/builds/box/{self.box[0]}.ipxe"):
+            for host in ("registry.lan:8420", "evil.example"):
+                status, _, body = self.h.request("GET", path, headers={"Host": host})
+                self.assertEqual(status, 404, path)
+                self.assertEqual(body.decode().strip(),
+                                 "iPXE scripts need --public-url (LAZYOS_REGISTRY_URL)")
+
+    def test_the_rest_of_the_api_is_unaffected(self):
+        self.assertEqual(self.h.json("GET", "/api/builds")[0], 200)
 
 
 class MenuUnitTests(unittest.TestCase):

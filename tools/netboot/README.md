@@ -58,8 +58,9 @@ python tools/netboot/registry.py --root /srv/lazyos --bind 0.0.0.0:8420
 | `--keys FILE` | `LAZYOS_REGISTRY_KEYS` | `<root>/keys.json` |
 | `--keep N` | `LAZYOS_REGISTRY_KEEP` | 10 builds per channel for `prune` |
 | `--log FILE\|-` | `LAZYOS_REGISTRY_LOG` | `<root>/access.log`; `-` is stdout |
-| `--public-url URL` | `LAZYOS_REGISTRY_URL` | the request's `Host` (iPXE scripts only) |
+| `--public-url URL` | `LAZYOS_REGISTRY_URL` | none: the optional iPXE scripts are served only when this is set, and use only it |
 | `--healthcheck` | | `GET /healthz` of `--bind`, exit 0 or 1 |
+| `--machine-key NAME` | | mint (or re-mint) the callback key of a machine in `machines.json`, print it once, exit (see Machines) |
 
 A first run on an empty root writes `channels.json`, `machines.json` and an
 empty `keys.json`.
@@ -107,15 +108,21 @@ lists newest first.
 ### Machines
 
 A machine is an entry of `machines.json` (re-read on every request, so a hand
-edit takes effect at once). Create it with a signed call, which also mints the
-machine's **callback key** and shows it once:
+edit takes effect at once). Create it with a signed call, then mint its
+**callback key on the registry host**: a key is never sent over the wire, so
+neither `add` nor any other route creates or returns one.
 
 ```bash
 python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff --channel box
-#   callback key (shown once): 5f2c...
+docker exec lazyos-registry python -I /app/registry.py --machine-key box     # bare: registry.py --root DIR --machine-key box
+#   callback key for box (shown once): 5f2c...
 #   put it in the boot OS's lazyos.cfg as  bootos.machine_key=5f2c...
-python tools/netboot/push.py --rekey-machine box     # a new key; the old one stops working
 ```
+
+Running the same command again re-mints the key (the old one stops working).
+Do it while no `booting`/`booted` call is in flight: it rewrites
+`machines.json` atomically, like the server does, but the two do not lock each
+other.
 
 ```json
 {"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "box", "timeout_ms": 5000,
@@ -123,7 +130,7 @@ python tools/netboot/push.py --rekey-machine box     # a new key; the old one st
 ```
 
 The key is 32 random bytes as hex, never listed by any `GET` and not in the
-log. A MAC the file does not list gets the `dev` channel and a 10 s menu, and
+log. A machine without one accepts `booting`/`booted` only under the dev key. A MAC the file does not list gets the `dev` channel and a 10 s menu, and
 cannot queue a `next` or record a boot. `next`:
 
 - `push.py --machine box` (signed) queues a build as the machine's one-shot
@@ -163,10 +170,9 @@ must equal the path's and `id` must be a build the registry holds. By hand:
 | `POST /api/channels/<channel>/pin\|unpin` | signed | body field `id` |
 | `POST /api/channels/<channel>/prune` | signed | keeps the newest `keep` plus pinned and queued builds; optional body field `keep` (stored for the channel) |
 | `POST /api/machines/<name>/next` | signed | body field `id` |
-| `POST /api/machines/<name>/add` | signed | body `mac`, `channel` (default `dev`), `timeout_ms` (optional); creates the machine and returns its `callback_key` once (409 if the name or the MAC exists) |
-| `POST /api/machines/<name>/rekey` | signed | mints a new `callback_key`, returned once |
+| `POST /api/machines/<name>/add` | signed | body `mac`, `channel` (default `dev`), `timeout_ms` (optional); creates the machine **without** a callback key and returns none (409 if the name or the MAC exists) |
 | `POST /api/machines/<name>/booting`, `.../booted` | machine HMAC or dev key | body `{"id": ..}` plus the signed fields (see Machines) |
-| `GET /boot.ipxe?mac=..`, `GET /builds/<channel>/<id>.ipxe` | | the optional iPXE menu and per-build script. A GET changes nothing, so an iPXE boot leaves a queued `next` pending; the picker is the path with the one-shot |
+| `GET /boot.ipxe?mac=..`, `GET /builds/<channel>/<id>.ipxe` | | the optional iPXE menu and per-build script, served only when `--public-url` is set (otherwise 404, "iPXE scripts need --public-url (LAZYOS_REGISTRY_URL)"); every URL in them is built from it, never from the request's `Host`. iPXE boots unauthenticated code over plain HTTP by design (plan decision 1, risk 11): a lab-network option, not the signed path. A GET changes nothing, so an iPXE boot leaves a queued `next` pending; the picker is the path with the one-shot |
 
 Names (channel, machine, file) match `[A-Za-z0-9._-]` with no leading dot, ids
 match `^\d{8}-\d{6}-[0-9a-f]{8}(-dirty)?$`; anything else, `..` and absolute
@@ -175,7 +181,7 @@ names included, is refused before it can name a path.
 ### Signed writes
 
 The body is a JSON object with `"action"` (the route's name: `commit`,
-`delete`, `pin`, `unpin`, `prune`, `next`, `add`, `rekey`, `booting`, `booted`),
+`delete`, `pin`, `unpin`, `prune`, `next`, `add`, `booting`, `booted`),
 `"nonce"` (32 random hex characters), `"ts"` (Unix seconds) and the action's
 own fields; the header `X-LazyOS-Signature: <keyid>:<128 hex>` is the Ed25519
 signature over the exact body bytes. The registry refuses an unknown key id, a
@@ -183,7 +189,7 @@ bad signature, a `ts` more than 300 s from its clock and a nonce it has seen
 (kept in `nonces.json`, so a restart forgets none). The fields that name the
 target are **mandatory** and must equal the path's, so a captured request
 cannot be pointed elsewhere: `channel` and `id` for `commit` and `delete`,
-`channel` for `pin`, `unpin` and `prune`, `machine` for `next`, `add`, `rekey`,
+`channel` for `pin`, `unpin` and `prune`, `machine` for `next`, `add`,
 `booting` and `booted`. `push.py` sends them.
 
 The `PUT` of build files needs no signature, but an upload is opened by its
@@ -204,8 +210,7 @@ python tools/netboot/push.py --channel box --machine box     # and queue it for 
 python tools/netboot/push.py --machine box --id 20261012-093000-2eeee936   # roll back to an old build
 python tools/netboot/push.py --list
 python tools/netboot/push.py --pin ID | --unpin ID | --prune [--keep N] | --delete ID
-python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]   # prints the callback key once
-python tools/netboot/push.py --rekey-machine box
+python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]   # then mint its key on the registry host
 ```
 
 The registry URL is `--registry`, `$LAZYOS_REGISTRY` or `registry.local.json`

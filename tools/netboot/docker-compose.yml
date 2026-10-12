@@ -20,7 +20,7 @@ services:
     environment:
       LAZYOS_REGISTRY_KEEP: "10"
       # LAZYOS_REGISTRY_LOG: "-"                     # stdout, for Cosmos's log view
-      # LAZYOS_REGISTRY_URL: "http://192.168.1.5:8420"   # only for the optional iPXE scripts
+      # LAZYOS_REGISTRY_URL: "http://192.168.1.5:8420"   # required for the optional iPXE scripts (404 without it)
 
 volumes:
   lazyos-registry:

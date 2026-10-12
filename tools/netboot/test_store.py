@@ -174,6 +174,23 @@ class StoreTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertTrue(fresh.exists())
 
+    def test_stale_verifying_directories_are_swept_and_ignored_as_builds(self):
+        self.store.init_layout()
+        bid = build_id(1)
+        stale = self.store.builds_dir / "dev" / f"{bid}.verifying-0a1b2c3d"
+        fresh = self.store.builds_dir / "dev" / f"{build_id(2)}.verifying-0a1b2c3d"
+        for d in (stale, fresh):
+            d.mkdir(parents=True)
+            (d / "manifest.json").write_bytes(b"{}")
+        self.assertEqual(self.store.build_ids("dev"), [])
+        self.assertEqual(self.store.channel_names(), [])
+        old = self.now[0] - store_mod.STALE_INCOMING_S - 60
+        for path in (stale / "manifest.json", stale):
+            os.utime(path, (old, old))
+        self.assertEqual(self.store.sweep_incoming(), 1)
+        self.assertFalse(stale.exists())
+        self.assertTrue(fresh.exists())
+
     def test_empty_channel_directories_are_removed_by_the_sweep(self):
         self.store.init_layout()
         (self.store.builds_dir / "junk").mkdir()

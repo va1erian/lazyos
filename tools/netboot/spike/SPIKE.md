@@ -7,6 +7,15 @@ machine; the verdict lines at the end are for you to fill in. The tools are
 stdlib Python, every file under 500 lines, with tests that need no network and
 no QEMU (`python -m unittest discover -s tools/netboot/spike`).
 
+**Trust.** iPXE boots unauthenticated code over plain HTTP, by design: the
+registry's files are fetched and run with no signature check
+(`docs/netboot-plan.md`, decision 1 and risk 11). This path is optional and for
+measurement only; the signed path is the LazyOS boot OS, whose picker verifies
+`manifest.sig` before it kexecs anything. So `--box-host` (and everything the
+tools here write for a real machine) is for a lab network you control, never a
+shared one. `qemu_spike.py` exposes an unauthenticated QMP monitor on a
+loopback port; it is for a single-user dev machine.
+
 ## Questions
 
 1. Does the vendored UEFI loader (`vendor/bootloader/uefi/src/main.rs`,
@@ -37,7 +46,7 @@ no QEMU (`python -m unittest discover -s tools/netboot/spike`).
 From the worktree root (`E:\repos\lazyos\...`). `target/` is git-ignored.
 
 ```bash
-python tools/netboot/spike/extract_payload.py --image E:/repos/lazyos/target/lazyos-usb.img --out target/netboot/payload
+python tools/netboot/spike/extract_payload.py --image target/lazyos-usb.img --out target/netboot/payload
 python -I tools/netboot/spike/fetch_ipxe.py --out target/netboot/ipxe --box-host <dev machine LAN address>
 python tools/netboot/spike/make_esp_image.py --payload target/netboot/payload     # only for the sanboot fallback (question 3)
 ```

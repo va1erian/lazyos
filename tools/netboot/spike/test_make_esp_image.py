@@ -129,6 +129,22 @@ class RoundTripTests(unittest.TestCase):
         with self.assertRaises(fat16_format.FormatError):
             node.add("a", source)
 
+    def test_two_names_for_one_source_file_each_read_back(self):
+        # the same Path object under two names must not share (or lose) a file's clusters
+        source = self.dir / "shared.bin"
+        source.write_bytes(bytes(range(256)) * 40)
+        other = self.dir / "other.bin"
+        other.write_bytes(b"other contents")
+        out = self.dir / "dup.img"
+        fat16_format.format_image(out, {"a.bin": source, "b.bin": source, "c.bin": other})
+        image, _, fat = open_fat(out)
+        for name, data in (("a.bin", source.read_bytes()), ("b.bin", source.read_bytes()),
+                           ("c.bin", other.read_bytes())):
+            entry = fat.find(name)
+            self.assertIsNotNone(entry, name)
+            self.assertEqual(fat.read_chain(entry[2], entry[3]), data, name)
+        image.f.close()
+
     def test_read_back_notices_damage(self):
         out = self.dir / "esp.img"
         files = make_esp_image.layout(self.payload)
