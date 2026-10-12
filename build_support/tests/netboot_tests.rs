@@ -316,7 +316,7 @@ fn the_signature_covers_the_exact_manifest_bytes() {
         .bytes()
         .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
     let mut raw = [0u8; 64];
-    for (byte, pair) in raw.iter_mut().zip(sig[..128].as_bytes().chunks(2)) {
+    for (byte, pair) in raw.iter_mut().zip(sig.as_bytes()[..128].chunks(2)) {
         *byte = u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap();
     }
     let signature = Signature::from_bytes(&raw);
