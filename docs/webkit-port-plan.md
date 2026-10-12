@@ -1,9 +1,11 @@
 # A WebKit port — exploration and plan
 
-Status: **W0, W1 and W2 built** (2026-10-12). The four kernel prerequisites
+Status: **W0, W1, W2 and W3 built** (2026-10-12). The four kernel prerequisites
 landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
-`JSCOnly` shell `jsc` (C-loop interpreter) runs on LazyOS. Next is W3 (the
-dependency bundle) or flipping the JIT on in W2. Decisions taken: WebKit2 is
+`JSCOnly` shell `jsc` (C-loop interpreter) runs on LazyOS, and the dependency
+bundle (zlib to curl with OpenSSL, FreeType, HarfBuzz, Fontconfig, Skia) is built
+and used by a program on LazyOS, including an HTTPS fetch. Next is W4 (the port
+skeleton) or flipping the JIT on in W2. Decisions taken: WebKit2 is
 the engine (§2), the port is modeled on the PlayStation port with WebKit's C
 API as the seam to a Rust xui window (§5), and the port files live out of
 tree like `doom/` and `quake/` (§7).
@@ -24,6 +26,10 @@ Built in Docker (`tools/jsc/Dockerfile`, Debian 12 with zig from pip): a
 WebKit build is thousands of small files and needs ruby, perl, cmake and
 ninja, which a container and a named volume keep off a Windows bind mount;
 the same `build.py` runs on a Linux host with `--no-docker`.
+
+**W3 results** are in §5 W3: 17 libraries, **105.9 MiB** of archives, built in
+**2 min 50 s**, `depsproof` passes on LazyOS; Skia (WebKit's own copy) is the
+raster backend and a CPU path still exists.
 
 Not done: JavaScriptCore's own test suite (W2's second half), the JIT, and
 any evidence that the collector's *signal* path (`pthread_kill` of another
@@ -185,15 +191,159 @@ afterwards by flipping it on: on Linux it uses plain `mprotect` flips, with
 none of the Apple-only write-protect calls. A `jsc` fixture in the bench is
 the regression test for all of it.
 
-### W3. The dependency bundle (one to two weeks)
+### W3. The dependency bundle (built)
 
-A script beside the Linux apps' that builds zlib, libpng, libjpeg-turbo,
-libxml2, sqlite, FreeType, HarfBuzz, curl with a TLS library, and the raster
-backend WebKit uses at the pinned revision, all static musl, from pinned and
-hash-checked sources. The host side needs perl, ruby, python, gperf, bison,
-cmake and ninja, so this runs under WSL like the `xui-app` lib tests.
-Licensing is easier than LazyWeb's: WebKit is LGPL 2.1 and BSD, so the
-GPLv2-only crate rule of [lazyweb.md](lazyweb.md) does not apply here.
+`python tools/webkit/deps.py` builds the libraries below as static musl
+archives with zig, in the `jsc` build's Docker container, into one prefix, from
+pinned and hash-checked sources, and writes `target/webkit/deps.json`.
+`depsproof` (`tools/webkit/depsproof/`) links all of them and uses each;
+`python tools/webkit/run.py` runs it on LazyOS. Details:
+[`tools/webkit/README.md`](../tools/webkit/README.md).
+
+**What the revision needs.** Read in the WebKitGTK 2.54.1 tarball
+(`Source/cmake/OptionsGTK.cmake`, `Source/WebCore/platform/*.cmake`,
+`Source/ThirdParty/skia/CMakeLists.txt`) and, for the PlayStation port, in
+WebKit's `main` (`OptionsPlayStation.cmake`, `PlatformPlayStation.cmake` of
+WebCore and WebKit, read 2026-10-12). The release tarball **does not contain**
+the PlayStation or WPE CMake files (`OptionsPlayStation.cmake`,
+`OptionsWPE.cmake`, `Source/WebCore/PlatformPlayStation.cmake`,
+`Source/WebKit/PlatformPlayStation.cmake`, `WebCore/platform/CoordinatedGraphics.cmake`,
+and WebCore's `libwpe` directories are all absent; `WebKitFindPackage.cmake`
+does not exist in either revision). It does contain every PlayStation
+*source* file (`*/playstation/*`) and the shared `Curl`, `OpenSSL`, `FreeType`,
+`Skia`, `TextureMapper`, `ImageDecoders` CMake fragments, so W4 takes the
+glue from git at a matching revision (or writes it: it is about 250 lines) and
+uses the tarball for everything else.
+
+| Library | Version pinned | Why (who asks) | Licence |
+|---|---|---|---|
+| ICU (data, i18n, uc) | 74.2 (from W1; WebKit wants 70.1) | JSC, WTF, WebCore text; HarfBuzz's ICU glue; libxml2, libpsl | Unicode-3.0 |
+| zlib | 1.3.2 | PNG, HTTP, WOFF; FreeType, curl, OpenSSL | Zlib |
+| libpng | 1.6.59 | `ImageDecoders.cmake` (`PNG::PNG`), Skia's `SkPngCodec` | libpng-2.0 |
+| libjpeg-turbo | 3.2.0 (WebKit wants 1.5.2; SIMD off) | `ImageDecoders.cmake`, Skia's `SkJpegCodec` | IJG, BSD-3-Clause, Zlib |
+| libwebp (+demux) | 1.6.0 | `ImageDecoders.cmake` (`WebP::demux`) | BSD-3-Clause |
+| FreeType | 2.14.3 (WebKit wants 2.9.0) | Skia's `SkFontHost_FreeType`; `WOFF2Checks` | FTL or GPL-2.0+ |
+| brotli | 1.2.0 | WOFF2 inside FreeType (`HAVE_WOFF_SUPPORT`), `Content-Encoding: br` | MIT |
+| HarfBuzz (+ICU) | 14.4.0 (WebKit wants 2.7.4) | `ComplexTextController`, `SkiaHarfBuzzFont`, Skia's SVG glyphs (`HarfBuzz::ICU` is required) | MIT |
+| expat | 2.8.5 | Fontconfig's config parser; Skia's OpenType-SVG (`USE_SKIA_OPENTYPE_SVG`) | MIT |
+| Fontconfig | 2.16.0 (WebKit wants 2.13.0) | **hard**: `FontCacheSkia.cpp` calls `SkFontMgr_New_FontConfig`, `SkiaSystemFallbackFontCache` includes `<fontconfig/fontconfig.h>`, Skia's CMake requires it everywhere but Windows and PlayStation | MIT-like (HPND) |
+| libxml2 | 2.15.3 (WebKit wants 2.9.7 to 2.9.13) | `XMLDocumentParserLibxml2`, SVG; ENABLE_XSLT is off so libxslt is not needed | MIT |
+| SQLite | 3.54.0 (WebKit wants 3.23.1) | storage, IndexedDB, cookie jar | public domain |
+| libpsl | 0.23.3 (WebKit wants 0.20.2) | `PublicSuffixStoreCurl`, `CookieJarDB` (`PlatformPlayStation` lists it as required) | MIT; its built-in public-suffix list is MPL-2.0 |
+| OpenSSL | 3.5.9 (LTS) | `Curl.cmake` links `OpenSSL::SSL`; `CurlSSLVerifier`, `OpenSSLHelper`, `crypto/openssl` (SubtleCrypto) call its API | Apache-2.0 |
+| nghttp2 | 1.70.0 | HTTP/2 through curl (optional for WebKit; real sites want it) | MIT |
+| curl | 8.22.0 (WebKit wants 7.85.0) | `platform/network/curl` (`USE_CURL`) | curl (MIT-like) |
+| Skia | the copy inside the tarball (`Source/ThirdParty/skia`, 54 MB) | the raster backend, see below | BSD-3-Clause |
+
+Not needed, and why: **Cairo** (the GTK and WPE ports set `USE_CAIRO` to
+`OFF`; the Cairo files remain and `OptionsPlayStation.cmake` still has an
+`if (NOT USE_SKIA)` branch for it, but nothing at this revision builds them);
+**libwpe** and **WebKitRequirements** (the PlayStation port's input and
+resource glue; a LazyOS port replaces about a dozen small files, §W4);
+**libxslt**, **LCMS2**, **libavif**, **libjxl**, **libwoff2** (off, or
+FreeType does WOFF2); **GLib, GTK, libsoup, libgcrypt, libtasn1, libepoxy,
+libsecret, Enchant, Flite, GStreamer, ANGLE** (GTK-only or off); **libpsl's
+neighbours** libidn2 and libunistring (ICU does the work). Build-time tools:
+cmake, ninja, perl, python, ruby, gperf, bison, flex, pkg-config, all in the
+`jsc` Docker image (the tarball carries `unifdef`).
+
+**The raster backend is Skia, and a CPU path still exists.**
+`OptionsGTK.cmake` sets `USE_SKIA` on and `USE_CAIRO` off; Skia is not a
+download (it is `Source/ThirdParty/skia`, built by WebKit's own CMake as a
+static library, GN not involved). It compiles its Ganesh GL backend
+unconditionally (`SK_GL`, `SK_GANESH`), so it needs the Khronos `EGL` and
+`GLES2` headers (WebKit ships them in `ThirdParty/ANGLE/include`) but no GL
+library until something links `GrGLMakeNativeInterface_egl`. A non-composited
+drawing area is still there: `DrawingAreaCoordinatedGraphics` creates a
+`NonCompositedFrameRenderer`, which, when the surface does not use GL
+(`AcceleratedSurface::usesGL()` is false for `RenderingPurpose::NonComposited`
+with hardware acceleration off), paints with `GraphicsContextSkia` in
+`RenderingMode::Unaccelerated` on a CPU `SkSurface` into a
+`RenderTargetSHMImage`, a `ShareableBitmap` (shared memory) the UI process
+reads. `grep` finds no `ENABLE_ACCELERATED_2D_CANVAS` or
+`ENABLE_ACCELERATED_COMPOSITING` option at this revision; the 2D canvas
+chooses `ImageBufferSkiaAcceleratedBackend` or `...UnacceleratedBackend` per
+canvas. Three caveats for W4: that path is guarded by `PLATFORM(GTK) ||
+ENABLE(WPE_PLATFORM)` (the PlayStation port's `AcceleratedSurfacePlayStation`
+is GL only), so the port must select the SHM render target itself; the CPU
+path still *compiles* `GLContext`, `TextureMapper` and `ThreadedCompositor`
+(`USE_COORDINATED_GRAPHICS` is on in both ports), so linking needs an
+`EGL`/`GLESv2` provider, a stub that reports no display is enough; and
+`acceleratedCompositingEnabled` must stay false so a page never leaves the
+non-composited renderer (read from the code, not yet run).
+
+**Decisions.** *Raster:* Skia, because it is the only backend GTK and WPE still
+build and the CPU path is a supported configuration, not a patch; Cairo plus
+pixman would be a revival of code the ports dropped. Built from the tarball in
+under a minute on 20 cores (53 s in the table below). *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
+SubtleCrypto are written against the OpenSSL API (`CurlSSLVerifier`,
+`OpenSSLHelper`, `crypto/openssl`), so Mbed TLS or rustls would mean
+rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (LazyWeb's
+GPLv2-only crate rule does not apply to it), but it is GPLv2-incompatible, so it
+**must never be linked into LazyWeb or the `nettls` stack**:
+`tools/webkit/licenses.py` enforces it (`wkpins.NEVER_IN_LAZYWEB`). It is built `no-asm`: the portable code
+cannot execute an instruction LazyOS leaves disabled (AVX state), at the cost of
+slower handshakes.
+
+**W3 results** (`tools/webkit/`, [README](../tools/webkit/README.md)):
+
+| Library | Version | Archives | Build |
+|---|---|---|---|
+| zlib | 1.3.2 | 0.2 MiB | 2 s |
+| brotli | 1.2.0 | 1.0 MiB | 4 s |
+| libpng | 1.6.59 | 0.4 MiB | 1 s |
+| libjpeg-turbo | 3.2.0 | 0.9 MiB | 3 s |
+| libwebp | 1.6.0 | 1.7 MiB | 3 s |
+| icu | 74.2 | 44.9 MiB | 0 s |
+| freetype | 2.14.3 | 1.3 MiB | 2 s |
+| expat | 2.8.5 | 0.4 MiB | 2 s |
+| harfbuzz | 14.4.0 | 8.5 MiB | 29 s |
+| fontconfig | 2.16.0 | 0.6 MiB | 9 s |
+| libxml2 | 2.15.3 | 2.5 MiB | 3 s |
+| sqlite | 3.54.0 | 2.5 MiB | 15 s |
+| libpsl | 0.23.3 | 0.1 MiB | 4 s |
+| openssl | 3.5.9 | 14.2 MiB | 14 s |
+| nghttp2 | 1.70.0 | 0.4 MiB | 3 s |
+| curl | 8.22.0 | 1.7 MiB | 10 s |
+| skia | WebKitGTK 2.54.1 ThirdParty/skia | 24.7 MiB | 53 s |
+
+* **Build:** a clean prefix, with the sources downloaded, ICU already built by
+  the `jsc` build and zig's global cache warm, takes **2 min 50 s** on a
+  20-core host (`python tools/webkit/deps.py`, Docker); a second run only
+  reads stamps. The archives total **105.9 MiB** (ICU's 31 MB data and
+  Skia's 26 MB dominate); `target/webkit/deps.json` lists every installed file.
+* **`depsproof`:** 43.5 MiB static-PIE (30 MB of it ICU's data). On LazyOS
+  (WHPX, 2 GiB, a console image with networking) it prints
+  `WEBKIT:W3:PASS:<lib>` for all 17 libraries and `WEBKIT:W3:PASS`.
+  `python tools/webkit/run.py` also requires the decoded
+  pixels (PNG, JPEG, WebP), the glyph bitmap, the HarfBuzz result and the Skia
+  surface (a stroked line and a line of text through
+  `SkFontMgr_New_FontConfig`) to equal what the same program printed on the build
+  host (`target/webkit/depsproof.host.txt`), the page curl fetched over
+  TLS 1.3 (3037 bytes, verified against the harness CA in the image's bundle,
+  SNI `tls.test`) to be the one the host server holds, and the server to have seen
+  a completed TLS 1.3 handshake with that SNI and a request for `/` from `depsproof`.
+* **One deviation from upstream, found by running it:** on LazyOS
+  `mmap(fd, PROT_READ, MAP_PRIVATE)` of a file fails (the file-backed `mmap`
+  of §6). Skia's fontconfig font manager maps font files with
+  `SkData::MakeFromFileName`, has no fallback, and so refused every font
+  (`FontAccessible()`: `matchFamilyStyle` returned null although Fontconfig and
+  FreeType alone worked). `skiabuild/lazyos_mmap.c` (linked into
+  `libSkia.a`; `SkOSFile_posix.cpp` is compiled with `-Dmmap=lazyos_mmap`) copies the file
+  into an anonymous mapping when the kernel cannot map it. No source file of any
+  tarball is patched (`tools/webkit/patches/` is empty). The fix that removes the shim is the
+  kernel's: a read-only `MAP_PRIVATE` file mapping, which also saves the RAM
+  every WebKit process spends on its font files.
+* **Not exercised:** WOFF2 through FreeType+brotli (no sample font; brotli and
+  FreeType's `FT_REQUIRE_BROTLI` are built), Skia's OpenType-SVG path, curl's HTTP/2
+  and `br` against a server (the harness speaks HTTP/1.1 only; `curl_version_info`
+  confirms the features and nghttp2 is exercised alone), SubtleCrypto beyond
+  SHA-256 and AES-GCM, and the GPU side (EGL/GLES2 are not in the bundle).
+* **Gaps left for W4:** an `EGL`/`GLESv2` provider for linking (a stub), the
+  PlayStation CMake glue (absent from the tarball), and the SHM render
+  target selection for LazyOS (above); `Fontconfig` needs a `fonts.conf` in
+  `/system/etc/fonts` (a sample is kept in the prefix at
+  `share/fontconfig-etc`) and a writable `/tmp/fontconfig`.
 
 ### W4. The port skeleton (one to two months)
 
@@ -212,9 +362,11 @@ small:
   mapping.
 
 Everything optional is off: video, WebGL, WebRTC, the sandbox, accelerated
-compositing. The one thing to check before pinning a revision is that it
-still has the non-composited drawing area that paints a page into a shared
-bitmap; WebKitGTK has discussed removing it.
+compositing. The non-composited drawing area that paints a page into a shared
+bitmap still exists at 2.54.1 (`NonCompositedFrameRenderer`, §5 W3), but only in
+the GTK and WPE code path: the PlayStation `AcceleratedSurface` is GL only, and
+the tarball lacks the PlayStation CMake files, so the port starts from git for
+those and writes the render-target choice itself.
 
 ### W5. The window (a few weeks)
 
@@ -255,6 +407,12 @@ interpreted, no video, no GPU, two to three months in.
   the fix, and it is the entry on the missing list of
   [linux-abi-plan.md](linux-abi-plan.md) that now matters most. Until then
   the profile is `run_demo.py --big-app --memory 4G`.
+* **File-backed `mmap` showed up in W3.** Skia maps font files with `mmap(fd,
+  PROT_READ, MAP_PRIVATE)`, which fails on LazyOS, and its fontconfig font manager
+  has no fallback; the bundle carries a copying shim
+  (`tools/webkit/skiabuild/lazyos_mmap.c`). WebKit maps files elsewhere too
+  in WTF's `FileSystem` too (not yet exercised); expect more of the same
+  until the kernel can map a file read-only and private.
 * **Process spawning.** Fork and exec, as above.
 * **Threads per process.** JSC alone starts a dozen; `task_max` is per
   machine, and a desktop session already holds a few dozen slots. The
