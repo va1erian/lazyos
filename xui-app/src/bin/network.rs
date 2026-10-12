@@ -156,7 +156,8 @@ impl Widgets {
                 .bind(&self.config_group),
                 label("").bind(&self.message).fixed(44),
                 self.wifi.page_layout(),
-                self.wifi.join_layout(),
+                self.wifi.known_layout(),
+                self.wifi.other_layout(),
             ))
     }
 

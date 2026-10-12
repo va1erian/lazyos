@@ -1,6 +1,9 @@
-//! The Wi-Fi join form of the Network app: a WPA2 network that is not saved
-//! yet asks for its password; "Other network..." asks for a name, the
-//! security and the password of a network that may be hidden.
+//! The Wi-Fi join forms of the Network app: a WPA2 network that is not saved
+//! yet asks for its password (the *known* form: the name is fixed);
+//! "Other network..." asks for a name, the security and the password of a
+//! network that may be hidden (the *other* form). They are two groups of
+//! their own, one shown at a time: a form that hid and showed single rows
+//! left some of them painted over the list.
 //!
 //! **The password** is read from the masked field once, when Connect is
 //! pressed, checked (`wifiview::check_join`) and passed by value to
@@ -18,21 +21,19 @@
 use xui_app::net::wifi::{self, Security};
 use xui_app::net::wifiview::{self, Join, JoinKind};
 use xui_app::platform::elevd;
-use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
 use xui_core::prelude::*;
 
 use super::wifi_page::View;
 use super::{Msg, Network};
 
-/// The join form's widgets.
+/// One join form's widgets. The *known* form has no name or security rows
+/// (their handles stay empty).
 #[derive(Default)]
-pub(super) struct JoinWidgets {
+pub(super) struct JoinForm {
     group: Handle<GroupBox<Msg>>,
     title: Handle<Label<Msg>>,
-    ssid_caption: Handle<Label<Msg>>,
     ssid: Handle<Edit<Msg>>,
-    security_caption: Handle<Label<Msg>>,
     security: Handle<RadioGroup<Msg>>,
     secret: Handle<Edit<Msg>>,
     system: Handle<CheckBox<Msg>>,
@@ -41,27 +42,45 @@ pub(super) struct JoinWidgets {
     connect: Handle<Button<Msg>>,
 }
 
-impl JoinWidgets {
-    pub(super) fn layout(&self) -> impl IntoEntry<Msg> {
-        let fields = vec![
-            label("Network name").bind(&self.ssid_caption).into_entry(),
-            edit()
-                .placeholder("the name of the network")
-                .bind(&self.ssid)
-                .into_entry(),
-            label("Security").bind(&self.security_caption).into_entry(),
-            radio_group(&["Open (no password)", "WPA2 (password)"])
-                .bind(&self.security)
-                .into_entry(),
-            label("Password").into_entry(),
+/// Both forms.
+#[derive(Default)]
+pub(super) struct JoinWidgets {
+    known: JoinForm,
+    other: JoinForm,
+}
+
+impl JoinForm {
+    fn layout(&self, other: bool) -> impl IntoEntry<Msg> {
+        let mut fields = Vec::new();
+        if other {
+            fields.push(label("Network name").into_entry());
+            fields.push(
+                edit()
+                    .placeholder("the name of the network")
+                    .bind(&self.ssid)
+                    .into_entry(),
+            );
+            fields.push(label("Security").into_entry());
+            fields.push(
+                radio_group(&["Open (no password)", "WPA2 (password)"])
+                    .bind(&self.security)
+                    .into_entry(),
+            );
+        }
+        fields.push(label("Password").into_entry());
+        fields.push(
             edit()
                 .password()
                 .placeholder("8 to 63 characters, or 64 hex digits")
                 .bind(&self.secret)
                 .into_entry(),
-        ];
+        );
         group(
-            "Join a Wi-Fi network",
+            if other {
+                "Join another Wi-Fi network"
+            } else {
+                "Join a Wi-Fi network"
+            },
             column().gap(10).children((
                 label("").bind(&self.title),
                 grid([Track::Fixed(Dip(110.0)), Track::Fill(1)])
@@ -86,20 +105,20 @@ impl JoinWidgets {
         .fill(1)
     }
 
-    pub(super) fn group_id(&self) -> WidgetId {
-        self.group.get().id()
-    }
-
     /// Report the controls' rectangles to `put` (UI probe images only).
-    pub(super) fn probe(&self, _ui: &Ui<Msg>, mut put: impl FnMut(&str, WidgetId)) {
-        put("join_ssid", self.ssid.get().id());
+    fn probe(&self, mut put: impl FnMut(&str, WidgetId)) {
+        if let Some(ssid) = self.ssid.try_get() {
+            put("join_ssid", ssid.id());
+        }
         put("join_secret", self.secret.get().id());
         put("join_system", self.system.get().id());
         put("join_cancel", self.cancel.get().id());
         put("join_ok", self.connect.get().id());
-        for (name, index) in [("join_open", 0), ("join_wpa2", 1)] {
-            if let Some(id) = self.security.get().ids().get(index) {
-                put(name, *id);
+        if let Some(security) = self.security.try_get() {
+            for (name, index) in [("join_open", 0), ("join_wpa2", 1)] {
+                if let Some(id) = security.ids().get(index) {
+                    put(name, *id);
+                }
             }
         }
     }
@@ -107,28 +126,57 @@ impl JoinWidgets {
     /// Empty the password field (and the rest of the form).
     fn clear(&self) {
         self.secret.get().set_text("");
-        self.ssid.get().set_text("");
+        if let Some(ssid) = self.ssid.try_get() {
+            ssid.set_text("");
+        }
+        if let Some(security) = self.security.try_get() {
+            security.select(1);
+        }
         self.system.get().set_checked(false);
         self.message.get().set_text("");
     }
+}
 
-    /// Show or hide the rows only "Other network" has.
-    fn other_rows(&self, ui: &Ui<Msg>, shown: bool) {
-        ui.set_visible(self.ssid_caption.get().id(), shown);
-        ui.set_visible(self.ssid.get().id(), shown);
-        ui.set_visible(self.security_caption.get().id(), shown);
-        for id in self.security.get().ids() {
-            ui.set_visible(id, shown);
+impl JoinWidgets {
+    pub(super) fn known_layout(&self) -> impl IntoEntry<Msg> {
+        self.known.layout(false)
+    }
+
+    pub(super) fn other_layout(&self) -> impl IntoEntry<Msg> {
+        self.other.layout(true)
+    }
+
+    /// The group ids of the known form and of the other form.
+    pub(super) fn group_ids(&self) -> [WidgetId; 2] {
+        [self.known.group.get().id(), self.other.group.get().id()]
+    }
+
+    /// The form `kind` uses.
+    fn form(&self, kind: &JoinKind) -> &JoinForm {
+        match kind {
+            JoinKind::Known { .. } => &self.known,
+            JoinKind::Other => &self.other,
         }
+    }
+
+    /// The probe lines of the form `kind` uses.
+    pub(super) fn probe(&self, kind: &JoinKind, put: impl FnMut(&str, WidgetId)) {
+        self.form(kind).probe(put);
+    }
+
+    /// Empty both forms.
+    pub(super) fn clear(&self) {
+        self.known.clear();
+        self.other.clear();
     }
 }
 
 impl Network {
-    /// Replace the list with the join form.
+    /// Replace the list with the form `kind` uses.
     pub(super) fn open_join(&mut self, kind: JoinKind) {
-        let form = &self.w.wifi.join;
-        form.clear();
-        form.security.get().select(1);
+        let forms = &self.w.wifi.join;
+        forms.clear();
+        let form = forms.form(&kind);
         let (title, other) = match &kind {
             JoinKind::Known { ssid } => (
                 format!("\"{ssid}\" is protected. Enter its password."),
@@ -140,7 +188,6 @@ impl Network {
             ),
         };
         form.title.get().set_text(&title);
-        form.other_rows(&self.ui, other);
         println!(
             "NETAPP:WIFI:JOIN:OPEN {}",
             if other { "other" } else { "known" }
@@ -164,8 +211,11 @@ impl Network {
         self.wifi_show(View::List);
     }
 
+    /// Say `text` on the form in use.
     pub(super) fn join_say(&self, text: &str) {
-        self.w.wifi.join.message.get().set_text(text);
+        if let Some(kind) = &self.wifi.join {
+            self.w.wifi.join.form(kind).message.get().set_text(text);
+        }
     }
 
     /// Connect: check the form, save the network and start joining it.
@@ -173,9 +223,12 @@ impl Network {
         let Some(kind) = self.wifi.join.clone() else {
             return;
         };
-        let form = &self.w.wifi.join;
-        let typed = form.ssid.get().text();
-        let wpa2 = form.security.get().selected() == 1;
+        let form = self.w.wifi.join.form(&kind);
+        let typed = form.ssid.try_get().map(|e| e.text()).unwrap_or_default();
+        let wpa2 = form
+            .security
+            .try_get()
+            .is_none_or(|radio| radio.selected() == 1);
         let shared = form.system.get().is_checked();
         let secret = form.secret.get().text();
         let join = match wifiview::check_join(&kind, &typed, wpa2, &secret) {

@@ -107,8 +107,12 @@ impl WifiWidgets {
         .fill(1)
     }
 
-    pub(super) fn join_layout(&self) -> impl IntoEntry<Msg> {
-        self.join.layout()
+    pub(super) fn known_layout(&self) -> impl IntoEntry<Msg> {
+        self.join.known_layout()
+    }
+
+    pub(super) fn other_layout(&self) -> impl IntoEntry<Msg> {
+        self.join.other_layout()
     }
 }
 
@@ -190,7 +194,9 @@ impl Wifi {
 /// Hide the Wi-Fi pages and the Wi-Fi button until an interface is found.
 pub(super) fn start_hidden(ui: &Ui<Msg>, w: &Widgets) {
     ui.set_visible(w.wifi.page.get().id(), false);
-    ui.set_visible(w.wifi.join.group_id(), false);
+    for id in w.wifi.join.group_ids() {
+        ui.set_visible(id, false);
+    }
     ui.set_visible(w.wifi_button.get().id(), false);
 }
 
@@ -255,7 +261,17 @@ impl Network {
             ui.set_visible(id, view == View::Wired);
         }
         ui.set_visible(self.w.wifi.page.get().id(), view == View::List);
-        ui.set_visible(self.w.wifi.join.group_id(), view == View::Join);
+        let [known, other] = self.w.wifi.join.group_ids();
+        let kind = self.wifi.join.as_ref();
+        let joining = view == View::Join;
+        ui.set_visible(
+            known,
+            joining && matches!(kind, Some(wifiview::JoinKind::Known { .. })),
+        );
+        ui.set_visible(
+            other,
+            joining && matches!(kind, Some(wifiview::JoinKind::Other)),
+        );
         self.wifi.probe_pending = view != View::Wired;
     }
 

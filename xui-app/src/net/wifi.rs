@@ -24,9 +24,9 @@ use crate::platform::messenger::Service;
 const NAME: &str = "os.lazy.net.wifi";
 /// The longest one call may wait (PIT ticks, 100 Hz).
 pub const CALL_TICKS: u64 = 300;
-/// The longest [`add_network`] may wait (15 s): `wlanmd` hands the passphrase
-/// to `keyd`, which writes it to disk before it answers.
-pub const ADD_TICKS: u64 = 1500;
+/// The longest [`add_network`] or [`forget`] may wait (15 s): `wlanmd`
+/// writes the profile and the secret to disk before it answers.
+pub const WRITE_TICKS: u64 = 1500;
 /// Longest SSID shown (the standard allows 32 octets; text may be longer).
 const MAX_SSID_CHARS: usize = 64;
 
@@ -52,10 +52,15 @@ pub enum Error {
 }
 
 impl Error {
-    /// Whether the service was only busy (`EAGAIN`, or a scan already under
-    /// way, `EBUSY`): not a failure to show, the caller asks again later.
+    /// Whether the service was only occupied (`EAGAIN`, a scan already under
+    /// way, `EBUSY`, or no answer within the bound, `ETIMEDOUT`: it may be
+    /// writing to a slow disk): not a failure to show for a read, the caller
+    /// asks again later.
     pub fn is_busy(self) -> bool {
-        matches!(self, Error::Code(code) if -code == EAGAIN || -code == EBUSY)
+        matches!(
+            self,
+            Error::Code(code) if -code == EAGAIN || -code == EBUSY || -code == ETIMEDOUT
+        )
     }
 
     /// Whether the service does not know the network (`ENOENT`): right after
@@ -375,7 +380,7 @@ pub fn add_network(
         wipe_string(secret);
     }
     let mut body = decoded(encoded)?;
-    let result = call_for(wire::METHOD_ADDNETWORK, body.clone(), ADD_TICKS);
+    let result = call_for(wire::METHOD_ADDNETWORK, body.clone(), WRITE_TICKS);
     body.fill(0);
     let reply = result?;
     Ok(clipped(
@@ -414,9 +419,10 @@ pub fn forget(id: &str) -> Result<(), Error> {
     let args = wire::ForgetArgs {
         id: String::from(id),
     };
-    call(
+    call_for(
         wire::METHOD_FORGET,
         decoded(wire::encode_forget_args(&args))?,
+        WRITE_TICKS,
     )
     .map(drop)
 }

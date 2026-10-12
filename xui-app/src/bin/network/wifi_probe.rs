@@ -41,7 +41,9 @@ impl Network {
                 println!("NETAPP:WIFI:PROBE:list");
             }
             View::Join => {
-                w.join.probe(ui, |name, id| rect(name, id));
+                if let Some(kind) = &self.wifi.join {
+                    w.join.probe(kind, |name, id| rect(name, id));
+                }
                 println!("NETAPP:WIFI:PROBE:join");
             }
         }
