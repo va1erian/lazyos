@@ -84,6 +84,14 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > closes (only at unlock or exit). The kernel test suite for all of this is
 > `kernel/src/tests/linux_compat_suite/`.
 
+> **JIT-style executable memory: supported (#773).** `mmap` with `PROT_EXEC`,
+> W^X flips with `mprotect` (RW -> RX -> RW, with another thread executing the
+> page), RWX, `mremap` and `fork` keeping the rights, `SIGSEGV` with
+> `SEGV_ACCERR` for a fetch from NX or a store to RX, and NX by default for the
+> stack and heap are tested (`execmem_*` in the compat suite, the `jitmem`
+> fixture) and described, with the single-CPU TLB assumption, in
+> [`architecture/virtual-memory.md`](architecture/virtual-memory.md#executable-memory-jit-style-wx).
+
 **Goal:** run ordinary, prebuilt **`x86_64-unknown-linux-musl` static binaries**
 (including Rust programs that link `std`) on LazyOS, by implementing enough of
 the Linux x86_64 ABI that musl's startup and `std`'s runtime are satisfied — no

@@ -280,6 +280,14 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return false;
     }
+    // COW only defers the copy of a page the address space may write. A fork
+    // marks every leaf COW, read-only ones (`PROT_READ`, `PROT_READ|EXEC`: a
+    // JIT's code cache) included, and a store to one of those is an access
+    // error (`SIGSEGV`, `SEGV_ACCERR`), not a request for a private copy. A
+    // page with no VMA (a loader's or test's own mapping) keeps the old rule.
+    if vma::find(table, va).is_some_and(|vma| !vma.prot.has_write()) {
+        return false;
+    }
     let shared = PhysAddr::new(old & PTE_ADDR);
     // The other sharers already took their copies (or exited): this mapping
     // is the frame's only reference, so it becomes writable in place, with
@@ -369,60 +377,6 @@ pub fn remap_page(table: PhysAddr, old_va: u64, new_va: u64) -> Result<bool, ()>
     Ok(true)
 }
 
-/// Apply `prot` to the present user pages of `[start, end)` in `table`.
-/// A COW page is privatized first: its protection is per-address-space, so it
-/// must not keep sharing a frame after `mprotect`. Returns false when
-/// privatizing needed memory and none was available (pages updated before the
-/// failure keep their new protection).
-pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> bool {
-    let mut va = start & !(FRAME_SIZE - 1);
-    while va < end {
-        // Safety: `table` is a live address space and we own its entries.
-        if let Some(entry) = unsafe { leaf_entry(table, va) } {
-            // Safety: `entry` was just returned as a present leaf in this table.
-            let old = unsafe { *entry };
-            if old & PTE_USER != 0 {
-                let shared = PhysAddr::new(old & PTE_ADDR);
-                let new = if old & COW_BIT != 0 && super::frame_refcount(shared) == 1 {
-                    // Copy-on-write, but nobody else holds the frame any
-                    // more: it is already private (P6.6).
-                    old & !(PTE_WRITABLE | COW_BIT | PTE_NX)
-                } else if old & COW_BIT != 0 {
-                    // The page is shared read-only: copy it before changing the
-                    // protection, so this address space gets a private frame.
-                    // The copy overwrites every byte: no zeroing.
-                    let Some(frame) = super::alloc_frame() else {
-                        return false;
-                    };
-                    copy_frame(shared, frame);
-                    free_frame(shared);
-                    frame.as_u64() | (old & !PTE_ADDR & !(PTE_WRITABLE | COW_BIT | PTE_NX))
-                } else {
-                    old
-                };
-                // Safety: same `entry`, still valid; nothing else can have
-                // unmapped it in between (single-threaded `mprotect`).
-                unsafe { *entry = apply_prot(new, prot) };
-                x86_64::instructions::tlb::flush(VirtAddr::new(va));
-            }
-        }
-        va += FRAME_SIZE;
-    }
-    true
-}
-
-/// Add the flags `prot` implies to an already present PTE value.
-pub(super) fn apply_prot(mut entry: u64, prot: vma::Prot) -> u64 {
-    entry &= !(PTE_WRITABLE | PTE_NX);
-    if prot.has_write() {
-        entry |= PTE_WRITABLE;
-    }
-    if !prot.has_exec() {
-        entry |= PTE_NX;
-    }
-    entry
-}
-
 /// Copy one 4 KiB frame through the physical-memory mapping.
 pub(super) fn copy_frame(source: PhysAddr, destination: PhysAddr) {
     // Safety: both frames are mapped and exclusively owned by the caller.
@@ -471,7 +425,9 @@ pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool
     ) {
         return false;
     }
-    if !(vma.prot.has_read() || vma.prot.has_exec()) {
+    // x86 has no write-only or execute-only page, so (as on Linux) any right
+    // implies a readable page; only `PROT_NONE` has nothing to materialize.
+    if vma.prot.0 & (vma::Prot::READ.0 | vma::Prot::WRITE.0 | vma::Prot::EXEC.0) == 0 {
         return false;
     }
     let Some(frame) = alloc_zeroed_frame() else {

@@ -57,20 +57,37 @@ impl Exception {
     }
 }
 
+/// The `si_code` Linux gives a `SIGSEGV` page fault: `SEGV_ACCERR` when the
+/// address is mapped but the access is not allowed, `SEGV_MAPERR` when
+/// nothing is mapped there.
+///
+/// The CPU's P bit (`PROTECTION_VIOLATION`) says a present page refused the
+/// access: a store to a read-only page, or an instruction fetch from an NX
+/// page, which is how a W^X flip shows up. A not-present fault inside a VMA
+/// (a `PROT_NONE` range, a store to a read-only demand-zero range) is also an
+/// access error; only an address no VMA covers is a map error. The write bit
+/// says nothing about which: a store to an unmapped page is `SEGV_MAPERR`.
+pub fn segv_code(error: u64, in_vma: bool) -> i32 {
+    const PROTECTION_VIOLATION: u64 = 1;
+    if error & PROTECTION_VIOLATION != 0 || in_vma {
+        SEGV_ACCERR
+    } else {
+        SEGV_MAPERR
+    }
+}
+
 /// Deliver `SIGSEGV` for a page fault that COW/demand-zero could not resolve.
 /// Returns true when a handler was entered: the caller resumes the faulting
 /// task at the handler instead of ending it.
 pub fn deliver_fault(frame_rsp: u64, rip_index: usize, fault_addr: u64, error: u64) -> bool {
-    let code = if error & 0b10 != 0 {
-        SEGV_ACCERR
-    } else {
-        SEGV_MAPERR
-    };
+    let in_vma = current_info().is_some_and(|(_, pml4)| {
+        crate::mem::vma::find(x86_64::PhysAddr::new(pml4), fault_addr).is_some()
+    });
     deliver(
         frame_rsp,
         rip_index,
         SIGSEGV,
-        SigInfo::fault(code, fault_addr),
+        SigInfo::fault(segv_code(error, in_vma), fault_addr),
     )
 }
 

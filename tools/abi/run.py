@@ -51,6 +51,7 @@ ORDER = [
     "fsstress",
     "memstress",
     "bigapp",
+    "jitmem",
     "procstress",
     "sigstress",
     "threadsig",

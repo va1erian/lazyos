@@ -61,7 +61,7 @@ mod send;
 mod sweep;
 mod types;
 
-pub use fault::{deliver_exception, deliver_fault, Exception};
+pub use fault::{deliver_exception, deliver_fault, segv_code, Exception};
 pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
 
 pub use harden::{die_with_segv, restore_frame};

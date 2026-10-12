@@ -67,8 +67,9 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
   `SIGSEGV`.
 
 - `mmap` supports `MAP_ANONYMOUS` and `MAP_FIXED` (`linux.rs:237`); it records an
-  `Anon` VMA and charges per-uid `UserMemory` quota. `mprotect` privatizes COW
-  pages before applying new protection. `munmap` drops VMAs and unmaps leaves.
+  `Anon` VMA and charges per-uid `UserMemory` quota. `mprotect` rewrites the
+  PTE flags of the resident pages (a COW page that is still shared keeps its
+  frame, see "Executable memory"). `munmap` drops VMAs and unmaps leaves.
 - Native `sbrk` grows a `Heap` VMA, populated on first touch; shrinking removes
   and unmaps. It refuses growth past `NATIVE_HEAP_LIMIT` or over another
   mapping and returns `u64::MAX` on failure.
@@ -84,3 +85,63 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
 `mremap` (grow, shrink, and move with `MREMAP_MAYMOVE`/`MREMAP_FIXED`; one whole
 VMA only, overlapping source and destination refused with `EINVAL`).
 Missing: file-backed demand paging, shared mappings.
+
+## Executable memory (JIT-style W^X)
+
+Supported, with Linux semantics (issue #773). A JIT (JavaScriptCore, a Wasm
+engine, LuaJIT, a JVM) can `mmap(RW)`, write code, `mprotect(RX)`, run it,
+`mprotect(RW)`, patch and flip back, thousands of times, with other threads
+executing from the page between flips; or map `RWX` once.
+
+- **Rights.** `Prot::EXEC` maps to a PTE without `NX` (EFER.NXE is on); every
+  mapping that does not ask for it is NX: `mmap` without `PROT_EXEC`, the
+  `brk` heap, the Linux main stack, a segment's `.bss` and data. `mprotect`
+  honours `PROT_EXEC` on any of them, as Linux does (the default is NX, not
+  a prohibition). x86 has no write-only or execute-only page, so as on Linux
+  any right makes the page readable; only `PROT_NONE` has nothing to
+  materialize on demand. (A page that is already resident when it becomes
+  `PROT_NONE` stays readable: that gap is not closed yet.)
+- **W^X flips.** `sys_mprotect` updates the VMA (splitting at the range
+  boundaries and re-merging what becomes equal) and the PTE of every resident
+  page, with an `invlpg` per page in `mem::protect_range`. A page that is not
+  resident takes the VMA's new rights at its first fault. A range may span
+  several VMAs and cover them partially.
+- **Faults.** A fetch from an NX page and a store to a read-only page are
+  present-page protection faults: not demand-zero, not COW, so they reach
+  `signal::deliver_fault` and are `SIGSEGV` with `si_code = SEGV_ACCERR` and
+  `si_addr` the faulting address. `si_code` follows Linux, not the CPU's write
+  bit: `SEGV_ACCERR` when the page is present or a VMA covers the address (a
+  `PROT_NONE` range), `SEGV_MAPERR` for an address no VMA covers
+  (`signal::segv_code`). A ring-3 process without a handler is ended by the
+  same path.
+- **`fork`.** The child inherits RX pages as shared, read-only, executable and
+  COW, like every other leaf. A store to a page whose VMA is not writable is
+  never answered with a copy (`cow_fault` checks the VMA): it is the access
+  error above, so a forked text or JIT page cannot be written by accident.
+  `mprotect(RW)` on a page still shared does not copy: the PTE stays read-only
+  and COW, and the first store takes the copy, so a child that flips
+  RX -> RW -> RX copies only if it writes, and its patch never reaches the
+  parent. A COW page nobody else shares any more becomes private in place.
+- **`mremap`.** The region's VMA keeps its protection through growing in
+  place, moving (`MREMAP_MAYMOVE`) and `MREMAP_FIXED`; the PTEs move with
+  their flags, so executable pages stay executable and read-only pages
+  read-only.
+- **TLB: single CPU.** The only flush is the local `invlpg` after each PTE
+  change (`protect_range`, `cow_fault`, `unmap_range`, `remap_page`).
+  LazyOS runs on one CPU, so "another thread executing the page" is another
+  task on the same core, and the flush done before `mprotect` returns is
+  enough for it to see the new rights (and, for a page that loses `EXEC`, to
+  fault on its next fetch). A multi-CPU kernel must replace those local
+  flushes with a TLB shootdown to every CPU running the address space before
+  `mprotect` returns; `munmap`, `mremap` and COW need the same.
+- **Instruction cache.** x86 keeps instruction fetch coherent with stores; no
+  explicit flush is needed after writing code.
+
+Tests: `kernel/src/tests/linux_compat_suite/execmem*.rs` (`execmem_*`: the W^X
+cycle, RWX, every `PROT_*` combination, access-error codes and the delivered
+`siginfo`, partial and spanning `mprotect`, `mremap`, stack and heap NX, fork
+and COW, and a 100k-flip soak against a second thread executing the page with
+the frame, VMA and mapping counts checked) and the `jitmem` ABI fixture
+(`tools/abi/fixtures/src/jitmem.rs`: a tiny JIT in ring 3 with real
+`SIGSEGV` recovery, including a fetch after an RX -> RW flip, which fails if
+the TLB keeps a stale execute right; `python tools/abi/run.py --only jitmem`).

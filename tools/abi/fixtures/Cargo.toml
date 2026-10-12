@@ -44,6 +44,11 @@ path = "src/fsstress.rs"
 name = "memstress"
 path = "src/memstress.rs"
 
+# JIT-style executable memory: W^X flips, access errors, fork, threads (issue #773).
+[[bin]]
+name = "jitmem"
+path = "src/jitmem.rs"
+
 [[bin]]
 name = "procstress"
 path = "src/procstress.rs"

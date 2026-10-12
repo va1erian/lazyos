@@ -7,6 +7,7 @@ mod frames;
 mod heap;
 mod layout;
 pub mod mmio;
+mod protect;
 pub mod pte;
 mod reclaim;
 mod regions;
@@ -22,6 +23,7 @@ pub mod wc;
 pub use cow::clone_user_table;
 pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
+pub use protect::protect_range;
 pub use table_guard::UserTableGuard;
 pub use uspace::*;
 

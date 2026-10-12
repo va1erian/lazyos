@@ -221,4 +221,12 @@ pub mod harness {
             })
             .count()
     }
+    /// The `siginfo` the kernel last recorded for `sig` on the current
+    /// thread: what a `SA_SIGINFO` handler is shown (a kernel-thread test
+    /// task has no user frame to read it from). A synchronous fault is
+    /// queued on the faulting thread, so its record is the thread's.
+    pub fn recorded_info(sig: u8) -> Option<SigInfo> {
+        let (slot, _) = super::super::current_info()?;
+        Some(with_thread(slot, |thread| thread.infos[sig as usize]))
+    }
 }

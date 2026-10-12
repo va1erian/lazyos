@@ -9,6 +9,9 @@ use super::*;
 
 mod ctty;
 mod etcmap;
+mod execmem;
+mod execmem_regions;
+mod execmem_soak;
 mod fdshare;
 mod files;
 mod futex;
@@ -24,6 +27,9 @@ mod wait;
 
 use ctty::*;
 use etcmap::*;
+use execmem::*;
+use execmem_regions::*;
+use execmem_soak::*;
 use fdshare::*;
 use files::*;
 use futex::*;
@@ -257,5 +263,27 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "compat_ramfs_open_soak_copies_nothing",
         readthrough::ramfs_open_soak_copies_nothing,
+    ),
+    ("execmem_wx_cycle", execmem_wx_cycle),
+    ("execmem_rwx_page", execmem_rwx_page),
+    ("execmem_prot_bits_map_to_pte", execmem_prot_bits_map_to_pte),
+    (
+        "execmem_access_faults_are_accerr",
+        execmem_access_faults_are_accerr,
+    ),
+    ("execmem_sigsegv_siginfo_code", execmem_sigsegv_siginfo_code),
+    ("execmem_mprotect_splits_vmas", execmem_mprotect_splits_vmas),
+    ("execmem_mremap_keeps_exec", execmem_mremap_keeps_exec),
+    (
+        "execmem_stack_and_heap_are_nx",
+        execmem_stack_and_heap_are_nx,
+    ),
+    (
+        "execmem_fork_inherits_rx_and_cows_on_write",
+        execmem_fork_inherits_rx_and_cows_on_write,
+    ),
+    (
+        "execmem_soak_wx_flips_with_second_thread",
+        execmem_soak_wx_flips_with_second_thread,
     ),
 ];
