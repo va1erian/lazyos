@@ -15,6 +15,15 @@
 //!   LazyOS has no such policy to give, and `sched_get_priority_max` says so.
 //! * The utilization-clamp flags are `EOPNOTSUPP` (a Linux kernel built
 //!   without `CONFIG_UCLAMP_TASK` answers the same).
+//! * `sched_setscheduler`, `sched_setparam`, `setpriority` and `getpriority`
+//!   are not offered (`ENOSYS`), so this is the only way to change a task's
+//!   policy or nice value and `sched_getattr` and `sched_getscheduler` cannot
+//!   disagree with another setter. Adding one means routing it through
+//!   [`decide`] and [`task::sched_update`].
+//! * `pid` is a thread id (a task slot) checked on all 64 bits ([`target`]).
+//!   Without privilege a caller may change only tasks of its own process
+//!   (same thread-group leader) and uid: a native service task that shares the
+//!   uid of a session is not its to re-weight. Reading is open.
 //!
 //! Privilege is `CAP_SYS_ADMIN` (LazyOS has no `CAP_SYS_NICE`; nobody is root
 //! and a session user holds no capability). The size handling is Linux's:
