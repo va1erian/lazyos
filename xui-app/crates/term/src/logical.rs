@@ -54,12 +54,10 @@ pub fn read(term: &Term, first: u64) -> Option<Logical> {
     loop {
         let row = term.line(line)?;
         let cols = term.cols();
-        let mut col = 0;
-        for cell in row.cells {
+        for (col, cell) in row.cells.iter().enumerate() {
             if cell.width != 0 && chars.len() < MAX_CHARS {
                 chars.push(Place { ch: cell.ch, line, col, width: cell.width, link: cell.attr.link });
             }
-            col += 1;
         }
         let more = row.wrapped && line + 1 < end && line - first + 1 < MAX_ROWS;
         if more {

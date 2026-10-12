@@ -347,7 +347,10 @@ none/visual/sound/notify, 500 ms rate limit. New Window runs
 `xui_app::shell::launch` with the OSC 7 directory (validated, else home).
 Closing while a job runs needs a veto from the compositor: display method
 `SetCloseMode` (48, `idl/display.midl`) makes `xuid` ask the client instead of
-forgetting the surface; the busy test reads the kernel task table (`jobs.rs`),
+forgetting the surface, but an app can never make its window unclosable: the
+first close is passed on, and a close more than 3 s later drops the surface
+whatever the app says (the app quits when its event endpoint closes;
+`TERM:QUIT:PASS`); a cancelled prompt re-arms it. The busy test reads the kernel task table (`jobs.rs`),
 since ash has no job control (evidence `TERM:CLOSE:CHECK`). Pointer events now
 carry modifiers (Ctrl+click, Shift+right click). Evidence: `TERM:MENU:<item>`,
 `TERM:LINK:OPEN:<url>`, `TERM:FIND:<n>`, `TERM:BELL:<kind>`,

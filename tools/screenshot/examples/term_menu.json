@@ -521,6 +521,88 @@
   "wait": 2.0
  },
  {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "n"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "occurrence": 3,
+  "timeout": 60
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "type": "sleep 100"
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:sleep 100",
+  "occurrence": 2,
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:CLOSE:CONFIRM",
+  "occurrence": 3,
+  "timeout": 20
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "19_unanswered_close"
+ },
+ {
+  "wait": 8.0
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "TERM:QUIT:PASS",
+  "occurrence": 2,
+  "timeout": 20
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "20_forced_close"
+ },
+ {
   "key_down": "alt"
  },
  {

@@ -209,6 +209,8 @@ impl Search {
     }
 
     /// Select the next match (wrapping) and return it.
+    // Named for the find bar's Next button; this is not an iterator.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Match> {
         let len = self.matches.len();
         if len == 0 {

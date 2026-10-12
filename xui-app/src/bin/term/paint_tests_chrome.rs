@@ -17,9 +17,7 @@ fn text_term() -> Term {
 }
 
 fn found(term: &Term, needle: &str) -> Find {
-    let mut find = Find::default();
-    find.text = needle.to_string();
-    find.caret = needle.chars().count();
+    let mut find = Find { text: needle.to_string(), caret: needle.chars().count(), ..Find::default() };
     find.restart();
     while !find.search.update(term, 4000, term.screen_top()) {}
     find

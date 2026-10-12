@@ -63,6 +63,14 @@ impl Terminal {
     /// A key for the topmost layer.
     pub(super) fn modal_key(&mut self, ui: &mut Ui<Msg>, key: Key, mods: Modifiers) {
         self.touch(ui);
+        // Enter and Escape also arrive as a `Char` right after the key. If the
+        // layer closes on the key, that `Char` must not reach the program: an
+        // Enter that confirmed a paste would run the pasted last line.
+        self.skip_char = match key {
+            Key::RETURN if !(mods.alt || mods.ctrl) => Some('\r'),
+            Key::ESCAPE => Some('\x1b'),
+            _ => None,
+        };
         enum Top {
             Prompt,
             Prefs,
@@ -140,6 +148,9 @@ impl Terminal {
                     self.finish(ui);
                 } else {
                     println!("TERM:CLOSE:CANCEL");
+                    // Re-arm the compositor's question: without it a second
+                    // close after its grace period would drop the window.
+                    self.backend.ask_before_close();
                 }
             }
             None => {}
@@ -155,9 +166,8 @@ impl Terminal {
         let down = matches!(m.kind, MouseKind::Down(MouseButton::Left) | MouseKind::Double(MouseButton::Left));
         if self.chrome.borrow().prompt.is_some() {
             if down {
-                match prompt::button_at(&layout, m.x, m.y) {
-                    Some(accept) => self.answer_prompt(ui, accept),
-                    None => {}
+                if let Some(accept) = prompt::button_at(&layout, m.x, m.y) {
+                    self.answer_prompt(ui, accept);
                 }
             }
             return true;

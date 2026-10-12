@@ -112,6 +112,9 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // Reached on every way out, including the compositor dropping the
+        // window (`SetCloseMode`'s grace) with no answer from the app.
+        println!("TERM:QUIT:PASS");
     }
 }
 
@@ -152,11 +155,14 @@ impl App for Terminal {
             Msg::SaveCancelled => self.root.focus(),
             // A layer that takes the keyboard (a prompt, the menu, the find
             // bar, the preferences) answers first.
-            Msg::Char(ch) if self.modal() => self.modal_char(ui, ch),
+            Msg::Char(ch) if self.modal() => {
+                self.skip_char = None;
+                self.modal_char(ui, ch);
+            }
             Msg::Key(key, mods) if self.modal() => self.modal_key(ui, key, mods),
             Msg::Char(ch) => {
                 self.touch(ui);
-                if self.skip_char.take() != Some(ch) {
+                if !skipped(self.skip_char.take(), ch) {
                     self.key(ch, ui);
                 }
             }
@@ -180,5 +186,24 @@ impl App for Terminal {
             Msg::Close => self.request_close(ui),
         }
         self.pump(ui);
+    }
+}
+
+/// Whether `ch` is the `Char` that follows a key a layer already handled.
+fn skipped(pending: Option<char>, ch: char) -> bool {
+    pending == Some(ch) || (pending == Some('\r') && ch == '\n')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::skipped;
+
+    #[test]
+    fn the_char_after_a_handled_enter_is_skipped_once() {
+        assert!(skipped(Some('\r'), '\r'));
+        assert!(skipped(Some('\r'), '\n'));
+        assert!(!skipped(Some('\r'), 'a'));
+        assert!(!skipped(None, '\r'));
+        assert!(skipped(Some('\x1b'), '\x1b'));
     }
 }

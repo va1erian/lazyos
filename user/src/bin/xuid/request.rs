@@ -409,6 +409,7 @@ fn new_surface(
         buf_h: 0,
         hints: None,
         ask_close: false,
+        close_asked: None,
         maximized: None,
         snap: None,
         minimized: false,

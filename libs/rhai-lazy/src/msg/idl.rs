@@ -945,7 +945,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "SetCloseMode",
                 id: 48,
                 oneway: false,
-                doc: "Ask the compositor to keep `surface` when the window manager closes it\n(the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but\nthe window stays until the app destroys the surface, so an app that must\nask first (a terminal with a program running) can put its question in\nthe window. Without it (the default, and for every older client) the\nwindow is dropped as it is sent. Only the creator may call it.",
+                doc: "Ask the compositor to keep `surface` when the window manager closes it\n(the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but\nthe window stays until the app destroys the surface, so an app that must\nask first (a terminal with a program running) can put its question in\nthe window. Without it (the default, and for every older client) the\nwindow is dropped as it is sent. Only the creator may call it.\nAn app can never make its window unclosable: the first close is passed\non and the window kept; if the app has not destroyed the surface three\nseconds later, the next close drops it whatever the app says (the app's\nevent endpoint closes, so it quits). Calling `SetCloseMode` again\nre-arms the question (an app whose user cancelled does this). A\nshutdown or logout never depends on it: `init` kills what is left.",
                 params: &[Field { name: "surface", id: 1, ty: Ty::U64 }, Field { name: "ask", id: 2, ty: Ty::Bool }],
                 returns: &[],
                 objects: &[],

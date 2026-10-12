@@ -46,6 +46,9 @@ pub(super) struct Surface {
     /// `SetCloseMode`: the window stays when the window manager closes it,
     /// until the app destroys the surface.
     pub(super) ask_close: bool,
+    /// When the close was first asked of the client (monotonic ns); `None`
+    /// until then and again after the client re-arms `SetCloseMode`.
+    pub(super) close_asked: Option<u64>,
     /// The normal window rectangle saved while maximized; `Some` while the
     /// surface is maximized.
     pub(super) maximized: Option<Rect>,

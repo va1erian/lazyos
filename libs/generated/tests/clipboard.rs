@@ -104,6 +104,7 @@ fn request_reply_carries_the_buffer_shape() {
         mime: "text/plain".into(),
         lazy: true,
         bytes: vec![b'x'; 8 * 1024],
+        size: 8 * 1024,
     };
     let decoded = decode_request_reply(&encode_request_reply(&reply).unwrap()).unwrap();
     assert_eq!(decoded, reply);

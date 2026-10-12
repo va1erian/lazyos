@@ -149,3 +149,23 @@ fn paths_are_quoted_for_the_shell() {
     assert_eq!(shell_quote(""), "''");
     assert_eq!(shell_quote("a\nb"), "'ab'", "controls never reach the shell");
 }
+
+/// Neither copy nor paste may add a final newline: a pasted newline runs the
+/// last line without the user pressing Enter.
+#[test]
+fn copy_and_paste_add_no_trailing_newline() {
+    use crate::SelectMode;
+    let mut term = Term::new(20, 5);
+    term.feed(b"hello world\r\n~ $ ");
+    term.select_all();
+    let all = term.selection_text().unwrap();
+    assert_eq!(all, "hello world\n~ $");
+    assert_eq!(paste_bytes(&all, false), b"hello world\r~ $");
+
+    term.select_begin(SelectMode::Line, crate::Point::new(0, 2));
+    term.select_update(crate::Point::new(0, 2));
+    let line = term.selection_text().unwrap();
+    assert_eq!(line, "hello world", "a line selection copies the line, not its newline");
+    assert_eq!(paste_bytes(&line, false), b"hello world");
+    assert_eq!(paste_bytes("x", true), b"\x1b[200~x\x1b[201~", "bracketed: only the markers");
+}

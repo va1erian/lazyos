@@ -5486,6 +5486,12 @@ pub mod os_lazy_display_v1 {
     /// ask first (a terminal with a program running) can put its question in
     /// the window. Without it (the default, and for every older client) the
     /// window is dropped as it is sent. Only the creator may call it.
+    /// An app can never make its window unclosable: the first close is passed
+    /// on and the window kept; if the app has not destroyed the surface three
+    /// seconds later, the next close drops it whatever the app says (the app's
+    /// event endpoint closes, so it quits). Calling `SetCloseMode` again
+    /// re-arms the question (an app whose user cancelled does this). A
+    /// shutdown or logout never depends on it: `init` kills what is left.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetCloseModeArgs {
         pub surface: u64,

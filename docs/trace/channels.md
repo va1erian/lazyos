@@ -22,7 +22,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `BEEP` | `Beep` | `beep` | user | sessions, tools/sound | programs |
 | `BOOT` | `Boot` | `boot` | kernel, kernel suite | tools/accounts, tools/bench, tools/boot | programs |
 | `CALC` | `Calc` | `calc` | xui-app | sessions, tools/screenshot | programs |
-| `CLIP` | `Clip` | `clip` | user | - | programs |
+| `CLIP` | `Clip` | `clip` | user | tools/services | programs |
 | `CLIPBOARD` | `Clipboard` | `clipboard` | user | - | programs |
 | `CONFD` | `Confd` | `confd` | user | sessions, tools/services, tools/shutdown | programs |
 | `CONFDED` | `Confded` | `confded` | xui-app | sessions | programs |

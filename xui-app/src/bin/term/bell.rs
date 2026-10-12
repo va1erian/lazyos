@@ -96,7 +96,7 @@ mod tests {
         assert!(!l.allow(1499));
         assert!(l.allow(1500));
         assert!(!l.allow(1500 + 499));
-        assert!(l.allow(0 + 5000), "a later bell is fine");
+        assert!(l.allow(5000), "a later bell is fine");
         // A clock that went backwards does not wedge it.
         assert!(!l.allow(4000));
     }
