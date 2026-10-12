@@ -23,19 +23,19 @@ mod xml;
 mod zip;
 
 #[cfg(test)]
+mod bmp_tests;
+#[cfg(test)]
 mod fuzz;
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod bmp_tests;
 
 use std::path::Path;
 
 use xui_core::image::Image;
 
 use super::bitmap::Bitmap;
-use super::image::{Document, MEMORY_BUDGET, Reserved};
 use super::history::DEFAULT_CAP;
+use super::image::{Document, MEMORY_BUDGET, Reserved};
 
 /// What the open paths leave room for: the history's default cap.
 pub(crate) const HISTORY_RESERVE: Reserved = Reserved {
@@ -153,7 +153,9 @@ pub fn save(format: Format, doc: &Document) -> Result<Vec<u8>, String> {
         Format::OpenRaster => ora::write(doc),
         Format::Png => doc.flatten().encode_png().map_err(|e| e.to_string()),
         Format::Bmp => bmp::write(&doc.flatten()),
-        Format::Jpeg => Err("Paint cannot save JPEG files; save as PNG, BMP or OpenRaster".to_string()),
+        Format::Jpeg => {
+            Err("Paint cannot save JPEG files; save as PNG, BMP or OpenRaster".to_string())
+        }
     }
 }
 
@@ -186,8 +188,12 @@ pub(crate) fn sniff_size(bytes: &[u8]) -> Option<(u32, u32)> {
         match marker {
             0xD8 | 0x01 | 0xD0..=0xD7 => continue,
             0xC0..=0xCF if !matches!(marker, 0xC4 | 0xC8 | 0xCC) => {
-                let h = u32::from(u16::from_be_bytes(bytes.get(at + 3..at + 5)?.try_into().ok()?));
-                let w = u32::from(u16::from_be_bytes(bytes.get(at + 5..at + 7)?.try_into().ok()?));
+                let h = u32::from(u16::from_be_bytes(
+                    bytes.get(at + 3..at + 5)?.try_into().ok()?,
+                ));
+                let w = u32::from(u16::from_be_bytes(
+                    bytes.get(at + 5..at + 7)?.try_into().ok()?,
+                ));
                 return Some((w, h));
             }
             0xD9 | 0xDA => return None,

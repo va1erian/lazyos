@@ -10,13 +10,14 @@ use super::{
     Side, Tool, WHITE, check_budget,
 };
 
+mod adjust;
+mod alpha;
 mod clip;
 mod edit;
 mod float;
-mod layers;
-mod adjust;
 mod image_ops;
 mod io;
+mod layers;
 mod ops;
 mod select;
 

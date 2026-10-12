@@ -132,7 +132,12 @@ crates/xui-paint/src/
     canvas.rs         custom canvas node; canvas/paint.rs draws it
     toolbar.rs        custom tool grid (two columns); toolbar/paint.rs draws it
     palette.rs        the Colors panel: swatch pair, swap/reset, 32 colours
-    coloredit.rs      the colour editor (xui ColorPanel) over the canvas
+    coloredit.rs      the colour editor (xui ColorPanel + an alpha slider) over the canvas
+    layers.rs         the Layers panel: custom rows (eye, thumbnail, name); layers/thumb.rs
+    sidebar.rs        right column: Layers + button strip + collapsible History list
+    layerprops.rs     Layer Properties frame (name, visible, opacity; live preview)
+    model/document/alpha.rs  how translucent brushes and shapes composite (source-over;
+                      the pencil overwrites, the eraser's primary button clears)
     icons.rs          hand-drawn paint-tool glyphs
   viewport.rs         zoom and scroll arithmetic (pure)
   render.rs           flattened cache and the nearest-neighbour screen image (pure)

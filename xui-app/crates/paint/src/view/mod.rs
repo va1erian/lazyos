@@ -8,17 +8,21 @@ mod canvas;
 mod coloredit;
 mod command;
 mod icons;
+mod layerprops;
+mod layers;
 mod layout;
 mod menu;
 mod options;
 mod palette;
 pub mod shortcuts;
+mod sidebar;
 mod sysclip;
 mod toolbar;
 
 pub use app::PaintApp;
 pub use canvas::{CanvasMsg, PaintCanvas};
 pub use command::Command;
+pub use layers::LayersPanel;
 pub use layout::{COLORS_WIDTH, Observer};
 pub use options::{step_size, uses_size};
 pub use palette::{COLORS, PALETTE, Palette};
@@ -98,6 +102,27 @@ pub enum Msg {
     PasteExpand,
     /// The pasted picture is larger than the canvas: keep the canvas size.
     PasteKeep,
+    /// Make this layer (by index, 0 is the bottom) the one tools draw on.
+    LayerSelect(usize),
+    /// Toggle this layer's visibility (its eye in the Layers panel).
+    LayerEye(usize),
+    /// Open Layer Properties on this layer (a double click on its row).
+    LayerProps(usize),
+    /// The Layer Properties controls changed; the app reads them back.
+    PropsChanged,
+    /// Keep the Layer Properties edit.
+    PropsOk,
+    /// Restore the layer's properties and close Layer Properties.
+    PropsCancel,
+    /// Collapse or expand the History list.
+    HistoryToggle,
+    /// A History row was clicked: go to the state after that many edits (row 0
+    /// is the start).
+    HistoryJump(usize),
+    /// The colour editor's alpha slider moved (0-255).
+    ColorAlpha(u8),
+    /// Start a new document with a transparent background.
+    NewTransparent,
     /// A command whose feature a later phase builds; see [`Command`].
     Command(Command),
     /// Print the named widget rectangles (UI probe images only).

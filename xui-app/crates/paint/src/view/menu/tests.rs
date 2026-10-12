@@ -158,6 +158,8 @@ fn unbuilt_features_start_disabled_and_the_rest_enabled() {
                     can_redo: true,
                     selection: true,
                     can_paste: true,
+                    layers: 3,
+                    active: 1,
                 }
             ) == command.available(),
             "{} follows its availability",
@@ -204,4 +206,42 @@ fn unbuilt_features_start_disabled_and_the_rest_enabled() {
     for msg in [Msg::New, Msg::Quit, Msg::ResizeAsk, Msg::Clear, Msg::About] {
         assert!(is_enabled(msg, none), "{msg:?} always works");
     }
+}
+
+#[test]
+fn layer_rows_follow_the_stack() {
+    let at = |layers, active| Enabled {
+        layers,
+        active,
+        ..Enabled::default()
+    };
+    let on = |command, state| is_enabled(Msg::Command(command), state);
+    // A lone layer cannot be deleted, merged, moved or flattened.
+    let lone = at(1, 0);
+    for command in [
+        Command::DeleteLayer,
+        Command::MergeLayerDown,
+        Command::MoveLayerUp,
+        Command::MoveLayerDown,
+        Command::Flatten,
+    ] {
+        assert!(!on(command, lone), "{} needs more layers", command.label());
+    }
+    for command in [
+        Command::AddLayer,
+        Command::DuplicateLayer,
+        Command::LayerProperties,
+        Command::FlipLayerHorizontal,
+        Command::FlipVertical,
+        Command::Rotate180,
+    ] {
+        assert!(on(command, lone), "{} works on one layer", command.label());
+    }
+    // The bottom layer cannot go down or merge; the top cannot go up.
+    let bottom = at(3, 0);
+    assert!(!on(Command::MergeLayerDown, bottom) && !on(Command::MoveLayerDown, bottom));
+    assert!(on(Command::MoveLayerUp, bottom) && on(Command::DeleteLayer, bottom));
+    let top = at(3, 2);
+    assert!(!on(Command::MoveLayerUp, top));
+    assert!(on(Command::MergeLayerDown, top) && on(Command::Flatten, top));
 }

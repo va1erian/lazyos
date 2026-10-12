@@ -3,7 +3,7 @@
 //! Whole-document actions: undo/redo, clear, resize, new and load.
 
 use super::Model;
-use crate::model::{Bitmap, Document, Edit, MAX_SIDE, MIN_SIDE, WHITE};
+use crate::model::{Bitmap, Document, Edit, MAX_SIDE, MIN_SIDE, Pixel, WHITE};
 
 impl Model {
     /// Undoes the last committed action.
@@ -20,6 +20,37 @@ impl Model {
         if let Some(damage) = self.history.redo(&mut self.doc) {
             self.after_history(damage);
         }
+    }
+
+    /// Undoes until `applied` edits remain applied (the History panel's click
+    /// on an earlier row). Does nothing when that many are not applied.
+    pub fn undo_to(&mut self, applied: usize) {
+        self.settle();
+        while self.history.undo_len() > applied {
+            match self.history.undo(&mut self.doc) {
+                Some(damage) => self.after_history(damage),
+                None => break,
+            }
+        }
+    }
+
+    /// Redoes until `applied` edits are applied (a click on a later row).
+    /// Stops at the end of the redo stack.
+    pub fn redo_to(&mut self, applied: usize) {
+        self.settle();
+        while self.history.undo_len() < applied {
+            match self.history.redo(&mut self.doc) {
+                Some(damage) => self.after_history(damage),
+                None => break,
+            }
+        }
+    }
+
+    /// Moves the document to the state after `applied` edits, undoing or
+    /// redoing as needed.
+    pub fn jump_to(&mut self, applied: usize) {
+        self.undo_to(applied);
+        self.redo_to(applied);
     }
 
     fn after_history(&mut self, damage: crate::model::Damage) {
@@ -88,10 +119,16 @@ impl Model {
     /// Replaces the document with a fresh white one-layer document and an
     /// empty history.
     pub fn reset(&mut self, width: u32, height: u32) -> Result<(), String> {
+        self.reset_with(width, height, WHITE)
+    }
+
+    /// Like [`Model::reset`], with the single layer filled with `fill`
+    /// (`[0, 0, 0, 0]` is a transparent background).
+    pub fn reset_with(&mut self, width: u32, height: u32, fill: Pixel) -> Result<(), String> {
         let width = width.clamp(MIN_SIDE, MAX_SIDE);
         let height = height.clamp(MIN_SIDE, MAX_SIDE);
         self.check_fits(width, height, 1)?;
-        let doc = Document::new(width, height, WHITE).map_err(|e| e.to_string())?;
+        let doc = Document::new(width, height, fill).map_err(|e| e.to_string())?;
         self.replace(doc);
         Ok(())
     }

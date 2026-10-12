@@ -92,7 +92,11 @@ impl Model {
     /// Crops to `rect`; when `mask` is given, what it does not cover becomes
     /// transparent (scaled by the coverage at a soft edge) in the same
     /// history entry. The selection is gone afterwards.
-    pub(super) fn crop_masked(&mut self, rect: Rect, mask: Option<&Selection>) -> Result<(), String> {
+    pub(super) fn crop_masked(
+        &mut self,
+        rect: Rect,
+        mask: Option<&Selection>,
+    ) -> Result<(), String> {
         self.end();
         let rect = rect.intersect(self.doc.bounds());
         if rect.is_empty() {

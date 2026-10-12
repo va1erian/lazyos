@@ -43,6 +43,7 @@ static MENUS: &[Top] = &[
         title: "&File",
         rows: &[
             Row::Item(Msg::New, "&New"),
+            Row::Item(Msg::NewTransparent, "New &Transparent"),
             Row::Item(Msg::Open, "&Open..."),
             Row::Separator,
             Row::Item(Msg::Save, "&Save"),
@@ -199,7 +200,7 @@ fn items() -> impl Iterator<Item = (MenuId, Msg)> {
 }
 
 /// What decides whether a row is enabled besides its command.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Enabled {
     /// Whether there is something to undo.
     pub can_undo: bool,
@@ -211,6 +212,24 @@ pub(super) struct Enabled {
     pub selection: bool,
     /// Whether there is a picture to paste.
     pub can_paste: bool,
+    /// How many layers the image has.
+    pub layers: usize,
+    /// The active layer's index.
+    pub active: usize,
+}
+
+impl Default for Enabled {
+    fn default() -> Enabled {
+        Enabled {
+            can_undo: false,
+            can_redo: false,
+            io: false,
+            selection: false,
+            can_paste: false,
+            layers: 1,
+            active: 0,
+        }
+    }
 }
 
 /// Whether the row for `msg` is enabled in `state`.
@@ -220,12 +239,29 @@ pub(super) fn is_enabled(msg: Msg, state: Enabled) -> bool {
             command.available()
                 && (!command.needs_selection() || state.selection)
                 && (!command.needs_clipboard() || state.can_paste)
+                && command.layer_ok(state.layers, state.active)
         }
         Msg::Undo => state.can_undo,
         Msg::Redo => state.can_redo,
         Msg::Open | Msg::Save | Msg::SaveAs => state.io,
         _ => true,
     }
+}
+
+/// Whether `command` is enabled for `model`'s layers and selection, for the
+/// Layers panel's buttons (the menu reads the same rule through [`Enabled`]).
+pub(super) fn command_enabled(command: Command, model: &crate::model::Model) -> bool {
+    let doc = model.document();
+    is_enabled(
+        Msg::Command(command),
+        Enabled {
+            selection: model.selection().is_some(),
+            can_paste: true,
+            layers: doc.layers().len(),
+            active: doc.active(),
+            ..Enabled::default()
+        },
+    )
 }
 
 /// Sets every row's enabled state, once the menu is built.
@@ -240,7 +276,9 @@ pub(super) fn sync(menu: &Menu<Msg>, state: Enabled) {
     for (id, msg) in items() {
         let live = match msg {
             Msg::Undo | Msg::Redo => true,
-            Msg::Command(command) => command.needs_selection() || command.needs_clipboard(),
+            Msg::Command(command) => {
+                command.needs_selection() || command.needs_clipboard() || command.needs_layers()
+            }
             _ => false,
         };
         if live {

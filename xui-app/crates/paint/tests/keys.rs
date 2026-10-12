@@ -161,8 +161,12 @@ fn unbuilt_menu_rows_are_disabled() {
                 assert_eq!(
                     parts.menu.is_enabled(id),
                     // With no selection and nothing copied, the rows that
-                    // need one wait.
-                    command.available() && !command.needs_selection() && !command.needs_clipboard(),
+                    // need one wait, and so do those that need a second layer
+                    // (the new image has one).
+                    command.available()
+                        && !command.needs_selection()
+                        && !command.needs_clipboard()
+                        && command.layer_ok(1, 0),
                     "{}",
                     command.label()
                 );

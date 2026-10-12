@@ -122,7 +122,8 @@ impl Model {
     }
 
     /// Sets layer `index`'s name, visibility and opacity; unchanged properties
-    /// are not an undo step.
+    /// are not an undo step. The step is named for what changed ("Hide
+    /// Layer", "Layer Opacity", "Rename Layer"), else "Layer Properties".
     pub fn set_layer_props(&mut self, index: usize, props: LayerProps) -> Result<(), String> {
         self.settle();
         let Some(layer) = self.doc.layer_mut(index) else {
@@ -132,11 +133,12 @@ impl Model {
         if previous == props {
             return Ok(());
         }
+        let name = props_step_name(&previous, &props);
         layer.name = props.name;
         layer.visible = props.visible;
         layer.opacity = props.opacity;
         self.history.record(Edit::Layer {
-            name: "Layer Properties".to_string(),
+            name: name.to_string(),
             command: LayerCommand::Props {
                 index,
                 props: previous,
@@ -146,9 +148,50 @@ impl Model {
         Ok(())
     }
 
+    /// Shows `props` on layer `index` without a history step: the live
+    /// preview of Layer Properties. Finish with [`Model::apply_layer_props`]
+    /// (OK) or another preview of the original (Cancel).
+    pub fn preview_layer_props(&mut self, index: usize, props: LayerProps) {
+        self.settle();
+        if let Some(layer) = self.doc.layer_mut(index)
+            && layer.props() != props
+        {
+            layer.name = props.name;
+            layer.visible = props.visible;
+            layer.opacity = props.opacity;
+            self.layers_changed();
+        }
+    }
+
+    /// Commits a previewed edit as one step: `original` is what the layer had
+    /// before the preview began, `props` what it shows now.
+    pub fn apply_layer_props(
+        &mut self,
+        index: usize,
+        original: LayerProps,
+        props: LayerProps,
+    ) -> Result<(), String> {
+        self.preview_layer_props(index, original);
+        self.set_layer_props(index, props)
+    }
+
     fn layers_changed(&mut self) {
         self.preview = None;
         self.damage_all();
         self.bump();
+    }
+}
+
+/// The history name for a property change.
+fn props_step_name(before: &LayerProps, after: &LayerProps) -> &'static str {
+    let name = before.name != after.name;
+    let shown = before.visible != after.visible;
+    let opacity = before.opacity != after.opacity;
+    match (name, shown, opacity) {
+        (true, false, false) => "Rename Layer",
+        (false, true, false) if after.visible => "Show Layer",
+        (false, true, false) => "Hide Layer",
+        (false, false, true) => "Layer Opacity",
+        _ => "Layer Properties",
     }
 }

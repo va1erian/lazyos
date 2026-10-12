@@ -73,7 +73,9 @@ impl PaintApp {
             Command::PasteNewLayer => self.paste(ui, PasteKind::NewLayer),
             Command::PasteNewImage => self.paste(ui, PasteKind::NewImage),
             other => {
-                self.message = Some(format!("{} is not available yet", other.label()));
+                if !self.layer_command(ui, other) {
+                    self.message = Some(format!("{} is not available yet", other.label()));
+                }
             }
         }
     }

@@ -28,7 +28,10 @@ impl PaintApp {
     /// Reports every named control through the hook, if one is installed. The
     /// names: `canvas`, `menubar`, `tool:<Label>`, `size`, `swatch:primary`,
     /// `swatch:secondary`, `swap_colors`, `reset_colors`, `palette:<index>`, and
-    /// `color_ok`/`color_cancel` while the colour editor is open.
+    /// `color_ok`/`color_cancel`/`color_alpha` while the colour editor is open,
+    /// `layers`, `layer:<n>`, `layer_eye:<n>`, `layer_add`, `layer_delete`,
+    /// `layer_duplicate`, `layer_merge`, `layer_up`, `layer_down`,
+    /// `history_toggle`, `history`, and `props_*` while Layer Properties is open.
     pub(super) fn probe(&self, ui: &Ui<Msg>) {
         let Some(hook) = &self.probe else { return };
         let title = self.title();
@@ -55,6 +58,35 @@ impl PaintApp {
         {
             report("color_ok", ui.bounds(ok));
             report("color_cancel", ui.bounds(cancel));
+        }
+        report("layers", ui.bounds(self.sidebar.layers.get().id()));
+        let panel = self.sidebar.layers.get();
+        for layer in 0..panel.len() {
+            if let Some(rect) = panel.row_rect(layer) {
+                report(&format!("layer:{layer}"), rect);
+            }
+            if let Some(rect) = panel.eye_rect(layer) {
+                report(&format!("layer_eye:{layer}"), rect);
+            }
+        }
+        for (name, id) in self.sidebar.button_ids() {
+            report(name, ui.bounds(id));
+        }
+        report("history_toggle", ui.bounds(self.sidebar.toggle_id()));
+        if self.sidebar.history_open() {
+            report("history", ui.bounds(self.sidebar.history_id()));
+        }
+        if self.editing_layer.is_some()
+            && let Some(ids) = self.props.ids()
+        {
+            for (name, id) in ids {
+                report(name, ui.bounds(id));
+            }
+        }
+        if self.editing.is_some()
+            && let Some(id) = self.editor.alpha_id()
+        {
+            report("color_alpha", ui.bounds(id));
         }
         for index in 0..crate::view::COLORS {
             if let Some(rect) = self.palette.color_rect(index) {

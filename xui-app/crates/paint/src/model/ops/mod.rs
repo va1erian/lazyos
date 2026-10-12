@@ -15,7 +15,8 @@ pub use adjust::{
 };
 pub use resample::{Resample, box_fit, resample};
 pub use transform::{
-    Anchor, CanvasFill, Flip, Turn, flipped_h, flipped_v, placed, rotated_180, rotated_ccw, rotated_cw,
+    Anchor, CanvasFill, Flip, Turn, flipped_h, flipped_v, placed, rotated_180, rotated_ccw,
+    rotated_cw,
 };
 
 #[cfg(test)]

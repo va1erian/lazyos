@@ -25,13 +25,34 @@ impl PaintApp {
         self.editor.open(ui, side, original);
     }
 
-    /// The editor changed the colour: apply it live, keeping the alpha the
-    /// colour had when the edit began.
+    /// The editor's panel changed the colour: apply it live, keeping the alpha
+    /// the colour has now (the panel is RGB only).
     pub(super) fn color_editing(&mut self, edited: Pixel) {
-        let Some((side, original)) = self.editing else {
+        let Some((side, _)) = self.editing else {
             return;
         };
-        let color = [edited[0], edited[1], edited[2], original[3]];
+        let alpha = self.edited_color(side)[3];
+        self.set_edited(side, [edited[0], edited[1], edited[2], alpha]);
+    }
+
+    /// The alpha slider moved: apply it live.
+    pub(super) fn color_alpha(&mut self, alpha: u8) {
+        let Some((side, _)) = self.editing else {
+            return;
+        };
+        let color = self.edited_color(side);
+        self.set_edited(side, [color[0], color[1], color[2], alpha]);
+        self.editor.set_alpha(alpha);
+    }
+
+    fn edited_color(&self, side: Side) -> Pixel {
+        match side {
+            Side::Primary => self.model.primary(),
+            Side::Secondary => self.model.secondary(),
+        }
+    }
+
+    fn set_edited(&mut self, side: Side, color: Pixel) {
         match side {
             Side::Primary => self.model.set_primary(color),
             Side::Secondary => self.model.set_secondary(color),

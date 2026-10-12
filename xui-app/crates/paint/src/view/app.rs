@@ -12,15 +12,17 @@ use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
 use super::canvas::CanvasMsg;
 use super::coloredit::ColorEditor;
+use super::layerprops::LayerPropsDialog;
 use super::layout::{self, Observer};
 use super::menu::{self, Enabled};
 use super::options::{Options, step_size};
 use super::palette::Palette;
 use super::shortcuts::{float_key, shortcut, tool_hint};
+use super::sidebar::Sidebar;
 use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
 use super::{Msg, PaintCanvas};
-use crate::model::{Model, Pixel, Side, Tool};
+use crate::model::{LayerProps, Model, Pixel, Side, Tool};
 use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
@@ -28,7 +30,9 @@ use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 mod colors;
 mod commands;
 mod dialogs;
+mod doc_io;
 mod files;
+mod layers;
 mod probe;
 
 use commands::PasteKind;
@@ -43,6 +47,10 @@ pub struct PaintApp {
     toolbar: Rc<ToolStrip>,
     palette: Rc<Palette>,
     editor: ColorEditor,
+    props: LayerPropsDialog,
+    sidebar: Sidebar,
+    /// The layer whose properties are being edited and what it had.
+    editing_layer: Option<(usize, LayerProps)>,
     status: Rc<StatusBar<Msg>>,
     storage: Rc<dyn Storage>,
     observer: Rc<RefCell<Observer>>,
@@ -139,6 +147,8 @@ impl PaintApp {
             toolbar,
             palette,
             editor,
+            props,
+            sidebar,
             status,
         } = layout::mount(ui)?;
         let modal = Rc::new(Cell::new(false));
@@ -167,6 +177,9 @@ impl PaintApp {
             toolbar,
             palette,
             editor,
+            props,
+            sidebar,
+            editing_layer: None,
             status,
             storage,
             observer,
@@ -211,6 +224,8 @@ impl PaintApp {
             io: self.io(),
             selection: self.model.selection().is_some(),
             can_paste: self.model.clipboard().is_some() || self.system.is_some(),
+            layers: self.model.document().layers().len(),
+            active: self.model.document().active(),
         }
     }
 
@@ -262,6 +277,7 @@ impl PaintApp {
         self.palette
             .sync(self.model.primary(), self.model.secondary());
         self.options.sync(ui, &self.model);
+        self.sidebar.sync(ui, &self.model);
         menu::sync(&self.menu, self.enabled());
         self.modal.set(self.modal_open(ui));
         self.float_keys
@@ -312,60 +328,18 @@ impl PaintApp {
         observer.floating = self.model.is_floating();
         observer.zoom_percent = zoom_percent;
         observer.editing = self.editing.map(|(side, _)| side);
-        observer.status = [position, size, tool, message, zoom];
-    }
-
-    /// Saves the bitmap through the storage, reporting the outcome.
-    fn save(&mut self) {
-        let result = self
+        observer.layers = self
             .model
-            .flatten()
-            .encode_png()
-            .map_err(|error| error.to_string())
-            .and_then(|bytes| self.storage.save(&bytes));
-        self.message = Some(match result {
-            Ok(()) => "Saved".to_string(),
-            Err(error) => format!("Save failed: {error}"),
-        });
-    }
-
-    /// Decodes first, then swaps, so a failed load leaves the canvas intact.
-    fn open(&mut self) -> bool {
-        let Some(bytes) = self.storage.load() else {
-            self.message = Some("Open failed: nothing stored".to_string());
-            return false;
-        };
-        match crate::model::Bitmap::decode(&bytes) {
-            Ok(bitmap) => match self.model.load(bitmap) {
-                Ok(()) => {
-                    self.cursor = None;
-                    self.message = Some("Opened".to_string());
-                    true
-                }
-                Err(error) => {
-                    self.message = Some(format!("Open failed: {error}"));
-                    false
-                }
-            },
-            Err(error) => {
-                self.message = Some(format!("Open failed: {error}"));
-                false
-            }
-        }
-    }
-
-    /// Applies the size typed into the Resize prompt.
-    fn resize_chosen(&mut self, ui: &Ui<Msg>) {
-        ui.focus(self.canvas.id());
-        let Some(text) = self.resize.take_text() else {
-            return;
-        };
-        let result = crate::model::parse_size(&text)
-            .and_then(|(width, height)| self.model.resize(width, height).map(|()| (width, height)));
-        self.message = Some(match result {
-            Ok((width, height)) => format!("Resized to {width} x {height}"),
-            Err(error) => format!("Resize failed: {error}"),
-        });
+            .document()
+            .layers()
+            .iter()
+            .map(|l| (l.name.clone(), l.visible, l.opacity))
+            .collect();
+        observer.active_layer = self.model.document().active();
+        let history = self.model.history();
+        observer.history = (history.undo_len(), history.undo_len() + history.redo_len());
+        observer.props_open = self.editing_layer.is_some();
+        observer.status = [position, size, tool, message, zoom];
     }
 }
 
@@ -385,6 +359,10 @@ impl App for PaintApp {
                 | Msg::ColorEditing(_)
                 | Msg::ColorDone
                 | Msg::ColorCancel
+                | Msg::ColorAlpha(_)
+                | Msg::PropsChanged
+                | Msg::PropsOk
+                | Msg::PropsCancel
                 | Msg::Probe
                 | Msg::PasteExpand
                 | Msg::PasteKeep
@@ -411,6 +389,15 @@ impl App for PaintApp {
             Msg::HintTool(tool) => self.hint = tool,
             Msg::EditColor(side) => self.edit_color(ui, side),
             Msg::ColorEditing(color) => self.color_editing(color),
+            Msg::ColorAlpha(alpha) => self.color_alpha(alpha),
+            Msg::PropsChanged => self.props_changed(),
+            Msg::PropsOk => self.close_props(ui, true),
+            Msg::PropsCancel => self.close_props(ui, false),
+            Msg::LayerSelect(_) | Msg::LayerEye(_) | Msg::LayerProps(_) => {
+                self.layer_msg(ui, msg);
+            }
+            Msg::HistoryToggle => self.sidebar.toggle(ui),
+            Msg::HistoryJump(applied) => self.history_jump(applied),
             Msg::ColorDone => self.close_editor(ui, true),
             Msg::ColorCancel => self.close_editor(ui, false),
             Msg::Undo => {
@@ -433,6 +420,18 @@ impl App for PaintApp {
                 }
                 Err(error) => self.message = Some(format!("New failed: {error}")),
             },
+            Msg::NewTransparent => {
+                match self
+                    .model
+                    .reset_with(DEFAULT_WIDTH, DEFAULT_HEIGHT, [0, 0, 0, 0])
+                {
+                    Ok(()) => {
+                        self.cursor = None;
+                        self.current_path = None;
+                    }
+                    Err(error) => self.message = Some(format!("New failed: {error}")),
+                }
+            }
             Msg::Save => self.save_requested(),
             Msg::SaveAs => self.save_as_requested(),
             Msg::Open => self.open_requested(),

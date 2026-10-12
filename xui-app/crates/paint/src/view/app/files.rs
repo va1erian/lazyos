@@ -41,6 +41,7 @@ impl PaintApp {
             || self.paste_size.is_open()
             || self.about.is_open()
             || self.editor.is_open(ui)
+            || self.props.is_open(ui)
             || self.files.as_ref().is_some_and(|files| files.is_open())
     }
 

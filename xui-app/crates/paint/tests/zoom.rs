@@ -97,9 +97,6 @@ fn px(image: &Image, x: i32, y: i32) -> [u8; 4] {
     image.pixel(x as u32, y as u32).expect("inside the image")
 }
 
-/// Draws one red pencil dot at `DOT` (the middle of the picture) at 100%, then zooms with
-/// `notches` Ctrl+wheel steps around the canvas's top-left corner.
-
 /// The viewport after `notches` Ctrl+wheel steps around the picture's top-left
 /// pixel `around`, worked out with the same arithmetic the canvas uses.
 /// The dot's picture pixel: zooming around the middle of a picture that fits

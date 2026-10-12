@@ -4,10 +4,11 @@
 //! can touch the document's private fields. Every tool draws on the active
 //! layer and records a delta: the rectangle it overwrote.
 
+use super::alpha;
 use super::{Drag, Model, Pixel, PreviewKind, Side, Tool};
 use crate::model::history::UndoCapture;
 use crate::model::selection::mix_by;
-use crate::model::{Edit, MAX_BRUSH, Mods, Preview, fill, raster};
+use crate::model::{Bitmap, Edit, MAX_BRUSH, Mods, Preview, fill, raster};
 
 /// What the eraser writes: no colour, no alpha.
 const TRANSPARENT: Pixel = [0, 0, 0, 0];
@@ -164,11 +165,20 @@ impl Model {
                     let reach = raster::reach(start, end, diameter);
                     capture.touch(&target.pixels, reach);
                     let bitmap = &mut target.pixels;
-                    match self.tool {
-                        Tool::Line => raster::line(bitmap, start, end, diameter, color),
-                        Tool::Rectangle => raster::rectangle(bitmap, start, end, diameter, color),
-                        Tool::Ellipse => raster::ellipse(bitmap, start, end, diameter, color),
-                        _ => {}
+                    let tool = self.tool;
+                    let draw = move |bitmap: &mut Bitmap, at: (i32, i32), color: Pixel| {
+                        let (a, b) = (shift(start, at), shift(end, at));
+                        match tool {
+                            Tool::Line => raster::line(bitmap, a, b, diameter, color),
+                            Tool::Rectangle => raster::rectangle(bitmap, a, b, diameter, color),
+                            Tool::Ellipse => raster::ellipse(bitmap, a, b, diameter, color),
+                            _ => {}
+                        }
+                    };
+                    if alpha::blends(tool, color) {
+                        alpha::paint_over(bitmap, &capture, reach, color, draw);
+                    } else {
+                        draw(bitmap, (0, 0), color);
                     }
                     capture.clip(bitmap, reach, selection);
                 }
@@ -224,7 +234,14 @@ impl Model {
             return;
         }
         capture.touch(&target.pixels, area);
-        raster::line(&mut target.pixels, from, to, diameter, color);
+        let draw = |bitmap: &mut Bitmap, at: (i32, i32), color: Pixel| {
+            raster::line(bitmap, shift(from, at), shift(to, at), diameter, color);
+        };
+        if alpha::blends(self.tool, color) {
+            alpha::paint_over(&mut target.pixels, capture, area, color, draw);
+        } else {
+            draw(&mut target.pixels, (0, 0), color);
+        }
         capture.clip(&mut target.pixels, area, selection);
         self.damage_rect(area);
     }
@@ -331,4 +348,9 @@ impl Model {
     pub(super) fn bump(&mut self) {
         self.revision = self.revision.wrapping_add(1);
     }
+}
+
+/// `point` moved by `by`, without overflowing.
+fn shift(point: (i32, i32), by: (i32, i32)) -> (i32, i32) {
+    (point.0.saturating_add(by.0), point.1.saturating_add(by.1))
 }

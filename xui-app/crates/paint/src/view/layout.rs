@@ -10,13 +10,15 @@
 //! |tool|                                  | Colors         |
 //! |grid|  canvas (or the colour editor)   | primary/second |
 //! | 2  |                                  | 32 swatches    |
+//! |    |                                  | Layers + strip |
+//! |    |                                  | History        |
 //! +----+----------------------------------+----------------+
 //! | 100, 40 | 320 x 240 | Pencil | message                 |  status bar
 //! +--------------------------------------------------------+
 //! ```
 //!
-//! The layers and history panels of docs/paint-plan.md section 3 join the right
-//! column in P3.
+//! The right column holds the Colors panel, the Layers panel with its button
+//! strip and the collapsible History list ([`super::sidebar`]).
 
 use std::rc::Rc;
 
@@ -27,9 +29,11 @@ use xui_core::backend::Result;
 use xui_core::widget::{Menu, StatusBar};
 
 use super::coloredit::ColorEditor;
+use super::layerprops::LayerPropsDialog;
 use super::menu;
 use super::options::{self, Options};
 use super::palette::Palette;
+use super::sidebar::Sidebar;
 use super::toolbar::{self, ToolStrip};
 use super::{Msg, PaintCanvas};
 use crate::model::{Pixel, Side, Tool};
@@ -76,6 +80,14 @@ pub struct Observer {
     pub selection: Option<(i32, i32, u32, u32)>,
     /// Whether lifted or pasted pixels are waiting to be placed.
     pub floating: bool,
+    /// Each layer's name, visibility and opacity, bottom layer first.
+    pub layers: Vec<(String, bool, u8)>,
+    /// The active layer's index.
+    pub active_layer: usize,
+    /// How many edits are applied, and how many in all (applied plus undone).
+    pub history: (usize, usize),
+    /// Whether Layer Properties is open.
+    pub props_open: bool,
     /// The five status-bar parts: position, size, tool, message, zoom.
     pub status: [String; 5],
 }
@@ -95,6 +107,10 @@ impl Default for Observer {
             editing: None,
             selection: None,
             floating: false,
+            layers: Vec::new(),
+            active_layer: 0,
+            history: (0, 0),
+            props_open: false,
             status: Default::default(),
         }
     }
@@ -108,6 +124,8 @@ pub(super) struct Widgets {
     pub toolbar: Rc<ToolStrip>,
     pub palette: Rc<Palette>,
     pub editor: ColorEditor,
+    pub props: LayerPropsDialog,
+    pub sidebar: Sidebar,
     pub status: Rc<StatusBar<Msg>>,
 }
 
@@ -124,6 +142,8 @@ pub(super) fn mount(ui: &Ui<Msg>) -> Result<Widgets> {
     );
     let options = Options::new();
     let editor = ColorEditor::new();
+    let props = LayerPropsDialog::new();
+    let sidebar = Sidebar::new();
     ui.root(
         column().children((
             menu::bar().bind(&menu_handle).height(MENU_HEIGHT),
@@ -132,15 +152,20 @@ pub(super) fn mount(ui: &Ui<Msg>) -> Result<Widgets> {
                 .children((
                     build(ToolStrip::new).bind(&toolbar).width(toolbar::WIDTH),
                     stack()
-                        .children((build(PaintCanvas::new).bind(&canvas), editor.layout()))
+                        .children((
+                            build(PaintCanvas::new).bind(&canvas),
+                            editor.layout(),
+                            props.layout(),
+                        ))
                         .fill(1),
-                    build(Palette::new).bind(&palette).width(COLORS_WIDTH),
+                    sidebar.layout(&palette).width(COLORS_WIDTH),
                 ))
                 .fill(1),
             status_bar(&["--", "320 x 240", "Pencil", "", "100%"]).bind(&status),
         )),
     )?;
     editor.hide_initially(ui);
+    props.hide_initially(ui);
     Ok(Widgets {
         menu: menu_handle.get(),
         options,
@@ -148,6 +173,8 @@ pub(super) fn mount(ui: &Ui<Msg>) -> Result<Widgets> {
         toolbar: toolbar.get(),
         palette: palette.get(),
         editor,
+        props,
+        sidebar,
         status: status.get(),
     })
 }

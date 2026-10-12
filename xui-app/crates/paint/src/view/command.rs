@@ -173,6 +173,45 @@ impl Command {
                 | Command::SelectAll
                 | Command::Deselect
                 | Command::CropToSelection
+                | Command::FlipHorizontal
+                | Command::FlipVertical
+                | Command::Rotate90Cw
+                | Command::Rotate90Ccw
+                | Command::Rotate180
+                | Command::Flatten
+                | Command::AddLayer
+                | Command::DeleteLayer
+                | Command::DuplicateLayer
+                | Command::MergeLayerDown
+                | Command::MoveLayerUp
+                | Command::MoveLayerDown
+                | Command::FlipLayerHorizontal
+                | Command::FlipLayerVertical
+                | Command::LayerProperties
+        )
+    }
+
+    /// Whether the layer stack allows the command: a layer count and the
+    /// active layer's index decide Delete, Merge Down, Move and Flatten.
+    pub const fn layer_ok(self, layers: usize, active: usize) -> bool {
+        match self {
+            Command::DeleteLayer | Command::Flatten => layers > 1,
+            Command::MergeLayerDown | Command::MoveLayerDown => active > 0,
+            Command::MoveLayerUp => active + 1 < layers,
+            _ => true,
+        }
+    }
+
+    /// Whether [`Command::layer_ok`] can say no, so a menu row must follow the
+    /// layer stack.
+    pub const fn needs_layers(self) -> bool {
+        matches!(
+            self,
+            Command::DeleteLayer
+                | Command::Flatten
+                | Command::MergeLayerDown
+                | Command::MoveLayerUp
+                | Command::MoveLayerDown
         )
     }
 

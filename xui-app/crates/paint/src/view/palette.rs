@@ -377,7 +377,7 @@ fn paint(canvas: &mut dyn Canvas, state: &State, theme: &xui_core::Theme) {
         (Hit::Secondary, geometry.secondary(), state.secondary.get()),
         (Hit::Primary, geometry.primary(), state.primary.get()),
     ] {
-        canvas.fill_rect(rect, color_of(color));
+        fill_swatch(canvas, rect, color);
         canvas.stroke_rect(rect, ring(hit), 1.0);
     }
 
@@ -401,6 +401,34 @@ fn paint(canvas: &mut dyn Canvas, state: &State, theme: &xui_core::Theme) {
         canvas.stroke_rect(rect.shrink(1), ring(Hit::Color(index)), 1.0);
     }
     canvas.pop_clip();
+}
+
+/// Fills `rect` with `color`; one that is not opaque is shown over a
+/// checkerboard, mixed cell by cell, so its alpha can be seen.
+fn fill_swatch(canvas: &mut dyn Canvas, rect: Rect, color: Pixel) {
+    if color[3] == 255 {
+        canvas.fill_rect(rect, color_of(color));
+        return;
+    }
+    let cell = (rect.width() / 4).max(2);
+    let mut y = rect.top;
+    while y < rect.bottom {
+        let mut x = rect.left;
+        while x < rect.right {
+            let dark = ((x - rect.left) / cell + (y - rect.top) / cell) % 2 == 1;
+            let grey = if dark { 204 } else { 255 };
+            let under = [grey, grey, grey, 255];
+            let part = Rect::new(
+                x,
+                y,
+                (x + cell).min(rect.right),
+                (y + cell).min(rect.bottom),
+            );
+            canvas.fill_rect(part, color_of(crate::model::source_over(under, color, 255)));
+            x += cell;
+        }
+        y += cell;
+    }
 }
 
 /// The reset glyph: a small black square in front of a white one, the colours

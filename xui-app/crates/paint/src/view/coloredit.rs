@@ -11,18 +11,20 @@
 //!
 //! Changes reach the app live ([`Msg::ColorEditing`]), so the swatch follows the
 //! pointer; OK keeps the colour and Cancel restores the one the edit started
-//! from. The panel carries no alpha: the model's colours are opaque until the
-//! layers phase (P3) adds it.
+//! from. xui's panel is RGB only (xui gap: G19), so an Alpha slider sits under
+//! it ([`Msg::ColorAlpha`]); the panel's own changes keep the colour's alpha.
 
 use std::rc::Rc;
 
 use xui_core::Color;
 use xui_core::app::Ui;
 use xui_core::arrange::{GroupBuild, Layout};
-use xui_core::arrange::{Handle, LayoutExt, button, color_panel, column, group, label, row};
+use xui_core::arrange::{
+    Handle, LayoutExt, button, color_panel, column, group, label, row, slider,
+};
 use xui_core::backend::WidgetId;
 use xui_core::layout::Align;
-use xui_core::widget::{Button, ColorPanel, GroupBox};
+use xui_core::widget::{Button, ColorPanel, GroupBox, HasText, Label, Slider};
 
 use super::{Msg, color_of};
 use crate::model::{Pixel, Side};
@@ -31,6 +33,8 @@ use crate::model::{Pixel, Side};
 pub(super) struct ColorEditor {
     frame: Handle<GroupBox<Msg>>,
     panel: Handle<ColorPanel<Msg>>,
+    alpha: Handle<Slider<Msg>>,
+    alpha_value: Handle<Label<Msg>>,
     ok: Handle<Button<Msg>>,
     cancel: Handle<Button<Msg>>,
 }
@@ -45,6 +49,8 @@ impl ColorEditor {
         ColorEditor {
             frame: Handle::new(),
             panel: Handle::new(),
+            alpha: Handle::new(),
+            alpha_value: Handle::new(),
             ok: Handle::new(),
             cancel: Handle::new(),
         }
@@ -61,6 +67,18 @@ impl ColorEditor {
                 })
                 .bind(&self.panel)
                 .fill(1),
+            row()
+                .gap(8)
+                .align(Align::Center)
+                .children((
+                    label("Alpha:").width(50),
+                    slider(0.0, 255.0)
+                        .on_change(|value| Msg::ColorAlpha(value.round().clamp(0.0, 255.0) as u8))
+                        .bind(&self.alpha)
+                        .fill(1),
+                    label("100%").bind(&self.alpha_value).width(48),
+                ))
+                .fixed(28),
             row()
                 .gap(8)
                 .align(Align::Center)
@@ -95,8 +113,21 @@ impl ColorEditor {
         });
         self.panel.get().set_color(color_of(colour));
         self.panel.get().select_tab(1);
+        self.set_alpha(colour[3]);
         ui.set_visible(frame.id(), true);
         ui.relayout();
+    }
+
+    /// Shows `alpha` on the slider and its label.
+    pub(super) fn set_alpha(&self, alpha: u8) {
+        self.alpha.get().set_value(f64::from(alpha));
+        let percent = super::layerprops::percent(alpha);
+        self.alpha_value.get().set_text(&format!("{percent}%"));
+    }
+
+    /// The alpha slider's node, for the UI probe.
+    pub(super) fn alpha_id(&self) -> Option<WidgetId> {
+        Some(self.alpha.try_get()?.id())
     }
 
     /// Hides the editor.
