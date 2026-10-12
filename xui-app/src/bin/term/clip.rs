@@ -40,9 +40,6 @@ pub(super) fn watch_drops(backend: &LazyOSBackend, outbox: Rc<RefCell<Option<Pro
     });
 }
 
-/// Whether a multi-line paste asks first (`paste/confirm_multiline`, a
-/// setting from T3 on; always on until then).
-const CONFIRM_MULTILINE: bool = true;
 /// How many of a paste's last lines `TERM:CMD` reports.
 const MAX_TRACKED_LINES: usize = 8;
 
@@ -73,7 +70,7 @@ impl Terminal {
             return;
         }
         let bracketed = self.term.borrow().bracketed_paste();
-        if CONFIRM_MULTILINE && needs_confirmation(&text, bracketed) {
+        if self.conf.settings.confirm_multiline && needs_confirmation(&text, bracketed) {
             let lines = line_count(&text);
             println!("TERM:PASTE:CONFIRM:{lines}");
             self.pending_text = Some(text);

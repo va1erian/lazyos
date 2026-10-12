@@ -21,30 +21,47 @@
 //! Serial evidence: `TERM:UP:PASS` after the first frame, `TERM:CMD:<line>` for
 //! each submitted command, `TERM:OUT:<line>` for each completed output line,
 //! `TERM:EXIT:PASS` when the shell exits or the window is closed, and
-//! `TERM:SPAWN:FAIL:<reason>` when the child cannot start.
+//! `TERM:SPAWN:FAIL:<reason>` when the child cannot start. `TERM:FONT:<family>:
+//! <size>:<cols>x<rows>` reports the effective font and grid whenever either
+//! changes (settings in `confd` under `user/<uid>/term/`, or zoom).
 
-
+use std::cell::{Cell, RefCell};
 use std::os::unix::io::RawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
+use std::rc::Rc;
 
+use lazyterm::input::Button;
+use lazyterm::Rgb;
+use lazyterm::Term as Engine;
 use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
-use xui_core::app::{App, Ui};
-use xui_core::app::Proxy;
+use xui_core::app::{App, Proxy, Ui};
 use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, PlatformSpec, TimerId};
 use xui_core::{Control, Dip, Key};
 
+#[path = "term/appearance.rs"]
+mod appearance;
+#[path = "term/blink.rs"]
+mod blink;
 #[path = "term/clicks.rs"]
 mod clicks;
 #[path = "term/clip.rs"]
 mod clip;
+#[path = "term/conf.rs"]
+mod conf;
 #[path = "term/evidence.rs"]
 mod evidence;
+#[path = "term/fonts.rs"]
+mod fonts;
 #[path = "term/geometry.rs"]
 mod geometry;
 #[path = "term/keys.rs"]
 mod keys;
+#[path = "term/look.rs"]
+mod look;
+#[path = "term/metrics.rs"]
+mod metrics;
 #[path = "term/msg.rs"]
 mod msg;
 #[path = "term/output.rs"]
@@ -61,21 +78,18 @@ mod pty;
 mod scroll;
 #[path = "term/view.rs"]
 mod view;
+
+use blink::Blink;
 use clicks::Clicks;
 use clip::watch_drops;
+use conf::{Conf, Follower};
 use evidence::{is_prompt, Evidence};
-use lazyterm::input::Button;
-use lazyterm::Term as Engine;
-use paint::{paint, DARK, LIGHT, LINE_H, PAD};
-use perf::{PaintClock, Perf};
+use look::Look;
 use msg::Msg;
+use paint::{paint, Scene};
+use perf::{PaintClock, Perf};
 use pointer::{mouse, probe_grid, MouseKind};
-
 use view::{Layout, Shown};
-
-use std::cell::{Cell, RefCell};
-
-use std::rc::Rc;
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
 /// `busybox sh -i`. `argv[0]` (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox
@@ -84,15 +98,12 @@ const SHELL: &str = fhs::bin::BUSYBOX;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);
-/// The terminal geometry BusyBox sees through `TIOCGWINSZ`: 80 columns and
-/// at most 24 rows (the rows the window shows). The engine is created with
-/// exactly the pty's size, so a program that addresses the screen from its
-/// own idea of the height (`less` does not use the alternate screen) lands
-/// where the shell expects; a taller engine left stale rows under the
-/// prompt. Making the window resizable and the pty follow it is a later
-/// phase (docs/terminal-plan.md T4).
+/// The columns of the pty and the engine: BusyBox's line editor breaks a long
+/// command at the margin with its own newline, and the evidence reads that, so
+/// the width is not the window's until the resize phase (docs/terminal-plan.md
+/// T4); the window clips what it cannot show. The rows are what the window
+/// holds at the font's line height (`term/appearance.rs`).
 const COLS: usize = 80;
-const ROWS: usize = 24;
 /// A safety-net drain: the pty wakes the loop itself (`watch_fd`), so this
 /// only matters if a wake were ever missed. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
@@ -147,12 +158,56 @@ struct Terminal {
     /// painter's bar.
     pending_text: Option<String>,
     pending: Rc<Cell<Option<usize>>>,
+    /// How the grid looks (shared with the painter), the settings in force,
+    /// the families found, and what follows `confd`.
+    look: Rc<RefCell<Look>>,
+    conf: Conf,
+    fonts: Rc<fonts::Fonts>,
+    follower: Follower,
+    /// This window's zoom steps (never stored), the theme's darkness and the
+    /// scheme last given to the engine, and the last `TERM:FONT` line.
+    zoom: i32,
+    dark: bool,
+    applied_scheme: Option<(String, bool)>,
+    marker: Option<String>,
+    /// The cursor blink and its timer, which runs only while it is needed.
+    blink: Blink,
+    blink_timer: Rc<Cell<Option<TimerId>>>,
 }
 
 impl Terminal {
     fn finish(&self, ui: &mut Ui<Msg>) {
         println!("TERM:EXIT:PASS");
         ui.quit();
+    }
+
+    /// Output arrived: feed the engine, answer its queries, report the
+    /// evidence, repaint what changed.
+    fn output(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
+        let (top, completed, reply) = {
+            let mut term = self.term.borrow_mut();
+            let top = term.screen_top();
+            (top, term.feed(bytes), term.take_reply())
+        };
+        self.follow(top);
+        // Answers to cursor-position and device-attribute queries go back to
+        // the program; ones that wait for them hang.
+        if !reply.is_empty() {
+            self.send(&reply);
+        }
+        for line in &completed {
+            if let Some(marker) = self.evidence.line(line) {
+                println!("TERM:OUT:{marker}");
+            }
+        }
+        self.touch(ui);
+        self.refresh(ui);
+        let at_prompt = {
+            let term = self.term.borrow();
+            let row = term.row_text(term.cursor().0);
+            !row.is_empty() && is_prompt(&row)
+        };
+        self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
     }
 }
 
@@ -171,47 +226,43 @@ impl App for Terminal {
             Msg::Tick => {
                 let bytes = self.drain();
                 if !bytes.is_empty() {
-                    let (top, completed, reply) = {
-                        let mut term = self.term.borrow_mut();
-                        let top = term.screen_top();
-                        (top, term.feed(&bytes), term.take_reply())
-                    };
-                    self.follow(top);
-                    // Answers to cursor-position and device-attribute queries
-                    // go back to the program; ones that wait for them hang.
-                    if !reply.is_empty() {
-                        self.send(&reply);
-                    }
-                    for line in &completed {
-                        if let Some(marker) = self.evidence.line(line) {
-                            println!("TERM:OUT:{marker}");
-                        }
-                    }
-                    self.refresh(ui);
-                    let at_prompt = {
-                        let term = self.term.borrow();
-                        let row = term.row_text(term.cursor().0);
-                        !row.is_empty() && is_prompt(&row)
-                    };
-                    self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
+                    self.output(ui, &bytes);
                 }
+                if let Some(conf) = self.follower.poll() {
+                    self.apply_conf(ui, conf);
+                }
+                self.follow_theme(ui);
                 if self.hung_up {
                     self.finish(ui);
                 }
             }
             Msg::Autoscroll => self.autoscroll(ui),
             Msg::Flush => self.flush_out(),
+            Msg::Blink => self.blink_tick(ui),
+            Msg::Focus(focused) => self.focus_changed(ui, focused),
             // While the paste confirmation is up the keyboard answers it.
             Msg::Char('\r' | '\n') if self.pending_text.is_some() => self.confirm(ui, true),
             Msg::Key(Key::ESCAPE, _) if self.pending_text.is_some() => self.confirm(ui, false),
             Msg::Char(_) | Msg::Key(..) if self.pending_text.is_some() => {}
-            Msg::Char(ch) => self.key(ch, ui),
+            Msg::Char(ch) => {
+                self.touch(ui);
+                self.key(ch, ui);
+            }
             // Both input paths also deliver Enter and Backspace as `Char`s:
             // handling the key too would send each one twice.
             Msg::Key(Key::RETURN | Key::BACK, _) => {}
-            Msg::Key(key, mods) => self.key_chord(ui, key, mods),
-            Msg::Wheel(delta, mods, x, y) => self.wheel(ui, delta, mods, (x, y)),
-            Msg::Mouse(mouse) => self.mouse(ui, mouse),
+            Msg::Key(key, mods) => {
+                self.touch(ui);
+                self.key_chord(ui, key, mods);
+            }
+            Msg::Wheel(delta, mods, x, y) => {
+                self.touch(ui);
+                self.wheel(ui, delta, mods, (x, y));
+            }
+            Msg::Mouse(mouse) => {
+                self.touch(ui);
+                self.mouse(ui, mouse);
+            }
             Msg::Dropped(paths) => self.dropped(ui, paths),
             Msg::Close => self.finish(ui),
         }
@@ -221,10 +272,13 @@ impl App for Terminal {
 
 fn main() {
     std::panic::set_hook(Box::new(|info| println!("TERM:PANIC:{info}")));
-    // The Terminal is a fixed character grid, so it alone uses the monospace
-    // face; this must precede the backend, which builds the shaper lazily.
-    xui_canvas::add_font(xui_app::font::MONO_BYTES.to_vec());
-    xui_canvas::set_default_family(xui_app::font::MONO_FAMILY);
+    // The shaper builds its font database on its first use, so every face is
+    // registered now, before the backend exists: JetBrains Mono (built in) and
+    // the monospace families under `/system/share/fonts` and the user's own.
+    let fonts = Rc::new(fonts::register(&fonts::directories()));
+    xui_canvas::set_default_family(fonts::BUILT_IN);
+    let mut follower = Follower::new();
+    let conf = follower.read();
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
@@ -235,41 +289,17 @@ fn main() {
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("TERM:UP:PASS"));
 
-    let mut shell = Command::new(SHELL);
-    shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
-    shell.env("TERM", "vt100");
-    // The rows programs see are the ones the window shows (the paint
-    // formula), so a full-screen program's status line stays visible. The
-    // width stays the grid's full 80 columns: a narrower tty makes the
-    // shell wrap a long command line onto two rows, and `TERM:OUT` (one per
-    // command, the line after the command's own echo) then reports the
-    // wrapped tail of the echo instead of the output (the Doom session's
-    // 75-column timedemo command). Columns past the window are clipped, as
-    // they always were.
-    let rows = (((height - 2 * PAD) / LINE_H).max(1) as usize).min(ROWS);
-    let cols = COLS;
-    let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
-        Ok(spawned) => spawned,
-        Err(error) => {
-            println!("TERM:SPAWN:FAIL:{error}");
-            backend.unbind();
-            std::process::exit(1);
-        }
-    };
-    set_nonblocking(master.fd());
-
-    let term = Rc::new(RefCell::new(Engine::new(cols, rows)));
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
     let offset = Rc::new(Cell::new(0usize));
     let auto: Rc<Cell<Option<TimerId>>> = Rc::default();
     let flush: Rc<Cell<Option<TimerId>>> = Rc::default();
+    let blink_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
     let pending: Rc<Cell<Option<usize>>> = Rc::default();
     // Files dropped on the window arrive on the backend's hook; the proxy
     // turns them into a message once the UI exists.
     let outbox: Rc<RefCell<Option<Proxy<Msg>>>> = Rc::default();
     watch_drops(&backend, Rc::clone(&outbox));
-    backend.watch_fd(master.fd());
     let spec = PlatformSpec::new("Terminal").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, |ui| {
         // `wants_tab`: Tab must reach the shell (completion), not move the
@@ -279,8 +309,32 @@ fn main() {
             &NodeSpec::new(NodeKind::Custom, ui.client_rect()).wants_tab(),
         )
         .expect("root node");
+        // The cell comes from the font, so the pty's rows (what the window
+        // holds) are known only now.
+        let settings = &conf.settings;
+        let family = fonts.catalog.choose(&settings.family, fonts::BUILT_IN);
+        let metrics = look::measure(ui, family, settings.zoomed_size(0) as f32, settings.line_spacing);
+        let styles = fonts.catalog.styles(family).unwrap_or_default();
+        let look = Rc::new(RefCell::new(Look::new(metrics, family, styles)));
+        let height = ui.client_rect().height();
+        let rows = (((height - 2 * metrics.pad) / metrics.line_h).max(1) as usize).min(200);
+        let mut shell = Command::new(SHELL);
+        shell.arg0(fhs::boot::BUSYBOX_ARGV0).args(["sh", "-i"]);
+        shell.env("TERM", "vt100");
+        let (master, child) = match pty::spawn(shell, rows as u16, COLS as u16) {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                println!("TERM:SPAWN:FAIL:{error}");
+                backend.unbind();
+                std::process::exit(1);
+            }
+        };
+        set_nonblocking(master.fd());
+        backend.watch_fd(master.fd());
+        let term = Rc::new(RefCell::new(Engine::new(COLS, rows)));
         {
             let term = Rc::clone(&term);
+            let look = Rc::clone(&look);
             let theme = ui.theme_handle();
             let clock = Rc::clone(&paint_clock);
             let layout = Rc::clone(&layout);
@@ -288,11 +342,17 @@ fn main() {
             let pending = Rc::clone(&pending);
             let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
-                let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
+                let accent = theme.get().accent;
+                let (term, look) = (term.borrow(), look.borrow());
+                let scene = Scene {
+                    term: &term,
+                    look: &look,
+                    offset: offset.get(),
+                    pending: pending.get(),
+                    accent: Rgb(accent.r, accent.g, accent.b),
+                };
                 let damage = backend.paint_damage();
-                let laid = clock.time(|| {
-                    paint(canvas, palette, &term.borrow(), offset.get(), pending.get(), damage)
-                });
+                let laid = clock.time(|| paint(canvas, &scene, damage));
                 if layout.replace(Some(laid)).is_none() {
                     probe_grid(&laid);
                 }
@@ -301,6 +361,8 @@ fn main() {
         root.on_events(|event| match event {
             Event::Char(ch) => Some(Msg::Char(*ch)),
             Event::KeyDown { key, modifiers, .. } => Some(Msg::Key(*key, *modifiers)),
+            Event::SetFocus => Some(Msg::Focus(true)),
+            Event::KillFocus => Some(Msg::Focus(false)),
             Event::MouseWheel {
                 delta,
                 horizontal: false,
@@ -336,22 +398,24 @@ fn main() {
         *outbox.borrow_mut() = Some(ui.proxy());
         root.focus();
         ui.on_close(|| Some(Msg::Close));
-        let (timer_auto, timer_flush) = (Rc::clone(&auto), Rc::clone(&flush));
+        let timers = (Rc::clone(&auto), Rc::clone(&flush), Rc::clone(&blink_timer));
         ui.on_timer(move |id| {
-            Some(if timer_auto.get() == Some(id) {
+            Some(if timers.0.get() == Some(id) {
                 Msg::Autoscroll
-            } else if timer_flush.get() == Some(id) {
+            } else if timers.1.get() == Some(id) {
                 Msg::Flush
+            } else if timers.2.get() == Some(id) {
+                Msg::Blink
             } else {
                 Msg::Tick
             })
         });
         ui.set_timer(FALLBACK_MILLIS);
-        Terminal {
+        let mut terminal = Terminal {
             child,
             master,
             hung_up: false,
-            term: Rc::clone(&term),
+            term,
             typed: String::new(),
             evidence: Evidence::default(),
             root,
@@ -369,7 +433,19 @@ fn main() {
             flush: Rc::clone(&flush),
             pending_text: None,
             pending: Rc::clone(&pending),
-        }
+            look,
+            conf: conf.clone(),
+            fonts: Rc::clone(&fonts),
+            follower,
+            zoom: 0,
+            dark: false,
+            applied_scheme: None,
+            marker: None,
+            blink: Blink::default(),
+            blink_timer: Rc::clone(&blink_timer),
+        };
+        terminal.restyle(ui);
+        terminal
     });
 
     backend.unbind();

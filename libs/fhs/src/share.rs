@@ -10,6 +10,15 @@ pub const MIME_TYPES: &str = "/system/share/mime.types";
 /// Written by the image build.
 pub const WALLPAPERS: &str = "/system/share/wallpapers";
 
+/// Where fonts are installed for every user (`.ttf`/`.otf`, one level of
+/// subdirectories): the Terminal offers the monospace families found here.
+pub const FONTS: &str = "/system/share/fonts";
+
+/// A user's own fonts, relative to their home directory
+/// (`~/.local/share/fonts`): the Terminal offers the monospace families
+/// found here too.
+pub const USER_FONTS_SUBDIR: &str = ".local/share/fonts";
+
 /// The Liberation fonts a desktop image ships (`Liberation{Sans,Serif,Mono}-
 /// {Regular,Bold,Italic,BoldItalic}.ttf`, SIL OFL 1.1; `assets/fonts/liberation`),
 /// metric-compatible with Arial, Times New Roman and Courier New: LazyWeb

@@ -2777,6 +2777,7 @@ dependencies = [
 name = "lazyterm"
 version = "0.1.0"
 dependencies = [
+ "ttf-parser",
  "unicode-width",
  "vte",
 ]

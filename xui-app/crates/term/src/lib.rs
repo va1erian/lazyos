@@ -11,22 +11,31 @@
 //! (margins, scroll regions, wide characters, the alternate screen, deferred
 //! wrap) are ours.
 
+mod boxarms;
+pub mod boxdraw;
 mod cell;
 mod edit;
+pub mod font;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 mod handler;
 mod history;
 pub mod input;
+mod osc;
+pub mod palette;
 pub mod paste;
+pub mod render;
 mod row;
 mod selection;
+pub mod settings;
 mod screen;
 mod state;
 #[cfg(test)]
 mod bench;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_color;
 #[cfg(test)]
 mod tests_input;
 #[cfg(test)]
@@ -36,6 +45,7 @@ mod tests_history;
 
 pub use cell::{Attr, Cell, Color, Flags};
 pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
+pub use palette::{Palette, Rgb, Scheme};
 pub use row::Row;
 pub use selection::{Point, SelectMode};
 
@@ -156,6 +166,18 @@ impl Term {
     /// Whether pasted text should be bracketed (`?2004`).
     pub fn bracketed_paste(&self) -> bool {
         self.state.bracketed_paste
+    }
+
+    /// The colours in force: the scheme's, as the program has changed them
+    /// (OSC 4/10/11/12).
+    pub fn palette(&self) -> &Palette {
+        &self.state.palette
+    }
+
+    /// Use another colour scheme (a settings change, or the desktop going
+    /// dark or light); what a program changed is dropped.
+    pub fn set_scheme(&mut self, scheme: Scheme) {
+        self.state.palette.set_scheme(scheme);
     }
 
     // ---- scrollback ------------------------------------------------------

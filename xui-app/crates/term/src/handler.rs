@@ -42,6 +42,10 @@ impl Perform for State {
         }
     }
 
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.osc(params, bell_terminated);
+    }
+
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
         if ignore {
             return;

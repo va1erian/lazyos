@@ -7,9 +7,10 @@ use std::io::{Read, Write};
 
 use xui_core::app::Ui;
 
+use super::blink::PERIOD_MS;
 use super::scroll::{anchored, apply, Move};
 use super::view::max_offset;
-use super::{Msg, Terminal, FLUSH_MILLIS, INPUT_CHUNK, ROWS};
+use super::{Msg, Terminal, FLUSH_MILLIS, INPUT_CHUNK};
 
 impl Terminal {
     /// Write to the pty without touching the view (answers to queries). What
@@ -40,13 +41,23 @@ impl Terminal {
         }
     }
 
-    /// Run the retry timer while input is queued, and not otherwise.
+    /// Run the timers that exist only while they are needed: the retry timer
+    /// while input is queued, the blink timer while the cursor blinks. An idle
+    /// Terminal runs neither, so it costs no frames.
     pub(super) fn pump(&mut self, ui: &mut Ui<Msg>) {
         match (self.out.is_empty(), self.flush.get()) {
             (false, None) => self.flush.set(Some(ui.set_timer(FLUSH_MILLIS))),
             (true, Some(id)) => {
                 ui.kill_timer(id);
                 self.flush.set(None);
+            }
+            _ => {}
+        }
+        match (self.blink.wants_timer(), self.blink_timer.get()) {
+            (true, None) => self.blink_timer.set(Some(ui.set_timer(PERIOD_MS))),
+            (false, Some(id)) => {
+                ui.kill_timer(id);
+                self.blink_timer.set(None);
             }
             _ => {}
         }
@@ -60,9 +71,10 @@ impl Terminal {
 
     /// Repaint what changed on screen (the rows, or the scrollbar).
     pub(super) fn refresh(&mut self, ui: &mut Ui<Msg>) {
+        let key = self.look.borrow().key();
         let changed = self
             .shown
-            .update(&self.term.borrow(), self.layout.get(), self.offset.get());
+            .update(&self.term.borrow(), self.layout.get(), self.offset.get(), key);
         if let Some(rect) = changed {
             ui.invalidate_rect(self.root.id(), rect);
         }
@@ -91,7 +103,9 @@ impl Terminal {
 
     /// The lines a page scroll moves: what the window shows.
     pub(super) fn page(&self) -> usize {
-        self.layout.get().map_or(ROWS, |layout| layout.visible)
+        self.layout
+            .get()
+            .map_or(self.term.borrow().rows(), |layout| layout.visible)
     }
 
     /// Drain the master without blocking; return the bytes read.

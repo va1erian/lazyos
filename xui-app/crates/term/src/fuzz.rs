@@ -9,6 +9,7 @@
 
 use crate::input::{mouse_report, Action, Button, Mods, MouseMode};
 use crate::paste::{paste_bytes, shell_quote};
+use crate::settings::{Settings, Value, KEYS};
 use crate::{Point, SelectMode, Term};
 
 /// Check every invariant the rest of the code relies on; panics on the first
@@ -86,7 +87,7 @@ fn exercise(term: &mut Term, chunk: &[u8]) {
     };
     let modes = [SelectMode::Char, SelectMode::Word, SelectMode::Line, SelectMode::Block];
     let (p, q) = (at(byte(1), byte(2)), at(byte(3), byte(4)));
-    match byte(0) % 9 {
+    match byte(0) % 11 {
         0 => term.select_begin(modes[byte(5) % 4], p),
         1 => {
             term.select_begin(modes[byte(5) % 4], p);
@@ -111,6 +112,32 @@ fn exercise(term: &mut Term, chunk: &[u8]) {
             let mods = Mods { shift: byte(7) & 1 == 1, alt: byte(7) & 2 == 2, ctrl: byte(7) & 4 == 4 };
             let report = mouse_report(modes[byte(1) % 4], byte(2) % 2 == 0, buttons[byte(3) % 6], actions[byte(4) % 3], mods, byte(5) * 40, byte(6) * 40);
             assert!(report.is_none_or(|bytes| bytes.starts_with(b"\x1b[")));
+        }
+        8 => {
+            // Settings from arbitrary values: always within their bounds.
+            let mut settings = Settings::default();
+            let text = String::from_utf8_lossy(&chunk[1..]).into_owned();
+            let key = KEYS[byte(1) % KEYS.len()];
+            let value = match byte(2) % 3 {
+                0 => Value::Bool(byte(3) % 2 == 0),
+                1 => Value::Int(i64::from_le_bytes(std::array::from_fn(|i| byte(3 + i) as u8))),
+                _ => Value::Text(text),
+            };
+            settings.apply(key, &value);
+            assert!((6..=72).contains(&settings.size));
+            assert!((100..=200).contains(&settings.line_spacing));
+            assert!(settings.scrollback <= 200_000);
+            assert!(settings.family.len() <= 64 * 4 && !settings.family.is_empty());
+        }
+        9 => {
+            // Palette operations and the box-drawing geometry.
+            let c = char::from_u32(0x2500 + byte(1) as u32 % 0xa0).unwrap();
+            let size = 1 + (byte(2) % 30) as i32;
+            let cell = crate::boxdraw::Box2::new(0, 0, size, size * 2);
+            for (b, _) in crate::boxdraw::geometry(c, cell, 1 + (byte(3) % 4) as i32).unwrap_or_default() {
+                assert!(b.x0 >= 0 && b.y0 >= 0 && b.x1 <= cell.x1 && b.y1 <= cell.y1);
+            }
+            let _ = term.palette().resolve(crate::Color::Indexed(byte(4) as u8), true, true, true);
         }
         _ => {
             let _ = term.selection_text();
@@ -143,6 +170,7 @@ impl Rng {
 /// Typical terminal traffic the mutations start from: a shell prompt, an
 /// editor redraw, wide characters, a scroll region, colours.
 pub const SEEDS: &[&[u8]] = &[
+    b"\x20\x08\x1b]4;1;rgb:ff/00/00\x07\x1b]4;1;?\x07\x1b]10;#fff\x1b\\\x1b]11;?\x07\x1b]104\x07\x1b[38;2;1;2;3m\x1b[48;5;200mx\x1bc",
     b"\x08\x05a\nb\nc\nd\ne\nf\n\x1b[3J\x1b[1;3r\x1b[3;1H\n\n\x1bM\x1b[S\x1b[?1049h\n\n\n\n\n\x1b[?1049l\x1bc\n\n\n\n",
     b"\x4f\x17/ # echo hi\r\nhi\r\n/ # ",
     b"\x4f\x17\x1b[?1049h\x1b[H\x1b[2Jpager\x1b[5;1H:\x1b[?1049l",

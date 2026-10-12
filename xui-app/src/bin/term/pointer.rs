@@ -9,7 +9,6 @@ use xui_core::app::Ui;
 use xui_core::{Modifiers, MouseButton};
 
 use super::geometry::{point_at, screen_cell, Edge};
-use super::paint::{CELL_W, PAD};
 use super::view::Layout;
 use super::scroll::{wheel_arrows, wheel_move, Move};
 use super::{Msg, Terminal};
@@ -87,6 +86,12 @@ impl Terminal {
     /// mouse, else it scrolls the view (or sends arrows to a full-screen
     /// program with no mouse mode).
     pub(super) fn wheel(&mut self, ui: &mut Ui<Msg>, delta: i16, m: Modifiers, at: (i32, i32)) {
+        // Ctrl+wheel zooms this window; the program never sees it.
+        if m.ctrl && !m.alt {
+            let steps = (i32::from(delta) / 120).clamp(-3, 3);
+            let steps = if steps == 0 { i32::from(delta.signum()) } else { steps };
+            return self.zoom_by(ui, Some(steps));
+        }
         if self.reporting(m) {
             let which = if delta > 0 { Button::WheelUp } else { Button::WheelDown };
             for _ in 0..(i32::from(delta) / 120).unsigned_abs().clamp(1, 8) {
@@ -215,9 +220,12 @@ impl Terminal {
         self.drag = false;
         self.set_autoscroll(ui, false);
         ui.release_capture();
-        let term = self.term.borrow();
-        if let Some(text) = term.selection_text() {
+        let selected = self.term.borrow().selection_text();
+        if let Some(text) = &selected {
             println!("TERM:SELECT:{}", text.len());
+            if self.conf.settings.copy_on_select {
+                self.copy(ui);
+            }
         }
     }
 }
@@ -229,8 +237,8 @@ pub(super) fn mouse(kind: MouseKind, x: i32, y: i32, mods: Modifiers) -> Msg {
 /// Tell session scripts where the grid is (`UI:WIDGET`, with the probe on):
 /// its top-left is the origin the drags in `term_select_copy.json` use.
 pub(super) fn probe_grid(layout: &Layout) {
-    let (cell_w, cols) = (CELL_W * (layout.pad / PAD).max(1) as f32, super::COLS as i32);
-    let width = ((layout.width - 2 * layout.pad) as f32).min(cols as f32 * cell_w) as i32;
+    let cols = super::COLS as i32;
+    let width = (layout.width - 2 * layout.pad).min(cols * layout.cell_w);
     xui_app::probe::widget(
         "Terminal",
         "grid",

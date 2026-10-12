@@ -4,7 +4,6 @@
 use lazyterm::{Point, Term};
 use xui_core::Rect;
 
-use super::paint::{CELL_W, PAD};
 use super::view::{first_row, Layout};
 
 /// Whether a drag left the grid, and on which side (it autoscrolls).
@@ -15,17 +14,10 @@ pub enum Edge {
     Below,
 }
 
-/// The pixel metrics of `layout`: the UI scale and the cell width.
-fn metrics(layout: &Layout) -> (i32, f32) {
-    let scale = (layout.pad / PAD).max(1);
-    (scale, CELL_W * scale as f32)
-}
-
 /// The column and view slot (negative above the grid, `>= visible` below it)
 /// of node pixel (`x`, `y`).
 pub fn cell_of(layout: &Layout, x: i32, y: i32) -> (usize, i64) {
-    let (_, cell_w) = metrics(layout);
-    let col = ((x - layout.pad) as f32 / cell_w).floor().max(0.0) as usize;
+    let col = (x - layout.pad).div_euclid(layout.cell_w.max(1)).max(0) as usize;
     let slot = i64::from((y - layout.pad).div_euclid(layout.line_h.max(1)));
     (col, slot)
 }
@@ -93,6 +85,7 @@ mod tests {
         height: 400,
         pad: 10,
         line_h: 20,
+        cell_w: 9,
         visible: 19,
     };
 
@@ -114,7 +107,7 @@ mod tests {
 
     #[test]
     fn the_scale_scales_the_cells() {
-        let two = Layout { pad: 20, line_h: 40, ..LAYOUT };
+        let two = Layout { pad: 20, line_h: 40, cell_w: 18, ..LAYOUT };
         assert_eq!(cell_of(&two, 20 + 18 * 5 + 2, 20 + 40 * 2), (5, 2));
     }
 

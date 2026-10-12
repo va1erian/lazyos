@@ -7,6 +7,7 @@ use unicode_width::UnicodeWidthChar;
 use crate::cell::{Attr, Cell};
 use crate::history::History;
 use crate::input::MouseMode;
+use crate::palette::{scheme_by_name, Palette};
 use crate::selection::Selection;
 use crate::row::Row;
 use crate::screen::Screen;
@@ -49,6 +50,7 @@ struct Stash {
 pub(crate) struct State {
     pub screen: Screen,
     pub history: History,
+    pub palette: Palette,
     /// The current selection (`selection.rs`) and the characters besides
     /// alphanumerics a word may hold.
     pub selection: Option<Selection>,
@@ -97,6 +99,7 @@ impl State {
         State {
             screen: Screen::new(cols, rows),
             history: History::default(),
+            palette: Palette::new(scheme_by_name("desktop", true)),
             selection: None,
             word_chars: String::from("-_./~:@"),
             dirty: vec![false; rows],
@@ -406,6 +409,8 @@ impl State {
         // The history goes, its budget stays, its numbers keep growing.
         std::mem::swap(&mut fresh.history, &mut self.history);
         fresh.word_chars = std::mem::take(&mut self.word_chars);
+        std::mem::swap(&mut fresh.palette, &mut self.palette);
+        fresh.palette.reset();
         fresh.history.clear();
         *self = fresh;
     }

@@ -10,6 +10,9 @@ description = "The Terminal's portable engine: escape-sequence parser, screen, c
 vte = "0.15"
 # Terminal cell widths (CJK and emoji take two cells).
 unicode-width = "0.2"
+# Font tables: family names, styles and glyph advances (to offer only the
+# monospace families whose advances match).
+ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 
 [features]
 # Exposes `lazyterm::fuzz::run` to a cargo-fuzz target.

@@ -29,6 +29,20 @@ pub fn shortcut(key: Key, m: Modifiers) -> Option<Shortcut> {
     }
 }
 
+/// A zoom chord: Ctrl+= and Ctrl++ (and the keypad's plus) zoom in, Ctrl+-
+/// out, Ctrl+0 resets (`Some(None)`). Alt chords are the program's.
+pub fn zoom_key(key: Key, m: Modifiers) -> Option<Option<i32>> {
+    if !m.ctrl || m.alt {
+        return None;
+    }
+    match key.code() {
+        0xbb | 0x6b => Some(Some(1)),
+        0xbd | 0x6d => Some(Some(-1)),
+        0x30 | 0x60 => Some(None),
+        _ => None,
+    }
+}
+
 /// The control byte of a Ctrl+letter chord (`Ctrl+C` is 3), or `None`.
 pub fn control_byte(key: Key) -> Option<u8> {
     let code = key.code();
@@ -97,6 +111,9 @@ impl Terminal {
     /// A non-text key: the Terminal's own chords, the scroll keys, Ctrl
     /// letters as control bytes, and the sequences of the navigation keys.
     pub(super) fn key_chord(&mut self, ui: &mut Ui<Msg>, key: Key, mods: Modifiers) {
+        if let Some(zoom) = zoom_key(key, mods) {
+            return self.zoom_by(ui, zoom);
+        }
         match shortcut(key, mods) {
             Some(Shortcut::Copy) => return self.copy(ui),
             Some(Shortcut::Paste) => return self.paste(ui),
@@ -156,6 +173,19 @@ mod tests {
         assert_eq!(control_byte(letter(b'C')), Some(3));
         assert_eq!(control_byte(letter(b'Z')), Some(26));
         assert_eq!(control_byte(Key::UP), None);
+    }
+
+    #[test]
+    fn zoom_chords() {
+        let ctrl = mods(true, false);
+        assert_eq!(zoom_key(Key::from_code(0xbb), ctrl), Some(Some(1)), "Ctrl+=");
+        assert_eq!(zoom_key(Key::from_code(0xbb), mods(true, true)), Some(Some(1)), "Ctrl++");
+        assert_eq!(zoom_key(Key::from_code(0x6b), ctrl), Some(Some(1)), "keypad +");
+        assert_eq!(zoom_key(Key::from_code(0xbd), ctrl), Some(Some(-1)), "Ctrl+-");
+        assert_eq!(zoom_key(Key::from_code(0x30), ctrl), Some(None), "Ctrl+0 resets");
+        assert_eq!(zoom_key(Key::from_code(0xbb), mods(false, false)), None, "a plain = is text");
+        let alt = Modifiers { ctrl: true, alt: true, ..Modifiers::default() };
+        assert_eq!(zoom_key(Key::from_code(0xbb), alt), None);
     }
 
     #[test]

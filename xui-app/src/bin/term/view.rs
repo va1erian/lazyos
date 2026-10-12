@@ -8,7 +8,9 @@
 //! addressed by absolute number (`Term::line`), so the offset is the only
 //! scroll state.
 
-use lazyterm::{Cell, LineRef, Term};
+use lazyterm::{Cell, LineRef, Palette, Term};
+
+use super::look::LookKey;
 use xui_core::Rect;
 
 /// Where the painter last laid the grid out, in pixels relative to the
@@ -19,6 +21,7 @@ pub struct Layout {
     pub height: i32,
     pub pad: i32,
     pub line_h: i32,
+    pub cell_w: i32,
     /// Grid rows that fit the window.
     pub visible: usize,
 }
@@ -126,6 +129,9 @@ pub struct Shown {
     /// The absolute line at the top of the view: it moves when the view
     /// scrolls, not when the offset merely follows new output.
     anchor: u64,
+    /// How the grid was drawn: font, cursor phase, focus; and the colours.
+    look: LookKey,
+    palette: Option<Palette>,
     /// The scrollbar's inputs (history lines, offset) while it is up.
     bar: Option<(usize, usize)>,
     rows: Vec<Vec<Cell>>,
@@ -141,7 +147,13 @@ impl Shown {
     /// out by `layout` at scroll `offset` (`None` when nothing visible
     /// changed), remembering it as shown. Without a layout yet (nothing
     /// painted) the whole node.
-    pub fn update(&mut self, term: &Term, layout: Option<Layout>, offset: usize) -> Option<Rect> {
+    pub fn update(
+        &mut self,
+        term: &Term,
+        layout: Option<Layout>,
+        offset: usize,
+        look: LookKey,
+    ) -> Option<Rect> {
         let Some(layout) = layout else {
             return Some(Rect::new(0, 0, i32::MAX / 2, i32::MAX / 2));
         };
@@ -165,7 +177,10 @@ impl Shown {
         let whole = self.layout != Some(layout)
             || self.first != first
             || self.anchor != anchor
-            || self.rows.len() != rows.len();
+            || self.rows.len() != rows.len()
+            || self.look.generation != look.generation
+            || self.look.shape != look.shape
+            || self.palette.as_ref() != Some(term.palette());
         let mut changed: Option<(usize, usize)> = None;
         let mut mark = |slot: usize| {
             changed = Some(match changed {
@@ -182,7 +197,7 @@ impl Shown {
                     mark(slot);
                 }
             }
-            if self.cursor != cursor {
+            if self.cursor != cursor || self.look != look {
                 for (slot, ..) in self.cursor.into_iter().chain(cursor) {
                     mark(slot.min(rows.len().saturating_sub(1)));
                 }
@@ -192,6 +207,8 @@ impl Shown {
         self.layout = Some(layout);
         self.first = first;
         self.anchor = anchor;
+        self.look = look;
+        self.palette = Some(term.palette().clone());
         self.rows = rows;
         self.spans = spans;
         self.cursor = cursor;
@@ -231,6 +248,7 @@ mod tests {
         height: 400,
         pad: 10,
         line_h: 20,
+        cell_w: 9,
         visible: 19,
     };
 
@@ -239,30 +257,30 @@ mod tests {
         let mut grid = Term::new(80, 24);
         let mut shown = Shown::default();
         grid.feed(b"/ # ");
-        assert!(shown.update(&grid, Some(LAYOUT), 0).is_some(), "first frame");
+        assert!(shown.update(&grid, Some(LAYOUT), 0, LookKey::default()).is_some(), "first frame");
         grid.feed(b"e");
         assert_eq!(
-            shown.update(&grid, Some(LAYOUT), 0),
+            shown.update(&grid, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 10, 640, 30))
         );
-        assert_eq!(shown.update(&grid, Some(LAYOUT), 0), None, "nothing changed");
+        assert_eq!(shown.update(&grid, Some(LAYOUT), 0, LookKey::default()), None, "nothing changed");
     }
 
     #[test]
     fn a_new_line_repaints_both_rows_and_a_scroll_everything() {
         let mut grid = Term::new(80, 24);
         let mut shown = Shown::default();
-        shown.update(&grid, Some(LAYOUT), 0);
+        shown.update(&grid, Some(LAYOUT), 0, LookKey::default());
         grid.feed(b"out\r\n");
         assert_eq!(
-            shown.update(&grid, Some(LAYOUT), 0),
+            shown.update(&grid, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 10, 640, 50))
         );
         for _ in 0..30 {
             grid.feed(b"line\r\n");
         }
         assert_eq!(
-            shown.update(&grid, Some(LAYOUT), 0),
+            shown.update(&grid, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 0, 640, 400))
         );
     }
@@ -271,13 +289,13 @@ mod tests {
     fn a_new_layout_repaints_everything() {
         let grid = Term::new(80, 24);
         let mut shown = Shown::default();
-        shown.update(&grid, Some(LAYOUT), 0);
+        shown.update(&grid, Some(LAYOUT), 0, LookKey::default());
         let wider = Layout {
             width: 800,
             ..LAYOUT
         };
         assert_eq!(
-            shown.update(&grid, Some(wider), 0),
+            shown.update(&grid, Some(wider), 0, LookKey::default()),
             Some(Rect::new(0, 0, 800, 400))
         );
     }
@@ -287,10 +305,10 @@ mod tests {
         let mut term = Term::new(80, 24);
         let mut shown = Shown::default();
         term.feed(b"/ # ");
-        shown.update(&term, Some(LAYOUT), 0);
+        shown.update(&term, Some(LAYOUT), 0, LookKey::default());
         term.feed(b"\x1b[?25l");
         assert_eq!(
-            shown.update(&term, Some(LAYOUT), 0),
+            shown.update(&term, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 10, 640, 30))
         );
     }
@@ -309,15 +327,15 @@ mod tests {
     fn a_scroll_repaints_the_grid_once() {
         let term = filled(100);
         let mut shown = Shown::default();
-        shown.update(&term, Some(LAYOUT), 0);
+        shown.update(&term, Some(LAYOUT), 0, LookKey::default());
         assert_eq!(
-            shown.update(&term, Some(LAYOUT), 3),
+            shown.update(&term, Some(LAYOUT), 3, LookKey::default()),
             Some(Rect::new(0, 0, 640, 400)),
             "a wheel notch invalidates the grid in one rectangle"
         );
-        assert_eq!(shown.update(&term, Some(LAYOUT), 3), None, "and then nothing");
+        assert_eq!(shown.update(&term, Some(LAYOUT), 3, LookKey::default()), None, "and then nothing");
         assert_eq!(
-            shown.update(&term, Some(LAYOUT), 0),
+            shown.update(&term, Some(LAYOUT), 0, LookKey::default()),
             Some(Rect::new(0, 0, 640, 400)),
             "back to the bottom"
         );
@@ -327,27 +345,27 @@ mod tests {
     fn output_while_scrolled_back_repaints_only_the_scrollbar() {
         let mut term = filled(100);
         let mut shown = Shown::default();
-        shown.update(&term, Some(LAYOUT), 10);
+        shown.update(&term, Some(LAYOUT), 10, LookKey::default());
         let (before, top) = (term.scrollback_len(), term.screen_top());
         term.feed(b"more output\r\n");
         // The host anchors the view: the offset grows by the lines added.
         let offset = 10 + (term.screen_top() - top) as usize;
         assert!(term.scrollback_len() >= before);
         assert_eq!(
-            shown.update(&term, Some(LAYOUT), offset),
+            shown.update(&term, Some(LAYOUT), offset, LookKey::default()),
             Some(LAYOUT.strip()),
             "the same text is in view; only the thumb moved"
         );
-        assert_eq!(shown.update(&term, Some(LAYOUT), offset), None);
+        assert_eq!(shown.update(&term, Some(LAYOUT), offset, LookKey::default()), None);
     }
 
     #[test]
     fn the_scrollbar_appears_and_disappears_with_a_strip_repaint() {
         let term = filled(100);
         let mut shown = Shown::default();
-        shown.update(&term, Some(LAYOUT), 0);
-        assert!(shown.update(&term, Some(LAYOUT), 1).is_some());
-        assert!(shown.update(&term, Some(LAYOUT), 0).is_some());
+        shown.update(&term, Some(LAYOUT), 0, LookKey::default());
+        assert!(shown.update(&term, Some(LAYOUT), 1, LookKey::default()).is_some());
+        assert!(shown.update(&term, Some(LAYOUT), 0, LookKey::default()).is_some());
     }
 
     #[test]

@@ -14,6 +14,10 @@ pub(super) enum Msg {
     Autoscroll,
     /// Input the pty had no room for is waiting: try again.
     Flush,
+    /// The cursor blink timer fired.
+    Blink,
+    /// The window gained or lost the keyboard focus.
+    Focus(bool),
     /// A translated character from the keyboard.
     Char(char),
     /// A key press with the modifiers held: arrows, Escape and the like, and
