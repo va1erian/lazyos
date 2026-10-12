@@ -5,6 +5,13 @@
 //! master to read. A terminal emulator holds the master, the shell it runs
 //! holds the slave as its controlling terminal.
 //!
+//! Flow control: a master write takes only what the slave's input queue has
+//! room for ([`Ldisc::admits`]). A blocking write waits for the program to
+//! read; a non-blocking one returns a short count, or `EAGAIN` when nothing
+//! fit; `POLLOUT` on the master says when room is back. Nothing typed is
+//! dropped for want of room, except past an overlong canonical line (whose
+//! end still fits), as on Linux.
+//!
 //! Lifetime: each side counts its open descriptors (`dup`/`fork` copies
 //! included). When the last master closes, the slave sees a hang-up (reads
 //! return end-of-file, writes `EIO`) and the foreground group gets `SIGHUP`;
@@ -52,8 +59,10 @@ pub struct Pty {
     /// user (besides root) who may open it, as devpts's mode 0620 allows.
     owner: (u32, u32),
     state: Mutex<State>,
-    /// Slave readers waiting for input, and master writers never wait.
+    /// Slave readers waiting for input.
     input_wq: WaitQueue,
+    /// Master writers waiting for room in the slave's input queue.
+    room_wq: WaitQueue,
     /// Master readers waiting for output; slave writers waiting for room.
     output_wq: WaitQueue,
     masters: AtomicUsize,
@@ -62,7 +71,8 @@ pub struct Pty {
     slave_seen: AtomicBool,
     master_nonblock: AtomicBool,
     slave_nonblock: AtomicBool,
-    /// Edge counters for `epoll` (master readable / slave readable).
+    /// Edge counters for `epoll` (master readable or writable / slave
+    /// readable).
     master_events: AtomicU64,
     slave_events: AtomicU64,
 }
@@ -88,6 +98,7 @@ impl Pty {
                 locked: true,
             }),
             input_wq: WaitQueue::new(WaitKind::Pipe),
+            room_wq: WaitQueue::new(WaitKind::Pipe),
             output_wq: WaitQueue::new(WaitKind::Pipe),
             masters: AtomicUsize::new(0),
             slaves: AtomicUsize::new(0),
@@ -160,7 +171,16 @@ impl Pty {
         self.master_events.fetch_add(1, Ordering::AcqRel);
         self.slave_events.fetch_add(1, Ordering::AcqRel);
         self.input_wq.notify_all();
+        self.room_wq.notify_all();
         self.output_wq.notify_all();
+        crate::task::notify_poll_key(self as *const Self as u64);
+    }
+
+    /// The slave's input queue lost bytes (a read, a flush, a mode change):
+    /// a waiting master writer may go on, and its `POLLOUT` may be back.
+    fn input_drained(&self) {
+        self.master_events.fetch_add(1, Ordering::AcqRel);
+        self.room_wq.notify_all();
         crate::task::notify_poll_key(self as *const Self as u64);
     }
 
@@ -175,10 +195,11 @@ impl Pty {
     /// Run `f` on the line discipline (termios, window size, groups).
     pub fn with_ldisc<R>(&self, f: impl FnOnce(&mut Ldisc) -> R) -> R {
         let result = f(&mut self.state.lock().ldisc);
-        // A settings change can make a read possible (leaving canonical mode).
+        // A settings change can make a read possible (leaving canonical
+        // mode), and a flush or a mode change can make room for input.
         self.slave_events.fetch_add(1, Ordering::AcqRel);
         self.input_wq.notify_all();
-        crate::task::notify_poll_key(self as *const Self as u64);
+        self.input_drained();
         result
     }
 
@@ -203,23 +224,67 @@ impl Pty {
         flag.store(on, Ordering::Release);
     }
 
-    /// Typed input from the master: every byte goes through the discipline.
-    /// Returns the bytes taken and the signals to raise (with the foreground).
-    pub fn master_write(&self, src: &[u8]) -> (usize, Vec<(Signal, Foreground)>) {
-        let mut signals = Vec::new();
-        {
-            let mut state = self.state.lock();
-            let mut echo = Vec::new();
-            for &byte in src {
-                if let Some(signal) = state.ldisc.input(byte, &mut echo) {
-                    signals.push((signal, state.ldisc.foreground()));
-                }
+    /// Typed input from the master: every byte goes through the discipline,
+    /// and the signals it raises go to the foreground group. A byte the slave
+    /// has no room for ([`Ldisc::admits`]) waits for a read, or ends a
+    /// non-blocking write: a short count, or `WouldBlock` when nothing fit.
+    /// `HungUp` (`EIO`) when the slave is gone and nothing fits.
+    pub fn master_write(&self, src: &[u8], nonblock: bool) -> Result<usize, Error> {
+        let mut taken = 0;
+        loop {
+            let (fed, signals) = self.feed(&src[taken..]);
+            taken += fed;
+            if fed > 0 {
+                self.wake_all();
             }
-            let room = OUTPUT_CAPACITY.saturating_sub(state.output.len());
-            state.output.extend(echo.into_iter().take(room));
+            for (signal, foreground) in signals {
+                super::signal_foreground(foreground, super::signal_number(signal));
+            }
+            if taken == src.len() {
+                return Ok(taken);
+            }
+            let stop = if self.slave_gone() {
+                Some(Error::HungUp)
+            } else if nonblock {
+                Some(Error::WouldBlock)
+            } else if self.room_wq.wait(crate::task::current(), None) == WakeReason::Interrupted {
+                Some(Error::Interrupted)
+            } else {
+                None
+            };
+            if let Some(error) = stop {
+                return if taken > 0 { Ok(taken) } else { Err(error) };
+            }
         }
-        self.wake_all();
-        (src.len(), signals)
+    }
+
+    /// Feed the longest prefix of `src` the discipline admits now. Echo is
+    /// queued while the master's output has room (beyond it, it is dropped,
+    /// as on Linux). Returns the bytes fed and the signals raised.
+    fn feed(&self, src: &[u8]) -> (usize, Vec<(Signal, Foreground)>) {
+        let mut signals = Vec::new();
+        let mut state = self.state.lock();
+        let mut echo = Vec::new();
+        let mut fed = 0;
+        for &byte in src {
+            if !state.ldisc.admits(byte) {
+                break;
+            }
+            if let Some(signal) = state.ldisc.input(byte, &mut echo) {
+                signals.push((signal, state.ldisc.foreground()));
+            }
+            fed += 1;
+        }
+        let room = OUTPUT_CAPACITY.saturating_sub(state.output.len());
+        state.output.extend(echo.into_iter().take(room));
+        (fed, signals)
+    }
+
+    /// Park `task` as a master writer waiting for room (tests: the wake a
+    /// slave read gives a blocked writer, without blocking the harness).
+    #[cfg(lazyos_tests)]
+    pub fn park_master_writer(&self, task: usize) {
+        self.room_wq.park(task, None);
     }
 
     /// The program's output, for the emulator.
@@ -265,7 +330,7 @@ impl Pty {
                 if state.ldisc.readable() {
                     let n = state.ldisc.read(dst);
                     drop(state);
-                    crate::task::notify_poll_key(self as *const Self as u64);
+                    self.input_drained();
                     return Ok(n);
                 }
                 if !self.master_open() {
@@ -347,7 +412,9 @@ impl Pty {
             if events & POLLIN != 0 && !state.output.is_empty() {
                 revents |= POLLIN;
             }
-            if events & POLLOUT != 0 {
+            // Room for typed input; a gone slave reports it too, so a
+            // waiting writer wakes to its `EIO`.
+            if events & POLLOUT != 0 && (state.ldisc.writable() || self.slave_gone()) {
                 revents |= POLLOUT;
             }
             if self.slave_gone() {
