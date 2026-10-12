@@ -1,0 +1,16 @@
+[package]
+name = "lazyterm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Terminal's portable engine: escape-sequence parser, screen, cursor and modes (docs/terminal-plan.md)"
+
+[dependencies]
+# Alacritty's escape-sequence state machine (MIT/Apache-2.0).
+vte = "0.15"
+# Terminal cell widths (CJK and emoji take two cells).
+unicode-width = "0.2"
+
+[features]
+# Exposes `lazyterm::fuzz::run` to a cargo-fuzz target.
+fuzz = []

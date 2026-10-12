@@ -131,7 +131,11 @@ Each phase is shippable on its own and keeps the existing sessions green
   (programs that wait for them hang otherwise).
 - **Evidence fix**: `TERM:OUT` is built from logical (unwrapped) lines, so
   a wrapped command echo is recognised in full. This removes the reason the
-  pty is pinned to 80 columns.
+  pty is pinned to 80 columns. (Landed in T0: BusyBox's line editor does not
+  rely on autowrap; at the last column it sends its own `CR CR LF`, so the
+  engine cannot join those rows. `Term::feed` therefore returns `Line {
+  text, ends_at_margin }` and `term/evidence.rs` joins full-width rows
+  before matching the echo; autowrapped output is joined by the engine.)
 - Offscreen snapshot tests of the painter through xui's headless backend,
   written to `xui-app/target/snapshots/term-*.png`.
 

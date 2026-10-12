@@ -2,9 +2,8 @@
 //! rows that changed (every row when the grid scrolled) instead of the whole
 //! window, and so the painter draws only the rows inside the damage.
 
+use lazyterm::{Cell, Term};
 use xui_core::Rect;
-
-use super::grid::{Grid, ROWS};
 
 /// Where the painter last laid the grid out, in pixels relative to the
 /// Terminal's node: the update turns changed rows into a rectangle with it.
@@ -27,38 +26,46 @@ impl Layout {
     }
 }
 
-/// The first grid row shown: the top while the grid is not full, then the
-/// rows ending at the cursor so the newest line stays visible.
-pub fn first_row(cursor_row: usize, visible: usize) -> usize {
+/// The first screen row shown of `rows`: the top while the screen is not
+/// full, then the rows ending at the cursor so the newest line stays visible.
+pub fn first_row(cursor_row: usize, visible: usize, rows: usize) -> usize {
     if cursor_row < visible {
         0
     } else {
-        (cursor_row + 1 - visible).min(ROWS - visible)
+        (cursor_row + 1 - visible).min(rows - visible)
     }
 }
 
 /// The screen as last invalidated: the layout, the first row, the visible
-/// rows' characters and the cursor's slot and column.
+/// rows' cells and the cursor's slot, column and visibility.
 #[derive(Default)]
 pub struct Shown {
     layout: Option<Layout>,
     first: usize,
-    rows: Vec<Vec<char>>,
-    cursor: (usize, usize),
+    rows: Vec<Vec<Cell>>,
+    cursor: (usize, usize, bool),
 }
 
 impl Shown {
-    /// The node-relative rectangle to repaint so the screen shows `grid` laid
+    /// The node-relative rectangle to repaint so the screen shows `term` laid
     /// out by `layout` (`None` when nothing visible changed), remembering it
     /// as shown. Without a layout yet (nothing painted) the whole node.
-    pub fn update(&mut self, grid: &Grid, layout: Option<Layout>) -> Option<Rect> {
+    pub fn update(&mut self, term: &Term, layout: Option<Layout>) -> Option<Rect> {
         let Some(layout) = layout else {
             return Some(Rect::new(0, 0, i32::MAX / 2, i32::MAX / 2));
         };
-        let visible = layout.visible.clamp(1, ROWS);
-        let first = first_row(grid.row, visible);
-        let rows: Vec<Vec<char>> = grid.cells[first..(first + visible).min(ROWS)].to_vec();
-        let cursor = (grid.row.saturating_sub(first), grid.col);
+        let total = term.rows();
+        let visible = layout.visible.clamp(1, total);
+        let (cursor_row, cursor_col) = term.cursor();
+        let first = first_row(cursor_row, visible, total);
+        let rows: Vec<Vec<Cell>> = (first..(first + visible).min(total))
+            .map(|row| term.row(row).cells.clone())
+            .collect();
+        let cursor = (
+            cursor_row.saturating_sub(first),
+            cursor_col,
+            term.cursor_visible(),
+        );
         let whole =
             self.layout != Some(layout) || self.first != first || self.rows.len() != rows.len();
         let mut changed: Option<(usize, usize)> = None;
@@ -124,7 +131,7 @@ mod tests {
 
     #[test]
     fn typing_repaints_only_the_cursor_row() {
-        let mut grid = Grid::new();
+        let mut grid = Term::new(80, 24);
         let mut shown = Shown::default();
         grid.feed(b"/ # ");
         assert!(shown.update(&grid, Some(LAYOUT)).is_some(), "first frame");
@@ -138,7 +145,7 @@ mod tests {
 
     #[test]
     fn a_new_line_repaints_both_rows_and_a_scroll_everything() {
-        let mut grid = Grid::new();
+        let mut grid = Term::new(80, 24);
         let mut shown = Shown::default();
         shown.update(&grid, Some(LAYOUT));
         grid.feed(b"out\r\n");
@@ -157,7 +164,7 @@ mod tests {
 
     #[test]
     fn a_new_layout_repaints_everything() {
-        let grid = Grid::new();
+        let grid = Term::new(80, 24);
         let mut shown = Shown::default();
         shown.update(&grid, Some(LAYOUT));
         let wider = Layout {
@@ -167,6 +174,19 @@ mod tests {
         assert_eq!(
             shown.update(&grid, Some(wider)),
             Some(Rect::new(0, 0, 800, 400))
+        );
+    }
+
+    #[test]
+    fn hiding_the_cursor_repaints_its_row() {
+        let mut term = Term::new(80, 24);
+        let mut shown = Shown::default();
+        term.feed(b"/ # ");
+        shown.update(&term, Some(LAYOUT));
+        term.feed(b"\x1b[?25l");
+        assert_eq!(
+            shown.update(&term, Some(LAYOUT)),
+            Some(Rect::new(0, 10, 640, 30))
         );
     }
 

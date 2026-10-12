@@ -5,8 +5,9 @@
 //! kernel mux (where `logind`'s prompt lives) stops painting. The Terminal is a
 //! windowed front end instead. It opens a pseudo-terminal (`term/pty.rs`),
 //! starts `busybox sh -i` on its slave as the session's controlling terminal,
-//! writes keystrokes to the master and parses what the master reads into a
-//! character grid (a small VT100 subset, `term/grid.rs`). The event loop
+//! writes keystrokes to the master and feeds what the master reads to the
+//! terminal engine (`lazyterm`, xui-app/crates/term: parser, attributed cell
+//! grid, scroll regions, wide characters, the alternate screen). The event loop
 //! parks on the master beside the compositor endpoints (`watch_fd`), so the
 //! UI thread drains it the moment the shell writes, and repaints only the
 //! rows that changed (`term/view.rs`).
@@ -31,19 +32,23 @@ use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
 use xui_core::app::{App, Ui};
 use xui_core::backend::{Event, NodeKind, NodeSpec, PlatformSpec};
-use xui_core::{Canvas, Color, Control, Dip, Key, Rect, TextStyle};
+use xui_core::{Control, Dip, Key};
 
-#[path = "term/grid.rs"]
-mod grid;
+#[path = "term/evidence.rs"]
+mod evidence;
+#[path = "term/paint.rs"]
+mod paint;
 #[path = "term/perf.rs"]
 mod perf;
 #[path = "term/pty.rs"]
 mod pty;
 #[path = "term/view.rs"]
 mod view;
-use grid::{is_prompt, Grid, COLS, ROWS};
+use evidence::{is_prompt, Evidence};
+use lazyterm::Term as Engine;
+use paint::{paint, DARK, LIGHT, LINE_H, PAD};
 use perf::{PaintClock, Perf};
-use view::{first_row, intersect, overlaps, Layout, Shown};
+use view::{Layout, Shown};
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -55,34 +60,15 @@ const SHELL: &str = fhs::bin::BUSYBOX;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);
-/// Text size and the monospace cell it implies (JetBrains Mono is 0.6 em wide).
-const FONT: f32 = 15.0;
-const CELL_W: f32 = FONT * 0.6;
-const LINE_H: i32 = 20;
-const PAD: i32 = 10;
+/// The terminal geometry BusyBox sees through `TIOCGWINSZ`, so the engine
+/// matches it exactly. The engine's size is dynamic; making the window
+/// resizable and the pty follow it is a later phase (docs/terminal-plan.md T4).
+const COLS: usize = 80;
+const ROWS: usize = 24;
 /// A safety-net drain: the pty wakes the loop itself (`watch_fd`), so this
 /// only matters if a wake were ever missed. The drain only repaints when
 /// bytes actually arrived, so an idle terminal costs no frames.
 const FALLBACK_MILLIS: u32 = 1000;
-
-/// Background, text and cursor colours for the desktop's dark and light modes.
-struct Palette {
-    bg: Color,
-    fg: Color,
-    cursor: Color,
-}
-
-/// Midnight's navy, a shade deeper than a window so the grid reads as a well.
-const DARK: Palette = Palette {
-    bg: Color::rgb(0x15, 0x19, 0x28),
-    fg: Color::rgb(0xdc, 0xe1, 0xf0),
-    cursor: Color::rgb(0x5f, 0xd0, 0x8f),
-};
-const LIGHT: Palette = Palette {
-    bg: Color::rgb(0xfb, 0xfb, 0xfb),
-    fg: Color::rgb(0x1f, 0x23, 0x28),
-    cursor: Color::rgb(0x09, 0x69, 0xda),
-};
 
 /// One application message.
 enum Msg {
@@ -105,19 +91,16 @@ fn set_nonblocking(fd: RawFd) {
     unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) };
 }
 
-/// The app: the child shell, the pty master, and the grid it paints on.
+/// The app: the child shell, the pty master, and the engine it paints from.
 struct Terminal {
     child: Child,
     master: pty::Master,
     /// The shell side is gone (the master read `EIO` or end-of-file).
     hung_up: bool,
-    grid: Rc<RefCell<Grid>>,
+    term: Rc<RefCell<Engine>>,
     typed: String,
-    /// The last submitted command and whether its first output line is still
-    /// expected, so exactly one `TERM:OUT` is printed per command (the shell
-    /// echo and the bare prompt are skipped).
-    last_cmd: Option<String>,
-    awaiting_output: bool,
+    /// Exactly one `TERM:OUT` per command (`term/evidence.rs`).
+    evidence: Evidence,
     root: Control<Msg>,
     /// What is on screen, so a drain repaints only the rows that changed;
     /// the painter's latest layout feeds it.
@@ -160,8 +143,7 @@ impl Terminal {
                 if !line.is_empty() {
                     self.perf.submitted(&self.paint_clock);
                     println!("TERM:CMD:{line}");
-                    self.last_cmd = Some(line);
-                    self.awaiting_output = true;
+                    self.evidence.submitted(line);
                 }
             }
             '\u{8}' => {
@@ -203,31 +185,27 @@ impl App for Terminal {
             Msg::Tick => {
                 let bytes = self.drain();
                 if !bytes.is_empty() {
-                    let completed = self.grid.borrow_mut().feed(&bytes);
-                    for line in completed {
-                        let marker = line.trim();
-                        if marker.is_empty() || is_prompt(marker) {
-                            continue;
-                        }
-                        // Skip the shell's echo of the command it is about to
-                        // run; the next non-empty line is the output.
-                        if let Some(command) = &self.last_cmd {
-                            if self.awaiting_output && marker.ends_with(command.as_str()) {
-                                continue;
-                            }
-                        }
-                        if self.awaiting_output {
-                            self.awaiting_output = false;
+                    let (completed, reply) = {
+                        let mut term = self.term.borrow_mut();
+                        (term.feed(&bytes), term.take_reply())
+                    };
+                    // Answers to cursor-position and device-attribute queries
+                    // go back to the program; ones that wait for them hang.
+                    if !reply.is_empty() {
+                        self.send(&reply);
+                    }
+                    for line in &completed {
+                        if let Some(marker) = self.evidence.line(line) {
                             println!("TERM:OUT:{marker}");
                         }
                     }
-                    let changed = self.shown.update(&self.grid.borrow(), self.layout.get());
+                    let changed = self.shown.update(&self.term.borrow(), self.layout.get());
                     if let Some(rect) = changed {
                         ui.invalidate_rect(self.root.id(), rect);
                     }
                     let at_prompt = {
-                        let grid = self.grid.borrow();
-                        let row = grid.row_text(grid.row);
+                        let term = self.term.borrow();
+                        let row = term.row_text(term.cursor().0);
                         !row.is_empty() && is_prompt(&row)
                     };
                     self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
@@ -296,7 +274,7 @@ fn main() {
     };
     set_nonblocking(master.fd());
 
-    let grid = Rc::new(RefCell::new(Grid::new()));
+    let term = Rc::new(RefCell::new(Engine::new(COLS, ROWS)));
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
     backend.watch_fd(master.fd());
@@ -310,7 +288,7 @@ fn main() {
         )
         .expect("root node");
         {
-            let grid = Rc::clone(&grid);
+            let term = Rc::clone(&term);
             let theme = ui.theme_handle();
             let clock = Rc::clone(&paint_clock);
             let layout = Rc::clone(&layout);
@@ -318,7 +296,7 @@ fn main() {
             root.set_painter(Rc::new(move |canvas| {
                 let palette = if theme.get().is_dark { &DARK } else { &LIGHT };
                 let damage = backend.paint_damage();
-                let laid = clock.time(|| paint(canvas, palette, &grid.borrow(), damage));
+                let laid = clock.time(|| paint(canvas, palette, &term.borrow(), damage));
                 layout.set(Some(laid));
             }));
         }
@@ -335,10 +313,9 @@ fn main() {
             child,
             master,
             hung_up: false,
-            grid: Rc::clone(&grid),
+            term: Rc::clone(&term),
             typed: String::new(),
-            last_cmd: None,
-            awaiting_output: false,
+            evidence: Evidence::default(),
             root,
             shown: Shown::default(),
             layout: Rc::clone(&layout),
@@ -375,55 +352,4 @@ fn key_sequence(key: Key) -> Option<&'static [u8]> {
         Key::PAGE_DOWN => b"\x1b[6~",
         _ => return None,
     })
-}
-
-/// Paint the bottom of the grid that fits the window, with a block cursor:
-/// only the rows inside `damage` (window pixels; `None` paints them all),
-/// since only the damage reaches the window's frame. Returns the layout, so
-/// the next drain can turn changed rows into a rectangle.
-/// The metrics are design pixels, times the UI scale (`canvas.dpi() / 96`)
-/// on screen, so the cells grow with the text (docs/hidpi-plan.md).
-fn paint(canvas: &mut dyn Canvas, palette: &Palette, grid: &Grid, damage: Option<Rect>) -> Layout {
-    let bounds = canvas.bounds();
-    let damage = intersect(damage.unwrap_or(bounds), bounds);
-    canvas.fill_rect(damage, palette.bg);
-    let scale = (canvas.dpi() / 96).max(1) as i32;
-    let (pad, line_h, cell_w) = (PAD * scale, LINE_H * scale, CELL_W * scale as f32);
-    let visible_cols = ((bounds.width() - 2 * pad) as f32 / cell_w) as usize;
-    let visible = (((bounds.height() - 2 * pad) / line_h).max(1) as usize).min(ROWS);
-    let first = first_row(grid.row, visible);
-    let last = (first + visible).min(ROWS);
-    let row_rect = |slot: usize| {
-        let top = bounds.top + pad + slot as i32 * line_h;
-        Rect::new(bounds.left, top, bounds.right, top + line_h)
-    };
-    for (slot, line) in grid.cells[first..last].iter().enumerate() {
-        if !overlaps(row_rect(slot), damage) {
-            continue;
-        }
-        let text: String = line[..visible_cols.min(COLS)].iter().collect();
-        let top = bounds.top + pad + slot as i32 * line_h;
-        let rect = Rect::new(bounds.left + pad, top, bounds.right - pad, top + line_h);
-        canvas.draw_text(&text, rect, &TextStyle::new(palette.fg, Dip(FONT)));
-    }
-    if grid.row >= first && grid.row < last && grid.col < visible_cols {
-        let top = bounds.top + pad + (grid.row - first) as i32 * line_h;
-        let left = bounds.left + pad + (grid.col as f32 * cell_w) as i32;
-        let rect = Rect::new(
-            left,
-            top + line_h - 3 * scale,
-            left + cell_w as i32,
-            top + line_h,
-        );
-        if overlaps(rect, damage) {
-            canvas.fill_rect(rect, palette.cursor);
-        }
-    }
-    Layout {
-        width: bounds.width(),
-        height: bounds.height(),
-        pad,
-        line_h,
-        visible,
-    }
 }
