@@ -554,7 +554,8 @@ digest), `port/smoke` (the headless UI process, WebKit's C API) and
 also builds libwpe and the EGL/GLESv2 stand-ins) builds the three programs in
 the `jsc` Docker container; a rebuild is incremental. `LAZYOS_WEBKIT=1`
 (`run_demo.py --webkit`, which implies networking and `--big-app`; a GUI
-checkbox) embeds them; `python tools/webkit/port_run.py` builds a console image,
+checkbox) embeds them (as `/system/bin/webprocess`, `networkprocess` and
+`webkit-smoke`, with `fonts.conf` and the Liberation fonts); `python tools/webkit/port_run.py` builds a console image,
 types `webkit-smoke` and judges `WEBKIT:W4:*` (`tools/webkit/test_port_judge.py`
 is the judge's self-test). **WTF, JSC and bmalloc must stay the JSCOnly
 configuration**: the port's platform macro is `PLATFORM(LAZYOS)`, never
