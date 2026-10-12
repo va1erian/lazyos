@@ -177,7 +177,9 @@ impl SettingsApp {
         );
         ui.root(
             row().children((
-                build(backdrop::sidebar_backdrop).bind(&sidebar).width(SIDEBAR_W),
+                build(backdrop::sidebar_backdrop)
+                    .bind(&sidebar)
+                    .width(SIDEBAR_W),
                 column()
                     .padding(Insets::new(Dip(16.0), Dip(10.0), Dip(16.0), Dip(8.0)))
                     .gap(8)
