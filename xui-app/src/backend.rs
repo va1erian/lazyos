@@ -154,6 +154,9 @@ pub struct LazyOSBackend {
     /// Told when the window's keyboard focus arrives or leaves
     /// ([`LazyOSBackend::on_keyboard_focus`]).
     on_keyboard_focus: RefCell<Option<FocusCallback>>,
+    /// Windows keep themselves when the window manager closes them
+    /// ([`LazyOSBackend::ask_before_close`]).
+    ask_close: Cell<bool>,
     /// Content-size hints applied to every window this app opens, or `None`
     /// for fixed-size windows. Set before `run_app` with
     /// [`LazyOSBackend::set_size_hints`].
@@ -319,6 +322,7 @@ impl LazyOSBackend {
             frames: Cell::new(0),
             on_first_frame: RefCell::new(None),
             on_keyboard_focus: RefCell::new(None),
+            ask_close: Cell::new(false),
             size_hints: Cell::new(None),
             next_role: Cell::new(SurfaceRole::Window),
             scale: Cell::new(1),

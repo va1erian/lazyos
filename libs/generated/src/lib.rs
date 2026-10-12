@@ -3704,6 +3704,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_PANELKEY: u32 = 46;
     /// `TrayKeys` method id.
     pub const METHOD_TRAYKEYS: u32 = 47;
+    /// `SetCloseMode` method id.
+    pub const METHOD_SETCLOSEMODE: u32 = 48;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -5473,6 +5475,42 @@ pub mod os_lazy_display_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.key = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask the compositor to keep `surface` when the window manager closes it
+    /// (the X button, Alt+F4, the taskbar): `WindowClose` is still sent, but
+    /// the window stays until the app destroys the surface, so an app that must
+    /// ask first (a terminal with a program running) can put its question in
+    /// the window. Without it (the default, and for every older client) the
+    /// window is dropped as it is sent. Only the creator may call it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetCloseModeArgs {
+        pub surface: u64,
+        pub ask: bool,
+    }
+
+    pub fn encode_set_close_mode_args(value: &SetCloseModeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.surface)?;
+        target.bool(2, value.ask)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_close_mode_args(body: &[u8]) -> Result<SetCloseModeArgs, Error> {
+        let mut out = SetCloseModeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.surface = field.as_u64()?;
+                }
+                2 => {
+                    out.ask = field.as_bool()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

@@ -38,6 +38,9 @@ impl Terminal {
     /// New settings arrived from `confd`.
     pub(super) fn apply_conf(&mut self, ui: &mut Ui<Msg>, conf: Conf) {
         self.conf = conf;
+        if let Some(prefs) = self.chrome.borrow_mut().prefs.as_mut() {
+            prefs.sync(&self.conf.settings);
+        }
         self.restyle(ui);
     }
 
@@ -205,19 +208,19 @@ impl Terminal {
 
     /// Show `100 x 30` in the middle of the window for a moment.
     fn show_badge(&mut self, ui: &mut Ui<Msg>, cols: usize, rows: usize) {
-        *self.badge.borrow_mut() = Some(format!("{cols} x {rows}"));
-        if let Some(id) = self.badge_timer.take() {
+        self.chrome.borrow_mut().badge = Some(format!("{cols} x {rows}"));
+        if let Some(id) = self.timers.badge.take() {
             ui.kill_timer(id);
         }
-        self.badge_timer.set(Some(ui.set_timer(BADGE_MILLIS)));
+        self.timers.badge.set(Some(ui.set_timer(BADGE_MILLIS)));
     }
 
     /// The badge's time is up: its timer stops with it.
     pub(super) fn hide_badge(&mut self, ui: &mut Ui<Msg>) {
-        if let Some(id) = self.badge_timer.take() {
+        if let Some(id) = self.timers.badge.take() {
             ui.kill_timer(id);
         }
-        if self.badge.borrow_mut().take().is_some() {
+        if self.chrome.borrow_mut().badge.take().is_some() {
             if let Some(layout) = self.layout.get() {
                 let rect = Rect::new(0, 0, layout.width, layout.height);
                 ui.invalidate_rect(self.root.id(), rect);
@@ -263,6 +266,11 @@ impl Terminal {
     pub(super) fn focus_changed(&mut self, ui: &mut Ui<Msg>, focused: bool) {
         self.blink.set_focused(focused, now_ms());
         println!("TERM:FOCUS:{}", u8::from(focused));
+        // Name the grid again for session scripts: the newest line wins, and with
+        // several Terminals it should be the one that has the keyboard.
+        if let (true, Some(laid)) = (focused, self.layout.get()) {
+            super::pointer::probe_grid(&laid);
+        }
         // A program that asked (`?1004`) hears about it.
         let report = self.term.borrow().focus_report(focused);
         if let Some(report) = report {

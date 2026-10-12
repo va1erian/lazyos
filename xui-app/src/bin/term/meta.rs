@@ -35,6 +35,7 @@ impl Terminal {
             self.title_generation = generation;
             let shown = title.as_deref().unwrap_or(DEFAULT_TITLE);
             ui.set_window_title(shown);
+            self.title = shown.to_string();
             println!("TERM:TITLE:{shown}");
         }
         if cwd != self.cwd {
@@ -60,7 +61,7 @@ impl Terminal {
     pub(super) fn hold_for_sync(&mut self, ui: &mut Ui<Msg>) -> bool {
         if !self.term.borrow().sync_output() {
             self.sync_hold = None;
-            if let Some(id) = self.sync_timer.take() {
+            if let Some(id) = self.timers.sync.take() {
                 ui.kill_timer(id);
             }
             return false;
@@ -69,8 +70,8 @@ impl Terminal {
         match self.sync_hold {
             None => {
                 self.sync_hold = Some(now);
-                if self.sync_timer.get().is_none() {
-                    self.sync_timer.set(Some(ui.set_timer(SYNC_HOLD_MS)));
+                if self.timers.sync.get().is_none() {
+                    self.timers.sync.set(Some(ui.set_timer(SYNC_HOLD_MS)));
                 }
                 true
             }
@@ -81,7 +82,7 @@ impl Terminal {
     /// The hold ran out: paint what the program has drawn so far.
     pub(super) fn sync_expired(&mut self, ui: &mut Ui<Msg>) {
         self.sync_hold = None;
-        if let Some(id) = self.sync_timer.take() {
+        if let Some(id) = self.timers.sync.take() {
             ui.kill_timer(id);
         }
         self.repaint(ui);

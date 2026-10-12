@@ -46,19 +46,19 @@ impl Terminal {
     /// while input is queued, the blink timer while the cursor blinks. An idle
     /// Terminal runs neither, so it costs no frames.
     pub(super) fn pump(&mut self, ui: &mut Ui<Msg>) {
-        match (self.out.is_empty(), self.flush.get()) {
-            (false, None) => self.flush.set(Some(ui.set_timer(FLUSH_MILLIS))),
+        match (self.out.is_empty(), self.timers.flush.get()) {
+            (false, None) => self.timers.flush.set(Some(ui.set_timer(FLUSH_MILLIS))),
             (true, Some(id)) => {
                 ui.kill_timer(id);
-                self.flush.set(None);
+                self.timers.flush.set(None);
             }
             _ => {}
         }
-        match (self.blink.wants_timer(), self.blink_timer.get()) {
-            (true, None) => self.blink_timer.set(Some(ui.set_timer(PERIOD_MS))),
+        match (self.blink.wants_timer(), self.timers.blink.get()) {
+            (true, None) => self.timers.blink.set(Some(ui.set_timer(PERIOD_MS))),
             (false, Some(id)) => {
                 ui.kill_timer(id);
-                self.blink_timer.set(None);
+                self.timers.blink.set(None);
             }
             _ => {}
         }
@@ -137,10 +137,10 @@ impl Terminal {
     /// Output arrived: feed the engine, answer its queries, report the
     /// evidence, repaint what changed.
     pub(super) fn output(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
-        let (top, completed, reply) = {
+        let (top, completed, reply, bells) = {
             let mut term = self.term.borrow_mut();
             let top = term.screen_top();
-            (top, term.feed(bytes), term.take_reply())
+            (top, term.feed(bytes), term.take_reply(), term.take_bells())
         };
         self.follow(top);
         // Answers to cursor-position and device-attribute queries go back to
@@ -155,6 +155,8 @@ impl Terminal {
         }
         self.touch(ui);
         self.meta_changed(ui);
+        self.ring(ui, bells);
+        self.search_after_output(ui);
         self.refresh(ui);
         let at_prompt = {
             let term = self.term.borrow();

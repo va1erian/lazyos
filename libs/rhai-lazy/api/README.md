@@ -252,6 +252,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
 | `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
 | `tray_keys()` | `TrayKeys() -> () oneway` | Shell event: Super+B (Win+B) went down: move the keyboard to the |
+| `set_close_mode(surface, ask)` | `SetCloseMode(surface: U64, ask: Bool) -> ()` | Ask the compositor to keep `surface` when the window manager closes it |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_surface_row()` | struct `SurfaceRow` | a `SurfaceRow` at its zero value |
 

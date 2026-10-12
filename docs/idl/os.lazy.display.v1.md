@@ -84,6 +84,7 @@ fields, which never use that id.
 | GrabPanelKeys | 45 | sync | `(grab: Bool) -> ()` |
 | PanelKey | 46 | oneway | `(key: U32) -> ()` |
 | TrayKeys | 47 | oneway | `() -> ()` |
+| SetCloseMode | 48 | sync | `(surface: U64, ask: Bool) -> ()` |
 
 ## Objects
 

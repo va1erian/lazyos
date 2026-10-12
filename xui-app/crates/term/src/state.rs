@@ -78,6 +78,8 @@ pub(crate) struct State {
     pub title: Option<String>,
     pub title_generation: u64,
     pub cwd: Option<Cwd>,
+    /// BELs seen since the host last asked (`Term::take_bells`).
+    pub bells: u32,
     pub links: Links,
     stash: Option<Stash>,
     pub row: usize,
@@ -129,6 +131,7 @@ impl State {
             title: None,
             title_generation: 0,
             cwd: None,
+            bells: 0,
             links: Links::default(),
             stash: None,
             row: 0,

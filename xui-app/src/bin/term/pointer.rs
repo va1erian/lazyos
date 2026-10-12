@@ -63,8 +63,7 @@ impl Terminal {
 
     /// Handle a pointer event.
     pub(super) fn mouse(&mut self, ui: &mut Ui<Msg>, m: MouseMsg) {
-        if self.pending_text.is_some() {
-            self.confirm_click(ui, &m);
+        if self.modal_mouse(ui, &m) {
             return;
         }
         self.last_mouse = (m.x, m.y);
@@ -72,7 +71,13 @@ impl Terminal {
             self.report_mouse(ui, &m);
             return;
         }
+        if matches!(m.kind, MouseKind::Move) {
+            self.link_hover(ui, m.x, m.y, m.mods.ctrl);
+        }
         match m.kind {
+            // Ctrl+click opens a link; anything else selects.
+            MouseKind::Down(MouseButton::Left) if m.mods.ctrl && self.ctrl_click(ui, m.x, m.y) => {}
+            MouseKind::Down(MouseButton::Right) => self.menu_at_pointer(ui, m.x, m.y),
             MouseKind::Down(MouseButton::Left) => self.press(ui, &m, false),
             MouseKind::Double(MouseButton::Left) => self.press(ui, &m, true),
             MouseKind::Down(MouseButton::Middle) => self.paste(ui),
@@ -86,6 +91,13 @@ impl Terminal {
     /// mouse, else it scrolls the view (or sends arrows to a full-screen
     /// program with no mouse mode).
     pub(super) fn wheel(&mut self, ui: &mut Ui<Msg>, delta: i16, m: Modifiers, at: (i32, i32)) {
+        // The menu and the preferences are modal over the grid.
+        {
+            let chrome = self.chrome.borrow();
+            if chrome.menu.is_some() || chrome.prefs.is_some() {
+                return;
+            }
+        }
         // Ctrl+wheel zooms this window; the program never sees it.
         if m.ctrl && !m.alt {
             let steps = (i32::from(delta) / 120).clamp(-3, 3);
@@ -205,11 +217,11 @@ impl Terminal {
     /// Run the autoscroll timer while it is needed, and not otherwise: an
     /// idle Terminal costs no frames.
     fn set_autoscroll(&mut self, ui: &mut Ui<Msg>, on: bool) {
-        match (on, self.auto.get()) {
-            (true, None) => self.auto.set(Some(ui.set_timer(AUTOSCROLL_MILLIS))),
+        match (on, self.timers.auto.get()) {
+            (true, None) => self.timers.auto.set(Some(ui.set_timer(AUTOSCROLL_MILLIS))),
             (false, Some(id)) => {
                 ui.kill_timer(id);
-                self.auto.set(None);
+                self.timers.auto.set(None);
             }
             _ => {}
         }

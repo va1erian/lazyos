@@ -157,7 +157,7 @@ fn exercise(term: &mut Term, chunk: &[u8]) {
     };
     let modes = [SelectMode::Char, SelectMode::Word, SelectMode::Line, SelectMode::Block];
     let (p, q) = (at(byte(1), byte(2)), at(byte(3), byte(4)));
-    match byte(0) % 11 {
+    match byte(0) % 12 {
         0 => term.select_begin(modes[byte(5) % 4], p),
         1 => {
             term.select_begin(modes[byte(5) % 4], p);
@@ -209,6 +209,27 @@ fn exercise(term: &mut Term, chunk: &[u8]) {
             }
             let _ = term.palette().resolve(crate::Color::Indexed(byte(4) as u8), true, true, true);
         }
+        10 => {
+            // Search, link lookups, the text dump and the bell counter.
+            let needle = String::from_utf8_lossy(&chunk[1..chunk.len().min(6)]).into_owned();
+            let mut search = crate::Search::new(&needle, byte(2) % 2 == 0);
+            let mut steps = 0;
+            while !search.update(term, 50, term.screen_top()) && steps < 1000 {
+                steps += 1;
+            }
+            let _ = (search.next(), search.prev());
+            for m in search.matches().iter().take(20) {
+                assert!(m.start <= m.end && m.end.col < term.cols());
+                let _ = search.spans_on(m.start.line, term.cols());
+            }
+            let line = term.first_line() + (byte(3) * 7 % (span + 1)) as u64;
+            if let Some(hit) = term.link_hit_at(line, byte(4) % (term.cols() + 2)) {
+                assert!(hit.uri.chars().count() <= 2048 && !hit.uri.chars().any(|c| c.is_control()));
+                assert!(hit.start <= hit.end);
+            }
+            let _ = term.dump_text();
+            let _ = term.take_bells();
+        }
         _ => {
             let _ = term.selection_text();
         }
@@ -240,6 +261,9 @@ impl Rng {
 /// Typical terminal traffic the mutations start from: a shell prompt, an
 /// editor redraw, wide characters, a scroll region, colours.
 pub const SEEDS: &[&[u8]] = &[
+    // T6: bells, URLs, links and the search/hit operations that read them.
+    b"\x20\x10\x07see http://example.com/x, and mailto:a@b.c \x1b]8;;http://z\x07link\x1b]8;;\x07 file:///tmp/x\x07\x0a\x0a\x0a",
+    b"\x2b\x0a\x0b(http://a.b/c_(d)) http:// https://x \x1b]8;id=1;http://q\x07\x07\x07\x07longer text that wraps around the screen for a while http://wrapped.example/a/long/path",
     // T5: titles, the working directory, hyperlinks, modes and attributes.
     b"\x20\x10\x1b]0;a title\x07\x1b]2;x;y;z\x1b\\\x1b]7;file://h/a%20b\x07\x1b]8;id=1;http://a;b\x07link\x1b]8;;\x07 text\x1b[?1;1004;2026h\x1b=\x1b[>c\x1b[c\x1b[?2026l\x1b>\x1b[?1l",
     b"\x20\x10\x1b]8;;\x1b\\x\x1b]8;a:b;u\x1b[1;31my\x1b[0mz\x1b]8;;\x07\x1b]0;\x07\x1b]7;file:///%00\x07\x1b]2;\xff\x07\x1bc",

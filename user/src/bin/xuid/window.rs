@@ -104,13 +104,20 @@ impl Compositor {
     /// and drop it; the full-screen repaint lets the windows below show
     /// through.
     pub(super) fn close_surface(&mut self, id: u64) {
+        let mut asked = false;
         if let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) {
-            let _ = display::send_event(
+            let sent = display::send_event(
                 &Endpoint::from_raw(surface.events),
                 &mut self.scratch,
                 wire::METHOD_WINDOWCLOSE,
                 Ok(Vec::new()),
             );
+            // A client that asked to be asked (`SetCloseMode`) and is alive
+            // keeps its window until it destroys the surface.
+            asked = surface.ask_close && sent.is_ok();
+        }
+        if asked {
+            return;
         }
         self.forget_surface(id);
         self.repaint_full();
@@ -283,6 +290,7 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         buf_w: 0,
         buf_h: 0,
         hints: None,
+        ask_close: false,
         maximized: None,
         snap: None,
         slots: Default::default(),

@@ -22,7 +22,9 @@ mod handler;
 mod history;
 pub mod input;
 pub mod keys;
+mod hits;
 mod links;
+mod logical;
 mod osc;
 mod osc_meta;
 pub mod palette;
@@ -32,8 +34,10 @@ mod reflow;
 mod row;
 mod selection;
 pub mod settings;
+pub mod search;
 mod screen;
 mod state;
+mod urls;
 #[cfg(test)]
 mod bench;
 #[cfg(test)]
@@ -49,6 +53,8 @@ mod tests_history;
 #[cfg(test)]
 mod tests_modes;
 #[cfg(test)]
+mod tests_bell;
+#[cfg(test)]
 mod tests_terminfo;
 #[cfg(test)]
 mod tests_reflow;
@@ -56,7 +62,9 @@ mod tests_reflow;
 pub use cell::{Attr, Cell, Color, Flags};
 pub use history::DEFAULT_LINES as DEFAULT_SCROLLBACK;
 pub use palette::{Palette, Rgb, Scheme};
+pub use hits::LinkHit;
 pub use osc_meta::{Cwd, MAX_TITLE};
+pub use search::{Match, Search};
 pub use reflow::Remap;
 pub use row::Row;
 pub use selection::{Point, SelectMode};
@@ -213,6 +221,12 @@ impl Term {
     /// Lines kept in the scrollback.
     pub fn scrollback_len(&self) -> usize {
         self.state.history.len()
+    }
+
+    /// How many BELs the program rang since the last call (a BEL ending an OSC
+    /// is not one). The host rate-limits what it does with them.
+    pub fn take_bells(&mut self) -> u32 {
+        std::mem::take(&mut self.state.bells)
     }
 
     /// The title a program set with OSC 0 or 2, cleaned (printable characters,

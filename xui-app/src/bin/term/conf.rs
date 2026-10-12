@@ -118,6 +118,22 @@ impl Follower {
         let _ = self.store.set(&path, StoreValue::Str(format!("{cols}x{rows}")));
     }
 
+    /// Write one of the Terminal's keys under `user/<uid>/term/` (the
+    /// preferences panel). The open windows follow it through the change
+    /// topic like any other writer's. A refused write is not an error here:
+    /// the caller has already applied the value to its own window.
+    pub fn write(&mut self, key: &str, value: &Value) {
+        let Some(uid) = self.uid.filter(|_| self.available && KEYS.contains(&key)) else {
+            return;
+        };
+        let stored = match value {
+            Value::Bool(b) => StoreValue::Bool(*b),
+            Value::Int(n) => StoreValue::I64(*n),
+            Value::Text(t) => StoreValue::Str(t.clone()),
+        };
+        let _ = self.store.set(&format!("user/{uid}/term/{key}"), stored);
+    }
+
     /// Look for changes; the new configuration when something differs.
     pub fn poll(&mut self) -> Option<Conf> {
         let changed = self

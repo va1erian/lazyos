@@ -41,8 +41,39 @@ impl CursorShape {
     }
 }
 
+/// What a BEL does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Bell {
+    None,
+    #[default]
+    Visual,
+    Sound,
+    Notify,
+}
+
+impl Bell {
+    pub fn parse(name: &str) -> Option<Bell> {
+        match name {
+            "none" => Some(Bell::None),
+            "visual" => Some(Bell::Visual),
+            "sound" => Some(Bell::Sound),
+            "notify" => Some(Bell::Notify),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Bell::None => "none",
+            Bell::Visual => "visual",
+            Bell::Sound => "sound",
+            Bell::Notify => "notify",
+        }
+    }
+}
+
 /// The keys the Terminal reads, relative to `user/<uid>/term/`.
-pub const KEYS: [&str; 13] = [
+pub const KEYS: [&str; 14] = [
     "font/family",
     "font/size",
     "font/line_spacing",
@@ -56,6 +87,7 @@ pub const KEYS: [&str; 13] = [
     "paste/confirm_multiline",
     "window/size",
     "window/last_size",
+    "bell",
 ];
 
 /// The smallest grid a window may hold, and the largest a setting may ask for.
@@ -103,6 +135,7 @@ pub struct Settings {
     /// grid the window had when it was last closed, used when no size is set.
     pub window_size: Option<(usize, usize)>,
     pub last_size: Option<(usize, usize)>,
+    pub bell: Bell,
 }
 
 impl Default for Settings {
@@ -121,6 +154,7 @@ impl Default for Settings {
             confirm_multiline: true,
             window_size: None,
             last_size: None,
+            bell: Bell::Visual,
         }
     }
 }
@@ -177,6 +211,7 @@ impl Settings {
             // An invalid size is no size.
             ("window/size", Value::Text(text)) => self.window_size = parse_grid(text),
             ("window/last_size", Value::Text(text)) => self.last_size = parse_grid(text),
+            ("bell", Value::Text(name)) => self.bell = Bell::parse(name).unwrap_or_default(),
             _ => return KEYS.contains(&key),
         }
         true
@@ -229,6 +264,7 @@ mod tests {
             ("paste/confirm_multiline", Value::Bool(false)),
             ("window/size", text("100x30")),
             ("window/last_size", text("64x20")),
+            ("bell", text("notify")),
         ];
         assert_eq!(all.len(), KEYS.len());
         for (key, value) in &all {
@@ -240,6 +276,9 @@ mod tests {
         assert!(s.bold_is_bright && s.copy_on_select && !s.confirm_multiline);
         assert_eq!(s.word_chars, "_.");
         assert_eq!((s.window_size, s.last_size), (Some((100, 30)), Some((64, 20))));
+        assert_eq!(s.bell, Bell::Notify);
+        s.apply("bell", &text("loud"));
+        assert_eq!(s.bell, Bell::Visual, "an unknown name is the default");
     }
 
     #[test]

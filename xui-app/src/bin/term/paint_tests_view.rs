@@ -94,7 +94,7 @@ fn the_paste_confirmation_bar_has_two_buttons() {
     for (dark, tag) in [(true, "dark"), (false, "light")] {
         let mut term = Term::new(80, 19);
         term.feed(b"prompt");
-        let shot = Shot { dark, pending: Some(3), ..Shot::default() };
+        let shot = Shot { dark, chrome: |_| Chrome { prompt: Some(Prompt::paste(3)), ..Chrome::default() }, ..Shot::default() };
         let image = shoot(term, &shot, &format!("term-confirm-{tag}.png"));
         let scheme = scheme_by_name("desktop", dark);
         let m = image.m;

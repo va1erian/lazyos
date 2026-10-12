@@ -12,8 +12,7 @@ use lazyterm::settings::CursorShape;
 use lazyterm::{Attr, Flags, Palette, Rgb, Term};
 use xui_core::{Canvas, Color, Rect};
 
-use super::badge;
-use super::geometry::confirm_rects;
+use super::chrome::{self, Chrome};
 use super::look::Look;
 use super::view::{
     first_row, intersect, line_number, max_offset, overlaps, thumb, view_line, Layout,
@@ -30,12 +29,12 @@ pub struct Scene<'a> {
     pub look: &'a Look,
     /// Lines the view is scrolled back from the bottom.
     pub offset: usize,
-    /// The paste confirmation bar's line count, while it is up.
-    pub pending: Option<usize>,
     /// The theme's accent: the selection is the background tinted with it.
     pub accent: Rgb,
-    /// The size badge's text, while it is up (`badge.rs`).
-    pub badge: Option<&'a str>,
+    /// The layers over the grid (`chrome.rs`) and whether the desktop is dark
+    /// (for the preferences' `desktop` swatch).
+    pub chrome: &'a Chrome,
+    pub dark: bool,
 }
 
 /// The background of selected cells: the scheme's background tinted with the
@@ -116,9 +115,11 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
             line_h: m.line_h,
         };
         let found = runs(line.cells, cols);
-        let span = line_number(term, first, scene.offset, slot)
-            .and_then(|line| term.selection_span(line));
-        draw_row(canvas, scene, &cells, &found, span.filter(|&(from, _)| from < cols), select, cols);
+        let number = line_number(term, first, scene.offset, slot);
+        let span = number.and_then(|line| term.selection_span(line));
+        let marks = number.map(|n| marks_on(scene, n, cols)).unwrap_or_default();
+        let selected = span.filter(|&(from, _)| from < cols);
+        draw_row(canvas, scene, &cells, &found, selected, select, cols, &marks);
     }
     // The cursor is a screen row: it is in view only while its slot is.
     let slot = (cursor_row + scene.offset).saturating_sub(first);
@@ -156,15 +157,36 @@ pub fn paint(canvas: &mut dyn Canvas, scene: &Scene, damage: Option<Rect>) -> La
         cell_w: m.cell_w,
         visible,
     };
-    if let Some(lines) = scene.pending {
-        paint_confirm(canvas, palette, &laid, m.scale, lines, damage);
-    }
-    if let Some(text) = scene.badge {
-        badge::paint(canvas, palette, look, &laid, text, damage);
-    }
+    chrome::paint(canvas, scene.chrome, look, palette, &laid, scene.dark, damage);
     laid
 }
 
+/// What the layers over the grid mark on one line: the find matches (first
+/// column, last column, is the current one) and the hovered link's columns.
+#[derive(Default)]
+struct Marks {
+    finds: Vec<(usize, usize, bool)>,
+    link: Option<(usize, usize)>,
+}
+
+fn marks_on(scene: &Scene, line: u64, cols: usize) -> Marks {
+    let finds = scene
+        .chrome
+        .find
+        .as_ref()
+        .map(|f| f.search.spans_on(line, scene.term.cols()))
+        .unwrap_or_default();
+    let link = scene.chrome.hover.and_then(|(a, b)| {
+        (a.line <= line && line <= b.line).then(|| {
+            let from = if line == a.line { a.col } else { 0 };
+            let to = if line == b.line { b.col } else { cols.saturating_sub(1) };
+            (from, to)
+        })
+    });
+    Marks { finds, link }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_row(
     canvas: &mut dyn Canvas,
     scene: &Scene,
@@ -173,6 +195,7 @@ fn draw_row(
     selected: Option<(usize, usize)>,
     select: Rgb,
     cols: usize,
+    marks: &Marks,
 ) {
     let palette = scene.term.palette();
     let bib = scene.look.bold_is_bright;
@@ -188,6 +211,16 @@ fn draw_row(
         let rect = Rect::new(cells.rect(from, 1).left, cells.top, cells.rect(to, 1).right, cells.top + cells.line_h);
         canvas.fill_rect(rect, color(select));
     }
+    // Find matches over the selection, the current one stronger.
+    for &(from, to, current) in &marks.finds {
+        if from >= cols {
+            continue;
+        }
+        let tint = Rgb(255, 190, 40);
+        let fill = palette.bg().lerp(tint, if current { 0.65 } else { 0.32 });
+        let (left, right) = (cells.rect(from, 1).left, cells.rect(to.min(cols - 1), 1).right);
+        canvas.fill_rect(Rect::new(left, cells.top, right, cells.top + cells.line_h), color(fill));
+    }
     // Text.
     for run in found {
         let (fg, bg) = cell_colors(palette, run.attr, bib);
@@ -195,8 +228,14 @@ fn draw_row(
             draw_run(canvas, scene.look, cells, run, fg, bg, cols);
         }
     }
-    // Underline and strike, over the glyphs.
+    // The link under the pointer (Ctrl held): underlined in the text colour.
     let light = scene.look.metrics.light;
+    if let Some((from, to)) = marks.link.filter(|&(from, _)| from < cols) {
+        let (left, right) = (cells.rect(from, 1).left, cells.rect(to.min(cols - 1), 1).right);
+        let y = cells.top + cells.line_h - 2 * light;
+        canvas.fill_rect(Rect::new(left, y, right, y + light), color(palette.fg()));
+    }
+    // Underline and strike, over the glyphs.
     for run in found {
         let (fg, _) = cell_colors(palette, run.attr, bib);
         let span = cells.rect(run.col, run.cells.min(cols - run.col));
@@ -359,36 +398,6 @@ fn draw_cursor(
             let w = 2 * m.scale;
             canvas.fill_rect(Rect::new(rect.left, rect.top, rect.left + w, rect.bottom), cursor);
         }
-    }
-}
-
-/// The paste confirmation bar: the question, a Paste and a Cancel button
-/// (Enter and Escape do the same).
-fn paint_confirm(
-    canvas: &mut dyn Canvas,
-    palette: &Palette,
-    layout: &Layout,
-    scale: i32,
-    lines: usize,
-    damage: Rect,
-) {
-    let c = confirm_rects(layout);
-    if !overlaps(c.bar, damage) {
-        return;
-    }
-    let fg = color(palette.fg());
-    let style = xui_core::TextStyle::new(fg, xui_core::Dip(15.0));
-    canvas.fill_rect(c.bar, color(palette.bg().lerp(palette.fg(), 0.16)));
-    canvas.fill_rect(Rect::new(c.bar.left, c.bar.top, c.bar.right, c.bar.top + scale), color(palette.cursor()));
-    let text = |canvas: &mut dyn Canvas, text: &str, rect: Rect| {
-        let at = Rect::new(rect.left, rect.top + (rect.height() - 20 * scale) / 2, rect.right, rect.bottom);
-        canvas.draw_text(text, at, &style);
-    };
-    let question = format!("Paste {lines} lines?");
-    text(canvas, &question, Rect::new(c.bar.left + layout.pad, c.bar.top, c.paste.left, c.bar.bottom));
-    for (rect, label) in [(c.paste, "Paste"), (c.cancel, "Cancel")] {
-        canvas.fill_rect(rect, color(palette.bg().lerp(palette.fg(), 0.32)));
-        text(canvas, label, Rect::new(rect.left + layout.pad, rect.top, rect.right, rect.bottom));
     }
 }
 

@@ -1,6 +1,6 @@
 # Terminal: a customizable, convenient GUI terminal
 
-Status: plan. Scope: the desktop Terminal (`xui-term`, `xui-app/src/bin/term.rs`
+Status: implemented (T0-T6). Scope: the desktop Terminal (`xui-term`, `xui-app/src/bin/term.rs`
 and `term/`), a new portable terminal-engine crate, its `confd` settings, and
 the small platform pieces it leans on (`clipboardd`, fonts, terminfo).
 
@@ -332,6 +332,33 @@ names the key, not the character a layout makes of it). Session:
   Apply button.
 - **Save output** (menu): write screen + history to a file chosen in the Save
   dialog.
+
+As built (T6): the menu, the find bar, the close confirmation and the
+Preferences panel are drawn in the window by the Terminal itself (`chrome.rs`,
+`menu.rs`, `findbar.rs`, `prefs.rs`) instead of xui popup nodes: they get
+probe names and headless snapshots, stay clamped to the window, and never
+block the pty drain (all state lives in a shared `Chrome`). Key routing is
+prompt, then preferences, menu, find. Links: `urls::find_urls` per logical
+line plus OSC 8 spans; Ctrl+click or the menu item opens them through `mimed`
+(`launcher::open_url`) after `helpers::sanitize_url`; a link whose text
+differs from its target asks first. Find is `lazyterm::search` (incremental,
+budgeted, eviction-aware, matches across wrapped rows). Bell: `bell` =
+none/visual/sound/notify, 500 ms rate limit. New Window runs
+`xui_app::shell::launch` with the OSC 7 directory (validated, else home).
+Closing while a job runs needs a veto from the compositor: display method
+`SetCloseMode` (48, `idl/display.midl`) makes `xuid` ask the client instead of
+forgetting the surface; the busy test reads the kernel task table (`jobs.rs`),
+since ash has no job control (evidence `TERM:CLOSE:CHECK`). Pointer events now
+carry modifiers (Ctrl+click, Shift+right click). Evidence: `TERM:MENU:<item>`,
+`TERM:LINK:OPEN:<url>`, `TERM:FIND:<n>`, `TERM:BELL:<kind>`,
+`TERM:NEWWIN:<cwd>`, `TERM:CLOSE:CONFIRM|CANCEL|FORCE`,
+`TERM:PREFS:SET:<key>`, `TERM:SAVE:<bytes>`. Session:
+`tools/screenshot/examples/term_menu.json`.
+
+Known gaps: BusyBox `vi` does not follow SIGWINCH; keypad and non-US layout
+handling is basic; the kernel pty has no back-pressure past the line
+discipline's 4096-byte input window (a separate task). Bold and italic faces
+are no longer a gap (JetBrains Mono Bold, Italic, BoldItalic ship).
 
 ## 5. Security notes
 

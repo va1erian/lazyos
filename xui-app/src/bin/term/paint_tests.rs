@@ -15,6 +15,9 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::{NodeKind, NodeSpec};
 use xui_core::{Control, Image, Theme};
 
+use super::super::geometry::confirm_rects;
+use super::super::chrome::Chrome;
+use super::super::prompt::Prompt;
 use super::super::look::{measure, Look};
 use super::*;
 
@@ -39,8 +42,10 @@ impl App for Host {
 /// test runs on its own thread, so every render registers again.
 fn fonts() -> Catalog {
     let mut catalog = Catalog::default();
-    xui_canvas::add_font(xui_app::font::MONO_BYTES.to_vec());
-    catalog.add(&parse(xui_app::font::MONO_BYTES).unwrap());
+    for face in std::iter::once(xui_app::font::MONO_BYTES).chain(xui_app::font::MONO_STYLES) {
+        xui_canvas::add_font(face.to_vec());
+        catalog.add(&parse(face).unwrap());
+    }
     for face in LIBERATION {
         xui_canvas::add_font(face.to_vec());
         catalog.add(&parse(face).unwrap());
@@ -63,8 +68,9 @@ struct Shot {
     cursor_on: bool,
     bold_is_bright: bool,
     offset: usize,
-    pending: Option<usize>,
-    badge: Option<&'static str>,
+    /// Builds the layers over the grid (menu, find bar, prompt, ...).
+    chrome: fn(&Term) -> Chrome,
+    no_bold: bool,
 }
 
 impl Default for Shot {
@@ -81,8 +87,8 @@ impl Default for Shot {
             cursor_on: true,
             bold_is_bright: false,
             offset: 0,
-            pending: None,
-            badge: None,
+            chrome: |_| Chrome::default(),
+            no_bold: false,
         }
     }
 }
@@ -115,24 +121,24 @@ fn render_with(mut term: Term, shot: &Shot, times: u32, name: &str) -> (Shown, f
             let root = Control::new(ui, &NodeSpec::new(NodeKind::Custom, ui.client_rect()))
                 .expect("root node");
             let metrics = measure(ui, setup.family, setup.size, setup.spacing);
-            let mut look = Look::new(
-                metrics,
-                setup.family,
-                catalog.styles(setup.family).unwrap_or_default(),
-            );
+            let mut styles = catalog.styles(setup.family).unwrap_or_default();
+            // A family that lacks its bold face: overstruck.
+            styles.bold &= !setup.no_bold;
+            let mut look = Look::new(metrics, setup.family, styles);
             look.cursor_shape = setup.shape;
             look.focused = setup.focused;
             look.cursor_on = setup.cursor_on;
             look.bold_is_bright = setup.bold_is_bright;
             let accent = theme.accent;
             let draw = move |canvas: &mut dyn xui_core::Canvas| {
+                let chrome = (setup.chrome)(&term);
                 let scene = Scene {
                     term: &term,
                     look: &look,
                     offset: setup.offset,
-                    pending: setup.pending,
                     accent: Rgb(accent.r, accent.g, accent.b),
-                    badge: setup.badge,
+                    chrome: &chrome,
+                    dark: setup.dark,
                 };
                 let start = Instant::now();
                 for _ in 0..times {
@@ -331,8 +337,11 @@ fn attributes_are_painted() {
 #[test]
 fn bold_without_a_bold_face_is_overstruck_and_with_one_it_is_the_face() {
     let mut term = Term::new(80, 19);
+    term.feed(b"\x1b[1mHHHH\x1b[0m HHHH\r\n\x1b[3mHHHH\x1b[0m HHHH\r\n\x1b[1;3mHHHH\x1b[0m HHHH");
+    let real = shoot(term, &Shot::default(), "term-jetbrains-faces.png");
+    let mut term = Term::new(80, 19);
     term.feed(b"\x1b[1mHHHH\x1b[0m HHHH");
-    let jetbrains = shoot(term, &Shot::default(), "term-bold-jetbrains.png");
+    let jetbrains = shoot(term, &Shot { no_bold: true, ..Shot::default() }, "term-bold-jetbrains.png");
     let bg = scheme_by_name("desktop", true).bg;
     let count = |s: &Shown, col: usize| {
         let (x, y) = s.origin(col, 0);
@@ -342,6 +351,18 @@ fn bold_without_a_bold_face_is_overstruck_and_with_one_it_is_the_face() {
             .count()
     };
     assert!(count(&jetbrains, 0) > count(&jetbrains, 5), "overstrike adds ink: {} vs {}", count(&jetbrains, 0), count(&jetbrains, 5));
+    // JetBrains Mono has its real faces: bold is heavier, and the italic and
+    // bold italic rows are drawn from their own faces, not the Regular's.
+    assert!(count(&real, 0) > count(&real, 5), "the real bold face is heavier");
+    let row = |s: &Shown, r: usize| {
+        let (x, y) = s.origin(0, r);
+        (0..s.m.line_h)
+            .flat_map(|py| (0..4 * s.m.cell_w).map(move |px| (px, py)))
+            .filter(|&(px, py)| s.pixel(x + px, y + py) != bg)
+            .collect::<Vec<_>>()
+    };
+    assert_ne!(row(&real, 1), row(&real, 0), "italic differs from the regular");
+    assert_ne!(row(&real, 2), row(&real, 1), "bold italic differs from italic");
     let mut term = Term::new(80, 19);
     term.feed(b"\x1b[1mHHHH\x1b[0m HHHH\r\n\x1b[3mHHHH\x1b[0m HHHH");
     let shot = Shot { family: "Liberation Mono", ..Shot::default() };
@@ -461,6 +482,8 @@ fn replay(term: &Term) -> Term {
 }
 
 
+#[path = "paint_tests_chrome.rs"]
+mod chrome_tests;
 #[path = "paint_tests_geom.rs"]
 mod geom;
 #[path = "paint_tests_view.rs"]

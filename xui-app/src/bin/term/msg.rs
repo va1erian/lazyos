@@ -24,6 +24,13 @@ pub(super) enum Msg {
     BadgeOff,
     /// A held synchronized update has been held long enough.
     SyncExpired,
+    /// The bell's flash is over.
+    FlashOff,
+    /// The find scan has rows left: scan some more.
+    FindScan,
+    /// The Save dialog chose a file, or was cancelled.
+    SaveChosen(PathBuf),
+    SaveCancelled,
     /// A translated character from the keyboard.
     Char(char),
     /// A key press with the modifiers held: arrows, Escape and the like, and

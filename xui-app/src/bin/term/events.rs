@@ -1,13 +1,11 @@
 //! The window's events and timers, turned into the Terminal's messages.
 
-use std::cell::Cell;
-use std::rc::Rc;
-
 use xui_core::app::Ui;
-use xui_core::backend::{Event, TimerId};
+use xui_core::backend::Event;
 use xui_core::{Control, WidgetId};
 
 use super::msg::Msg;
+use super::timers::Timers;
 use super::pointer::{mouse, MouseKind};
 
 /// Route the root node's keyboard, focus, wheel and pointer events.
@@ -56,30 +54,8 @@ pub(super) fn watch_resize(ui: &mut Ui<Msg>) {
     });
 }
 
-/// Tell the timers apart: the autoscroll, the input retry and the blink each
-/// have an id of their own; anything else is the poll tick.
-pub(super) fn route_timers(
-    ui: &mut Ui<Msg>,
-    auto: &Rc<Cell<Option<TimerId>>>,
-    flush: &Rc<Cell<Option<TimerId>>>,
-    blink: &Rc<Cell<Option<TimerId>>>,
-    badge: &Rc<Cell<Option<TimerId>>>,
-    sync: &Rc<Cell<Option<TimerId>>>,
-) {
-    let timers = (Rc::clone(auto), Rc::clone(flush), Rc::clone(blink), Rc::clone(badge), Rc::clone(sync));
-    ui.on_timer(move |id| {
-        Some(if timers.0.get() == Some(id) {
-            Msg::Autoscroll
-        } else if timers.1.get() == Some(id) {
-            Msg::Flush
-        } else if timers.2.get() == Some(id) {
-            Msg::Blink
-        } else if timers.4.get() == Some(id) {
-            Msg::SyncExpired
-        } else if timers.3.get() == Some(id) {
-            Msg::BadgeOff
-        } else {
-            Msg::Tick
-        })
-    });
+/// Route the timers: each has its own id, anything else is the poll tick.
+pub(super) fn route_timers(ui: &mut Ui<Msg>, timers: &Timers) {
+    let timers = timers.clone();
+    ui.on_timer(move |id| Some(timers.message(id)));
 }

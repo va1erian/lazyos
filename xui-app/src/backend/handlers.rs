@@ -115,6 +115,7 @@ impl Backend for LazyOSBackend {
         let resizable = role == SurfaceRole::Window;
         if let (true, Some(surface)) = (resizable, client.as_ref()) {
             self.send_size_hints(surface.surface);
+            self.send_close_mode(surface.surface);
         }
         self.windows.borrow_mut().insert(
             id.raw(),

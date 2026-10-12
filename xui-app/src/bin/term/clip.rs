@@ -11,15 +11,11 @@ use std::rc::Rc;
 
 use xui_app::backend::{DropEvent, LazyOSBackend};
 use xui_app::platform::urilist;
-use xui_app::probe;
 use xui_core::app::Proxy;
 use xui_core::app::Ui;
-use xui_core::Rect;
 
-use super::geometry::{confirm_rects, contains};
-use super::pointer::{MouseKind, MouseMsg};
+use super::prompt::Prompt;
 use super::{Msg, Terminal};
-use xui_core::MouseButton;
 
 /// Turn files dropped on the window into `Msg::Dropped` through `outbox`, which
 /// holds the UI's proxy once the UI exists (the hook runs outside `update`).
@@ -74,8 +70,7 @@ impl Terminal {
             let lines = line_count(&text);
             println!("TERM:PASTE:CONFIRM:{lines}");
             self.pending_text = Some(text);
-            self.pending.set(Some(lines));
-            self.show_confirm(ui);
+            self.show_prompt(ui, Prompt::paste(lines));
         } else {
             self.write_paste(ui, &text);
         }
@@ -128,53 +123,12 @@ impl Terminal {
         let Some(text) = self.pending_text.take() else {
             return;
         };
-        self.pending.set(None);
-        self.hide_confirm(ui);
+        self.chrome.borrow_mut().prompt = None;
+        self.redraw(ui);
         if accept {
             self.write_paste(ui, &text);
         } else {
             println!("TERM:PASTE:CANCEL");
-        }
-    }
-
-    /// A pointer event while the bar is up: only its buttons do anything.
-    pub(super) fn confirm_click(&mut self, ui: &mut Ui<Msg>, m: &MouseMsg) {
-        let (Some(layout), MouseKind::Down(MouseButton::Left) | MouseKind::Double(MouseButton::Left)) =
-            (self.layout.get(), m.kind)
-        else {
-            return;
-        };
-        let rects = confirm_rects(&layout);
-        if contains(rects.paste, m.x, m.y) {
-            self.confirm(ui, true);
-        } else if contains(rects.cancel, m.x, m.y) {
-            self.confirm(ui, false);
-        }
-    }
-
-    fn bar_rect(&self) -> Option<Rect> {
-        self.layout.get().map(|layout| confirm_rects(&layout).bar)
-    }
-
-    fn show_confirm(&mut self, ui: &mut Ui<Msg>) {
-        if let Some(layout) = self.layout.get() {
-            let rects = confirm_rects(&layout);
-            for (name, r) in [
-                ("paste_confirm", rects.bar),
-                ("paste_button", rects.paste),
-                ("cancel_button", rects.cancel),
-            ] {
-                probe::widget("Terminal", name, r.left, r.top, r.width(), r.height());
-            }
-        }
-        if let Some(bar) = self.bar_rect() {
-            ui.invalidate_rect(self.root.id(), bar);
-        }
-    }
-
-    fn hide_confirm(&mut self, ui: &mut Ui<Msg>) {
-        if let Some(bar) = self.bar_rect() {
-            ui.invalidate_rect(self.root.id(), bar);
         }
     }
 }

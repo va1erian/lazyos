@@ -49,6 +49,7 @@ impl Perform for State {
 
     fn execute(&mut self, byte: u8) {
         match byte {
+            0x07 => self.bells = self.bells.saturating_add(1),
             0x08 => self.move_to(self.row, self.col.saturating_sub(1)),
             0x09 => self.tab_forward(1),
             0x0a..=0x0c => self.line_feed(),

@@ -14,6 +14,11 @@ pub enum Shortcut {
     Copy,
     Paste,
     SelectAll,
+    Find,
+    NewWindow,
+    Preferences,
+    /// Shift+F10 or the Menu key: the context menu at the cursor.
+    Menu,
 }
 
 /// The shortcut a chord is, if any: `Ctrl+Shift+C` / `Ctrl+Insert` copy,
@@ -24,10 +29,26 @@ pub fn shortcut(key: Key, m: Modifiers) -> Option<Shortcut> {
         (true, true, false) if letter(b'C') => Some(Shortcut::Copy),
         (true, true, false) if letter(b'V') => Some(Shortcut::Paste),
         (true, true, false) if letter(b'A') => Some(Shortcut::SelectAll),
+        (true, true, false) if letter(b'F') => Some(Shortcut::Find),
+        (true, true, false) if letter(b'N') => Some(Shortcut::NewWindow),
+        // Ctrl+, (the comma key).
+        (true, false, false) if key.code() == 0xbc => Some(Shortcut::Preferences),
+        (false, true, false) if key == Key::F10 => Some(Shortcut::Menu),
+        _ if key.code() == 0x5d && !m.ctrl && !m.alt => Some(Shortcut::Menu),
         (true, false, false) if key == Key::INSERT => Some(Shortcut::Copy),
         (false, true, false) if key == Key::INSERT => Some(Shortcut::Paste),
         _ => None,
     }
+}
+
+/// Whether the chord is the one that opens the context menu (it closes it too).
+pub fn is_menu_chord(key: Key, m: Modifiers) -> bool {
+    shortcut(key, m) == Some(Shortcut::Menu)
+}
+
+/// Whether the chord is Ctrl+Shift+F.
+pub fn is_find_chord(key: Key, m: Modifiers) -> bool {
+    shortcut(key, m) == Some(Shortcut::Find)
 }
 
 /// A zoom chord: Ctrl+= and Ctrl++ (and the keypad's plus) zoom in, Ctrl+-
@@ -95,6 +116,10 @@ impl Terminal {
             Some(Shortcut::Copy) => return self.copy(ui),
             Some(Shortcut::Paste) => return self.paste(ui),
             Some(Shortcut::SelectAll) => return self.select_all(ui),
+            Some(Shortcut::Find) => return self.open_find(ui),
+            Some(Shortcut::NewWindow) => return self.new_window(),
+            Some(Shortcut::Preferences) => return self.open_prefs(ui),
+            Some(Shortcut::Menu) => return self.menu_at_cursor(ui),
             None => {}
         }
         let scrollable = !self.term.borrow().on_alternate_screen();
@@ -141,6 +166,20 @@ mod tests {
         assert_eq!(shortcut(letter(b'V'), mods(true, true)), Some(Shortcut::Paste));
         assert_eq!(shortcut(Key::INSERT, mods(false, true)), Some(Shortcut::Paste));
         assert_eq!(shortcut(letter(b'A'), mods(true, true)), Some(Shortcut::SelectAll));
+    }
+
+    #[test]
+    fn the_convenience_chords() {
+        assert_eq!(shortcut(letter(b'F'), mods(true, true)), Some(Shortcut::Find));
+        assert_eq!(shortcut(letter(b'N'), mods(true, true)), Some(Shortcut::NewWindow));
+        assert_eq!(shortcut(Key::from_code(0xbc), mods(true, false)), Some(Shortcut::Preferences));
+        assert_eq!(shortcut(Key::F10, mods(false, true)), Some(Shortcut::Menu));
+        assert_eq!(shortcut(Key::from_code(0x5d), mods(false, false)), Some(Shortcut::Menu));
+        // The program's own: plain Ctrl+F, F10, a plain comma.
+        assert_eq!(shortcut(letter(b'F'), mods(true, false)), None);
+        assert_eq!(shortcut(Key::F10, mods(false, false)), None);
+        assert_eq!(shortcut(Key::from_code(0xbc), mods(false, false)), None);
+        assert!(is_menu_chord(Key::F10, mods(false, true)) && is_find_chord(letter(b'F'), mods(true, true)));
     }
 
     #[test]

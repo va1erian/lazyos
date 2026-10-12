@@ -23,31 +23,44 @@
 //! `TERM:EXIT:PASS` when the shell exits or the window is closed, and
 //! `TERM:SPAWN:FAIL:<reason>` when the child cannot start. `TERM:FONT:<family>:
 //! <size>:<cols>x<rows>` reports the effective font and grid whenever either
-//! changes (settings in `confd` under `user/<uid>/term/`, or zoom).
+//! changes (settings in `confd` under `user/<uid>/term/`, or zoom), and
+//! `TERM:RESIZE:<cols>x<rows>` each applied size. The conveniences report
+//! `TERM:MENU:<item>`, `TERM:LINK:OPEN:<url>`, `TERM:FIND:<matches>`,
+//! `TERM:BELL:<kind>`, `TERM:NEWWIN:<cwd>`, `TERM:CLOSE:CONFIRM|CANCEL|FORCE`,
+//! `TERM:PREFS:SET:<key>` and `TERM:SAVE:<bytes>`.
 
 use std::cell::{Cell, RefCell};
 use std::os::unix::io::RawFd;
 use std::os::unix::process::CommandExt;
-use std::process::{Child, Command};
+use std::path::PathBuf;
+use std::process::Command;
 use std::rc::Rc;
 
-use lazyterm::input::Button;
 use lazyterm::Rgb;
 use lazyterm::Term as Engine;
 use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
-use xui_core::app::{App, Proxy, Ui};
-use xui_core::backend::{Cursor, NodeKind, NodeSpec, PlatformSpec, TimerId};
-use xui_core::{Control, Dip, Key};
+use xui_core::app::Proxy;
+use xui_core::backend::{Cursor, NodeKind, NodeSpec, PlatformSpec};
+use xui_core::widget::{FileDialog, StdFileSystem};
+use xui_core::{Control, Dip};
 
+#[path = "term/actions.rs"]
+mod actions;
+#[path = "term/app.rs"]
+mod app;
 #[path = "term/appearance.rs"]
 mod appearance;
 #[path = "term/badge.rs"]
 mod badge;
+#[path = "term/bell.rs"]
+mod bell;
 #[path = "term/blink.rs"]
 mod blink;
 #[path = "term/chords.rs"]
 mod chords;
+#[path = "term/chrome.rs"]
+mod chrome;
 #[path = "term/clicks.rs"]
 mod clicks;
 #[path = "term/clip.rs"]
@@ -58,14 +71,26 @@ mod conf;
 mod events;
 #[path = "term/evidence.rs"]
 mod evidence;
+#[path = "term/findbar.rs"]
+mod findbar;
+#[path = "term/findctl.rs"]
+mod findctl;
 #[path = "term/fonts.rs"]
 mod fonts;
 #[path = "term/geometry.rs"]
 mod geometry;
+#[path = "term/helpers.rs"]
+mod helpers;
+#[path = "term/jobs.rs"]
+mod jobs;
 #[path = "term/keys.rs"]
 mod keys;
+#[path = "term/linkui.rs"]
+mod linkui;
 #[path = "term/look.rs"]
 mod look;
+#[path = "term/menu.rs"]
+mod menu;
 #[path = "term/meta.rs"]
 mod meta;
 #[path = "term/metrics.rs"]
@@ -74,30 +99,43 @@ mod metrics;
 mod msg;
 #[path = "term/output.rs"]
 mod output;
+#[path = "term/overlay.rs"]
+mod overlay;
 #[path = "term/paint.rs"]
 mod paint;
 #[path = "term/perf.rs"]
 mod perf;
 #[path = "term/pointer.rs"]
 mod pointer;
+#[path = "term/prefs.rs"]
+mod prefs;
+#[path = "term/prefs_paint.rs"]
+mod prefs_paint;
+#[path = "term/prompt.rs"]
+mod prompt;
 #[path = "term/pty.rs"]
 mod pty;
 #[path = "term/scroll.rs"]
 mod scroll;
+#[path = "term/timers.rs"]
+mod timers;
 #[path = "term/view.rs"]
 mod view;
 
+use app::Terminal;
 use blink::Blink;
+use chrome::Chrome;
 use clicks::Clicks;
 use clip::watch_drops;
-use conf::{Conf, Follower};
+use conf::Follower;
 use evidence::Evidence;
 use look::Look;
 use msg::Msg;
 use paint::{paint, Scene};
 use perf::{PaintClock, Perf};
 use pointer::probe_grid;
-use view::{Layout, Shown};
+use timers::Timers;
+use view::Shown;
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
 /// `busybox sh -i`. `argv[0]` (`fhs::boot::BUSYBOX_ARGV0`) is what BusyBox
@@ -129,160 +167,6 @@ fn set_nonblocking(fd: RawFd) {
     unsafe { libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK) };
 }
 
-/// The app: the child shell, the pty master, and the engine it paints from.
-struct Terminal {
-    child: Child,
-    master: pty::Master,
-    /// The shell side is gone (the master read `EIO` or end-of-file).
-    hung_up: bool,
-    term: Rc<RefCell<Engine>>,
-    typed: String,
-    /// Exactly one `TERM:OUT` per command (`term/evidence.rs`).
-    evidence: Evidence,
-    root: Control<Msg>,
-    /// What is on screen, so a drain repaints only the rows that changed;
-    /// the painter's latest layout feeds it.
-    shown: Shown,
-    layout: Rc<Cell<Option<Layout>>>,
-    /// `TERM:PERF` evidence (`term/perf.rs`).
-    perf: Perf,
-    paint_clock: Rc<PaintClock>,
-    /// Lines the view is scrolled back from the bottom, shared with the
-    /// painter.
-    offset: Rc<Cell<usize>>,
-    /// A selection drag is in progress, the pointer's last position, the
-    /// button a program sees held, and the triple-click memory.
-    drag: bool,
-    last_mouse: (i32, i32),
-    held: Option<Button>,
-    clicks: Clicks,
-    /// The autoscroll timer while a drag needs it (shared with `on_timer`).
-    auto: Rc<Cell<Option<TimerId>>>,
-    /// Bytes for the child the pty would not take yet (a big paste), and the
-    /// timer that retries while there are any.
-    out: Vec<u8>,
-    flush: Rc<Cell<Option<TimerId>>>,
-    /// The paste awaiting confirmation: its text, and its line count for the
-    /// painter's bar.
-    pending_text: Option<String>,
-    pending: Rc<Cell<Option<usize>>>,
-    /// How the grid looks (shared with the painter), the settings in force,
-    /// the families found, and what follows `confd`.
-    look: Rc<RefCell<Look>>,
-    conf: Conf,
-    fonts: Rc<fonts::Fonts>,
-    follower: Follower,
-    /// This window's zoom steps (never stored), the theme's darkness and the
-    /// scheme last given to the engine, and the last `TERM:FONT` line.
-    zoom: i32,
-    dark: bool,
-    applied_scheme: Option<(String, bool)>,
-    marker: Option<String>,
-    /// The cursor blink and its timer, which runs only while it is needed.
-    blink: Blink,
-    blink_timer: Rc<Cell<Option<TimerId>>>,
-    /// The backend (size hints, size requests), the size badge's text shared
-    /// with the painter and its timer.
-    backend: Rc<LazyOSBackend>,
-    badge: Rc<RefCell<Option<String>>>,
-    badge_timer: Rc<Cell<Option<TimerId>>>,
-    /// A grid has been applied before (the first is not announced), and the
-    /// window is still being sized to the `window/size` that was asked for.
-    sized: bool,
-    settling: bool,
-    /// The size change being applied is the window's, so it is remembered.
-    remember: bool,
-    /// The grid to remember in `confd` once the window has rested, and when.
-    save: Option<(usize, usize, u64)>,
-    /// The tab character that follows a Shift+Tab key press is not sent.
-    skip_char: Option<char>,
-    /// What the program told the window (OSC 0/2 and 7), as last shown, and the
-    /// synchronized update being held back (`output.rs`).
-    title_generation: u64,
-    cwd: Option<lazyterm::Cwd>,
-    sync_hold: Option<u64>,
-    sync_timer: Rc<Cell<Option<TimerId>>>,
-}
-
-impl Terminal {
-    fn finish(&mut self, ui: &mut Ui<Msg>) {
-        self.save_size(true);
-        println!("TERM:EXIT:PASS");
-        ui.quit();
-    }
-}
-
-impl Drop for Terminal {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-impl App for Terminal {
-    type Msg = Msg;
-
-    fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
-        match msg {
-            Msg::Tick => {
-                let bytes = self.drain();
-                if !bytes.is_empty() {
-                    self.output(ui, &bytes);
-                }
-                if let Some(conf) = self.follower.poll() {
-                    self.apply_conf(ui, conf);
-                }
-                // A window that never answered the size request is left as it is.
-                if std::mem::take(&mut self.settling) {
-                    self.relayout(ui);
-                    self.refresh(ui);
-                }
-                self.save_size(false);
-                self.follow_theme(ui);
-                if self.hung_up {
-                    self.finish(ui);
-                }
-            }
-            Msg::Autoscroll => self.autoscroll(ui),
-            Msg::Flush => self.flush_out(),
-            Msg::Blink => self.blink_tick(ui),
-            Msg::Focus(focused) => self.focus_changed(ui, focused),
-            Msg::Resized => self.window_resized(ui),
-            Msg::BadgeOff => self.hide_badge(ui),
-            Msg::SyncExpired => self.sync_expired(ui),
-            // While the paste confirmation is up the keyboard answers it.
-            Msg::Char('\r' | '\n') if self.pending_text.is_some() => self.confirm(ui, true),
-            Msg::Key(Key::ESCAPE, _) if self.pending_text.is_some() => self.confirm(ui, false),
-            Msg::Char(_) | Msg::Key(..) if self.pending_text.is_some() => {}
-            Msg::Char(ch) => {
-                self.touch(ui);
-                if self.skip_char.take() != Some(ch) {
-                    self.key(ch, ui);
-                }
-            }
-            // Both input paths also deliver a plain Enter or Backspace as a
-            // `Char`: handling the key too would send each one twice. With Alt
-            // or Ctrl there is no `Char`, and the chord is encoded.
-            Msg::Key(Key::RETURN | Key::BACK, mods) if !(mods.alt || mods.ctrl) => {}
-            Msg::Key(key, mods) => {
-                self.touch(ui);
-                self.key_chord(ui, key, mods);
-            }
-            Msg::Wheel(delta, mods, x, y) => {
-                self.touch(ui);
-                self.wheel(ui, delta, mods, (x, y));
-            }
-            Msg::Mouse(mouse) => {
-                self.touch(ui);
-                self.mouse(ui, mouse);
-            }
-            Msg::Dropped(paths) => self.dropped(ui, paths),
-            Msg::Close => self.finish(ui),
-        }
-        self.pump(ui);
-    }
-}
-
 fn main() {
     std::panic::set_hook(Box::new(|info| println!("TERM:PANIC:{info}")));
     // The shaper builds its font database on its first use, so every face is
@@ -292,6 +176,10 @@ fn main() {
     xui_canvas::set_default_family(fonts::BUILT_IN);
     let mut follower = Follower::new();
     let conf = follower.read();
+    // A new window starts where its launcher said (`--cwd` or one directory
+    // argument), else in the home directory.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let start_dir = helpers::start_dir(std::env::args_os(), home.as_deref(), |p| p.is_dir());
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
@@ -299,19 +187,17 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // Closing the window while a program runs asks first, in the window: the
+    // compositor keeps it until the Terminal quits.
+    backend.ask_before_close();
     let (width, height) = backend.window_size(WINDOW);
     backend.on_first_frame(|| println!("TERM:UP:PASS"));
 
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
     let offset = Rc::new(Cell::new(0usize));
-    let auto: Rc<Cell<Option<TimerId>>> = Rc::default();
-    let flush: Rc<Cell<Option<TimerId>>> = Rc::default();
-    let blink_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
-    let badge_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
-    let badge: Rc<RefCell<Option<String>>> = Rc::default();
-    let sync_timer: Rc<Cell<Option<TimerId>>> = Rc::default();
-    let pending: Rc<Cell<Option<usize>>> = Rc::default();
+    let timers = Timers::default();
+    let chrome: Rc<RefCell<Chrome>> = Rc::default();
     // Files dropped on the window arrive on the backend's hook; the proxy
     // turns them into a message once the UI exists.
     let outbox: Rc<RefCell<Option<Proxy<Msg>>>> = Rc::default();
@@ -354,6 +240,9 @@ fn main() {
         shell.env("COLORTERM", "truecolor");
         shell.env("TERMINFO_DIRS", fhs::share::TERMINFO);
         shell.env("PS1", PROMPT);
+        if let Some(dir) = &start_dir {
+            shell.current_dir(dir);
+        }
         let (master, child) = match pty::spawn(shell, rows as u16, cols as u16) {
             Ok(spawned) => spawned,
             Err(error) => {
@@ -372,19 +261,19 @@ fn main() {
             let clock = Rc::clone(&paint_clock);
             let layout = Rc::clone(&layout);
             let offset = Rc::clone(&offset);
-            let pending = Rc::clone(&pending);
-            let badge = Rc::clone(&badge);
+            let chrome = Rc::clone(&chrome);
             let backend = Rc::clone(&backend);
             root.set_painter(Rc::new(move |canvas| {
-                let accent = theme.get().accent;
-                let (term, look, badge) = (term.borrow(), look.borrow(), badge.borrow());
+                let theme = theme.get();
+                let accent = theme.accent;
+                let (term, look, chrome) = (term.borrow(), look.borrow(), chrome.borrow());
                 let scene = Scene {
                     term: &term,
                     look: &look,
                     offset: offset.get(),
-                    pending: pending.get(),
                     accent: Rgb(accent.r, accent.g, accent.b),
-                    badge: badge.as_deref(),
+                    chrome: &chrome,
+                    dark: theme.is_dark,
                 };
                 let damage = backend.paint_damage();
                 let laid = clock.time(|| paint(canvas, &scene, damage));
@@ -402,8 +291,14 @@ fn main() {
         root.focus();
         ui.on_close(|| Some(Msg::Close));
         events::watch_resize(ui);
-        events::route_timers(ui, &auto, &flush, &blink_timer, &badge_timer, &sync_timer);
+        events::route_timers(ui, &timers);
         ui.set_timer(FALLBACK_MILLIS);
+        // Save output: xui's Save dialog (an in-window modal, as the Editor's).
+        let save_dialog = FileDialog::save_file(ui, "Save output")
+            .expect("the save dialog's nodes")
+            .file_system(Rc::new(StdFileSystem))
+            .on_accept(|path| Some(Msg::SaveChosen(path)))
+            .on_cancel(|| Some(Msg::SaveCancelled));
         let mut terminal = Terminal {
             child,
             master,
@@ -421,11 +316,8 @@ fn main() {
             last_mouse: (0, 0),
             held: None,
             clicks: Clicks::default(),
-            auto: Rc::clone(&auto),
             out: Vec::new(),
-            flush: Rc::clone(&flush),
             pending_text: None,
-            pending: Rc::clone(&pending),
             look,
             conf: conf.clone(),
             fonts: Rc::clone(&fonts),
@@ -435,19 +327,22 @@ fn main() {
             applied_scheme: None,
             marker: None,
             blink: Blink::default(),
-            blink_timer: Rc::clone(&blink_timer),
+            timers: timers.clone(),
+            chrome: Rc::clone(&chrome),
             backend: Rc::clone(&backend),
-            badge: Rc::clone(&badge),
-            badge_timer: Rc::clone(&badge_timer),
             sized: false,
             settling: asked.is_some(),
             remember: false,
             save: None,
             skip_char: None,
             title_generation: 0,
+            title: meta::DEFAULT_TITLE.to_string(),
             cwd: None,
             sync_hold: None,
-            sync_timer: Rc::clone(&sync_timer),
+            bell: bell::Limiter::default(),
+            save_dialog,
+            found_reported: None,
+            hover: None,
         };
         terminal.restyle(ui);
         if let Some(grid) = asked {

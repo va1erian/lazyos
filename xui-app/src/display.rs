@@ -217,6 +217,17 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
+    /// `SetCloseMode`: keep `surface`'s window when the window manager closes
+    /// it, until the app destroys the surface (so it can ask first). An older
+    /// compositor answers `EINVAL`, which callers ignore: the window then
+    /// closes as before.
+    pub fn set_close_mode(&self, surface: u64, ask: bool) -> Result<(), i64> {
+        let body = wire::encode_set_close_mode_args(&wire::SetCloseModeArgs { surface, ask })
+            .map_err(|_| -errno::EINVAL)?;
+        let parcel = request(wire::METHOD_SETCLOSEMODE, body, Vec::new());
+        self.call(&parcel).map(|_| ())
+    }
+
     /// `SetSizeHints`: declare `surface` resizable within the given content
     /// bounds (a `max` of 0 means the screen). An older compositor answers
     /// `EINVAL`; callers may ignore it, leaving the window fixed-size.

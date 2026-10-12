@@ -22,6 +22,26 @@ impl LazyOSBackend {
         }
     }
 
+    /// Ask the compositor to keep this app's windows when the window manager
+    /// closes them (the X button, Alt+F4): the app still gets its close event
+    /// and decides, destroying the window (quitting) when it agrees. For an app
+    /// that must ask first, such as a terminal with a program running. Windows
+    /// already open take it at once; an older compositor ignores it.
+    pub fn ask_before_close(&self) {
+        self.ask_close.set(true);
+        for window in self.windows.borrow().values() {
+            if let (true, Some(client)) = (window.resizable, &window.client) {
+                self.send_close_mode(client.surface);
+            }
+        }
+    }
+
+    pub(crate) fn send_close_mode(&self, surface: u64) {
+        if let (true, Mode::Client(state)) = (self.ask_close.get(), &self.mode) {
+            let _ = state.borrow().client.set_close_mode(surface, true);
+        }
+    }
+
     /// Sends the app's size hints, if any, for the compositor surface
     /// `surface` (client mode).
     pub(crate) fn send_size_hints(&self, surface: u64) {
