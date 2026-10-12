@@ -48,6 +48,12 @@ path = "src/memstress.rs"
 name = "procstress"
 path = "src/procstress.rs"
 
+# The ceilings one browser-class program hits: threads, memory, descriptors,
+# alone and in four forked children (issue #774, docs/architecture/limits.md).
+[[bin]]
+name = "bigapp"
+path = "src/bigapp.rs"
+
 [[bin]]
 name = "sigstress"
 path = "src/sigstress.rs"

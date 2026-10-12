@@ -59,8 +59,8 @@ pub fn system_stats_snapshot(buf: &mut [u8]) -> Result<usize, i64> {
 }
 
 /// Bytes of the scheduler's task-list snapshot: two header words and 11
-/// words for each of the kernel's 256 task slots (`task::introspect`).
-pub const TASKS_SNAPSHOT_SIZE: usize = (2 + 256 * 11) * 8;
+/// words for each of the kernel's 1024 task slots (`task::introspect`).
+pub const TASKS_SNAPSHOT_SIZE: usize = (2 + 1024 * 11) * 8;
 
 /// Copy the scheduler's task-list snapshot into `buf`; a buffer smaller than
 /// [`TASKS_SNAPSHOT_SIZE`] is refused with `-E2BIG` before the call.

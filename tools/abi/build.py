@@ -34,6 +34,7 @@ NAMES = [
     "syncstress",
     "fsstress",
     "memstress",
+    "bigapp",
     "procstress",
     "sigstress",
     "epollstress",

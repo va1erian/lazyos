@@ -50,6 +50,7 @@ ORDER = [
     "syncstress",
     "fsstress",
     "memstress",
+    "bigapp",
     "procstress",
     "sigstress",
     "epollstress",
@@ -178,8 +179,10 @@ def capture(
 
 def classify(name: str, serial: str, ok: str = "PASS") -> tuple[str, str]:
     """Classify one boot; `ok` is the marker that counts as success."""
-    if re.search(rf"ABI:{re.escape(name)}:{ok}", serial):
-        return "pass", ""
+    # A row may report numbers before the marker: `ABI:bigapp:threads=9:PASS`.
+    found = re.search(rf"ABI:{re.escape(name)}:((?:\w+=[^:\s]*:)*){ok}", serial)
+    if found:
+        return "pass", found.group(1).rstrip(":").replace(":", " ")
     match = re.search(rf"ABI:{re.escape(name)}:FAIL:(.*)", serial)
     if match:
         return "fail", match.group(1).strip()[:120]
@@ -350,12 +353,20 @@ def main() -> int:
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
     parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
+    parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
+                        help="kernel limit for the images (limit.<key> in lazyos.cfg, "
+                             "docs/architecture/limits.md); repeatable")
     parser.add_argument("--jobs", type=int, default=1,
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
     args = parser.parse_args()
     global GUEST_MEMORY
     GUEST_MEMORY = args.memory
+    for item in args.limit:
+        key, sep, value = item.partition("=")
+        if not sep or not key or not value:
+            parser.error(f"--limit expects KEY=VALUE, got {item!r}")
+        os.environ[f"LAZYOS_LIMIT_{key.upper()}"] = value
     if args.jobs < 1:
         parser.error("--jobs must be at least 1")
 

@@ -25,12 +25,10 @@ pub fn spawn_kernel_thread(
     class: PriorityClass,
 ) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
-    let top = kstack_top(index);
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
+    let top = stack.top();
     let base = top - FRAME_WORDS * 8;
-    // SAFETY: `base..top` lies inside slot `index`'s static kernel stack, which
+    // SAFETY: `base..top` lies inside slot `index`'s kernel stack, which
     // no task uses: the slot is free and this table lock is held.
     unsafe {
         let frame = base as *mut u64;
@@ -53,6 +51,7 @@ pub fn spawn_kernel_thread(
         kind: Kind::Native,
         pml4: mem::kernel_table().as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp: base,
         state: TaskState::Runnable,
         class,

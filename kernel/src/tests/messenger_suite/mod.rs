@@ -17,7 +17,9 @@ const IFACE: u64 = 0x6969_6969_6969_6969;
 /// restores the kernel's afterwards.
 const SPACE: u64 = 0x0040_0000;
 
-const SPACE_PAGES: u64 = 10;
+/// Ten pages of blocks, then room for a whole fabric snapshot (`STATS_BUF` is the
+/// fifth page and `FabricStats::SIZE` grows with the task table).
+const SPACE_PAGES: u64 = 5 + (FabricStats::SIZE as u64).div_ceil(4096) + 1;
 
 /// Blocks inside the scratch space, one per page so page-crossing copies
 /// are not a factor in these tests.

@@ -207,9 +207,9 @@ pub fn fd_dup(fd: usize) -> Option<usize> {
 /// Duplicate `old` into the specific descriptor `new` (closing it first).
 /// `FD_CLOEXEC` is cleared on the new descriptor, as POSIX requires; an
 /// `old == new` call is a no-op.
-/// `None` when `old` is not open or `new` is at or past `limit.fd_max`.
+/// `None` when `old` is not open or `new` is at or past the soft `RLIMIT_NOFILE`.
 pub fn fd_dup2(old: usize, new: usize) -> Option<usize> {
-    if new >= fd_max() {
+    if new >= fd_soft_limit() {
         return None;
     }
     if old == new {

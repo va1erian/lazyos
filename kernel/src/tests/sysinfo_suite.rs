@@ -25,7 +25,14 @@ pub(super) fn fresh() {
 /// each call installs a fresh address space with this range mapped.
 pub(super) const SPACE: u64 = 0x0040_0000;
 
-const SPACE_PAGES: u64 = (sysinfo::SIZE + 4095) / 4096;
+/// Room for the larger of the two snapshots (system stats, task list).
+const SPACE_PAGES: u64 =
+    (if sysinfo::SIZE > task::introspect::TaskSnapshot::SIZE as u64 {
+        sysinfo::SIZE
+    } else {
+        task::introspect::TaskSnapshot::SIZE as u64
+    } + 4095)
+        / 4096;
 
 /// Run `f` with [`SPACE`] mapped into a fresh user address space.
 pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, String> {
@@ -40,13 +47,13 @@ pub(super) fn in_space<R>(f: impl FnOnce() -> Result<R, String>) -> Result<R, St
 }
 
 /// A full snapshot through the syscall entry, decoded as raw words.
-/// Boxed: at 64 slots a block is over 5 KiB, and the soak below keeps two
-/// of them live while the syscall path holds its own on the same stack.
-fn snapshot() -> Result<alloc::boxed::Box<[u64; sysinfo::WORDS]>, String> {
+/// On the heap: at 1024 slots a block is ~80 KiB, more than a kernel stack,
+/// and the soak below keeps two of them live.
+fn snapshot() -> Result<alloc::vec::Vec<u64>, String> {
     in_space(|| {
         let code = process::dispatch_for_test(14, sysinfo::op::SNAPSHOT, SPACE, sysinfo::SIZE);
         check!(code == sysinfo::SIZE, "snapshot -> {code:#x}");
-        let mut words = alloc::boxed::Box::new([0u64; sysinfo::WORDS]);
+        let mut words = alloc::vec![0u64; sysinfo::WORDS];
         for (index, word) in words.iter_mut().enumerate() {
             // Safety: the scratch pages are mapped readable while installed.
             *word = unsafe { core::ptr::read_volatile((SPACE as *const u64).add(index)) };
@@ -133,7 +140,7 @@ pub fn snapshot_abi_contract() -> Result<(), String> {
 /// byte is written — never turned into a kernel write.
 pub fn snapshot_rejects_bad_destinations() -> Result<(), String> {
     fresh();
-    let mut canary = [0x5a5a_5a5a_5a5a_5a5au64; sysinfo::WORDS];
+    let mut canary = alloc::vec![0x5a5a_5a5a_5a5a_5a5au64; sysinfo::WORDS];
     let kernel_buf = canary.as_mut_ptr() as u64;
     in_space(|| {
         let tail = SPACE + SPACE_PAGES * 4096 - 8;

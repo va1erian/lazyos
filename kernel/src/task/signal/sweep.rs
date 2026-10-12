@@ -34,6 +34,13 @@ pub struct SweepFinish {
 
 const _: () = assert!(MAX_TASKS <= u16::MAX as usize);
 
+/// Terminations one [`sweep`] reports. The list is returned by value in
+/// timer-interrupt context, where a kernel stack is scarce, so it holds a
+/// fixed batch (1 KiB), not one entry per task slot (8 KiB at 1024): a sweep
+/// that fills it stops, and the tasks it did not reach still have their
+/// signal pending for the next scheduler entry.
+pub const SWEEP_BATCH: usize = 128;
+
 const NO_FINISH: SweepFinish = SweepFinish {
     slot: 0,
     parent: 0,
@@ -56,14 +63,17 @@ const NO_FINISH: SweepFinish = SweepFinish {
 pub unsafe fn sweep(
     tasks: &mut [Option<Task>; MAX_TASKS],
     active_pml4: u64,
-) -> ([SweepFinish; MAX_TASKS], usize) {
-    let mut finished = [NO_FINISH; MAX_TASKS];
+) -> ([SweepFinish; SWEEP_BATCH], usize) {
+    let mut finished = [NO_FINISH; SWEEP_BATCH];
     let mut finished_len = 0;
     let ready = deliverable_spaces();
     if ready.is_empty() {
         return (finished, finished_len);
     }
     for slot in crate::task::runq::runnable_any().iter() {
+        if finished_len == SWEEP_BATCH {
+            break;
+        }
         let in_ready = slot != KERNEL_TASK
             && tasks[slot]
                 .as_ref()
@@ -82,30 +92,42 @@ pub unsafe fn sweep(
 /// Address spaces with a signal their mask lets through, collected without
 /// allocating (scheduler context) or creating registry entries.
 struct Spaces {
-    pml4s: [u64; MAX_TASKS],
+    pml4s: [u64; SPACES_BATCH],
     len: usize,
+    /// More processes had a deliverable signal than `pml4s` holds: `contains`
+    /// then asks the registry about each candidate instead.
+    overflow: bool,
 }
+
+/// Processes remembered per sweep (1 KiB of stack, see [`SWEEP_BATCH`]).
+const SPACES_BATCH: usize = 128;
 
 impl Spaces {
     fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len == 0 && !self.overflow
     }
 
     fn contains(&self, pml4: u64) -> bool {
-        self.pml4s[..self.len].contains(&pml4)
+        self.pml4s[..self.len].contains(&pml4) || (self.overflow && has_deliverable(pml4))
     }
 }
 
 /// One pass over the registry: the processes [`sweep_slot`] has work for.
 fn deliverable_spaces() -> Spaces {
     let mut spaces = Spaces {
-        pml4s: [0; MAX_TASKS],
+        pml4s: [0; SPACES_BATCH],
         len: 0,
+        overflow: false,
     };
     for state in SIGNALS.lock().iter() {
-        if state.pending & !clean_mask(state.blocked) != 0 && spaces.len < MAX_TASKS {
+        if state.pending & !clean_mask(state.blocked) == 0 {
+            continue;
+        }
+        if spaces.len < SPACES_BATCH {
             spaces.pml4s[spaces.len] = state.pml4;
             spaces.len += 1;
+        } else {
+            spaces.overflow = true;
         }
     }
     spaces

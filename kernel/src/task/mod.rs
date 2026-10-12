@@ -84,6 +84,7 @@ pub mod consoletty;
 mod cwd;
 mod fdcharge;
 mod fdio;
+mod fdlimit;
 mod fdops;
 mod fdshare;
 mod fdtable;
@@ -95,6 +96,7 @@ pub mod guard;
 pub mod harness;
 #[cfg(lazyos_tests)]
 pub mod kthread;
+mod kstack;
 mod lifecycle;
 pub mod linuxstate;
 mod memstate;
@@ -112,6 +114,7 @@ mod waiting;
 pub use console::*;
 pub use cwd::{cwd, set_cwd};
 pub use fdio::*;
+pub use fdlimit::*;
 pub use fdops::*;
 pub use fdtable::{fd_max, FdTable};
 pub use fdtypes::*;
@@ -136,22 +139,27 @@ pub use fs_base::{set_fs_base, valid_fs_base};
 
 /// Slots: 0 is the kernel (multiplexer), 1.. are user programs/threads.
 ///
-/// 256 is a plain constant, not a design: the table, the kernel stacks
-/// (`KSTACKS`, 12 MiB at this size) and every per-slot registry stay static
-/// arrays, and the snapshot ABIs (`ipc::stats`, `sysinfo`, `task::introspect`)
-/// carry one row per slot, so raising it bumps their versions (issue #204 took
-/// it to 64; the application package system to 256, so a few dozen installed
-/// apps and their helpers fit beside the boot services). Slot bitmasks use
+/// The capacity of the task table. 1024 since issue #774 (a browser is dozens
+/// of threads; 254 free slots was the ceiling a single program could reach).
+/// How many slots a machine actually uses is `limit.task_max` (derived from
+/// RAM, at most this): a slot costs nothing until a task occupies it, because
+/// the kernel stacks come from the heap ([`kstack`]) and not from a static
+/// array. What stays proportional to the constant is small: the table, the
+/// FPU areas and the per-slot registries (credentials, handle tables,
+/// argument blocks) are static arrays, ~3 MiB in all at 1024, and the
+/// snapshot ABIs (`ipc::stats`, `sysinfo`, `task::introspect`) carry one row
+/// per slot, so raising it bumps their versions (issue #204 took it to 64,
+/// the application package system to 256). Slot bitmasks use
 /// [`slotmask::SlotMask`] and large per-slot snapshots live on the heap, since
 /// a kernel stack is only [`KSTACK_SIZE`].
-pub const MAX_TASKS: usize = 256;
+pub const MAX_TASKS: usize = 1024;
 /// Index of the kernel task.
 pub const KERNEL_TASK: usize = 0;
-/// Size of each task's kernel stack. 48 KiB since USB storage: a file write
+/// Size of each task's kernel stack ([`kstack::KernelStack`]). 48 KiB since USB storage: a file write
 /// that reaches a stick parks deep inside ext2 (`block::provider`), and the
 /// scheduler's own frames (`schedule`, `signal::sweep`, 4 KiB each) then sit
 /// on top of ext2's; 32 KiB overflowed there.
-const KSTACK_SIZE: usize = 48 * 1024;
+pub(crate) const KSTACK_SIZE: usize = 48 * 1024;
 /// Number of qwords in a bootstrapped user frame (15 regs + RIP/CS/RFLAGS/RSP/SS).
 const FRAME_WORDS: u64 = 20;
 
@@ -258,6 +266,10 @@ pub struct Task {
     pub kind: Kind,
     pub pml4: u64,
     pub kstack_top: u64,
+    /// The stack `kstack_top` is the top of; freed with the task. `None` for
+    /// the kernel task, which runs on the boot stack.
+    #[allow(dead_code)] // owned for its `Drop`; the address travels as `kstack_top`
+    pub kstack: Option<kstack::KernelStack>,
     pub rsp: u64,
     /// Scheduler-visible state; see [`TaskState`].
     pub state: TaskState,
@@ -304,14 +316,6 @@ pub struct Task {
 }
 
 static TASKS: Mutex<[Option<Task>; MAX_TASKS]> = Mutex::new([const { None }; MAX_TASKS]);
-/// One task's kernel stack. 16-aligned so the top (where entry frames are
-/// built) satisfies the SysV stack alignment the optimised kernel relies on.
-#[repr(align(16))]
-#[allow(dead_code)] // the bytes are only ever used through the stack's address
-struct KStack([u8; KSTACK_SIZE]);
-
-static mut KSTACKS: [KStack; MAX_TASKS] = [const { KStack([0; KSTACK_SIZE]) }; MAX_TASKS];
-
 /// Linux `brk`/`mmap` bump state, keyed by PML4 so threads share it.
 #[derive(Clone, Copy)]
 struct Bump {
@@ -363,21 +367,19 @@ fn bump_for_pml4(pml4: u64) -> Option<Bump> {
 }
 
 pub(crate) fn kstack_top(index: usize) -> u64 {
-    // Safety: fixed-size static array.
-    unsafe { (core::ptr::addr_of!(KSTACKS[index]) as u64) + KSTACK_SIZE as u64 }
+    kstack::top_of(index)
 }
 
 /// Bytes left below the stack pointer on the current task's kernel stack, or
 /// `None` when it is not running on one (the kernel task's boot stack).
 pub(crate) fn kstack_headroom() -> Option<u64> {
-    let slot = current();
-    if slot == KERNEL_TASK || slot >= MAX_TASKS {
+    let top = kstack_top(current());
+    if top == 0 {
         return None;
     }
     let rsp: u64;
     // SAFETY: reads the stack pointer into a register; no memory is touched.
     unsafe { core::arch::asm!("mov {}, rsp", out(reg) rsp, options(nomem, nostack)) };
-    let top = kstack_top(slot);
     let bottom = top - KSTACK_SIZE as u64;
     (bottom..=top).contains(&rsp).then(|| rsp - bottom)
 }
@@ -410,12 +412,7 @@ pub fn pml4_of(slot: usize) -> Option<u64> {
 
 /// The number of free task slots (the kernel task's slot is never free).
 pub fn free_slots() -> usize {
-    TASKS
-        .lock()
-        .iter()
-        .skip(1)
-        .filter(|slot| slot.is_none())
-        .count()
+    kstack::free_slots(&TASKS.lock())
 }
 
 /// The PIT tick counter (100 Hz). Tick-based wait APIs take absolute

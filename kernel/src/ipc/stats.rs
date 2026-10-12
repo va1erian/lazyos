@@ -8,11 +8,11 @@
 //! ACL and audit rings, and the kernel services registered so far.
 //!
 //! [`FabricStats`] is also the versioned ABI block behind the native `stats`
-//! syscall op. [`FABRIC_STATS_VERSION`] is 6 (version 2 had 16 per-slot rows,
+//! syscall op. [`FABRIC_STATS_VERSION`] is 7 (version 2 had 16 per-slot rows,
 //! version 3 had 64 after issue #204, version 4 has 256 for the application
 //! package system, version 5 dropped the four fence counters, issue #677,
 //! version 6 counts non-blocking polls apart from deadline expiries and adds
-//! per-slot call counters, issue #702);
+//! per-slot call counters, issue #702, version 7 has 1024 rows, issue #774);
 //! version 1 was the compact 64-byte
 //! `MsgStats`. [`crate::ipc::syscalls`] serves v2 whenever the caller offers a
 //! [`FabricStats::SIZE`]-byte buffer and keeps v1 for small buffers, so old
@@ -35,7 +35,8 @@ use crate::task::MAX_TASKS;
 /// * `2` — this snapshot: every subsystem, per-slot usage included.
 /// * `5` — no fence counters (issue #677).
 /// * `6` — `polls`, and per-slot `calls`/`timeouts`/`polls` (issue #702).
-pub const FABRIC_STATS_VERSION: u64 = 6;
+/// * `7` — 1024 per-slot rows (issue #774).
+pub const FABRIC_STATS_VERSION: u64 = 7;
 
 /// Words in one per-slot task usage row (see [`TaskUsage`]).
 const TASK_USAGE_WORDS: usize = 7;
@@ -187,8 +188,8 @@ impl FabricStats {
     /// subsystem by subsystem; a message that lands between two reads may be
     /// counted in one and not the other, which is exactly what "snapshot" means.
     ///
-    /// Boxed and filled in place: at 256 slots the block is ~10 KiB, and a
-    /// by-value return would copy it through a 32 KiB kernel stack twice.
+    /// Boxed and filled in place: at 1024 slots the block is ~64 KiB, and a
+    /// by-value return would not fit a kernel stack at all.
     pub fn snapshot() -> Box<FabricStats> {
         let channel_stats = channels::stats();
         let channel_counts = channels::counts();

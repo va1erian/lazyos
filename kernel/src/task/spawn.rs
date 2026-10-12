@@ -15,6 +15,7 @@ pub fn register_kernel() {
         kind: Kind::Native,
         pml4: mem::kernel_table().as_u64(),
         kstack_top: 0,
+        kstack: None,
         rsp: 0,
         state: TaskState::Runnable,
         // The multiplexer serves input and painting: an interactive workload.
@@ -139,17 +140,17 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     stdio: Stdio,
 ) -> Result<usize, SpawnError> {
     let pml4 = mem::new_user_table().ok_or(SpawnError::NoMemory)?;
-    // A load failure returns while the guard is live, releasing the whole
-    // partially built address space instead of leaking its frames.
+    // A failure below returns with the guard live, freeing the partial space.
     let guard = mem::UserTableGuard::new(pml4);
     // The segments are charged to the uid the child will run as (#265).
     let uid = parent.map_or(0, |slot| credentials::of(slot).uid);
     let start = user_process::load_image(guard.table(), elf, uid).map_err(load_error)?;
 
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or(SpawnError::NoSlot)?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(|error| match error {
+        kstack::ClaimError::NoSlot => SpawnError::NoSlot,
+        kstack::ClaimError::NoMemory => SpawnError::NoMemory,
+    })?;
     let (parent_slot, pgid, sid) = match parent {
         Some(parent) => {
             let parent_task = tasks[parent].as_ref().ok_or(SpawnError::NoParent)?;
@@ -163,7 +164,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
     guard.commit();
     trace::clear(index);
 
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_user_frame(top, start.entry, user_process::USER_STACK_TOP - 16);
     let class = PriorityClass::Normal;
     let pass = virtual_now(&tasks);
@@ -192,6 +193,7 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
         kind: Kind::Native,
         pml4: pml4.as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,
@@ -256,9 +258,7 @@ pub fn spawn_thread_sharing(
         return Err("non-canonical user fs base");
     }
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let creator = current();
     let parent = tasks[creator].as_mut().ok_or("no parent task")?;
     // The thread's table starts as a copy of its creator's (and stays equal to
@@ -282,7 +282,7 @@ pub fn spawn_thread_sharing(
     let cwd = parent.cwd.clone();
     let context = crate::arch::linux::user_context();
 
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_thread_frame(top, &context, user_rsp);
     let pass = virtual_now(&tasks);
 
@@ -297,6 +297,7 @@ pub fn spawn_thread_sharing(
         kind: Kind::Linux,
         pml4,
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,
@@ -348,9 +349,7 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
 /// child's resume stack (`clone` provides one); `None` resumes on the parent's.
 pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
-    let index = (1..MAX_TASKS)
-        .find(|&i| tasks[i].is_none())
-        .ok_or("no free task slot")?;
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent_index = current();
     let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
@@ -396,7 +395,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         mem::clone_user_table(PhysAddr::new(pml4))
     }
     .ok_or("out of memory (fork)")?;
-    let top = kstack_top(index);
+    let top = stack.top();
     let rsp = build_thread_frame(top, &context, user_rsp.unwrap_or(context.rsp));
 
     // `fork`/`vfork` children inherit the parent's credentials; the slot may
@@ -410,6 +409,7 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         kind: Kind::Linux,
         pml4: child_table.as_u64(),
         kstack_top: top,
+        kstack: Some(stack),
         rsp,
         state: TaskState::Runnable,
         class,

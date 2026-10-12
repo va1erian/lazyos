@@ -13,8 +13,9 @@
 //! [`WORDS`] little-endian `u64`s are written in one fixed order: a
 //! [`HEADER_WORDS`]-word header (version, sizes, uptime, memory counters) and
 //! then one [`TASK_ROW_WORDS`]-word row per scheduler slot. [`SYSTEM_STATS_VERSION`]
-//! is `6` (version 1 carried 16 rows, version 2 had 64 after issue #204,
-//! version 3 has 256 for the application package system, version 4
+//! is `7` (version 1 carried 16 rows, version 2 had 64 after issue #204,
+//! version 3 had 256 for the application package system, version 7 has 1024
+//! (issue #774), version 4
 //! appends the idle tick counter to the header so a monitor can tell idle
 //! time from CPU time charged to tasks, and version 5 appends the frames the
 //! block cache and the typed-object slabs hold, so a monitor can split memory
@@ -50,7 +51,7 @@ use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
 
 /// ABI version of the block written by the `snapshot` op.
-pub const SYSTEM_STATS_VERSION: u64 = 6;
+pub const SYSTEM_STATS_VERSION: u64 = 7;
 
 /// Native system-stats ops (syscall 14).
 pub mod op {

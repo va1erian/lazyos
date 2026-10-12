@@ -122,6 +122,9 @@ pub(super) fn sys_dup(nr: u64, a1: u64, a2: u64) -> u64 {
     };
     match slot {
         Some(fd) => fd as u64,
+        // `dup` of an open descriptor that finds no room is a full table
+        // (`EMFILE`, as `open` reports it), not a bad descriptor.
+        None if nr == 32 && task::fd_kind(a1 as usize) != FdKind::Closed => err(EMFILE),
         None => err(EBADF),
     }
 }
@@ -166,7 +169,7 @@ pub(super) fn sys_fcntl(fd: u64, cmd: u64, arg: u64) -> u64 {
             // Linux's order: a closed `fd` first, then a minimum at or past
             // `RLIMIT_NOFILE` (`EINVAL`), else the table is full.
             None if task::fd_kind(fd as usize) == FdKind::Closed => err(EBADF),
-            None if arg >= crate::limits::fd_max() as u64 => err(EINVAL),
+            None if arg >= task::fd_soft_limit() as u64 => err(EINVAL),
             None => err(EMFILE),
         },
         F_GETFD => match task::fd_kind(fd as usize) {

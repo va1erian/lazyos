@@ -3,9 +3,10 @@
 //! The table used to be a fixed `[Fd; 16]` in every task, so the seventeenth
 //! `open` failed however much memory the machine had. It is now a `Vec` that
 //! starts with the three standard streams and grows on demand (doubling) up
-//! to `limit.fd_max` descriptors (Linux's `RLIMIT_NOFILE`, 1024 by default,
-//! `crate::limits`). Growth is fallible: an exhausted heap fails the one
-//! `open`/`dup` with `EMFILE`/`ENOMEM`, never the kernel.
+//! to `limit.fd_max` descriptors (Linux's `RLIMIT_NOFILE`, 8192 by default,
+//! `crate::limits`), or to the soft limit a process set with `setrlimit`). Growth
+//! is fallible: an exhausted heap fails the one `open`/`dup` with
+//! `EMFILE`/`ENOMEM`, never the kernel.
 //!
 //! The API is deliberately small (look up, install, replace, take, copy) so a
 //! later `CLONE_FILES` can share one table between tasks by wrapping it,
@@ -61,9 +62,20 @@ impl Slot {
     }
 }
 
+/// A process's `RLIMIT_NOFILE` pair, kept in its descriptor table so every
+/// path that grows the table sees it, and copied with the table (`fork`,
+/// `execve` and `clone` all inherit it, as on Linux). `0` means "the kernel's
+/// `limit.fd_max`", so a table nobody configured follows the limit.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct NofileLimit {
+    soft: u32,
+    hard: u32,
+}
+
 /// The descriptor table of one task.
 pub struct FdTable {
     slots: Vec<Slot>,
+    limit: NofileLimit,
 }
 
 impl Drop for FdTable {
@@ -85,7 +97,36 @@ pub fn fd_max() -> usize {
 impl FdTable {
     /// A table with no descriptors.
     pub const fn empty() -> FdTable {
-        FdTable { slots: Vec::new() }
+        FdTable {
+            slots: Vec::new(),
+            limit: NofileLimit { soft: 0, hard: 0 },
+        }
+    }
+
+    /// The most descriptors this table may hold: its soft `RLIMIT_NOFILE`,
+    /// never past the kernel's `limit.fd_max`.
+    pub fn soft_limit(&self) -> usize {
+        match self.limit.soft {
+            0 => fd_max(),
+            soft => (soft as usize).min(fd_max()),
+        }
+    }
+
+    /// The hard `RLIMIT_NOFILE`: the ceiling the soft limit may be raised to.
+    pub fn hard_limit(&self) -> usize {
+        match self.limit.hard {
+            0 => fd_max(),
+            hard => (hard as usize).min(fd_max()),
+        }
+    }
+
+    /// Install a `(soft, hard)` pair; the caller has checked
+    /// `soft <= hard <= fd_max`.
+    pub fn set_limits(&mut self, soft: usize, hard: usize) {
+        self.limit = NofileLimit {
+            soft: soft.min(u32::MAX as usize) as u32,
+            hard: hard.min(u32::MAX as usize) as u32,
+        };
     }
 
     /// A table whose 0/1/2 are the task's terminal, charged to the acting uid
@@ -156,12 +197,14 @@ impl FdTable {
     /// Make room for slot `fd`, growing geometrically. False when `fd` is at
     /// or past the descriptor limit or the heap cannot grow.
     fn reserve_slot(&mut self, fd: usize) -> bool {
-        if fd < self.slots.len() {
-            return true;
-        }
-        let limit = fd_max();
+        // The slots stay allocated after a close (or a lowered limit), so the
+        // limit is checked before the table's length.
+        let limit = self.soft_limit();
         if fd >= limit {
             return false;
+        }
+        if fd < self.slots.len() {
+            return true;
         }
         let wanted = (fd + 1)
             .max(self.slots.len().saturating_mul(2))
@@ -292,9 +335,14 @@ impl FdTable {
     /// Copy the open slots `keep` selects, charging them all at once (before
     /// any entry is cloned, so a refusal leaves no reference to drop).
     fn copy_where(&self, keep: impl Fn(&Slot) -> bool, charge: bool) -> Option<FdTable> {
-        let mut slots = Vec::new();
-        slots.try_reserve_exact(self.slots.len()).ok()?;
         let kept = |slot: &Slot| slot.is_open() && keep(slot);
+        // Only up to the last descriptor the copy keeps: a table that once
+        // held thousands of descriptors keeps its length after they close,
+        // and a thread per copy would otherwise pay for all of it (a
+        // hundred threads of a process that touched fd 8191 are ~30 MiB).
+        let used = self.slots.iter().rposition(kept).map_or(0, |last| last + 1);
+        let mut slots = Vec::new();
+        slots.try_reserve_exact(used).ok()?;
         let charged = if charge {
             let uid = fdcharge::acting_uid();
             let count = self.slots.iter().filter(|slot| kept(slot)).count() as u64;
@@ -303,7 +351,7 @@ impl FdTable {
         } else {
             None
         };
-        for slot in &self.slots {
+        for slot in &self.slots[..used] {
             slots.push(if kept(slot) {
                 Slot {
                     fd: slot.fd.clone(),
@@ -314,6 +362,9 @@ impl FdTable {
                 Slot::closed()
             });
         }
-        Some(FdTable { slots })
+        Some(FdTable {
+            slots,
+            limit: self.limit,
+        })
     }
 }

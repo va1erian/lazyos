@@ -160,7 +160,7 @@ pub fn apply_config_and_reset() -> Result<(), String> {
         "sources {sources:?}"
     );
     check!(
-        limits::fd_max() == 1024 && limits::source(Id::FdMax) == Source::Default,
+        limits::fd_max() == 8192 && limits::source(Id::FdMax) == Source::Default,
         "reset left fd_max {}",
         limits::fd_max()
     );
@@ -256,6 +256,33 @@ pub fn derived_defaults_scale() -> Result<(), String> {
     Ok(())
 }
 
+/// `task_max` follows RAM one slot per MiB, between 256 and the table's 1024;
+/// the table size is the ceiling a config value is clamped to.
+pub fn task_max_defaults() -> Result<(), String> {
+    let table = crate::task::MAX_TASKS as u64;
+    for (ram, want) in [
+        (64 * MIB, 256),
+        (256 * MIB, 256),
+        (512 * MIB, 512),
+        (GIB, table),
+        (64 * GIB, table),
+    ] {
+        let got = Limits::for_machine(ram, 0).task_max;
+        check!(
+            got == want.min(table),
+            "task_max {got} at {ram} B, wanted {want}"
+        );
+    }
+    let high = sets("limit.task_max=999999");
+    check!(
+        high.len() == 1 && high[0].value == table && high[0].clamped,
+        "limit.task_max=999999 -> {high:?}"
+    );
+    let low = sets("limit.task_max=1");
+    check!(low.len() == 1 && low[0].value == 64, "limit.task_max=1 -> {low:?}");
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("limits_parses_values", parses_values),
     ("limits_rejects_hostile_values", rejects_hostile_values),
@@ -265,4 +292,5 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("limits_apply_config_and_reset", apply_config_and_reset),
     ("limits_derived_defaults_scale", derived_defaults_scale),
+    ("limits_task_max_defaults", task_max_defaults),
 ];

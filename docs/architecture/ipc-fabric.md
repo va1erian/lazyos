@@ -51,9 +51,9 @@ syscall surface (including the bootstrap channel).
 
 **Fabric stats** (`stats.rs`)
 
-- `FABRIC_STATS_VERSION = 6`; `FabricStats::SIZE` is 19 scalar words, a
-  `MAX_TASKS` (256) slot handle table, 8 ACL/audit words, then 256 seven-word
-  per-slot rows (version 3 had 64 of each, version 2 had 16). Every call ends
+- `FABRIC_STATS_VERSION = 7`; `FabricStats::SIZE` is 19 scalar words, a
+  `MAX_TASKS` (1024) slot handle table, 8 ACL/audit words, then 1024 seven-word
+  per-slot rows (version 6 had 256 of each, version 3 had 64, version 2 had 16). Every call ends
   in a reply, a `timeouts` tick (a real deadline missed, or a callee that
   wedged mid-request), a `polls` tick (a non-blocking `EXPIRED_DEADLINE` call
   nobody answered: routine background traffic, issue #702), a cancel or a
