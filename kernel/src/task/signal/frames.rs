@@ -128,6 +128,7 @@ pub(super) fn fp_state_below(stack_top: u64) -> Option<u64> {
 /// `saved_mask` are in kernel bit order; both are translated to Linux
 /// `sigset_t` bit order as they are written into the frame. `None` when the
 /// frame does not fit below `stack_top`.
+#[cfg(lazyos_tests)]
 #[allow(clippy::too_many_arguments)] // each field is independently meaningful ABI-frame state
 pub fn build_linux_frame(
     stack_top: u64,
@@ -146,7 +147,7 @@ pub fn build_linux_frame(
     )
 }
 
-/// [`build_linux_frame`] with the interrupted task's FP state given: the live
+/// The frame builder, with the interrupted task's FP state given: the live
 /// registers belong to the task on the CPU, which is not always the one the
 /// timer sweep delivers to.
 #[allow(clippy::too_many_arguments)] // each field is independently meaningful ABI-frame state
