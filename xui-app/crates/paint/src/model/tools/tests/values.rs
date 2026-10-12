@@ -100,6 +100,39 @@ fn gradient_paint_composites_and_respects_the_clip() {
     assert_eq!(layer.get(2, 1), Some(WHITE));
 }
 
+#[test]
+fn painting_a_gradient_gives_every_pixel_its_own_colour() {
+    for kind in [
+        GradientKind::Linear,
+        GradientKind::LinearReflected,
+        GradientKind::Radial,
+        GradientKind::Diamond,
+    ] {
+        let g = Gradient::new(
+            GradientOptions { kind },
+            (3.5, 2.5),
+            (17.5, 9.5),
+            [255, 0, 0, 255],
+            [0, 0, 255, 90],
+        );
+        let mut layer = Bitmap::white(24, 12);
+        let window = Rect::new(2, 1, 20, 10);
+        // A rectangle clip needs no buffer and narrows the area alone.
+        let all = layer.rect();
+        g.paint(&mut layer, all, Some(Clip::Rect(window)));
+        for y in 0..12 {
+            for x in 0..24 {
+                let want = if window.contains(x, y) {
+                    crate::model::source_over(WHITE, g.at(x, y), 255)
+                } else {
+                    WHITE
+                };
+                assert_eq!(layer.get(x, y), Some(want), "{kind:?} ({x}, {y})");
+            }
+        }
+    }
+}
+
 /// A document of `bottom` and `top`, the top layer active.
 fn two_layers(bottom: Bitmap, top: Bitmap) -> Document {
     Document::from_layers(

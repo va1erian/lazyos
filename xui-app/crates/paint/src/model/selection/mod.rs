@@ -22,13 +22,16 @@ pub use combine::CombineMode;
 pub(crate) use crop::clear_outside_mask;
 pub use outline::Edge;
 
+use std::sync::Arc;
+
 use super::rect::Rect;
 
 /// A set of pixels with a coverage per pixel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
     bounds: Rect,
-    mask: Option<Vec<u8>>,
+    /// Shared, so a stroke or a drag keeps the mask without copying it.
+    mask: Option<Arc<[u8]>>,
 }
 
 impl Selection {
@@ -75,7 +78,7 @@ impl Selection {
         let full = mask.iter().all(|c| *c == 255);
         Some(Selection {
             bounds: tight,
-            mask: (!full).then_some(mask),
+            mask: (!full).then(|| Arc::from(mask)),
         })
     }
 
@@ -114,18 +117,16 @@ impl Selection {
         self.coverage(x, y) >= 128
     }
 
-    /// One coverage byte per pixel of [`Selection::bounds`], row-major, for the
-    /// stroke compositor's clip: the mask, or all 255 for a rectangle.
-    pub fn clip_bytes(&self) -> Vec<u8> {
-        match &self.mask {
-            Some(mask) => mask.clone(),
-            None => vec![255; self.bounds.area()],
-        }
+    /// One coverage byte per pixel of [`Selection::bounds`], row-major,
+    /// shared (not copied) with the selection: for the stroke compositor's
+    /// clip. `None` for a rectangle, which needs no buffer.
+    pub fn shared_mask(&self) -> Option<Arc<[u8]>> {
+        self.mask.clone()
     }
 
     /// The bytes the mask holds (what the history counts).
     pub fn bytes(&self) -> usize {
-        self.mask.as_ref().map_or(0, Vec::len)
+        self.mask.as_ref().map_or(0, |mask| mask.len())
     }
 
     /// The selection moved by `(dx, dy)`.

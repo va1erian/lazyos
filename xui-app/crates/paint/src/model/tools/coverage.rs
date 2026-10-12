@@ -128,35 +128,60 @@ impl Coverage {
     }
 }
 
-/// A selection's mask as the compositor sees it: coverage for the pixels of
-/// `rect`, and nothing at all outside it.
+/// A selection as the compositor sees it: what passes, and nothing at all
+/// outside `rect`.
 #[derive(Clone, Copy, Debug)]
-pub struct Clip<'a> {
-    /// The pixels the mask describes.
-    pub rect: Rect,
-    /// One byte per pixel of `rect`, row-major.
-    pub mask: &'a [u8],
+pub enum Clip<'a> {
+    /// Everything inside the rectangle passes: a rectangle selection, which
+    /// needs no per-pixel buffer.
+    Rect(Rect),
+    /// Coverage for the pixels of `rect`, one byte per pixel, row-major.
+    Mask {
+        /// The pixels the mask describes.
+        rect: Rect,
+        /// One byte per pixel of `rect`.
+        mask: &'a [u8],
+    },
 }
 
 impl<'a> Clip<'a> {
-    /// A clip over `rect` from `mask`, when the length agrees.
+    /// A masked clip over `rect` from `mask`, when the length agrees.
     pub fn new(rect: Rect, mask: &'a [u8]) -> Option<Clip<'a>> {
-        (mask.len() == rect.area()).then_some(Clip { rect, mask })
+        (mask.len() == rect.area()).then_some(Clip::Mask { rect, mask })
     }
 
-    /// The clip's bytes for columns `x0..x1` of row `y`, if the whole span is
-    /// inside the clip's rectangle.
+    /// The pixels the clip can let through.
+    pub fn rect(&self) -> Rect {
+        match self {
+            Clip::Rect(rect) | Clip::Mask { rect, .. } => *rect,
+        }
+    }
+
+    /// The mask's bytes for columns `x0..x1` of row `y`, if the whole span is
+    /// inside the clip's rectangle. A rectangle clip has none: every pixel of
+    /// it passes in full.
     pub(crate) fn span(&self, y: i32, x0: i32, x1: i32) -> Option<&'a [u8]> {
-        if y < self.rect.y0 || y >= self.rect.y1 || x0 < self.rect.x0 || x1 > self.rect.x1 {
+        let Clip::Mask { rect, mask } = *self else {
+            return None;
+        };
+        if y < rect.y0 || y >= rect.y1 || x0 < rect.x0 || x1 > rect.x1 {
             return None;
         }
-        let at =
-            (y - self.rect.y0) as usize * self.rect.width() as usize + (x0 - self.rect.x0) as usize;
-        self.mask.get(at..at + (x1 - x0) as usize)
+        let at = (y - rect.y0) as usize * rect.width() as usize + (x0 - rect.x0) as usize;
+        mask.get(at..at + (x1 - x0) as usize)
     }
 
     /// The clip's value at `(x, y)`; zero outside its rectangle.
     pub fn get(&self, x: i32, y: i32) -> u8 {
-        self.span(y, x, x + 1).map_or(0, |s| s[0])
+        match self {
+            Clip::Rect(rect) => {
+                if rect.contains(x, y) {
+                    255
+                } else {
+                    0
+                }
+            }
+            Clip::Mask { .. } => self.span(y, x, x + 1).map_or(0, |s| s[0]),
+        }
     }
 }

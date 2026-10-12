@@ -34,6 +34,19 @@ pub fn source_over(dst: Pixel, src: Pixel, opacity: u8) -> Pixel {
         return [src[0], src[1], src[2], 255];
     }
     let da = u32::from(dst[3]);
+    if da == 255 {
+        // An opaque destination (nearly every pixel of a drawing): the
+        // result is opaque and `(s*sa + d*(255-sa)) / 255` needs no division
+        // by a variable. Rounds to nearest like the general case below.
+        let mix =
+            |s: u8, d: u8| -> u8 { div255(u32::from(s) * sa + u32::from(d) * (255 - sa)) as u8 };
+        return [
+            mix(src[0], dst[0]),
+            mix(src[1], dst[1]),
+            mix(src[2], dst[2]),
+            255,
+        ];
+    }
     // The destination's remaining visibility under the source.
     let behind = div255(da * (255 - sa));
     let out_a = sa + behind;
@@ -112,6 +125,21 @@ mod tests {
             [9, 8, 7, 100],
             "over nothing keeps the colour"
         );
+    }
+
+    #[test]
+    fn the_opaque_destination_path_equals_the_general_formula() {
+        // `out = (s*sa + d*behind + out_a/2) / out_a` with `behind = 255 - sa`.
+        for sa in 1..255u32 {
+            for s in 0..=255u32 {
+                for d in [0u32, 1, 77, 128, 254, 255] {
+                    let general = ((s * sa + d * (255 - sa) + 127) / 255).min(255) as u8;
+                    let got = source_over([d as u8, 0, 0, 255], [s as u8, 0, 0, sa as u8], 255);
+                    assert_eq!(got[0], general, "s {s} d {d} sa {sa}");
+                    assert_eq!(got[3], 255);
+                }
+            }
+        }
     }
 
     #[test]

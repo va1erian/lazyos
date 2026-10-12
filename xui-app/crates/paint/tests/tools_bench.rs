@@ -12,7 +12,9 @@
 use std::time::Instant;
 
 use xui_paint::model::Bitmap;
-use xui_paint::model::tools::{BrushOptions, PaintMode, StrokeBuffer};
+use xui_paint::model::tools::{
+    BrushOptions, Gradient, GradientKind, GradientOptions, PaintMode, StrokeBuffer,
+};
 
 /// The target for one segment, in milliseconds.
 const BUDGET_MS: f64 = 2.0;
@@ -51,5 +53,55 @@ fn a_200px_soft_brush_segment_stays_in_budget_on_a_4096_image() {
     );
     if !cfg!(debug_assertions) {
         assert!(total_p99 <= BUDGET_MS, "p99 {total_p99:.3} ms");
+    }
+}
+
+/// One gradient drag move on a 4096 x 4096 layer through the model: the last
+/// frame is taken back from the undo capture and the whole layer is painted
+/// again.
+#[test]
+#[ignore = "heavy; run with --release -- --ignored"]
+fn a_gradient_drag_move_on_a_4096_image_is_fast() {
+    use xui_paint::model::{Model, Side, Tool};
+    for kind in [
+        GradientKind::Linear,
+        GradientKind::LinearReflected,
+        GradientKind::Radial,
+        GradientKind::Diamond,
+    ] {
+        let mut model = Model::new(4096, 4096);
+        model.set_gradient(GradientOptions { kind });
+        model.set_primary([255, 0, 0, 255]);
+        model.set_secondary([0, 0, 255, 160]);
+        model.set_tool(Tool::Gradient);
+        model.begin(100, 100, Side::Primary);
+        let mut moves = Vec::new();
+        for i in 0..20 {
+            let start = Instant::now();
+            model.extend(1000 + i * 90, 3000 - i * 70);
+            moves.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        model.end();
+        // The paint alone, without the capture's restore.
+        let g = Gradient::new(
+            GradientOptions { kind },
+            (100.5, 100.5),
+            (2000.5, 1500.5),
+            [255, 0, 0, 255],
+            [0, 0, 255, 160],
+        );
+        let mut layer = Bitmap::white(4096, 4096);
+        let full = layer.rect();
+        let start = Instant::now();
+        g.paint(&mut layer, full, None);
+        println!(
+            "gradient {kind:?}: paint alone {:.1} ms",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        let mean = moves.iter().sum::<f64>() / moves.len() as f64;
+        println!(
+            "gradient {kind:?} 4096 x 4096: mean {mean:.1} ms, p99 {:.1} ms per move",
+            p99(moves)
+        );
     }
 }

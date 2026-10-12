@@ -206,7 +206,11 @@ impl StrokeBuffer {
         mode: PaintMode,
         clip: Option<Clip<'_>>,
     ) -> Rect {
-        let rect = self.pending.intersect(self.alloc).intersect(layer.rect());
+        let mut rect = self.pending.intersect(self.alloc).intersect(layer.rect());
+        // A rectangle clip passes everything inside it: just narrow the work.
+        if let Some(Clip::Rect(inside)) = clip {
+            rect = rect.intersect(inside);
+        }
         self.pending = Rect::EMPTY;
         if rect.is_empty() {
             return Rect::EMPTY;
@@ -217,8 +221,8 @@ impl StrokeBuffer {
             let at = self.index(rect.x0, y);
             let cover = &self.cov[at..at + width];
             let weights: &[u8] = match clip {
-                None => cover,
-                Some(clip) => {
+                None | Some(Clip::Rect(_)) => cover,
+                Some(clip @ Clip::Mask { .. }) => {
                     gated.fill(0);
                     let inside = Rect {
                         x0: rect.x0,
@@ -226,7 +230,7 @@ impl StrokeBuffer {
                         x1: rect.x1,
                         y1: y + 1,
                     }
-                    .intersect(clip.rect);
+                    .intersect(clip.rect());
                     if let Some(mask) = clip
                         .span(y, inside.x0, inside.x1)
                         .filter(|_| !inside.is_empty())

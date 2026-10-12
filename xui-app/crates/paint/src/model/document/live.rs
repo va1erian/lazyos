@@ -10,37 +10,48 @@
 //! preview that shrinks leaves nothing behind, and the whole drag is one
 //! history entry built from the same capture.
 
+use std::sync::Arc;
+
 use crate::model::history::UndoCapture;
 use crate::model::tools::Clip;
 use crate::model::{Bitmap, Rect, Selection};
 
 /// A selection as the stroke compositor wants it: owned, so a drag can keep
-/// it while it borrows the layer.
-pub(super) struct ClipMask {
-    rect: Rect,
-    bytes: Vec<u8>,
+/// it while it borrows the layer. A rectangle selection is just its
+/// rectangle, and a masked one shares the selection's bytes.
+pub(super) enum ClipMask {
+    Rect(Rect),
+    Mask { rect: Rect, bytes: Arc<[u8]> },
 }
 
 impl ClipMask {
-    /// The mask of `selection`, if there is one.
+    /// The clip of `selection`, if there is one.
     pub(super) fn of(selection: Option<&Selection>) -> Option<ClipMask> {
-        selection.map(|selection| ClipMask {
-            rect: selection.bounds(),
-            bytes: selection.clip_bytes(),
+        selection.map(|selection| match selection.shared_mask() {
+            None => ClipMask::Rect(selection.bounds()),
+            Some(bytes) => ClipMask::Mask {
+                rect: selection.bounds(),
+                bytes,
+            },
         })
     }
 
-    /// The compositor's view of the mask.
+    /// The compositor's view of the clip.
     pub(super) fn clip(&self) -> Clip<'_> {
-        Clip {
-            rect: self.rect,
-            mask: &self.bytes,
+        match self {
+            ClipMask::Rect(rect) => Clip::Rect(*rect),
+            ClipMask::Mask { rect, bytes } => Clip::Mask {
+                rect: *rect,
+                mask: bytes,
+            },
         }
     }
 
-    /// The pixels the mask can let through.
+    /// The pixels the clip can let through.
     pub(super) fn rect(&self) -> Rect {
-        self.rect
+        match self {
+            ClipMask::Rect(rect) | ClipMask::Mask { rect, .. } => *rect,
+        }
     }
 }
 
