@@ -1414,6 +1414,26 @@ regressions, not kernel-internal correctness or resource leaks.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 
+## Pre-PR review (required)
+
+Before an agent opens or finalizes a pull request, it MUST get a thorough
+review of the branch from a separate agent: a Sonnet-class model or better, in
+a fresh context that did not write the change (the `code-review` skill, or an
+`Agent` subagent given the diff, not your conclusions). Do not skip this
+because the change is small or the tests pass.
+
+1. Request the review when the work is done and the branch is committed, before
+   `gh pr create` (or before marking a draft ready).
+2. Ask for a review of correctness, security (untrusted input, `unsafe`
+   soundness, capability and label-policy changes), the kernel testing
+   requirement (correctness and stress tests), the project conventions above
+   (MIDL for every interface, `libs/fhs` paths, 500-line file limit, launcher
+   and GUI wiring for new apps), and visual verification for graphics changes.
+3. Fix every real finding, or say in the PR description why one was declined.
+   Re-run the review after substantial fixes.
+4. Put a short note in the PR description: who reviewed, and what was found
+   and changed.
+
 ## Commands
 
 ```bash
