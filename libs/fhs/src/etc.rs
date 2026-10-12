@@ -29,7 +29,7 @@ pub const CA_BUNDLE: &str = "/system/etc/ssl/certs/ca-certificates.crt";
 pub const HOSTS: &str = "/system/etc/hosts";
 
 /// The Fontconfig configuration of WebKit's processes (`LAZYOS_WEBKIT=1`,
-/// `webkit/port/fonts.conf`): the fonts under [`FONTS`](crate::share::FONTS),
+/// `webkit/port/fonts.conf.in`): the fonts under [`FONTS`](crate::share::FONTS),
 /// a cache in `/tmp/fontconfig`. Fontconfig was built for this path
 /// (`--sysconfdir=/system/etc`). Written by the image build.
 pub const FONTS_CONF: &str = "/system/etc/fonts/fonts.conf";

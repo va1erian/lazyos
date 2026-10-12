@@ -572,7 +572,7 @@ python tools/webkit/test_judge.py
 sources, laid over the pinned WebKitGTK 2.54.1 tarball), `patches/`,
 `port/upstream.txt` (files of WebKit's git the tarball lacks, fetched by blob
 digest), `port/smoke` (the headless UI process, WebKit's C API) and
-`port/fonts.conf`. `python tools/webkit/port.py` (after `deps.py`, which now
+`port/fonts.conf.in`. `python tools/webkit/port.py` (after `deps.py`, which now
 also builds libwpe and the EGL/GLESv2 stand-ins) builds the three programs in
 the `jsc` Docker container; a rebuild is incremental. `LAZYOS_WEBKIT=1`
 (`run_demo.py --webkit`, which implies networking and `--big-app`; a GUI
