@@ -51,6 +51,8 @@ NAMES = [
     "statmiss",
     "compat",
     "linuxapps",
+    # Needs the jsc build: run by `tools/jsc/run.py`, not by the ABI bench.
+    "jsc",
     # Needs a network: run by `tools/net/run.py --netd`, not by the ABI bench.
     "netfix",
     # Bulk TCP throughput: run by `tools/net/bulk.py`.

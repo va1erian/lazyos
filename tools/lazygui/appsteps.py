@@ -72,6 +72,14 @@ def linuxapps_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/linuxapps/build.py", "--require"]}]
 
 
+def jsc_step(cfg: dict) -> list[dict]:
+    """The step that builds JavaScriptCore's `jsc` (in Docker), when embedded."""
+    if not cfg.get("jsc"):
+        return []
+    return [{"label": "Build jsc, JavaScriptCore's shell (Docker)",
+             "argv": [PY, "tools/jsc/build.py", "--require"]}]
+
+
 def tls_step(cfg: dict) -> list[dict]:
     """The step that builds the HTTPS clients (`fetch`, `curl`, `wget`), when embedded."""
     if not cfg.get("tls"):
@@ -142,17 +150,20 @@ def wants_pictures(cfg: dict) -> bool:
 
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
-    `LAZYOS_PICTURES`."""
+    `LAZYOS_PICTURES`, and `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
+    `tools/jsc/build.py`; a console program, so desktop or not)."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
-            | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {}))
+            | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
+            | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail`, `--traydemo` and `--pictures`, which set those
-    switches themselves."""
+    """run_demo's `--mail`, `--traydemo`, `--pictures` and `--jsc`, which set
+    those switches themselves."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
-            + (["--pictures"] if wants_pictures(cfg) and building else []))
+            + (["--pictures"] if wants_pictures(cfg) and building else [])
+            + (["--jsc"] if cfg.get("jsc") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:
@@ -174,5 +185,6 @@ def app_steps(cfg: dict) -> list[dict]:
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
+            + jsc_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

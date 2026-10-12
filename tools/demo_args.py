@@ -162,6 +162,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--jsc", action="store_true",
+                        help="embed JavaScriptCore's jsc shell and the C++/ICU check cxxproof in "
+                             "/system/bin (LAZYOS_JSC=1), built by tools/jsc/build.py (Docker: "
+                             "WebKit's JSCOnly port, docs/webkit-port-plan.md W1/W2); a static jsc "
+                             "is tens of MB, so this implies the --big-app profile")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -248,7 +253,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
-    if args.big_app:
+    if args.big_app or args.jsc:
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.

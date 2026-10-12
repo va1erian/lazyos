@@ -8,6 +8,12 @@
 //! `/system/bin/rg`). They are opt-in because together they add about 7 MiB.
 //! Unlike `rhai`, they are embedded in ABI bench images too: the bench's
 //! `linuxapps` row runs them.
+//!
+//! `LAZYOS_JSC=1` is the same mechanism for JavaScriptCore's `jsc` shell and
+//! its C++/ICU check `cxxproof` (`tools/jsc/build.py`, built in Docker into
+//! `target/jsc/bin/`; docs/webkit-port-plan.md W1 and W2). They are tens of MB
+//! (ICU's data is inside) and LazyOS loads an ELF whole into RAM, so the
+//! guest wants the `--big-app` profile.
 
 use std::path::Path;
 
@@ -24,21 +30,46 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("rg", fhs::bin::RG),
 ];
 
-/// Whether `LAZYOS_LINUXAPPS` asks for the programs.
-pub fn enabled() -> bool {
-    std::env::var("LAZYOS_LINUXAPPS").is_ok_and(|value| value == "1")
+/// Where `tools/jsc/build.py` writes its programs, and what `LAZYOS_JSC=1` embeds.
+const JSC_BUILT: &str = "target/jsc/bin";
+const JSC_PROGRAMS: &[(&str, &str)] =
+    &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
+
+/// Whether the environment variable `name` is `1`.
+fn switch_on(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|value| value == "1")
 }
 
-/// Add the built programs to `/system/bin` when the switch is on.
+/// Whether `LAZYOS_LINUXAPPS` asks for the programs.
+pub fn enabled() -> bool {
+    switch_on("LAZYOS_LINUXAPPS")
+}
+
+/// Add the built programs to `/system/bin` when their switch is on.
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-changed=build_support/linuxapps_embed.rs");
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
-    if !enabled() {
-        return;
+    println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
+    if enabled() {
+        embed_programs(sink, manifest_dir, "LAZYOS_LINUXAPPS", BUILT, PROGRAMS, "tools/linuxapps/build.py");
     }
-    let dir = manifest_dir.join(BUILT);
+    if switch_on("LAZYOS_JSC") {
+        embed_programs(sink, manifest_dir, "LAZYOS_JSC", JSC_BUILT, JSC_PROGRAMS, "tools/jsc/build.py");
+    }
+}
+
+/// Store each program of `programs` that `built_dir` holds at its image path.
+fn embed_programs(
+    sink: &mut dyn Sink,
+    manifest_dir: &Path,
+    switch: &str,
+    built_dir: &str,
+    programs: &[(&str, &str)],
+    builder: &str,
+) {
+    let dir = manifest_dir.join(built_dir);
     let mut missing = Vec::new();
-    for (file, image_path) in PROGRAMS {
+    for (file, image_path) in programs {
         let built = dir.join(file);
         // Watched even when missing: a program built later rebuilds the image.
         println!("cargo:rerun-if-changed={}", built.display());
@@ -49,10 +80,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         }
     }
     if missing.is_empty() {
-        println!("cargo:warning=LAZYOS_LINUXAPPS embedded: {}", dir.display());
+        println!("cargo:warning={switch} embedded: {}", dir.display());
     } else {
         println!(
-            "cargo:warning=LAZYOS_LINUXAPPS: not built, left out: {} (run tools/linuxapps/build.py)",
+            "cargo:warning={switch}: not built, left out: {} (run {builder})",
             missing.join(", ")
         );
     }
