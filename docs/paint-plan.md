@@ -139,10 +139,16 @@ Edit menu ("Undo Paintbrush").
 
 ### 4.4 Size limits
 
-`MAX_SIDE` goes to 16384; `Document::new` refuses a document whose
-`width x height x 4 x layers` exceeds the memory budget (default 512 MiB,
-guest RAM permitting) with a status-bar message. Every allocation path (new,
-open, resize, add layer, paste) checks the budget first.
+`MAX_SIDE` goes to 16384. One memory budget (default 512 MiB, guest RAM
+permitting) covers everything that scales with the picture: the layers
+(`width x height x 4 x layers`), the flattened cache (`width x height x 4`),
+a floating selection or clipboard bitmap, and the history. History has its
+own cap inside that budget (section 4.2), so the admission check for a new
+document is `layers + cache + floating + history cap <= budget`.
+`Document::new` and every allocation path (new, open, resize, canvas size,
+add/duplicate layer, paste) run that check first and refuse with a
+status-bar message; history evicts its oldest entries rather than exceed
+its cap. The screen image is bounded by the window and is not counted.
 
 ## 5. v1 phases
 
@@ -279,8 +285,11 @@ A crosshair and a move cursor are added to `libs/cursorgfx` and xui's
 
 ### P6 - Files, packaging, sessions (M)
 
-* **Native format: OpenRaster (`.ora`)**: a zip with `mimetype`,
-  `stack.xml`, one PNG per layer and a merged thumbnail. It keeps layers,
+* **Native format: OpenRaster (`.ora`)**: a zip whose first entry is
+  `mimetype` (the bytes `image/openraster`, stored uncompressed, as the spec
+  requires), then `stack.xml`, one PNG per layer under `data/`,
+  `mergedimage.png` (the full-size composite) and
+  `Thumbnails/thumbnail.png` (at most 256x256). It keeps layers,
   names, opacity and visibility, and GIMP, Krita and MyPaint open it. Zip
   read/write comes from `lazyarc` (`xui-app/crates/archive`), stored entries
   (PNGs are already compressed). Fuzz the reader with `lazyarc`'s seeded
