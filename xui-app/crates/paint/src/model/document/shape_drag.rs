@@ -30,11 +30,22 @@ fn constrained(tool: Tool, start: (i32, i32), end: (i32, i32), mods: Mods) -> (i
 }
 
 /// The coverage of a shape between two corner pixels.
-fn coverage(tool: Tool, a: (i32, i32), b: (i32, i32), options: &ShapeOptions, area: Rect) -> ShapeCoverage {
+fn coverage(
+    tool: Tool,
+    a: (i32, i32),
+    b: (i32, i32),
+    options: &ShapeOptions,
+    area: Rect,
+) -> ShapeCoverage {
     match tool {
         Tool::Line => ShapeCoverage {
             fill: None,
-            outline: shapes::line(pixel_center(a.0, a.1), pixel_center(b.0, b.1), options, area),
+            outline: shapes::line(
+                pixel_center(a.0, a.1),
+                pixel_center(b.0, b.1),
+                options,
+                area,
+            ),
         },
         Tool::Ellipse => shapes::ellipse(a, b, options, area),
         _ => shapes::rectangle(a, b, options, area),
@@ -64,7 +75,13 @@ impl Model {
         self.drag = Some(Drag::Shape(drag));
     }
 
-    pub(super) fn extend_shape(&mut self, mut drag: ShapeDrag, x: i32, y: i32, mods: Mods) -> ShapeDrag {
+    pub(super) fn extend_shape(
+        &mut self,
+        mut drag: ShapeDrag,
+        x: i32,
+        y: i32,
+        mods: Mods,
+    ) -> ShapeDrag {
         drag.end = constrained(self.tool, drag.start, (x, y), mods);
         self.paint_shape(&mut drag);
         drag

@@ -41,7 +41,13 @@ fn only_tools_that_paint_with_a_width_offer_the_size() {
     ] {
         assert!(uses_size(tool), "{tool:?}");
     }
-    for tool in [Tool::Pencil, Tool::Fill, Tool::Picker, Tool::Gradient, Tool::Text] {
+    for tool in [
+        Tool::Pencil,
+        Tool::Fill,
+        Tool::Picker,
+        Tool::Gradient,
+        Tool::Text,
+    ] {
         assert!(!uses_size(tool), "{tool:?}");
     }
 }

@@ -26,7 +26,12 @@ impl PaintApp {
     }
 
     /// Reports every named control through the hook, if one is installed. The
-    /// names: `canvas`, `menubar`, `tool:<Label>`, `size`, `swatch:primary`,
+    /// names: `canvas`, `menubar`, `tool:<Label>`, the options bar's controls the
+    /// active tool shows (`size`, `hardness`, `antialias`, `arrow`,
+    /// `shape_mode`, `radius`, `sel_mode`, `wand_tolerance`, `fill_tolerance`,
+    /// `fill_area`, `fill_sample`, `pick_size`, `pick_sample`, `pick_back`,
+    /// `gradient_kind`, `font_family`, `font_size`, `bold`, `italic`,
+    /// `underline`, `text_align`), `swatch:primary`,
     /// `swatch:secondary`, `swap_colors`, `reset_colors`, `palette:<index>`, and
     /// `color_ok`/`color_cancel`/`color_alpha` while the colour editor is open,
     /// `layers`, `layer:<n>`, `layer_eye:<n>`, `layer_add`, `layer_delete`,
@@ -40,7 +45,7 @@ impl PaintApp {
         if let Some(id) = self.menu.id() {
             report("menubar", ui.bounds(id));
         }
-        for (name, id) in self.options.probe_ids() {
+        for (name, id) in self.options.probe_ids(ui) {
             report(name, ui.bounds(id));
         }
         for tool in Tool::ALL {

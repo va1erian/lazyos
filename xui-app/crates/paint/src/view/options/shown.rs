@@ -90,11 +90,7 @@ impl Shown {
                 select_mode: true,
                 ..none
             },
-            Tool::Pencil
-            | Tool::MovePixels
-            | Tool::MoveSelection
-            | Tool::Zoom
-            | Tool::Pan => none,
+            Tool::Pencil | Tool::MovePixels | Tool::MoveSelection | Tool::Zoom | Tool::Pan => none,
         }
     }
 }

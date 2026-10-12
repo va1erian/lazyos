@@ -264,7 +264,15 @@ fn the_p4_tool_keys_select_their_tools() {
 
 #[test]
 fn while_typing_letters_belong_to_the_text() {
-    for key in [Key::B, Key::T, Key::X, Key::D, Key::BACK, Key::DELETE, OPEN_BRACKET] {
+    for key in [
+        Key::B,
+        Key::T,
+        Key::X,
+        Key::D,
+        Key::BACK,
+        Key::DELETE,
+        OPEN_BRACKET,
+    ] {
         assert_eq!(typing_shortcut(key, NONE, false), None, "{key:?}");
         assert_eq!(typing_shortcut(key, SHIFT, false), None, "{key:?}");
     }

@@ -8,6 +8,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 pub mod driver;
+pub mod setup;
 
 use xui_core::Ui;
 use xui_core::backend::{Result, WidgetId};

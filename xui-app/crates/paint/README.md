@@ -104,35 +104,43 @@ That is the check a host without `cargo test` (a toy OS) runs.
 ```text
 crates/xui-paint/src/
   lib.rs              public surface; xui-core only
-  model/              pure logic: Bitmap, raster, flood fill, History, tools
+  model/              pure logic: Bitmap, similar-colour regions, History, tools
     bitmap.rs         RGBA8 buffer, PNG encode/decode through xui's Image
-    raster.rs         Bresenham lines, rectangles, ellipses, brush stamping
-    fill.rs           iterative scanline flood fill (no recursion)
+    fill.rs           similar-colour spans for the Magic Wand (no recursion)
     history.rs        byte-capped undo/redo snapshots
-    tool.rs           Tool, Side, SIZES
+    tool.rs           Tool (19 tools), Side, SIZES (the `[`/`]` ladder)
     image/            Document and Layer, flatten by rectangle, memory budget
     blend.rs          straight-alpha source-over
     history/          Edit deltas and the byte-capped History
     document.rs       Model: fields and accessors
-    document/edit.rs  Model actions (begin/extend/end, fill, pick, undo/redo)
+    document/edit.rs  Model actions: begin/extend/end/cancel dispatch by tool
+    document/strokes.rs     Pencil, Paintbrush, Eraser: one StrokeBuffer per drag
+    document/shape_drag.rs  Line, Rectangle, Rounded Rectangle, Ellipse (live preview)
+    document/fills.rs       Gradient (live), Paint Bucket, Color Picker
+    document/live.rs        a preview painted into the layer and taken back per frame
+    document/text.rs        the Text tool: block, caret, live pixels, commit/cancel
+    document/tool_options.rs  the option structs the options bar binds to
     document/image_ops.rs  resize, canvas size, crop, flip/rotate, flatten, merge down
     document/adjust.rs     Adjustments on the active layer; document/io.rs open/save bytes
     ops/              pure image operations: resample, flips/turns, adjustments (P5)
     tools/            P4 building blocks: StrokeBuffer, brush, AA shapes (tiny-skia), gradient,
-                      bucket mask, picker, option structs; not yet wired to Model
+                      bucket mask, picker, option structs; the document/ tools drive them
     text/             TextRasterizer trait, TextEdit; `text` feature adds the cosmic-text rasterizer
                       (off by default; the default build links tiny-skia only)
     format/           OpenRaster, BMP, magic-byte dispatch, a stored/inflate zip (P6)
   view/               xui glue: PaintApp, menu, shortcuts, panels, canvas
     app.rs            Msg -> model glue and status bar wiring
     app/              dialogs.rs (pickers, resize, About), files.rs, colors.rs
-                      (colour editor flow), probe.rs (UI probe hook)
+                      (colour editor flow), probe.rs (UI probe hook), canvas_msgs.rs
+                      (canvas input, the Zoom tool), setup.rs (`Setup`: what a host
+                      chooses, incl. the Text tool's rasterizer), status.rs
     layout.rs         the window layout (menu, options, grid, canvas, Colors,
                       status) and the Observer mirror
     menu.rs           the seven menus as one table; ids, enabling
     shortcuts.rs      the key table and the pure `shortcut` function
     command.rs        commands of features a later phase builds (disabled)
-    options.rs        the tool options bar (tool name, brush size)
+    options.rs        the tool options bar: one control per option, shown per tool
+                      (options/shown.rs), changed by `OptMsg` (options/msg.rs)
     canvas.rs         custom canvas node; canvas/paint.rs draws it
     toolbar.rs        custom tool grid (two columns); toolbar/paint.rs draws it
     palette.rs        the Colors panel: swatch pair, swap/reset, 32 colours
@@ -140,8 +148,6 @@ crates/xui-paint/src/
     layers.rs         the Layers panel: custom rows (eye, thumbnail, name); layers/thumb.rs
     sidebar.rs        right column: Layers + button strip + collapsible History list
     layerprops.rs     Layer Properties frame (name, visible, opacity; live preview)
-    model/document/alpha.rs  how translucent brushes and shapes composite (source-over;
-                      the pencil overwrites, the eraser's primary button clears)
     icons.rs          hand-drawn paint-tool glyphs
   viewport.rs         zoom and scroll arithmetic (pure)
   render.rs           flattened cache and the nearest-neighbour screen image (pure)
@@ -222,6 +228,35 @@ control rectangles (`canvas`, `menubar`, `size`, `tool:<Label>`,
 colours, history, the colour being edited and status to an `Observer`, for a
 host that wants to mirror them.
 
+`PaintApp::build_with(ui, Setup::new(storage).with_files(fs).with_observer(o)
+.with_text(rasterizer))` takes every host choice at once. The **Text tool**
+needs a `TextRasterizer` (`model::text`); with the `text` feature
+`CosmicRasterizer` implements it from the font bytes the host registers
+(`register_font`; the LazyOS binary registers the Liberation faces from
+`fhs::share::FONTS_LIBERATION` and the compiled-in Droid faces). The family
+list of the options bar is `TextRasterizer::families()`, read once at build.
+Without a rasterizer the Text tool says so in the status bar and does nothing.
+
+## Tools (P4)
+
+Every drawing tool paints through a `StrokeBuffer` (or, for shapes, gradients
+and text, a live preview in the layer that is taken back and repainted per
+frame, `model/document/live.rs`), clips to the selection, records one history
+entry per action and is cancelled by Esc mid-drag.
+
+| Tool (key) | Options | Notes |
+|---|---|---|
+| Pencil (P) | none | exact colour, alpha included; Shift-click draws from the last point |
+| Paintbrush (B), Eraser (E) | width 1-500, hardness, antialias | the eraser's other button paints the secondary |
+| Line, Rectangle, Rounded Rectangle, Ellipse (O cycles) | width, antialias, arrows / outline-fill-both / radius | Shift: 15 degree line, square, circle |
+| Paint Bucket (F) | tolerance, contiguous or global, layer or image | |
+| Gradient (G) | linear, reflected, radial, diamond | primary to secondary, right button reversed; the selection or the layer |
+| Color Picker (K) | 1 / 3x3 / 5x5, layer or image, switch back | |
+| Text (T) | font, size, B I U, alignment, antialias | click, type, Enter = new line, arrows, Home/End, handle drags the block; Ctrl+Enter, a tool change or a click outside commits, Esc cancels; letter keys are text while editing |
+| Zoom (Z), Pan (H) | none | click / right click / drag a rectangle; drag |
+
+`[` and `]` step the width along `model::SIZES`.
+
 ## lazyOS notes
 
 - Build without the backend to get the pure `xui-core` library:
@@ -247,8 +282,8 @@ host that wants to mirror them.
 
 All cross-platform, no real window:
 
-- `tests/model.rs` and the in-module unit tests: rasterization, interpolation,
-  brush sizes, flood fill edges, eraser, eyedropper, undo/redo limits, the byte
+- `tests/model.rs` and the in-module unit tests: interpolation,
+  brush sizes, eraser, eyedropper, undo/redo limits, the byte
   cap, PNG round-trip and hostile/out-of-range coordinates.
 - `view/shortcuts/tests.rs` and `view/menu/tests.rs`: the key table (coverage,
   no collisions, nothing while a dialog is open, tool cycling) and the menu table
@@ -257,6 +292,13 @@ All cross-platform, no real window:
   grid and palette clicks, keys, the menu bar, the colour editor, strokes,
   status updates and the drag lifecycle (mouse-up outside, a second button
   mid-drag, focus loss).
+- `tests/tools_model.rs`, `tests/tools_fills.rs` and `tests/tools_text.rs` drive
+  every P4 tool through the model (one undo step, Esc, selection clip, hostile
+  coordinates, a fake box rasterizer for the text editing).
+- `tests/tools_view.rs` does it through the window (Shift, Esc, Zoom, Pan, the
+  options bar's controls, and with `--features text` real glyphs typed with key
+  events); `tests/tools_snapshots.rs` makes the soft brush, shape, gradient and
+  text pictures at both themes and DPIs (`target/snapshots/paint-p4-*`).
 - `tests/probe.rs` clicks the centre of every probed rectangle, as `click_at` does.
 - `tests/snapshots.rs` renders light and dark at 96 and 192 DPI at 320x240 and
   800x600 (plus the Brush options bar and the colour editor) with pixel

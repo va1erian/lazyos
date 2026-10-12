@@ -48,6 +48,18 @@ pub enum OptMsg {
 }
 
 impl OptMsg {
+    /// Whether the control that raised it is a number field, which keeps the
+    /// keyboard so a value of several digits can be typed.
+    pub fn from_number_field(self) -> bool {
+        matches!(
+            self,
+            OptMsg::Hardness(_)
+                | OptMsg::Radius(_)
+                | OptMsg::FillTolerance(_)
+                | OptMsg::FontSize(_)
+        )
+    }
+
     /// Applies the change to `model`; `families` names the fonts the family
     /// index refers to.
     pub(in crate::view) fn apply(self, model: &mut Model, families: &[String]) {

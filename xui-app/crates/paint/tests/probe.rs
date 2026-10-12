@@ -74,7 +74,6 @@ fn the_probe_names_every_control_a_session_clicks() {
         for name in [
             "canvas",
             "menubar",
-            "size",
             "swatch:primary",
             "swatch:secondary",
             "swap_colors",
@@ -91,6 +90,17 @@ fn the_probe_names_every_control_a_session_clicks() {
             );
         }
         assert!(!seen.contains_key("color_ok"), "the editor is closed");
+        assert!(
+            !seen.contains_key("size"),
+            "the Pencil has no width control"
+        );
+        drop(seen);
+        stage.emit(Msg::Tool(Tool::Brush));
+        stage.emit(Msg::Probe);
+        let seen = names.borrow();
+        for name in ["size", "hardness", "antialias"] {
+            assert!(seen.contains_key(name), "{name} is probed for the Brush");
+        }
         let windows: Vec<&String> = seen.values().map(|(window, _)| window).collect();
         assert!(
             windows.iter().all(|window| window.ends_with("- Paint")),

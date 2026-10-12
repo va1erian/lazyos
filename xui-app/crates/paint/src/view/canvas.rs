@@ -140,7 +140,6 @@ impl PaintCanvas {
         let caret = model.text_caret();
         let block = model.text_block().zip(model.text_handle());
         let editing = model.is_editing_text();
-        let dragging = model.is_dragging();
         if state.brush != brush
             || state.tool != tool
             || state.caret != caret
@@ -154,7 +153,6 @@ impl PaintCanvas {
             state.editing = editing;
             changed = true;
         }
-        state.dragging = dragging;
         if state.sel_rev != model.selection_rev() {
             state.sel_rev = model.selection_rev();
             state.edges = model.selection().map(|s| s.edges()).unwrap_or_default();

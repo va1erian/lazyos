@@ -5,7 +5,7 @@
 
 use super::PaintApp;
 use crate::model::{Side, Tool};
-use crate::view::CanvasMsg;
+use crate::view::{CanvasMsg, Msg};
 
 /// A Zoom drag shorter than this many screen pixels is a click.
 const CLICK_SLOP_PX: f64 = 4.0;
@@ -28,7 +28,10 @@ impl PaintApp {
                 self.hint = None;
                 self.cursor = Some((x, y));
                 if self.model.tool() == Tool::Zoom {
-                    self.zoom_drag = Some(ZoomDrag { start: (x, y), side });
+                    self.zoom_drag = Some(ZoomDrag {
+                        start: (x, y),
+                        side,
+                    });
                 } else {
                     self.model.begin_with(x, y, side, mods);
                 }
@@ -40,7 +43,8 @@ impl PaintApp {
                 self.cursor = Some((x, y));
                 if let Some(drag) = self.zoom_drag {
                     let band = self.is_zoom_band(drag.start, (x, y));
-                    let marquee = (band && drag.side == Side::Primary).then_some((drag.start, (x, y)));
+                    let marquee =
+                        (band && drag.side == Side::Primary).then_some((drag.start, (x, y)));
                     self.canvas.set_marquee(marquee);
                 } else {
                     self.model.extend_with(x, y, mods);
@@ -95,5 +99,39 @@ impl PaintApp {
             (_, Side::Primary) => self.canvas.zoom_in_at(drag.start),
             (_, Side::Secondary) => self.canvas.zoom_out_at(drag.start),
         }
+    }
+}
+
+/// Whether a message leaves a text block being edited: the canvas input and
+/// the controls that style it or colour it, as opposed to everything that
+/// acts on the picture.
+pub(super) fn keeps_text(msg: &Msg) -> bool {
+    matches!(
+        msg,
+        Msg::Canvas(_)
+            | Msg::Opt(_)
+            | Msg::Size(_)
+            | Msg::Palette { .. }
+            | Msg::SwapColors
+            | Msg::ResetColors
+            | Msg::HintTool(_)
+            | Msg::EditColor(_)
+            | Msg::ColorEditing(_)
+            | Msg::ColorAlpha(_)
+            | Msg::ColorDone
+            | Msg::ColorCancel
+            | Msg::Probe
+            | Msg::DialogClosed
+    )
+}
+
+/// Whether a message comes from a control that should hand the keyboard back
+/// to the canvas while text is being edited: swatches, swap and reset, and the
+/// options bar's combo boxes and check boxes (not its number fields).
+pub(super) fn returns_focus(msg: &Msg) -> bool {
+    match msg {
+        Msg::Palette { .. } | Msg::SwapColors | Msg::ResetColors => true,
+        Msg::Opt(opt) => !opt.from_number_field(),
+        _ => false,
     }
 }

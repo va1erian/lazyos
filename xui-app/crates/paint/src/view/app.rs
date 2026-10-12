@@ -43,8 +43,8 @@ mod probe;
 mod setup;
 mod status;
 
+use canvas_msgs::{ZoomDrag, keeps_text, returns_focus};
 use commands::PasteKind;
-use canvas_msgs::ZoomDrag;
 use dialogs::{AboutBox, FileDialogs, PasteSizePrompt, ResizePrompt};
 pub use setup::Setup;
 
@@ -149,11 +149,7 @@ impl PaintApp {
 
     /// Builds the app from every host choice at once (see [`Setup`]).
     pub fn build_with(ui: &mut Ui<Msg>, setup: Setup) -> Result<PaintApp> {
-        let files = setup
-            .storage
-            .supports_paths()
-            .then_some(setup.fs)
-            .flatten();
+        let files = setup.storage.supports_paths().then_some(setup.fs).flatten();
         PaintApp::construct(ui, setup.storage, setup.observer, files, setup.text)
     }
 
@@ -458,6 +454,11 @@ impl App for PaintApp {
             | Msg::PasteKeep => self.selection_msg(msg),
             Msg::Canvas(canvas) => self.canvas_msg(canvas),
         }
+        // A control that took the keyboard gives it back, so the next key is
+        // still text.
+        if self.model.is_editing_text() && returns_focus(&msg) {
+            ui.focus(self.canvas.id());
+        }
         self.sync(ui);
         if self.files.is_some() && self.title != self.title() {
             self.title = self.title();
@@ -465,27 +466,4 @@ impl App for PaintApp {
             self.probe(ui);
         }
     }
-}
-
-/// Whether a message leaves a text block being edited: the canvas input and
-/// the controls that style it or colour it, as opposed to everything that
-/// acts on the picture.
-fn keeps_text(msg: &Msg) -> bool {
-    matches!(
-        msg,
-        Msg::Canvas(_)
-            | Msg::Opt(_)
-            | Msg::Size(_)
-            | Msg::Palette { .. }
-            | Msg::SwapColors
-            | Msg::ResetColors
-            | Msg::HintTool(_)
-            | Msg::EditColor(_)
-            | Msg::ColorEditing(_)
-            | Msg::ColorAlpha(_)
-            | Msg::ColorDone
-            | Msg::ColorCancel
-            | Msg::Probe
-            | Msg::DialogClosed
-    )
 }

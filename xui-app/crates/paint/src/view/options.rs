@@ -98,10 +98,10 @@ fn pick<T: Copy>(table: &[(T, &str)], index: usize) -> T {
 
 /// A combo box over a table, selecting `value`.
 fn select<T: Copy + PartialEq>(combo: &ComboBox<Msg>, table: &[(T, &str)], value: T) {
-    if let Some(index) = table.iter().position(|(item, _)| *item == value) {
-        if combo.selected() != index {
-            combo.select(index);
-        }
+    if let Some(index) = table.iter().position(|(item, _)| *item == value)
+        && combo.selected() != index
+    {
+        combo.select(index);
     }
 }
 
@@ -221,12 +221,27 @@ impl Options {
         select(&self.arrow.get(), &ARROWS, shape.arrow);
         select(&self.style.get(), &SHAPE_MODES, shape.mode);
         number(&self.radius.get(), f64::from(shape.radius));
-        show(&[self.size_cap.get().id(), self.size.get().id()], shown.size);
-        show(&[self.hard_cap.get().id(), self.hard.get().id()], shown.hardness);
+        show(
+            &[self.size_cap.get().id(), self.size.get().id()],
+            shown.size,
+        );
+        show(
+            &[self.hard_cap.get().id(), self.hard.get().id()],
+            shown.hardness,
+        );
         show(&[self.aa.get().id()], shown.antialias);
-        show(&[self.arrow_cap.get().id(), self.arrow.get().id()], shown.arrow);
-        show(&[self.style_cap.get().id(), self.style.get().id()], shown.style);
-        show(&[self.radius_cap.get().id(), self.radius.get().id()], shown.radius);
+        show(
+            &[self.arrow_cap.get().id(), self.arrow.get().id()],
+            shown.arrow,
+        );
+        show(
+            &[self.style_cap.get().id(), self.style.get().id()],
+            shown.style,
+        );
+        show(
+            &[self.radius_cap.get().id(), self.radius.get().id()],
+            shown.radius,
+        );
 
         let mode = self.mode.get();
         if let Some(index) = CombineMode::ALL.iter().position(|m| *m == model.sel_mode()) {
@@ -234,7 +249,10 @@ impl Options {
         }
         number(&self.tolerance.get(), f64::from(model.wand_tolerance()));
         check(&self.contiguous.get(), model.wand_contiguous());
-        show(&[self.mode_caption.get().id(), mode.id()], shown.select_mode);
+        show(
+            &[self.mode_caption.get().id(), mode.id()],
+            shown.select_mode,
+        );
         show(
             &[
                 self.tolerance_caption.get().id(),
@@ -272,13 +290,16 @@ impl Options {
         );
 
         select(&self.gradient.get(), &GRADIENTS, model.gradient().kind);
-        show(&[self.gradient_cap.get().id(), self.gradient.get().id()], shown.gradient);
+        show(
+            &[self.gradient_cap.get().id(), self.gradient.get().id()],
+            shown.gradient,
+        );
 
         let style = model.text_style();
-        if let Some(index) = self.families.iter().position(|f| *f == style.family) {
-            if self.family.get().selected() != index {
-                self.family.get().select(index);
-            }
+        if let Some(index) = self.families.iter().position(|f| *f == style.family)
+            && self.family.get().selected() != index
+        {
+            self.family.get().select(index);
         }
         number(&self.font_size.get(), f64::from(style.size));
         check(&self.bold.get(), style.bold);
@@ -298,9 +319,10 @@ impl Options {
         );
     }
 
-    /// The named controls, for the UI probe.
-    pub(super) fn probe_ids(&self) -> Vec<(&'static str, WidgetId)> {
-        vec![
+    /// The named controls the bar shows now, for the UI probe (a control of
+    /// another tool has no place to click).
+    pub(super) fn probe_ids(&self, ui: &Ui<Msg>) -> Vec<(&'static str, WidgetId)> {
+        let all = vec![
             ("size", self.size.get().id()),
             ("hardness", self.hard.get().id()),
             ("antialias", self.aa.get().id()),
@@ -322,7 +344,10 @@ impl Options {
             ("italic", self.italic.get().id()),
             ("underline", self.underline.get().id()),
             ("text_align", self.align.get().id()),
-        ]
+        ];
+        all.into_iter()
+            .filter(|(_, id)| ui.is_visible(*id))
+            .collect()
     }
 }
 

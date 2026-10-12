@@ -32,7 +32,11 @@ fn a_shape_preview_is_not_an_undo_step() {
     assert_ne!(model.bitmap().get(5, 5), Some(WHITE), "the layer shows it");
     assert_eq!(model.history().undo_len(), 0, "a preview is not history");
     model.extend(10, 0);
-    assert_eq!(model.bitmap().get(5, 5), Some(WHITE), "the old frame is gone");
+    assert_eq!(
+        model.bitmap().get(5, 5),
+        Some(WHITE),
+        "the old frame is gone"
+    );
     model.end();
     assert_eq!(model.history().undo_len(), 1);
 }

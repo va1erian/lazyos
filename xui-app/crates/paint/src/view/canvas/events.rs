@@ -141,7 +141,9 @@ pub(super) fn handle(
             ui.invalidate(id);
             Some(Msg::Canvas(CanvasMsg::Cancel))
         }
-        Event::KeyDown { key, modifiers, .. } => key_down(ui, id, state, releasing, *key, *modifiers),
+        Event::KeyDown { key, modifiers, .. } => {
+            key_down(ui, id, state, releasing, *key, *modifiers)
+        }
         Event::Char(c) => {
             let typing = state.borrow().editing && !c.is_control();
             typing.then_some(Msg::Canvas(CanvasMsg::Char(*c)))

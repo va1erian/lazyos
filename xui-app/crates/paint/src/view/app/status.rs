@@ -46,6 +46,7 @@ impl PaintApp {
         observer.floating = self.model.is_floating();
         observer.text_editing = self.model.is_editing_text();
         observer.zoom_percent = zoom_percent;
+        observer.view_origin = self.canvas.offset();
         observer.editing = self.editing.map(|(side, _)| side);
         observer.layers = self
             .model

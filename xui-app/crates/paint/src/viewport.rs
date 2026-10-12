@@ -181,7 +181,10 @@ impl Viewport {
     /// The largest zoom (within range) at which `rect` fills the window, with
     /// the rectangle's centre in the middle of it (Zoom tool's drag).
     pub fn fit_rect(&mut self, rect: Rect, doc: (u32, u32), view: (i32, i32)) {
-        let (w, h) = (f64::from(rect.width().max(1)), f64::from(rect.height().max(1)));
+        let (w, h) = (
+            f64::from(rect.width().max(1)),
+            f64::from(rect.height().max(1)),
+        );
         let zoom = (f64::from(view.0.max(1)) / w).min(f64::from(view.1.max(1)) / h);
         self.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
         let centre = (
@@ -365,7 +368,28 @@ mod tests {
     }
 
     #[test]
+    fn fitting_a_rectangle_fills_the_view_and_centres_it() {
+        let mut vp = Viewport::new();
+        let doc = (1000, 1000);
+        vp.fit_rect(Rect::new(100, 100, 80, 60), doc, VIEW);
+        // 800 / 80 = 10 and 600 / 60 = 10: both axes tight.
+        assert_eq!(vp.zoom(), 10.0);
+        let (x, y) = vp.to_doc(400, 300);
+        assert_eq!((x, y), (140, 130), "the rectangle's centre is mid-view");
+        // A tiny rectangle is capped at the largest zoom, still centred.
+        vp.fit_rect(Rect::new(500, 500, 1, 1), doc, VIEW);
+        assert_eq!(vp.zoom(), ZOOM_MAX);
+        assert_eq!(vp.to_doc(400, 300), (500, 500));
+        // A rectangle wider than the view zooms out to fit it.
+        vp.fit_rect(Rect::new(0, 0, 1000, 1000), doc, VIEW);
+        assert_eq!(vp.zoom(), 0.6);
+    }
+
+    #[test]
     fn hostile_input_never_panics() {
+        let mut vp = Viewport::new();
+        vp.fit_rect(Rect::new(i32::MIN, i32::MIN, u32::MAX, u32::MAX), DOC, VIEW);
+        vp.fit_rect(Rect::EMPTY, DOC, (0, 0));
         let mut vp = Viewport::new();
         vp.zoom_to(f64::MAX, (i32::MAX, i32::MIN), DOC, VIEW);
         vp.pan_by(i32::MAX, i32::MIN, DOC, VIEW);

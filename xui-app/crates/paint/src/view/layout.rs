@@ -74,6 +74,8 @@ pub struct Observer {
     pub dragging: bool,
     /// The zoom in whole percent.
     pub zoom_percent: u32,
+    /// How far the picture is scrolled, in view pixels.
+    pub view_origin: (i32, i32),
     /// The colour the editor is changing, while it is open.
     pub editing: Option<Side>,
     /// The selection's `(x, y, width, height)`, if there is one.
@@ -106,6 +108,7 @@ impl Default for Observer {
             cursor: None,
             dragging: false,
             zoom_percent: 100,
+            view_origin: (0, 0),
             editing: None,
             selection: None,
             floating: false,

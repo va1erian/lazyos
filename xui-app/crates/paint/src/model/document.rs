@@ -41,10 +41,7 @@ enum Drag {
     /// A gradient being dragged out; the layer shows it, live.
     Gradient(fills::GradientDrag),
     /// The text block being dragged by its handle.
-    MoveText {
-        start: (i32, i32),
-        from: (i32, i32),
-    },
+    MoveText { start: (i32, i32), from: (i32, i32) },
     /// A rectangle or ellipse selection being dragged out; the document's
     /// selection already shows the result.
     Select {

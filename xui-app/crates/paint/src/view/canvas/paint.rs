@@ -7,9 +7,9 @@
 //! being made (the model repaints them per frame), so nothing here previews
 //! them; what is drawn here is never part of the picture.
 
-use xui_core::{Color, Theme};
 use xui_core::backend::Canvas;
 use xui_core::geometry::{Point, Rect};
+use xui_core::{Color, Theme};
 
 use super::ants;
 use super::state::CanvasState;
@@ -46,7 +46,11 @@ pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Th
     {
         // xui gap: G4 — `Cursor` has no crosshair and the offscreen backend
         // ignores cursors, so the canvas paints its own brush ring.
-        let width = if state.tool == Tool::Pencil { 1 } else { state.brush };
+        let width = if state.tool == Tool::Pencil {
+            1
+        } else {
+            state.brush
+        };
         let radius = (width.max(1) as f32 * zoom as f32 / 2.0).max(1.0);
         canvas.stroke_ellipse(at(cursor), radius, radius, theme.text, 1.0);
     }

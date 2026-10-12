@@ -28,7 +28,12 @@ impl Model {
         }));
     }
 
-    pub(super) fn extend_gradient(&mut self, mut drag: GradientDrag, x: i32, y: i32) -> GradientDrag {
+    pub(super) fn extend_gradient(
+        &mut self,
+        mut drag: GradientDrag,
+        x: i32,
+        y: i32,
+    ) -> GradientDrag {
         if drag.end != (x, y) {
             drag.end = (x, y);
             self.paint_gradient(&mut drag);
@@ -44,7 +49,13 @@ impl Model {
             Side::Secondary => (self.secondary, self.primary),
         };
         let center = |p: (i32, i32)| (p.0 as f32 + 0.5, p.1 as f32 + 0.5);
-        let gradient = Gradient::new(self.gradient, center(drag.start), center(drag.end), from, to);
+        let gradient = Gradient::new(
+            self.gradient,
+            center(drag.start),
+            center(drag.end),
+            from,
+            to,
+        );
         let Some(target) = self.doc.layer_mut(drag.live.layer) else {
             return;
         };

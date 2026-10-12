@@ -260,7 +260,13 @@ fn open_hand(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
         )
     };
     canvas.fill_polygon(
-        &[at(0.2, 0.5), at(0.85, 0.5), at(0.8, 0.85), at(0.5, 1.0), at(0.3, 0.85)],
+        &[
+            at(0.2, 0.5),
+            at(0.85, 0.5),
+            at(0.8, 0.85),
+            at(0.5, 1.0),
+            at(0.3, 0.85),
+        ],
         color,
     );
     for (fx, top) in [(0.3, 0.2), (0.45, 0.08), (0.6, 0.05), (0.75, 0.15)] {

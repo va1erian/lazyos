@@ -90,9 +90,10 @@ impl Model {
                 }
             }
             let clip = clip_of(&stroke.clip);
-            let changed = stroke
-                .buffer
-                .composite(&mut target.pixels, stroke.color, stroke.mode, clip);
+            let changed =
+                stroke
+                    .buffer
+                    .composite(&mut target.pixels, stroke.color, stroke.mode, clip);
             self.damage_rect(changed);
             self.bump();
         }
