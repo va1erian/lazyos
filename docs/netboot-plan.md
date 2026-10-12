@@ -45,7 +45,8 @@
    shutdown order so every driver has quiesced its device. It is developed
    and proven in QEMU over virtio-net (no radio needed), then on the box.
 3. **The registry, the payload and the push are the same whatever boots
-   them.** A Python standard-library HTTP server on the homelab keeps
+   them.** A Python standard-library HTTP server, shipped as a Docker
+   container for the homelab's Cosmos Cloud (one port, one volume, §5), keeps
    immutable builds under channels, a JSON listing for the picker (and an
    iPXE menu, if iPXE is ever used), a push API whose writes are Ed25519
    signed, per-machine defaults and a one-shot "boot this next".
@@ -187,11 +188,28 @@
 
 ## 5. The registry
 
-`python tools/netboot/registry.py --root /srv/lazyos --bind 192.168.1.5:8420
---keys /etc/lazyos-registry/keys.json` (the public keys allowed to write)
-on the homelab, with a sample
-systemd unit (`tools/netboot/lazyos-registry.service`). Standard library only
-(`http.server`, `json`, `hashlib`); it runs on any Linux or Windows machine.
+**The registry ships as a Docker container**, because the homelab is managed
+with Cosmos Cloud and a container is the unit it installs, updates and backs
+up. `tools/netboot/Dockerfile` builds it from `python:3-alpine` with the
+`tools/netboot/` scripts and nothing else (standard library only:
+`http.server`, `json`, `hashlib`; the Ed25519 verifier of decision 4 is the
+pure-Python one, so the image needs no compiler and no wheel). The container
+runs as an unprivileged user, serves on one port, keeps everything under one
+volume, and takes its settings from the environment:
+
+| | |
+|---|---|
+| Image | `ghcr.io/va1erian/lazyos-registry:<tag>`, built and pushed by `.github/workflows/netboot.yml` on `main` and on tags, with `latest` following `main`; `docker build -t lazyos-registry tools/netboot` for a local one |
+| Port | `8420/tcp` (`LAZYOS_REGISTRY_BIND`, default `0.0.0.0:8420`; Cosmos's reverse proxy may front it, but the box talks to the port directly, since the boot OS trusts signatures, not TLS) |
+| Volume | `/srv/lazyos` (`LAZYOS_REGISTRY_ROOT`): builds, `channels.json`, `machines.json`, `access.log`, and `keys.json`; the one thing to back up |
+| Environment | `LAZYOS_REGISTRY_KEYS` (path, default `/srv/lazyos/keys.json`; the public keys allowed to write), `LAZYOS_REGISTRY_KEEP` (default per-channel `keep`), `LAZYOS_REGISTRY_LOG` (`access.log` path, or `-` for stdout, Cosmos's log view) |
+| Health | `GET /healthz` (200, the build count and free space under the volume), declared as the image's `HEALTHCHECK` |
+| First run | an empty volume gets `channels.json`, `machines.json` and an empty `keys.json` written with a log line saying no key may push yet; `push.py --register-key` prints the line to paste into it (or the admin copies `key.pub` in) |
+
+A `docker-compose.yml` beside the Dockerfile is the Cosmos Cloud import
+(one service, the port, the volume, `restart: unless-stopped`), and the
+same `registry.py` still runs bare (`python tools/netboot/registry.py --root
+DIR --bind HOST:PORT`) for the harness and on a machine without Docker.
 `tools/netboot/spike/serve.py` (the spike's single-build server with `Range`
 and a per-request log) is its seed.
 
@@ -504,10 +522,10 @@ variant to `tools/netboot/run.py`.
 |---|---|---|
 | **Q0** The floor, measured (one evening, no code in the OS) | On the box, with the current Wi-Fi stick (`run_demo.py --desktop --wifi --dbgd-control --usb-image`) and `dbgd`: the kernel-to-`connected` time from the log's timestamps (`WIFID:FW:READY`, `WLANMD:STATE wlan0 connected`, `NETD:ADDR`), and the download rate over `wlan0` by fetching the 308 MiB ramdisk from `tools/netboot/spike/serve.py` on the dev machine (`fetch http://<dev>:8420/files/ramdisk -o /tmp/r`, the server's MB/s log and `/tmp` being RAM). Optional: `qemu_spike.py` once more with the server's `--timeout 600000`, to see whether the loader's ramdisk read through iPXE's volume finishes (§13) | §13 filled: association time, MB/s over Wi-Fi, the stick's kernel-to-`init` time; the iPXE verdict if run |
 | **N1** Payload | `build_support/netboot.rs`: `LAZYOS_NETBOOT=1` writes `target/netboot/` (decision 2), `manifest.json` and, with `LAZYOS_NETBOOT_KEY=<key.sec>`, `manifest.sig` (Ed25519 over the manifest's bytes, `ed25519-dalek` from `nettls-crypto` on the host; a build without the key is pushable but no boot OS will run it); `image.id=` in `lazyos.cfg`, `BOOT:IMAGE:<id>`, About shows it; `preflight.py --netboot`; `run_demo.py --netboot`; the launcher group and `catalog.py`; the 308 MiB accounted for and the netboot free space decided | `cargo test -p build-support-tests` (digests match, the id format, a dirty tree marked, both switches write identical bytes); `mount_suite`: `image.id` parsed and logged, a bad value refused without affecting the mount; `tools/lazygui/test_catalog.py` |
-| **N2** Registry and push | `tools/netboot/registry.py` (+ `store.py`, `api.py`, `menu.py` for the optional iPXE text), `push.py`, `keygen.py`, `ed25519.py` (the RFC 8032 verifier), the systemd unit, `README.md`; the spike's `serve.py` and `scripts.py` folded in | `test_registry.py` against a loopback server: atomic commit (a torn upload leaves no build), a bad or missing `manifest.sig` refused, a key not in `keys.json` refused, digest mismatch refused, the same id with other bytes refused, pin and prune, a signed body on every write and a replayed nonce refused, `..` and absolute names refused, `Range`, the JSON (and the menu) for a known machine (channel order, default, `next` pending until `booting`, consumed exactly once, `booted` recorded only by the acknowledgement) and for an unknown MAC; `test_ed25519.py` on the RFC vectors; `test_push.py` against a fake registry |
+| **N2** Registry and push | `tools/netboot/registry.py` (+ `store.py`, `api.py`, `menu.py` for the optional iPXE text), `push.py`, `keygen.py`, `ed25519.py` (the RFC 8032 verifier), the `Dockerfile` and `docker-compose.yml` (§5: unprivileged user, one port, one volume, environment settings, `/healthz`), `README.md` (including the Cosmos Cloud import); the spike's `serve.py` and `scripts.py` folded in | `test_registry.py` against a loopback server: atomic commit (a torn upload leaves no build), a bad or missing `manifest.sig` refused, a key not in `keys.json` refused, digest mismatch refused, the same id with other bytes refused, pin and prune, a signed body on every write and a replayed nonce refused, `..` and absolute names refused, `Range`, the JSON (and the menu) for a known machine (channel order, default, `next` pending until `booting`, consumed exactly once, `booted` recorded only by the acknowledgement) and for an unknown MAC; `test_ed25519.py` on the RFC vectors; `test_push.py` against a fake registry; `test_container.sh` (skipped without Docker): build the image, run it on a temp volume with a throwaway key, push a payload from the host, read it back, `/healthz` green, the process is not root |
 | **B1** kexec | `kernel/src/power/kexec.rs` (+ `kexec/` for the map and the ELF checks), the `power(kexec)` kind (the sync, the claim teardown, the refusal while a claim is live), `init.Kexec(kernel, ramdisk, reason)` in `idl/init.midl`, `powerctl kexec KERNEL RAMDISK` for a developer at the Terminal, the `BOOT:VIA` field in the vendored common crate | `kexec_suite` (8.2, plus: a fake claim held across the sync is torn down and a claim that cannot be ended makes the op refuse); `tools/test/run.py --accel none` green; `tools/netboot/run.py --kexec`: the dev image boots under OVMF over virtio, `powerctl kexec` of a test copy in `/system/share/netboot/`, the second kernel logs `BOOT:VIA:kexec` and reaches the desktop, then a third |
 | **B2** The boot OS | `LAZYOS_BOOTOS=1` (8.3): manifest, `netpicker` (`tools/xui/new_app.py`, permissions from a `LAZYOS_LABEL_TRACE=1` run), the HTTP client over `netd`, the signature check (`LAZYOS_BOOTOS_KEY=<key.pub>` embedded, `ed25519-dalek`), `bootos.*` cfg lines and limits; `run_demo.py --bootos`; the launcher; `target/bootos/{kernel-x86_64,ramdisk}` pushed to channel `bootos` by `push.py --bootos` | `cd xui-app && cargo test -p netpicker` (list parsing with unknown fields, a hostile manifest, the countdown, a bad signature and a digest mismatch each refused before any kexec); `run.py --bootos`: OVMF boots an ESP image carrying the boot OS, virtio-net to the host registry (`wifisim` over the second card where `tools/wifi/sim_run.py` already provides it, so the Wi-Fi path runs in CI too), the picker lists, fetches the pushed dev build, `PICKER:VERIFY:PASS`, `PICKER:KEXEC`, the dev build's `BOOT:VIA:kexec` and desktop; a corrupted file gives `PICKER:VERIFY:FAIL` and the menu; the registry down gives the local copy; the ramdisk size recorded in §13 |
-| **N3** Harness and CI | `tools/netboot/run.py` as above with `--home-disk` (a virtio disk from `tools/mkdisk --home-volume` mounts at `/home`), `--esp`, `--kexec`, `--bootos`, optional `--ipxe` (the spike's path: slirp TFTP, OVMF PXE, the menu); OVMF found as `tools/boot/run.py` finds it plus QEMU's own `share/edk2-x86_64-code.fd` on Windows; `test_run.py` | `.github/workflows/netboot.yml` (Linux runner, OVMF, artifacts like `screenshots.yml`) |
+| **N3** Harness and CI | `tools/netboot/run.py` as above with `--home-disk` (a virtio disk from `tools/mkdisk --home-volume` mounts at `/home`), `--esp`, `--kexec`, `--bootos`, optional `--ipxe` (the spike's path: slirp TFTP, OVMF PXE, the menu); OVMF found as `tools/boot/run.py` finds it plus QEMU's own `share/edk2-x86_64-code.fd` on Windows; `test_run.py` | `.github/workflows/netboot.yml` (Linux runner, OVMF, artifacts like `screenshots.yml`; also builds the registry image, runs `test_container.sh` against it, and pushes it to `ghcr.io/va1erian/lazyos-registry` on `main` and tags) |
 | **B3** Install and update | `install_box.py` (§7: the ESP, the local pair, the seeded `/conf` of 8.5; later `--home`, `--state`); the update route of 8.4; `push.py --bootos --machine box` | `cargo test -p fat16w` (host, fuzz seeds, `fsck.fat -n` clean in CI) if route 1; harness: update the boot OS from the running system, reboot, the new boot OS's `PICKER:UP` with its id; a torn update (QEMU killed before, during and after the one-sector switch) always boots a kernel and ramdisk of the **same** build, checked by `BOOT:IMAGE` against the kernel's revision |
 | **B4** The box | the boot OS on the box's ESP over Wi-Fi; `docs/netboot.md` (the homelab service, the box, firmware settings, "the picker does not appear", recovery is the local copy or the stick); the `compat/hardware.md` row | kernel-to-picker, association and download times over the radio in §13; a pushed build boots with no cable and no key pressed; a file saved to `/home` survives; the registry stopped, the box boots the local copy on its own |
 | **N4** The loop | `dbgd` control method `power.reboot` (asks `init.Shutdown(reboot)`, never the kernel's `power`; refused without the control tier; `dbgwire` allowlist and tests); `push.py --machine --reboot --follow`; `machines.json` documented | `cargo test -p dbgwire`; `tools/dbg/run.py` gains the reboot; on the box: build, push, reboot, desktop, under a minute, hands off |
