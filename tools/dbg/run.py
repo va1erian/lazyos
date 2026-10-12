@@ -313,7 +313,10 @@ def main() -> int:
         exercise(key, checks, args.usb)
         with DbgClient("127.0.0.1", HOST_PORT, key) as hw:
             time.sleep(1.0)
-            (hw_checks.exercise_off if args.no_mmio else hw_checks.exercise)(checks, hw.call)
+            if args.no_mmio:
+                hw_checks.exercise_off(checks, hw.call)
+            else:
+                hw_checks.exercise(checks, hw.call, hw)
         if args.no_control:
             control_checks.exercise_off(key, checks, "127.0.0.1", HOST_PORT)
         else:

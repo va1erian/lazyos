@@ -17,6 +17,7 @@ self-test (`test_hw_checks.py`) can feed them a fake and see them fail.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Callable
 
@@ -80,7 +81,7 @@ def config_checks(call: Callable[..., dict], c, bdf: str, full: bool) -> None:
             lambda: call("pci.config", bdf=bdf, offset=4, len=2, value=0))
 
 
-def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict]) -> None:
+def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict], client=None) -> None:
     bdf = vga["bdf"]
     first = call("mmio.read", bdf=bdf, bar=2, offset=0x500, len=4)
     ident = _dword(first)
@@ -112,23 +113,43 @@ def mmio_checks(call: Callable[..., dict], c, vga: dict, others: list[dict]) -> 
         _raises(c, f"mmio.read refuses {other['vendor']}:{other['device']} (no range listed)",
                 DENIED, lambda other=other: call("mmio.read", bdf=other["bdf"], bar=0,
                                                  offset=0, len=4), "none listed")
-    rate_limit_checks(call, c, vga)
+    rate_limit_checks(call, c, vga, client)
 
 
-def rate_limit_checks(call: Callable[..., dict], c, vga: dict) -> None:
-    """700 KiB in a burst exceeds the 512 KiB bucket: some request is
-    told to wait, and the same read works once the bucket has refilled."""
+def _burst(call: Callable[..., dict], client, vga: dict) -> bool:
+    """Whether some read of a burst was told to wait. With a real client the
+    requests are pipelined (sent before any answer is read)."""
+    # BAR0 is not in the table: every request is refused without a device
+    # read, yet its length is charged, so the burst needs no slow MMIO (a
+    # trapped register read under QEMU is slower than the refill rate).
+    params = {"bdf": vga["bdf"], "bar": 0, "offset": 0, "len": 4096}
+    if client is None:
+        for _ in range(300):
+            try:
+                call("mmio.read", **params)
+            except DbgError as error:
+                if error.code == RATE_LIMITED:
+                    return True
+        return False
+    first = client.next_id
+    count = 300
+    for n in range(count):
+        client.send_line(json.dumps({"jsonrpc": "2.0", "id": first + n,
+                                     "method": "mmio.read", "params": params}))
+    client.next_id += count
     limited = False
-    for _ in range(700):
-        try:
-            # BAR2's EDID window is 1 KiB: four dwords repeated up to the
-            # budget would be cheap, so ask for the most it holds.
-            call("mmio.read", bdf=vga["bdf"], bar=2, offset=0, len=1024)
-        except DbgError as error:
-            limited = error.code == RATE_LIMITED
-            break
-    c.check("a burst of hardware reads is rate limited", limited)
-    time.sleep(2.0)
+    for _ in range(count):
+        message = client.read_message()
+        if message.get("error", {}).get("code") == RATE_LIMITED:
+            limited = True
+    return limited
+
+
+def rate_limit_checks(call: Callable[..., dict], c, vga: dict, client=None) -> None:
+    """1.2 MiB of charged requests in a burst exceeds the 512 KiB bucket: some request is
+    told to wait, and the same read works once the bucket has refilled."""
+    c.check("a burst of hardware reads is rate limited", _burst(call, client, vga))
+    time.sleep(2.5)
     try:
         ok = call("mmio.read", bdf=vga["bdf"], bar=2, offset=0, len=64)["len"] == 64
     except DbgError:
@@ -136,7 +157,7 @@ def rate_limit_checks(call: Callable[..., dict], c, vga: dict) -> None:
     c.check("hardware reads work again after the bucket refills", ok)
 
 
-def exercise(c, call: Callable[..., dict]) -> None:
+def exercise(c, call: Callable[..., dict], client=None) -> None:
     """Image built with `LAZYOS_DBGD_MMIO=1`."""
     names = {m["name"] for m in call("methods")["methods"]}
     c.check("methods lists pci.config and mmio.read", {"pci.config", "mmio.read"} <= names)
@@ -147,7 +168,7 @@ def exercise(c, call: Callable[..., dict]) -> None:
     config_checks(call, c, vga["bdf"], full=True)
     others = [d for d in call("devices.list")["devices"]
               if "bdf" in d and (d["vendor"], d["device"]) != VGA]
-    mmio_checks(call, c, vga, others)
+    mmio_checks(call, c, vga, others, client)
 
 
 def exercise_off(c, call: Callable[..., dict]) -> None:

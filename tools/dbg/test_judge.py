@@ -83,6 +83,12 @@ class FakeDbgd:
             raise DbgError(-32602, "range")
         if offset % 4 or len % 4:
             raise DbgError(-32602, "alignment")
+        # The service charges the budget before it looks at the allowlist.
+        if not self.faults.get("never_limits"):
+            self.budget -= max(len, 64)
+            if self.budget < 0:
+                self.budget = 0
+                raise DbgError(-32005, "rate limited")
         if bdf != BDF:
             raise DbgError(-32002, "none listed for 1af4:1000 BAR0")
         allowed = (bar == 2 and (offset + len <= 0x400
@@ -91,11 +97,6 @@ class FakeDbgd:
             allowed = True
         if not allowed:
             raise DbgError(-32002, "none listed for 1234:1111 BAR0; allowed for BAR2: 0x0-0x400")
-        if not self.faults.get("never_limits"):
-            self.budget -= max(len, 64)
-            if self.budget < 0:
-                self.budget = 0
-                raise DbgError(-32005, "rate limited")
         value = 0xB0C5 if (bar, offset) == (2, 0x500) else 0
         data = (value.to_bytes(4, "little") + bytes(len))[:len]
         return {"bdf": bdf, "vendor": "1234", "device": "1111", "bar": bar,
