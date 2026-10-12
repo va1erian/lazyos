@@ -152,10 +152,15 @@ def verdict(out: Path, session_ok: bool, text: str, record) -> int:
     region = appjudge.window_region(text)
     pictures = shots(out)
     by_name = {p.name: p for p in pictures}
-    page_shots = [p for p in pictures if not re.search(r"shot_(0[4]_scrolled|09_back)", p.name)]
+    page_shots = [p for p in pictures if not re.search(r"shot_(04_scrolled|09_back|10_maximized)", p.name)]
     ok = report("SHOTS", f"{len(pictures)} shots, page area {region}", appjudge.judge_shots(page_shots, region)) and ok
     scroll = {"before": by_name.get("shot_03_theoldnet_later.png"), "after": by_name.get("shot_04_scrolled.png")}
     ok = report("SCROLL", "the wheel moved the page", appjudge.judge_scroll(scroll, region)) and ok
+    ok = report("RESIZE", f"the page was laid out again when the window grew: {appjudge.resizes(text)}",
+                appjudge.judge_resize(text)) and ok
+    grown = appjudge.window_region(text, last=True)
+    ok = report("MAXIMIZED", f"the page is painted to the right edge of the maximized window {grown}",
+                appjudge.judge_maximized(by_name.get("shot_10_maximized.png"), grown)) and ok
     denied = sorted(set(re.findall(r"LABEL:DENY[^\r\n]*", text)))
     if denied:
         print(f"WEBKIT:W5:INFO:LABEL:DENY {len(denied)} distinct line(s) (package permissions to derive):")

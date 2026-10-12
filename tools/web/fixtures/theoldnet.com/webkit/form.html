@@ -9,6 +9,7 @@
   #q { position: absolute; left: 20px; top: 20px; width: 400px; height: 44px; font-size: 26px; box-sizing: border-box; }
   #go { position: absolute; left: 20px; top: 84px; width: 200px; height: 50px; font-size: 24px; }
   p { position: absolute; left: 20px; top: 160px; width: 600px; }
+  #log { position: absolute; left: 20px; top: 230px; width: 900px; font: 18px monospace; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -17,5 +18,15 @@
   <input id="go" type="submit" value="Send">
 </form>
 <p>Type here and press Enter: the server answers with an echo page.</p>
+<div id="log"></div>
+<script>
+// What the page's own event handlers saw (the screenshot shows it): the keyboard's path into a page.
+var log = document.getElementById('log');
+['focus', 'keydown', 'keypress', 'input', 'keyup'].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    log.textContent += type + (event.key ? ':' + event.key : '') + ' ';
+  }, true);
+});
+</script>
 </body>
 </html>

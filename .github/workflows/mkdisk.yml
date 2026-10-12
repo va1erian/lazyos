@@ -43,6 +43,7 @@ jobs:
           python tools/test_run_demo.py
           python tools/test_run_demo_apps.py
           python tools/test_run_demo_net.py
+          python tools/test_run_demo_webkit.py
           python tools/test_irqpath.py
           python tools/screenshot/test_qmp_disks.py
 
@@ -54,6 +55,8 @@ jobs:
       - name: WebKit bundle tests and licences
         run: |
           python tools/webkit/test_judge.py
+          python tools/webkit/test_port_judge.py
+          python tools/webkit/test_app_judge.py
           python tools/webkit/test_buildkit.py
           python tools/webkit/test_registry.py
           python tools/webkit/test_recipes.py

@@ -215,6 +215,37 @@ fn typing_in_the_page_sends_text_and_the_keys_that_type_nothing() {
 }
 
 #[test]
+fn the_windows_own_shortcuts_do_not_reach_the_page() {
+    let (_, calls) = drive(None, |stage, rig| {
+        let (ox, oy) = page_origin(stage);
+        stage.click(ox + 50, oy + 40);
+        rig.engine.take();
+        let ctrl = Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        };
+        for key in [Key::L, Key::R, Key::F5] {
+            stage.inject(Event::KeyDown {
+                key,
+                modifiers: ctrl,
+                repeat: 1,
+                system: false,
+            });
+            stage.inject(Event::KeyUp {
+                key,
+                modifiers: ctrl,
+                system: false,
+            });
+        }
+    });
+    let keys: Vec<_> = calls
+        .iter()
+        .filter(|c| matches!(c, Call::Key(..)))
+        .collect();
+    assert!(keys.is_empty(), "the page got the window's keys: {keys:?}");
+}
+
+#[test]
 fn the_address_field_navigates_and_the_buttons_follow_the_page() {
     let (image, calls) = drive(None, |stage, rig| {
         stage.click(300, 19);

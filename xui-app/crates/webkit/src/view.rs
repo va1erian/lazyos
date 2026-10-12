@@ -15,7 +15,7 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Color, Image, Key, Modifiers, MouseButton};
 
-use crate::app::Msg;
+use crate::app::{shortcut, Msg};
 use crate::engine::{Button, Engine, MouseKind};
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
 use crate::mailbox::Frame;
@@ -260,6 +260,10 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &RefCell<State>, engine: &dyn Engin
 /// A key press or release as the page gets it: a key that types nothing by
 /// its symbol, a Ctrl or Alt chord on a letter by its (lower case) letter.
 fn forward_key(engine: &dyn Engine, press: bool, key: Key, modifiers: Modifiers, _system: bool) {
+    // The window's own shortcuts (Ctrl+L, F5, Alt+Left...) are the window's, not the page's.
+    if shortcut(key, modifiers, false).is_some() {
+        return;
+    }
     let bits = modifier_bits(modifiers);
     if let Some(sym) = keysym(key) {
         engine.key(press, sym, "", bits);

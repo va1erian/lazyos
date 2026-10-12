@@ -1,25 +1,37 @@
 # WebKit on LazyOS (`webkit/`)
 
-Stage W4 of [`docs/webkit-port-plan.md`](../docs/webkit-port-plan.md): the port
-layer of a `PORT=LazyOS` build of WebCore and the WebKit (WebKit2) layer. WebKit
+Stages W4 and W5 of [`docs/webkit-port-plan.md`](../docs/webkit-port-plan.md): the port
+layer of a `PORT=LazyOS` build of WebCore and the WebKit (WebKit2) layer, and the desktop
+browser on top of it. WebKit
 itself is never vendored: `tools/webkit/port.py` takes the pinned WebKitGTK
 2.54.1 tarball (the one the `jsc` build uses), patches it, adds the files below
 and builds `WebProcess`, `NetworkProcess` and a headless UI process,
 `webkit-smoke`, as static-PIE musl programs with zig, in the `jsc` build's Docker
 container, against the W3 dependency bundle (`tools/webkit/README.md`).
+`tools/webkit/app.py` builds the desktop UI process, `webkit-app` (W5, below).
 
 ```bash
 python tools/webkit/deps.py          # the bundle, libwpe and the EGL stand-in first
 python tools/webkit/port.py          # -> target/webkit/bin/{WebProcess,NetworkProcess,webkit-smoke}
 python tools/webkit/port.py --configure   # CMake only
-python tools/webkit/port_run.py      # image with LAZYOS_WEBKIT=1, boot, judge (QEMU)
+python tools/webkit/port_run.py      # console image with LAZYOS_WEBKIT_PORT=1, boot, judge (QEMU)
 python tools/webkit/test_port_judge.py
-python tools/run_demo.py --webkit    # an interactive image (networking, big-app profile)
+python tools/run_demo.py --webkit-port   # an interactive console proof image (networking, big-app profile)
+python tools/webkit/app.py           # W5: the window library (host) and webkit-app (Docker)
+python tools/xui/build.py            # ... which packages it as org.lazy.webkit
+python tools/webkit/app_run.py       # W5: desktop image, browse, judge (QEMU, shots/webkit)
+python tools/webkit/test_app_judge.py
+python tools/run_demo.py --webkit    # the desktop with the browser (networking, big-app profile, 1 GiB volume)
 ```
 
-In the image the programs are `/system/bin/webprocess`, `/system/bin/networkprocess` and
-`/system/bin/webkit-smoke` (program names there are lowercase, `libs/fhs`); the launcher's default
-paths are those.
+Two checkouts that build WebKit at once must not share the Docker work volume (each would
+re-extract the tree and rebuild everything): `LAZYOS_JSC_VOLUME=<name>` gives a checkout its own
+(copy `src`, `webkit-deps`, `prefix`, `wrap` and `zig-cache` from `lazyos-jsc-work` to keep the caches).
+
+In the image the programs are `/system/bin/webprocess`, `/system/bin/networkprocess` and, with
+`LAZYOS_WEBKIT_PORT=1`, `/system/bin/webkit-smoke` (program names there are lowercase, `libs/fhs`);
+the launcher's default paths are those. `LAZYOS_WEBKIT=1` is the browser: the two processes
+beside the app's core package (below).
 
 `port.py` also runs `webkit-smoke` once on the build host (the programs are static
 musl executables) and keeps its output in `target/webkit/smoke.host.txt`; `port_run.py` requires the
@@ -86,6 +98,7 @@ except `0003` and `0004`.
 | `0009-webkit-c-api-types-for-lazyos` | `WKBase.h` and `WKAPICast.h` pick the PlayStation C API types by `__SCE__`; the port uses `BUILDING_LAZYOS__` (defining `__SCE__` would turn bmalloc and libpas into their console builds) |
 | `0010-cmake-symlink-forwarded-headers-on-lazyos` | forwarded headers are symlinks, as on macOS: the C API headers are reached both as `<WebKit/X.h>` and as `"X.h"` and a copy is parsed twice |
 | `0011-webkit-layertreehost-playstation-skia-painting-engine` | `SkiaPaintingEngine::create` gained an argument that the (never entered) composited path of the PlayStation layer tree host did not pass |
+| `0012-webkit-playstation-page-events-text-modifiers-time` | the C API a UI process sends input through (`WKPageHandleKeyboardEvent`, `...MouseEvent`, `...WheelEvent`) dropped the key's text (so nothing could be typed into a field), the modifiers, the event time (so every click at one spot counted as one more click of a series) and the held button of a drag, and sent a zero horizontal wheel step on every vertical one |
 
 ## Drawing
 
@@ -97,3 +110,32 @@ no GL) and sends them to the UI process, whose `BackingStoreSkia` keeps them;
 composited classes (`LayerTreeHost`, `ThreadedCompositor`,
 `AcceleratedSurface`) for `USE_COORDINATED_GRAPHICS`; they link against the
 EGL and GLESv2 stand-ins and are never reached.
+
+## The desktop app (W5)
+
+`org.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of ten
+functions (`port/app/lazyos_ui.h`):
+
+* **the UI process, C++** (`port/app/main.cpp`, `engine.cpp`): WebKit's run loop on the process's main
+  thread, as in `webkit-smoke`; a context pointed at `/system/bin/webprocess` and `networkprocess`, a
+  `WKView`, navigation and page-state clients. It paints the page with `WKPagePaint` into a bitmap
+  (Skia's BGRA, made opaque RGBA) and hands it to the window; mouse, wheel and key events go in through
+  `WKPageHandle*Event`. It prints the page markers (`WEBKIT:W5:LOAD|TITLE|JS|CLICK|INPUT|...`);
+* **the window, Rust** (`xui-app/crates/webkit`, a static library): a toolbar (Back, Forward,
+  Reload/Stop, an address field, Go), the page view (one custom-painted xui node that draws the newest
+  frame at its own size and forwards pointer, wheel and keys), a status line, the window caption
+  ("<title> - WebKit"), over `LazyOSBackend`. It runs on a second thread started by `main`: a Messenger
+  handle belongs to the thread that made it, so the window cannot share the run loop's thread. The two
+  talk through a `Mailbox` (the newest frame and page state, one wake per burst) and
+  `WKRunLoopCallOnMainThread` (every `lzw_engine_*` call only queues work). The window logic is
+  portable and host-tested against a recording engine (`cargo test -p xui-webkit`, snapshots in
+  `xui-app/target/snapshots/webkit-*.png`).
+
+`tools/webkit/app.py` builds the Rust half on the host (`cargo build -p xui-webkit --lib` for
+`x86_64-unknown-linux-musl`: a static library needs no linker) into `target/webkit/lib`, then links
+the program in the build container (`port.py --only webkit-app`; CMake adds the target when
+`LAZYOS_UI_LIBRARY` names the library, `Source/WebKit/PlatformLazyOS.cmake`) and copies it to
+`target/xui/xui-webkit.elf`, where `tools/xui/core_packages.py` packages it
+(`xui-app/packages/webkit`). The image build needs the desktop and the network stack for it
+(`build_support/webkit_embed.rs`). Keys reach the page as X11 key symbols (libwpe's key codes);
+printable text goes with the key press (`WKKeyboardEvent.text`, patch `0012`).

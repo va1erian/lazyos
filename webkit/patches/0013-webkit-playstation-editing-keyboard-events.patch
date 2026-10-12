@@ -1,0 +1,130 @@
+WebKit: the PlayStation page types text and runs editing commands for keys.
+
+WebPage::handleEditingKeyboardEvent is the hook through which WebCore's keyboard event default
+handling reaches the editor: a key down runs the editing command its key stands for (arrows,
+Home, End, Delete, Backspace, select all, copy, cut, paste, undo) and a key press inserts its
+text. The GTK and WPE ports leave it to a toolkit input method, and the PlayStation port's
+version is `notImplemented()`, so a UI process that forwards key events through WebKit's C API
+(WKPageHandleKeyboardEvent) got keydown, keypress and keyup events in the page but no text in
+any field. This is the table and the three-step flow of the Windows port, written for WebCore's
+current editor API.
+
+--- a/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
++++ b/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
+@@ -26,8 +26,16 @@
+ #include "config.h"
+ #include "WebPage.h"
+ 
++#include <WebCore/Document.h>
++#include <WebCore/Editor.h>
++#include <WebCore/FocusController.h>
++#include <WebCore/FrameSelection.h>
++#include <WebCore/HTMLInputElement.h>
++#include <WebCore/KeyboardEvent.h>
++#include <WebCore/LocalFrame.h>
+ #include <WebCore/NotImplemented.h>
+ #include <WebCore/Page.h>
++#include <WebCore/PlatformKeyboardEvent.h>
+ #include <WebCore/PointerCharacteristics.h>
+ #include <WebCore/Settings.h>
+ #include <WebCore/UserAgent.h>
+@@ -81,10 +89,97 @@
+     return PointerCharacteristics::Fine;
+ }
+ 
++// The editing command a key press stands for: navigation and deletion in text, select all, the
++// clipboard, undo. The GTK and WPE ports leave this to the toolkit's input method, which a port
++// that only forwards key events (a UI process over WebKit's C API) does not have.
++static const char* editingCommandForKeyDown(const KeyboardEvent& event)
++{
++    if (event.altKey() || event.metaKey())
++        return nullptr;
++    const String& key = event.key();
++    const bool shift = event.shiftKey();
++    if (event.ctrlKey()) {
++        if (key == "a"_s || key == "A"_s)
++            return "SelectAll";
++        if (key == "c"_s || key == "C"_s)
++            return "Copy";
++        if (key == "x"_s || key == "X"_s)
++            return "Cut";
++        if (key == "v"_s || key == "V"_s)
++            return "Paste";
++        if (key == "z"_s || key == "Z"_s)
++            return shift ? "Redo" : "Undo";
++        if (key == "y"_s || key == "Y"_s)
++            return "Redo";
++        if (key == "ArrowLeft"_s)
++            return shift ? "MoveWordLeftAndModifySelection" : "MoveWordLeft";
++        if (key == "ArrowRight"_s)
++            return shift ? "MoveWordRightAndModifySelection" : "MoveWordRight";
++        if (key == "Backspace"_s)
++            return "DeleteWordBackward";
++        if (key == "Delete"_s)
++            return "DeleteWordForward";
++        if (key == "Home"_s)
++            return shift ? "MoveToBeginningOfDocumentAndModifySelection" : "MoveToBeginningOfDocument";
++        if (key == "End"_s)
++            return shift ? "MoveToEndOfDocumentAndModifySelection" : "MoveToEndOfDocument";
++        return nullptr;
++    }
++    if (key == "ArrowLeft"_s)
++        return shift ? "MoveLeftAndModifySelection" : "MoveLeft";
++    if (key == "ArrowRight"_s)
++        return shift ? "MoveRightAndModifySelection" : "MoveRight";
++    if (key == "ArrowUp"_s)
++        return shift ? "MoveUpAndModifySelection" : "MoveUp";
++    if (key == "ArrowDown"_s)
++        return shift ? "MoveDownAndModifySelection" : "MoveDown";
++    if (key == "Home"_s)
++        return shift ? "MoveToBeginningOfLineAndModifySelection" : "MoveToBeginningOfLine";
++    if (key == "End"_s)
++        return shift ? "MoveToEndOfLineAndModifySelection" : "MoveToEndOfLine";
++    if (key == "PageUp"_s)
++        return shift ? "MovePageUpAndModifySelection" : "MovePageUp";
++    if (key == "PageDown"_s)
++        return shift ? "MovePageDownAndModifySelection" : "MovePageDown";
++    if (key == "Backspace"_s)
++        return "DeleteBackward";
++    if (key == "Delete"_s)
++        return "DeleteForward";
++    return nullptr;
++}
++
++// What the toolkit's key bindings and input method do on other ports (and the Windows and Qt
++// ports of WebKit did here): a key down runs its editing command, a key press types its text.
+ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
+ {
+-    notImplemented();
+-    return false;
++    RefPtr frame = corePage()->focusController().focusedOrMainFrame();
++    if (!frame)
++        return false;
++    auto* keyEvent = event.underlyingPlatformEvent();
++    if (!keyEvent || keyEvent->isSystemKey())
++        return false;
++
++    if (keyEvent->type() == PlatformEvent::Type::RawKeyDown) {
++        const char* name = editingCommandForKeyDown(event);
++        if (!name)
++            return false;
++        auto command = frame->editor().command(String::fromUTF8(name));
++        // A command that inserts text is left to the key press that follows.
++        return !command.isTextInsertion() && command.execute(&event);
++    }
++
++    // Enter in a text area or an editable region is a line break; in a text field it is the form's
++    // (the default handler submits it).
++    if (event.charCode() == '\r') {
++        RefPtr focused = frame->document() ? frame->document()->focusedElement() : nullptr;
++        if (!frame->selection().selection().isContentEditable() || dynamicDowncast<HTMLInputElement>(focused.get()))
++            return false;
++        return frame->editor().command("InsertNewline"_s).execute(&event);
++    }
++    // Control characters (Tab, Backspace, Escape) are keys, not text.
++    if (event.charCode() < ' ')
++        return false;
++    return frame->editor().insertText(keyEvent->text(), &event);
+ }
+ 
+ void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const

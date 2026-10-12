@@ -565,7 +565,7 @@ python tools/webkit/run.py --accel auto # boot and judge
 python tools/webkit/test_judge.py
 ```
 
-## The WebKit port (`LAZYOS_WEBKIT=1`: `WebProcess`, `NetworkProcess`, `webkit-smoke`)
+## The WebKit port (`LAZYOS_WEBKIT_PORT=1`: `WebProcess`, `NetworkProcess`, `webkit-smoke`)
 
 `webkit/` holds the LazyOS port of WebKit2 (W4): `port/tree` (the
 `OptionsLazyOS.cmake` and `PlatformLazyOS.cmake` files and the few LazyOS
@@ -574,8 +574,8 @@ sources, laid over the pinned WebKitGTK 2.54.1 tarball), `patches/`,
 digest), `port/smoke` (the headless UI process, WebKit's C API) and
 `port/fonts.conf`. `python tools/webkit/port.py` (after `deps.py`, which now
 also builds libwpe and the EGL/GLESv2 stand-ins) builds the three programs in
-the `jsc` Docker container; a rebuild is incremental. `LAZYOS_WEBKIT=1`
-(`run_demo.py --webkit`, which implies networking and `--big-app`; a GUI
+the `jsc` Docker container; a rebuild is incremental. `LAZYOS_WEBKIT_PORT=1`
+(`run_demo.py --webkit-port`, which implies networking and `--big-app`; a GUI
 checkbox) embeds them (as `/system/bin/webprocess`, `networkprocess` and
 `webkit-smoke`, with `fonts.conf` and the Liberation fonts); `python tools/webkit/port_run.py` builds a console image,
 types `webkit-smoke` and judges `WEBKIT:W4:*` (`tools/webkit/test_port_judge.py`
@@ -591,6 +591,35 @@ applies. See [`webkit/README.md`](webkit/README.md) and
 python tools/webkit/deps.py && python tools/webkit/port.py   # Docker
 python tools/webkit/port_run.py --accel auto                 # boot and judge
 python tools/webkit/test_port_judge.py
+```
+
+**Two checkouts must not build WebKit in the same Docker volume** (each re-extracts the tree and
+rebuilds everything, and the build can fail half way): set `LAZYOS_JSC_VOLUME=<name>` for one of
+them (`webkit/README.md` says how to keep the caches).
+
+## The WebKit browser (`LAZYOS_WEBKIT=1`, `org.lazy.webkit`)
+
+W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
+the run loop and the C API on the main thread) with the xui window as a Rust static library
+(`xui-app/crates/webkit`: chrome, page view, input forwarding, host-tested against a recording engine)
+on a second thread, joined by a ten-function C ABI (`webkit/port/app/lazyos_ui.h`). `python
+tools/webkit/app.py` builds the library on the host and links the program in the build container;
+`python tools/xui/build.py` packages it as a core package, and only a `LAZYOS_WEBKIT=1` image
+(`run_demo.py --webkit`, the launcher's WebKit group; needs the desktop and the network stack, a 1 GiB OS
+volume and 4 GiB of RAM) ships it with `WebProcess` and `NetworkProcess` in `/system/bin`. LazyWeb stays
+the shipped browser. `python tools/webkit/app_run.py` builds the image, serves LazyWeb's stand-in sites
+from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
+Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot
+(`tools/webkit/test_app_judge.py` is the judge's self-test; `--label-trace` lists the package's
+`LABEL:DENY` lines). `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
+OpenSSL: never link any of it into LazyWeb. See [`webkit/README.md`](webkit/README.md) and
+[`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) §5 W5.
+
+```bash
+python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
+python tools/xui/build.py                                                                  # the package
+python tools/webkit/app_run.py --accel auto                                                # boot and judge
+python tools/webkit/test_app_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webkit
 ```
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)

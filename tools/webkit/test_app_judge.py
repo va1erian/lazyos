@@ -25,6 +25,8 @@ GOOD = f"""boot noise
 WEBKIT:W5:UP
 WEBKIT:W5:UI:UP
 WEBKIT:W5:UI:FRAME:1000x498
+WEBKIT:W5:INFO:RESIZE:1000x498
+WEBKIT:W5:INFO:RESIZE:1272x640
 WEBKIT:W5:WEBPROCESS:UP:12
 WEBKIT:W5:NETWORKPROCESS:UP:13
 WEBKIT:W5:NAV:http://example.com/
@@ -88,6 +90,12 @@ class SerialTests(unittest.TestCase):
     def test_the_wrong_echo_fails(self) -> None:
         text = GOOD.replace(f"WEBKIT:W5:INPUT:{aj.ECHO_TITLE}", "WEBKIT:W5:INPUT:echo:")
         self.assertTrue(any("typed text" in p for p in aj.judge_serial(text)))
+
+    def test_a_window_that_grew_gets_a_larger_page(self) -> None:
+        self.assertEqual(aj.resizes(GOOD), [(1000, 498), (1272, 640)])
+        self.assertEqual(aj.judge_resize(GOOD), [])
+        self.assertTrue(aj.judge_resize(GOOD.replace("WEBKIT:W5:INFO:RESIZE:1272x640\n", "")))
+        self.assertTrue(aj.judge_resize(GOOD.replace("1272x640", "1000x498")))
 
     def test_the_timing_lines_are_read(self) -> None:
         self.assertEqual(aj.first_paint_ms(GOOD), [1900])
@@ -158,6 +166,25 @@ class ShotTests(unittest.TestCase):
         self.assertIsNone(aj.window_region("nothing"))
         self.assertIsNone(aj.window_region(PROBE.replace("window:", "windo:")))
 
+    def test_the_page_area_before_and_after_the_window_grew(self) -> None:
+        grown = PROBE + (
+            "UI:RECT x=0 y=22 w=1280 h=640 name=window:" + aj.caption("Example Domain") + "\n"
+            "UI:WIDGET x=0 y=38 w=1280 h=602 name=page window=" + aj.caption("Example Domain") + "\n"
+        )
+        self.assertEqual(aj.window_region(grown), (100, 88, 640, 418))
+        self.assertEqual(aj.window_region(grown, last=True), (0, 60, 1280, 602))
+
+    def test_the_maximized_page_must_be_painted_to_its_right_edge(self) -> None:
+        region = (0, 0, 1200, 300)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            full = png(tmp / "full.png", 1200, 300, lambda x, y: (200, 255, 200))
+            short = png(tmp / "short.png", 1200, 300, lambda x, y: (200, 255, 200) if x < 1000 else (255, 255, 255))
+            self.assertEqual(aj.judge_maximized(full, region), [])
+            self.assertTrue(aj.judge_maximized(short, region))
+            self.assertTrue(aj.judge_maximized(full, (0, 0, 800, 300)), "a small page area is not maximized")
+            self.assertTrue(aj.judge_maximized(None, region))
+
     def test_blank_page_areas_fail_and_drawn_ones_pass(self) -> None:
         region = (100, 88, 200, 100)
         with tempfile.TemporaryDirectory() as tmp:
@@ -205,14 +232,14 @@ class SessionTests(unittest.TestCase):
         for url in (aj.EXAMPLE_URL, aj.OLDNET_URL, aj.JS_URL, aj.LINKS_URL):
             self.assertIn(url, text)
         for shot in ("00_window", "01_example", "02_theoldnet", "03_theoldnet_later", "04_scrolled", "05_js",
-                     "06_form", "07_typed", "08_echo", "09_back"):
+                     "06_form", "07_typed", "08_echo", "09_back", "10_maximized"):
             self.assertIn(f'"shot": "{shot}"', text)
         self.assertIn("mouse_scroll", text)
         self.assertIn(aj.INPUT_TEXT, text)
 
     def test_clicks_name_windows_by_the_caption_the_app_sets(self) -> None:
         clicks = [s for s in app_session.steps() if "click_at" in s]
-        windows = {s["click_at"]["window"] for s in clicks}
+        windows = {s["click_at"]["window"] for s in clicks if "window" in s["click_at"]}
         self.assertEqual(windows, {aj.caption(aj.LINKS_TITLE), aj.caption(aj.FORM_TITLE), aj.caption(aj.ECHO_TITLE)})
 
     def test_the_fixture_pages_have_the_titles_and_places_the_session_assumes(self) -> None:

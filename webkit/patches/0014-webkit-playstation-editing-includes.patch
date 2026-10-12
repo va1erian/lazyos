@@ -1,0 +1,13 @@
+WebKit: WebPagePlayStation.cpp includes LocalFrameInlines.h (LocalFrame::document, editor and
+selection are inline there; folded into 0013 once the editing hook is settled).
+
+--- a/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
++++ b/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
+@@ -33,6 +33,7 @@
+ #include <WebCore/HTMLInputElement.h>
+ #include <WebCore/KeyboardEvent.h>
+ #include <WebCore/LocalFrame.h>
++#include <WebCore/LocalFrameInlines.h>
+ #include <WebCore/NotImplemented.h>
+ #include <WebCore/Page.h>
+ #include <WebCore/PlatformKeyboardEvent.h>

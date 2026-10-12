@@ -16,6 +16,7 @@
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use xui_app::backend::LazyOSBackend;
 use xui_core::app::run_app;
@@ -30,6 +31,9 @@ use crate::mailbox::{Mailbox, PageState};
 /// The window size asked of the compositor: short enough that the status bar
 /// clears the taskbar of a 720p desktop.
 const WINDOW: (i32, i32) = (1000, 560);
+
+/// How long to wait for the compositor before giving up.
+const CONNECT_WAIT: Duration = Duration::from_secs(900);
 
 extern "C" {
     fn lzw_engine_load(url: *const c_char);
@@ -126,6 +130,30 @@ unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
         .collect()
 }
 
+/// The compositor client, waiting for the compositor: an app that opens at login starts while the
+/// core apps are still being installed, and `xuid` serves no display until they are (LazyShell
+/// retries the same way, `SHELL:CONNECT:RETRY`).
+fn connect() -> Option<Rc<LazyOSBackend>> {
+    let started = Instant::now();
+    let mut said = false;
+    loop {
+        match LazyOSBackend::new_client() {
+            Ok(backend) => return Some(Rc::new(backend)),
+            Err(code) if started.elapsed() < CONNECT_WAIT => {
+                if !said {
+                    println!("WEBKIT:W5:UI:WAIT:{code}");
+                    said = true;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(code) => {
+                println!("WEBKIT:W5:UI:BIND:FAIL:{code}");
+                return None;
+            }
+        }
+    }
+}
+
 /// Runs the window until it is closed. Returns the process exit status.
 ///
 /// # Safety
@@ -137,14 +165,10 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     let first = args
         .iter()
         .skip(1)
-        .find(|arg| !arg.starts_with('-'))
+        .find(|arg| !arg.starts_with('-') && !arg.starts_with("attempt="))
         .and_then(|arg| address::normalize(arg));
-    let backend = match LazyOSBackend::new_client() {
-        Ok(backend) => Rc::new(backend),
-        Err(code) => {
-            println!("WEBKIT:W5:UI:BIND:FAIL:{code}");
-            return 1;
-        }
+    let Some(backend) = connect() else {
+        return 1;
     };
     let (width, height) = backend.window_size(WINDOW);
     // Below this the toolbar clips.

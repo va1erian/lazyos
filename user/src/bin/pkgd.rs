@@ -62,7 +62,11 @@
 //! (`lazypkg::CHUNK`), never whole. So a provisioning pass grows the heap by
 //! about the largest package, and `pkgd` ends itself (and `init`, which
 //! supervises it with `Restart::Always`, starts a fresh one) once its heap has
-//! grown past [`RECYCLE_BYTES`] and it is idle between two requests.
+//! grown past [`RECYCLE_BYTES`] *beyond that buffer* and it is idle between
+//! two requests. Without the allowance a package over [`RECYCLE_BYTES`] (the
+//! WebKit browser's is 44 MB) made every fresh `pkgd` size its buffer, find
+//! itself over the limit after one step and restart: five rapid restarts
+//! exhaust `init`'s budget and provisioning stops half way.
 
 #![no_std]
 #![no_main]
@@ -198,7 +202,8 @@ fn run() -> messenger::Result<()> {
             // gone: a normal race, not a fatal error.
             let _ = server.reply(txn, &reply);
         }
-        if sys::sbrk(0).saturating_sub(start_break) > RECYCLE_BYTES {
+        let allowed = RECYCLE_BYTES + state.buffer.capacity() as u64;
+        if sys::sbrk(0).saturating_sub(start_break) > allowed {
             trace::line!(trace::Channel::Pkgd, "RECYCLE restarting to release memory");
             return Ok(());
         }

@@ -17,7 +17,8 @@
 //   WEBKIT:W5:INPUT:<title>             a form was submitted and the response's title (the echo)
 //   WEBKIT:W5:FAIL:<what>               a navigation failed or the WebProcess crashed
 //   WEBKIT:W5:INFO:TIME:...             milliseconds: start, load start/finish, first paint
-//   WEBKIT:W5:INFO:MEM:...              what /proc/meminfo says about the guest (when it can be read)
+//   WEBKIT:W5:INFO:MEM:...              the guest's RAM in MiB (sysinfo): total, free, and what this
+//                                       process and its children took since the UI process started
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -43,9 +44,11 @@
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
+#include <atomic>
 #include <functional>
 #include <signal.h>
 #include <stdarg.h>
+#include <sys/sysinfo.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,6 +76,7 @@ struct Engine {
     bool loading { false };
     bool processesReported { false };
     bool formNavigation { false };
+    bool inputPending { false };
     bool committedSincePaint { false };
     bool loadFinished { false };
     std::string lastTitleSaid;
@@ -171,6 +175,12 @@ void onMain(std::function<void()> task)
 
 void postState()
 {
+    // The WebProcess exists as soon as the page does: when did it come up?
+    static bool webProcessSeen = false;
+    if (!webProcessSeen && WKPageGetProcessIdentifier(E.page) > 0) {
+        webProcessSeen = true;
+        say("WEBKIT:W5:INFO:TIME:webprocess=%ld", elapsedMs());
+    }
     std::string url = activeUrl();
     std::string title = pageTitle();
     int progress = static_cast<int>(WKPageGetEstimatedProgress(E.page) * 1000.0);
@@ -234,24 +244,19 @@ void reportProcessesOnce()
         say("WEBKIT:W5:NETWORKPROCESS:UP:%d", static_cast<int>(network));
 }
 
+// The guest's RAM, in MiB, after each load: what three processes of tens of MB and a page cost.
 void reportMemory()
 {
-    FILE* file = fopen("/proc/meminfo", "r");
-    if (!file)
+    static long firstFreeMiB = -1;
+    struct sysinfo info;
+    if (sysinfo(&info) != 0)
         return;
-    char line[160];
-    std::string text;
-    while (fgets(line, sizeof line, file)) {
-        if (!strncmp(line, "MemTotal", 8) || !strncmp(line, "MemFree", 7) || !strncmp(line, "MemAvailable", 12)) {
-            std::string field = oneLine(line);
-            while (!field.empty() && (field.back() == ' '))
-                field.pop_back();
-            text += (text.empty() ? "" : ":") + field;
-        }
-    }
-    fclose(file);
-    if (!text.empty())
-        say("WEBKIT:W5:INFO:MEM:%s", text.c_str());
+    const long unit = info.mem_unit ? info.mem_unit : 1;
+    const long totalMiB = static_cast<long>(info.totalram * unit / (1024 * 1024));
+    const long freeMiB = static_cast<long>(info.freeram * unit / (1024 * 1024));
+    if (firstFreeMiB < 0)
+        firstFreeMiB = freeMiB;
+    say("WEBKIT:W5:INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
 }
 
 void sayTitle()
@@ -261,6 +266,18 @@ void sayTitle()
         return;
     say("WEBKIT:W5:TITLE:%s", title.c_str());
     E.lastTitleSaid = title;
+}
+
+// The title of the page a form submission led to: what the server echoed back.
+void sayInput()
+{
+    if (!E.inputPending || !E.loadFinished)
+        return;
+    std::string title = oneLine(pageTitle());
+    if (title.empty())
+        return;
+    E.inputPending = false;
+    say("WEBKIT:W5:INPUT:%s", title.c_str());
 }
 
 // Reads document.title back by running script in the page: the proof that script ran there.
@@ -323,8 +340,10 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     say("WEBKIT:W5:LOAD:%s", oneLine(activeUrl()).c_str());
     sayTitle();
     if (E.formNavigation) {
+        // The echo is the response's title; it can arrive a moment after the load finished.
         E.formNavigation = false;
-        say("WEBKIT:W5:INPUT:%s", oneLine(pageTitle()).c_str());
+        E.inputPending = true;
+        sayInput();
     }
     readTitleBySript();
     reportProcessesOnce();
@@ -371,6 +390,7 @@ void titleChanged(const void*)
 {
     if (E.loadFinished && oneLine(pageTitle()) != E.lastTitleSaid)
         sayTitle();
+    sayInput();
     postState();
 }
 
@@ -392,6 +412,12 @@ int lzw_engine_start(void)
     WKStringRef networkPath = WKStringCreateWithUTF8CString(environment("LAZYOS_NETWORKPROCESS", "/system/bin/networkprocess").c_str());
     WKContextConfigurationSetWebProcessPath(configuration, webPath);
     WKContextConfigurationSetNetworkProcessPath(configuration, networkPath);
+    // One WebProcess for every page, started with the view: a cross-site navigation does not get
+    // a fresh process (108 MB loaded whole into RAM, a JIT region and heaps of its own: the second
+    // one's `exec` failed with ENOMEM under the user's memory quota), and none is kept warm.
+    WKContextConfigurationSetProcessSwapsOnNavigation(configuration, false);
+    WKContextConfigurationSetPrewarmsProcessesAutomatically(configuration, false);
+    WKContextConfigurationSetUsesWebProcessCache(configuration, false);
     E.context = WKContextCreateWithConfiguration(configuration);
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
@@ -456,10 +482,16 @@ void lzw_engine_forward(void) { onMain([] { WKPageGoForward(E.page); }); }
 void lzw_engine_resize(int width, int height)
 {
     onMain([width, height] {
+        static bool windowSeen = false;
+        if (!windowSeen) {
+            windowSeen = true;
+            say("WEBKIT:W5:INFO:TIME:window=%ld:size=%dx%d", elapsedMs(), width, height);
+        }
         if (width <= 0 || height <= 0 || (width == E.width && height == E.height))
             return;
         E.width = width;
         E.height = height;
+        say("WEBKIT:W5:INFO:RESIZE:%dx%d", width, height);
         WKViewSetSize(E.view, WKSizeMake(width, height));
         schedulePaint();
     });
@@ -491,9 +523,16 @@ void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
 void lzw_engine_key(int press, uint32_t keysym, const char* text, uint32_t mods)
 {
     std::string typed = text ? text : "";
+    // Evidence for the first keys of a run: what the window sent, and that it got here.
+    static std::atomic<int> said { 0 };
+    if (said.fetch_add(1) < 24)
+        say("WEBKIT:W5:INFO:KEY:press=%d:sym=%x:text=%s:mods=%u", press, keysym, typed.c_str(), mods);
     onMain([=] {
         WKKeyboardEvent event = WKKeyboardEventMake(press ? kWKEventKeyDown : kWKEventKeyUp, kWKInputTypeNormal,
             typed.c_str(), static_cast<uint32_t>(typed.size()), nullptr, static_cast<int32_t>(keysym), 0, 0, mods);
+        static int handled = 0;
+        if (handled++ < 24)
+            say("WEBKIT:W5:INFO:KEYMAIN:press=%d:sym=%x:len=%d", press, keysym, event.length);
         WKPageHandleKeyboardEvent(E.page, event);
     });
 }

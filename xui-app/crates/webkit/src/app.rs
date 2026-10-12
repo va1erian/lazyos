@@ -81,6 +81,8 @@ pub struct Browser {
     state: PageState,
     /// The window's caption as last set.
     title: String,
+    /// The page view's size when the controls were last announced.
+    announced: Cell<(i32, i32)>,
     /// The user is typing an address: the page's own news must not replace it.
     editing: bool,
     /// The previous picture's buffer, reused for the next frame.
@@ -129,6 +131,7 @@ impl Browser {
             probe,
             state: PageState::default(),
             title: APP_NAME.to_owned(),
+            announced: Cell::new((0, 0)),
             editing: false,
             spare: Vec::new(),
             buttons: Cell::new(None),
@@ -179,11 +182,12 @@ impl Browser {
             self.spare = self.page.show(frame);
             self.frames += 1;
             if self.frames == 1 {
-                println!(
-                    "WEBKIT:W5:UI:FRAME:{}x{}",
-                    frame_size(&self.page).0,
-                    frame_size(&self.page).1
-                );
+                let (width, height) = frame_size(&self.page);
+                println!("WEBKIT:W5:UI:FRAME:{width}x{height}");
+            }
+            // The first frame, and the first after the window changed size: where the controls are.
+            let page = ui.bounds(self.page.id());
+            if self.announced.get() != (page.width(), page.height()) {
                 self.announce(ui);
             }
         }
@@ -193,6 +197,7 @@ impl Browser {
     /// its top-left corner as a one-pixel control, so a script can click page coordinates.
     fn announce(&self, ui: &Ui<Msg>) {
         let page = ui.bounds(self.page.id());
+        self.announced.set((page.width(), page.height()));
         let named = [
             ("address", ui.bounds(self.address.id())),
             ("back", ui.bounds(self.back.id())),

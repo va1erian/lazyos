@@ -255,6 +255,24 @@
   "shot": "09_back"
  },
  {
+  "click_at": {
+   "target": "title:WebKit form - WebKit",
+   "offset": [
+    472,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBKIT:W5:INFO:RESIZE:",
+  "retries": 2
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "10_maximized"
+ },
+ {
   "quit": true
  }
 ]

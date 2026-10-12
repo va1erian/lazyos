@@ -25,6 +25,9 @@ EXAMPLE = ROOT / "tools" / "screenshot" / "examples" / "webkit.json"
 #: The link's centre and the text field's, in page pixels (`fixtures/theoldnet.com/webkit/`).
 LINK_AT = (150, 50)
 FIELD_AT = (200, 42)
+#: The title bar's maximize button, from the middle of the title bar (1004 px wide; `xuid` draws
+#: its buttons at the right).
+MAXIMIZE_AT = (472, 0)
 #: Where the pointer rests for the wheel: inside the page, away from links.
 WHEEL_AT = (600, 300)
 
@@ -106,6 +109,11 @@ def steps(timeout: float = 300.0) -> list[dict]:
          "until": f"WEBKIT:W5:LOAD:{aj.FORM_URL}", "retries": 1},
         {"wait": 3.0},
         {"shot": "09_back"},
+        # Maximize: the page is laid out again at the new size and the engine paints it.
+        {"click_at": {"target": f"title:{aj.caption(aj.FORM_TITLE)}", "offset": list(MAXIMIZE_AT)},
+         "timeout": 60, "until": "WEBKIT:W5:INFO:RESIZE:", "retries": 2},
+        {"wait": 4.0},
+        {"shot": "10_maximized"},
         {"quit": True},
     ]
 

@@ -106,6 +106,23 @@ def judge_serial(text: str, oldnet_title: str = OLDNET_TITLE) -> list[str]:
     return problems
 
 
+def resizes(text: str) -> list[tuple[int, int]]:
+    """The sizes the engine laid the page out at (`INFO:RESIZE`), in order."""
+    return [(int(w), int(h)) for w, h in re.findall(r"WEBKIT:W5:INFO:RESIZE:(\d+)x(\d+)", text)]
+
+
+def judge_resize(text: str) -> list[str]:
+    """Maximizing the window made the engine lay the page out larger: the last size is wider and
+    taller than the first."""
+    sizes = resizes(text)
+    if len(sizes) < 2:
+        return [f"the engine was told of {len(sizes)} size(s), expected the window's and the maximized one"]
+    (w0, h0), (w1, h1) = sizes[0], sizes[-1]
+    if w1 <= w0 or h1 <= h0:
+        return [f"the page was not laid out larger after the window grew: {sizes}"]
+    return []
+
+
 def first_paint_ms(text: str) -> list[int]:
     """The `sincenav` milliseconds of every `INFO:TIME:firstpaint` line, in order."""
     return [int(n) for n in re.findall(r"WEBKIT:W5:INFO:TIME:firstpaint=\d+:sincecommit=\d+:sincenav=(\d+)", text)]
@@ -150,21 +167,23 @@ def judge_servers(record, assets: list[str]) -> list[str]:
     return problems
 
 
-def window_region(text: str) -> tuple[int, int, int, int] | None:
-    """The page area on the screen, from the probe lines: the newest `UI:WIDGET name=page` of a
-    window whose caption ends in the app's name, placed by the newest `UI:RECT` of that window."""
-    best = None
+def window_region(text: str, last: bool = False) -> tuple[int, int, int, int] | None:
+    """The page area on the screen, from the probe lines: the first (`last`: the newest)
+    `UI:WIDGET name=page` of a window whose caption ends in the app's name, placed by the
+    `UI:RECT` of that window printed nearest to it (the window is announced, then its controls)."""
+    pages = []
     for match in session_pointer._WIDGET.finditer(text):  # noqa: SLF001 - one regex for both readers
         x, y, w, h, name, window = match.groups()
         if name == "page" and window.strip().endswith(APP):
-            best = (window.strip(), int(x), int(y), int(w), int(h))
-    if best is None:
+            pages.append((match.start(), window.strip(), int(x), int(y), int(w), int(h)))
+    if not pages:
         return None
-    title, x, y, w, h = best
-    rect = session_pointer.probe_rect(text, f"window:{title}")
-    if rect is None:
+    at, title, x, y, w, h = pages[-1] if last else pages[0]
+    rects = [m for m in session_pointer._RECT.finditer(text[:at]) if m.group(5).strip() == f"window:{title}"]  # noqa: SLF001
+    if not rects:
         return None
-    return rect[0] + x, rect[1] + y, w, h
+    left, top = (int(n) for n in rects[-1].groups()[:2])
+    return left + x, top + y, w, h
 
 
 def region_stats(path: Path, region: tuple[int, int, int, int]) -> dict:
@@ -208,6 +227,26 @@ def judge_shots(paths: list[Path], region: tuple[int, int, int, int] | None, min
     if len(set(named.values())) != len(named):
         problems.append("two of the page screenshots are identical: a page never changed")
     return problems
+
+
+def judge_maximized(shot: Path | None, region: tuple[int, int, int, int] | None, strip: int = 120,
+                    min_ink: float = 0.5) -> list[str]:
+    """The maximized window's page area is painted all the way to its right edge: the page's own
+    background (not the window's white) fills the last `strip` pixels, which the page's old size
+    did not reach."""
+    if shot is None or region is None:
+        return ["the maximized screenshot or its page area is missing"]
+    x, y, w, h = region
+    if w < 1100:
+        return [f"the page area is {w} px wide after maximizing"]
+    try:
+        stats = region_stats(shot, (x + w - strip, y, strip, h))
+    except (OSError, ValueError) as error:
+        return [str(error)]
+    if stats["nonbackground_ratio"] < min_ink:
+        return [f"the right {strip} px of the maximized page are blank ({stats['nonbackground_ratio']} ink): "
+                "the page was not painted at the new size"]
+    return []
 
 
 def judge_scroll(shots: dict[str, Path], region: tuple[int, int, int, int] | None) -> list[str]:
