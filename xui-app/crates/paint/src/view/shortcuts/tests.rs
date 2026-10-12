@@ -190,7 +190,7 @@ fn no_chord_is_bound_twice() {
 fn repeated_shape_key_cycles_the_group() {
     let mut tool = Tool::Pencil;
     let mut seen = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..5 {
         let Some(Msg::CycleTool(group)) = press(Key::O, NONE) else {
             panic!("O cycles the shapes");
         };
@@ -199,7 +199,13 @@ fn repeated_shape_key_cycles_the_group() {
     }
     assert_eq!(
         seen,
-        [Tool::Line, Tool::Rectangle, Tool::Ellipse, Tool::Line],
+        [
+            Tool::Line,
+            Tool::Rectangle,
+            Tool::RoundedRectangle,
+            Tool::Ellipse,
+            Tool::Line
+        ],
         "from outside the group the first tool, then each in turn, wrapping"
     );
 }
@@ -235,4 +241,39 @@ fn the_tool_hint_names_the_key() {
     assert_eq!(tool_hint(Tool::Pencil), "Pencil (P)");
     assert_eq!(tool_hint(Tool::Rectangle), "Rectangle (O)");
     assert_eq!(tool_hint(Tool::Picker), "Picker (K)");
+}
+
+#[test]
+fn the_p4_tool_keys_select_their_tools() {
+    for (key, tool) in [
+        (Key::B, Tool::Brush),
+        (Key::P, Tool::Pencil),
+        (Key::E, Tool::Eraser),
+        (Key::F, Tool::Fill),
+        (Key::G, Tool::Gradient),
+        (Key::K, Tool::Picker),
+        (Key::T, Tool::Text),
+        (Key::Z, Tool::Zoom),
+        (Key::H, Tool::Pan),
+    ] {
+        assert_eq!(press(key, NONE), Some(Msg::Tool(tool)), "{tool:?}");
+    }
+    assert_eq!(press(OPEN_BRACKET, NONE), Some(Msg::SizeStep(-1)));
+    assert_eq!(press(CLOSE_BRACKET, NONE), Some(Msg::SizeStep(1)));
+}
+
+#[test]
+fn while_typing_letters_belong_to_the_text() {
+    for key in [Key::B, Key::T, Key::X, Key::D, Key::BACK, Key::DELETE, OPEN_BRACKET] {
+        assert_eq!(typing_shortcut(key, NONE, false), None, "{key:?}");
+        assert_eq!(typing_shortcut(key, SHIFT, false), None, "{key:?}");
+    }
+    // Command chords and function keys still work.
+    assert_eq!(typing_shortcut(Key::Z, CTRL, false), Some(Msg::Undo));
+    assert_eq!(typing_shortcut(Key::S, CTRL, false), Some(Msg::Save));
+    assert_eq!(
+        typing_shortcut(Key::F4, NONE, false),
+        command(Command::LayerProperties)
+    );
+    assert_eq!(typing_shortcut(Key::Z, CTRL, true), None, "a dialog wins");
 }

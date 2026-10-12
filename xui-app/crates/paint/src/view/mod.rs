@@ -19,14 +19,14 @@ mod sidebar;
 mod sysclip;
 mod toolbar;
 
-pub use app::PaintApp;
+pub use app::{PaintApp, Setup};
 pub use canvas::{CanvasMsg, PaintCanvas};
 pub use command::Command;
 pub use layers::LayersPanel;
 pub use layout::{COLORS_WIDTH, Observer};
-pub use options::{step_size, uses_size};
+pub use options::{OptMsg, Shown, step_size, uses_size};
 pub use palette::{COLORS, PALETTE, Palette};
-pub use shortcuts::{ToolGroup, float_key, shortcut};
+pub use shortcuts::{ToolGroup, float_key, shortcut, typing_shortcut};
 pub use sysclip::SystemClipboard;
 pub use toolbar::ToolStrip;
 
@@ -41,8 +41,10 @@ use crate::model::Pixel;
 pub enum Msg {
     /// Select a tool.
     Tool(crate::model::Tool),
-    /// Select a brush diameter.
+    /// Set the brush, eraser and shape width in pixels (1 to 500).
     Size(u32),
+    /// Change another option of the active tool.
+    Opt(OptMsg),
     /// Pick a palette colour for a side.
     Palette {
         /// The chosen colour.
@@ -54,7 +56,7 @@ pub enum Msg {
     SwapColors,
     /// Restore the default colours: black primary, white secondary.
     ResetColors,
-    /// Step the brush size along [`crate::model::SIZES`] (`[` and `]`).
+    /// Step the width along [`crate::model::SIZES`] (`[` and `]`).
     SizeStep(i32),
     /// Select the next tool of a group (a repeated tool key).
     CycleTool(ToolGroup),

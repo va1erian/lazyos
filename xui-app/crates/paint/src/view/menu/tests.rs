@@ -59,22 +59,11 @@ fn every_message_appears_in_one_row_only() {
 
 #[test]
 fn every_menu_command_of_the_plan_is_present() {
-    // Tools are chosen by key and the tool grid, not from a menu.
-    let tools = [
-        Command::ZoomTool,
-        Command::PanTool,
-        Command::GradientTool,
-        Command::TextTool,
-    ];
+    // Tools are chosen by key and the tool grid, not from a menu, so no
+    // command is one.
     for command in Command::ALL {
         let in_menu = id_of(Msg::Command(command)).is_some();
-        assert_eq!(
-            in_menu,
-            !tools.contains(&command),
-            "{} should{} have a row",
-            command.label(),
-            if tools.contains(&command) { " not" } else { "" }
-        );
+        assert!(in_menu, "{} should have a row", command.label());
     }
     for msg in [
         Msg::New,

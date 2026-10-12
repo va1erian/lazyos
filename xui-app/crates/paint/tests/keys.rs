@@ -54,7 +54,13 @@ fn tool_keys_select_tools_and_a_repeated_key_cycles_the_shapes() {
         assert_eq!(tool(), Tool::Picker);
         press(stage, Key::P);
         assert_eq!(tool(), Tool::Pencil);
-        for expected in [Tool::Line, Tool::Rectangle, Tool::Ellipse, Tool::Line] {
+        for expected in [
+            Tool::Line,
+            Tool::Rectangle,
+            Tool::RoundedRectangle,
+            Tool::Ellipse,
+            Tool::Line,
+        ] {
             press(stage, Key::O);
             assert_eq!(tool(), expected);
         }
@@ -76,8 +82,6 @@ fn keys_of_unbuilt_features_say_so_in_the_status_bar() {
     session(|stage, observer, _| {
         ctrl_shift(stage, Key::G);
         assert_eq!(status(observer, 3), "Black and White is not available yet");
-        press(stage, Key::T);
-        assert_eq!(status(observer, 3), "Text is not available yet");
         assert_eq!(
             observer.borrow().tool,
             Tool::Pencil,

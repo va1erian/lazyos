@@ -19,7 +19,7 @@ use crate::model::Tool;
 /// A set of tools one key cycles through when it is pressed again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolGroup {
-    /// Line, rectangle and ellipse share `O`.
+    /// Line, rectangle, rounded rectangle and ellipse share `O`.
     Shapes,
     /// Rectangle select, ellipse select, lasso and magic wand share `S`.
     Select,
@@ -31,7 +31,12 @@ impl ToolGroup {
     /// The tools of the group, in cycling order.
     pub const fn tools(self) -> &'static [Tool] {
         match self {
-            ToolGroup::Shapes => &[Tool::Line, Tool::Rectangle, Tool::Ellipse],
+            ToolGroup::Shapes => &[
+                Tool::Line,
+                Tool::Rectangle,
+                Tool::RoundedRectangle,
+                Tool::Ellipse,
+            ],
             ToolGroup::Select => &[
                 Tool::RectSelect,
                 Tool::EllipseSelect,
@@ -206,15 +211,15 @@ pub static BINDINGS: &[(Chord, Msg)] = &[
     // Tools.
     (plain(Key::S), Msg::CycleTool(ToolGroup::Select)),
     (plain(Key::M), Msg::CycleTool(ToolGroup::Move)),
-    (plain(Key::Z), Msg::Command(Command::ZoomTool)),
-    (plain(Key::H), Msg::Command(Command::PanTool)),
+    (plain(Key::Z), Msg::Tool(Tool::Zoom)),
+    (plain(Key::H), Msg::Tool(Tool::Pan)),
     (plain(Key::P), Msg::Tool(Tool::Pencil)),
     (plain(Key::B), Msg::Tool(Tool::Brush)),
     (plain(Key::E), Msg::Tool(Tool::Eraser)),
     (plain(Key::F), Msg::Tool(Tool::Fill)),
-    (plain(Key::G), Msg::Command(Command::GradientTool)),
+    (plain(Key::G), Msg::Tool(Tool::Gradient)),
     (plain(Key::K), Msg::Tool(Tool::Picker)),
-    (plain(Key::T), Msg::Command(Command::TextTool)),
+    (plain(Key::T), Msg::Tool(Tool::Text)),
     (plain(Key::O), Msg::CycleTool(ToolGroup::Shapes)),
     // Brush size and colours.
     (plain(OPEN_BRACKET), Msg::SizeStep(-1)),
@@ -233,6 +238,17 @@ pub fn shortcut(key: Key, modifiers: Modifiers, dialog_open: bool) -> Option<Msg
         .iter()
         .find(|(chord, _)| chord.matches(key, modifiers))
         .map(|(_, msg)| *msg)
+}
+
+/// The message a key press means while a text block is being edited: plain
+/// and Shift-modified keys belong to the text (a letter must not switch the
+/// tool), so only command chords (Ctrl, Alt) and the function keys count.
+pub fn typing_shortcut(key: Key, modifiers: Modifiers, dialog_open: bool) -> Option<Msg> {
+    let command = modifiers.ctrl || modifiers.alt || modifiers.win;
+    let function = matches!(key.code(), 0x70..=0x7B);
+    (command || function)
+        .then(|| shortcut(key, modifiers, dialog_open))
+        .flatten()
 }
 
 /// The keys that place floating pixels or move the selection, claimed only

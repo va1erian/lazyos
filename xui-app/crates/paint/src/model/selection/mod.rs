@@ -114,6 +114,15 @@ impl Selection {
         self.coverage(x, y) >= 128
     }
 
+    /// One coverage byte per pixel of [`Selection::bounds`], row-major, for the
+    /// stroke compositor's clip: the mask, or all 255 for a rectangle.
+    pub fn clip_bytes(&self) -> Vec<u8> {
+        match &self.mask {
+            Some(mask) => mask.clone(),
+            None => vec![255; self.bounds.area()],
+        }
+    }
+
     /// The bytes the mask holds (what the history counts).
     pub fn bytes(&self) -> usize {
         self.mask.as_ref().map_or(0, Vec::len)

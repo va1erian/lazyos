@@ -15,6 +15,7 @@
 use crate::model::bitmap::{Bitmap, Pixel};
 use crate::model::blend::{div255, source_over};
 use crate::model::rect::Rect;
+use crate::model::selection::mix_by;
 
 use super::coverage::{Clip, Coverage};
 
@@ -26,6 +27,9 @@ pub enum PaintMode {
     Paint,
     /// Reduces alpha by `coverage x colour alpha`; the colour is ignored.
     Erase,
+    /// Writes the colour over the pixel, alpha included, weighted by the
+    /// coverage (the Pencil: exact colour, no blending with what is there).
+    Replace,
 }
 
 /// Coverage for one stroke over one layer.
@@ -296,6 +300,7 @@ fn apply_row(out: &mut [u8], base: &[u8], weights: &[u8], color: Pixel, mode: Pa
         }
         *out = match mode {
             PaintMode::Paint => source_over(*base, color, weight),
+            PaintMode::Replace => mix_by(weight, *base, color),
             PaintMode::Erase => {
                 let strength = div255(u32::from(weight) * u32::from(color[3]));
                 let alpha = div255(u32::from(base[3]) * (255 - strength));

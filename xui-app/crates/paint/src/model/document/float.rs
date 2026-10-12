@@ -78,6 +78,7 @@ impl Model {
     /// (undo, resize, a layer change, ...) does first.
     pub(super) fn settle(&mut self) {
         self.end();
+        self.commit_text();
         self.commit_float();
     }
 

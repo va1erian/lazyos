@@ -40,9 +40,9 @@ impl PaintApp {
         if let Some(id) = self.menu.id() {
             report("menubar", ui.bounds(id));
         }
-        report("size", ui.bounds(self.options.size_id()));
-        report("sel_mode", ui.bounds(self.options.mode_id()));
-        report("wand_tolerance", ui.bounds(self.options.tolerance_id()));
+        for (name, id) in self.options.probe_ids() {
+            report(name, ui.bounds(id));
+        }
         for tool in Tool::ALL {
             if let Some(rect) = self.toolbar.tool_rect(tool) {
                 report(&format!("tool:{}", tool.label()), rect);

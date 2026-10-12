@@ -57,7 +57,7 @@ fn the_eraser_writes_alpha_zero_and_its_right_button_the_secondary() {
     model.set_primary(RED);
     model.set_secondary(BLUE);
     model.set_tool(Tool::Eraser);
-    assert_eq!(model.color_for(Side::Primary), [0, 0, 0, 0]);
+    assert_eq!(model.color_for(Side::Primary), RED);
     assert_eq!(model.color_for(Side::Secondary), BLUE);
     model.set_size(3);
     model.begin(4, 4, Side::Primary);

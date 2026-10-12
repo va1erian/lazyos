@@ -110,6 +110,10 @@ fn blank(height: f32) -> TextCoverage {
 }
 
 impl TextRasterizer for CosmicRasterizer {
+    fn families(&self) -> Vec<String> {
+        CosmicRasterizer::families(self)
+    }
+
     fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage {
         let size = if style.size.is_finite() {
             style.size.clamp(SIZE_RANGE.0, SIZE_RANGE.1)

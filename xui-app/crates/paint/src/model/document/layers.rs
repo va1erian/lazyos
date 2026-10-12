@@ -176,7 +176,6 @@ impl Model {
     }
 
     fn layers_changed(&mut self) {
-        self.preview = None;
         self.damage_all();
         self.bump();
     }

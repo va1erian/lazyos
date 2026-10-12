@@ -178,6 +178,23 @@ impl Viewport {
         self.clamp(doc, view);
     }
 
+    /// The largest zoom (within range) at which `rect` fills the window, with
+    /// the rectangle's centre in the middle of it (Zoom tool's drag).
+    pub fn fit_rect(&mut self, rect: Rect, doc: (u32, u32), view: (i32, i32)) {
+        let (w, h) = (f64::from(rect.width().max(1)), f64::from(rect.height().max(1)));
+        let zoom = (f64::from(view.0.max(1)) / w).min(f64::from(view.1.max(1)) / h);
+        self.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+        let centre = (
+            (f64::from(rect.x0) + f64::from(rect.x1)) / 2.0,
+            (f64::from(rect.y0) + f64::from(rect.y1)) / 2.0,
+        );
+        self.origin = (
+            (centre.0 * self.zoom - f64::from(view.0) / 2.0).round() as i32,
+            (centre.1 * self.zoom - f64::from(view.1) / 2.0).round() as i32,
+        );
+        self.clamp(doc, view);
+    }
+
     /// The picture pixel under the view pixel `(x, y)`; outside the picture
     /// this is outside `0..width`/`0..height`.
     pub fn to_doc(&self, x: i32, y: i32) -> (i32, i32) {

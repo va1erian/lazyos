@@ -92,20 +92,11 @@ pub enum Command {
     BrightnessContrast,
     /// Hue and saturation, with a preview (P5).
     HueSaturation,
-    // Tools.
-    /// Zoom by clicking (P4).
-    ZoomTool,
-    /// Pan by dragging (P4).
-    PanTool,
-    /// The gradient tool (P4).
-    GradientTool,
-    /// The text tool (P4).
-    TextTool,
 }
 
 impl Command {
     /// Every command, in menu order.
-    pub const ALL: [Command; 42] = [
+    pub const ALL: [Command; 38] = [
         Command::Cut,
         Command::Copy,
         Command::CopyMerged,
@@ -144,10 +135,6 @@ impl Command {
         Command::Sepia,
         Command::BrightnessContrast,
         Command::HueSaturation,
-        Command::ZoomTool,
-        Command::PanTool,
-        Command::GradientTool,
-        Command::TextTool,
     ];
 
     /// Whether the feature exists. A menu item for a command that is not
@@ -277,10 +264,6 @@ impl Command {
             Command::Sepia => "Sepia",
             Command::BrightnessContrast => "Brightness / Contrast",
             Command::HueSaturation => "Hue / Saturation",
-            Command::ZoomTool => "Zoom",
-            Command::PanTool => "Pan",
-            Command::GradientTool => "Gradient",
-            Command::TextTool => "Text",
         }
     }
 }

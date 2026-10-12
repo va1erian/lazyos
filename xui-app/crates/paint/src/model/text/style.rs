@@ -141,4 +141,10 @@ pub trait TextRasterizer {
     /// Lays `text` out (lines split at `\n`, no wrapping) and rasterizes it
     /// in white-on-nothing coverage.
     fn layout(&self, text: &str, style: &TextStyle) -> TextCoverage;
+
+    /// The family names the options bar offers, sorted. A rasterizer that
+    /// cannot list its fonts offers none.
+    fn families(&self) -> Vec<String> {
+        Vec::new()
+    }
 }

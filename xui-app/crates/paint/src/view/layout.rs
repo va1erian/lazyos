@@ -80,6 +80,8 @@ pub struct Observer {
     pub selection: Option<(i32, i32, u32, u32)>,
     /// Whether lifted or pasted pixels are waiting to be placed.
     pub floating: bool,
+    /// Whether a text block is being edited.
+    pub text_editing: bool,
     /// Each layer's name, visibility and opacity, bottom layer first.
     pub layers: Vec<(String, bool, u8)>,
     /// The active layer's index.
@@ -107,6 +109,7 @@ impl Default for Observer {
             editing: None,
             selection: None,
             floating: false,
+            text_editing: false,
             layers: Vec::new(),
             active_layer: 0,
             history: (0, 0),
@@ -132,7 +135,7 @@ pub(super) struct Widgets {
 /// Builds the window: the menu bar and the options bar across the top, the tool
 /// grid, the canvas (with the colour editor stacked over it) and the Colors
 /// panel in the middle, the status bar along the bottom.
-pub(super) fn mount(ui: &Ui<Msg>) -> Result<Widgets> {
+pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
     let (menu_handle, canvas, toolbar, palette, status) = (
         Handle::new(),
         Handle::new(),
@@ -140,7 +143,7 @@ pub(super) fn mount(ui: &Ui<Msg>) -> Result<Widgets> {
         Handle::new(),
         Handle::new(),
     );
-    let options = Options::new();
+    let options = Options::new(families);
     let editor = ColorEditor::new();
     let props = LayerPropsDialog::new();
     let sidebar = Sidebar::new();

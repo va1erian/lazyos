@@ -2,8 +2,12 @@
 
 //! The tool vocabulary and the brush sizes.
 
-/// The Brush sizes offered by the toolbar, in pixels.
-pub const SIZES: [u32; 5] = [1, 2, 4, 8, 16];
+/// The widths `[` and `]` step through, in pixels: fine steps for thin lines,
+/// coarse ones up to the widest brush the stroke engine accepts.
+pub const SIZES: [u32; 25] = [
+    1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80, 100, 128, 160, 200, 256, 320, 400,
+    500,
+];
 
 /// Which paint colour a button points at: the primary (usually left) or the
 /// secondary (usually right).
@@ -57,9 +61,9 @@ pub enum Tool {
     Eraser,
     /// A straight line.
     Line,
-    /// A rectangle outline.
+    /// A rectangle.
     Rectangle,
-    /// An ellipse outline.
+    /// An ellipse.
     Ellipse,
     /// A flood fill with the clicked colour.
     Fill,
@@ -77,11 +81,21 @@ pub enum Tool {
     MovePixels,
     /// Moves the selection's outline only.
     MoveSelection,
+    /// A rectangle with rounded corners.
+    RoundedRectangle,
+    /// A blend from the primary to the secondary colour.
+    Gradient,
+    /// Typed text, editable until it is committed.
+    Text,
+    /// Zooms the view: a click in, a right click out, a drag to a rectangle.
+    Zoom,
+    /// Pans the view by dragging.
+    Pan,
 }
 
 impl Tool {
     /// Every tool, in toolbar order.
-    pub const ALL: [Tool; 14] = [
+    pub const ALL: [Tool; 19] = [
         Tool::Pencil,
         Tool::Brush,
         Tool::Eraser,
@@ -96,11 +110,19 @@ impl Tool {
         Tool::MagicWand,
         Tool::MovePixels,
         Tool::MoveSelection,
+        Tool::RoundedRectangle,
+        Tool::Gradient,
+        Tool::Text,
+        Tool::Zoom,
+        Tool::Pan,
     ];
 
     /// Whether the tool draws a rubber-banded shape (preview, then commit).
     pub const fn is_shape(self) -> bool {
-        matches!(self, Tool::Line | Tool::Rectangle | Tool::Ellipse)
+        matches!(
+            self,
+            Tool::Line | Tool::Rectangle | Tool::RoundedRectangle | Tool::Ellipse
+        )
     }
 
     /// Whether the tool paints freehand while dragging.
@@ -114,6 +136,11 @@ impl Tool {
             self,
             Tool::RectSelect | Tool::EllipseSelect | Tool::Lasso | Tool::MagicWand
         )
+    }
+
+    /// Whether the tool changes the view and never the picture.
+    pub const fn is_view(self) -> bool {
+        matches!(self, Tool::Zoom | Tool::Pan)
     }
 
     /// Whether the tool moves the selection or its pixels.
@@ -138,6 +165,11 @@ impl Tool {
             Tool::MagicWand => "Magic Wand",
             Tool::MovePixels => "Move Selected Pixels",
             Tool::MoveSelection => "Move Selection",
+            Tool::RoundedRectangle => "Rounded Rectangle",
+            Tool::Gradient => "Gradient",
+            Tool::Text => "Text",
+            Tool::Zoom => "Zoom",
+            Tool::Pan => "Pan",
         }
     }
 }

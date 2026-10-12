@@ -12,7 +12,7 @@ use xui_core::message::{Key, Modifiers, MouseButton};
 
 use super::state::CanvasState;
 use super::{CanvasMsg, Msg};
-use crate::model::{Mods, Side};
+use crate::model::{Mods, Side, TextKey, Tool};
 
 /// Maps which side a button paints.
 pub(super) fn side_of(button: MouseButton) -> Option<Side> {
@@ -49,7 +49,12 @@ pub(super) fn handle(
             button,
             modifiers,
         } => {
-            let panning = state.borrow().space || *button == MouseButton::Middle;
+            let panning = {
+                let state = state.borrow();
+                state.space
+                    || *button == MouseButton::Middle
+                    || (state.tool == Tool::Pan && *button == MouseButton::Left)
+            };
             if panning {
                 state.borrow_mut().pan = Some((*x, *y));
                 ui.focus(id);
@@ -59,7 +64,11 @@ pub(super) fn handle(
             let side = side_of(*button)?;
             ui.focus(id);
             ui.set_capture(id);
-            let (cx, cy) = state.borrow().to_doc(*x, *y);
+            let (cx, cy) = {
+                let mut state = state.borrow_mut();
+                state.dragging = true;
+                state.to_doc(*x, *y)
+            };
             Some(Msg::Canvas(CanvasMsg::Down {
                 x: cx,
                 y: cy,
@@ -88,7 +97,11 @@ pub(super) fn handle(
             x, y, modifiers, ..
         } => {
             let was_panning = state.borrow_mut().pan.take().is_some();
-            let at = state.borrow().to_doc(*x, *y);
+            let at = {
+                let mut state = state.borrow_mut();
+                state.dragging = false;
+                state.to_doc(*x, *y)
+            };
             // xui gap: G2 — release_capture raises a synchronous CaptureChanged
             // that must not read as a fresh interruption.
             releasing.set(true);
@@ -120,6 +133,7 @@ pub(super) fn handle(
                 let mut state = state.borrow_mut();
                 state.cursor = None;
                 state.pan = None;
+                state.dragging = false;
                 if matches!(event, Event::KillFocus) {
                     state.space = false;
                 }
@@ -127,9 +141,10 @@ pub(super) fn handle(
             ui.invalidate(id);
             Some(Msg::Canvas(CanvasMsg::Cancel))
         }
-        Event::KeyDown { key, .. } if *key == Key::SPACE => {
-            state.borrow_mut().space = true;
-            None
+        Event::KeyDown { key, modifiers, .. } => key_down(ui, id, state, releasing, *key, *modifiers),
+        Event::Char(c) => {
+            let typing = state.borrow().editing && !c.is_control();
+            typing.then_some(Msg::Canvas(CanvasMsg::Char(*c)))
         }
         Event::KeyUp { key, .. } if *key == Key::SPACE => {
             state.borrow_mut().space = false;
@@ -147,6 +162,62 @@ pub(super) fn handle(
         }
         _ => None,
     }
+}
+
+/// The text-editing key a press means.
+fn text_key(key: Key, modifiers: Modifiers) -> Option<TextKey> {
+    let plain = !modifiers.ctrl && !modifiers.alt && !modifiers.win;
+    match key {
+        Key::RETURN if modifiers.ctrl => Some(TextKey::Commit),
+        Key::RETURN if plain => Some(TextKey::Enter),
+        Key::ESCAPE => Some(TextKey::Cancel),
+        Key::LEFT if plain => Some(TextKey::Left),
+        Key::RIGHT if plain => Some(TextKey::Right),
+        Key::UP if plain => Some(TextKey::Up),
+        Key::DOWN if plain => Some(TextKey::Down),
+        Key::HOME if plain => Some(TextKey::Home),
+        Key::END if plain => Some(TextKey::End),
+        Key::BACK if plain => Some(TextKey::Backspace),
+        Key::DELETE if plain => Some(TextKey::Delete),
+        _ => None,
+    }
+}
+
+/// A key press on the canvas: Space starts a pan, a text block takes its
+/// editing keys, and Esc during a drag takes the stroke back.
+fn key_down(
+    ui: &Ui<Msg>,
+    id: WidgetId,
+    state: &Rc<RefCell<CanvasState>>,
+    releasing: &Rc<Cell<bool>>,
+    key: Key,
+    modifiers: Modifiers,
+) -> Option<Msg> {
+    if key == Key::SPACE && !state.borrow().editing {
+        state.borrow_mut().space = true;
+        return None;
+    }
+    let (editing, dragging) = {
+        let state = state.borrow();
+        (state.editing, state.dragging)
+    };
+    if dragging && key == Key::ESCAPE {
+        {
+            let mut state = state.borrow_mut();
+            state.dragging = false;
+            state.pan = None;
+        }
+        // xui gap: G2 — as on a button release.
+        releasing.set(true);
+        ui.release_capture();
+        releasing.set(false);
+        ui.invalidate(id);
+        return Some(Msg::Canvas(CanvasMsg::Abort));
+    }
+    if editing {
+        return text_key(key, modifiers).map(|key| Msg::Canvas(CanvasMsg::Text(key)));
+    }
+    None
 }
 
 /// Continues a pan drag: `None` when none is in progress, else whether the

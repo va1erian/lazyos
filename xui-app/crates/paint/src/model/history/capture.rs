@@ -62,6 +62,35 @@ impl UndoCapture {
         }
     }
 
+    /// Puts the saved pixels back into `rect` of `layer`: a live preview takes
+    /// back what its last frame drew before it draws the next. Tiles never
+    /// touched are skipped, since nothing there can have changed.
+    pub fn restore(&self, layer: &mut Bitmap, rect: Rect) {
+        let rect = rect.intersect(layer.rect());
+        if rect.is_empty() {
+            return;
+        }
+        for ty in rect.y0.div_euclid(TILE)..=(rect.y1 - 1).div_euclid(TILE) {
+            for tx in rect.x0.div_euclid(TILE)..=(rect.x1 - 1).div_euclid(TILE) {
+                let Some(tile) = self.tiles.get(&(tx, ty)) else {
+                    continue;
+                };
+                let at = tile_rect((tx, ty), layer.rect());
+                let part = at.intersect(rect);
+                if part.is_empty() {
+                    continue;
+                }
+                let src = Rect::new(
+                    part.x0 - at.x0,
+                    part.y0 - at.y0,
+                    part.width(),
+                    part.height(),
+                );
+                layer.blit(part.x0, part.y0, tile, src);
+            }
+        }
+    }
+
     /// Takes back what a draw into `rect` did outside `selection`: each pixel
     /// there becomes the original blended toward the drawn pixel by the
     /// selection's coverage. Call after drawing, with every pixel of `rect`

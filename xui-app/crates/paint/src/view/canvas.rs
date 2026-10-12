@@ -19,7 +19,7 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 
 use super::Msg;
-use crate::model::{Model, Mods, Side};
+use crate::model::{Model, Mods, Side, TextKey};
 use crate::viewport::Viewport;
 
 pub use state::CanvasState;
@@ -63,6 +63,12 @@ pub enum CanvasMsg {
     Cancel,
     /// The canvas zoomed or scrolled itself (wheel, Space-drag).
     View,
+    /// Esc during a drag: take the stroke back instead of keeping it.
+    Abort,
+    /// A character typed while a text block is being edited.
+    Char(char),
+    /// An editing key pressed while a text block is being edited.
+    Text(TextKey),
 }
 
 /// A zoomable, scrollable view over the model's document.
@@ -129,19 +135,32 @@ impl PaintCanvas {
         let mut changed = state.update(model.document(), model.take_damage());
         // The model may have been replaced wholesale (New, Open): keep the
         // viewport's picture size in step.
-        let preview = model.preview();
         let brush = model.size();
-        if state.preview != preview || state.brush != brush {
-            state.preview = preview;
+        let tool = model.tool();
+        let caret = model.text_caret();
+        let block = model.text_block().zip(model.text_handle());
+        let editing = model.is_editing_text();
+        let dragging = model.is_dragging();
+        if state.brush != brush
+            || state.tool != tool
+            || state.caret != caret
+            || state.block != block
+            || state.editing != editing
+        {
             state.brush = brush;
+            state.tool = tool;
+            state.caret = caret;
+            state.block = block;
+            state.editing = editing;
             changed = true;
         }
+        state.dragging = dragging;
         if state.sel_rev != model.selection_rev() {
             state.sel_rev = model.selection_rev();
             state.edges = model.selection().map(|s| s.edges()).unwrap_or_default();
             changed = true;
         }
-        let animate = !ants::is_empty(&state.edges);
+        let animate = !ants::is_empty(&state.edges) || state.editing;
         drop(state);
         self.animate_ants(animate);
         if changed {
@@ -211,6 +230,34 @@ impl PaintCanvas {
     /// Zooms out one step around the centre of the view.
     pub fn zoom_out(&self) {
         self.zoom(|vp, doc, view| vp.zoom_out((view.0 / 2, view.1 / 2), doc, view));
+    }
+
+    /// Zooms in one step around the picture pixel `at` (the Zoom tool's click).
+    pub fn zoom_in_at(&self, at: (i32, i32)) {
+        self.zoom(|vp, doc, view| vp.zoom_in(vp.to_view(at.0, at.1), doc, view));
+    }
+
+    /// Zooms out one step around the picture pixel `at`.
+    pub fn zoom_out_at(&self, at: (i32, i32)) {
+        self.zoom(|vp, doc, view| vp.zoom_out(vp.to_view(at.0, at.1), doc, view));
+    }
+
+    /// Zooms so the rectangle between two picture pixels fills the view.
+    pub fn zoom_to_rect(&self, a: (i32, i32), b: (i32, i32)) {
+        let moved = self.state.borrow_mut().zoom_to_rect(a, b);
+        if moved {
+            self.control.invalidate();
+        }
+    }
+
+    /// Shows or hides the Zoom tool's rubber band.
+    pub fn set_marquee(&self, marquee: Option<((i32, i32), (i32, i32))>) {
+        let mut state = self.state.borrow_mut();
+        if state.marquee != marquee {
+            state.marquee = marquee;
+            drop(state);
+            self.control.invalidate();
+        }
     }
 
     /// Zooms so the whole picture fits the view.

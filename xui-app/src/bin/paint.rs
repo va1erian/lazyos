@@ -20,14 +20,15 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use xui_app::launch;
+use xui_app::{font, launch};
 use xui_app::platform::argv;
 use xui_app::platform::clipboard as system_clipboard;
 use xui_app::probe;
 use xui_app::platform::storage::PngStorage;
 use xui_core::widget::StdFileSystem;
+use xui_paint::model::text::{CosmicRasterizer, TextRasterizer};
 use xui_paint::storage::Storage;
-use xui_paint::view::{PaintApp, SystemClipboard};
+use xui_paint::view::{PaintApp, Setup, SystemClipboard};
 use xui_paint::Msg;
 
 /// Window size a compositor lays Paint out at.
@@ -63,6 +64,32 @@ impl SystemClipboard for PngClipboard {
         // Token 0 asks for the newest offer in the caller's session.
         system_clipboard::paste(0, PNG_MIME).ok()
     }
+}
+
+/// The Text tool's rasterizer with the fonts this image has: the Liberation
+/// Sans, Serif and Mono faces `fhs::share::FONTS_LIBERATION` holds (regular,
+/// bold, italic and bold italic of each), then the Droid faces compiled into
+/// every xui app. A missing directory just leaves the Droid faces.
+fn text_rasterizer() -> Rc<dyn TextRasterizer> {
+    let mut rasterizer = CosmicRasterizer::new();
+    if let Ok(entries) = std::fs::read_dir(fhs::share::FONTS_LIBERATION) {
+        let mut files: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "ttf"))
+            .collect();
+        // A stable order, so the first family registered (the stand-in for
+        // an unknown name) does not depend on the directory's.
+        files.sort();
+        for path in files {
+            if let Ok(bytes) = std::fs::read(&path) {
+                rasterizer.register_font(bytes);
+            }
+        }
+    }
+    for bytes in [font::BYTES, font::BOLD_BYTES, font::SERIF_BYTES] {
+        rasterizer.register_font(bytes.to_vec());
+    }
+    Rc::new(rasterizer)
 }
 
 /// The default save file when no path is given.
@@ -154,7 +181,10 @@ fn main() {
         // it can be resized down to a workable drawing area.
         backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);
         backend.on_first_frame(|| println!("PAINT:UP:PASS"));
-        let mut app = PaintApp::build_with_files(ui, storage, Rc::new(StdFileSystem))?;
+        let setup = Setup::new(storage)
+            .with_files(Rc::new(StdFileSystem))
+            .with_text(text_rasterizer());
+        let mut app = PaintApp::build_with(ui, setup)?;
         app.set_start_dir(start_dir(requested.as_deref()));
         app.set_system_clipboard(Rc::new(PngClipboard));
         let startup = requested.is_some();

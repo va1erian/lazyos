@@ -55,7 +55,6 @@ impl Model {
 
     fn after_history(&mut self, damage: crate::model::Damage) {
         self.damage.set(self.damage.get().merge(damage));
-        self.preview = None;
         self.drag = None;
         // The step may have changed the selection (or swapped the document).
         self.selection_changed();
@@ -71,7 +70,6 @@ impl Model {
         let rect = target.pixels.rect();
         let before = target.pixels.clone();
         target.pixels.fill(WHITE);
-        self.preview = None;
         if target.pixels != before {
             self.history.record(Edit::Pixels {
                 name: "Clear".to_string(),
@@ -110,7 +108,6 @@ impl Model {
             name: "Resize Image".to_string(),
             before: Box::new(resized),
         });
-        self.preview = None;
         self.damage_all();
         self.bump();
         Ok(())
@@ -146,8 +143,10 @@ impl Model {
         self.forget_float();
         self.doc = doc;
         self.history.clear();
-        self.preview = None;
         self.drag = None;
+        self.text = None;
+        self.text_geom = None;
+        self.pencil_last = None;
         self.damage_all();
         self.selection_changed();
     }

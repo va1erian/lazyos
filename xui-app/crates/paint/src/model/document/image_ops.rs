@@ -33,7 +33,6 @@ impl Model {
             name,
             before: Box::new(new),
         });
-        self.preview = None;
         self.damage_all();
         self.bump();
     }
@@ -189,7 +188,6 @@ impl Model {
             rect,
             before: new,
         });
-        self.preview = None;
         self.damage_all();
         self.bump();
         Ok(())
@@ -236,7 +234,6 @@ impl Model {
                 active: index,
             },
         });
-        self.preview = None;
         self.damage_all();
         self.bump();
         Ok(())

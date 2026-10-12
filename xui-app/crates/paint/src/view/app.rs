@@ -10,6 +10,8 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
+use crate::model::text::TextRasterizer;
+
 use super::canvas::CanvasMsg;
 use super::coloredit::ColorEditor;
 use super::layerprops::LayerPropsDialog;
@@ -17,7 +19,7 @@ use super::layout::{self, Observer};
 use super::menu::{self, Enabled};
 use super::options::{Options, step_size};
 use super::palette::Palette;
-use super::shortcuts::{float_key, shortcut, tool_hint};
+use super::shortcuts::{float_key, shortcut, typing_shortcut};
 use super::sidebar::Sidebar;
 use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
@@ -27,6 +29,10 @@ use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
+/// The size of the text block's drag handle on screen, in pixels.
+const HANDLE_SCREEN_PX: f64 = 10.0;
+
+mod canvas_msgs;
 mod colors;
 mod commands;
 mod dialogs;
@@ -34,9 +40,13 @@ mod doc_io;
 mod files;
 mod layers;
 mod probe;
+mod setup;
+mod status;
 
 use commands::PasteKind;
+use canvas_msgs::ZoomDrag;
 use dialogs::{AboutBox, FileDialogs, PasteSizePrompt, ResizePrompt};
+pub use setup::Setup;
 
 /// The paint application.
 pub struct PaintApp {
@@ -77,6 +87,10 @@ pub struct PaintApp {
     title: String,
     /// Whether the arrow keys, Enter and Esc belong to a move tool or a float.
     float_keys: Rc<Cell<bool>>,
+    /// Whether a text block is being edited, so letters are text, not tools.
+    typing: Rc<Cell<bool>>,
+    /// The Zoom tool's drag, while the button is down.
+    zoom_drag: Option<ZoomDrag>,
     paste_size: PasteSizePrompt,
     /// The paste waiting for the oversized-picture answer.
     pending_paste: Option<PasteKind>,
@@ -114,7 +128,7 @@ impl PaintApp {
         observer: Rc<RefCell<Observer>>,
     ) -> Result<PaintApp> {
         let files = storage.supports_paths().then_some(fs);
-        PaintApp::construct(ui, storage, observer, files)
+        PaintApp::construct(ui, storage, observer, files, None)
     }
 
     /// Sets the directory the Open and Save As dialogs start in.
@@ -130,7 +144,17 @@ impl PaintApp {
         storage: Rc<dyn Storage>,
         observer: Rc<RefCell<Observer>>,
     ) -> Result<PaintApp> {
-        PaintApp::construct(ui, storage, observer, None)
+        PaintApp::construct(ui, storage, observer, None, None)
+    }
+
+    /// Builds the app from every host choice at once (see [`Setup`]).
+    pub fn build_with(ui: &mut Ui<Msg>, setup: Setup) -> Result<PaintApp> {
+        let files = setup
+            .storage
+            .supports_paths()
+            .then_some(setup.fs)
+            .flatten();
+        PaintApp::construct(ui, setup.storage, setup.observer, files, setup.text)
     }
 
     fn construct(
@@ -138,8 +162,10 @@ impl PaintApp {
         storage: Rc<dyn Storage>,
         observer: Rc<RefCell<Observer>>,
         fs: Option<Rc<dyn FileSystem>>,
+        text: Option<Rc<dyn TextRasterizer>>,
     ) -> Result<PaintApp> {
         let files = fs.map(|fs| FileDialogs::new(ui, fs)).transpose()?;
+        let families = text.as_ref().map(|t| t.families()).unwrap_or_default();
         let layout::Widgets {
             menu,
             options,
@@ -150,18 +176,25 @@ impl PaintApp {
             props,
             sidebar,
             status,
-        } = layout::mount(ui)?;
+        } = layout::mount(ui, families)?;
         let modal = Rc::new(Cell::new(false));
         let float_keys = Rc::new(Cell::new(false));
+        let typing = Rc::new(Cell::new(false));
         {
             let modal = Rc::clone(&modal);
             let float_keys = Rc::clone(&float_keys);
+            let typing = Rc::clone(&typing);
             // Weak: the menu holds the window, and the window holds this hook.
             let menu = Rc::downgrade(&menu);
             ui.on_key(move |key, modifiers| {
                 let menu_open = menu.upgrade().is_some_and(|menu| menu.is_open());
                 let blocked = modal.get() || menu_open;
-                shortcut(key, modifiers, blocked).or_else(|| {
+                let chosen = if typing.get() {
+                    typing_shortcut(key, modifiers, blocked)
+                } else {
+                    shortcut(key, modifiers, blocked)
+                };
+                chosen.or_else(|| {
                     (float_keys.get() && !blocked)
                         .then(|| float_key(key, modifiers))
                         .flatten()
@@ -169,8 +202,12 @@ impl PaintApp {
             });
         }
 
+        let mut model = Model::new(DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        if let Some(text) = text {
+            model.set_text_rasterizer(text);
+        }
         let mut app = PaintApp {
-            model: Model::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            model,
             menu,
             options,
             canvas,
@@ -196,6 +233,8 @@ impl PaintApp {
             current_path: None,
             title: String::new(),
             float_keys,
+            typing,
+            zoom_drag: None,
             paste_size: PasteSizePrompt::default(),
             pending_paste: None,
             system: None,
@@ -272,6 +311,10 @@ impl PaintApp {
     /// Rebuilds the painter state, tool grid, menu, options bar and status bar
     /// from the model.
     fn sync(&mut self, ui: &Ui<Msg>) {
+        // The text handle keeps its size on screen at every zoom.
+        let zoom = self.canvas.viewport().zoom();
+        self.model
+            .set_text_handle_px((HANDLE_SCREEN_PX / zoom).ceil() as u32);
         self.canvas.sync(&self.model);
         self.toolbar.sync(&self.model);
         self.palette
@@ -282,64 +325,11 @@ impl PaintApp {
         self.modal.set(self.modal_open(ui));
         self.float_keys
             .set(self.model.tool().is_move() || self.model.is_floating());
+        self.typing.set(self.model.is_editing_text());
         if let Some(notice) = self.model.take_notice() {
             self.message = Some(notice);
         }
         self.refresh_status();
-    }
-
-    /// Rewrites the status bar parts.
-    fn refresh_status(&mut self) {
-        let position = match self.cursor {
-            Some((x, y)) => format!("{x}, {y}"),
-            None => "--".to_string(),
-        };
-        let (width, height) = self.model.document().size();
-        let selection = self.model.selection().map(|s| s.bounds());
-        let size = match selection {
-            Some(b) => format!("{width} x {height}  sel {}x{}", b.width(), b.height()),
-            None => format!("{width} x {height}"),
-        };
-        let tool = self.model.tool().label().to_string();
-        // A hovered tool names itself over the last message while the pointer is
-        // on the grid.
-        let message = match self.hint {
-            Some(tool) => tool_hint(tool),
-            None => self.message.clone().unwrap_or_default(),
-        };
-        self.status.set_text(0, &position);
-        self.status.set_text(1, &size);
-        self.status.set_text(2, &tool);
-        self.status.set_text(3, &message);
-        let zoom_percent = self.canvas.zoom_percent();
-        let zoom = format!("{zoom_percent}%");
-        self.status.set_text(4, &zoom);
-
-        let mut observer = self.observer.borrow_mut();
-        observer.tool = self.model.tool();
-        observer.size = self.model.size();
-        observer.primary = self.model.primary();
-        observer.secondary = self.model.secondary();
-        observer.can_undo = self.model.history().can_undo();
-        observer.can_redo = self.model.history().can_redo();
-        observer.cursor = self.cursor;
-        observer.dragging = self.model.is_dragging();
-        observer.selection = selection.map(|b| (b.x0, b.y0, b.width(), b.height()));
-        observer.floating = self.model.is_floating();
-        observer.zoom_percent = zoom_percent;
-        observer.editing = self.editing.map(|(side, _)| side);
-        observer.layers = self
-            .model
-            .document()
-            .layers()
-            .iter()
-            .map(|l| (l.name.clone(), l.visible, l.opacity))
-            .collect();
-        observer.active_layer = self.model.document().active();
-        let history = self.model.history();
-        observer.history = (history.undo_len(), history.undo_len() + history.redo_len());
-        observer.props_open = self.editing_layer.is_some();
-        observer.status = [position, size, tool, message, zoom];
     }
 }
 
@@ -371,14 +361,19 @@ impl App for PaintApp {
         if !passes && self.modal_open(ui) {
             return;
         }
-        // Anything but canvas input ends a stroke in progress.
+        // Anything but canvas input ends a stroke in progress, and keeps a
+        // text block as pixels unless the message is about the block.
         if !matches!(msg, Msg::Canvas(_)) && self.model.is_dragging() {
             self.model.end();
+        }
+        if self.model.is_editing_text() && !keeps_text(&msg) {
+            self.model.commit_text();
         }
         match msg {
             Msg::Tool(tool) => self.select_tool(tool),
             Msg::CycleTool(group) => self.select_tool(group.next(self.model.tool())),
             Msg::Size(size) => self.model.set_size(size),
+            Msg::Opt(opt) => opt.apply(&mut self.model, self.options.families()),
             Msg::SizeStep(steps) => self.model.set_size(step_size(self.model.size(), steps)),
             Msg::Palette { color, side } => match side {
                 Side::Primary => self.model.set_primary(color),
@@ -461,33 +456,7 @@ impl App for PaintApp {
             | Msg::WandContiguous(_)
             | Msg::PasteExpand
             | Msg::PasteKeep => self.selection_msg(msg),
-            Msg::Canvas(CanvasMsg::Down { x, y, side, mods }) => {
-                if self.model.is_dragging() {
-                    self.model.end();
-                }
-                self.hint = None;
-                self.cursor = Some((x, y));
-                self.model.begin_with(x, y, side, mods);
-            }
-            Msg::Canvas(CanvasMsg::Move { x, y, mods }) => {
-                // The pointer is on the canvas, so it is no longer on the grid
-                // (a backend need not send the grid a leave).
-                self.hint = None;
-                self.cursor = Some((x, y));
-                self.model.extend_with(x, y, mods);
-            }
-            Msg::Canvas(CanvasMsg::Up { x, y, mods }) => {
-                self.cursor = Some((x, y));
-                self.model.extend_with(x, y, mods);
-                self.model.end();
-            }
-            Msg::Canvas(CanvasMsg::Cancel) => {
-                self.model.cancel();
-                self.cursor = None;
-            }
-            // The canvas zoomed or scrolled itself; the sync below refreshes
-            // the zoom part of the status bar.
-            Msg::Canvas(CanvasMsg::View) => {}
+            Msg::Canvas(canvas) => self.canvas_msg(canvas),
         }
         self.sync(ui);
         if self.files.is_some() && self.title != self.title() {
@@ -496,4 +465,27 @@ impl App for PaintApp {
             self.probe(ui);
         }
     }
+}
+
+/// Whether a message leaves a text block being edited: the canvas input and
+/// the controls that style it or colour it, as opposed to everything that
+/// acts on the picture.
+fn keeps_text(msg: &Msg) -> bool {
+    matches!(
+        msg,
+        Msg::Canvas(_)
+            | Msg::Opt(_)
+            | Msg::Size(_)
+            | Msg::Palette { .. }
+            | Msg::SwapColors
+            | Msg::ResetColors
+            | Msg::HintTool(_)
+            | Msg::EditColor(_)
+            | Msg::ColorEditing(_)
+            | Msg::ColorAlpha(_)
+            | Msg::ColorDone
+            | Msg::ColorCancel
+            | Msg::Probe
+            | Msg::DialogClosed
+    )
 }

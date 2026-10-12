@@ -130,6 +130,11 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
         }
         Tool::MovePixels => move_cross(canvas, box_rect, color, stroke, true),
         Tool::MoveSelection => move_cross(canvas, box_rect, color, stroke, false),
+        Tool::RoundedRectangle => rounded_box(canvas, box_rect, color, stroke),
+        Tool::Gradient => gradient_box(canvas, box_rect, color, stroke),
+        Tool::Text => text_glyph(canvas, box_rect, color, stroke),
+        Tool::Zoom => magnifier(canvas, box_rect, color, stroke),
+        Tool::Pan => open_hand(canvas, box_rect, color, stroke),
         Tool::Fill => {
             // A bucket: a tilted quad plus a drop.
             let points = [
@@ -150,6 +155,118 @@ fn draw_tool(canvas: &mut dyn Canvas, tool: Tool, rect: Rect, color: Color, dpi:
             );
         }
     }
+}
+
+/// A rectangle outline with cut corners: the Rounded Rectangle.
+fn rounded_box(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let cut = (rect.width().min(rect.height()) / 4).max(2);
+    let (l, t, r, b) = (rect.left, rect.top, rect.right, rect.bottom);
+    let outline = [
+        (Point::new(l + cut, t), Point::new(r - cut, t)),
+        (Point::new(r - cut, t), Point::new(r, t + cut)),
+        (Point::new(r, t + cut), Point::new(r, b - cut)),
+        (Point::new(r, b - cut), Point::new(r - cut, b)),
+        (Point::new(r - cut, b), Point::new(l + cut, b)),
+        (Point::new(l + cut, b), Point::new(l, b - cut)),
+        (Point::new(l, b - cut), Point::new(l, t + cut)),
+        (Point::new(l, t + cut), Point::new(l + cut, t)),
+    ];
+    for (from, to) in outline {
+        canvas.draw_line(from, to, color, stroke);
+    }
+}
+
+/// A box filled with stripes that thicken left to right: the Gradient.
+fn gradient_box(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    canvas.stroke_rect(rect, color, stroke);
+    let stripes = 5;
+    for i in 0..stripes {
+        let x = rect.left + (rect.width() * (2 * i + 1)) / (2 * stripes);
+        let thickness = stroke * (0.4 + 0.6 * i as f32);
+        canvas.draw_line(
+            Point::new(x, rect.top + 2),
+            Point::new(x, rect.bottom - 2),
+            color,
+            thickness,
+        );
+    }
+}
+
+/// A capital T: the Text tool (no font is bundled, G15).
+fn text_glyph(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let mid = (rect.left + rect.right) / 2;
+    let heavy = stroke * 1.6;
+    canvas.draw_line(
+        Point::new(rect.left, rect.top + 1),
+        Point::new(rect.right, rect.top + 1),
+        color,
+        heavy,
+    );
+    canvas.draw_line(
+        Point::new(mid, rect.top + 1),
+        Point::new(mid, rect.bottom),
+        color,
+        heavy,
+    );
+    let serif = (rect.width() / 5).max(2);
+    canvas.draw_line(
+        Point::new(mid - serif, rect.bottom),
+        Point::new(mid + serif, rect.bottom),
+        color,
+        stroke,
+    );
+}
+
+/// A magnifying glass with a plus: Zoom.
+fn magnifier(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let radius = rect.width().min(rect.height()) as f32 * 0.34;
+    let centre = Point::new(
+        rect.left + (radius * 1.15) as i32,
+        rect.top + (radius * 1.15) as i32,
+    );
+    canvas.stroke_ellipse(centre, radius, radius, color, stroke);
+    let reach = (radius * 0.55) as i32;
+    canvas.draw_line(
+        Point::new(centre.x - reach, centre.y),
+        Point::new(centre.x + reach, centre.y),
+        color,
+        stroke,
+    );
+    canvas.draw_line(
+        Point::new(centre.x, centre.y - reach),
+        Point::new(centre.x, centre.y + reach),
+        color,
+        stroke,
+    );
+    let from = Point::new(
+        centre.x + (radius * 0.72) as i32,
+        centre.y + (radius * 0.72) as i32,
+    );
+    canvas.draw_line(
+        from,
+        Point::new(rect.right, rect.bottom),
+        color,
+        stroke * 2.0,
+    );
+}
+
+/// An open hand: a palm and four fingers, with a thumb. Pan.
+fn open_hand(canvas: &mut dyn Canvas, rect: Rect, color: Color, stroke: f32) {
+    let (w, h) = (rect.width(), rect.height());
+    let at = |fx: f32, fy: f32| {
+        Point::new(
+            rect.left + (w as f32 * fx) as i32,
+            rect.top + (h as f32 * fy) as i32,
+        )
+    };
+    canvas.fill_polygon(
+        &[at(0.2, 0.5), at(0.85, 0.5), at(0.8, 0.85), at(0.5, 1.0), at(0.3, 0.85)],
+        color,
+    );
+    for (fx, top) in [(0.3, 0.2), (0.45, 0.08), (0.6, 0.05), (0.75, 0.15)] {
+        canvas.draw_line(at(fx, 0.55), at(fx, top), color, stroke * 1.7);
+    }
+    canvas.draw_line(at(0.22, 0.65), at(0.02, 0.4), color, stroke * 1.7);
 }
 
 /// A rectangle outline made of dashes, the look of a selection.

@@ -26,23 +26,29 @@ fn a_stroke_is_one_undo_step_and_interpolates() {
 fn a_shape_preview_is_not_an_undo_step() {
     let mut model = model();
     model.set_tool(Tool::Line);
+    model.set_size(1);
     model.begin(0, 0, Side::Primary);
     model.extend(10, 10);
-    assert!(model.preview().is_some());
+    assert_ne!(model.bitmap().get(5, 5), Some(WHITE), "the layer shows it");
     assert_eq!(model.history().undo_len(), 0, "a preview is not history");
+    model.extend(10, 0);
+    assert_eq!(model.bitmap().get(5, 5), Some(WHITE), "the old frame is gone");
     model.end();
-    assert!(model.preview().is_none());
     assert_eq!(model.history().undo_len(), 1);
 }
 
 #[test]
-fn a_cancelled_drag_does_not_leave_the_tool_stuck() {
+fn a_cancelled_drag_leaves_nothing_behind() {
     let mut model = model();
     model.begin(2, 2, Side::Primary);
+    model.extend(20, 20);
+    assert_ne!(model.bitmap().get(2, 2), Some(WHITE));
     model.cancel();
     assert!(!model.is_dragging());
+    assert_eq!(model.bitmap().get(2, 2), Some(WHITE));
+    assert_eq!(model.history().undo_len(), 0);
     model.extend(20, 20);
-    assert_eq!(model.history().undo_len(), 1);
+    assert_eq!(model.history().undo_len(), 0, "no drag to extend");
 }
 
 #[test]

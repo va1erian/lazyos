@@ -3,65 +3,48 @@
 //! The document: tools, colours, the bitmap and the undo history.
 
 use std::cell::Cell;
+use std::rc::Rc;
 
-use super::history::UndoCapture;
+use super::text::{TextRasterizer, TextStyle};
+use super::tools::{BrushOptions, FillOptions, GradientOptions, PickerOptions, ShapeOptions};
 use super::{
     Bitmap, CombineMode, DEFAULT_CAP, Damage, Document, History, Pixel, Rect, Reserved, Selection,
     Side, Tool, WHITE, check_budget,
 };
 
 mod adjust;
-mod alpha;
 mod clip;
 mod edit;
+mod fills;
 mod float;
 mod image_ops;
 mod io;
 mod layers;
+mod live;
 mod ops;
 mod select;
+mod shape_drag;
+mod strokes;
+mod text;
+mod tool_options;
 
 pub use clip::Clipboard;
-
-/// What a rubber-banded shape preview is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PreviewKind {
-    /// A line.
-    Line,
-    /// A rectangle outline.
-    Rectangle,
-    /// An ellipse outline.
-    Ellipse,
-}
-
-/// A live shape preview, in canvas pixels; it is not part of the bitmap or the
-/// history.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Preview {
-    /// Which shape to draw.
-    pub kind: PreviewKind,
-    /// The drag anchor.
-    pub from: (i32, i32),
-    /// The current drag end.
-    pub to: (i32, i32),
-    /// The outline colour.
-    pub color: Pixel,
-    /// The outline thickness in pixels.
-    pub diameter: u32,
-}
+pub use text::TextKey;
 
 /// An in-progress drag.
 enum Drag {
-    /// A freehand stroke; the layer already carries the pixels drawn so far.
-    Freehand {
-        layer: usize,
-        last: (i32, i32),
-        diameter: u32,
-        color: Pixel,
-        capture: UndoCapture,
+    /// A Pencil, Paintbrush or Eraser stroke; the layer already carries the
+    /// pixels drawn so far.
+    Stroke(strokes::Stroke),
+    /// A shape being rubber-banded; the layer shows it, live.
+    Shape(shape_drag::ShapeDrag),
+    /// A gradient being dragged out; the layer shows it, live.
+    Gradient(fills::GradientDrag),
+    /// The text block being dragged by its handle.
+    MoveText {
+        start: (i32, i32),
+        from: (i32, i32),
     },
-    /// A shape being rubber-banded; the layer is untouched until release.
-    Shape { start: (i32, i32), side: Side },
     /// A rectangle or ellipse selection being dragged out; the document's
     /// selection already shows the result.
     Select {
@@ -91,11 +74,26 @@ pub struct Model {
     doc: Document,
     history: History,
     tool: Tool,
-    size: u32,
+    /// The tool before this one, where the Color Picker can switch back to.
+    prev_tool: Tool,
     primary: Pixel,
     secondary: Pixel,
-    preview: Option<Preview>,
+    /// The Paintbrush and Eraser; its width is the shapes' too.
+    brush: BrushOptions,
+    shape: ShapeOptions,
+    fill: FillOptions,
+    gradient: GradientOptions,
+    picker: PickerOptions,
+    text_style: TextStyle,
+    /// Where the last Pencil stroke ended, for Shift-click lines.
+    pencil_last: Option<(i32, i32)>,
     drag: Option<Drag>,
+    /// The Text tool's rasterizer, if the host supplied fonts.
+    rasterizer: Option<Rc<dyn TextRasterizer>>,
+    /// The text block being edited.
+    text: Option<text::TextSession>,
+    text_geom: Option<text::TextGeom>,
+    text_handle_px: u32,
     revision: u64,
     /// What changed since the view last called [`Model::take_damage`].
     damage: Cell<Damage>,
@@ -138,11 +136,28 @@ impl Model {
             doc,
             history,
             tool: Tool::Pencil,
-            size: 4,
+            prev_tool: Tool::Pencil,
             primary: [0, 0, 0, 255],
             secondary: WHITE,
-            preview: None,
+            brush: BrushOptions {
+                width: 4,
+                ..BrushOptions::default()
+            },
+            shape: ShapeOptions {
+                width: 4.0,
+                radius: 12.0,
+                ..ShapeOptions::default()
+            },
+            fill: FillOptions::default(),
+            gradient: GradientOptions::default(),
+            picker: PickerOptions::default(),
+            text_style: TextStyle::default(),
+            pencil_last: None,
             drag: None,
+            rasterizer: None,
+            text: None,
+            text_geom: None,
+            text_handle_px: 8,
             revision: 1,
             damage: Cell::new(Damage::All),
             floating_bytes: 0,
@@ -235,9 +250,9 @@ impl Model {
         self.tool
     }
 
-    /// The brush diameter.
+    /// The width of the brush, the eraser and the shapes.
     pub fn size(&self) -> u32 {
-        self.size
+        self.brush.width
     }
 
     /// The primary colour.
@@ -250,11 +265,6 @@ impl Model {
         self.secondary
     }
 
-    /// The live shape preview, if a shape is being dragged.
-    pub fn preview(&self) -> Option<Preview> {
-        self.preview
-    }
-
     /// The history, for the toolbar's enabled state.
     pub fn history(&self) -> &History {
         &self.history
@@ -263,3 +273,6 @@ impl Model {
 
 #[cfg(test)]
 mod image_tests;
+
+#[cfg(test)]
+mod alpha_tests;

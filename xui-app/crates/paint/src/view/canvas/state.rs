@@ -7,7 +7,7 @@
 use xui_core::geometry::Rect;
 use xui_core::image::Image;
 
-use crate::model::{Damage, Document, Edge, Preview};
+use crate::model::{Damage, Document, Edge, Rect as PixelRect, Tool};
 use crate::render::{self, FlatCache};
 use crate::viewport::Viewport;
 
@@ -20,10 +20,22 @@ pub struct CanvasState {
     /// The screen image and where it sits in the view.
     screen: Option<(Image, (i32, i32))>,
     screen_stale: bool,
-    pub(super) preview: Option<Preview>,
+    /// The active tool: Pan drags the view, Zoom shows a marquee.
+    pub(super) tool: Tool,
     /// The pointer in picture pixels, while it is over the canvas.
     pub(super) cursor: Option<(i32, i32)>,
+    /// The brush diameter, for the ring under the pointer.
     pub(super) brush: u32,
+    /// Whether a canvas drag is in progress (Esc then cancels it).
+    pub(super) dragging: bool,
+    /// Whether a text block is being edited (keys and characters go to it).
+    pub(super) editing: bool,
+    /// The text caret as `(x, y, height)` in picture pixels.
+    pub(super) caret: Option<(f32, f32, f32)>,
+    /// The text block's box and its drag handle, in picture pixels.
+    pub(super) block: Option<(PixelRect, PixelRect)>,
+    /// The Zoom tool's rubber band, corner to corner in picture pixels.
+    pub(super) marquee: Option<((i32, i32), (i32, i32))>,
     grid: bool,
     /// Whether Space is held (a drag then pans).
     pub(super) space: bool,
@@ -45,9 +57,14 @@ impl Default for CanvasState {
             view: (0, 0),
             screen: None,
             screen_stale: true,
-            preview: None,
+            tool: Tool::Pencil,
             cursor: None,
             brush: 1,
+            dragging: false,
+            editing: false,
+            caret: None,
+            block: None,
+            marquee: None,
             grid: true,
             space: false,
             pan: None,
@@ -111,6 +128,12 @@ impl CanvasState {
             self.grid = grid;
             self.screen_stale = true;
         }
+    }
+
+    /// The picture pixels `a` to `b` (inclusive corners) fill the view.
+    pub(super) fn zoom_to_rect(&mut self, a: (i32, i32), b: (i32, i32)) -> bool {
+        let rect = PixelRect::from_points(a, b);
+        self.change_viewport(|vp, doc, view| vp.fit_rect(rect, doc, view))
     }
 
     /// The picture pixel at the top-left of the view, kept inside the picture:

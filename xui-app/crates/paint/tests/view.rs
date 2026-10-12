@@ -100,10 +100,11 @@ fn colour_clicks_take_effect_and_the_size_follows_the_keys() {
             assert_eq!(seen.primary, RED);
         }
         press(stage, Key::from_code(0xDB)); // `[`
-        assert_eq!(observer.borrow().size, 8);
+        assert_eq!(observer.borrow().size, 12);
         press(stage, Key::from_code(0xDD)); // `]`
         press(stage, Key::from_code(0xDD));
-        assert_eq!(observer.borrow().size, 16, "clamped at the largest");
+        assert_eq!(observer.borrow().size, 20, "two notches up from 12");
+        stage.emit(Msg::Size(16));
 
         // A shape preview must not be an undo step.
         let (x, y) = areas.canvas_at(120, 80);
@@ -119,7 +120,7 @@ fn colour_clicks_take_effect_and_the_size_follows_the_keys() {
     // A 16px red line from canvas (120, 80) to (300, 80).
     let areas = session_areas();
     let (x, y) = areas.canvas_at(200, 80);
-    assert!(is(&image, x as u32, y as u32 + 8, RED), "the shape is red");
+    assert!(is(&image, x as u32, y as u32 + 7, RED), "the shape is red");
     assert!(
         is(&image, x as u32, y as u32 - 7, RED),
         "the shape is 16px thick"
