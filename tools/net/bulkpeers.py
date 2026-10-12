@@ -49,6 +49,10 @@ class Transfer:
     #: Seconds from the connection's accept to its header line.
     header_s: float = 0.0
     seconds: float = 0.0
+    #: The client's address (`tools/net/lan_bulk.py` checks which interface
+    #: of a real box the traffic came from) and whether the connection ended.
+    peer: str = ""
+    done: bool = False
 
     @property
     def mbps(self) -> float:
@@ -61,6 +65,9 @@ class BulkServer:
 
     port: int
     transfers: list[Transfer] = field(default_factory=list)
+    #: The address to bind: the loopback for QEMU's gateway, `0.0.0.0` for a
+    #: box on the LAN (`tools/net/lan_bulk.py`).
+    host: str = "127.0.0.1"
 
     def __post_init__(self) -> None:
         self._cache: dict[tuple[int, int], bytes] = {}
@@ -77,7 +84,7 @@ class BulkServer:
 
     def start(self) -> None:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("127.0.0.1", self.port))
+        sock.bind((self.host, self.port))
         sock.listen(8)
         sock.settimeout(0.5)
         self._sock = sock
@@ -91,24 +98,26 @@ class BulkServer:
     def _serve(self) -> None:
         while not self._stop.is_set():
             try:
-                conn, _ = self._sock.accept()
+                conn, peer = self._sock.accept()
             except (TimeoutError, socket.timeout):
                 continue
             except OSError:
                 return
-            threading.Thread(target=self._handle, args=(conn, time.perf_counter()), daemon=True).start()
+            threading.Thread(target=self._handle, args=(conn, time.perf_counter(), peer[0]),
+                             daemon=True).start()
 
-    def _handle(self, conn: socket.socket, accepted: float) -> None:
+    def _handle(self, conn: socket.socket, accepted: float, peer: str = "") -> None:
         conn.settimeout(120)
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 << 20)
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4 << 20)
+        record = None
         try:
             header, rest = self._header(conn)
             parts = header.split()
             if len(parts) != 3 or parts[0] not in ("PUT", "GET"):
                 conn.sendall(b"BAD header\n")
                 return
-            record = Transfer(parts[0], int(parts[1]), int(parts[2]))
+            record = Transfer(parts[0], int(parts[1]), int(parts[2]), peer=peer)
             record.header_s = time.perf_counter() - accepted
             with self._lock:
                 self.transfers.append(record)
@@ -119,6 +128,8 @@ class BulkServer:
         except (OSError, ValueError):
             pass
         finally:
+            if record is not None:
+                record.done = True
             conn.close()
 
     @staticmethod

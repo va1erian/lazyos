@@ -222,6 +222,19 @@ one. MB/s (the host's timing and the guest's) and the Linux client's `connect`
 time are printed and written to `shots/bulk/bulk.json`; the history is
 [`docs/perf/network.md`](../../docs/perf/network.md).
 
+### On a real box over the LAN (`lan_bulk.py`)
+
+`python tools/net/lan_bulk.py --box 192.168.1.81` measures a real LazyOS box
+(the `dbgd` image, [`docs/dbgd.md`](../../docs/dbgd.md)) over Wi-Fi or wired
+against this host: it checks over `dbgd` that the interface under test holds
+the default route, serves the same `bulkpeers` server on every address of this
+host, prints the `netbulk` line a person types on the box, and cross-checks the
+server's record with the box's own `NETBULK:` output read back over `dbgd`.
+`--dry-run-qemu` proves the tool without hardware. Method, results and the
+steps for a person at the box: "Wi-Fi on real hardware" in
+[`docs/perf/network.md`](../../docs/perf/network.md); tests:
+`python tools/net/test_lan_bulk.py`.
+
 ## Stage T3: HTTPS (`curl`, `wget`, `fetch`)
 
 `python tools/net/tls_run.py` (or `run.py --tls`) is the TLS harness of
