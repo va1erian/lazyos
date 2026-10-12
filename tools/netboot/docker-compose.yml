@@ -1,0 +1,26 @@
+# The LazyOS netboot registry as a Cosmos Cloud (or plain docker compose) service.
+#
+#   docker compose up -d                 # builds the image from this directory
+#   or, with the published image:
+#   image: ghcr.io/va1erian/lazyos-registry:latest   (and drop the build line)
+#
+# The one volume is the whole state: builds, channels.json, machines.json,
+# keys.json, access.log. Back it up; register the dev machine's public key
+# in keys.json (see README.md) before the first push.
+services:
+  registry:
+    build: .
+    image: lazyos-registry
+    container_name: lazyos-registry
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    volumes:
+      - lazyos-registry:/srv/lazyos
+    environment:
+      LAZYOS_REGISTRY_KEEP: "10"
+      # LAZYOS_REGISTRY_LOG: "-"                     # stdout, for Cosmos's log view
+      # LAZYOS_REGISTRY_URL: "http://192.168.1.5:8420"   # only for the optional iPXE scripts
+
+volumes:
+  lazyos-registry:
