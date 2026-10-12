@@ -76,9 +76,9 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 | **R0** Plumbing | firmware fetch + `fhs::FIRMWARE` + `libs/fwload`; `LAZYOS_WIFI=1`; `devd` row for `10ec:c822`; `run_demo.py --wifi`, GUI; `THIRD_PARTY.md` | `cargo test -p fwload -p devmatch`; the file lands at its path with its licence |
 | **R1** Chip library | `libs/rtw88`: power on, firmware download, MAC/BB/RF init, channel switch, TX/RX descriptors, PCIe rings, CAM | host tests against the fake bus, sequences compared with upstream's |
 | **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | **Passed** (2026-10-11): `tools/wifi/sim_run.py --station wlanmd`, six checks: scan, wrong passphrase, open and WPA2 joins with DHCP and ping over `wlan0`, rekey kept, rejoin after beacon loss and deauth |
-| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
-| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`) | `wifictl scan` lists the home networks |
-| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (built; passes on the simulator) | DHCP lease and `ping` over `wlan0` |
+| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`; **passed on the Kaby Lake box, 2026-10-12**) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
+| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`; **passed on the Kaby Lake box**) | `wifictl scan` lists the home networks |
+| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (**passed on the Kaby Lake box**: WPA2, 5 GHz; the AMD NUC itself is still to boot) | DHCP lease and `ping` over `wlan0` |
 
 
 ## 5. The test loop on the NUC
@@ -280,6 +280,25 @@ the BSS's lowest basic rate, read from its beacons and association response
 rate adaptation is given the BSS's legacy rates. The same soft-MAC passes
 `tools/wifi/sim_run.py --station wlanmd` against the simulated radio, so on
 the card only this adapter and `libs/rtw88` are new.
+
+### 5.6 First result on real hardware (2026-10-12)
+
+The stick built from `3ffbbeb01` (`run_demo.py --desktop --wifi
+--dbgd-control --usb-image --build-only`) joined a home WPA2 network on the
+first boot. The machine was the **Kaby Lake mini PC**
+([compat/kabylake](compat/kabylake/README.md), Intel `8086:5904`/`5916`),
+which carries the same RTL8822CE (`10ec:c822`) as the AMD NUC; read over
+`dbgd` on the Wi-Fi address itself:
+
+| What | Evidence |
+|---|---|
+| Driver | `devices`: `10ec:c822 wireless wifid claimed _wifi(911)`; RTL8168 `netdrv` beside it |
+| Station | `system/net/wlan0/wifi/state`: `Connected`, SSID present, 5500 MHz (channel 100, 5 GHz), RSSI -30 dBm |
+| Address | `system/net/wlan0/addr`: 192.168.1.46/24, gateway 192.168.1.254 (DHCP) |
+| Health | `msg-services`: `wifid`, `wlanmd`, `netd`, `keyd`, `netdrv` running, 0 restarts |
+
+The AMD NUC (Ryzen 5 3501U) has the same card but its own PCIe root, MSI
+and firmware: boot the same stick there to close R3-R5 for it.
 
 ## 6. The chip package (R1)
 
