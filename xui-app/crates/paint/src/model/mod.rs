@@ -18,6 +18,9 @@ mod raster;
 mod size;
 mod tool;
 
+pub mod text;
+pub mod tools;
+
 pub use bitmap::{Bitmap, MAX_SIDE, MIN_SIDE, Pixel, WHITE};
 pub use blend::{div255, source_over};
 pub use damage::Damage;

@@ -118,6 +118,10 @@ crates/xui-paint/src/
     document/image_ops.rs  resize, canvas size, crop, flip/rotate, flatten, merge down
     document/adjust.rs     Adjustments on the active layer; document/io.rs open/save bytes
     ops/              pure image operations: resample, flips/turns, adjustments (P5)
+    tools/            P4 building blocks: StrokeBuffer, brush, AA shapes (tiny-skia), gradient,
+                      bucket mask, picker, option structs; not yet wired to Model
+    text/             TextRasterizer trait, TextEdit; `text` feature adds the cosmic-text rasterizer
+                      (off by default; the default build links tiny-skia only)
     format/           OpenRaster, BMP, magic-byte dispatch, a stored/inflate zip (P6)
   view/               xui glue: PaintApp, menu, shortcuts, panels, canvas
     app.rs            Msg -> model glue and status bar wiring
