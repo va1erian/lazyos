@@ -103,6 +103,12 @@ impl Operation {
             Operation::WifiSystem(WifiChange::Delete { name }) => {
                 format!("Delete the Wi-Fi password '{name}' kept for all users")
             }
+            Operation::WifiAdd {
+                ssid, wpa2, hidden, ..
+            } => crate::wifi::add_summary(ssid, *wpa2, *hidden),
+            Operation::WifiForget { id } => {
+                format!("Forget the Wi-Fi network '{id}' kept for all users")
+            }
         }
     }
 }

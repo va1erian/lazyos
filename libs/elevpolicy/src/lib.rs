@@ -27,6 +27,8 @@
 //! | `net.config` | card, address, gateway, dns | `confd` `Set`/`Delete` of `sys/net/<card>/*` |
 //! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
 //! | `net.wifi.system` | `store`, name, passphrase; or `delete`, name | `keyd` `StoreSecret`/`DeleteSecret` in the `system` scope |
+//! | `net.wifi.add` | SSID, `open`/`wpa2`, hidden `1`/`0`, passphrase | `keyd` `StoreSecret` (`system`) under a new id, then `wlanmd` `AddNetwork` (scope `System`) |
+//! | `net.wifi.forget` | profile id | `wlanmd` `Forget`, then `keyd` `DeleteSecret` (`system`) |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -77,10 +79,13 @@ mod summary;
 mod tests;
 #[cfg(test)]
 mod tests_flood;
+#[cfg(test)]
+mod tests_wifi;
 pub mod text;
 #[cfg(test)]
 mod text_tests;
 mod values;
+pub mod wifi;
 
 /// How long the elevated editor's view stands (PIT ticks, 100 Hz): 5
 /// minutes. Changes never stand ([`Class::Once`]).
@@ -189,6 +194,18 @@ pub enum Operation {
         name: String,
     },
     WifiSystem(WifiChange),
+    /// A Wi-Fi network for every user (`wifi.rs`): `elevd` picks the id.
+    WifiAdd {
+        ssid: String,
+        wpa2: bool,
+        hidden: bool,
+        /// Empty for an open network.
+        passphrase: String,
+    },
+    /// Forget a Wi-Fi network of every user, and its secret.
+    WifiForget {
+        id: String,
+    },
 }
 
 /// What `net.wifi.system` does to the machine's own Wi-Fi secrets, the ones
@@ -231,6 +248,8 @@ pub const NAMES: &[&str] = &[
     "net.config",
     "service.restart",
     "net.wifi.system",
+    "net.wifi.add",
+    "net.wifi.forget",
 ];
 
 impl Operation {
@@ -420,6 +439,8 @@ impl Operation {
                 };
                 Operation::WifiSystem(change)
             }
+            "net.wifi.add" => wifi::parse_add(args)?,
+            "net.wifi.forget" => wifi::parse_forget(args)?,
             _ => return Err("not an operation elevd performs"),
         };
         Ok(op)
@@ -449,6 +470,8 @@ impl Operation {
             Operation::NetConfig { .. } => 14,
             Operation::ServiceRestart { .. } => 15,
             Operation::WifiSystem(_) => 16,
+            Operation::WifiAdd { .. } => 17,
+            Operation::WifiForget { .. } => 18,
         }
     }
 

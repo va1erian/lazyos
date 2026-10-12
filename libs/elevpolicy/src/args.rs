@@ -54,6 +54,18 @@ impl Operation {
             Operation::WifiSystem(WifiChange::Delete { name }) => {
                 alloc::vec![String::from("delete"), name.clone()]
             }
+            Operation::WifiAdd {
+                ssid,
+                wpa2,
+                hidden,
+                passphrase,
+            } => alloc::vec![
+                ssid.clone(),
+                String::from(if *wpa2 { "wpa2" } else { "open" }),
+                String::from(if *hidden { "1" } else { "0" }),
+                passphrase.clone()
+            ],
+            Operation::WifiForget { id } => one(id),
         }
     }
 }

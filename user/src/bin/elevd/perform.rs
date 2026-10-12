@@ -130,6 +130,13 @@ pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done
                     .map_err(Refusal::of)?;
             done(format!("Restarted {name} (was pid {pid})"))
         }
+        Operation::WifiAdd {
+            ssid,
+            wpa2,
+            hidden,
+            passphrase,
+        } => super::wifi::add(ssid, *wpa2, *hidden, passphrase),
+        Operation::WifiForget { id } => super::wifi::forget(id),
         Operation::WifiSystem(change) => {
             // `keyd` takes a `system` secret from `elevd`'s identity alone,
             // so this call is what the approval bought. The detail names the

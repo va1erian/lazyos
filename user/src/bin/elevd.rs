@@ -54,6 +54,8 @@ mod package;
 mod perform;
 #[path = "elevd/sessions.rs"]
 mod sessions;
+#[path = "elevd/wifi.rs"]
+mod wifi;
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

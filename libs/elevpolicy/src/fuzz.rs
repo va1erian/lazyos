@@ -40,8 +40,11 @@ pub fn run(input: &[u8]) {
     // The password never shapes the prompt text: the same operation with
     // another password reads the same.
     let mut other = op.clone();
-    if let Operation::AccountCreate { secret, .. } | Operation::AccountPassword { secret, .. } =
-        &mut other
+    if let Operation::AccountCreate { secret, .. }
+    | Operation::AccountPassword { secret, .. }
+    | Operation::WifiAdd {
+        passphrase: secret, ..
+    } = &mut other
     {
         *secret = String::from("another password");
         assert_eq!(
@@ -79,9 +82,11 @@ mod seeded {
 
     #[test]
     fn generated_requests_are_safe() {
-        let args: [&[u8]; 14] = [
+        let args: [&[u8]; 16] = [
             b"admin",
             b"bob",
+            b"wpa2",
+            b"w0123456789ab",
             b"_x",
             b"user",
             b"1",

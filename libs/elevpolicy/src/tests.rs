@@ -14,7 +14,7 @@ fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
 
 #[test]
 fn every_row_parses_and_round_trips() {
-    let rows: [(&str, &[&str]); 19] = [
+    let rows: [(&str, &[&str]); 23] = [
         ("pkg.install", &["/transient/demo.lzp"]),
         ("pkg.update-core", &["/home/user/counter.lzp"]),
         ("pkg.remove", &["org.lazy.demo"]),
@@ -37,6 +37,10 @@ fn every_row_parses_and_round_trips() {
         ("service.restart", &["inputd"]),
         ("net.wifi.system", &["store", "office", "correct horse"]),
         ("net.wifi.system", &["delete", "office"]),
+        ("net.wifi.add", &["LazyWPA2", "wpa2", "0", "lazy-wpa2-pass"]),
+        ("net.wifi.add", &["Cafe Wifi", "open", "0", ""]),
+        ("net.wifi.add", &["Hidden", "wpa2", "1", "correct horse"]),
+        ("net.wifi.forget", &["w0123456789ab"]),
     ];
     for (name, items) in rows {
         let op = parse(name, items).unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -44,7 +48,7 @@ fn every_row_parses_and_round_trips() {
         assert_eq!(Operation::parse(name, &op.args()), Ok(op.clone()), "{name}");
         assert!(!op.summary().is_empty());
     }
-    assert_eq!(NAMES.len(), 17);
+    assert_eq!(NAMES.len(), 19);
 }
 
 #[test]
