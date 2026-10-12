@@ -154,13 +154,6 @@ impl PaintApp {
         PaintApp::construct(ui, storage, observer, files, None)
     }
 
-    /// Sets the directory the Open and Save As dialogs start in.
-    pub fn set_start_dir(&self, dir: impl Into<PathBuf>) {
-        if let Some(files) = &self.files {
-            files.set_start_dir(&dir.into());
-        }
-    }
-
     /// Like [`PaintApp::build`], additionally reporting state to `observer`.
     pub fn build_observed(
         ui: &mut Ui<Msg>,

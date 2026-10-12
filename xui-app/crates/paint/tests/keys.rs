@@ -78,10 +78,10 @@ fn tool_keys_select_tools_and_a_repeated_key_cycles_the_shapes() {
 }
 
 #[test]
-fn keys_of_unbuilt_features_say_so_in_the_status_bar() {
+fn adjustment_keys_report_in_the_status_bar_and_leave_the_tool_alone() {
     session(|stage, observer, _| {
-        press(stage, Key::T);
-        assert_eq!(status(observer, 3), "Text is not available yet");
+        ctrl_shift(stage, Key::G);
+        assert_eq!(status(observer, 3), "Black and White");
         assert_eq!(
             observer.borrow().tool,
             Tool::Pencil,

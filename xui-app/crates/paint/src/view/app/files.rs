@@ -35,6 +35,13 @@ impl PaintApp {
             || self.files.as_ref().is_some_and(|files| files.is_open())
     }
 
+    /// Sets the directory the Open and Save As dialogs start in.
+    pub fn set_start_dir(&self, dir: impl Into<PathBuf>) {
+        if let Some(files) = &self.files {
+            files.set_start_dir(&dir.into());
+        }
+    }
+
     /// The document's file name, or `untitled`.
     pub(super) fn doc_name(&self) -> String {
         self.current_path
