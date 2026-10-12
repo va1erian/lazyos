@@ -28,13 +28,22 @@ import re
 import shutil
 import subprocess
 import sys
+import importlib.util
 import threading
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lazygui.limits import limit_env  # noqa: E402
-
 ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def limit_env(entries):
+    """`lazygui.limits.limit_env`, loaded from its file: importing the
+    package would import its Tkinter window, which a CI Python lacks."""
+    path = ROOT / "tools" / "lazygui" / "limits.py"
+    spec = importlib.util.spec_from_file_location("lazygui_limits", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.limit_env(entries)
+
 FIXTURE_DIR = ROOT / "target" / "abi" / "fixtures"
 # One image per row, copied out of `target/lazyos.img` after its build, so the
 # boots can run side by side while the next row's image is built.
