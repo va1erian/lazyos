@@ -7,6 +7,7 @@ mod app;
 mod canvas;
 mod coloredit;
 mod command;
+mod dialogs;
 mod icons;
 mod layerprops;
 mod layers;
@@ -19,9 +20,11 @@ mod sidebar;
 mod sysclip;
 mod toolbar;
 
-pub use app::{PaintApp, Setup};
+pub use app::{PaintApp, Report, Setup};
+pub use canvas::AdjustPreview;
 pub use canvas::{CanvasMsg, PaintCanvas};
 pub use command::Command;
+pub use dialogs::{AdjustKind, AdjustMsg, CanvasSizeMsg, ResizeMsg};
 pub use layers::LayersPanel;
 pub use layout::{COLORS_WIDTH, Observer};
 pub use options::{OptMsg, Shown, step_size, uses_size};
@@ -131,10 +134,20 @@ pub enum Msg {
     Probe,
     /// Load through the storage.
     Open,
-    /// Ask for a new canvas size (opens the prompt).
-    ResizeAsk,
-    /// The resize prompt was accepted; the text is in the app's slot.
-    ResizeChosen,
+    /// Open the Canvas Size dialog.
+    CanvasSizeAsk,
+    /// The Resize dialog raised something.
+    Resize(ResizeMsg),
+    /// The Canvas Size dialog raised something.
+    CanvasSize(CanvasSizeMsg),
+    /// An adjustment dialog (Brightness/Contrast or Hue/Saturation) raised
+    /// something.
+    Adjust(AdjustKind, AdjustMsg),
+    /// The "Save changes?" card was dismissed (command 0 is Save, 1 is Don't
+    /// Save).
+    Unsaved(xui_core::widget::TaskDialogAction),
+    /// The "Flatten image?" card was dismissed (command 0 is Flatten).
+    Flatten(xui_core::widget::TaskDialogAction),
     /// Load the start-up file through the storage, without a dialog.
     OpenStartup,
     /// The Open picker returned a path (held in the app's slot).

@@ -175,6 +175,12 @@ impl Command {
                 | Command::FlipLayerHorizontal
                 | Command::FlipLayerVertical
                 | Command::LayerProperties
+                | Command::ResizeImage
+                | Command::InvertColors
+                | Command::BlackAndWhite
+                | Command::Sepia
+                | Command::BrightnessContrast
+                | Command::HueSaturation
         )
     }
 

@@ -4,20 +4,37 @@
 //! as one `Pixels` edit.
 
 use super::Model;
-use crate::model::ops::Adjustment;
+use crate::model::ops::{Adjustment, Coverage};
+use crate::model::selection::Selection;
 use crate::model::{Edit, Rect};
 
 impl Model {
-    /// Applies `adjustment` to the whole active layer.
+    /// Applies `adjustment` to the active layer, clipped to the selection
+    /// (through its soft edge) when there is one, else to the whole layer.
     pub fn adjust(&mut self, adjustment: Adjustment) -> Result<(), String> {
-        let rect = self.doc.bounds();
-        self.adjust_in(adjustment, rect)
+        self.settle();
+        match self.doc.selection().cloned() {
+            Some(selection) => self.adjust_masked(adjustment, selection.bounds(), Some(&selection)),
+            None => {
+                let rect = self.doc.bounds();
+                self.adjust_masked(adjustment, rect, None)
+            }
+        }
     }
 
     /// Applies `adjustment` to `rect` (clipped to the layer) of the active
-    /// layer. P2 passes the selection's bounds here and a mask alongside.
-    /// Nothing is recorded when no pixel changes.
+    /// layer, ignoring any selection. Nothing is recorded when no pixel
+    /// changes.
     pub fn adjust_in(&mut self, adjustment: Adjustment, rect: Rect) -> Result<(), String> {
+        self.adjust_masked(adjustment, rect, None)
+    }
+
+    fn adjust_masked(
+        &mut self,
+        adjustment: Adjustment,
+        rect: Rect,
+        selection: Option<&Selection>,
+    ) -> Result<(), String> {
         self.end();
         let rect = rect.intersect(self.doc.bounds());
         if rect.is_empty() {
@@ -34,7 +51,12 @@ impl Model {
         };
         let mut after = before.clone();
         let whole = after.rect();
-        adjustment.apply(&mut after, whole);
+        // The working copy starts at `rect`; the selection is in picture
+        // coordinates.
+        let coverage =
+            |x: i32, y: i32| selection.map_or(255, |s| s.coverage(x + rect.x0, y + rect.y0));
+        let mask: Option<Coverage<'_>> = selection.map(|_| &coverage as Coverage<'_>);
+        adjustment.apply_masked(&mut after, whole, mask);
         if after == before {
             return Ok(());
         }

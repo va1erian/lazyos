@@ -72,8 +72,9 @@ impl PaintApp {
             Command::Paste => self.paste(ui, PasteKind::Float),
             Command::PasteNewLayer => self.paste(ui, PasteKind::NewLayer),
             Command::PasteNewImage => self.paste(ui, PasteKind::NewImage),
+            Command::ResizeImage => self.open_resize(ui),
             other => {
-                if !self.layer_command(ui, other) {
+                if !self.layer_command(ui, other) && !self.adjust_command(ui, other) {
                     self.message = Some(format!("{} is not available yet", other.label()));
                 }
             }
@@ -189,6 +190,8 @@ impl PaintApp {
                 if result.is_ok() {
                     self.current_path = None;
                     self.cursor = None;
+                    // A picture that came from the clipboard has no file.
+                    self.saved_revision = None;
                 }
                 result
             }

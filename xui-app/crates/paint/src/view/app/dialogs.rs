@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-//! The modal dialogs Paint opens: the Open/Save As pickers and the Resize
-//! prompt.
+//! The modal dialogs Paint opens: the Open/Save As pickers, the About box and
+//! the oversized-paste question.
 //!
 //! [`Msg`] is `Copy`, so a dialog's payload (a path, the typed size) never rides
 //! in the message: the dialog's mapper parks it in a shared slot and raises a
@@ -34,14 +34,19 @@ impl FileDialogs {
         let open = FileDialog::open_file(ui, "Open")?
             .file_system(Rc::clone(&fs))
             .require_existing(true)
+            .filter("Pictures", &["png", "jpg", "jpeg", "bmp", "ora"])
             .filter("PNG images", &["png"])
+            .filter("JPEG images", &["jpg", "jpeg"])
+            .filter("Bitmaps", &["bmp"])
+            .filter("OpenRaster images", &["ora"])
             .filter("All files", &[])
             .on_accept(accept(&chosen, Msg::OpenChosen))
             .on_cancel(|| Some(Msg::DialogClosed));
         let save = FileDialog::save_file(ui, "Save As")?
             .file_system(Rc::clone(&fs))
+            .filter("OpenRaster images (layers)", &["ora"])
             .filter("PNG images", &["png"])
-            .filter("All files", &[])
+            .filter("Bitmaps", &["bmp"])
             .on_accept(accept(&chosen, Msg::SaveChosen))
             .on_cancel(|| Some(Msg::DialogClosed));
         Ok(FileDialogs {
@@ -93,46 +98,6 @@ fn accept(chosen: &Slot<PathBuf>, msg: Msg) -> impl Fn(PathBuf) -> Option<Msg> +
     move |path| {
         *chosen.borrow_mut() = Some(path);
         Some(msg)
-    }
-}
-
-/// The Resize prompt. `Dialog::prompt` seeds its field once at build time, so a
-/// fresh dialog is built per open to show the current size; the old one (closed
-/// by then) is dropped, which removes its nodes.
-#[derive(Default)]
-pub(super) struct ResizePrompt {
-    dialog: Option<Dialog<Msg>>,
-    text: Slot<String>,
-}
-
-impl ResizePrompt {
-    pub(super) fn is_open(&self) -> bool {
-        self.dialog.as_ref().is_some_and(Dialog::is_open)
-    }
-
-    pub(super) fn show(&mut self, ui: &Ui<Msg>, (width, height): (u32, u32)) -> Result<()> {
-        let text = Rc::clone(&self.text);
-        let dialog = Dialog::prompt(
-            ui,
-            "Resize canvas",
-            "New size as WIDTHxHEIGHT (1-1024 pixels)",
-            &format!("{width}x{height}"),
-        )?
-        .on_action(move |action| match action {
-            DialogAction::Accept(entered) => {
-                *text.borrow_mut() = Some(entered);
-                Some(Msg::ResizeChosen)
-            }
-            DialogAction::Cancel => Some(Msg::DialogClosed),
-        });
-        dialog.open();
-        self.dialog = Some(dialog);
-        Ok(())
-    }
-
-    /// The text the last accepted prompt returned, once.
-    pub(super) fn take_text(&mut self) -> Option<String> {
-        self.text.borrow_mut().take()
     }
 }
 

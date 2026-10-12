@@ -24,6 +24,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("HOLIDAY.JPEG", "image/jpeg"),
         ("ANIM.GIF", "image/gif"),
         ("ICON.BMP", "image/bmp"),
+        ("DRAWING.ORA", "image/openraster"),
         ("LETTER.LZW", "application/x-lazywriter"),
         ("BUNDLE.ZIP", "application/zip"),
         ("SRC.TAR.GZ", "application/gzip"),

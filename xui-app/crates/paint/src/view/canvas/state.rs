@@ -7,6 +7,7 @@
 use xui_core::geometry::Rect;
 use xui_core::image::Image;
 
+use super::tweak::AdjustPreview;
 use crate::model::{Damage, Document, Edge, Rect as PixelRect, Tool};
 use crate::render::{self, FlatCache};
 use crate::viewport::Viewport;
@@ -46,6 +47,8 @@ pub struct CanvasState {
     pub(super) sel_rev: u64,
     /// How far the ants have crawled.
     pub(super) phase: u32,
+    /// An adjustment shown on the screen image only (the adjustment dialogs).
+    tweak: Option<AdjustPreview>,
 }
 
 impl Default for CanvasState {
@@ -71,6 +74,7 @@ impl Default for CanvasState {
             edges: Vec::new(),
             sel_rev: 0,
             phase: 0,
+            tweak: None,
         }
     }
 }
@@ -122,6 +126,12 @@ impl CanvasState {
         moved
     }
 
+    /// Starts, changes or ends the adjustment preview.
+    pub(super) fn set_tweak(&mut self, tweak: Option<AdjustPreview>) {
+        self.tweak = tweak;
+        self.screen_stale = true;
+    }
+
     /// Shows or hides the pixel grid (it only appears from 800%).
     pub(super) fn set_grid(&mut self, grid: bool) {
         if self.grid != grid {
@@ -154,7 +164,15 @@ impl CanvasState {
         if self.screen_stale {
             self.screen_stale = false;
             self.screen = self.cache.get().and_then(|flat| {
-                let image = render::render(flat, &self.viewport, self.view, self.grid)?;
+                let tweak = self.tweak.as_ref();
+                let apply = |x, y, pixel| tweak.map_or(pixel, |t| t.pixel(x, y, pixel));
+                let image = render::render_tweaked(
+                    flat,
+                    &self.viewport,
+                    self.view,
+                    self.grid,
+                    tweak.is_some().then_some(&apply),
+                )?;
                 let at = (image.x, image.y);
                 let pixels = Image::from_rgba(image.width, image.height, image.rgba).ok()?;
                 Some((pixels, at))

@@ -258,6 +258,10 @@ convention: `update` drops every message but the editor's own while it is open.
 **Proposal:** `Dialog::custom(ui, title, layout)` that mounts an arrange layout
 in the dialog's frame and reports OK/Cancel.
 
+**Used again (P5/P6):** Resize, Canvas Size, Brightness/Contrast and
+Hue/Saturation are frames too (`view/dialogs/`), with Enter and Esc routed to
+them by the window key hook while one is open.
+
 ## G18 — Images and controls in `ListView` cells
 
 **Gap.** `ListView` cells are text only, so the Layers panel's rows (an eye,
@@ -277,3 +281,14 @@ the app keeps the colour's alpha when the panel reports an RGB change
 
 **Proposal:** `ColorPanel::with_alpha(true)` adding an alpha strip and an
 alpha field, reporting RGBA.
+
+## G20 — A `RadioGroup` in a hidden frame
+
+**Gap.** A layout hides the content of a hidden frame by each widget id, and a
+`RadioGroup` answers `id()` with its *first* option only, so the other options
+stay visible (and keep catching clicks) over whatever the frame covers.
+**Workaround:** `view/dialogs/mod.rs` `show_radio` shows and hides the options
+after the first with the frame.
+
+**Proposal:** `RadioGroup` follows its first option into a collapse (or
+`Placeable` grows a way to name satellite nodes).

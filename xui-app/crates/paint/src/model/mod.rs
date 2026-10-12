@@ -31,11 +31,12 @@ pub use image::{
     required_bytes,
 };
 pub use ops::{
-    Adjustment, Anchor, CanvasFill, Flip, Resample, Turn, black_and_white, box_fit,
-    brightness_contrast, flipped_h, flipped_v, hue_saturation, invert, map_rect, placed, resample,
-    rotated_180, rotated_ccw, rotated_cw, sepia,
+    Adjustment, Anchor, CanvasFill, Coverage, Flip, Resample, Turn, black_and_white, box_fit,
+    brightness_contrast, flipped_h, flipped_v, hue_saturation, invert, map_rect, map_rect_masked,
+    placed, resample, rotated_180, rotated_ccw, rotated_cw, sepia,
 };
 pub use rect::Rect;
+pub(crate) use selection::mix_by;
 pub use selection::{CombineMode, Edge, Selection};
 pub use size::parse_size;
 pub use tool::{Mods, SIZES, Side, Tool};

@@ -185,6 +185,11 @@ fn fill_then_clear_then_new() {
         assert!(observer.borrow().can_undo);
 
         ctrl(stage, Key::N);
+        assert!(
+            observer.borrow().can_undo,
+            "New asks about the unsaved fill"
+        );
+        stage.emit(Msg::Unsaved(xui_core::widget::TaskDialogAction::Command(1)));
         assert!(!observer.borrow().can_undo, "New empties the history");
         assert_eq!(observer.borrow().status[1], "320 x 240");
     });

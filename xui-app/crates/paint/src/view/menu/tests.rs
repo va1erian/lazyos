@@ -73,7 +73,7 @@ fn every_menu_command_of_the_plan_is_present() {
         Msg::Quit,
         Msg::Undo,
         Msg::Redo,
-        Msg::ResizeAsk,
+        Msg::CanvasSizeAsk,
         Msg::About,
     ] {
         assert!(id_of(msg).is_some(), "{msg:?} has a row");
@@ -192,7 +192,13 @@ fn unbuilt_features_start_disabled_and_the_rest_enabled() {
     assert!(is_enabled(Msg::Command(Command::SelectAll), none));
     assert!(!is_enabled(Msg::Open, none));
     assert!(is_enabled(Msg::Open, Enabled { io: true, ..none }));
-    for msg in [Msg::New, Msg::Quit, Msg::ResizeAsk, Msg::Clear, Msg::About] {
+    for msg in [
+        Msg::New,
+        Msg::Quit,
+        Msg::CanvasSizeAsk,
+        Msg::Clear,
+        Msg::About,
+    ] {
         assert!(is_enabled(msg, none), "{msg:?} always works");
     }
 }

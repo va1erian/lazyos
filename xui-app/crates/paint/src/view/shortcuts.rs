@@ -197,7 +197,7 @@ pub static BINDINGS: &[(Chord, Msg)] = &[
     // Image.
     (ctrl_shift(Key::X), Msg::Command(Command::CropToSelection)),
     (ctrl(Key::R), Msg::Command(Command::ResizeImage)),
-    (ctrl_shift(Key::R), Msg::ResizeAsk),
+    (ctrl_shift(Key::R), Msg::CanvasSizeAsk),
     (ctrl_shift(Key::F), Msg::Command(Command::Flatten)),
     // Layers.
     (ctrl_shift(Key::N), Msg::Command(Command::AddLayer)),

@@ -89,7 +89,7 @@ static MENUS: &[Top] = &[
         rows: &[
             cmd(Command::CropToSelection, "Crop &to Selection"),
             cmd(Command::ResizeImage, "&Resize..."),
-            Row::Item(Msg::ResizeAsk, "Canvas &Size..."),
+            Row::Item(Msg::CanvasSizeAsk, "Canvas &Size..."),
             Row::Separator,
             cmd(Command::FlipHorizontal, "Flip &Horizontal"),
             cmd(Command::FlipVertical, "Flip &Vertical"),

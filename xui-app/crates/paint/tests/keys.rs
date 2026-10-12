@@ -80,8 +80,8 @@ fn tool_keys_select_tools_and_a_repeated_key_cycles_the_shapes() {
 #[test]
 fn keys_of_unbuilt_features_say_so_in_the_status_bar() {
     session(|stage, observer, _| {
-        ctrl_shift(stage, Key::G);
-        assert_eq!(status(observer, 3), "Black and White is not available yet");
+        press(stage, Key::T);
+        assert_eq!(status(observer, 3), "Text is not available yet");
         assert_eq!(
             observer.borrow().tool,
             Tool::Pencil,
@@ -107,7 +107,7 @@ fn a_stroke_in_progress_is_committed_before_a_key_changes_the_tool() {
 #[test]
 fn shortcuts_keep_out_of_a_dialog() {
     session(|stage, observer, _| {
-        // Ctrl+Shift+R opens the canvas-size prompt; its field gets the keys.
+        // Ctrl+Shift+R opens the Canvas Size dialog; its fields get the keys.
         press_with(
             stage,
             Key::R,
@@ -151,6 +151,9 @@ fn the_file_menu_runs_new_by_its_mnemonic() {
         // While a menu is open the shortcut table stays out of the way.
         press(stage, Key::N);
         stage.inject(Event::Char('n'));
+        // The stroke is unsaved, so New asks first; the answer is Dont Save.
+        assert!(observer.borrow().can_undo, "New waits for the answer");
+        stage.emit(Msg::Unsaved(xui_core::widget::TaskDialogAction::Command(1)));
         assert!(!observer.borrow().can_undo, "File > New reset the document");
         assert!(!parts.menu.is_open());
         assert!(stage.ui().is_visible(parts.canvas));
@@ -176,7 +179,13 @@ fn unbuilt_menu_rows_are_disabled() {
                 );
             }
         }
-        for msg in [Msg::New, Msg::Quit, Msg::ResizeAsk, Msg::About, Msg::Clear] {
+        for msg in [
+            Msg::New,
+            Msg::Quit,
+            Msg::CanvasSizeAsk,
+            Msg::About,
+            Msg::Clear,
+        ] {
             assert!(parts.menu.is_enabled(menu_item(msg).unwrap()), "{msg:?}");
         }
         // The in-memory storage has no path, so Open and Save work through it.

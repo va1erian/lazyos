@@ -1,62 +1,57 @@
 #![forbid(unsafe_code)]
 
-//! The storage-backed Save and Open and the Resize prompt's answer.
+//! The storage-backed Save and Open, for a store with no paths (the default
+//! `MemoryStorage`, a single start-up file). A host with file dialogs goes
+//! through [`files`](super::files) and [`save_flow`](super::save_flow)
+//! instead.
 
-use xui_core::app::Ui;
-
-use super::{Msg, PaintApp};
+use super::PaintApp;
+use crate::model::Format;
+use crate::view::Report;
 
 impl PaintApp {
-    /// Saves the bitmap through the storage, reporting the outcome.
-    pub(super) fn save(&mut self) {
+    /// Saves the flattened picture as PNG through the storage, reporting the
+    /// outcome. A path-less store has no file name to pick a format from, so
+    /// it is always PNG.
+    pub(super) fn save(&mut self) -> bool {
         let result = self
             .model
-            .flatten()
-            .encode_png()
-            .map_err(|error| error.to_string())
+            .save_bytes(Format::Png)
             .and_then(|bytes| self.storage.save(&bytes));
+        let saved = result.is_ok();
         self.message = Some(match result {
             Ok(()) => "Saved".to_string(),
             Err(error) => format!("Save failed: {error}"),
         });
+        if saved {
+            self.mark_clean();
+            self.announce(Report::Saved {
+                path: self.storage.default_path(),
+                format: Format::Png,
+            });
+        }
+        saved
     }
 
-    /// Decodes first, then swaps, so a failed load leaves the canvas intact.
+    /// Opens whatever the storage holds, in any format Paint reads. Decodes
+    /// first, then swaps, so a failed load leaves the canvas intact.
     pub(super) fn open(&mut self) -> bool {
         let Some(bytes) = self.storage.load() else {
             self.message = Some("Open failed: nothing stored".to_string());
             return false;
         };
-        match crate::model::Bitmap::decode(&bytes) {
-            Ok(bitmap) => match self.model.load(bitmap) {
-                Ok(()) => {
-                    self.cursor = None;
-                    self.message = Some("Opened".to_string());
-                    true
-                }
-                Err(error) => {
-                    self.message = Some(format!("Open failed: {error}"));
-                    false
-                }
-            },
+        match self.model.open_bytes(&bytes) {
+            Ok(_) => {
+                self.cursor = None;
+                self.mark_clean();
+                self.message = Some("Opened".to_string());
+                self.announce_open(self.storage.default_path());
+                true
+            }
             Err(error) => {
                 self.message = Some(format!("Open failed: {error}"));
                 false
             }
         }
-    }
-
-    /// Applies the size typed into the Resize prompt.
-    pub(super) fn resize_chosen(&mut self, ui: &Ui<Msg>) {
-        ui.focus(self.canvas.id());
-        let Some(text) = self.resize.take_text() else {
-            return;
-        };
-        let result = crate::model::parse_size(&text)
-            .and_then(|(width, height)| self.model.resize(width, height).map(|()| (width, height)));
-        self.message = Some(match result {
-            Ok((width, height)) => format!("Resized to {width} x {height}"),
-            Err(error) => format!("Resize failed: {error}"),
-        });
     }
 }

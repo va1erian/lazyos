@@ -59,6 +59,8 @@ impl PaintApp {
         let history = self.model.history();
         observer.history = (history.undo_len(), history.undo_len() + history.redo_len());
         observer.props_open = self.editing_layer.is_some();
+        observer.title = self.title();
+        observer.dirty = self.dirty();
         observer.status = [position, size, tool, message, zoom];
     }
 }

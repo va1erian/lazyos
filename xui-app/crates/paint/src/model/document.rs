@@ -273,3 +273,6 @@ mod image_tests;
 
 #[cfg(test)]
 mod alpha_tests;
+
+#[cfg(test)]
+mod adjust_tests;

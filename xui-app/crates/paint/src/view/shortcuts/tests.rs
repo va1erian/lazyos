@@ -45,7 +45,7 @@ fn file_and_edit_keys_map_to_their_messages() {
     assert_eq!(press(Key::Z, CTRL), Some(Msg::Undo));
     assert_eq!(press(Key::Y, CTRL), Some(Msg::Redo));
     assert_eq!(press(Key::Z, CTRL_SHIFT), Some(Msg::Redo));
-    assert_eq!(press(Key::R, CTRL_SHIFT), Some(Msg::ResizeAsk));
+    assert_eq!(press(Key::R, CTRL_SHIFT), Some(Msg::CanvasSizeAsk));
 }
 
 #[test]

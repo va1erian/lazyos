@@ -8,12 +8,14 @@ use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
+use xui_core::message::Key;
 use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
 use crate::model::text::TextRasterizer;
 
 use super::canvas::CanvasMsg;
 use super::coloredit::ColorEditor;
+use super::dialogs::{FlattenPrompt, Frames, UnsavedPrompt};
 use super::layerprops::LayerPropsDialog;
 use super::layout::{self, Observer};
 use super::menu::{self, Enabled};
@@ -24,28 +26,36 @@ use super::sidebar::Sidebar;
 use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
 use super::{Msg, PaintCanvas};
-use crate::model::{LayerProps, Model, Pixel, Side, Tool};
+use crate::model::{Format, LayerProps, Model, Pixel, Side, Tool};
 use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
-/// The size of the text block's drag handle on screen, in pixels.
+/// The size of the text block drag handle on screen, in pixels.
 const HANDLE_SCREEN_PX: f64 = 10.0;
 
+mod adjust;
 mod canvas_msgs;
 mod colors;
 mod commands;
 mod dialogs;
 mod doc_io;
 mod files;
+mod guard;
+mod image_dialogs;
 mod layers;
 mod probe;
+mod report;
+mod save_flow;
 mod setup;
 mod status;
 
 use canvas_msgs::{ZoomDrag, keeps_text, returns_focus};
 use commands::PasteKind;
-use dialogs::{AboutBox, FileDialogs, PasteSizePrompt, ResizePrompt};
+use dialogs::{AboutBox, FileDialogs, PasteSizePrompt};
+use guard::After;
+pub use report::Report;
+use report::Reporter;
 pub use setup::Setup;
 
 /// The paint application.
@@ -77,7 +87,18 @@ pub struct PaintApp {
     modal: Rc<Cell<bool>>,
     /// The Open/Save As pickers; `None` keeps the path-less Save/Open.
     files: Option<FileDialogs>,
-    resize: ResizePrompt,
+    frames: Frames,
+    unsaved: UnsavedPrompt,
+    flatten_prompt: FlattenPrompt,
+    /// The revision the file (or a fresh start) has; `None` when the picture
+    /// has no counterpart on disk to be in step with.
+    saved_revision: Option<u64>,
+    /// What the unsaved-changes guard is holding back.
+    after: Option<After>,
+    /// The write the "Flatten image?" card is waiting to confirm.
+    pending_save: Option<(PathBuf, Format)>,
+    /// The host's evidence hook.
+    reporter: Option<Reporter>,
     about: AboutBox,
     /// Where [`Msg::Probe`] reports the named controls, if a host asked.
     probe: Option<probe::Hook>,
@@ -89,8 +110,10 @@ pub struct PaintApp {
     float_keys: Rc<Cell<bool>>,
     /// Whether a text block is being edited, so letters are text, not tools.
     typing: Rc<Cell<bool>>,
-    /// The Zoom tool's drag, while the button is down.
+    /// The Zoom tool drag, while the button is down.
     zoom_drag: Option<ZoomDrag>,
+    /// The OK and Cancel messages of the open Image or Adjustments frame.
+    frame_keys: Rc<Cell<Option<(Msg, Msg)>>>,
     paste_size: PasteSizePrompt,
     /// The paste waiting for the oversized-picture answer.
     pending_paste: Option<PasteKind>,
@@ -170,21 +193,34 @@ impl PaintApp {
             palette,
             editor,
             props,
+            frames,
             sidebar,
             status,
         } = layout::mount(ui, families)?;
         let modal = Rc::new(Cell::new(false));
         let float_keys = Rc::new(Cell::new(false));
         let typing = Rc::new(Cell::new(false));
+        let frame_keys: Rc<Cell<Option<(Msg, Msg)>>> = Rc::new(Cell::new(None));
         {
             let modal = Rc::clone(&modal);
             let float_keys = Rc::clone(&float_keys);
             let typing = Rc::clone(&typing);
+            let frame_keys = Rc::clone(&frame_keys);
             // Weak: the menu holds the window, and the window holds this hook.
             let menu = Rc::downgrade(&menu);
             ui.on_key(move |key, modifiers| {
                 let menu_open = menu.upgrade().is_some_and(|menu| menu.is_open());
                 let blocked = modal.get() || menu_open;
+                // An Image or Adjustments dialog is a frame, not a card, so
+                // Enter and Esc are routed to it here, and nothing else (no
+                // tool letter) gets past it: `modal` blocks the table.
+                if let Some((ok, cancel)) = frame_keys.get().filter(|_| !menu_open) {
+                    match key {
+                        Key::RETURN => return Some(ok),
+                        Key::ESCAPE => return Some(cancel),
+                        _ => {}
+                    }
+                }
                 let chosen = if typing.get() {
                     typing_shortcut(key, modifiers, blocked)
                 } else {
@@ -223,7 +259,13 @@ impl PaintApp {
             editing: None,
             modal,
             files,
-            resize: ResizePrompt::default(),
+            frames,
+            unsaved: UnsavedPrompt::default(),
+            flatten_prompt: FlattenPrompt::default(),
+            saved_revision: None,
+            after: None,
+            pending_save: None,
+            reporter: None,
             about: AboutBox::default(),
             probe: None,
             current_path: None,
@@ -231,12 +273,16 @@ impl PaintApp {
             float_keys,
             typing,
             zoom_drag: None,
+            frame_keys,
             paste_size: PasteSizePrompt::default(),
             pending_paste: None,
             system: None,
             last_offered: None,
             local_newest: false,
         };
+        app.mark_clean();
+        // The window's close button asks like File > Quit does.
+        ui.on_close(|| Some(Msg::Quit));
         // Rows of unbuilt features start disabled; the live ones follow the model.
         menu::init(&app.menu, app.enabled());
         // Shortcuts reach the app through the focused widget's key events on some
@@ -319,6 +365,7 @@ impl PaintApp {
         self.sidebar.sync(ui, &self.model);
         menu::sync(&self.menu, self.enabled());
         self.modal.set(self.modal_open(ui));
+        self.frame_keys.set(self.frames.keys(ui));
         self.float_keys
             .set(self.model.tool().is_move() || self.model.is_floating());
         self.typing.set(self.model.is_editing_text());
@@ -339,7 +386,11 @@ impl App for PaintApp {
             msg,
             Msg::OpenChosen
                 | Msg::SaveChosen
-                | Msg::ResizeChosen
+                | Msg::Resize(_)
+                | Msg::CanvasSize(_)
+                | Msg::Adjust(..)
+                | Msg::Unsaved(_)
+                | Msg::Flatten(_)
                 | Msg::DialogClosed
                 | Msg::OpenStartup
                 | Msg::ColorEditing(_)
@@ -404,29 +455,14 @@ impl App for PaintApp {
                 self.message = name.map(|name| format!("Redid {name}"));
             }
             Msg::Clear => self.model.clear(),
-            Msg::New => match self.model.reset(DEFAULT_WIDTH, DEFAULT_HEIGHT) {
-                Ok(()) => {
-                    self.cursor = None;
-                    self.current_path = None;
-                }
-                Err(error) => self.message = Some(format!("New failed: {error}")),
-            },
-            Msg::NewTransparent => {
-                match self
-                    .model
-                    .reset_with(DEFAULT_WIDTH, DEFAULT_HEIGHT, [0, 0, 0, 0])
-                {
-                    Ok(()) => {
-                        self.cursor = None;
-                        self.current_path = None;
-                    }
-                    Err(error) => self.message = Some(format!("New failed: {error}")),
-                }
-            }
-            Msg::Save => self.save_requested(),
+            Msg::New => self.guard(ui, After::New),
+            Msg::NewTransparent => self.guard(ui, After::NewTransparent),
+            Msg::Unsaved(action) => self.unsaved_answer(ui, action),
+            Msg::Flatten(action) => self.flatten_answer(ui, action),
+            Msg::Save => self.save_requested(ui),
             Msg::SaveAs => self.save_as_requested(),
-            Msg::Open => self.open_requested(),
-            Msg::Quit => ui.quit(),
+            Msg::Open => self.guard(ui, After::Open),
+            Msg::Quit => self.guard(ui, After::Quit),
             Msg::About => {
                 if let Err(error) = self.about.show(ui) {
                     self.message = Some(format!("About failed: {error}"));
@@ -437,13 +473,15 @@ impl App for PaintApp {
             Msg::OpenStartup => self.open_startup(),
             Msg::OpenChosen => self.open_chosen(ui),
             Msg::SaveChosen => self.save_chosen(ui),
-            Msg::ResizeAsk => {
-                if let Err(error) = self.resize.show(ui, self.model.document().size()) {
-                    self.message = Some(format!("Resize failed: {error}"));
-                }
+            Msg::CanvasSizeAsk => self.open_canvas_size(ui),
+            Msg::Resize(msg) => self.resize_msg(ui, msg),
+            Msg::CanvasSize(msg) => self.canvas_size_msg(ui, msg),
+            Msg::Adjust(kind, msg) => self.adjust_msg(ui, kind, msg),
+            Msg::DialogClosed => {
+                // A cancelled picker or card also cancels what it was for.
+                self.after = None;
+                ui.focus(self.canvas.id());
             }
-            Msg::ResizeChosen => self.resize_chosen(ui),
-            Msg::DialogClosed => ui.focus(self.canvas.id()),
             Msg::Nudge(..)
             | Msg::FloatCommit
             | Msg::FloatCancel
@@ -460,7 +498,7 @@ impl App for PaintApp {
             ui.focus(self.canvas.id());
         }
         self.sync(ui);
-        if self.files.is_some() && self.title != self.title() {
+        if self.title != self.title() {
             self.title = self.title();
             ui.set_window_title(&self.title);
             self.probe(ui);

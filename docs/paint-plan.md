@@ -313,6 +313,14 @@ A crosshair and a move cursor are added to `libs/cursorgfx` and xui's
 * Docs: this plan's status table, `crates/paint/README.md` (tools, keys,
   formats), `GAPS.md` entries closed (G4, G6) or updated (G5).
 
+**Status of P5/P6.** The model and the UI are done and host-tested: the Image
+and Adjustments dialogs (`view/dialogs/`), the formats, Save As by extension,
+the "Flatten image?" question, the unsaved-changes guard and the title, the
+`PAINT:OPEN`/`PAINT:SAVE` markers and the package MIME rows. Still to do on a
+QEMU image: the `xui_paint_editor.json` session, the extended `xui_paint.json`
+and the `LAZYOS_LABEL_TRACE=1` run that confirms the package permissions (the
+manifest names `os.lazy.clipboard.v1`, which implies the read and write scopes).
+
 ### v1 order and exit criteria
 
 P0 -> P1 -> P2 -> P3 -> P4 -> P5 -> P6; P4's tools are independent and can be

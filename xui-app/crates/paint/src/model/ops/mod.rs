@@ -11,7 +11,8 @@ mod resample;
 mod transform;
 
 pub use adjust::{
-    Adjustment, black_and_white, brightness_contrast, hue_saturation, invert, map_rect, sepia,
+    Adjustment, Coverage, black_and_white, brightness_contrast, hue_saturation, invert, map_rect,
+    map_rect_masked, sepia,
 };
 pub use resample::{Resample, box_fit, resample};
 pub use transform::{

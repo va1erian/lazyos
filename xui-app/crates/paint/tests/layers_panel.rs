@@ -381,6 +381,8 @@ fn new_transparent_starts_a_clear_image() {
     session(|stage, ctx| {
         stroke(stage, ctx, (20, 20));
         stage.emit(Msg::NewTransparent);
+        // The stroke is unsaved: answer the card with Dont Save.
+        stage.emit(Msg::Unsaved(xui_core::widget::TaskDialogAction::Command(1)));
         assert_eq!(ctx.history(), (0, 0));
         assert_eq!(ctx.layers().len(), 1);
     });

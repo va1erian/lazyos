@@ -36,7 +36,9 @@ impl PaintApp {
     /// `color_ok`/`color_cancel`/`color_alpha` while the colour editor is open,
     /// `layers`, `layer:<n>`, `layer_eye:<n>`, `layer_add`, `layer_delete`,
     /// `layer_duplicate`, `layer_merge`, `layer_up`, `layer_down`,
-    /// `history_toggle`, `history`, and `props_*` while Layer Properties is open.
+    /// `history_toggle`, `history`, `props_*` while Layer Properties is open, and
+    /// `resize_*`, `canvas_*`, `anchor:<0-8>` or `adjust_*` while Resize, Canvas
+    /// Size or an adjustment strip is.
     pub(super) fn probe(&self, ui: &Ui<Msg>) {
         let Some(hook) = &self.probe else { return };
         let title = self.title();
@@ -87,6 +89,9 @@ impl PaintApp {
             for (name, id) in ids {
                 report(name, ui.bounds(id));
             }
+        }
+        for (name, id) in self.frames.ids(ui) {
+            report(&name, ui.bounds(id));
         }
         if self.editing.is_some()
             && let Some(id) = self.editor.alpha_id()

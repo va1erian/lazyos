@@ -8,6 +8,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 pub mod driver;
+pub mod files;
 pub mod setup;
 
 use xui_core::Ui;

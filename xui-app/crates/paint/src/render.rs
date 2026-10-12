@@ -68,6 +68,13 @@ pub struct ScreenImage {
     pub rgba: Vec<u8>,
 }
 
+/// A preview applied to the pixels being drawn: `(picture x, picture y,
+/// pixel)` in, the pixel to show out. The adjustment dialogs use it so a
+/// slider drag costs the window, not the layer, and the document is never
+/// touched. It sees the composite, so with layers showing through the active
+/// one the preview approximates what OK produces.
+pub type Tweak<'a> = &'a dyn Fn(i32, i32, [u8; 4]) -> [u8; 4];
+
 /// Builds the image of `flat` as seen through `viewport` in a `view`-sized
 /// window, or `None` when nothing of the picture is visible.
 pub fn render(
@@ -75,6 +82,18 @@ pub fn render(
     viewport: &Viewport,
     view: (i32, i32),
     grid: bool,
+) -> Option<ScreenImage> {
+    render_tweaked(flat, viewport, view, grid, None)
+}
+
+/// Like [`render`], with `tweak` applied to every visible pixel (not the
+/// fully transparent ones) before it is mixed with the checkerboard.
+pub fn render_tweaked(
+    flat: &Bitmap,
+    viewport: &Viewport,
+    view: (i32, i32),
+    grid: bool,
+    tweak: Option<Tweak<'_>>,
 ) -> Option<ScreenImage> {
     let (content_w, content_h) = viewport.content_size(flat.size());
     let (ox, oy) = viewport.origin();
@@ -115,7 +134,13 @@ pub fn render(
         let checker_row = (i64::from(y) + i64::from(oy.max(0))).div_euclid(CHECKER);
         for (x, out) in out_row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let at = cols[x] as usize * 4;
-            let [r, g, b, a] = [src[at], src[at + 1], src[at + 2], src[at + 3]];
+            let mut pixel = [src[at], src[at + 1], src[at + 2], src[at + 3]];
+            if let Some(tweak) = tweak
+                && pixel[3] != 0
+            {
+                pixel = tweak(cols[x], src_y, pixel);
+            }
+            let [r, g, b, a] = pixel;
             *out = if a == 255 {
                 [r, g, b, 255]
             } else {

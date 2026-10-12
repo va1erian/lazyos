@@ -13,7 +13,7 @@ use xui_core::Dip;
 use xui_core::backend::{Event, WidgetId};
 use xui_core::geometry::Rect;
 use xui_core::message::{Key, Modifiers, MouseButton};
-use xui_core::widget::{Entry, FileSystem};
+use xui_core::widget::{Entry, FileSystem, TaskDialogAction};
 use xui_paint::Msg;
 use xui_paint::model::Bitmap;
 use xui_paint::storage::Storage;
@@ -197,14 +197,18 @@ fn chord(stage: &Stage<'_, Msg>, key: Key, shift: bool) {
     });
 }
 
+/// Answers the "Save changes?" card with its second command (Dont Save). The
+/// card has no keyboard route to it (Enter is Save, Esc is Cancel), so the
+/// message is raised as the card's button would.
+fn dont_save(stage: &Stage<'_, Msg>) {
+    stage.emit(Msg::Unsaved(TaskDialogAction::Command(1)));
+}
+
 fn save(stage: &Stage<'_, Msg>) {
     chord(stage, Key::S, false)
 }
 fn open(stage: &Stage<'_, Msg>) {
     chord(stage, Key::O, false)
-}
-fn ask_size(stage: &Stage<'_, Msg>) {
-    chord(stage, Key::R, true)
 }
 
 /// The window position of picture pixel `(x, y)` (centred picture, real viewport).
@@ -260,6 +264,8 @@ fn a_corrupt_png_keeps_the_canvas() {
         draw_a_dot(stage, canvas);
         assert!(seen.borrow().can_undo);
         open(stage);
+        // The dot is unsaved, so Open asks first; Don't Save goes on.
+        dont_save(stage);
         type_text(stage, "bad.png");
         key(stage, Key::RETURN);
         assert!(status(seen).starts_with("Open failed"), "{}", status(seen));
@@ -275,6 +281,7 @@ fn cancelling_the_open_dialog_does_nothing() {
     session(&disk, None, |stage, seen, canvas| {
         draw_a_dot(stage, canvas);
         open(stage);
+        dont_save(stage);
         key(stage, Key::ESCAPE);
         assert_eq!(status(seen), "");
         assert_eq!(size(seen), "320 x 240");
@@ -444,57 +451,5 @@ fn a_missing_start_up_file_is_reported() {
         stage.emit(Msg::OpenStartup);
         assert!(status(seen).starts_with("Open failed"));
         assert_eq!(size(seen), "320 x 240");
-    });
-}
-
-#[test]
-fn resize_prompt_is_prefilled_applies_and_is_undoable() {
-    let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen, _canvas| {
-        ask_size(stage);
-        // Prefilled "320x240": erase it and type a new size.
-        replace_text(stage, "64 x 32");
-        key(stage, Key::RETURN);
-        assert_eq!(size(seen), "64 x 32");
-        assert_eq!(status(seen), "Resized to 64 x 32");
-        assert!(seen.borrow().can_undo);
-
-        stage.emit(Msg::Undo);
-        assert_eq!(size(seen), "320 x 240");
-        stage.emit(Msg::Redo);
-        assert_eq!(size(seen), "64 x 32");
-
-        // Reopening shows the current size and Enter keeps it.
-        ask_size(stage);
-        key(stage, Key::RETURN);
-        assert_eq!(status(seen), "Resized to 64 x 32");
-        assert_eq!(size(seen), "64 x 32");
-    });
-}
-
-#[test]
-fn a_bad_resize_text_reports_and_changes_nothing() {
-    let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen, _canvas| {
-        for bad in ["abc", "0x10", "20000x20000", "16384x16384", "10"] {
-            ask_size(stage);
-            replace_text(stage, bad);
-            key(stage, Key::RETURN);
-            assert!(status(seen).starts_with("Resize failed"), "{bad}");
-            assert_eq!(size(seen), "320 x 240", "{bad}");
-            assert!(!seen.borrow().can_undo, "{bad}");
-        }
-    });
-}
-
-#[test]
-fn cancelling_resize_changes_nothing() {
-    let disk = Rc::new(Disk::default());
-    session(&disk, None, |stage, seen, _canvas| {
-        ask_size(stage);
-        replace_text(stage, "10x10");
-        key(stage, Key::ESCAPE);
-        assert_eq!(size(seen), "320 x 240");
-        assert_eq!(status(seen), "");
     });
 }

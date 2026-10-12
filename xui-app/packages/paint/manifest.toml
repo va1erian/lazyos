@@ -9,7 +9,7 @@ name = "Paint"
 system_name = "os.lazy.paint"
 author = "LazyOS"
 version = "0.1.0"
-description = "Draw and edit PNG pictures"
+description = "Draw and edit pictures with layers"
 category = "graphics"
 
 [entry]
@@ -20,10 +20,36 @@ args = ["--client"]
 abi = "linux"
 autostart = false
 
+# The pictures Paint opens and edits. `mimed` maps the extensions (a manifest
+# cannot name them): png, jpg/jpeg, bmp and ora (OpenRaster, the layered
+# format Paint saves). The Picture Viewer, when the image ships it, also names
+# `open` for png, jpeg and bmp, and `edit` stays with Paint.
 [[mime]]
 type = "image/png"
 verbs = ["open", "edit"]
 
+[[mime]]
+type = "image/jpeg"
+verbs = ["open", "edit"]
+
+[[mime]]
+type = "image/bmp"
+verbs = ["open", "edit"]
+
+[[mime]]
+type = "image/openraster"
+verbs = ["open", "edit"]
+
 [permissions]
 # Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+# The clipboard is the system `image/png` clipboard Edit > Copy, Cut and Paste
+# share with other apps (`os.lazy.clipboard.v1` implies the write scope Offer
+# travels on and the read scope Request does, `libs/pkgstore/src/rules.rs`).
+# NOT yet confirmed by a traced run: re-derive with `LAZYOS_LABEL_TRACE=1`
+# (docs/packages.md, core packages) before relying on this list.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.clipboard.v1",
+]

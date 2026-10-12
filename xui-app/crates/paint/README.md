@@ -18,6 +18,7 @@ and the clipboard.
 | History | delta undo/redo (rectangle of the touched layer, 64 MiB cap), Clear Image, New |
 | Status bar | cursor position, canvas size, active tool, last message (or the hovered tool), zoom |
 | Persistence | optional `Storage`; `MemoryStorage` by default, `FsStorage` behind `--features fs` |
+| Files | Open PNG, JPEG, BMP, OpenRaster; Save OpenRaster, PNG, BMP by extension (JPEG is open only); title `name.ext* - Paint`; New, Open and Quit ask Save / Dont Save / Cancel while there are unsaved changes |
 
 ```text
 +--------------------------------------------------------+
@@ -42,7 +43,7 @@ menu is open.
 |---|---|
 | Ctrl+N / O / S, Ctrl+Shift+S, Ctrl+Q | New, Open, Save, Save As, Quit |
 | Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z) | Undo, Redo |
-| Ctrl+Shift+R | Canvas Size (the resize prompt) |
+| Ctrl+R, Ctrl+Shift+R | Image > Resize (percent or pixels, aspect, nearest or bilinear), Canvas Size (width, height, 9-cell anchor, new area transparent or secondary) |
 | P, B, E, F, K | Pencil, Brush, Eraser, Fill (bucket), Color Picker |
 | O (repeat to cycle) | Line, Rectangle, Ellipse |
 | `[`  `]` | Brush size down, up |
@@ -57,7 +58,9 @@ menu is open.
 | Ctrl+Shift+X | Crop to Selection |
 | Arrows (Shift: 10 px), Enter, Esc | with a move tool active or pixels floating: nudge, land, cancel |
 | Ctrl++ / Ctrl+- / Ctrl+B / Ctrl+0 | Zoom in, out, to window, actual size (View menu; Pixel Grid toggles the grid drawn from 800%) |
-| Ctrl+R, Ctrl+Shift+F, Ctrl+Shift+N/D, Ctrl+M, F4, Ctrl+Shift+I/G/E | Image, Layers and Adjustments commands: not built yet |
+| Ctrl+Shift+F, Ctrl+Shift+N/D, Ctrl+M, F4 | Flatten, New Layer, Duplicate Layer, Merge Layer Down, Layer Properties |
+| Ctrl+Shift+I / G / E | Invert Colors, Black and White, Sepia (instant, clipped to the selection) |
+| Enter, Esc | OK, Cancel in the Resize, Canvas Size, Brightness/Contrast and Hue/Saturation dialogs |
 
 A key for a feature that does not exist yet (`view::Command`, whose
 `available()` is false) only says so in the status bar, and its menu row is
@@ -311,7 +314,7 @@ All cross-platform, no real window:
 See [GAPS.md](GAPS.md) for the xui limitations found while building this and the
 local workarounds used.
 
-## Image operations and file formats (model only; the menus wire them later)
+## Image operations, adjustments and file formats
 
 `Model` methods, each one named undo step: `resize_image`, `canvas_size`,
 `crop(Rect)`, `flip_image`/`rotate_image`, `flip_layer`/`rotate_layer`,
@@ -326,3 +329,35 @@ in `model::format` (open by magic bytes, save by `Format::from_path`).
 | PNG | yes | yes | flattened copy |
 | BMP (1/4/8/24/32 bit) | yes | yes (24 bit, or 32 bit with alpha) | flattened copy |
 | JPEG | yes | no | flattened |
+
+### The dialogs and the file flow
+
+xui `Dialog` holds only text and one entry (GAPS G17), so Resize, Canvas Size,
+Brightness/Contrast and Hue/Saturation are titled frames in the window
+(`view/dialogs/`). Resize and Canvas Size take the canvas place; the two
+adjustment strips sit under it so the picture stays in view. Each field is
+validated when read; a refusal (a bad number, or the memory budget) goes to the
+status bar and leaves the dialog open. Brightness/Contrast and Hue/Saturation
+preview on the **screen image only** (`PaintCanvas::set_adjust_preview`, the
+`render::render_tweaked` hook): a drag costs the window, not the layer, and the
+document and its history are untouched until OK, which applies the adjustment to
+the active layer, through the selection, as one history entry. The preview
+adjusts the composite, so with layers showing through the active one it
+approximates what OK produces.
+
+Save picks the format from the extension. A name with none gets `.ora` when
+the picture has layers and `.png` otherwise. Saving layers as PNG or BMP asks
+"Flatten image?" and flattens only the file written. JPEG says it cannot be
+saved yet. The unsaved state is the model revision against the one at the last
+open or save; a selection is a history step, so it counts as a change, like in
+Paint.NET.
+
+Evidence the LazyOS binary prints (through `PaintApp::set_reporter`):
+`PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>` and `PAINT:SAVE:PASS:<path>:<format>`
+with the format `ora`, `png` or `bmp`.
+
+Tests: `tests/image_dialogs.rs`, `tests/adjust_dialogs.rs`,
+`tests/file_formats.rs` (every dialog and flow through real events over a
+path-aware in-memory store, `tests/common/files.rs`) and
+`tests/dialog_snapshots.rs` (Resize, Canvas Size and Hue/Saturation, light and
+dark, 96 and 192 DPI, in `target/snapshots/`).

@@ -29,13 +29,14 @@ use xui_core::backend::Result;
 use xui_core::widget::{Menu, StatusBar};
 
 use super::coloredit::ColorEditor;
+use super::dialogs::Frames;
 use super::layerprops::LayerPropsDialog;
 use super::menu;
 use super::options::{self, Options};
 use super::palette::Palette;
 use super::sidebar::Sidebar;
 use super::toolbar::{self, ToolStrip};
-use super::{Msg, PaintCanvas};
+use super::{AdjustKind, Msg, PaintCanvas};
 use crate::model::{Pixel, Side, Tool};
 
 /// The menu bar's design height.
@@ -92,6 +93,10 @@ pub struct Observer {
     pub history: (usize, usize),
     /// Whether Layer Properties is open.
     pub props_open: bool,
+    /// The window title (`name.ext* - Paint`).
+    pub title: String,
+    /// Whether the picture has unsaved changes.
+    pub dirty: bool,
     /// The five status-bar parts: position, size, tool, message, zoom.
     pub status: [String; 5],
 }
@@ -117,6 +122,8 @@ impl Default for Observer {
             active_layer: 0,
             history: (0, 0),
             props_open: false,
+            title: String::new(),
+            dirty: false,
             status: Default::default(),
         }
     }
@@ -131,6 +138,7 @@ pub(super) struct Widgets {
     pub palette: Rc<Palette>,
     pub editor: ColorEditor,
     pub props: LayerPropsDialog,
+    pub frames: Frames,
     pub sidebar: Sidebar,
     pub status: Rc<StatusBar<Msg>>,
 }
@@ -149,6 +157,8 @@ pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
     let options = Options::new(families);
     let editor = ColorEditor::new();
     let props = LayerPropsDialog::new();
+    let frames = Frames::new();
+    let (resize, canvas_size) = frames.over_canvas();
     let sidebar = Sidebar::new();
     ui.root(
         column().children((
@@ -159,9 +169,23 @@ pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
                     build(ToolStrip::new).bind(&toolbar).width(toolbar::WIDTH),
                     stack()
                         .children((
-                            build(PaintCanvas::new).bind(&canvas),
+                            // The adjustment strips sit under the canvas so the
+                            // picture stays in view for the preview.
+                            column().children((
+                                build(PaintCanvas::new).bind(&canvas).fill(1),
+                                frames
+                                    .brightness
+                                    .layout()
+                                    .fixed(AdjustKind::BrightnessContrast.height()),
+                                frames
+                                    .hue
+                                    .layout()
+                                    .fixed(AdjustKind::HueSaturation.height()),
+                            )),
                             editor.layout(),
                             props.layout(),
+                            resize,
+                            canvas_size,
                         ))
                         .fill(1),
                     sidebar.layout(&palette).width(COLORS_WIDTH),
@@ -172,6 +196,7 @@ pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
     )?;
     editor.hide_initially(ui);
     props.hide_initially(ui);
+    frames.hide_initially(ui);
     Ok(Widgets {
         menu: menu_handle.get(),
         options,
@@ -180,6 +205,7 @@ pub(super) fn mount(ui: &Ui<Msg>, families: Vec<String>) -> Result<Widgets> {
         palette: palette.get(),
         editor,
         props,
+        frames,
         sidebar,
         status: status.get(),
     })

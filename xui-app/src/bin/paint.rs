@@ -10,8 +10,12 @@
 //! As go through the xui file dialogs (`LazyFileSystem`) and the path seam
 //! (`save_to`/`load_from`), starting in the file's directory, `$HOME` or `/`.
 //!
-//! Serial evidence: `PAINT:UP:PASS` after the first frame, `PAINT:OPEN:PASS`
-//! after a PNG loads, `PAINT:SAVE:PASS` after a successful save. With the UI
+//! Serial evidence: `PAINT:UP:PASS` after the first frame,
+//! `PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>` after a picture opens (PNG, JPEG,
+//! BMP or OpenRaster) and `PAINT:SAVE:PASS:<path>:<format>` (`ora`, `png` or
+//! `bmp`) after a successful save, both printed by the reporter the app calls
+//! once the picture really is loaded or written; a failed write prints
+//! `PAINT:SAVE:FAIL:<path>`. With the UI
 //! probe on (`LAZYOS_UI_PROBE=1`) the app also prints `UI:WIDGET` lines for its
 //! canvas, tool cells, swatches and palette (`tool:Pencil`, `swatch:primary`,
 //! `palette:3`, ...) so a session clicks them by name.
@@ -28,7 +32,7 @@ use xui_app::platform::storage::PngStorage;
 use xui_core::widget::StdFileSystem;
 use xui_paint::model::text::{CosmicRasterizer, TextRasterizer};
 use xui_paint::storage::Storage;
-use xui_paint::view::{PaintApp, Setup, SystemClipboard};
+use xui_paint::view::{PaintApp, Report, Setup, SystemClipboard};
 use xui_paint::Msg;
 
 /// Window size a compositor lays Paint out at.
@@ -108,10 +112,8 @@ struct ReportingStorage {
 impl Storage for ReportingStorage {
     fn save(&self, bytes: &[u8]) -> Result<(), String> {
         match self.inner.save(bytes) {
-            Ok(()) => {
-                println!("PAINT:SAVE:PASS:{}", self.inner.path().display());
-                Ok(())
-            }
+            // The app reports a success, with the format it wrote.
+            Ok(()) => Ok(()),
             Err(error) => {
                 println!("PAINT:SAVE:FAIL:{}", self.inner.path().display());
                 Err(error)
@@ -120,11 +122,7 @@ impl Storage for ReportingStorage {
     }
 
     fn load(&self) -> Option<Vec<u8>> {
-        let bytes = self.inner.load();
-        if bytes.is_some() {
-            println!("PAINT:OPEN:PASS:{}", self.inner.path().display());
-        }
-        bytes
+        self.inner.load()
     }
 
     fn available(&self) -> bool {
@@ -133,17 +131,14 @@ impl Storage for ReportingStorage {
 
     fn save_to(&self, path: &Path, bytes: &[u8]) -> Result<(), String> {
         let result = self.inner.save_to(path, bytes);
-        let verdict = if result.is_ok() { "PASS" } else { "FAIL" };
-        println!("PAINT:SAVE:{verdict}:{}", path.display());
+        if result.is_err() {
+            println!("PAINT:SAVE:FAIL:{}", path.display());
+        }
         result
     }
 
     fn load_from(&self, path: &Path) -> Option<Vec<u8>> {
-        let bytes = self.inner.load_from(path);
-        if bytes.is_some() {
-            println!("PAINT:OPEN:PASS:{}", path.display());
-        }
-        bytes
+        self.inner.load_from(path)
     }
 
     fn supports_paths(&self) -> bool {
@@ -152,6 +147,26 @@ impl Storage for ReportingStorage {
 
     fn default_path(&self) -> Option<PathBuf> {
         self.inner.default_path()
+    }
+}
+
+/// Prints the evidence line for a picture the app opened or saved. The path
+/// is the store path, or the default file for a store with no paths.
+fn announce(report: &Report, default: &Path) {
+    match report {
+        Report::Opened { path, size, layers } => {
+            let path = path.as_deref().unwrap_or(default);
+            println!(
+                "PAINT:OPEN:PASS:{}:{}x{}:{layers}",
+                path.display(),
+                size.0,
+                size.1
+            );
+        }
+        Report::Saved { path, format } => {
+            let path = path.as_deref().unwrap_or(default);
+            println!("PAINT:SAVE:PASS:{}:{}", path.display(), format.extension());
+        }
     }
 }
 
@@ -172,6 +187,7 @@ fn start_dir(requested: Option<&Path>) -> PathBuf {
 fn main() {
     let requested = argv::file_arg(std::env::args_os());
     let path = requested.clone().unwrap_or_else(default_path);
+    let default_file = path.clone();
     let storage = Rc::new(ReportingStorage {
         inner: PngStorage::new(path),
     });
@@ -187,6 +203,8 @@ fn main() {
         let mut app = PaintApp::build_with(ui, setup)?;
         app.set_start_dir(start_dir(requested.as_deref()));
         app.set_system_clipboard(Rc::new(PngClipboard));
+        let default = default_file.clone();
+        app.set_reporter(move |report| announce(report, &default));
         let startup = requested.is_some();
         let probing = probe::enabled();
         if probing {

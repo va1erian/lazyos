@@ -31,8 +31,11 @@ impl PngStorage {
     }
 }
 
-/// The largest PNG a load will read; a bigger file is refused unread.
-const MAX_LOAD_BYTES: u64 = 32 * 1024 * 1024;
+/// The largest file a load will read; a bigger one is refused unread. A
+/// layered OpenRaster file holds one PNG per layer, so this is well above what
+/// a single PNG needs; the editor checks the picture against its own memory
+/// budget before decoding.
+const MAX_LOAD_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A temp path next to `target`, so the rename stays on one filesystem.
 fn temp_path(target: &Path) -> PathBuf {

@@ -8,6 +8,7 @@ mod ants;
 mod events;
 mod paint;
 mod state;
+mod tweak;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -23,6 +24,7 @@ use crate::model::{Model, Mods, Side, TextKey};
 use crate::viewport::Viewport;
 
 pub use state::CanvasState;
+pub use tweak::AdjustPreview;
 
 // xui gap: G1 — a `Custom` node with a painter and event closures is built from
 // the public `Control` primitive rather than a dedicated canvas widget.
@@ -279,6 +281,13 @@ impl PaintCanvas {
         if moved {
             self.control.invalidate();
         }
+    }
+
+    /// Shows `preview` on the screen image instead of the plain picture, or
+    /// the plain picture again for `None`. The document is not touched.
+    pub fn set_adjust_preview(&self, preview: Option<AdjustPreview>) {
+        self.state.borrow_mut().set_tweak(preview);
+        self.control.invalidate();
     }
 
     /// Shows or hides the node.
