@@ -36,7 +36,13 @@ const PROGRAMS: &[(&str, &str)] = &[
 
 /// Where `tools/jsc/build.py` writes its programs, and what `LAZYOS_JSC=1` embeds.
 const JSC_BUILT: &str = "target/jsc/bin";
-const JSC_PROGRAMS: &[(&str, &str)] = &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
+const JSC_PROGRAMS: &[(&str, &str)] = &[
+    ("jsc", fhs::bin::JSC),
+    ("jsc-jit", fhs::bin::JSC_JIT),
+    ("cxxproof", fhs::bin::CXXPROOF),
+];
+/// The stress-test bundle `tools/jsc/stress.py` writes, embedded at `fhs::share::JSC_TESTS`.
+const JSC_TESTS_BUILT: &str = "target/jsc/jsc-tests";
 
 /// Where `tools/webkit/deps.py` writes `depsproof`, and what `LAZYOS_WEBKIT_DEPS=1` embeds.
 const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
@@ -77,6 +83,35 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             JSC_PROGRAMS,
             "tools/jsc/build.py",
         );
+        embed_tree(
+            sink,
+            &manifest_dir.join(JSC_TESTS_BUILT),
+            fhs::share::JSC_TESTS,
+        );
+    }
+}
+
+/// Store every regular file directly under `dir` (when it exists) at
+/// `image_dir/<name>`. The directory is watched, so a new bundle rebuilds the image.
+fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        println!(
+            "cargo:warning=LAZYOS_JSC: {} not built, no stress tests (run tools/jsc/stress.py)",
+            dir.display()
+        );
+        return;
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .collect();
+    files.sort_by_key(|entry| entry.file_name());
+    for entry in files {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+        sink.add_file(&format!("{image_dir}/{name}"), entry.path());
     }
     if switch_on("LAZYOS_WEBKIT_DEPS") {
         embed_programs(

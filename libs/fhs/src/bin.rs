@@ -199,6 +199,8 @@ programs! {
     RG = "rg";
     /// `jsc`, JavaScriptCore's shell (`LAZYOS_JSC=1`, Linux ABI, docs/webkit-port-plan.md W2).
     JSC = "jsc";
+    /// `jsc-jit`, the same shell built with the JIT (`LAZYOS_JSC=1`, `tools/jsc/build.py --jit`).
+    JSC_JIT = "jsc-jit";
     /// `cxxproof`, the C++/ICU toolchain check (`LAZYOS_JSC=1`, W1).
     CXXPROOF = "cxxproof";
     /// `depsproof`, the WebKit dependency bundle check (`LAZYOS_WEBKIT_DEPS=1`, W3).

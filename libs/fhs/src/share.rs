@@ -1,5 +1,9 @@
 //! Read-only data in [`SYSTEM_SHARE`](crate::SYSTEM_SHARE).
 
+/// A fixed subset of WebKit's `JSTests/stress` (`tools/jsc/stress.py`) and its
+/// `index.txt`, which the `jsc` fixture runs (`LAZYOS_JSC=1` images).
+pub const JSC_TESTS: &str = "/system/share/jsc-tests";
+
 /// The MIME type overrides (`/etc/mime.types` syntax: `<mime> <ext>...`), read
 /// by `mimed` at boot. Written by the image build.
 pub const MIME_TYPES: &str = "/system/share/mime.types";

@@ -77,7 +77,7 @@ def jsc_step(cfg: dict) -> list[dict]:
     if not cfg.get("jsc"):
         return []
     return [{"label": "Build jsc, JavaScriptCore's shell (Docker)",
-             "argv": [PY, "tools/jsc/build.py", "--require"]}]
+             "argv": [PY, "tools/jsc/build.py", "--require", "--jit"]}]
 
 
 def webkit_deps_step(cfg: dict) -> list[dict]:

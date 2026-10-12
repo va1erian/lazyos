@@ -43,7 +43,7 @@ class JscTests(unittest.TestCase):
         plan = catalog.build_plan(cfg)
         labels = [step["label"] for step in plan]
         at = labels.index("Build image (cargo build)")
-        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/jsc/build.py", "--require"])
+        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/jsc/build.py", "--require", "--jit"])
         env = plan[at].get("env", {})
         if env:
             self.assertEqual(env.get("LAZYOS_JSC"), "1")

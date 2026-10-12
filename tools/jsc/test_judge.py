@@ -11,9 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import judge  # noqa: E402
 
 W1 = "JSC:W1:UP\nJSC:W1:PASS:cxx\nJSC:W1:PASS:icu\nJSC:W1:PASS\n"
-W2 = ("JSC:UP:PASS\nJSC:START:1234\nJSC:RUN:PASS:arith\n"
-      "JSC:RUN:PASS:gc\nJSC:RUN:PASS:promise\n")
+
+
+def shell(prefix: str, passed: int = 255, total: int = 255) -> str:
+    lines = [f"{prefix}UP:PASS", f"{prefix}START:1234"]
+    lines += [f"{prefix}RUN:PASS:{name}" for name in judge.RUNS]
+    lines += [f"{prefix}TIME:hot:900", f"{prefix}STRESS:{passed}/{total}",
+              f"{prefix}STRESS:TIME:90000"]
+    return "\n".join(lines) + "\n"
+
+
+W2 = shell("JSC:", 250) + shell("JSC:JIT:", 252)
 GOOD = W1 + W2 + "ABI:jsc:PASS\n"
+#: Every verdict a log needs: W1 (3), per shell UP + RUNS + STRESS, the fixture.
+EVERYTHING = 3 + 2 * (1 + len(judge.RUNS) + 1) + 1
 
 
 def failing(serial: str, stages=("w1", "w2")) -> list[str]:
@@ -25,22 +36,33 @@ class JudgeTests(unittest.TestCase):
         self.assertTrue(judge.passed(judge.judge(GOOD)))
 
     def test_an_empty_log_fails_everything(self):
-        self.assertEqual(len(failing("")), 8)  # every marker; "no failure lines" holds
+        # Every marker; "no failure lines" holds on an empty log.
+        self.assertEqual(len(failing("")), EVERYTHING)
 
     def test_the_w1_pass_line_is_not_its_prefix_forms(self):
         # `JSC:W1:PASS:cxx` alone must not stand in for `JSC:W1:PASS`.
         serial = GOOD.replace("JSC:W1:PASS\n", "")
         self.assertEqual(failing(serial), ["JSC:W1:PASS"])
 
-    def test_each_missing_run_marker_is_named(self):
-        for name in judge.RUNS:
-            serial = GOOD.replace(f"JSC:RUN:PASS:{name}\n", "")
-            self.assertEqual(failing(serial), [f"JSC:RUN:PASS:{name}"], name)
+    def test_each_missing_run_marker_is_named_for_each_shell(self):
+        for prefix in judge.SHELLS:
+            for name in judge.RUNS:
+                marker = f"{prefix}RUN:PASS:{name}"
+                serial = GOOD.replace(f"{marker}\n", "")
+                self.assertEqual(failing(serial), [marker], marker)
+
+    def test_a_shell_prefix_is_not_the_other_shells(self):
+        # The JIT shell's markers must not satisfy the interpreter's checks.
+        serial = W1 + shell("JSC:JIT:") + "ABI:jsc:PASS\n"
+        self.assertEqual(sorted(failing(serial)),
+                         sorted(["JSC:UP:PASS", "JSC:STRESS",
+                                 *[f"JSC:RUN:PASS:{n}" for n in judge.RUNS]]))
 
     def test_a_failure_line_fails_even_with_every_pass_marker(self):
-        serial = GOOD + "JSC:RUN:FAIL:gc:got gc-bad\n"
-        self.assertEqual(failing(serial), ["no failure lines"])
-        self.assertIn("gc-bad", judge.judge(serial)[-1].detail)
+        for line in ("JSC:RUN:FAIL:gc:got gc-bad", "JSC:JIT:RUN:FAIL:agents:got agents-bad",
+                     "JSC:JIT:UP:FAIL:spawn"):
+            self.assertEqual(failing(GOOD + line + "\n"), ["no failure lines"], line)
+        self.assertIn("gc-bad", judge.judge(GOOD + "JSC:RUN:FAIL:gc:got gc-bad\n")[-1].detail)
 
     def test_a_killed_task_fails(self):
         serial = GOOD + "user: task 12 killed by SIGSEGV at 0x0\n"
@@ -54,14 +76,47 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(failing(serial, ("w1",)), [])
         self.assertTrue(failing(serial, ("w1", "w2")))
 
-    def test_script_times(self):
-        serial = GOOD + "JSC:TIME:gc:2500\nJSC:TIME:promise:90\n"
-        self.assertEqual(judge.times(serial), {"gc": 2500, "promise": 90})
+    def test_script_times_per_shell(self):
+        serial = GOOD + "JSC:TIME:gc:2500\nJSC:JIT:TIME:gc:2400\nJSC:TIME:promise:90\n"
+        self.assertEqual(judge.times(serial), {"hot": 900, "gc": 2500, "promise": 90})
+        self.assertEqual(judge.times(serial, "JSC:JIT:"), {"hot": 900, "gc": 2400})
         self.assertEqual(judge.times(W1), {})
 
     def test_startup_time(self):
         self.assertEqual(judge.startup_ms(GOOD), 1234)
+        self.assertEqual(judge.startup_ms(GOOD, "JSC:JIT:"), 1234)
         self.assertIsNone(judge.startup_ms(W1))
+
+    def test_stress_summary_is_required(self):
+        serial = GOOD.replace("JSC:JIT:STRESS:252/255\n", "")
+        self.assertEqual(failing(serial), ["JSC:JIT:STRESS"])
+
+    def test_too_few_stress_files_fail(self):
+        serial = W1 + shell("JSC:", 10, 10) + shell("JSC:JIT:") + "ABI:jsc:PASS\n"
+        self.assertEqual(failing(serial), ["JSC:STRESS"])
+        detail = {v.name: v.detail for v in judge.judge(serial)}["JSC:STRESS"]
+        self.assertIn("only 10", detail)
+
+    def test_a_low_stress_rate_fails(self):
+        floor = judge.STRESS_MIN_RATE["JSC:JIT:"]
+        if floor == 0:
+            self.skipTest("no stress floor set yet")
+        low = int(255 * floor) - 5
+        serial = W1 + shell("JSC:") + shell("JSC:JIT:", low) + "ABI:jsc:PASS\n"
+        self.assertEqual(failing(serial), ["JSC:JIT:STRESS"])
+
+    def test_stress_failures_are_listed_with_their_reason(self):
+        serial = GOOD + ("JSC:STRESS:FAIL:nope.js:timeout\n"
+                         "JSC:JIT:STRESS:FAIL:x.js:exit status: 3 Exception; bad\n")
+        self.assertEqual(judge.stress_failures(serial, "JSC:"), {"nope.js": "timeout"})
+        self.assertEqual(judge.stress_failures(serial, "JSC:JIT:"),
+                         {"x.js": "exit status: 3 Exception; bad"})
+        # Failing stress files are counted by the rate, not "no failure lines".
+        self.assertTrue(judge.passed(judge.judge(serial)))
+
+    def test_stress_time(self):
+        self.assertEqual(judge.stress_ms(GOOD), 90000)
+        self.assertIsNone(judge.stress_ms(W1))
 
 
 if __name__ == "__main__":
