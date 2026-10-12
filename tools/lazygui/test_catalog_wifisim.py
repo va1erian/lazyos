@@ -41,6 +41,13 @@ class WifiSimTests(unittest.TestCase):
             self.assertIn("--wifi-sim", demo_argv(wifi_sim=True, skip_build=skip_build))
         self.assertNotIn("--wifi-sim", demo_argv(skip_build=False))
 
+    def test_the_station_manager_and_the_simulator_go_together(self) -> None:
+        # The Network app's Wi-Fi tab needs `wlanmd` (--wifi) and the radio
+        # (--wifi-sim); run_demo builds the network apps for the pair.
+        argv = demo_argv(wifi=True, wifi_sim=True, skip_build=False)
+        self.assertIn("--wifi", argv)
+        self.assertIn("--wifi-sim", argv)
+
 
 if __name__ == "__main__":
     unittest.main()

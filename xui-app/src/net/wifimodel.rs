@@ -88,6 +88,21 @@ pub enum Conn {
 }
 
 impl Conn {
+    /// The `ConnState` ordinal of `os.lazy.net.wifi.v1` (anything unknown is
+    /// [`Conn::Disabled`]).
+    pub fn from_wire(state: u32) -> Conn {
+        match state {
+            1 => Conn::Idle,
+            2 => Conn::Scanning,
+            3 => Conn::Authenticating,
+            4 => Conn::Associating,
+            5 => Conn::Handshake,
+            6 => Conn::Connected,
+            7 => Conn::Failed,
+            _ => Conn::Disabled,
+        }
+    }
+
     /// The state's name for serial evidence and logs.
     pub fn name(self) -> &'static str {
         match self {
@@ -448,6 +463,15 @@ mod tests {
         // The tallest bar is taller than the shortest.
         let column = |x: usize| (0..side).filter(|y| mask[(y * side + x) * 4 + 3] > 0).count();
         assert!(column(2 + 3 * 7 + 2) > column(2 + 2));
+    }
+
+    #[test]
+    fn wire_states_map_in_order() {
+        assert_eq!(Conn::from_wire(0), Conn::Disabled);
+        assert_eq!(Conn::from_wire(1), Conn::Idle);
+        assert_eq!(Conn::from_wire(6), Conn::Connected);
+        assert_eq!(Conn::from_wire(7), Conn::Failed);
+        assert_eq!(Conn::from_wire(99), Conn::Disabled);
     }
 
     #[test]

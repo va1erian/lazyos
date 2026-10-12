@@ -95,7 +95,7 @@ impl Net {
                 };
                 match self.wifi_of(name).filter(|w| w.conn == Conn::Connected) {
                     Some(wifi) => format!(
-                        "Connected to \"{}\" on {name} ({} dBm): {a}.{b}.{c}.{d}{more}",
+                        "Connected to {:?} on {name} ({} dBm): {a}.{b}.{c}.{d}{more}",
                         wifi.ssid, wifi.rssi_dbm
                     ),
                     None => format!("Connected on {name}: {a}.{b}.{c}.{d}{more}"),
@@ -103,10 +103,10 @@ impl Net {
             }
             None => match self.wifi_in_progress() {
                 Some(wifi) if wifi.conn == Conn::Failed => {
-                    format!("Wi-Fi: could not join \"{}\"", wifi.ssid)
+                    format!("Wi-Fi: could not join {:?}", wifi.ssid)
                 }
                 Some(wifi) if wifi.ssid.is_empty() => String::from("Wi-Fi: looking for networks"),
-                Some(wifi) => format!("Wi-Fi: joining \"{}\"...", wifi.ssid),
+                Some(wifi) => format!("Wi-Fi: joining {:?}...", wifi.ssid),
                 None if self.link => String::from("Link up, no address yet"),
                 None => String::from("Not connected"),
             },
@@ -167,7 +167,7 @@ fn apply(net: &mut Net, links: &mut Vec<(String, bool)>, event: &TopicEvent) {
             if net.wifi.len() < MAX_LINKS {
                 net.wifi.push(Wifi {
                     name: name.to_owned(),
-                    conn: conn(state.state),
+                    conn: Conn::from_wire(state.state),
                     ssid: wifimodel::clean(&state.ssid, wifimodel::MAX_SSID),
                     rssi_dbm: state.rssi_dbm.clamp(-127, 0),
                 });
@@ -197,20 +197,6 @@ fn apply(net: &mut Net, links: &mut Vec<(String, bool)>, event: &TopicEvent) {
             .filter(|(_, up)| !*up)
             .map(|(name, _)| name.clone())
             .collect();
-    }
-}
-
-/// `ConnState` of `os.lazy.net.wifi.v1`.
-fn conn(state: u32) -> Conn {
-    match state {
-        wifi_wire::CONN_STATE_IDLE => Conn::Idle,
-        wifi_wire::CONN_STATE_SCANNING => Conn::Scanning,
-        wifi_wire::CONN_STATE_AUTHENTICATING => Conn::Authenticating,
-        wifi_wire::CONN_STATE_ASSOCIATING => Conn::Associating,
-        wifi_wire::CONN_STATE_HANDSHAKE => Conn::Handshake,
-        wifi_wire::CONN_STATE_CONNECTED => Conn::Connected,
-        wifi_wire::CONN_STATE_FAILED => Conn::Failed,
-        _ => Conn::Disabled,
     }
 }
 

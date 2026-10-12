@@ -9,17 +9,20 @@
 //! them.
 //!
 //! The one secret that passes through is `add_network`'s passphrase. It is
-//! sent as the call's argument and nowhere else: the caller's copy is wiped
-//! here, nothing is logged, and no reply carries one.
+//! sent as the call's argument and nowhere else: nothing is logged and no
+//! reply carries one. The copies are dropped as soon as the call is made;
+//! this does not claim to scrub memory (the toolkit's edit buffer and the
+//! encoded request are not zeroized).
 
 use messenger_generated::os_lazy_net_wifi_v1 as wire;
+
+use messenger_generated::errors::ERROR_FIELD;
 
 use super::wifimodel::{clean, Conn, Network, Security, State, Why, MAX_SSID};
 use crate::platform::messenger::Service;
 
 /// `wlanmd`'s registered name.
 const NAME: &str = "os.lazy.net.wifi";
-use messenger_generated::errors::ERROR_FIELD;
 /// The longest one call may wait (PIT ticks, 100 Hz).
 pub const CALL_TICKS: u64 = 100;
 /// Most networks and interfaces taken from one reply (the service caps the
@@ -34,7 +37,8 @@ const ENOENT: i64 = 2;
 const EAGAIN: i64 = 11;
 const EACCES: i64 = 13;
 const EBUSY: i64 = 16;
-const EEXIST: i64 = 17;
+/// `EEXIST`: the network is saved already.
+pub const EEXIST: i64 = 17;
 const ENODEV: i64 = 19;
 const EINVAL: i64 = 22;
 const ENOSPC: i64 = 28;
@@ -99,11 +103,8 @@ fn call_retrying(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
     }
 }
 
-fn encoded<T>(result: Result<T, impl Sized>) -> Result<T, Error> {
-    result.map_err(|_| Error::Code(-EINVAL))
-}
-
-fn decoded<T>(result: Result<T, impl Sized>) -> Result<T, Error> {
+/// A wire encode or decode failure is an invalid request, whichever way.
+fn checked<T>(result: Result<T, impl Sized>) -> Result<T, Error> {
     result.map_err(|_| Error::Code(-EINVAL))
 }
 
@@ -115,7 +116,7 @@ pub fn available() -> bool {
 /// The wireless interfaces `wlanmd` manages (`wlan0`).
 pub fn interfaces() -> Result<Vec<String>, Error> {
     let body = call_retrying(wire::METHOD_INTERFACES, Vec::new())?;
-    Ok(decoded(wire::decode_interfaces_reply(&body))?
+    Ok(checked(wire::decode_interfaces_reply(&body))?
         .names
         .iter()
         .take(MAX_INTERFACES)
@@ -126,21 +127,21 @@ pub fn interfaces() -> Result<Vec<String>, Error> {
 
 /// The interface's connection state now.
 pub fn status(ifname: &str) -> Result<State, Error> {
-    let body = encoded(wire::encode_status_args(&wire::StatusArgs {
+    let body = checked(wire::encode_status_args(&wire::StatusArgs {
         ifname: ifname.into(),
     }))?;
     let reply = call_retrying(wire::METHOD_STATUS, body)?;
-    Ok(state(&decoded(wire::decode_status_reply(&reply))?.status))
+    Ok(state(&checked(wire::decode_status_reply(&reply))?.status))
 }
 
 /// The networks heard on `ifname`, merged with the saved ones, strongest
 /// first (the service's order).
 pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
-    let body = encoded(wire::encode_networks_args(&wire::NetworksArgs {
+    let body = checked(wire::encode_networks_args(&wire::NetworksArgs {
         ifname: ifname.into(),
     }))?;
     let reply = call_retrying(wire::METHOD_NETWORKS, body)?;
-    Ok(decoded(wire::decode_networks_reply(&reply))?
+    Ok(checked(wire::decode_networks_reply(&reply))?
         .list
         .iter()
         .take(MAX_NETWORKS)
@@ -151,7 +152,7 @@ pub fn networks(ifname: &str) -> Result<Vec<Network>, Error> {
 /// Ask for a fresh scan, probing for `hidden` names too. Returns at once; the
 /// results show in the next [`networks`].
 pub fn scan(ifname: &str, hidden: &[String]) -> Result<(), Error> {
-    let body = encoded(wire::encode_scan_args(&wire::ScanArgs {
+    let body = checked(wire::encode_scan_args(&wire::ScanArgs {
         ifname: ifname.into(),
         ssids: hidden.to_vec(),
     }))?;
@@ -159,8 +160,7 @@ pub fn scan(ifname: &str, hidden: &[String]) -> Result<(), Error> {
 }
 
 /// Remember a network for the signed-in user and return its profile id.
-/// `passphrase` is required for WPA2 and absent for an open network. The
-/// caller's copy of the text is wiped before this returns.
+/// `passphrase` is required for WPA2 and absent for an open network.
 pub fn add_network(
     ssid: &str,
     security: Security,
@@ -184,11 +184,11 @@ pub fn add_network(
         profile,
         passphrase,
     };
-    let body = encoded(wire::encode_add_network_args(&args));
-    wipe(args.passphrase);
-    let reply = call(wire::METHOD_ADDNETWORK, body?)?;
+    let body = checked(wire::encode_add_network_args(&args))?;
+    drop(args);
+    let reply = call(wire::METHOD_ADDNETWORK, body)?;
     Ok(clean(
-        &decoded(wire::decode_add_network_reply(&reply))?.id,
+        &checked(wire::decode_add_network_reply(&reply))?.id,
         MAX_NAME,
     ))
 }
@@ -196,7 +196,7 @@ pub fn add_network(
 /// Join the saved network `id`. Returns when the attempt starts; the outcome
 /// is [`status`].
 pub fn connect(ifname: &str, id: &str) -> Result<(), Error> {
-    let body = encoded(wire::encode_connect_args(&wire::ConnectArgs {
+    let body = checked(wire::encode_connect_args(&wire::ConnectArgs {
         ifname: ifname.into(),
         id: id.into(),
     }))?;
@@ -205,7 +205,7 @@ pub fn connect(ifname: &str, id: &str) -> Result<(), Error> {
 
 /// Leave the network and stop reconnecting until asked.
 pub fn disconnect(ifname: &str) -> Result<(), Error> {
-    let body = encoded(wire::encode_disconnect_args(&wire::DisconnectArgs {
+    let body = checked(wire::encode_disconnect_args(&wire::DisconnectArgs {
         ifname: ifname.into(),
     }))?;
     call_retrying(wire::METHOD_DISCONNECT, body).map(|_| ())
@@ -213,18 +213,10 @@ pub fn disconnect(ifname: &str) -> Result<(), Error> {
 
 /// Delete a saved network and its passphrase.
 pub fn forget(id: &str) -> Result<(), Error> {
-    let body = encoded(wire::encode_forget_args(&wire::ForgetArgs {
+    let body = checked(wire::encode_forget_args(&wire::ForgetArgs {
         id: id.into(),
     }))?;
     call_retrying(wire::METHOD_FORGET, body).map(|_| ())
-}
-
-/// Overwrite a passphrase's bytes before its allocation is freed.
-fn wipe(text: Option<String>) {
-    if let Some(text) = text {
-        let mut bytes = text.into_bytes();
-        bytes.fill(0);
-    }
 }
 
 fn security(wire_value: u32) -> Security {
@@ -249,16 +241,7 @@ fn network(info: &wire::Network) -> Network {
 
 fn state(info: &wire::WifiState) -> State {
     State {
-        conn: match info.state {
-            wire::CONN_STATE_IDLE => Conn::Idle,
-            wire::CONN_STATE_SCANNING => Conn::Scanning,
-            wire::CONN_STATE_AUTHENTICATING => Conn::Authenticating,
-            wire::CONN_STATE_ASSOCIATING => Conn::Associating,
-            wire::CONN_STATE_HANDSHAKE => Conn::Handshake,
-            wire::CONN_STATE_CONNECTED => Conn::Connected,
-            wire::CONN_STATE_FAILED => Conn::Failed,
-            _ => Conn::Disabled,
-        },
+        conn: Conn::from_wire(info.state),
         ssid: clean(&info.ssid, MAX_SSID),
         rssi_dbm: info.rssi_dbm.clamp(-127, 0),
         freq_mhz: info.freq_mhz,

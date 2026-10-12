@@ -566,7 +566,7 @@ retained topics, like `wifictl` does:
 
 | Front end | What it does |
 |---|---|
-| Network app, Wi-Fi tab (`xui-app/src/bin/network/wifipage.rs`) | Lists `Networks`, joins with `AddNetwork` (scope `User`) + `Connect`, `Disconnect`, `Forget`, `Scan`; refreshes `Status` and `Networks` once a second. The tab exists whenever `wlanmd` is registered and adopts a radio that attaches later. The passphrase field is a password edit, emptied when Join is pressed |
+| Network app, Wi-Fi tab (`xui-app/src/bin/network/wifipage.rs`) | Lists `Networks`, joins with `AddNetwork` (scope `User`) + `Connect`, `Disconnect`, `Forget`, `Scan`; refreshes `Status` and `Networks` once a second. The tab exists whenever the image ships `wlanmd` (the program is the test: the window is built once) and adopts the service and a radio that attach later; calls back off after a failure. The passphrase field is a password edit, emptied when Join is pressed |
 | Network Status applet (`xui-app/src/bin/netstatus.rs`) | Subscribes to `system/net/+/wifi/state`; signal bars and a tooltip while the primary interface is the joined wireless one |
 | Client and model (`xui-app/src/net/wifi.rs`, `wifimodel.rs`) | Bounded calls (1 s), names cleaned and clipped again, host-tested rows, status lines, signal bars and input checks |
 

@@ -1,8 +1,8 @@
 //! The Network app's Wi-Fi page: the networks `wlanmd` hears (signal,
 //! security, saved or connected), Scan, Join (typing the passphrase of a new
 //! WPA2 network), Disconnect, Forget, and a box to join a network that does
-//! not announce its name. The tab exists whenever `wlanmd` is running (it adopts
-//! a radio that attaches later), so an image without Wi-Fi keeps the
+//! not announce its name. The tab exists whenever the image ships `wlanmd` (it adopts
+//! the service and a radio that attach later), so an image without Wi-Fi keeps the
 //! Ethernet-only window.
 //!
 //! Everything is the user's own: a network joined here is saved for the
@@ -14,7 +14,7 @@
 //! Serial evidence (never a passphrase): `NETAPP:WIFI:UP if=<card>`,
 //! `NETAPP:WIFI:STATE if=<card> state=<state> ssid="<name>"` on a change,
 //! `NETAPP:WIFI:SCAN:PASS n=<networks>` when the list changes,
-//! `NETAPP:WIFI:JOIN:REQUESTED id=<id> n=<k>`, `NETAPP:WIFI:JOIN:REFUSED <why>`,
+//! `NETAPP:WIFI:JOIN:REQUESTED id=<id> ssid="<name>" n=<k>`, `NETAPP:WIFI:JOIN:REFUSED <why>`,
 //! `NETAPP:WIFI:LEAVE:PASS n=<k>`, `NETAPP:WIFI:FORGET:PASS id=<id> n=<k>`
 //! (`k` counts joins, leaves and forgets).
 
@@ -25,98 +25,14 @@ use xui_core::prelude::*;
 
 use crate::Msg;
 
+#[path = "wifilayout.rs"]
+mod layout;
+pub use layout::Action;
+use layout::Widgets;
+
 /// Ticks (seconds) between scans while not connected: a scan on a joined
 /// radio pauses its traffic, so a connected station scans only when asked.
 const RESCAN_TICKS: u32 = 20;
-
-/// What the page's buttons ask for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action {
-    Scan,
-    Join,
-    JoinHidden,
-    Leave,
-    Forget,
-}
-
-/// Every widget the page reads or changes after start-up.
-#[derive(Default)]
-pub struct Widgets {
-    heading: Handle<Label<Msg>>,
-    list: Handle<ListView<Msg>>,
-    passphrase: Handle<Edit<Msg>>,
-    hidden: Handle<Edit<Msg>>,
-    scan: Handle<Button<Msg>>,
-    join: Handle<Button<Msg>>,
-    leave: Handle<Button<Msg>>,
-    forget: Handle<Button<Msg>>,
-    join_hidden: Handle<Button<Msg>>,
-    message: Handle<Label<Msg>>,
-}
-
-impl Widgets {
-    fn layout(&self) -> Layout<Msg> {
-        column()
-            .padding(Insets::new(Dip(12.0), Dip(8.0), Dip(12.0), Dip(8.0)))
-            .gap(8)
-            .children((
-                label("Looking for a Wi-Fi radio...")
-                    .bind(&self.heading)
-                    .fixed(24),
-                list()
-                    .column("Network", 220)
-                    .column("Signal", 130)
-                    .column("Security", 90)
-                    .column("State", Fill)
-                    .on_activate(|_| Msg::Wifi(Action::Join))
-                    .bind(&self.list)
-                    .fill(1),
-                row().gap(8).children((
-                    label("Passphrase").width(80).align(Align::Center),
-                    edit()
-                        .password()
-                        .placeholder("for a new WPA2 network")
-                        .bind(&self.passphrase)
-                        .width(220),
-                    button("Join")
-                        .on_click(Msg::Wifi(Action::Join))
-                        .bind(&self.join)
-                        .width(80),
-                    button("Disconnect")
-                        .on_click(Msg::Wifi(Action::Leave))
-                        .bind(&self.leave)
-                        .width(100),
-                )),
-                row().gap(8).children((
-                    button("Scan")
-                        .on_click(Msg::Wifi(Action::Scan))
-                        .bind(&self.scan)
-                        .width(80),
-                    button("Forget")
-                        .on_click(Msg::Wifi(Action::Forget))
-                        .bind(&self.forget)
-                        .width(80),
-                )),
-                group(
-                    "Hidden network",
-                    row().gap(8).children((
-                        label("Name").width(80).align(Align::Center),
-                        edit()
-                            .placeholder("the network's name")
-                            .bind(&self.hidden)
-                            .width(220),
-                        button("Join hidden")
-                            .on_click(Msg::Wifi(Action::JoinHidden))
-                            .bind(&self.join_hidden)
-                            .width(110),
-                        label("Passphrase above; empty is open.")
-                            .align(Align::Start),
-                    )),
-                ),
-                label("").bind(&self.message).fixed(44),
-            ))
-    }
-}
 
 pub struct Page {
     w: Widgets,
@@ -134,13 +50,23 @@ pub struct Page {
     /// Joins, leaves and forgets so far; the serial markers carry it so a
     /// session can wait for the Nth one.
     actions: u32,
+    /// The rows last shown: an unchanged table is not rebuilt (that would
+    /// reset scrolling and hover every second).
+    shown: Vec<Vec<String>>,
+    /// Ticks to skip, and how many to skip after the next failure: a
+    /// `wlanmd` that does not answer is asked less and less often instead of
+    /// stalling the window on every tick.
+    skip: u32,
+    backoff: u32,
 }
 
 impl Page {
-    /// The page, or `None` when there is no `wlanmd` (no tab is shown then).
-    /// A radio that attaches later is picked up by [`Page::tick`].
+    /// The page, or `None` when the image does not ship the station manager
+    /// (no tab is shown then). The program is the test, not whether
+    /// `wlanmd` is registered yet: the window is built once, and the service
+    /// and its radio may start after it. [`Page::tick`] picks them up.
     pub fn detect() -> Option<Page> {
-        if !wifi::available() {
+        if !std::path::Path::new(fhs::bin::WLANMD).exists() && !wifi::available() {
             return None;
         }
         Some(Page {
@@ -152,6 +78,9 @@ impl Page {
             reported_count: None,
             ticks: 0,
             actions: 0,
+            shown: Vec::new(),
+            skip: 0,
+            backoff: 0,
         })
     }
 
@@ -160,7 +89,7 @@ impl Page {
     }
 
     /// The widgets the UI probe names (probe images only).
-    pub fn probe_targets(&self) -> [(&'static str, WidgetId); 8] {
+    pub fn probe_targets(&self) -> [(&'static str, WidgetId); 9] {
         [
             ("wifi_networks", self.w.list.get().id()),
             ("wifi_passphrase", self.w.passphrase.get().id()),
@@ -169,6 +98,7 @@ impl Page {
             ("wifi_scan", self.w.scan.get().id()),
             ("wifi_forget", self.w.forget.get().id()),
             ("wifi_hidden", self.w.hidden.get().id()),
+            ("wifi_open", self.w.open.get().id()),
             ("wifi_join_hidden", self.w.join_hidden.get().id()),
         ]
     }
@@ -183,6 +113,10 @@ impl Page {
 
     /// One tick (a second): the state and the list, a rescan now and then.
     pub fn tick(&mut self) {
+        if self.skip > 0 {
+            self.skip -= 1;
+            return;
+        }
         self.ticks = self.ticks.wrapping_add(1);
         if self.ticks % RESCAN_TICKS == 0
             && !self.state.busy()
@@ -219,6 +153,7 @@ impl Page {
                 }
                 Err(error) => {
                     self.w.heading.get().set_text(&error.describe());
+                    self.back_off();
                     return;
                 }
             }
@@ -239,31 +174,46 @@ impl Page {
             Err(error) => {
                 self.w.heading.get().set_text(&error.describe());
                 self.state = State::default();
+                self.back_off();
                 return;
             }
         }
+        self.backoff = 0;
         let Ok(networks) = wifi::networks(&card) else {
             return;
         };
+        let previous = self.w.list.get().selected();
         let selected = self.selected().map(|n| (n.ssid.clone(), n.id.clone()));
-        self.w
-            .list
-            .get()
-            .refresh_model(networks.iter().map(model::row).collect::<Vec<_>>());
-        let index = selected
-            .and_then(|(ssid, id)| {
-                networks
-                    .iter()
-                    .position(|n| n.ssid == ssid && n.id == id)
-                    .or_else(|| networks.iter().position(|n| n.ssid == ssid))
-            })
-            .or((!networks.is_empty()).then_some(0));
-        self.w.list.get().select(index);
+        let rows: Vec<Vec<String>> = networks.iter().map(model::row).collect();
+        if rows != self.shown {
+            self.w.list.get().refresh_model(rows.clone());
+            let index = selected
+                .and_then(|(ssid, id)| {
+                    if ssid.is_empty() {
+                        // Hidden networks all look alike: keep the row.
+                        previous.filter(|at| *at < networks.len())
+                    } else {
+                        networks
+                            .iter()
+                            .position(|n| n.ssid == ssid && n.id == id)
+                            .or_else(|| networks.iter().position(|n| n.ssid == ssid))
+                    }
+                })
+                .or((!networks.is_empty()).then_some(0));
+            self.w.list.get().select(index);
+            self.shown = rows;
+        }
         if self.reported_count != Some(networks.len()) {
             println!("NETAPP:WIFI:SCAN:PASS n={}", networks.len());
             self.reported_count = Some(networks.len());
         }
         self.networks = networks;
+    }
+
+    /// Ask less often after a failed call (1, 2, 4, 8, 16 ticks).
+    fn back_off(&mut self) {
+        self.backoff = (self.backoff * 2).clamp(1, 16);
+        self.skip = self.backoff;
     }
 
     fn report(&mut self, state: &State) {
@@ -272,9 +222,10 @@ impl Page {
             return;
         }
         println!(
-            "NETAPP:WIFI:STATE if={} state={} ssid=\"{}\"",
+            "NETAPP:WIFI:STATE if={} state={} ssid={:?}",
             self.ifname.as_deref().unwrap_or(""),
             state.conn.name(),
+            // Debug-quoted: a name from the air cannot forge a field.
             state.ssid
         );
         self.reported = Some(now);
@@ -343,7 +294,12 @@ impl Page {
             return;
         }
         if network.known() {
-            self.take_passphrase();
+            if !self.take_passphrase().is_empty() {
+                self.refuse(
+                    "This network is saved with its passphrase. Forget it first to use a different one.",
+                );
+                return;
+            }
             self.start_join(&network.id, network.display_name());
             return;
         }
@@ -377,7 +333,8 @@ impl Page {
     }
 
     /// Join a network that does not announce itself: the typed name, WPA2
-    /// with the typed passphrase, or open when the passphrase is empty.
+    /// with the typed passphrase, or open only when "Open" is ticked (an
+    /// empty box never saves a network as open by accident).
     fn join_hidden(&mut self) {
         let ssid = self.w.hidden.get().text();
         if let Err(why) = model::check_ssid(&ssid) {
@@ -385,18 +342,30 @@ impl Page {
             return;
         }
         let typed = self.take_passphrase();
-        let (security, passphrase) = if typed.is_empty() {
+        let open = self.w.open.get().is_checked();
+        // Saved already: join it, whatever was typed.
+        if let Some(known) = self.networks.iter().find(|n| n.ssid == ssid && n.known()) {
+            let id = known.id.clone();
+            self.start_join(&id, &ssid);
+            return;
+        }
+        let (security, passphrase) = if open {
+            if !typed.is_empty() {
+                self.refuse("Untick Open to use a passphrase, or clear the passphrase box.");
+                return;
+            }
             (Security::Open, None)
+        } else if typed.is_empty() {
+            self.refuse("Type the passphrase, or tick Open for a network without one.");
+            return;
         } else if let Err(why) = model::check_passphrase(&typed) {
             self.refuse(&why);
             return;
         } else {
             (Security::Wpa2Psk, Some(typed))
         };
-        // Probe for the name so the scan lists it, then save and join.
-        if let Some(card) = self.ifname.clone() {
-            let _ = wifi::scan(&card, std::slice::from_ref(&ssid));
-        }
+        // No scan first: the profile is hidden, so `wlanmd` probes for it
+        // itself when it joins.
         self.save_and_join(&ssid, security, true, passphrase);
     }
 
@@ -409,8 +378,23 @@ impl Page {
     ) {
         match wifi::add_network(ssid, security, hidden, passphrase) {
             Ok(id) => self.start_join(&id, ssid),
+            // Saved already (not in the list yet): join that one.
+            Err(wifi::Error::Code(code)) if code == -wifi::EEXIST => match self.saved_id(ssid) {
+                Some(id) => self.start_join(&id, ssid),
+                None => self.refuse(&format!("\"{ssid}\" is saved already.")),
+            },
             Err(error) => self.refuse(&format!("Could not save \"{ssid}\": {}", error.describe())),
         }
+    }
+
+    /// The id of a network saved under `ssid` that this account may use.
+    fn saved_id(&self, ssid: &str) -> Option<String> {
+        let card = self.ifname.as_deref()?;
+        wifi::networks(card)
+            .ok()?
+            .into_iter()
+            .find(|n| n.ssid == ssid && n.known())
+            .map(|n| n.id)
     }
 
     fn start_join(&mut self, id: &str, name: &str) {
@@ -420,7 +404,10 @@ impl Page {
         match wifi::connect(&card, id) {
             Ok(()) => {
                 self.actions += 1;
-                println!("NETAPP:WIFI:JOIN:REQUESTED id={id} n={}", self.actions);
+                println!(
+                    "NETAPP:WIFI:JOIN:REQUESTED id={id} ssid={name:?} n={}",
+                    self.actions
+                );
                 self.say(&format!("Joining \"{name}\"..."));
                 self.refresh();
             }

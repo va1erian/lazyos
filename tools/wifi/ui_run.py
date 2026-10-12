@@ -11,7 +11,9 @@
    label trace, opening the Network app at login.
 3. A session switches to the Wi-Fi tab and, by widget name: joins the open
    network, then the WPA2 one with a wrong and with the right passphrase,
-   disconnects and forgets it, and joins the hidden one by name.
+   disconnects, forgets it, rejoins from the stored secret with an empty
+   passphrase box, and joins the hidden open network by name (an empty
+   passphrase alone is refused).
 4. The verdict: the app's `NETAPP:WIFI:*` markers (the scan listed the
    networks, each join ended in the state it should, the wrong passphrase
    failed as a bad passphrase), the access points' log (the station really
@@ -79,6 +81,9 @@ def network_row(index: int, networks_height: int = 326) -> list[dict]:
 def session() -> list[dict]:
     state = lambda conn, ssid="": f'NETAPP:WIFI:STATE if=wlan0 state={conn}' + (f' ssid="{ssid}"' if ssid else "")
     action = lambda what, n: {"wait_for": rf"NETAPP:WIFI:{what} .*n={n}(?!\d)", "regex": True, "timeout": 60}
+    # A join marker names the network, so a click on the wrong row fails here.
+    join = lambda n, ssid: {"wait_for": rf'NETAPP:WIFI:JOIN:REQUESTED id=\S+ ssid="{ssid}" n={n}(?!\d)',
+                            "regex": True, "timeout": 60}
     steps: list[dict] = [
         {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
         {"wait_for": "NETAPP:UP:PASS", "timeout": 180},
@@ -93,27 +98,35 @@ def session() -> list[dict]:
     # The strongest network is the open one: no passphrase needed. (n=1)
     steps += network_row(0)
     steps += click("wifi_join")
-    steps += [action("JOIN:REQUESTED", 1),
+    steps += [join(1, "LazyOpen"),
               {"wait_for": state("connected", "LazyOpen"), "timeout": 120}, {"wait": 2.0}, {"shot": "02_open"}]
     steps += click("wifi_leave") + [action("LEAVE:PASS", 2)]
     # WPA2 with a wrong passphrase: the handshake fails as a bad passphrase.
     steps += network_row(1)
     steps += fill("wifi_passphrase", WRONG_PASSPHRASE)
-    steps += click("wifi_join") + [action("JOIN:REQUESTED", 3)]
+    steps += click("wifi_join") + [join(3, "LazyWPA2")]
     steps += [{"wait_for": state("failed", "LazyWPA2"), "timeout": 180}, {"wait": 2.0}, {"shot": "03_wrong"}]
     # The profile holds the wrong secret now: forget it and start over.
     steps += click("wifi_forget") + [action("FORGET:PASS", 4)]
     steps += network_row(1)
     steps += fill("wifi_passphrase", WPA2_PASSPHRASE)
-    steps += click("wifi_join") + [action("JOIN:REQUESTED", 5)]
+    steps += click("wifi_join") + [join(5, "LazyWPA2")]
     steps += [{"wait_for": state("connected", "LazyWPA2"), "timeout": 180}, {"wait": 2.0}, {"shot": "04_wpa2"}]
     # The stored secret, not the typed one: leave, and join again with the
     # passphrase box empty. It must connect from what `keyd` kept.
     steps += click("wifi_leave") + [action("LEAVE:PASS", 6), {"wait": 2.0}]
     steps += network_row(1)
-    steps += click("wifi_join") + [action("JOIN:REQUESTED", 7)]
+    steps += click("wifi_join") + [join(7, "LazyWPA2")]
     steps += [{"wait_for": rf'NETAPP:WIFI:STATE if=wlan0 state=connected ssid="LazyWPA2"', "timeout": 180}]
     steps += [{"wait": 3.0}, {"shot": "05_rejoined_from_stored"}]
+    # A hidden open network by name: the name box and the Open tick (an empty
+    # passphrase alone is refused, never saved as open).
+    steps += click("wifi_leave") + [action("LEAVE:PASS", 8), {"wait": 2.0}]
+    steps += fill("wifi_hidden", "LazyHidden")
+    steps += click("wifi_join_hidden") + [{"wait_for": "NETAPP:WIFI:JOIN:REFUSED Type the passphrase", "timeout": 30}]
+    steps += click("wifi_open") + click("wifi_join_hidden") + [join(9, "LazyHidden")]
+    steps += [{"wait_for": 'NETAPP:WIFI:STATE if=wlan0 state=connected ssid="LazyHidden"', "timeout": 180}]
+    steps += [{"wait": 3.0}, {"shot": "05b_hidden"}]
     # `quit` kills QEMU without a sync: let the block cache's flusher (5 s)
     # write `keyd`'s secrets before the host reads the volume.
     steps += [{"wait": 8.0}, {"quit": True}]
@@ -137,7 +150,8 @@ def second_boot() -> list[dict]:
     # The station may have auto-connected to a saved network: leave it first.
     steps += click("wifi_leave") + [action("LEAVE:PASS", 1), {"wait": 2.0}]
     steps += network_row(1)
-    steps += click("wifi_join") + [action("JOIN:REQUESTED", 2)]
+    steps += click("wifi_join")
+    steps += [{"wait_for": rf'NETAPP:WIFI:JOIN:REQUESTED id=\S+ ssid="LazyWPA2" n=2(?!\d)', "regex": True, "timeout": 60}]
     steps += [{"wait_for": 'NETAPP:WIFI:STATE if=wlan0 state=connected ssid="LazyWPA2"', "timeout": 180}]
     steps += [{"wait": 3.0}, {"shot": "07_rejoined_after_reboot"}, {"wait": 8.0}, {"quit": True}]
     return steps
@@ -164,7 +178,9 @@ EXPECT = (
     (r"NETAPP:WIFI:LEAVE:PASS n=2", "Disconnect failed"),
     (r'NETAPP:WIFI:STATE if=wlan0 state=failed ssid="LazyWPA2"', "the wrong passphrase did not fail"),
     (r"NETAPP:WIFI:FORGET:PASS id=\S+ n=4", "Forget failed"),
-    (r"NETAPP:WIFI:JOIN:REQUESTED id=\S+ n=7", "the saved network was not joined again"),
+    (r'NETAPP:WIFI:JOIN:REQUESTED id=\S+ ssid="LazyWPA2" n=7', "the saved network was not joined again"),
+    (r'NETAPP:WIFI:JOIN:REFUSED Type the passphrase', "an empty passphrase was not refused for a hidden network"),
+    (r'NETAPP:WIFI:STATE if=wlan0 state=connected ssid="LazyHidden"', "the hidden network never connected"),
     (r'NETAPP:WIFI:STATE if=wlan0 state=connected ssid="LazyWPA2"', "WPA2 never connected"),
 )
 
@@ -193,7 +209,7 @@ def judge(serial: str, ap_log: str) -> list[str]:
         if secret in serial:
             problems.append("a passphrase reached the serial log")
     problems += [f"unexpected: {m.group(0)}" for pattern in FAIL_ON for m in [re.search(pattern, serial)] if m]
-    denied = [line for line in serial.splitlines() if "LABEL:DENY" in line and "os.lazy.network" in line]
+    denied = [line for line in serial.splitlines() if "LABEL:DENY" in line and "os.lazy.net" in line]
     problems += [f"label denial: {line.strip()}" for line in denied[:5]]
     if "LazyWPA2" not in ap_log:
         problems.append("the access point never saw the station on LazyWPA2")
@@ -230,9 +246,6 @@ def main() -> int:
         if why:
             print(f"WIFI:UI:FAIL: {why}", file=sys.stderr)
             return 1
-    OUT.mkdir(parents=True, exist_ok=True)
-    script = OUT / "session.json"
-    script.write_text(json.dumps(session(), indent=1))
     ap_log, pcap = OUT / "ap.log", OUT / "air.pcap"
     for path in (ap_log, pcap):
         path.unlink(missing_ok=True)
