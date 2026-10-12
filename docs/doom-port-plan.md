@@ -211,9 +211,8 @@ not with a Doom-side workaround.
 
 ### D6 — Stretch (each independent)
 
-- **Sound:** blocked on the audio driver plan (`docs/driver-plan.md`,
-  `os.lazy.audio.v1` is not defined yet). Doomgeneric has a sound-module
-  interface; SFX-only first, no music.
+- **Sound:** planned in [`game-sound-plan.md`](game-sound-plan.md) (effects
+  through `audiod`, then OPL music from `GENMIDI`).
 - **Mouse capture** in `xuid` (see D3).
 - **Scaling/fullscreen** and vsync-aligned commits via swapchain frame-done.
 - **Freedoom Phase 2 / Freedoom DM / other IWADs** through a file picker.
