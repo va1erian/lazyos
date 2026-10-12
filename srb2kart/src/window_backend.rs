@@ -69,8 +69,8 @@ impl Backend for WindowBackend {
                 }
             }
             None => {
-                let window = Window::open(width, height, title)
-                    .map_err(|error| format!("{error:?}"))?;
+                let window =
+                    Window::open(width, height, title).map_err(|error| format!("{error:?}"))?;
                 self.window = Some(window);
             }
         }
@@ -79,7 +79,13 @@ impl Backend for WindowBackend {
 
     fn present(&mut self, frame: &Frame<'_>) -> Flow {
         if let Some(window) = self.window.as_mut() {
-            window.present(frame.pixels, frame.width, frame.height, frame.pitch, frame.palette);
+            window.present(
+                frame.pixels,
+                frame.width,
+                frame.height,
+                frame.pitch,
+                frame.palette,
+            );
         }
         self.frames += 1;
         let second = self.start.elapsed().as_secs();
@@ -117,7 +123,10 @@ impl Backend for WindowBackend {
             if let Some(window) = self.window.as_mut() {
                 window.set_busy(false);
             }
-            println!("SRB2KART:LOADING:DONE ms={}", self.start.elapsed().as_millis());
+            println!(
+                "SRB2KART:LOADING:DONE ms={}",
+                self.start.elapsed().as_millis()
+            );
         }
     }
 

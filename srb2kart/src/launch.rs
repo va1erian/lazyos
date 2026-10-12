@@ -150,7 +150,11 @@ mod tests {
     #[test]
     fn init_launch_uses_the_image_data_and_the_app_folder() {
         let launch = parse(
-            &args(&["/apps/org.lazy.srb2kart/1/bin/srb2kart.elf", "--client", "attempt=2"]),
+            &args(&[
+                "/apps/org.lazy.srb2kart/1/bin/srb2kart.elf",
+                "--client",
+                "attempt=2",
+            ]),
             Some("/home/ana"),
             "/",
         );
@@ -159,7 +163,13 @@ mod tests {
         assert_eq!(launch.home_dir, "/home/ana/.apps/org.lazy.srb2kart");
         assert_eq!(
             launch.engine_args,
-            args(&["/apps/org.lazy.srb2kart/1/bin/srb2kart.elf", "-width", "640", "-height", "400"])
+            args(&[
+                "/apps/org.lazy.srb2kart/1/bin/srb2kart.elf",
+                "-width",
+                "640",
+                "-height",
+                "400"
+            ])
         );
     }
 
@@ -167,8 +177,17 @@ mod tests {
     fn wrapper_flags_are_consumed_and_engine_flags_pass_through() {
         let launch = parse(
             &args(&[
-                "srb2kart.elf", "-headless", "-frames", "300", "-data", "/d", "-home", "./h",
-                "+map", "MAP01", "-nomusic",
+                "srb2kart.elf",
+                "-headless",
+                "-frames",
+                "300",
+                "-data",
+                "/d",
+                "-home",
+                "./h",
+                "+map",
+                "MAP01",
+                "-nomusic",
             ]),
             Some("/home/ana"),
             "/w",
@@ -178,27 +197,49 @@ mod tests {
         assert_eq!(launch.home_dir, "/w/h");
         assert_eq!(
             launch.engine_args,
-            args(&["srb2kart.elf", "+map", "MAP01", "-nomusic", "-width", "320", "-height", "200"])
+            args(&[
+                "srb2kart.elf",
+                "+map",
+                "MAP01",
+                "-nomusic",
+                "-width",
+                "320",
+                "-height",
+                "200"
+            ])
         );
     }
 
     #[test]
     fn headless_picks_the_small_mode_unless_told_otherwise() {
         let default = parse(&args(&["k.elf", "-headless"]), None, "/");
-        assert_eq!(default.engine_args[1..], args(&["-width", "320", "-height", "200"]));
+        assert_eq!(
+            default.engine_args[1..],
+            args(&["-width", "320", "-height", "200"])
+        );
         let chosen = parse(
             &args(&["k.elf", "-headless", "-width", "640", "-height", "400"]),
             None,
             "/",
         );
-        assert_eq!(chosen.engine_args[1..], args(&["-width", "640", "-height", "400"]));
+        assert_eq!(
+            chosen.engine_args[1..],
+            args(&["-width", "640", "-height", "400"])
+        );
         let window = parse(&args(&["k.elf"]), None, "/");
         assert_eq!(
             window.engine_args,
             args(&["k.elf", "-width", "640", "-height", "400"])
         );
-        let own = parse(&args(&["k.elf", "-width", "960", "-height", "600"]), None, "/");
-        assert_eq!(own.engine_args[1..], args(&["-width", "960", "-height", "600"]));
+        let own = parse(
+            &args(&["k.elf", "-width", "960", "-height", "600"]),
+            None,
+            "/",
+        );
+        assert_eq!(
+            own.engine_args[1..],
+            args(&["-width", "960", "-height", "600"])
+        );
     }
 
     #[test]
@@ -216,7 +257,10 @@ mod tests {
         list.push("-data".to_string());
         list.push("y".repeat(MAX_ARG_BYTES + 1));
         let launch = parse(&list, None, "/");
-        assert!(launch.engine_args.iter().all(|arg| arg.len() <= MAX_ARG_BYTES));
+        assert!(launch
+            .engine_args
+            .iter()
+            .all(|arg| arg.len() <= MAX_ARG_BYTES));
         assert!(launch.engine_args.len() <= MAX_ARGS);
         assert_eq!(launch.data_dir, DATA_DIR);
         assert_eq!(parse(&[], None, "/").engine_args[0], "srb2kart");

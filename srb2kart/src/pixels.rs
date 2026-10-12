@@ -112,7 +112,11 @@ impl Blitter {
         dst_w: usize,
         dst_h: usize,
     ) {
-        let needed = if src_h == 0 { 0 } else { (src_h - 1) * pitch + src_w };
+        let needed = if src_h == 0 {
+            0
+        } else {
+            (src_h - 1) * pitch + src_w
+        };
         if src_w == 0 || src_h == 0 || pitch < src_w || src.len() < needed {
             return;
         }
@@ -120,7 +124,14 @@ impl Blitter {
             return;
         }
         let (left, top, width, height) = fit(src_w, src_h, dst_w, dst_h);
-        let geometry = Geometry { dst_w, dst_h, left, top, width, height };
+        let geometry = Geometry {
+            dst_w,
+            dst_h,
+            left,
+            top,
+            width,
+            height,
+        };
         if self.painted != Some(geometry) {
             fill_black(dst);
             self.painted = Some(geometry);

@@ -11,16 +11,16 @@
 //! (`window_input.rs`). The C seam sees [`Window::open`], [`Window::present`]
 //! and [`Window::poll`] (`lz_video_open`, `lz_present`, `lz_poll_event`).
 
-use lazysrb2kart::keymap;
 use lazysrb2kart::backend::Event as LzEvent;
+use lazysrb2kart::keymap;
 use lazysrb2kart::keys::Keys;
 use lazysrb2kart::pixels::Blitter;
 use lazysrb2kart::session::{GrabPolicy, SessionKeys};
+use messenger_generated::os_lazy_display_cursor_v1 as cursor;
 use xui_app::client_window::{ClientWindow, OpenError, SurfaceRole};
 use xui_app::display::{self, Client, Event, FrameEvent};
 use xui_app::input::{self, KeyStatePage};
 use xui_app::sys::{self, errno};
-use messenger_generated::os_lazy_display_cursor_v1 as cursor;
 use xui_core::Rect;
 
 /// Receive buffer for one event; events are far smaller.
@@ -163,7 +163,11 @@ impl Window {
     /// A package without the cursor scope is refused; the pointer just stays
     /// an arrow.
     pub fn set_busy(&mut self, busy: bool) {
-        let shape = if busy { cursor::CURSOR_SHAPE_BUSY } else { cursor::CURSOR_SHAPE_DEFAULT };
+        let shape = if busy {
+            cursor::CURSOR_SHAPE_BUSY
+        } else {
+            cursor::CURSOR_SHAPE_DEFAULT
+        };
         let _ = self.client.set_cursor(self.window.surface, shape);
     }
 

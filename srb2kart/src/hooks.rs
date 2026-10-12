@@ -38,7 +38,11 @@ pub fn set_dirs(data: &str, home: &str) {
 }
 
 fn with_backend<T>(f: impl FnOnce(&mut dyn Backend) -> T) -> Option<T> {
-    BACKEND.with(|slot| slot.borrow_mut().as_mut().map(|backend| f(backend.as_mut())))
+    BACKEND.with(|slot| {
+        slot.borrow_mut()
+            .as_mut()
+            .map(|backend| f(backend.as_mut()))
+    })
 }
 
 fn quit(status: i32) -> ! {
@@ -111,7 +115,10 @@ pub extern "C" fn lz_present(
     ) else {
         return;
     };
-    let Some(len) = pitch.checked_mul(height).filter(|len| *len <= MAX_FRAME_BYTES) else {
+    let Some(len) = pitch
+        .checked_mul(height)
+        .filter(|len| *len <= MAX_FRAME_BYTES)
+    else {
         return;
     };
     if pixels.is_null() || palette.is_null() || width == 0 || height == 0 || pitch < width {

@@ -72,7 +72,11 @@ impl Keys {
     pub fn pop_event(&mut self) -> Option<Event> {
         let (pressed, key) = self.pop()?;
         Some(Event {
-            kind: if pressed { Event::KEY_DOWN } else { Event::KEY_UP },
+            kind: if pressed {
+                Event::KEY_DOWN
+            } else {
+                Event::KEY_UP
+            },
             key: i32::from(key),
         })
     }

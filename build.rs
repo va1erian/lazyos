@@ -57,10 +57,10 @@ mod pictures_embed;
 mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
-#[path = "build_support/srb2kart_embed.rs"]
-mod srb2kart_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
+#[path = "build_support/srb2kart_embed.rs"]
+mod srb2kart_embed;
 #[path = "build_support/tls_embed.rs"]
 mod tls_embed;
 #[path = "build_support/ui_probe_embed.rs"]
