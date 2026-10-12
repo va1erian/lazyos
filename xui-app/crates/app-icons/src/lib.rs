@@ -130,6 +130,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/video",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
+    // About LazyOS: Lucide `box` (a cube: the app is a 3D renderer) on a
+    // teal tile.
+    (
+        "xui-app/packages/about",
+        Art::Lucide(Lucide::Box, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

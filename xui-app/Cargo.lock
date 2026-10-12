@@ -6763,6 +6763,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
+name = "xui-about"
+version = "0.1.0"
+dependencies = [
+ "xui-canvas",
+ "xui-core",
+]
+
+[[package]]
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
@@ -6791,6 +6799,7 @@ dependencies = [
  "timezone",
  "trayclient",
  "uitheme",
+ "xui-about",
  "xui-archiver",
  "xui-calc",
  "xui-canvas",
