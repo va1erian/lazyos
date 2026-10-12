@@ -26,6 +26,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("jpeg", "image/jpeg"),
     ("gif", "image/gif"),
     ("bmp", "image/bmp"),
+    // OpenRaster, the layered format Paint saves (docs/paint-plan.md, P6).
+    ("ora", "image/openraster"),
     ("html", "text/html"),
     ("htm", "text/html"),
     ("json", "application/json"),

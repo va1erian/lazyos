@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-//! The modal dialogs Paint opens: the Open/Save As pickers and the Resize
-//! prompt.
+//! The modal dialogs Paint opens: the Open/Save As pickers, the About box and
+//! the oversized-paste question.
 //!
 //! [`Msg`] is `Copy`, so a dialog's payload (a path, the typed size) never rides
 //! in the message: the dialog's mapper parks it in a shared slot and raises a
@@ -13,7 +13,9 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::backend::Result;
-use xui_core::widget::{Dialog, DialogAction, FileDialog, FileSystem};
+use xui_core::widget::{
+    Dialog, FileDialog, FileSystem, TaskDialog, TaskDialogAction, TaskDialogIcon,
+};
 
 use crate::view::Msg;
 
@@ -34,14 +36,19 @@ impl FileDialogs {
         let open = FileDialog::open_file(ui, "Open")?
             .file_system(Rc::clone(&fs))
             .require_existing(true)
+            .filter("Pictures", &["png", "jpg", "jpeg", "bmp", "ora"])
             .filter("PNG images", &["png"])
+            .filter("JPEG images", &["jpg", "jpeg"])
+            .filter("Bitmaps", &["bmp"])
+            .filter("OpenRaster images", &["ora"])
             .filter("All files", &[])
             .on_accept(accept(&chosen, Msg::OpenChosen))
             .on_cancel(|| Some(Msg::DialogClosed));
         let save = FileDialog::save_file(ui, "Save As")?
             .file_system(Rc::clone(&fs))
+            .filter("OpenRaster images (layers)", &["ora"])
             .filter("PNG images", &["png"])
-            .filter("All files", &[])
+            .filter("Bitmaps", &["bmp"])
             .on_accept(accept(&chosen, Msg::SaveChosen))
             .on_cancel(|| Some(Msg::DialogClosed));
         Ok(FileDialogs {
@@ -55,6 +62,12 @@ impl FileDialogs {
     /// Whether either picker is showing.
     pub(super) fn is_open(&self) -> bool {
         self.open.is_open() || self.save.is_open()
+    }
+
+    /// Hides both pickers without an answer.
+    pub(super) fn close(&self) {
+        self.open.close();
+        self.save.close();
     }
 
     pub(super) fn set_start_dir(&self, dir: &Path) {
@@ -96,42 +109,90 @@ fn accept(chosen: &Slot<PathBuf>, msg: Msg) -> impl Fn(PathBuf) -> Option<Msg> +
     }
 }
 
-/// The Resize prompt. `Dialog::prompt` seeds its field once at build time, so a
-/// fresh dialog is built per open to show the current size; the old one (closed
-/// by then) is dropped, which removes its nodes.
+/// The About box: one message dialog, built when first shown.
 #[derive(Default)]
-pub(super) struct ResizePrompt {
+pub(super) struct AboutBox {
     dialog: Option<Dialog<Msg>>,
-    text: Slot<String>,
 }
 
-impl ResizePrompt {
+impl AboutBox {
     pub(super) fn is_open(&self) -> bool {
         self.dialog.as_ref().is_some_and(Dialog::is_open)
     }
 
-    pub(super) fn show(&mut self, ui: &Ui<Msg>, (width, height): (u32, u32)) -> Result<()> {
-        let text = Rc::clone(&self.text);
-        let dialog = Dialog::prompt(
-            ui,
-            "Resize canvas",
-            "New size as WIDTHxHEIGHT (1-1024 pixels)",
-            &format!("{width}x{height}"),
-        )?
-        .on_action(move |action| match action {
-            DialogAction::Accept(entered) => {
-                *text.borrow_mut() = Some(entered);
-                Some(Msg::ResizeChosen)
-            }
-            DialogAction::Cancel => Some(Msg::DialogClosed),
-        });
+    /// Hides the box.
+    pub(super) fn close(&self) {
+        if let Some(dialog) = &self.dialog {
+            dialog.close();
+        }
+    }
+
+    pub(super) fn show(&mut self, ui: &Ui<Msg>) -> Result<()> {
+        let dialog = match self.dialog.take() {
+            Some(dialog) => dialog,
+            None => Dialog::message(
+                ui,
+                "About Paint",
+                "Paint, an image editor for LazyOS, built on xui.",
+            )?
+            .on_action(|_| Some(Msg::DialogClosed)),
+        };
         dialog.open();
         self.dialog = Some(dialog);
         Ok(())
     }
+}
 
-    /// The text the last accepted prompt returned, once.
-    pub(super) fn take_text(&mut self) -> Option<String> {
-        self.text.borrow_mut().take()
+/// The answer to "the pasted picture is larger than the canvas".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PasteSize {
+    /// Grow the canvas to hold the picture.
+    Expand,
+    /// Keep the canvas; the picture hangs over the edge.
+    Keep,
+}
+
+/// The oversized-paste question: expand the canvas (command 0), keep its size
+/// (command 1) or cancel the paste. Built per open so the message can name the
+/// two sizes.
+#[derive(Default)]
+pub(super) struct PasteSizePrompt {
+    dialog: Option<TaskDialog<Msg>>,
+}
+
+impl PasteSizePrompt {
+    pub(super) fn is_open(&self) -> bool {
+        self.dialog.as_ref().is_some_and(TaskDialog::is_open)
+    }
+
+    /// Hides the card without an answer.
+    pub(super) fn close(&self) {
+        if let Some(dialog) = &self.dialog {
+            dialog.close();
+        }
+    }
+
+    pub(super) fn show(
+        &mut self,
+        ui: &Ui<Msg>,
+        picture: (u32, u32),
+        canvas: (u32, u32),
+    ) -> Result<()> {
+        let text = format!(
+            "The picture ({} x {}) is larger than the canvas ({} x {}). Expand the canvas to fit it?",
+            picture.0, picture.1, canvas.0, canvas.1
+        );
+        let dialog = TaskDialog::new(ui, "Paste", &text)?
+            .icon(TaskDialogIcon::Info)
+            .command("Expand canvas")?
+            .command("Keep size")?
+            .on_action(|action| match action {
+                TaskDialogAction::Command(0) => Some(Msg::PasteExpand),
+                TaskDialogAction::Command(_) => Some(Msg::PasteKeep),
+                TaskDialogAction::Cancel => Some(Msg::PasteCancel),
+            });
+        dialog.open();
+        self.dialog = Some(dialog);
+        Ok(())
     }
 }

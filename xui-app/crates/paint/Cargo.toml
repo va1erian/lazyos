@@ -17,8 +17,17 @@ path = "src/lib.rs"
 [features]
 # Optional filesystem persistence; off by default so nothing touches disk.
 fs = []
+# The real text rasterizer (`cosmic-text` + `swash`, the stack xui-canvas
+# draws with). Off by default: the model's `TextRasterizer` trait, `TextEdit`
+# and the caret geometry need none of it, so a host that never rasterizes text
+# pays nothing. The LazyOS binary turns it on when the Text tool is wired.
+text = ["dep:cosmic-text"]
 
 [dependencies]
+# Antialiased coverage for shapes: the 0.11 line xui-canvas (and so the
+# lockfile) already carries, with only `std` (no PNG codec, no SIMD).
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+cosmic-text = { version = "0.19", optional = true, default-features = false, features = ["std", "swash"] }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 
 [dev-dependencies]

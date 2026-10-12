@@ -24,6 +24,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         ("HOLIDAY.JPEG", "image/jpeg"),
         ("ANIM.GIF", "image/gif"),
         ("ICON.BMP", "image/bmp"),
+        ("DRAWING.ORA", "image/openraster"),
         ("LETTER.LZW", "application/x-lazywriter"),
         ("BUNDLE.ZIP", "application/zip"),
         ("SRC.TAR.GZ", "application/gzip"),
@@ -201,6 +202,23 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         );
     } else {
         trace::line!(trace::Channel::Mime, "FALLBACK:FAIL markdown open fallback");
+    }
+
+    // JPEG and BMP: the Picture Viewer opens, Paint edits, and Paint is the
+    // `open` fallback when the viewer is not shipped.
+    let pictures_ok = ["image/jpeg", "image/bmp"].iter().all(|mime| {
+        let fallback = apps.resolve(mime, "open").and_then(|(_, fallback)| fallback);
+        apps.lookup(mime, "open") == Some("os.lazy.pictures")
+            && apps.lookup(mime, "edit") == Some("os.lazy.paint")
+            && choose("os.lazy.pictures", fallback, false) == "os.lazy.paint"
+            && choose("os.lazy.pictures", fallback, true) == "os.lazy.pictures"
+    });
+    if pictures_ok {
+        sys::write_str("MIME:PICTURES:PASS jpeg,bmp open=os.lazy.pictures edit=os.lazy.paint
+");
+    } else {
+        sys::write_str("MIME:PICTURES:FAIL jpeg/bmp open and edit
+");
     }
 
     let mut bus = None;

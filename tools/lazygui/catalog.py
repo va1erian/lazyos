@@ -93,6 +93,8 @@ SCRIPTS = [
     ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
     ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
     ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
+    ("xui_paint_editor.json", "XUI app: Paint editor (layers, text, gradient, ORA, PNG)",
+        ("desktop",), "paint"),
     ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
     ("xui_writer.json", "XUI app: LazyWriter (format, save, export)", ("desktop",), "writer"),
     ("xui_archiver.json", "XUI app: Archiver (open, extract, create, drag to Files)",

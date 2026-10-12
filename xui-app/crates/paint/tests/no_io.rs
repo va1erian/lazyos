@@ -35,7 +35,8 @@ fn nothing_depends_on_io() {
         },
         move |stage| {
             let areas = widgets.areas(stage.ui());
-            let y = areas.canvas.top + 40;
+            let (x0, y) = areas.pixel(20, 40);
+            let (x1, _) = areas.pixel(100, 40);
             // A forced save and open both report the failure in the status bar.
             stage.emit(Msg::Save);
             assert!(
@@ -49,13 +50,13 @@ fn nothing_depends_on_io() {
             );
             // Drawing still works with no storage at all.
             stage.inject(Event::MouseDown {
-                x: 100,
+                x: x0,
                 y,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,
             });
             stage.inject(Event::MouseUp {
-                x: 180,
+                x: x1,
                 y,
                 button: MouseButton::Left,
                 modifiers: Modifiers::NONE,

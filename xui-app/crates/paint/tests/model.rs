@@ -52,12 +52,21 @@ fn changing_colour_does_not_affect_the_canvas_until_a_stroke() {
 }
 
 #[test]
-fn the_eraser_paints_white_even_when_the_primary_is_not() {
+fn the_eraser_writes_alpha_zero_and_its_right_button_the_secondary() {
     let mut model = Model::new(8, 8);
     model.set_primary(RED);
+    model.set_secondary(BLUE);
     model.set_tool(Tool::Eraser);
-    assert_eq!(model.color_for(Side::Primary), WHITE);
-    assert_eq!(model.color_for(Side::Secondary), WHITE);
+    assert_eq!(model.color_for(Side::Primary), RED);
+    assert_eq!(model.color_for(Side::Secondary), BLUE);
+    model.set_size(3);
+    model.begin(4, 4, Side::Primary);
+    model.end();
+    assert_eq!(model.bitmap().get(4, 4), Some([0, 0, 0, 0]));
+    assert_eq!(model.bitmap().get(4, 5), Some([0, 0, 0, 0]));
+    assert_eq!(model.bitmap().get(0, 0), Some(WHITE), "only where it went");
+    // The flattened picture is transparent there too.
+    assert_eq!(model.flatten().get(4, 4), Some([0, 0, 0, 0]));
 }
 
 #[test]

@@ -317,6 +317,24 @@ python tools/video/make_sample.py --check
 cargo run --release --manifest-path xui-app/Cargo.toml -p lazyvideo --example decode_bench -- clip.avi
 ```
 
+## Paint (`os.lazy.paint`)
+
+`xui-paint` is a core desktop app in every desktop image: a layered image
+editor (selections, clipboard, shapes, gradient, text in Liberation, adjustments;
+OpenRaster, PNG, JPEG, BMP) in `xui-app/crates/paint` (portable, host-tested and
+snapshot-tested), launched by `xui-app/src/bin/paint.rs`; plan and status in
+[`docs/paint-plan.md`](docs/paint-plan.md), keys and layout in the crate's
+README. Sessions (`LAZYOS_XUI_AUTOSTART=paint LAZYOS_UI_PROBE=1`):
+`tools/screenshot/examples/xui_paint.json` and `xui_paint_editor.json`; markers
+`PAINT:UP:PASS`, `PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>`,
+`PAINT:SAVE:PASS:<path>:<format>`. In a session step `offset` goes inside the
+`click_at` target and the window name is the current title.
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-paint            # also --features text
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint_editor     --script tools/screenshot/examples/xui_paint_editor.json
+```
+
 ## LazyGolf (`os.lazy.golf`)
 
 `xui-golf` is a core desktop app: a procedural 18-hole course generator and

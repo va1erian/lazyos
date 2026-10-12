@@ -9,7 +9,7 @@ name = "Paint"
 system_name = "os.lazy.paint"
 author = "LazyOS"
 version = "0.1.0"
-description = "Draw and edit PNG pictures"
+description = "Draw and edit pictures with layers"
 category = "graphics"
 
 [entry]
@@ -20,10 +20,42 @@ args = ["--client"]
 abi = "linux"
 autostart = false
 
+# The pictures Paint opens and edits. `mimed` maps the extensions (a manifest
+# cannot name them): png, jpg/jpeg, bmp and ora (OpenRaster, the layered
+# format Paint saves). The Picture Viewer, when the image ships it, names
+# `open` for png, jpeg and bmp. For jpeg and bmp Paint therefore keeps only
+# `edit` (mimed's last registration wins, so two `open` claims would depend on
+# install order; mimed seeds the viewer for `open` with Paint as the fallback
+# when the viewer is not shipped, user/src/bin/mimed/apps.rs).
 [[mime]]
 type = "image/png"
 verbs = ["open", "edit"]
 
+[[mime]]
+type = "image/jpeg"
+verbs = ["edit"]
+
+[[mime]]
+type = "image/bmp"
+verbs = ["edit"]
+
+[[mime]]
+type = "image/openraster"
+verbs = ["open", "edit"]
+
 [permissions]
 # Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+# The clipboard is the system `image/png` clipboard Edit > Copy, Cut and Paste
+# share with other apps (`os.lazy.clipboard.v1` implies the write scope Offer
+# travels on and the read scope Request does, `libs/pkgstore/src/rules.rs`).
+# Confirmed by a run under `LAZYOS_LABEL_TRACE=1` of `xui_paint.json` and
+# `xui_paint_editor.json` (cut, paste into a new layer, Open and Save As, the
+# Text tool reading /system/share/fonts/liberation): no `LABEL:DENY` for the
+# label (docs/packages.md, core packages). Files and fonts are filesystem
+# reads, not Messenger calls, so they need no entry here.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.clipboard.v1",
+]

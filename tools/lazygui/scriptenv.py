@@ -11,6 +11,10 @@ SCRIPT_ENV: dict[str, dict[str, str]] = {
     "tray.json": {"LAZYOS_TRAYDEMO": "1", "LAZYOS_UI_PROBE": "1"},
     # The Picture Viewer session (docs/lazyrad-pictures.md) clicks its toolbar by name.
     "lazyrad_pictures.json": {"LAZYOS_PICTURES": "1", "LAZYOS_UI_PROBE": "1"},
+    # The Paint session (docs/paint-plan.md P1) clicks its tools, swatches and menu bar by name.
+    "xui_paint.json": {"LAZYOS_UI_PROBE": "1"},
+    # The editing session (P6) names the same controls, plus the layer and dialog ones.
+    "xui_paint_editor.json": {"LAZYOS_UI_PROBE": "1"},
 }
 
 
