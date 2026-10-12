@@ -82,26 +82,6 @@ tools/webkit/gen_platform_patch.py; do not edit by hand.
      virtual void postAccessibilityNotification(AccessibilityObject&, AXNotification) = 0;
      virtual void postAccessibilityNodeTextChangeNotification(AccessibilityObject*, AXTextChange, unsigned, const String&) = 0;
      virtual void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXLoadingEvent) = 0;
---- a/Source/WebCore/platform/graphics/skia/PlatformDisplaySkia.cpp
-+++ b/Source/WebCore/platform/graphics/skia/PlatformDisplaySkia.cpp
-@@ -79,7 +79,7 @@
- static const unsigned s_defaultSampleCount = 0;
- #endif
- 
--#if !(PLATFORM(PLAYSTATION) && USE(COORDINATED_GRAPHICS))
-+#if !(PLATFORM(LAZYOS) && USE(COORDINATED_GRAPHICS))
- static sk_sp<const GrGLInterface> skiaGLInterface()
- {
-     static NeverDestroyed<sk_sp<const GrGLInterface>> grGLInterface {
-@@ -369,7 +369,7 @@
- 
- GLContext* PlatformDisplay::skiaGLContext()
- {
--#if PLATFORM(GTK) || PLATFORM(WPE) || (PLATFORM(PLAYSTATION) && !USE(COORDINATED_GRAPHICS))
-+#if PLATFORM(GTK) || PLATFORM(WPE) || (PLATFORM(LAZYOS) && !USE(COORDINATED_GRAPHICS))
-     if (!s_skiaGLContext) {
-         s_skiaGLContext = SkiaGLContext::create(*this);
-         m_skiaGLContexts.add(*s_skiaGLContext);
 --- a/Source/WebCore/platform/sql/SQLiteExtras.h
 +++ b/Source/WebCore/platform/sql/SQLiteExtras.h
 @@ -37,7 +37,7 @@

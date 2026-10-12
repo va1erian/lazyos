@@ -56,12 +56,9 @@ def overlay_files() -> list[Path]:
     return sorted(p for p in OVERLAY.rglob("*") if p.is_file())
 
 
-def digest(paths: list[Path]) -> str:
-    h = hashlib.sha256()
-    for path in paths:
-        h.update(path.name.encode())
-        h.update(path.read_bytes())
-    return h.hexdigest()[:16]
+def patch_stamp() -> list[str]:
+    """``name:digest`` of every patch, in application order."""
+    return [f"{p.name}:{hashlib.sha256(p.read_bytes()).hexdigest()[:12]}" for p in patch_files()]
 
 
 def git_blob_sha1(data: bytes) -> str:
@@ -116,16 +113,20 @@ def prepare() -> Path:
     archive = wkpins.fetch_webkit()
     if archive is None:
         raise BuildError("WebKitGTK download unavailable")
-    wanted = digest(patch_files()) + ":" + digest([UPSTREAM])
+    wanted = patch_stamp()
     stamp = TREE / wkpins.jsc_pins.WEBKIT.topdir / STAMP
-    if stamp.is_file() and stamp.read_text().strip() != wanted:
-        wkpins.log("patches or upstream list changed: extracting the tree again")
-        shutil.rmtree(TREE / wkpins.jsc_pins.WEBKIT.topdir, ignore_errors=True)
+    if stamp.is_file():
+        have = stamp.read_text().split()
+        # New patches at the end only need applying; a changed or removed one needs a fresh
+        # tree (and a full rebuild: the extraction renews every file's time).
+        if wanted[:len(have)] != have:
+            wkpins.log("an applied patch changed: extracting the tree again")
+            shutil.rmtree(TREE / wkpins.jsc_pins.WEBKIT.topdir, ignore_errors=True)
     tree = toolenv.extract(archive, wkpins.jsc_pins.WEBKIT, TREE)
     apply_patches(tree)
     fetch_upstream(tree)
     written = lay_overlay(tree)
     if written:
         wkpins.log(f"{written} port file(s) written into the tree")
-    stamp.write_text(wanted + "\n")
+    stamp.write_text("\n".join(wanted) + "\n")
     return tree

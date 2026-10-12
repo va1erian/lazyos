@@ -36,6 +36,9 @@ include(GNUInstallDirs)
 include(VersioningUtils)
 
 add_definitions(-DWTF_PLATFORM_LAZYOS=1)
+# Selects the PlayStation port's C API types in WKBase.h and WKAPICast.h (patch 0009), as
+# BUILDING_GTK__ does for GTK; an embedder of the C API defines it too.
+add_definitions(-DBUILDING_LAZYOS__=1)
 
 set(ENABLE_WEBKIT_LEGACY OFF)
 set(ENABLE_WEBINSPECTORUI OFF)

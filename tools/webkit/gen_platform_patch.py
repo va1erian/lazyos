@@ -22,6 +22,11 @@ from pathlib import Path
 
 OLD, NEW = b"PLATFORM(PLAYSTATION)", b"PLATFORM(LAZYOS)"
 ROOTS = ["Source/WebCore", "Source/WebKit"]
+#: Left alone on purpose. It excludes Skia's GL context for "PlayStation with coordinated
+#: graphics" in one place and compiles it in another, a pair of conditions that only agrees
+#: when PLATFORM(PLAYSTATION) is false: the GL context is compiled and skiaGLContext()
+#: returns nullptr, which is what a port without a GPU wants.
+KEEP = {"Source/WebCore/platform/graphics/skia/PlatformDisplaySkia.cpp"}
 OUT = Path(__file__).resolve().parents[2] / "webkit" / "patches" / "0003-platform-lazyos.patch"
 HEADER = """\
 Rename PLATFORM(PLAYSTATION) to PLATFORM(LAZYOS) in WebCore and WebKit.
@@ -41,7 +46,7 @@ def files(tree: Path) -> list[Path]:
     for root in ROOTS:
         for path in sorted((tree / root).rglob("*")):
             if path.is_file() and path.suffix in {".h", ".cpp", ".mm", ".c", ".txt", ".in", ".cmake"}:
-                if OLD in path.read_bytes():
+                if OLD in path.read_bytes() and path.relative_to(tree).as_posix() not in KEEP:
                     found.append(path)
     return found
 

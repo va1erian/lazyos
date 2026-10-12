@@ -147,4 +147,5 @@ endif ()
 # The headless UI process: a program that drives WebKit through the C API
 # (webkit/port/smoke/, docs W4). Linked like the auxiliary processes.
 add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp")
+target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers")
 target_link_libraries(webkit-smoke PRIVATE WebKit)
