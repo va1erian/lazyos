@@ -75,11 +75,7 @@ pub fn request_request(token: u64, mime: &str) -> Result<Parcel> {
 /// of `data` (a handle from `buffer_create`, `data.len` bytes). The request
 /// carries the buffer; it travels on the interface's own id, which the
 /// declared-object gate requires.
-pub fn offer_buffer_request(
-    owner: &str,
-    mime: &str,
-    data: libmessenger::Buffer,
-) -> Result<Parcel> {
+pub fn offer_buffer_request(owner: &str, mime: &str, data: libmessenger::Buffer) -> Result<Parcel> {
     let args = wire::OfferBufferArgs {
         owner: String::from(owner),
         mime: String::from(mime),

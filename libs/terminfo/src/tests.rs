@@ -12,11 +12,26 @@ fn known_capabilities_have_their_term_h_indexes() {
     // Spot checks against ncurses' term.h, so a slip in the tables shows here.
     let at = |name| STRINGS.iter().position(|c| *c == name).unwrap();
     assert_eq!(
-        [at("cbt"), at("cup"), at("kbs"), at("kf1"), at("kcuu1"), at("khome"), at("kend")],
+        [
+            at("cbt"),
+            at("cup"),
+            at("kbs"),
+            at("kf1"),
+            at("kcuu1"),
+            at("khome"),
+            at("kend")
+        ],
         [0, 10, 55, 66, 87, 76, 164]
     );
-    assert_eq!([at("setaf"), at("setab"), at("kmous"), at("kf63"), at("el1")], [359, 360, 355, 268, 269]);
-    assert_eq!([at("kf10"), at("kf2"), at("kf9")], [67, 68, 75], "kf10 sorts after kf1");
+    assert_eq!(
+        [at("setaf"), at("setab"), at("kmous"), at("kf63"), at("el1")],
+        [359, 360, 355, 268, 269]
+    );
+    assert_eq!(
+        [at("kf10"), at("kf2"), at("kf9")],
+        [67, 68, 75],
+        "kf10 sorts after kf1"
+    );
     assert_eq!(BOOLS.iter().position(|c| *c == "xenl"), Some(4));
     assert_eq!(BOOLS.iter().position(|c| *c == "bce"), Some(28));
     assert_eq!(NUMBERS.iter().position(|c| *c == "colors"), Some(13));
@@ -30,7 +45,11 @@ fn the_entry_round_trips_through_the_compiled_form() {
     assert_eq!(read_compiled(&bytes).unwrap(), entry);
     // A second compile is byte-identical: the build is reproducible.
     assert_eq!(compile(&entry), bytes);
-    assert_eq!(&bytes[..2], &[0x1a, 0x01], "the legacy magic, little-endian");
+    assert_eq!(
+        &bytes[..2],
+        &[0x1a, 0x01],
+        "the legacy magic, little-endian"
+    );
 }
 
 #[test]
@@ -46,7 +65,10 @@ fn the_entry_says_what_the_terminal_is() {
     assert_eq!(entry.string("kcuu1"), Some(&b"\x1bOA"[..]));
     assert_eq!(entry.string("kbs"), Some(&b"\x7f"[..]));
     assert_eq!(entry.string("kf12"), Some(&b"\x1b[24~"[..]));
-    assert_eq!(entry.string("setaf").map(|s| s.starts_with(b"\x1b[")), Some(true));
+    assert_eq!(
+        entry.string("setaf").map(|s| s.starts_with(b"\x1b[")),
+        Some(true)
+    );
     assert_eq!(entry.string("acsc"), None, "no alternate character set");
 }
 
@@ -54,7 +76,10 @@ fn the_entry_says_what_the_terminal_is() {
 fn escapes_in_source_text() {
     let escapes = r"\E[\s\n\r\t\b\f\^\\\,\:^A^?\101";
     let entry = parse_source(&format!("t|test,\n\tbel={escapes},\n")).unwrap();
-    assert_eq!(entry.string("bel"), Some(&b"\x1b[ \n\r\t\x08\x0c^\\,:\x01\x7fA"[..]));
+    assert_eq!(
+        entry.string("bel"),
+        Some(&b"\x1b[ \n\r\t\x08\x0c^\\,:\x01\x7fA"[..])
+    );
     let err = parse_source(&format!("t|test,\n\ta={escapes},\n")).unwrap_err();
     assert!(err.contains("unknown string"), "{err}");
 }
@@ -122,7 +147,13 @@ const TIC_REFERENCE: &[u8] = include_bytes!("../tests/fixtures/xterm-256color.ti
 fn the_writer_matches_ncurses_tic_byte_for_byte() {
     let ours = compile_source(SOURCE).unwrap();
     assert_eq!(ours.len(), TIC_REFERENCE.len(), "same size as tic's");
-    assert!(ours == TIC_REFERENCE, "the compiled entry differs from tic's");
+    assert!(
+        ours == TIC_REFERENCE,
+        "the compiled entry differs from tic's"
+    );
     // And the reader agrees with the reference's content.
-    assert_eq!(read_compiled(TIC_REFERENCE).unwrap(), parse_source(SOURCE).unwrap());
+    assert_eq!(
+        read_compiled(TIC_REFERENCE).unwrap(),
+        parse_source(SOURCE).unwrap()
+    );
 }

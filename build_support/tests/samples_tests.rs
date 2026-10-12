@@ -32,7 +32,8 @@ fn every_sample_lands_in_the_samples_directory() {
     // The samples, and the Terminal's terminfo entry `samples_embed` also makes.
     assert_eq!(files.len(), 9);
     for file in files.files() {
-        let ok = file.path.starts_with(fhs::share::SAMPLES) || file.path == fhs::share::TERMINFO_XTERM_256COLOR;
+        let ok = file.path.starts_with(fhs::share::SAMPLES)
+            || file.path == fhs::share::TERMINFO_XTERM_256COLOR;
         assert!(ok, "{}", file.path);
     }
     assert!(!bytes(&files, fhs::share::TESTDOC).is_empty());
@@ -103,5 +104,8 @@ fn the_terminal_terminfo_entry_is_compiled_into_the_image() {
     assert!(entry.names.starts_with("xterm-256color|"));
     assert_eq!(entry.number("colors"), Some(256));
     // Reproducible: the same bytes every build.
-    assert_eq!(bytes(&samples(), fhs::share::TERMINFO_XTERM_256COLOR), compiled);
+    assert_eq!(
+        bytes(&samples(), fhs::share::TERMINFO_XTERM_256COLOR),
+        compiled
+    );
 }

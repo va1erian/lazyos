@@ -155,11 +155,7 @@ impl Clipboard {
         // at least `len` bytes `buffer_create` returned. They are different
         // buffers, so the ranges cannot overlap.
         unsafe {
-            core::ptr::copy_nonoverlapping(
-                (va + data.offset) as *const u8,
-                own_va as *mut u8,
-                len,
-            );
+            core::ptr::copy_nonoverlapping((va + data.offset) as *const u8, own_va as *mut u8, len);
         }
         self.next_token = self.next_token.wrapping_add(1);
         let token = self.next_token;
@@ -226,7 +222,11 @@ impl Clipboard {
             .sessions
             .iter()
             .find(|clip| clip.session == session)
-            .and_then(|clip| clip.offers.iter().find(|offer| offer.token == request.token));
+            .and_then(|clip| {
+                clip.offers
+                    .iter()
+                    .find(|offer| offer.token == request.token)
+            });
         let Some(offer) = found else {
             return Err(self.miss(request.token, session));
         };
@@ -389,13 +389,7 @@ impl Clipboard {
         self.pastes += 1;
         sys::write_str(&format!(
             "clipboardd: paste #{} uid={} session={} mime={} app={} bytes={} lazy={}\n",
-            self.pastes,
-            cred.uid,
-            cred.session,
-            handle.mime,
-            slot,
-            handle.size,
-            handle.lazy
+            self.pastes, cred.uid, cred.session, handle.mime, slot, handle.size, handle.lazy
         ));
         let event = wire::PasteEvent {
             seq: self.pastes,

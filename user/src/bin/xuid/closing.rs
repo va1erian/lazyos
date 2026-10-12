@@ -90,7 +90,10 @@ mod tests {
         assert_eq!(close_step(true, None, 100), Step::Ask);
         assert_eq!(close_step(true, Some(100), 100 + GRACE_NS - 1), Step::Hold);
         assert_eq!(close_step(true, Some(100), 100 + GRACE_NS), Step::Force);
-        assert_eq!(close_step(true, Some(100), 100 + EXPIRY_NS - 1), Step::Force);
+        assert_eq!(
+            close_step(true, Some(100), 100 + EXPIRY_NS - 1),
+            Step::Force
+        );
         assert_eq!(close_step(true, Some(100), 100 + EXPIRY_NS), Step::Ask);
         // A clock that went backwards never wedges the window.
         assert_eq!(close_step(true, Some(100), 50), Step::Hold);

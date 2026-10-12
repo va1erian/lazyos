@@ -153,7 +153,9 @@ pub fn parse_source(source: &str) -> Result<Entry, String> {
             // The names line ends in a comma.
             entry.names = line.trim().trim_end_matches(',').to_string();
         } else {
-            return Err(format!("a second entry starts at {line:?}: one entry per file"));
+            return Err(format!(
+                "a second entry starts at {line:?}: one entry per file"
+            ));
         }
     }
     if entry.names.is_empty() || entry.names.len() > MAX_NAMES || entry.names.contains('\0') {
@@ -257,11 +259,17 @@ pub fn read_compiled(bytes: &[u8]) -> Result<Entry, String> {
     if short(bytes, 0)? != MAGIC {
         return Err("not a legacy compiled terminfo entry".into());
     }
-    let size = |at: usize| usize::try_from(short(bytes, at)?).map_err(|_| "negative size".to_string());
-    let (names_len, bools, numbers, strings, table_len) = (size(2)?, size(4)?, size(6)?, size(8)?, size(10)?);
+    let size =
+        |at: usize| usize::try_from(short(bytes, at)?).map_err(|_| "negative size".to_string());
+    let (names_len, bools, numbers, strings, table_len) =
+        (size(2)?, size(4)?, size(6)?, size(8)?, size(10)?);
     let mut at = 12;
-    let names = bytes.get(at..at + names_len).ok_or("the names are truncated")?;
-    let names = names.strip_suffix(&[0]).ok_or("the names are not terminated")?;
+    let names = bytes
+        .get(at..at + names_len)
+        .ok_or("the names are truncated")?;
+    let names = names
+        .strip_suffix(&[0])
+        .ok_or("the names are not terminated")?;
     let mut entry = Entry {
         names: String::from_utf8(names.to_vec()).map_err(|_| "the names are not text")?,
         ..Entry::default()
@@ -284,15 +292,24 @@ pub fn read_compiled(bytes: &[u8]) -> Result<Entry, String> {
         }
     }
     at += 2 * numbers;
-    let offsets: Vec<i16> = (0..strings).map(|i| short(bytes, at + 2 * i)).collect::<Result<_, _>>()?;
+    let offsets: Vec<i16> = (0..strings)
+        .map(|i| short(bytes, at + 2 * i))
+        .collect::<Result<_, _>>()?;
     at += 2 * strings;
-    let table = bytes.get(at..at + table_len).ok_or("the string table is truncated")?;
+    let table = bytes
+        .get(at..at + table_len)
+        .ok_or("the string table is truncated")?;
     for (i, offset) in offsets.into_iter().enumerate() {
         if offset < 0 {
             continue;
         }
-        let rest = table.get(offset as usize..).ok_or("a string offset is out of range")?;
-        let end = rest.iter().position(|&b| b == 0).ok_or("a string is not terminated")?;
+        let rest = table
+            .get(offset as usize..)
+            .ok_or("a string offset is out of range")?;
+        let end = rest
+            .iter()
+            .position(|&b| b == 0)
+            .ok_or("a string is not terminated")?;
         entry.strings.insert(i, rest[..end].to_vec());
     }
     Ok(entry)

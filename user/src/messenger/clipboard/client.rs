@@ -129,7 +129,10 @@ impl Client {
             // SAFETY: `buffer_create` mapped `size` readable bytes at `va`,
             // and `written <= size` is checked before reading.
             Ok(written) if written as usize <= size => {
-                Ok(unsafe { core::slice::from_raw_parts(va as *const u8, written as usize) }.to_vec())
+                Ok(
+                    unsafe { core::slice::from_raw_parts(va as *const u8, written as usize) }
+                        .to_vec(),
+                )
             }
             Ok(_) => Err(Error::Errno(-errno::EINVAL)),
             Err(error) => Err(error),

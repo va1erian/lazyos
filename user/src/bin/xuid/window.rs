@@ -110,7 +110,10 @@ impl Compositor {
         let Some(surface) = self.surfaces.iter().find(|surface| surface.id == id) else {
             return;
         };
-        let (events, step) = (surface.events, close_step(surface.ask_close, surface.close_asked, now));
+        let (events, step) = (
+            surface.events,
+            close_step(surface.ask_close, surface.close_asked, now),
+        );
         match step {
             Step::Hold => {
                 self.wm_mark("CLOSEHOLD", id);
