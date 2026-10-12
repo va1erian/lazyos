@@ -313,13 +313,70 @@ A crosshair and a move cursor are added to `libs/cursorgfx` and xui's
 * Docs: this plan's status table, `crates/paint/README.md` (tools, keys,
   formats), `GAPS.md` entries closed (G4, G6) or updated (G5).
 
-**Status of P5/P6.** The model and the UI are done and host-tested: the Image
-and Adjustments dialogs (`view/dialogs/`), the formats, Save As by extension,
-the "Flatten image?" question, the unsaved-changes guard and the title, the
-`PAINT:OPEN`/`PAINT:SAVE` markers and the package MIME rows. Still to do on a
-QEMU image: the `xui_paint_editor.json` session, the extended `xui_paint.json`
-and the `LAZYOS_LABEL_TRACE=1` run that confirms the package permissions (the
-manifest names `os.lazy.clipboard.v1`, which implies the read and write scopes).
+**Status of P5/P6.** Done. The model and the UI are host-tested (the Image and
+Adjustments dialogs in `view/dialogs/`, the formats, Save As by extension, the
+"Flatten image?" question, the unsaved-changes guard and the title, the
+`PAINT:OPEN`/`PAINT:SAVE` markers, the package MIME rows), and the QEMU pass
+below ran on a desktop image built with `LAZYOS_UI_PROBE=1
+LAZYOS_LABEL_TRACE=1` (WHPX).
+
+### Status of v1
+
+| Phase | Done in |
+|---|---|
+| P0 model and document | #791 |
+| P1 menus, keys, layout | #792 |
+| P2 selections, layers, clipboard | #795 |
+| P3 layers panel and history | #798 |
+| P4 tools (shapes, bucket, gradient, text) | #800 |
+| P5/P6 dialogs, formats, files, package | #799 |
+| QEMU verification, permissions, sessions | the "Paint v1: QEMU sessions" PR |
+
+**The QEMU pass.**
+
+* `xui_paint.json` passes (`PAINT:UP`, `PAINT:SAVE:PASS:/tmp/xpaint.png:png`).
+* `xui_paint_editor.json` passes and its screenshots were read: a red brush
+  stroke; a rectangle selection; Ctrl+X leaves a transparent hole; Ctrl+Shift+V
+  puts the piece on a new layer; dragging moves it; Layer Properties at 50%
+  opacity shows the Background through it; the Text tool types "LazyOS" in
+  Liberation Sans, blue, and commits with Ctrl+Enter; a linear orange-to-cyan
+  gradient fills a selection; Invert Colors turns the white page black and the
+  text yellow while the 50% layer keeps its opacity; Save As `.ora`
+  (`PAINT:SAVE:PASS:/tmp/xpaint_edit.ora:ora`); a brush stroke, then Ctrl+N
+  asks "Save changes?" and Don't Save drops the stroke; Open the `.ora`
+  (`PAINT:OPEN:PASS:/tmp/xpaint_edit.ora:320x240:2`) shows both layers, the
+  50% opacity and the picture unchanged; Save As `.png` asks "Flatten
+  image?", the picture keeps its two layers, and reopening the PNG gives one
+  layer with the opacity baked in.
+* **Permissions.** No `LABEL:DENY` in either run. The manifest's
+  `os.lazy.clipboard.v1` covers Cut and Paste, the xui file dialogs and the
+  Liberation fonts (`PAINT:FONTS:12`, the faces read from
+  `/system/share/fonts/liberation`) are filesystem reads that need no
+  Messenger permission.
+
+**What the pass found.**
+
+* The UI probe printed the control rectangles eight times in the first four
+  seconds, so a control that appears later (the colour editor's OK, Layer
+  Properties, the Resize dialog) was never named and `click_at` failed. The
+  binary now keeps the probe ticking and prints only the rectangles that
+  changed.
+* `offset` and `button` placement in a session step: `offset` belongs inside
+  the `click_at`/`move_to` target, `button` beside it. `xui_paint.json` had put
+  `offset` outside, where it is ignored, so its first stroke started at the
+  canvas centre. Fixed.
+* Layer probe names count from the bottom: `layer:0` is the Background.
+* A selection clips the Text tool like every tool, so the session deselects
+  (Ctrl+D) before typing. Not a bug; recorded because it looks like one.
+* The "Save changes?" and "Flatten image?" cards have no probe names, so the
+  session clicks their buttons by pixel. A follow-up could name them.
+* JPEG and BMP: Paint and the Picture Viewer both named `open`, and `mimed`'s
+  last registration wins, so the result depended on install order. Paint now
+  keeps only `edit` for those two types; `mimed` seeds the Picture Viewer for
+  `open` (and `view`) with Paint as the fallback, used when an image does not
+  ship the viewer (`LAZYOS_PICTURES=1`); the boot self-test prints
+  `MIME:PICTURES:PASS`. PNG is unchanged (both claim `open`; the seed names
+  Paint). Not run end to end with the viewer installed.
 
 ### v1 order and exit criteria
 

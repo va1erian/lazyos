@@ -102,6 +102,25 @@ cargo run -p xui-paint -- --self-test  # no window, no I/O; prints PASS/FAIL
 render, prints one `PASS`/`FAIL` line per check and exits non-zero on failure.
 That is the check a host without `cargo test` (a toy OS) runs.
 
+## Sessions on LazyOS
+
+Both run on a desktop image built with `LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=paint
+LAZYOS_UI_PROBE=1` (add `LAZYOS_LABEL_TRACE=1` to derive permissions) and click
+controls by name:
+
+```sh
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint     --script tools/screenshot/examples/xui_paint.json            # draw, undo, colour editor, save PNG
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint_editor     --script tools/screenshot/examples/xui_paint_editor.json     # layers, text, gradient, ORA, PNG
+```
+
+Markers: `PAINT:FONTS:<n>` (Liberation faces read for the Text tool),
+`PAINT:UP:PASS`, `PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>`,
+`PAINT:SAVE:PASS:<path>:<ora|png|bmp>`, `PAINT:SAVE:FAIL:<path>`. With the
+probe the app prints `UI:WIDGET` lines (`tool:<Label>`, `palette:<n>`,
+`swatch:primary`, `canvas`, `menubar`, `layer:<n>` counted from the bottom,
+`props_*`, `color_ok`, `resize_*`, `adjust_*`), only when a rectangle changes.
+Window names are the current title (`untitled* - Paint`).
+
 ## Layers
 
 ```text

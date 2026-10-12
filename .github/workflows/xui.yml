@@ -518,6 +518,7 @@ jobs:
           LAZYOS_XUI_APPS: ${{ steps.app.outputs.paint }}
           LAZYOS_XUI_AUTOSTART: paint
           LAZYOS_UI_PROBE: "1"
+          LAZYOS_LABEL_TRACE: "1"
         run: |
           set -euo pipefail
           cargo build
@@ -526,6 +527,28 @@ jobs:
             grep -q "$marker" shots/paint/serial.log
           done
           ! grep -q "^init: launch .* failed" shots/paint/serial.log
+          ! grep "LABEL:DENY" shots/paint/serial.log | grep -q "os.lazy.paint"
+
+      # The editing flow by widget name: layers, clipboard, text, gradient,
+      # adjustment, OpenRaster and PNG round trips. Same image as above.
+      - name: Capture Paint editor (layers, text, gradient, ORA, PNG)
+        if: ${{ !cancelled() && matrix.shard == 'apps' && steps.app.outputs.paint != '' }}
+        shell: bash
+        env:
+          LAZYOS_DESKTOP: "1"
+          LAZYOS_XUI_APPS: ${{ steps.app.outputs.paint }}
+          LAZYOS_XUI_AUTOSTART: paint
+          LAZYOS_UI_PROBE: "1"
+          LAZYOS_LABEL_TRACE: "1"
+        run: |
+          set -euo pipefail
+          cargo build
+          python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/paint_editor             --timeout 400 --script tools/screenshot/examples/xui_paint_editor.json             --fail-on "PAINT:[A-Z]+:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
+          for marker in PAINT:FONTS PAINT:UP:PASS PAINT:SAVE:PASS PAINT:OPEN:PASS; do
+            grep -q "$marker" shots/paint_editor/serial.log
+          done
+          ! grep -q "^init: launch .* failed" shots/paint_editor/serial.log
+          ! grep "LABEL:DENY" shots/paint_editor/serial.log | grep -q "os.lazy.paint"
 
       # Files browses in place: the address bar, the details view, Alt+Up,
       # Alt+Left, then a file typed into the address bar opens. It clicks the

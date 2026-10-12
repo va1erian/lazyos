@@ -10,7 +10,8 @@
 //! As go through the xui file dialogs (`LazyFileSystem`) and the path seam
 //! (`save_to`/`load_from`), starting in the file's directory, `$HOME` or `/`.
 //!
-//! Serial evidence: `PAINT:UP:PASS` after the first frame,
+//! Serial evidence: `PAINT:FONTS:<n>` (the Liberation faces read for the Text
+//! tool), `PAINT:UP:PASS` after the first frame,
 //! `PAINT:OPEN:PASS:<path>:<w>x<h>:<layers>` after a picture opens (PNG, JPEG,
 //! BMP or OpenRaster) and `PAINT:SAVE:PASS:<path>:<format>` (`ora`, `png` or
 //! `bmp`) after a successful save, both printed by the reporter the app calls
@@ -20,7 +21,8 @@
 //! canvas, tool cells, swatches and palette (`tool:Pencil`, `swatch:primary`,
 //! `palette:3`, ...) so a session clicks them by name.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -41,10 +43,6 @@ const WINDOW: (i32, i32) = (800, 600);
 /// The smallest window: the menu and options bars, the tool grid and the Colors
 /// panel leave a canvas (and the colour editor) room to work in.
 const MIN_WINDOW: (u32, u32) = (560, 420);
-
-/// How many times the UI probe is reported: the window may not be at its final
-/// size or title on the first tick, and the newest line for a name wins.
-const PROBES: u32 = 8;
 
 /// The MIME type Paint shares pictures as.
 const PNG_MIME: &str = "image/png";
@@ -84,6 +82,8 @@ fn text_rasterizer() -> Rc<dyn TextRasterizer> {
         // A stable order, so the first family registered (the stand-in for
         // an unknown name) does not depend on the directory's.
         files.sort();
+        // Evidence that the text tool has the system fonts, not only Droid.
+        println!("PAINT:FONTS:{}", files.len());
         for path in files {
             if let Ok(bytes) = std::fs::read(&path) {
                 rasterizer.register_font(bytes);
@@ -208,8 +208,17 @@ fn main() {
         let startup = requested.is_some();
         let probing = probe::enabled();
         if probing {
-            app.set_probe(|window, name, rect| {
-                probe::widget(window, name, rect.left, rect.top, rect.width(), rect.height());
+            // Only a changed rectangle is printed, so the probe can keep
+            // ticking for the whole session without flooding the serial log.
+            let seen: RefCell<HashMap<String, (i32, i32, i32, i32)>> = RefCell::default();
+            app.set_probe(move |window, name, rect| {
+                let at = (rect.left, rect.top, rect.width(), rect.height());
+                let key = format!("{window}
+{name}");
+                if seen.borrow().get(&key) != Some(&at) {
+                    seen.borrow_mut().insert(key, at);
+                    probe::widget(window, name, at.0, at.1, at.2, at.3);
+                }
             });
         }
         if startup || probing {
@@ -229,7 +238,9 @@ fn main() {
                     }
                     return Some(Msg::OpenStartup);
                 }
-                if probing && tick < PROBES {
+                if probing {
+                    // The probe reports only what changed, so it keeps
+                    // ticking: dialogs and the colour editor open later.
                     return Some(Msg::Probe);
                 }
                 ui_for_timer.kill_timer(id);

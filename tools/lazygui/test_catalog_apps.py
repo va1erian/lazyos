@@ -391,6 +391,8 @@ class TrayDemoTests(unittest.TestCase):
         cfg = {**self.base(), "mode": "Scripted session", "desktop": True,
                "xui_autostart": "paint", "script": index["xui_paint.json"]}
         self.assertEqual(catalog.build_env(cfg)["LAZYOS_UI_PROBE"], "1")
+        cfg["script"] = index["xui_paint_editor.json"]
+        self.assertEqual(catalog.build_env(cfg)["LAZYOS_UI_PROBE"], "1")
 
     def test_no_normal_session_launches_it(self) -> None:
         # Only `LAZYOS_TRAYDEMO=1` images ship it: `core_apps.json` must not wait for it.
