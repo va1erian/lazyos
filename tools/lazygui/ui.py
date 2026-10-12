@@ -114,7 +114,7 @@ class Launcher:
         self._check(g, "JavaScriptCore jsc shell, built in Docker (LAZYOS_JSC; run_demo --jsc; "
                        "big-app profile)", "jsc")
         self._check(g, "WebKit dependency bundle: depsproof, built in Docker (LAZYOS_WEBKIT_DEPS; "
-                       "run_demo --webkit-deps; networking, big-app profile)", "webkit_deps")
+                       "run_demo --webkit-deps; implies networking and the big-app profile)", "webkit_deps")
         self._check(g, "WebKit port: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT; run_demo --webkit; networking, big-app profile)", "webkit")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "

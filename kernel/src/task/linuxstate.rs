@@ -61,6 +61,14 @@ pub struct SchedState {
 }
 
 impl SchedState {
+    /// The `SCHED_IDLE` policy number.
+    pub const IDLE: u8 = 5;
+
+    /// Whether the task runs at the least weight (`SCHED_IDLE`).
+    pub fn is_idle(self) -> bool {
+        self.policy == Self::IDLE
+    }
+
     /// What a forked or cloned child starts with: the same, but a negative
     /// nice value is lost to `reset_on_fork`, and the flag is not inherited.
     pub fn for_child(self) -> SchedState {
@@ -242,6 +250,7 @@ pub fn with_extras<R>(f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
 }
 
 /// Run `f` on slot `slot`'s extras (`None` if the slot is empty).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn with_extras_of<R>(slot: usize, f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
     TASKS
         .lock()

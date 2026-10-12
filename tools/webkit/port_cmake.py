@@ -17,6 +17,7 @@ from pathlib import Path
 
 import buildkit
 import toolenv
+import fhspaths
 import wkpins
 from toolenv import BuildError, run
 
@@ -108,9 +109,9 @@ def chown_outputs() -> None:
 
 
 #: Where the programs expect to find each other and their fonts (the image's layout).
-HOST_BIN = Path("/system/bin")
-HOST_FONTS = Path("/system/share/fonts/liberation")
-HOST_FONTS_CONF = Path("/system/etc/fonts/fonts.conf")
+HOST_BIN = Path(fhspaths.get("system::SYSTEM_BIN"))
+HOST_FONTS = Path(fhspaths.get("share::FONTS_LIBERATION"))
+HOST_FONTS_CONF = Path(fhspaths.get("etc::FONTS_CONF"))
 REFERENCE = wkpins.OUT / "smoke.host.txt"
 #: The image keeps program names lowercase (libs/fhs); the build names follow WebKit.
 IMAGE_NAMES = {"WebProcess": "webprocess", "NetworkProcess": "networkprocess"}
@@ -138,7 +139,7 @@ def host_reference() -> bool:
     for font in (wkpins.ROOT / "assets" / "fonts" / "liberation").glob("*.ttf"):
         shutil.copy2(font, HOST_FONTS / font.name)
     shutil.copy2(PORT_DIR / "fonts.conf", HOST_FONTS_CONF)
-    shutil.rmtree("/tmp/fontconfig", ignore_errors=True)
+    shutil.rmtree(fhspaths.FONT_CACHE_DIR, ignore_errors=True)
     done = subprocess.run([str(HOST_BIN / "webkit-smoke")], capture_output=True, text=True, timeout=300)
     REFERENCE.write_text(done.stdout)
     ok = done.returncode == 0 and "WEBKIT:W4:PASS" in done.stdout

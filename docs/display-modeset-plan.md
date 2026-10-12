@@ -1,5 +1,9 @@
 # Changing the monitor resolution without a GPU driver
 
+> A full Intel GPU driver for the Kaby Lake box is planned in
+> [kabylake-gpu-plan.md](kabylake-gpu-plan.md); it adopts the firmware mode
+> and keeps the options below as its deferred M1/M2 stages.
+
 Investigation, not an implementation. Question: can LazyOS change what the
 monitor shows (resolution) without rebuilding the kernel and without a full
 GPU driver, on the two machines in [`compat/`](compat/hardware.md)?

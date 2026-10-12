@@ -392,6 +392,28 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test render searched
 cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop -- [seed]
 ```
 
+## About LazyOS (`os.lazy.about`)
+
+`xui-about` is a core desktop app in every desktop image: a few pages on what
+LazyOS is, over a real-time 3D scene (a chrome torus knot, torus, icosahedron
+or icosphere above a synthwave floor) drawn by a small software rasteriser,
+all in the portable crate `xui-app/crates/about` (`mesh`, `raster` with a
+z-buffer and perspective-correct per-pixel shading, `backdrop`, `scene`, the
+window in `view`/`panel`); the bin only launches it. The internal resolution
+adapts to the frame cost. Keys: drag spins, wheel zooms, Space changes shape,
+`W` cycles solid / solid + wire / wire, Left/Right turn pages, Esc closes.
+Session `tools/screenshot/examples/xui_about.json`
+(`LAZYOS_XUI_AUTOSTART=about LAZYOS_UI_PROBE=1`; markers `ABOUT:UP:PASS`,
+`ABOUT:FPS:<fps>:<w>x<h>:div=<n>:work=<ms>:tris=<n>`, `ABOUT:SHAPE:`,
+`ABOUT:STYLE:`, `ABOUT:PAGE:<n>`, `ABOUT:QUIT:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-about   # snapshots in xui-app/target/snapshots/about-*.png
+cargo run --release --manifest-path xui-app/Cargo.toml -p xui-about --example about --features desktop
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/about \
+    --script tools/screenshot/examples/xui_about.json
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
@@ -1109,6 +1131,8 @@ python tools/wifi/sim_run.py              # build, boot, judge scan, joins, DHCP
 python tools/wifi/sim_run.py --station wlanmd   # the same through wlanmd + wifictl as `user` (needs BusyBox)
 python tools/wifi/test_judge.py; python tools/wifi/test_judge_wlanmd.py; python tools/wifi/test_fake_ap.py
 python tools/run_demo.py --wifi-sim       # interactive; --wifi-probe open:LazyOpen joins without wlanmd
+python tools/run_demo.py --desktop --wifi --wifi-sim   # Network app Wi-Fi tab, tray bars (needs the firmware: tools/firmware/fetch.py --switch wifi)
+python tools/wifi/ui_run.py               # the Wi-Fi tab driven by widget name against fake_ap.py, judged
 ```
 
 ## Device manager (`devd`) and driver choices
@@ -1442,6 +1466,26 @@ regressions, not kernel-internal correctness or resource leaks.
   first (offscreen renders and host tests), QEMU sessions last.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
+
+## Pre-PR review (required)
+
+Before an agent opens or finalizes a pull request, it MUST get a thorough
+review of the branch from a separate agent: a Sonnet-class model or better, in
+a fresh context that did not write the change (the `code-review` skill, or an
+`Agent` subagent given the diff, not your conclusions). Do not skip this
+because the change is small or the tests pass.
+
+1. Request the review when the work is done and the branch is committed, before
+   `gh pr create` (or before marking a draft ready).
+2. Ask for a review of correctness, security (untrusted input, `unsafe`
+   soundness, capability and label-policy changes), the kernel testing
+   requirement (correctness and stress tests), the project conventions above
+   (MIDL for every interface, `libs/fhs` paths, 500-line file limit, launcher
+   and GUI wiring for new apps), and visual verification for graphics changes.
+3. Fix every real finding, or say in the PR description why one was declined.
+   Re-run the review after substantial fixes.
+4. Put a short note in the PR description: who reviewed, and what was found
+   and changed.
 
 ## Commands
 

@@ -100,6 +100,22 @@ pub(super) fn scoped(cred: Cred, body: impl FnOnce() -> Result<(), String>) -> R
     result
 }
 
+/// Run `body(process, thread)` with a forked process of the caller's user as
+/// the current task and a thread of it, then make the kernel task current
+/// again (a task is the caller's own only inside its process: the kernel task
+/// is slot 0, which cannot be named as a thread-group leader).
+pub(super) fn in_process(
+    body: impl FnOnce(usize, usize) -> Result<(), String>,
+) -> Result<(), String> {
+    let process = task::spawn_fork().map_err(|error| format!("fork: {error}"))?;
+    task::harness::switch_current(process);
+    let outcome = task::spawn_thread("schedattr", process::USER_STACK_TOP, 0, 0)
+        .map_err(|error| format!("thread: {error}"))
+        .and_then(|thread| body(process, thread));
+    task::harness::switch_current(task::KERNEL_TASK);
+    outcome
+}
+
 pub(super) const USER: Cred = Cred::new(1000, 1000, 0, 0, 0);
 pub(super) const ADMIN: Cred = Cred::new(1001, 1001, CAP_SYS_ADMIN, 0, 0);
 
@@ -418,17 +434,33 @@ pub fn schedattr_privilege_rules() -> Result<(), String> {
             task::weight(other) == weight && getattr(other as u64)?.nice == 0,
             "other task changed"
         );
-        // The same user's task: allowed, and the weight is that task's.
+        // The same user's task in another process (a native service shares
+        // the uid with a session): refused too, and not changed.
         credentials::set(other, USER);
-        check!(setattr(other as u64, &attr(OTHER, 1)) == 0, "own task");
+        let got = setattr(other as u64, &attr(OTHER, 1));
+        check!(got == EPERM, "same user, other process: {got:#x}");
         check!(
-            task::weight(other) == Some(weight_at(1, false)) && weight != task::weight(other),
-            "own task's weight {:?} (was {weight:?})",
-            task::weight(other)
+            task::weight(other) == weight && getattr(other as u64)?.nice == 0,
+            "a task of another process changed"
         );
-        check!(getattr(other as u64)?.nice == 1, "own task's nice");
         check!(getattr(0)?.nice == 12, "the caller's nice moved");
         Ok(())
+    })?;
+    // A thread of the caller's own process is its to change, and its weight
+    // is that thread's.
+    scoped(USER, || {
+        in_process(|_, sibling| {
+            let weight = task::weight(sibling);
+            check!(setattr(sibling as u64, &attr(OTHER, 1)) == 0, "own thread");
+            check!(
+                task::weight(sibling) == Some(weight_at(1, false))
+                    && weight != task::weight(sibling),
+                "own thread's weight {:?} (was {weight:?})",
+                task::weight(sibling)
+            );
+            check!(getattr(sibling as u64)?.nice == 1, "own thread's nice");
+            Ok(())
+        })
     })?;
     // With privilege the same calls work.
     scoped(ADMIN, || {

@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from lazygui import catalog
+from pathlib import Path
+
+from lazygui import catalog, osvolume
+
+# The plans must not depend on the developer's real target/lazyos.img (its OS
+# volume size decides whether a build needs a reset): point both at no image.
+_NO_IMAGE = Path(__file__).resolve().parent / "no-such-lazyos.img"
+catalog.IMAGE = str(_NO_IMAGE)
+osvolume.DEFAULT_IMAGE = _NO_IMAGE
 
 
 def demo_config(**overrides) -> dict:

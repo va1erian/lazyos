@@ -76,5 +76,5 @@ def _libwpe(tree: Path, jobs: int) -> None:
 register(Lib("glstub", [], {"gen": _digest()}, _glstub, own_tree=True,
              extra={"version": "Khronos headers of WebKitGTK 2.54.1 ThirdParty/ANGLE",
                     "source_sha": wkpins.jsc_pins.WEBKIT.sha256,
-                    "info": {"license": "BSD-3-Clause (generated)", "why": "link-time stand-in for EGL and GLESv2"}}))
+                    "info": {"license": "MIT", "why": "link-time stand-in for EGL and GLESv2"}}))
 register(Lib("libwpe", ["glstub"], LIBWPE, _libwpe))

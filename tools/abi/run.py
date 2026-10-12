@@ -66,6 +66,7 @@ ORDER = [
     "jitmem",
     "procstress",
     "sigstress",
+    "fpsig",
     "threadsig",
     "epollstress",
     "msgpoll",

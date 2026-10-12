@@ -81,6 +81,7 @@ from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # no
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
+from lazygui import osvolume  # noqa: E402
 from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
@@ -116,6 +117,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-volume.elf",
     "xui-golf.elf",
     "xui-video.elf",
+    "xui-about.elf",
 )]
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
@@ -234,6 +236,23 @@ def with_devices(autostart: str | None) -> str:
     return f"{autostart},devices"
 
 
+def require_busybox(allow_missing: bool) -> bool:
+    """Make sure `build.rs` will embed a BusyBox (the system shell the Terminal
+    and the console host): an image without one boots, but the Terminal dies
+    at start with `TERM:SPAWN:FAIL`, which is easy to miss in a build log."""
+    found = busybox.ensure_busybox()
+    explicit = os.environ.get("LAZYOS_BUSYBOX")
+    if found is not None or (explicit and Path(explicit).is_file()):
+        return True
+    if allow_missing or os.environ.get("LAZYOS_INIT"):
+        return True
+    print("error: no BusyBox for the image's shell (the Terminal would fail at start).\n"
+          "  Start Docker and re-run, drop a static x86-64 busybox at tools/abi/busybox,\n"
+          "  set LAZYOS_BUSYBOX=<path>, or pass --no-busybox to build without a shell.",
+          file=sys.stderr)
+    return False
+
+
 def main(argv: list[str]) -> int:
     parser = make_parser(__doc__, DEFAULT_IMAGE)
     args, net_qemu, forwards, limits = parse_args(parser, argv)
@@ -255,9 +274,27 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_RESET_OS"] = "1"
             print("--reset-os: the OS volume will be recreated "
                   "(apps, settings, logs and /data are erased)", flush=True)
+        if not args.reset_os and not osvolume.configured():
+            # The build cannot resize an OS volume: fit it to the selection, or
+            # say now (not after the build) that it has to be recreated.
+            wants = args.srb2kart or os.environ.get("LAZYOS_SRB2KART") == "1"
+            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants)
+            if recreate:
+                have = (osvolume.existing_bytes(osvolume.DEFAULT_IMAGE) or 0) >> 20
+                if not args.yes and not confirm(
+                        f"The OS volume is {have} MiB but this build needs {size >> 20} MiB "
+                        "and a volume cannot be resized. Recreate it? Installed apps, "
+                        "settings, logs and /data are erased.\nProceed?"):
+                    print("OS volume left untouched; aborting (pass --reset-os, or turn the "
+                          "large feature off).", file=sys.stderr)
+                    return 1
+                env["LAZYOS_RESET_OS"] = "1"
+            if size:
+                env["LAZYOS_OS_SIZE"] = str(size)
         # The console shell (issue #254): cached after the first build, and a
         # git worktree reuses the main checkout's; `build.rs` warns if absent.
-        busybox.ensure_busybox()
+        if not require_busybox(args.no_busybox):
+            return 1
         if not args.no_rhai:
             build_rhai()
         if args.lazyrad:
@@ -319,7 +356,9 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_DESKTOP"] = "1"
             # One build for every missing app: the desktop's own, and the
             # network apps a `--net` desktop also ships.
-            needed = (DESKTOP_ELFS + (NET_APPS if args.net else [])
+            # The simulated radio brings the stack, so the Network app (with
+            # its Wi-Fi page) and the Network Status applet too.
+            needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi_sim else [])
                       + (TRAYDEMO_APPS if args.traydemo else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1

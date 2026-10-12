@@ -15,6 +15,15 @@
 //!   LazyOS has no such policy to give, and `sched_get_priority_max` says so.
 //! * The utilization-clamp flags are `EOPNOTSUPP` (a Linux kernel built
 //!   without `CONFIG_UCLAMP_TASK` answers the same).
+//! * `sched_setscheduler`, `sched_setparam`, `setpriority` and `getpriority`
+//!   are not offered (`ENOSYS`), so this is the only way to change a task's
+//!   policy or nice value and `sched_getattr` and `sched_getscheduler` cannot
+//!   disagree with another setter. Adding one means routing it through
+//!   [`decide`] and [`task::sched_update`].
+//! * `pid` is a thread id (a task slot) checked on all 64 bits ([`target`]).
+//!   Without privilege a caller may change only tasks of its own process
+//!   (same thread-group leader) and uid: a native service task that shares the
+//!   uid of a session is not its to re-weight. Reading is open.
 //!
 //! Privilege is `CAP_SYS_ADMIN` (LazyOS has no `CAP_SYS_NICE`; nobody is root
 //! and a session user holds no capability). The size handling is Linux's:
@@ -22,7 +31,7 @@
 //! bytes, with the size it knows written back.
 
 use crate::ipc::credentials::{self, CAP_SYS_ADMIN};
-use crate::task::{self, linuxstate::SchedState, nice};
+use crate::task::{self, linuxstate::SchedState, nice, SchedTarget, UpdateError};
 use crate::user_ptr;
 use alloc::vec;
 
@@ -134,8 +143,17 @@ fn privileged() -> bool {
     credentials::of(task::current()).has_cap(CAP_SYS_ADMIN)
 }
 
-/// The slot `pid` names (0 is the caller), or the errno.
-fn target(pid: u64) -> Result<usize, u64> {
+/// Largest pid the calls accept (`pid_t` is an `int`; the register holds the
+/// rest of the 64 bits, which must not be dropped: 1 << 32 is not the caller).
+const PID_MAX: u64 = i32::MAX as u64;
+
+/// The slot `pid` names (0 is the caller), or the errno: `EINVAL` for a value
+/// that is no `pid_t` (checked on all 64 bits, before any lookup), `ESRCH` for
+/// a slot with no task. A tid is the task's slot, as `gettid` reports it.
+pub(super) fn target(pid: u64) -> Result<usize, u64> {
+    if pid > PID_MAX {
+        return Err(err(EINVAL));
+    }
     let slot = if pid == 0 {
         task::current()
     } else {
@@ -147,26 +165,24 @@ fn target(pid: u64) -> Result<usize, u64> {
     Ok(slot)
 }
 
-/// What `slot` has set (the default for a task that never called).
-fn state_of(slot: usize) -> SchedState {
-    task::linuxstate::with_extras_of(slot, |extras| extras.sched).unwrap_or_default()
-}
-
-/// The policy and flags `sched_getscheduler` reports for `slot`.
-pub(super) fn policy_of(slot: usize) -> u64 {
+/// The policy and flags `sched_getscheduler` reports for `slot` (`None` when
+/// the slot holds no task).
+pub(super) fn policy_of(slot: usize) -> Option<u64> {
     const RESET_ON_FORK: u64 = 0x4000_0000;
-    let state = state_of(slot);
-    u64::from(state.policy)
-        | if state.reset_on_fork {
-            RESET_ON_FORK
-        } else {
-            0
-        }
+    let state = task::sched_read(slot)?;
+    Some(
+        u64::from(state.policy)
+            | if state.reset_on_fork {
+                RESET_ON_FORK
+            } else {
+                0
+            },
+    )
 }
 
 /// `sched_setattr(pid, attr, flags)`.
 pub(super) fn sys_sched_setattr(pid: u64, uattr: u64, flags: u64) -> u64 {
-    if uattr == 0 || (pid as i32) < 0 || flags as u32 != 0 {
+    if uattr == 0 || pid > PID_MAX || flags as u32 != 0 {
         return err(EINVAL);
     }
     let attr = match read_attr(uattr) {
@@ -183,9 +199,35 @@ pub(super) fn sys_sched_setattr(pid: u64, uattr: u64, flags: u64) -> u64 {
     }
 }
 
-/// Validate and apply `attr` to `slot`; the errno on refusal.
+/// Who is asking, as far as the rules go.
+struct Caller {
+    allowed: bool,
+    uid: u32,
+    /// The caller's thread-group leader (`getpid`).
+    leader: usize,
+}
+
+/// Validate and apply `attr` to `slot`; the errno on refusal. The decision,
+/// the stored state and the weight are one step under the task-table lock
+/// ([`task::sched_update`]), so no other thread's change can fall between the
+/// checks and the store.
 fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
-    let old = state_of(slot);
+    let caller = Caller {
+        allowed: privileged(),
+        uid: credentials::of(task::current()).uid,
+        leader: task::linuxstate::tgid(),
+    };
+    match task::sched_update(slot, |target| decide(attr, &caller, &target)) {
+        Ok(()) => Ok(()),
+        Err(UpdateError::NoSuchTask) => Err(ESRCH),
+        Err(UpdateError::Refused(errno)) => Err(errno),
+    }
+}
+
+/// The state `attr` asks `target` to have, or the errno that refuses it. Runs
+/// under the task-table lock: pure, no allocation.
+fn decide(attr: &Attr, caller: &Caller, target: &SchedTarget) -> Result<SchedState, u64> {
+    let old = target.state;
     if attr.flags & !FLAG_ALL != 0 {
         return Err(EINVAL);
     }
@@ -221,40 +263,38 @@ fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
         level
     };
 
-    let allowed = privileged();
     if realtime || deadline {
-        return Err(if allowed { EINVAL } else { EPERM });
+        return Err(if caller.allowed { EINVAL } else { EPERM });
     }
-    let cred = credentials::of(slot);
-    let mine = credentials::of(task::current());
     let raises = new_nice < i32::from(old.nice);
-    let leaves_idle = old.policy == SCHED_IDLE as u8 && policy != SCHED_IDLE;
+    let leaves_idle = old.is_idle() && policy != SCHED_IDLE;
     let unsets_reset = old.reset_on_fork && !reset_on_fork;
-    if !allowed && (cred.uid != mine.uid || raises || leaves_idle || unsets_reset) {
+    // Without privilege only the caller's own process is its to re-weight: a
+    // native service task that happens to share the uid is not.
+    let foreign = target.cred.uid != caller.uid || target.leader != caller.leader;
+    if !caller.allowed && (foreign || raises || leaves_idle || unsets_reset) {
         return Err(EPERM);
     }
-
-    let state = SchedState {
+    Ok(SchedState {
         policy: policy as u8,
         reset_on_fork,
         nice: new_nice as i8,
-    };
-    task::set_nice_weight(slot, new_nice, policy == SCHED_IDLE);
-    task::linuxstate::with_extras_of(slot, |extras| extras.sched = state);
-    Ok(())
+    })
 }
 
 /// `sched_getattr(pid, attr, size, flags)`.
 pub(super) fn sys_sched_getattr(pid: u64, uattr: u64, size: u64, flags: u64) -> u64 {
     let size = size as usize;
-    if uattr == 0 || (pid as i32) < 0 || !(SIZE_VER0..=PAGE).contains(&size) || flags as u32 != 0 {
+    if uattr == 0 || pid > PID_MAX || !(SIZE_VER0..=PAGE).contains(&size) || flags as u32 != 0 {
         return err(EINVAL);
     }
     let slot = match target(pid) {
         Ok(slot) => slot,
         Err(errno) => return errno,
     };
-    let state = state_of(slot);
+    let Some(state) = task::sched_read(slot) else {
+        return err(ESRCH);
+    };
     let written = size.min(SIZE_NOW);
     let mut raw = vec![0u8; size];
     raw[0..4].copy_from_slice(&(written as u32).to_le_bytes());

@@ -29,8 +29,6 @@ const PREEMPTED_RIP: u64 = 0x0040_0500;
 /// One stack page per task, at the same virtual address in both.
 const STACK_PAGE: u64 = 0x0070_0000;
 const STACK_TOP: u64 = STACK_PAGE + 4096;
-/// Bytes below `rsp` the frame builder reserves: the red zone plus the frame.
-const FRAME_RESERVE: u64 = 128 + 512;
 
 /// A forked task with its own table, one mapped stack page, a user frame
 /// preempted at `rsp`, and `SIGUSR1` pending with a handler installed.
@@ -123,8 +121,7 @@ fn check_frame(v: &Victim, name: &str) -> Result<bool, String> {
         return Ok(false);
     }
     check!(!pending, "{name}: entered, but SIGUSR1 is still pending");
-    let expected =
-        signal::harden::handler_frame_below(v.rsp, FRAME_RESERVE).ok_or("frame arithmetic")?;
+    let expected = signal::frame_base(v.rsp).ok_or("frame arithmetic")?;
     check!(
         regs.rsp == expected && regs.rdi == signal::SIGUSR1 as u64,
         "{name}: handler entry rsp={:#x} rdi={:#x}, expected rsp {expected:#x}",
@@ -248,6 +245,83 @@ pub fn soak_sweep_space_isolation() -> Result<(), String> {
             ),
         }
     }
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
+/// XMM0's quadword offset in an FXSAVE image, in words.
+const XMM0_WORD: usize = 160 / 8;
+
+fn live_xmm0() -> u64 {
+    let value: u64;
+    // SAFETY: reads XMM0 into a general register; the kernel is soft-float.
+    unsafe { core::arch::asm!("movq {}, xmm0", out(reg) value, options(nostack)) };
+    value
+}
+
+/// The FP state a sweep puts in a frame is the *target's*: a sibling that is
+/// not on the CPU is read from its saved area (not the live registers, which
+/// are another task's), its handler starts clean, and neither the task on the
+/// CPU nor the other victim is disturbed.
+pub fn sweep_fpstate_follows_task() -> Result<(), String> {
+    use crate::task::fpu;
+    fresh()?;
+    let a = victim(STACK_TOP - 0x100)?;
+    let b = victim(STACK_TOP - 0x500)?;
+    let (pattern_a, pattern_b) = (0xaaaa_0000_0000_000a_u64, 0xbbbb_0000_0000_000b_u64);
+    for (v, pattern) in [(&a, pattern_a), (&b, pattern_b)] {
+        let mut image = fpu::capture(v.slot);
+        image.set_word(XMM0_WORD, pattern);
+        fpu::load(v.slot, &image);
+    }
+    // The kernel task is the one "on the CPU": its live XMM0 is its own.
+    let kernel_xmm0 = 0x5151_5151_5151_5151_u64;
+    // SAFETY: writes XMM0 only; the kernel is soft-float.
+    unsafe { core::arch::asm!("movq xmm0, {}", in(reg) kernel_xmm0, options(nostack)) };
+
+    sweep_with_active(&b);
+    check!(check_frame(&b, "B")?, "B was not entered");
+    // B's frame: find its fpstate pointer through the frame the sweep wrote.
+    let b_frame = signal::frame_base(b.rsp).ok_or("frame arithmetic")?;
+    let b_fp = page_word(b.page, b_frame - STACK_PAGE + lf::MCONTEXT + lf::FPSTATE);
+    check!(
+        b_fp % 64 == 0 && b_fp >= STACK_PAGE && b_fp < STACK_TOP,
+        "B's fpstate pointer is {b_fp:#x}"
+    );
+    check!(
+        page_word(b.page, b_fp - STACK_PAGE + 160) == pattern_b,
+        "B's frame holds XMM0 {:#x}, expected B's {pattern_b:#x}",
+        page_word(b.page, b_fp - STACK_PAGE + 160)
+    );
+    check!(
+        fpu::capture(b.slot).word(XMM0_WORD) == 0 && fpu::saved_mxcsr(b.slot) == 0x1f80,
+        "B's handler does not start from the power-on state"
+    );
+    check!(
+        fpu::capture(a.slot).word(XMM0_WORD) == pattern_a,
+        "A's saved state was disturbed by B's delivery"
+    );
+    check!(
+        live_xmm0() == kernel_xmm0,
+        "the task on the CPU lost its live XMM0: {:#x}",
+        live_xmm0()
+    );
+
+    // A is entered when resumed; its frame carries A's state, not B's.
+    check!(
+        !task::harness::resume_delivery(a.slot),
+        "resuming A ended it"
+    );
+    check!(check_frame(&a, "A")?, "A was not entered when resumed");
+    let a_frame = signal::frame_base(a.rsp).ok_or("frame arithmetic")?;
+    let a_fp = page_word(a.page, a_frame - STACK_PAGE + lf::MCONTEXT + lf::FPSTATE);
+    check!(
+        page_word(a.page, a_fp - STACK_PAGE + 160) == pattern_a,
+        "A's frame holds XMM0 {:#x}, expected A's {pattern_a:#x}",
+        page_word(a.page, a_fp - STACK_PAGE + 160)
+    );
+    cleanup(&[a, b])?;
     task::harness::reset();
     signal::harness::reset();
     Ok(())

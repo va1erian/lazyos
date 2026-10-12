@@ -107,6 +107,7 @@ mod preempt;
 mod runq;
 mod sched;
 mod schedule;
+mod schedupdate;
 pub mod slotmask;
 mod spawn;
 mod stats;
@@ -134,6 +135,9 @@ pub use sched::*;
 pub use schedule::expire_due;
 #[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
 pub use schedule::{context_switches, scheduler_entries};
+#[cfg(lazyos_tests)]
+pub use schedupdate::sched_snapshot;
+pub use schedupdate::{sched_read, sched_update, SchedTarget, UpdateError};
 pub use spawn::*;
 pub use stats::*;
 pub use waiting::*;

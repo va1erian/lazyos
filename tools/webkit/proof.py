@@ -6,7 +6,10 @@ the image ships (``assets/fonts/liberation``, SIL OFL 1.1), because a console
 image has no fonts. A static musl program also runs on the Linux build host, so
 the build runs ``depsproof`` once offline there and keeps its output as
 ``target/webkit/depsproof.host.txt``: the pixels and digests the guest must
-reproduce.
+reproduce. The program prints ``WEBKIT:W3:BIN:<sha256>`` of its own executable
+first, so the host run names the build it is the reference for: ``reference``
+refuses one that is not the binary just linked, and the judge compares that
+line with the guest's (``wkjudge.py``).
 """
 
 from __future__ import annotations
@@ -14,9 +17,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import wkpins  # first: it puts tools/jsc (toolenv) on sys.path
+import fhspaths
 import toolenv
-import wkpins
 from toolenv import BuildError, run
+from wkjudge import sha256_of
 
 SOURCES = sorted((wkpins.HERE / "depsproof").glob("*.cpp"))
 PREFIX = wkpins.PREFIX
@@ -63,8 +68,10 @@ def build(jobs: int) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     work = wkpins.BUILD / "depsproof"
     work.mkdir(parents=True, exist_ok=True)
+    # The guest paths of libs/fhs, as string macros (proof.h refuses to compile without them).
+    paths = [f'-D{name}="{value}"' for name, value in fhspaths.PROOF_DEFINES.items()]
     cxx = [wrap["zc++"], *toolenv.CODEGEN, "-std=c++20", f"-I{PREFIX}/include", f"-I{PREFIX}/skia",
-           *skia_flags(), *pkg_config("--cflags")]
+           *paths, *skia_flags(), *pkg_config("--cflags")]
     objects: list[str] = []
     for source in [*SOURCES, font_source(work)]:
         obj = work / (source.stem + ".o")
@@ -80,8 +87,17 @@ def build(jobs: int) -> Path:
 
 
 def reference(program: Path, work: Path) -> None:
-    """Run the offline checks on the build host and keep what it printed."""
+    """Run the offline checks on the build host and keep what it printed.
+
+    The kept file holds the program's own ``WEBKIT:W3:BIN:<sha256>``; it must
+    be the digest of `program`, or the reference is not of the binary the
+    image will embed."""
     done = subprocess.run([str(program)], cwd=work, capture_output=True, text=True, timeout=300)
     HOST_RUN.write_text(done.stdout)
     if done.returncode != 0 or "WEBKIT:W3:OFFLINE" not in done.stdout:
         raise BuildError(f"depsproof failed on the build host (exit {done.returncode}):\n{done.stdout}{done.stderr}")
+    named = [line.split(":", 3)[3].strip() for line in done.stdout.splitlines()
+             if line.startswith("WEBKIT:W3:BIN:")]
+    built = sha256_of(program)
+    if named != [built]:
+        raise BuildError(f"depsproof reports its digest as {named}, the linked file is {built}")

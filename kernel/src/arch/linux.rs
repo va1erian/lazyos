@@ -100,8 +100,9 @@ pub fn set_saved_register(slot: usize, value: u64) {
 }
 
 /// Qwords `linux_syscall_entry` pushes onto the kernel stack before the call:
-/// user RSP, RFLAGS, RIP, then 12 registers (see [`set_saved_register`]).
-pub const ENTRY_PUSHED_QWORDS: u64 = 15;
+/// user RSP, RFLAGS, RIP, 12 registers (see [`set_saved_register`]), then the
+/// full-return flag and the user RCX and R11 it carries ([`set_full_return`]).
+pub const ENTRY_PUSHED_QWORDS: u64 = 18;
 /// Padding the stub inserts so `rsp` is 16-aligned at `call linux_dispatch`
 /// (the SysV ABI; optimised code uses aligned SSE stores on its frame). The
 /// kernel stack tops are 16-aligned, so only the push count matters.
@@ -151,6 +152,14 @@ macro_rules! entry_body {
         push r8
         push r9
         push r10
+        /* Full-return slots (`set_full_return`): flag, user rcx, user r11.
+           `syscall` and `sysretq` make rcx and r11 hold the resume RIP and
+           RFLAGS, so a context whose rcx/r11 are anything else (an
+           `rt_sigreturn` into code interrupted by a signal) must leave
+           through `iretq`. Zero means the ordinary `sysretq` exit. */
+        push 0
+        push 0
+        push 0
         /* linux_dispatch(nr, a1..a6) takes a6 - Linux r9 - as its seventh
            argument, on the stack at [rsp] at the call. The padding slot is
            exactly that slot, so it must be written, not left stale. */
@@ -188,8 +197,13 @@ global_asm!(
            rsp 16-aligned for the call, and every other register is
            reloaded from the stack below. */
         push rax
+        sub rsp, 8                      /* 18 pushes + rax + 8: 16-aligned */
         call linux_syscall_return
+        add rsp, 8
         pop rax
+        cmp qword ptr [rsp + 16], 0
+        jne 2f
+        add rsp, 24                     /* drop the full-return slots */
         pop r10
         pop r9
         pop r8
@@ -206,9 +220,39 @@ global_asm!(
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
         sysretq
+    2:
+        /* Full return: every register, including rcx and r11, comes from the
+           frame, so leave through `iretq`. rcx and r11 are free until the
+           end (everything else is reloaded from the stack, rax is the
+           result). */
+        mov r11, [rsp]
+        mov rcx, [rsp + 8]
+        add rsp, 24
+        pop r10
+        pop r9
+        pop r8
+        pop rdx
+        pop rsi
+        pop rdi
+        pop rbx
+        pop rbp
+        pop r12
+        pop r13
+        pop r14
+        pop r15
+        /* rsp -> [user RIP, user RFLAGS, user RSP]: build the iret frame
+           (RIP, CS, RFLAGS, RSP, SS from low to high) below them. */
+        push {user_ss}
+        push qword ptr [rsp + 24]
+        push qword ptr [rsp + 24]
+        push {user_cs}
+        push qword ptr [rsp + 32]
+        iretq
     "#
     ),
     pad = const ENTRY_CALL_PAD,
+    user_cs = const STAR_SYSRET_BASE as u64 + 16,
+    user_ss = const STAR_SYSRET_BASE as u64 + 8,
 );
 
 /// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
@@ -308,6 +352,22 @@ pub fn init() {
 pub fn set_kernel_stack(top: u64) {
     // Safety: single CPU; called from the scheduler with the task held.
     unsafe { *addr_of_mut!(KERNEL_STACK) = top };
+}
+
+/// Make the in-progress syscall return through `iretq` with `rcx` and `r11`
+/// set to the given values, instead of `sysretq` (which loads them with the
+/// resume RIP and RFLAGS). `rt_sigreturn` needs this: the interrupted code's
+/// `rcx` and `r11` are live registers like any other. The entry stub clears
+/// the flag on every syscall.
+pub fn set_full_return(rcx: u64, r11: u64) {
+    // Safety: single CPU; the three slots sit at fixed offsets below the
+    // saved registers (see `ENTRY_PUSHED_QWORDS`), on this task's stack.
+    unsafe {
+        let top = KERNEL_STACK as *mut u64;
+        *top.offset(-4 - 12) = 1;
+        *top.offset(-4 - 13) = rcx;
+        *top.offset(-4 - 14) = r11;
+    }
 }
 
 /// Rewrite the return context of the in-progress syscall. `execve` uses this to

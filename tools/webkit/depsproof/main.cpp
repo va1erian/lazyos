@@ -2,7 +2,9 @@
 // each one for real (docs/webkit-port-plan.md W3). Prints
 //   WEBKIT:W3:PASS:<lib> | WEBKIT:W3:FAIL:<lib>:<reason>   per library,
 //   WEBKIT:W3:INFO:<lib>:<key>=<value>                      evidence a judge compares,
-//   WEBKIT:W3:PASS                                          when every library passed.
+//   WEBKIT:W3:PASS                                          when every library passed,
+// and, right after WEBKIT:W3:UP, WEBKIT:W3:BIN:<sha256> of this very executable
+// (read through /proc/self/exe), so a judge can tell which build it is judging.
 // With a URL argument the curl check fetches it over HTTPS; without one the
 // run is the offline host reference (WEBKIT:W3:SKIP:curl:offline, then
 // WEBKIT:W3:OFFLINE), which the build step uses to compute expected checksums.
@@ -13,7 +15,9 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <openssl/evp.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 namespace proof {
 
@@ -58,9 +62,9 @@ const std::string& font_directory() {
     static std::string dir;
     if (dir.empty()) {
         const char* base = std::getenv("TMPDIR");
-        dir = std::string(base ? base : "/tmp") + "/depsproof-fonts";
+        dir = std::string(base ? base : DEPSPROOF_TMP) + "/depsproof-fonts";
         mkdir(dir.c_str(), 0755);
-        mkdir("/tmp/fontconfig", 0755);  // the cache directory Fontconfig was built with
+        mkdir(DEPSPROOF_FONT_CACHE_DIR, 0755);  // the cache directory Fontconfig was built with
         std::ofstream out(dir + "/LiberationSans-Regular.ttf", std::ios::binary | std::ios::trunc);
         out.write(reinterpret_cast<const char*>(kFont), static_cast<std::streamsize>(kFontSize));
     }
@@ -70,6 +74,28 @@ const std::string& font_directory() {
 }  // namespace proof
 
 namespace {
+
+// SHA-256 of the running executable ("" when it cannot be read).
+std::string self_digest() {
+    char path[4096];
+    const ssize_t length = readlink("/proc/self/exe", path, sizeof path - 1);
+    if (length <= 0) return "";
+    path[length] = '\0';
+    std::FILE* file = std::fopen(path, "rb");
+    if (!file) return "";
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+    static uint8_t chunk[65536];
+    size_t got;
+    while ((got = std::fread(chunk, 1, sizeof chunk, file)) > 0) EVP_DigestUpdate(ctx, chunk, got);
+    const bool whole = !std::ferror(file);
+    std::fclose(file);
+    uint8_t digest[EVP_MAX_MD_SIZE];
+    unsigned size = 0;
+    EVP_DigestFinal_ex(ctx, digest, &size);
+    EVP_MD_CTX_free(ctx);
+    return whole ? proof::hex(digest, size) : "";
+}
 
 std::string tidy(std::string text) {
     for (char& c : text)
@@ -109,6 +135,8 @@ int main(int argc, char** argv) {
     proof::Context context;
     if (argc > 1) context.url = argv[1];
     std::printf("WEBKIT:W3:UP\n");
+    const std::string self = self_digest();
+    std::printf("WEBKIT:W3:BIN:%s\n", self.empty() ? "unreadable" : self.c_str());
 
     const Entry entries[] = {
         {"zlib", proof::check_zlib},         {"brotli", proof::check_brotli},

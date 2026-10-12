@@ -173,6 +173,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "golf",
         // Video Player: Play video files.
         "video",
+        // About LazyOS: About LazyOS, with a real-time 3D renderer.
+        "about",
     ];
     CORE.contains(&short_of(stem))
 }

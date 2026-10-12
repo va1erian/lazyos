@@ -32,8 +32,9 @@ size_t collect(char* data, size_t size, size_t count, void* user) {
     return size * count;
 }
 
-// The CA bundle the image builds (build_support/ca_bundle.rs).
-const char kCaBundle[] = "/etc/ssl/certs/ca-certificates.crt";
+// The CA bundle the image builds (build_support/ca_bundle.rs), where Linux
+// programs look: fhs::etc::LINUX_CA_BUNDLE.
+const char kCaBundle[] = DEPSPROOF_CA_BUNDLE;
 
 }  // namespace
 

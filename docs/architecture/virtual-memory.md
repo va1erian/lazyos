@@ -116,6 +116,10 @@ executing from the page between flips; or map `RWX` once.
   page, with an `invlpg` per page in `mem::protect_range`. A page that is not
   resident takes the VMA's new rights at its first fault. A range may span
   several VMAs and cover them partially.
+  A `prot` with a bit beyond `PROT_READ|WRITE|EXEC` is `EINVAL` whatever the
+  length (`PROT_NONE` is fine); a zero length on an aligned address is then a
+  successful no-op (JavaScriptCore protects 0 bytes of an empty growable
+  buffer).
 - **Faults.** A fetch from an NX page and a store to a read-only page are
   present-page protection faults: not demand-zero, not COW, so they reach
   `signal::deliver_fault` and are `SIGSEGV` with `si_code = SEGV_ACCERR` and
@@ -151,7 +155,8 @@ Tests: `kernel/src/tests/linux_compat_suite/execmem*.rs` (`execmem_*`: the W^X
 cycle, RWX, every `PROT_*` combination, access-error codes and the delivered
 `siginfo`, partial and spanning `mprotect`, `mremap`, stack and heap NX, fork
 and COW, and a 100k-flip soak against a second thread executing the page with
-the frame, VMA and mapping counts checked) and the `jitmem` ABI fixture
+the frame, VMA and mapping counts checked, and invalid `prot` values with a
+zero and a page length) and the `jitmem` ABI fixture
 (`tools/abi/fixtures/src/jitmem.rs`: a tiny JIT in ring 3 with real
 `SIGSEGV` recovery, including a fetch after an RX -> RW flip, which fails if
 the TLB keeps a stale execute right; `python tools/abi/run.py --only jitmem`).

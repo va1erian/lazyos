@@ -1,0 +1,22 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "ABOUT:UP:PASS", "timeout": 240},
+  {"wait_for": "ABOUT:FPS:", "timeout": 120},
+  {"wait": 1.0},
+  {"shot": "about_knot"},
+  {"key": "space", "until": "ABOUT:SHAPE:", "timeout": 60, "retries": 2},
+  {"wait": 1.0},
+  {"shot": "about_shape"},
+  {"key": "w", "until": "ABOUT:STYLE:solid \\+ wire", "regex": true, "timeout": 60, "retries": 2},
+  {"wait": 1.0},
+  {"shot": "about_wire"},
+  {"key": "right", "until": "ABOUT:PAGE:1", "timeout": 60, "retries": 2},
+  {"click_at": [400, 330]},
+  {"mouse_down": "left"},
+  {"mouse_move": [90, 20]},
+  {"wait": 0.5},
+  {"shot": "about_dragged"},
+  {"mouse_up": "left"},
+  {"key": "esc", "until": "ABOUT:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
+]

@@ -123,6 +123,7 @@ pub(super) fn prepare_handler(
     sig: u8,
     armed: &Armed,
     native: bool,
+    slot: usize,
 ) -> Option<FrameResult> {
     let stack_top = handler_stack_top(regs, armed)?;
     // A non-canonical entry point would fault `sysretq` in ring 0.
@@ -134,7 +135,11 @@ pub(super) fn prepare_handler(
         result.rip = armed.handler;
         Some(result)
     } else {
-        build_linux_frame(
+        // `slot` may be a thread the timer sweep delivers to while another
+        // runs: take its state from the right place, and give the handler a
+        // clean one once the frame holds the interrupted state.
+        let fp = crate::task::fpu::capture(slot);
+        let result = build_linux_frame_fp(
             stack_top,
             regs,
             sig,
@@ -144,7 +149,10 @@ pub(super) fn prepare_handler(
             armed.mask,
             armed.saved_mask,
             &armed.info,
-        )
+            &fp,
+        )?;
+        crate::task::fpu::reset_for(slot);
+        Some(result)
     }
 }
 
@@ -171,6 +179,9 @@ pub(crate) fn apply_linux_frame_syscall(regs: &UserRegs) {
     for (slot, value) in saved {
         crate::arch::linux::set_saved_register(slot, value);
     }
+    // `sysretq` would overwrite rcx and r11 with the resume RIP and RFLAGS:
+    // an `rt_sigreturn` into interrupted code must get its own back.
+    crate::arch::linux::set_full_return(regs.rcx, regs.r11);
     // Keep the captured context in step so a nested delivery (or `clone`) sees
     // the handler's entry state rather than the syscall's.
     let context = crate::arch::linux::UserContext {
@@ -208,6 +219,15 @@ pub(super) fn saved_regs_from_stack(rax: u64) -> UserRegs {
     let rsp = word(-1);
     let rflags = word(-2);
     let rip = word(-3);
+    // `syscall` made rcx and r11 the resume RIP and RFLAGS, unless a context
+    // restored in this same syscall (`rt_sigreturn` with another signal
+    // already pending) put the interrupted code's own values in the
+    // full-return slots: a frame built now must carry those.
+    let (rcx, r11) = if word(-16) != 0 {
+        (word(-17), word(-18))
+    } else {
+        (rip, rflags)
+    };
     UserRegs {
         r15: word(-4),
         r14: word(-5),
@@ -221,8 +241,8 @@ pub(super) fn saved_regs_from_stack(rax: u64) -> UserRegs {
         r8: word(-13),
         r9: word(-14),
         r10: word(-15),
-        r11: rflags,
-        rcx: rip,
+        r11,
+        rcx,
         rax,
         rip,
         rsp,
@@ -278,7 +298,7 @@ pub(super) fn apply_action(
             let Some(armed) = arm_handler(pml4, slot, sig) else {
                 return false;
             };
-            let Some(result) = prepare_handler(regs, sig, &armed, false) else {
+            let Some(result) = prepare_handler(regs, sig, &armed, false, slot) else {
                 die_with_segv();
             };
             trace::record_signal(slot, sig, trace::Via::SyscallReturn, regs.rip, regs.rsp);

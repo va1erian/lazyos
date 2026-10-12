@@ -165,6 +165,11 @@ pub(super) fn sys_rt_sigreturn() -> u64 {
     let Some((regs, mask)) = signal::restore_frame(user_rsp) else {
         signal::die_with_segv();
     };
+    // The interrupted x87/SSE state is part of the frame too; a forged image
+    // kills the task like a forged register set.
+    if signal::harden::restore_fpstate(user_rsp).is_none() {
+        signal::die_with_segv();
+    }
     signal::set_blocked(task::current(), mask);
     signal::returned_to(task::current(), regs.rsp);
     signal::apply_linux_frame_syscall(&regs);

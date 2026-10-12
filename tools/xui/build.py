@@ -136,6 +136,8 @@ BINS = {
     "xui-lazysky": "xui-lazysky.elf",
     # Video Player: Play video files.
     "xui-video": "xui-video.elf",
+    # About LazyOS: About LazyOS, with a real-time 3D renderer.
+    "xui-about": "xui-about.elf",
 }
 
 

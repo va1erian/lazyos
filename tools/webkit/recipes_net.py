@@ -15,16 +15,18 @@ import shutil
 from pathlib import Path
 
 import buildkit
+import fhspaths
 import toolenv
 import wkpins
 from buildkit import PREFIX
 from registry import Lib, register
 from toolenv import run
 
-CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
+# Where the guest looks, from libs/fhs (fhspaths.py); both are compiled into the archives.
+CA_BUNDLE = fhspaths.CA_BUNDLE
 OPENSSL = ["linux-x86_64", "no-shared", "no-asm", "no-tests", "no-docs", "no-apps", "no-dso",
            "no-engine", "no-afalgeng", "no-ui-console", "no-comp", "enable-ec_nistp_64_gcc_128",
-           "-fPIC", "--openssldir=/etc/ssl", "--libdir=lib"]
+           "-fPIC", f"--openssldir={fhspaths.OPENSSL_DIR}", "--libdir=lib"]
 NGHTTP2 = {"ENABLE_LIB_ONLY": "ON", "BUILD_STATIC_LIBS": "ON",
            "ENABLE_APP": "OFF", "ENABLE_HPACK_TOOLS": "OFF", "ENABLE_EXAMPLES": "OFF",
            "ENABLE_DOC": "OFF", "BUILD_TESTING": "OFF"}
@@ -48,7 +50,7 @@ def _openssl(tree: Path, jobs: int) -> None:
     run(["perl", str(tree / "Configure"), *OPENSSL, f"--prefix={PREFIX}", *toolenv.CODEGEN],
         build, "openssl configure", env=env)
     run(["make", f"-j{jobs}", "build_libs"], build, "openssl make", env=env)
-    run(["make", "install_dev"], build, "openssl install", env=env)
+    run(["make", "install_dev", f"DESTDIR={buildkit.stage()}"], build, "openssl install", env=env)
 
 
 def _cmake(name: str, options: dict):
