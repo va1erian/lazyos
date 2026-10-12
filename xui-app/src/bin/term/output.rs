@@ -8,6 +8,7 @@ use std::io::{Read, Write};
 use xui_core::app::Ui;
 
 use super::blink::PERIOD_MS;
+use super::evidence::is_prompt;
 use super::scroll::{anchored, apply, Move};
 use super::view::max_offset;
 use super::{Msg, Terminal, FLUSH_MILLIS, INPUT_CHUNK};
@@ -122,5 +123,34 @@ impl Terminal {
             }
         }
         out
+    }
+
+    /// Output arrived: feed the engine, answer its queries, report the
+    /// evidence, repaint what changed.
+    pub(super) fn output(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
+        let (top, completed, reply) = {
+            let mut term = self.term.borrow_mut();
+            let top = term.screen_top();
+            (top, term.feed(bytes), term.take_reply())
+        };
+        self.follow(top);
+        // Answers to cursor-position and device-attribute queries go back to
+        // the program; ones that wait for them hang.
+        if !reply.is_empty() {
+            self.send(&reply);
+        }
+        for line in &completed {
+            if let Some(marker) = self.evidence.line(line) {
+                println!("TERM:OUT:{marker}");
+            }
+        }
+        self.touch(ui);
+        self.refresh(ui);
+        let at_prompt = {
+            let term = self.term.borrow();
+            let row = term.row_text(term.cursor().0);
+            !row.is_empty() && is_prompt(&row)
+        };
+        self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
     }
 }

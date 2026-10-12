@@ -37,7 +37,7 @@ use lazyterm::Term as Engine;
 use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
 use xui_core::app::{App, Proxy, Ui};
-use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, PlatformSpec, TimerId};
+use xui_core::backend::{Cursor, NodeKind, NodeSpec, PlatformSpec, TimerId};
 use xui_core::{Control, Dip, Key};
 
 #[path = "term/appearance.rs"]
@@ -50,6 +50,8 @@ mod clicks;
 mod clip;
 #[path = "term/conf.rs"]
 mod conf;
+#[path = "term/events.rs"]
+mod events;
 #[path = "term/evidence.rs"]
 mod evidence;
 #[path = "term/fonts.rs"]
@@ -83,12 +85,12 @@ use blink::Blink;
 use clicks::Clicks;
 use clip::watch_drops;
 use conf::{Conf, Follower};
-use evidence::{is_prompt, Evidence};
+use evidence::Evidence;
 use look::Look;
 use msg::Msg;
 use paint::{paint, Scene};
 use perf::{PaintClock, Perf};
-use pointer::{mouse, probe_grid, MouseKind};
+use pointer::probe_grid;
 use view::{Layout, Shown};
 
 /// The shell to host: the shipped `/system/bin/busybox`, started as
@@ -179,35 +181,6 @@ impl Terminal {
     fn finish(&self, ui: &mut Ui<Msg>) {
         println!("TERM:EXIT:PASS");
         ui.quit();
-    }
-
-    /// Output arrived: feed the engine, answer its queries, report the
-    /// evidence, repaint what changed.
-    fn output(&mut self, ui: &mut Ui<Msg>, bytes: &[u8]) {
-        let (top, completed, reply) = {
-            let mut term = self.term.borrow_mut();
-            let top = term.screen_top();
-            (top, term.feed(bytes), term.take_reply())
-        };
-        self.follow(top);
-        // Answers to cursor-position and device-attribute queries go back to
-        // the program; ones that wait for them hang.
-        if !reply.is_empty() {
-            self.send(&reply);
-        }
-        for line in &completed {
-            if let Some(marker) = self.evidence.line(line) {
-                println!("TERM:OUT:{marker}");
-            }
-        }
-        self.touch(ui);
-        self.refresh(ui);
-        let at_prompt = {
-            let term = self.term.borrow();
-            let row = term.row_text(term.cursor().0);
-            !row.is_empty() && is_prompt(&row)
-        };
-        self.perf.read(bytes.len(), at_prompt, &self.paint_clock);
     }
 }
 
@@ -358,58 +331,13 @@ fn main() {
                 }
             }));
         }
-        root.on_events(|event| match event {
-            Event::Char(ch) => Some(Msg::Char(*ch)),
-            Event::KeyDown { key, modifiers, .. } => Some(Msg::Key(*key, *modifiers)),
-            Event::SetFocus => Some(Msg::Focus(true)),
-            Event::KillFocus => Some(Msg::Focus(false)),
-            Event::MouseWheel {
-                delta,
-                horizontal: false,
-                x,
-                y,
-                modifiers,
-            } => Some(Msg::Wheel(*delta, *modifiers, *x, *y)),
-            Event::MouseDown {
-                x,
-                y,
-                button,
-                modifiers,
-            } => Some(mouse(MouseKind::Down(*button), *x, *y, *modifiers)),
-            Event::MouseUp {
-                x,
-                y,
-                button,
-                modifiers,
-            } => Some(mouse(MouseKind::Up(*button), *x, *y, *modifiers)),
-            Event::MouseDoubleClick {
-                x,
-                y,
-                button,
-                modifiers,
-            } => Some(mouse(MouseKind::Double(*button), *x, *y, *modifiers)),
-            Event::MouseMove { x, y, modifiers } => {
-                Some(mouse(MouseKind::Move, *x, *y, *modifiers))
-            }
-            _ => None,
-        });
+        events::install(&root);
         // The grid is text: the I-beam over it.
         ui.set_cursor(root.id(), Cursor::Text);
         *outbox.borrow_mut() = Some(ui.proxy());
         root.focus();
         ui.on_close(|| Some(Msg::Close));
-        let timers = (Rc::clone(&auto), Rc::clone(&flush), Rc::clone(&blink_timer));
-        ui.on_timer(move |id| {
-            Some(if timers.0.get() == Some(id) {
-                Msg::Autoscroll
-            } else if timers.1.get() == Some(id) {
-                Msg::Flush
-            } else if timers.2.get() == Some(id) {
-                Msg::Blink
-            } else {
-                Msg::Tick
-            })
-        });
+        events::route_timers(ui, &auto, &flush, &blink_timer);
         ui.set_timer(FALLBACK_MILLIS);
         let mut terminal = Terminal {
             child,

@@ -10,14 +10,10 @@ use lazyterm::font::{parse, Catalog};
 
 /// The family compiled into the binary: the fallback for any other.
 pub const BUILT_IN: &str = xui_app::font::MONO_FAMILY;
-/// Fonts bigger than this (CJK collections) are not read.
-const MAX_FILE: u64 = 6 * 1024 * 1024;
+/// A guard against absurd input only: a file bigger than this is not read.
+const MAX_FILE: u64 = 64 * 1024 * 1024;
 /// How many subdirectories deep a font directory is searched.
 const DEPTH: u32 = 2;
-/// The most font files registered, so a directory of thousands cannot cost
-/// the Terminal its start.
-const MAX_FILES: usize = 64;
-
 /// What was found.
 #[derive(Default)]
 pub struct Fonts {
@@ -59,9 +55,6 @@ fn scan(dir: &Path, depth: u32, fonts: &mut Fonts) {
     let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
     paths.sort();
     for path in paths {
-        if fonts.files >= MAX_FILES {
-            return;
-        }
         if path.is_dir() {
             if depth > 0 {
                 scan(&path, depth - 1, fonts);
