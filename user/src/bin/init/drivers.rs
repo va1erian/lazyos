@@ -11,9 +11,9 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, errno, router, services, Message, Parcel};
-use user::sys;
 
 use super::service::{Phase, Service};
 use super::shutdown;
@@ -72,10 +72,12 @@ pub(super) fn start(
             && row.pid == message.sender
     });
     if !from_devd {
-        sys::write_str(&format!(
-            "INIT:DRIVER:DENIED driver={} caller={}\n",
-            request.driver, message.sender
-        ));
+        trace::line!(
+            trace::Channel::Init,
+            "DRIVER:DENIED driver={} caller={}",
+            request.driver,
+            message.sender
+        );
         return Err(errno_error(errno::EPERM));
     }
     if shutdown::stopping() {
@@ -121,10 +123,13 @@ pub(super) fn start(
     services.push(row);
     let index = services.len() - 1;
     spawn_service(services, index, broker);
-    sys::write_str(&format!(
-        "INIT:DRIVER:START driver={} {device_arg} pid={} ifname={}\n",
-        spec.name, services[index].pid, request.ifname
-    ));
+    trace::line!(
+        trace::Channel::Init,
+        "DRIVER:START driver={} {device_arg} pid={} ifname={}",
+        spec.name,
+        services[index].pid,
+        request.ifname
+    );
     reply(true, services[index].pid)
 }
 

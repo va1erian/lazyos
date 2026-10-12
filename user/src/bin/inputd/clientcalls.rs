@@ -1,13 +1,12 @@
 //! `os.lazy.input.v1` requests: open and close sessions, state, grabs, the
 //! key-state page and `Ping`. Key content itself is pushed (`hub.rs`).
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::{REPEAT_DELAY_TICKS, REPEAT_INTERVAL_TICKS};
 use user::messenger::input::{shell_wire, wire};
 use user::messenger::{errno, Endpoint, Error, Message, Result};
-use user::sys;
 
 use super::hub::{route_error, Hub};
 
@@ -103,10 +102,12 @@ impl Hub {
         self.delivery
             .insert(opened.session, Endpoint::from_raw(args.events));
         // Sessions are rare (one per window), so each is worth a boot-log line.
-        sys::write_str(&format!(
-            "INPUTD:SESSION:OPEN session={} surface={surface} owner={}\n",
-            opened.session, message.sender
-        ));
+        trace::line!(
+            trace::Channel::Inputd,
+            "SESSION:OPEN session={} surface={surface} owner={}",
+            opened.session,
+            message.sender
+        );
         if opened.first_for_surface {
             self.shell_event(
                 shell_wire::METHOD_SESSIONOPENED,

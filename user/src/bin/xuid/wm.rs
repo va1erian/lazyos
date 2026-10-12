@@ -28,7 +28,7 @@
 use alloc::format;
 use alloc::vec::Vec;
 use user::messenger::display::{self, wire, Rect};
-use user::sys;
+use user::trace;
 
 use super::compositor::Compositor;
 
@@ -103,9 +103,10 @@ impl Compositor {
             .iter()
             .find(|surface| surface.id == id)
             .map_or("", |surface| surface.title.as_str());
-        sys::write_str(&format!(
-            "XUID:WM:{what} id={id} windows={windows} title={title}\n"
-        ));
+        trace::line!(
+            trace::Channel::Xuid,
+            "WM:{what} id={id} windows={windows} title={title}"
+        );
     }
 
     /// A Super+arrow shortcut on the focused window; whether `key` was one.

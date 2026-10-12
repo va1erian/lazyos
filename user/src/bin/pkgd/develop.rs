@@ -27,6 +27,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use pkgstore::access::Caller;
 use pkgstore::develop::{self, Verdict};
@@ -178,10 +179,11 @@ impl Pkgd {
             false,
             "the development run was declined",
         ));
-        sys::write_str(&format!(
-            "PKGD:DEVELOP:DECLINED {}\n",
+        trace::line!(
+            trace::Channel::Pkgd,
+            "DEVELOP:DECLINED {}",
             one_line(&subject.system_name)
-        ));
+        );
         Ok(())
     }
 
@@ -205,7 +207,7 @@ impl Pkgd {
                 revoked += 1;
             }
         }
-        sys::write_str(&format!("PKGD:DEVELOP:RESET revoked={revoked}\n"));
+        trace::line!(trace::Channel::Pkgd, "DEVELOP:RESET revoked={revoked}");
     }
 
     fn develop_bytes(
@@ -252,7 +254,7 @@ impl Pkgd {
         };
         let verdict = self.approvals.check(&label, caller.session, &rules);
         if verdict == Verdict::NeedsConsent && !confirm {
-            sys::write_str(&format!("PKGD:DEVELOP:ASK {label}\n"));
+            trace::line!(trace::Channel::Pkgd, "DEVELOP:ASK {label}");
             return Ok((label, false));
         }
         if let Err(error) = policy::load_label(&label, &rules) {
@@ -273,11 +275,12 @@ impl Pkgd {
         }
         self.audit
             .record(&event("develop", &subject, uid, true, &label));
-        sys::write_str(&format!(
-            "PKGD:DEVELOP:PASS {label} rules={} asked={}\n",
+        trace::line!(
+            trace::Channel::Pkgd,
+            "DEVELOP:PASS {label} rules={} asked={}",
             rules.len(),
             u8::from(asked)
-        ));
+        );
         Ok((label, true))
     }
 
@@ -289,10 +292,11 @@ impl Pkgd {
         self.audit
             .record(&event("undevelop", &subject, uid, ok, label));
         let verdict = if ok { "PASS" } else { "FAIL" };
-        sys::write_str(&format!(
-            "PKGD:UNDEVELOP:{verdict} {} session={session}\n",
+        trace::line!(
+            trace::Channel::Pkgd,
+            "UNDEVELOP:{verdict} {} session={session}",
             one_line(label)
-        ));
+        );
     }
 
     /// Whether any development label is approved (the service loop then
@@ -319,7 +323,7 @@ impl Pkgd {
         if gap && !self.approvals.is_empty() {
             let live = live_sessions();
             if live.is_none() {
-                sys::write_str("PKGD:DEVELOP:RECONCILE logind=absent\n");
+                trace::line!(trace::Channel::Pkgd, "DEVELOP:RECONCILE logind=absent");
             }
             for (session, label) in self.approvals.keep_live(live.as_deref()) {
                 self.revoke_dev(&label, session, 0);

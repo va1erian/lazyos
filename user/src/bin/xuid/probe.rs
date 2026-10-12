@@ -14,15 +14,14 @@
 //! version looked the marker up with `stat` from here and sometimes hung the
 //! boot right at that call.
 
-use alloc::format;
-use user::sys;
+use user::trace;
 
 use super::surface::Surface;
 
 /// Say on serial that this compositor prints window rectangles.
 pub(super) fn announce() {
     if cfg!(lazyos_ui_probe) {
-        sys::write_str("XUID:PROBE:ON (UI:RECT lines for windows)\n");
+        trace::line!(trace::Channel::Xuid, "PROBE:ON (UI:RECT lines for windows)");
     }
 }
 
@@ -32,18 +31,24 @@ pub(super) fn window(surface: &Surface) {
         return;
     }
     let rect = surface.content();
-    sys::write_str(&format!(
-        "UI:RECT x={} y={} w={} h={} name=window:{}\n",
-        rect.x, rect.y, rect.w, rect.h, surface.title
-    ));
+    trace::line!(
+        trace::Channel::Ui,
+        "RECT x={} y={} w={} h={} name=window:{}",
+        rect.x,
+        rect.y,
+        rect.w,
+        rect.h,
+        surface.title
+    );
     // The title bar too, so a session drags a window by name (issue #161).
     let frame = surface.window();
-    sys::write_str(&format!(
-        "UI:RECT x={} y={} w={} h={} name=title:{}\n",
+    trace::line!(
+        trace::Channel::Ui,
+        "RECT x={} y={} w={} h={} name=title:{}",
         frame.x,
         frame.y,
         frame.w,
         super::theme::title_h(),
         surface.title
-    ));
+    );
 }

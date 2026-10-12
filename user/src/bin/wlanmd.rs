@@ -38,9 +38,9 @@ mod sessions;
 #[path = "wlanmd/store.rs"]
 mod store;
 
-use alloc::format;
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::wifi::{self, api};
 use user::messenger::{self, errno, registry, wait, Endpoint, Error};
@@ -92,7 +92,7 @@ pub(crate) struct Daemon {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     if let Err(error) = run() {
-        sys::write_str(&format!("WLANMD:FAIL {}\n", error.message()));
+        trace::line!(trace::Channel::Wlanmd, "FAIL {}", error.message());
         sys::exit(1);
     }
     sys::exit(0)
@@ -112,7 +112,7 @@ fn run() -> messenger::Result<()> {
         bus: None,
     };
     daemon.discover();
-    sys::write_str(&format!("WLANMD:UP radios={}\n", daemon.radios.len()));
+    trace::line!(trace::Channel::Wlanmd, "UP radios={}", daemon.radios.len());
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut next_discovery = sys::clock() + DISCOVER_TICKS;
     loop {
@@ -209,10 +209,11 @@ impl Daemon {
             };
             match Slot::attach(&ifname, &country, nonce) {
                 Ok(slot) => {
-                    sys::write_str(&format!(
-                        "WLANMD:RADIO:UP {ifname} mac={} country={country}\n",
+                    trace::line!(
+                        trace::Channel::Wlanmd,
+                        "RADIO:UP {ifname} mac={} country={country}",
                         radio::mac_text(&slot.mac)
-                    ));
+                    );
                     self.radios.push(slot);
                     let index = self.radios.len() - 1;
                     let profiles = self.store.profiles().to_vec();
@@ -225,7 +226,11 @@ impl Daemon {
                     self.radios[index].execute(&mut self.store, actions);
                 }
                 Err(error) => {
-                    sys::write_str(&format!("WLANMD:RADIO:FAIL {ifname} {}\n", error.message()))
+                    trace::line!(
+                        trace::Channel::Wlanmd,
+                        "RADIO:FAIL {ifname} {}",
+                        error.message()
+                    )
                 }
             }
         }
@@ -234,7 +239,7 @@ impl Daemon {
     /// Forget a radio whose driver went away: publish it `Disabled`.
     pub fn drop_radio(&mut self, index: usize) {
         let slot = self.radios.remove(index);
-        sys::write_str(&format!("WLANMD:RADIO:GONE {}\n", slot.ifname));
+        trace::line!(trace::Channel::Wlanmd, "RADIO:GONE {}", slot.ifname);
         if let Some(bus) = self.bus.as_mut() {
             let state = api::WifiState {
                 state: api::CONN_STATE_DISABLED,
@@ -289,7 +294,7 @@ impl Daemon {
         if let Err(error) = self.store.reload() {
             // Keep what the stations hold: a profile that failed to read is
             // not a profile that is gone.
-            sys::write_str(&format!("WLANMD:PROFILES:STALE {}\n", error.message()));
+            trace::line!(trace::Channel::Wlanmd, "PROFILES:STALE {}", error.message());
             return;
         }
         let profiles = self.store.profiles().to_vec();
@@ -322,6 +327,6 @@ impl Daemon {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("WLANMD:FAIL panic\n");
+    trace::line!(trace::Channel::Wlanmd, "FAIL panic");
     sys::exit(1)
 }

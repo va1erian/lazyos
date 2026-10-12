@@ -9,6 +9,7 @@
 
 use alloc::format;
 use alloc::string::String;
+use user::trace;
 
 use pkgstore::audit::{verify, Chain};
 use pkgstore::layout;
@@ -58,10 +59,10 @@ impl Audit {
         match verdict {
             Ok(chain) => {
                 self.chain = chain;
-                sys::write_str(&format!("PKGD:AUDIT:PASS n={}\n", chain.count));
+                trace::line!(trace::Channel::Pkgd, "AUDIT:PASS n={}", chain.count);
             }
             Err(reason) => {
-                sys::write_str(&format!("PKGD:AUDIT:FAIL {reason}\n"));
+                trace::line!(trace::Channel::Pkgd, "AUDIT:FAIL {reason}");
                 self.rotate(&reason);
             }
         }
@@ -103,10 +104,11 @@ impl Audit {
                 let line = next.append(&bytes);
                 match files::append_file(layout::LOG_FILE, line.as_bytes()) {
                     Ok(()) => self.chain = next,
-                    Err(code) => sys::write_str(&format!(
-                        "PKGD:AUDIT:WRITE:FAIL {}\n",
+                    Err(code) => trace::line!(
+                        trace::Channel::Pkgd,
+                        "AUDIT:WRITE:FAIL {}",
                         files::describe(code)
-                    )),
+                    ),
                 }
             }
         }

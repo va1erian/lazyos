@@ -9,13 +9,12 @@
 //! `INPUTD:LAYOUT:SESSION <name>|none effective=<name>` (`none` alone when
 //! the compositor went away).
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::Layout;
 use user::messenger::input::{shell_wire, wire};
 use user::messenger::{Error, Result};
-use user::sys;
 
 use super::hub::Hub;
 
@@ -33,10 +32,11 @@ impl Hub {
         let effective = self.layouts.set_session(args.layout.as_deref());
         if self.layouts.session() != before {
             let named = self.layouts.session().map_or("none", Layout::name);
-            sys::write_str(&format!(
-                "INPUTD:LAYOUT:SESSION {named} effective={}\n",
+            trace::line!(
+                trace::Channel::Inputd,
+                "LAYOUT:SESSION {named} effective={}",
                 effective.name()
-            ));
+            );
         }
         self.adopt_layout(effective);
         Ok(())
@@ -46,7 +46,7 @@ impl Hub {
     pub(super) fn end_session_layout(&mut self) {
         if self.layouts.session().is_some() {
             let effective = self.layouts.set_session(None);
-            sys::write_str("INPUTD:LAYOUT:SESSION none\n");
+            trace::line!(trace::Channel::Inputd, "LAYOUT:SESSION none");
             self.adopt_layout(effective);
         }
     }

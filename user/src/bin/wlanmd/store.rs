@@ -10,13 +10,12 @@
 //! `net.wifi.system`, under the same id), and answers `WifiPmk` to `_wlan`
 //! alone, for profile ids only.
 
-use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use confd::Value as ConfValue;
 use user::messenger::{confd as conf, errno, keyd, Error};
-use user::sys;
 use wlansta::profile::{self, Value};
 use wlansta::{Key, Owner, PmkError, Profile};
 
@@ -181,21 +180,23 @@ impl Store {
         if let Some(secret) = passphrase {
             let keyd = self.keyd().ok_or(Error::Errno(-errno::EAGAIN))?;
             if let Err(error) = keyd.store_secret_for(scope, &profile.id, secret.as_bytes(), uid) {
-                sys::write_str(&format!(
-                    "WLANMD:ADD:FAIL {} keyd {}\n",
+                trace::line!(
+                    trace::Channel::Wlanmd,
+                    "ADD:FAIL {} keyd {}",
                     profile.id,
                     error.message()
-                ));
+                );
                 return Err(error);
             }
         }
         let written = self.write_fields(profile);
         if let Err(error) = &written {
-            sys::write_str(&format!(
-                "WLANMD:ADD:FAIL {} confd {}\n",
+            trace::line!(
+                trace::Channel::Wlanmd,
+                "ADD:FAIL {} confd {}",
                 profile.id,
                 error.message()
-            ));
+            );
             self.erase(profile);
         }
         written
@@ -259,7 +260,7 @@ impl Store {
             Err(error) => match error.errno().map(|code| -code) {
                 Some(errno::ENOENT) => Err(PmkError::Missing),
                 Some(code) if code == errno::EINVAL || code == errno::EPERM => {
-                    sys::write_str(&format!("WLANMD:PMK:REFUSED {id} errno={code}\n"));
+                    trace::line!(trace::Channel::Wlanmd, "PMK:REFUSED {id} errno={code}");
                     Err(PmkError::Unavailable)
                 }
                 _ => {

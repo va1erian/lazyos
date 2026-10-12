@@ -18,6 +18,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use lazyos_crypto::hex;
 use pkgstore::provision::{self, Action, Current, Shipped, Tally};
@@ -74,17 +75,21 @@ impl Pkgd {
             ..Tally::default()
         };
         if !volume_ok {
-            sys::write_str("PKGD:PROVISION:SKIP the application store is unavailable\n");
+            trace::line!(
+                trace::Channel::Pkgd,
+                "PROVISION:SKIP the application store is unavailable"
+            );
             self.finish(None, start);
             return;
         }
         let rows = match self.registry.list() {
             Ok(rows) => rows,
             Err(error) => {
-                sys::write_str(&format!(
-                    "PKGD:PROVISION:SKIP the application list is unavailable: {}\n",
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:SKIP the application list is unavailable: {}",
                     error.message()
-                ));
+                );
                 self.finish(None, start);
                 return;
             }
@@ -152,7 +157,10 @@ impl Pkgd {
             pass.autostart_left = pass.autostart_left.saturating_sub(1);
             if pass.autostart_left == 0 && !self.provisioned.ready {
                 self.provisioned.ready = true;
-                sys::write_str("PKGD:PROVISION:READY the apps that open at login are installed\n");
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:READY the apps that open at login are installed"
+                );
                 let ready = event("provision", &Subject::none(), 0, true, "ready");
                 announce(&ready);
             }
@@ -160,10 +168,11 @@ impl Pkgd {
             return;
         }
         if let Err(error) = self.registry.set_stamp(&pass.stamp) {
-            sys::write_str(&format!(
-                "PKGD:PROVISION:STAMP:FAIL {}\n",
+            trace::line!(
+                trace::Channel::Pkgd,
+                "PROVISION:STAMP:FAIL {}",
                 one_line(error.message())
-            ));
+            );
         }
         let summary = format!(
             "installed={} upgraded={} kept={} failed={}",
@@ -210,9 +219,10 @@ impl Pkgd {
                 installed,
                 shipped,
             } => {
-                sys::write_str(&format!(
-                    "PKGD:PROVISION:KEEP sn={system_name} installed={installed} shipped={shipped}\n"
-                ));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:KEEP sn={system_name} installed={installed} shipped={shipped}"
+                );
                 // A newer version over a core app is still core.
                 self.set_origin(&system_name, wire::ORIGIN_CORE, "kept a newer version");
                 tally.kept += 1;
@@ -221,7 +231,7 @@ impl Pkgd {
                 self.set_origin(&name, wire::ORIGIN_CORE, "recorded as built-in");
             }
             Action::Demote(name) => {
-                sys::write_str(&format!("PKGD:PROVISION:DEMOTE {name}\n"));
+                trace::line!(trace::Channel::Pkgd, "PROVISION:DEMOTE {name}");
                 self.set_origin(&name, wire::ORIGIN_USER, "no longer built in");
             }
         }
@@ -234,7 +244,10 @@ impl Pkgd {
             Ok(upgrade) => {
                 let verb = if upgrade { "UPGRADE" } else { "INSTALL" };
                 let ticks = sys::clock().saturating_sub(started);
-                sys::write_str(&format!("PKGD:PROVISION:{verb} {name} ticks={ticks}\n"));
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:{verb} {name} ticks={ticks}"
+                );
                 if upgrade {
                     tally.upgraded += 1;
                 } else {
@@ -242,10 +255,11 @@ impl Pkgd {
                 }
             }
             Err(failure) => {
-                sys::write_str(&format!(
-                    "PKGD:PROVISION:FAIL sn={name} reason=\"{}\"\n",
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:FAIL sn={name} reason=\"{}\"",
                     one_line(&failure.text)
-                ));
+                );
                 tally.failed += 1;
             }
         }
@@ -328,10 +342,11 @@ impl Pkgd {
             // Any other failure hides every package: count it as one, so
             // the pass does not look like a clean one.
             Err(errno) => {
-                sys::write_str(&format!(
-                    "PKGD:PROVISION:LIST:FAIL {} errno {errno}\n",
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "PROVISION:LIST:FAIL {} errno {errno}",
                     fhs::SYSTEM_PACKAGES
-                ));
+                );
                 return (Vec::new(), Vec::new(), 1);
             }
         };
@@ -341,10 +356,12 @@ impl Pkgd {
             .map(|text| match provision::parse_index(&text) {
                 Ok(index) => index,
                 Err(error) => {
-                    sys::write_str(&format!(
-                        "PKGD:PROVISION:INDEX:FAIL line {}: {}\n",
-                        error.line, error.reason
-                    ));
+                    trace::line!(
+                        trace::Channel::Pkgd,
+                        "PROVISION:INDEX:FAIL line {}: {}",
+                        error.line,
+                        error.reason
+                    );
                     Vec::new()
                 }
             })
@@ -387,9 +404,10 @@ impl Pkgd {
             });
         self.buffer = bytes;
         if described.is_none() {
-            sys::write_str(&format!(
-                "PKGD:PROVISION:FAIL sn={name} reason=\"the archive cannot be opened\"\n"
-            ));
+            trace::line!(
+                trace::Channel::Pkgd,
+                "PROVISION:FAIL sn={name} reason=\"the archive cannot be opened\""
+            );
         }
         described
     }

@@ -100,13 +100,13 @@ fn run() -> Result<(), &'static str> {
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut shell_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
-    sys::write_str(&format!(
-        "INPUTD:READY layout={} interfaces={:#x},{:#x}
-",
+    user::trace::line!(
+        user::trace::Channel::Inputd,
+        "READY layout={} interfaces={:#x},{:#x}",
         hub.engine.layout().name(),
         api::INTERFACE,
         api::SHELL_INTERFACE
-    ));
+    );
 
     loop {
         if let Some(layout) = config.poll() {

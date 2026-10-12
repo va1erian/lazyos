@@ -11,6 +11,7 @@
 
 use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::sys;
 use xhci::regs::portsc;
@@ -89,10 +90,11 @@ impl Controller {
             return false;
         }
         if self.hc.failed() {
-            sys::write_str(&format!(
-                "USBD:XHCI:ERROR hc={} the controller stopped (HSE/HCE); its devices are gone\n",
+            trace::line!(
+                trace::Channel::Usbd,
+                "XHCI:ERROR hc={} the controller stopped (HSE/HCE); its devices are gone",
                 self.hc.index
-            ));
+            );
             while let Some(node) = self.nodes.pop() {
                 for function in node.functions {
                     function.close(settings.trace);
@@ -181,7 +183,11 @@ impl Controller {
     /// reset; a hub then has its ports looked at.
     fn attach(&mut self, mut at: Location, parent: Option<(u8, u8)>, settings: &Settings) {
         let name = format!("{}-{}", self.hc.index, at);
-        sys::write_str(&format!("USBD:PORT port={name} speed={:?}\n", at.speed));
+        trace::line!(
+            trace::Channel::Usbd,
+            "PORT port={name} speed={:?}",
+            at.speed
+        );
         for attempt in 1..=ATTEMPTS {
             match self.enumerate(at) {
                 Ok(Some(node)) => {
@@ -194,22 +200,24 @@ impl Controller {
                     return;
                 }
                 Ok(None) => {
-                    sys::write_str(&format!(
-                        "USBD:PORT:SKIP port={name} nothing this driver binds\n"
-                    ));
+                    trace::line!(
+                        trace::Channel::Usbd,
+                        "PORT:SKIP port={name} nothing this driver binds"
+                    );
                     break;
                 }
                 Err(error) if attempt < ATTEMPTS => {
-                    sys::write_str(&format!(
-                        "USBD:PORT:RETRY port={name} attempt={attempt} {error}\n"
-                    ));
+                    trace::line!(
+                        trace::Channel::Usbd,
+                        "PORT:RETRY port={name} attempt={attempt} {error}"
+                    );
                     match self.reset_again(at, parent) {
                         Some(again) => at = again,
                         None => return,
                     }
                 }
                 Err(error) => {
-                    sys::write_str(&format!("USBD:PORT:FAIL port={name} {error}\n"));
+                    trace::line!(trace::Channel::Usbd, "PORT:FAIL port={name} {error}");
                 }
             }
         }
@@ -329,10 +337,12 @@ impl Controller {
             };
             match hub_at.child(slot, multi_tt, hub_port, speed) {
                 Ok(at) => self.attach(at, parent, settings),
-                Err(_) => sys::write_str(&format!(
-                    "USBD:PORT:SKIP port={}-{}.{hub_port} too deep or wrong speed ({speed:?})\n",
-                    self.hc.index, hub_at
-                )),
+                Err(_) => trace::line!(
+                    trace::Channel::Usbd,
+                    "PORT:SKIP port={}-{}.{hub_port} too deep or wrong speed ({speed:?})",
+                    self.hc.index,
+                    hub_at
+                ),
             }
         }
     }
@@ -379,7 +389,7 @@ impl Controller {
                         // The kernel releases the key on our death; `init`
                         // restarts us, and every controller is reset and
                         // every device re-enumerated.
-                        sys::write_str("USBD:CRASH:TEST exiting with a key held\n");
+                        trace::line!(trace::Channel::Usbd, "CRASH:TEST exiting with a key held");
                         sys::exit(3);
                     }
                 }
@@ -427,11 +437,12 @@ impl Controller {
         let at = gone.device.at;
         self.skipped.retain(|skipped| !skipped.is_within(&at));
         gone.device.release(&mut self.hc);
-        sys::write_str(&format!(
-            "USBD:DETACH port={name} slot={slot} regions={} functions={} ({why})\n",
+        trace::line!(
+            trace::Channel::Usbd,
+            "DETACH port={name} slot={slot} regions={} functions={} ({why})",
             self.hc.regions,
             kinds.join(",")
-        ));
+        );
     }
 }
 

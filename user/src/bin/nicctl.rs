@@ -22,6 +22,7 @@ extern crate alloc;
 
 use alloc::format;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::sys;
 
@@ -78,16 +79,16 @@ pub extern "C" fn _start() -> ! {
         Mode::Show => show(),
         Mode::Arp => arp(),
         Mode::Probe => probe::run()
-            .map(|checks| sys::write_str(&format!("NICCTL:PROBE:PASS checks={checks}\n"))),
+            .map(|checks| trace::print!(trace::Channel::Nicctl, "PROBE:PASS checks={checks}")),
         Mode::Intruder(ring) => probe::run_intruder_role(ring)
-            .map(|checks| sys::write_str(&format!("NICCTL:INTRUDER:PASS checks={checks}\n"))),
+            .map(|checks| trace::print!(trace::Channel::Nicctl, "INTRUDER:PASS checks={checks}")),
         Mode::Soak(n) => soak::run(n)
-            .map(|done| sys::write_str(&format!("NICCTL:SOAK:PASS iterations={done}\n"))),
+            .map(|done| trace::print!(trace::Channel::Nicctl, "SOAK:PASS iterations={done}")),
     };
     match outcome {
         Ok(()) => sys::exit(0),
         Err(message) => {
-            sys::write_str(&format!("NICCTL:FAIL {message}\n"));
+            trace::print!(trace::Channel::Nicctl, "FAIL {message}");
             sys::exit(1)
         }
     }
@@ -119,11 +120,12 @@ fn show() -> Result<(), alloc::string::String> {
         "errors   {} runts, {} oversize, {} ring errors\nirq      {} interrupts, {} link changes\n",
         stats.runts, stats.oversize, stats.ring_errors, stats.interrupts, stats.link_changes
     ));
-    sys::write_str(&format!(
-        "NICCTL:INFO:PASS mac={} link={}\n",
+    trace::print!(
+        trace::Channel::Nicctl,
+        "INFO:PASS mac={} link={}",
         mac_text(&info.mac),
         info.link
-    ));
+    );
     Ok(())
 }
 
@@ -141,11 +143,12 @@ fn arp() -> Result<(), alloc::string::String> {
     let _ = client.detach(attachment.ring);
     attachment.close();
     let from = answered?;
-    sys::write_str(&format!(
-        "NICCTL:ARP:PASS gateway={} mac={}\n",
+    trace::print!(
+        trace::Channel::Nicctl,
+        "ARP:PASS gateway={} mac={}",
         "10.0.2.2",
         mac_text(&from)
-    ));
+    );
     Ok(())
 }
 

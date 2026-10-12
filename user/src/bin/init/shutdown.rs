@@ -26,6 +26,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
+use user::trace;
 
 use svcpolicy::StopMode;
 use user::files;
@@ -123,7 +124,7 @@ pub(super) fn request(
     }
     if let Some(running) = current {
         if args.force && !running.force {
-            sys::write_str("INIT:SHUTDOWN:FORCE\n");
+            trace::line!(trace::Channel::Init, "SHUTDOWN:FORCE");
             running.force = true;
         }
         return Ok(String::from(running.stage.label()));
@@ -171,13 +172,14 @@ fn begin(
         force: args.force,
         killed: 0,
     };
-    sys::write_str(&format!(
-        "INIT:SHUTDOWN:BEGIN mode={} uid={} session={} reason=\"{}\"\n",
+    trace::line!(
+        trace::Channel::Init,
+        "SHUTDOWN:BEGIN mode={} uid={} session={} reason=\"{}\"",
         mode_name(args.mode),
         caller.uid,
         caller.session,
         args.reason
-    ));
+    );
     if let Err(code) = files::power_arm(kernel_op(args.mode)) {
         sys::write_str(&format!(
             "init: shutdown watchdog not armed (errno {code})\n"
@@ -266,10 +268,11 @@ impl Shutdown {
                 }
                 publish_state(broker, row, "stopping", pid, row.restarts, 0, "shutdown");
             }
-            sys::write_str(&format!(
-                "INIT:SHUTDOWN:APPS asked={} quit={quit} term={term}\n",
+            trace::line!(
+                trace::Channel::Init,
+                "SHUTDOWN:APPS asked={} quit={quit} term={term}",
                 quit + term
-            ));
+            );
         }
         if !services.iter().any(|row| row.launched && is_live(row)) {
             self.stage = Stage::Services;
@@ -287,7 +290,7 @@ impl Shutdown {
         if !self.entered {
             self.entered = true;
             self.publish(broker, "services");
-            sys::write_str("INIT:SHUTDOWN:SERVICES\n");
+            trace::line!(trace::Channel::Init, "SHUTDOWN:SERVICES");
         }
         let rows: Vec<usize> = (0..services.len())
             .filter(|&index| !services[index].launched && !outlives(&services[index]))
@@ -341,12 +344,13 @@ impl Shutdown {
             now.saturating_sub(self.started)
         ));
         self.publish(broker, "power");
-        sys::write_str(&format!(
-            "INIT:SHUTDOWN:POWER mode={}\n",
+        trace::line!(
+            trace::Channel::Init,
+            "SHUTDOWN:POWER mode={}",
             mode_name(self.mode)
-        ));
+        );
         if let Err(code) = files::power(kernel_op(self.mode)) {
-            sys::write_str(&format!("INIT:SHUTDOWN:FAIL power errno={code}\n"));
+            trace::line!(trace::Channel::Init, "SHUTDOWN:FAIL power errno={code}");
             self.publish(broker, "failed");
             self.stage = Stage::Failed;
         }
@@ -377,7 +381,7 @@ impl Shutdown {
             deadline: self.deadline,
         };
         let _ = services::init::wire::publish_system_power_state(broker, &state);
-        sys::write_str(&format!("INIT:SHUTDOWN:PHASE {phase}\n"));
+        trace::line!(trace::Channel::Init, "SHUTDOWN:PHASE {phase}");
     }
 }
 

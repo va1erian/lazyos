@@ -40,6 +40,7 @@ use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use fused::daemon::{serve_one, Buffers};
 use session::describe;
@@ -184,7 +185,7 @@ fn run() -> Result<(), Failed> {
     let point = format!("{}/{}", fhs::mount::MNT, opts.name);
     let mut mount = sys::fuse::Mount::register(&opts.name, 0)
         .map_err(|e| (Failure::Mount, format!("mount {point}: errno {e}")))?;
-    sys::write_str(&format!("FTPFUSE:UP {point}\n"));
+    trace::line!(trace::Channel::Ftpfuse, "UP {point}");
     let mut buffers = Buffers::new();
     let mut idle_since = sys::clock();
     loop {
@@ -204,7 +205,7 @@ pub extern "C" fn _start() -> ! {
     match run() {
         Ok(()) => sys::exit(0),
         Err((failure, message)) => {
-            sys::write_str(&format!("FTPFUSE:FAIL {message}\n"));
+            trace::line!(trace::Channel::Ftpfuse, "FAIL {message}");
             sys::exit(failure as u32)
         }
     }
@@ -212,6 +213,6 @@ pub extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    sys::write_str("FTPFUSE:FAIL panic\n");
+    trace::line!(trace::Channel::Ftpfuse, "FAIL panic");
     sys::exit(1)
 }

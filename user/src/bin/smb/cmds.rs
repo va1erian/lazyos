@@ -3,6 +3,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use ftpwire::{crc32_update, Pattern};
 use smbwire::client::{Client, Open};
@@ -69,7 +70,7 @@ impl Session {
                 entry.info.end_of_file, entry.name
             ));
         }
-        sys::write_str(&format!("SMB:LIST n={}\n", entries.len()));
+        trace::print!(trace::Channel::Smb, "LIST n={}", entries.len());
         Ok(())
     }
 
@@ -111,7 +112,10 @@ impl Session {
         let closed = self.client.close(&opened.file_id).map_err(|e| explain(&e));
         result.and(closed)?;
         if !(to_stdout && self.quiet) {
-            sys::write_str(&format!("SMB:GET {name} bytes={total} crc={crc:08x}\n"));
+            trace::print!(
+                trace::Channel::Smb,
+                "GET {name} bytes={total} crc={crc:08x}"
+            );
         }
         Ok(())
     }
@@ -175,7 +179,10 @@ impl Session {
         })();
         let closed = self.client.close(&opened.file_id).map_err(|e| explain(&e));
         result.and(closed)?;
-        sys::write_str(&format!("SMB:PUT {remote} bytes={sent} crc={crc:08x}\n"));
+        trace::print!(
+            trace::Channel::Smb,
+            "PUT {remote} bytes={sent} crc={crc:08x}"
+        );
         Ok(())
     }
 

@@ -4,8 +4,8 @@
 //! host tests; this module adds what only a real server has: transferred
 //! handles, deferred `Drain` replies, the card connection and the timers.
 
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use audiomix::service::{self, errno as mix_errno, Outcome, Request};
 use audiomix::{Config, Mixer};
@@ -140,7 +140,7 @@ impl Server {
         if let (Some(card), Some(mixer)) = (self.card.as_mut(), self.mixer.as_mut()) {
             let finished = &mut self.finished;
             if let Err(error) = card.pump(mixer, now, |stream| finished.push(stream)) {
-                sys::write_str(&format!("AUDIOD:CARD:LOST {error}\n"));
+                trace::line!(trace::Channel::Audiod, "CARD:LOST {error}");
                 if let Some(card) = self.card.take() {
                     card.close();
                 }
@@ -151,7 +151,7 @@ impl Server {
         // A draining stream is never reclaimed, so no pending drain is lost.
         if let Some(mixer) = self.mixer.as_mut() {
             mixer.reclaim(now, |stream| {
-                sys::write_str(&format!("AUDIOD:RECLAIM stream={stream}\n"))
+                trace::line!(trace::Channel::Audiod, "RECLAIM stream={stream}")
             });
         }
         self.answer_drains(endpoint);
@@ -209,11 +209,12 @@ impl Server {
         }
         match Card::open(now) {
             Ok(card) => {
-                sys::write_str(&format!(
-                    "AUDIOD:CARD rate={} channels=2 period={}\n",
+                trace::line!(
+                    trace::Channel::Audiod,
+                    "CARD rate={} channels=2 period={}",
                     card.rate(),
                     card.period_frames()
-                ));
+                );
                 let config = Config::new(card.rate(), card.period_frames());
                 let stale = self
                     .mixer
@@ -226,7 +227,7 @@ impl Server {
             }
             Err(error) => {
                 if !self.waiting_logged {
-                    sys::write_str(&format!("AUDIOD:WAITCARD {error}\n"));
+                    trace::line!(trace::Channel::Audiod, "WAITCARD {error}");
                     self.waiting_logged = true;
                 }
                 self.card_retry_at = now + CARD_RETRY_TICKS;

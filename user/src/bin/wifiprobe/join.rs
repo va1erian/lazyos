@@ -7,6 +7,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use eapol::{Action, Akm, Cipher, Config, Key, Standard, Supplicant};
 use ieee80211::build;
@@ -60,7 +61,11 @@ pub fn associate(
         _ => return Err(String::from("authentication refused")),
     }
     client.set_state(wire::STA_STATE_AUTHENTICATED, 0)?;
-    sys::write_str(&format!("WIFIPROBE:AUTH:PASS bssid={}\n", hex(&bss.bssid)));
+    trace::print!(
+        trace::Channel::Wifiprobe,
+        "AUTH:PASS bssid={}",
+        hex(&bss.bssid)
+    );
     let mut ies = IeBuilder::new()
         .ssid(&bss.ssid)
         .and_then(|b| b.rates(&[0x82, 0x84, 0x8B, 0x96, 0x0C, 0x12, 0x18, 0x24]))
@@ -77,7 +82,7 @@ pub fn associate(
         _ => return Err(String::from("association refused")),
     };
     client.set_state(wire::STA_STATE_ASSOCIATED, u32::from(aid))?;
-    sys::write_str(&format!("WIFIPROBE:ASSOC:PASS aid={aid}\n"));
+    trace::print!(trace::Channel::Wifiprobe, "ASSOC:PASS aid={aid}");
     Ok(aid)
 }
 
@@ -125,7 +130,7 @@ pub fn perform(
             }
             Action::InstallPtk { tk, .. } => {
                 client.set_key(wire::KEY_KIND_PAIRWISE, 0, tk.expose(), &[], &bss.bssid)?;
-                sys::write_str("WIFIPROBE:KEYS:PTK\n");
+                trace::print!(trace::Channel::Wifiprobe, "KEYS:PTK");
             }
             Action::InstallGtk {
                 index, key, rsc, ..
@@ -137,7 +142,7 @@ pub fn perform(
                     &rsc,
                     &bss.bssid,
                 )?;
-                sys::write_str(&format!("WIFIPROBE:KEYS:GTK index={index}\n"));
+                trace::print!(trace::Channel::Wifiprobe, "KEYS:GTK index={index}");
             }
             Action::Authorized => {
                 client.set_state(wire::STA_STATE_AUTHORIZED, u32::from(aid))?;
@@ -187,7 +192,7 @@ pub fn join_wpa2(
                     return Ok((aid, sup));
                 }
             }
-            Err(error) => sys::write_str(&format!("WIFIPROBE:EAPOL:REFUSED {error:?}\n")),
+            Err(error) => trace::print!(trace::Channel::Wifiprobe, "EAPOL:REFUSED {error:?}"),
         }
     }
     Err(String::from("the 4-way handshake did not finish"))

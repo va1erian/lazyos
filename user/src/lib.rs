@@ -10,6 +10,8 @@ extern crate alloc;
 
 pub mod sys;
 
+pub mod trace;
+
 pub mod audio;
 
 pub mod audio_events;

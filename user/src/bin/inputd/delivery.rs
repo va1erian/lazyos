@@ -13,14 +13,13 @@
 //! `INPUTD:BACKLOG session=<id> peak=<n>`.
 
 use alloc::collections::BTreeMap;
-use alloc::format;
 use alloc::vec::Vec;
+use user::trace;
 
 use inputmap::outbox::{self, Outbox, Pushed, Sent};
 use user::messenger::input as api;
 use user::messenger::input::wire;
 use user::messenger::{errno, Endpoint, Error};
-use user::sys;
 
 /// Backlog peaks at or above this are worth a line once they drain.
 const REPORT_PEAK: usize = 64;
@@ -77,10 +76,11 @@ impl Delivery {
         }
         let outbox = self.outboxes.entry(session).or_default();
         if let Pushed::Dropped { lost } = outbox.push((method, body)) {
-            sys::write_str(&format!(
-                "INPUTD:DROP session={session} lost={lost} capacity={}\n",
+            trace::line!(
+                trace::Channel::Inputd,
+                "DROP session={session} lost={lost} capacity={}",
                 outbox::CAPACITY
-            ));
+            );
         }
         Reach::Live
     }
@@ -119,10 +119,11 @@ impl Delivery {
             Sent::Gone => Reach::Gone,
             _ if outbox.is_clear() => {
                 if outbox.peak() >= REPORT_PEAK {
-                    sys::write_str(&format!(
-                        "INPUTD:BACKLOG session={session} peak={}\n",
+                    trace::line!(
+                        trace::Channel::Inputd,
+                        "BACKLOG session={session} peak={}",
                         outbox.peak()
-                    ));
+                    );
                 }
                 Reach::Live
             }

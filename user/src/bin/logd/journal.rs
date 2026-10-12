@@ -11,6 +11,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use fhs::state::LOGS_ROOT;
 use logstore::{JournalFs, Store, TailError};
@@ -113,11 +114,12 @@ impl Journals {
         });
         match opened {
             Ok(store) => {
-                sys::write_str(&format!(
-                    "LOGD:STORE:READY dir={LOGS_ROOT} boot={boot:016x} sources={} bytes={}\n",
+                trace::line!(
+                    trace::Channel::Logd,
+                    "STORE:READY dir={LOGS_ROOT} boot={boot:016x} sources={} bytes={}",
                     store.ledger().len(),
                     store.ledger().total()
-                ));
+                );
                 Journals {
                     store: Some(store),
                     persisted_before: 0,
@@ -125,9 +127,10 @@ impl Journals {
                 }
             }
             Err(reason) => {
-                sys::write_str(&format!(
-                    "LOGD:STORE:ABSENT dir={LOGS_ROOT} reason=\"{reason}\"\n"
-                ));
+                trace::line!(
+                    trace::Channel::Logd,
+                    "STORE:ABSENT dir={LOGS_ROOT} reason=\"{reason}\""
+                );
                 Journals {
                     store: None,
                     persisted_before: 0,
@@ -229,10 +232,11 @@ impl Journals {
         };
         self.persisted_before += store.persisted();
         let reason = format!("write failed: {}", files::describe(errno));
-        sys::write_str(&format!(
-            "LOGD:STORE:DEGRADED reason=\"{reason}\" persisted={}\n",
+        trace::line!(
+            trace::Channel::Logd,
+            "STORE:DEGRADED reason=\"{reason}\" persisted={}",
             self.persisted_before
-        ));
+        );
         self.problem = Some(reason);
     }
 }

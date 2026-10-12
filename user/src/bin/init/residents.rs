@@ -9,9 +9,9 @@
 //! app-failure notices; a wedged broker costs an update, never the loop.
 //! Serial: `INIT:APP:RESIDENT session=<s> apps=<n>`.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::trace;
 
 use user::central;
 use user::messenger::{registry, services, topics_client};
@@ -99,16 +99,18 @@ impl Residents {
         }
         match outcome {
             Ok(_) => {
-                sys::write_str(&format!(
-                    "INIT:APP:RESIDENT session={session} apps={count}\n"
-                ));
+                trace::line!(
+                    trace::Channel::Init,
+                    "APP:RESIDENT session={session} apps={count}"
+                );
                 true
             }
             Err(code) => {
-                sys::write_str(&format!(
-                    "INIT:APP:RESIDENT:FAIL session={session} err={}\n",
+                trace::line!(
+                    trace::Channel::Init,
+                    "APP:RESIDENT:FAIL session={session} err={}",
                     -code
-                ));
+                );
                 false
             }
         }

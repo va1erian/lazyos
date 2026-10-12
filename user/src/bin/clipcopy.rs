@@ -24,6 +24,7 @@ use core::panic::PanicInfo;
 use user::central;
 use user::messenger::{self, clipboard, errno, registry, Endpoint, Error};
 use user::sys;
+use user::trace;
 
 /// Registry name this demo serves `Serialize` under.
 const SINK: &str = "os.lazy.clipboard.owner.clipcopy";
@@ -59,7 +60,7 @@ fn run() -> messenger::Result<()> {
     let session_text = format!("{}", client.session());
     let changes = clipboard::subscribe_session_clipboard_changed(&mut changes_bus, &session_text)?;
     let token = client.offer_lazy("clipcopy", SINK, &[DEMO_MIME])?;
-    sys::write_str(&format!("CLIP:COPY:PASS token={token}\n"));
+    trace::line!(trace::Channel::Clip, "COPY:PASS token={token}");
     // Drain the changed event: the owner watches its own session too.
     let mut changed_buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let _ = changes.recv_with(&mut changed_buffer, Some(sys::clock().saturating_add(50)));
@@ -87,14 +88,18 @@ fn serve_serialize(server: &Endpoint) -> messenger::Result<()> {
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &clipboard::serialize_reply(&bytes)?)?;
                 }
-                sys::write_str(&format!(
-                    "CLIP:LAZY:PASS token={token} mime={mime} bytes={}\n",
+                trace::line!(
+                    trace::Channel::Clip,
+                    "LAZY:PASS token={token} mime={mime} bytes={}",
                     bytes.len()
-                ));
+                );
                 return Ok(());
             }
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {
-                sys::write_str("CLIP:COPY:FAIL:no paste asked for the offer\n");
+                trace::line!(
+                    trace::Channel::Clip,
+                    "COPY:FAIL:no paste asked for the offer"
+                );
                 sys::exit(1);
             }
             Err(error) => return Err(error),

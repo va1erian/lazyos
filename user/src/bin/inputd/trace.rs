@@ -10,9 +10,9 @@
 //! chunk per pass of the service loop, after the bus has been drained, so the
 //! bus never waits on the serial port.
 
-use alloc::format;
 use alloc::string::String;
 use core::fmt::Write;
+use user::trace;
 
 use inputmap::{KeyState, Layout, Output, PointerOut};
 use user::sys;
@@ -136,5 +136,5 @@ impl Trace {
 /// never silent, and the held keys are released (`Engine::resync`) so none
 /// sticks.
 pub(super) fn dropped(seq: u64, lost: u64) {
-    sys::write_str(&format!("INPUTD:RESYNC seq={seq} lost={lost}\n"));
+    trace::line!(trace::Channel::Inputd, "RESYNC seq={seq} lost={lost}");
 }

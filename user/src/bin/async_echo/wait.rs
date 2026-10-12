@@ -4,6 +4,7 @@
 //! endpoints plus a topic subscription in one wait.
 
 use alloc::vec::Vec;
+use user::trace;
 
 use user::central::Bus;
 use user::messenger::wait::{wait_items, WaitItem, MAX_ENDPOINTS};
@@ -126,7 +127,7 @@ fn many_check() -> Check {
 /// topics broker (no `messengerd`).
 fn topic_check() -> Check {
     let Ok(mut bus) = Bus::connect() else {
-        sys::write_str("ASYNC:WAIT:TOPIC:SKIP\n");
+        trace::line!(trace::Channel::Async, "WAIT:TOPIC:SKIP");
         return Ok(());
     };
     let mut subscription = bus.subscribe("demo/waitany").map_err(report)?;

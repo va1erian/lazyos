@@ -20,6 +20,7 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
+use user::trace;
 
 use user::messenger::netstack::Client;
 use user::messenger::Error as MsgError;
@@ -127,15 +128,15 @@ fn run() -> Result<(u32, u32), String> {
 pub extern "C" fn _start() -> ! {
     match run() {
         Ok((sent, received)) if sent == received => {
-            sys::write_str(&format!("PING:PASS sent={sent} received={received}\n"));
+            trace::print!(trace::Channel::Ping, "PASS sent={sent} received={received}");
             sys::exit(0)
         }
         Ok((sent, received)) => {
-            sys::write_str(&format!("PING:FAIL sent={sent} received={received}\n"));
+            trace::print!(trace::Channel::Ping, "FAIL sent={sent} received={received}");
             sys::exit(1)
         }
         Err(message) => {
-            sys::write_str(&format!("PING:FAIL {message}\n"));
+            trace::print!(trace::Channel::Ping, "FAIL {message}");
             sys::exit(1)
         }
     }

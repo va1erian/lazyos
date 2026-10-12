@@ -13,6 +13,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::trace;
 
 use user::messenger::{self, errno, services, Endpoint, Error, Message, Parcel};
 use user::sys::{self, Cred as SysCred};
@@ -140,16 +141,23 @@ impl HomeJobs {
         let job = self.jobs.swap_remove(index);
         let method = services::init::wire::METHOD_HOME;
         let reply = if status == 0 {
-            sys::write_str(&format!("INIT:HOME:PASS op={} user={}\n", job.op, job.name));
+            trace::line!(
+                trace::Channel::Init,
+                "HOME:PASS op={} user={}",
+                job.op,
+                job.name
+            );
             Parcel {
                 header: services::header(services::init::INTERFACE, method),
                 ..Parcel::default()
             }
         } else {
-            sys::write_str(&format!(
-                "INIT:HOME:FAIL op={} user={} status={status}\n",
-                job.op, job.name
-            ));
+            trace::line!(
+                trace::Channel::Init,
+                "HOME:FAIL op={} user={} status={status}",
+                job.op,
+                job.name
+            );
             services::init_error_reply(method, Error::Errno(-errno::EIO))
         };
         let _ = server.reply_or_drop(job.txn, &reply);
@@ -181,10 +189,11 @@ pub(super) fn restart_service(
     // lock (review of #659): never the services identity, approvals, the
     // audit trail or the prompt depend on.
     if !elevpolicy::restartable(&args.name) {
-        sys::write_str(&format!(
-            "INIT:RESTART:DENIED service={} by=elevd\n",
+        trace::line!(
+            trace::Channel::Init,
+            "RESTART:DENIED service={} by=elevd",
             elevpolicy::audit::token(&args.name)
-        ));
+        );
         return Err(Error::Errno(-errno::EPERM));
     }
     let row = services
@@ -196,10 +205,11 @@ pub(super) fn restart_service(
     }
     let pid = row.pid;
     sys::kill(pid, sys::SIG_KILL).map_err(Error::Errno)?;
-    sys::write_str(&format!(
-        "INIT:RESTART:PASS service={} pid={pid} by=elevd\n",
+    trace::line!(
+        trace::Channel::Init,
+        "RESTART:PASS service={} pid={pid} by=elevd",
         args.name
-    ));
+    );
     let body = services::init::wire::encode_restart_service_reply(
         &services::init::wire::RestartServiceReply { pid },
     )

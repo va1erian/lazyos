@@ -4,9 +4,9 @@
 //!
 //! Split out of `mimed.rs`, which is past the file-size budget.
 
-use alloc::format;
 use user::messenger::mime;
 use user::sys;
+use user::trace;
 
 use super::apps::{choose, AppRegistry};
 use super::db::MimeDb;
@@ -37,11 +37,12 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     ] {
         let got = db.guess(path);
         if got == expected {
-            sys::write_str(&format!("MIME:GUESS:PASS {path} {got}\n"));
+            trace::line!(trace::Channel::Mime, "GUESS:PASS {path} {got}");
         } else {
-            sys::write_str(&format!(
-                "MIME:GUESS:FAIL {path} got={got} want={expected}\n"
-            ));
+            trace::line!(
+                trace::Channel::Mime,
+                "GUESS:FAIL {path} got={got} want={expected}"
+            );
         }
     }
     // The override file is shipped in the services image; a custom image
@@ -52,14 +53,18 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
             let expected = "text/x-lazy-test";
             let got = db.guess(path);
             if got == expected {
-                sys::write_str(&format!("MIME:GUESS:PASS {path} {got} ({source})\n"));
+                trace::line!(trace::Channel::Mime, "GUESS:PASS {path} {got} ({source})");
             } else {
-                sys::write_str(&format!(
-                    "MIME:GUESS:FAIL {path} got={got} want={expected} ({source})\n"
-                ));
+                trace::line!(
+                    trace::Channel::Mime,
+                    "GUESS:FAIL {path} got={got} want={expected} ({source})"
+                );
             }
         }
-        None => sys::write_str("MIME:GUESS:INFO no override file; built-ins only\n"),
+        None => trace::line!(
+            trace::Channel::Mime,
+            "GUESS:INFO no override file; built-ins only"
+        ),
     }
 
     apps.register("text/x-lazy-test", "lazytest", "open");
@@ -69,9 +74,12 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let verbs_ok =
         verbs.iter().any(|verb| verb == "open") && verbs.iter().any(|verb| verb == "edit");
     if looked_up && verbs_ok {
-        sys::write_str("MIME:REGISTER:PASS\n");
+        trace::line!(trace::Channel::Mime, "REGISTER:PASS");
     } else {
-        sys::write_str("MIME:REGISTER:FAIL lookup or verbs mismatch\n");
+        trace::line!(
+            trace::Channel::Mime,
+            "REGISTER:FAIL lookup or verbs mismatch"
+        );
     }
 
     // Withdrawing a registration (the package manager's removal path): the
@@ -87,11 +95,9 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     apps.unregister("text/x-lazy-unreg", "first", "open");
     let dropped = apps.lookup("text/x-lazy-unreg", "open").is_none();
     if swapped && restored && untouched && dropped {
-        sys::write_str("MIME:UNREGISTER:PASS\n");
+        trace::line!(trace::Channel::Mime, "UNREGISTER:PASS");
     } else {
-        sys::write_str(&format!(
-            "MIME:UNREGISTER:FAIL swapped={swapped} restored={restored} untouched={untouched} dropped={dropped}\n"
-        ));
+        trace::line!(trace::Channel::Mime, "UNREGISTER:FAIL swapped={swapped} restored={restored} untouched={untouched} dropped={dropped}");
     }
 
     // The seeded file-type defaults (issue #116): plain text opens in the
@@ -104,14 +110,15 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         && png == Some("os.lazy.paint")
         && markdown == Some("os.lazy.docs")
     {
-        sys::write_str("MIME:DEFAULT:PASS text/plain=os.lazy.editor image/png=os.lazy.paint text/markdown=os.lazy.docs\n");
+        trace::line!(trace::Channel::Mime, "DEFAULT:PASS text/plain=os.lazy.editor image/png=os.lazy.paint text/markdown=os.lazy.docs");
     } else {
-        sys::write_str(&format!(
-            "MIME:DEFAULT:FAIL text/plain={} image/png={} text/markdown={}\n",
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:FAIL text/plain={} image/png={} text/markdown={}",
             plain.unwrap_or("<none>"),
             png.unwrap_or("<none>"),
-            markdown.unwrap_or("<none>"),
-        ));
+            markdown.unwrap_or("<none>")
+        );
     }
 
     // LazyWriter documents (issue #533) open and edit in LazyWriter; plain
@@ -119,13 +126,17 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     let writer_open = apps.lookup("application/x-lazywriter", "open");
     let writer_edit = apps.lookup("application/x-lazywriter", "edit");
     if writer_open == Some("os.lazy.writer") && writer_edit == Some("os.lazy.writer") {
-        sys::write_str("MIME:DEFAULT:PASS application/x-lazywriter=os.lazy.writer\n");
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:PASS application/x-lazywriter=os.lazy.writer"
+        );
     } else {
-        sys::write_str(&format!(
-            "MIME:DEFAULT:FAIL application/x-lazywriter open={} edit={}\n",
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:FAIL application/x-lazywriter open={} edit={}",
             writer_open.unwrap_or("<none>"),
-            writer_edit.unwrap_or("<none>"),
-        ));
+            writer_edit.unwrap_or("<none>")
+        );
     }
 
     // Archives open in the Archiver (docs/archiver-plan.md).
@@ -136,22 +147,26 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
 ",
         );
     } else {
-        sys::write_str(&format!(
-            "MIME:DEFAULT:FAIL application/zip open={}
-",
-            archive_open.unwrap_or("<none>"),
-        ));
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:FAIL application/zip open={}",
+            archive_open.unwrap_or("<none>")
+        );
     }
 
     // PDF documents open in the PDF Viewer (docs/pdf-reader-plan.md).
     let pdf_open = apps.lookup("application/pdf", "open");
     if pdf_open == Some("os.lazy.pdf") {
-        sys::write_str("MIME:DEFAULT:PASS application/pdf=os.lazy.pdf\n");
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:PASS application/pdf=os.lazy.pdf"
+        );
     } else {
-        sys::write_str(&format!(
-            "MIME:DEFAULT:FAIL application/pdf open={}\n",
-            pdf_open.unwrap_or("<none>"),
-        ));
+        trace::line!(
+            trace::Channel::Mime,
+            "DEFAULT:FAIL application/pdf open={}",
+            pdf_open.unwrap_or("<none>")
+        );
     }
 
     // Markdown keeps the Editor as its `edit` verb and Docs as its `view` verb,
@@ -180,9 +195,12 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         && choose("os.lazy.docs", fallback, true) == "os.lazy.docs"
         && choose("os.lazy.editor", None, false) == "os.lazy.editor";
     if fallback_ok {
-        sys::write_str("MIME:FALLBACK:PASS text/markdown=os.lazy.docs->os.lazy.editor\n");
+        trace::line!(
+            trace::Channel::Mime,
+            "FALLBACK:PASS text/markdown=os.lazy.docs->os.lazy.editor"
+        );
     } else {
-        sys::write_str("MIME:FALLBACK:FAIL markdown open fallback\n");
+        trace::line!(trace::Channel::Mime, "FALLBACK:FAIL markdown open fallback");
     }
 
     let mut bus = None;
@@ -196,18 +214,22 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         // gated fallback and the open walk still passes on the publish record.
         match open_path(db, apps, &mut bus, path, mime::DEFAULT_VERB, Some(0)) {
             Ok(result) if result.app == expected => {
-                sys::write_str(&format!("MIME:OPEN:PASS {path} {}\n", result.app));
+                trace::line!(trace::Channel::Mime, "OPEN:PASS {path} {}", result.app);
                 if !result.published {
-                    sys::write_str(&format!(
-                        "MIME:OPEN:INFO {path} resolved; launch event not published\n"
-                    ));
+                    trace::line!(
+                        trace::Channel::Mime,
+                        "OPEN:INFO {path} resolved; launch event not published"
+                    );
                 }
             }
-            Ok(result) => sys::write_str(&format!(
-                "MIME:OPEN:FAIL {path} got={} want={expected}\n",
+            Ok(result) => trace::line!(
+                trace::Channel::Mime,
+                "OPEN:FAIL {path} got={} want={expected}",
                 result.app
-            )),
-            Err(error) => sys::write_str(&format!("MIME:OPEN:FAIL {path} {}\n", error.message())),
+            ),
+            Err(error) => {
+                trace::line!(trace::Channel::Mime, "OPEN:FAIL {path} {}", error.message())
+            }
         }
     }
 }
