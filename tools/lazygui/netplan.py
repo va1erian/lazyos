@@ -3,8 +3,9 @@ flags run_demo and the screenshot tools share. Split out of `catalog` (file-size
 budget); `catalog` re-exports everything here.
 
 Networking is asked for directly (`net`), or brought by a feature that cannot
-work without it: the HTTPS clients (`tls`) and the LazyWeb browser
-(`lazyweb`, which also brings the HTTPS clients and the desktop).
+work without it: the HTTPS clients (`tls`), the LazyWeb browser
+(`lazyweb`, which also brings the HTTPS clients and the desktop) and Wi-Fi
+(`wifi`, a wireless interface of the same stack).
 """
 
 from __future__ import annotations
@@ -24,9 +25,15 @@ def wants_tls(cfg: dict) -> bool:
 
 def wants_net(cfg: dict) -> bool:
     """Whether the image has the network stack and QEMU a network card (the
-    SMB client needs it too)."""
+    SMB client and Wi-Fi need it too)."""
     return bool(cfg.get("net") or cfg.get("smb") or cfg.get("lazysky") or wants_dbgd(cfg)
-                or wants_tls(cfg))
+                or wants_tls(cfg) or wants_wifi(cfg))
+
+
+def wants_wifi(cfg: dict) -> bool:
+    """Whether the image carries Wi-Fi (LAZYOS_WIFI: `wifid` and its firmware,
+    docs/wifi-rtw88-plan.md); it needs the stack."""
+    return bool(cfg.get("wifi"))
 
 
 def wants_dbgd(cfg: dict) -> bool:

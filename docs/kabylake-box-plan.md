@@ -51,7 +51,7 @@ Linux (2026-10-09). A copy of that output belongs in `docs/compat/kabylake/`
 | 00:1f.2 | `8086:9d21` | PMC | — | none (ACPI S5 goes through the FADT) |
 | 00:1f.3 | `8086:9d71` | HD Audio, class `04:03` (legacy HDA, not DSP mode) | `sndd` matches it by class | §3.3: stop cleanly, the codec is HDMI only |
 | 00:1f.4 | `8086:9d23` | SMBus | — | none |
-| 01:00.0 | `10ec:c822` | RTL8822CE Wi-Fi | — | out (wifi-plan); stays Linux's under VFIO (§3.4) |
+| 01:00.0 | `10ec:c822` | RTL8822CE Wi-Fi | `wifid` (`LAZYOS_WIFI=1`) | **works natively**: WPA2 on 5 GHz, DHCP, 2026-10-12 ([wifi-rtw88-plan.md](wifi-rtw88-plan.md) §5.6); under VFIO it stays Linux's (§3.4) |
 | 02:00.0 | `10ec:8168` rev `15` | RTL8168H/8111H, XID `541` (Linux's `r8169`) | **none** | **[rtl8168-driver-plan.md](rtl8168-driver-plan.md)** |
 
 Platform facts that matter:
@@ -137,8 +137,8 @@ then decide between whole-disk LazyOS and shrinking Linux to leave room
 From n150-driver-plan P2, unchanged in substance: the ACPI power button
 (SCI), MWAIT idle (the hint still validated on the box), the PCH TCO
 watchdog for update trial boots. None blocks the box being useful. Wi-Fi
-(RTL8822CE: needs firmware and an 802.11 stack) stays with
-[wifi-plan.md](wifi-plan.md).
+(the RTL8822CE) works natively since 2026-10-12: `LAZYOS_WIFI=1`,
+[wifi-rtw88-plan.md](wifi-rtw88-plan.md) §5.6.
 
 ## 4. Order and open questions
 

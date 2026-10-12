@@ -21,22 +21,42 @@ given), key slots, and the association state its firmware needs.
 
 **The data path is not here.** Once the station is authorized, payload
 frames travel as 802.3 Ethernet over `os.lazy.net.nic.v1`, which the same
-driver serves to `netd` (the chip does the 802.3 to 802.11 conversion and
-the encryption). The NIC's link state follows this interface: it is down
-until `SetState(Authorized)`. A driver whose chip cannot convert frames is
-out of scope for v1.
+driver serves to `netd`. The 802.3 to 802.11 conversion happens below this
+interface: in the chip's firmware where it offers that, else in the
+driver's soft-MAC layer (`libs/wifimac`, docs/wifi-rtw88-plan.md), as on
+the RTL8822CE. The NIC's link state follows this interface: it is down
+until `SetState(Authorized)`.
+
+**Names.** A radio serves this interface as `os.lazy.net.wifi.hw/<ifname>`,
+`<ifname>` being the name of its `os.lazy.net.nic.v1` card (`wlan0`, which
+it serves as `os.lazy.net.nic/wlan0`). The registry lets only the Wi-Fi
+driver identities (`_wifi`, `_wifisim`) hold names there
+(`netpolicy::may_register_wifi_hw_name`); `wlanmd` finds radios by listing
+that namespace.
 
 **One client.** The first caller of `Attach` owns the radio; its identity
-is the kernel-stamped sender, and every later call or `Detach` by anyone
-else fails with `EACCES` (a second attach with `EBUSY`). The owner's exit,
-or its event channel reporting the peer gone, detaches it and leaves the
-radio idle: scanning stops, the BSS is left, all keys are deleted.
+is the kernel-stamped sender, its task and its credentials (uid, label,
+session), all of which must match on every later call, and a call or
+`Detach` by anyone else fails with `EACCES` (a second attach with
+`EBUSY`). `Attach` is accepted from `_wlan` alone, unlabelled and outside
+any session (`netpolicy::may_attach_wifi_hw`; `EPERM` otherwise), so
+nobody can take the radio before `wlanmd` does; the simulator also lets
+its own test client (`wifiprobe`, running as `_wifisim`) attach. The
+owner's exit, or its event channel reporting the peer gone, detaches it
+and leaves the radio idle: scanning stops, the BSS is left, all keys are
+deleted.
 
 **Events.** `Attach` carries the client's event channel; the driver sends
 the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
-partially; one that does not fit is dropped and counted.
+partially; one that does not fit is dropped and counted. Anyone in radio
+range can forge frames from the BSS, so `RxMgmt` is rate-limited and is
+the first thing dropped when the client falls behind: `ScanDone`,
+`BeaconLoss` and `Deauthenticated` have room of their own and are kept
+until the client's inbox takes them (a repeat of a `BeaconLoss` or
+`Deauthenticated` the client has not read yet is folded into it). What is
+dropped is counted in `HwStats.mgmt_dropped`.
 
 **Keys cross this interface.** `SetKey` is the one place secret material
 (a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is

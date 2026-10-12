@@ -1,6 +1,10 @@
 //! `os.lazy.net.nic.v1` (`idl/net.midl`): request dispatch for the card.
 //!
-//! One card, one attached client. The owner is the kernel-stamped sender of
+//! One card, one attached client. Only an identity
+//! [`netpolicy::may_own_nic`] accepts for this card (`_netd`, `_wifisim` on
+//! an air card, the driver's own evidence clients, root) may call an owner
+//! method (`AttachRing`, `DetachRing`, `SetRxMode`, `Kick`); anyone may call
+//! `Info` and `Stats`. The owner is then the kernel-stamped sender of
 //! `AttachRing`; nothing in a request body names a caller, so a client cannot
 //! act for another. Every failure leaves through
 //! [`user::messenger::services::error_reply`] as a structured errno. The
@@ -9,6 +13,7 @@
 //! how.
 
 use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use nicdrv::engine::{AttachError, CtlError};
@@ -40,14 +45,32 @@ struct Attachment {
 pub(super) struct Service {
     pub(super) card: Card,
     attachment: Option<Attachment>,
+    /// The interface name the card is served under (`eth0`, `air0`).
+    ifname: String,
+    /// The uid this driver runs as (`_net`, or root booted by the kernel).
+    own_uid: u32,
 }
 
 impl Service {
-    pub(super) fn new(card: Card) -> Service {
+    pub(super) fn new(card: Card, ifname: &str, own_uid: u32) -> Service {
         Service {
             card,
             attachment: None,
+            ifname: String::from(ifname),
+            own_uid,
         }
+    }
+
+    /// Whether the sender may call an owner method of this card.
+    fn may_own(&self, message: &Message) -> bool {
+        let caller = message.caller();
+        netpolicy::may_own_nic(
+            caller.uid,
+            caller.label_id,
+            caller.session,
+            self.own_uid,
+            &self.ifname,
+        )
     }
 
     /// Release the attachment's buffer and endpoint.
@@ -128,6 +151,19 @@ impl Service {
         }
         let method = message.method();
         let body = &message.parcel.body;
+        let owner_method = matches!(
+            method,
+            wire::METHOD_SETRXMODE
+                | wire::METHOD_ATTACHRING
+                | wire::METHOD_DETACHRING
+                | wire::METHOD_KICK
+        );
+        if owner_method && !self.may_own(message) {
+            // A one-way `Kick` has no reply to carry the refusal; dropping
+            // it is the refusal. A refused `AttachRing`'s objects close when
+            // the message drops.
+            return Err(err(errno::EPERM));
+        }
         let reply = match method {
             wire::METHOD_INFO => self.info()?,
             wire::METHOD_STATS => self.stats()?,

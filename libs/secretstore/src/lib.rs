@@ -8,7 +8,12 @@
 //! * `system`: available to every user and before anyone logs in. Stored and
 //!   deleted only on `elevd`'s say-so (an administrator typed their password
 //!   on the trusted prompt); the caller is identified by `elevd`'s system
-//!   uid, never by uid 0 or a capability.
+//!   uid, never by uid 0 or a capability (`elevd`'s `net.wifi.system`).
+//!
+//! `wlanmd` also stores and deletes `user` secrets for someone else
+//! ([`Op::StoreFor`]): the passphrase of a network a user asked it to
+//! remember, under the network's profile id. It may name nothing but a
+//! profile id ([`is_wifi_profile_name`]) and never writes the `system` scope.
 //!
 //! No call returns a secret. The one use is [`Store::pmk`]: the WPA2 pairwise
 //! master key of a passphrase for an SSID, which only `wlanmd` (the
@@ -40,9 +45,11 @@ mod rules;
 mod tests;
 #[cfg(test)]
 mod tests_file;
+#[cfg(test)]
+mod tests_rules;
 
 pub use file::{FileError, FILE_MAX, MACHINE_KEY_LEN};
-pub use rules::{authorize, Caller, Denied, Op};
+pub use rules::{authorize, is_wifi_profile_name, Caller, Denied, Op};
 
 /// The `_wlan` system uid `wlanmd` runs as (reserved in `libs/devmatch`'s
 /// uid list, docs/wifi-prerequisites-plan.md section 3.1): the one identity
@@ -50,7 +57,7 @@ pub use rules::{authorize, Caller, Denied, Op};
 pub const WLAN_UID: u32 = 912;
 /// Longest secret name.
 pub const MAX_NAME: usize = 64;
-/// Longest secret. A passphrase is at most 63 characters and a raw PSK 64 hex
+/// Longest secret. A passphrase is at most 63 octets and a raw PSK 64 hex
 /// digits; the rest is room for other credentials, still far below the wire's
 /// 8 KiB cap.
 pub const MAX_SECRET: usize = 256;
@@ -102,6 +109,14 @@ pub fn valid_name(name: &str) -> bool {
 /// A secret `keyd` will keep: 1..=[`MAX_SECRET`] bytes.
 pub fn valid_secret(secret: &[u8]) -> bool {
     (1..=MAX_SECRET).contains(&secret.len())
+}
+
+/// A secret a WPA2 PMK can be derived from: a passphrase of 8..=63 octets of
+/// UTF-8 with no control character (`lazyos_crypto::wifi::valid_passphrase`)
+/// or a raw PSK of 64 hex digits. `elevd` checks a `system` Wi-Fi password
+/// with this before it asks for approval.
+pub fn valid_wifi_key(secret: &[u8]) -> bool {
+    wifi::valid_passphrase(secret) || wifi::is_raw_psk(secret)
 }
 
 #[derive(Clone)]
@@ -191,7 +206,7 @@ impl Store {
     /// The WPA2 PMK of `owner`'s `name` for `ssid`, and whether it was just
     /// computed (so the caller persists the cache). A 64-hex-digit secret is
     /// a raw PSK, which already is the PMK; anything else must be a
-    /// passphrase (8..=63 printable ASCII).
+    /// passphrase ([`valid_wifi_key`]).
     pub fn pmk(
         &mut self,
         owner: Owner,
@@ -225,9 +240,9 @@ impl Store {
 }
 
 /// The 32 bytes a 64-hex-digit secret spells, if it is one. (A passphrase is
-/// at most 63 characters, so the two never overlap.)
+/// at most 63 octets, so the two never overlap.)
 fn raw_psk(secret: &[u8]) -> Option<[u8; PMK_LEN]> {
-    if secret.len() != PMK_LEN * 2 {
+    if !wifi::is_raw_psk(secret) {
         return None;
     }
     let digit = |byte: u8| (byte as char).to_digit(16).map(|value| value as u8);

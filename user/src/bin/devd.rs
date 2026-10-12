@@ -5,7 +5,8 @@
 //! function against the static driver manifest (`libs/devmatch`), and asks
 //! `init` to start each matched driver row for the device it found
 //! (`os.lazy.init.v1.StartDriver`; the driver gets `dev=<id>`, and a network
-//! card also `ifname=<name>`: `eth0`, `eth1`, ... in enumeration order). It then serves
+//! card also `ifname=<name>`: `eth0`, `eth1`, ... for wired cards and `wlan0`,
+//! `wlan1`, ... for wireless ones, each in enumeration order). It then serves
 //! `os.lazy.devd.v1` (`idl/devd.midl`) and keeps one retained topic per device,
 //! `system/devices/<id>`, current: each device's match, its driver, who holds
 //! the claim and whether its driver let it go. A driver that crashes is

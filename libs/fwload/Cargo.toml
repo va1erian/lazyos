@@ -1,0 +1,15 @@
+[package]
+name = "fwload"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Load a device firmware file by its vendor-relative name from the firmware tree, refusing any name outside it and capping the size"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "fwload"
+path = "src/lib.rs"
+
+[dependencies]
+# The firmware tree (`fhs::FIRMWARE`).
+fhs = { path = "../fhs" }

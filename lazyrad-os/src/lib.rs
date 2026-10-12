@@ -13,6 +13,10 @@
 //!   documents the player was started to open);
 //! * [`launcher`]: starting the player from the IDE with pipes polled on the UI
 //!   thread (LazyOS threads cannot share descriptors);
+//! * [`input`]: the non-blocking queue in front of a child's stdin (the debugger's
+//!   commands to the player);
+//! * [`debugio`]: the player's debug transport, a non-blocking stdin read on the
+//!   calling thread (`lrplay --debug`);
 //! * [`devplay`]: Play under the project's own permissions when the IDE is a
 //!   package (`dev:<system_name>`, issue #529);
 //! * [`handoff`]: File → Make LazyOS App: an in-process pre-check, then the
@@ -30,11 +34,13 @@
 //!   (`LAZYOS_UI_PROBE=1` images, issue #538).
 
 pub mod args;
+pub mod debugio;
 pub mod desktop_mode;
 #[cfg(unix)]
 pub mod devplay;
 pub mod failure;
 pub mod handoff;
+pub mod input;
 pub mod launcher;
 pub mod marker;
 pub mod messenger;

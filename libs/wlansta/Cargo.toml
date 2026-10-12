@@ -1,0 +1,24 @@
+[package]
+name = "wlansta"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Wi-Fi station state machine of wlanmd: scan, BSS selection, authentication, association, the WPA2 handshake, timers, back-off and profiles"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "wlansta"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point the seeded tests use (and a
+# cargo-fuzz target could). Needs `std`.
+fuzz = []
+
+[dependencies]
+ieee80211 = { path = "../ieee80211" }
+eapol = { path = "../eapol" }
+lazyos-crypto = { path = "../crypto" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

@@ -161,11 +161,35 @@ fn list_secrets(scope) {
 /// to `wlanmd` (the `_wlan` system uid, unlabelled, outside any session);
 /// everyone else gets `EPERM`. For `user` the secret is the one `owner`
 /// (a uid) owns, so a PMK is never given for another user's secret by
-/// naming it; for `system`, `owner` must be 0. `ENOENT` for no such
-/// secret, `EINVAL` for a secret that is not a valid passphrase or an
-/// SSID outside 1..=32 octets.
+/// naming it; for `system`, `owner` must be 0. `name` must be a Wi-Fi
+/// profile id (`w` and 12 lowercase hex digits), so no PMK is ever
+/// derived from a secret that is not a network's (`EPERM` otherwise).
+/// `ENOENT` for no such secret, `EINVAL` for a secret that is not a
+/// passphrase (8 to 63 octets of UTF-8 without control characters) or
+/// raw PSK, or an SSID outside 1..=32 octets.
 fn wifi_pmk(scope, name, ssid, owner) {
     msg::connect("os.lazy.keyd.v1").invoke("WifiPmk", [scope, name, ssid, owner])
+}
+
+/// `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()`
+///
+/// Keep `secret` under `name` for the user `owner` (scope `user`).
+/// Answered only to `wlanmd` (the `_wlan` system uid, unlabelled, outside
+/// any session), which takes a passphrase in `os.lazy.net.wifi.v1`
+/// `AddNetwork` for the user who called it, and only for a `name` that is
+/// a Wi-Fi profile id (`w` and 12 lowercase hex digits); everyone else,
+/// any other name and the `system` scope (written by `elevd` alone) get
+/// `EPERM`. Otherwise the rules of `StoreSecret`.
+fn store_secret_for(scope, name, secret, owner) {
+    msg::connect("os.lazy.keyd.v1").invoke("StoreSecretFor", [scope, name, secret, owner])
+}
+
+/// `DeleteSecretFor(scope: String, name: String, owner: U32) -> ()`
+///
+/// Forget the secret `name` of `owner` in `scope` (the rules of
+/// `StoreSecretFor`; `ENOENT` when there is none).
+fn delete_secret_for(scope, name, owner) {
+    msg::connect("os.lazy.keyd.v1").invoke("DeleteSecretFor", [scope, name, owner])
 }
 
 /// A `KeyInfo` with every field at its zero value.

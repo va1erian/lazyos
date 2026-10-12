@@ -40,6 +40,33 @@ def beacon(ies, subtype=8, da=BCAST, cap=0x0011):
     return mgmt(subtype, da, AP, AP, struct.pack("<QHH", 0x0102030405060708, 100, cap) + ies)
 
 
+GW = bytes.fromhex("020000000001")
+
+
+def snap(ethertype):
+    return b"\xaa\xaa\x03\x00\x00\x00" + struct.pack(">H", ethertype)
+
+
+def data_frame(fc0, flags, a1, a2, a3, qos=None, addr4=None, msdu=b"", seq=1):
+    """A data frame: header, Address 4 and QoS Control when given, body."""
+    out = bytes([fc0, flags]) + b"\0\0" + a1 + a2 + a3 + struct.pack("<H", seq << 4)
+    if addr4 is not None:
+        out += addr4
+    if qos is not None:
+        out += struct.pack("<H", qos)
+    return out + msdu
+
+
+def amsdu(subframes):
+    """An A-MSDU body: subframes padded to four octets except the last."""
+    out = b""
+    for i, sub in enumerate(subframes):
+        out += sub
+        if i + 1 < len(subframes):
+            out += bytes((4 - len(sub) % 4) % 4)
+    return out
+
+
 def ieee80211_seeds():
     ies = beacon_ies()
     table = bytes([4]) + b"".join(bytes([op, mac, rssi]) for op, mac, rssi in
@@ -73,6 +100,22 @@ def ieee80211_seeds():
         "rsn_pmkid_gmc": rsn(6, 0x00C0, struct.pack("<H", 1) + bytes(range(16)) + b"\x00\x0f\xac\x06")[2:],
         "table_script": table,
         "empty": b"",
+        # Data frames (soft-MAC encapsulation, CCMP framing, replay window).
+        "data_qos_to_ds": data_frame(0x88, 0x01, AP, STA, GW, qos=5, msdu=snap(0x0800) + b"\x45\x00ip"),
+        "data_plain_from_ds": data_frame(0x08, 0x02, STA, AP, GW, msdu=snap(0x0806) + bytes(28)),
+        "data_bridge_tunnel": data_frame(0x08, 0x02, STA, AP, GW,
+                                         msdu=b"\xaa\xaa\x03\x00\x00\xf8\x81\x37ipx"),
+        "data_ccmp": data_frame(0x88, 0x42, STA, AP, GW, qos=0,
+                                msdu=bytes([1, 0, 0, 0x20, 0, 0, 0, 0]) + bytes(24)),
+        "data_amsdu": data_frame(0x88, 0x02, STA, AP, GW, qos=0x80, msdu=amsdu([
+            STA + GW + struct.pack(">H", 12) + snap(0x0800) + b"abcd",
+            BCAST + GW + struct.pack(">H", 9) + snap(0x0806) + b"x"])),
+        "data_amsdu_injected": data_frame(0x88, 0x02, STA, AP, GW, qos=0x80,
+                                          msdu=snap(0x0800) + b"\x45" + bytes(40)),
+        "data_four_address": data_frame(0x88, 0x83, AP, STA, GW, qos=1, addr4=AP,
+                                        msdu=bytes(4) + snap(0x0800)),
+        "data_null": data_frame(0xC8, 0x01, AP, STA, AP, qos=0),
+        "replay_script": bytes([5, 0, 6, 0, 0, 6, 0, 3, 6, 0, 0x10, 100, 0, 0x10, 99, 0]),
     }
 
 

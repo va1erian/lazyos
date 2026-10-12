@@ -386,6 +386,10 @@ pub mod netsock;
 /// `std::net`.
 pub mod netstd;
 
+/// Wi-Fi (docs/architecture/wifi.md): the `os.lazy.net.wifi.hw.v1` radio
+/// client `wlanmd` uses and the `os.lazy.net.wifi.v1` client of `wlanmd`.
+pub mod wifi;
+
 /// Nap one PIT tick's worth between retries ([`crate::sys::nap`], a real sleep;
 /// this used to park on a throwaway channel pair, since userspace had no
 /// sleep call).

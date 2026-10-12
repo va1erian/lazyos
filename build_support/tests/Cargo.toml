@@ -25,6 +25,8 @@ passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
 lazyos-crypto = { path = "../../libs/crypto" }
+# Firmware names (`wifi_embed.rs`), by the rules the driver loads them with.
+fwload = { path = "../../libs/fwload" }
 # The OS random source `dbgd_cfg.rs` makes the generated key from.
 getrandom = "0.4.3"
 

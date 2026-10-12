@@ -29,4 +29,6 @@ accounts/core_claim.rhai | GPL-3.0-or-later | desktop | LazyOS original: pkg.ins
 accounts/restart_guarded.rhai | GPL-3.0-or-later | desktop | LazyOS original: service.restart of a service a session may never restart (review of #659)
 accounts/wifi_pmk.rhai | GPL-3.0-or-later | desktop | LazyOS original: ask keyd for another user's Wi-Fi key (WifiPmk is wlanmd's alone, WP2)
 accounts/wifi_system_store.rhai | GPL-3.0-or-later | desktop | LazyOS original: plant a machine-wide Wi-Fi secret without elevd's approval (WP2)
+accounts/wifi_store_for.rhai | GPL-3.0-or-later | desktop | LazyOS original: keyd StoreSecretFor/DeleteSecretFor on admin's Wi-Fi profile as the session (wlanmd's alone, WP2)
+accounts/nic_rx_mode.rhai | GPL-3.0-or-later | desktop | LazyOS original: SetRxMode on eth0 as the session (owner methods are netd's, netpolicy::may_own_nic)
 accounts/layout_write.rhai | GPL-3.0-or-later | desktop | LazyOS original: a keyboard layout write the session does not own (the machine's, admin's)
