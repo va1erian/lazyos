@@ -35,6 +35,7 @@ impl Compositor {
                 }
             }
             ShellEvent::EscapeChord => trace::line!(trace::Channel::Xuid, "GRAB:ESCAPE"),
+            ShellEvent::KeyActivity => self.key_activity(),
             // The compositor keeps its own hotkey table (`keys.rs`).
             _ => {}
         }

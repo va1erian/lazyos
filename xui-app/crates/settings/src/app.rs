@@ -274,7 +274,8 @@ impl SettingsApp {
         let a = &p.appearance;
         a.mode.select(usize::from(settings.mode == Mode::Light));
         a.anim.set_checked(settings.anim);
-        a.screen_off.select(theme_ops::screen_off_row(self.store.as_ref()));
+        a.screen_off
+            .select(theme_ops::screen_off_row(self.store.as_ref()));
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
         a.accent.select(Color::hex(accent));
@@ -370,12 +371,10 @@ impl App for SettingsApp {
                     "Animations off."
                 },
             ),
-            Msg::ScreenOff(row) => {
-                let minutes = theme_ops::screen_off_choice(row);
-                let label = uitheme::ScreenOffLabel(minutes);
-                let result = theme_ops::set_screen_off(store, minutes);
-                self.report(result, &format!("Screen off: {label}."));
-            }
+            Msg::ScreenOff(row) => match theme_ops::choose_screen_off(store, row) {
+                Ok(text) => self.status.set_text(&text),
+                Err(error) => self.report(Err(error), ""),
+            },
             Msg::ResetAppearance => {
                 self.report(theme_ops::reset(store), "Appearance reset to defaults.");
                 self.load_state();

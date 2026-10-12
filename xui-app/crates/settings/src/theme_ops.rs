@@ -70,9 +70,8 @@ pub fn screen_off(store: &dyn ConfigStore) -> u32 {
     uitheme::screen_off_from_value(store.get(uitheme::KEY_SCREEN_OFF).as_ref())
 }
 
-/// The row of [`uitheme::SCREEN_OFF_CHOICES`] showing the stored delay; one the
-/// list does not offer (set by hand) shows as "Never", the last row, rather
-/// than as a delay it is not.
+/// The row of [`uitheme::SCREEN_OFF_CHOICES`] showing the stored delay (a
+/// value outside the list reads as "Never", which is what `xuid` does too).
 pub fn screen_off_row(store: &dyn ConfigStore) -> usize {
     let minutes = screen_off(store);
     uitheme::SCREEN_OFF_CHOICES
@@ -87,6 +86,13 @@ pub fn screen_off_choice(row: usize) -> u32 {
         .get(row)
         .copied()
         .unwrap_or(uitheme::DEFAULT_SCREEN_OFF_MINUTES)
+}
+
+/// Store the delay `row` names; the status line's text for it.
+pub fn choose_screen_off(store: &dyn ConfigStore, row: usize) -> Result<String, StoreError> {
+    let minutes = screen_off_choice(row);
+    set_screen_off(store, minutes)?;
+    Ok(format!("Screen off: {}.", uitheme::ScreenOffLabel(minutes)))
 }
 
 /// Blank the screen after `minutes` without input (`0`: never).

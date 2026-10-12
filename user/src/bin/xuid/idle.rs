@@ -8,10 +8,16 @@
 //!
 //! The first input afterwards wakes the screen and is not delivered: a key or
 //! click that only woke the display must not type or press into the window
-//! below. Keys `inputd` hands straight to the focused client are held back
-//! meanwhile (`NoteKeysHeld`, as for the shell's panel menus), so a person
-//! typing into the dark does not type into the app. The shutting-down overlay
-//! wins over the blank screen.
+//! below. A press, key or wheel notch is also dropped for [`GRACE_TICKS`]
+//! after a wake: one pointer report can be a move *and* a press, and the move
+//! wakes first. Keys `inputd` hands straight to the focused client are held
+//! back meanwhile (`NoteKeysHeld`, as for the shell's panel menus), so a person
+//! typing into the dark does not type into the app. The kernel's key stream
+//! carries PS/2 only, so keys wake the screen through `inputd`'s `KeyActivity`
+//! (every keyboard, sent after the hold dropped the key); while `inputd` is
+//! attached the kernel stream's keys never wake it, or the hold would end
+//! before `inputd` saw that key. The shutting-down overlay wins over the blank
+//! screen.
 //!
 //! The timer is pure (`IdleTimer`) so the boot self-test can drive it. State
 //! the renderer needs is one atomic, like `powerfeed`'s.
@@ -28,6 +34,8 @@ use super::protocol::{Event, EventKind};
 
 /// Ticks (100 Hz) in a minute.
 const TICKS_PER_MINUTE: u64 = 6000;
+/// Ticks after a wake in which presses, keys and wheel notches are dropped.
+const GRACE_TICKS: u64 = 30;
 
 static BLANKED: AtomicBool = AtomicBool::new(false);
 
@@ -47,6 +55,8 @@ pub(super) struct IdleTimer {
     last_input: u64,
     /// `0`: never blank.
     minutes: u32,
+    /// Presses are dropped until this tick (set by a wake).
+    grace_until: u64,
 }
 
 impl IdleTimer {
@@ -54,7 +64,18 @@ impl IdleTimer {
         IdleTimer {
             last_input: now,
             minutes: 0,
+            grace_until: 0,
         }
+    }
+
+    /// The screen just woke at `now`: drop presses for a moment.
+    pub(super) fn start_grace(&mut self, now: u64) {
+        self.grace_until = now + GRACE_TICKS;
+    }
+
+    /// Whether presses are still dropped at `now`.
+    pub(super) fn in_grace(&self, now: u64) -> bool {
+        now < self.grace_until
     }
 
     /// Input arrived at `now`.
@@ -111,15 +132,31 @@ impl Compositor {
     /// to be dropped (a press, a key or a wheel notch; moves and releases
     /// carry on, so the cursor follows the hand and nothing stays held).
     pub(super) fn idle_input(&mut self, event: &Event) -> bool {
-        self.idle.note_input(sys::clock());
-        if !blanked() {
-            return false;
-        }
-        self.wake_screen();
-        matches!(
+        let now = sys::clock();
+        self.idle.note_input(now);
+        let press = matches!(
             event.kind,
             EventKind::PointerDown | EventKind::KeyDown | EventKind::PointerWheel
-        )
+        );
+        if !blanked() {
+            return press && self.idle.in_grace(now);
+        }
+        // `inputd` reports keys itself (`key_activity`): waking on the kernel
+        // stream's copy would end the hold before `inputd` dropped the key.
+        let key = matches!(event.kind, EventKind::KeyDown | EventKind::KeyUp);
+        if key && self.input.link.is_some() {
+            return true;
+        }
+        self.wake_screen();
+        press
+    }
+
+    /// `inputd` saw a key go down on some keyboard (`ShellEvent::KeyActivity`):
+    /// that is activity, and it wakes a blank screen. The key itself was
+    /// already dropped by the hold.
+    pub(super) fn key_activity(&mut self) {
+        self.idle.note_input(sys::clock());
+        self.wake_screen();
     }
 
     /// Light the screen again and give `inputd` the keys back.
@@ -127,7 +164,9 @@ impl Compositor {
         if !BLANKED.swap(false, Ordering::Relaxed) {
             return;
         }
-        self.idle.note_input(sys::clock());
+        let now = sys::clock();
+        self.idle.note_input(now);
+        self.idle.start_grace(now);
         trace::line!(trace::Channel::Xuid, "IDLE:WAKE");
         self.repaint_full();
         self.push_input();
@@ -155,7 +194,12 @@ pub(super) fn selftest_idle() -> &'static str {
     let backwards = !timer.due(100);
     // Back to never.
     let off = timer.set_minutes(0, 6000) && !timer.due(u64::MAX);
-    if never && changed && edge && pushed && restarted && backwards && off {
+    // A wake drops presses for the grace period, no longer.
+    timer.start_grace(7000);
+    let grace = timer.in_grace(7000)
+        && timer.in_grace(7000 + GRACE_TICKS - 1)
+        && !timer.in_grace(7000 + GRACE_TICKS);
+    if never && changed && edge && pushed && restarted && backwards && off && grace {
         "XUID:IDLE:PASS\n"
     } else {
         "XUID:IDLE:FAIL\n"

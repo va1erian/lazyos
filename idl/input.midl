@@ -207,4 +207,10 @@ interface os.lazy.input.shell.v1 {
     /// does). While a grab is held the compositor must not act on its own
     /// chords from the kernel key stream either: they belong to the grabber.
     method GrabChanged(surface: Option<U64> = 1) -> () = 26 oneway;
+    /// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
+    /// `inputd` handled it, so a key held back while the shell asked for the
+    /// keys was already dropped). The kernel key stream only carries PS/2, so
+    /// this is how the compositor sees that someone is typing, for the idle
+    /// timer and to wake a blank screen.
+    method KeyActivity() -> () = 27 oneway;
 }

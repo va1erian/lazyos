@@ -40,6 +40,7 @@ refused (`EINVAL`).
 | SessionClosed | 24 | oneway | `(surface: U64) -> ()` |
 | PointerEvent | 25 | oneway | `(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> ()` |
 | GrabChanged | 26 | oneway | `(surface: Option<U64>) -> ()` |
+| KeyActivity | 27 | oneway | `() -> ()` |
 
 ## Objects
 
