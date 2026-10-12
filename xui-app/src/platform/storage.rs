@@ -114,7 +114,7 @@ fn read_bounded(path: &Path, max: u64) -> Option<Vec<u8>> {
     // Exactly what the file holds; `take` keeps a file that grows meanwhile
     // from going past the cap.
     let mut bytes = Vec::with_capacity(usize::try_from(len).ok()?);
-    file.take(max + 1).read_to_end(&mut bytes).ok()?;
+    file.take(max.saturating_add(1)).read_to_end(&mut bytes).ok()?;
     (bytes.len() as u64 <= max).then_some(bytes)
 }
 

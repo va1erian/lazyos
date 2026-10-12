@@ -26,6 +26,9 @@ pub struct History {
     redo: Vec<Edit>,
     bytes: usize,
     cap: usize,
+    /// Undo entries dropped from the bottom so far (the cap, or a clear):
+    /// monotonic, so an observer can tell which of its entries are gone.
+    evicted: u64,
 }
 
 impl History {
@@ -36,6 +39,7 @@ impl History {
             redo: Vec::new(),
             bytes: 0,
             cap: cap.max(1),
+            evicted: 0,
         }
     }
 
@@ -120,8 +124,15 @@ impl History {
         Some(damage)
     }
 
+    /// How many undo entries have been dropped from the bottom of the stack
+    /// since this history was made: by the cap, or by [`History::clear`].
+    pub fn evicted(&self) -> u64 {
+        self.evicted
+    }
+
     /// Empties both stacks.
     pub fn clear(&mut self) {
+        self.evicted += self.undo.len() as u64;
         self.undo.clear();
         self.redo.clear();
         self.bytes = 0;
@@ -141,6 +152,7 @@ impl History {
             evict += 1;
         }
         self.undo.drain(..evict);
+        self.evicted += evict as u64;
     }
 }
 

@@ -32,6 +32,8 @@ pub(super) struct Saved {
     redo: Vec<Entry>,
     /// The bytes the model's history held when last observed.
     bytes: usize,
+    /// The history's eviction count when last observed.
+    evicted: u64,
     /// The next id to hand out; 0 is the empty history.
     next: u64,
     /// The id on top of the undo stack in the saved state; `None` when the
@@ -62,8 +64,16 @@ impl Saved {
     pub(super) fn observe(&mut self, history: &History, stepped: bool, selection_only: bool) {
         let (undo, redo) = (history.undo_len(), history.redo_len());
         let bytes = history.bytes();
+        // Entries the cap (or a clear) dropped from the bottom go first, so
+        // the ones left line up with the model's again. A recording at the
+        // cap keeps the length but swaps the bottom entry for a new top one.
+        let evicted = history.evicted().saturating_sub(self.evicted);
+        self.evicted = history.evicted();
+        let gone = usize::try_from(evicted).unwrap_or(usize::MAX).min(self.undo.len());
+        self.undo.drain(..gone);
         let same = undo == self.undo.len() && redo == self.redo.len();
         if same && (stepped || bytes == self.bytes) {
+            self.bytes = bytes;
             return;
         }
         if stepped && undo + redo == self.undo.len() + self.redo.len() {
@@ -74,21 +84,17 @@ impl Saved {
             self.redo.reverse();
             self.undo = all;
         } else {
-            self.rebuild(undo, redo, same, selection_only);
+            self.rebuild(undo, redo, selection_only);
         }
         self.bytes = bytes;
     }
 
     /// A change that is not a step: new entries on top, the redo stack
-    /// dropped or rebuilt, the oldest entries possibly evicted by the cap.
-    fn rebuild(&mut self, undo: usize, redo: usize, same_len: bool, selection_only: bool) {
-        // Entries below the new ones are the ones that were there.
+    /// dropped or rebuilt.
+    fn rebuild(&mut self, undo: usize, redo: usize, selection_only: bool) {
+        // Entries below the new ones are the ones that were there (evictions
+        // were already taken off the bottom in `observe`).
         self.undo.truncate(undo);
-        if same_len && undo > 0 {
-            // Same length, other bytes: the top entry was replaced (a record
-            // and an eviction at the cap).
-            self.undo.pop();
-        }
         while self.undo.len() < undo {
             let entry = self.fresh(selection_only);
             self.undo.push(entry);
@@ -155,5 +161,54 @@ pub(super) fn selection_step(msg: &Msg, tool: Tool) -> bool {
         Msg::Command(Command::SelectAll | Command::Deselect | Command::InvertSelection) => true,
         Msg::Canvas(_) | Msg::Nudge(..) => selecting,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Bitmap, Edit, Rect, WHITE};
+
+    /// A 16 KiB full-layer step on a 64x64 picture.
+    fn step() -> Edit {
+        Edit::Pixels {
+            name: "Test".into(),
+            layer: 0,
+            rect: Rect::new(0, 0, 64, 64),
+            before: Bitmap::new(64, 64, WHITE),
+        }
+    }
+
+    #[test]
+    fn a_step_recorded_at_the_cap_is_a_change() {
+        // The cap keeps two steps, so the third evicts the first and the
+        // stack keeps its length and its byte count.
+        let mut history = History::new(40 * 1024);
+        let mut saved = Saved::default();
+        history.record(step());
+        history.record(step());
+        saved.mark_clean(&history, None);
+        assert!(!saved.is_dirty(None));
+
+        history.record(step());
+        assert_eq!(history.undo_len(), 2);
+        saved.observe(&history, false, false);
+        assert!(saved.is_dirty(None), "the new step is unsaved");
+
+        history.undo(&mut crate::model::Document::new(64, 64, WHITE).unwrap());
+        saved.observe(&history, true, false);
+        assert!(!saved.is_dirty(None), "undo is back at the saved step");
+    }
+
+    #[test]
+    fn a_cleared_history_leaves_nothing_saved_behind() {
+        let mut history = History::new(40 * 1024);
+        let mut saved = Saved::default();
+        history.record(step());
+        saved.mark_clean(&history, None);
+        history.clear();
+        history.record(step());
+        saved.observe(&history, false, false);
+        assert!(saved.is_dirty(None));
     }
 }
