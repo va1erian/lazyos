@@ -148,6 +148,8 @@ CORE_APPS: dict[str, CoreApp] = {
     "golf": xui_app("xui-golf.elf", "golf"),
     # Video Player: Play video files.
     "video": xui_app("xui-video.elf", "video"),
+    # About LazyOS: About LazyOS, with a real-time 3D renderer.
+    "about": xui_app("xui-about.elf", "about"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

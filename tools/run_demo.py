@@ -114,6 +114,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-volume.elf",
     "xui-golf.elf",
     "xui-video.elf",
+    "xui-about.elf",
 )]
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).

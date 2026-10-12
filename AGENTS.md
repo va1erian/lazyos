@@ -392,6 +392,28 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-golf --test render searched
 cargo run --release --manifest-path xui-app/Cargo.toml -p xui-golf --example golf --features desktop -- [seed]
 ```
 
+## About LazyOS (`os.lazy.about`)
+
+`xui-about` is a core desktop app in every desktop image: a few pages on what
+LazyOS is, over a real-time 3D scene (a chrome torus knot, torus, icosahedron
+or icosphere above a synthwave floor) drawn by a small software rasteriser,
+all in the portable crate `xui-app/crates/about` (`mesh`, `raster` with a
+z-buffer and perspective-correct per-pixel shading, `backdrop`, `scene`, the
+window in `view`/`panel`); the bin only launches it. The internal resolution
+adapts to the frame cost. Keys: drag spins, wheel zooms, Space changes shape,
+`W` cycles solid / solid + wire / wire, Left/Right turn pages, Esc closes.
+Session `tools/screenshot/examples/xui_about.json`
+(`LAZYOS_XUI_AUTOSTART=about LAZYOS_UI_PROBE=1`; markers `ABOUT:UP:PASS`,
+`ABOUT:FPS:<fps>:<w>x<h>:div=<n>:work=<ms>:tris=<n>`, `ABOUT:SHAPE:`,
+`ABOUT:STYLE:`, `ABOUT:PAGE:<n>`, `ABOUT:QUIT:PASS`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-about   # snapshots in xui-app/target/snapshots/about-*.png
+cargo run --release --manifest-path xui-app/Cargo.toml -p xui-about --example about --features desktop
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/about \
+    --script tools/screenshot/examples/xui_about.json
+```
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
