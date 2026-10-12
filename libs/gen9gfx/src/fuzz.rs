@@ -32,7 +32,11 @@ pub fn edid_bytes(data: &[u8]) {
     let Ok(e) = edid::Edid::parse(data) else {
         return;
     };
-    for t in e.detailed.iter().chain(e.cea.iter().flat_map(|c| &c.timings)) {
+    for t in e
+        .detailed
+        .iter()
+        .chain(e.cea.iter().flat_map(|c| &c.timings))
+    {
         assert!(t.h_active > 0 && t.v_active > 0 && t.pixel_clock_khz > 0);
         let _ = t.refresh_millihz();
     }
@@ -56,7 +60,12 @@ pub fn eld_bytes(data: &[u8]) {
             let _ = (e.lpcm_rates_hz(), e.max_lpcm_channels());
             let _ = e.supports_lpcm(48_000, 2);
         }
-        Err(EldError::TooShort | EldError::BadVersion(_) | EldError::Truncated | EldError::BadLayout) => {}
+        Err(
+            EldError::TooShort
+            | EldError::BadVersion(_)
+            | EldError::Truncated
+            | EldError::BadLayout,
+        ) => {}
     }
 }
 
@@ -87,7 +96,10 @@ pub fn audio_bytes(data: &[u8]) {
         let (lo, hi) = hdmi_audio::n_range(rate);
         assert!((lo..=hi).contains(&r.n), "N {} outside {lo}..={hi}", r.n);
         if !r.from_table {
-            assert_eq!(hdmi_audio::cts_for(khz, r.n, rate).map(|c| c.0), Some(r.cts));
+            assert_eq!(
+                hdmi_audio::cts_for(khz, r.n, rate).map(|c| c.0),
+                Some(r.cts)
+            );
         }
     }
 }

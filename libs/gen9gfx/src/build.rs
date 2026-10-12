@@ -211,7 +211,10 @@ pub fn cea_block(s: &CeaSpec) -> [u8; BLOCK] {
     b[0] = 0x02;
     b[1] = 3;
     let d = 4 + blocks.len();
-    assert!(d + 18 * s.dtds.len() < 127, "fixture does not fit one block");
+    assert!(
+        d + 18 * s.dtds.len() < 127,
+        "fixture does not fit one block"
+    );
     b[2] = d as u8;
     b[3] = if s.basic_audio { 0xC0 } else { 0x80 } | s.dtds.len().min(15) as u8;
     b[4..d].copy_from_slice(&blocks);

@@ -166,7 +166,11 @@ fn descriptor_text(d: &[u8]) -> String {
         if b == 0x0A {
             break;
         }
-        s.push(if (0x20..0x7F).contains(&b) { b as char } else { '?' });
+        s.push(if (0x20..0x7F).contains(&b) {
+            b as char
+        } else {
+            '?'
+        });
     }
     while s.ends_with(' ') {
         s.pop();

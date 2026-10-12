@@ -107,8 +107,7 @@ pub mod aud_config {
 
     /// The `N` an `AUD_CONFIG` value carries.
     pub fn n_value(config: u32) -> u32 {
-        ((config & UPPER_N_MASK) >> UPPER_N_SHIFT) << 12
-            | (config & LOWER_N_MASK) >> LOWER_N_SHIFT
+        ((config & UPPER_N_MASK) >> UPPER_N_SHIFT) << 12 | (config & LOWER_N_MASK) >> LOWER_N_SHIFT
     }
 }
 

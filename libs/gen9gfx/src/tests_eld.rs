@@ -139,10 +139,16 @@ fn seeded_fuzz() {
     let seed = literal();
     let built = {
         let edid = Edid::parse(&build::monitor_2560x1440()).unwrap();
-        Eld::from_edid(&edid, ConnType::Hdmi, [0; 8]).unwrap().to_bytes()
+        Eld::from_edid(&edid, ConnType::Hdmi, [0; 8])
+            .unwrap()
+            .to_bytes()
     };
     fuzzkit::for_seeds("gen9gfx_eld_mutated", |_, rng| {
-        let mut data = if rng.one_in(2) { seed.clone() } else { built.clone() };
+        let mut data = if rng.one_in(2) {
+            seed.clone()
+        } else {
+            built.clone()
+        };
         let flips = rng.range(1, 8) as usize;
         rng.flip_bits(&mut data, flips);
         if rng.one_in(4) {

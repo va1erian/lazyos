@@ -123,7 +123,13 @@ impl Eld {
         let name: String = data[HEADER_BYTES + BASELINE_FIXED..sads_at]
             .iter()
             .take_while(|b| **b != 0)
-            .map(|b| if (0x20..0x7F).contains(b) { *b as char } else { '?' })
+            .map(|b| {
+                if (0x20..0x7F).contains(b) {
+                    *b as char
+                } else {
+                    '?'
+                }
+            })
             .collect();
         let mut port_id = [0u8; 8];
         port_id.copy_from_slice(&data[8..16]);
@@ -159,7 +165,9 @@ impl Eld {
     /// audio.
     pub fn from_edid(edid: &Edid, conn_type: ConnType, port_id: [u8; 8]) -> Option<Eld> {
         let cea = edid.cea.as_ref()?;
-        let [a, b, c] = edid.manufacturer.map(|l| u16::from(l.wrapping_sub(b'A' - 1)) & 0x1F);
+        let [a, b, c] = edid
+            .manufacturer
+            .map(|l| u16::from(l.wrapping_sub(b'A' - 1)) & 0x1F);
         let mfg = (a << 10 | b << 5 | c).to_be_bytes();
         let mut name = String::new();
         if let Some(n) = &edid.monitor_name {

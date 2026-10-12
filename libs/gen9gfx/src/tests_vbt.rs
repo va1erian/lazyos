@@ -29,7 +29,11 @@ fn typical_board() {
     let ids: std::vec::Vec<u8> = v.blocks().map(|(id, _)| id).collect();
     assert_eq!(
         ids,
-        [block::GENERAL_FEATURES, block::SKIP, block::GENERAL_DEFINITIONS]
+        [
+            block::GENERAL_FEATURES,
+            block::SKIP,
+            block::GENERAL_DEFINITIONS
+        ]
     );
     assert!(v.block(block::EDP).is_none());
 
@@ -92,7 +96,10 @@ fn classifies_device_types() {
         &[
             mk(device_type::HDMI, dvo_port::HDMIA),
             // TMDS but "not an HDMI output": DVI.
-            mk(device_type::HDMI | device_type::NOT_HDMI_OUTPUT, dvo_port::HDMIC),
+            mk(
+                device_type::HDMI | device_type::NOT_HDMI_OUTPUT,
+                dvo_port::HDMIC,
+            ),
             mk(device_type::DP_DUAL_MODE, dvo_port::DPD),
             mk(device_type::EDP, dvo_port::DPA),
             mk(0, dvo_port::DPE),

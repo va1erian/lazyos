@@ -32,11 +32,18 @@ fn qhd_monitor_with_audio() {
     // The standard timing 0x81 0x80 is 1280x1024 at 60 Hz (5:4).
     assert_eq!(e.standard.len(), 1);
     assert_eq!(
-        (e.standard[0].h_active, e.standard[0].v_active, e.standard[0].refresh_hz),
+        (
+            e.standard[0].h_active,
+            e.standard[0].v_active,
+            e.standard[0].refresh_hz
+        ),
         (1280, 1024, 60)
     );
     let r = e.range.unwrap();
-    assert_eq!((r.v_min_hz, r.v_max_hz, r.h_min_khz, r.h_max_khz), (48, 75, 30, 90));
+    assert_eq!(
+        (r.v_min_hz, r.v_max_hz, r.h_min_khz, r.h_max_khz),
+        (48, 75, 30, 90)
+    );
     assert_eq!(r.max_pixel_clock_mhz, 300);
 
     assert_eq!((e.extension_count, e.bad_extensions), (1, 0));
@@ -214,10 +221,7 @@ fn timing_encoding_round_trips_wide_fields() {
 #[test]
 fn seeded_fuzz() {
     use crate::fuzz;
-    let seeds = [
-        build::monitor_2560x1440(),
-        build::dvi_monitor_1080p(),
-    ];
+    let seeds = [build::monitor_2560x1440(), build::dvi_monitor_1080p()];
     fuzzkit::for_seeds("gen9gfx_edid_mutated", |_, rng| {
         let mut data = rng.pick(&seeds).clone();
         let flips = rng.range(1, 12) as usize;

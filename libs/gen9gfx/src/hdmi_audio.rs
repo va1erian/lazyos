@@ -278,8 +278,8 @@ mod tests {
             let (num, den) = exact_clock_hz(row.khz).unwrap();
             for rate in Rate::ALL {
                 let r = recommended(row.khz, rate).unwrap();
-                let ideal = num as f64 / den as f64 * f64::from(r.n)
-                    / (128.0 * f64::from(rate.hz()));
+                let ideal =
+                    num as f64 / den as f64 * f64::from(r.n) / (128.0 * f64::from(rate.hz()));
                 assert!(
                     (ideal - f64::from(r.cts)).abs() <= 1.0,
                     "{} kHz {:?}: N {} CTS {} vs {}",
@@ -290,7 +290,11 @@ mod tests {
                     ideal
                 );
                 let (lo, hi) = n_range(rate);
-                assert!((lo..=hi).contains(&r.n), "N {} out of range for {rate:?}", r.n);
+                assert!(
+                    (lo..=hi).contains(&r.n),
+                    "N {} out of range for {rate:?}",
+                    r.n
+                );
             }
         }
     }
@@ -332,7 +336,10 @@ mod tests {
         assert!(recommended(241_500, Rate::Hz48000).is_none());
         // 48 kHz and 32 kHz divide exactly with the default N.
         let c = select(241_500, Rate::Hz48000).unwrap();
-        assert_eq!((c.n, c.cts, c.exact, c.from_table), (6144, 241_500, true, false));
+        assert_eq!(
+            (c.n, c.cts, c.exact, c.from_table),
+            (6144, 241_500, true, false)
+        );
         let c = select(241_500, Rate::Hz32000).unwrap();
         assert_eq!((c.n, c.cts, c.exact), (4096, 241_500, true));
         // 44.1 kHz does not: the default N leaves a fraction, so an exact N
@@ -384,9 +391,11 @@ mod tests {
 
     #[test]
     fn clock_index_matches_the_table_prefix() {
-        for (i, khz) in [25_175, 25_200, 27_000, 27_027, 54_000, 54_054, 74_176, 74_250, 148_352, 148_500]
-            .into_iter()
-            .enumerate()
+        for (i, khz) in [
+            25_175, 25_200, 27_000, 27_027, 54_000, 54_054, 74_176, 74_250, 148_352, 148_500,
+        ]
+        .into_iter()
+        .enumerate()
         {
             assert_eq!(aud_config_clock_index(khz), Some(i as u32));
             assert!(recommended(khz, Rate::Hz48000).is_some());

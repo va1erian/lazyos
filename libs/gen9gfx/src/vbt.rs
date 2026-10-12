@@ -290,7 +290,8 @@ impl<'a> Vbt<'a> {
             return Err(VbtError::BadBdbSignature);
         }
         let bdb_version = u16le(table, bdb_offset + 16).ok_or(VbtError::BadBdbOffset)?;
-        let bdb_header_size = usize::from(u16le(table, bdb_offset + 18).ok_or(VbtError::BadBdbOffset)?);
+        let bdb_header_size =
+            usize::from(u16le(table, bdb_offset + 18).ok_or(VbtError::BadBdbOffset)?);
         let bdb_size = usize::from(u16le(table, bdb_offset + 20).ok_or(VbtError::BadBdbOffset)?);
         Ok(Vbt {
             data: table,
