@@ -45,7 +45,7 @@ class WebkitDepsTests(unittest.TestCase):
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/webkit/deps.py", "--require"])
         # Steps carry no env of their own: the runner applies build_env to the
         # whole plan, so that is where the switch must be.
-        self.assertEqual(catalog.build_env(cfg).get("LAZYOS_WEBKIT_DEPS"), "1")
+        self.assertEqual(catalog.build_env({**self.base(), "webkit_deps": True}).get("LAZYOS_WEBKIT_DEPS"), "1")
 
     def test_the_gui_gives_it_networking_and_a_card(self) -> None:
         # depsproof's curl check fetches over HTTPS: the stack in the image and

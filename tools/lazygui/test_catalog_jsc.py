@@ -46,7 +46,7 @@ class JscTests(unittest.TestCase):
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/jsc/build.py", "--require"])
         # Steps carry no env of their own: the runner applies build_env to the
         # whole plan, so that is where the switch must be.
-        self.assertEqual(catalog.build_env(cfg).get("LAZYOS_JSC"), "1")
+        self.assertEqual(catalog.build_env({**self.base(), "jsc": True}).get("LAZYOS_JSC"), "1")
 
     def test_it_builds_after_the_linux_programs(self) -> None:
         steps = catalog.app_steps({"linuxapps": True, "jsc": True, "tls": True})
