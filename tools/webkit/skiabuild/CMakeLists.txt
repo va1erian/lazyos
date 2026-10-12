@@ -53,16 +53,23 @@ find_package(PNG REQUIRED)
 find_package(EXPAT REQUIRED)
 find_package(HarfBuzz REQUIRED COMPONENTS ICU)
 
-add_subdirectory("${WEBKIT_SOURCE_DIR}/Source/ThirdParty/skia" skia)
+set(SKIA_DIR "${WEBKIT_SOURCE_DIR}/Source/ThirdParty/skia")
+add_subdirectory("${SKIA_DIR}" skia)
 
 # Skia's Ganesh GL sources include <EGL/egl.h> and <GLES2/gl2.h>; WebKit ships
 # the Khronos headers inside ThirdParty/ANGLE.
 target_include_directories(Skia PRIVATE "${WEBKIT_SOURCE_DIR}/Source/ThirdParty/ANGLE/include")
 
+# LazyOS has no file-backed mmap, and Skia's fontconfig font manager maps font
+# files with no fallback: compile the one source that does the mmap against a
+# function that copies instead (lazyos_mmap.c explains).
+target_sources(Skia PRIVATE "${CMAKE_CURRENT_LIST_DIR}/lazyos_mmap.c")
+set_source_files_properties("${SKIA_DIR}/src/ports/SkOSFile_posix.cpp"
+    TARGET_DIRECTORY Skia PROPERTIES COMPILE_DEFINITIONS "mmap=lazyos_mmap")
+
 # Install: the archive, the public headers laid out as WebKit sees them
 # (<skia/core/SkSurface.h> and "include/core/SkSurface.h" both resolve), and
 # the compile definitions a user of the headers must repeat.
-set(SKIA_DIR "${WEBKIT_SOURCE_DIR}/Source/ThirdParty/skia")
 install(TARGETS Skia ARCHIVE DESTINATION lib)
 install(DIRECTORY "${SKIA_DIR}/include/" DESTINATION skia/include FILES_MATCHING PATTERN "*.h")
 install(FILES "${SKIA_DIR}/modules/skcms/skcms.h" DESTINATION skia/modules/skcms)

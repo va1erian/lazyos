@@ -6,7 +6,8 @@ At this revision the GTK and WPE ports are Skia only (``USE_CAIRO`` is
 pins, built by WebKit's own CMake as a static library. ``skiabuild/CMakeLists.txt``
 builds that directory with the few WebKit macros it uses stood in for, so the
 archive is the one WebKit would link, without a GN build (which would need
-depot_tools and a different Skia).
+depot_tools and a different Skia). One shim, ``skiabuild/lazyos_mmap.c``, makes
+font files readable without a file-backed ``mmap`` (the only deviation).
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ OPTIONS = {"CMAKE_CXX_STANDARD": "20"}
 
 
 def _digest() -> str:
-    return hashlib.sha256((WRAPPER / "CMakeLists.txt").read_bytes()).hexdigest()[:12]
+    text = b"".join((WRAPPER / name).read_bytes() for name in ("CMakeLists.txt", "lazyos_mmap.c"))
+    return hashlib.sha256(text).hexdigest()[:12]
 
 
 def webkit_tree() -> Path:

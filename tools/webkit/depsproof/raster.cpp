@@ -14,6 +14,7 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkPixmap.h"
+#include "include/core/SkData.h"
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypeface.h"
@@ -22,7 +23,9 @@
 
 #include <fontconfig/fontconfig.h>
 
+#include <cerrno>
 #include <cstdio>
+#include <unistd.h>
 #include <memory>
 #include <cstring>
 
@@ -55,6 +58,16 @@ std::string diagnose(SkFontMgr* manager) {
     out += " head=" + hex(head, 4);
     sk_sp<SkTypeface> direct = SkFontScanner_Make_FreeType()->MakeFromStream(std::move(stream), SkFontArguments());
     out += direct ? " direct=ok" : " direct=none";
+    // The steps of SkFontMgr_fontconfig's FontAccessible(), one by one.
+    errno = 0;
+    const int exists = access(path.c_str(), F_OK | R_OK);
+    out += " access=" + std::to_string(exists) + "/errno" + std::to_string(errno);
+    sk_sp<SkData> data = SkData::MakeFromFileName(path.c_str());
+    out += data ? " data=" + std::to_string(data->size()) + ":" + hex(data->bytes(), 4) : " data=none";
+    if (data) {
+        auto memory = SkMemoryStream::Make(data);
+        out += SkFontScanner_Make_FreeType()->scanFile(memory.get(), nullptr) ? " scan=ok" : " scan=no";
+    }
     sk_sp<SkTypeface> legacy = manager->legacyMakeTypeface("Liberation Sans", SkFontStyle());
     out += legacy ? " legacy=ok" : " legacy=none";
     return out;
