@@ -1,6 +1,6 @@
 # Kaby Lake GPU support (HD Graphics 620)
 
-> **Status: draft, revision 2 (2026-10-12). Nothing here is built.**
+> **Status: draft, revision 3 (2026-10-12). Only the hardware-independent prep is built (survey script, `libs/gen9gfx` parsers; §10).**
 > Goals: (1) mode setting, (2) audio over HDMI, (3) richer video,
 > (4) hardware graphics acceleration where achievable, all on the i3-7100U
 > mini PC ([kabylake-box-plan.md](kabylake-box-plan.md)).
