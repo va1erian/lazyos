@@ -21,7 +21,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `AUDIO` | `Audio` | `audio` | user | tools/sound | programs |
 | `AUDIOD` | `Audiod` | `audiod` | user | tools/sound | programs |
 | `BEEP` | `Beep` | `beep` | user | sessions, tools/sound | programs |
-| `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot | programs |
+| `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot, tools/install | programs |
 | `CALC` | `Calc` | `calc` | xui-app | sessions, tools/screenshot | programs |
 | `CLIP` | `Clip` | `clip` | user | - | programs |
 | `CLIPBOARD` | `Clipboard` | `clipboard` | user | - | programs |
@@ -39,13 +39,13 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `FABMON` | `Fabmon` | `fabmon` | xui-app | sessions | programs |
 | `FAULT` | `Fault` | `fault` | kernel | tools/wifi | programs |
 | `FILES` | `Files` | `files` | xui-app | sessions, tools/fuse | programs |
-| `FS` | `Fs` | `fs` | kernel, kernel suite | tools/boot | programs |
+| `FS` | `Fs` | `fs` | kernel, kernel suite | tools/boot, tools/install | programs |
 | `FTP` | `Ftp` | `ftp` | user | tools/net | programs |
 | `FTPFUSE` | `Ftpfuse` | `ftpfuse` | user | tools/fuse | programs |
 | `GOLF` | `Golf` | `golf` | xui-app | sessions | programs |
 | `GREETER` | `Greeter` | `greeter` | user, xui-app | sessions, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
-| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
+| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/install, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
@@ -83,13 +83,13 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PERF` | `Perf` | `perf` | kernel, user | - | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
-| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web | programs |
+| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel | - | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
-| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/screenshot, tools/services, tools/shutdown | programs |
+| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SMB` | `Smb` | `smb` | user | tools/smb | programs |
 | `SMBFUSE` | `Smbfuse` | `smbfuse` | user | tools/fuse, tools/smb | programs |
@@ -99,7 +99,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/screenshot, tools/shutdown, tools/tray, tools/web | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
@@ -108,7 +108,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
 | `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot | programs |
-| `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
+| `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEB` | `Web` | `web` | xui-app | sessions, tools/web | programs |
 | `WIDGET` | `Widget` | `widget` | xui-app | sessions | programs |
