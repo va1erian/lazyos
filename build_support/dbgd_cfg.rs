@@ -11,7 +11,14 @@
 //! * `LAZYOS_DBGD_PORT=<port>`: the TCP port (default 9701);
 //! * `LAZYOS_DBGD_PEER=<a.b.c.d>`: the only address allowed to connect;
 //! * `LAZYOS_DBGD_CONTROL=1`: the control tier (`diag.dbg.control=1`):
-//!   restart and hot-reload services remotely (docs/dbgd-plan.md, v2).
+//!   restart and hot-reload services remotely (docs/dbgd-plan.md, v2);
+//! * `LAZYOS_DBGD_MMIO=1`: `mmio.read` of allowlisted device registers
+//!   (`diag.dbg.mmio=1`, docs/dbgd-plan.md "Hardware reads"); a register
+//!   read can wedge hardware, so it is a switch of its own, off by default.
+//!   `LAZYOS_DBGD_MMIO_CLAIMED=1` also allows reading a device a driver
+//!   holds (`diag.dbg.mmio.claimed=1`), and
+//!   `LAZYOS_DBGD_MMIO_ALLOW=VVVV:DDDD:BAR:START-END[,...]` adds readable
+//!   ranges (`diag.dbg.mmio.allow=`, hex). Both need `LAZYOS_DBGD_MMIO=1`.
 //!
 //! The key lands in `/boot/lazyos.cfg` on the unencrypted boot volume: this
 //! is a debug build, not a release image.
@@ -70,6 +77,80 @@ pub fn lines(key: &str, port: Option<u16>, peer: Option<&str>, control: bool) ->
         out.push_str("diag.dbg.control=1\n");
     }
     out
+}
+
+/// `VVVV:DDDD:BAR:START-END` in hex, as `pciprobe::parse_range` takes it:
+/// dword aligned, start below end, a BAR 0..=5, at most 64 MiB.
+pub fn validate_range(range: &str) -> Result<(), String> {
+    let fail = || {
+        format!("LAZYOS_DBGD_MMIO_ALLOW entry {range:?}: expected VVVV:DDDD:BAR:START-END in hex")
+    };
+    let hex = |text: &str| {
+        let digits = text.strip_prefix("0x").unwrap_or(text);
+        (!digits.is_empty() && digits.len() <= 16)
+            .then(|| u64::from_str_radix(digits, 16).ok())
+            .flatten()
+    };
+    let parts: Vec<&str> = range.split(':').collect();
+    let [vendor, device, bar, span] = parts[..] else {
+        return Err(fail());
+    };
+    let (start, end) = span.split_once('-').ok_or_else(fail)?;
+    let ok = hex(vendor).is_some_and(|v| v <= 0xFFFF)
+        && hex(device).is_some_and(|d| d <= 0xFFFF)
+        && hex(bar).is_some_and(|b| b <= 5);
+    match (ok, hex(start), hex(end)) {
+        (true, Some(start), Some(end))
+            if start < end && start % 4 == 0 && end % 4 == 0 && end - start <= 64 << 20 =>
+        {
+            Ok(())
+        }
+        _ => Err(fail()),
+    }
+}
+
+/// The `diag.dbg.mmio*` lines: nothing unless `mmio` (the sub-switches
+/// mean nothing without it; asking for them alone is a build error where
+/// the environment is read).
+pub fn hardware_lines(mmio: bool, claimed: bool, allow: &[String]) -> String {
+    if !mmio {
+        return String::new();
+    }
+    let mut out = String::from("diag.dbg.mmio=1\n");
+    if claimed {
+        out.push_str("diag.dbg.mmio.claimed=1\n");
+    }
+    for range in allow {
+        out.push_str(&format!("diag.dbg.mmio.allow={range}\n"));
+    }
+    out
+}
+
+fn flag(name: &str) -> bool {
+    println!("cargo:rerun-if-env-changed={name}");
+    std::env::var_os(name).as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+/// The hardware-read lines the environment asks for.
+fn hardware_from_env() -> String {
+    let (mmio, claimed) = (flag("LAZYOS_DBGD_MMIO"), flag("LAZYOS_DBGD_MMIO_CLAIMED"));
+    println!("cargo:rerun-if-env-changed=LAZYOS_DBGD_MMIO_ALLOW");
+    let allow: Vec<String> = std::env::var("LAZYOS_DBGD_MMIO_ALLOW")
+        .unwrap_or_default()
+        .split(',')
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .collect();
+    if !mmio && (claimed || !allow.is_empty()) {
+        panic!("LAZYOS_DBGD_MMIO_CLAIMED and LAZYOS_DBGD_MMIO_ALLOW need LAZYOS_DBGD_MMIO=1");
+    }
+    for range in &allow {
+        validate_range(range).unwrap_or_else(|error| panic!("{error}"));
+    }
+    if allow.len() > 8 {
+        panic!("LAZYOS_DBGD_MMIO_ALLOW: at most 8 ranges (lazyos.cfg is 4 KiB)");
+    }
+    hardware_lines(mmio, claimed, &allow)
 }
 
 /// Whether the build asked for the control tier (`LAZYOS_DBGD_CONTROL=1`).
@@ -142,5 +223,5 @@ pub fn from_env(key_file: &Path) -> String {
     if let Some(peer) = &peer {
         validate_peer(peer).unwrap_or_else(|error| panic!("{error}"));
     }
-    lines(&key(key_file), port, peer.as_deref(), control())
+    lines(&key(key_file), port, peer.as_deref(), control()) + &hardware_from_env()
 }

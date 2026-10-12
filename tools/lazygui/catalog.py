@@ -23,7 +23,7 @@ from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa
                         SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
-from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
+from .netplan import dbgd_argv, dbgd_env, net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -263,8 +263,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     if wants_dbgd(cfg):
         # `dbgd`, the remote inspection service (docs/dbgd-plan.md), over the
         # stack above; the image build writes its key to target/dbgd.key.
-        env["LAZYOS_DBGD"] = "1"
-        env["LAZYOS_DBGD_CONTROL"] = "1"  # control tier: restart/hot-reload (v2)
+        env.update(dbgd_env(cfg))
     if cfg.get("smb"):
         # `smb`, the SMB 2.1 client (docs/smb-plan.md F2), over the stack above.
         env["LAZYOS_SMB"] = "1"
@@ -368,7 +367,7 @@ def build_plan(cfg: dict) -> list[dict]:
         if wants_dbgd(cfg) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DBGD (and _CONTROL), the stack and the 9701
             # forward itself.
-            argv.append("--dbgd-control")
+            argv += dbgd_argv(cfg)
         if cfg.get("smb") and not cfg["skip_build"]:
             # run_demo sets LAZYOS_SMB and the stack itself.
             argv.append("--smb")

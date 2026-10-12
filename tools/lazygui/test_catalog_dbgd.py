@@ -32,6 +32,13 @@ class DbgdTests(unittest.TestCase):
             self.assertEqual(env["LAZYOS_DBGD_CONTROL"], "1")
             self.assertEqual(env["LAZYOS_NETD"], "1", "dbgd listens through the socket service")
 
+    def test_register_reads_are_their_own_switch(self) -> None:
+        off = catalog.build_env({**self.base(), "desktop": True})
+        self.assertNotIn("LAZYOS_DBGD_MMIO", off, "a register read can wedge hardware")
+        on = catalog.build_env({**self.base(), "desktop": True, "dbgd_mmio": True})
+        self.assertEqual(on["LAZYOS_DBGD_MMIO"], "1")
+        self.assertEqual(on["LAZYOS_DBGD"], "1")
+
     def test_the_card_and_the_port_come_with_it(self) -> None:
         flags = catalog.net_flags({"net": False})
         self.assertIn("--net", flags)

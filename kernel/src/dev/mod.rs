@@ -34,6 +34,7 @@ pub mod grant;
 pub mod inspect;
 pub mod intx;
 pub mod irq;
+mod list;
 pub mod msi;
 mod msi_hw;
 mod notify;

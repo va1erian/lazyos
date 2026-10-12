@@ -25,6 +25,8 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub use pciprobe;
+
 pub mod auth;
 pub mod config;
 pub mod control;

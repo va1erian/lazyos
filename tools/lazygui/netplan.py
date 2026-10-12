@@ -42,6 +42,22 @@ def wants_dbgd(cfg: dict) -> bool:
     return True
 
 
+def dbgd_env(cfg: dict) -> dict[str, str]:
+    """The `dbgd` build switches: the service, its control tier (restart and
+    hot reload, v2) and, only when ticked, MMIO register reads of allowlisted
+    ranges, a switch of its own because a register read can wedge hardware
+    (docs/dbgd-plan.md, "Hardware reads")."""
+    env = {"LAZYOS_DBGD": "1", "LAZYOS_DBGD_CONTROL": "1"}
+    if cfg.get("dbgd_mmio"):
+        env["LAZYOS_DBGD_MMIO"] = "1"
+    return env
+
+
+def dbgd_argv(cfg: dict) -> list[str]:
+    """The run_demo flags that make `dbgd_env` (it sets the variables itself)."""
+    return ["--dbgd-control"] + (["--dbgd-mmio"] if cfg.get("dbgd_mmio") else [])
+
+
 def net_specs(cfg: dict) -> list[str]:
     """The port forwards typed in the launcher (space- or comma-separated);
     empty means run_demo's default (host 8080 to the Net Tools server)."""

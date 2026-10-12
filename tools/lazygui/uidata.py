@@ -69,7 +69,7 @@ def advanced_cfg(ui) -> dict:
         "nics": ui.v["nics"].get().strip(),
         "linuxapps": ui.v["linuxapps"].get(),
         "jsc": ui.v["jsc"].get(),
-        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "wifi", "wifi_sim")},
+        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "dbgd_mmio", "wifi", "wifi_sim")},
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
         "tls": ui.v["tls"].get() or ui.v["mail"].get(),
         "journal": ui.v["journal"].get(),

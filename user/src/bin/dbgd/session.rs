@@ -15,6 +15,7 @@ use dbgwire::config::Config;
 use dbgwire::json::{self, Object, Value};
 use dbgwire::logline;
 use dbgwire::methods::{self, Access};
+use dbgwire::probe;
 use dbgwire::rpc::{self, code, Id};
 use user::messenger::netsock::Addr;
 use user::messenger::netstd::{is_timeout, TcpStream};
@@ -40,6 +41,9 @@ pub(crate) struct Shared {
     pub lockout: Lockout,
     /// The boot-log read buffer, kept between calls.
     pub scratch: Vec<u8>,
+    /// Bytes of hardware (`pci.config`, `mmio.read`) a client may read per
+    /// second, across connections.
+    pub hardware: probe::Budget,
 }
 
 impl Shared {
@@ -47,6 +51,7 @@ impl Shared {
         Shared {
             lockout: Lockout::new(),
             scratch: Vec::new(),
+            hardware: probe::Budget::new(0),
         }
     }
 }
@@ -353,6 +358,8 @@ fn dispatch(
         "devices.list" => handlers::devices_list(),
         "drivers.list" => handlers::drivers_list(),
         "usb.dump" => handlers::usb_dump(),
+        "pci.config" => within_budget(shared, params, 64, |p| super::hw::pci_config(p)),
+        "mmio.read" => within_budget(shared, params, 4, |p| super::hw::mmio_read(p, config)),
         "fs.read" => handlers::fs_read(params),
         "hwreport" => handlers::hwreport(&mut shared.scratch),
         "control.begin" => begin_control(session, params, config),
@@ -366,6 +373,27 @@ fn dispatch(
         "app.relaunch" => super::apps::relaunch(params),
         _ => Err((code::METHOD_NOT_FOUND, format!("no handler for {name}"))),
     }
+}
+
+/// Run a hardware read if the byte budget affords its `len` (default
+/// `default_len`), else `RATE_LIMITED` with the wait.
+fn within_budget(
+    shared: &mut Shared,
+    params: &Value,
+    default_len: u64,
+    read: impl FnOnce(&Value) -> Result<String, Failure>,
+) -> Result<String, Failure> {
+    let len = params
+        .get("len")
+        .and_then(Value::as_u64)
+        .unwrap_or(default_len);
+    shared.hardware.take(now_ms(), len).map_err(|wait| {
+        (
+            code::RATE_LIMITED,
+            format!("hardware reads are rate limited; retry in {wait} ms"),
+        )
+    })?;
+    read(params)
 }
 
 fn text_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
