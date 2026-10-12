@@ -1,21 +1,27 @@
 //! `os.lazy.net.wifi.hw.v1` (`idl/wifi.midl`): request dispatch onto a
 //! [`SoftMac`], and the events sent back on the owner's channel.
 //!
-//! The owner is the kernel-stamped sender of `Attach`; nothing in a request
-//! names a caller. Who may attach at all is [`may_attach`]: the station
-//! manager (`netpolicy::may_attach_wifi_hw`: `_wlan`, unlabelled, outside
-//! any login session) or, the same way unlabelled and session-less, the
-//! radio program's own uid (the `wifiprobe` test client `wifisim` spawns).
-//! Root is not named. An application or a session user may read `Info` and
-//! `Stats` but never owns the radio, so a crashed `wlanmd` cannot be
-//! replaced by anything that could inject management frames.
+//! The owner is the kernel-stamped sender of `Attach`, remembered whole: its
+//! task slot and its credentials (uid, label, session), all compared on
+//! every owner-only call ([`wifimac::Caller`]), so a slot another process
+//! reuses before the owner's exit is noticed owns nothing. Nothing in a
+//! request names a caller. Who may attach at all is [`may_attach`]: the
+//! station manager (`netpolicy::may_attach_wifi_hw`: `_wlan`, unlabelled,
+//! outside any login session) and, in the simulator alone, `_wifisim` itself
+//! the same way unlabelled and session-less (the `wifiprobe` test client
+//! `wifisim` spawns). Root is not named. An application or a session user
+//! may read `Info` and `Stats` but never owns the radio, so a crashed
+//! `wlanmd` cannot be replaced by anything that could inject management
+//! frames.
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use libmessenger::{flags, Header, Parcel, VERSION};
-use wifimac::{Error as MacError, Event, JoinRequest, KeyRequest, Radio, ScanRequest, SoftMac};
+use wifimac::{
+    Caller, Error as MacError, Event, JoinRequest, KeyRequest, Radio, ScanRequest, SoftMac,
+};
 
 use crate::messenger::{errno, services, Endpoint, Error as MsgError, Message};
 use crate::sys::Cred;
@@ -32,6 +38,9 @@ pub const NAME_PREFIX: &str = "os.lazy.net.wifi.hw";
 const PAGE_BYTES: usize = 12 * 1024;
 /// How often the owner's event channel is checked for a vanished owner.
 const PROBE_MS: u64 = 1000;
+/// Messages the owner sent on its event channel (nothing is expected there)
+/// drained per check, so a flood cannot hold the loop.
+const PROBE_DRAIN: usize = 64;
 
 /// The registered name of the radio of `ifname`.
 pub fn service_name(ifname: &str) -> String {
@@ -39,9 +48,35 @@ pub fn service_name(ifname: &str) -> String {
 }
 
 /// Whether `caller` may become the radio's owner (see the module notes).
-pub fn may_attach(caller: &Cred, own_uid: u32) -> bool {
+/// `probe_uid` is the simulator's own uid when it runs its test client, and
+/// `None` for a real radio.
+pub fn may_attach(caller: &Cred, probe_uid: Option<u32>) -> bool {
+    let system = caller.label_id == 0 && caller.session == 0;
     netpolicy::may_attach_wifi_hw(caller.uid, caller.label_id, caller.session)
-        || (caller.uid == own_uid && caller.label_id == 0 && caller.session == 0)
+        || (system && probe_uid == Some(caller.uid))
+}
+
+/// The probe identity a radio program running as `own_uid` accepts: only
+/// the simulator (`_wifisim`) spawns a test client under its own uid.
+pub fn probe_uid(own_uid: u32) -> Option<u32> {
+    (own_uid == netpolicy::WIFISIM_UID).then_some(own_uid)
+}
+
+/// The kernel-stamped identity of a request's sender.
+pub fn caller_of(message: &Message) -> Caller {
+    let cred = message.caller();
+    Caller {
+        task: message.sender,
+        uid: cred.uid,
+        label_id: cred.label_id,
+        session: cred.session,
+    }
+}
+
+/// Whether a request of `method` carried secret material (a temporal key),
+/// which the caller wipes from its receive buffer once it was handled.
+pub fn carries_secret(method: u32) -> bool {
+    method == wire::METHOD_SETKEY
 }
 
 /// A parcel of this interface; `oneway` for an event.
@@ -63,7 +98,7 @@ pub fn parcel(method: u32, body: Vec<u8>, oneway: bool) -> Parcel {
 
 fn message_of(error: MacError) -> &'static str {
     match error {
-        MacError::Busy => "the radio is busy (attached, or scanning)",
+        MacError::Busy => "the radio is busy (attached, scanning, or its transmit queue is full)",
         MacError::Denied => "only the radio's owner may do this",
         MacError::Again => "no regulatory domain yet (SetCountry first)",
         MacError::Invalid => "invalid request for this radio or domain",
@@ -87,7 +122,7 @@ fn parcel_err(_: libmessenger::Error) -> Refusal {
 /// The radio's side of `hw.v1`: who owns it and the channel its events go on.
 pub struct HwService {
     ifname: String,
-    own_uid: u32,
+    probe_uid: Option<u32>,
     events: Option<Endpoint>,
     next_probe_ms: u64,
     probe_buf: Vec<u8>,
@@ -97,18 +132,19 @@ impl HwService {
     pub fn new(ifname: &str, own_uid: u32) -> HwService {
         HwService {
             ifname: String::from(ifname),
-            own_uid,
+            probe_uid: probe_uid(own_uid),
             events: None,
             next_probe_ms: 0,
             probe_buf: alloc::vec![0; 256],
         }
     }
 
-    /// Answer one request: the reply, or the structured error reply.
+    /// Answer one request: the reply, or the structured error reply. A
+    /// `SetKey` request's body is wiped once handled.
     pub fn dispatch<R: Radio>(
         &mut self,
         mac: &mut SoftMac<R>,
-        message: &Message,
+        message: &mut Message,
         now: u64,
     ) -> Parcel {
         let method = message.method();
@@ -120,7 +156,11 @@ impl HwService {
                 "wrong interface",
             );
         }
-        match self.route(mac, message, now) {
+        let outcome = self.route(mac, message, now);
+        if carries_secret(method) {
+            message.parcel.body.fill(0);
+        }
+        match outcome {
             Ok(body) => parcel(method, body, false),
             Err((code, text)) => services::refusal(INTERFACE, method, code, text),
         }
@@ -133,7 +173,7 @@ impl HwService {
         now: u64,
     ) -> Result<Vec<u8>, Refusal> {
         let body = &message.parcel.body;
-        let sender = message.sender;
+        let sender = caller_of(message);
         let empty = Ok(Vec::new());
         match message.method() {
             wire::METHOD_INFO => self.info(mac),
@@ -270,8 +310,8 @@ impl HwService {
             .decode(wire::decode_attach_args)
             .map_err(|_| (errno::EINVAL, "malformed request"))?;
         let events = Endpoint::from_raw(args.events);
-        let outcome = if may_attach(&message.caller(), self.own_uid) {
-            mac.attach(message.sender).map_err(mac_err)
+        let outcome = if may_attach(&message.caller(), self.probe_uid) {
+            mac.attach(caller_of(message)).map_err(mac_err)
         } else {
             Err((errno::EPERM, "only the station manager may own the radio"))
         };
@@ -307,23 +347,32 @@ impl HwService {
         self.drop_events();
     }
 
-    /// Send every queued event to the owner. A dead channel releases the
-    /// radio; a full inbox loses the event (the owner's timers recover).
+    /// Send the queued events to the owner. A dead channel releases the
+    /// radio; a full inbox puts the event back first in the soft-MAC's
+    /// queue, which keeps the control events and drops frames first while
+    /// the owner catches up.
     pub fn flush<R: Radio>(&mut self, mac: &mut SoftMac<R>) {
         if mac.owner().is_none() {
             self.drop_events();
             while mac.next_event().is_some() {}
             return;
         }
+        let Some(events) = self.events else { return };
         while let Some(event) = mac.next_event() {
-            let Some(events) = self.events else { return };
             let Ok(parcel) = event_parcel(&event) else {
                 continue;
             };
-            if let Err(error) = events.send(&parcel) {
-                if gone(&error) {
+            match events.send(&parcel) {
+                Ok(()) => {}
+                Err(error) if gone(&error) => {
                     return self.owner_gone(mac, "owner gone (send failed)");
                 }
+                Err(error) if error.errno() == Some(-errno::EAGAIN) => {
+                    mac.requeue_event(event);
+                    return;
+                }
+                // Anything else is this event's own problem: it is lost.
+                Err(_) => {}
             }
         }
     }
@@ -336,16 +385,22 @@ impl HwService {
         }
         self.next_probe_ms = now + PROBE_MS;
         let Some(events) = self.events else { return };
-        if let Err(error) = events.poll_recv_with(&mut self.probe_buf) {
-            if gone(&error) {
-                self.owner_gone(mac, "owner gone");
+        for _ in 0..PROBE_DRAIN {
+            match events.poll_recv_with(&mut self.probe_buf) {
+                Ok(Some(_)) => {}
+                Ok(None) => return,
+                Err(error) if gone(&error) => return self.owner_gone(mac, "owner gone"),
+                // Too big for the probe buffer, or malformed: dequeued anyway.
+                Err(_) => {}
             }
         }
     }
 }
 
+/// The channel's other end is gone, or the handle no longer names it.
 fn gone(error: &MsgError) -> bool {
-    matches!(error.errno(), Some(code) if code == -errno::EPIPE || code == -9)
+    let dead = [errno::EPIPE, errno::EBADF, errno::ENOENT];
+    matches!(error.errno(), Some(code) if dead.contains(&-code))
 }
 
 fn stats<R: Radio>(mac: &SoftMac<R>) -> Result<Vec<u8>, Refusal> {

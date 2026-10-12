@@ -3,6 +3,12 @@
 //! frames from the network stack. Every data frame gets its sequence number
 //! here and, once a pairwise key exists, a CCMP header with the next packet
 //! number; the radio encrypts.
+//!
+//! Nothing goes to the BSS while the radio is tuned elsewhere (a scan step)
+//! or, on a channel the domain lists as passive, before the BSS was heard
+//! there ([`SoftMac::tx_allowed`]): the owner's frames wait, the network
+//! stack's stay in its ring ([`SoftMac::tx_ready`]). Probe requests go out
+//! only on the scan steps the domain lets the radio probe on.
 
 use alloc::vec::Vec;
 
@@ -14,10 +20,13 @@ use ieee80211::frame::{SUB_ASSOC_REQ, SUB_AUTH, SUB_DEAUTH, SUB_DISASSOC, SUB_PR
 use ieee80211::ie::IeBuilder;
 use ieee80211::Mac;
 
+use crate::bss::Bss;
 use crate::events::FrameKind;
-use crate::mac::SoftMac;
+use crate::mac::{SoftMac, PENDING_TX};
 use crate::radio::{Band, Channel, Radio, RadioError, TxOptions};
-use crate::Error;
+use crate::{Caller, Error};
+
+const BROADCAST: Mac = [0xFF; 6];
 
 /// Management subtypes a station may send through `TxMgmt`: association and
 /// reassociation requests, probe requests, disassociation, authentication,
@@ -120,49 +129,69 @@ impl<R: Radio> SoftMac<R> {
         self.send_own_mgmt(frame);
     }
 
-    /// `TxMgmt`: a management frame or an EAPOL frame the owner built.
-    pub fn tx_mgmt(&mut self, caller: u64, kind: u32, frame: &[u8]) -> Result<(), Error> {
+    /// `TxMgmt`: a management frame or an EAPOL frame the owner built. It is
+    /// sequenced (and, EAPOL under a pairwise key, given its PN) now, under
+    /// the keys in force now, and goes out at once or, while the radio is
+    /// away on a scan step or may not yet transmit on a passive channel, as
+    /// soon as it may (`Busy` when [`PENDING_TX`] frames already wait).
+    pub fn tx_mgmt(&mut self, caller: Caller, kind: u32, frame: &[u8]) -> Result<(), Error> {
         self.owned(caller)?;
         let kind = FrameKind::from_u32(kind).ok_or(Error::Invalid)?;
         if self.domain.is_none() {
             return Err(Error::Again);
         }
-        if self.bss.is_none() {
-            return Err(Error::NotConnected);
-        }
+        let bss = self.bss.ok_or(Error::NotConnected)?;
         if frame.len() > self.max_mgmt() {
             self.stats.mgmt_dropped += 1;
             return Err(Error::Invalid);
         }
-        match kind {
-            FrameKind::Mgmt => self.tx_station_mgmt(frame)?,
-            FrameKind::Eapol => self.tx_eapol(frame)?,
-        }
+        let (out, options) = match kind {
+            FrameKind::Mgmt => self.station_mgmt(frame, &bss)?,
+            FrameKind::Eapol => self.eapol(frame, &bss)?,
+        };
+        self.send_or_hold(out, options)?;
         self.stats.mgmt_tx += 1;
         Ok(())
     }
 
     /// A station management frame: an allowed subtype, no flags (so no
-    /// Protected bit and no HT Control), from our own address. The soft-MAC
-    /// assigns the sequence number and clears the duration.
-    fn tx_station_mgmt(&mut self, frame: &[u8]) -> Result<(), Error> {
+    /// Protected bit and no HT Control), from our own address to the BSS
+    /// (receiver and BSSID; a probe request may be broadcast in either).
+    /// The soft-MAC assigns the sequence number and clears the duration.
+    fn station_mgmt(&mut self, frame: &[u8], bss: &Bss) -> Result<(Vec<u8>, TxOptions), Error> {
         let FrameClass::Mgmt { subtype, .. } = classify(frame) else {
             return Err(Error::Invalid);
         };
-        if !STATION_MGMT.contains(&subtype) || frame[1] != 0 || frame[10..16] != self.info.mac {
+        let broadcast_ok = |at: usize| subtype == SUB_PROBE_REQ && frame[at..at + 6] == BROADCAST;
+        let a1_ok = frame[4..10] == bss.bssid || broadcast_ok(4);
+        let a3_ok = frame[16..22] == bss.bssid || broadcast_ok(16);
+        if !STATION_MGMT.contains(&subtype)
+            || frame[1] != 0
+            || frame[10..16] != self.info.mac
+            || !a1_ok
+            || !a3_ok
+        {
             return Err(Error::Invalid);
         }
         let mut out = Vec::from(frame);
         out[2..4].copy_from_slice(&[0, 0]);
         let seq = self.seq.next(None);
         out[22..24].copy_from_slice(&(seq << 4).to_le_bytes());
-        self.transmit(&out, &MGMT_OPTIONS)
+        if let Some(bss) = self.bss.as_mut() {
+            match subtype {
+                SUB_AUTH => bss.sent_auth = true,
+                SUB_ASSOC_REQ | SUB_REASSOC_REQ => bss.sent_assoc = true,
+                _ => {}
+            }
+        }
+        Ok((out, MGMT_OPTIONS))
     }
 
-    /// An EAPOL frame from our address, sent as a data frame to the BSS:
-    /// in the clear before the pairwise key, protected after it.
-    fn tx_eapol(&mut self, eth: &[u8]) -> Result<(), Error> {
-        if !is_eapol(eth) || eth.len() < EAPOL_MIN || eth[6..12] != self.info.mac {
+    /// An EAPOL frame from our address to the BSS, as a data frame: in the
+    /// clear before the pairwise key, protected after it.
+    fn eapol(&mut self, eth: &[u8], bss: &Bss) -> Result<(Vec<u8>, TxOptions), Error> {
+        let ours = eth.len() >= EAPOL_MIN && eth[6..12] == self.info.mac;
+        if !is_eapol(eth) || !ours || eth[0..6] != bss.bssid {
             return Err(Error::Invalid);
         }
         let (frame, protected) = self.build_data(eth)?;
@@ -172,28 +201,62 @@ impl<R: Radio> SoftMac<R> {
             basic_rate: true,
             priority: 7,
         };
-        self.transmit(&frame, &options)
+        Ok((frame, options))
     }
 
-    /// The To-DS data frame carrying `eth`, and whether it is protected.
+    /// Send an owner frame now, or hold it until the radio may.
+    fn send_or_hold(&mut self, frame: Vec<u8>, options: TxOptions) -> Result<(), Error> {
+        if self.pending.is_empty() && self.tx_allowed() {
+            return self.transmit(&frame, &options);
+        }
+        if self.pending.len() >= PENDING_TX {
+            return Err(Error::Busy);
+        }
+        self.pending.push_back((frame, options));
+        Ok(())
+    }
+
+    /// Send the held frames, in order, while the radio may and takes them.
+    pub(crate) fn flush_pending(&mut self) {
+        while self.tx_allowed() {
+            let Some((frame, options)) = self.pending.pop_front() else {
+                return;
+            };
+            if let Err(error) = self.radio.transmit(&frame, &options) {
+                if error == RadioError::Full {
+                    self.pending.push_front((frame, options));
+                } else {
+                    self.radio_failed(error);
+                }
+                return;
+            }
+        }
+    }
+
+    /// The To-DS data frame carrying `eth`, and whether it is protected. A
+    /// frame over the radio's largest is refused before it uses a PN.
     fn build_data(&mut self, eth: &[u8]) -> Result<(Vec<u8>, bool), Error> {
         let bss = self.bss.ok_or(Error::NotConnected)?;
         let tid = bss.qos.then(|| user_priority(eth));
-        let security = if self.keys.pairwise.is_some() {
-            let (pn, key_id) = self.keys.next_tx().ok_or(Error::NoSpace)?;
-            Some(ccmp::header(pn, key_id))
-        } else {
-            None
+        let pn = match self.keys.pairwise {
+            Some(_) => Some(self.keys.peek_tx().ok_or(Error::NoSpace)?),
+            None => None,
         };
         let how = Encap {
             direction: Direction::ToDs,
             bssid: bss.bssid,
             tid,
             sequence: self.seq.next(tid),
-            security,
+            security: pn.map(|(pn, key_id)| ccmp::header(pn, key_id)),
         };
         let frame = encap(eth, &how).map_err(|_| Error::Invalid)?;
-        Ok((frame, security.is_some()))
+        if frame.len() > self.info.max_frame {
+            return Err(Error::Invalid);
+        }
+        if let Some((pn, _)) = pn {
+            self.keys.commit_tx(pn);
+        }
+        Ok((frame, pn.is_some()))
     }
 
     /// An Ethernet frame from the network stack.
@@ -207,9 +270,14 @@ impl<R: Radio> SoftMac<R> {
     }
 
     fn send_ethernet_inner(&mut self, eth: &[u8]) -> Result<(), DataDrop> {
-        let protected_bss = self.bss.is_some_and(|bss| bss.protected);
+        let protected_bss = self.bss.is_some_and(|bss| bss.protected || bss.privacy);
         if !self.link_up() || (protected_bss && self.keys.pairwise.is_none()) {
             return Err(DataDrop::PortClosed);
+        }
+        if !self.tx_allowed() {
+            // Away on a scan step: `tx_ready` holds the stack's frames back,
+            // this is one that came anyway.
+            return Err(DataDrop::Full);
         }
         if eth.len() < ETH_HEADER {
             return Err(DataDrop::Runt);
@@ -220,10 +288,10 @@ impl<R: Radio> SoftMac<R> {
         if is_eapol(eth) || eth[6..12] != self.info.mac {
             return Err(DataDrop::Refused);
         }
-        let (frame, protected) = self.build_data(eth).map_err(|_| DataDrop::Refused)?;
-        if frame.len() > self.info.max_frame {
-            return Err(DataDrop::TooLong);
-        }
+        let (frame, protected) = self.build_data(eth).map_err(|e| match e {
+            Error::Invalid => DataDrop::TooLong,
+            _ => DataDrop::Refused,
+        })?;
         let options = TxOptions {
             data: true,
             protected,
@@ -233,8 +301,9 @@ impl<R: Radio> SoftMac<R> {
         self.transmit(&frame, &options).map_err(|_| DataDrop::Full)
     }
 
-    /// Whether the radio would take a frame now.
+    /// Whether the radio would take a frame from the network stack now: not
+    /// while it is away from the joined BSS's channel.
     pub fn tx_ready(&self) -> bool {
-        self.radio.tx_ready()
+        self.radio.tx_ready() && (self.bss.is_none() || self.tx_allowed())
     }
 }

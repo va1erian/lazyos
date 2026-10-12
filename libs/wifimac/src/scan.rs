@@ -7,13 +7,18 @@
 //! (the station manager parses it); a BSS heard again replaces its earlier
 //! frame of the same kind, so the table holds the latest of each and stays
 //! bounded however long a scan runs or however many BSSIDs a hostile radio
-//! invents.
+//! invents. A full table makes room by dropping its weakest entry (the
+//! oldest of equals) for a new one at least as strong. A radio hears a
+//! 2.4 GHz access point on the channels next to its own too, more weakly:
+//! a copy from another channel replaces the entry only when it is stronger,
+//! so the entry names the channel the BSS is really on.
 
 use alloc::vec::Vec;
 
 use ieee80211::frame::{SUB_BEACON, SUB_PROBE_RESP};
 
 use crate::radio::{Band, Channel};
+use crate::regdom::{Domain, Use};
 
 /// Default dwell per channel when probing, and when only listening (a
 /// little over one 102.4 ms beacon interval).
@@ -52,6 +57,15 @@ pub struct ScanEntry {
     pub rssi_dbm: i8,
     /// When it was heard (the soft-MAC's millisecond clock).
     pub heard_ms: u64,
+}
+
+/// A frame the radio heard, as [`Scanner::record`] takes it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Heard<'a> {
+    pub(crate) frame: &'a [u8],
+    pub(crate) band: Band,
+    pub(crate) channel: u8,
+    pub(crate) rssi_dbm: i8,
 }
 
 /// A page of results as `ScanResults` returns it.
@@ -108,10 +122,12 @@ impl Scanner {
         self.running.as_ref().map(|r| r.id)
     }
 
-    /// Keep a beacon or probe response heard on `channel`. Anything else, or
-    /// a frame too short to name its BSS, is ignored.
-    pub(crate) fn record(&mut self, frame: &[u8], band: Band, channel: u8, rssi_dbm: i8, now: u64) {
-        if self.running.is_none() {
+    /// Keep a beacon or probe response heard on `channel`. Anything else, a
+    /// frame too short to name its BSS or one over `max_len` octets (what
+    /// `ScanResults` may carry), is ignored.
+    pub(crate) fn record(&mut self, heard: Heard<'_>, max_len: usize, now: u64) {
+        let frame = heard.frame;
+        if self.running.is_none() || frame.len() > max_len {
             return;
         }
         let Some((bssid, subtype)) = identity(frame) else {
@@ -122,25 +138,64 @@ impl Scanner {
         }
         let entry = ScanEntry {
             frame: Vec::from(frame),
-            channel,
-            band,
-            rssi_dbm,
+            channel: heard.channel,
+            band: heard.band,
+            rssi_dbm: heard.rssi_dbm,
             heard_ms: now,
         };
-        if let Some(old) = self
-            .entries
-            .iter_mut()
-            .find(|e| identity(&e.frame) == Some((bssid, subtype)) && e.band == band)
-        {
-            if self.bytes - old.frame.len() + frame.len() <= MAX_RESULT_BYTES {
-                self.bytes = self.bytes - old.frame.len() + frame.len();
+        let same = |e: &&mut ScanEntry| {
+            identity(&e.frame) == Some((bssid, subtype)) && e.band == heard.band
+        };
+        if let Some(old) = self.entries.iter_mut().find(same) {
+            let elsewhere = old.channel != heard.channel && heard.rssi_dbm <= old.rssi_dbm;
+            let bytes = self.bytes - old.frame.len() + frame.len();
+            if !elsewhere && bytes <= MAX_RESULT_BYTES {
+                self.bytes = bytes;
                 *old = entry;
             }
             return;
         }
-        if self.entries.len() < MAX_RESULTS && self.bytes + frame.len() <= MAX_RESULT_BYTES {
-            self.bytes += frame.len();
-            self.entries.push(entry);
+        while self.entries.len() >= MAX_RESULTS || self.bytes + frame.len() > MAX_RESULT_BYTES {
+            let weakest = self
+                .weakest()
+                .filter(|&i| self.entries[i].rssi_dbm <= heard.rssi_dbm);
+            let Some(weakest) = weakest else {
+                return;
+            };
+            let gone = self.entries.remove(weakest);
+            self.bytes -= gone.frame.len();
+        }
+        self.bytes += frame.len();
+        self.entries.push(entry);
+    }
+
+    /// The entry with the weakest signal, the oldest of equals.
+    fn weakest(&self) -> Option<usize> {
+        let key = |i: &usize| (self.entries[*i].rssi_dbm, self.entries[*i].heard_ms);
+        (0..self.entries.len()).min_by_key(key)
+    }
+
+    /// The domain changed under a running scan: the channels it does not
+    /// allow are not visited (the one being dwelt on is left at the next
+    /// poll), and probes go out only where it allows transmitting first.
+    pub(crate) fn rebase(&mut self, domain: Domain) {
+        let Some(run) = self.running.as_mut() else {
+            return;
+        };
+        let next = run.index.map_or(0, |i| i + 1);
+        let rest: Vec<Step> = run
+            .steps
+            .drain(next..)
+            .filter_map(|mut step| {
+                let how = domain.allows(step.channel.band, step.channel.number)?;
+                step.probe &= how == Use::Active;
+                Some(step)
+            })
+            .collect();
+        run.steps.extend(rest);
+        let current = run.index.and_then(|i| run.steps.get(i));
+        if current.is_some_and(|s| domain.allows(s.channel.band, s.channel.number).is_none()) {
+            run.until_ms = 0;
         }
     }
 

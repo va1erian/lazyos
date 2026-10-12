@@ -6,10 +6,16 @@ use alloc::vec::Vec;
 use ieee80211::ccmp::{rsc_from_bytes, Replay};
 use ieee80211::{is_group, Mac};
 
+use crate::bss::{bss_traits, Bss, Traits};
 use crate::keys::Pairwise;
-use crate::mac::{bss_traits, Bss, SoftMac, DEFAULT_INTERVAL_MS, REASON_LEAVING};
+use crate::mac::{SoftMac, REASON_LEAVING};
 use crate::radio::{Channel, KeyInstall, KeyKind, Radio, StaState, Width, CIPHER_CCMP128};
-use crate::Error;
+use crate::{Caller, Error};
+
+/// How recently a scan entry must have heard the BSS on its channel for a
+/// join to count it as heard there (the station manager joins without a new
+/// scan within 30 s of the last).
+const HEARD_FRESH_MS: u64 = 30_000;
 
 /// `Join`'s request, as the wire carries it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -33,7 +39,7 @@ pub struct KeyRequest<'a> {
 
 impl<R: Radio> SoftMac<R> {
     /// `Join`: tune to the BSS and filter to it, leaving any previous one.
-    pub fn join(&mut self, caller: u64, request: &JoinRequest, now: u64) -> Result<(), Error> {
+    pub fn join(&mut self, caller: Caller, request: &JoinRequest, now: u64) -> Result<(), Error> {
         self.owned(caller)?;
         let domain = self.domain.ok_or(Error::Again)?;
         let bssid: Mac = request
@@ -57,31 +63,29 @@ impl<R: Radio> SoftMac<R> {
             number,
             width,
         };
-        self.radio.tune(channel).map_err(|e| self.radio_failed(e))?;
+        self.tune(channel).map_err(|e| self.radio_failed(e))?;
         self.radio
             .set_bssid(Some(bssid), 0)
             .map_err(|e| self.radio_failed(e))?;
-        let (qos, interval_ms) = self
-            .scanner
-            .latest_of(&bssid)
+        let entry = self.scanner.latest_of(&bssid);
+        let traits = entry
             .and_then(|entry| bss_traits(&entry.frame))
-            .unwrap_or((false, DEFAULT_INTERVAL_MS));
-        self.bss = Some(Bss {
-            bssid,
-            channel,
-            aid: 0,
-            qos,
-            interval_ms,
-            last_beacon: now,
-            loss_reported: false,
-            protected: false,
+            .unwrap_or(Traits::UNKNOWN);
+        let heard = entry.is_some_and(|entry| {
+            (entry.band, entry.channel) == (band, number)
+                && now.saturating_sub(entry.heard_ms) <= HEARD_FRESH_MS
         });
+        let mut bss = Bss::new(bssid, channel, traits, now);
+        bss.heard = heard;
+        self.bss = Some(bss);
         self.state = StaState::Idle;
         Ok(())
     }
 
-    /// `SetState`.
-    pub fn set_state(&mut self, caller: u64, state: u32, aid: u32) -> Result<(), Error> {
+    /// `SetState`. `Authorized` comes only after `Associated`, and needs the
+    /// pairwise key when the BSS is protected (it advertised privacy, or a
+    /// key was installed); a state below `Associated` deletes the keys.
+    pub fn set_state(&mut self, caller: Caller, state: u32, aid: u32) -> Result<(), Error> {
         self.owned(caller)?;
         let state = StaState::from_u32(state).ok_or(Error::Invalid)?;
         let Some(bss) = self.bss else {
@@ -91,8 +95,12 @@ impl<R: Radio> SoftMac<R> {
             }
             return Err(Error::NotConnected);
         };
-        if state == StaState::Authorized && self.keys.pairwise.is_none() && self.keys.any() {
-            return Err(Error::Invalid);
+        if state == StaState::Authorized {
+            let protected = bss.privacy || bss.protected || self.keys.any();
+            let no_key = protected && self.keys.pairwise.is_none();
+            if self.state < StaState::Associated || no_key {
+                return Err(Error::Invalid);
+            }
         }
         let aid = if state >= StaState::Associated {
             u16::try_from(aid)
@@ -112,6 +120,12 @@ impl<R: Radio> SoftMac<R> {
             .map_err(|e| self.radio_failed(e))?;
         if let Some(bss) = self.bss.as_mut() {
             bss.aid = aid;
+            if state < StaState::Associated {
+                bss.protected = false;
+            }
+        }
+        if state < StaState::Associated {
+            self.drop_keys();
         }
         self.state = state;
         if state != StaState::Authorized {
@@ -122,7 +136,7 @@ impl<R: Radio> SoftMac<R> {
 
     /// `SetKey`: CCMP-128 pairwise (id 0 or 1) or group (id 1-3) keys for the
     /// joined BSS. IGTKs are refused: no management frame protection.
-    pub fn set_key(&mut self, caller: u64, request: &KeyRequest<'_>) -> Result<(), Error> {
+    pub fn set_key(&mut self, caller: Caller, request: &KeyRequest<'_>) -> Result<(), Error> {
         self.owned(caller)?;
         let bss = self.bss.ok_or(Error::NotConnected)?;
         let kind = KeyKind::from_u32(request.kind).ok_or(Error::Invalid)?;
@@ -148,14 +162,19 @@ impl<R: Radio> SoftMac<R> {
             rsc,
             peer: bss.bssid,
         };
-        self.radio
-            .set_key(&install)
-            .map_err(|e| self.radio_failed(e))?;
+        if let Err(error) = self.radio.set_key(&install) {
+            // Whether the radio still holds the slot's old key is unknown:
+            // make sure it holds none, and believe none.
+            let _ = self.radio.del_key(kind, index);
+            self.forget_key(kind, index);
+            return Err(self.radio_failed(error));
+        }
         match kind {
+            // A replaced pairwise key keeps the transmit PN (`Keys`), and
+            // starts its own receive window at the handshake's RSC.
             KeyKind::Pairwise => {
                 self.keys.pairwise = Some(Pairwise {
                     index,
-                    tx_pn: 0,
                     replay: Replay::new(rsc),
                 })
             }
@@ -168,7 +187,7 @@ impl<R: Radio> SoftMac<R> {
     }
 
     /// `DelKey`: not an error when the slot is empty.
-    pub fn del_key(&mut self, caller: u64, kind: u32, index: u32) -> Result<(), Error> {
+    pub fn del_key(&mut self, caller: Caller, kind: u32, index: u32) -> Result<(), Error> {
         self.owned(caller)?;
         let kind = KeyKind::from_u32(kind).ok_or(Error::Invalid)?;
         let index = u8::try_from(index)
@@ -178,6 +197,12 @@ impl<R: Radio> SoftMac<R> {
         self.radio
             .del_key(kind, index)
             .map_err(|e| self.radio_failed(e))?;
+        self.forget_key(kind, index);
+        Ok(())
+    }
+
+    /// Drop the table's entry for a key slot (the transmit PN stays).
+    fn forget_key(&mut self, kind: KeyKind, index: u8) {
         match kind {
             KeyKind::Pairwise if self.keys.pairwise.is_some_and(|k| k.index == index) => {
                 self.keys.pairwise = None
@@ -185,18 +210,18 @@ impl<R: Radio> SoftMac<R> {
             KeyKind::Group if index <= 3 => self.keys.group[usize::from(index)] = None,
             _ => {}
         }
-        Ok(())
     }
 
     /// `Leave`: deauthenticate with `reason`, delete the keys, go idle.
-    pub fn leave(&mut self, caller: u64, reason: u32) -> Result<(), Error> {
+    pub fn leave(&mut self, caller: Caller, reason: u32) -> Result<(), Error> {
         self.owned(caller)?;
         let reason = u16::try_from(reason).map_err(|_| Error::Invalid)?;
         self.disconnect(Some(reason));
         Ok(())
     }
 
-    /// Delete every key from the radio and the table.
+    /// Delete every key from the radio and the table; the transmit PN starts
+    /// over with the next association's keys.
     pub(crate) fn drop_keys(&mut self) {
         if let Some(key) = self.keys.pairwise {
             let _ = self.radio.del_key(KeyKind::Pairwise, key.index);
@@ -209,27 +234,33 @@ impl<R: Radio> SoftMac<R> {
         self.keys.clear();
     }
 
-    /// The AP ended the association (or we did): keys gone, link down, the
-    /// radio stays on the BSS so the client can authenticate again.
+    /// The AP ended the association (or we did): keys gone, link down, held
+    /// frames dropped; the radio stays on the BSS so the client can
+    /// authenticate again.
     pub(crate) fn drop_association(&mut self) {
         self.drop_keys();
         self.state = StaState::Idle;
         let _ = self.radio.set_state(StaState::Idle);
         if let Some(bss) = self.bss.as_mut() {
-            bss.aid = 0;
-            bss.protected = false;
+            bss.reset_exchange();
         }
+        self.pending.clear();
         self.rx_eth.clear();
     }
 
     /// Leave the BSS, sending a deauthentication with `reason` when the AP
-    /// knows us.
+    /// knows us and the radio may transmit there.
     pub(crate) fn disconnect(&mut self, reason: Option<u16>) {
         let Some(bss) = self.bss else {
             return;
         };
         if let Some(reason) = reason.filter(|_| self.state >= StaState::Authenticated) {
-            self.send_deauth(&bss.bssid, reason);
+            if self.tuned != Some(bss.channel) {
+                let _ = self.tune(bss.channel);
+            }
+            if self.tx_allowed() {
+                self.send_deauth(&bss.bssid, reason);
+            }
         }
         self.drop_association();
         let _ = self.radio.set_bssid(None, 0);

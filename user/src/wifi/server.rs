@@ -2,6 +2,13 @@
 //! service endpoints and the hardware's wake-up endpoint, and on every wake
 //! pump the hardware, run the soft-MAC's timers and receive path, answer
 //! requests, move data frames, send events and follow the link.
+//!
+//! Anyone may reach both endpoints (the names are public; `Info` is open),
+//! so nothing a client sends ends the program: a request too large for the
+//! receive buffer (the kernel dequeues it, then answers `E2BIG`) or one that
+//! does not decode is dropped and counted, and a reply that cannot be
+//! delivered is the client's loss. Only the endpoints themselves going away
+//! is fatal.
 
 use alloc::format;
 use alloc::string::String;
@@ -13,7 +20,7 @@ use super::hw::{self, HwService};
 use super::nic::NicService;
 use crate::central;
 use crate::messenger::net::{self as nic_api, wire as nic_wire};
-use crate::messenger::{self, registry, wait, Endpoint, Error as MsgError};
+use crate::messenger::{self, errno, registry, wait, Endpoint, Error as MsgError, Message, Parcel};
 use crate::sys;
 
 /// Longest park with nothing timed to do: the hardware's endpoint and the
@@ -21,6 +28,8 @@ use crate::sys;
 const IDLE_MS: u64 = 100;
 /// Requests answered per endpoint per wake, so neither starves the other.
 const REQUEST_BUDGET: usize = 16;
+/// Dropped requests are reported at most this often.
+const DROP_REPORT_MS: u64 = 10_000;
 
 /// A radio that needs the loop's help: the endpoint whose messages mean "the
 /// hardware has something" (an interrupt channel, the simulator's air card),
@@ -35,6 +44,40 @@ pub trait Hardware: Radio {
 
 fn fail(error: MsgError) -> String {
     format!("messenger: {}", error.message())
+}
+
+/// What one receive on a service endpoint gave.
+enum Next {
+    Request(Message),
+    /// Nothing is waiting.
+    Empty,
+    /// A message was taken off the queue but could not be read (too large,
+    /// malformed): dropped.
+    Dropped,
+    /// Something went wrong that taking more will not fix this round.
+    Later,
+}
+
+/// Take the next request from a service endpoint. Only an endpoint that no
+/// longer exists is an error.
+fn next_request(endpoint: Endpoint, buffer: &mut [u8]) -> Result<Next, String> {
+    match endpoint.poll_recv_with(buffer) {
+        Ok(Some(message)) => Ok(Next::Request(message)),
+        Ok(None) => Ok(Next::Empty),
+        Err(MsgError::Parcel(_)) => Ok(Next::Dropped),
+        Err(error) => match error.errno().map(|code| -code) {
+            Some(errno::E2BIG | errno::EINVAL) => Ok(Next::Dropped),
+            Some(errno::EPIPE | errno::EBADF | errno::ENOENT) => Err(fail(error)),
+            _ => Ok(Next::Later),
+        },
+    }
+}
+
+/// Answer a call; a client that is gone or cannot take the reply loses it.
+fn answer(endpoint: Endpoint, message: &Message, reply: &Parcel) {
+    if let Some(txn) = message.txn {
+        let _ = endpoint.reply_or_drop(txn, reply);
+    }
 }
 
 /// Publish `system/net/<ifname>/link`, connecting to the broker on first use.
@@ -67,6 +110,7 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
     let mut bus = None;
     publish_link(&mut bus, ifname, false, 0);
     let mut buffer = vec![0u8; messenger::DEFAULT_BUFFER];
+    let (mut dropped, mut reported_drops, mut next_drop_report) = (0u64, 0u64, 0u64);
     loop {
         let now = sys::monotonic_ms();
         let wake = nic
@@ -84,24 +128,39 @@ pub fn run<R: Hardware>(radio: R, ifname: &str, own_uid: u32) -> Result<(), Stri
         nic.mac().radio_mut().pump(now)?;
         nic.mac().poll(now);
         for _ in 0..REQUEST_BUDGET {
-            let Some(message) = hw_server.poll_recv_with(&mut buffer).map_err(fail)? else {
-                break;
+            let mut message = match next_request(hw_server, &mut buffer)? {
+                Next::Request(message) => message,
+                Next::Dropped => {
+                    dropped += 1;
+                    continue;
+                }
+                Next::Empty | Next::Later => break,
             };
-            let reply = hw.dispatch(nic.mac(), &message, now);
-            if let Some(txn) = message.txn {
-                hw_server.reply_or_drop(txn, &reply).map_err(fail)?;
+            let reply = hw.dispatch(nic.mac(), &mut message, now);
+            if hw::carries_secret(message.method()) {
+                // The temporal key was in the receive buffer too.
+                buffer.fill(0);
             }
+            answer(hw_server, &message, &reply);
         }
         for _ in 0..REQUEST_BUDGET {
-            let Some(message) = nic_server.poll_recv_with(&mut buffer).map_err(fail)? else {
-                break;
+            let message = match next_request(nic_server, &mut buffer)? {
+                Next::Request(message) => message,
+                Next::Dropped => {
+                    dropped += 1;
+                    continue;
+                }
+                Next::Empty | Next::Later => break,
             };
             let reply = nic.dispatch(&message).unwrap_or_else(|error| {
                 messenger::services::error_reply(message.interface_id(), message.method(), error)
             });
-            if let Some(txn) = message.txn {
-                nic_server.reply_or_drop(txn, &reply).map_err(fail)?;
-            }
+            answer(nic_server, &message, &reply);
+        }
+        if dropped > reported_drops && now >= next_drop_report {
+            sys::write_str(&format!("WIFI:DROPPED if={ifname} requests={dropped}\n"));
+            reported_drops = dropped;
+            next_drop_report = now + DROP_REPORT_MS;
         }
         // Requests may have queued frames for the air: send them now.
         nic.mac().radio_mut().pump(now)?;

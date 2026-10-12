@@ -37,18 +37,28 @@
 // that namespace.
 //
 // **One client.** The first caller of `Attach` owns the radio; its identity
-// is the kernel-stamped sender, and every later call or `Detach` by anyone
-// else fails with `EACCES` (a second attach with `EBUSY`). `Attach` is
-// accepted from `_wlan` alone (`netpolicy::may_attach_wifi_hw`; `EPERM`
-// otherwise), so nobody can take the radio before `wlanmd` does. The owner's
-// exit, or its event channel reporting the peer gone, detaches it and leaves
-// the radio idle: scanning stops, the BSS is left, all keys are deleted.
+// is the kernel-stamped sender, its task and its credentials (uid, label,
+// session), all of which must match on every later call, and a call or
+// `Detach` by anyone else fails with `EACCES` (a second attach with
+// `EBUSY`). `Attach` is accepted from `_wlan` alone, unlabelled and outside
+// any session (`netpolicy::may_attach_wifi_hw`; `EPERM` otherwise), so
+// nobody can take the radio before `wlanmd` does; the simulator also lets
+// its own test client (`wifiprobe`, running as `_wifisim`) attach. The
+// owner's exit, or its event channel reporting the peer gone, detaches it
+// and leaves the radio idle: scanning stops, the BSS is left, all keys are
+// deleted.
 //
 // **Events.** `Attach` carries the client's event channel; the driver sends
 // the `oneway` methods below (`ScanDone`, `RxMgmt`, `BeaconLoss`,
 // `Deauthenticated`) on it. They carry the same bounds as calls: a frame is
 // at most `HwInfo.max_mgmt` bytes, never truncated and never delivered
-// partially; one that does not fit is dropped and counted.
+// partially; one that does not fit is dropped and counted. Anyone in radio
+// range can forge frames from the BSS, so `RxMgmt` is rate-limited and is
+// the first thing dropped when the client falls behind: `ScanDone`,
+// `BeaconLoss` and `Deauthenticated` have room of their own and are kept
+// until the client's inbox takes them (a repeat of a `BeaconLoss` or
+// `Deauthenticated` the client has not read yet is folded into it). What is
+// dropped is counted in `HwStats.mgmt_dropped`.
 //
 // **Keys cross this interface.** `SetKey` is the one place secret material
 // (a temporal key) leaves `wlanmd`: the hardware needs it to encrypt. It is
@@ -91,9 +101,13 @@ fn detach() {
 /// where transmitting first is not universally allowed, no 6 GHz). The
 /// driver must not transmit on a channel the domain forbids and may refuse
 /// to transmit at all before the first call (`EAGAIN` from `Scan` with
-/// active probing, `Join`, `TxMgmt`). A code it does not know is `EINVAL`.
-/// The value comes from `wlanmd`, which reads `sys/net/wifi/country`;
-/// the driver trusts nobody else for it.
+/// active probing, `Join`, `TxMgmt`). A code that is not an assigned ISO
+/// 3166-1 code (`ZZ`) is `EINVAL`. A new domain applies at once: a running
+/// scan skips the channels it forbids and probes only where it allows,
+/// and a joined BSS on a channel it forbids is left without transmitting
+/// and reported as `Deauthenticated` (reason 3). The value comes from
+/// `wlanmd`, which reads `sys/net/wifi/country`; the driver trusts nobody
+/// else for it.
 fn set_country(alpha2) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("SetCountry", [alpha2])
 }
@@ -105,7 +119,8 @@ fn set_country(alpha2) {
 /// `HwInfo.max_scan_ssids` SSIDs of at most 32 bytes and at most
 /// `HwInfo.max_scan_channels` channels (`EINVAL` beyond, or for a channel
 /// the radio or its domain does not have). A scan during an association
-/// is allowed and may pause traffic for its dwell time.
+/// is allowed and pauses traffic while the radio is on other channels:
+/// nothing is sent to the BSS from another channel (see `TxMgmt`).
 fn scan(request) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("Scan", [request])
 }
@@ -146,10 +161,16 @@ fn join(request) {
 /// management frame without FCS, for `Eapol` a complete 802.3 EAPOL frame
 /// (the radio adds the 802.11 header and, once keys are installed, the
 /// encryption). Only while joined (`ENOTCONN`); a frame longer than
-/// `HwInfo.max_mgmt` is `EINVAL`. The reply means queued, not delivered.
-/// A frame goes out under the keys in force when it was queued: message
-/// 4 of the 4-way handshake is queued just before the pairwise key is
-/// installed and must leave unencrypted.
+/// `HwInfo.max_mgmt` (or, as EAPOL, too long for the radio once
+/// wrapped) is `EINVAL`. A management frame is from the station to the
+/// joined BSS (receiver and BSSID, or broadcast in either for a probe
+/// request), an EAPOL frame to the BSSID; anything else is `EINVAL`. The
+/// reply means queued, not delivered: while a scan has the radio on
+/// another channel, or on a passive channel before the BSS was heard
+/// there, the frame waits (`EBUSY` when too many already wait), and a
+/// full transmit queue is `EBUSY`. A frame goes out under the keys in
+/// force when it was queued: message 4 of the 4-way handshake is queued
+/// just before the pairwise key is installed and must leave unencrypted.
 fn tx_mgmt(kind, frame) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("TxMgmt", [kind, frame])
 }
@@ -159,9 +180,12 @@ fn tx_mgmt(kind, frame) {
 /// Move the radio's association state: a `StaState` ordinal. `Associated`
 /// carries the association id the AP assigned; `Authorized` opens the
 /// controlled port (data frames flow, the NIC's link comes up) and is
-/// valid only after the pairwise key is installed, or straight after
-/// `Associated` for an open network (no key at all). Going to a lower
-/// state is always allowed and takes the link down.
+/// valid only from `Associated`, and only after the pairwise key is
+/// installed, or straight after `Associated` for an open network (no key
+/// at all; a BSS whose scan entry or beacons advertised privacy or an RSN
+/// element is never open, `EINVAL`). Going to a lower state is always
+/// allowed and takes the link down; below `Associated` it deletes every
+/// key.
 fn set_state(state, aid) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("SetState", [state, aid])
 }
@@ -173,8 +197,12 @@ fn set_state(state, aid) {
 /// a `Cipher` ordinal the radio advertised, `key` its exact length,
 /// `rsc` the receive sequence counter the handshake delivered (little
 /// endian, up to 8 bytes) and `addr` the peer address (the BSSID for a
-/// group key). Replaces a key in the same slot atomically. `EINVAL` for a
-/// length or index that does not fit, `ENOSPC` for no free slot.
+/// group key). Replaces a key in the same slot atomically. The transmit
+/// packet number belongs to the association, not the key: a new or
+/// reinstalled pairwise key continues it, and only leaving the BSS starts
+/// it over. `EINVAL` for a length or index that does not fit, `ENOSPC`
+/// for no free slot; when the radio refuses a key, the slot is left
+/// empty.
 fn set_key(kind, index, cipher, key, rsc, addr) {
     msg::connect("os.lazy.net.wifi.hw.v1").invoke("SetKey", [kind, index, cipher, key, rsc, addr])
 }
@@ -216,7 +244,11 @@ fn scan_done(scan_id, aborted) {
 /// `RxMgmt(kind: U32, rssi_dbm: I32, frame: Bytes) -> () oneway`
 ///
 /// Event, driver to client: a management or EAPOL frame addressed to this
-/// station arrived from the joined BSS. `kind` is a `FrameKind` ordinal,
+/// station arrived from the joined BSS, and the client can be waiting for
+/// it: an authentication or (re)association response only after
+/// `TxMgmt` sent its request, an action frame once `Associated`, EAPOL
+/// once the AP answered the association; a retransmission of the last
+/// unprotected frame is dropped. `kind` is a `FrameKind` ordinal,
 /// `rssi_dbm` the signal in dBm. The frame has the shape `TxMgmt` takes:
 /// a whole management frame (from the MAC header, no FCS), or EAPOL as
 /// an 802.3 frame (destination, source, ethertype 0x888E, then the
