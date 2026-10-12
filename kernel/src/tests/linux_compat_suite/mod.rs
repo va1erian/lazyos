@@ -356,6 +356,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_threadsig_soak", threadsig_soak),
     (
+        "compat_threadsig_counts_sent_signals",
+        threadsig_counts_sent_signals,
+    ),
+    ("compat_threadsig_count_soak", threadsig_count_soak),
+    (
         "compat_ramfs_opens_read_through",
         readthrough::ramfs_opens_read_through,
     ),
@@ -385,6 +390,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         schedattr_privilege_rules,
     ),
     ("compat_schedattr_keep_flags", schedattr_keep_flags),
+    (
+        "compat_schedattr_idle_ignores_nice",
+        schedattr_idle_ignores_nice,
+    ),
+    (
+        "compat_schedattr_getattr_end_of_mapping",
+        schedattr_getattr_end_of_mapping,
+    ),
     (
         "compat_schedattr_children_inherit",
         schedattr_children_inherit,

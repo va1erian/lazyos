@@ -190,11 +190,12 @@ pub fn schedattr_unprivileged_needs_same_process() -> Result<(), String> {
 }
 
 /// `sched_setscheduler`, `sched_setparam`, `setpriority` and `getpriority` are
-/// not offered (`ENOSYS`: a caller falls back to `sched_setattr`, which is what
-/// musl's `pthread_setschedparam` and WTF use); so nothing can change a task's
-/// policy or nice value behind `sched_getattr`'s back, and the two views agree
-/// by construction. Pinned here so wiring one of them in has to route it
-/// through `schedattr`.
+/// not offered (`ENOSYS`). WTF calls `sched_setattr` directly, but musl's
+/// `pthread_setschedparam` calls `sched_setscheduler` and `pthread_setschedprio`
+/// calls `sched_setparam`, so those two library calls fail until the syscalls
+/// are wired in. Nothing can change a task's policy or nice value behind
+/// `sched_getattr`'s back, and the two views agree by construction. Pinned here
+/// so wiring one of them in has to route it through `schedattr`.
 pub fn schedattr_other_setters_not_offered() -> Result<(), String> {
     scoped(USER, || {
         for (nr, name) in [

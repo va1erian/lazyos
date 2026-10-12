@@ -75,8 +75,23 @@ fn tidy(text: &str) -> String {
         .collect()
 }
 
+/// A script's output without its last line when that is `signals:<n>`, and
+/// the number (`None` when the line is missing or is not one: a kernel that
+/// does not count prints `-1`).
+fn split_signals(out: &str) -> (&str, Option<u64>) {
+    let body = out.strip_suffix('\n').unwrap_or(out);
+    if let Some((head, last)) = body.rsplit_once('\n') {
+        if let Some(count) = last.strip_prefix("signals:") {
+            return (&out[..=head.len()], count.parse().ok());
+        }
+    }
+    (out, None)
+}
+
 impl Shell {
-    /// Run a script and report it as `<prefix>RUN:PASS|FAIL:<name>`.
+    /// Run a script and report it as `<prefix>RUN:PASS|FAIL:<name>`, and the
+    /// thread-directed signals it says its process sent (`signals:<n>` as the
+    /// last output line) as `<prefix>SIGNALS:<name>:<n>`.
     fn check(&self, name: &str, args: &[&str], want: &str) -> bool {
         let prefix = self.prefix;
         // Names the script in the serial log before anything it makes the kernel say.
@@ -85,14 +100,19 @@ impl Shell {
         let result = run(self.program, args);
         let ms = began.elapsed().as_millis();
         match result {
-            Ok((true, out, _)) if out == want => {
-                println!("{prefix}RUN:PASS:{name}");
-                println!("{prefix}TIME:{name}:{ms}");
-                true
-            }
             Ok((true, out, _)) => {
-                println!("{prefix}RUN:FAIL:{name}:got {}", tidy(&out));
-                false
+                let (body, signals) = split_signals(&out);
+                if let Some(count) = signals {
+                    println!("{prefix}SIGNALS:{name}:{count}");
+                }
+                if body == want {
+                    println!("{prefix}RUN:PASS:{name}");
+                    println!("{prefix}TIME:{name}:{ms}");
+                    true
+                } else {
+                    println!("{prefix}RUN:FAIL:{name}:got {}", tidy(body));
+                    false
+                }
             }
             Ok((false, out, err)) => {
                 println!(
@@ -141,7 +161,12 @@ impl Shell {
             ("agents", AGENTS_SCRIPT, AGENTS_WANT),
             ("suspend", SUSPEND_SCRIPT, SUSPEND_WANT),
         ] {
-            let path = script(&format!("{}-{name}", self.program), body);
+            // The scripts that report `signals:<n>` start with its helper.
+            let source = match name {
+                "gc" | "suspend" => format!("{SIGNALS_JS}{body}"),
+                _ => body.to_string(),
+            };
+            let path = script(&format!("{}-{name}", self.program), &source);
             ok &= self.check(name, &[&path], want);
         }
         ok &= jsc_stress::run(self.program, prefix);

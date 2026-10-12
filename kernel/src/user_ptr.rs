@@ -129,6 +129,10 @@ pub fn try_read_resident<T: Pod>(addr: u64) -> Result<T, Fault> {
 
 /// Borrow `len` bytes at `addr` as [`try_read_resident`] reads them: all of
 /// the range's pages must already be present, none is materialized.
+///
+/// The slice aliases user memory for `'a`; the caller must not hold it across
+/// a point where the task's own threads could unmap the range, and must use
+/// it at once (as [`try_bytes`]: within one handler or one report).
 pub fn try_resident_bytes<'a>(addr: u64, len: usize) -> Result<&'a [u8], Fault> {
     check_resident(addr, len)?;
     if len == 0 {

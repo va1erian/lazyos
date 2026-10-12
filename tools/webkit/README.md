@@ -131,8 +131,8 @@ a line of text into a CPU surface through `SkFontMgr_New_FontConfig` (the
 path WebKit's `FontCacheSkia` takes) and checksums it. The judge requires the
 decoded pixels, the glyph bitmap, the shaping result and the Skia surface to equal
 what the same program printed on the build host, the page curl fetched to be
-the one the server holds, and the server to have seen the SNI and one request
-for `/`.
+the one the server holds, and the server to have seen a completed handshake
+with the SNI and at least one request for `/` from `depsproof`.
 
 The build runs the same program once on the Linux build host and keeps its output
 as `target/webkit/depsproof.host.txt`. Both runs print `WEBKIT:W3:BIN`, the

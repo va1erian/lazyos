@@ -48,7 +48,9 @@ LGPL21_OK = {
     "MIT", "MIT-0", "ISC", "0BSD", "BSD-2-Clause", "BSD-3-Clause", "Zlib", "libpng-2.0", "IJG",
     "FTL", "HPND-sell-variant", "blessing", "curl", "Unicode-3.0", "Unicode-DFS-2016",
     "CC0-1.0", "BSL-1.0", "OFL-1.1",
-    "GPL-2.0-or-later", "GPL-2.0-only", "LGPL-2.1-only", "LGPL-2.1-or-later",
+    # No GPL here: a GPL-only library would make the whole LGPL-2.1 binary GPL.
+    # FreeType is `FTL OR GPL-2.0-or-later` and passes through FTL.
+    "LGPL-2.1-only", "LGPL-2.1-or-later",
     # MPL-2.0 section 3.3 lets it combine with (L)GPL code as a Secondary License.
     "MPL-2.0",
 }
@@ -99,7 +101,7 @@ def verdict(dep: wkpins.Dep, nettls) -> tuple[bool, bool, str]:
 
 
 def table(nettls) -> list[str]:
-    lines = [f"{"library":<24}{'version':<12}{'licence':<40}{'GPLv2 code':<11}notes"]
+    lines = [f"{'library':<24}{'version':<12}{'licence':<40}{'GPLv2 code':<11}notes"]
     for dep in libraries():
         _, gpl2, _ = verdict(dep, nettls)
         lines.append(f"{dep.name:<24}{dep.source.version:<12}{dep.license:<40}{'yes' if gpl2 else 'NO':<11}"
