@@ -1131,6 +1131,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pciprobe"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "pcm"
 version = "0.1.0"
 

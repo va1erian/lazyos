@@ -1,0 +1,21 @@
+[package]
+name = "pciprobe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rules for dbgd's read-only PCI config and MMIO reads: the per-device range allowlist, the diag.dbg.mmio* config lines, request bounds (docs/dbgd-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "pciprobe"
+path = "src/lib.rs"
+
+[features]
+# Kept for symmetry with the other fuzzed libraries (the entry point itself
+# is always built).
+fuzz = []
+
+[dependencies]
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
