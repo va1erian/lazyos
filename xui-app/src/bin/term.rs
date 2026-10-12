@@ -63,9 +63,13 @@ const SHELL: &str = fhs::bin::BUSYBOX;
 /// Window size when a compositor lays the app out; as the display owner the
 /// terminal fills the screen instead.
 const WINDOW: (i32, i32) = (640, 400);
-/// The terminal geometry BusyBox sees through `TIOCGWINSZ`, so the engine
-/// matches it exactly. The engine's size is dynamic; making the window
-/// resizable and the pty follow it is a later phase (docs/terminal-plan.md T4).
+/// The terminal geometry BusyBox sees through `TIOCGWINSZ`: 80 columns and
+/// at most 24 rows (the rows the window shows). The engine is created with
+/// exactly the pty's size, so a program that addresses the screen from its
+/// own idea of the height (`less` does not use the alternate screen) lands
+/// where the shell expects; a taller engine left stale rows under the
+/// prompt. Making the window resizable and the pty follow it is a later
+/// phase (docs/terminal-plan.md T4).
 const COLS: usize = 80;
 const ROWS: usize = 24;
 /// A safety-net drain: the pty wakes the loop itself (`watch_fd`), so this
@@ -336,7 +340,7 @@ fn main() {
     };
     set_nonblocking(master.fd());
 
-    let term = Rc::new(RefCell::new(Engine::new(COLS, ROWS)));
+    let term = Rc::new(RefCell::new(Engine::new(cols, rows)));
     let paint_clock = Rc::new(PaintClock::default());
     let layout = Rc::new(Cell::new(None));
     let offset = Rc::new(Cell::new(0usize));

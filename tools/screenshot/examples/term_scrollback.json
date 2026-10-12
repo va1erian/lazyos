@@ -62,5 +62,18 @@
   {"key": "enter", "until": "TERM:OUT:DONE", "timeout": 60, "retries": 2},
   {"wait": 1.5},
   {"shot": "11_after_vi"},
+
+  {"type": "less /tmp/long.txt"},
+  {"key": "enter"},
+  {"wait": 3.0},
+  {"shot": "12_less"},
+  {"type": "q"},
+  {"wait": 1.0},
+  {"key": "enter"},
+  {"wait": 1.5},
+  {"type": "echo LESSDONE"},
+  {"key": "enter", "until": "TERM:OUT:LESSDONE", "timeout": 60, "retries": 2},
+  {"wait": 1.5},
+  {"shot": "13_after_less"},
   {"quit": true}
 ]
