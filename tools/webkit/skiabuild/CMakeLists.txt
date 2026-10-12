@@ -75,7 +75,8 @@ install(DIRECTORY "${SKIA_DIR}/include/" DESTINATION skia/include FILES_MATCHING
 install(FILES "${SKIA_DIR}/modules/skcms/skcms.h" DESTINATION skia/modules/skcms)
 install(DIRECTORY "${SKIA_DIR}/modules/svg/include/" DESTINATION skia/modules/svg/include
         FILES_MATCHING PATTERN "*.h")
-install(CODE "file(CREATE_LINK \"../skia/include\" \"\$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/include/skia\" SYMBOLIC)")
+install(CODE "file(MAKE_DIRECTORY \"\$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/include\")
+file(CREATE_LINK \"../skia/include\" \"\$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/include/skia\" SYMBOLIC)")
 
 get_target_property(_skia_defs Skia INTERFACE_COMPILE_DEFINITIONS)
 set(_skia_flags "")

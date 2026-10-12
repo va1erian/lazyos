@@ -1,10 +1,15 @@
 """Helpers every recipe uses: the zig toolchain environment, CMake and
 autoconf runners, and the stamps that make a rebuild skip finished libraries.
 
-Everything installs into the one prefix ``wkpins.PREFIX``; a stamp
+Everything ends up in the one prefix ``wkpins.PREFIX``, but a library never
+installs into it directly: its install step writes under ``DESTDIR`` (a staging
+directory, ``stage()``), and leaving the :class:`Recipe` copies the staged files
+into the prefix. So the files a library owns are exactly what its install step
+wrote, whatever the prefix already held: a stamp
 (``<prefix>/.stamps/<name>.json``) holds the recipe's key (source digest, the
-configuration, the stamps of what it depends on) and the files the install
-added, which is what ``manifest.py`` reports.
+configuration, the stamps of what it depends on) and that file list (what
+``manifest.py`` reports), and a rebuild first deletes the files of the library's
+previous install, so nothing of an old version is left behind.
 """
 
 from __future__ import annotations
@@ -17,8 +22,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import wkpins  # first: it puts tools/jsc (toolenv) on sys.path
 import toolenv
-import wkpins
 from toolenv import BuildError, run
 
 PREFIX = wkpins.PREFIX
@@ -94,46 +99,119 @@ def is_current(name: str, key: str) -> bool:
     return stamp_key(name) == key
 
 
-def snapshot() -> set[str]:
-    """Every file under the prefix (not the stamps), relative."""
+#: Where installs are staged: ``<stage root>/<library>`` is a DESTDIR.
+STAGE_ROOT = wkpins.WORK / "stage"
+#: The library whose install is running (set by :class:`Recipe`).
+_current: "Recipe | None" = None
+
+
+def list_tree(root: Path) -> list[str]:
+    """Every file and symlink under `root` (never the stamps), relative, sorted."""
     found: set[str] = set()
-    if not PREFIX.is_dir():
-        return found
-    for root, dirs, files in os.walk(PREFIX):
-        if Path(root) == PREFIX and ".stamps" in dirs:
+    if not root.is_dir():
+        return []
+    for here, dirs, files in os.walk(root):
+        if Path(here) == root and ".stamps" in dirs:
             dirs.remove(".stamps")
         for name in files:
-            found.add(str((Path(root) / name).relative_to(PREFIX)))
+            found.add((Path(here) / name).relative_to(root).as_posix())
         for name in dirs:  # symlinked directories count as files
-            link = Path(root) / name
+            link = Path(here) / name
             if link.is_symlink():
-                found.add(str(link.relative_to(PREFIX)))
-    return found
+                found.add(link.relative_to(root).as_posix())
+    return sorted(found)
+
+
+def under_root(path: Path) -> Path:
+    """`path` without its root (and drive), to join under a DESTDIR."""
+    return Path(*path.parts[1:])
+
+
+def stage() -> Path:
+    """The DESTDIR of the library being built (an install step passes it on)."""
+    if _current is None:
+        raise BuildError("no library is being built: nothing to stage into")
+    return _current.stage
+
+
+def staged_prefix() -> Path:
+    """Where the staged files of the library being built sit: `PREFIX` under the DESTDIR."""
+    return stage() / under_root(PREFIX)
+
+
+def destdir_env() -> dict[str, str]:
+    """The environment that makes ``cmake --install`` stage."""
+    return {"DESTDIR": str(stage())}
+
+
+def remove_installed(files: list[str]) -> None:
+    """Delete the prefix files of a previous install, then the directories it emptied."""
+    parents: set[Path] = set()
+    for rel in files:
+        path = PREFIX / rel
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        parents.update(p for p in path.parents if PREFIX in p.parents)
+    for directory in sorted(parents, key=lambda p: len(p.parts), reverse=True):
+        try:
+            directory.rmdir()  # only an empty one goes
+        except OSError:
+            pass
+
+
+def read_stamp(name: str) -> dict | None:
+    path = STAMPS / f"{name}.json"
+    return json.loads(path.read_text()) if path.is_file() else None
 
 
 class Recipe:
-    """Context for one library: records the files it installs, writes its stamp."""
+    """Context for one library: stages its install, then moves it into the
+    prefix, replacing the files of the library's previous install, and writes
+    its stamp with the files the install step wrote."""
 
     def __init__(self, dep: wkpins.Dep | None, name: str, key: str, version: str = "",
                  info: dict | None = None) -> None:
         self.dep, self.name, self.key = dep, name, key
         self.version = version or (dep.source.version if dep else "")
         self.info = info or {}
-        self.before: set[str] = set()
+        self.stage = STAGE_ROOT / name
 
     def __enter__(self) -> "Recipe":
-        self.before = snapshot()
+        global _current
+        # What the library owned is gone before it builds, so it only ever
+        # sees the files of its dependencies; a failed build leaves no stamp
+        # (and no half of an old version) for the next run to trust.
+        previous = read_stamp(self.name)
+        if previous:
+            remove_installed(previous.get("files", []))
+            (STAMPS / f"{self.name}.json").unlink()
+        shutil.rmtree(self.stage, ignore_errors=True)
+        self.stage.mkdir(parents=True)
+        _current = self
         return self
 
     def __exit__(self, kind, value, trace) -> None:
-        if kind is not None:
-            return
-        added = sorted(snapshot() - self.before)
+        global _current
+        _current = None
+        try:
+            if kind is None:
+                self.commit()
+        finally:
+            shutil.rmtree(self.stage, ignore_errors=True)
+
+    def commit(self) -> None:
+        """Copy the staged files into the prefix and write the stamp."""
+        staged = self.stage / under_root(PREFIX)
+        written = list_tree(staged)
+        if staged.is_dir():
+            shutil.copytree(staged, PREFIX, symlinks=True, dirs_exist_ok=True)
         STAMPS.mkdir(parents=True, exist_ok=True)
-        record = {"name": self.name, "version": self.version, "key": self.key, "files": added}
+        record = {"name": self.name, "version": self.version, "key": self.key, "files": written}
         if self.dep:
             record.update(archive=self.dep.archive, url=self.dep.source.url,
                           sha256=self.dep.source.sha256, license=self.dep.license, why=self.dep.why)
+            if self.dep.notes:
+                record["notes"] = self.dep.notes
         record.update(self.info)
         (STAMPS / f"{self.name}.json").write_text(json.dumps(record, indent=1))
 
@@ -184,7 +262,7 @@ def patch_key(name: str) -> list[str]:
 
 def cmake_build(name: str, tree: Path, options: dict[str, str], jobs: int,
                 subdir: str = "", env: dict[str, str] | None = None) -> None:
-    """Configure, build and install a CMake project into the prefix."""
+    """Configure and build a CMake project, and install it into the staging directory."""
     build = wkpins.BUILD / name
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True)
@@ -193,12 +271,12 @@ def cmake_build(name: str, tree: Path, options: dict[str, str], jobs: int,
     run(["cmake", "-G", "Ninja", "-S", str(source), "-B", str(build), *cmake_args(options)],
         build, f"{name} configure", env=env)
     run(["cmake", "--build", str(build), "-j", str(jobs)], build, f"{name} build", env=env)
-    run(["cmake", "--install", str(build)], build, f"{name} install", env=env)
+    run(["cmake", "--install", str(build)], build, f"{name} install", env={**env, **destdir_env()})
 
 
 def configure_build(name: str, tree: Path, args: list[str], jobs: int,
                     env: dict[str, str] | None = None, subdir: str = "") -> Path:
-    """``configure && make && make install`` out of tree; the build directory."""
+    """``configure && make && make install DESTDIR=<stage>`` out of tree; the build directory."""
     build = wkpins.BUILD / name
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True)
@@ -208,7 +286,7 @@ def configure_build(name: str, tree: Path, args: list[str], jobs: int,
     run([str(source / "configure"), f"--prefix={PREFIX}", "--libdir=" + str(PREFIX / "lib"),
          *args], build, f"{name} configure", env=merged)
     run(["make", f"-j{jobs}"], build, f"{name} make", env=merged)
-    run(["make", "install"], build, f"{name} make install", env=merged)
+    run(["make", "install", f"DESTDIR={stage()}"], build, f"{name} make install", env=merged)
     return build
 
 

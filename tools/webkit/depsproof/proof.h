@@ -8,6 +8,13 @@
 #include <string>
 #include <vector>
 
+// Guest paths come from libs/fhs, not from this file: proof.py passes them as
+// -D macros (tools/webkit/fhspaths.py reads the fhs crate), the same values the
+// libraries were built with.
+#if !defined(DEPSPROOF_CA_BUNDLE) || !defined(DEPSPROOF_FONT_CACHE_DIR) || !defined(DEPSPROOF_TMP)
+#error "compile through tools/webkit/proof.py: it defines the libs/fhs paths"
+#endif
+
 namespace proof {
 
 // A check's verdict. `detail` is printed on failure (colons are replaced).
