@@ -94,6 +94,27 @@ class Client:
         finally:
             conn.close()
 
+    def add_machine(self, name: str, mac: str, channel: str | None = None,
+                    timeout_ms: int | None = None) -> dict:
+        fields = {"machine": name, "mac": mac}
+        if channel:
+            fields["channel"] = channel
+        if timeout_ms is not None:
+            fields["timeout_ms"] = timeout_ms
+        return self.signed("POST", f"/api/machines/{name}/add", "add", fields)
+
+    def rekey_machine(self, name: str) -> dict:
+        return self.signed("POST", f"/api/machines/{name}/rekey", "rekey", {"machine": name})
+
+    def callback(self, machine: str, action: str, build_id: str, machine_key: str | None = None) -> dict:
+        """Post `booting` or `booted`: signed with the machine's callback key (HMAC) if given, else the dev key."""
+        path = f"/api/machines/{machine}/{action}"
+        if machine_key:
+            body, header = auth.sign_machine(machine_key, machine, action, {"id": build_id})
+            return self.request("POST", path, body, {auth.MACHINE_HEADER: header,
+                                                     "Content-Type": "application/json"})
+        return self.signed("POST", path, action, {"machine": machine, "id": build_id})
+
     def commit(self, channel: str, build_id: str) -> dict:
         return self.signed("POST", f"/api/builds/{channel}/{build_id}/commit", "commit",
                            {"channel": channel, "id": build_id})

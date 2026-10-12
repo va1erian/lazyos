@@ -35,6 +35,7 @@ import names
 MANIFEST = "manifest.json"
 SIGNATURE = "manifest.sig"
 MAX_MANIFEST = 1 << 20
+MAX_SIGNATURE = 4096
 #: Most files one upload may hold (a build has four).
 MAX_UPLOAD_FILES = 64
 #: A leftover `.incoming` directory older than this is removed (seconds).
@@ -187,17 +188,47 @@ class Store:
     # -- uploading and committing ---------------------------------------
 
     def put_file(self, channel: str, build_id: str, name: str, stream, length: int) -> int:
-        """Store `length` bytes of `stream` as one file of the build's incoming directory."""
+        """Store `length` bytes of `stream` as one file of the build's incoming directory.
+
+        An upload is opened by its signed manifest: `manifest.json` and
+        `manifest.sig` come first and are verified the moment both are there
+        (a pair that does not verify deletes the upload). Until then every
+        other file is refused, and afterwards only a file the manifest lists,
+        with exactly the size it lists, so a host that holds no key cannot
+        make the registry store more than a signed manifest allows.
+        """
         _check(names.is_name(channel), "channel", channel)
         _check(names.is_build_id(build_id), "build id", build_id)
         _check(names.is_name(name), "file name", name)
         if self.find_build(build_id):
             raise StoreError(409, f"build {build_id} already exists; ids are never overwritten")
         directory = self.incoming_dir(channel, build_id)
+        is_manifest = name in (MANIFEST, SIGNATURE)
+        if is_manifest:
+            limit = MAX_MANIFEST if name == MANIFEST else MAX_SIGNATURE
+            if length > limit:
+                raise StoreError(413, f"{name} is larger than {limit} bytes")
+        else:
+            entry = self._opened_manifest(directory, build_id)["files"].get(name)
+            if entry is None:
+                raise StoreError(400, f"{name} is not a file of the manifest")
+            if length != entry["size"]:
+                raise StoreError(413, f"{name}: Content-Length {length} != manifest size {entry['size']}")
         directory.mkdir(parents=True, exist_ok=True)
         existing = [p for p in directory.iterdir() if not p.name.startswith(".")]
         if len(existing) >= MAX_UPLOAD_FILES and not (directory / name).exists():
             raise StoreError(400, f"too many files in one upload (limit {MAX_UPLOAD_FILES})")
+        written = self._write_part(directory, name, stream, length)
+        if is_manifest and (directory / MANIFEST).exists() and (directory / SIGNATURE).exists():
+            try:
+                self._open_manifest(directory, build_id)
+            except StoreError:
+                shutil.rmtree(directory, ignore_errors=True)
+                raise
+        return written
+
+    @staticmethod
+    def _write_part(directory: Path, name: str, stream, length: int) -> int:
         part = directory / f".{name}.{os.urandom(4).hex()}.part"
         written = 0
         try:
@@ -216,6 +247,22 @@ class Store:
             raise
         return written
 
+    def _open_manifest(self, directory: Path, build_id: str) -> dict:
+        """The parsed manifest of an upload whose pair verifies against `keys.json`, else raise."""
+        raw = (directory / MANIFEST).read_bytes()
+        with open(directory / SIGNATURE, "rb") as f:
+            self._signer(raw, f.read(MAX_SIGNATURE))
+        manifest = self._parse_manifest(raw)
+        if manifest.get("id") != build_id:
+            raise StoreError(400, f'{MANIFEST} "id" is not {build_id}')
+        return manifest
+
+    def _opened_manifest(self, directory: Path, build_id: str) -> dict:
+        if not (directory / MANIFEST).is_file() or not (directory / SIGNATURE).is_file():
+            raise StoreError(403, f"upload {MANIFEST} and {SIGNATURE} first: files are accepted only "
+                                  "once the signed manifest that lists them is in place")
+        return self._open_manifest(directory, build_id)
+
     def _verify_incoming(self, directory: Path) -> tuple[bytes, str, int]:
         """Check an upload; return `(manifest bytes, signing key id, total size)` or raise."""
         have = {p.name for p in directory.iterdir() if p.is_file() and not p.name.startswith(".")}
@@ -225,7 +272,7 @@ class Store:
         if len(raw) > MAX_MANIFEST:
             raise StoreError(400, f"{MANIFEST} is larger than {MAX_MANIFEST} bytes")
         with open(directory / SIGNATURE, "rb") as f:
-            signer = self._signer(raw, f.read(4096))
+            signer = self._signer(raw, f.read(MAX_SIGNATURE))
         manifest = self._parse_manifest(raw)
         files = manifest["files"]
         wanted = set(files) | {MANIFEST, SIGNATURE}

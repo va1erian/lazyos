@@ -75,8 +75,9 @@ class PushTests(RegistryCase):
     def test_a_torn_upload_leaves_no_build(self):
         bid = build_id(3)
         build = fixtures.make_build(self.h.tmp / "t", self.h.seed, bid)
-        # the client dies after the kernel: no ramdisk, no manifest
-        self.h.upload(self.h.tmp / "t", build, commit=False, skip=("ramdisk", "manifest.json", "manifest.sig"))
+        # the client dies after the manifest and the kernel: no ramdisk, no commit
+        self.h.upload(self.h.tmp / "t", build, commit=False, skip=("ramdisk", "boot.json", "bootx64.efi"))
+        self.assertEqual(self.incoming(), [f"{bid}.incoming"])
         self.assertEqual(self.builds_on_disk(), [])
         status, listing = self.h.json("GET", "/api/builds")
         self.assertEqual(listing["channels"], [])
@@ -87,17 +88,19 @@ class PushTests(RegistryCase):
 
     def test_a_body_that_ends_early_stores_no_file(self):
         bid = build_id(4)
+        build = fixtures.make_build(self.h.tmp / "e", self.h.seed, bid)
+        self.h.upload(self.h.tmp / "e", build, commit=False, skip=tuple(build["files"]))  # the manifest only
+        size = len(build["files"]["ramdisk"])
         sock = socket.create_connection(("127.0.0.1", self.h.port))
         sock.sendall((f"PUT /api/builds/dev/{bid}/ramdisk HTTP/1.1\r\nHost: x\r\n"
-                      "Content-Length: 100000\r\n\r\n").encode() + b"x" * 1000)
+                      f"Content-Length: {size}\r\n\r\n").encode() + b"x" * 1000)
         sock.close()
-        for _ in range(50):  # the handler notices the closed socket
-            files = list((self.h.root / "builds" / "dev" / f"{bid}.incoming").glob("*")) \
-                if (self.h.root / "builds" / "dev" / f"{bid}.incoming").exists() else []
-            if not any(not p.name.startswith(".") for p in files):
+        directory = self.h.root / "builds" / "dev" / f"{bid}.incoming"
+        for _ in range(100):  # the handler notices the closed socket and removes its partial file
+            if not any(p.name.endswith(".part") for p in directory.iterdir()):
                 break
             time.sleep(0.05)
-        self.assertEqual([p.name for p in files if not p.name.startswith(".")], [])
+        self.assertEqual(sorted(p.name for p in directory.iterdir()), ["manifest.json", "manifest.sig"])
 
     def test_put_without_content_length_is_refused(self):
         sock = socket.create_connection(("127.0.0.1", self.h.port))
@@ -142,15 +145,20 @@ class PushTests(RegistryCase):
 
 
 class RefusalTests(RegistryCase):
-    def refused(self, build, directory, expect, **kw):
+    def refused(self, build, directory, expect, left=False, **kw):
+        """The upload is refused with `expect`; `left` says whether the incoming directory stays."""
         status, doc = self.h.upload(directory, build, **kw)
         self.assertEqual(status, expect, doc)
-        self.assertEqual((self.builds_on_disk(), self.incoming()), ([], []))
+        self.assertEqual(self.builds_on_disk(), [])
+        if not left:
+            self.assertEqual(self.incoming(), [])
         return doc
 
     def test_missing_signature(self):
         build = fixtures.make_build(self.h.tmp / "x", self.h.seed, build_id(1), sign=False)
-        self.refused(build, self.h.tmp / "x", 400)
+        self.refused(build, self.h.tmp / "x", 403, left=True)   # no file is taken without the pair
+        files = [p.name for p in (self.h.root / "builds" / "dev" / f"{build_id(1)}.incoming").iterdir()]
+        self.assertEqual(files, ["manifest.json"])
 
     def test_bad_signature(self):
         build = fixtures.make_build(self.h.tmp / "x", self.h.seed, build_id(1))
@@ -174,8 +182,9 @@ class RefusalTests(RegistryCase):
         self.addCleanup(h.close)
         build = fixtures.make_build(h.tmp / "x", h.seed, build_id(1))
         status, doc = h.upload(h.tmp / "x", build)
-        # the commit itself is signed too: with no key it is refused before it looks at the build
-        self.assertEqual(status, 401)
+        # with no key registered the manifest cannot verify, so nothing is stored
+        self.assertEqual(status, 403)
+        self.assertEqual(list((h.root / "builds").rglob("*.incoming")), [])
         self.assertEqual(h.server.store.build_ids("dev"), [])
 
     def test_tampered_file(self):
@@ -190,7 +199,8 @@ class RefusalTests(RegistryCase):
         directory = self.h.tmp / "x"
         build = fixtures.make_build(directory, self.h.seed, build_id(1))
         (directory / "ramdisk").write_bytes(build["files"]["ramdisk"] + b"x")
-        self.assertIn("size", self.refused(build, directory, 422)["error"])
+        doc = self.refused(build, directory, 413, left=True)   # refused at the PUT, by Content-Length
+        self.assertIn("manifest size", doc["error"])
 
     def test_a_missing_file_and_an_unlisted_file(self):
         directory = self.h.tmp / "x"
@@ -198,29 +208,30 @@ class RefusalTests(RegistryCase):
         self.assertIn("missing", self.refused(build, directory, 400, skip=("boot.json",))["error"])
         (directory / "extra.bin").write_bytes(b"x")
         build["files"]["extra.bin"] = b"x"
-        self.assertIn("does not list", self.refused(build, directory, 400)["error"])
+        self.assertIn("not a file of the manifest", self.refused(build, directory, 400, left=True)["error"])
 
     def test_manifest_naming_another_id(self):
         directory = self.h.tmp / "x"
         build = fixtures.make_build(directory, self.h.seed, build_id(1))
-        # upload it under a different (valid) id
-        for name in list(build["files"]) + ["manifest.json", "manifest.sig"]:
-            self.h.json("PUT", f"/api/builds/dev/{build_id(2)}/{name}", (directory / name).read_bytes())
-        status, doc = self.h.signed("POST", f"/api/builds/dev/{build_id(2)}/commit", "commit")
+        # upload it under a different (valid) id: the pair is refused when it is complete
+        status, _ = self.h.json("PUT", f"/api/builds/dev/{build_id(2)}/manifest.json",
+                                (directory / "manifest.json").read_bytes())
+        self.assertEqual(status, 201)
+        status, doc = self.h.json("PUT", f"/api/builds/dev/{build_id(2)}/manifest.sig",
+                                  (directory / "manifest.sig").read_bytes())
         self.assertEqual(status, 400)
-        self.assertEqual(self.builds_on_disk(), [])
+        self.assertEqual((self.builds_on_disk(), self.incoming()), ([], []))
 
     def test_manifest_without_files_or_with_bad_entries(self):
+        store = self.h.server.store
         for bad in ({"files": {}}, {"files": {"a": {"size": -1, "sha256": "0" * 64}}},
                     {"files": {"a": {"size": 1, "sha256": "XY"}}}, {"files": {"../a": {"size": 0, "sha256": "0" * 64}}},
                     {"files": {"manifest.sig": {"size": 0, "sha256": "0" * 64}}}):
             raw = json.dumps({"id": build_id(1), **bad}).encode()
-            store = self.h.server.store
             store.put_file("dev", build_id(1), "manifest.json", io.BytesIO(raw), len(raw))
             sig = keys.format_signature(ed25519.sign(self.h.seed, raw)).encode()
-            store.put_file("dev", build_id(1), "manifest.sig", io.BytesIO(sig), len(sig))
-            with self.assertRaises(Exception) as ctx:
-                store.commit("dev", build_id(1))
+            with self.assertRaises(Exception) as ctx:   # the signature is valid; the manifest is not
+                store.put_file("dev", build_id(1), "manifest.sig", io.BytesIO(sig), len(sig))
             self.assertEqual(ctx.exception.status, 400, bad)
             self.assertEqual(self.incoming(), [])
 
@@ -332,7 +343,7 @@ class SignedWriteTests(RegistryCase):
     def test_unknown_key_bad_signature_tampered_body(self):
         other = ed25519.generate_seed()
         self.assertEqual(self.h.signed("POST", self.pin_path(), "pin", {"id": self.ids[0]}, seed=other)[0], 401)
-        body, header = auth.sign_body(self.h.seed, "pin", {"id": self.ids[0]})
+        body, header = auth.sign_body(self.h.seed, "pin", {"channel": "dev", "id": self.ids[0]})
         flipped = body.replace(self.ids[0].encode(), self.ids[1].encode())
         status, _ = self.h.json("POST", self.pin_path(), flipped, {auth.SIGNATURE_HEADER: header})
         self.assertEqual(status, 401)
@@ -347,7 +358,7 @@ class SignedWriteTests(RegistryCase):
         self.assertIn("action", doc["error"])
 
     def test_replayed_nonce_is_refused(self):
-        body, header = auth.sign_body(self.h.seed, "pin", {"id": self.ids[0]})
+        body, header = auth.sign_body(self.h.seed, "pin", {"channel": "dev", "id": self.ids[0]})
         headers = {auth.SIGNATURE_HEADER: header}
         self.assertEqual(self.h.json("POST", self.pin_path(), body, headers)[0], 200)
         status, doc = self.h.json("POST", self.pin_path(), body, headers)
@@ -355,7 +366,7 @@ class SignedWriteTests(RegistryCase):
         self.assertIn("nonce", doc["error"])
 
     def test_replay_survives_a_restart(self):
-        body, header = auth.sign_body(self.h.seed, "pin", {"id": self.ids[0]})
+        body, header = auth.sign_body(self.h.seed, "pin", {"channel": "dev", "id": self.ids[0]})
         headers = {auth.SIGNATURE_HEADER: header}
         self.assertEqual(self.h.json("POST", self.pin_path(), body, headers)[0], 200)
         self.h.stop()
@@ -373,7 +384,7 @@ class SignedWriteTests(RegistryCase):
 
     def test_bad_nonce_and_ts_types(self):
         for fields in ({"nonce": "short"}, {"nonce": 5}, {"ts": "now"}, {"ts": True}):
-            body, header = auth.sign_body(self.h.seed, "pin", {"id": self.ids[0], **fields})
+            body, header = auth.sign_body(self.h.seed, "pin", {"channel": "dev", "id": self.ids[0], **fields})
             status, _ = self.h.json("POST", self.pin_path(), body, {auth.SIGNATURE_HEADER: header})
             self.assertEqual(status, 400, fields)
 

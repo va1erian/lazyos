@@ -45,7 +45,8 @@ class FakeRegistry:
                         return self._reply(status, doc)
                 if self.command == "GET":
                     return self._reply(200, outer.listing)
-                self._reply(201 if self.command == "PUT" else 200, {"ok": True, "deleted": [], "kept": []})
+                self._reply(201 if self.command == "PUT" else 200, {"ok": True, "deleted": [], "kept": [], "callback_key": "cd" * 32,
+                                              "mac": "aa:bb:cc:dd:ee:ff", "channel": "dev"})
 
             def _reply(self, status, doc):
                 data = json.dumps(doc).encode()
@@ -112,8 +113,8 @@ class PushFlowTests(PushCase):
         base = f"/api/builds/dev/{self.bid}"
         self.assertEqual(kinds[0], ("GET", "/api/builds"))
         puts = [k[1].rsplit("/", 1)[1] for k in kinds if k[0] == "PUT"]
-        self.assertEqual(sorted(puts[:-2]), sorted(self.build["files"]))
-        self.assertEqual(puts[-2:], ["manifest.json", "manifest.sig"])   # the manifest goes last
+        self.assertEqual(puts[:2], ["manifest.json", "manifest.sig"])    # the signed manifest opens the upload
+        self.assertEqual(sorted(puts[2:]), sorted(self.build["files"]))
         self.assertEqual(kinds[-1], ("POST", f"{base}/commit"))
         doc = self.verify_signed(reg.requests[-1], "commit")
         self.assertEqual((doc["channel"], doc["id"]), ("dev", self.bid))
@@ -266,6 +267,51 @@ class ManageTests(PushCase):
         self.assertEqual(entry["pub"], self.pub.hex())
 
 
+class MachineCommandTests(PushCase):
+    def test_add_machine_prints_the_key_once_with_the_cfg_hint(self):
+        reg = self.fake()
+        code, out, _ = self.run_main(reg, "--add-machine", "box", "--mac", "AA-BB-CC-DD-EE-FF", "--channel", "box")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(reg.kinds(), [("POST", "/api/machines/box/add")])
+        doc = self.verify_signed(reg.requests[0], "add")
+        self.assertEqual((doc["machine"], doc["mac"], doc["channel"]), ("box", "AA-BB-CC-DD-EE-FF", "box"))
+        self.assertIn("bootos.machine_key=", out)
+        self.assertIn("shown once", out)
+
+    def test_add_machine_needs_a_mac(self):
+        code, _, err = self.run_main(self.fake(), "--add-machine", "box")
+        self.assertEqual(code, 1)
+        self.assertIn("--mac", err)
+
+    def test_rekey(self):
+        reg = self.fake()
+        self.assertEqual(self.run_main(reg, "--rekey-machine", "box")[0], 0)
+        self.assertEqual(self.verify_signed(reg.requests[0], "rekey")["machine"], "box")
+
+    def test_booting_with_the_dev_key_and_with_a_machine_key(self):
+        reg = self.fake()
+        self.assertEqual(self.run_main(reg, "--machine", "box", "--booting", self.bid)[0], 0)
+        doc = self.verify_signed(reg.requests[0], "booting")
+        self.assertEqual((doc["machine"], doc["id"]), ("box", self.bid))
+        (self.dir / "key.sec").unlink()   # a machine key needs no dev key
+        key = "ab" * 32
+        self.assertEqual(self.run_main(reg, "--machine", "box", "--booted", self.bid, "--machine-key", key)[0], 0)
+        _, path, headers, body = reg.requests[1]
+        self.assertEqual(path, "/api/machines/box/booted")
+        name, mac = headers[auth.MACHINE_HEADER].split(":")
+        self.assertEqual(name, "box")
+        import hmac
+        self.assertEqual(mac, hmac.new(bytes.fromhex(key), body, hashlib.sha256).hexdigest())
+        self.assertNotIn(auth.SIGNATURE_HEADER, headers)
+        doc = json.loads(body)
+        self.assertEqual((doc["action"], doc["machine"], doc["id"]), ("booted", "box", self.bid))
+
+    def test_booting_needs_a_machine(self):
+        code, _, err = self.run_main(self.fake(), "--booting", self.bid)
+        self.assertEqual(code, 1)
+        self.assertIn("--machine", err)
+
+
 class RegistryUrlTests(unittest.TestCase):
     def test_precedence_and_error(self):
         with mock.patch.dict(os.environ, {"LAZYOS_REGISTRY": "http://env:1"}):
@@ -304,6 +350,22 @@ class RealRegistryTests(PushCase):
         self.assertIn("already", out)
         code, out, _ = self.run_main(type("R", (), {"url": self.h.url}), "--list")
         self.assertIn(self.bid, out)
+
+    def test_add_machine_then_hmac_callbacks_against_the_real_registry(self):
+        reg = type("R", (), {"url": self.h.url})
+        code, out, err = self.run_main(reg, "--add-machine", "box", "--mac", "aa:bb:cc:dd:ee:ff")
+        self.assertEqual(code, 0, err)
+        key = next(l.split(": ")[1] for l in out.splitlines() if l.startswith("callback key"))
+        self.assertEqual(self.run_main(reg)[0], 0)                       # push the build
+        os.environ.pop("LAZYOS_MACHINE_KEY", None)
+        args = ["--machine", "box", "--machine-key", key]
+        self.assertEqual(self.run_main(reg, *args, "--booting", self.bid)[0], 0)
+        self.assertEqual(self.run_main(reg, *args, "--booted", self.bid)[0], 0)
+        machine = json.loads((self.h.root / "machines.json").read_text())["box"]
+        self.assertEqual(machine["last_boot"]["id"], self.bid)
+        code, _, err = self.run_main(reg, "--machine", "box", "--machine-key", "00" * 32, "--booting", self.bid)
+        self.assertEqual(code, 1)
+        self.assertIn("does not verify", err)
 
     def test_a_key_the_registry_does_not_know_is_refused_and_leaves_no_build(self):
         (self.h.root / "keys.json").write_text(json.dumps({"keys": []}))

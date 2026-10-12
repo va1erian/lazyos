@@ -6,6 +6,9 @@
     python tools/netboot/push.py --machine box --id 20261012-093000-2eeee936   # roll back: next = an old build
     python tools/netboot/push.py --list | --pin ID | --unpin ID | --prune [--keep N] | --delete ID
     python tools/netboot/push.py --register-key         # print the keys.json entry for key.pub
+    python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]   # prints its callback key once
+    python tools/netboot/push.py --rekey-machine box    # a new callback key
+    python tools/netboot/push.py --machine box --booting ID | --booted ID [--machine-key HEX]   # what the boot OS posts
 
 The registry is `--registry`, `$LAZYOS_REGISTRY` or the `registry` field of
 `tools/netboot/registry.local.json` (git-ignored). Before uploading it checks
@@ -123,7 +126,8 @@ def push_build(cli: client_mod.Client, directory: Path, pub: bytes, channel: str
         raise PushError(f"{build_id} already exists (channel {existing['channel']}) with other contents; "
                         "ids are never overwritten: rebuild to get a new id")
     started = time.monotonic()
-    for name in [*info["files"], "manifest.json", "manifest.sig"]:
+    # the signed manifest opens the upload: the registry takes no file before it
+    for name in ["manifest.json", "manifest.sig", *info["files"]]:
         say(f"  PUT {name} ({mib((directory / name).stat().st_size)})")
         cli.put_file(channel, build_id, name, directory / name)
     seconds = max(time.monotonic() - started, 1e-6)
@@ -167,6 +171,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--prune", action="store_true", help="delete all but the newest --keep unpinned builds")
     ap.add_argument("--keep", type=int, help="with --prune: builds to keep (stored for the channel)")
     ap.add_argument("--delete", metavar="ID")
+    ap.add_argument("--add-machine", metavar="NAME", help="create a machine entry; prints its callback key once")
+    ap.add_argument("--mac", help="with --add-machine: the machine's MAC address")
+    ap.add_argument("--timeout-ms", type=int, help="with --add-machine: the menu timeout")
+    ap.add_argument("--rekey-machine", metavar="NAME", help="mint a new callback key for a machine")
+    ap.add_argument("--booting", metavar="ID", help="with --machine: record a boot attempt, as the picker does")
+    ap.add_argument("--booted", metavar="ID", help="with --machine: confirm a boot, as the booted system does")
+    ap.add_argument("--machine-key", default=os.environ.get("LAZYOS_MACHINE_KEY"),
+                    help="with --booting/--booted: sign with this callback key (default $LAZYOS_MACHINE_KEY); "
+                         "without it the dev key signs")
     ap.add_argument("--register-key", action="store_true", help="print the keys.json entry for key.pub")
     ap.add_argument("--name", help="with --register-key: the entry's name (default this host)")
     return ap
@@ -182,8 +195,33 @@ def run(args, say=print) -> int:
     if args.list:
         show_list(cli, say)
         return 0
+    if (args.booting or args.booted) and args.machine_key and args.machine:
+        action, build_id = ("booting", args.booting) if args.booting else ("booted", args.booted)
+        result = cli.callback(args.machine, action, build_id, args.machine_key)
+        say(f"{args.machine}: {action} {build_id} recorded")
+        return 0
     cli.seed = load_seed(directory, args.key)
     pub = ed25519.public_key(cli.seed)
+    if args.add_machine:
+        if not args.mac:
+            raise PushError("--add-machine needs --mac")
+        result = cli.add_machine(args.add_machine, args.mac, args.channel, args.timeout_ms)
+        say(f"added machine {args.add_machine} ({result['mac']}, channel {result['channel']})")
+        say(f"callback key (shown once): {result['callback_key']}")
+        say(f"put it in the boot OS's lazyos.cfg as  bootos.machine_key={result['callback_key']}")
+        return 0
+    if args.rekey_machine:
+        result = cli.rekey_machine(args.rekey_machine)
+        say(f"new callback key for {args.rekey_machine} (shown once): {result['callback_key']}")
+        say("the old key no longer works; update bootos.machine_key= in the boot OS's lazyos.cfg")
+        return 0
+    if args.booting or args.booted:
+        if not args.machine:
+            raise PushError("--booting/--booted need --machine NAME")
+        action, build_id = ("booting", args.booting) if args.booting else ("booted", args.booted)
+        cli.callback(args.machine, action, build_id)
+        say(f"{args.machine}: {action} {build_id} recorded")
+        return 0
     if args.pin or args.unpin:
         build = args.pin or args.unpin
         cli.pin(args.channel, build, bool(args.pin))

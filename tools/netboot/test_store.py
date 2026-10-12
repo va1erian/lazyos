@@ -1,5 +1,6 @@
 """Units under the server: names, key files, the nonce list, Range parsing, the store's sweep."""
 
+import io
 import json
 import os
 import tempfile
@@ -181,7 +182,6 @@ class StoreTests(unittest.TestCase):
 
     def test_hostile_names_never_reach_the_file_system(self):
         self.store.init_layout()
-        import io
         for channel, bid, name in (("..", build_id(), "x"), ("dev", "../x", "x"), ("dev", build_id(), "../x"),
                                    ("dev", build_id(), "/abs"), ("a/b", build_id(), "x")):
             with self.assertRaises(store_mod.StoreError, msg=(channel, bid, name)):
@@ -191,12 +191,20 @@ class StoreTests(unittest.TestCase):
 
     def test_upload_file_limit(self):
         self.store.init_layout()
-        import io
-        for i in range(store_mod.MAX_UPLOAD_FILES):
-            self.store.put_file("dev", build_id(), f"f{i}", io.BytesIO(b"x"), 1)
+        seed = ed25519.generate_seed()
+        self.store.keys_path.write_text(json.dumps({"keys": [keys.keys_entry(ed25519.public_key(seed))]}))
+        bid = build_id()
+        count = store_mod.MAX_UPLOAD_FILES + 1
+        files = {f"f{i}": {"size": 1, "sha256": "0" * 64} for i in range(count)}
+        raw = json.dumps({"id": bid, "files": files}).encode()
+        sig = keys.format_signature(ed25519.sign(seed, raw)).encode()
+        self.store.put_file("dev", bid, "manifest.json", io.BytesIO(raw), len(raw))
+        self.store.put_file("dev", bid, "manifest.sig", io.BytesIO(sig), len(sig))
+        for i in range(store_mod.MAX_UPLOAD_FILES - 2):          # the two manifest files count too
+            self.store.put_file("dev", bid, f"f{i}", io.BytesIO(b"x"), 1)
         with self.assertRaises(store_mod.StoreError):
-            self.store.put_file("dev", build_id(), "one-too-many", io.BytesIO(b"x"), 1)
-        self.store.put_file("dev", build_id(), "f0", io.BytesIO(b"y"), 1)   # replacing one is fine
+            self.store.put_file("dev", bid, f"f{count - 1}", io.BytesIO(b"x"), 1)
+        self.store.put_file("dev", bid, "f0", io.BytesIO(b"y"), 1)   # replacing one is fine
 
 
 if __name__ == "__main__":

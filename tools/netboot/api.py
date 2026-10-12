@@ -5,20 +5,22 @@ moves bytes between a socket and these two dataclasses, which is also what
 lets the tests run most checks without one.
 
     GET    /healthz
-    GET    /api/builds?mac=..                      read-only listing
+    GET    /api/builds?mac=..                      the listing (its only write: dropping a failed `next`)
     GET    /files/<channel>/<id>/<name>            Content-Length, Range
     PUT    /api/builds/<channel>/<id>/<name>       into <id>.incoming
     POST   /api/builds/<channel>/<id>/commit       signed
     DELETE /api/builds/<channel>/<id>              signed
     POST   /api/channels/<channel>/pin|unpin|prune signed
-    POST   /api/machines/<name>/next               signed
-    POST   /api/machines/<name>/booting|booted     {"id": ..}
+    POST   /api/machines/<name>/next|add|rekey     signed
+    POST   /api/machines/<name>/booting|booted     signed by the machine (HMAC) or the dev key
     GET    /boot.ipxe?mac=..   GET /builds/<channel>/<id>.ipxe     optional iPXE
 
-A signed route takes the body described in `auth.py`; besides `action`,
-`nonce` and `ts` it may repeat the path's `channel`, `id` and `machine`, and
-a body that names a different one than the path is refused, so a captured
-request cannot be pointed at another target.
+A signed route takes the body described in `auth.py`. The fields that name the
+route's target are mandatory in the body and must equal the path's: `channel`
+and `id` for `commit` and `delete`, `channel` for `pin`, `unpin` and `prune`,
+`machine` for `next`, `add`, `rekey`, `booting` and `booted`; so a captured
+request cannot be pointed at another target. A file may be uploaded only once
+its signed manifest is in place (`store.Store.put_file`).
 """
 
 from __future__ import annotations
@@ -36,7 +38,6 @@ from store import Store, StoreError
 
 JSON = "application/json"
 TEXT = "text/plain; charset=utf-8"
-MAX_JSON_BODY = auth.MAX_BODY
 
 
 @dataclass
@@ -96,7 +97,7 @@ class Api:
                 return self._commit(req, seg[2], seg[3])
             if len(seg) == 4 and seg[:2] == ["api", "channels"] and seg[3] in ("pin", "unpin", "prune"):
                 return self._channel_action(req, seg[2], seg[3])
-            if len(seg) == 4 and seg[:2] == ["api", "machines"] and seg[3] in ("next", "booting", "booted"):
+            if len(seg) == 4 and seg[:2] == ["api", "machines"] and seg[3] in ("next", "add", "rekey", "booting", "booted"):
                 return self._machine_action(req, seg[2], seg[3])
         if method == "DELETE" and len(seg) == 4 and seg[:2] == ["api", "builds"]:
             return self._delete(req, seg[2], seg[3])
@@ -199,26 +200,42 @@ class Api:
             raise StoreError(400, "the body ended early")
         return data
 
+    @staticmethod
+    def _bound(fields: dict, bound: dict) -> None:
+        """Every `bound` field must be in the signed body and equal the path's value."""
+        for key, value in bound.items():
+            if key not in fields:
+                raise StoreError(400, f'the signed body must carry "{key}" ({value!r}, as in the path)')
+            if fields[key] != value:
+                raise StoreError(400, f"the signed body names {key} {str(fields[key])[:40]!r}, "
+                                      f"the path names {value!r}")
+
     def _signed(self, req: Request, action: str, **bound) -> dict:
-        """The verified fields of a signed request; `bound` fields must match the path if present."""
+        """The verified fields of a request signed with a dev key; `bound` fields are mandatory."""
         body = self._read_body(req, auth.MAX_BODY)
         header = req.headers.get(auth.SIGNATURE_HEADER)
         fields, _key = auth.verify_signed(body, header, action, self.store.known_keys(),
                                           self.store.nonces, self.store.clock())
-        for key, value in bound.items():
-            if key in fields and fields[key] != value:
-                raise StoreError(400, f"the signed body names {key} {str(fields[key])[:40]!r}, "
-                                      f"the path names {value!r}")
+        self._bound(fields, bound)
         return fields
 
-    def _json_body(self, req: Request) -> dict:
-        try:
-            doc = json.loads(self._read_body(req, MAX_JSON_BODY) or b"{}")
-        except ValueError:
-            raise StoreError(400, "the body is not JSON") from None
-        if not isinstance(doc, dict):
-            raise StoreError(400, "the body is not a JSON object")
-        return doc
+    def _machine_call(self, req: Request, machine: str, action: str) -> dict:
+        """The fields of a `booting`/`booted` call: HMAC under the machine's key, or the dev key."""
+        body = self._read_body(req, auth.MAX_BODY)
+        header = req.headers.get(auth.MACHINE_HEADER)
+        if header:
+            fields, who = auth.verify_machine(body, header, action, self.machines.callback_key,
+                                              self.store.nonces, self.store.clock())
+            if who != machine:
+                raise StoreError(400, f"the header names machine {who!r}, the path names {machine!r}")
+        elif req.headers.get(auth.SIGNATURE_HEADER):
+            fields, _key = auth.verify_signed(body, req.headers.get(auth.SIGNATURE_HEADER), action,
+                                              self.store.known_keys(), self.store.nonces, self.store.clock())
+        else:
+            raise auth.AuthError(f"{action} needs {auth.MACHINE_HEADER} (the machine's callback key) "
+                                 f"or {auth.SIGNATURE_HEADER} (a dev key)")
+        self._bound(fields, {"machine": machine})
+        return fields
 
     def _put_file(self, req: Request, channel: str, build_id: str, name: str) -> Response:
         if req.length is None:
@@ -253,11 +270,17 @@ class Api:
     def _machine_action(self, req: Request, name: str, action: str) -> Response:
         if not names.is_name(name):
             raise StoreError(400, f"bad machine name: {name[:80]!r}")
+        if action in ("booting", "booted"):
+            fields = self._machine_call(req, name, action)
+            method = self.machines.booting if action == "booting" else self.machines.booted
+            return json_response({"ok": True, **method(name, fields.get("id"))},
+                                 note=f"machine={name} id={fields.get('id')}")
+        fields = self._signed(req, action, machine=name)
         if action == "next":
-            fields = self._signed(req, "next", machine=name)
-            build_id = fields.get("id")
+            result = self.machines.set_next(name, fields.get("id"))
+        elif action == "add":
+            result = self.machines.add(name, fields.get("mac"), fields.get("channel"), fields.get("timeout_ms"))
+            return json_response({"ok": True, **result}, 201, note=f"machine={name} added")
         else:
-            build_id = self._json_body(req).get("id")
-        method = {"next": self.machines.set_next, "booting": self.machines.booting,
-                  "booted": self.machines.booted}[action]
-        return json_response({"ok": True, **method(name, build_id)}, note=f"machine={name} id={build_id}")
+            result = self.machines.rekey(name)
+        return json_response({"ok": True, **result}, note=f"machine={name} {action}")

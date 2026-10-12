@@ -40,7 +40,7 @@ request, so no restart is needed:
 {"keys": [{"id": "0123456789abcdef", "pub": "<64 hex>", "name": "dev laptop"}]}
 ```
 
-Until a key is registered the registry logs `no key may push yet` and refuses
+Until a key is registered the registry logs `no key may push yet` and refuses every upload,
 every commit and every signed write. Reads work.
 
 ## 2. Running it
@@ -106,15 +106,25 @@ lists newest first.
 
 ### Machines
 
-`machines.json` is edited by the administrator (re-read on every request):
+A machine is an entry of `machines.json` (re-read on every request, so a hand
+edit takes effect at once). Create it with a signed call, which also mints the
+machine's **callback key** and shows it once:
 
-```json
-{"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "dev", "timeout_ms": 5000}}
+```bash
+python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff --channel box
+#   callback key (shown once): 5f2c...
+#   put it in the boot OS's lazyos.cfg as  bootos.machine_key=5f2c...
+python tools/netboot/push.py --rekey-machine box     # a new key; the old one stops working
 ```
 
-The registry adds `next`, `last_attempt` and `last_boot`. A MAC the file does
-not list gets the `dev` channel and a 10 s menu, and cannot queue a `next` or
-record a boot. `next`:
+```json
+{"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "box", "timeout_ms": 5000,
+         "callback_key": "<64 hex>", "next": null}}
+```
+
+The key is 32 random bytes as hex, never listed by any `GET` and not in the
+log. A MAC the file does not list gets the `dev` channel and a 10 s menu, and
+cannot queue a `next` or record a boot. `next`:
 
 - `push.py --machine box` (signed) queues a build as the machine's one-shot
   default.
@@ -127,20 +137,35 @@ record a boot. `next`:
   `GET /api/builds` or `booting` and recorded as `last_boot: {"id", "failed":
   true, "at"}`: a kernel that cannot boot costs two tries, never a loop.
 
+`booting` and `booted` are authenticated, by either of
+
+- `X-LazyOS-Machine: <name>:<HMAC-SHA256 hex>` over the exact body bytes, keyed
+  by the machine's callback key (what the boot OS sends; it cannot hold the dev
+  key), or
+- `X-LazyOS-Signature` with the dev key, like the other writes (for
+  `push.py --follow`).
+
+The body is `{"action": "booting"|"booted", "nonce", "ts", "machine", "id"}`
+with the same nonce list and 300 s clock skew as the other writes; `machine`
+must equal the path's and `id` must be a build the registry holds. By hand:
+`push.py --machine box --booting ID --machine-key HEX` (or `$LAZYOS_MACHINE_KEY`).
+
 ## 3. The API
 
 | Method and path | Auth | What |
 |---|---|---|
 | `GET /healthz` | | `{"ok", "builds", "free_bytes"}` |
-| `GET /api/builds?mac=..` | | every channel with its builds (newest first; manifest parsed and verbatim as `manifest_text`, `sig`, `size`, `pinned`), this machine (`name`, `known`, `channel`, `timeout_ms`, `next`, `last_attempt`, `last_boot`, `boot_state`), `default` (the `next`, else the machine's channel's newest). Read-only, except that it drops a `next` that used up its attempts |
+| `GET /api/builds?mac=..` | | **may write `machines.json`** (the lazy drop of a failed `next`, below; nothing else). Every channel with its builds (newest first; manifest parsed and verbatim as `manifest_text`, `sig`, `size`, `pinned`), this machine (`name`, `known`, `channel`, `timeout_ms`, `next`, `last_attempt`, `last_boot`, `boot_state`), `default` (the `next`, else the machine's channel's newest). |
 | `GET /files/<channel>/<id>/<name>` | | the file; `Content-Length`, `Range` (206, 416), `HEAD` |
-| `PUT /api/builds/<channel>/<id>/<name>` | | a file into `<id>.incoming/` (needs `Content-Length`); refused for an id that exists |
+| `PUT /api/builds/<channel>/<id>/<name>` | | a file into `<id>.incoming/` (needs `Content-Length`); refused for an id that exists. `manifest.json` and `manifest.sig` must be the first two files: the pair is verified against `keys.json` on arrival (and the upload deleted if it does not verify), 403 for any other file before that, then only a name the manifest lists (400) with exactly the size it lists (413) |
 | `POST /api/builds/<channel>/<id>/commit` | signed | verifies `manifest.sig` against `keys.json`, the manifest's id, and every file's size and SHA-256, then renames the directory into place; on any failure deletes the upload |
 | `DELETE /api/builds/<channel>/<id>` | signed | refused (409) for a pinned build |
 | `POST /api/channels/<channel>/pin\|unpin` | signed | body field `id` |
 | `POST /api/channels/<channel>/prune` | signed | keeps the newest `keep` plus pinned and queued builds; optional body field `keep` (stored for the channel) |
 | `POST /api/machines/<name>/next` | signed | body field `id` |
-| `POST /api/machines/<name>/booting`, `.../booted` | | body `{"id": ..}` |
+| `POST /api/machines/<name>/add` | signed | body `mac`, `channel` (default `dev`), `timeout_ms` (optional); creates the machine and returns its `callback_key` once (409 if the name or the MAC exists) |
+| `POST /api/machines/<name>/rekey` | signed | mints a new `callback_key`, returned once |
+| `POST /api/machines/<name>/booting`, `.../booted` | machine HMAC or dev key | body `{"id": ..}` plus the signed fields (see Machines) |
 | `GET /boot.ipxe?mac=..`, `GET /builds/<channel>/<id>.ipxe` | | the optional iPXE menu and per-build script. A GET changes nothing, so an iPXE boot leaves a queued `next` pending; the picker is the path with the one-shot |
 
 Names (channel, machine, file) match `[A-Za-z0-9._-]` with no leading dot, ids
@@ -150,18 +175,24 @@ names included, is refused before it can name a path.
 ### Signed writes
 
 The body is a JSON object with `"action"` (the route's name: `commit`,
-`delete`, `pin`, `unpin`, `prune`, `next`), `"nonce"` (32 random hex
-characters), `"ts"` (Unix seconds) and the action's own fields; the header
-`X-LazyOS-Signature: <keyid>:<128 hex>` is the Ed25519 signature over the exact
-body bytes. The registry refuses an unknown key id, a bad signature, a `ts` more
-than 300 s from its clock and a nonce it has seen (kept in `nonces.json`, so a
-restart forgets none). `push.py` also repeats the path's `channel`, `id` and
-`machine` in the body; a body that names a different target than its path is
-refused, so a captured request cannot be pointed elsewhere.
+`delete`, `pin`, `unpin`, `prune`, `next`, `add`, `rekey`, `booting`, `booted`),
+`"nonce"` (32 random hex characters), `"ts"` (Unix seconds) and the action's
+own fields; the header `X-LazyOS-Signature: <keyid>:<128 hex>` is the Ed25519
+signature over the exact body bytes. The registry refuses an unknown key id, a
+bad signature, a `ts` more than 300 s from its clock and a nonce it has seen
+(kept in `nonces.json`, so a restart forgets none). The fields that name the
+target are **mandatory** and must equal the path's, so a captured request
+cannot be pointed elsewhere: `channel` and `id` for `commit` and `delete`,
+`channel` for `pin`, `unpin` and `prune`, `machine` for `next`, `add`, `rekey`,
+`booting` and `booted`. `push.py` sends them.
 
-The `PUT` of build files is unauthenticated by design: nothing becomes a build
-until a signed `commit` verifies it, and an unfinished upload is swept after a
-day. This is meant for a trusted home network; the boot OS verifies
+The `PUT` of build files needs no signature, but an upload is opened by its
+signed manifest: nothing is stored until `manifest.json` and `manifest.sig`
+verify against `keys.json`, and then only the files that manifest lists, at
+the sizes it lists. A host without a registered key therefore cannot make the
+registry store more than a few KiB, and a build still appears only through a
+signed `commit` that re-hashes everything. An unfinished upload is swept after
+a day. This is meant for a trusted home network; the boot OS verifies
 `manifest.sig` itself before it kexecs anything, so the registry is storage,
 not a trust anchor.
 
@@ -173,10 +204,12 @@ python tools/netboot/push.py --channel box --machine box     # and queue it for 
 python tools/netboot/push.py --machine box --id 20261012-093000-2eeee936   # roll back to an old build
 python tools/netboot/push.py --list
 python tools/netboot/push.py --pin ID | --unpin ID | --prune [--keep N] | --delete ID
+python tools/netboot/push.py --add-machine box --mac aa:bb:cc:dd:ee:ff [--channel box]   # prints the callback key once
+python tools/netboot/push.py --rekey-machine box
 ```
 
 The registry URL is `--registry`, `$LAZYOS_REGISTRY` or `registry.local.json`
 beside this file (`{"registry": "http://HOST:8420"}`, git-ignored). `push.py`
 checks what the registry will check (signature, sizes, digests) before it
-uploads anything, streams the files, sends `manifest.json` and `manifest.sig`
-last, then the signed commit. `--reboot` and `--follow` arrive with phase N4.
+uploads anything, sends `manifest.json` and `manifest.sig` first, streams the
+files, then the signed commit. `--reboot` and `--follow` arrive with phase N4.

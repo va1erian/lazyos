@@ -40,10 +40,11 @@ class MachineCase(unittest.TestCase):
         return doc
 
     def booting(self, bid, name="box"):
-        return self.h.json("POST", f"/api/machines/{name}/booting", json.dumps({"id": bid}).encode())
+        """The picker's call, here signed with the dev key (the HMAC path is in test_machine_auth.py)."""
+        return self.h.signed("POST", f"/api/machines/{name}/booting", "booting", {"id": bid})
 
     def booted(self, bid, name="box"):
-        return self.h.json("POST", f"/api/machines/{name}/booted", json.dumps({"id": bid}).encode())
+        return self.h.signed("POST", f"/api/machines/{name}/booted", "booted", {"id": bid})
 
 
 class ListingTests(MachineCase):
@@ -189,8 +190,12 @@ class NextTests(MachineCase):
         self.assertEqual(self.h.json("POST", "/api/machines/box/next", b'{"id": "%s"}' % self.dev[0].encode())[0], 401)
         self.assertEqual(self.booting(build_id(50))[0], 404)
         self.assertEqual(self.booting("x")[0], 400)
-        self.assertEqual(self.h.json("POST", "/api/machines/ghost/booting", b'{"id": "%s"}' % self.dev[0].encode())[0], 404)
-        self.assertEqual(self.h.json("POST", "/api/machines/box/booted", b"not json")[0], 400)
+        self.assertEqual(self.booting(self.dev[0], "ghost")[0], 404)
+        self.assertEqual(self.booted(build_id(50))[0], 404)         # a build the registry does not hold
+        # unauthenticated booting/booted are gone
+        for action in ("booting", "booted"):
+            self.assertEqual(self.h.json("POST", f"/api/machines/box/{action}",
+                                         b'{"id": "%s"}' % self.dev[0].encode())[0], 401)
         self.assertEqual(self.h.json("POST", "/api/machines/%2e%2e/booted", b"{}")[0], 400)
 
     def test_a_hand_edited_machines_file_is_picked_up(self):

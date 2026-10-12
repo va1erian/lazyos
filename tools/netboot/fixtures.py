@@ -112,16 +112,31 @@ class Harness:
         status, _, data = self.request(method, path, body, headers)
         return status, json.loads(data) if data else None
 
+    @staticmethod
+    def path_fields(path: str) -> dict:
+        """The fields a signed body must repeat from its path (`channel`, `id`, `machine`)."""
+        seg = path.split("?")[0].strip("/").split("/")
+        if seg[:2] == ["api", "builds"] and len(seg) >= 4:
+            return {"channel": seg[2], "id": seg[3]}
+        if seg[:2] == ["api", "channels"] and len(seg) >= 3:
+            return {"channel": seg[2]}
+        if seg[:2] == ["api", "machines"] and len(seg) >= 3:
+            return {"machine": seg[2]}
+        return {}
+
     def signed(self, method: str, path: str, action: str, fields: dict | None = None,
-               seed: bytes | None = None, now: float | None = None, nonce: str | None = None):
-        body, header = auth.sign_body(seed or self.seed, action, fields, now, nonce)
+               seed: bytes | None = None, now: float | None = None, nonce: str | None = None,
+               bind: bool = True):
+        """A dev-key signed request; `bind` adds the path's fields (explicit `fields` win)."""
+        merged = {**(self.path_fields(path) if bind else {}), **(fields or {})}
+        body, header = auth.sign_body(seed or self.seed, action, merged, now, nonce)
         return self.json(method, path, body, {auth.SIGNATURE_HEADER: header,
                                               "Content-Type": "application/json"})
 
     def upload(self, directory: Path, build: dict, channel: str = "dev", commit: bool = True,
                skip: tuple = (), seed: bytes | None = None):
         """PUT every file of a `make_build` directory, then commit; returns the commit's `(status, doc)`."""
-        names_ = list(build["files"]) + ["manifest.json", "manifest.sig"]
+        names_ = ["manifest.json", "manifest.sig"] + list(build["files"])  # the manifest opens an upload
         for name in names_:
             path = directory / name
             if name in skip or not path.exists():
@@ -131,8 +146,7 @@ class Harness:
                 return status, doc
         if not commit:
             return 201, None
-        return self.signed("POST", f"/api/builds/{channel}/{build['id']}/commit", "commit",
-                           {"channel": channel, "id": build["id"]}, seed)
+        return self.signed("POST", f"/api/builds/{channel}/{build['id']}/commit", "commit", None, seed)
 
     def push(self, build_dirname: str, bid: str, channel: str = "dev", **kw):
         """Make a build in the harness's temp dir and upload it."""
@@ -142,7 +156,7 @@ class Harness:
 
 
 def put_dir(store, channel: str, bid: str, directory: Path, names: list[str]) -> None:
-    """Store a `make_build` directory's files straight into the store's incoming directory."""
-    for name in names:
+    """Store a `make_build` directory's files into the store's incoming directory, manifest first."""
+    for name in sorted(names, key=lambda n: (n not in ("manifest.json", "manifest.sig"), n != "manifest.json")):
         with open(directory / name, "rb") as f:
             store.put_file(channel, bid, name, f, (directory / name).stat().st_size)

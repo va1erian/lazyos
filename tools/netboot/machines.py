@@ -1,9 +1,11 @@
 """Per-machine defaults and the one-shot "boot this next" (docs/netboot-plan.md section 5).
 
-`machines.json`, edited by the administrator for the static part and by the
-registry for the rest:
+`machines.json`: `push.py --add-machine` (the signed `add` route) creates an
+entry, which an administrator may also edit by hand; the registry maintains
+the rest:
 
     {"box": {"mac": "aa:bb:cc:dd:ee:ff", "channel": "dev", "timeout_ms": 5000,
+             "callback_key": "<64 hex>",   # minted by add/rekey, shown once, never listed
              "next": {"id": "<build id>", "at": "<iso>", "attempts": 0} | null,
              "last_attempt": {"id": ..., "at": ...},     # POST .../booting
              "last_boot":    {"id": ..., "at": ...}}}    # POST .../booted
@@ -12,6 +14,12 @@ The file is read on every use, so editing it by hand needs no restart. A
 machine that is not listed (an unknown MAC) gets the `dev` channel and a 10 s
 menu; it can neither queue a `next` nor record a boot, since those name a
 machine.
+
+`callback_key` (32 random bytes as hex) is what authenticates the machine's own
+`booting` and `booted` calls (HMAC-SHA256 over the body, `auth.verify_machine`);
+the boot OS keeps it in its `lazyos.cfg` as `bootos.machine_key=`. The dev
+key's signature is accepted for the same two calls. A machine with no key
+(a hand-written entry) can only be driven with the dev key until `rekey`.
 
 `next` is a one-shot that survives a failed try. `booting` (the picker, after
 it verified the files, before the kexec) records an attempt and leaves `next`
@@ -28,6 +36,7 @@ GET does.
 from __future__ import annotations
 
 
+import auth
 import jsonio
 import names
 import store as store_mod
@@ -72,6 +81,45 @@ class Machines:
             change(doc[name])
             jsonio.write_json(self.path, doc)
             return doc[name]
+
+    def callback_key(self, name: str) -> str | None:
+        key = self.all().get(name, {}).get("callback_key")
+        return key if isinstance(key, str) else None
+
+    def add(self, name: str, mac: object, channel: object = None, timeout_ms: object = None) -> dict:
+        """Create a machine; returns its entry's public fields and the new `callback_key` (once)."""
+        if not names.is_name(name):
+            raise StoreError(400, f"bad machine name: {name[:80]!r}")
+        norm = names.normalize_mac(mac)
+        if norm is None:
+            raise StoreError(400, f"bad mac {str(mac)[:40]!r}")
+        if channel is None:
+            channel = DEFAULT_CHANNEL
+        if not names.is_name(channel):
+            raise StoreError(400, f"bad channel: {str(channel)[:80]!r}")
+        if timeout_ms is not None and not (isinstance(timeout_ms, int) and not isinstance(timeout_ms, bool)
+                                           and timeout_ms >= 0):
+            raise StoreError(400, "timeout_ms must be a non-negative integer")
+        key = auth.new_callback_key()
+        with self.lock:
+            doc = self.all()
+            if name in doc:
+                raise StoreError(409, f"machine {name!r} exists (rekey mints a new callback key)")
+            clash = next((n for n, e in doc.items() if names.normalize_mac(e.get("mac")) == norm), None)
+            if clash:
+                raise StoreError(409, f"mac {norm} already belongs to machine {clash!r}")
+            entry = {"mac": norm, "channel": channel, "next": None, "callback_key": key}
+            if timeout_ms is not None:
+                entry["timeout_ms"] = timeout_ms
+            doc[name] = entry
+            jsonio.write_json(self.path, doc)
+        return {"machine": name, "mac": norm, "channel": channel, "callback_key": key}
+
+    def rekey(self, name: str) -> dict:
+        """Mint a new callback key for an existing machine (the old one stops working)."""
+        key = auth.new_callback_key()
+        self._update(name, lambda m: m.update(callback_key=key))
+        return {"machine": name, "callback_key": key}
 
     def channel_of(self, entry: dict | None) -> str:
         channel = (entry or {}).get("channel")
@@ -177,6 +225,8 @@ class Machines:
         if not names.is_build_id(build_id):
             raise StoreError(400, f"bad build id: {str(build_id)[:80]!r}")
         self.require(name)
+        if self.store.find_build(build_id) is None:
+            raise StoreError(404, f"no build {build_id} in the registry")
         record = {"id": build_id, "at": store_mod.iso(self.store.clock())}
         state = {}
 
