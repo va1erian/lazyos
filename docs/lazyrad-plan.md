@@ -397,10 +397,12 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
     `LRIDE:LOCALS:PASS:1`, `LRIDE:STEP:PASS:main_form:4`, `LRIDE:LOCALS:PASS:2`,
     `LRPLAY:UP:PASS` after Continue; the screenshots show the breakpoint dot,
     the tinted stop line, `[break]` in the title and the Locals rows
-    (`count = 3`, `total = 6`). Not exercised on LazyOS: the F8 / Shift+F8
+    (`count = 3`, `total = 6`), and the Call Stack tab shows
+    `#0 form_load  main_form.rhai:3`. Re-run against the merged LazyRAD pin
+    (va1erian/lazyrad#117) with the same result. Not exercised on LazyOS: the F8 / Shift+F8
     keys (the player's window takes the keyboard focus when it opens, so the
     session steps with the toolbar button and F5 comes after the click), the
-    Call Stack and Immediate tabs, break on error, an IDE that dies while the
+    Immediate tab, break on error, an IDE that dies while the
     program is stopped, and the unlabelled `PollingLauncher` path (the IDE
     there is labelled, so Play always uses `DevLauncher`).
   - **Finding: the player's window freezes while stopped**, and it is the
