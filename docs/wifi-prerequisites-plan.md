@@ -161,8 +161,9 @@ the `nettls` stack. New entry points:
 | `kdf_sha256` (802.11 KDF) | PTK for AKM 6 (PSK-SHA256) | none published; cross-checked against an independent Python implementation, and again by `fake_ap.py` in WP4 |
 
 WP0 status: these are in `libs/crypto/src/wifi.rs` as `Result`-returning,
-length-checked functions (`pbkdf2_sha1` also enforces the standard's 8..=63
-printable-ASCII passphrase and 1..=32-byte SSID; `aes_wrap`/`aes_unwrap`
+length-checked functions (`pbkdf2_sha1` also enforces an 8..=63-octet
+passphrase of UTF-8 without control characters, `valid_passphrase`, and a
+1..=32-byte SSID; `aes_wrap`/`aes_unwrap`
 take a 16- or 32-byte KEK; `mic_eq` is the constant-time compare). The
 RustCrypto `aes` crate has no `force-soft` feature, unlike `sha1`/`sha2`;
 the pinned toolchain's LLVM cannot legalise its SIMD backend on
@@ -452,8 +453,8 @@ interface gained `StoreSecret`, `DeleteSecret`, `ListSecrets` and
 - *Authorization as built.* `user`: store, delete and list act on the caller's
   kernel-stamped uid. `system`: store and delete only from `elevd`'s identity
   (uid 909, unlabelled, no session), which performs `net.wifi.system`
-  (`elevpolicy`: `store <name> <passphrase>` with an 8-63 printable ASCII
-  passphrase or 64 hex digits, or `delete <name>`; asks every time; the
+  (`elevpolicy`: `store <name> <passphrase>` with an 8-63-octet UTF-8
+  passphrase without control characters or 64 hex digits, or `delete <name>`; asks every time; the
   prompt and the audit record name the secret, never its content); list is
   open (names only, they name the machine's networks). `WifiPmk` only from uid
   912 (`_wlan`, `secretstore::WLAN_UID`) unlabelled and outside any session,
@@ -500,9 +501,13 @@ accept `Attach` from `_wlan` alone; `os.lazy.net.wifi` is reserved to
 the Wi-Fi profile subtrees of the machine and every user
 (`confd::Caller::wifi`), and `keyd` gained `StoreSecretFor` /
 `DeleteSecretFor` for `_wlan`, so `AddNetwork` can keep a user's passphrase
-for that user and a `system` one for `elevd` (which `wlanmd` checks). Not yet:
-login tracking for user-network auto-connect (WP5), the `wifisim` end-to-end
-run (`tools/wifi/sim_run.py`).
+for that user (`keyd` refuses them in the `system` scope and names other
+than Wi-Fi profile ids: a system network's secret is stored by `elevd`
+itself, `net.wifi.system`, and `AddNetwork` scope `System` from `elevd`
+then records only the profile under that id). User-network auto-connect
+follows the logged-in users (`logind`'s `Sessions`, prompted by its login
+events); the `wifisim` end-to-end run is `tools/wifi/sim_run.py --station
+wlanmd`.
 
 **WP0 status (done).** Licence option A is recorded in the README and
 `THIRD_PARTY.md` (register of the five RustCrypto crates plus `dbl`, and

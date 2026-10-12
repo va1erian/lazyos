@@ -4,8 +4,11 @@
 //!
 //! `confd` lets `_wlan` read and write the Wi-Fi profile subtrees of the
 //! machine and of every user, and nothing else (`confd::Caller::wifi`).
-//! `keyd` keeps the passphrase under the profile's id, in the profile's scope
-//! (`StoreSecretFor`), and answers `WifiPmk` to `_wlan` alone.
+//! `keyd` keeps a user network's passphrase under the profile's id in the
+//! `user` scope (`StoreSecretFor`, which `keyd` refuses `wlanmd` in the
+//! `system` scope: a system network's secret is `elevd`'s to store, through
+//! `net.wifi.system`, under the same id), and answers `WifiPmk` to `_wlan`
+//! alone, for profile ids only.
 
 use alloc::format;
 use alloc::string::String;
@@ -17,8 +20,11 @@ use user::sys;
 use wlansta::profile::{self, Value};
 use wlansta::{Key, Owner, PmkError, Profile};
 
-/// Ticks a `confd` call may take.
+/// Ticks a `confd` read may take.
 const CONFD_TICKS: u64 = 200;
+/// Ticks a `confd` write may take: the first write to a user's subtree
+/// creates its store on disk.
+const CONFD_WRITE_TICKS: u64 = 1_000;
 
 pub(crate) struct Store {
     conf: Option<conf::Client>,
@@ -99,7 +105,12 @@ impl Store {
                 return None;
             }
         };
-        Some(String::from(profile::country(configured.as_deref())))
+        // The radio takes only an assigned ISO 3166-1 code (or `00`): the
+        // same table decides here, so a typo means the world domain rather
+        // than a radio that refuses every code.
+        let code = profile::country(configured.as_deref());
+        let known = wifimac::regdom::Domain::parse(code).is_some();
+        Some(String::from(if known { code } else { profile::WORLD }))
     }
 
     pub fn profiles(&self) -> &[Profile] {
@@ -160,16 +171,28 @@ impl Store {
         let (scope, uid) = scope_of(profile.owner);
         if let Some(secret) = passphrase {
             let keyd = self.keyd().ok_or(Error::Errno(-errno::EAGAIN))?;
-            keyd.store_secret_for(scope, &profile.id, secret.as_bytes(), uid)?;
+            if let Err(error) = keyd.store_secret_for(scope, &profile.id, secret.as_bytes(), uid) {
+                sys::write_str(&format!("WLANMD:ADD:FAIL {} keyd {}\n", profile.id, error.message()));
+                return Err(error);
+            }
         }
         let written = self.write_fields(profile);
-        if written.is_err() {
+        if let Err(error) = &written {
+            sys::write_str(&format!("WLANMD:ADD:FAIL {} confd {}\n", profile.id, error.message()));
             self.erase(profile);
         }
         written
     }
 
     fn write_fields(&mut self, profile: &Profile) -> Result<(), Error> {
+        self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
+        self.retime(CONFD_WRITE_TICKS);
+        let written = self.set_fields(profile);
+        self.retime(CONFD_TICKS);
+        written
+    }
+
+    fn set_fields(&mut self, profile: &Profile) -> Result<(), Error> {
         let client = self.conf().ok_or(Error::Errno(-errno::EAGAIN))?;
         for (field, value) in profile::fields(profile) {
             client.set(&profile::key(profile.owner, &profile.id, field), &to_conf(value))?;
@@ -177,7 +200,13 @@ impl Store {
         Ok(())
     }
 
-    /// Delete a profile's fields and its secret. Missing pieces are fine.
+    /// Give the `confd` client a new per-call timeout.
+    fn retime(&mut self, ticks: u64) {
+        self.conf = self.conf.take().map(|client| client.with_timeout(ticks));
+    }
+
+    /// Delete a profile's fields and, for a user's network, its secret (a
+    /// system network's secret is `elevd`'s). Missing pieces are fine.
     pub fn erase(&mut self, profile: &Profile) {
         if let Some(client) = self.conf() {
             for field in profile::FIELDS.iter().rev() {
@@ -185,7 +214,7 @@ impl Store {
             }
         }
         let (scope, uid) = scope_of(profile.owner);
-        if profile.security == wlansta::Security::Wpa2Psk {
+        if profile.security == wlansta::Security::Wpa2Psk && profile.owner != Owner::System {
             if let Some(keyd) = self.keyd() {
                 let _ = keyd.delete_secret_for(scope, &profile.id, uid);
             }

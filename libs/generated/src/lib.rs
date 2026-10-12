@@ -20710,13 +20710,19 @@ pub mod os_lazy_net_wifi_v1 {
         Ok(out)
     }
 
-    /// Remember a network and its secret. `profile.id` must be empty (the
-    /// service picks one and returns it); `scope` is a `Scope` ordinal. The
-    /// passphrase is required for `Wpa2Psk` (8 to 63 printable ASCII
-    /// characters, or exactly 64 hex digits for a raw PSK) and must be absent
-    /// for `Open`. Does not connect. `EEXIST` for the same SSID and scope;
-    /// `EINVAL` for a bad SSID (1 to 32 bytes), security or passphrase;
-    /// `EPERM` for scope `System` from anyone but `elevd`.
+    /// Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the
+    /// caller's network and its secret; `profile.id` must be empty (the
+    /// service picks one and returns it), and the passphrase is required for
+    /// `Wpa2Psk` (8 to 63 octets of UTF-8 without control characters, or
+    /// exactly 64 hex digits for a raw PSK) and absent for `Open`. Scope
+    /// `System` (from `elevd` alone): only the profile, under the id
+    /// `profile.id` names (`w` and 12 lowercase hex digits), whose secret
+    /// `elevd` already stored in `keyd` under that id; the passphrase must be
+    /// absent. Does not connect. `EEXIST` for the same SSID and scope (or the
+    /// same id); `EINVAL` for a bad SSID (1 to 32 bytes), id, security or
+    /// passphrase, or a name that matches several heard networks; `EPERM` for
+    /// scope `System` from anyone but `elevd`; `ENOSPC` past 32 networks for
+    /// one owner.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AddNetworkArgs {
         pub profile: Profile,

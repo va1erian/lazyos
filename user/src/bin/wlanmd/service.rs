@@ -218,23 +218,28 @@ fn add_checked(
 ) -> Result<Profile> {
     let owner = policy::add_owner(caller, wire.scope).map_err(denied)?;
     let security = Security::from_wire(wire.security).ok_or(refuse(errno::EINVAL))?;
-    if !wire.id.is_empty() {
-        return Err(refuse(errno::EINVAL));
-    }
-    policy::check_new(&wire.ssid, security, passphrase).map_err(denied)?;
+    policy::check_new(owner, &wire.id, &wire.ssid, security, passphrase).map_err(denied)?;
     let ssid = raw_ssid(daemon, wire.ssid, wire.hidden)?;
     let exists = daemon
         .store
         .profiles()
         .iter()
-        .any(|p| p.owner == owner && p.ssid == ssid);
+        .any(|p| p.owner == owner && (p.ssid == ssid || p.id == wire.id));
     if exists {
         return Err(refuse(errno::EEXIST));
     }
-    let mut random = [0u8; 6];
-    sys::random(&mut random).map_err(Error::Errno)?;
+    // A system network's secret is already in `keyd` under the id `elevd`
+    // chose; a user's network gets a fresh id.
+    let id = match owner {
+        Owner::System => wire.id,
+        Owner::User(_) => {
+            let mut random = [0u8; 6];
+            sys::random(&mut random).map_err(Error::Errno)?;
+            profile::new_id(random)
+        }
+    };
     let profile = Profile {
-        id: profile::new_id(random),
+        id,
         ssid,
         security,
         hidden: wire.hidden,

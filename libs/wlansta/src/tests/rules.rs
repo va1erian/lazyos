@@ -15,6 +15,7 @@ use crate::{ssid, Viewer};
 const USER: Caller = Caller { uid: 1000, elevd: false };
 const OTHER: Caller = Caller { uid: 1001, elevd: false };
 const ELEVD: Caller = Caller { uid: 909, elevd: true };
+const ME: Owner = Owner::User(1000);
 
 #[test]
 fn only_elevd_adds_or_forgets_system_networks() {
@@ -42,13 +43,13 @@ fn a_user_network_is_its_owners_and_a_system_one_everyones() {
 #[test]
 fn new_networks_need_a_valid_ssid_and_exactly_the_right_secret() {
     use Security::*;
-    assert_eq!(policy::check_new("home", Wpa2Psk, Some("password")), Ok(()));
-    assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"a".repeat(63))), Ok(()));
-    assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"aB".repeat(32))), Ok(()));
-    assert_eq!(policy::check_new("cafe", Open, None), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "home", Wpa2Psk, Some("password")), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "home", Wpa2Psk, Some(&"a".repeat(63))), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "home", Wpa2Psk, Some(&"aB".repeat(32))), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "cafe", Open, None), Ok(()));
     // UTF-8 passphrases of 8 to 63 octets, as access points take them.
-    assert_eq!(policy::check_new("home", Wpa2Psk, Some("caf\u{e9} au lait")), Ok(()));
-    assert_eq!(policy::check_new("home", Wpa2Psk, Some(&"\u{e9}".repeat(31))), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "home", Wpa2Psk, Some("caf\u{e9} au lait")), Ok(()));
+    assert_eq!(policy::check_new(ME, "", "home", Wpa2Psk, Some(&"\u{e9}".repeat(31))), Ok(()));
     for (ssid, security, secret) in [
         ("", Open, None),
         (&"x".repeat(33)[..], Open, None),
@@ -62,8 +63,17 @@ fn new_networks_need_a_valid_ssid_and_exactly_the_right_secret() {
         ("cafe", Open, Some("password")),
         ("x", Unsupported, None),
     ] {
-        assert_eq!(policy::check_new(ssid, security, secret), Err(Denied::Invalid), "{ssid} {secret:?}");
+        assert_eq!(policy::check_new(ME, "", ssid, security, secret), Err(Denied::Invalid), "{ssid} {secret:?}");
     }
+    // A user never names the id; a system network names the id its secret
+    // was stored under by `elevd`, and never carries the passphrase.
+    assert_eq!(policy::check_new(ME, HOME, "cafe", Open, None), Err(Denied::Invalid));
+    let sys = Owner::System;
+    assert_eq!(policy::check_new(sys, HOME, "home", Wpa2Psk, None), Ok(()));
+    assert_eq!(policy::check_new(sys, HOME, "cafe", Open, None), Ok(()));
+    assert_eq!(policy::check_new(sys, HOME, "home", Wpa2Psk, Some("password")), Err(Denied::Invalid));
+    assert_eq!(policy::check_new(sys, "", "home", Wpa2Psk, None), Err(Denied::Invalid));
+    assert_eq!(policy::check_new(sys, "office", "home", Wpa2Psk, None), Err(Denied::Invalid));
 }
 
 #[test]

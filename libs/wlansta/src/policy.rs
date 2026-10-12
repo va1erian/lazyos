@@ -115,28 +115,39 @@ pub fn viewer(caller: Caller) -> Viewer {
     }
 }
 
-/// `AddNetwork`'s checks: an SSID of 1 to 32 octets, a joinable security, and
-/// a passphrase exactly when it needs one ([`valid_passphrase`]).
-pub fn check_new(ssid: &str, security: Security, passphrase: Option<&str>) -> Result<(), Denied> {
-    if !crate::ssid::valid(ssid.as_bytes()) {
+/// `AddNetwork`'s checks for a profile `owner` will hold: an SSID of 1 to 32
+/// octets and a joinable security; for a user's network no id (the service
+/// mints one) and a passphrase exactly when it needs one
+/// ([`valid_passphrase`]); for a system network the profile id whose secret
+/// `elevd` stored in `keyd` (`net.wifi.system`) and no passphrase (`keyd`
+/// keeps no `system` secret for `wlanmd`).
+pub fn check_new(
+    owner: Owner,
+    id: &str,
+    ssid: &str,
+    security: Security,
+    passphrase: Option<&str>,
+) -> Result<(), Denied> {
+    if !crate::ssid::valid(ssid.as_bytes()) || security == Security::Unsupported {
         return Err(Denied::Invalid);
     }
-    match (security, passphrase) {
-        (Security::Open, None) => Ok(()),
-        (Security::Wpa2Psk, Some(secret)) if valid_passphrase(secret) => Ok(()),
-        _ => Err(Denied::Invalid),
-    }
+    let fits = match (owner, security, passphrase) {
+        (Owner::System, _, None) => crate::profile::valid_id(id),
+        (Owner::System, _, Some(_)) => false,
+        (Owner::User(_), Security::Open, None) => id.is_empty(),
+        (Owner::User(_), Security::Wpa2Psk, Some(secret)) => id.is_empty() && valid_passphrase(secret),
+        (Owner::User(_), _, _) => false,
+    };
+    fits.then_some(()).ok_or(Denied::Invalid)
 }
 
 /// A WPA2 passphrase or raw PSK: 8 to 63 octets of UTF-8 text without
 /// control characters, or exactly 64 hex digits. IEEE 802.11 Annex J.4 asks
-/// for printable ASCII, but access points (and the stations people set them
-/// up with) take any UTF-8, and PBKDF2 hashes octets: refusing `café au
-/// lait` would only lock the user out of their own network. `keyd` must
-/// accept the same set, or a profile could hold a secret it cannot use.
+/// for printable ASCII, but access points take any UTF-8 and PBKDF2 hashes
+/// octets. The rule is `lazyos_crypto::wifi`'s, the one `keyd` and `elevd`
+/// apply (`secretstore::valid_wifi_key`), so a profile never holds a secret
+/// that cannot be used.
 pub fn valid_passphrase(secret: &str) -> bool {
     let bytes = secret.as_bytes();
-    let text = (8..=63).contains(&bytes.len()) && !secret.chars().any(char::is_control);
-    let hex = bytes.len() == 64 && bytes.iter().all(u8::is_ascii_hexdigit);
-    text || hex
+    lazyos_crypto::wifi::valid_passphrase(bytes) || lazyos_crypto::wifi::is_raw_psk(bytes)
 }

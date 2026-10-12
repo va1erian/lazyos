@@ -18,7 +18,7 @@ fuzz = []
 [dependencies]
 ieee80211 = { path = "../ieee80211" }
 eapol = { path = "../eapol" }
+lazyos-crypto = { path = "../crypto" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }
-lazyos-crypto = { path = "../crypto" }

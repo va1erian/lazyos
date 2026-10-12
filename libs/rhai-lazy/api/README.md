@@ -944,7 +944,7 @@ The Wi-Fi station service, **the system-facing interface** (docs/wifi-prerequisi
 | `interfaces()` | `Interfaces() -> (names: Array<String>)` | The wireless interfaces `wlanmd` manages, by name (`wlan0`). |
 | `scan(ifname, ssids)` | `Scan(ifname: String, ssids: Array<String>) -> ()` | Ask for a fresh scan; returns at once, the results arrive on |
 | `networks(ifname)` | `Networks(ifname: String) -> (list: Array<Network>)` | The current scan results merged with the known profiles: one entry per |
-| `add_network(profile, passphrase)` | `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)` | Remember a network and its secret. `profile.id` must be empty (the |
+| `add_network(profile, passphrase)` | `AddNetwork(profile: Profile, passphrase: Option<String>) -> (id: String)` | Remember a network; `scope` is a `Scope` ordinal. Scope `User`: the |
 | `connect(ifname, id)` | `Connect(ifname: String, id: String) -> ()` | Join the network `id` on `ifname`: leave the current one, scan if the |
 | `disconnect(ifname)` | `Disconnect(ifname: String) -> ()` | Leave the current network and do not reconnect until asked (auto- |
 | `forget(id)` | `Forget(id: String) -> ()` | Delete a profile and its secret. Disconnects first if it is the |

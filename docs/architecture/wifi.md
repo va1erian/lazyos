@@ -249,13 +249,16 @@ invariants after every step
 runs as `_wlan` with no capabilities in `LAZYOS_WIFI=1` images (which need
 `LAZYOS_NETD=1`; `init` row after `confd` and `keyd`). It reads the profiles
 from `confd` (again every 10 s; a read that fails keeps the profiles known,
-`WLANMD:PROFILES:STALE`), passes `sys/net/wifi/country` (default `00`) to
+`WLANMD:PROFILES:STALE`), passes `sys/net/wifi/country` (default `00`; a code
+that is not an assigned ISO 3166-1 code by `wifimac::regdom` is `00` too) to
 each radio with `SetCountry` (the world domain when the radio refuses the
 code, no attach when it refuses that too; a changed key is applied within
 10 s), auto-connects to the best known system network and to the networks of
 the users logged in, and serves `wifi.v1` with the rules of
-`wlansta::policy`: `AddNetwork` scope `System` only from `elevd`, a user
-network only for its owner, the passphrase straight to `keyd`
+`wlansta::policy`: `AddNetwork` scope `System` only from `elevd` and
+without a passphrase (the profile under the id whose secret `elevd` stored
+in `keyd` through `net.wifi.system`; `keyd` refuses `wlanmd` a `system`
+secret), a user network only for its owner, its passphrase straight to `keyd`
 (`StoreSecretFor`) and never kept or logged (the request's receive buffer
 and body are wiped), a request's id resolved among the profiles the caller
 may use, `Disconnect` of a user's network only by its owner, `Scan` once a
