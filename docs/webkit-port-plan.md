@@ -229,7 +229,7 @@ uses the tarball for everything else.
 | Fontconfig | 2.16.0 (WebKit wants 2.13.0) | **hard**: `FontCacheSkia.cpp` calls `SkFontMgr_New_FontConfig`, `SkiaSystemFallbackFontCache` includes `<fontconfig/fontconfig.h>`, Skia's CMake requires it everywhere but Windows and PlayStation | MIT-like (HPND) |
 | libxml2 | 2.15.3 (WebKit wants 2.9.7 to 2.9.13) | `XMLDocumentParserLibxml2`, SVG; ENABLE_XSLT is off so libxslt is not needed | MIT |
 | SQLite | 3.54.0 (WebKit wants 3.23.1) | storage, IndexedDB, cookie jar | public domain |
-| libpsl | 0.23.3 (WebKit wants 0.20.2) | `PublicSuffixStoreCurl`, `CookieJarDB` (`PlatformPlayStation` lists it as required) | MIT |
+| libpsl | 0.23.3 (WebKit wants 0.20.2) | `PublicSuffixStoreCurl`, `CookieJarDB` (`PlatformPlayStation` lists it as required) | MIT; its built-in public-suffix list is MPL-2.0 |
 | OpenSSL | 3.5.9 (LTS) | `Curl.cmake` links `OpenSSL::SSL`; `CurlSSLVerifier`, `OpenSSLHelper`, `crypto/openssl` (SubtleCrypto) call its API | Apache-2.0 |
 | nghttp2 | 1.70.0 | HTTP/2 through curl (optional for WebKit; real sites want it) | MIT |
 | curl | 8.22.0 (WebKit wants 7.85.0) | `platform/network/curl` (`USE_CURL`) | curl (MIT-like) |
@@ -279,7 +279,9 @@ pixman would be a revival of code the ports dropped. Built from the tarball in
 SubtleCrypto are written against the OpenSSL API (`CurlSSLVerifier`,
 `OpenSSLHelper`, `crypto/openssl`), so Mbed TLS or rustls would mean
 rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (LazyWeb's
-GPLv2-only crate rule does not apply here). It is built `no-asm`: the portable code
+GPLv2-only crate rule does not apply to it), but it is GPLv2-incompatible, so it
+**must never be linked into LazyWeb or the `nettls` stack**:
+`tools/webkit/licenses.py` enforces it (`wkpins.NEVER_IN_LAZYWEB`). It is built `no-asm`: the portable code
 cannot execute an instruction LazyOS leaves disabled (AVX state), at the cost of
 slower handshakes.
 

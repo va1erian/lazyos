@@ -46,6 +46,21 @@ jobs:
           python tools/test_irqpath.py
           python tools/screenshot/test_qmp_disks.py
 
+      # The WebKit dependency bundle (tools/webkit, docs/webkit-port-plan.md W3):
+      # the judge, the staged-install and stamp logic, the recipe table and
+      # pins, the libs/fhs path rule and the licence register. The build itself
+      # (Docker, zig) and the QEMU run are manual (tools/webkit/README.md); each
+      # file runs on its own because they share module names with tools/jsc.
+      - name: WebKit bundle tests and licences
+        run: |
+          python tools/webkit/test_judge.py
+          python tools/webkit/test_buildkit.py
+          python tools/webkit/test_registry.py
+          python tools/webkit/test_recipes.py
+          python tools/webkit/test_paths.py
+          python tools/webkit/test_licenses.py
+          python tools/webkit/licenses.py
+
       # The Rust formatter (libs/ext2fs) writes the same bytes as the Python one.
       - name: Rust and Python formatters are byte-identical
         run: python tools/mkdisk/test_parity.py -v
