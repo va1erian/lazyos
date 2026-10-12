@@ -152,6 +152,9 @@ members = [
     # docs/wifi-rtw88-plan.md section 3): pure `no_std` + `alloc`, host-tested
     # against a fake radio.
     "libs/wifimac",
+    # The ISO 3166-1 country codes and names: the Wi-Fi regulatory country's one
+    # list (wifimac, elevd, Settings).
+    "libs/iso3166",
     # The simulated radio's air (802.11 in Ethernet) and software CCMP, for
     # `wifisim` and the host's `tools/wifi/fake_ap.py`.
     "libs/simair",

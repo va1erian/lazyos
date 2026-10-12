@@ -1,25 +1,49 @@
 //! `netstatus` (`os.lazy.netstatus`): the network status in the taskbar tray
 //! (docs/tray-plan.md T3). A resident applet with no window, shipped with
-//! the network stack (`LAZYOS_NETD=1`): a Lucide `link` icon whose tooltip
-//! says whether the machine is connected and with which address, from the
-//! retained topics `netd` keeps (`system/net/<if>/addr`, and
-//! `system/net/interfaces` for which interface is primary) and the NIC driver
-//! publishes (`system/net/<if>/link`). A card whose link is down does not
-//! count as connected, even while `netd` keeps its lease. Without a usable
-//! address the item is `Passive` (it overflows first). It opens with every session.
+//! the network stack (`LAZYOS_NETD=1`). Its tooltip says whether the machine
+//! is connected and with which address, from the retained topics `netd`
+//! keeps (`system/net/<if>/addr`, and `system/net/interfaces` for which
+//! interface is primary) and the NIC driver publishes
+//! (`system/net/<if>/link`). A card whose link is down does not count as
+//! connected, even while `netd` keeps its lease. Without a usable address
+//! the item is `Passive` (it overflows first). It opens with every session.
+//!
+//! **Wi-Fi.** When `wlanmd` publishes a wireless interface
+//! (`system/net/<if>/wifi/state`, docs/architecture/wifi.md) the item shows
+//! the radio instead of the link icon (unless a cable carries the connection
+//! and the radio is idle): a Wi-Fi fan with 1 to 4 bars lit, a faded one
+//! when not connected, an animated one while joining, a struck-through one
+//! when the radio is unavailable (`wifitray::glyph`), with the network and
+//! signal in the tooltip. A click opens a menu of the networks heard (a
+//! saved or open one connects, a secured new one opens the Network app on
+//! its Wi-Fi page), Disconnect and Network settings. `radio.rs` follows the
+//! radio; `crates/wifi-tray` decides what is shown. A wired-only machine
+//! sees none of it.
 //!
 //! Serial evidence: `NETSTATUS:UP:PASS` once it started,
-//! `NETSTATUS:STATE <tooltip>` on every change, `NETSTATUS:QUIT:PASS`.
+//! `NETSTATUS:STATE <tooltip>` on every change, `NETSTATUS:ICON <name>` when
+//! the picture changes (`link`, `bars3`, ...), `NETSTATUS:WIFI:UP <if>`,
+//! `NETSTATUS:WIFI:NETWORKS`, `NETSTATUS:WIFI:ACTION <what>` with its
+//! `:PASS`/`:FAIL`, `NETSTATUS:QUIT:PASS`.
+
+#[path = "netstatus/radio.rs"]
+mod radio;
 
 use messenger_generated::os_lazy_messenger_topics_v1 as topics;
 use messenger_generated::os_lazy_net_nic_v1 as nic_wire;
 use messenger_generated::os_lazy_net_stack_v1 as stack_wire;
-use trayclient::{item, lucide, wire};
+use messenger_generated::os_lazy_net_wifi_v1 as wifi_wire;
+use radio::Radio;
+use trayclient::{item, lucide, wire, Event};
+use wifitray::model::{prefer_wifi, show};
 use xui_app::platform::topic_feed::{TopicEvent, TopicFeed};
 use xui_app::resident::{Resident, Wake};
+use xui_app::sys;
 
 /// Ticks between looks at the topics (a second).
 const LOOK_TICKS: u64 = 100;
+/// Ticks between looks at the radio's state topic.
+const WIFI_LOOK_TICKS: u64 = 50;
 /// Most interfaces remembered.
 const MAX_LINKS: usize = 8;
 
@@ -74,6 +98,18 @@ impl Net {
             wire::STATUS_ACTIVE
         }
     }
+
+    /// The address of interface `name`, if it has a usable one.
+    fn address_of(&self, name: &str) -> Option<[u8; 4]> {
+        self.usable()
+            .find(|(known, _)| known == name)
+            .map(|(_, address)| *address)
+    }
+
+    /// Whether an interface other than the radio `wireless` is usable.
+    fn wired_up(&self, wireless: Option<&str>) -> bool {
+        self.usable().any(|(name, _)| Some(name.as_str()) != wireless)
+    }
 }
 
 /// The interface name in `system/net/<name>/...`.
@@ -117,6 +153,108 @@ fn apply(net: &mut Net, links: &mut Vec<(String, bool)>, event: &TopicEvent) {
     }
 }
 
+/// Fold one radio event (`wifi/state`, `wifi/scan`) into `radio`; the first
+/// interface that publishes a state is the one followed.
+fn apply_wifi(radio: &mut Option<Radio>, event: &TopicEvent) {
+    let Some(name) = segment(&event.topic) else {
+        return;
+    };
+    if event.topic.ends_with("/wifi/state") {
+        let Ok(state) = wifi_wire::decode_system_net_wifi_state(&event.payload) else {
+            return;
+        };
+        let followed = radio.get_or_insert_with(|| {
+            println!("NETSTATUS:WIFI:UP {name}");
+            Radio::new(name)
+        });
+        if followed.ifname == name {
+            followed.apply_topic(&state);
+        }
+    } else if event.topic.ends_with("/wifi/scan") {
+        if let Some(followed) = radio.as_mut().filter(|r| r.ifname == name) {
+            followed.scan_done();
+        }
+    }
+}
+
+/// What the shell was last told, so only changes are sent.
+#[derive(Default)]
+struct Sent {
+    tooltip: String,
+    status: u32,
+    /// The Wi-Fi glyph's name; `None` is the wired link icon.
+    glyph: Option<String>,
+    menu: Vec<wire::MenuItem>,
+    /// Whether a click opens the menu (a radio exists).
+    menu_mode: bool,
+}
+
+/// Show what the topics and the radio say. The first sight of a radio
+/// replaces the item (a click opens the menu from then on); afterwards only
+/// the parts that changed are updated.
+fn refresh(res: &Resident, net: &Net, radio: Option<&Radio>, phase: u8, sent: &mut Sent) {
+    let link = radio.map(|r| &r.link);
+    let wireless = radio.map(|r| r.ifname.as_str());
+    let shown = link
+        .filter(|link| prefer_wifi(Some(link), net.wired_up(wireless)))
+        .map(|link| show(link, phase));
+    let (tooltip, status, glyph) = match &shown {
+        Some(shown) => (
+            shown.tooltip.clone(),
+            shown.status,
+            Some(shown.glyph),
+        ),
+        None => (net.tooltip(), net.status(), None),
+    };
+    let glyph_name = glyph.map(|glyph| glyph.name());
+    let menu = radio.map_or(Vec::new(), |r| r.menu.rows.clone());
+    let menu_mode = radio.is_some();
+    if tooltip != sent.tooltip {
+        println!("NETSTATUS:STATE {tooltip}");
+    }
+    if glyph_name != sent.glyph {
+        println!("NETSTATUS:ICON {}", glyph_name.as_deref().unwrap_or("link"));
+    }
+    let mut tray = res.tray.borrow_mut();
+    if menu_mode != sent.menu_mode {
+        let mut full = item(icon_of(glyph), &tooltip);
+        full.status = status;
+        full.menu = menu.clone();
+        if menu_mode {
+            full.activate = wire::ACTIVATION_MENU;
+        }
+        let _ = tray.set(full);
+    } else if tooltip != sent.tooltip
+        || status != sent.status
+        || glyph_name != sent.glyph
+        || menu != sent.menu
+    {
+        let patch = wire::UpdateArgs {
+            icon: (glyph_name != sent.glyph).then(|| icon_of(glyph)),
+            tooltip: (tooltip != sent.tooltip).then(|| tooltip.clone()),
+            status: (status != sent.status).then_some(status),
+            menu: (menu != sent.menu).then(|| wire::Menu { rows: menu.clone() }),
+            ..wire::UpdateArgs::default()
+        };
+        let _ = tray.update(patch);
+    }
+    *sent = Sent {
+        tooltip,
+        status,
+        glyph: glyph_name,
+        menu,
+        menu_mode,
+    };
+}
+
+/// The picture for `glyph`: the Wi-Fi mask, or the wired link outline.
+fn icon_of(glyph: Option<wifitray::Glyph>) -> wire::Icon {
+    match glyph {
+        Some(glyph) => glyph.mask().icon(),
+        None => lucide("link"),
+    }
+}
+
 fn main() {
     let res = Resident::windowless("NETSTATUS");
     let mut feeds = [
@@ -139,8 +277,25 @@ fn main() {
             LOOK_TICKS,
         ),
     ];
+    // The radio's state is retained (a late start sees it at once); a scan
+    // is an edge, so a few are queued.
+    let mut wifi_feeds = [
+        TopicFeed::new(
+            String::from(wifi_wire::TOPIC_SYSTEM_NET_WIFI_STATE),
+            topics::QOS_LATEST,
+            1,
+            WIFI_LOOK_TICKS,
+        ),
+        TopicFeed::new(
+            String::from(wifi_wire::TOPIC_SYSTEM_NET_WIFI_SCAN),
+            topics::QOS_LATEST,
+            2,
+            LOOK_TICKS,
+        ),
+    ];
     let mut net = Net::default();
     let mut links = Vec::new();
+    let mut radio: Option<Radio> = None;
     let mut first = item(lucide("link"), &net.tooltip());
     first.status = net.status();
     // Before the shell serves the tray the item is set when it announces
@@ -149,13 +304,26 @@ fn main() {
         println!("NETSTATUS:TRAY:LATER err={}", -code);
     }
     println!("NETSTATUS:UP:PASS");
-    let mut shown = net.tooltip();
+    let mut sent = Sent {
+        tooltip: net.tooltip(),
+        status: net.status(),
+        ..Sent::default()
+    };
+    let mut phase = 0u8;
     loop {
         for wake in res.idle(500) {
-            if let Wake::Quit(_) = wake {
-                let _ = res.tray.borrow_mut().clear();
-                println!("NETSTATUS:QUIT:PASS");
-                std::process::exit(0);
+            match wake {
+                Wake::Quit(_) => {
+                    let _ = res.tray.borrow_mut().clear();
+                    println!("NETSTATUS:QUIT:PASS");
+                    std::process::exit(0);
+                }
+                Wake::Tray(Event::MenuItem { id, .. }) => {
+                    if let Some(radio) = radio.as_mut() {
+                        radio.act(id, sys::clock_ticks());
+                    }
+                }
+                _ => {}
             }
         }
         for feed in feeds.iter_mut() {
@@ -163,16 +331,16 @@ fn main() {
                 apply(&mut net, &mut links, &event);
             }
         }
-        let tooltip = net.tooltip();
-        if tooltip != shown {
-            println!("NETSTATUS:STATE {tooltip}");
-            let patch = wire::UpdateArgs {
-                tooltip: Some(tooltip.clone()),
-                status: Some(net.status()),
-                ..wire::UpdateArgs::default()
-            };
-            let _ = res.tray.borrow_mut().update(patch);
-            shown = tooltip;
+        for feed in wifi_feeds.iter_mut() {
+            for event in feed.poll() {
+                apply_wifi(&mut radio, &event);
+            }
         }
+        if let Some(radio) = radio.as_mut() {
+            radio.set_address(net.address_of(&radio.ifname));
+            radio.tick(sys::clock_ticks());
+        }
+        phase = phase.wrapping_add(1);
+        refresh(&res, &net, radio.as_ref(), phase, &mut sent);
     }
 }

@@ -14,7 +14,7 @@ fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
 
 #[test]
 fn every_row_parses_and_round_trips() {
-    let rows: [(&str, &[&str]); 19] = [
+    let rows: [(&str, &[&str]); 21] = [
         ("pkg.install", &["/transient/demo.lzp"]),
         ("pkg.update-core", &["/home/user/counter.lzp"]),
         ("pkg.remove", &["org.lazy.demo"]),
@@ -37,6 +37,8 @@ fn every_row_parses_and_round_trips() {
         ("service.restart", &["inputd"]),
         ("net.wifi.system", &["store", "office", "correct horse"]),
         ("net.wifi.system", &["delete", "office"]),
+        ("net.wifi.country", &["FR"]),
+        ("net.wifi.country", &["00"]),
     ];
     for (name, items) in rows {
         let op = parse(name, items).unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -44,7 +46,7 @@ fn every_row_parses_and_round_trips() {
         assert_eq!(Operation::parse(name, &op.args()), Ok(op.clone()), "{name}");
         assert!(!op.summary().is_empty());
     }
-    assert_eq!(NAMES.len(), 17);
+    assert_eq!(NAMES.len(), 18);
 }
 
 #[test]
@@ -229,4 +231,38 @@ fn values_round_trip() {
         let (kind, text) = value_args(&value);
         assert_eq!(parse_value(kind, &text), Ok(value));
     }
+}
+
+#[test]
+fn the_wifi_country_is_a_listed_code_and_nothing_else() {
+    let op = parse("net.wifi.country", &["fr"]).unwrap();
+    assert_eq!(op, Operation::WifiCountry { code: "FR".into() });
+    assert_eq!(op.args(), args(&["FR"]), "stored in capitals");
+    assert_eq!(op.class(), Class::Once, "a change asks every time");
+    assert!(op.permitted().is_ok());
+    assert_eq!(
+        op.summary(),
+        "Set the Wi-Fi country to France (FR), which limits the radio's channels"
+    );
+    let world = parse("net.wifi.country", &["00"]).unwrap();
+    assert!(world.summary().contains("World (00)"), "{}", world.summary());
+    for bad in [
+        &[][..],
+        &[""][..],
+        &["F"][..],
+        &["FRA"][..],
+        // Made-up codes would unlock what a named country may do.
+        &["ZZ"][..],
+        &["UK"][..],
+        &["0"][..],
+        &["F\u{e9}"][..],
+        &["FR", "extra"][..],
+        &["F\nR"][..],
+    ] {
+        assert!(
+            parse("net.wifi.country", bad).is_err(),
+            "{bad:?} was accepted"
+        );
+    }
+    assert_eq!(WIFI_COUNTRY_KEY, "sys/net/wifi/country");
 }

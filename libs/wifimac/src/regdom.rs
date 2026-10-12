@@ -51,7 +51,7 @@ impl Domain {
     /// (`SetCountry` answers `EINVAL`).
     pub fn parse(text: &str) -> Option<Domain> {
         let code: [u8; 2] = text.as_bytes().try_into().ok()?;
-        (code == *b"00" || crate::iso3166::is_country(&code)).then_some(Domain { code })
+        (code == *b"00" || iso3166::is_country(&code)).then_some(Domain { code })
     }
 
     pub fn code(&self) -> [u8; 2] {

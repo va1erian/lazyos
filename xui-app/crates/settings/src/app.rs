@@ -44,6 +44,8 @@ use crate::theme_ops;
 use crate::time_page::{TimeMsg, TimePage};
 use crate::user_theme::{self, UserTheme};
 use crate::wallpaper_ops;
+use crate::wifi_ops;
+use crate::wifi_page::{WifiMsg, WifiPage};
 use crate::windows_page::WindowsPage;
 
 mod elevated;
@@ -92,6 +94,7 @@ pub enum Msg {
     Hidden(HiddenMsg),
     Time(TimeMsg),
     Accounts(AccountsMsg),
+    Wifi(WifiMsg),
     AboutRefresh,
     /// A change that ran on a worker thread finished.
     Done(Done),
@@ -114,6 +117,7 @@ struct Pages {
     time: TimePage,
     about: AboutPage,
     accounts: AccountsPage,
+    wifi: WifiPage,
 }
 
 /// The Settings app.
@@ -211,6 +215,7 @@ impl SettingsApp {
             time: TimePage::build(ui, page(Section::Time))?,
             about: AboutPage::build(ui, page(Section::About))?,
             accounts: AccountsPage::build(ui, page(Section::Accounts))?,
+            wifi: WifiPage::build(ui, page(Section::Wifi))?,
         };
 
         let mut app = SettingsApp {
@@ -252,6 +257,7 @@ impl SettingsApp {
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
             Section::Hidden => p.hidden.load(self.store.as_ref()),
+            Section::Wifi => p.wifi.load(self.machine.as_ref(), self.system.as_ref()),
             Section::Accounts => self
                 .status
                 .set_text(&p.accounts.load(self.accounts.as_ref())),
@@ -405,6 +411,15 @@ impl App for SettingsApp {
                     Done::Keyboard(keyboard_page::make_default(store, machine, selected))
                 });
             }
+            Msg::Wifi(WifiMsg::Apply) => match self.pages.wifi.selected() {
+                Some(code) => self.set_country(ui, code),
+                None => say(&self.status, String::from("Select a country first.")),
+            },
+            Msg::Wifi(WifiMsg::ApplySuggestion) => match self.pages.wifi.suggested() {
+                Some(code) => self.set_country(ui, code),
+                None => say(&self.status, String::from("There is no suggestion to use.")),
+            },
+            Msg::Wifi(msg) => say(&self.status, self.pages.wifi.update(msg)),
             Msg::Done(done) => self.finish(done, ui),
             Msg::Keyboard(msg) => say(
                 &self.status,

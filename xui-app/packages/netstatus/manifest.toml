@@ -28,11 +28,17 @@ resident = true
 
 [permissions]
 # Derived from a run under `LAZYOS_LABEL_TRACE=1` (no `LABEL:DENY`).
-# No interface beyond the implied ones: the state comes from the retained
-# address and link topics.
-interfaces = []
+# The state comes from the retained address, link and radio topics. The
+# Wi-Fi menu lists the networks, connects and disconnects through `wlanmd`
+# (`os.lazy.net.wifi.v1`), and opens the Network app through `init`.
+interfaces = [
+    "os.lazy.net.wifi.v1",
+    "os.lazy.init.v1",
+]
 topics = [
     "subscribe:system/net/+/addr",
     "subscribe:system/net/+/link",
     "subscribe:system/net/interfaces",
+    "subscribe:system/net/+/wifi/state",
+    "subscribe:system/net/+/wifi/scan",
 ]

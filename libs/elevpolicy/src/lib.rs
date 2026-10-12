@@ -27,6 +27,7 @@
 //! | `net.config` | card, address, gateway, dns | `confd` `Set`/`Delete` of `sys/net/<card>/*` |
 //! | `service.restart` | service name ([`RESTARTABLE`]) | `init` `RestartService` |
 //! | `net.wifi.system` | `store`, name, passphrase; or `delete`, name | `keyd` `StoreSecret`/`DeleteSecret` in the `system` scope |
+//! | `net.wifi.country` | ISO 3166-1 alpha-2 code, or `00` | `confd` `Set` of `sys/net/wifi/country` |
 //!
 //! Every change asks every time: each `conf.set`, `conf.delete` and every
 //! other operation opens the prompt (decision of 2026-10-07). Only the
@@ -97,6 +98,9 @@ pub const MAX_SECRET: usize = 64;
 pub const POWER_PREFIX: &str = "sys/power/";
 /// The confd subtree `net.config` writes (`sys/net/<card>/...`).
 pub const NET_PREFIX: &str = "sys/net/";
+/// The key `net.wifi.country` writes: the regulatory country `wlanmd` gives
+/// every radio (docs/architecture/wifi.md).
+pub const WIFI_COUNTRY_KEY: &str = "sys/net/wifi/country";
 /// Latest clock `time.set` accepts (2200-01-01, as `timed`).
 const MAX_TIME: i64 = 7_258_118_400;
 
@@ -189,6 +193,13 @@ pub enum Operation {
         name: String,
     },
     WifiSystem(WifiChange),
+    /// The Wi-Fi regulatory country: an assigned ISO 3166-1 alpha-2 code in
+    /// capitals, or `00` (the world domain). It decides which channels the
+    /// radio may transmit on, so it is a machine setting an administrator
+    /// approves; a code that is not on the list is refused before any prompt.
+    WifiCountry {
+        code: String,
+    },
 }
 
 /// What `net.wifi.system` does to the machine's own Wi-Fi secrets, the ones
@@ -231,6 +242,7 @@ pub const NAMES: &[&str] = &[
     "net.config",
     "service.restart",
     "net.wifi.system",
+    "net.wifi.country",
 ];
 
 impl Operation {
@@ -420,6 +432,14 @@ impl Operation {
                 };
                 Operation::WifiSystem(change)
             }
+            "net.wifi.country" => {
+                want(1)?;
+                let code = iso3166::parse(arg(0).unwrap_or(""))
+                    .ok_or("not an ISO 3166-1 country code or 00")?;
+                Operation::WifiCountry {
+                    code: code.iter().map(|b| char::from(*b)).collect(),
+                }
+            }
             _ => return Err("not an operation elevd performs"),
         };
         Ok(op)
@@ -449,6 +469,7 @@ impl Operation {
             Operation::NetConfig { .. } => 14,
             Operation::ServiceRestart { .. } => 15,
             Operation::WifiSystem(_) => 16,
+            Operation::WifiCountry { .. } => 17,
         }
     }
 

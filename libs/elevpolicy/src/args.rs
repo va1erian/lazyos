@@ -54,6 +54,7 @@ impl Operation {
             Operation::WifiSystem(WifiChange::Delete { name }) => {
                 alloc::vec![String::from("delete"), name.clone()]
             }
+            Operation::WifiCountry { code } => one(code),
         }
     }
 }

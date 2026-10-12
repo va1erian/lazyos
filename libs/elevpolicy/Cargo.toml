@@ -22,6 +22,9 @@ accountdb = { path = "../accountdb" }
 confd = { path = "../confd" }
 # The rule for a Wi-Fi secret's name (`net.wifi.system`).
 secretstore = { path = "../secretstore" }
+# The country codes `net.wifi.country` accepts (the very list the radio
+# refuses others by).
+iso3166 = { path = "../iso3166" }
 # The civil date a `time.set` prompt shows.
 timezone = { path = "../timed" }
 

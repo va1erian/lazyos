@@ -477,6 +477,7 @@ dependencies = [
  "accountdb",
  "confd",
  "fuzzkit",
+ "iso3166",
  "secretstore",
  "timezone",
 ]
@@ -728,6 +729,10 @@ version = "0.1.0"
 dependencies = [
  "fuzzkit",
 ]
+
+[[package]]
+name = "iso3166"
+version = "0.1.0"
 
 [[package]]
 name = "itoa"
@@ -1734,6 +1739,7 @@ name = "wifimac"
 version = "0.1.0"
 dependencies = [
  "ieee80211",
+ "iso3166",
 ]
 
 [[package]]

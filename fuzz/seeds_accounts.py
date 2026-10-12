@@ -74,6 +74,8 @@ def elevpolicy_seeds():
         "service_restart": request("service.restart", "inputd"),
         "wifi_system_store": request("net.wifi.system", "store", "office", "correct horse"),
         "wifi_system_delete": request("net.wifi.system", "delete", "office"),
+        "wifi_country": request("net.wifi.country", "FR"),
+        "wifi_country_world": request("net.wifi.country", "00"),
         "unknown": request("sh", "-c", "rm -rf /"),
         "traversal": request("pkg.install", "/transient/../system/bin/init"),
         "system_account": request("account.create", "_accounts", "x", "admin"),

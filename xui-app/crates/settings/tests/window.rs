@@ -14,6 +14,8 @@ use xui_settings::accounts_page::AccountsMsg;
 use xui_settings::app::WINDOW;
 use xui_settings::keyboard_page::KeyboardMsg;
 use xui_settings::menu_page::MenuMsg;
+use xui_settings::wifi_ops;
+use xui_settings::wifi_page::WifiMsg;
 use xui_settings::store::{AppChoice, ConfigStore, Value};
 use xui_settings::{keyboard, theme_ops, Accounts, MemAccounts, MemStore, MemSystem, Msg};
 use xui_settings::{Section, SettingsApp};
@@ -206,6 +208,60 @@ fn a_keyboard_layout_is_the_users_own_and_only_the_default_asks() {
         );
         assert_eq!(mem.get(keyboard::KEY_LAYOUT), Some(Value::Str("fr".into())));
         assert_eq!(mem.get(own), None);
+    });
+}
+
+#[test]
+fn the_wifi_country_is_chosen_from_the_list_and_written_once_on_apply() {
+    watchdog(|| {
+        let wifi = Msg::Wifi;
+        let page = Msg::Section(Section::Wifi.index());
+        let mem = Rc::new(store(Mode::Dark));
+        let people = || Rc::new(MemAccounts::default());
+        // Searching and moving through the list write nothing.
+        let browse = vec![
+            page.clone(),
+            wifi(WifiMsg::Filter("fran".into())),
+            wifi(WifiMsg::Select(0)),
+        ];
+        save(
+            &drive(mem.clone(), people(), browse),
+            "settings-wifi-searched.png",
+        );
+        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), None);
+        // Apply with nothing matching selected: nothing is written.
+        let nothing = vec![
+            page.clone(),
+            wifi(WifiMsg::Filter("qqqq".into())),
+            wifi(WifiMsg::Apply),
+        ];
+        drive(mem.clone(), people(), nothing);
+        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), None);
+        // A cancelled prompt leaves the stored country alone.
+        *mem.fail_writes.borrow_mut() = Some("cancelled".into());
+        let refused = vec![
+            page.clone(),
+            wifi(WifiMsg::Filter("fran".into())),
+            wifi(WifiMsg::Apply),
+        ];
+        drive(mem.clone(), people(), refused);
+        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), None);
+        // An approved one writes the machine key, in capitals.
+        *mem.fail_writes.borrow_mut() = None;
+        let approved = vec![
+            page.clone(),
+            wifi(WifiMsg::Filter("fran".into())),
+            wifi(WifiMsg::Apply),
+        ];
+        save(
+            &drive(mem.clone(), people(), approved),
+            "settings-wifi-applied.png",
+        );
+        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), Some(Value::Str("FR".into())));
+        // The world domain is in the list too.
+        let world = vec![page, wifi(WifiMsg::Filter("world".into())), wifi(WifiMsg::Apply)];
+        drive(mem.clone(), people(), world);
+        assert_eq!(mem.get(wifi_ops::KEY_COUNTRY), Some(Value::Str("00".into())));
     });
 }
 
