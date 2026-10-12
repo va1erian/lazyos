@@ -12,6 +12,7 @@
 use xui_core::app::Ui;
 use xui_core::widget::TaskDialogAction;
 
+use super::commands::PasteKind;
 use super::{Msg, PaintApp};
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
@@ -26,17 +27,22 @@ pub(super) enum After {
     Open,
     /// Quit the application.
     Quit,
+    /// Paste the clipboard picture as a new image.
+    PasteNewImage,
 }
 
 impl PaintApp {
     /// Whether the picture has changes the file (or a fresh start) lacks.
     pub(super) fn dirty(&self) -> bool {
-        self.saved_revision != Some(self.model.revision())
+        self.model.is_floating()
+            || self.model.is_editing_text()
+            || self.saved.is_dirty(self.model.selection())
     }
 
     /// Records that the picture is as saved (or opened, or new).
     pub(super) fn mark_clean(&mut self) {
-        self.saved_revision = Some(self.model.revision());
+        self.saved
+            .mark_clean(self.model.history(), self.model.selection());
     }
 
     /// Runs `after`, first asking Save / Don't Save / Cancel when there are
@@ -60,6 +66,7 @@ impl PaintApp {
             After::NewTransparent => self.new_picture(Some([0, 0, 0, 0])),
             After::Open => self.open_requested(),
             After::Quit => ui.quit(),
+            After::PasteNewImage => self.finish_paste(PasteKind::NewImage),
         }
     }
 

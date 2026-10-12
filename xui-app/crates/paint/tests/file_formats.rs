@@ -288,7 +288,10 @@ fn the_title_follows_the_document_and_its_unsaved_state() {
         assert_eq!(ctx.title(), "untitled* - Paint");
         save_as(stage, "t.png");
         assert_eq!(ctx.title(), "t.png - Paint");
+        // The same stroke again changes no pixel, so it is no change.
         stroke(stage, ctx);
+        assert_eq!(ctx.title(), "t.png - Paint");
+        chord(stage, Key::I, true); // Invert Colors
         assert_eq!(ctx.title(), "t.png* - Paint");
         chord(stage, Key::S, false);
         assert_eq!(ctx.title(), "t.png - Paint", "Save writes there and cleans");
@@ -331,8 +334,9 @@ fn new_open_and_quit_ask_before_dropping_unsaved_changes() {
     });
 }
 
-fn stroke_small(stage: &Stg<'_>, ctx: &Ctx) {
-    drag_picture(stage, ctx, (10, 10), (20, 10));
+/// A change that lands on any picture size.
+fn stroke_small(stage: &Stg<'_>, _ctx: &Ctx) {
+    chord(stage, Key::I, true); // Invert Colors
 }
 
 #[test]

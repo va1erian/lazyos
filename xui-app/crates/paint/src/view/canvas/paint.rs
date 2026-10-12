@@ -14,6 +14,7 @@ use xui_core::{Color, Theme};
 use super::ants;
 use super::state::CanvasState;
 use crate::model::{Rect as PixelRect, Tool};
+use crate::viewport::scaled_px;
 
 const WHITE: Color = Color::rgb(255, 255, 255);
 const BLACK: Color = Color::rgb(0, 0, 0);
@@ -23,6 +24,7 @@ const BLINK_TICKS: u32 = 3;
 
 pub(super) fn paint(canvas: &mut dyn Canvas, state: &mut CanvasState, theme: &Theme) {
     let bounds = canvas.bounds();
+    state.set_dpi(canvas.dpi());
     state.set_view(bounds);
     canvas.clear(theme.background);
     canvas.push_clip(bounds);
@@ -96,7 +98,12 @@ fn draw_text_overlay(canvas: &mut dyn Canvas, state: &CanvasState, theme: &Theme
         let top = bounds.top + (y * zoom).round() as i32 - oy;
         let bottom = top + (height * zoom).round().max(2.0) as i32;
         // Black with a white edge, so it shows on any picture.
-        canvas.fill_rect(Rect::new(left - 1, top - 1, left + 3, bottom + 1), WHITE);
-        canvas.fill_rect(Rect::new(left, top, left + 2, bottom), BLACK);
+        let wide = scaled_px(2, state.dpi);
+        let edge = scaled_px(1, state.dpi);
+        canvas.fill_rect(
+            Rect::new(left - edge, top - edge, left + wide + edge, bottom + edge),
+            WHITE,
+        );
+        canvas.fill_rect(Rect::new(left, top, left + wide, bottom), BLACK);
     }
 }

@@ -49,6 +49,8 @@ pub struct CanvasState {
     pub(super) phase: u32,
     /// An adjustment shown on the screen image only (the adjustment dialogs).
     tweak: Option<AdjustPreview>,
+    /// The window's dpi, which the checkerboard, the ants and the caret scale by.
+    pub(super) dpi: u32,
 }
 
 impl Default for CanvasState {
@@ -75,6 +77,7 @@ impl Default for CanvasState {
             sel_rev: 0,
             phase: 0,
             tweak: None,
+            dpi: 96,
         }
     }
 }
@@ -112,6 +115,15 @@ impl CanvasState {
         self.viewport.clamp(self.doc_size, view);
         self.screen_stale = true;
         true
+    }
+
+    /// Records the window's dpi; a change rebuilds the screen image (its
+    /// checkerboard cells are scaled).
+    pub(super) fn set_dpi(&mut self, dpi: u32) {
+        if self.dpi != dpi {
+            self.dpi = dpi;
+            self.screen_stale = true;
+        }
     }
 
     /// Applies a viewport change; marks the screen image stale when it differs.
@@ -166,11 +178,14 @@ impl CanvasState {
             self.screen = self.cache.get().and_then(|flat| {
                 let tweak = self.tweak.as_ref();
                 let apply = |x, y, pixel| tweak.map_or(pixel, |t| t.pixel(x, y, pixel));
-                let image = render::render_tweaked(
+                let image = render::render_at(
                     flat,
                     &self.viewport,
                     self.view,
-                    self.grid,
+                    render::Look {
+                        grid: self.grid,
+                        checker: crate::viewport::scaled_px(render::CHECKER as i32, self.dpi),
+                    },
                     tweak.is_some().then_some(&apply),
                 )?;
                 let at = (image.x, image.y);

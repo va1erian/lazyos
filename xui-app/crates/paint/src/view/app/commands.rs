@@ -8,10 +8,15 @@ use std::rc::Rc;
 use xui_core::app::Ui;
 
 use super::dialogs::PasteSize;
+use super::guard::After;
 use super::{Msg, PaintApp};
 use crate::model::Tool;
 use crate::view::Command;
 use crate::view::sysclip::SystemClipboard;
+
+/// The most a PNG can shrink a picture, about: a raw picture bigger than the
+/// system clipboard's limit times this is not encoded to be measured.
+const MAX_PNG_RATIO: u64 = 1000;
 
 /// Which of the three pastes is waiting for the canvas-size answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,19 +107,28 @@ impl PaintApp {
         let Some(system) = self.system.clone() else {
             return;
         };
-        let png = self
-            .model
-            .clipboard()
-            .and_then(|clip| clip.bitmap().encode_png().ok());
+        let png = self.model.clipboard().and_then(|clip| {
+            let (width, height) = clip.bitmap().size();
+            // A picture whose raw size is far beyond what the system takes
+            // cannot compress under it (deflate gives about 1000:1 at best),
+            // so it is not encoded on the UI thread just to be compared.
+            let raw = u64::from(width) * u64::from(height) * 4;
+            if raw > system.max_bytes() as u64 * MAX_PNG_RATIO {
+                return None;
+            }
+            clip.bitmap().encode_png().ok()
+        });
         match png {
             Some(png) if png.len() <= system.max_bytes() => {
                 system.offer_png(&png);
                 self.last_offered = Some(png);
                 self.local_newest = false;
             }
-            // Too big to share: the in-app copy is the newest.
+            // Too big to share: the in-app copy is the newest, and whatever
+            // the system holds now is older than it. A picture another
+            // application copies later differs from that.
             _ => {
-                self.last_offered = None;
+                self.last_offered = system.request_png();
                 self.local_newest = true;
             }
         }
@@ -126,12 +140,11 @@ impl PaintApp {
         let Some(system) = self.system.clone() else {
             return;
         };
-        if self.local_newest {
-            return;
-        }
         let Some(png) = system.request_png() else {
             return;
         };
+        // What is there is ours (or older than our copy) when it is what we
+        // last offered or saw; anything else came from another application.
         if self.last_offered.as_ref() == Some(&png) {
             return;
         }
@@ -139,6 +152,7 @@ impl PaintApp {
             && self.model.set_clipboard(bitmap, (0, 0)).is_ok()
         {
             self.last_offered = Some(png);
+            self.local_newest = false;
         }
     }
 
@@ -151,7 +165,12 @@ impl PaintApp {
         };
         let (width, height) = clip.bitmap().size();
         let (doc_w, doc_h) = self.model.document().size();
-        if kind != PasteKind::NewImage && (width > doc_w || height > doc_h) {
+        if kind == PasteKind::NewImage {
+            // It replaces the document, so unsaved changes are asked about.
+            self.guard(ui, After::PasteNewImage);
+            return;
+        }
+        if width > doc_w || height > doc_h {
             self.pending_paste = Some(kind);
             if let Err(error) = self.paste_size.show(ui, (width, height), (doc_w, doc_h)) {
                 self.pending_paste = None;
@@ -164,6 +183,9 @@ impl PaintApp {
 
     /// The paste dialog answered: grow the canvas to fit first, or not.
     pub(super) fn paste_sized(&mut self, size: PasteSize) {
+        // A card closes itself on a click or key; an answer that arrives by
+        // another route leaves the same state.
+        self.paste_size.close();
         let Some(kind) = self.pending_paste.take() else {
             return;
         };
@@ -180,7 +202,7 @@ impl PaintApp {
         self.finish_paste(kind);
     }
 
-    fn finish_paste(&mut self, kind: PasteKind) {
+    pub(super) fn finish_paste(&mut self, kind: PasteKind) {
         let at = self.canvas.view_top_left();
         let result = match kind {
             PasteKind::Float => self.model.paste(at),
@@ -191,7 +213,7 @@ impl PaintApp {
                     self.current_path = None;
                     self.cursor = None;
                     // A picture that came from the clipboard has no file.
-                    self.saved_revision = None;
+                    self.saved.forget();
                 }
                 result
             }
@@ -210,6 +232,10 @@ impl PaintApp {
             Msg::WandContiguous(contiguous) => self.model.set_wand_contiguous(contiguous),
             Msg::PasteExpand => self.paste_sized(PasteSize::Expand),
             Msg::PasteKeep => self.paste_sized(PasteSize::Keep),
+            Msg::PasteCancel => {
+                self.paste_size.close();
+                self.pending_paste = None;
+            }
             _ => {}
         }
     }

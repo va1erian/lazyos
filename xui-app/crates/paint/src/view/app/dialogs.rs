@@ -13,7 +13,9 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::backend::Result;
-use xui_core::widget::{Dialog, DialogAction, FileDialog, FileSystem};
+use xui_core::widget::{
+    Dialog, FileDialog, FileSystem, TaskDialog, TaskDialogAction, TaskDialogIcon,
+};
 
 use crate::view::Msg;
 
@@ -60,6 +62,12 @@ impl FileDialogs {
     /// Whether either picker is showing.
     pub(super) fn is_open(&self) -> bool {
         self.open.is_open() || self.save.is_open()
+    }
+
+    /// Hides both pickers without an answer.
+    pub(super) fn close(&self) {
+        self.open.close();
+        self.save.close();
     }
 
     pub(super) fn set_start_dir(&self, dir: &Path) {
@@ -112,6 +120,13 @@ impl AboutBox {
         self.dialog.as_ref().is_some_and(Dialog::is_open)
     }
 
+    /// Hides the box.
+    pub(super) fn close(&self) {
+        if let Some(dialog) = &self.dialog {
+            dialog.close();
+        }
+    }
+
     pub(super) fn show(&mut self, ui: &Ui<Msg>) -> Result<()> {
         let dialog = match self.dialog.take() {
             Some(dialog) => dialog,
@@ -137,16 +152,24 @@ pub(super) enum PasteSize {
     Keep,
 }
 
-/// The oversized-paste question: expand the canvas or keep its size. Built per
-/// open so the message can name the two sizes.
+/// The oversized-paste question: expand the canvas (command 0), keep its size
+/// (command 1) or cancel the paste. Built per open so the message can name the
+/// two sizes.
 #[derive(Default)]
 pub(super) struct PasteSizePrompt {
-    dialog: Option<Dialog<Msg>>,
+    dialog: Option<TaskDialog<Msg>>,
 }
 
 impl PasteSizePrompt {
     pub(super) fn is_open(&self) -> bool {
-        self.dialog.as_ref().is_some_and(Dialog::is_open)
+        self.dialog.as_ref().is_some_and(TaskDialog::is_open)
+    }
+
+    /// Hides the card without an answer.
+    pub(super) fn close(&self) {
+        if let Some(dialog) = &self.dialog {
+            dialog.close();
+        }
     }
 
     pub(super) fn show(
@@ -159,12 +182,14 @@ impl PasteSizePrompt {
             "The picture ({} x {}) is larger than the canvas ({} x {}). Expand the canvas to fit it?",
             picture.0, picture.1, canvas.0, canvas.1
         );
-        let dialog = Dialog::confirm(ui, "Paste", &text)?
-            .accept_label("Expand canvas")
-            .cancel_label("Keep size")
+        let dialog = TaskDialog::new(ui, "Paste", &text)?
+            .icon(TaskDialogIcon::Info)
+            .command("Expand canvas")?
+            .command("Keep size")?
             .on_action(|action| match action {
-                DialogAction::Accept(_) => Some(Msg::PasteExpand),
-                DialogAction::Cancel => Some(Msg::PasteKeep),
+                TaskDialogAction::Command(0) => Some(Msg::PasteExpand),
+                TaskDialogAction::Command(_) => Some(Msg::PasteKeep),
+                TaskDialogAction::Cancel => Some(Msg::PasteCancel),
             });
         dialog.open();
         self.dialog = Some(dialog);

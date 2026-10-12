@@ -22,7 +22,7 @@ use xui_core::message::MouseButton;
 use xui_core::theme::look;
 use xui_core::widget::{Control, Placeable};
 
-use super::{Msg, color_of};
+use super::{KeyOwner, Msg, color_of};
 use crate::model::{Pixel, Side};
 
 /// Padding around the panel's content.
@@ -213,6 +213,7 @@ impl State {
 pub struct Palette {
     control: Control<Msg>,
     state: Rc<State>,
+    keys: KeyOwner,
 }
 
 impl Palette {
@@ -222,6 +223,7 @@ impl Palette {
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
+        let keys = KeyOwner::new(false);
         let state = Rc::new(State {
             bounds: Cell::new(Rect::default()),
             dpi: Cell::new(ui.dpi()),
@@ -241,10 +243,23 @@ impl Palette {
             let state = Rc::clone(&state);
             let ui = ui.clone();
             let id = control.id();
-            control.on_events(move |event| handle(&ui, id, &state, event));
+            let keys = keys.clone();
+            control.on_events(move |event| {
+                keys.follow(event);
+                handle(&ui, id, &state, event)
+            });
         }
 
-        Ok(Palette { control, state })
+        Ok(Palette {
+            control,
+            state,
+            keys,
+        })
+    }
+
+    /// Whether the control has the keyboard.
+    pub fn key_owner(&self) -> KeyOwner {
+        self.keys.clone()
     }
 
     /// The panel's node identity.

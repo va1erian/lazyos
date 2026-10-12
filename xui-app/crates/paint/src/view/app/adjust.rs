@@ -13,7 +13,7 @@ use xui_core::app::Ui;
 use super::{Msg, PaintApp};
 use crate::model::Adjustment;
 use crate::view::dialogs::AdjustPanel;
-use crate::view::{AdjustKind, AdjustMsg, AdjustPreview, Command};
+use crate::view::{AdjustKind, AdjustMsg, AdjustPreview, Command, LayerStack};
 
 impl PaintApp {
     /// Runs an Adjustments command; `false` for any other.
@@ -45,6 +45,9 @@ impl PaintApp {
 
     /// Opens the strip for `kind` with neutral sliders.
     fn open_adjust(&mut self, ui: &Ui<Msg>, kind: AdjustKind) -> bool {
+        // The active layer's turn is previewed against the layers as they are
+        // now; the dialog is modal, so they stay that way until it closes.
+        self.adjust_stack = LayerStack::of(self.model.document());
         self.panel(kind).open(ui);
         true
     }
@@ -53,8 +56,11 @@ impl PaintApp {
     fn preview_adjustment(&self, kind: AdjustKind) {
         let panel = self.panel(kind);
         panel.show_values();
-        let preview = AdjustPreview::new(panel.adjustment(), self.model.selection().cloned());
-        self.canvas.set_adjust_preview(Some(preview));
+        // A hidden active layer has nothing to show: OK changes it unseen.
+        let preview = self.adjust_stack.clone().map(|stack| {
+            AdjustPreview::new(panel.adjustment(), self.model.selection().cloned()).on_layer(stack)
+        });
+        self.canvas.set_adjust_preview(preview);
     }
 
     /// A message from an adjustment strip.
@@ -77,6 +83,7 @@ impl PaintApp {
     fn close_adjust(&mut self, ui: &Ui<Msg>, kind: AdjustKind) {
         self.panel(kind).close(ui);
         self.canvas.set_adjust_preview(None);
+        self.adjust_stack = None;
         ui.focus(self.canvas.id());
     }
 }

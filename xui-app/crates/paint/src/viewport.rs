@@ -39,6 +39,18 @@ pub const ZOOM_STEPS: [f64; 17] = [
 /// The zoom from which a pixel grid is drawn.
 pub const GRID_ZOOM: f64 = 8.0;
 
+/// A length given in pixels at 96 dpi, in the device pixels of a window at
+/// `dpi`: the constants of the painter and the event mapper (a wheel step, a
+/// dash, a handle) are design sizes, scaled here like xui's own `Dip`s.
+pub fn scaled(design: f64, dpi: u32) -> f64 {
+    design * f64::from(dpi.max(1)) / 96.0
+}
+
+/// Like [`scaled`], rounded to whole pixels and at least one.
+pub fn scaled_px(design: i32, dpi: u32) -> i32 {
+    (scaled(f64::from(design), dpi).round() as i32).max(1)
+}
+
 /// A zoom and a scroll position, in view pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Viewport {

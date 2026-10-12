@@ -22,7 +22,7 @@ use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
 use xui_core::widget::{Control, Placeable};
 
-use super::Msg;
+use super::{KeyOwner, Msg};
 use crate::model::{Model, Tool};
 
 /// The design size of one cell.
@@ -79,6 +79,7 @@ mod paint;
 pub struct ToolStrip {
     control: Control<Msg>,
     state: Rc<State>,
+    keys: KeyOwner,
 }
 
 impl ToolStrip {
@@ -88,6 +89,7 @@ impl ToolStrip {
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
+        let keys = KeyOwner::new(false);
         let state = Rc::new(State {
             items: Tool::ALL.to_vec(),
             bounds: Cell::new(Rect::default()),
@@ -109,10 +111,23 @@ impl ToolStrip {
             let state = Rc::clone(&state);
             let ui = ui.clone();
             let id = control.id();
-            control.on_events(move |event| handle(&ui, id, &state, event));
+            let keys = keys.clone();
+            control.on_events(move |event| {
+                keys.follow(event);
+                handle(&ui, id, &state, event)
+            });
         }
 
-        Ok(ToolStrip { control, state })
+        Ok(ToolStrip {
+            control,
+            state,
+            keys,
+        })
+    }
+
+    /// Whether the control has the keyboard.
+    pub fn key_owner(&self) -> KeyOwner {
+        self.keys.clone()
     }
 
     /// The grid's node identity.

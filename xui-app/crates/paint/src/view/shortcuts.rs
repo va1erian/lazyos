@@ -251,6 +251,15 @@ pub fn typing_shortcut(key: Key, modifiers: Modifiers, dialog_open: bool) -> Opt
         .flatten()
 }
 
+/// Whether a key press is plain: a letter, Delete, an arrow and the like, which
+/// a number or text field uses itself. A Ctrl or Alt chord and the function
+/// keys are commands whichever control has the keyboard.
+pub fn is_plain(key: Key, modifiers: Modifiers) -> bool {
+    let command = modifiers.ctrl || modifiers.alt || modifiers.win;
+    let function = matches!(key.code(), 0x70..=0x7B);
+    !command && !function
+}
+
 /// The keys that place floating pixels or move the selection, claimed only
 /// while a move tool is active or pixels float (the window's key hook asks
 /// [`PaintApp`](super::PaintApp), which knows): the arrows nudge by one pixel

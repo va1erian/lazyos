@@ -7,7 +7,7 @@ use super::PaintApp;
 use crate::model::{Side, Tool};
 use crate::view::{CanvasMsg, Msg};
 
-/// A Zoom drag shorter than this many screen pixels is a click.
+/// A Zoom drag shorter than this many screen pixels (at 96 dpi) is a click.
 const CLICK_SLOP_PX: f64 = 4.0;
 
 /// A Zoom tool drag in progress.
@@ -67,7 +67,7 @@ impl PaintApp {
             }
             // Esc: take the stroke back.
             CanvasMsg::Abort => {
-                self.model.cancel();
+                self.abort_drag();
                 self.end_zoom_drag();
             }
             CanvasMsg::Char(c) => self.model.type_char(c),
@@ -75,6 +75,17 @@ impl PaintApp {
             // The canvas zoomed or scrolled itself; the sync after every
             // message refreshes the zoom part of the status bar.
             CanvasMsg::View => {}
+        }
+    }
+
+    /// Takes the drag in progress back. The model keeps a Move Selection drag
+    /// as the step it was when cancelled, so that step is undone here.
+    pub(super) fn abort_drag(&mut self) {
+        let outline = self.model.tool() == Tool::MoveSelection && self.model.is_dragging();
+        let steps = self.model.history().undo_len();
+        self.model.cancel();
+        if outline && self.model.history().undo_len() > steps {
+            self.model.undo();
         }
     }
 
@@ -87,7 +98,7 @@ impl PaintApp {
     fn is_zoom_band(&self, a: (i32, i32), b: (i32, i32)) -> bool {
         let zoom = self.canvas.viewport().zoom();
         let span = f64::from((a.0 - b.0).abs().max((a.1 - b.1).abs()));
-        span * zoom > CLICK_SLOP_PX
+        span * zoom > crate::viewport::scaled(CLICK_SLOP_PX, self.canvas.dpi())
     }
 
     /// The Zoom tool's release: a click zooms in (the right button out), a

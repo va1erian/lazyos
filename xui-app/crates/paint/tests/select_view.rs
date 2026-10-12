@@ -354,16 +354,47 @@ fn a_small_copy_is_offered_as_png_and_a_big_one_stays_in_the_app() {
 }
 
 #[test]
+fn a_picture_another_app_copies_after_our_big_copy_is_pasted() {
+    let tiny = Fake::new(10);
+    *tiny.foreign.borrow_mut() = Some(Bitmap::new(40, 40, RED).encode_png().unwrap());
+    let sys = Rc::clone(&tiny);
+    session_with(Some(tiny), move |stage, observer, parts| {
+        let a = &parts.areas;
+        click(stage, tool_cell(a, RECT_SELECT), MouseButton::Left);
+        drag(
+            stage,
+            a.canvas_at(0, 0),
+            a.canvas_at(19, 9),
+            MouseButton::Left,
+        );
+        ctrl(stage, Key::C);
+        // Another application copies a different picture afterwards.
+        *sys.foreign.borrow_mut() = Some(Bitmap::new(30, 20, BLUE).encode_png().unwrap());
+        ctrl(stage, Key::V);
+        assert_eq!(
+            selection(observer),
+            Some((0, 0, 30, 20)),
+            "the newer foreign picture wins over our too-big copy"
+        );
+    });
+}
+
+#[test]
 fn a_picture_from_another_app_pastes_and_an_oversized_one_asks_first() {
     let sys = Fake::new(8 * 1024);
     *sys.foreign.borrow_mut() = Some(Bitmap::new(400, 300, RED).encode_png().unwrap());
     let paste = sys.clone();
     session_with(Some(sys), move |stage, observer, parts| {
         let _ = &paste;
-        // 400 x 300 does not fit 320 x 240: Esc keeps the canvas.
+        // 400 x 300 does not fit 320 x 240: Esc cancels the paste.
         ctrl(stage, Key::V);
         assert!(!observer.borrow().floating, "the dialog is waiting");
         press(stage, Key::ESCAPE);
+        assert!(!observer.borrow().floating, "Esc is a real cancel");
+        assert_eq!(status(observer, 1), "320 x 240");
+        // Keep size pastes it hanging over the edge.
+        ctrl(stage, Key::V);
+        stage.emit(Msg::PasteKeep);
         assert!(observer.borrow().floating);
         assert_eq!(status(observer, 1), "320 x 240  sel 320x240");
         press(stage, Key::ESCAPE);
@@ -388,6 +419,9 @@ fn paste_into_new_layer_and_new_image_through_the_menu_keys() {
         ctrl(stage, Key::Z);
         assert!(!observer.borrow().floating);
         stage.emit(Msg::Command(Command::PasteNewImage));
+        // The undone layer paste left changes, so the guard asks first.
+        assert_eq!(status(observer, 1), "320 x 240", "waiting for the answer");
+        stage.emit(Msg::Unsaved(xui_core::widget::TaskDialogAction::Command(1)));
         assert_eq!(status(observer, 1), "30 x 20");
         assert!(
             !observer.borrow().can_undo,

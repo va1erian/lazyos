@@ -14,14 +14,17 @@ use xui_core::geometry::{Point, Rect};
 
 use super::state::CanvasState;
 use crate::model::Edge;
+use crate::viewport::scaled_px;
 
-/// The length of one dash in view pixels; black and white alternate.
+/// The length of one dash in view pixels at 96 dpi; black and white alternate.
 pub(super) const DASH: i32 = 4;
 
 /// Draws the outline of the state's selection clipped to `bounds` (the node).
 pub(super) fn draw(canvas: &mut dyn Canvas, state: &CanvasState, bounds: Rect) {
     let viewport = state.viewport();
-    let phase = state.phase as i32;
+    let dash = scaled_px(DASH, state.dpi);
+    // The crawl keeps its speed in dashes per tick.
+    let phase = state.phase as i32 * dash / DASH;
     let (white, black) = (Color::rgb(255, 255, 255), Color::rgb(0, 0, 0));
     let (width, height) = (bounds.width(), bounds.height());
     for edge in &state.edges {
@@ -31,20 +34,20 @@ pub(super) fn draw(canvas: &mut dyn Canvas, state: &CanvasState, bounds: Rect) {
             if y0 < 0 || y0 >= height || x1 < 0 || x0 > width {
                 continue;
             }
-            let (from, to) = (x0.max(-DASH), x1.min(width + DASH));
+            let (from, to) = (x0.max(-dash), x1.min(width + dash));
             let at = |p: i32| Point::new(bounds.left + p, bounds.top + y0);
             canvas.draw_line(at(from), at(to), white, 1.0);
-            for (a, b) in black_dashes(from, to, phase) {
+            for (a, b) in black_dashes(from, to, phase, dash) {
                 canvas.draw_line(at(a), at(b), black, 1.0);
             }
         } else {
             if x0 < 0 || x0 >= width || y1 < 0 || y0 > height {
                 continue;
             }
-            let (from, to) = (y0.max(-DASH), y1.min(height + DASH));
+            let (from, to) = (y0.max(-dash), y1.min(height + dash));
             let at = |p: i32| Point::new(bounds.left + x0, bounds.top + p);
             canvas.draw_line(at(from), at(to), white, 1.0);
-            for (a, b) in black_dashes(from, to, phase) {
+            for (a, b) in black_dashes(from, to, phase, dash) {
                 canvas.draw_line(at(a), at(b), black, 1.0);
             }
         }
@@ -53,19 +56,19 @@ pub(super) fn draw(canvas: &mut dyn Canvas, state: &CanvasState, bounds: Rect) {
 
 /// The black dashes of `from..to` along an axis: the odd cells of a pattern
 /// shifted by `phase`, clipped to the span.
-pub(super) fn black_dashes(from: i32, to: i32, phase: i32) -> Vec<(i32, i32)> {
+pub(super) fn black_dashes(from: i32, to: i32, phase: i32, dash: i32) -> Vec<(i32, i32)> {
     let mut dashes = Vec::new();
     if to <= from {
         return dashes;
     }
-    let first = (from + phase).div_euclid(DASH);
-    let last = (to + phase).div_euclid(DASH);
+    let first = (from + phase).div_euclid(dash);
+    let last = (to + phase).div_euclid(dash);
     for cell in first..=last {
         if cell & 1 == 0 {
             continue;
         }
-        let a = (cell * DASH - phase).max(from);
-        let b = ((cell + 1) * DASH - phase).min(to);
+        let a = (cell * dash - phase).max(from);
+        let b = ((cell + 1) * dash - phase).min(to);
         if a < b {
             dashes.push((a, b));
         }

@@ -19,12 +19,12 @@ use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 
-use super::Msg;
+use super::{KeyOwner, Msg};
 use crate::model::{Model, Mods, Side, TextKey};
 use crate::viewport::Viewport;
 
 pub use state::CanvasState;
-pub use tweak::AdjustPreview;
+pub use tweak::{AdjustPreview, LayerStack};
 
 // xui gap: G1 — a `Custom` node with a painter and event closures is built from
 // the public `Control` primitive rather than a dedicated canvas widget.
@@ -79,6 +79,7 @@ pub struct PaintCanvas {
     state: Rc<RefCell<CanvasState>>,
     ui: Ui<Msg>,
     timer: RefCell<Option<xui_core::backend::TimerId>>,
+    keys: KeyOwner,
 }
 
 /// Milliseconds between steps of the marching ants.
@@ -93,6 +94,8 @@ impl PaintCanvas {
         )?;
         let state: Rc<RefCell<CanvasState>> = Rc::new(RefCell::new(CanvasState::default()));
         let releasing = Rc::new(Cell::new(false));
+        // The app focuses the canvas when it is built.
+        let keys = KeyOwner::new(true);
 
         {
             let state = Rc::clone(&state);
@@ -107,7 +110,9 @@ impl PaintCanvas {
             let releasing = Rc::clone(&releasing);
             let ui = ui.clone();
             let id = control.id();
+            let keys = keys.clone();
             control.on_events(move |event| {
+                keys.follow(event);
                 if ui.is_design_mode() && event.is_input() {
                     return None;
                 }
@@ -120,12 +125,23 @@ impl PaintCanvas {
             state,
             ui: ui.clone(),
             timer: RefCell::new(None),
+            keys,
         })
     }
 
     /// The canvas's node identity.
     pub fn id(&self) -> WidgetId {
         self.control.id()
+    }
+
+    /// The window's dpi.
+    pub fn dpi(&self) -> u32 {
+        self.ui.dpi()
+    }
+
+    /// Whether the canvas has the keyboard.
+    pub fn key_owner(&self) -> KeyOwner {
+        self.keys.clone()
     }
 
     /// Brings the view up to date with the model: the flattened cache takes

@@ -24,7 +24,7 @@ use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
 use xui_core::widget::{Control, Placeable};
 
-use super::Msg;
+use super::{KeyOwner, Msg};
 use crate::model::Model;
 
 mod paint;
@@ -66,6 +66,9 @@ struct State {
     hover: Cell<Option<Hit>>,
     /// The revision and thumbnail size the thumbnails were built for.
     built: Cell<Option<(u64, u32)>>,
+    /// The active layer and layer count the list was last scrolled to show, so
+    /// a sync that changes neither leaves a wheel scroll alone.
+    revealed: Cell<Option<(usize, usize)>>,
 }
 
 impl State {
@@ -163,6 +166,7 @@ impl State {
 pub struct LayersPanel {
     control: Control<Msg>,
     state: Rc<State>,
+    keys: KeyOwner,
 }
 
 impl LayersPanel {
@@ -172,6 +176,7 @@ impl LayersPanel {
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
         )?;
+        let keys = KeyOwner::new(false);
         let state = Rc::new(State {
             bounds: Cell::new(Rect::default()),
             dpi: Cell::new(ui.dpi()),
@@ -180,6 +185,7 @@ impl LayersPanel {
             scroll: Cell::new(0),
             hover: Cell::new(None),
             built: Cell::new(None),
+            revealed: Cell::new(None),
         });
         {
             let state = Rc::clone(&state);
@@ -192,9 +198,22 @@ impl LayersPanel {
             let state = Rc::clone(&state);
             let ui = ui.clone();
             let id = control.id();
-            control.on_events(move |event| handle(&ui, id, &state, event));
+            let keys = keys.clone();
+            control.on_events(move |event| {
+                keys.follow(event);
+                handle(&ui, id, &state, event)
+            });
         }
-        Ok(LayersPanel { control, state })
+        Ok(LayersPanel {
+            control,
+            state,
+            keys,
+        })
+    }
+
+    /// Whether the panel has the keyboard.
+    pub fn key_owner(&self) -> KeyOwner {
+        self.keys.clone()
     }
 
     /// The panel's node identity.
@@ -235,7 +254,10 @@ impl LayersPanel {
         self.state.built.set(Some(key));
         self.state.active.set(doc.active());
         self.state.clamp_scroll();
-        self.state.reveal(doc.active());
+        let shown = (doc.active(), doc.layers().len());
+        if self.state.revealed.replace(Some(shown)) != Some(shown) {
+            self.state.reveal(doc.active());
+        }
         self.control.invalidate();
     }
 

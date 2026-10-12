@@ -9,6 +9,7 @@ mod coloredit;
 mod command;
 mod dialogs;
 mod icons;
+mod keyfocus;
 mod layerprops;
 mod layers;
 mod layout;
@@ -21,10 +22,11 @@ mod sysclip;
 mod toolbar;
 
 pub use app::{PaintApp, Report, Setup};
-pub use canvas::AdjustPreview;
+pub use canvas::{AdjustPreview, LayerStack};
 pub use canvas::{CanvasMsg, PaintCanvas};
 pub use command::Command;
 pub use dialogs::{AdjustKind, AdjustMsg, CanvasSizeMsg, ResizeMsg};
+pub use keyfocus::KeyOwner;
 pub use layers::LayersPanel;
 pub use layout::{COLORS_WIDTH, Observer};
 pub use options::{OptMsg, Shown, step_size, uses_size};
@@ -107,6 +109,16 @@ pub enum Msg {
     PasteExpand,
     /// The pasted picture is larger than the canvas: keep the canvas size.
     PasteKeep,
+    /// The pasted picture is larger than the canvas: do not paste at all.
+    PasteCancel,
+    /// Enter while a frame (an Image or Adjustments dialog, the colour editor,
+    /// Layer Properties) is open. A button that has the keyboard answers the
+    /// same key itself, so the frame's OK waits behind it as
+    /// [`Msg::FrameEnterOk`].
+    FrameEnter,
+    /// The OK of the open frame, if it is still open after the key reached the
+    /// control that had it.
+    FrameEnterOk,
     /// Make this layer (by index, 0 is the bottom) the one tools draw on.
     LayerSelect(usize),
     /// Toggle this layer's visibility (its eye in the Layers panel).

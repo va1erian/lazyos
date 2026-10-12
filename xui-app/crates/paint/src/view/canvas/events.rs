@@ -13,6 +13,7 @@ use xui_core::message::{Key, Modifiers, MouseButton};
 use super::state::CanvasState;
 use super::{CanvasMsg, Msg};
 use crate::model::{Mods, Side, TextKey, Tool};
+use crate::viewport::scaled_px;
 
 /// Maps which side a button paints.
 pub(super) fn side_of(button: MouseButton) -> Option<Side> {
@@ -32,7 +33,7 @@ fn mods_of(modifiers: Modifiers) -> Mods {
     }
 }
 
-/// Pixels scrolled per wheel notch.
+/// Pixels scrolled per wheel notch at 96 dpi.
 const WHEEL_STEP: i32 = 24;
 
 pub(super) fn handle(
@@ -268,7 +269,7 @@ fn wheel(
                 }
             })
         } else {
-            let step = i32::from(delta) * WHEEL_STEP;
+            let step = i32::from(delta) * scaled_px(WHEEL_STEP, ui.dpi());
             let (dx, dy) = if horizontal || modifiers.shift {
                 (step, 0)
             } else {

@@ -8,12 +8,10 @@ use std::rc::Rc;
 
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
-use xui_core::message::Key;
 use xui_core::widget::{ColorPanel, FileSystem, Menu, StatusBar};
 
 use crate::model::text::TextRasterizer;
 
-use super::canvas::CanvasMsg;
 use super::coloredit::ColorEditor;
 use super::dialogs::{FlattenPrompt, Frames, UnsavedPrompt};
 use super::layerprops::LayerPropsDialog;
@@ -21,17 +19,17 @@ use super::layout::{self, Observer};
 use super::menu::{self, Enabled};
 use super::options::{Options, step_size};
 use super::palette::Palette;
-use super::shortcuts::{float_key, shortcut, typing_shortcut};
 use super::sidebar::Sidebar;
 use super::sysclip::SystemClipboard;
 use super::toolbar::ToolStrip;
+use super::LayerStack;
 use super::{Msg, PaintCanvas};
 use crate::model::{Format, LayerProps, Model, Pixel, Side, Tool};
 use crate::storage::Storage;
 
 use crate::{DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
-/// The size of the text block drag handle on screen, in pixels.
+/// The size of the text block drag handle on screen, in pixels at 96 dpi.
 const HANDLE_SCREEN_PX: f64 = 10.0;
 
 mod adjust;
@@ -43,10 +41,13 @@ mod doc_io;
 mod files;
 mod guard;
 mod image_dialogs;
+mod keys;
 mod layers;
+mod modal;
 mod probe;
 mod report;
 mod save_flow;
+mod saved;
 mod setup;
 mod status;
 
@@ -56,6 +57,7 @@ use dialogs::{AboutBox, FileDialogs, PasteSizePrompt};
 use guard::After;
 pub use report::Report;
 use report::Reporter;
+use saved::Saved;
 pub use setup::Setup;
 
 /// The paint application.
@@ -90,9 +92,9 @@ pub struct PaintApp {
     frames: Frames,
     unsaved: UnsavedPrompt,
     flatten_prompt: FlattenPrompt,
-    /// The revision the file (or a fresh start) has; `None` when the picture
-    /// has no counterpart on disk to be in step with.
-    saved_revision: Option<u64>,
+    /// Where the history was when the file (or a fresh start) was last in
+    /// step with the picture.
+    saved: Saved,
     /// What the unsaved-changes guard is holding back.
     after: Option<After>,
     /// The write the "Flatten image?" card is waiting to confirm.
@@ -112,8 +114,11 @@ pub struct PaintApp {
     typing: Rc<Cell<bool>>,
     /// The Zoom tool drag, while the button is down.
     zoom_drag: Option<ZoomDrag>,
-    /// The OK and Cancel messages of the open Image or Adjustments frame.
+    /// The OK and Cancel messages of the open frame (Image, Adjustments, the
+    /// colour editor, Layer Properties).
     frame_keys: Rc<Cell<Option<(Msg, Msg)>>>,
+    /// The layers as the open Adjustments strip found them, for its preview.
+    adjust_stack: Option<LayerStack>,
     paste_size: PasteSizePrompt,
     /// The paste waiting for the oversized-picture answer.
     pending_paste: Option<PasteKind>,
@@ -194,38 +199,25 @@ impl PaintApp {
         let float_keys = Rc::new(Cell::new(false));
         let typing = Rc::new(Cell::new(false));
         let frame_keys: Rc<Cell<Option<(Msg, Msg)>>> = Rc::new(Cell::new(None));
-        {
-            let modal = Rc::clone(&modal);
-            let float_keys = Rc::clone(&float_keys);
-            let typing = Rc::clone(&typing);
-            let frame_keys = Rc::clone(&frame_keys);
-            // Weak: the menu holds the window, and the window holds this hook.
-            let menu = Rc::downgrade(&menu);
-            ui.on_key(move |key, modifiers| {
-                let menu_open = menu.upgrade().is_some_and(|menu| menu.is_open());
-                let blocked = modal.get() || menu_open;
-                // An Image or Adjustments dialog is a frame, not a card, so
-                // Enter and Esc are routed to it here, and nothing else (no
-                // tool letter) gets past it: `modal` blocks the table.
-                if let Some((ok, cancel)) = frame_keys.get().filter(|_| !menu_open) {
-                    match key {
-                        Key::RETURN => return Some(ok),
-                        Key::ESCAPE => return Some(cancel),
-                        _ => {}
-                    }
-                }
-                let chosen = if typing.get() {
-                    typing_shortcut(key, modifiers, blocked)
-                } else {
-                    shortcut(key, modifiers, blocked)
-                };
-                chosen.or_else(|| {
-                    (float_keys.get() && !blocked)
-                        .then(|| float_key(key, modifiers))
-                        .flatten()
-                })
-            });
-        }
+        keys::install(
+            ui,
+            &menu,
+            // The controls that leave plain keys alone; with the keyboard
+            // anywhere else (a number field in the options bar) only
+            // commands are claimed.
+            [
+                canvas.key_owner(),
+                toolbar.key_owner(),
+                palette.key_owner(),
+                sidebar.layers.get().key_owner(),
+            ],
+            keys::Flags {
+                modal: Rc::clone(&modal),
+                float_keys: Rc::clone(&float_keys),
+                typing: Rc::clone(&typing),
+                frame_keys: Rc::clone(&frame_keys),
+            },
+        );
 
         let mut model = Model::new(DEFAULT_WIDTH, DEFAULT_HEIGHT);
         if let Some(text) = text {
@@ -255,7 +247,7 @@ impl PaintApp {
             frames,
             unsaved: UnsavedPrompt::default(),
             flatten_prompt: FlattenPrompt::default(),
-            saved_revision: None,
+            saved: Saved::default(),
             after: None,
             pending_save: None,
             reporter: None,
@@ -267,6 +259,7 @@ impl PaintApp {
             typing,
             zoom_drag: None,
             frame_keys,
+            adjust_stack: None,
             paste_size: PasteSizePrompt::default(),
             pending_paste: None,
             system: None,
@@ -348,8 +341,8 @@ impl PaintApp {
     fn sync(&mut self, ui: &Ui<Msg>) {
         // The text handle keeps its size on screen at every zoom.
         let zoom = self.canvas.viewport().zoom();
-        self.model
-            .set_text_handle_px((HANDLE_SCREEN_PX / zoom).ceil() as u32);
+        let handle = crate::viewport::scaled(HANDLE_SCREEN_PX, ui.dpi());
+        self.model.set_text_handle_px((handle / zoom).ceil() as u32);
         self.canvas.sync(&self.model);
         self.toolbar.sync(&self.model);
         self.palette
@@ -358,7 +351,7 @@ impl PaintApp {
         self.sidebar.sync(ui, &self.model);
         menu::sync(&self.menu, self.enabled());
         self.modal.set(self.modal_open(ui));
-        self.frame_keys.set(self.frames.keys(ui));
+        self.frame_keys.set(self.frame_msgs(ui));
         self.float_keys
             .set(self.model.tool().is_move() || self.model.is_floating());
         self.typing.set(self.model.is_editing_text());
@@ -375,36 +368,23 @@ impl App for PaintApp {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         // A dialog (or the colour editor) is modal: only its own results and a
         // focus-loss cancel pass.
-        let passes = matches!(
-            msg,
-            Msg::OpenChosen
-                | Msg::SaveChosen
-                | Msg::Resize(_)
-                | Msg::CanvasSize(_)
-                | Msg::Adjust(..)
-                | Msg::Unsaved(_)
-                | Msg::Flatten(_)
-                | Msg::DialogClosed
-                | Msg::OpenStartup
-                | Msg::ColorEditing(_)
-                | Msg::ColorDone
-                | Msg::ColorCancel
-                | Msg::ColorAlpha(_)
-                | Msg::PropsChanged
-                | Msg::PropsOk
-                | Msg::PropsCancel
-                | Msg::Probe
-                | Msg::PasteExpand
-                | Msg::PasteKeep
-                | Msg::Canvas(CanvasMsg::Cancel)
-        );
-        if !passes && self.modal_open(ui) {
+        let passes = modal::passes(&msg);
+        if msg == Msg::Quit && self.modal_open(ui) {
+            // The window's close button reaches past whatever is open: that
+            // is cancelled, then the unsaved-changes guard asks as usual.
+            self.dismiss_modal(ui);
+        } else if !passes && self.modal_open(ui) {
             return;
         }
-        // Anything but canvas input ends a stroke in progress, and keeps a
-        // text block as pixels unless the message is about the block.
+        // Anything but canvas input ends a stroke in progress (Esc takes a
+        // Move Selection drag back), and keeps a text block as pixels unless
+        // the message is about the block.
         if !matches!(msg, Msg::Canvas(_)) && self.model.is_dragging() {
-            self.model.end();
+            if msg == Msg::FloatCancel {
+                self.abort_drag();
+            } else {
+                self.model.end();
+            }
         }
         if self.model.is_editing_text() && !keeps_text(&msg) {
             self.model.commit_text();
@@ -482,9 +462,21 @@ impl App for PaintApp {
             | Msg::WandTolerance(_)
             | Msg::WandContiguous(_)
             | Msg::PasteExpand
-            | Msg::PasteKeep => self.selection_msg(msg),
+            | Msg::PasteKeep
+            | Msg::PasteCancel => self.selection_msg(msg),
+            Msg::FrameEnter => ui.emit(Msg::FrameEnterOk),
+            Msg::FrameEnterOk => {
+                if let Some((ok, _)) = self.frame_msgs(ui) {
+                    self.update(ok, ui);
+                }
+            }
             Msg::Canvas(canvas) => self.canvas_msg(canvas),
         }
+        self.saved.observe(
+            self.model.history(),
+            matches!(msg, Msg::Undo | Msg::Redo | Msg::HistoryJump(_)),
+            saved::selection_step(&msg, self.model.tool()),
+        );
         // A control that took the keyboard gives it back, so the next key is
         // still text.
         if self.model.is_editing_text() && returns_focus(&msg) {

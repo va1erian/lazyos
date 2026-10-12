@@ -11,8 +11,8 @@
 use crate::model::{Bitmap, Damage, Document, div255};
 use crate::viewport::{GRID_ZOOM, Viewport};
 
-/// The checkerboard cell edge in view pixels.
-const CHECKER: i64 = 8;
+/// The checkerboard cell edge in view pixels at 96 dpi.
+pub const CHECKER: i64 = 8;
 /// The two checkerboard greys.
 const LIGHT: u8 = 255;
 const DARK: u8 = 204;
@@ -81,6 +81,15 @@ pub struct ScreenImage {
 /// one the preview approximates what OK produces.
 pub type Tweak<'a> = &'a dyn Fn(i32, i32, [u8; 4]) -> [u8; 4];
 
+/// How the screen image is drawn besides the zoom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Look {
+    /// Whether the pixel grid is on (it shows from [`GRID_ZOOM`]).
+    pub grid: bool,
+    /// The checkerboard cell edge in view pixels.
+    pub checker: i32,
+}
+
 /// Builds the image of `flat` as seen through `viewport` in a `view`-sized
 /// window, or `None` when nothing of the picture is visible.
 pub fn render(
@@ -101,6 +110,24 @@ pub fn render_tweaked(
     grid: bool,
     tweak: Option<Tweak<'_>>,
 ) -> Option<ScreenImage> {
+    let look = Look {
+        grid,
+        checker: CHECKER as i32,
+    };
+    render_at(flat, viewport, view, look, tweak)
+}
+
+/// Like [`render_tweaked`], with the checkerboard cell of `look` (scaled to the
+/// window's dpi by the caller).
+pub fn render_at(
+    flat: &Bitmap,
+    viewport: &Viewport,
+    view: (i32, i32),
+    look: Look,
+    tweak: Option<Tweak<'_>>,
+) -> Option<ScreenImage> {
+    let Look { grid, checker } = look;
+    let cell_edge = i64::from(checker.max(1));
     let (content_w, content_h) = viewport.content_size(flat.size());
     let (ox, oy) = viewport.origin();
     // A negative origin is the margin a centred picture leaves.
@@ -137,7 +164,7 @@ pub fn render_tweaked(
         let src = flat.row(src_y, 0, flat.width() as usize);
         let row_edge = edge_y(y);
         // The checkerboard moves with the picture.
-        let checker_row = (i64::from(y) + i64::from(oy.max(0))).div_euclid(CHECKER);
+        let checker_row = (i64::from(y) + i64::from(oy.max(0))).div_euclid(cell_edge);
         for (x, out) in out_row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let at = cols[x] as usize * 4;
             let mut pixel = [src[at], src[at + 1], src[at + 2], src[at + 3]];
@@ -150,7 +177,7 @@ pub fn render_tweaked(
             *out = if a == 255 {
                 [r, g, b, 255]
             } else {
-                let cell = (x as i64 + i64::from(ox.max(0))).div_euclid(CHECKER) + checker_row;
+                let cell = (x as i64 + i64::from(ox.max(0))).div_euclid(cell_edge) + checker_row;
                 let grey = u32::from(if cell & 1 == 0 { LIGHT } else { DARK });
                 let a = u32::from(a);
                 let mix = |c: u8| div255(u32::from(c) * a + grey * (255 - a)) as u8;
