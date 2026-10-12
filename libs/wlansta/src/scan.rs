@@ -9,7 +9,9 @@ use ieee80211::{Bss, Mgmt};
 use crate::machine::{Phase, ScanJob, Station};
 use crate::select::{self, Candidate, Join, Pick};
 use crate::types::*;
-use crate::{AUTO_SCAN_MS, FRESH_MS, MAX_SCAN_SSIDS, PMK_TIMEOUT_MS, SCAN_MAX_AGE_MS, SCAN_TIMEOUT_MS};
+use crate::{
+    AUTO_SCAN_MS, FRESH_MS, MAX_SCAN_SSIDS, PMK_TIMEOUT_MS, SCAN_MAX_AGE_MS, SCAN_TIMEOUT_MS,
+};
 
 impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     pub(crate) fn start_scan(&mut self, now: u64, join: bool, ssids: Vec<Vec<u8>>) -> Vec<Action> {
@@ -25,7 +27,12 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         vec![Action::Scan { ssids }]
     }
 
-    pub(crate) fn scan_done(&mut self, now: u64, scan_id: u32, entries: &[ScanEntry]) -> Vec<Action> {
+    pub(crate) fn scan_done(
+        &mut self,
+        now: u64,
+        scan_id: u32,
+        entries: &[ScanEntry],
+    ) -> Vec<Action> {
         if self.scan.as_ref().and_then(|job| job.id) != Some(scan_id) {
             return Vec::new();
         }
@@ -41,7 +48,8 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
     /// `ieee80211`), age the table, and count a scan generation.
     pub(crate) fn ingest(&mut self, now: u64, entries: &[ScanEntry]) {
         for entry in entries {
-            let (Some(band), Ok(channel)) = (Band::from_wire(entry.band), u8::try_from(entry.channel))
+            let (Some(band), Ok(channel)) =
+                (Band::from_wire(entry.band), u8::try_from(entry.channel))
             else {
                 self.dropped += 1;
                 continue;

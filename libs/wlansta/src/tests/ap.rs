@@ -151,7 +151,14 @@ impl Ap {
 
     pub fn msg1(&mut self) -> Vec<u8> {
         self.replay += 1;
-        let pdu = raw(self.version(), 0x0088, self.replay, &self.anonce, [0; 8], &[]);
+        let pdu = raw(
+            self.version(),
+            0x0088,
+            self.replay,
+            &self.anonce,
+            [0; 8],
+            &[],
+        );
         self.ether(&pdu)
     }
 
@@ -172,7 +179,11 @@ impl Ap {
             wifi::prf_sha1
         };
         kdf(&self.pmk, b"Pairwise key expansion", &data, &mut self.ptk).unwrap();
-        assert_eq!(&pdu[99..], &self.rsn_ie()[..], "message 2 carries the association RSN element");
+        assert_eq!(
+            &pdu[99..],
+            &self.rsn_ie()[..],
+            "message 2 carries the association RSN element"
+        );
         let mut zeroed = pdu.to_vec();
         zeroed[81..97].fill(0);
         self.snonce = Some(snonce);
@@ -186,13 +197,23 @@ impl Ap {
         plain.extend_from_slice(&[0xDD, 22, 0x00, 0x0F, 0xAC, 1, 1, 0]);
         plain.extend_from_slice(gtk);
         let wrapped = wifi::aes_wrap(&kek, &pad(plain)).unwrap();
-        let pdu = raw(self.version(), 0x13C8, self.replay, &self.anonce, [7; 8], &wrapped);
+        let pdu = raw(
+            self.version(),
+            0x13C8,
+            self.replay,
+            &self.anonce,
+            [7; 8],
+            &wrapped,
+        );
         self.ether(&self.seal(pdu))
     }
 
     pub fn take_msg4(&self, frame: &[u8]) {
         let pdu = &frame[14..];
-        assert_eq!(u16::from_be_bytes([pdu[5], pdu[6]]), u16::from(self.version()) | 0x0308);
+        assert_eq!(
+            u16::from_be_bytes([pdu[5], pdu[6]]),
+            u16::from(self.version()) | 0x0308
+        );
         let mut zeroed = pdu.to_vec();
         zeroed[81..97].fill(0);
         assert_eq!(self.mic(&zeroed), pdu[81..97], "message 4 MIC");
@@ -203,7 +224,14 @@ impl Ap {
         let kek: [u8; 16] = self.ptk[16..32].try_into().unwrap();
         let kde = [&[0xDD, 22, 0x00, 0x0F, 0xAC, 1, index & 3, 0][..], gtk].concat();
         let wrapped = wifi::aes_wrap(&kek, &pad(kde)).unwrap();
-        let pdu = raw(self.version(), 0x1380, self.replay, &[0x99; 32], [8; 8], &wrapped);
+        let pdu = raw(
+            self.version(),
+            0x1380,
+            self.replay,
+            &[0x99; 32],
+            [8; 8],
+            &wrapped,
+        );
         self.ether(&self.seal(pdu))
     }
 
@@ -213,7 +241,14 @@ impl Ap {
 }
 
 /// An EAPOL-Key PDU, octet by octet.
-fn raw(version: u8, flags: u16, replay: u64, nonce: &[u8; 32], rsc: [u8; 8], data: &[u8]) -> Vec<u8> {
+fn raw(
+    version: u8,
+    flags: u16,
+    replay: u64,
+    nonce: &[u8; 32],
+    rsc: [u8; 8],
+    data: &[u8],
+) -> Vec<u8> {
     let mut f = std::vec![0u8; 99];
     f[0] = 2;
     f[1] = 3;

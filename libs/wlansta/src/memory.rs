@@ -103,7 +103,9 @@ impl Memory {
     }
 
     pub fn penalized(&self, bssid: &Mac, now: u64) -> bool {
-        self.penalties.iter().any(|(b, until)| b == bssid && now < *until)
+        self.penalties
+            .iter()
+            .any(|(b, until)| b == bssid && now < *until)
     }
 
     /// Drop what is about profiles that no longer exist.

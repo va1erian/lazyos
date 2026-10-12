@@ -65,7 +65,9 @@ pub fn new_id(random: [u8; 6]) -> String {
 pub fn valid_id(id: &str) -> bool {
     id.len() == 13
         && id.starts_with('w')
-        && id[1..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && id[1..]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The fields of `profile`, in the order they are written (`ssid` last, so
@@ -80,7 +82,10 @@ pub fn fields(profile: &Profile) -> Vec<(&'static str, Value)> {
         ("hidden", Value::Bool(profile.hidden)),
         ("autoconnect", Value::Bool(profile.autoconnect)),
         ("priority", Value::U64(u64::from(profile.priority))),
-        ("ssid", Value::Str(String::from_utf8_lossy(&profile.ssid).into_owned())),
+        (
+            "ssid",
+            Value::Str(String::from_utf8_lossy(&profile.ssid).into_owned())
+        ),
     ]
 }
 

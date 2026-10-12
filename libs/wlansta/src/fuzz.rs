@@ -61,7 +61,13 @@ fn profiles(mask: u8) -> Vec<Profile> {
     for (bit, id, ssid, security, owner) in [
         (1, CAFE, &b"cafe"[..], Security::Open, Owner::System),
         (2, HOME, &b"home"[..], Security::Wpa2Psk, Owner::System),
-        (0x40, HOME, &b"home"[..], Security::Wpa2Psk, Owner::User(1000)),
+        (
+            0x40,
+            HOME,
+            &b"home"[..],
+            Security::Wpa2Psk,
+            Owner::User(1000),
+        ),
         (0x80, CAFE, &b"cafe"[..], Security::Open, Owner::User(1001)),
     ] {
         if mask & bit != 0 {
@@ -129,7 +135,12 @@ fn mgmt(c: &mut Cursor<'_>) -> Vec<u8> {
 }
 
 /// The invariants that hold after every step.
-fn check<N: FnMut() -> [u8; 32] + Clone>(sta: &Station<N>, now: u64, ticked: bool, actions: &[Action]) {
+fn check<N: FnMut() -> [u8; 32] + Clone>(
+    sta: &Station<N>,
+    now: u64,
+    ticked: bool,
+    actions: &[Action],
+) {
     let state = sta.status().state;
     let expected = match sta.phase_name() {
         "idle" => ConnState::Idle,
@@ -142,15 +153,25 @@ fn check<N: FnMut() -> [u8; 32] + Clone>(sta: &Station<N>, now: u64, ticked: boo
     };
     assert_eq!(state, expected, "status follows the phase");
     if ticked {
-        assert!(sta.next_deadline().is_none_or(|at| at > now), "no deadline left overdue");
+        assert!(
+            sta.next_deadline().is_none_or(|at| at > now),
+            "no deadline left overdue"
+        );
     }
     for action in actions {
         if let Action::SetKey { .. } = action {
-            assert!(matches!(sta.phase_name(), "handshake" | "connected" | "failed"));
+            assert!(matches!(
+                sta.phase_name(),
+                "handshake" | "connected" | "failed"
+            ));
         }
     }
     let status = sta.status();
-    assert_eq!(status.owner.is_some(), !status.id.is_empty(), "an id always has its owner");
+    assert_eq!(
+        status.owner.is_some(),
+        !status.id.is_empty(),
+        "an id always has its owner"
+    );
     let (blocks, strikes, penalties) = sta.memory.sizes();
     assert!(blocks <= sta.profiles().len() && strikes <= sta.profiles().len());
     assert!(penalties <= crate::memory::MAX_PENALTIES);
@@ -160,9 +181,15 @@ fn check<N: FnMut() -> [u8; 32] + Clone>(sta: &Station<N>, now: u64, ticked: boo
             .any(|q| q.id == p.id && (q.owner == p.owner || q.owner == Owner::System));
         assert!(!clash, "a profile identity is unique");
     }
-    if matches!(sta.phase_name(), "auth" | "assoc" | "handshake" | "connected" | "wait-pmk") {
+    if matches!(
+        sta.phase_name(),
+        "auth" | "assoc" | "handshake" | "connected" | "wait-pmk"
+    ) {
         let current = sta.current().map(|c| &c.profile);
-        assert!(current.is_some_and(|c| sta.profiles().contains(c)), "the current profile is known");
+        assert!(
+            current.is_some_and(|c| sta.profiles().contains(c)),
+            "the current profile is known"
+        );
     }
     for network in sta.networks(Viewer::User(1000)) {
         assert!(network.ssid.len() <= 32 && !network.ssid.chars().any(char::is_control));
@@ -185,24 +212,63 @@ pub fn run(data: &[u8]) -> ConnState {
                 ticked = true;
                 sta.input(now, Event::Tick)
             }
-            1 => sta.input(now, Event::ScanStarted { scan_id: u32::from(c.byte() % 4) }),
+            1 => sta.input(
+                now,
+                Event::ScanStarted {
+                    scan_id: u32::from(c.byte() % 4),
+                },
+            ),
             2 => {
                 let scan_id = u32::from(c.byte() % 4);
                 let entries = (0..c.byte() % 4).map(|_| entry(&mut c)).collect();
-                sta.input(now, Event::ScanDone { scan_id, aborted: false, entries })
+                sta.input(
+                    now,
+                    Event::ScanDone {
+                        scan_id,
+                        aborted: false,
+                        entries,
+                    },
+                )
             }
             3..=5 => {
                 let frame = mgmt(&mut c);
-                sta.input(now, Event::Rx { kind: FrameKind::Mgmt, rssi_dbm: -40, frame })
+                sta.input(
+                    now,
+                    Event::Rx {
+                        kind: FrameKind::Mgmt,
+                        rssi_dbm: -40,
+                        frame,
+                    },
+                )
             }
             6 => {
                 let frame = c.bytes(255);
-                sta.input(now, Event::Rx { kind: FrameKind::Eapol, rssi_dbm: -40, frame })
+                sta.input(
+                    now,
+                    Event::Rx {
+                        kind: FrameKind::Eapol,
+                        rssi_dbm: -40,
+                        frame,
+                    },
+                )
             }
             7 => sta.input(now, Event::BeaconLoss),
-            8 => sta.input(now, Event::Deauthenticated { reason: [1, 2, 7, 15, 23][usize::from(c.byte()) % 5] }),
+            8 => sta.input(
+                now,
+                Event::Deauthenticated {
+                    reason: [1, 2, 7, 15, 23][usize::from(c.byte()) % 5],
+                },
+            ),
             9 => {
-                let op = [HwOp::Scan, HwOp::AbortScan, HwOp::Join, HwOp::Tx, HwOp::SetState, HwOp::SetKey, HwOp::Leave];
+                let op = [
+                    HwOp::Scan,
+                    HwOp::AbortScan,
+                    HwOp::Join,
+                    HwOp::Tx,
+                    HwOp::SetState,
+                    HwOp::SetKey,
+                    HwOp::Leave,
+                ];
                 let op = op[usize::from(c.byte()) % op.len()];
                 sta.input(now, Event::HwError { op, errno: -5 })
             }

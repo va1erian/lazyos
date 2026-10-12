@@ -30,7 +30,10 @@ fn a_silent_wrong_passphrase_takes_two_attempts_and_its_block_decays() {
     let wrong = lazyos_crypto::wifi::pbkdf2_sha1(b"wrong passphrase", b"home").unwrap();
     to_handshake(&mut h, &ap, wrong);
     let actions = h.rx(FrameKind::Eapol, ap.msg1());
-    assert!(!ap.take_msg2(&eapol_sent(&actions)), "the AP must see a bad MIC");
+    assert!(
+        !ap.take_msg2(&eapol_sent(&actions)),
+        "the AP must see a bad MIC"
+    );
     // The AP drops message 2 and retries message 1; the station answers.
     let actions = h.rx(FrameKind::Eapol, ap.msg1());
     assert!(!ap.take_msg2(&eapol_sent(&actions)));
@@ -40,14 +43,23 @@ fn a_silent_wrong_passphrase_takes_two_attempts_and_its_block_decays() {
     assert_eq!(leaves(&actions), vec![reason::HANDSHAKE_TIMEOUT]);
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
-    assert!(matches!(actions.as_slice(), [Action::Scan { .. }]), "a penalised BSS is rescanned for: {actions:?}");
+    assert!(
+        matches!(actions.as_slice(), [Action::Scan { .. }]),
+        "a penalised BSS is rescanned for: {actions:?}"
+    );
     rejoin(&mut h, actions, &ap, wrong);
     h.rx(FrameKind::Eapol, ap.msg1());
     h.advance(crate::HANDSHAKE_TIMEOUT_MS);
     // The second in a row is a wrong passphrase.
     let status = h.sta.status().clone();
-    assert_eq!((status.state, status.reason), (ConnState::Failed, FailReason::BadPassphrase));
-    assert_eq!((status.id.as_str(), status.ssid.as_str(), status.owner), (HOME, "home", Some(Owner::System)));
+    assert_eq!(
+        (status.state, status.reason),
+        (ConnState::Failed, FailReason::BadPassphrase)
+    );
+    assert_eq!(
+        (status.id.as_str(), status.ssid.as_str(), status.owner),
+        (HOME, "home", Some(Owner::System))
+    );
     // No retry storm: only the block's end is scheduled.
     assert_eq!(h.sta.next_deadline(), Some(h.now + crate::BLOCK_MS));
     for _ in 0..10 {
@@ -57,7 +69,13 @@ fn a_silent_wrong_passphrase_takes_two_attempts_and_its_block_decays() {
     // The block decays: auto-connect tries once more.
     let rest = crate::BLOCK_MS - 10 * crate::BACKOFF_MAX_MS;
     let actions = h.advance(rest);
-    assert!(matches!(actions.as_slice(), [Action::Scan { .. }] | [Action::FetchPmk { .. }]), "{actions:?}");
+    assert!(
+        matches!(
+            actions.as_slice(),
+            [Action::Scan { .. }] | [Action::FetchPmk { .. }]
+        ),
+        "{actions:?}"
+    );
 }
 
 #[test]
@@ -66,11 +84,19 @@ fn connecting_again_lifts_a_block() {
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let actions = h.begin();
     h.answer_scan(actions, &[&ap]);
-    h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
+    h.sta
+        .pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
     assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
     let actions = h.sta.connect(h.now, Owner::System, HOME).unwrap();
-    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "{actions:?}");
-    assert_eq!(h.sta.next_deadline(), Some(h.now + crate::PMK_TIMEOUT_MS), "no block left");
+    assert!(
+        matches!(actions.as_slice(), [Action::FetchPmk { .. }]),
+        "{actions:?}"
+    );
+    assert_eq!(
+        h.sta.next_deadline(),
+        Some(h.now + crate::PMK_TIMEOUT_MS),
+        "no block left"
+    );
 }
 
 #[test]
@@ -83,7 +109,11 @@ fn the_aps_reason_after_message_2_is_the_evidence() {
         h.rx(FrameKind::Eapol, ap.msg1());
         let actions = h.rx(FrameKind::Mgmt, ap.deauth(code));
         assert_eq!(leaves(&actions).len(), 1);
-        assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase), "reason {code}");
+        assert_eq!(
+            h.state(),
+            (ConnState::Failed, FailReason::BadPassphrase),
+            "reason {code}"
+        );
     }
     // Any other reason (or a forged one) is a rejection, retried elsewhere.
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
@@ -106,16 +136,29 @@ fn a_missing_secret_is_a_bad_passphrase_and_keyd_down_is_retried() {
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let actions = h.begin();
     h.answer_scan(actions, &[&ap]);
-    assert!(h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Unavailable)).is_empty());
+    assert!(h
+        .sta
+        .pmk(h.now, Owner::System, HOME, Err(PmkError::Unavailable))
+        .is_empty());
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
-    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "keyd, not the BSS, failed: {actions:?}");
-    h.sta.pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
+    assert!(
+        matches!(actions.as_slice(), [Action::FetchPmk { .. }]),
+        "keyd, not the BSS, failed: {actions:?}"
+    );
+    h.sta
+        .pmk(h.now, Owner::System, HOME, Err(PmkError::Missing));
     assert_eq!(h.state(), (ConnState::Failed, FailReason::BadPassphrase));
     assert_eq!(h.sta.next_deadline(), Some(h.now + crate::BLOCK_MS));
     // A PMK for another profile, another owner's, or arriving late, is ignored.
-    assert!(h.sta.pmk(h.now, Owner::System, CAFE, Ok(Key::new([1; 32]))).is_empty());
-    assert!(h.sta.pmk(h.now, Owner::User(1000), HOME, Ok(Key::new([1; 32]))).is_empty());
+    assert!(h
+        .sta
+        .pmk(h.now, Owner::System, CAFE, Ok(Key::new([1; 32])))
+        .is_empty());
+    assert!(h
+        .sta
+        .pmk(h.now, Owner::User(1000), HOME, Ok(Key::new([1; 32])))
+        .is_empty());
 }
 
 #[test]
@@ -131,7 +174,10 @@ fn a_pmk_that_never_comes_times_out() {
     assert!(leaves(&actions).is_empty(), "nothing was joined");
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
-    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "the BSS is not blamed: {actions:?}");
+    assert!(
+        matches!(actions.as_slice(), [Action::FetchPmk { .. }]),
+        "the BSS is not blamed: {actions:?}"
+    );
 }
 
 #[test]
@@ -147,7 +193,10 @@ fn deauthentication_mid_session_reconnects_after_back_off() {
     assert_eq!(h.sta.next_deadline(), Some(h.now + crate::BACKOFF_MIN_MS));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
     // The BSS was heard recently: straight to the PMK, no scan.
-    assert!(matches!(actions.as_slice(), [Action::FetchPmk { .. }]), "{actions:?}");
+    assert!(
+        matches!(actions.as_slice(), [Action::FetchPmk { .. }]),
+        "{actions:?}"
+    );
     let pmk = ap.pmk;
     let actions = h.answer_pmk(actions, pmk);
     assert!(matches!(actions[0], Action::Join { .. }));
@@ -164,7 +213,10 @@ fn beacon_loss_leaves_and_rescans_once_the_table_is_stale() {
     assert_eq!(leaves(&actions), vec![reason::INACTIVITY]);
     assert_eq!(h.state(), (ConnState::Failed, FailReason::BeaconLoss));
     let actions = h.advance(crate::BACKOFF_MIN_MS);
-    assert!(matches!(actions.as_slice(), [Action::Scan { .. }]), "{actions:?}");
+    assert!(
+        matches!(actions.as_slice(), [Action::Scan { .. }]),
+        "{actions:?}"
+    );
     // The AP is gone: auto-connect goes idle and looks again later.
     let actions = h.answer_scan(actions, &[]);
     assert!(actions.is_empty());
@@ -194,11 +246,18 @@ fn requests_are_retransmitted_then_time_out_with_growing_back_off() {
     assert!(matches!(actions[0], Action::Join { .. }));
     h.rx(FrameKind::Mgmt, ap.auth_response(0));
     for _ in 1..crate::JOIN_TRIES {
-        assert_eq!(sent(&h.advance(crate::JOIN_TIMEOUT_MS)).len(), 1, "an association retransmission");
+        assert_eq!(
+            sent(&h.advance(crate::JOIN_TIMEOUT_MS)).len(),
+            1,
+            "an association retransmission"
+        );
     }
     h.advance(crate::JOIN_TIMEOUT_MS);
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Timeout));
-    assert_eq!(h.sta.next_deadline(), Some(h.now + 2 * crate::BACKOFF_MIN_MS));
+    assert_eq!(
+        h.sta.next_deadline(),
+        Some(h.now + 2 * crate::BACKOFF_MIN_MS)
+    );
 }
 
 #[test]
@@ -242,7 +301,10 @@ fn a_scan_that_never_finishes_is_aborted() {
     h.begin();
     h.input(Event::ScanStarted { scan_id: 9 });
     let actions = h.advance(crate::SCAN_TIMEOUT_MS);
-    assert!(matches!(actions.as_slice(), [Action::AbortScan { scan_id: 9 }]), "{actions:?}");
+    assert!(
+        matches!(actions.as_slice(), [Action::AbortScan { scan_id: 9 }]),
+        "{actions:?}"
+    );
     assert_eq!(h.state().0, ConnState::Idle);
     // Its late results are not believed.
     let ap = Ap::open(AP, "cafe");
@@ -263,7 +325,10 @@ fn forgetting_the_current_network_leaves_it() {
     let actions = h.sta.set_profiles(h.now, vec![]);
     assert_eq!(leaves(&actions), vec![reason::LEAVING]);
     assert_eq!(h.state(), (ConnState::Idle, FailReason::None));
-    assert_eq!(h.sta.connect(h.now, Owner::System, CAFE).unwrap_err(), Refused::NoProfile);
+    assert_eq!(
+        h.sta.connect(h.now, Owner::System, CAFE).unwrap_err(),
+        Refused::NoProfile
+    );
 }
 
 #[test]
@@ -275,7 +340,10 @@ fn user_scans_are_refused_while_joining() {
     let mut h = H::new(vec![]);
     let too_many = vec![b"a".to_vec(); crate::MAX_SCAN_SSIDS + 1];
     assert_eq!(h.sta.scan(h.now, too_many).unwrap_err(), Refused::Invalid);
-    assert_eq!(h.sta.scan(h.now, vec![vec![b'x'; 33]]).unwrap_err(), Refused::Invalid);
+    assert_eq!(
+        h.sta.scan(h.now, vec![vec![b'x'; 33]]).unwrap_err(),
+        Refused::Invalid
+    );
     let actions = h.sta.scan(h.now, vec![]).unwrap();
     assert_eq!(h.state().0, ConnState::Idle, "a user scan is not a join");
     h.answer_scan(actions, &[&ap]);

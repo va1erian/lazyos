@@ -11,7 +11,11 @@ use super::*;
 
 /// What must not move when a frame is refused.
 fn snapshot(h: &H) -> (Status, Option<u64>, &'static str) {
-    (h.sta.status().clone(), h.sta.next_deadline(), h.sta.phase_name())
+    (
+        h.sta.status().clone(),
+        h.sta.next_deadline(),
+        h.sta.phase_name(),
+    )
 }
 
 fn refused(h: &mut H, kind: FrameKind, frame: Vec<u8>) {
@@ -84,7 +88,10 @@ fn forged_and_broken_eapol_changes_nothing() {
     assert_eq!(h.state().0, ConnState::Connected, "{actions:?}");
     // A retransmitted message 3 is answered and installs nothing (KRACK).
     let actions = h.rx(FrameKind::Eapol, ap.msg3(&[0x42; 16]));
-    assert!(actions.iter().all(|a| !matches!(a, Action::SetKey { .. })), "{actions:?}");
+    assert!(
+        actions.iter().all(|a| !matches!(a, Action::SetKey { .. })),
+        "{actions:?}"
+    );
 }
 
 #[test]
@@ -159,7 +166,10 @@ fn seeded_fuzz_over_radio_events() {
         }
     });
     // A replay (`FUZZ_SEED`) runs one case; a soak must reach the deep states.
-    assert!(runs < 64 || connected > 0, "the fuzz never reached a connection");
+    assert!(
+        runs < 64 || connected > 0,
+        "the fuzz never reached a connection"
+    );
 }
 
 #[test]
@@ -168,4 +178,39 @@ fn fuzz_reaches_connected_with_a_valid_script() {
     // random mutations of it explore the deep states.
     let seed = crate::fuzz::open_join_script();
     assert_eq!(crate::fuzz::run(&seed), ConnState::Connected);
+}
+
+/// An AP offering block ack (as every HT AP does after association) gets a
+/// decline, not silence; the same offer before association, from another
+/// BSS or truncated changes nothing.
+#[test]
+fn an_addba_request_is_declined_once_associated() {
+    let ap = Ap::open(AP, "cafe");
+    let mut h = H::new(vec![profile(CAFE, "cafe", Security::Open)]);
+    // Action, token 7, parameters 0x1002, timeout 0, starting sequence 0x0010.
+    let request =
+        |from: [u8; 6]| build::action(&STA, &from, &from, 9, 3, &[0, 7, 0x02, 0x10, 0, 0, 0x10, 0]);
+    refused(&mut h, FrameKind::Mgmt, request(AP));
+    connect_open(&mut h, &ap);
+    let actions = h.rx(FrameKind::Mgmt, request(AP));
+    let out = sent(&actions);
+    assert_eq!(out.len(), 1, "{actions:?}");
+    let (kind, frame) = &out[0];
+    assert_eq!(*kind, FrameKind::Mgmt);
+    assert_eq!(frame[0], 0xD0, "an action frame");
+    assert_eq!(
+        (&frame[4..10], &frame[10..16], &frame[16..22]),
+        (&AP[..], &STA[..], &AP[..])
+    );
+    // Block Ack category, ADDBA Response, token, status 37, parameters and
+    // timeout echoed.
+    assert_eq!(&frame[24..], &[3, 1, 7, 37, 0, 0x02, 0x10, 0, 0]);
+    let before = snapshot(&h);
+    assert!(
+        h.rx(FrameKind::Mgmt, request(AP2)).is_empty(),
+        "another BSS"
+    );
+    let short = build::action(&STA, &AP, &AP, 10, 3, &[0, 7, 0x02]);
+    assert!(h.rx(FrameKind::Mgmt, short).is_empty(), "truncated");
+    assert_eq!(snapshot(&h), before);
 }

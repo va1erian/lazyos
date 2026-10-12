@@ -181,6 +181,22 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 self.phase = Phase::Assoc(joining);
                 Some(self.fail(now, FailReason::Rejected, Some(reason::UNSPECIFIED)))
             }
+            (
+                Rx::AddbaRequest {
+                    token,
+                    params,
+                    timeout,
+                },
+                Phase::Handshake(link) | Phase::Connected(link),
+            ) => {
+                let bssid = link.cand.bss.bssid;
+                let seq = self.next_seq();
+                let frame = frames::addba_decline(&self.mac, &bssid, seq, token, params, timeout);
+                Some(alloc::vec![Action::Tx {
+                    kind: FrameKind::Mgmt,
+                    frame
+                }])
+            }
             _ => None,
         }
     }
@@ -220,7 +236,9 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                     rsc: [0; 8],
                     addr: bssid,
                 },
-                eapol::Action::InstallGtk { index, key, rsc, .. } => Action::SetKey {
+                eapol::Action::InstallGtk {
+                    index, key, rsc, ..
+                } => Action::SetKey {
                     kind: KeyKind::Group,
                     index,
                     key,
@@ -302,7 +320,12 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
                 let msg2_sent = link.msg2_sent;
                 self.phase = Phase::Handshake(link);
                 if msg2_sent {
-                    return self.handshake_failed(now, false, FailReason::Timeout, reason::HANDSHAKE_TIMEOUT);
+                    return self.handshake_failed(
+                        now,
+                        false,
+                        FailReason::Timeout,
+                        reason::HANDSHAKE_TIMEOUT,
+                    );
                 }
                 self.fail(now, FailReason::Timeout, Some(reason::HANDSHAKE_TIMEOUT))
             }

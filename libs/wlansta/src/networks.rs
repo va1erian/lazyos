@@ -87,16 +87,25 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             });
         }
         let connected = match &self.phase {
-            Phase::Connected(link) => Some((link.cand.profile.ssid.as_slice(), link.cand.profile.security)),
+            Phase::Connected(link) => Some((
+                link.cand.profile.ssid.as_slice(),
+                link.cand.profile.security,
+            )),
             _ => None,
         };
         groups
             .iter()
             .take(MAX_NETWORKS)
             .map(|g| {
-                let known = (!g.hidden).then(|| self.profile_for(g.ssid, g.security, viewer)).flatten();
+                let known = (!g.hidden)
+                    .then(|| self.profile_for(g.ssid, g.security, viewer))
+                    .flatten();
                 Network {
-                    ssid: if g.hidden { String::new() } else { ssid::display(g.ssid) },
+                    ssid: if g.hidden {
+                        String::new()
+                    } else {
+                        ssid::display(g.ssid)
+                    },
                     security: g.security,
                     rssi_dbm: i32::from(g.best.rssi),
                     freq_mhz: g.band.freq_mhz(g.best.channel),

@@ -42,13 +42,18 @@ pub(crate) enum Phase<N: FnMut() -> [u8; 32]> {
     /// A scan for a join runs; selection follows its results.
     Scanning,
     /// Waiting for `keyd`'s PMK for this BSS, until `deadline`.
-    WaitPmk { cand: Candidate, deadline: u64 },
+    WaitPmk {
+        cand: Candidate,
+        deadline: u64,
+    },
     Auth(Joining),
     Assoc(Joining),
     Handshake(Link<N>),
     Connected(Link<N>),
     /// The last attempt failed; try again at `retry_at` (never, when `None`).
-    Failed { retry_at: Option<u64> },
+    Failed {
+        retry_at: Option<u64>,
+    },
 }
 
 pub(crate) struct ScanJob {
@@ -293,7 +298,8 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         users.sort_unstable();
         users.dedup();
         self.active_users = users;
-        let away = |owner: Owner| matches!(owner, Owner::User(uid) if !self.active_users.contains(&uid));
+        let away =
+            |owner: Owner| matches!(owner, Owner::User(uid) if !self.active_users.contains(&uid));
         if self.target.as_ref().is_some_and(|(owner, _)| away(*owner)) {
             self.target = None;
         }
@@ -314,7 +320,8 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         id: &str,
         pmk: Result<Key<32>, PmkError>,
     ) -> Vec<Action> {
-        let waiting = matches!(&self.phase, Phase::WaitPmk { cand, .. } if cand.profile.is(owner, id));
+        let waiting =
+            matches!(&self.phase, Phase::WaitPmk { cand, .. } if cand.profile.is(owner, id));
         if !waiting {
             return Vec::new();
         }

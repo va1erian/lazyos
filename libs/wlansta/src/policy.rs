@@ -67,7 +67,11 @@ pub fn may_disconnect(caller: Caller, current: Option<Owner>) -> bool {
 /// The profile a caller's `Connect` names: the one of `id` it may use (a
 /// system profile, or its own). `Perm` when only another user's profile has
 /// that id, `Missing` when none does.
-pub fn resolve<'a>(caller: Caller, profiles: &'a [Profile], id: &str) -> Result<&'a Profile, Denied> {
+pub fn resolve<'a>(
+    caller: Caller,
+    profiles: &'a [Profile],
+    id: &str,
+) -> Result<&'a Profile, Denied> {
     let mut same = profiles.iter().filter(|p| p.id == id).peekable();
     if same.peek().is_none() {
         return Err(Denied::Missing);
@@ -135,7 +139,9 @@ pub fn check_new(
         (Owner::System, _, None) => crate::profile::valid_id(id),
         (Owner::System, _, Some(_)) => false,
         (Owner::User(_), Security::Open, None) => id.is_empty(),
-        (Owner::User(_), Security::Wpa2Psk, Some(secret)) => id.is_empty() && valid_passphrase(secret),
+        (Owner::User(_), Security::Wpa2Psk, Some(secret)) => {
+            id.is_empty() && valid_passphrase(secret)
+        }
         (Owner::User(_), _, _) => false,
     };
     fits.then_some(()).ok_or(Denied::Invalid)

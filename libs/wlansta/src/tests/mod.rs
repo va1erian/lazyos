@@ -187,5 +187,9 @@ pub(crate) fn connect_wpa2(h: &mut H, ap: &mut Ap) {
     let actions = h.rx(FrameKind::Eapol, ap.msg1());
     assert!(ap.take_msg2(&eapol_sent(&actions)));
     let actions = h.rx(FrameKind::Eapol, ap.msg3(&[0x42; 16]));
-    assert_eq!(h.state(), (ConnState::Connected, FailReason::None), "{actions:?}");
+    assert_eq!(
+        h.state(),
+        (ConnState::Connected, FailReason::None),
+        "{actions:?}"
+    );
 }

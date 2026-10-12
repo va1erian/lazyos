@@ -119,7 +119,14 @@ pub fn assoc_request(
     if band == Band::Ghz2 {
         capability |= CAP_SHORT_SLOT;
     }
-    let frame = build::assoc_request(mac, &bss.bssid, seq, capability, LISTEN_INTERVAL, &ies.finish());
+    let frame = build::assoc_request(
+        mac,
+        &bss.bssid,
+        seq,
+        capability,
+        LISTEN_INTERVAL,
+        &ies.finish(),
+    );
     (frame, rsn_ie)
 }
 
@@ -152,6 +159,14 @@ pub enum Rx {
     AssocResponse { status: u16, aid: u16 },
     /// A deauthentication or disassociation with this reason.
     Ended { reason: u16 },
+    /// A Block Ack ADDBA Request (IEEE 802.11-2020 9.6.4.2): the AP offers
+    /// to aggregate. This station does not take part in block ack, so it
+    /// declines ([`addba_decline`]) rather than leaving the AP to retry.
+    AddbaRequest {
+        token: u8,
+        params: u16,
+        timeout: u16,
+    },
     /// Nothing the station acts on.
     Ignored,
 }
@@ -179,8 +194,44 @@ pub fn classify(frame: &[u8], mac: &Mac, bssid: &Mac) -> Rx {
         Body::Deauth { reason } | Body::Disassoc { reason } if to_us || h.addr1 == BROADCAST => {
             Rx::Ended { reason }
         }
+        // Action (1), dialog token (1), parameters (2), timeout (2),
+        // starting sequence control (2).
+        Body::Action {
+            category: CATEGORY_BLOCK_ACK,
+            rest: &[ADDBA_REQUEST, token, p0, p1, t0, t1, _, _, ..],
+        } if to_us => Rx::AddbaRequest {
+            token,
+            params: u16::from_le_bytes([p0, p1]),
+            timeout: u16::from_le_bytes([t0, t1]),
+        },
         _ => Rx::Ignored,
     }
+}
+
+/// The Block Ack action category and its ADDBA actions (9.6.4.1).
+const CATEGORY_BLOCK_ACK: u8 = 3;
+const ADDBA_REQUEST: u8 = 0;
+const ADDBA_RESPONSE: u8 = 1;
+/// Status 37, "the request has been declined" (Table 9-80).
+const STATUS_REQUEST_DECLINED: u16 = 37;
+
+/// An ADDBA Response declining the AP's request `token` (9.6.4.3): the
+/// parameter set and timeout echoed, status 37.
+pub fn addba_decline(
+    mac: &Mac,
+    bssid: &Mac,
+    seq: u16,
+    token: u8,
+    params: u16,
+    timeout: u16,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(8);
+    payload.push(ADDBA_RESPONSE);
+    payload.push(token);
+    payload.extend_from_slice(&STATUS_REQUEST_DECLINED.to_le_bytes());
+    payload.extend_from_slice(&params.to_le_bytes());
+    payload.extend_from_slice(&timeout.to_le_bytes());
+    build::action(bssid, mac, bssid, seq, CATEGORY_BLOCK_ACK, &payload)
 }
 
 /// Whether an authentication or association status is success.

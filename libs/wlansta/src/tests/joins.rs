@@ -30,7 +30,10 @@ fn open_join_reaches_connected_with_the_right_frames() {
     };
     assert_eq!(*bssid, AP);
     let auth = Mgmt::parse(frame).unwrap();
-    assert_eq!((auth.header.addr1, auth.header.addr2, auth.header.addr3), (AP, STA, AP));
+    assert_eq!(
+        (auth.header.addr1, auth.header.addr2, auth.header.addr3),
+        (AP, STA, AP)
+    );
     assert!(matches!(auth.body, Body::Auth(a) if a.algorithm == 0 && a.transaction == 1));
     assert_eq!(h.state().0, ConnState::Authenticating);
     assert_eq!(h.sta.status().bssid, Some(AP));
@@ -48,8 +51,14 @@ fn open_join_reaches_connected_with_the_right_frames() {
     assert!(matches!(
         actions.as_slice(),
         [
-            Action::SetState { state: StaState::Associated, aid: 7 },
-            Action::SetState { state: StaState::Authorized, aid: 7 }
+            Action::SetState {
+                state: StaState::Associated,
+                aid: 7
+            },
+            Action::SetState {
+                state: StaState::Authorized,
+                aid: 7
+            }
         ]
     ));
     let status = h.sta.status();
@@ -70,7 +79,10 @@ fn wpa2_join_installs_keys_in_order_for_both_akms() {
         let [Action::FetchPmk { id, owner, ssid }] = actions.as_slice() else {
             panic!("{actions:?}")
         };
-        assert_eq!((id.as_str(), *owner, ssid.as_slice()), (HOME, Owner::System, &b"home"[..]));
+        assert_eq!(
+            (id.as_str(), *owner, ssid.as_slice()),
+            (HOME, Owner::System, &b"home"[..])
+        );
         let pmk = ap.pmk;
         h.answer_pmk(actions, pmk);
         let actions = h.rx(FrameKind::Mgmt, ap.auth_response(0));
@@ -89,7 +101,10 @@ fn wpa2_join_installs_keys_in_order_for_both_akms() {
         assert_eq!(h.state().0, ConnState::Handshake);
         let gtk = [0x42; 16];
         let actions = h.rx(FrameKind::Eapol, ap.msg3(&gtk));
-        let [Action::Tx { kind: FrameKind::Eapol, frame: msg4 }, Action::SetKey {
+        let [Action::Tx {
+            kind: FrameKind::Eapol,
+            frame: msg4,
+        }, Action::SetKey {
             kind: KeyKind::Pairwise,
             index: 0,
             key: tk,
@@ -119,7 +134,17 @@ fn wpa2_join_installs_keys_in_order_for_both_akms() {
         let actions = h.rx(FrameKind::Eapol, ap.group1(2, &new_gtk));
         assert!(matches!(
             actions.as_slice(),
-            [Action::Tx { kind: FrameKind::Eapol, .. }, Action::SetKey { kind: KeyKind::Group, index: 2, .. }]
+            [
+                Action::Tx {
+                    kind: FrameKind::Eapol,
+                    ..
+                },
+                Action::SetKey {
+                    kind: KeyKind::Group,
+                    index: 2,
+                    ..
+                }
+            ]
         ));
         assert_eq!(h.state().0, ConnState::Connected);
     }
@@ -135,7 +160,14 @@ fn the_strongest_bss_of_the_highest_priority_network_wins() {
     let mut h = H::new(vec![profile(CAFE, "cafe", Security::Open)]);
     let actions = h.begin();
     let actions = h.answer_scan(actions, &[&far, &near]);
-    assert!(matches!(actions[0], Action::Join { bssid: AP, channel: 6, .. }));
+    assert!(matches!(
+        actions[0],
+        Action::Join {
+            bssid: AP,
+            channel: 6,
+            ..
+        }
+    ));
 
     // Priority beats signal.
     let other = Ap::open(AP2, "work");
@@ -144,7 +176,10 @@ fn the_strongest_bss_of_the_highest_priority_network_wins() {
     let mut h = H::new(vec![profile(CAFE, "cafe", Security::Open), work]);
     let actions = h.begin();
     let actions = h.answer_scan(actions, &[&near, &other]);
-    assert!(matches!(actions[0], Action::Join { bssid: AP2, .. }), "{actions:?}");
+    assert!(
+        matches!(actions[0], Action::Join { bssid: AP2, .. }),
+        "{actions:?}"
+    );
 }
 
 #[test]
@@ -155,7 +190,9 @@ fn a_hidden_network_is_probed_for_and_joined_once_named() {
     hidden.hidden = true;
     let mut h = H::new(vec![hidden]);
     let actions = h.begin();
-    assert!(matches!(actions.as_slice(), [Action::Scan { ssids }] if ssids == &[b"secret".to_vec()]));
+    assert!(
+        matches!(actions.as_slice(), [Action::Scan { ssids }] if ssids == &[b"secret".to_vec()])
+    );
     // Only the hidden beacon is heard: nothing to join, auto-connect waits.
     let actions = h.answer_scan(actions, &[&ap]);
     assert!(actions.is_empty());
@@ -186,11 +223,16 @@ fn security_must_match_the_profile_and_unsupported_is_never_joined() {
     let mut tkip = Ap::wpa2(AP, "home", "password1", Akm::Psk);
     tkip.rsn.as_mut().unwrap().group = ieee80211::Cipher::Tkip;
     let mut pmf = Ap::wpa2(AP2, "home", "password1", Akm::Psk);
-    pmf.rsn.as_mut().unwrap().caps = ieee80211::RsnCaps(ieee80211::RsnCaps::MFPR | ieee80211::RsnCaps::MFPC);
+    pmf.rsn.as_mut().unwrap().caps =
+        ieee80211::RsnCaps(ieee80211::RsnCaps::MFPR | ieee80211::RsnCaps::MFPC);
     let mut h = H::new(vec![profile(HOME, "home", Security::Wpa2Psk)]);
     let first = h.begin();
     // The connect joins the auto-connect scan already running.
-    assert!(h.sta.connect(h.now, Owner::System, HOME).unwrap().is_empty());
+    assert!(h
+        .sta
+        .connect(h.now, Owner::System, HOME)
+        .unwrap()
+        .is_empty());
     assert!(h.answer_scan(first, &[&tkip, &pmf]).is_empty());
     assert_eq!(h.state(), (ConnState::Failed, FailReason::Unsupported));
     let listed = h.sta.networks(crate::Viewer::User(1000));

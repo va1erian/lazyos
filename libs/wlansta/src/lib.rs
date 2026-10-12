@@ -75,9 +75,9 @@ mod join;
 mod machine;
 mod memory;
 mod networks;
-mod scan;
 pub mod policy;
 pub mod profile;
+mod scan;
 pub mod select;
 pub mod ssid;
 #[cfg(test)]

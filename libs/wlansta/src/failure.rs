@@ -68,12 +68,18 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
             .map(|c| c.profile.clone())
             .or_else(|| self.target_profile().cloned());
         // Only a BSS we talked to can have failed us (not `keyd`, not a scan).
-        let bssid = self.current().map(|c| c.bss.bssid).filter(|_| self.joined());
+        let bssid = self
+            .current()
+            .map(|c| c.bss.bssid)
+            .filter(|_| self.joined());
         let stable = self
             .connected_at
             .is_some_and(|at| now.saturating_sub(at) >= STABLE_MS);
         let out = self.reset(leave.unwrap_or(reason::UNSPECIFIED));
-        if matches!(why, FailReason::Rejected | FailReason::Timeout | FailReason::BeaconLoss) {
+        if matches!(
+            why,
+            FailReason::Rejected | FailReason::Timeout | FailReason::BeaconLoss
+        ) {
             if let Some(bssid) = bssid {
                 self.memory.penalize(bssid, now);
             }
@@ -94,7 +100,10 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         self.phase = Phase::Failed {
             retry_at: retry.then_some(now + delay),
         };
-        let name = failed.as_ref().map(|p| ssid::display(&p.ssid)).unwrap_or_default();
+        let name = failed
+            .as_ref()
+            .map(|p| ssid::display(&p.ssid))
+            .unwrap_or_default();
         let profile = failed.map(|p| (p.owner, p.id));
         self.set_status(ConnState::Failed, why, name, profile, None, 0, 0);
         out
@@ -114,7 +123,10 @@ impl<N: FnMut() -> [u8; 32] + Clone> Station<N> {
         otherwise: FailReason,
         leave: u16,
     ) -> Vec<Action> {
-        let Some((owner, id)) = self.current().map(|c| (c.profile.owner, c.profile.id.clone())) else {
+        let Some((owner, id)) = self
+            .current()
+            .map(|c| (c.profile.owner, c.profile.id.clone()))
+        else {
             return Vec::new();
         };
         let strikes = self.memory.strike(owner, &id, now);
