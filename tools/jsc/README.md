@@ -1,11 +1,14 @@
 # JavaScriptCore on LazyOS (`jsc`)
 
 Stages W1 and W2 of [`docs/webkit-port-plan.md`](../../docs/webkit-port-plan.md):
-a C++ toolchain proof and WebKit's `JSCOnly` port, both static
-`x86_64-linux-musl` programs built by zig, run on LazyOS through the Linux ABI.
+a C++ toolchain proof and WebKit's `JSCOnly` port (the C-loop interpreter
+`jsc` and the JIT `jsc-jit`), all static `x86_64-linux-musl` programs built by
+zig, run on LazyOS through the Linux ABI.
 
 ```bash
 python tools/jsc/build.py                 # ICU, cxxproof, jsc -> target/jsc/bin/ (Docker)
+python tools/jsc/build.py --jit           # also jsc-jit (a second WebKit build, about 7 minutes)
+python tools/jsc/stress.py                # the JSTests/stress subset -> target/jsc/jsc-tests/
 python tools/jsc/build.py --only cxxproof # ICU and the proof program only
 python tools/jsc/build.py --no-docker     # the same steps on a Linux host with the tools
 python tools/jsc/build.py --require       # no Docker / no download is an error
@@ -21,6 +24,7 @@ python tools/run_demo.py --jsc            # an interactive image with jsc in /sy
 |---|---|---|
 | `cxxproof` | `cxxproof/main.cpp`: libc++, 8 threads, mutex/condvar, exceptions (nested, across threads), RTTI, TLS with destructors, `std::filesystem`, ICU (`uloc`, `ucnv`, `Normalizer2`, `BreakIterator`) | prints `JSC:W1:CHECK:<name>:OK`, `JSC:W1:PASS:cxx`, `JSC:W1:PASS:icu`, `JSC:W1:PASS` |
 | `jsc` | WebKitGTK 2.54.1, `PORT=JSCOnly`, `ENABLE_STATIC_JSC=ON`, `ENABLE_JIT=OFF`, `ENABLE_C_LOOP=ON`, `ENABLE_WEBASSEMBLY=OFF`, `USE_SYSTEM_MALLOC=ON`, `DEVELOPER_MODE=OFF`, Release, `-O2` | the C-loop interpreter; ICU 74.2 with its data inside |
+| `jsc-jit` (`--jit`) | the same with `ENABLE_JIT=ON`, `ENABLE_C_LOOP=OFF`, `ENABLE_FTL_JIT=OFF` | LLInt in assembly, baseline and DFG; 52 MiB; its own build tree (`webkit-build-jit`) over the same source tree |
 
 ICU 74.2 is built twice, as the cross-build recipe wants: a host build for its
 tools (`icupkg`, `genrb`, `pkgdata`), then a static musl build with

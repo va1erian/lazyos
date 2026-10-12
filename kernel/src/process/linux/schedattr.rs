@@ -247,7 +247,7 @@ fn apply(slot: usize, attr: &Attr) -> Result<(), u64> {
 /// `sched_getattr(pid, attr, size, flags)`.
 pub(super) fn sys_sched_getattr(pid: u64, uattr: u64, size: u64, flags: u64) -> u64 {
     let size = size as usize;
-    if uattr == 0 || (pid as i32) < 0 || size > PAGE || size < SIZE_VER0 || flags as u32 != 0 {
+    if uattr == 0 || (pid as i32) < 0 || !(SIZE_VER0..=PAGE).contains(&size) || flags as u32 != 0 {
         return err(EINVAL);
     }
     let slot = match target(pid) {
