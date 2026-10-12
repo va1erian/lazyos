@@ -9,21 +9,21 @@ use crate::ipc::credentials::{self, Cred, CAP_SYS_ADMIN};
 use crate::task::nice;
 use crate::task::PriorityClass;
 
-const SETATTR: u64 = 314;
-const GETATTR: u64 = 315;
-const GETSCHEDULER: u64 = 145;
+pub(super) const SETATTR: u64 = 314;
+pub(super) const GETATTR: u64 = 315;
+pub(super) const GETSCHEDULER: u64 = 145;
 
-const OTHER: u32 = 0;
-const FIFO: u32 = 1;
-const RR: u32 = 2;
-const BATCH: u32 = 3;
-const IDLE: u32 = 5;
-const DEADLINE: u32 = 6;
+pub(super) const OTHER: u32 = 0;
+pub(super) const FIFO: u32 = 1;
+pub(super) const RR: u32 = 2;
+pub(super) const BATCH: u32 = 3;
+pub(super) const IDLE: u32 = 5;
+pub(super) const DEADLINE: u32 = 6;
 
-const RESET_ON_FORK: u64 = 0x01;
+pub(super) const RESET_ON_FORK: u64 = 0x01;
 const RECLAIM: u64 = 0x02;
-const KEEP_POLICY: u64 = 0x08;
-const KEEP_PARAMS: u64 = 0x10;
+pub(super) const KEEP_POLICY: u64 = 0x08;
+pub(super) const KEEP_PARAMS: u64 = 0x10;
 const UTIL_CLAMP_MIN: u64 = 0x20;
 
 const E2BIG: u64 = neg(7);
@@ -32,22 +32,22 @@ const ESRCH: u64 = neg(3);
 /// `struct sched_attr` as of Linux 5.3.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct Attr {
-    size: u32,
-    policy: u32,
-    flags: u64,
-    nice: i32,
-    priority: u32,
-    runtime: u64,
-    deadline: u64,
-    period: u64,
-    util_min: u32,
-    util_max: u32,
+pub(super) struct Attr {
+    pub(super) size: u32,
+    pub(super) policy: u32,
+    pub(super) flags: u64,
+    pub(super) nice: i32,
+    pub(super) priority: u32,
+    pub(super) runtime: u64,
+    pub(super) deadline: u64,
+    pub(super) period: u64,
+    pub(super) util_min: u32,
+    pub(super) util_max: u32,
 }
 
-const SIZE: u32 = core::mem::size_of::<Attr>() as u32;
+pub(super) const SIZE: u32 = core::mem::size_of::<Attr>() as u32;
 
-fn attr(policy: u32, nice: i32) -> Attr {
+pub(super) fn attr(policy: u32, nice: i32) -> Attr {
     Attr {
         size: SIZE,
         policy,
@@ -56,7 +56,7 @@ fn attr(policy: u32, nice: i32) -> Attr {
     }
 }
 
-fn setattr(pid: u64, attr: &Attr) -> u64 {
+pub(super) fn setattr(pid: u64, attr: &Attr) -> u64 {
     sys(SETATTR, &[pid, attr as *const Attr as u64, 0])
 }
 
@@ -65,7 +65,7 @@ fn getattr_size(pid: u64, out: &mut [u8], size: u64) -> u64 {
     sys(GETATTR, &[pid, out.as_mut_ptr() as u64, size, 0])
 }
 
-fn getattr(pid: u64) -> Result<Attr, String> {
+pub(super) fn getattr(pid: u64) -> Result<Attr, String> {
     let mut out = Attr::default();
     let ret = sys(
         GETATTR,
@@ -75,18 +75,18 @@ fn getattr(pid: u64) -> Result<Attr, String> {
     Ok(out)
 }
 
-fn me_weight() -> u16 {
+pub(super) fn me_weight() -> u16 {
     task::weight(task::current()).unwrap_or(0)
 }
 
 /// What a class-default `base` weighs at `level`, from the documented table.
-fn weight_at(level: i32, idle: bool) -> u16 {
+pub(super) fn weight_at(level: i32, idle: bool) -> u16 {
     nice::weight(PriorityClass::Interactive.default_weight(), level, idle)
 }
 
 /// Run `body` as the kernel task with `cred` and a default scheduling state,
 /// and put root and the default back whatever happens.
-fn scoped(cred: Cred, body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+pub(super) fn scoped(cred: Cred, body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     let reset = || {
         credentials::set(task::current(), Cred::ROOT);
         task::linuxstate::with_extras(|extras| extras.sched = Default::default());
@@ -100,8 +100,8 @@ fn scoped(cred: Cred, body: impl FnOnce() -> Result<(), String>) -> Result<(), S
     result
 }
 
-const USER: Cred = Cred::new(1000, 1000, 0, 0, 0);
-const ADMIN: Cred = Cred::new(1001, 1001, CAP_SYS_ADMIN, 0, 0);
+pub(super) const USER: Cred = Cred::new(1000, 1000, 0, 0, 0);
+pub(super) const ADMIN: Cred = Cred::new(1001, 1001, CAP_SYS_ADMIN, 0, 0);
 
 /// A plain policy and a nice value are kept and read back; `sched_getscheduler`
 /// follows; the weight follows the nice value (and `SCHED_IDLE` is the least).
@@ -438,152 +438,6 @@ pub fn schedattr_privilege_rules() -> Result<(), String> {
             "admin out of IDLE, nice -10"
         );
         check!(getattr(0)?.nice == -10, "negative nice read back");
-        Ok(())
-    })
-}
-
-/// `KEEP_POLICY` and `KEEP_PARAMS` change only the other half.
-pub fn schedattr_keep_flags() -> Result<(), String> {
-    scoped(ADMIN, || {
-        check!(setattr(0, &attr(BATCH, 7)) == 0, "BATCH nice 7");
-        let params = Attr {
-            flags: KEEP_POLICY,
-            ..attr(OTHER, 2)
-        };
-        check!(setattr(0, &params) == 0, "keep policy");
-        let got = getattr(0)?;
-        check!(
-            got.policy == BATCH && got.nice == 2,
-            "policy {} nice {}",
-            got.policy,
-            got.nice
-        );
-        let policy = Attr {
-            flags: KEEP_PARAMS,
-            ..attr(IDLE, 15)
-        };
-        check!(setattr(0, &policy) == 0, "keep params");
-        let got = getattr(0)?;
-        check!(
-            got.policy == IDLE && got.nice == 2,
-            "policy {} nice {}",
-            got.policy,
-            got.nice
-        );
-        Ok(())
-    })
-}
-
-/// A thread and a forked process start with their creator's policy, nice
-/// value and weight; with `reset_on_fork` a negative nice value is lost and
-/// the flag is not passed on.
-pub fn schedattr_children_inherit() -> Result<(), String> {
-    scoped(ADMIN, || {
-        check!(setattr(0, &attr(BATCH, 1)) == 0, "BATCH nice 1");
-        let thread = task::spawn_thread("schedattr", process::USER_STACK_TOP, 0, 0)
-            .map_err(|error| format!("thread: {error}"))?;
-        let child = task::spawn_fork().map_err(|error| format!("fork: {error}"))?;
-        for (what, slot) in [("thread", thread), ("fork", child)] {
-            let got = getattr(slot as u64)?;
-            check!(
-                got.policy == BATCH && got.nice == 1,
-                "{what}: policy {} nice {}",
-                got.policy,
-                got.nice
-            );
-            check!(
-                task::weight(slot) == Some(me_weight()),
-                "{what}: weight {:?} want {}",
-                task::weight(slot),
-                me_weight()
-            );
-        }
-
-        let flagged = Attr {
-            flags: RESET_ON_FORK,
-            ..attr(OTHER, -5)
-        };
-        check!(setattr(0, &flagged) == 0, "reset_on_fork, nice -5");
-        let thread = task::spawn_thread("schedattr", process::USER_STACK_TOP, 0, 0)
-            .map_err(|error| format!("thread: {error}"))?;
-        let got = getattr(thread as u64)?;
-        check!(
-            got.nice == 0 && got.flags == 0,
-            "reset child: nice {} flags {}",
-            got.nice,
-            got.flags
-        );
-        check!(
-            task::weight(thread) == Some(PriorityClass::Interactive.default_weight()),
-            "reset child's weight {:?}",
-            task::weight(thread)
-        );
-        check!(getattr(0)?.nice == -5, "the parent lost its nice value");
-        Ok(())
-    })
-}
-
-/// One xorshift step.
-fn next(state: &mut u64) -> u64 {
-    *state ^= *state << 13;
-    *state ^= *state >> 7;
-    *state ^= *state << 17;
-    *state
-}
-
-/// Thousands of random calls against a model of the rules: an admin sets
-/// anything and reads it back with the matching weight; a user's calls
-/// succeed exactly when the model says (never lowering the nice value,
-/// never leaving IDLE), and a refused call changes nothing.
-pub fn schedattr_soak() -> Result<(), String> {
-    let mut seed = 0x5ced_a77d_0000_0001u64;
-    scoped(ADMIN, || {
-        for round in 0..6000u32 {
-            let policy = [OTHER, BATCH, IDLE][(next(&mut seed) % 3) as usize];
-            let level = (next(&mut seed) % 40) as i32 - 20;
-            check!(setattr(0, &attr(policy, level)) == 0, "round {round}: set");
-            let got = getattr(0)?;
-            check!(
-                got.policy == policy && got.nice == level,
-                "round {round}: read back {} {} want {policy} {level}",
-                got.policy,
-                got.nice
-            );
-            check!(
-                me_weight() == weight_at(level, policy == IDLE),
-                "round {round}: weight {} for nice {level} policy {policy}",
-                me_weight()
-            );
-        }
-        Ok(())
-    })?;
-    scoped(USER, || {
-        let (mut policy, mut level) = (OTHER, 0i32);
-        for round in 0..6000u32 {
-            let ask_policy = [OTHER, BATCH, IDLE][(next(&mut seed) % 3) as usize];
-            let ask_level = (next(&mut seed) % 40) as i32 - 20;
-            let allowed = ask_level >= level && (policy != IDLE || ask_policy == IDLE);
-            let got = setattr(0, &attr(ask_policy, ask_level));
-            check!(
-                (got == 0) == allowed && (allowed || got == EPERM),
-                "round {round}: ({policy},{level}) -> ({ask_policy},{ask_level}) returned {got:#x}"
-            );
-            if allowed {
-                (policy, level) = (ask_policy, ask_level);
-            }
-            let now = getattr(0)?;
-            check!(
-                now.policy == policy && now.nice == level,
-                "round {round}: state {} {} want {policy} {level}",
-                now.policy,
-                now.nice
-            );
-            check!(
-                me_weight() == weight_at(level, policy == IDLE),
-                "round {round}: weight {}",
-                me_weight()
-            );
-        }
         Ok(())
     })
 }

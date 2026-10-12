@@ -2,10 +2,11 @@
 
 Status: **W0, W1, W2 and W3 built** (2026-10-12). The four kernel prerequisites
 landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
-`JSCOnly` shell `jsc` (C-loop interpreter) runs on LazyOS, and the dependency
-bundle (zlib to curl with OpenSSL, FreeType, HarfBuzz, Fontconfig, Skia) is built
-and used by a program on LazyOS, including an HTTPS fetch. Next is W4 (the port
-skeleton) or flipping the JIT on in W2. Decisions taken: WebKit2 is
+`JSCOnly` shell runs on LazyOS both as the C-loop interpreter (`jsc`) and with
+the JIT (`jsc-jit`: LLInt, baseline, DFG), each passing 254 of 255 files of a
+fixed `JSTests/stress` subset, and the dependency bundle (zlib to curl with
+OpenSSL, FreeType, HarfBuzz, Fontconfig, Skia) is built and used by a program
+on LazyOS, including an HTTPS fetch. Next is W4 (the port skeleton). Decisions taken: WebKit2 is
 the engine (§2), the port is modeled on the PlayStation port with WebKit's C
 API as the seam to a Rust xui window (§5), and the port files live out of
 tree like `doom/` and `quake/` (§7).
@@ -21,6 +22,11 @@ tools/jsc/build.py` then `python tools/jsc/run.py`):
 | `jsc -e 'print(1+1)'` on LazyOS | 170 to 230 ms from `exec` to exit under WHPX (a 45 MB ELF read whole from ext2, ICU initialised, concurrent GC threads started) |
 | 1.5 M allocations, 4 concurrent marker threads, `gc()`/`edenGC()` | 1.2 s under WHPX, correct result |
 | Classes, private fields, Promises, async generators, `Intl.NumberFormat`, `toUpperCase` | `JSC:RUN:PASS:promise` |
+| `jsc-jit` (`build.py --jit`) | `ENABLE_JIT=ON`, `ENABLE_C_LOOP=OFF`, LLInt in assembly, baseline and DFG; **FTL off** (B3 does not build with WebAssembly off at this revision); **52.0 MiB**; incremental build 7 minutes, two small source patches (below) |
+| JIT speedup over `jsc` in the guest (WHPX, one CPU, `tier:dfg` confirmed) | `gc` script 1.8x to 2.1x, `hot` (fib(30), a 20 M-iteration loop, a 60 k sort) 2.6x to 2.7x, four SharedArrayBuffer agents 1.8x to 2.5x; `promise` (short, 130 ms) 0.8x and the timer-bound `suspend` script 1.0x: the JIT's start-up cost shows where there is nothing to compile. Runs on a loaded host vary by about 20%; native Linux gets 4x on the same `hot` code, so the guest loses part of it (one CPU: the compile thread competes with the mutator) |
+| `JSTests/stress` subset (`tools/jsc/stress.py`, 255 files starting `g` or `n`, 262 KiB, WebKit commit of the `webkitgtk-2.54.1` tag) | **254/255 in `jsc` and 254/255 in `jsc-jit`** (99.6%), each file with a 10 s limit, about 58 s per shell. The one failure in both is `get-array-length-reuse.js` (`//@ memoryHog!`): it zero-fills a 2 GiB typed array in a 2 GiB guest, so the frame allocator runs out and the process dies with `SIGSEGV` (Linux would OOM-kill it). With `--memory 4G` both shells pass **255/255**. The judge requires 98% |
+| Per-thread signal path (§4.2) with the real consumer | seen: the `suspend` script (main thread idle in the run loop on timers, collector working) makes the collector thread `tkill` the main thread with `SIGUSR1`, 32 sends in `jsc` and 24 in `jsc-jit`, each answered by the handler (`rt_sigsuspend`, `rt_sigreturn`); not by `agents` or `gc`, see §4.2 |
+| `sched_setattr` (314) | implemented with `sched_getattr` (315); no `ENOSYS 314` line in the run |
 
 Built in Docker (`tools/jsc/Dockerfile`, Debian 12 with zig from pip): a
 WebKit build is thousands of small files and needs ruby, perl, cmake and
@@ -31,11 +37,10 @@ the same `build.py` runs on a Linux host with `--no-docker`.
 **2 min 50 s**, `depsproof` passes on LazyOS; Skia (WebKit's own copy) is the
 raster backend and a CPU path still exists.
 
-Not done: JavaScriptCore's own test suite (W2's second half), the JIT, and
-any evidence that the collector's *signal* path (`pthread_kill` of another
-mutator, §4.2) ran: with one JS thread the concurrent collector stops the
-mutator by handshake, not by signal, so §4.2 is exercised by the `threadsig`
-fixture but not yet by JSC.
+Not done: the whole of `JSTests/stress` (a fixed 255-file subset runs once with
+default options; the Ruby harness cannot run in the guest, so the harness's
+option sets are not), FTL (B3), WebAssembly, and a kernel that enables AVX
+state (the JIT shell is patched not to use AVX, see "W2 result" in section 5).
 
 Scope: what it would take to run a mainstream browser engine on LazyOS, and
 the shortest credible path to a page rendered by WebKit in a desktop window.
@@ -130,6 +135,22 @@ transparently. The `threadsig` fixture does the collector's pattern end to
 end: eight threads, `pthread_kill` each, handlers park on a futex, a
 thousand rounds.
 
+*Seen with JavaScriptCore (W2).* The collector suspends a thread with
+`SIGUSR1` (`tkill`, musl's `pthread_kill`) and resumes it with a second one.
+It does so for a mutator that is not at a safepoint, for example the main
+thread parked in the run loop on a `setTimeout` while the collector thread
+works; the guest log shows `tkill` from the collector thread to the main thread
+and the handler running (`rt_sigsuspend`, `rt_sigreturn`). Four
+`SharedArrayBuffer` agents allocating and parking in `Atomics.wait` while the
+main thread calls `fullGC()` send **no** signal: each agent is a VM with a
+heap of its own, so no collector has to stop another thread, and a script that
+calls `fullGC()` itself stops at a safepoint. The earlier claim that a single
+JS thread never uses the signal was wrong for the idle case. The evidence was a
+temporary `serial_println!` in `sys_tkill` (not committed): 32 and 24 sends in
+the `suspend` script for `jsc` and `jsc-jit`, 16 in two of the stress files
+(`get-by-val-hoist-above-structure*.js`, which also wait on timers), none in
+`gc`, `hot` or `agents`.
+
 ### 4.3 Executable memory (#773)
 
 A JIT maps memory, writes code, flips it executable, and flips it back to
@@ -190,6 +211,19 @@ where §4.2 and §4.3 are proven against the real consumer. The JIT is tried
 afterwards by flipping it on: on Linux it uses plain `mprotect` flips, with
 none of the Apple-only write-protect calls. A `jsc` fixture in the bench is
 the regression test for all of it.
+
+*W2 result.* Both shells run (table at the top). The JIT's first run died with
+`SIGILL`, not with one of §4.3's `SIGSEGV` cases: the crash report (which now
+prints the 16 bytes at `rip`) showed `c4 c1 7b 11 43 50`, `vmovsd [r11+0x50],
+xmm0`, in the JIT code pool. JavaScriptCore enables AVX from `CPUID` alone, and
+LazyOS sets neither `CR4.OSXSAVE` nor `XCR0`, so every VEX instruction is
+`#UD`; a QEMU guest on WHPX or KVM reports AVX. The executable-memory side
+(`mmap`/`mprotect` flips, thousands of them, with the compile thread running)
+needed nothing. `tools/jsc/patches/webkit/0002` makes JSC check `OSXSAVE` and
+`XGETBV` as Intel's manual prescribes; the kernel-side alternative is to
+enable AVX state (`CR4.OSXSAVE`, `XSETBV`, `XSAVE` in the context switch and the
+signal frame), which is not done. Without the patch a real PC with AVX would
+hit the same `SIGILL`.
 
 ### W3. The dependency bundle (built)
 
@@ -381,11 +415,19 @@ interpreted, no video, no GPU, two to three months in.
 
 ## 6. The problems that will surface
 
-* **`sched_setattr` (syscall 314) is `ENOSYS`.** WTF's `Thread::setThreadQoS`
+* **`sched_setattr` (syscall 314): done.** WTF's `Thread::setThreadQoS`
   (`wtf/posix/ThreadingPOSIX.cpp`) calls it to lower a GC marker thread's
-  priority and treats failure as "not supported", so nothing breaks (eight
-  `ENOSYS 314` lines in the gc script with four markers). A no-op that
-  accepts the call would silence the log; it is the only gap JSC met.
+  priority; it was `ENOSYS` (eight lines in the gc script with four markers).
+  Now the plain policies and a nice value are accepted and mapped onto the
+  stride weight, with `sched_getattr` ([linux-abi-plan.md](linux-abi-plan.md));
+  the run has no `ENOSYS 314` line.
+* **ABI gaps JSC met while running its tests.** `mprotect(addr, 0, prot)` was
+  `EINVAL` (Linux: 0), which aborted two growable-ArrayBuffer stress files;
+  fixed. A process that exhausts the frame allocator in a page fault is killed
+  with `SIGSEGV` where Linux would OOM-kill it (`get-array-length-reuse.js`,
+  2 GiB in a 2 GiB guest); open.
+* **No AVX state.** See W2 above: JIT code that uses VEX instructions needs the
+  kernel to enable AVX or JSC to be told not to (done, by patch).
 * **Binary size.** `jsc` is 44.5 MiB because ICU's data (about 30 MB: every
   locale, converter and break rule) is inside; there is no file-backed `mmap`
   to load `icudt74l.dat`. An ICU data filter (locales, converters) would cut
