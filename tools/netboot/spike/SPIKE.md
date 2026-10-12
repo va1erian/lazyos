@@ -58,7 +58,7 @@ variable store (copied fresh to `target/netboot/OVMF_VARS.fd` on every run).
 ## The run
 
 1. **Terminal 1, the server:**
-   `python tools/netboot/spike/serve.py --root target/netboot/payload --bind 127.0.0.1:8420 --timeout 600000`
+   `python tools/netboot/spike/serve.py --root target/netboot/payload --bind 127.0.0.1:8420 --timeout 5000`
    (the guest reaches it as `http://10.0.2.2:8420`; the log line per request
    has the client, path, status, bytes, seconds and MB/s).
 2. **Terminal 2, QEMU with a window:**

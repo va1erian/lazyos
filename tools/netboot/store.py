@@ -388,7 +388,10 @@ class Store:
             return 0
         for channel in channels:
             for entry in [*channel.glob("*.incoming"), *channel.glob("*.verifying-*")]:
-                newest = max([entry.stat().st_mtime] + [p.stat().st_mtime for p in entry.iterdir()])
+                try:
+                    newest = max([entry.stat().st_mtime] + [p.stat().st_mtime for p in entry.iterdir()])
+                except OSError:  # removed, or claimed by a commit, meanwhile
+                    continue
                 if now - newest > STALE_INCOMING_S:
                     shutil.rmtree(entry, ignore_errors=True)
                     removed += 1

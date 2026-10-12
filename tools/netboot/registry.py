@@ -79,10 +79,46 @@ class AccessLog:
             self._file.close()
 
 
-def make_handler(app: api.Api, log):
+#: Seconds a connection may sit idle between bytes before it is dropped, so a
+#: client that opens a request and never finishes it does not keep a thread.
+IDLE_TIMEOUT_S = 30
+#: Connections served at once; a connection past the bound is closed at accept
+#: instead of getting a thread (a push plus a few pickers need a handful).
+MAX_CONNECTIONS = 64
+
+
+class BoundedServer(ThreadingHTTPServer):
+    """`ThreadingHTTPServer` with at most `max_connections` live handler threads."""
+
+    daemon_threads = True
+
+    def __init__(self, address, handler, max_connections: int = MAX_CONNECTIONS):
+        super().__init__(address, handler)
+        self.max_connections = max_connections
+        self._slots = threading.BoundedSemaphore(max_connections)
+
+    def process_request(self, request, client_address) -> None:
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)  # full: the client sees a closed connection
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
+def make_handler(app: api.Api, log, idle_timeout: float = IDLE_TIMEOUT_S):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "lazyos-registry"
+        timeout = idle_timeout  # the socket timeout: an idle connection is closed
 
         def log_message(self, *_args) -> None:  # replaced by our own line per request
             pass
@@ -170,16 +206,21 @@ def make_handler(app: api.Api, log):
 
 def serve(root: Path, bind: str = DEFAULT_BIND, keys_path: Path | None = None,
           keep: int = DEFAULT_KEEP, log=None, public_url: str | None = None,
-          clock=time.time) -> ThreadingHTTPServer:
-    """A bound server with the layout initialised (call `serve_forever`); port 0 picks a free one."""
+          clock=time.time, max_connections: int = MAX_CONNECTIONS,
+          idle_timeout: float = IDLE_TIMEOUT_S) -> ThreadingHTTPServer:
+    """A bound server with the layout initialised (call `serve_forever`); port 0 picks a free one.
+
+    At most `max_connections` requests are served at once and a connection
+    idle for `idle_timeout` seconds is closed, so a client that never finishes
+    its request cannot hold a thread for good.
+    """
     log = log if callable(log) else AccessLog(log)
     store = store_mod.Store(Path(root), keys_path, keep, clock)
     for note in store.init_layout():
         log(f"registry: {note}")
     host, port = split_bind(bind)
-    server = ThreadingHTTPServer((host, port), lambda *a, **k: None)
-    server.RequestHandlerClass = make_handler(api.Api(store, public_url), log)
-    server.daemon_threads = True
+    server = BoundedServer((host, port), lambda *a, **k: None, max_connections)
+    server.RequestHandlerClass = make_handler(api.Api(store, public_url), log, idle_timeout)
     server.store = store
     return server
 

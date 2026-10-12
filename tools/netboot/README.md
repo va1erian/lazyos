@@ -29,8 +29,13 @@ python tools/netboot/push.py --register-key     # prints the keys.json entry
 `key.sec` is the 32-byte seed as 64 hex characters (mode 0600). It signs every
 build (`LAZYOS_NETBOOT_KEY=target/netboot/key.sec`, phase N1) and every write
 to the registry, so it stays on the dev machine: `ed25519.py` signs in pure
-Python with no side-channel care, and the registry never holds a secret.
-The key id is the first 16 hex characters of SHA-256 of `key.pub`.
+Python with no side-channel care, and the registry never holds the signing
+seed. The one secret the registry does hold is each machine's `callback_key`
+in `machines.json` (minted by `registry.py --machine-key`, used to verify
+`booting` and `booted`): whoever reads the volume or its backup can forge
+those two callbacks, so protect both like any credential store (the volume
+is owned by uid 10001 and the container runs as that user). The key id is
+the first 16 hex characters of SHA-256 of `key.pub`.
 
 Put the printed entry into the registry's `keys.json`
 (`/srv/lazyos/keys.json` in the container); the file is re-read on every
@@ -87,6 +92,12 @@ the key, put `keys.json` into the volume (Cosmos's volume browser, or
 `docker run --rm -i -v lazyos-registry:/srv/lazyos --entrypoint sh lazyos-registry -c 'cat > /srv/lazyos/keys.json' < keys.json`).
 Set `LAZYOS_REGISTRY_LOG=-` to see the access log in Cosmos's log view. Back up
 the volume: it is everything.
+
+The server bounds what a LAN client can hold: at most 64 connections are
+served at once (one past that is closed at accept) and a connection idle for
+30 s between bytes is dropped, so a request that is never finished does not
+keep a thread. A reverse proxy in front may add its own limits; none is
+required.
 
 ### Layout of the volume
 

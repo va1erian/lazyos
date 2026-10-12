@@ -179,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--prune", action="store_true", help="delete all but the newest --keep unpinned builds")
     ap.add_argument("--keep", type=int, help="with --prune: builds to keep (stored for the channel)")
     ap.add_argument("--delete", metavar="ID")
-    ap.add_argument("--add-machine", metavar="NAME", help="create a machine entry; prints its callback key once")
+    ap.add_argument("--add-machine", metavar="NAME", help="create a machine entry (no callback key is printed or sent: mint one on the registry host with registry.py --machine-key NAME)")
     ap.add_argument("--mac", help="with --add-machine: the machine's MAC address")
     ap.add_argument("--timeout-ms", type=int, help="with --add-machine: the menu timeout")
     ap.add_argument("--booting", metavar="ID", help="with --machine: record a boot attempt, as the picker does")
