@@ -134,8 +134,26 @@ fn clear_is_an_undoable_step() {
     model.set_primary(RED);
     model.begin(0, 0, Side::Primary);
     model.end();
-    model.clear();
+    model.clear().unwrap();
     assert_eq!(model.bitmap().get(0, 0), Some(WHITE));
     model.undo();
     assert_eq!(model.bitmap().get(0, 0), Some(RED));
+}
+
+#[test]
+fn an_undo_entry_larger_than_the_history_cap_is_counted() {
+    let model = model();
+    let mib = 1024 * 1024u64;
+    // Two 8192x4096 layers (256 MiB) plus their cache (128 MiB) fit next to
+    // the 64 MiB history cap...
+    assert!(model.check_fits(8192, 4096, 2).is_ok());
+    // ...but not when the undo entry about to be kept is the 256 MiB old
+    // document: one entry stays held even past the cap.
+    assert!(
+        model
+            .check_fits_recording(8192, 4096, 2, 256 * mib)
+            .is_err()
+    );
+    // An entry under the cap changes nothing.
+    assert!(model.check_fits_recording(8192, 4096, 2, mib).is_ok());
 }

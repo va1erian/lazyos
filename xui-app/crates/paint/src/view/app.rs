@@ -447,7 +447,7 @@ impl App for PaintApp {
                 self.model.redo();
                 self.message = name.map(|name| format!("Redid {name}"));
             }
-            Msg::Clear => self.model.clear(),
+            Msg::Clear => self.message = self.model.clear().err(),
             Msg::New => self.guard(ui, After::New),
             Msg::NewTransparent => self.guard(ui, After::NewTransparent),
             Msg::Unsaved(action) => self.unsaved_answer(ui, action),
