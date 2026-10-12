@@ -89,10 +89,13 @@ fn resize_image_checks_the_sides_and_the_budget() {
         m.canvas_size(16384, 8192, Anchor::Center, CanvasFill::Transparent)
             .is_err()
     );
-    assert!(m.rotate_image(Turn::Cw90).is_ok(), "same area still fits");
-    m.undo();
+    // Even the same area is refused: the undo entry keeps the old 256 MiB
+    // document beside the new one.
+    let err = m.rotate_image(Turn::Cw90).unwrap_err();
+    assert!(err.contains("memory"), "{err}");
     assert_eq!(m.document(), &before);
-    assert_eq!(m.history().undo_len(), 0);
+    // Only Add Layer is in the history: nothing was recorded.
+    assert_eq!(m.history().undo_len(), 1);
 }
 
 #[test]
@@ -245,7 +248,7 @@ fn flip_and_rotate_layer_leave_the_others_alone() {
     assert_eq!(m.document().active(), 1);
     // A layer that would not change records nothing.
     m.select_layer(1);
-    m.clear();
+    m.clear().unwrap();
     m.undo();
     let steps = m.history().undo_len();
     m.add_layer().unwrap();

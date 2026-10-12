@@ -24,6 +24,14 @@ fn check_sides(width: u32, height: u32) -> Result<(), String> {
 }
 
 impl Model {
+    /// Checks that a new `width` x `height` document of `layers` layers fits
+    /// next to the current one, which the undo entry keeps (even past the
+    /// history cap).
+    fn check_replacement(&self, width: u32, height: u32, layers: usize) -> Result<(), String> {
+        let old = self.doc.bytes() as u64;
+        self.check_fits_recording(width, height, layers, old)
+    }
+
     /// Swaps in `new` as the document and records the old one as the undo
     /// entry `name`.
     fn replace_document(&mut self, name: String, mut new: Document) {
@@ -45,7 +53,7 @@ impl Model {
         if self.doc.size() == (width, height) {
             return Ok(());
         }
-        self.check_fits(width, height, self.doc.layers().len())?;
+        self.check_replacement(width, height, self.doc.layers().len())?;
         let new = self
             .doc
             .mapped(width, height, |_, b| ops::resample(b, width, height, how));
@@ -69,7 +77,7 @@ impl Model {
         if self.doc.size() == (width, height) {
             return Ok(());
         }
-        self.check_fits(width, height, self.doc.layers().len())?;
+        self.check_replacement(width, height, self.doc.layers().len())?;
         let (x, y) = anchor.offset(self.doc.size(), (width, height));
         let bottom = match fill {
             CanvasFill::Transparent => TRANSPARENT,
@@ -106,7 +114,7 @@ impl Model {
             return Ok(());
         }
         let (width, height) = (rect.width(), rect.height());
-        self.check_fits(width, height, self.doc.layers().len())?;
+        self.check_replacement(width, height, self.doc.layers().len())?;
         let new = self.doc.mapped(width, height, |_, b| {
             let mut pixels = b
                 .crop(rect)
@@ -125,7 +133,7 @@ impl Model {
     pub fn flip_image(&mut self, flip: Flip) -> Result<(), String> {
         self.end();
         let (w, h) = self.doc.size();
-        self.check_fits(w, h, self.doc.layers().len())?;
+        self.check_replacement(w, h, self.doc.layers().len())?;
         let new = self.doc.mapped(w, h, |_, b| flip.apply(b));
         self.replace_document(format!("Flip Image {}", flip.label()), new);
         Ok(())
@@ -136,7 +144,7 @@ impl Model {
         self.end();
         let (w, h) = self.doc.size();
         let (nw, nh) = if turn.swaps_sides() { (h, w) } else { (w, h) };
-        self.check_fits(nw, nh, self.doc.layers().len())?;
+        self.check_replacement(nw, nh, self.doc.layers().len())?;
         let new = self.doc.mapped(nw, nh, |_, b| turn.apply(b));
         self.replace_document(format!("Rotate Image {}", turn.label()), new);
         Ok(())
@@ -203,10 +211,9 @@ impl Model {
         if layers <= 1 {
             return Ok(());
         }
-        // No budget check: flattening ends with fewer bytes than it began
-        // with, and refusing it at the edge of the budget (where the user
-        // most needs to free memory) would be backwards. The one layer built
-        // beside the old ones exists only for the instant of the swap.
+        // The old layers stay held by the undo entry, so the flattened layer
+        // is new memory on top of them.
+        self.check_replacement(self.doc.width(), self.doc.height(), 1)?;
         let new = self.doc.flattened();
         self.replace_document("Flatten".to_string(), new);
         Ok(())
