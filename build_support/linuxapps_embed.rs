@@ -89,6 +89,16 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             fhs::share::JSC_TESTS,
         );
     }
+    if switch_on("LAZYOS_WEBKIT_DEPS") {
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_WEBKIT_DEPS",
+            WEBKIT_DEPS_BUILT,
+            WEBKIT_DEPS_PROGRAMS,
+            "tools/webkit/deps.py",
+        );
+    }
 }
 
 /// Store every regular file directly under `dir` (when it exists) at
@@ -112,16 +122,6 @@ fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
         let Some(name) = name.to_str() else { continue };
         println!("cargo:rerun-if-changed={}", entry.path().display());
         sink.add_file(&format!("{image_dir}/{name}"), entry.path());
-    }
-    if switch_on("LAZYOS_WEBKIT_DEPS") {
-        embed_programs(
-            sink,
-            manifest_dir,
-            "LAZYOS_WEBKIT_DEPS",
-            WEBKIT_DEPS_BUILT,
-            WEBKIT_DEPS_PROGRAMS,
-            "tools/webkit/deps.py",
-        );
     }
 }
 
