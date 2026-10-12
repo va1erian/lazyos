@@ -127,6 +127,14 @@ fn warnings_and_update_rules() {
     assert!(warnings[2].contains("keeping it"));
     let formatted = plan::validate(Command::Install, &system, &home, &esp, &ctx, true).unwrap();
     assert!(formatted[2].contains("will be erased"), "{formatted:?}");
+    // An unrecognised filesystem (a mistyped --system naming NTFS) warns too.
+    system.content = Content::Data;
+    let data = plan::validate(Command::Install, &system, &home, &esp, &ctx, false).unwrap();
+    assert!(
+        data.iter()
+            .any(|w| w.contains("unrecognised data") && w.contains("erased")),
+        "{data:?}"
+    );
     // An update needs a LazyOS system and a home.
     let err = plan::validate(Command::Update, &system, &home, &esp, &ctx, false).unwrap_err();
     assert!(err.contains("no LazyOS system"), "{err}");
@@ -217,6 +225,10 @@ fn fat_serial_and_sniff() {
     ext[1024 + 96] = 0x40; // extents
     assert_eq!(plan::sniff(&ext), Content::OtherExt("ext4"));
     assert_eq!(plan::sniff(&[0u8; 2048]), Content::Unknown);
+    // NTFS, btrfs, LUKS...: data, never "empty".
+    let mut ntfs = vec![0u8; 2048];
+    ntfs[3..11].copy_from_slice(b"NTFS    ");
+    assert_eq!(plan::sniff(&ntfs), Content::Data);
 }
 
 #[test]

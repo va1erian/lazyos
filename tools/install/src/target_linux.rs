@@ -35,6 +35,13 @@ pub fn on_linux(options: &Options, stick: &Path) -> Result<Found, String> {
         std::io::Seek::seek(&mut disk, std::io::SeekFrom::End(0)).map_err(|e| e.to_string())?;
     let table = read_gpt(&mut disk, disk_bytes)?;
     let swaps = linux::swaps();
+    // A btrfs, overlay or bcachefs mount reports an anonymous device
+    // (`0:35`) in mountinfo, so a mount also matches by its source device.
+    let on_dev = |m: &Mount, dev: DevNum| {
+        m.dev == dev
+            || (m.source.starts_with("/dev/")
+                && linux::block_dev(Path::new(&m.source)).is_ok_and(|d| d == dev))
+    };
     let describe = |node: PathBuf| -> Result<(Part, Extent), String> {
         let dev = linux::block_dev(&node)?;
         let sys = linux::sys_part(dev)?;
@@ -59,9 +66,11 @@ pub fn on_linux(options: &Options, stick: &Path) -> Result<Found, String> {
             content: content_of(&extent),
             mounted_at: mounts
                 .iter()
-                .find(|m| m.dev == dev)
+                .find(|m| on_dev(m, dev))
                 .map(|m| m.point.clone()),
-            busy: sys.held || swaps.contains(&dev),
+            // The kernel's own word last: O_EXCL on a block device fails
+            // with EBUSY while it is mounted or held.
+            busy: sys.held || swaps.contains(&dev) || linux::in_use(&node),
         };
         Ok((part, extent))
     };
@@ -89,7 +98,14 @@ pub fn on_linux(options: &Options, stick: &Path) -> Result<Found, String> {
     let running = mounts
         .iter()
         .filter(|m| m.point == "/" || m.point == "/boot")
-        .map(|m| linux::key(m.dev))
+        .flat_map(|m| {
+            let source = m
+                .source
+                .starts_with("/dev/")
+                .then(|| linux::block_dev(Path::new(&m.source)).ok())
+                .flatten();
+            [Some(m.dev), source].into_iter().flatten().map(linux::key)
+        })
         .collect();
     let stick_disk = linux::dev_of(stick)
         .ok()

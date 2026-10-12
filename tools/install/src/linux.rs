@@ -82,6 +82,18 @@ pub fn sys_part(dev: DevNum) -> Result<SysPart, String> {
     })
 }
 
+/// Whether the block device `path` is mounted or held: opening it with
+/// `O_EXCL` fails with `EBUSY` then (Linux's exclusive open of a block
+/// device). Any other failure is left to the checks that follow.
+pub fn in_use(path: &Path) -> bool {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_EXCL)
+        .open(path)
+        .is_err_and(|e| e.raw_os_error() == Some(libc::EBUSY))
+}
+
 /// Free bytes of the filesystem holding `path`.
 pub fn free_bytes(path: &Path) -> Result<u64, String> {
     use std::os::unix::ffi::OsStrExt;

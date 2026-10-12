@@ -203,9 +203,10 @@ pub fn install_home(
 /// An ext2 volume in a file or on a device: the whole file, or the last
 /// partition of an MBR stick image (the home partition is always last).
 fn open_any(path: &Path) -> Result<Ext2, String> {
-    let length = std::fs::metadata(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?
-        .len();
+    // Seek to the end: a block device's metadata length is 0.
+    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let length = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
     let whole = Extent {
         path: path.to_path_buf(),
         start_lba: 0,

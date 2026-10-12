@@ -25,8 +25,11 @@ pub const MIN_SYSTEM_BYTES: u64 = 1 << 30;
 /// What a partition holds today, read from its first blocks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Content {
-    /// Nothing recognised (an empty partition).
+    /// An empty partition: its first 2 KiB are all zero.
     Unknown,
+    /// Data no recognised filesystem (NTFS, btrfs, XFS, LUKS, swap, ...):
+    /// erasing it gets the same warning as a known one.
+    Data,
     Fat,
     /// An ext2/3/4 superblock with features beyond what LazyOS writes.
     OtherExt(&'static str),
@@ -220,7 +223,8 @@ fn is_lazyhome(content: &Content) -> bool {
 /// A filesystem in a few words, for the plan.
 pub fn describe(content: &Content) -> String {
     match content {
-        Content::Unknown => "nothing recognised".into(),
+        Content::Unknown => "nothing (all zero)".into(),
+        Content::Data => "unrecognised data".into(),
         Content::Fat => "a FAT filesystem".into(),
         Content::OtherExt(kind) => format!("an {kind} filesystem"),
         Content::Ext2 { system: true, .. } => "a LazyOS system".into(),
@@ -263,7 +267,10 @@ pub fn sniff(head: &[u8]) -> Content {
     if fat_serial(head[..512].try_into().unwrap_or(&[0; 512])).is_some() {
         return Content::Fat;
     }
-    Content::Unknown
+    match head.iter().any(|&b| b != 0) {
+        true => Content::Data,
+        false => Content::Unknown,
+    }
 }
 
 /// The serial GRUB's `search --fs-uuid` knows a FAT volume by (`ABCD-1234`),

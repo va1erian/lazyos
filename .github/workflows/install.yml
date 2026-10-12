@@ -38,7 +38,8 @@ jobs:
 
       - uses: ./.github/actions/qemu
         with:
-          packages: qemu-system-x86 musl-tools ovmf grub-efi-amd64-bin grub-common
+          # python3-tk: run_demo.py imports lazygui, whose package imports Tk.
+          packages: qemu-system-x86 musl-tools ovmf grub-efi-amd64-bin grub-common python3-tk
 
       - uses: ./.github/actions/rust-cache
         with:
