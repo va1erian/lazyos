@@ -26,6 +26,7 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 }
 
 mod delivery;
+mod fpstate;
 mod hardening;
 mod kill_parked;
 mod linux_abi;
@@ -35,6 +36,7 @@ mod sweep_space;
 mod wait_interrupt;
 
 pub(super) use delivery::*;
+pub(super) use fpstate::*;
 pub(super) use hardening::*;
 pub(super) use kill_parked::*;
 pub(super) use linux_abi::*;
@@ -44,6 +46,18 @@ pub(super) use sweep_space::*;
 pub(super) use wait_interrupt::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    ("task_signal_fpstate_roundtrip", fpstate_frame_roundtrip),
+    ("task_signal_fpstate_null_resets", fpstate_null_resets),
+    ("task_signal_fpstate_forged", fpstate_forged_images),
+    (
+        "task_signal_fpstate_other_slot",
+        fpstate_other_slot_uses_saved_area,
+    ),
+    ("task_signal_fpstate_soak", fpstate_soak),
+    (
+        "task_signal_fpstate_sweep_follows_task",
+        sweep_fpstate_follows_task,
+    ),
     ("task_signal_block_unblock", block_unblock_pending),
     ("task_signal_kill_wakes_sleeper", kill_wakes_blocked),
     ("task_signal_kill_uncatchable", sigkill_uncatchable),
