@@ -1,0 +1,5 @@
+diag.dbg=1
+diag.dbg.mmio=1
+diag.dbg.mmio.claimed=1
+diag.dbg.mmio.allow=8086:5916:0:0x0-0x1000
+diag.dbg.mmio.allow=1af4:1050:2:200-300

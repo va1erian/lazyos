@@ -237,3 +237,16 @@ fn a_range_value_checks() {
     assert!(r.valid());
     assert!(!Range { end: 0, ..r }.valid());
 }
+
+#[test]
+fn replay_checked_in_seeds() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz");
+    for dir in ["seeds/pciprobe", "regressions/pciprobe"] {
+        let Ok(entries) = std::fs::read_dir(root.join(dir)) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            crate::fuzz::run(&std::fs::read(entry.path()).unwrap());
+        }
+    }
+}

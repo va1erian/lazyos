@@ -17,4 +17,21 @@ def dbgwire_seeds():
         "logline": b'[12.345] USBD:DIAG port=1 timeout slot=Enabled/addr1 ep0state=3 ep0dq=0x1f000 note="two words"',
         "hwline": b"HW:IRQCHIP:ioapic pins=24 dest=0 pci_lines=0x0fff",
         "empty": b"",
+        "pci_config": b'{"jsonrpc":"2.0","id":3,"method":"pci.config","params":{"bdf":"00:02.0","offset":0,"len":64}}',
+        "mmio_read": b'{"jsonrpc":"2.0","id":4,"method":"mmio.read","params":{"bdf":"00:02.0","bar":0,"offset":458752,"len":64}}',
+    }
+
+
+def pciprobe_seeds():
+    """`dbgd`'s hardware-read rules: a config with allow lines, a BDF, a range."""
+    cfg = (b"diag.dbg=1\ndiag.dbg.mmio=1\ndiag.dbg.mmio.claimed=1\n"
+           b"diag.dbg.mmio.allow=8086:5916:0:0x0-0x1000\n"
+           b"diag.dbg.mmio.allow=1af4:1050:2:200-300\n")
+    return {
+        "cfg": cfg,
+        "cfg_off": b"diag.dbg=1\ndiag.dbg.mmio=0\n",
+        "cfg_junk": b"diag.dbg=1\ndiag.dbg.mmio=1\ndiag.dbg.mmio.allow=zz:1:0:0-4\n\xff\xff\xff\xff",
+        "bdf": b"0000:00:02.0",
+        "bdf_bad": b"00:20.9",
+        "range": b"1234:1111:2:0x500-0x520",
     }
