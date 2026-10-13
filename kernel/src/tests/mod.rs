@@ -199,6 +199,7 @@ mod ipc_shared_suite;
 mod ipc_suite;
 mod irq_window_deadline;
 mod irq_window_suite;
+mod itimer_suite;
 mod keyboard_suite;
 mod label_suite;
 mod limits_suite;
@@ -268,6 +269,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_suite::CASES,
     linux_compat_suite::CASES,
     loader_suite::CASES,
+    loader_suite::dynamic::CASES,
     sched_suite::CASES,
     guard_suite::CASES,
     runq_suite::CASES,
@@ -276,6 +278,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
+    itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,
     ipc_suite::CASES,
@@ -351,6 +354,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     overlay_suite::CASES,
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
+    ext2_suite::data_fds::filemap::CASES,
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,

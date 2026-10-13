@@ -49,10 +49,14 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // then RIP and CS.
     let code_segment = unsafe { sys::frame_word(current_rsp, 16) };
     let quiet = preempt::interrupted_quiet_context(code_segment);
+    // Timer periods this entry stands for (more than one after an
+    // interrupts-off stretch), for the interval timers' CPU accounting.
+    let mut tick_periods = 0;
     if tick {
         // Periods lost to interrupts-off stretches are caught up here
         // (issue #344); a normal entry is exactly one.
         let periods = crate::arch::clock::periods_since_last();
+        tick_periods = periods;
         crate::arch::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
         // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the tick
         // handler (PIT IRQ0 or the local APIC timer) and it is in service.
@@ -78,6 +82,12 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
         #[cfg(lazyos_tests)]
         harness::note_tick_locks();
     }
+    if tick {
+        // Interval timers (setitimer/POSIX timers) fire before the table is
+        // locked: queueing their signals takes it.
+        itimer_tick(cur, tick_periods, code_segment);
+    }
+    itimer::fire_due_now();
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
@@ -238,6 +248,7 @@ pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: 
 /// Expire what is due now: the deadline timer's interrupt
 /// (`arch::event_timer`). Call with interrupts off and no lock held.
 pub fn expire_due() {
+    itimer::fire_due_now();
     let mut tasks = TASKS.lock();
     expire_deadlines(&mut tasks, crate::arch::clock::monotonic_ns());
 }
@@ -287,4 +298,45 @@ fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
             super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
         }
     }
+}
+
+/// A tick landed in the code segment `code_segment` while `cur` was the
+/// current task: book the period to its process's CPU-time interval timers
+/// (`ITIMER_VIRTUAL` counts ring 3 only; `ITIMER_PROF` both), exactly the
+/// way [`charge_tick`] books the task's own CPU time: a task that is
+/// blocked (the CPU idling in its wait loop) is charged nothing.
+fn itimer_tick(cur: usize, periods: u64, code_segment: u64) {
+    if itimer::cpu_timers_armed() == 0 {
+        return;
+    }
+    let pml4 = {
+        let tasks = TASKS.lock();
+        match tasks[cur].as_ref() {
+            Some(task) if !matches!(task.state, TaskState::Blocked { .. } | TaskState::Done) => {
+                Some(task.pml4)
+            }
+            _ => None,
+        }
+    };
+    if let Some(pml4) = pml4 {
+        itimer::charge_cpu(pml4, ticks_to_ns(periods.max(1)), code_segment & 3 == 3);
+    }
+}
+
+/// An interval or POSIX timer was armed or removed: re-evaluate the one-shot
+/// deadline timer so a deadline inside this tick period gets its interrupt.
+pub fn itimer_changed() {
+    let _tasks = TASKS.lock();
+    sched::rearm_event_timer();
+}
+
+/// Test hook: the tick path's CPU-timer accounting for the current task as
+/// if `periods` ticks landed in ring 3 (`user`) or ring 0.
+#[cfg(lazyos_tests)]
+pub fn itimer_tick_for_test(periods: u64, user: bool) {
+    itimer_tick(
+        CURRENT.load(Ordering::Relaxed),
+        periods,
+        if user { 3 } else { 0 },
+    );
 }

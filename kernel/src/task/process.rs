@@ -238,11 +238,33 @@ pub(crate) fn finish_locked(
     // runs later in task context, outside this lock.
     crate::dev::note_task_exited(slot);
     PENDING_CLOSE.set(slot);
+    drop_timers_if_last(tasks, slot);
     let reparented = reparent_children_locked(tasks, slot, KERNEL_TASK);
     if reparented > 0 {
         serial_println!("proc: task {slot} died; re-parented {reparented} task(s) to init");
     }
     Some(parent)
+}
+
+/// Delete the interval and POSIX timers of `slot`'s process when `slot` was
+/// its last live thread: a zombie must not keep signalling (or keep the
+/// deadline timer firing) until it is reaped.
+fn drop_timers_if_last(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
+    if super::itimer::in_use() == 0 {
+        return;
+    }
+    let Some(pml4) = tasks[slot].as_ref().map(|task| task.pml4) else {
+        return;
+    };
+    let others = tasks.iter().enumerate().any(|(other, task)| {
+        other != slot
+            && task
+                .as_ref()
+                .is_some_and(|task| task.pml4 == pml4 && task.state != TaskState::Done)
+    });
+    if !others {
+        super::itimer::forget(pml4);
+    }
 }
 
 /// Terminate every task in process group `pgid`, returning how many were newly

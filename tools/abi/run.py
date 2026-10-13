@@ -58,46 +58,7 @@ IMAGE_DIR = ROOT / "target" / "abi" / "images"
 SHOTS = ROOT / "shots" / "abi"
 COMPAT = ROOT / "docs" / "compat"
 IMAGE = ROOT / "target" / "lazyos.img"
-
-ORDER = [
-    "hello",
-    "alloc",
-    "hashmap",
-    "file",
-    "time",
-    "thread",
-    "syncstress",
-    "fsstress",
-    "memstress",
-    "bigapp",
-    "jitmem",
-    "procstress",
-    "sigstress",
-    "fpsig",
-    "avx",
-    "threadsig",
-    "epollstress",
-    "msgpoll",
-    "unixstress",
-    "scmrights",
-    "persist",
-    "statxio",
-    "cwd",
-    "fsops",
-    "fdinherit",
-    "statmiss",
-    "compat",
-    # rustls + the nettls provider in memory, through the AVX dispatch where
-    # the CPU has it (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
-    "tlsfix",
-    "busybox",
-    # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
-    # fixture, one row per program (see `LINUXAPPS`).
-    "dash",
-    "sqlite3",
-    "jq",
-    "rg",
-]
+from rows_order import ORDER  # noqa: E402
 
 # Rows judged from one boot of the `linuxapps` fixture on an image built with
 # `LAZYOS_LINUXAPPS=1` (the programs in /system/bin) and BusyBox (dash's
@@ -120,11 +81,18 @@ ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 WITH_BUSYBOX = {"statmiss"}
 
 
+# What the `dynlink` row needs on the image besides its program: the interpreter
+# (`/system/lib/ld-musl-x86_64.so.1`, served at `/lib/`), the libraries and the
+# PIE twin.
+DYNLINK_INTERPRETER = ROOT / "target" / "dynlink" / "lib" / "ld-musl-x86_64.so.1"
+
+
 def build_image(
     fixture_path: Path,
     busybox: bool = False,
     extra_busybox: Path | None = None,
     linuxapps: bool = False,
+    dynlink: bool = False,
 ) -> Path | None:
     """Build the image with the fixture embedded; its per-row copy, or `None`.
 
@@ -138,8 +106,11 @@ def build_image(
     env.setdefault("LAZYOS_RESET_OS", "1")
     # Never let a caller's exports leak between rows: a `/system/bin/busybox` embedded for
     # another fixture would shadow its `/system/bin/abi-init`, and vice versa.
-    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS"):
+    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS",
+                "LAZYOS_DYNLINK"):
         env.pop(key, None)
+    if dynlink:
+        env["LAZYOS_DYNLINK"] = "1"
     if linuxapps:
         env["LAZYOS_LINUXAPPS"] = "1"
         # Seven programs plus BusyBox outgrow the bench's small volume.
@@ -446,13 +417,18 @@ def main() -> int:
         if not fixture.is_file():
             record(name, "unavailable", "fixture not built")
             continue
+        if name == "dynlink" and not DYNLINK_INTERPRETER.is_file():
+            record(name, "unavailable", "needs the interpreter and libraries (tools/abi/dynlink.py, zig)")
+            continue
         extra = None
         if name in WITH_BUSYBOX:
             extra = FIXTURE_DIR / "busybox.elf"
             if not extra.is_file():
                 record(name, "unavailable", "needs BusyBox (tools/abi/busybox.py)")
                 continue
-        image = build_image(fixture, busybox=(name == "busybox"), extra_busybox=extra)
+        image = build_image(
+            fixture, busybox=(name == "busybox"), extra_busybox=extra, dynlink=(name == "dynlink")
+        )
         if image is None:
             record(name, "fail", "image build failed")
             continue

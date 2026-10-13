@@ -75,9 +75,10 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   behave, `/dev/random`/`/dev/urandom` exist; `readlink` of a plain file is
 >   `EINVAL` (what `realpath` needs).
 >
-> Still missing, by how much software it blocks: dynamic linking (static-PIE
-> and static binaries only); `rt_sigtimedwait`/`sigqueue` payloads;
-> `timerfd`/`signalfd`/`inotify`; `alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`
+> Still missing, by how much software it blocks: (dynamic linking and
+> file-backed `mmap` landed afterwards, issue #535, see the note at the end of
+> this section); `rt_sigtimedwait`/`sigqueue` payloads;
+> `timerfd`/`signalfd`/`inotify`; `SIGTTIN`/`SIGTTOU`
 > job-control stops; symlinks and hard links in the filesystems; record locks
 > are not dropped when *one* descriptor of the file closes (only at unlock or
 > exit); memfd seals (`F_ADD_SEALS`) and `MAP_SHARED` of regular files (round
@@ -145,7 +146,16 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > * `recvmsg`/`recvfrom` accept `MSG_NOSIGNAL` (ignored, as on Linux); they
 >   answered `EINVAL`. (`compat_msg_bad_flags`.)
 > * Still missing and met again: file-backed `mmap` (Skia's font manager,
->   W3's shim) and `fadvise64` (221, `ENOSYS`, harmless).
+>   W3's shim; supported since issue #535) and `fadvise64` (221, `ENOSYS`,
+>   harmless).
+>
+> **Issue #535, gaps 7 and 1.** File-backed `mmap` (`MAP_PRIVATE` copy-on-write
+> and `MAP_SHARED` coherent with `read`/`write`, written back at `msync`,
+> `munmap`, exit, `fsync` and the flusher; `msync` is syscall 26) and dynamic
+> linking: `PT_INTERP` is honoured, so a dynamically linked musl program,
+> `dlopen`, shared-library TLS and threads run on `ld-musl-x86_64.so.1`
+> (`/lib/<name>` is served from `/system/lib`). The bench rows are `filemap`
+> and `dynlink` (`tools/abi/dynlink.py`, `LAZYOS_DYNLINK=1`).
 
 > **`sched_setattr`/`sched_getattr` (314, 315): supported (W2).** The plain
 > policies (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are

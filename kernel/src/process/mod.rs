@@ -138,7 +138,7 @@ use credio::{read_cred, write_cred};
 #[cfg(lazyos_tests)]
 pub use gate::dispatch_for_test;
 pub use gate::syscall_gate;
-pub use loader::{load_segments, Loaded};
+pub use loader::{load_planned, load_segments, Loaded};
 
 /// Lowest address of a native heap: `sbrk` starts here, or at the page after
 /// the image when the image reaches past it ([`layout::heap_start`]).

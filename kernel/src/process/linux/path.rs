@@ -151,6 +151,10 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             times: vfs::Times::default(),
         });
     }
+    if let Some(target) = super::libpath::alias(path) {
+        // `/lib/libfoo.so` is `/system/lib/libfoo.so` (`libpath`).
+        return crate::fs::abi_stat(Id::current(), &target).ok();
+    }
     if let Some(program) = system_bin_path(path) {
         // What `execve` of the name runs: the `/system/bin` program of that
         // name (`/usr/bin/wget` is `fetch` once `/system/bin/wget` exists),
@@ -372,6 +376,15 @@ fn confined_device_ok(path: &str, flags: u64) -> bool {
 /// `/tmp` ramfs), plus the synthetic device nodes and BusyBox applet aliases.
 /// Honours `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, and `O_DIRECTORY`.
 fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
+    // A shared object looked up in a conventional library directory.
+    // (Only to read: a create or write open of such a name is its own file.)
+    let aliased = if flags & (O_ACCMODE | O_CREAT | O_TRUNC) == 0 {
+        super::libpath::alias(path)
+    } else {
+        None
+    };
+    let path = aliased.as_deref().unwrap_or(path);
+
     // The device nodes below are named before the VFS is asked about
     // anything, so a confined label's rules are applied to them here.
     if path.starts_with("/dev/") && !confined_device_ok(path, flags) {

@@ -355,6 +355,7 @@ fn load_label(label: &str, ids: &[u64]) -> Result<(), i64> {
     let body = policy::encode_load_label_args(&policy::LoadLabelArgs {
         label: label.into(),
         rules,
+        program: None,
     })
     .map_err(|_| -22i64)?;
     let request = parcel::request(policy::INTERFACE_ID, policy::METHOD_LOADLABEL, 0, body);

@@ -950,6 +950,16 @@ It writes `docs/compat/matrix.md` (+ `compat.json`). CI
 coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
 wiki **Linux ABI Plan**.
 
+The Linux loader runs dynamically linked musl programs (`PT_INTERP`; issue
+#535): the interpreter is looked up as stored, else in `/system/lib`
+(`fhs::SYSTEM_LIB`, which also serves `/lib/<name>` and `/usr/lib/<name>`),
+and `mmap(fd)` of a regular file is demand-faulted from a per-inode page
+cache (`kernel/src/fs/openfile/pagecache.rs`, `kernel/src/mem/filemap.rs`).
+`python tools/abi/dynlink.py` builds the `dynlink` row's program, PIE twin and
+libraries with zig and reads musl's `ld-musl-x86_64.so.1` out of the
+`alpine:3.20` Docker image (`--interpreter FILE` or `LAZYOS_LD_MUSL` name
+another); `LAZYOS_DYNLINK=1` embeds them (`tools/abi/run.py` does).
+
 ## Kernel test harness
 
 The in-kernel unit/soak suite (issue #62) runs instead of the normal boot when

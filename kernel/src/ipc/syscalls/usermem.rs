@@ -31,12 +31,31 @@ pub(crate) fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64>
     }
     let end = ptr.checked_add(len as u64).ok_or(errno::EFAULT)?;
     let table = mem::kernel_table();
-    let mut va = ptr & !0xfff;
-    while va < end {
-        translate(table, va, write)?;
-        va += 4096;
+    stable(|| {
+        let mut va = ptr & !0xfff;
+        while va < end {
+            translate(table, va, write)?;
+            va += 4096;
+        }
+        Ok(())
+    })
+}
+
+/// Run a validation of user memory until no fault in it can have parked the
+/// task: a fault that reads a file (`mem::filemap`) lets other tasks run, and
+/// a thread of the same address space may then unmap what was validated
+/// before it. A validation that saw such a fault is repeated (the pages are
+/// present by then, so the second pass does not park); one that keeps being
+/// disturbed is `-EFAULT` rather than trusted.
+fn stable<R>(mut validate: impl FnMut() -> Result<R, i64>) -> Result<R, i64> {
+    for _ in 0..8 {
+        let epoch = mem::filemap::fault_epoch();
+        let result = validate()?;
+        if mem::filemap::fault_epoch() == epoch {
+            return Ok(result);
+        }
     }
-    Ok(())
+    Err(errno::EFAULT)
 }
 
 /// Like [`access_range`] for a read, but it only looks: a page that is not
@@ -221,9 +240,12 @@ pub(crate) fn copy_out(ptr: u64, bytes: &[u8]) -> Result<(), i64> {
     };
     let mut frames = [0u64; CACHED];
     if pages <= CACHED {
-        for (index, frame) in frames.iter_mut().enumerate().take(pages) {
-            *frame = translate(table, first + ((index as u64) << 12), true)? & !0xfff;
-        }
+        stable(|| {
+            for (index, frame) in frames.iter_mut().enumerate().take(pages) {
+                *frame = translate(table, first + ((index as u64) << 12), true)? & !0xfff;
+            }
+            Ok(())
+        })?;
     } else {
         access_range(ptr, bytes.len(), true)?;
     }

@@ -94,6 +94,7 @@ mod fs_base;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+pub mod itimer;
 mod kernel_task;
 mod kstack;
 #[cfg(lazyos_tests)]
@@ -133,6 +134,8 @@ pub use preempt::pending as resched_pending;
 pub use preempt::{exit_cpu, hand_off, interrupted_quiet_context, preempt_point};
 pub use sched::*;
 pub use schedule::expire_due;
+#[cfg(lazyos_tests)]
+pub use schedule::itimer_tick_for_test;
 #[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
 pub use schedule::{context_switches, scheduler_entries};
 #[cfg(lazyos_tests)]
