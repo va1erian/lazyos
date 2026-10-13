@@ -26,7 +26,7 @@ fn the_counter_sample_opens_and_says_what_it_needs() {
     assert_eq!(manifest.entry.args, ["--client"]);
     assert_eq!(
         manifest.permissions.interfaces,
-        ["os.lazy.display.v1", "os.lazy.input.v1"]
+        ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
     );
     let elf = package
         .read("bin/counter.elf")

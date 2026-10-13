@@ -344,7 +344,10 @@ fn the_packaged_viewer_may_ask_mimed_and_nothing_else() {
         Path::new("/apps/os.lazy.lazyrad/0.1.0-abcd1234/bin/lazyrad.elf"),
     )
     .script_permissions(&scripts);
-    assert_eq!(found.interfaces, ["os.lazy.input.v1", "os.lazy.mimed.v1"]);
+    assert_eq!(
+        found.interfaces,
+        ["os.lazy.display.cursor.v1", "os.lazy.input.v1", "os.lazy.mimed.v1"]
+    );
     assert!(found.topics.is_empty());
 }
 

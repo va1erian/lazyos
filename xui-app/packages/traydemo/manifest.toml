@@ -28,5 +28,6 @@ resident = true
 [permissions]
 # Derived from runs under `LAZYOS_LABEL_TRACE=1` (tools/screenshot/examples/
 # tray.json, tray_menu.json and tray_resident.json show no `LABEL:DENY`): a
-# window and keyboard input; the rest is implied by `resident`.
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+# window, keyboard input and the pointer shape over it; the rest is implied by
+# `resident`.
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]

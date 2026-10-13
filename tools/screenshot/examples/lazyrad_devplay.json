@@ -52,7 +52,7 @@
   {"at": 0.4, "type": "ay.lzp"},
   {"at": 0.8, "key": "enter", "until": "TERM:CMD:pkgctl develop /transient/lazyrad-dev-user.admin.devplay.lzp", "timeout": 30, "retries": 2},
   {"wait_for": "INSTALLER:DEVELOP:PASS dev:user.admin.devplay asked=0", "timeout": 300},
-  {"wait_for": "PKGD:DEVELOP:PASS dev:user.admin.devplay rules=10 asked=0", "timeout": 60},
+  {"wait_for": "PKGD:DEVELOP:PASS dev:user.admin.devplay rules=13 asked=0", "timeout": 60},
   {"at": 1.0, "shot": "04_approved_again"},
   {"at": 0.4, "type": "pkgctl"},
   {"at": 0.4, "type": " devel"},

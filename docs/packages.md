@@ -766,9 +766,13 @@ as `bin/archiver.elf`. It declares the archive types `mimed` maps from `.zip`,
 clipboard, which carries its drag-and-drop payloads. It is listed in the
 start menu's Accessories submenu.
 
-**The pointer scope.** Every core package (and Doom) lists
-`os.lazy.display.cursor.v1` next to `os.lazy.display.v1`. It is the ACL scope
-of `SetCursor`, the call that sets the mouse pointer's shape over an app's own
+**The pointer scope.** Every package whose app asks for pointer shapes lists
+`os.lazy.display.cursor.v1` next to `os.lazy.display.v1`: that is every app on
+xui's `LazyOSBackend` (the core packages except the windowless tray applets,
+emusic, the Counter sample), Doom, SRB2Kart, and every LazyRAD app
+(`LazyOsPlatform::script_permissions` adds it to what the packager derives,
+`PLAYER_CURSOR`). Quake draws on a bare client window and never calls
+`SetCursor`, so it does not. The scope is the ACL scope of `SetCursor`, the call that sets the mouse pointer's shape over an app's own
 windows (`idl/display_cursor.midl`, [`cursor-plan.md`](cursor-plan.md)). It is
 declared, not implied by the display interface; the consent screen says
 "Change the mouse pointer over its own windows" (low risk). An app without it
@@ -867,8 +871,9 @@ a core app with `Install`.
 ### Sample package and end-to-end check
 
 `tools/pkg/samples/counter/` is the Counter demo as a package
-(`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the two
-interfaces the app resolves, `os.lazy.display.v1` and `os.lazy.input.v1`).
+(`system_name = "org.lazy.counter"`, `abi = "linux"`, requesting exactly the
+interfaces the app resolves, `os.lazy.display.v1`, its pointer scope
+`os.lazy.display.cursor.v1` and `os.lazy.input.v1`).
 `python tools/pkg/build_samples.py` (run by `tools/xui/build.py`) builds it into
 `target/pkg/pkgdemo.lzp`, which the root `build.rs` embeds as
 `/system/share/samples/pkgdemo.lzp`. It is a user package, not a core one, so it
