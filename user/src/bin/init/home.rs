@@ -28,8 +28,10 @@ const WAIT_TICKS: u64 = 6000;
 /// How often the kernel is asked while waiting.
 pub(super) const POLL_TICKS: u64 = 10;
 
-/// Rows that read or create files under `/home` when they start.
-const NEEDS_HOME: &[&str] = &["accountsd", "logind"];
+/// Rows that read or create files under `/home` when they start, or must not
+/// look at the disks before the kernel has chosen the home volume among them
+/// (`mountd`'s automount would claim the stick `/home` is on).
+const NEEDS_HOME: &[&str] = &["accountsd", "logind", "mountd"];
 
 /// Whether the wait is over (from the start without a provider).
 static DONE: AtomicBool = AtomicBool::new(!cfg!(lazyos_usb));

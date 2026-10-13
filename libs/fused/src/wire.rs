@@ -4,7 +4,8 @@
 //!   rdi = op, rsi/rdx/r10/r8 = a1..a4; every return is a value or -errno
 //!
 //!   op 0 REGISTER(name, len, flags)  mount a new provider at /mnt/<name>
-//!                                    (flags: FLAG_RO, FLAG_NOEXEC) -> id
+//!                                    (flags: FLAG_RO, FLAG_NOEXEC,
+//!                                    FLAG_MEDIA: /media/<name>) -> id
 //!   op 1 NEXT(id, req, data, cap | deadline << 32)
 //!                                    wait until `deadline` (absolute ticks,
 //!                                    capped at now + 1 s) for a request;
@@ -35,8 +36,11 @@ pub mod sys_op {
 pub const FLAG_RO: u64 = 1;
 /// REGISTER flag: nothing on the mount is executed.
 pub const FLAG_NOEXEC: u64 = 2;
+/// REGISTER flag: mount at `/media/<name>` (removable media) instead of
+/// `/mnt/<name>`.
+pub const FLAG_MEDIA: u64 = 4;
 /// Every REGISTER flag.
-pub const FLAGS_ALL: u64 = FLAG_RO | FLAG_NOEXEC;
+pub const FLAGS_ALL: u64 = FLAG_RO | FLAG_NOEXEC | FLAG_MEDIA;
 
 /// The largest data one request or reply carries (a longer read or write is
 /// split into requests of at most this).

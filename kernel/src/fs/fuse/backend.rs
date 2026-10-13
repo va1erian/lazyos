@@ -270,8 +270,15 @@ impl Filesystem for FuseFs {
         self.path_call(Op::Rename, from, to.as_bytes())
     }
 
-    /// The daemon's durability point: the caller waits for its answer.
+    /// The daemon's durability point: the caller waits for its answer. A
+    /// daemon that is gone has nothing left to make durable and its mount
+    /// already fails every call, so it does not fail the system-wide sync:
+    /// `mountd` stops every daemon before the power-off sync, and one stick
+    /// pulled out must not make that sync (and the shutdown) report failure.
     fn flush(&self) -> Result<(), FsError> {
+        if super::provider_gone(self.index, self.epoch) {
+            return Ok(());
+        }
         self.path_call(Op::Flush, "", &[])
     }
 

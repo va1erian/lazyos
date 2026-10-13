@@ -63,6 +63,7 @@ channels! {
     Elevd => "ELEVD",
     Emusic => "EMUSIC",
     Fabmon => "FABMON",
+    Fatfuse => "FATFUSE",
     Fault => "FAULT",
     Files => "FILES",
     Fs => "FS",

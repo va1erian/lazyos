@@ -80,7 +80,7 @@ pub fn gate() -> Result<(), String> {
                 "the name {bad:?} was taken"
             );
         }
-        check!(register_call(b"x", 4) == failed(EINVAL), "unknown flags");
+        check!(register_call(b"x", 8) == failed(EINVAL), "unknown flags");
         let previous = user_ptr::set_trust_kernel_pointers(false);
         let null = call(sys_op::REGISTER, 0, 3, 0, 0);
         user_ptr::set_trust_kernel_pointers(previous);

@@ -96,6 +96,34 @@ pub fn silent_daemon_dies() -> Result<(), String> {
     })
 }
 
+/// The power-off sync (`fs::sync_all`) asks every mount to flush. A daemon
+/// that is gone (`mountd` stops them first) has nothing to flush: its mount
+/// must not turn the whole sync, and the shutdown, into a failure.
+pub fn sync_survives_a_dead_daemon() -> Result<(), String> {
+    run(Mode::Normal, |index| {
+        check!(
+            vfsapi::sync_all().is_ok(),
+            "the sync failed with a live daemon"
+        );
+        let owner = with_fake(|f| f.owner);
+        fuse::teardown_task(owner);
+        check!(
+            fuse::stats(index).map(|(_, alive)| alive) == Some(false),
+            "the daemon is still alive"
+        );
+        check!(
+            vfsapi::sync_all().is_ok(),
+            "a dead daemon failed the system-wide sync"
+        );
+        // Its mount still fails ordinary calls.
+        expect(
+            vfsapi::abi_stat(ROOT, "/mnt/t/f").map(|_| ()),
+            FsError::Io,
+            "a call on the dead mount",
+        )
+    })
+}
+
 pub fn death_mid_request() -> Result<(), String> {
     run(Mode::Normal, |index| {
         file_with(b"before")?;
@@ -117,7 +145,7 @@ pub fn death_mid_request() -> Result<(), String> {
         // A re-registration of the name replaces the dead mount at once.
         let owner = with_fake(|f| f.owner);
         let again =
-            fuse::register(owner, "t", MountFlags::default()).map_err(|e| format!("{e:?}"))?;
+            fuse::register(owner, "t", MountFlags::default(), false).map_err(|e| format!("{e:?}"))?;
         with_fake(|f| {
             f.index = again;
             f.mode = Mode::Normal;

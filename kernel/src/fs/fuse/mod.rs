@@ -63,6 +63,15 @@ use super::vfs::FsError;
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
 pub use backend::FuseFs;
+
+/// Whether the provider that registration `epoch` of slot `index` named is
+/// gone: dead, or the slot serves another provider now.
+pub(crate) fn provider_gone(index: usize, epoch: u64) -> bool {
+    SLOTS.get(index).is_none_or(|slot| {
+        let state = slot.state.lock();
+        !(state.registered && state.alive && state.epoch == epoch)
+    })
+}
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the suite's bound check
 pub use backend::MAX_DIR_ENTRIES;
 pub use mount::{reap, register, teardown_task, unregister};
@@ -97,7 +106,7 @@ pub enum FuseError {
     Full,
     /// A live provider already serves that name.
     Busy,
-    /// `/mnt` is not a directory on this system.
+    /// `/mnt` (or `/media`) is not a directory on this system.
     NoMountRoot,
     /// Not a provider this task registered, or it is dead.
     NotOwner,
@@ -129,6 +138,8 @@ struct State {
     /// provider in this slot can never reach a later one.
     epoch: u64,
     name: String,
+    /// Mounted at `/media/<name>` rather than `/mnt/<name>`.
+    media: bool,
     /// A requester owns the request slot.
     busy: bool,
     phase: Phase,
@@ -167,6 +178,7 @@ impl Slot {
                 owner: 0,
                 epoch: 0,
                 name: String::new(),
+                media: false,
                 busy: false,
                 phase: Phase::Idle,
                 request: Request::EMPTY,

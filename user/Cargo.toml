@@ -104,6 +104,9 @@ dbgwire = { path = "../libs/dbgwire" }
 tracefmt = { path = "../libs/tracefmt" }
 # `mountd`'s mount table and argument checks (docs/smb-plan.md).
 mounttable = { path = "../libs/mounttable" }
+# A FAT volume as a user-space filesystem, for `fatfuse`
+# (docs/usb-hotplug-plan.md).
+fatvol = { path = "../libs/fatvol" }
 # `wlanmd`'s station state machine (docs/architecture/wifi.md, WP4).
 wlansta = { path = "../libs/wlansta" }
 usbpolicy = { path = "../libs/usbpolicy" }
@@ -561,6 +564,14 @@ bench = false
 [[bin]]
 name = "smbfuse"
 path = "src/bin/smbfuse.rs"
+test = false
+bench = false
+
+# `fatfuse` (docs/usb-hotplug-plan.md): a FAT volume of a USB stick mounted
+# at `/media/<label>` through the FUSE mechanism, started by `mountd`.
+[[bin]]
+name = "fatfuse"
+path = "src/bin/fatfuse.rs"
 test = false
 bench = false
 

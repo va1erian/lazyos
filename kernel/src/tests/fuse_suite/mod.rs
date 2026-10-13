@@ -246,6 +246,7 @@ fn table(with_mnt: bool) -> Vfs {
     let root = RamFs::new();
     if with_mnt {
         let _ = root.mkdir("mnt", 0o755, Id::ROOT);
+        let _ = root.mkdir("media", 0o755, Id::ROOT);
     }
     let mut vfs = Vfs::new();
     let _ = vfs.mount(fhs::mount::ROOT, Arc::new(root), MountFlags::default());
@@ -273,7 +274,7 @@ fn prepare(with_mnt: bool) -> Result<usize, String> {
 /// [`prepare`], then mount `/mnt/<name>` served by the fake in `mode`.
 fn setup_named(name: &str, mode: Mode, flags: MountFlags) -> Result<usize, String> {
     let owner = prepare(true)?;
-    let index = fuse::register(owner, name, flags).map_err(|e| format!("register: {e:?}"))?;
+    let index = fuse::register(owner, name, flags, false).map_err(|e| format!("register: {e:?}"))?;
     *FAKE.lock() = Some(Fake {
         index,
         owner,
@@ -346,6 +347,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_open_file_in_place", io::open_file_in_place),
     ("fuse_large_directory", io::large_directory),
     ("fuse_read_only_mount", io::read_only_mount),
+    ("fuse_media_mounts_live_under_media", io::media_mounts),
     ("fuse_unregister_and_remount", io::unregister_and_remount),
     ("fuse_stress", io::stress),
     (
@@ -360,6 +362,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_error_statuses", hostile::error_statuses),
     ("fuse_silent_daemon_dies", hostile::silent_daemon_dies),
     ("fuse_death_mid_request", hostile::death_mid_request),
+    (
+        "fuse_sync_survives_a_dead_daemon",
+        hostile::sync_survives_a_dead_daemon,
+    ),
     ("fuse_stale_reply", hostile::stale_reply),
     ("fuse_oversized_reply", hostile::oversized_reply),
     ("fuse_faulting_reply_data", hostile::faulting_reply_data),

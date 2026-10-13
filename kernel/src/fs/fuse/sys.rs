@@ -9,8 +9,8 @@
 //! room, and data moves only through the slot's bounce buffer ([`super`]).
 
 use fused::wire::{
-    sys_op, Reply, Request, FLAGS_ALL, FLAG_NOEXEC, FLAG_RO, MAX_MOUNT_NAME, REPLY_WORDS,
-    REQUEST_WORDS,
+    sys_op, Reply, Request, FLAGS_ALL, FLAG_MEDIA, FLAG_NOEXEC, FLAG_RO, MAX_MOUNT_NAME,
+    REPLY_WORDS, REQUEST_WORDS,
 };
 
 use super::FuseError;
@@ -86,12 +86,13 @@ fn register(me: usize, name: u64, len: u64, flags: u64) -> Result<u64, u64> {
     let bytes = user_ptr::try_bytes(name, len).map_err(|_| negative(EFAULT))?;
     let name = core::str::from_utf8(bytes).map_err(|_| negative(EINVAL))?;
     let name = alloc::string::String::from(name);
+    let media = flags & FLAG_MEDIA != 0;
     let flags = MountFlags {
         ro: flags & FLAG_RO != 0,
         noexec: flags & FLAG_NOEXEC != 0,
         nosuid: true,
     };
-    match super::register(me, &name, flags) {
+    match super::register(me, &name, flags, media) {
         Ok(id) => Ok(id as u64),
         Err(error) => Err(errno(error)),
     }

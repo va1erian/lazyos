@@ -86,7 +86,7 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "wifid" {
         return Some(WIFI_CRED);
     }
-    #[cfg(lazyos_netd)]
+    #[cfg(any(lazyos_netd, lazyos_usb))]
     if name == "mountd" {
         return Some(MOUNTD_CRED);
     }
@@ -354,16 +354,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         restart: Restart::Always,
         deps: &[],
     },
-    // The network mount service (docs/smb-plan.md §3.4): starts `ftpfuse`
-    // and `smbfuse` for the Network Drives app. The daemons wait for `netd`
-    // themselves.
-    #[cfg(lazyos_netd)]
+    // The mount service (docs/smb-plan.md §3.4): starts `ftpfuse` and
+    // `smbfuse` for the Network Drives app (the daemons wait for `netd`
+    // themselves) and, on `LAZYOS_USB=1` images, `fatfuse` for every USB
+    // volume that appears while someone is logged in. It waits for the home
+    // volume's answer (`home.rs`), so it never claims the stick `/home` is on.
+    #[cfg(any(lazyos_netd, lazyos_usb))]
     ServiceSpec {
         name: "mountd",
         path: fhs::bin::MOUNTD,
         args: "",
         restart: Restart::Always,
-        deps: &["netd"],
+        deps: if cfg!(lazyos_netd) { &["netd"] } else { &[] },
     },
     // The Wi-Fi station manager (docs/architecture/wifi.md), on
     // `LAZYOS_WIFI=1` images, as `_wlan` with no capabilities. It lists the

@@ -83,7 +83,7 @@ pub fn gate() -> Result<(), String> {
         let null = process::dispatch_for_test(33, op::REGISTER, 0, 0);
         user_ptr::set_trust_kernel_pointers(previous);
         check!(null == failed(EFAULT), "a null record: {null:#x}");
-        check!(call(9, 0, 0, 0, 0) == failed(EINVAL), "an unknown op");
+        check!(call(99, 0, 0, 0, 0) == failed(EINVAL), "an unknown op");
         check!(
             call(op::SCANNED, 0, 0, 0, 0) == 0,
             "the provider could not report its scan"

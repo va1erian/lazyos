@@ -112,8 +112,8 @@ fn await_reply(
                     state.alive = false;
                     super::REAP.store(true, Ordering::Release);
                     serial_println!(
-                        "fuse: /mnt/{}: provider stopped answering; dead",
-                        state.name
+                        "fuse: {}: provider stopped answering; dead",
+                        super::mount::point_of(&state.name, state.media)
                     );
                 }
                 release(&mut state);

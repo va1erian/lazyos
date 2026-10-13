@@ -19,6 +19,7 @@ extern crate alloc;
 mod table;
 #[cfg(test)]
 mod tests;
+pub mod volumes;
 
 use alloc::format;
 use alloc::string::String;
@@ -246,6 +247,13 @@ pub fn exit_reason(status: u64) -> String {
         6 => "cannot mount: the name is in use",
         7 => "the connection to the server was lost",
         8 => "the server refused the share (check its name and your access)",
+        // `fatfuse`'s codes (`volumes::code`).
+        10 => "the disk is gone",
+        11 => "the disk is in use",
+        12 => "no FAT volume on the disk",
+        13 => "the volume cannot be read",
+        14 => "cannot mount the volume (its name is in use)",
+        15 => "the disk was removed",
         129..=191 => return format!("the daemon was stopped (signal {})", status - 128),
         _ => return format!("the daemon exited with status {status}"),
     };

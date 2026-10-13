@@ -140,6 +140,9 @@ members = [
     # daemon serve loop and the in-memory tree (docs/smb-plan.md F1), shared
     # by the kernel's `fs/fuse` backend and the daemons. Pure `no_std` + alloc.
     "libs/fused",
+    # A FAT12/16/32 volume as a user-space filesystem for `fatfuse` (USB
+    # sticks, docs/usb-hotplug-plan.md), host-tested over a RAM disk.
+    "libs/fatvol",
     "libs/netpolicy",
     # mountd's mount table and argument checks (docs/smb-plan.md §3.4):
     # pure `no_std` + `alloc`, host-tested.
@@ -302,6 +305,13 @@ opt-level = 2
 debug = false
 strip = "symbols"
 opt-level = "s"
+
+# rust-fatfs does its cluster arithmetic in `u32`: a damaged FAT or directory
+# entry makes `cluster * 4` overflow. With checks that is a panic (which aborts
+# `fatfuse` and costs the mount); without, it is a wild offset that the sector
+# cache refuses as past the end of the volume (libs/fatvol, tests/hostile.rs).
+[profile.dev.package.fatfs]
+overflow-checks = false
 
 # The full kernel ELF (with line tables) stays in `target/` for panic triage;
 # build.rs embeds only its loadable part in the disk image, because the

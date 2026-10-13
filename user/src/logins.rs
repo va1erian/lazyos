@@ -1,6 +1,7 @@
-//! Who is logged in, for user-scope auto-connect
-//! (`wlansta::Station::set_active_users`): a user's networks are joined on
-//! their own only while that user has a session.
+//! Who is logged in, for the services that act on the user's behalf only
+//! while they have a session: `wlanmd`'s user-scope auto-connect
+//! (`wlansta::Station::set_active_users`) and `mountd`'s automount of
+//! removable volumes, whose files belong to the session user.
 //!
 //! `logind` announces sessions on `init`'s broker
 //! (`system/events/login/start`, `.../end`, `.../session/<id>`), but the
@@ -14,15 +15,15 @@
 //! `end` costs nothing worse than a manual `Connect`), and nothing is ever
 //! added on a hint alone.
 //!
-//! Serial: `WLANMD:USERS <uid,...>` when the set changes.
+//! Serial: `<CHANNEL>:USERS <uid,...>` when the set changes, on the channel
+//! of the service that asked.
 
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use user::trace;
 
-use user::messenger::{logind, registry, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
-use user::sys;
+use crate::messenger::{logind, registry, router, services, DEFAULT_BUFFER, EXPIRED_DEADLINE};
+use crate::{sys, trace};
 
 /// Ticks (100 Hz) between attempts to subscribe while `init` is unreachable.
 const RETRY_TICKS: u64 = 1_000;
@@ -36,7 +37,8 @@ const MAX_PER_LOOK: usize = 32;
 /// The session states of a live session (`elevpolicy::sessions`).
 const LIVE: [&str; 2] = ["starting", "active"];
 
-pub(crate) struct Logins {
+pub struct Logins {
+    channel: trace::Channel,
     subs: Vec<router::Subscriber>,
     next_connect: u64,
     next_poll: u64,
@@ -46,8 +48,10 @@ pub(crate) struct Logins {
 }
 
 impl Logins {
-    pub(crate) fn new() -> Logins {
+    /// A follower that reports changes on `channel`.
+    pub fn new(channel: trace::Channel) -> Logins {
         Logins {
+            channel,
             subs: Vec::new(),
             next_connect: 0,
             next_poll: 0,
@@ -57,12 +61,12 @@ impl Logins {
     }
 
     /// The users last believed logged in.
-    pub(crate) fn users(&self) -> &[u32] {
+    pub fn users(&self) -> &[u32] {
         &self.users
     }
 
     /// The logged-in users, when they changed since the last look.
-    pub(crate) fn changed(&mut self) -> Option<Vec<u32>> {
+    pub fn changed(&mut self) -> Option<Vec<u32>> {
         let now = sys::clock();
         self.subscribe(now);
         let (hinted, ended) = self.hints();
@@ -82,7 +86,7 @@ impl Logins {
         if users == self.users {
             return None;
         }
-        trace::line!(trace::Channel::Wlanmd, "USERS {}", list(&users));
+        trace::line!(self.channel, "USERS {}", list(&users));
         self.users = users.clone();
         Some(users)
     }

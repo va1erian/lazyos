@@ -133,3 +133,108 @@ pub fn storage_settle() -> Result<u64, i64> {
 pub fn storage_scanned() -> Result<(), i64> {
     plain(op::SCANNED, 0).map(drop)
 }
+
+// A filesystem daemon's raw claim on a provider disk (ops 6-11,
+// docs/architecture/usb-storage.md "Raw claims"): needs `CAP_FS_PROVIDER` and
+// a filesystem-provider uid, which `mountd` and the daemons it starts have.
+
+mod raw_op {
+    pub const DISKS: u64 = 6;
+    pub const CLAIM: u64 = 7;
+    pub const RELEASE: u64 = 8;
+    pub const READ: u64 = 9;
+    pub const WRITE: u64 = 10;
+    pub const FLUSH: u64 = 11;
+}
+
+/// One live disk, as [`block_disks`] lists it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BlockDisk {
+    /// The `n` of `usb<n>`.
+    pub id: u64,
+    /// Counts up every time the slot gets a new disk: a claim names it.
+    pub generation: u64,
+    pub sectors: u64,
+    pub writable: bool,
+    /// Another task holds the claim.
+    pub claimed: bool,
+}
+
+/// `ENODEV`: the medium is gone (a read or write of a claimed disk).
+pub const ENODEV: i64 = 19;
+/// `ESTALE`: the disk in that slot is another one now.
+pub const ESTALE: i64 = 116;
+/// `EBUSY`: someone else holds the claim.
+pub const EBUSY: i64 = 16;
+
+/// Words of one [`block_disks`] record.
+const DISK_WORDS: usize = 4;
+
+/// Every live provider disk, into `out`; how many were written.
+pub fn block_disks(out: &mut [BlockDisk]) -> Result<usize, i64> {
+    let mut words = [0u64; DISK_WORDS * 8];
+    let room = out.len().min(words.len() / DISK_WORDS);
+    let cap = (room * DISK_WORDS * 8) as u64;
+    // SAFETY: the kernel writes at most `cap` bytes (`room` records) into
+    // `words`.
+    let count = unsafe { storage(raw_op::DISKS, words.as_mut_ptr() as u64, cap, 0, 0) }? as usize;
+    for (disk, record) in out.iter_mut().zip(words.chunks(DISK_WORDS)).take(count) {
+        *disk = BlockDisk {
+            id: record[0],
+            generation: record[1],
+            sectors: record[2],
+            writable: record[3] & 1 != 0,
+            claimed: record[3] & 2 != 0,
+        };
+    }
+    Ok(count.min(room))
+}
+
+/// Take the exclusive claim on disk `id`, which must still be generation
+/// `generation` (`ESTALE` if the slot holds another disk, `EBUSY` if claimed).
+pub fn block_claim(id: u64, generation: u64) -> Result<(), i64> {
+    // SAFETY: no pointer.
+    unsafe { storage(raw_op::CLAIM, id, generation, 0, 0) }.map(drop)
+}
+
+/// Give the claim on disk `id` up.
+pub fn block_release(id: u64) -> Result<(), i64> {
+    plain(raw_op::RELEASE, id).map(drop)
+}
+
+/// Read `buf.len()` bytes (whole sectors, at most 64 KiB) at sector `lba` of
+/// the claimed disk `id`.
+pub fn block_read(id: u64, lba: u64, buf: &mut [u8]) -> Result<(), i64> {
+    // SAFETY: the kernel writes `buf.len()` bytes into `buf` on success.
+    unsafe {
+        storage(
+            raw_op::READ,
+            id,
+            lba,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
+    .map(drop)
+}
+
+/// Write `buf` (whole sectors, at most 64 KiB) at sector `lba` of the
+/// claimed disk `id`.
+pub fn block_write(id: u64, lba: u64, buf: &[u8]) -> Result<(), i64> {
+    // SAFETY: the kernel only reads `buf.len()` bytes from `buf`.
+    unsafe {
+        storage(
+            raw_op::WRITE,
+            id,
+            lba,
+            buf.as_ptr() as u64,
+            buf.len() as u64,
+        )
+    }
+    .map(drop)
+}
+
+/// Flush the device's write cache of the claimed disk `id`.
+pub fn block_flush(id: u64) -> Result<(), i64> {
+    plain(raw_op::FLUSH, id).map(drop)
+}

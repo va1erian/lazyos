@@ -28,6 +28,8 @@ extern crate alloc;
 
 #[path = "mountd/handler.rs"]
 mod handler;
+#[path = "mountd/volumes.rs"]
+mod volumes;
 
 use alloc::format;
 use alloc::string::String;
@@ -69,19 +71,27 @@ fn run() -> messenger::Result<()> {
     services::init::notify_ready();
 
     let mut table = Table::new();
+    let mut automount = volumes::Automount::new();
     // One receive buffer for the life of the service.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
         housekeeping(&mut table);
+        automount.step();
         let polling = table.connecting().next().is_some();
-        let deadline = polling.then(|| sys::clock() + POLL_TICKS);
+        let deadline = [
+            polling.then(|| sys::clock() + POLL_TICKS),
+            automount.deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let ready = match wait::wait_any(&[server], wait::WAIT_CHILD, deadline) {
             Ok(ready) => ready,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
         };
         if ready & wait::CHILD_READY != 0 {
-            reap(&mut table);
+            reap(&mut table, &mut automount);
         }
         if ready & 1 == 0 {
             continue;
@@ -92,7 +102,7 @@ fn run() -> messenger::Result<()> {
             Err(error) => return Err(error),
         };
         if let Some(reason) = lifecycle::stop_requested(&message) {
-            stop_all(&table, &reason);
+            stop_all(&table, &automount, &reason);
             return Ok(());
         }
         let reply = handler::dispatch(&mut table, &message).unwrap_or_else(|error| {
@@ -128,8 +138,11 @@ fn housekeeping(table: &mut Table) {
 }
 
 /// Reap every finished child; a daemon of ours fails its mount.
-fn reap(table: &mut Table) {
+fn reap(table: &mut Table, automount: &mut volumes::Automount) {
     while let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
+        if automount.exited(pid, status) {
+            continue;
+        }
         if let Some(entry) = table.exited(pid, status) {
             let reason = entry.state.detail();
             trace::line!(trace::Channel::Mountd, "FAIL {} {reason}", entry.name);
@@ -139,9 +152,17 @@ fn reap(table: &mut Table) {
 
 /// The lifecycle stop: end every daemon. Their mounts then fail every call
 /// until the kernel takes them out, which is moments before power-off.
-fn stop_all(table: &Table, reason: &str) {
+fn stop_all(table: &Table, automount: &volumes::Automount, reason: &str) {
     for pid in table.daemons() {
         let _ = sys::kill(pid, sys::SIG_TERM);
+    }
+    // A volume daemon has nothing unsaved between requests (its cache is
+    // written before each answer), so it is ended outright: a SIGTERM waits
+    // for the task's next return to user mode, and a daemon parked in the
+    // kernel for its next request does not always get there before the
+    // power-off sync asks it to flush.
+    for pid in automount.daemons() {
+        let _ = sys::kill(pid, sys::SIG_KILL);
     }
     trace::line!(trace::Channel::Mountd, "STOP reason=\"{reason}\"");
 }

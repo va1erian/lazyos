@@ -20,6 +20,9 @@
 //!                                 there (`fs::late`) -> its state
 //!   op 5 SCANNED()                the provider registered every device
 //!                                 present when it started -> 0
+//!   op 6-11                       a filesystem daemon's raw claim on a disk:
+//!                                 DISKS, CLAIM, RELEASE, READ, WRITE, FLUSH
+//!                                 (`rawsys.rs`; `CAP_FS_PROVIDER`)
 //! ```
 //!
 //! Ops 0-3 and 5 need `CAP_BLOCK_PROVIDER` and a block-provider uid
@@ -85,6 +88,10 @@ pub fn dispatch(operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
             return negative(EPERM);
         }
         return crate::fs::late::settle() as u64;
+    }
+    // Ops 6-11 are the filesystem daemons': their own gate (`rawsys`).
+    if (super::rawsys::op::DISKS..=super::rawsys::op::FLUSH).contains(&operation) {
+        return super::rawsys::dispatch(me, operation, a1, a2, a3, a4);
     }
     if !may_provide(me) {
         return negative(EPERM);

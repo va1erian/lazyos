@@ -1,8 +1,11 @@
-# USB storage: `/home` on the stick LazyOS boots from
+# USB storage: `/home` on the stick, and FAT sticks at `/media`
 
 **What it is.** A USB mass-storage device (a stick) is served to the kernel
 as a block device by the user-space USB driver, `usbd`, and the configured
-home volume on it is mounted at `/home` after boot. Block drivers live in the
+home volume on it is mounted at `/home` after boot. Any other stick is
+**automounted**: while someone is logged in, `mountd` starts a `fatfuse` for
+it, which mounts its FAT volume (FAT12/16/32, long names, read-write) at
+`/media/<label>` (see "Removable volumes" below). Block drivers live in the
 kernel and USB lives in user space ([driver-plan.md](../driver-plan.md)
 D1/D2), so the stick reaches the filesystem through a new seam: a
 **user-space block provider** (syscall 33). The goal is the real-PC plan's
@@ -17,6 +20,10 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
 | `user/src/bin/usbd/msc.rs` | The mass-storage class (`class.rs` binds it): bulk pipes, disk bring-up, registration, serving the kernel's requests, idle flush, removal |
 | `user/src/bin/usbd/msc_link.rs` | The `usbmsc` transport (`Link`): bulk transfers through the controller's bulk window, control requests, controller-side endpoint recovery |
 | `kernel/src/block/provider.rs`, `provider/` | `UserDisk` (a `BlockDevice` served from user space), the request slot, timeouts and death; `sys.rs` is syscall 33 |
+| `kernel/src/block/provider/lifecycle.rs`, `rawsys.rs` | Slot reuse and generations; the raw claim a filesystem daemon takes on a disk, and its syscall ops (6-11) |
+| `libs/fatvol/` | A FAT volume as a `fused::daemon::FuseFs`: `rust-fatfs` over a sector cache, boot-sector validation, MBR/GPT discovery; host-tested and fuzzed |
+| `user/src/bin/fatfuse.rs` | The daemon: claims a disk, finds the volume, mounts `/media/<label>`, serves it |
+| `user/src/bin/mountd/volumes.rs`, `libs/mounttable/src/volumes.rs` | The automount: which disks get a daemon, as whom, and when one is stopped |
 | `kernel/src/task/relax.rs` | `YieldMutex`: locks that may be held across a park |
 | `kernel/src/fs/late.rs` | The late `/home` mount (`SETTLE`) |
 | `user/src/bin/init/home.rs` | `init`'s bounded wait for the home volume |
@@ -112,12 +119,20 @@ means: the kernel declared the disk dead, and its own log says why.
 | 3 `REMOVE` | provider | `id` | `0`; the disk dies |
 | 4 `SETTLE` | `CAP_SYS_ADMIN` | - | `0` none pending, `1` mounted now, `2` waiting, `3` mounted earlier, `4` absent |
 | 5 `SCANNED` | provider | - | `0` |
+| 6 `DISKS` | FS provider | `buf, cap` | how many live disks; `{id, generation, sectors, flags (1 writable, 2 claimed)}` each |
+| 7 `CLAIM` | FS provider | `id, generation` | `0`; `ESTALE` if the slot holds another disk, `EBUSY` if claimed |
+| 8 `RELEASE` | FS provider | `id` | `0` |
+| 9 `READ` | claimant | `id, lba, buf, bytes` | `bytes` (whole sectors, at most 64 KiB) |
+| 10 `WRITE` | claimant | `id, lba, buf, bytes` | `bytes` |
+| 11 `FLUSH` | claimant | `id` | `0` |
 
 A provider is a task holding `CAP_BLOCK_PROVIDER` **and** running as a uid in
 `usbpolicy::BLOCK_PROVIDER_UIDS` (only `_usb`); a disk answers only the task
 that registered it. Errors: `EPERM`, `ESRCH` (not the owner, or dead),
 `EINVAL`, `ESTALE` (no such request in flight), `EFAULT`, `EBUSY` (eight
-providers per boot).
+disks at once). Ops 6-11 are the filesystem daemons': `CAP_FS_PROVIDER` and
+a uid in `mounttable::FS_PROVIDER_UIDS` (`_mountd`, which `fatfuse` inherits,
+and root); they answer `ENODEV` for a medium that is gone.
 
 ## Death, timeouts and removal
 
@@ -165,8 +180,16 @@ Nothing the provider does can hang or crash the kernel:
   interrupts off on one core, so nothing takes a table between the check
   and the call), and `usbd` writes its dump on a later pass.
   `tools/boot/persist.py` reproduced it every time before the fix.
-- Slots are never reused within a boot (a dead disk may still be mounted), so
-  at most eight sticks are served per boot.
+- **Slots are reused** (`provider/lifecycle.rs`): a dead disk's slot goes to
+  the next registration once nothing refers to it: no request in flight, no
+  claim, and no partition view or `/home` mount made through the late-mount
+  scan (those hold `&'static` references, so a scanned disk keeps its slot
+  until reboot, as every disk once did). Each registration bumps the slot's
+  **generation**; every operation of a `UserDisk` takes it at its start and
+  every request of that operation checks it, so an operation in flight across
+  an unplug fails with `Io` instead of reaching the stick plugged in next.
+  Tags keep counting across generations, and the read cache is emptied by the
+  registration and refused any fill from an earlier one.
 
 ## The late `/home` mount
 
@@ -191,6 +214,57 @@ loop calls `SETTLE` every pass and holds back the rows that use `/home`
   `usbd` reported its first scan done without it (`ABSENT`), `usbd` is not
   running, or after **60 s** (`INIT:HOME <why>`). Images without `usbd`
   never wait.
+
+## Removable volumes: claims, `fatfuse`, `mountd`
+
+A stock stick is the most hostile input the filesystem layer sees, so its
+FAT volume is parsed in user space (docs/usb-hotplug-plan.md, decision 7):
+
+```
+  app ── VFS ── /media/<label> (FUSE, syscall 35)
+                      │
+                  fatfuse ── libs/fatvol (rust-fatfs, sector cache)
+                      │ raw claim: READ / WRITE / FLUSH (syscall 33, ops 6-11)
+                  UserDisk usb<n> ── usbd ── xHCI bulk
+```
+
+- **`mountd`** polls the kernel's disk list (`DISKS`) once a second and, while
+  a session exists (it follows `logind`'s events, `user::logins`), starts one
+  `fatfuse disk=<id>:<generation> owner=<uid>:<gid>` per plug of an unclaimed
+  disk, as the session user. A plug whose daemon exited (no FAT volume, the
+  medium pulled) is not tried again until the disk is replugged (a new
+  generation); a logout stops every daemon. `mountd` starts after `init`'s
+  home settle (`NEEDS_HOME`), so the stick `/home` is on is decided first.
+  The rules are `libs/mounttable/src/volumes.rs`, host-tested.
+- **`fatfuse`** claims the disk (exclusive, bound to the generation, dropped
+  when the task dies), looks for a volume (the whole disk if sector 0 is a
+  FAT boot sector, else each MBR or GPT partition in order), validates its
+  boot sector (`libs/fatvol/src/bpb.rs`: every figure checked before
+  `rust-fatfs` sees it), and registers a FUSE mount at `/media/<label>`
+  (`FLAG_MEDIA`; the label made of letters, digits, `-`, `_` and `.`, a
+  `-2` suffix when taken). Files are reported as owned by the session user
+  (FAT has no owners) with modes 0644/0755, never executable; the mount is
+  `nosuid` like every FUSE mount, and read-only when the stick is write
+  protected.
+- **Writes** are applied to a write-back sector cache and sent to the stick,
+  in ascending order with adjacent sectors as one request, before the FUSE
+  request is answered; a flush (SYNCHRONIZE CACHE) follows on `fsync` and
+  when the volume goes idle. When idle for a second the filesystem object is
+  dropped, which clears the volume's dirty flag and writes its free-cluster
+  count: a stick pulled between requests is a clean volume. FAT has no
+  journal: a cut inside one operation can leave a file shorter than its
+  entry says (`tests/cache.rs` cuts after every write and requires only that
+  the volume mounts and every listed file reads to its end).
+- **Pulling the stick** ends the volume: `usbd` removes the disk, the
+  daemon's next request gets `ENODEV` and it exits with `15` (`removed`);
+  the kernel fails the mount's calls until its flusher takes it out of the
+  mount tables. A new plug is a new generation, usually the same slot, and
+  mounts the same way.
+- **Limits:** one volume per stick (the first that validates), 512-byte
+  sectors only, FAT12/16/32 only (no exFAT, no NTFS), no eject (pulling is
+  the only way out), and a stick with a `/home` partition and a FAT one
+  mounts the FAT one only when the daemon claims the disk. The claim is the
+  whole disk, not a partition.
 
 ## The read cache
 
@@ -253,6 +327,10 @@ disk, oldest out first.
 | Fuzz | `mscdesc`, `mscreply`, `mscsession` (seeded tests and cargo-fuzz) | `cargo test -p usbmsc --features fuzz` |
 | Kernel | `provider_suite` (31): data path, splitting, flush, ext2 on a stick, the late mount, a 3000-request stress with transient errors, error statuses, forged and stale tags, silent and dying providers, the syscall gate and hostile lengths; the read cache: repeats stay off the stick, writes go through and update, a failed write forgets, a dead disk fails though cached, streams bypass, the epoch and eviction, a 3000-round random read/write soak against the device | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
 | End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/user`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
+| Lifecycle (kernel) | `provider_suite` (+7): a dead slot is reused with nothing of the old disk visible; live, scanned and claimed slots are kept; a stale generation never reaches a new disk; claim cycle (exclusive, generation-bound, released by death); the raw syscalls' gate and hostile lengths; 400 plug/claim/write/unplug rounds in one slot | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
+| FAT volume | `fatvol` (30): FAT12/16/32, long and Unicode names, rename/truncate/sparse writes, write coalescing, the clean flag, a power cut after every write, 900 files through the cache, damaged boot sectors and tables (no panic, no hang), MBR/GPT discovery, a model soak | `cargo test -p fatvol` (`--release soak -- --ignored` for the long one) |
+| Automount rules | `mounttable::volumes`: one daemon per plug, session ownership, logout stops, no retry of a non-FAT stick | `cargo test -p mounttable` |
+| End to end (FAT) | The stick is plugged in over QMP, mounted at `/media/MY_STICK`, read, written, pulled, plugged in again, then read on the host with the same library and `fsck.fat -n` (Docker, when present) | `python tools/storage/fat_run.py` |
 
 ## Not done
 
@@ -260,7 +338,11 @@ disk, oldest out first.
   request in flight per stick. A stick behind a hub works like any device
   there, but QEMU's only hub is full speed, so that path is untested; its
   unplug is noticed by the hub's report, not by the transfer that fails.
-- Re-mounting a stick that was unplugged and plugged back in: it comes back
-  as a new disk, unmounted.
+- Re-mounting an *ext2* stick that was unplugged and plugged back in (a
+  home stick, or a data stick): it comes back as a new disk, unmounted. FAT
+  volumes are remounted by the automount.
+- A kernel mount/unmount op for ext2 data sticks, an eject that flushes and
+  unmounts first, exFAT, a Files "Devices" place and the tray applet
+  (docs/usb-hotplug-plan.md P4, P7, P8).
 - Booting the kernel itself from the stick is the bootloader's business
   (real-pc-boot-plan.md); this only serves `/home`.
