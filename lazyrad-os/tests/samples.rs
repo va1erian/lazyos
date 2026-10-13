@@ -43,8 +43,15 @@ fn the_messenger_sample_declares_what_it_uses() {
     .script_permissions(&[&script]);
     assert_eq!(
         found.interfaces,
-        ["os.lazy.confd.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+        [
+            "os.lazy.confd.v1",
+            "os.lazy.display.cursor.v1",
+            "os.lazy.input.v1"
+        ]
     );
     // The literal path narrows the filter: the kernel authorizes each segment.
-    assert_eq!(found.topics, ["subscribe:system/confd/changed/sys/lazyrad/#"]);
+    assert_eq!(
+        found.topics,
+        ["subscribe:system/confd/changed/sys/lazyrad/#"]
+    );
 }

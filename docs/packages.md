@@ -767,12 +767,13 @@ clipboard, which carries its drag-and-drop payloads. It is listed in the
 start menu's Accessories submenu.
 
 **The pointer scope.** Every package whose app asks for pointer shapes lists
-`os.lazy.display.cursor.v1` next to `os.lazy.display.v1`: that is every app on
-xui's `LazyOSBackend` (the core packages except the windowless tray applets,
-emusic, the Counter sample), Doom, SRB2Kart, and every LazyRAD app
-(`LazyOsPlatform::script_permissions` adds it to what the packager derives,
-`PLAYER_CURSOR`). Quake draws on a bare client window and never calls
-`SetCursor`, so it does not. The scope is the ACL scope of `SetCursor`, the call that sets the mouse pointer's shape over an app's own
+`os.lazy.display.cursor.v1` next to `os.lazy.display.v1`: every app on xui's
+`LazyOSBackend` (every core package but the windowless tray applets, plus
+emusic and the Counter sample), SRB2Kart, which calls `SetCursor` itself, and
+every LazyRAD app (`LazyOsPlatform::script_permissions` adds it to what the
+packager derives, `PLAYER_CURSOR`). Doom declares it too, from the first
+cursor API, though it never calls `SetCursor`; Quake, a bare client window
+like Doom's, does not declare it. The scope is the ACL scope of `SetCursor`, the call that sets the mouse pointer's shape over an app's own
 windows (`idl/display_cursor.midl`, [`cursor-plan.md`](cursor-plan.md)). It is
 declared, not implied by the display interface; the consent screen says
 "Change the mouse pointer over its own windows" (low risk). An app without it

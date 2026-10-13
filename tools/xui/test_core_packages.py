@@ -86,8 +86,9 @@ class CorePackageTests(unittest.TestCase):
     @unittest.skipIf(tomllib is None, "needs Python 3.11+")
     def test_packages_outside_the_core_set_that_ask_for_a_cursor_declare_it(self) -> None:
         # The same rule for the packages that are not core apps: emusic and the
-        # Counter sample draw through `LazyOSBackend`, Doom and SRB2Kart call
-        # `SetCursor` themselves. Quake is not here: it never asks for a shape.
+        # Counter sample draw through `LazyOSBackend`, SRB2Kart calls
+        # `SetCursor` itself, and Doom has declared the scope since the cursor
+        # API. Quake is not here: it never asks for a shape.
         root = core_packages.ROOT
         for tree in ("doom/package", "srb2kart/package", "emusic/package", "tools/pkg/samples/counter"):
             manifest = tomllib.loads((root / tree / "manifest.toml").read_text(encoding="utf-8"))

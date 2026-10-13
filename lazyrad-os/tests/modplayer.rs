@@ -293,7 +293,11 @@ fn the_packaged_sample_may_use_the_mixer() {
     .script_permissions(&scripts);
     assert_eq!(
         found.interfaces,
-        ["os.lazy.audio.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+        [
+            "os.lazy.audio.v1",
+            "os.lazy.display.cursor.v1",
+            "os.lazy.input.v1"
+        ]
     );
     assert!(found.topics.is_empty());
 }

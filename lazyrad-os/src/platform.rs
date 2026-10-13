@@ -362,7 +362,10 @@ mod tests {
                 "fn form_load() { label.text = sys::confd::get(\"sys/ui/theme\").str_value; }",
                 "fn watch() { sys::confd::on_changed(|e| ()); }",
             ]);
-        assert_eq!(found.interfaces, ["os.lazy.confd.v1", PLAYER_CURSOR, PLAYER_INPUT]);
+        assert_eq!(
+            found.interfaces,
+            ["os.lazy.confd.v1", PLAYER_CURSOR, PLAYER_INPUT]
+        );
         assert_eq!(found.topics, ["subscribe:system/confd/changed/#"]);
         // A project that calls nothing still gets the player's keyboard and
         // pointer shape.
@@ -380,7 +383,12 @@ mod tests {
             ]);
         assert_eq!(
             found.interfaces,
-            ["os.lazy.audio.v1", "os.lazy.confd.v1", PLAYER_CURSOR, PLAYER_INPUT]
+            [
+                "os.lazy.audio.v1",
+                "os.lazy.confd.v1",
+                PLAYER_CURSOR,
+                PLAYER_INPUT
+            ]
         );
     }
 
