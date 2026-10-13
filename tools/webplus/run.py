@@ -15,8 +15,9 @@ Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` 
 3. the first boot's session (``session.py``, also ``tools/screenshot/examples/lazywebplus.json``)
    browses, answers the dialogs, clicks the links, downloads, opens the history and downloads pages
    by key, and closes the window; the OS volume is read from the host (``osread``);
-4. the second boot of the same image (``lazywebplus_second.json``) finds the history and the cookie
-   again, clears the history from the history page and closes the window;
+4. the second boot of the same image (``lazywebplus_second.json``) loads theoldnet.com again from
+   the HTTP cache on the profile (no request for it reaches the host: the cache-hit path), finds
+   the history and the cookie, clears the history from the history page and closes the window;
 5. the verdict (``judge.py``): the markers of both boots, the requests the host's servers saw,
    the files in the profile and the screenshots' page area.
 
@@ -194,11 +195,11 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
                 judge.judge_popups(first)) and ok
     ok = report("DOWNLOADS", "both attachments finished whole", judge.judge_downloads(first)) and ok
     assets = judge.page_assets()
-    ok = report("SERVERS", f"the pages, {len(assets)} resources over HTTPS, the form's query, the cookie",
+    ok = report("SERVERS", f"the pages, {len(assets)} resources over HTTPS, the form's query, the cookie, the cache hit",
                 judge.judge_servers(records[0], records[1], assets)) and ok
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
-    ok = report("SECOND", "the second boot found the cookie and the history", judge.judge_second(second)) and ok
+    ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
     region = judge.window_region(first)
     pictures = shots(out / "first")
     by_name = {p.name: p for p in pictures}

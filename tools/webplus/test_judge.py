@@ -184,6 +184,9 @@ class ServerTests(unittest.TestCase):
         again = sites.Record([request("/"), request(sites.COOKIE_PATH, f"{sites.COOKIE_NAME}={sites.COOKIE_VALUE}")], [])
         problems = self.judge(first, again)
         self.assertTrue(any("HTTP cache" in p for p in problems), problems)
+        picture = sites.Record([request("/style.css"), request(sites.COOKIE_PATH,
+                                                              f"{sites.COOKIE_NAME}={sites.COOKIE_VALUE}")], [])
+        self.assertTrue(any("/style.css" in p and "HTTP cache" in p for p in self.judge(first, picture)))
 
     def test_a_profile_that_forgot_the_cookie_is_named(self) -> None:
         first = served("", [request("/style.css")])

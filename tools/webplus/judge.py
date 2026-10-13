@@ -287,7 +287,8 @@ def judge_first(text: str) -> list[str]:
 
 
 def judge_second(text: str) -> list[str]:
-    """The second boot: the cookie came back, the history page loaded, the clear was accepted."""
+    """The second boot: the first boot's page loaded (from the HTTP cache, see `judge_servers`), the cookie came
+    back, the history page loaded, the clear was accepted."""
     problems = judge_start(text)
     if COOKIE_KEPT not in titles(text):
         problems.append(f"the first boot's cookie did not come back: no {P}:TITLE:{COOKIE_KEPT} (seen: {titles(text)})")
@@ -343,9 +344,10 @@ def judge_servers(first, second, assets: list[str]) -> list[str]:
     # A cacheable page the first boot fetched comes from the HTTP cache, which is what makes the
     # second boot a test of the cache-hit path (a hit refreshes the record's modification time):
     # never serve it `no-store` to make a run pass.
-    if asked(second.requests, "https", OLDNET_HOSTS, "/"):
-        problems.append("the second boot asked theoldnet.com for / again: the HTTP cache did not serve the "
-                        "first boot's copy, so the cache-hit path was not exercised")
+    for path in ("/", *assets):
+        if asked(second.requests, "https", OLDNET_HOSTS, path):
+            problems.append(f"the second boot asked theoldnet.com for {path} again: the HTTP cache did not serve "
+                            "the first boot's copy, so the cache-hit path was not exercised")
     second_cookie = asked(second.requests, "https", ("theoldnet.com",), sites.COOKIE_PATH)
     if not second_cookie:
         problems.append(f"the second boot never asked for {sites.COOKIE_PATH}")
