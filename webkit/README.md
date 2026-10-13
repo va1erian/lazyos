@@ -141,4 +141,22 @@ the program in the build container (`port.py --only webkit-app`; CMake adds the 
 `target/xui/xui-webkit.elf`, where `tools/xui/core_packages.py` packages it
 (`xui-app/packages/webkit`). The image build needs the desktop and the network stack for it
 (`build_support/webkit_embed.rs`). Keys reach the page as X11 key symbols (libwpe's key codes);
-printable text goes with the key press (`WKKeyboardEvent.text`, patch `0012`).
+printable text goes with the key press (`WKKeyboardEvent.text`, patch `0012`) and patch `0013`'s editing
+hook inserts it and runs the editing commands (arrows, Delete, select all, copy, paste, undo).
+
+**One WebProcess for every page.** With WebKit's defaults a cross-site navigation swaps in a fresh WebProcess,
+and the second 107 MB program's `exec` failed with `ENOMEM`: the kernel charges the *length* of every `mmap`
+to the user's memory quota (`docs/architecture/limits.md`), and the three processes take what the quota lets
+them reserve (2989 of the big-app profile's 3072 MiB after one page; 6957 of 8192 at the `quota_user_memory=8G`
+that `run_demo.py --webkit` and the launcher set). `engine.cpp` turns process swapping, pre-warming and the
+process cache off. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not: nothing
+is persisted yet.
+
+**The harness.** `python tools/webkit/app_run.py` (docs/webkit-port-plan.md, W5) builds the desktop image
+(`LAZYOS_WEBKIT=1`, `LAZYOS_XUI_AUTOSTART=webkit`, the UI probe, a throwaway test CA and `/etc/hosts` for the
+stand-in sites), serves LazyWeb's stand-ins from the host (`tools/web/sites.py` and a few pages of ours in
+`tools/web/fixtures/theoldnet.com/webkit/`), boots it, drives the window with the session
+`tools/screenshot/examples/webkit.json` and judges the markers, the host's request log and the screenshots
+(`tools/webkit/appjudge.py`, self-test `test_app_judge.py`). `--label-trace` also lists the package's
+`LABEL:DENY` lines; the manifest's permissions were derived that way. Output is in `shots/webkit`
+(`serial.log`, `shot_*.png`, `requests.json`, `net.pcap`).
