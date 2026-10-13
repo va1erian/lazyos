@@ -291,7 +291,11 @@ impl Markers {
     /// window that started the program, when there is one).
     pub fn warn(&self, stage: &str, detail: &str) {
         warn!(self.channel, stage, "{detail}");
-        eprintln!("{}:{stage}:WARN:{detail}", self.channel.prefix());
+        // The same flattened line: a detail with a newline or an escape
+        // sequence (a path, a document name) must not reach the window raw.
+        let mut line = LineBuf::<LINE_MAX>::new();
+        let _ = tracefmt::write::warn(&mut line, self.channel, stage, format_args!("{detail}"));
+        let _ = std::io::stderr().write_all(line.finish());
     }
 
     /// A one-shot for `stage`: the returned closure prints the pass line the
@@ -392,6 +396,22 @@ mod tests {
             line,
             "UI:RECT x=28 y=500 w=212 h=24 name=menu:Text Editor\n"
         );
+    }
+
+    #[test]
+    fn a_tag_budget_lets_its_lines_through_then_counts_the_rest() {
+        if !ENABLED {
+            return;
+        }
+        // One window (the test clock stays at tick 0): three lines, then
+        // drops; the notice is for the next window and is not called here.
+        let budget = Budget::new(3, 1000);
+        let mut notices = 0;
+        let allowed: Vec<bool> = (0..5)
+            .map(|_| within_with(&budget, Channel::Ui, |_| notices += 1))
+            .collect();
+        assert_eq!(allowed, [true, true, true, false, false]);
+        assert_eq!(notices, 0);
     }
 
     #[test]

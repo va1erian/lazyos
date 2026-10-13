@@ -40,6 +40,15 @@ class Scan(unittest.TestCase):
             ["DEV:", "FS:", "PERF:", "CALC:", "WEB:", "INIT:", "PKGD:"],
         )
 
+    def test_a_plain_write_str_literal_is_a_hit(self):
+        self.assertEqual(self.hits('sys::write_str("MIME:SELFTEST:PASS\\n");'), ["MIME:"])
+        self.assertEqual(self.hits('sys::write_str("not a marker\\n");'), [])
+
+    def test_a_private_console_opener_is_a_hit_in_a_std_app(self):
+        source = 'let f = OpenOptions::new().write(true).open(fhs::dev::CONSOLE);\n'
+        self.assertEqual([tag for _, tag, _ in check_adhoc.scan_console(source)], ["CONSOLE:"])
+        self.assertEqual(check_adhoc.scan_console("let x = 1;\n"), [])
+
     def test_diagnostics_and_ordinary_text_are_not_hits(self):
         source = "\n".join(
             [

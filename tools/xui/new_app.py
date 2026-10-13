@@ -103,6 +103,12 @@ def insert_before_close(text: str, opener: str, close: str, line: str) -> str:
 CHANNEL_ROW = re.compile(r'^    ([A-Z][A-Za-z0-9]*) => "([A-Z][A-Z0-9_]*)",$', re.M)
 
 
+def catalogued_variant(text: str, app: App) -> str | None:
+    """The variant already catalogued for the app's prefix, if any: the
+    generated source must name that one, whatever its spelling."""
+    return next((v for v, prefix in CHANNEL_ROW.findall(text) if prefix == app.marker), None)
+
+
 def add_channel(text: str, app: App) -> str:
     """`text` of `libs/tracefmt/src/channel.rs` with a row for the app's
     markers, in alphabetical order, unless its prefix is already catalogued
@@ -144,9 +150,9 @@ def quoted(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def app_source(app: App) -> str:
+def app_source(app: App, channel: str | None = None) -> str:
     """The starting app: a layout, a handle, a message, and the evidence."""
-    m, t, c = app.marker, app.type_name, app.channel
+    m, t, c = app.marker, app.type_name, channel or app.channel
     return f'''//! `{app.short}`: {app.description}
 //!
 //! Serial evidence: `{m}:UP:PASS` after the first frame and `{m}:QUIT:PASS` on
@@ -268,7 +274,9 @@ def scaffold(root: Path, app: App) -> list[str]:
         text, crlf = read(root, rel)
         writes[rel] = (fn(text), crlf)
 
-    new(f"xui-app/src/bin/{app.short}.rs", app_source(app))
+    channel_text, _ = read(root, "libs/tracefmt/src/channel.rs")
+    variant = catalogued_variant(channel_text, app)
+    new(f"xui-app/src/bin/{app.short}.rs", app_source(app, variant))
     new(f"xui-app/packages/{app.short}/manifest.toml", manifest(app))
     new(
         f"xui-app/packages/{app.short}/docs/README.md",

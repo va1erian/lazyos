@@ -58,9 +58,18 @@ What T3a settled while landing:
   `install_panic_hook`). It writes with one `write_all` to `/dev/console`
   (opened once) and falls back to stdout only when the device cannot be
   opened. `xui-app/build.rs` reads `LAZYOS_TRACE` like `user/build.rs`
-  (cfg `lazyos_trace`); the macros test `xui_app::trace::ENABLED`, so a
-  portable crate under `xui-app/crates/` that calls them needs no cfg of its
-  own. The mask comes from the kernel's `TRACE_MASK` op.
+  (cfg `lazyos_trace`); the macros test `xui_app::trace::ENABLED`, so a crate
+  that depends on `xui-app` (the bins, `xui-webkit`, `lazyrad-os`, `emusic`,
+  `doom`) needs no cfg of its own. The mask comes from the kernel's
+  `TRACE_MASK` op. **Open for T3b:** the portable crates that `xui-app`
+  itself depends on (`writer`, `settings`, `confd-editor`, `pdfview`; 26
+  marker sites in the baseline) cannot call `xui_app::trace` (a cycle). They
+  need a seam their host bin supplies (an event the bin turns into a trace),
+  or `Sink` injection into a crate both can depend on; until T3b picks one,
+  their baseline entries only go down.
+- A line longer than `LINE_MAX` (512) is cut and ends in `...` (a panic
+  message with a big `assert_eq!` value, a long `RUN:FAIL` error); the old
+  marker, probe and stall code was unbounded.
 - `launch::run` and `launch::finish` take a `Channel`, not a `&str`
   (`<channel>:BIND:FAIL`, `RUN:FAIL`, `RUN:CLOSED` are traces). A new app gets
   its `Channel` row from `tools/xui/new_app.py`; `About`, `Sky`, `Video` and
@@ -86,7 +95,10 @@ What T3a settled while landing:
   its entry. T4's `--enforce` replaces it when the baseline reaches zero.
   AGENTS.md makes the API mandatory (section "Tracing" and the "Project
   conventions" bullet), and the `xui-app` skill teaches it.
-- Counts at T3a (`python tools/trace/check_adhoc.py`): 506 sites in 121 files;
+- Counts at T3a (`python tools/trace/check_adhoc.py`): 515 sites in 124 files
+  (the lint now also finds a plain `write_str("X:...")` and any
+  `dev::CONSOLE` use in a std app: nine services' lines T2 missed, e.g.
+  `mimed`'s selftest, are in the baseline for T3b);
   `xui-app` is 445 now, against 374 at T0 (LazyGolf, LazySky, Video, the
   Terminal rewrite and the Wi-Fi tab landed in between), `srb2kart/` 18.
 
@@ -360,7 +372,8 @@ script unchanged unless the stage says otherwise.
 ### T3: the std apps
 
 - `xui_app::trace`, replacing `probe::emit` (the `probe` module keeps
-  `enabled()`, `rect()`, `widget()` as thin wrappers over `event!`),
+  `enabled()`, `rect()`, `widget()` as thin wrappers over `line!`, which
+  keeps the free-text `name=` unquoted),
   `stall.rs`'s printing (its stopwatches stay; `finish` calls `event!`
   through `Budget`) and `lazyrad_os::marker` (its `Markers` type, `once()`
   and `install_panic_hook()` move into `xui_app::trace` so the panic hook

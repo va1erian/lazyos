@@ -80,6 +80,19 @@ class NewAppTests(unittest.TestCase):
         for rel, needle in expected.items():
             self.assertIn(needle, self.text(rel).replace("\r\n", "\n"), rel)
 
+    def test_an_already_catalogued_prefix_keeps_its_variant(self) -> None:
+        # Someone catalogued NOTES under another spelling: the app must name
+        # that variant, and no second row for the prefix is added.
+        channels = self.root / "libs/tracefmt/src/channel.rs"
+        text = channels.read_text(encoding="utf-8")
+        channels.write_text(
+            text.replace('    Nslookup => "NSLOOKUP",\n', '    Nslookup => "NSLOOKUP",\n    Notebook => "NOTES",\n', 1),
+            encoding="utf-8",
+        )
+        new_app.scaffold(self.root, self.app)
+        self.assertIn("launch::run(Channel::Notebook,", self.text("xui-app/src/bin/notes.rs"))
+        self.assertEqual(self.text("libs/tracefmt/src/channel.rs").count('"NOTES"'), 1)
+
     def test_a_second_run_refuses_and_changes_nothing(self) -> None:
         new_app.scaffold(self.root, self.app)
         before = {rel: self.text(rel) for rel in REGISTRIES}

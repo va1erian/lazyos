@@ -1021,12 +1021,17 @@ is evaluated), `LAZYOS_TRACE_MASK=init,pkgd,-shell` (`trace.mask=` in
 and `LAZYOS_UI_PROBE` add theirs. Plan and status:
 [`docs/tracing-plan.md`](docs/tracing-plan.md).
 
-CI enforces it. `python tools/trace/check_adhoc.py --ratchet` fails when a file
-has more ad hoc prints than `tools/trace/adhoc_baseline.json` records (a new
-file's baseline is 0, so a new app or module cannot start with a print) and
-when a file has fewer and its entry was not lowered. Migrating a file means
-moving its prints to `trace` and running
-`python tools/trace/check_adhoc.py --update-baseline`; never raise an entry.
+CI checks the common forms. `python tools/trace/check_adhoc.py --ratchet`
+fails when a file has more ad hoc prints than `tools/trace/adhoc_baseline.json`
+records (a new file's baseline is 0, so a new app or module cannot start with a
+print) and when a file has fewer and its entry was not lowered. It finds a
+`println!`/`eprintln!`/`serial_println!`/`write_str` whose literal starts with
+`PREFIX:`, and any use of `fhs::dev::CONSOLE` in a std app (a private copy of
+the old console helper). It cannot see a dynamic prefix
+(`println!("{marker}:UP")`) or a `writeln!` to a device: review catches those,
+so do not write them. Migrating a file means moving its prints to `trace` and
+running `python tools/trace/check_adhoc.py --update-baseline`; never raise an
+entry.
 
 ```bash
 cargo test -p tracefmt -p dbgwire
@@ -1518,7 +1523,11 @@ regressions, not kernel-internal correctness or resource leaks.
   with `tools/xui/new_app.py`, which writes the calls and the channel.
   `python tools/trace/check_adhoc.py --ratchet` is a CI step: a new file with a
   marker print, or a file with more of them than
-  `tools/trace/adhoc_baseline.json` records, fails (see "Tracing").
+  `tools/trace/adhoc_baseline.json` records, fails (see "Tracing"). A portable
+  crate under `xui-app/crates/` that `xui-app` itself depends on (`writer`,
+  `settings`, `confd-editor`, `pdfview`) cannot call `xui_app::trace` (a
+  cycle): it reports through an event its host bin turns into a trace, and its
+  markers do not grow; ask for that seam before adding one.
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. `python tools/check_file_length.py` (a CI step)
   enforces it for every tracked `.rs`/`.py` file except `@generated` output;

@@ -31,22 +31,52 @@ pub fn enabled() -> bool {
     })
 }
 
-/// Print a screen rectangle when the probe is on: `UI:RECT x= y= w= h=
-/// name=<name>`. The name is free text and stays last and unquoted, which is
-/// what the session scripts parse.
+/// The text after `UI:` of a screen rectangle: `RECT x= y= w= h= name=<name>`.
+/// The name is free text and stays last and unquoted, which is what the
+/// session scripts parse.
+fn rect_text(name: &str, x: i32, y: i32, w: i32, h: i32) -> String {
+    format!("RECT x={x} y={y} w={w} h={h} name={name}")
+}
+
+/// The text after `UI:` of a rectangle inside the window titled `window`.
+fn widget_text(window: &str, name: &str, x: i32, y: i32, w: i32, h: i32) -> String {
+    format!("WIDGET x={x} y={y} w={w} h={h} name={name} window={window}")
+}
+
+/// Print a screen rectangle when the probe is on (`UI:RECT ...`).
 pub fn rect(name: &str, x: i32, y: i32, w: i32, h: i32) {
     if enabled() {
-        trace::line!(Channel::Ui, "RECT x={x} y={y} w={w} h={h} name={name}");
+        trace::line!(Channel::Ui, "{}", rect_text(name, x, y, w, h));
     }
 }
 
-/// Print a window-relative rectangle when the probe is on: `UI:WIDGET x= y=
-/// w= h= name=<name> window=<window>`.
+/// Print a window-relative rectangle when the probe is on (`UI:WIDGET ...`).
 pub fn widget(window: &str, name: &str, x: i32, y: i32, w: i32, h: i32) {
     if enabled() {
-        trace::line!(
-            Channel::Ui,
-            "WIDGET x={x} y={y} w={w} h={h} name={name} window={window}"
+        trace::line!(Channel::Ui, "{}", widget_text(window, name, x, y, w, h));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole line the sink writes for `text` on `Channel::Ui`.
+    fn on_the_wire(text: &str) -> String {
+        let mut line = tracefmt::LineBuf::<{ tracefmt::LINE_MAX }>::new();
+        let _ = tracefmt::write::line(&mut line, Channel::Ui, format_args!("{text}"));
+        String::from_utf8(line.finish().to_vec()).unwrap()
+    }
+
+    #[test]
+    fn lines_put_the_free_text_last() {
+        assert_eq!(
+            on_the_wire(&rect_text("menu:Text Editor", 28, 500, 212, 24)),
+            "UI:RECT x=28 y=500 w=212 h=24 name=menu:Text Editor\n"
+        );
+        assert_eq!(
+            on_the_wire(&widget_text("MOD Player", "play_button", 68, 142, 52, 28)),
+            "UI:WIDGET x=68 y=142 w=52 h=28 name=play_button window=MOD Player\n"
         );
     }
 }

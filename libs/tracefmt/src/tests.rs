@@ -163,6 +163,22 @@ fn a_full_buffer_cuts_the_line_and_keeps_the_newline() {
     assert!(core::str::from_utf8(buf.finish()).is_ok());
 }
 
+#[test]
+fn a_cut_line_ends_in_dots_and_a_whole_one_does_not() {
+    let mut buf = LineBuf::<16>::new();
+    write!(buf, "{}", "x".repeat(100)).unwrap();
+    assert_eq!(buf.finish(), b"xxxxxxxxxxxx...\n");
+    // The dots land on a character boundary.
+    let mut buf = LineBuf::<12>::new();
+    write!(buf, "abcdefgéééé").unwrap();
+    let line = buf.finish();
+    assert!(core::str::from_utf8(line).is_ok());
+    assert!(line.ends_with(b"...\n"));
+    let mut buf = LineBuf::<16>::new();
+    write!(buf, "short").unwrap();
+    assert_eq!(buf.finish(), b"short\n");
+}
+
 // ---- the parser (moved from dbgwire::logline) -----------------------------
 
 #[test]

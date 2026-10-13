@@ -15,7 +15,7 @@ A hit is a literal that starts with a capital letter and has a colon:
 
     serial_println!("UP:...")   serial_print!("UP:...")
     println!("UP:...")          eprintln!("UP:...")
-    write_str(&format!("UP:...")
+    write_str(&format!("UP:..."))   write_str("UP:...")
 
 Not hits: the `libs/tracefmt` crate and the three sink modules (they are the
 one place a line is written), the kernel suite (`kernel/src/tests/`, whose
@@ -42,7 +42,7 @@ BASELINE = Path(__file__).with_name("adhoc_baseline.json")
 # starts with a marker: `UPPER` then a colon.
 CALL = re.compile(
     r"""(?:\bserial_println!|\bserial_print!|\beprintln!|\bprintln!|\beprint!|\bprint!
-        |write_str\(\s*&format!)\(\s*"(?P<tag>[A-Z][A-Z0-9_]*:)""",
+        |write_str\(\s*&format!|write_str)\(\s*"(?P<tag>[A-Z][A-Z0-9_]*:)""",
     re.VERBOSE,
 )
 
@@ -65,7 +65,6 @@ EXCLUDED_PREFIXES = (
     "kernel/src/trace.rs",
     "user/src/trace.rs",
     "xui-app/src/trace.rs",
-    "xui-app/src/trace/",
     "kernel/src/tests/",
     "tools/abi/fixtures/",
 )
@@ -171,6 +170,21 @@ def secret_hits(text: str) -> list[tuple[int, str]]:
     return found
 
 
+# The std apps write their lines with `xui_app::trace` (one sink that opens
+# the console device); another opener is a private copy of the old `emit`
+# helper, which is how a marker slipped past the print patterns above.
+CONSOLE_OPENERS = ("xui-app/", "lazyrad-os/", "doom/", "emusic/", "quake/", "srb2kart/")
+CONSOLE = re.compile(r"\bdev::CONSOLE\b")
+
+
+def scan_console(text: str) -> list[tuple[int, str, str]]:
+    """Uses of `fhs::dev::CONSOLE` in a std app, as `(line, tag, text)`."""
+    return [
+        (text.count("\n", 0, match.start()) + 1, "CONSOLE:", "dev::CONSOLE")
+        for match in CONSOLE.finditer(text)
+    ]
+
+
 def scan(root: Path) -> dict[str, list[tuple[int, str, str]]]:
     result: dict[str, list[tuple[int, str, str]]] = {}
     for path in tracked_rust_files(root):
@@ -179,7 +193,10 @@ def scan(root: Path) -> dict[str, list[tuple[int, str, str]]]:
         file = root / path
         if not file.is_file():
             continue
-        hits = scan_text(file.read_text(encoding="utf-8", errors="replace"))
+        text = file.read_text(encoding="utf-8", errors="replace")
+        hits = scan_text(text)
+        if path.startswith(CONSOLE_OPENERS):
+            hits += scan_console(text)
         if hits:
             result[path] = hits
     return result
@@ -195,7 +212,8 @@ def ratchet(found: dict[str, list], baseline: dict[str, int]) -> list[str]:
         if now > was:
             problems.append(
                 f"{path}: {now} ad hoc print(s), baseline {was}: write the marker "
-                f"with `trace::pass!`/`fail!`/`event!`/`line!` (docs/tracing-plan.md)"
+                f"with `trace::pass!`/`fail!`/`event!`/`line!` (docs/tracing-plan.md; "
+                f"a crate with no `xui-app` dependency: AGENTS.md, \"Tracing\")"
             )
         elif now < was:
             problems.append(

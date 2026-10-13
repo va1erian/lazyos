@@ -39,11 +39,22 @@ impl<const N: usize> LineBuf<N> {
     }
 
     /// End the line: a trailing newline, always present (it replaces the last
-    /// byte of a line that filled the buffer). Returns the whole line.
+    /// byte of a line that filled the buffer). A line that was cut ends in
+    /// `...`, so a reader can tell a long panic message from a short one.
+    /// Returns the whole line.
     pub fn finish(&mut self) -> &[u8] {
         if self.len == N {
             self.len = N - 1;
             self.truncated = true;
+        }
+        if self.truncated && self.len >= 3 {
+            // Back up to a character boundary, so the dots never split one.
+            let mut end = self.len - 3;
+            while end > 0 && self.bytes[end] & 0xC0 == 0x80 {
+                end -= 1;
+            }
+            self.bytes[end..end + 3].copy_from_slice(b"...");
+            self.len = end + 3;
         }
         self.bytes[self.len] = b'\n';
         self.len += 1;
