@@ -3,7 +3,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use fused::wire::{Reply, Request, MAX_PAYLOAD};
+use fused::wire::{Op, Reply, Request, FLAG_NODE, MAX_PAYLOAD};
 
 use super::{
     now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, MEDIA_REQUEST_TICKS, REQUEST_TICKS,
@@ -32,7 +32,12 @@ pub(super) fn transact(
     if payload_len > MAX_PAYLOAD {
         return Err(FsError::Invalid);
     }
-    let ticks = if slot.state.lock().media {
+    // A path operation holds the VFS mount table while it waits, so every
+    // other path call in the system waits with it: only requests by node
+    // (an open file's reads and writes, which do not) and the flush get the
+    // stick's patience.
+    let patient = request.op & FLAG_NODE != 0 || request.op & 0xFFFF == Op::Flush as u64;
+    let ticks = if patient && slot.state.lock().media {
         MEDIA_REQUEST_TICKS
     } else {
         REQUEST_TICKS

@@ -73,7 +73,9 @@ fn plain(op: u64, a1: u64) -> Result<u64, i64> {
     unsafe { storage(op, a1, 0, 0, 0) }
 }
 
-/// Register a disk of `sectors` 512-byte sectors; returns its id (`usb<id>`).
+/// Register a disk of `sectors` 512-byte sectors; returns its **handle**: the
+/// slot (`usb<n>`, the low byte) and the disk's generation above it, which
+/// the other provider ops take.
 pub fn storage_register(sectors: u64, writable: bool) -> Result<u64, i64> {
     let info = [sectors, 512, u64::from(writable), 0];
     // SAFETY: the kernel reads the four words of `info`.

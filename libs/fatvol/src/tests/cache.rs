@@ -243,3 +243,18 @@ fn reads_never_flush_the_device_and_a_read_only_mount_writes_nothing() {
     vol.settle().unwrap();
     assert_eq!(disk.flushes(), flushes);
 }
+
+#[test]
+fn a_failed_read_with_changes_waiting_ends_the_volume() {
+    // An operation half done must not be committed: a read failing while
+    // sectors are dirty is as final as a failed write.
+    let disk = MemDisk::formatted(SECTORS, 16, LABEL);
+    let mut cache = crate::io::Cache::new(disk.clone(), true);
+    cache.write_at(0, &[1u8; 512]).unwrap();
+    disk.fail_next_reads(1);
+    let mut buf = [0u8; 512];
+    assert!(cache.read_at(8 * 512 * 40, &mut buf).is_err());
+    assert_eq!(cache.failure(), Some(Fault::Io));
+    assert!(cache.flush_dirty().is_err(), "the half-done change was committed");
+    assert_eq!(disk.writes(), 0);
+}

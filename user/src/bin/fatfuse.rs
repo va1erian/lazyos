@@ -327,7 +327,11 @@ fn run() -> Result<(), Failed> {
                     // A failed write ends the volume (the cache is no longer
                     // the medium's state); the device's flush failing, or a
                     // read timing out, does not.
-                    if volume.settle().is_err() && volume.failure().is_some() {
+                    if volume.settle().is_err() && volume.failure().is_none() {
+                        // Not final (a flush the stick refused): try again
+                        // at the next idle moment.
+                        dirty = true;
+                    } else if volume.failure().is_some() {
                         let gone = volume.failure() == Some(Fault::Gone);
                         return Err(if gone {
                             (Failure::Lost, String::from("the medium was pulled"))

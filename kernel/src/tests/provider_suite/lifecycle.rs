@@ -275,7 +275,13 @@ pub fn kernel_mounted_disk_is_pinned() -> Result<(), String> {
         let (id, me) = (disk_id(), owner());
         let generation = generation_of(id).ok_or("not listed")?;
         let daemon = daemon_task()?;
+        let early = daemon_task()?;
+        provider::claim(id, generation, early).map_err(|e| format!("{e:?}"))?;
         provider::mark_in_use(&format!("usb{id}p1"));
+        check!(
+            provider::raw_read(id, early, 0, &mut [0u8; SECTOR_SIZE]) == Err(RawError::NotOwner),
+            "a claim taken before the kernel mount survived it"
+        );
         check!(
             provider::claim(id, generation, daemon) == Err(RawError::Busy),
             "a daemon claimed a kernel-mounted disk"

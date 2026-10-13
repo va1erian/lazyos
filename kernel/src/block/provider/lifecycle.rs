@@ -217,6 +217,9 @@ pub fn mark_in_use(name: &str) {
         let mut state = disk.state.lock();
         state.in_use = true;
         state.scanned = true;
+        // A daemon that got there first loses the disk: its next raw op is
+        // `NotOwner` (ordinarily nothing claims before the home answer).
+        state.claim = None;
     }
 }
 

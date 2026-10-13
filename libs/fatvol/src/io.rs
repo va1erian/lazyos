@@ -20,8 +20,9 @@
 //! [`Fault`], because the sectors that did not land are still dirty and the
 //! volume above no longer knows what is on the medium. So is a medium that
 //! is gone. A failed **read** is only that call's error (a slow stick that
-//! timed out once answers the next request), and the device's own flush is
-//! only sent after something was written.
+//! timed out once answers the next request) unless changes are waiting in
+//! the cache, which would then be committed half done; and the device's own
+//! flush is only sent after something was written.
 //!
 //! Large aligned transfers (a file's data) bypass the pages: they would only
 //! be copied through and evict the metadata that makes the next lookup fast.
@@ -194,7 +195,10 @@ impl<D: BlockIo> Cache<D> {
     /// A failed read: the medium being gone ends the volume, anything else
     /// is this request's error alone.
     fn read_failed(&mut self, fault: Fault) -> Fault {
-        if fault == Fault::Gone {
+        // With changes waiting the operation is half done: committing them
+        // (the volume writes back after every operation, failed or not)
+        // would leave a deleted target and a rename that never happened.
+        if fault == Fault::Gone || self.dirty_bytes > 0 {
             self.fail(fault)
         } else {
             fault

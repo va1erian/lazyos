@@ -96,6 +96,14 @@ pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
             call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),
             "a task with no program claimed a disk"
         );
+        // Near misses of the program path are other programs.
+        for path in ["fatfuse", "/system/bin/fatfuse2", "//system/bin/fatfuse", "/tmp/fatfuse"] {
+            task::linuxstate::record_program(bare, path);
+            check!(
+                call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),
+                "a task started from {path:?} claimed a disk"
+            );
+        }
         task::harness::switch_current(task::KERNEL_TASK);
         check!(
             call(op::DISKS, 0, 0, 0, 0) == failed(EPERM),

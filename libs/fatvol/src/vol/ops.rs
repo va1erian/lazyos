@@ -185,11 +185,31 @@ impl<D: BlockIo> Volume<D> {
 
     pub(super) fn move_entry(&mut self, from: &str, to: &str) -> Result<(), Errno> {
         self.writable()?;
-        if from.is_empty() || to.is_empty() || inside(to, from) {
+        if from.is_empty() || to.is_empty() || (inside(to, from) && !same_name(to, from)) {
             return Err(errno::EINVAL);
         }
         let source = self.find(from)?;
-        if !same_name(from, to) {
+        if same_name(from, to) {
+            // The same entry under another spelling: the library treats the
+            // two names as one and does nothing, so the new case goes in by
+            // way of a name that is nobody's (both steps are one operation:
+            // the volume writes back only at its end).
+            if from == to {
+                return Ok(());
+            }
+            let (parent, name) = split(from);
+            let (_, new_name) = split(to);
+            let temp = "~lazyren.tmp";
+            {
+                let fs = self.fs()?;
+                let dir = Self::open_dir(fs, parent)?;
+                dir.rename(name, &dir, temp).map_err(to_errno)?;
+                dir.rename(temp, &dir, new_name).map_err(to_errno)?;
+            }
+            self.inodes.rename(from, to);
+            return Ok(());
+        }
+        {
             match self.find(to) {
                 Ok(target) => {
                     if target.dir != source.dir {

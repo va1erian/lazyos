@@ -240,3 +240,14 @@ fn dos_time_round_trips() {
     // Before 1980 clamps to 1980-01-01.
     assert_eq!(to_unix(to_datetime(0)), 315_532_800);
 }
+
+#[test]
+fn a_case_only_rename_is_a_rename() {
+    let (mut vol, _) = volume(32);
+    put(&mut vol, "readme.txt", b"r").unwrap();
+    vol.rename("readme.txt", "README.TXT").unwrap();
+    assert_eq!(names(&mut vol, ""), ["README.TXT"]);
+    assert_eq!(get(&mut vol, "readme.txt").unwrap(), b"r");
+    // The same name is not an error either.
+    vol.rename("README.TXT", "README.TXT").unwrap();
+}

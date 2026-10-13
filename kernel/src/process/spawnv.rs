@@ -363,7 +363,9 @@ fn start(request: &Request, elf: &VfsFile, stamp: Stamp) -> Result<usize, u64> {
     let slot = started.map_err(|_| syscall_error(ENOMEM))?;
     // Who the child is by program, for the few operations that are gated on
     // it (a raw claim on a disk: `block::provider::rawsys`).
-    task::linuxstate::record_program(slot, &request.path);
+    if !request.linux {
+        task::linuxstate::record_program(slot, &request.path);
+    }
     if let Some((cred, rule)) = stamp {
         stamp_child(slot, cred, rule)?;
     }
