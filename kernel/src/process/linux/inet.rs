@@ -15,7 +15,7 @@ use crate::ipc::inet::{self, Addr, InetSock, Kind, State, DGRAM_HEADER, MAX_DGRA
 use crate::task::{self, Fd, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK};
+use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK, EPERM};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
 use super::io::{recv_stream, write_stream_opts};
 use super::scatter::{Received, Scatter};
@@ -98,6 +98,12 @@ fn write_addr(addr: u64, addrlen: u64, value: Addr) {
 
 /// `socket(AF_INET, type, protocol)`.
 pub(super) fn sys_socket(kind: u64, protocol: u64) -> u64 {
+    // A confined label's network access is the socket interface its manifest
+    // asked for (`network = ["outbound"]`): without it there is no socket,
+    // and so no connect, bind, send or DNS lookup that could follow.
+    if !crate::ipc::confine::may_open_inet() {
+        return err(EPERM);
+    }
     let (sock_kind, wanted) = match kind & 0xf {
         SOCK_STREAM => (Kind::Stream, IPPROTO_TCP),
         SOCK_DGRAM => (Kind::Dgram, IPPROTO_UDP),

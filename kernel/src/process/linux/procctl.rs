@@ -115,6 +115,11 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
         };
         task::spawn_thread_sharing("thread", stack, fs_base, clear, share)
     } else {
+        // A vfork-style child is a new process (`posix_spawn`'s): not for a
+        // confined label.
+        if !crate::ipc::confine::may_spawn() {
+            return err(EPERM);
+        }
         task::spawn_vfork(stack)
     };
     // Collect exits the scheduler already flagged before deciding the table is
@@ -177,6 +182,12 @@ fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
 }
 
 pub(super) fn sys_fork() -> u64 {
+    // A confined label creates no process (`ipc::confine`): a copy of itself
+    // would only be one more of the same sandbox, but it is also a way to
+    // exhaust the user's task slots and memory quota.
+    if !crate::ipc::confine::may_spawn() {
+        return err(EPERM);
+    }
     match task::spawn_fork() {
         Ok(index) => index as u64,
         Err(_) => err(ENOMEM),
@@ -186,6 +197,11 @@ pub(super) fn sys_fork() -> u64 {
 /// `execve(path, argv, envp)`: replace the current image with `path`'s ELF (or,
 /// for a `#!` script, its interpreter's) and resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
+    // A confined label (`ipc::confine`) runs the one image it was started
+    // with: refused before the path is even read.
+    if !crate::ipc::confine::may_exec() {
+        return err(EPERM);
+    }
     let raw = match read_path(path_ptr) {
         Ok(raw) => raw,
         Err(code) => return code,
@@ -234,6 +250,10 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     // inherit-only pipe ends) before resuming.
     task::linuxstate::set_exe(&image.path);
     close_cloexec_fds();
+    // An image that starts under a confined label (the label of a sandboxed
+    // child program, stamped at this exec) keeps only its standard streams and
+    // connected sockets, whatever the launcher forgot to mark `FD_CLOEXEC`.
+    crate::ipc::confine::scrub_inherited_descriptors();
 
     // Replace the process image: switch to the new table and make `sysretq`
     // resume at the new entry. Only now does the table outlive this call, so

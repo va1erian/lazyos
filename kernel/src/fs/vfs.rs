@@ -373,7 +373,12 @@ impl Vfs {
     }
 
     /// Walk ancestors for search and the path itself for `mask`.
+    ///
+    /// A task whose label is confined (`ipc::confine`) is judged first, by
+    /// the path and what `mask` asks of it, before anything about the node is
+    /// looked at: a refusal never says whether a file exists.
     fn check_path(&mut self, id: Id, path: &Path, mask: u8) -> Result<Meta, FsError> {
+        confine_gate(id, path, crate::ipc::confine::access_of_mask(mask))?;
         for ancestor in path.ancestors() {
             let meta = self.stat_path(&ancestor)?;
             if meta.kind != FileKind::Dir {
@@ -420,4 +425,19 @@ impl Default for Vfs {
     fn default() -> Self {
         Vfs::new()
     }
+}
+
+/// The file gate of a confined label ([`crate::ipc::confine`]): `Ok` for the
+/// kernel, every unlabelled task and every label that is not confined, and
+/// `EPERM` (`NotPermitted`) for a path the label's rules do not cover.
+pub(crate) fn confine_gate(
+    id: Id,
+    path: &Path,
+    access: crate::ipc::confine::Access,
+) -> Result<(), FsError> {
+    if !crate::ipc::confine::confined(id.label) {
+        return Ok(());
+    }
+    crate::ipc::confine::check_path(id.label, &path.to_path_string(), access)
+        .map_err(|_| FsError::NotPermitted)
 }
