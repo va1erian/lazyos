@@ -7,7 +7,7 @@
 //! just the network). The loader (`OP_ACL_LOAD`) is the real one; the entering
 //! `execve` is exercised through the function `sys_execve` calls
 //! ([`children::enter_on_exec`]), since a successful `execve` would replace
-//! the test task's image.
+//! the test task's image, and once for real from ring 3 (`exec.rs`).
 
 use super::*;
 use crate::ipc::acl::{reason, Rule};
@@ -119,9 +119,11 @@ fn allowed(slot: usize, interface: &str) -> bool {
 }
 
 mod behave;
+mod exec;
 mod load;
 mod start;
 
 pub(super) use behave::*;
+pub(super) use exec::*;
 pub(super) use load::*;
 pub(super) use start::*;
