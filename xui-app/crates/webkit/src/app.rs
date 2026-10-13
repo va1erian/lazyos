@@ -74,7 +74,7 @@ impl Host {
 }
 
 pub struct Browser {
-    page: Rc<PageView>,
+    page: Rc<PageView<Msg>>,
     address: Rc<Edit<Msg>>,
     back: Rc<Button<Msg>>,
     forward: Rc<Button<Msg>>,
@@ -117,6 +117,9 @@ impl Browser {
             let _ = proxy.send(match notice {
                 Notice::Frame => Msg::Frame,
                 Notice::State => Msg::State,
+                // This window shows none of the events (the UI process reports them only to
+                // a window that asked, `lzw_ui_features`).
+                Notice::Events => return,
             });
         });
 
@@ -170,7 +173,7 @@ impl Browser {
     }
 
     /// The page view, for a test to look at.
-    pub fn page(&self) -> &Rc<PageView> {
+    pub fn page(&self) -> &Rc<PageView<Msg>> {
         &self.page
     }
 
@@ -299,7 +302,7 @@ fn caption(title: &str) -> String {
 }
 
 /// The size of the picture on show (0 x 0 before the first).
-fn frame_size(page: &PageView) -> (u32, u32) {
+fn frame_size(page: &PageView<Msg>) -> (u32, u32) {
     page.picture_size().unwrap_or((0, 0))
 }
 

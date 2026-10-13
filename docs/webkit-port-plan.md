@@ -1,6 +1,6 @@
 # A WebKit port — exploration and plan
 
-Status: **W0 to W5 built** (2026-10-13). The four kernel prerequisites
+Status: **W0 to W6 built** (2026-10-13). The four kernel prerequisites
 landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
 `JSCOnly` shell runs on LazyOS both as the C-loop interpreter (`jsc`) and with
 the JIT (`jsc-jit`: LLInt, baseline, DFG), each passing 254 of 255 files of a
@@ -204,7 +204,7 @@ profile ([architecture/limits.md](architecture/limits.md)). Open: a heap
 kernel stack has no guard page, and a user quota set above physical RAM
 ends in a segmentation fault at the frame allocator instead of `ENOMEM`.
 
-## 5. The path (W1 to W5)
+## 5. The path (W1 to W6)
 
 Effort is for one experienced person, full time, and is the part of this
 document most likely to be wrong.
@@ -524,7 +524,7 @@ on any host that has the target), and CMake adds one `add_executable` when `LAZY
 *The window logic stays portable.* The toolbar, the address field, the page view and the input mapping are
 Rust over `xui_core` with the engine behind a trait; they run on the host against a recording engine
 (`cargo test -p xui-webkit`, with offscreen snapshots). The C++ half is an adapter of sixteen functions
-(`webkit/port/app/lazyos_ui.h`) over WebKit's C API. *It costs little.* The library is 134 MB of archive
+(`webkit/port/app/lazyos_ui.h`; W6 added more, §5 W6) over WebKit's C API. *It costs little.* The library is 134 MB of archive
 (all of `xui-app`'s dependency closure) and adds **3.4 MiB** to the program after `--gc-sections`
 (`webkit-app` 107.8 MiB against `webkit-smoke`'s 104.4); `zig c++` supplies libc++ and libunwind for the Rust
 standard library as it does for WebKit. The price is a second language at the seam and a build in two places
@@ -703,6 +703,26 @@ not crash), pop-ups and `target=_blank` (dropped), downloads, the pasteboard bey
 context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
 sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* above), a real PC, and a second window.
 
+### W6. LazyWeb+ (built)
+
+`os.lazy.lazywebplus` is LazyWeb's menu bar, toolbar, status bar, history and downloads on this engine
+([`docs/lazywebplus.md`](lazywebplus.md), issue #835; `LAZYOS_LAZYWEBPLUS=1`, `run_demo.py --lazywebplus`).
+Same route as W5 (a C++ UI process and a Rust static library) with one C++ source for both windows: the seam
+moved into `xui-webkit` (`Engine`, the mailbox, the page view, the pure ABI helpers) and `xui-app/webplus` is
+LazyWeb's window forked onto it. The ABI grew by features, progress and the committed URL, hover and cursor,
+a navigation policy that carries a user-gesture flag, downloads, JavaScript dialogs, new windows and a profile
+directory; `lzw_ui_features()` keeps W5's window as it was. The rule a script engine adds: **a page's script
+must never start another program or run a browser command**, which is `policy::decide` in front of every
+navigation (docs/lazywebplus.md, *Navigation policy*). `mimed` had no way to choose between two browsers, so
+`user/<uid>/mimed/default/<type>` and a Settings > Default apps page were added. The harness is
+`python tools/webplus/run.py` (two boots of one image: pages, dialogs, blocked launches, downloads, profile,
+cookie and history across the second boot; `WEBPLUS:HARNESS:PASS`). Its engine processes are sandboxed like
+W5's (the manifest's `[processes.*]` tables, the network process also writing `$HOME/Downloads`;
+`attack_run.py --browser --app lazywebplus`: 60 probes as expected). The harness found that **no cookie was
+ever stored**: WebKit opens its SQLite databases in WAL mode, whose index is a mapped file, and LazyOS has no
+file-backed `mmap` (`SQLITE_IOERR_SHMMAP`), so the bundle's SQLite is built with `SQLITE_OMIT_WAL`. The W5
+browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
+
 ## 6. The problems that will surface
 
 * **`sched_setattr` (syscall 314): done.** WTF's `Thread::setThreadQoS`
@@ -772,7 +792,8 @@ sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* abo
 UI process in `webkit/port/app`), the dependency and build scripts
 (`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
 `os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
-(`run_demo.py --webkit`, a launcher group), with WebKit fetched at a pinned
+(`run_demo.py --webkit`, a launcher group), and `os.lazy.lazywebplus` (`xui-app/webplus`,
+`xui-app/packages/lazywebplus`) by `LAZYOS_LAZYWEBPLUS=1` (`--lazywebplus`), with WebKit fetched at a pinned
 revision at build time and never vendored.
 
 ## 8. Alternatives considered

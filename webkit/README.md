@@ -133,7 +133,7 @@ EGL and GLESv2 stand-ins and are never reached.
 
 ## The desktop app (W5)
 
-`os.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of sixteen
+`os.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI that began as sixteen
 functions (`port/app/lazyos_ui.h`):
 
 * **the UI process, C++** (`port/app/main.cpp`, `engine.cpp`): WebKit's run loop on the process's main
@@ -215,3 +215,31 @@ real UI process starts them and the label comes from the package's tables. `LAZY
 test switch: never set it for an image anyone uses. Like `LAZYOS_TLS_TEST_CA`
 it is harness-only on purpose: `attack_run.py` sets it, and there is no
 `run_demo.py` flag or launcher GUI control for it.
+
+## LazyWeb+ (`os.lazy.lazywebplus`)
+
+[`docs/lazywebplus.md`](../docs/lazywebplus.md): LazyWeb's chrome on this engine. The same C++ UI process
+(`port/app/`: `main`, `engine`, `clients`, `policy`, `uiclient`, `paint`, `log`) links a different Rust
+window: `tools/webkit/app.py --plus` builds `xui-app/webplus` (`libxui_webplus.a`) and CMake links it
+into `lazywebplus-app` (`LAZYOS_PLUS_LIBRARY`, `PlatformLazyOS.cmake`); `webkit-app` still links
+`xui-app/crates/webkit`'s own window. What the UI process installs depends on `lzw_ui_features()`
+(`LZW_FEATURE_*`), so the W5 window, which asks for nothing, behaves exactly as before. The ABI grew by
+what LazyWeb's chrome needs from an engine that has scripts (all in `port/app/lazyos_ui.h`, each mirrored in
+`xui-app/crates/webkit/src/{abi,ffi,events}.rs` with host tests, and in `engine.rs`'s recording engine):
+
+| Need | ABI | WebKit side |
+|---|---|---|
+| Which features the window uses; the marker prefix; the profile directory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir` | read once, before the window thread exists |
+| Progress, the committed URL, the padlock, how a load ended | `lzw_ui_state` (`+committed_url`, `secure`, `finished`) | the page-state and navigation clients; `finished` counts `didFinishNavigation`, so a stop, a failure and a download are told apart |
+| The link under the pointer | `lzw_ui_hover` | `mouseDidMoveOverElement` |
+| The pointer shape | `lzw_ui_cursor` | the view client's `setCursor` (patch `0016` teaches it the I-beam, wait and resize arrows) |
+| Navigation policy: `mailto:` and other schemes to `mimed`, `x-lazyweb:` only from the browser's own pages, a user gesture for both | `lzw_ui_navigate(url, kind, user_gesture, committed_url)` | `decidePolicyForNavigationAction` with `WKNavigationActionHasUnconsumedUserGesture`; the decision is `xui-app/webplus/src/policy.rs`, pure and host-tested |
+| Downloads | `lzw_ui_download_start` (the window chooses the `.part` path in `$HOME/Downloads`), `_progress`, `_done`, `_fail`, `lzw_engine_download`, `lzw_engine_download_cancel` | `decidePolicyForNavigationResponse` (an attachment or a type the view cannot show) and the `WKDownload` client; the NetworkProcess writes the file |
+| JavaScript `alert`, `confirm`, `prompt` | `lzw_ui_dialog` (returns at once), `lzw_engine_dialog_reply` | the UI client's result listeners, retained until the window answers or the page goes away |
+| A new window | `lzw_ui_new_window` | `createNewPage` returns null; the window loads the URL in its one view when a gesture started the request |
+| Cookies and site data | `lzw_ui_profile_dir` (only with `LZW_FEATURE_PROFILE`; the W5 window gets `$HOME/.apps/os.lazy.webkit`) | `createDataStore` in `engine.cpp`: every directory of the store below the profile (`$HOME/.apps/os.lazy.lazywebplus` for LazyWeb+), the cookie jar at `cookies/cookie.jar.db`, the children started in it (the sandbox: `docs/architecture/process-sandbox.md`) |
+
+Markers: the UI process prints them after the window's prefix (`WEBKIT:W5` or `WEBPLUS`: `UP`,
+`WEBPROCESS:UP:<pid>`, `INFO:TIME:...`, `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`); with
+`LZW_FEATURE_OWN_MARKERS` the window prints the ones that name pages (`LOAD`, `TITLE`, ...).
+`python tools/webplus/run.py` is the harness (`tools/webplus/README.md`).

@@ -32,6 +32,7 @@ Examples
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
     python tools/run_demo.py --webkit        # desktop + networking + the WebKit browser (big-app profile, 1 GiB OS volume)
+    python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, LazyWeb's browser on WebKit (same profile)
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
@@ -89,6 +90,7 @@ from demo_qemu import device_env, sound_args  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
+    build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webkit, build_webkit_deps, build_webkit_port, build_wifi, build_xui_apps,
 )
@@ -281,9 +283,10 @@ def main(argv: list[str]) -> int:
             # The build cannot resize an OS volume: fit it to the selection, or
             # say now (not after the build) that it has to be recreated.
             wants = args.srb2kart or os.environ.get("LAZYOS_SRB2KART") == "1"
-            wants_webkit = (args.webkit or args.webkit_port
+            wants_webkit = (args.webkit or args.webkit_port or args.lazywebplus
                             or os.environ.get("LAZYOS_WEBKIT") == "1"
-                            or os.environ.get("LAZYOS_WEBKIT_PORT") == "1")
+                            or os.environ.get("LAZYOS_WEBKIT_PORT") == "1"
+                            or os.environ.get("LAZYOS_LAZYWEBPLUS") == "1")
             size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants, wants_webkit)
             if recreate:
                 have = (osvolume.existing_bytes(osvolume.DEFAULT_IMAGE) or 0) >> 20
@@ -323,6 +326,7 @@ def main(argv: list[str]) -> int:
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
                                       (args.webkit_port, build_webkit_port, "LAZYOS_WEBKIT_PORT"),
                                       (args.webkit, build_webkit, "LAZYOS_WEBKIT"),
+                                      (args.lazywebplus, build_lazywebplus, "LAZYOS_LAZYWEBPLUS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),

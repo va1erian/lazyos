@@ -29,6 +29,7 @@ Two modes:
 
     python tools/webkit/attack_run.py                  # kernel mode: build, boot, judge
     python tools/webkit/attack_run.py --browser        # the real UI process starts the stand-ins
+    python tools/webkit/attack_run.py --browser --app lazywebplus   # the same under LazyWeb+'s labels
     python tools/webkit/attack_run.py --no-build       # the image of the last run
     python tools/webkit/attack_run.py --judge-only DIR # judge a saved serial.log
 
@@ -57,28 +58,39 @@ from lazygui import limits  # noqa: E402
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
 OUT = ROOT / "shots" / "webkit-attack"
-ELF = ROOT / "target" / "xui" / "xui-webkit.elf"
+#: The browsers the harness can attack (``--app``): the package id (the label's prefix), the switch that
+#: ships it, the window program and the app that autostarts. LazyWeb+ starts the same two engine
+#: programs under labels of its own (``app:os.lazy.lazywebplus/<name>``), and its network process alone
+#: may write the Downloads folder (``attackjudge.expected``).
+APPS = {
+    "webkit": ("os.lazy.webkit", "LAZYOS_WEBKIT", "xui-webkit.elf", "webkit"),
+    "lazywebplus": ("os.lazy.lazywebplus", "LAZYOS_LAZYWEBPLUS", "xui-lazywebplus.elf", "lazywebplus"),
+}
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI",
          "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
-         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_WEBKIT", "LAZYOS_WEBKIT_ATTACK", "LAZYOS_DESKTOP")
+         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_WEBKIT", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBKIT_ATTACK",
+         "LAZYOS_DESKTOP")
 
 
-def build_image(mode: str) -> str | None:
-    """Build the test image for `mode`; an error message, or None."""
+def build_image(mode: str, app: str = "webkit") -> str | None:
+    """Build the test image for `mode` (and, in the browser's mode, browser `app`); an error message, or None."""
+    _, switch, elf_name, autostart = APPS[app]
+    elf = ROOT / "target" / "xui" / elf_name
     env = {k: v for k, v in os.environ.items() if k not in STALE}
     env.update(LAZYOS_LABEL_TRACE="1", LAZYOS_RESET_OS="1")
     if mode == "kernel":
         # The driver is the first program (`/system/bin/abi-init`), as for the ABI fixtures.
         env.update(LAZYOS_INIT=str(attack_build.OUT / "WebProcess"), LAZYOS_OS_SIZE="128M")
     else:
-        if not ELF.is_file():
-            return f"{ELF.relative_to(ROOT)} is not built (python tools/webkit/app.py, python tools/xui/build.py)"
+        if not elf.is_file():
+            plus = " --plus" if app == "lazywebplus" else ""
+            return f"{elf.relative_to(ROOT)} is not built (python tools/webkit/app.py{plus}, python tools/xui/build.py)"
         shell = busybox.ensure_busybox()
         if shell is None:
             return "no BusyBox for the shell (see tools/abi/busybox.py)"
-        env.update(LAZYOS_DESKTOP="1", LAZYOS_WEBKIT="1", LAZYOS_WEBKIT_ATTACK="1", LAZYOS_NETD="1",
-                   LAZYOS_NETD_ARGS="demo=0", LAZYOS_XUI_AUTOSTART="webkit", LAZYOS_UI_PROBE="1",
+        env.update({switch: "1"}, LAZYOS_DESKTOP="1", LAZYOS_WEBKIT_ATTACK="1", LAZYOS_NETD="1",
+                   LAZYOS_NETD_ARGS="demo=0", LAZYOS_XUI_AUTOSTART=autostart, LAZYOS_UI_PROBE="1",
                    LAZYOS_BUSYBOX=str(shell),
                    **limits.limit_env(limits.with_defaults(list(limits.WEBKIT_LIMITS), limits.BIG_APP_LIMITS)))
     switches = " ".join(f"{k}={v}" for k, v in sorted(env.items()) if k.startswith("LAZYOS_") and k != "LAZYOS_BUSYBOX")
@@ -102,9 +114,9 @@ def boot(mode: str, seconds: int, args) -> str:
     return log.read_text(errors="replace") if log.is_file() else ""
 
 
-def verdict(serial: str, mode: str) -> bool:
+def verdict(serial: str, mode: str, app: str = "webkit") -> bool:
     """Print the report; True when nothing got through."""
-    problems, rows = attackjudge.judge(serial, mode)
+    problems, rows = attackjudge.judge(serial, mode, APPS[app][0])
     if mode == "kernel":
         problems = attackjudge.driver_problems(serial) + problems
     for row in rows:
@@ -122,6 +134,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--browser", action="store_true", help="the real UI process starts the stand-ins")
     parser.add_argument("--kernel", action="store_true", help="the console driver (the default)")
+    parser.add_argument("--app", choices=sorted(APPS), default="webkit",
+                        help="with --browser: which browser's window and package labels to attack")
     parser.add_argument("--no-build", action="store_true", help="use the image of the last run")
     parser.add_argument("--judge-only", metavar="DIR", help="judge DIR/serial.log and stop")
     parser.add_argument("--seconds", type=int, help="how long to run the guest (default 60, 120 for the browser)")
@@ -133,10 +147,10 @@ def main() -> int:
 
     if args.judge_only:
         log = Path(args.judge_only) / "serial.log"
-        return 0 if verdict(log.read_text(errors="replace"), mode) else 1
+        return 0 if verdict(log.read_text(errors="replace"), mode, args.app) else 1
     if not args.no_build:
         attack_build.main()
-        error = build_image(mode)
+        error = build_image(mode, args.app)
         if error:
             print(f"ATTACK:HARNESS:FAIL {error}")
             return 1
@@ -145,7 +159,7 @@ def main() -> int:
     if not serial:
         print("ATTACK:HARNESS:FAIL no serial log (QEMU did not run)")
         return 1
-    return 0 if verdict(serial, mode) else 1
+    return 0 if verdict(serial, mode, args.app) else 1
 
 
 if __name__ == "__main__":

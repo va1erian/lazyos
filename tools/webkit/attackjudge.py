@@ -33,12 +33,17 @@ DRIVER = re.compile(r"^ATTACK:driver:(?P<what>\S+?)(?::(?P<rest>.*?))?\s*$", re.
 
 ROLES = ("webprocess", "networkprocess")
 
-#: The label of each role per mode: the real browser, and the kernel-only harness.
-LABELS = {
-    "browser": {"webprocess": "app:os.lazy.webkit/webprocess",
-                "networkprocess": "app:os.lazy.webkit/networkprocess"},
-    "kernel": {"webprocess": "app:os.lazy.sandbox-web", "networkprocess": "app:os.lazy.sandbox-net"},
-}
+#: The browsers the harness attacks: the package id of the WebKit window and of LazyWeb+ (both start the
+#: same two programs under labels of their own, `app:<id>/<name>`).
+APPS = ("os.lazy.webkit", "os.lazy.lazywebplus")
+DEFAULT_APP = APPS[0]
+
+
+def labels(mode: str, app: str = DEFAULT_APP) -> dict[str, str]:
+    """The label of each role: the real browser's (`app:<app>/<name>`), and the kernel-only harness's."""
+    if mode == "browser":
+        return {"webprocess": f"app:{app}/webprocess", "networkprocess": f"app:{app}/networkprocess"}
+    return {"webprocess": "app:os.lazy.sandbox-web", "networkprocess": "app:os.lazy.sandbox-net"}
 
 
 @dataclass(frozen=True)
@@ -78,16 +83,21 @@ _FILES = {
     "write_tmp": blocked(r"file=/tmp/sandbox-breach access=(write|stat)"),
     "unix_connect": blocked(r"file=/tmp/sandbox-probe\.sock access=write"),
 }
+#: A refused start is `spawn=process|exec` for a label of the kernel-only harness and `start=<call>` (the
+#: system call that tried: `fork`, `vfork`, `execve`, ...) for a child label of a package.
+_START = r"(spawn=(process|exec)|start=\w+)"
 _PROCESS = {
-    "exec_busybox": blocked(r"spawn=(process|exec)"),
-    "exec_native": blocked(r"spawn=(process|exec)"),
-    "fork": blocked(r"spawn=process"),
+    "exec_busybox": blocked(_START),
+    "exec_native": blocked(_START),
+    "fork": blocked(_START),
     "signal_parent": blocked(r"signal=other"),
     "resolve_display": blocked(r"resolve=os\.lazy\.display\.v1"),
     "resolve_input": blocked(r"resolve=os\.lazy\.input\.v1"),
     "resolve_clipboard": blocked(r"resolve=os\.lazy\.clipboard\.v1"),
 }
 _ABSENT = {"ptrace": ABSENT, "process_vm_readv": ABSENT}
+
+DOWNLOADS_DENY = r"file=/\S+/Downloads(/attack-probe)? access=(write|stat)"
 
 EXPECTED: dict[str, dict[str, Expect]] = {
     # Fonts, the machine's /proc and the random devices; nothing else, no network.
@@ -97,7 +107,8 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_dev_urandom": allowed(),
         "read_resolv_conf": blocked(r"file=/etc/resolv\.conf access=stat"),
         "read_ca_bundle": blocked(r"file=/etc/ssl/certs/ca-certificates\.crt access=stat"),
-        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.webkit)? access=(write|stat)"),
+        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.(webkit|lazywebplus))? access=(write|stat)"),
+        "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": blocked(r"net=inet"),
         "inet_serve": blocked(r"net=inet"),
         "tcp_connect": blocked(r"net=inet"),
@@ -112,6 +123,8 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_resolv_conf": allowed(browser_loose=True),
         "read_ca_bundle": allowed(browser_loose=True),
         "write_profile": allowed(),
+        # Blocked for WebKit's network process; LazyWeb+'s may save a download here (see `expected`).
+        "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": allowed(),
         "inet_serve": blocked(r"net=serve"),
         "tcp_connect": allowed(loose=True),
@@ -122,16 +135,26 @@ EXPECTED: dict[str, dict[str, Expect]] = {
     },
 }
 
+def expected(app: str = DEFAULT_APP) -> dict[str, dict[str, Expect]]:
+    """The table for `app`: LazyWeb+'s network process alone may write the user's Downloads folder (a
+    download's `.part` file is written by the process that fetches it)."""
+    table = {role: dict(rows) for role, rows in EXPECTED.items()}
+    if app == "os.lazy.lazywebplus":
+        table["networkprocess"]["write_downloads"] = allowed()
+    return table
+
+
 #: What a blocked probe's errno may be: the policy's `EPERM`, a Messenger refusal's `EACCES`,
 #: `ENOSYS` for what does not exist.
 POLICY_ERRNOS = {"1", "13"}
 ABSENT_ERRNO = "38"
 
 
-def judge(serial: str, mode: str = "kernel") -> tuple[list[str], list[str]]:
+def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[list[str], list[str]]:
     """``(problems, rows)`` for one boot's serial log: ``problems`` is empty when every probe of
     both roles did what the table says; ``rows`` are the per-probe lines of the report."""
-    labels = LABELS[mode]
+    table = expected(app)
+    role_labels = labels(mode, app)
     problems: list[str] = []
     rows: list[str] = []
     probes: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -140,7 +163,7 @@ def judge(serial: str, mode: str = "kernel") -> tuple[list[str], list[str]]:
     denies = [(m["label"], m["what"]) for m in DENY.finditer(serial)]
     for role in ROLES:
         reported = [m["label"] for m in LABEL_LINE.finditer(serial) if m["role"] == role]
-        want_label = labels[role]
+        want_label = role_labels[role]
         if not reported:
             problems.append(f"{role}: never started (no ATTACK:{role}:LABEL line)")
             continue
@@ -149,7 +172,7 @@ def judge(serial: str, mode: str = "kernel") -> tuple[list[str], list[str]]:
         if not any(m["role"] == role for m in DONE_LINE.finditer(serial)):
             problems.append(f"{role}: did not finish its probes (no DONE line)")
         mine = [what for label, what in denies if label == want_label]
-        for probe, expect in EXPECTED[role].items():
+        for probe, expect in table[role].items():
             seen = probes.get((role, probe), [])
             if len(seen) != 1:
                 problems.append(f"{role}.{probe}: reported {len(seen)} times, want once")
@@ -161,7 +184,7 @@ def judge(serial: str, mode: str = "kernel") -> tuple[list[str], list[str]]:
             if not ok:
                 breach = "BREACH " if expect.kind != "allowed" and verdict == "ALLOWED" else ""
                 problems.append(f"{role}.{probe}: {breach}{why}")
-        extra = sorted(p for (r, p) in probes if r == role and p not in EXPECTED[role])
+        extra = sorted(p for (r, p) in probes if r == role and p not in table[role])
         for probe in extra:
             problems.append(f"{role}.{probe}: not in the judge's table")
     return problems, rows

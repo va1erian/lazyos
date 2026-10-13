@@ -22,6 +22,7 @@ import fhspaths  # noqa: E402
 
 PROBE_SOURCE = ROOT / "tools" / "abi" / "fixtures" / "src" / "sandboxprobe.rs"
 MANIFEST = ROOT / "xui-app" / "packages" / "webkit" / "manifest.toml"
+PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
 
 #: What the kernel's label trace prints for each refused probe (`kernel/src/ipc/confine.rs`,
 #: `ipc/policy.rs`): the judge's patterns must match these.
@@ -29,6 +30,7 @@ TRACE = {
     "read_resolv_conf": "file=/etc/resolv.conf access=stat",
     "read_ca_bundle": "file=/etc/ssl/certs/ca-certificates.crt access=stat",
     "write_profile": "file=/home/user/.apps access=write",
+    "write_downloads": "file=/home/user/Downloads access=stat",
     "inet_socket": "net=inet",
     "inet_serve": "net=inet",
     "tcp_connect": "net=inet",
@@ -56,15 +58,15 @@ TRACE = {
 TRACE_NETWORK = {"read_home_dir": "file=/home/user access=read", "inet_serve": "net=serve"}
 
 
-def perfect(mode: str = "kernel", drop=(), tweak=None) -> str:
+def perfect(mode: str = "kernel", drop=(), tweak=None, app: str = judge.DEFAULT_APP) -> str:
     """A log of a sandbox that holds. `drop` removes probe lines, `tweak(role, probe, line)` edits them."""
     lines: list[str] = []
     if mode == "kernel":
         lines += ["ATTACK:driver:START:webprocess:app:os.lazy.sandbox-web"]
     for role in judge.ROLES:
-        label = judge.LABELS[mode][role]
+        label = judge.labels(mode, app)[role]
         lines.append(f"ATTACK:{role}:LABEL:{label}")
-        for probe, expect in judge.EXPECTED[role].items():
+        for probe, expect in judge.expected(app)[role].items():
             if (role, probe) in drop:
                 continue
             if expect.kind == "allowed":
@@ -93,6 +95,26 @@ class JudgeTests(unittest.TestCase):
     def test_a_sandbox_that_holds_passes_in_both_modes(self) -> None:
         for mode in ("kernel", "browser"):
             self.assertEqual(self.problems(perfect(mode), mode), [], mode)
+
+    def test_lazywebplus_is_judged_under_its_own_labels_and_may_save_downloads(self) -> None:
+        app = "os.lazy.lazywebplus"
+        log = perfect("browser", app=app)
+        found, _ = judge.judge(log, "browser", app)
+        self.assertEqual(found, [])
+        self.assertIn("app:os.lazy.lazywebplus/networkprocess", log)
+        # The WebKit window's labels do not satisfy the LazyWeb+ run, nor the other way round.
+        self.assertTrue(judge.judge(log, "browser")[0])
+        self.assertTrue(judge.judge(perfect("browser"), "browser", app)[0])
+        # Only the network process may write Downloads: the page process writing it is a breach.
+        log = perfect("browser", app=app, tweak=lambda r, p, line: (
+            line.replace("BLOCKED:1", "ALLOWED:ok") if (r, p) == ("webprocess", "write_downloads") else line))
+        found, _ = judge.judge(log, "browser", app)
+        self.assertTrue(any("webprocess.write_downloads" in f and "BREACH" in f for f in found), found)
+        # WebKit's own network process may not.
+        log = perfect("browser", tweak=lambda r, p, line: (
+            line.replace("BLOCKED:1", "ALLOWED:ok") if (r, p) == ("networkprocess", "write_downloads") else line))
+        found, _ = judge.judge(log, "browser")
+        self.assertTrue(any("networkprocess.write_downloads" in f and "BREACH" in f for f in found), found)
 
     def test_every_probe_has_a_trace_the_patterns_match(self) -> None:
         blocked = {p for table in judge.EXPECTED.values() for p, e in table.items() if e.kind == "blocked"}
@@ -223,7 +245,7 @@ class AgreementTests(unittest.TestCase):
 
     def test_the_browsers_labels_are_app_slash_process(self) -> None:
         app = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))["app"]["system_name"]
-        for role, label in judge.LABELS["browser"].items():
+        for role, label in judge.labels("browser").items():
             self.assertEqual(label, f"app:{app}/{role}")
 
     def test_the_page_process_may_not_read_what_the_network_process_may(self) -> None:
@@ -236,6 +258,24 @@ class AgreementTests(unittest.TestCase):
             self.assertNotIn(fhspaths.get("system::SYSTEM_BIN"), rule)
             self.assertNotEqual(rule.split(":", 1)[1], "/")
         self.assertTrue(all(not rule.startswith("write:") for rule in web))
+
+    def test_lazywebplus_declares_webkits_tables_plus_the_downloads_folder(self) -> None:
+        plus = tomllib.loads(PLUS_MANIFEST.read_text(encoding="utf-8"))
+        webkit = self.table()
+        self.assertEqual(plus["processes"]["webprocess"], webkit["webprocess"])
+        want = dict(webkit["networkprocess"])
+        want["files"] = [r.replace("os.lazy.webkit", "os.lazy.lazywebplus") for r in want["files"]]
+        want["files"].append("write:$HOME/Downloads")
+        got = plus["processes"]["networkprocess"]
+        self.assertEqual({**got, "files": sorted(got["files"])}, {**want, "files": sorted(want["files"])})
+        # ... and what the judge expects of it: the one extra grant, and nothing else is a write.
+        writes = [r for r in got["files"] if r.startswith("write:")]
+        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.lazywebplus", "write:$HOME/Downloads"])
+        self.assertEqual(judge.expected("os.lazy.lazywebplus")["networkprocess"]["write_downloads"].kind, "allowed")
+        self.assertEqual(plus["app"]["system_name"], "os.lazy.lazywebplus")
+        for table in plus["processes"].values():
+            self.assertLessEqual(set(table["files"]), set(plus["permissions"]["files"]))
+            self.assertLessEqual(set(table["network"]), set(plus["permissions"]["network"]))
 
 
 if __name__ == "__main__":

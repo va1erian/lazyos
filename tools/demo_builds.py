@@ -124,6 +124,16 @@ def build_webkit() -> bool:
             and build_xui_apps())
 
 
+def build_lazywebplus() -> bool:
+    """LazyWeb+ (`--lazywebplus`): the same bundle and port processes as `--webkit`, then
+    LazyWeb's window and the UI process (`tools/webkit/app.py --plus`), all in Docker, then the
+    xui apps, whose build packages `xui-lazywebplus.elf` as the core package
+    `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
+    return (build_webkit_port()
+            and required("the LazyWeb+ app", "webkit/app.py", ("--require", "--plus"))
+            and build_xui_apps())
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""

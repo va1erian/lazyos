@@ -11,6 +11,8 @@
 //! `sys/ui/menu` (the desktop context menu, followed live by `xuid`),
 //! `user/<uid>/menu/hidden/*` (the apps the start menu leaves out, read by
 //! LazyShell each time the menu opens),
+//! `user/<uid>/mimed/default/<type>` (which of two apps that handle a type opens it, read by
+//! `mimed` for each `Open`, [`defaults_ops`]),
 //! `sys/time/*` (the taskbar clock format, followed live by `xuid`) and
 //! the keyboard layout (the user's `user/<uid>/input/layout`, or the
 //! machine's `sys/input/layout` through `elevd`; followed live by `inputd`,
@@ -25,6 +27,8 @@ pub mod accounts_ops;
 pub mod accounts_page;
 pub mod app;
 pub mod appearance_page;
+pub mod defaults_ops;
+pub mod defaults_page;
 pub mod hidden_ops;
 pub mod hidden_page;
 pub mod keyboard;
@@ -32,6 +36,7 @@ pub mod keyboard_page;
 pub mod menu_ops;
 pub mod menu_page;
 pub mod sections;
+pub mod sidebar;
 pub mod store;
 pub mod system;
 pub mod theme_ops;

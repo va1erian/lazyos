@@ -158,6 +158,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         "lazysky",
         // WebKit, the browser, only with `LAZYOS_WEBKIT=1` (`webkit_embed`).
         "webkit",
+        // LazyWeb+, LazyWeb's chrome on WebKit, only with `LAZYOS_LAZYWEBPLUS=1`
+        // (`lazywebplus_embed`).
+        "lazywebplus",
         // Calculator: A basic calculator.
         "calc",
         // PDF Viewer: Read PDF documents.

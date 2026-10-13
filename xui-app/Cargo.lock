@@ -7046,6 +7046,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-webplus"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "xui-app",
+ "xui-canvas",
+ "xui-core",
+ "xui-webkit",
+]
+
+[[package]]
 name = "xui-writer"
 version = "0.1.0"
 dependencies = [

@@ -93,7 +93,7 @@ def configured() -> bool:
 def wants_webkit(cfg: dict) -> bool:
     """Whether a launcher configuration selects the browser or the console proof: the same three
     programs of about 107 MiB each."""
-    return bool(cfg.get("webkit") or cfg.get("webkit_port"))
+    return bool(cfg.get("webkit") or cfg.get("webkit_port") or cfg.get("lazywebplus"))
 
 
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:

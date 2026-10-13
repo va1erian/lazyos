@@ -15,6 +15,7 @@ pub enum Section {
     Time,
     About,
     Accounts,
+    Defaults,
 }
 
 impl Section {
@@ -22,8 +23,8 @@ impl Section {
     /// position: a new section moves the rows below it, so re-record their
     /// clicks. Hidden apps sits next to Menu (issue #509 §5), which moved
     /// Time & Date and About down one row; Accounts (docs/accounts-plan.md
-    /// U1) comes last, so no row moved.
-    pub const ALL: [Section; 8] = [
+    /// U1) comes next, and Default apps last, so no row moved.
+    pub const ALL: [Section; 9] = [
         Section::Appearance,
         Section::Windows,
         Section::Keyboard,
@@ -32,6 +33,7 @@ impl Section {
         Section::Time,
         Section::About,
         Section::Accounts,
+        Section::Defaults,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -44,6 +46,7 @@ impl Section {
             Section::Hidden => "Hidden apps",
             Section::About => "About",
             Section::Accounts => "Accounts",
+            Section::Defaults => "Default apps",
         }
     }
 
@@ -57,6 +60,7 @@ impl Section {
             Section::Hidden => Lucide::EyeOff,
             Section::About => Lucide::Info,
             Section::Accounts => Lucide::Users,
+            Section::Defaults => Lucide::ExternalLink,
         }
     }
 

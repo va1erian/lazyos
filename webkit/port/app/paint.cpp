@@ -37,7 +37,7 @@ void paintNow(void*)
     lzw_ui_frame(E.pixels.data(), E.width, E.height);
     if (E.firstPaintMs < 0 && E.committedSincePaint) {
         E.firstPaintMs = elapsedMs();
-        say("WEBKIT:W5:INFO:TIME:firstpaint=%ld:sincecommit=%ld:sincenav=%ld", E.firstPaintMs, E.firstPaintMs - E.commitMs,
+        say("INFO:TIME:firstpaint=%ld:sincecommit=%ld:sincenav=%ld", E.firstPaintMs, E.firstPaintMs - E.commitMs,
             E.firstPaintMs - E.navStartMs);
     }
 }

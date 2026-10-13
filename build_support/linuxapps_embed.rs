@@ -99,6 +99,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
     println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
     if switch_on("LAZYOS_DYNLINK") {
         let built = manifest_dir.join(DYNLINK_BUILT);
@@ -157,6 +158,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
         ("LAZYOS_WEBKIT", WEBKIT_PROCESSES),
+        ("LAZYOS_LAZYWEBPLUS", WEBKIT_PROCESSES),
     ] {
         if !switch_on(switch) {
             continue;
@@ -164,8 +166,9 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         // The sandbox attack harness (`tools/webkit/attack_run.py`): the browser's two engine
         // processes are replaced by a stand-in that attacks from inside their labels. Never
         // for an image anyone uses: it is a test fixture, and says so.
-        let attack = switch == "LAZYOS_WEBKIT" && switch_on("LAZYOS_WEBKIT_ATTACK");
-        let (built, builder) = if switch == "LAZYOS_WEBKIT" {
+        let browser = matches!(switch, "LAZYOS_WEBKIT" | "LAZYOS_LAZYWEBPLUS");
+        let attack = browser && switch_on("LAZYOS_WEBKIT_ATTACK");
+        let (built, builder) = if browser {
             crate::webkit_embed::engine_source(attack)
         } else {
             (WEBKIT_BUILT, "tools/webkit/port.py")

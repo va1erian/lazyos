@@ -77,8 +77,18 @@ fn io_attempt<T>(result: io::Result<T>) -> Attempt {
 /// lines in a ten second window: the probes are paced so that none is dropped.
 const PACE: std::time::Duration = std::time::Duration::from_millis(350);
 
+/// Under the real browser both engine processes probe at once, so each paces itself twice as slowly to
+/// keep the two together under the label trace's rate limit (the kernel-only harness runs one at a time).
+fn pace() -> std::time::Duration {
+    if std::env::var_os("LAZYOS_WEBKIT_PROFILE").is_some() {
+        PACE * 2
+    } else {
+        PACE
+    }
+}
+
 fn say(role: &str, probe: &str, attempt: Attempt) {
-    std::thread::sleep(PACE);
+    std::thread::sleep(pace());
     match attempt {
         Ok(()) => println!("ATTACK:{role}:{probe}:ALLOWED:ok"),
         Err(code) if matches!(code, EPERM | EACCES | ENOSYS) => {
@@ -199,10 +209,17 @@ fn main() {
         "read_ca_bundle",
         io_attempt(File::open("/etc/ssl/certs/ca-certificates.crt")),
     );
+    // The profile folder the browser's UI process named for its children (`LAZYOS_WEBKIT_PROFILE`:
+    // `.apps/os.lazy.webkit` for WebKit, `.apps/os.lazy.lazywebplus` for LazyWeb+); the kernel-only
+    // harness has none and uses WebKit's.
+    let profile = std::env::var("LAZYOS_WEBKIT_PROFILE")
+        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webkit"));
+    say(role, "write_profile", write_probe(&profile, "attack-probe"));
+    // LazyWeb+'s network process may save downloads here; nothing else may.
     say(
         role,
-        "write_profile",
-        write_probe(&format!("{home}/.apps/os.lazy.webkit"), "attack-probe"),
+        "write_downloads",
+        write_probe(&format!("{home}/Downloads"), "attack-probe"),
     );
     say(role, "inet_socket", inet_socket());
     say(role, "inet_serve", inet_serve());
