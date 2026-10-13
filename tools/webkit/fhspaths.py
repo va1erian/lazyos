@@ -39,6 +39,36 @@ OPENSSL_DIR = get("etc::LINUX_SSL")
 CA_BUNDLE = get("etc::LINUX_CA_BUNDLE")
 TMP = get("mount::TMP")
 
+PROGRAM = re.compile(r'^\s*(\w+) = "([^"]+)";', re.M)
+
+
+def program(name: str) -> str:
+    """The image path of a program named in ``libs/fhs/src/bin.rs`` (``WEBPROCESS`` ->
+    ``/system/bin/webprocess``)."""
+    names = dict(PROGRAM.findall((FHS / "bin.rs").read_text(encoding="utf-8")))
+    return f"{get('system::SYSTEM_BIN')}/{names[name]}"
+
+
+#: What the WebKit port's C++ gets as ``-D`` macros (``port_cmake.options``; the sources refuse to
+#: compile without them): the programs the launcher and the smoke program start, and the CA bundle.
+WEBKIT_DEFINES = {"LAZYOS_WEBPROCESS_PATH": program("WEBPROCESS"),
+                  "LAZYOS_NETWORKPROCESS_PATH": program("NETWORKPROCESS"),
+                  "LAZYOS_CA_BUNDLE_PATH": CA_BUNDLE}
+#: The ``@NAME@`` paths of ``webkit/port/fonts.conf.in``.
+FONTS_CONF_VALUES = {"FONT_DIR": FONT_DIR, "FONT_CACHE_DIR": FONT_CACHE_DIR}
+
+
+def fonts_conf(template: str) -> str:
+    """`template` with its ``@NAME@`` placeholders filled in; a placeholder left over is an error."""
+    text = template
+    for name, value in FONTS_CONF_VALUES.items():
+        text = text.replace(f"@{name}@", value)
+    left = re.findall(r"@\w+@", text)
+    if left:
+        raise KeyError(f"fonts.conf.in has placeholders without a value: {left}")
+    return text
+
+
 #: What ``proof.py`` hands the C++ proof as ``-D`` macros (checked in ``depsproof/proof.h``).
 PROOF_DEFINES = {"DEPSPROOF_CA_BUNDLE": CA_BUNDLE, "DEPSPROOF_FONT_CACHE_DIR": FONT_CACHE_DIR,
                  "DEPSPROOF_TMP": TMP}

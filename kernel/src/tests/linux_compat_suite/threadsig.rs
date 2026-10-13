@@ -8,10 +8,12 @@ use crate::task::signal::{self, Disposition, SigInfo};
 use crate::task::wait::WaitQueue;
 use crate::task::{TaskState, WaitKind, WakeReason};
 
+mod count;
 mod group;
 mod restart;
 mod soak;
 
+pub use count::{threadsig_count_soak, threadsig_counts_sent_signals};
 use group::*;
 pub use restart::threadsig_sibling_takes_the_signal_without_interrupting;
 pub use soak::threadsig_soak;

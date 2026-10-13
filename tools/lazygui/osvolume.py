@@ -11,8 +11,7 @@ the very last build step. This works the size out first, shared by the GUI
 * an existing image that is too small has to be recreated (``--reset-os``).
 
 The sizes mirror `build_support/os_disk.rs` (`DEFAULT_OS_SIZE`,
-`SRB2KART_OS_SIZE`, `OS_START_LBA`). "Large" selections are SRB2Kart (its game data) and
-the WebKit browser (three static programs of about 108 MB).
+`SRB2KART_OS_SIZE`, `WEBKIT_OS_SIZE`, `OS_START_LBA`).
 """
 
 from __future__ import annotations
@@ -26,17 +25,21 @@ MIB = 1 << 20
 SECTOR = 512
 #: Where the OS volume starts in the MBR disk (`os_disk::OS_START_LBA`).
 OS_START_LBA = 131_072
-#: `os_disk::DEFAULT_OS_SIZE` and `SRB2KART_OS_SIZE`.
+#: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_OS_SIZE` and `WEBKIT_OS_SIZE`.
 DEFAULT_SIZE = 512 * MIB
 SRB2KART_SIZE = 1024 * MIB
+WEBKIT_SIZE = 1024 * MIB
 
 _TABLE = 0x1BE
 _ENTRY = 16
 
 
-def required_bytes(srb2kart: bool) -> int:
-    """The OS volume size a selection needs when none is configured."""
-    return SRB2KART_SIZE if srb2kart else DEFAULT_SIZE
+def required_bytes(srb2kart: bool, webkit: bool = False) -> int:
+    """The OS volume size a selection needs when none is configured (the largest of
+    what each selected feature needs, as `os_disk::default_size`)."""
+    if srb2kart:
+        return SRB2KART_SIZE
+    return WEBKIT_SIZE if webkit else DEFAULT_SIZE
 
 
 def existing_bytes(image: Path) -> int | None:
@@ -58,13 +61,13 @@ def existing_bytes(image: Path) -> int | None:
     return None
 
 
-def plan(image: Path, srb2kart: bool) -> tuple[int | None, bool]:
+def plan(image: Path, srb2kart: bool, webkit: bool = False) -> tuple[int | None, bool]:
     """``(size to ask for, whether the volume must be recreated)``.
 
     The size is ``None`` when the default is right (no image yet, or one of
     exactly the needed size).
     """
-    need = required_bytes(srb2kart)
+    need = required_bytes(srb2kart, webkit)
     have = existing_bytes(image)
     if have is None or have == need:
         return None, False
@@ -73,13 +76,13 @@ def plan(image: Path, srb2kart: bool) -> tuple[int | None, bool]:
     return need, True
 
 
-def too_small(image: Path, srb2kart: bool) -> tuple[int, int] | None:
+def too_small(image: Path, srb2kart: bool, webkit: bool = False) -> tuple[int, int] | None:
     """``(have MiB, need MiB)`` when ``image``'s OS volume cannot hold the
     selection and must be recreated, else ``None``."""
-    _size, reset = plan(image, srb2kart)
+    _size, reset = plan(image, srb2kart, webkit)
     if not reset:
         return None
-    return (existing_bytes(image) or 0) // MIB, required_bytes(srb2kart) // MIB
+    return (existing_bytes(image) or 0) // MIB, required_bytes(srb2kart, webkit) // MIB
 
 
 def configured() -> bool:
@@ -87,9 +90,10 @@ def configured() -> bool:
     return bool(os.environ.get("LAZYOS_OS_SIZE", "").strip())
 
 
-def large(cfg: dict) -> bool:
-    """Whether a launcher configuration selects a feature that needs the large volume."""
-    return bool(cfg.get("srb2kart") or cfg.get("webkit"))
+def wants_webkit(cfg: dict) -> bool:
+    """Whether a launcher configuration selects the browser or the console proof: the same three
+    programs of about 107 MiB each."""
+    return bool(cfg.get("webkit") or cfg.get("webkit_port"))
 
 
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
@@ -97,7 +101,7 @@ def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
     when the existing image cannot hold the selection, else ``None``."""
     if configured() or cfg.get("skip_build"):
         return None
-    return too_small(Path(image), large(cfg))
+    return too_small(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
 
 
 def check(cfg: dict, image: str | Path) -> None:
@@ -119,7 +123,7 @@ def env(cfg: dict, image: str | Path) -> dict[str, str]:
     or the caller set one."""
     if configured():
         return {}
-    size, _reset = plan(Path(image), large(cfg))
+    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
     return {"LAZYOS_OS_SIZE": str(size)} if size else {}
 
 

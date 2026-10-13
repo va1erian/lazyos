@@ -232,7 +232,13 @@ pub(super) fn sys_tkill(tid: u64, sig: u64) -> u64 {
     let me = task::current();
     let info = signal::SigInfo::user(me, signal::SI_TKILL);
     match signal::send_tid(me, tid as usize, sig as u8, info) {
-        Ok(()) => 0,
+        Ok(()) => {
+            // Signal 0 only probes the thread; it sends nothing.
+            if sig != 0 {
+                task::linuxstate::note_thread_signal();
+            }
+            0
+        }
         Err(error) => signal_err(error),
     }
 }

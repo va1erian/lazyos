@@ -81,6 +81,13 @@ list(APPEND WebCore_LIBRARIES
     WPE::libwpe
 )
 
+# The CA bundle's path in the image, from libs/fhs (tools/webkit/port_cmake.py passes it).
+if (NOT LAZYOS_CA_BUNDLE_PATH)
+    message(FATAL_ERROR "LAZYOS_CA_BUNDLE_PATH is not set (tools/webkit/port_cmake.py passes it from libs/fhs)")
+endif ()
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/platform/network/lazyos/CurlSSLHandleLazyOS.cpp"
+    PROPERTIES COMPILE_DEFINITIONS "LAZYOS_CA_BUNDLE_PATH=\"${LAZYOS_CA_BUNDLE_PATH}\"")
+
 list(APPEND WebCore_PRIVATE_FRAMEWORK_HEADERS
     rendering/playstation/RenderThemePlayStation.h
 )

@@ -13,10 +13,14 @@
 //   WEBKIT:W4:TITLE:<title>               the page's title, from the WebProcess
 //   WEBKIT:W4:PAINT:<w>x<h>:<crc32>       the painted bitmap (and INFO lines on how much of it)
 //   WEBKIT:W4:FAIL:<stage>:<reason>       the first thing that went wrong, then exit status 1
-//   WEBKIT:W4:PASS                        the title callback fired for the data URL
+//   WEBKIT:W4:PASS                        the title callback fired for the data URL and the page
+//                                         painted ink (a page that never painted is a FAIL)
 //
 // The processes' paths come from the environment (LAZYOS_WEBPROCESS, LAZYOS_NETWORKPROCESS)
-// or are the ones the image installs; argv[1] and argv[2] override the two URLs.
+// or are the ones the image installs (LAZYOS_WEBPROCESS_PATH and LAZYOS_NETWORKPROCESS_PATH, set
+// by the build from libs/fhs). argv[1] and argv[2] override the two URLs; with an argv[2] the
+// title only has to be non-empty (the default page's title is "hello lazyos"). The watchdog gives
+// up after WEBKIT_SMOKE_TIMEOUT seconds (default 90).
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -53,9 +57,17 @@ namespace {
 
 constexpr int kWidth = 800;
 constexpr int kHeight = 600;
-constexpr unsigned kTimeoutSeconds = 90;
+constexpr unsigned kDefaultTimeoutSeconds = 90;
 constexpr unsigned kSettleMilliseconds = 1500;
 constexpr const char* kDefaultTitle = "hello lazyos";
+
+// The build sets these from libs/fhs (tools/webkit/port_cmake.py, WebKit/PlatformLazyOS.cmake).
+#ifndef LAZYOS_WEBPROCESS_PATH
+#error "LAZYOS_WEBPROCESS_PATH must name the image's webprocess (libs/fhs)"
+#endif
+#ifndef LAZYOS_NETWORKPROCESS_PATH
+#error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
+#endif
 
 struct State {
     WKViewRef view { nullptr };
@@ -68,6 +80,8 @@ struct State {
     int titlePolls { 0 };
     long upMs { 0 }, aboutMs { 0 }, dataMs { 0 }, titleMs { 0 };
     bool titleSeen { false };
+    bool customPage { false }; // argv[2] named the page: any title will do
+    unsigned timeoutSeconds { kDefaultTimeoutSeconds };
     const char* stage { "init" };
 } state;
 
@@ -132,8 +146,8 @@ uint32_t crc32(const unsigned char* data, size_t size)
 // A thread that gives up: a hung WebProcess must not hang the harness.
 void* watchdog(void*)
 {
-    sleep(kTimeoutSeconds);
-    say("WEBKIT:W4:FAIL:%s:timeout after %u s", state.stage, kTimeoutSeconds);
+    sleep(state.timeoutSeconds);
+    say("WEBKIT:W4:FAIL:%s:timeout after %u s", state.stage, state.timeoutSeconds);
     _exit(1);
     return nullptr;
 }
@@ -182,7 +196,14 @@ void paintAndFinish(void*)
             }
         }
     }
-    if (drawn) {
+    // A page that never painted is not a pass: the whole point is that its pixels arrived.
+    if (!drawn) {
+        say("WEBKIT:W4:INFO:PAINT:pixels=0:displayCallbacks=%d", state.displayCallbacks);
+        fail("paint", "nothing arrived");
+    }
+    if (!ink)
+        fail("paint", "the page is blank (no ink)");
+    {
         say("WEBKIT:W4:PAINT:%dx%d:%08x", kWidth, kHeight, crc32(pixels.data(), pixels.size()));
         say("WEBKIT:W4:INFO:PAINT:pixels=%zu:displayCallbacks=%d", drawn, state.displayCallbacks);
         say("WEBKIT:W4:INFO:INK:pixels=%zu:bbox=%d,%d,%d,%d", ink, x0, y0, x1, y1);
@@ -198,8 +219,7 @@ void paintAndFinish(void*)
             row[n] = 0;
             say("WEBKIT:W4:INFO:ART:%s|", row);
         }
-    } else
-        say("WEBKIT:W4:INFO:PAINT:nothing arrived (displayCallbacks=%d)", state.displayCallbacks);
+    }
     say("WEBKIT:W4:INFO:TIME:up=%ld:about=%ld:data=%ld:title=%ld:paint=%ld", state.upMs, state.aboutMs, state.dataMs,
         state.titleMs, elapsedMs());
     say("WEBKIT:W4:PASS");
@@ -246,7 +266,7 @@ void* retitle(void*)
 void checkTitle(void*)
 {
     std::string text = currentTitle();
-    if (text == kDefaultTitle) {
+    if (state.customPage ? !text.empty() : text == kDefaultTitle) {
         state.titleMs = elapsedMs();
         say("WEBKIT:W4:TITLE:%s", text.c_str());
         state.titleSeen = true;
@@ -255,7 +275,7 @@ void checkTitle(void*)
     }
     if (++state.titlePolls > 40) {
         say("WEBKIT:W4:TITLE:%s", text.c_str());
-        fail("title", "the title is not the one the page set");
+        fail("title", state.customPage ? "the page has no title" : "the title is not the one the page set");
     }
     pthread_t thread;
     if (pthread_create(&thread, nullptr, retitle, nullptr) != 0)
@@ -315,12 +335,22 @@ void reportFonts()
         FcPatternDestroy(pattern);
     }
     say("%s", line.c_str());
+    FcConfigDestroy(config);
 }
 
 std::string environment(const char* name, const char* fallback)
 {
     const char* value = getenv(name);
     return value && *value ? value : fallback;
+}
+
+// WEBKIT_SMOKE_TIMEOUT seconds, when it is a positive number.
+unsigned timeoutFromEnvironment()
+{
+    const char* text = getenv("WEBKIT_SMOKE_TIMEOUT");
+    char* end = nullptr;
+    unsigned long seconds = text && *text ? strtoul(text, &end, 10) : 0;
+    return seconds > 0 && end && !*end && seconds < 86400 ? static_cast<unsigned>(seconds) : kDefaultTimeoutSeconds;
 }
 
 } // namespace
@@ -330,8 +360,11 @@ int main(int argc, char** argv)
     setvbuf(stdout, nullptr, _IOLBF, 0);
     if (argc > 1)
         state.firstUrl = argv[1];
-    if (argc > 2)
+    if (argc > 2) {
         state.secondUrl = argv[2];
+        state.customPage = true;
+    }
+    state.timeoutSeconds = timeoutFromEnvironment();
 
     pthread_t guard;
     pthread_create(&guard, nullptr, watchdog, nullptr);
@@ -345,8 +378,8 @@ int main(int argc, char** argv)
 
     state.stage = "context";
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();
-    WKStringRef webPath = makeString(environment("LAZYOS_WEBPROCESS", "/system/bin/webprocess"));
-    WKStringRef networkPath = makeString(environment("LAZYOS_NETWORKPROCESS", "/system/bin/networkprocess"));
+    WKStringRef webPath = makeString(environment("LAZYOS_WEBPROCESS", LAZYOS_WEBPROCESS_PATH));
+    WKStringRef networkPath = makeString(environment("LAZYOS_NETWORKPROCESS", LAZYOS_NETWORKPROCESS_PATH));
     WKContextConfigurationSetWebProcessPath(configuration, webPath);
     WKContextConfigurationSetNetworkProcessPath(configuration, networkPath);
     state.context = WKContextCreateWithConfiguration(configuration);

@@ -21,9 +21,10 @@
 //!
 //! `LAZYOS_WEBKIT_PORT=1` embeds the WebKit port's console proof (`tools/webkit/port.py`,
 //! W4): the `WebProcess` and `NetworkProcess` it launches, the headless UI process
-//! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf` at
-//! `fhs::etc::FONTS_CONF`). `LAZYOS_WEBKIT=1` is the browser (`webkit_embed`, W5): the same two
-//! processes and configuration, without the proof, beside the app's core package.
+//! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf.in`,
+//! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_WEBKIT=1` is the browser
+//! (`webkit_embed`, W5): the same two processes and configuration, without the proof, beside
+//! the app's core package.
 
 use std::path::Path;
 
@@ -66,8 +67,9 @@ const WEBKIT_PORT_PROGRAMS: &[(&str, &str)] = &[
     ("NetworkProcess", fhs::bin::NETWORKPROCESS),
     ("webkit-smoke", fhs::bin::WEBKIT_SMOKE),
 ];
-/// The Fontconfig configuration of those programs (a checked-in file).
-const WEBKIT_FONTS_CONF: &str = "webkit/port/fonts.conf";
+/// The Fontconfig configuration of those programs, written beside them from the template
+/// `webkit/port/fonts.conf.in` and the paths of `libs/fhs` (`tools/webkit/port_cmake.py`).
+const WEBKIT_FONTS_CONF: &str = "target/webkit/fonts.conf";
 /// The Liberation fonts (`assets/manifest.txt` installs them in desktop images only): a
 /// console image with the WebKit port has no other fonts, and a page without fonts has no text.
 const WEBKIT_FONTS: &str = "assets/fonts/liberation";
@@ -141,8 +143,16 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             "tools/webkit/port.py",
         );
         let conf = manifest_dir.join(WEBKIT_FONTS_CONF);
+        // Watched even when missing: a port built later rebuilds the image.
         println!("cargo:rerun-if-changed={}", conf.display());
-        sink.add_file(fhs::etc::FONTS_CONF, conf);
+        if conf.is_file() {
+            sink.add_file(fhs::etc::FONTS_CONF, conf);
+        } else {
+            println!(
+                "cargo:warning=LAZYOS_WEBKIT: {} not built, no fonts.conf (run tools/webkit/port.py)",
+                conf.display()
+            );
+        }
         embed_fonts(sink, &manifest_dir.join(WEBKIT_FONTS));
     }
 }

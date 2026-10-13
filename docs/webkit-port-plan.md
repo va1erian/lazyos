@@ -36,8 +36,8 @@ tools/jsc/build.py` then `python tools/jsc/run.py`):
 | Classes, private fields, Promises, async generators, `Intl.NumberFormat`, `toUpperCase` | `JSC:RUN:PASS:promise` |
 | `jsc-jit` (`build.py --jit`) | `ENABLE_JIT=ON`, `ENABLE_C_LOOP=OFF`, LLInt in assembly, baseline and DFG; **FTL off** (B3 does not build with WebAssembly off at this revision); **52.0 MiB**; incremental build 7 minutes, two small source patches (below) |
 | JIT speedup over `jsc` in the guest (WHPX, one CPU, `tier:dfg` confirmed) | `gc` script 1.8x to 2.1x, `hot` (fib(30), a 20 M-iteration loop, a 60 k sort) 2.6x to 2.7x, four SharedArrayBuffer agents 1.8x to 2.5x; `promise` (short, 130 ms) 0.8x and the timer-bound `suspend` script 1.0x: the JIT's start-up cost shows where there is nothing to compile. Runs on a loaded host vary by about 20%; native Linux gets 4x on the same `hot` code, so the guest loses part of it (one CPU: the compile thread competes with the mutator) |
-| `JSTests/stress` subset (`tools/jsc/stress.py`, 255 files starting `g` or `n`, 262 KiB, WebKit commit of the `webkitgtk-2.54.1` tag) | **254/255 in `jsc` and 254/255 in `jsc-jit`** (99.6%), each file with a 10 s limit, about 58 s per shell. The one failure in both is `get-array-length-reuse.js` (`//@ memoryHog!`): it zero-fills a 2 GiB typed array in a 2 GiB guest, so the frame allocator runs out and the process dies with `SIGSEGV` (Linux would OOM-kill it). With `--memory 4G` both shells pass **255/255**. The judge requires 98% |
-| Per-thread signal path (§4.2) with the real consumer | seen: the `suspend` script (main thread idle in the run loop on timers, collector working) makes the collector thread `tkill` the main thread with `SIGUSR1`, 32 sends in `jsc` and 24 in `jsc-jit`, each answered by the handler (`rt_sigsuspend`, `rt_sigreturn`); not by `agents` or `gc`, see §4.2 |
+| `JSTests/stress` subset (`tools/jsc/stress.py`, 255 files starting `g` or `n`, 262 KiB, WebKit commit of the `webkitgtk-2.54.1` tag) | **254/255 in `jsc` and 254/255 in `jsc-jit`** (99.6%), each file with a 10 s limit, about 58 s per shell. The one failure in both is `get-array-length-reuse.js` (`//@ memoryHog!`): it zero-fills a 2 GiB typed array in a 2 GiB guest, so the frame allocator runs out and the process dies with `SIGSEGV` (Linux would OOM-kill it). With `--memory 4G` both shells pass **255/255**. The judge requires 98% of the files and fails on any failing name but that one |
+| Per-thread signal path (§4.2) with the real consumer | **guarded**: the `suspend` script (main thread idle in the run loop on timers, collector working) makes the collector thread `tkill` the main thread with `SIGUSR1`; the kernel counts thread-directed sends per process (`LazyOS_ThreadSignals` in `/proc/self/status`), the script prints it (`JSC:SIGNALS:suspend:<n>`) and the judge requires more than zero in both shells (last run: 32 in `jsc`, 24 in `jsc-jit`, 0 in `gc`). That the handler runs is `suspend`'s output; not sent by `agents` or `gc`, see §4.2 |
 | `sched_setattr` (314) | implemented with `sched_getattr` (315); no `ENOSYS 314` line in the run |
 
 Built in Docker (`tools/jsc/Dockerfile`, Debian 12 with zig from pip): a
@@ -157,11 +157,16 @@ and the handler running (`rt_sigsuspend`, `rt_sigreturn`). Four
 main thread calls `fullGC()` send **no** signal: each agent is a VM with a
 heap of its own, so no collector has to stop another thread, and a script that
 calls `fullGC()` itself stops at a safepoint. The earlier claim that a single
-JS thread never uses the signal was wrong for the idle case. The evidence was a
-temporary `serial_println!` in `sys_tkill` (not committed): 32 and 24 sends in
-the `suspend` script for `jsc` and `jsc-jit`, 16 in two of the stress files
-(`get-by-val-hoist-above-structure*.js`, which also wait on timers), none in
-`gc`, `hot` or `agents`.
+JS thread never uses the signal was wrong for the idle case. The first
+evidence was a temporary `serial_println!` in `sys_tkill` (not committed): 32
+and 24 sends in the `suspend` script for `jsc` and `jsc-jit`, 16 in two of the
+stress files (`get-by-val-hoist-above-structure*.js`, which also wait on
+timers), none in `gc`, `hot` or `agents`. It is now a permanent guard: the
+kernel keeps a per-process count of `tkill`/`tgkill` sends, `/proc/self/status`
+shows it as `LazyOS_ThreadSignals`, the `gc` and `suspend` scripts print it as
+their last line and the fixture reports `JSC:SIGNALS:<name>:<n>`; the judge
+requires `suspend` to be above zero in both shells, so a collector that stops
+suspending with signals (or a kernel that stops delivering them) fails the run.
 
 ### 4.3 Executable memory (#773)
 
@@ -321,7 +326,7 @@ non-composited renderer (read from the code, not yet run).
 **Decisions.** *Raster:* Skia, because it is the only backend GTK and WPE still
 build and the CPU path is a supported configuration, not a patch; Cairo plus
 pixman would be a revival of code the ports dropped. Built from the tarball in
-63 s on 20 cores. *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
+under a minute on 20 cores (53 s in the table below). *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
 SubtleCrypto are written against the OpenSSL API (`CurlSSLVerifier`,
 `OpenSSLHelper`, `crypto/openssl`), so Mbed TLS or rustls would mean
 rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (LazyWeb's
@@ -368,13 +373,13 @@ slower handshakes.
   host (`target/webkit/depsproof.host.txt`), the page curl fetched over
   TLS 1.3 (3037 bytes, verified against the harness CA in the image's bundle,
   SNI `tls.test`) to be the one the host server holds, and the server to have seen
-  exactly that handshake and request.
+  a completed TLS 1.3 handshake with that SNI and a request for `/` from `depsproof`.
 * **One deviation from upstream, found by running it:** on LazyOS
   `mmap(fd, PROT_READ, MAP_PRIVATE)` of a file fails (the file-backed `mmap`
   of §6). Skia's fontconfig font manager maps font files with
   `SkData::MakeFromFileName`, has no fallback, and so refused every font
   (`FontAccessible()`: `matchFamilyStyle` returned null although Fontconfig and
-  FreeType alone worked). `skiabuild/lazyos_mmap.c` (35 lines, linked into
+  FreeType alone worked). `skiabuild/lazyos_mmap.c` (linked into
   `libSkia.a`; `SkOSFile_posix.cpp` is compiled with `-Dmmap=lazyos_mmap`) copies the file
   into an anonymous mapping when the kernel cannot map it. No source file of any
   tarball is patched (`tools/webkit/patches/` is empty). The fix that removes the shim is the
@@ -421,14 +426,14 @@ then `python tools/webkit/port.py` and `python tools/webkit/port_run.py`):
 |---|---|
 | Configuration | `PORT=LazyOS`: curl and OpenSSL (the bundle's 3.5), Skia on the CPU, FreeType/Fontconfig/HarfBuzz, libwpe's types, the generic run loop, `USE_COORDINATED_GRAPHICS`, **JIT on** (LLInt, baseline, DFG; no FTL), static JSC, system malloc, no video, WebGL, WebRTC, Web Audio, WebAssembly, GPU process, sandbox, remote inspector |
 | Compiled and linked | all of WTF, bmalloc, JavaScriptCore, PAL, Skia, WebCore and WebKit (8288 ninja steps, unified sources); `WebProcess` **107.4 MiB**, `NetworkProcess` **107.4 MiB**, `webkit-smoke` **104.4 MiB**, stripped static-PIE (ICU's 30 MB of data is in each) |
-| Build | **9 min 19 s** from a fresh container state on a 20-core host with 15 GiB for Docker (extraction, 11 patches, 85 fetched files, configure, 8288 steps at `-j13`: 8 min 7 s, link, strip, the host run); zig's cache wiped first. A rebuild after editing one port file: seconds |
+| Build | **9 min 19 s** from a fresh container state on a 20-core host with 15 GiB for Docker (extraction, 11 patches, 77 fetched files, configure, 8288 steps at `-j13`: 8 min 7 s, link, strip, the host run); zig's cache wiped first. A rebuild after editing one port file: seconds |
 | On LazyOS (WHPX, 4 GiB, console image with networking) | `WEBKIT:W4:UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, `LOAD:about:blank`, `LOAD:data:text/html,...`, `TITLE:hello lazyos`, `PAINT:800x600:6cf525bf`, `PASS`; from `exec` of `webkit-smoke` to the first finished load 3.7 s (two 107 MB ELFs read whole, a fork and exec each, JSC and Skia initialised), the data page 50 ms later |
 | The same programs on the Linux build host | the same checksum, the same ink (42 pixels, `x` at 8,15 to 15,22): `port.py` runs `webkit-smoke` once in the container (`target/webkit/smoke.host.txt`) and `port_run.py` requires the guest to equal it, so layout, fonts, Skia and the IPC compute the same page on LazyOS as on Linux |
 
 *What had to be written.* The tarball is GTK's (libsoup, GLib): it has every
 `*/playstation/*` source and none of the PlayStation CMake, none of the libwpe
 directories the PlayStation WebKit layer uses, and none of `platform/network/curl`
-or the curl parts of WebKit (85 files, `webkit/port/upstream.txt`, fetched from
+or the curl parts of WebKit (77 files, `webkit/port/upstream.txt`, fetched from
 git by blob digest). The PlayStation port was also found to be unbuildable with
 Skia at this revision as it stands (its Cairo-era code names `epoxy`, GLES3
 enums, a `SkiaPaintingEngine::create()` that has since gained an argument, a
@@ -444,12 +449,22 @@ JavaScriptCore, PAL, WebCore and WebKit; `ProcessLauncherLazyOS.cpp` (fork and
 with a message); `WPELoaderLazyOS.cpp` (libwpe is linked static and asks for a
 backend; there is none). Also: libwpe 1.16.2 (static, no xkbcommon) and a
 do-nothing EGL/GLESv2 generated from the Khronos headers join the dependency
-bundle (`tools/webkit/recipes_port.py`), `fonts.conf` is written into the image
-(`/system/etc/fonts`) with the Liberation fonts, and W3's `lazyos_mmap` shim is
+bundle (`tools/webkit/recipes_port.py`), `fonts.conf` (generated from `webkit/port/fonts.conf.in` with the paths of
+`libs/fhs`) is written into the image (`/system/etc/fonts`) with the Liberation fonts, and W3's `lazyos_mmap` shim is
 linked into the port's Skia. The platform macro is `PLATFORM(LAZYOS)`, not
 `PLATFORM(PLAYSTATION)`, whose tests in WTF, JavaScriptCore and bmalloc choose
 console code (patch `0003` renames the 44 tests in WebCore and WebKit only), so
 those three stay exactly the proven `jsc-jit` configuration.
+
+*Security.* With the sandbox, the GPU process and the remote inspector off, the
+WebProcess runs with the privileges of the UI process that launched it (the
+same uid, the same capabilities, the same file system view; the only isolation
+is the process boundary and the IPC types). That is acceptable for the W4 smoke
+program, which loads a `data:` URL; a browser that shows the web needs the
+sandbox first (W5 and later: a per-process label and a reduced set of
+capabilities for the WebProcess, `docs/security-model.md`). The NetworkProcess
+keeps its cookie jar (`cookie.jar.db`) in the working directory it inherits,
+which W5 replaces with a per-user data directory.
 
 *Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
 PlayStation port's classic one: the WebProcess paints dirty rectangles into a
@@ -636,7 +651,7 @@ real PC, and a second window.
   the profile is `run_demo.py --big-app --memory 4G`.
 * **File-backed `mmap` showed up in W3 and again in W4** (the port's Skia needs the same shim, and without it text came out in the wrong face with no error). Skia maps font files with `mmap(fd,
   PROT_READ, MAP_PRIVATE)`, which fails on LazyOS, and its fontconfig font manager
-  has no fallback; the bundle carries a 35-line copying shim
+  has no fallback; the bundle carries a copying shim
   (`tools/webkit/skiabuild/lazyos_mmap.c`). WebKit maps files elsewhere too
   in WTF's `FileSystem` too (not yet exercised); expect more of the same
   until the kernel can map a file read-only and private.

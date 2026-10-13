@@ -43,9 +43,9 @@ class WebkitDepsTests(unittest.TestCase):
         labels = [step["label"] for step in plan]
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/webkit/deps.py", "--require"])
-        env = plan[at].get("env", {})
-        if env:
-            self.assertEqual(env.get("LAZYOS_WEBKIT_DEPS"), "1")
+        # Steps carry no env of their own: the runner applies build_env to the
+        # whole plan, so that is where the switch must be.
+        self.assertEqual(catalog.build_env({**self.base(), "webkit_deps": True}).get("LAZYOS_WEBKIT_DEPS"), "1")
 
     def test_the_gui_gives_it_networking_and_a_card(self) -> None:
         # depsproof's curl check fetches over HTTPS: the stack in the image and
@@ -147,9 +147,10 @@ class WebkitBrowserTests(unittest.TestCase):
 
     def test_the_os_volume_is_a_large_one(self) -> None:
         from lazygui import osvolume
-        self.assertTrue(osvolume.large({"webkit": True}))
-        self.assertTrue(osvolume.large({"srb2kart": True}))
-        self.assertFalse(osvolume.large({"webkit_port": True}))
+        self.assertEqual(osvolume.required_bytes(False, True), osvolume.required_bytes(True, False))
+        self.assertGreater(osvolume.required_bytes(False, True), osvolume.required_bytes(False, False))
+        self.assertTrue(osvolume.wants_webkit({"webkit_port": True}) and osvolume.wants_webkit({"webkit": True}))
+        self.assertFalse(osvolume.wants_webkit({"desktop": True}))
 
     def test_session_modes_build_it_before_the_image(self) -> None:
         cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,

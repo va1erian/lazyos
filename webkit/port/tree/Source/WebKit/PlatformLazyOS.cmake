@@ -8,7 +8,8 @@
 # process, and the Skia backing store that receives them.
 #
 # Different, and why:
-#  * ProcessLauncherLazyOS.cpp (webkit/port/webkit/) replaces the PlayStation
+#  * ProcessLauncherLazyOS.cpp (UIProcess/Launcher/ here, laid over the tree from
+#    webkit/port/tree/) replaces the PlayStation
 #    launcher, which calls a closed library: it forks and execs the WebProcess or
 #    NetworkProcess with the socketpair's client end open, and passes
 #    "<process identifier> <fd>" as the generic unix AuxiliaryProcessMain wants.
@@ -20,6 +21,20 @@
 
 include(Headers.cmake)
 include(Platform/Curl.cmake)
+
+# The image's paths of the programs, from libs/fhs (tools/webkit/port_cmake.py passes them):
+# the launcher's defaults and the smoke program's.
+foreach (_lazyos_path LAZYOS_WEBPROCESS_PATH LAZYOS_NETWORKPROCESS_PATH)
+    if (NOT ${_lazyos_path})
+        message(FATAL_ERROR "${_lazyos_path} is not set (tools/webkit/port_cmake.py passes it from libs/fhs)")
+    endif ()
+endforeach ()
+set(_lazyos_program_definitions
+    "LAZYOS_WEBPROCESS_PATH=\"${LAZYOS_WEBPROCESS_PATH}\""
+    "LAZYOS_NETWORKPROCESS_PATH=\"${LAZYOS_NETWORKPROCESS_PATH}\""
+)
+set_source_files_properties("${WEBKIT_DIR}/UIProcess/Launcher/ProcessLauncherLazyOS.cpp"
+    PROPERTIES COMPILE_DEFINITIONS "${_lazyos_program_definitions}")
 
 WEBKIT_ADD_TARGET_CXX_FLAGS(WebKit -Wno-unused-lambda-capture)
 
@@ -154,6 +169,7 @@ endif ()
 add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp")
 target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers")
 target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR} ${Fontconfig_INCLUDE_DIRS})
+target_compile_definitions(webkit-smoke PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
 
 # The desktop UI process (webkit/port/app/, docs W5): WebKit's run loop in C++, the xui

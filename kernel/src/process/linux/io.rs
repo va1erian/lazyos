@@ -222,6 +222,11 @@ pub(super) fn send_gathered(
             _ => return err(EMSGSIZE),
         };
     }
+    // Nothing to send is not a record (as for `write` of no bytes above); descriptors alone
+    // still make an empty one.
+    if total == 0 && rights.is_none() {
+        return 0;
+    }
     let mut buf = Vec::new();
     if buf.try_reserve_exact(total as usize).is_err() {
         return err(ENOMEM);

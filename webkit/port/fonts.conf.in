@@ -1,11 +1,13 @@
 <?xml version="1.0"?>
 <!-- Fontconfig for WebKit's processes on LazyOS (docs/webkit-port-plan.md W4).
-     Installed at /system/etc/fonts/fonts.conf by the image build (LAZYOS_WEBKIT=1); the
-     W3 Fontconfig was built to read /system/etc and to cache in /tmp/fontconfig. -->
+     A template: tools/webkit/fhspaths.py fills in the paths marked with at-signs from libs/fhs and
+     tools/webkit/port_cmake.py writes the result to target/webkit/fonts.conf, which the image
+     build (LAZYOS_WEBKIT=1) installs at fhs::etc::FONTS_CONF; the W3 Fontconfig was built to
+     read /system/etc and to cache in the same cache directory. -->
 <fontconfig>
   <!-- The fonts the image ships: the Liberation family and anything a user or package adds. -->
-  <dir>/system/share/fonts</dir>
-  <cachedir>/tmp/fontconfig</cachedir>
+  <dir>@FONT_DIR@</dir>
+  <cachedir>@FONT_CACHE_DIR@</cachedir>
 
   <!-- Liberation is metric-compatible with the faces a web page names first, and is the
        only family the image ships, so the generic families and those names resolve to it. -->

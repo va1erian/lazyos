@@ -160,6 +160,9 @@ def main() -> int:
         if not (TESTS / "index.txt").is_file():
             import stress
             stress.bundle()
+            # `stress` put this directory first; `import build` below means
+            # tools/abi/build.py, not tools/jsc/build.py.
+            sys.path.insert(0, str(ROOT / "tools" / "abi"))
         if not build_fixture() or not build_image(args.limit):
             return 1
     return report(boot(args), stages)

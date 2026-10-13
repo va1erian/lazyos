@@ -56,8 +56,14 @@ def in_container() -> bool:
     return os.environ.get("LAZYOS_JSC_IN_CONTAINER") == "1"
 
 
-def run_steps(only: list[str] | None, jobs: int, configure_only: bool) -> dict[str, str | None]:
-    """The real build; runs on any Linux with the tools (the container's job)."""
+def run_steps(only: list[str] | None, jobs: int, configure_only: bool,
+              require: bool = False) -> dict[str, str | None]:
+    """The real build; runs on any Linux with the tools (the container's job).
+
+    A full build ends with the host reference run of ``webkit-smoke``; one that fails or times
+    out is a ``BuildError``, and with `require` so is one that could not run (the judge fails a
+    boot it has no reference for).
+    """
     import port_cmake
     import port_tree
     tree = port_tree.prepare()
@@ -65,9 +71,11 @@ def run_steps(only: list[str] | None, jobs: int, configure_only: bool) -> dict[s
         port_cmake.configure(tree)
         return {}
     built = port_cmake.build(tree, jobs, only or NAMES)
-    if not only:
-        port_cmake.host_reference()
-    port_cmake.chown_outputs()
+    try:
+        if not only and not port_cmake.host_reference() and require:
+            raise BuildError("no host reference run of webkit-smoke (it needs the build container)")
+    finally:
+        port_cmake.chown_outputs()  # also after a failed reference: the programs are built
     return built
 
 
@@ -124,7 +132,7 @@ def main() -> int:
                               for n in names}, indent=2))
         return code
     try:
-        built = run_steps(args.only, args.jobs or default_jobs(), args.configure)
+        built = run_steps(args.only, args.jobs or default_jobs(), args.configure, args.require)
     except BuildError as error:
         wkpins.log(str(error))
         return 1

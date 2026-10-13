@@ -96,11 +96,21 @@ class Dep:
     mirrors: tuple[str, ...] = ()
     #: What the licence does not say by itself.
     notes: str = ""
+    #: Where THIRD_PARTY.md says it ends up, when that is not the default (``DEPSPROOF_LINK``):
+    #: the libraries that only the port's programs link, and WebKit itself.
+    linked: str = ""
 
     @property
     def archive(self) -> str:
         return self.cache_name or self.source.archive
 
+
+#: The default "where": every library of the bundle is linked into ``depsproof`` (and, statically,
+#: into the port's programs too: THIRD_PARTY.md says so once, above the rows).
+DEPSPROOF_LINK = "linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`)"
+#: Libraries of the bundle that only the WebKit port's programs link (``depsproof`` does not).
+PORT_LINK = ("linked into the port's `/system/bin/webprocess`, `networkprocess` and `webkit-smoke` "
+             "(`LAZYOS_WEBKIT=1`, `tools/webkit`)")
 
 H = "https://github.com"
 SF = "https://downloads.sourceforge.net/project"
@@ -179,7 +189,8 @@ DEPS: list[Dep] = [
     Dep("libwpe", Source(
         "1.16.2", f"{H}/WebPlatformForEmbedded/libwpe/releases/download/1.16.2/libwpe-1.16.2.tar.xz",
         "960bdd11c3f2cf5bd91569603ed6d2aa42fd4000ed7cac930a804eac367888d7", "libwpe-1.16.2"),
-        "BSD-2-Clause", "input event, pasteboard and key-code types of the PlayStation port's WebKit layer"),
+        "BSD-2-Clause", "input event, pasteboard and key-code types of the PlayStation port's WebKit layer",
+        linked=PORT_LINK),
 ]
 
 BY_NAME = {dep.name: dep for dep in DEPS}
@@ -199,9 +210,19 @@ BUNDLED: list[Dep] = [
     # licence); the port links them so WebKit's GL classes link and never run.
     Dep("glstub", jsc_pins.WEBKIT, "MIT",
         "EGL and GLESv2 entry points that do nothing, so the compositing classes link",
-        notes="generated from the Khronos headers in the WebKitGTK tarball's ANGLE copy; no code of its own"),
+        notes="generated from the Khronos headers in the WebKitGTK tarball's ANGLE copy; no code of its own",
+        linked=PORT_LINK),
 ]
 BUNDLED_BY_NAME = {dep.name: dep for dep in BUNDLED}
+
+#: WebKit itself (W4): the WebKitGTK tarball's WebCore, WebKit (WebKit2), JavaScriptCore, WTF and
+#: bmalloc, patched and built by ``tools/webkit/port.py``. Not a library of the bundle (no recipe,
+#: not in ``deps.json``), but it is shipped, so ``licenses.py`` judges it and THIRD_PARTY.md has its row.
+WEBKIT = Dep("WebKit", jsc_pins.WEBKIT, "LGPL-2.1-or-later AND BSD-2-Clause",
+             "the web engine of the port",
+             notes="WebCore, WebKit, JavaScriptCore, WTF and bmalloc of the WebKitGTK tarball, patched "
+                   "(`webkit/patches`) and statically linked into the shipped binaries",
+             linked=PORT_LINK)
 
 
 @dataclass(frozen=True)

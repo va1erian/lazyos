@@ -7,7 +7,8 @@
 //! * `SCHED_OTHER`, `SCHED_BATCH` and `SCHED_IDLE` are accepted. The nice value
 //!   becomes the task's weight (`SCHED_IDLE` the smallest one); the policy and
 //!   nice value are kept and read back by `sched_getattr`. BATCH and OTHER
-//!   differ only in the name. Lowering a nice value, leaving `SCHED_IDLE` or
+//!   differ only in the name; `SCHED_IDLE` ignores the attr's nice value and
+//!   keeps the task's own, as Linux does. Lowering a nice value, leaving `SCHED_IDLE` or
 //!   clearing `reset_on_fork` takes privilege, as on Linux with
 //!   `RLIMIT_NICE` 0.
 //! * `SCHED_FIFO`, `SCHED_RR` and `SCHED_DEADLINE` are `EPERM` without
@@ -28,7 +29,8 @@
 //! Privilege is `CAP_SYS_ADMIN` (LazyOS has no `CAP_SYS_NICE`; nobody is root
 //! and a session user holds no capability). The size handling is Linux's:
 //! `E2BIG` for a `sched_attr` that is too small or has unknown non-zero tail
-//! bytes, with the size it knows written back.
+//! bytes, with the size it knows (56) written back in every case, and
+//! `sched_getattr` writes `min(size, 56)` bytes, never more.
 
 use crate::ipc::credentials::{self, CAP_SYS_ADMIN};
 use crate::task::{self, linuxstate::SchedState, nice, SchedTarget, UpdateError};
@@ -90,11 +92,8 @@ fn read_attr(uattr: u64) -> Result<Attr, u64> {
     } else {
         declared as usize
     };
-    if size > PAGE {
-        return Err(err(E2BIG));
-    }
-    if size < SIZE_VER0 {
-        let _ = user_ptr::try_write::<u32>(uattr, SIZE_VER0 as u32);
+    if !(SIZE_VER0..=PAGE).contains(&size) {
+        let _ = user_ptr::try_write::<u32>(uattr, SIZE_NOW as u32);
         return Err(err(E2BIG));
     }
     let known = size.min(SIZE_NOW);
@@ -257,7 +256,10 @@ fn decide(attr: &Attr, caller: &Caller, target: &SchedTarget) -> Result<SchedSta
     let reset_on_fork = attr.flags & FLAG_RESET_ON_FORK != 0;
     let level = attr.nice.clamp(nice::MIN_NICE, nice::MAX_NICE);
     let keep_params = attr.flags & FLAG_KEEP_PARAMS != 0;
-    let new_nice = if keep_params {
+    // As in Linux's `__sched_setscheduler`, a nice value belongs to the fair
+    // policies only: `SCHED_IDLE` neither applies `sched_nice` nor needs
+    // privilege for it (a zeroed attr, which `chrt --idle` sends, must work).
+    let new_nice = if keep_params || policy == SCHED_IDLE {
         i32::from(old.nice)
     } else {
         level
@@ -296,7 +298,7 @@ pub(super) fn sys_sched_getattr(pid: u64, uattr: u64, size: u64, flags: u64) -> 
         return err(ESRCH);
     };
     let written = size.min(SIZE_NOW);
-    let mut raw = vec![0u8; size];
+    let mut raw = vec![0u8; written];
     raw[0..4].copy_from_slice(&(written as u32).to_le_bytes());
     raw[4..8].copy_from_slice(&u32::from(state.policy).to_le_bytes());
     let flags = if state.reset_on_fork {

@@ -26,7 +26,10 @@
 #    USE_WPE_RENDERER) are off, so WKViewCreate (the non-backend path) is the API.
 #  * Painting is on the CPU: no EGL, GLESv2 or libepoxy exists; libEGL.a and
 #    libGLESv2.a are stand-ins (tools/webkit/recipes_port.py) that report no
-#    display, and acceleratedCompositingEnabled stays false (WebPreferencesLazyOS).
+#    display, and acceleratedCompositingEnabled stays false because the PlayStation
+#    WebPreferences::platformInitializeStore (UIProcess/playstation/
+#    WebPreferencesPlayStation.cpp, in WebKit_SOURCES) sets it, forceCompositingMode and
+#    threadedScrollingEnabled to false.
 #  * Off, because LazyOS has no use for it yet: video, WebGL, WebRTC, Web Audio,
 #    the GPU process, the remote inspector, the sandbox, WebAssembly.
 

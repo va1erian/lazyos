@@ -1,6 +1,20 @@
 //! The JavaScript the `jsc` fixture runs, and the output each script must print
 //! (`tools/abi/fixtures/src/jsc.rs`).
 
+/// Defines `threadSignals()`, which the scripts that report how many
+/// thread-directed signals (`tkill`/`tgkill`) their process has sent so far
+/// start with: `LazyOS_ThreadSignals` in `/proc/self/status`. A script prints
+/// it as its last line, `signals:<n>`; the fixture strips that line before it
+/// compares the output and prints it as `<prefix>SIGNALS:<name>:<n>` (`-1`
+/// when the kernel has no such line), which `tools/jsc/judge.py` requires to
+/// be positive for `suspend`.
+pub const SIGNALS_JS: &str = r#"
+function threadSignals() {
+  const m = /LazyOS_ThreadSignals:\s*(\d+)/.exec(read("/proc/self/status"));
+  return m ? m[1] : "-1";
+}
+"#;
+
 /// Allocates a million and a half objects, keeps one in twenty, and asks
 /// for collections: the concurrent marker threads suspend the mutator with
 /// signals (per-thread signals, docs/webkit-port-plan.md 4.2).
@@ -17,6 +31,7 @@ fullGC();
 let sum = 0;
 for (const o of keep) sum += o.a;
 print("gc-ok:" + total + ":" + keep.length + ":" + sum);
+print("signals:" + threadSignals());
 "#;
 
 pub const GC_WANT: &str = "gc-ok:4500000:75000:56249250000\n";
@@ -143,7 +158,10 @@ function tick() {
   }
   if (keep.length > 40000) keep = keep.slice(-500);
   if (++rounds < 12) setTimeout(tick, 150);
-  else print("suspend-ok:" + rounds + ":" + (keep.length > 0));
+  else {
+    print("suspend-ok:" + rounds + ":" + (keep.length > 0));
+    print("signals:" + threadSignals());
+  }
 }
 setTimeout(tick, 150);
 "#;

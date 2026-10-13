@@ -21,9 +21,13 @@ pub const OS_PART_TYPE: u8 = 0x83;
 /// Default OS volume size (`LAZYOS_OS_SIZE`).
 pub const DEFAULT_OS_SIZE: u64 = 512 << 20;
 /// Default OS volume size with `LAZYOS_SRB2KART=1` (its game data is about
-/// 250 MB) or `LAZYOS_WEBKIT=1` (the browser's three static programs, about 108 MB each, and
-/// its package twice): too much for [`DEFAULT_OS_SIZE`].
+/// 250 MB): too much for [`DEFAULT_OS_SIZE`].
 pub const SRB2KART_OS_SIZE: u64 = 1 << 30;
+/// Default OS volume size with `LAZYOS_WEBKIT=1`: the browser's three static programs (the UI
+/// process, `webprocess`, `networkprocess`) are about 107 MiB each and its package, which
+/// `pkgd` unpacks into `/apps`, holds them again, which leaves too little of
+/// [`DEFAULT_OS_SIZE`], and 768 MiB left too little room to write, with the rest of the image.
+pub const WEBKIT_OS_SIZE: u64 = 1 << 30;
 /// Smallest OS volume the build accepts.
 pub const MIN_OS_SIZE: u64 = 128 << 20;
 
@@ -31,23 +35,28 @@ const TABLE: usize = 0x1BE;
 const ENTRY: usize = 16;
 const SIGNATURE: usize = 510;
 
-/// The OS volume size when `LAZYOS_OS_SIZE` is unset.
-pub fn default_size(srb2kart: bool) -> u64 {
+/// The OS volume size when `LAZYOS_OS_SIZE` is unset: the largest any selected feature needs.
+pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
     if srb2kart {
         SRB2KART_OS_SIZE
+    } else if webkit {
+        WEBKIT_OS_SIZE
     } else {
         DEFAULT_OS_SIZE
     }
 }
 
-/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1` or `LAZYOS_WEBKIT=1` asks for the
-/// larger one.
+/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`, `LAZYOS_WEBKIT=1` and
+/// `LAZYOS_WEBKIT_PORT=1` (the console proof, with the same three programs) ask for larger ones (`tools/lazygui/osvolume.py` mirrors this).
 pub fn default_size_env() -> u64 {
-    let on = |name: &str| {
-        println!("cargo:rerun-if-env-changed={name}");
-        std::env::var_os(name).is_some_and(|value| value == "1")
-    };
-    default_size(on("LAZYOS_SRB2KART") || on("LAZYOS_WEBKIT"))
+    println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
+    let on = |name: &str| std::env::var_os(name).is_some_and(|value| value == "1");
+    default_size(
+        on("LAZYOS_SRB2KART"),
+        on("LAZYOS_WEBKIT") || on("LAZYOS_WEBKIT_PORT"),
+    )
 }
 
 /// `LAZYOS_OS_SIZE`: bytes with an optional `K`, `M` or `G` suffix (binary),
