@@ -1,0 +1,13 @@
+DMC initialized: yes
+fw loaded: yes
+path: i915/kbl_dmc_ver1_04.bin
+Pipe A fw needed: no
+Pipe A fw loaded: no
+Pipe B fw needed: no
+Pipe B fw loaded: no
+version: 1.4
+DC3 -> DC5 count: 0
+DC5 -> DC6 count: 0
+program base: 0x09004040
+ssp base: 0x00002fc0
+htp: 0x00b40068

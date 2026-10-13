@@ -1,15 +1,18 @@
 //! Gen9 display register offsets (BAR 0, bytes) for the plan's first stages:
 //! G1 (adopt and observe the firmware's mode) and G2 (HDMI audio).
 //!
-//! Every constant here is from memory of i915's `i915_reg.h` and Intel's
-//! Gen9 display PRM volumes and is **to confirm against a register dump from
-//! the box**: `docs/compat/kabylake/gpu/` (`02-mmio-ranges.txt`) holds the
-//! capture `tools/boot/survey_gpu.sh` makes, and `intel_reg dump` names the
-//! same registers. Nothing here is written by any code yet; the offsets that
-//! are laid out per pipe or per port use the strides i915 uses.
-//! Marker: `// TO CONFIRM against dump` on each group.
+//! Every constant is from memory of i915's `i915_reg.h` and Intel's Gen9
+//! display PRM volumes. The groups marked `CONFIRMED` match the box's own
+//! `intel_reg dump` (`docs/compat/kabylake/gpu/linux/01-intel_reg-dump.txt`,
+//! read while i915 drove the panel, so each *value* is Linux's state, not the
+//! firmware's); the tests decode that real state. The group marked
+//! `TO CONFIRM` is not in that dump (`intel_reg dump` does not list the audio
+//! block or the DDI buffer registers, and the raw range capture
+//! `02-mmio-ranges.txt` failed; see `docs/kabylake-gpu-plan.md` section 10).
+//! Nothing here is written by any code yet; the offsets that are laid out per
+//! pipe or per port use the strides i915 uses.
 
-// TO CONFIRM against dump -----------------------------------------------------
+// CONFIRMED against dump ------------------------------------------------------
 
 /// Pipe/transcoder A register block base, and the stride to the next pipe
 /// (A 0x70000, B 0x71000, C 0x72000) for the pipe registers.
@@ -48,29 +51,78 @@ pub const PLANE_CTL_ENABLE: u32 = 1 << 31;
 pub const PLANE_BUF_CFG_1_A: u32 = 0x7_027C;
 pub const PLANE_WM_1_A_0: u32 = 0x7_0240;
 
-/// Core display clock, LCPLLs, and the per-DDI clock select (A at 0x46100,
-/// 4 bytes apart).
+/// Core display clock and the two LCPLLs.
 pub const CDCLK_CTL: u32 = 0x4_6000;
 pub const LCPLL1_CTL: u32 = 0x4_6010;
 pub const LCPLL2_CTL: u32 = 0x4_6014;
-pub const PORT_CLK_SEL_A: u32 = 0x4_6100;
+/// Which DDI feeds transcoder A (`TRANS_CLK_SEL`; B at +4, C at +8). SKL+
+/// has no `PORT_CLK_SEL`: the DDI's clock comes from `DPLL_CTRL2`.
+pub const TRANS_CLK_SEL_A: u32 = 0x4_6140;
 
-/// SKL-style shared DPLL control (DPLL1 to 3 share these) and status.
+/// SKL-style shared DPLL control (DPLL1 to 3 share these) and status; the
+/// per-PLL `CFGCR1`/`CFGCR2` of PLL `n` (1 to 3) sit 8 bytes apart.
 pub const DPLL_CTRL1: u32 = 0x6_C058;
 pub const DPLL_CTRL2: u32 = 0x6_C05C;
 pub const DPLL_STATUS: u32 = 0x6_C060;
+pub const DPLL1_CFGCR1: u32 = 0x6_C040;
+pub const DPLL1_CFGCR2: u32 = 0x6_C044;
+pub const DPLL_CFGCR_STRIDE: u32 = 8;
 
-/// DDI buffer control for DDI A, stride 0x100 per port; and the transcoder
-/// function control of transcoder A.
-pub const DDI_BUF_CTL_A: u32 = 0x6_4000;
-pub const DDI_BUF_STRIDE: u32 = 0x100;
-pub const DDI_BUF_CTL_ENABLE: u32 = 1 << 31;
+/// Transcoder function control of transcoder A, line time (for watermarks)
+/// and the video data island packet (infoframe) enables.
 pub const TRANS_DDI_FUNC_CTL_A: u32 = 0x6_0400;
+pub const WM_LINETIME_A: u32 = 0x4_5270;
+pub const VIDEO_DIP_CTL_A: u32 = 0x6_0200;
+/// `VIDEO_DIP_CTL` enables, one per packet type (graphics control, AVI, SPD).
+pub mod dip {
+    pub const ENABLE_GCP: u32 = 1 << 16;
+    pub const ENABLE_AVI: u32 = 1 << 12;
+    pub const ENABLE_SPD: u32 = 1 << 0;
+}
 
 /// Power wells and DC states.
 pub const PWR_WELL_CTL_BIOS: u32 = 0x4_5400;
 pub const PWR_WELL_CTL_DRIVER: u32 = 0x4_5404;
 pub const DC_STATE_EN: u32 = 0x4_5504;
+
+/// Whether `DPLL_CTRL1` puts PLL `pll` (0 to 3) in HDMI mode: each PLL has
+/// six bits at `pll * 6`: override (bit 0), DP link rate (3:1), HDMI mode (5).
+pub fn dpll_ctrl1_hdmi_mode(ctrl1: u32, pll: u32) -> bool {
+    pll < 4 && ctrl1 >> (pll * 6) & 0x20 != 0
+}
+
+/// Which PLL `DPLL_CTRL2` routes to DDI `port` (A = 0 ... E = 4), when that
+/// port's override bit is set (otherwise the hardware's own default).
+pub fn dpll_ctrl2_ddi_pll(ctrl2: u32, port: u32) -> Option<u32> {
+    (port < 5 && ctrl2 >> (port * 3) & 1 != 0).then(|| ctrl2 >> (port * 3 + 1) & 3)
+}
+
+/// Core display clock in kHz from `CDCLK_CTL`: the decimal field (bits 10:0)
+/// is `(cdclk - 1 MHz) / 500 kHz`. The box runs 337.5 MHz. The frequency
+/// select bits (27:26) are not decoded here.
+pub fn cdclk_khz(ctl: u32) -> u32 {
+    (ctl & 0x7FF) * 500 + 1000
+}
+
+/// The DDI port (A = 0 ... E = 4) a `TRANS_CLK_SEL` value names (bits 31:29
+/// hold `port + 1`), `None` for "no clock".
+pub fn trans_clk_sel_port(v: u32) -> Option<u8> {
+    match v >> 29 & 7 {
+        0 => None,
+        n => Some((n - 1) as u8),
+    }
+}
+
+// TO CONFIRM against dump -----------------------------------------------------
+
+/// Per-DDI clock select of the pre-Skylake path (A at 0x46100, 4 bytes
+/// apart); Gen9 does not use it. Kept so a dump that shows it can be read.
+pub const PORT_CLK_SEL_A: u32 = 0x4_6100;
+
+/// DDI buffer control for DDI A, stride 0x100 per port.
+pub const DDI_BUF_CTL_A: u32 = 0x6_4000;
+pub const DDI_BUF_STRIDE: u32 = 0x100;
+pub const DDI_BUF_CTL_ENABLE: u32 = 1 << 31;
 
 /// Audio: per-pipe registers at +0x100 per pipe from these (pipe A).
 pub const AUD_CONFIG_A: u32 = 0x6_5000;
@@ -122,7 +174,8 @@ pub enum DdiMode {
     Reserved(u8),
 }
 
-/// A decoded `TRANS_DDI_FUNC_CTL` (`// TO CONFIRM against dump`: enable bit
+/// A decoded `TRANS_DDI_FUNC_CTL` (CONFIRMED: the box's dump reads
+/// `0x90030000` for "enabled, DDIB, HDMI, 8 bpc, +VSync, +HSync"; enable bit
 /// 31, DDI select bits 30:28, mode bits 26:24, bpc bits 22:20, sync polarity
 /// bits 17:16). Audio needs [`DdiMode::Hdmi`]: a DVI-mode link is the case
 /// that makes G2 rewrite a live pipe (plan section 4).
@@ -130,8 +183,7 @@ pub enum DdiMode {
 pub struct DdiFunc {
     pub enabled: bool,
     /// The DDI port feeding this transcoder: 0 = none, 1 = DDI B ... 4 = DDI E
-    /// (`// TO CONFIRM against dump`: DDI A is reached through the eDP
-    /// transcoder, not through this field).
+    /// (DDI A is reached through the eDP transcoder, not through this field).
     pub ddi_select: u8,
     pub mode: DdiMode,
     pub bits_per_component: Option<u8>,
@@ -165,13 +217,16 @@ impl DdiFunc {
     }
 }
 
-/// Decode `PIPESRC` (`(width - 1) << 16 | (height - 1)`), TO CONFIRM.
+/// Decode `PIPESRC` (`(width - 1) << 16 | (height - 1)`). Not in the dump
+/// (`intel_reg` does not list it), so TO CONFIRM; `PLANE_SIZE` has the halves
+/// the other way round (`(height - 1) << 16`).
 pub fn pipesrc_size(v: u32) -> (u32, u32) {
     ((v >> 16 & 0x1FFF) + 1, (v & 0x1FFF) + 1)
 }
 
 /// Decode a `HTOTAL`/`VTOTAL`-style register: active-1 in the low half,
-/// total-1 in the high half. TO CONFIRM.
+/// total-1 in the high half (CONFIRMED: `TRANS_HTOTAL_A` reads `0x0a6d09ff`,
+/// 2560 active, 2670 total).
 pub fn timing_pair(v: u32) -> (u32, u32) {
     ((v & 0xFFFF) + 1, (v >> 16) + 1)
 }
@@ -201,6 +256,54 @@ mod tests {
         assert!(f.hsync_positive && f.vsync_positive);
         assert_eq!(DdiFunc::decode(1 << 24).mode, DdiMode::Dvi);
         assert_eq!(DdiFunc::decode(7 << 20).bits_per_component, None);
+    }
+
+    /// Registers of the survey's capture (`01-intel_reg-dump.txt`): pipe A
+    /// carrying 2560x1440 at 70 Hz (277.82 MHz) on DDI B, set by i915.
+    #[test]
+    fn decodes_the_boxs_display_state() {
+        const CDCLK_CTL_V: u32 = 0x0800_02A1;
+        const TRANS_CLK_SEL_A_V: u32 = 0x4000_0000;
+        const DPLL_CTRL1_V: u32 = 0x0000_0845;
+        const DPLL_CTRL2_V: u32 = 0x00A2_0018;
+        const TRANS_DDI_FUNC_CTL_A_V: u32 = 0x9003_0000;
+        const TRANS_HTOTAL_A_V: u32 = 0x0A6D_09FF;
+        const PLANE_SIZE_1_A_V: u32 = 0x059F_09FF;
+        const VIDEO_DIP_CTL_A_V: u32 = 0x0001_1001;
+
+        assert_eq!(cdclk_khz(CDCLK_CTL_V), 337_500);
+        assert_eq!(trans_clk_sel_port(TRANS_CLK_SEL_A_V), Some(1), "DDI B");
+        assert_eq!(trans_clk_sel_port(0), None);
+        // PLL1 is in HDMI mode; PLL0 (the CDCLK PLL) is not.
+        assert!(dpll_ctrl1_hdmi_mode(DPLL_CTRL1_V, 1));
+        assert!(!dpll_ctrl1_hdmi_mode(DPLL_CTRL1_V, 0));
+        // DDI B (port 1) is overridden to PLL1; DDI A has no override.
+        assert_eq!(dpll_ctrl2_ddi_pll(DPLL_CTRL2_V, 1), Some(1));
+        assert_eq!(dpll_ctrl2_ddi_pll(DPLL_CTRL2_V, 0), None);
+        let f = DdiFunc::decode(TRANS_DDI_FUNC_CTL_A_V);
+        assert!(f.enabled);
+        assert_eq!(f.ddi_select, 1);
+        assert_eq!(f.mode, DdiMode::Hdmi, "HDMI mode: audio needs no mode set");
+        assert_eq!(f.bits_per_component, Some(8));
+        assert!(f.hsync_positive && f.vsync_positive);
+        assert_eq!(timing_pair(TRANS_HTOTAL_A_V), (2560, 2670));
+        assert_eq!(
+            (
+                (PLANE_SIZE_1_A_V & 0xFFFF) + 1,
+                (PLANE_SIZE_1_A_V >> 16) + 1
+            ),
+            (2560, 1440)
+        );
+        for bit in [dip::ENABLE_AVI, dip::ENABLE_GCP, dip::ENABLE_SPD] {
+            assert_ne!(VIDEO_DIP_CTL_A_V & bit, 0);
+        }
+    }
+
+    #[test]
+    fn new_offsets_follow_the_documented_strides() {
+        assert_eq!(DPLL1_CFGCR2, DPLL1_CFGCR1 + 4);
+        assert_eq!(DPLL1_CFGCR1 + DPLL_CFGCR_STRIDE, 0x6_C048, "DPLL2_CFGCR1");
+        assert_eq!(TRANS_CLK_SEL_A + 4, 0x4_6144, "TRANS_CLK_SEL_B");
     }
 
     #[test]

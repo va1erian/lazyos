@@ -1,0 +1,2 @@
+# read-only mmap of /sys/bus/pci/devices/0000:00:02.0/resource0; ranges TO CONFIRM
+# cannot map: [Errno 22] Invalid argument

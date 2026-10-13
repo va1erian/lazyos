@@ -120,13 +120,39 @@ mmio_ranges="
 0x0C2000 0x0C2100 south display: SFUSE_STRAP
 0x0C4000 0x0C4040 display straps
 0x0C5100 0x0C510C GMBUS0..2 only
+0x000D80 0x000D90 forcewake acks: media 0xD84, render 0xD88 (G3)
+0x00A180 0x00A290 forcewake requests: blitter 0xA188, media 0xA270, render 0xA278 (G3)
+0x130040 0x130048 forcewake ack: blitter
 "
+
+# Each range, one dword per register, through `intel_reg read` (a read-only
+# mapping of BAR0, the same one the named dump above used). The Python mmap of
+# the sysfs resource below failed with EINVAL on the first box (G0, 2026-10-13)
+# while intel_reg worked, so this is the preferred path.
+mmio_intel_reg() {
+    echo "$mmio_ranges" | while read -r lo hi rest; do
+        [ -n "$lo" ] || continue
+        echo "# range $lo-$hi $rest"
+        regs=""
+        off=$((lo))
+        end=$((hi))
+        while [ "$off" -lt "$end" ]; do
+            regs="$regs $(printf '0x%06x' "$off")"
+            off=$((off + 4))
+        done
+        # shellcheck disable=SC2086
+        intel_reg read $regs 2>&1
+    done
+}
 
 mmio_dump() {
     res=/sys/bus/pci/devices/$gpu/resource0
     {
-        echo "# read-only mmap of $res; ranges TO CONFIRM"
-        if ! command -v python3 >/dev/null 2>&1; then
+        if command -v intel_reg >/dev/null 2>&1; then
+            echo "# intel_reg read, read-only; ranges TO CONFIRM"
+            mmio_intel_reg
+        elif ! command -v python3 >/dev/null 2>&1; then
+            echo "# read-only mmap of $res; ranges TO CONFIRM"
             echo "# python3 missing: only intel_reg output is available"
             missing "02-mmio-ranges.txt: python3 not installed"
         elif [ ! -r "$res" ]; then
@@ -169,7 +195,11 @@ if ! [ -d "$dbg" ]; then
 else
     for dir in "$dbg"/[0-9]*; do
         [ -d "$dir" ] || continue
-        n=$(basename "$dir")
+        # i915 names its directory by PCI address and links minors 1 and 128
+        # to it: one copy of the files is enough, and a ':' in a file name
+        # cannot be checked out on Windows (the first capture had it).
+        [ -L "$dir" ] && continue
+        n=$(basename "$dir" | tr ':' '_')
         for f in i915_display_info i915_dmc_info i915_gem_gtt i915_ddb_info \
             i915_power_domain_info i915_runtime_pm_status i915_shared_dplls_info \
             i915_forcewake_domains i915_engine_info i915_gem_framebuffer \
