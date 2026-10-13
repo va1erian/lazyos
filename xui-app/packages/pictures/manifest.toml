@@ -46,12 +46,14 @@ type = "image/gif"
 verbs = ["open", "view"]
 
 [permissions]
-# The display and keyboard every LazyRAD player needs, and `mimed` for Edit
-# (the scripts' `sys::mimed::open`, found by `LazyOsPlatform::script_
-# permissions`, lazyrad-os/tests/pictures.rs). Confirmed by a run under
-# `LAZYOS_LABEL_TRACE=1` (docs/packages.md, core packages).
+# The display, pointer shape and keyboard every LazyRAD player needs, and
+# `mimed` for Edit (the scripts' `sys::mimed::open`, found by
+# `LazyOsPlatform::script_permissions`, lazyrad-os/tests/pictures.rs).
+# Confirmed by a run under `LAZYOS_LABEL_TRACE=1` (docs/packages.md, core
+# packages).
 interfaces = [
     "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
     "os.lazy.mimed.v1",
 ]

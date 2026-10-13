@@ -77,7 +77,22 @@ class CorePackageTests(unittest.TestCase):
                 self.assertTrue(manifest["entry"]["resident"], short)
             else:
                 self.assertIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
+                # `SetCursor` (docs/cursor-plan.md): every client window asks
+                # for its pointer shape, and a label without the scope has the
+                # call refused once per run (a traced run reports it).
+                self.assertIn("os.lazy.display.cursor.v1", manifest["permissions"]["interfaces"], short)
             self.assertTrue((core_packages.SOURCES / short / "docs" / "README.md").is_file())
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_packages_outside_the_core_set_that_ask_for_a_cursor_declare_it(self) -> None:
+        # The same rule for the packages that are not core apps: emusic and the
+        # Counter sample draw through `LazyOSBackend`, SRB2Kart calls
+        # `SetCursor` itself, and Doom has declared the scope since the cursor
+        # API. Quake is not here: it never asks for a shape.
+        root = core_packages.ROOT
+        for tree in ("doom/package", "srb2kart/package", "emusic/package", "tools/pkg/samples/counter"):
+            manifest = tomllib.loads((root / tree / "manifest.toml").read_text(encoding="utf-8"))
+            self.assertIn("os.lazy.display.cursor.v1", manifest["permissions"]["interfaces"], tree)
 
     @unittest.skipIf(tomllib is None, "needs Python 3.11+")
     def test_lazyrad_ships_its_player_beside_the_ide_and_is_not_an_exception(self) -> None:

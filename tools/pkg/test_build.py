@@ -177,7 +177,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(manifest["entry"]["abi"], "linux")
             self.assertEqual(
                 manifest["permissions"]["interfaces"],
-                ["os.lazy.display.v1", "os.lazy.input.v1"],
+                ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"],
             )
             for icon in ("icons/app-16.png", "icons/app-32.png", "icons/app-128.png"):
                 self.assertIn(icon, names)
