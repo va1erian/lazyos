@@ -263,7 +263,7 @@ class MainTests(RunDemoCase):
         self.assertEqual(command, [])
 
     def test_lazywebplus_builds_it_sets_the_switch_and_brings_the_network(self) -> None:
-        with mock.patch.object(run_demo, "build_lazywebplus", return_value=True) as built:
+        with mock.patch.object(run_demo, "build_lazywebplus", return_value=True) as built,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
             code, command = self.run_main("--lazywebplus", "--yes")
         self.assertEqual(code, 0)
         built.assert_called_once_with()
@@ -275,7 +275,7 @@ class MainTests(RunDemoCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
 
     def test_a_failed_lazywebplus_build_stops_the_run(self) -> None:
-        with mock.patch.object(run_demo, "build_lazywebplus", return_value=False):
+        with mock.patch.object(run_demo, "build_lazywebplus", return_value=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
             code, command = self.run_main("--lazywebplus", "--yes")
         self.assertNotEqual(code, 0)
         self.assertEqual(command, [])
