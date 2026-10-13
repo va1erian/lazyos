@@ -76,7 +76,9 @@ fn ntp_status() {
 ///
 /// Ask the network time client to query a server now. Open to everyone,
 /// and rate-limited like the schedule: it fails with `EAGAIN` when a
-/// query went out less than 15 seconds ago, `ENETUNREACH` when there is
+/// query went out less than 15 seconds ago or is still in flight, or a
+/// server asked to be left alone (`RATE`) and its hold has not passed,
+/// `ENETUNREACH` when there is
 /// no network and `ENODEV` when the client is off. Whatever the server
 /// says is still judged by the same clock-step policy as a scheduled
 /// exchange, so a caller cannot choose the time, only when to ask.

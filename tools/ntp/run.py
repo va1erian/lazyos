@@ -94,7 +94,7 @@ def boot(scenario: scenarios.Scenario, out: Path, args) -> tuple[bool, str, tupl
 def judge_one(scenario: scenarios.Scenario, ok: bool, serial: str, window, requests) -> list[str]:
     problems = [] if ok else ["the session did not finish (see summary.json)"]
     ctx = ntp_judge.Context(serial, requests, window)
-    return problems + scenario.check(ctx)
+    return problems + ntp_judge.timed_started_once(serial) + scenario.check(ctx)
 
 
 def main(argv: list[str] | None = None) -> int:

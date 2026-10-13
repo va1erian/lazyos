@@ -919,8 +919,9 @@ steps the wall clock; at start it lifts a clock earlier than the build's floor
 It is on by default and switched with `sys/time/ntp/enabled` and
 `sys/time/ntp/servers` (Settings -> Time & Date, through `elevd`; a session
 cannot write `sys/**`). The first sync of a boot may step by any amount, later
-ones by at most 1000 s, never to before the floor, and offsets under 250 ms are
-left alone (`libs/sntp/src/policy.rs`). Plain SNTP is unauthenticated: it is a
+ones by at most 1000 s (a larger offset only when answers keep agreeing for ten
+minutes), never to before the floor, and offsets under 250 ms are left alone
+(`libs/sntp/src/policy.rs`). Plain SNTP is unauthenticated: it is a
 correctness aid (certificate validity, SMB/NTLM times), not a security
 control. Plan and as-built notes: [`docs/ntp-plan.md`](docs/ntp-plan.md).
 

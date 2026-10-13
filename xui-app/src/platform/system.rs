@@ -64,7 +64,9 @@ fn describe(code: i64) -> String {
         errno::EPERM => String::from("permission denied (needs CAP_SYS_TIME)"),
         errno::EINVAL => String::from("value refused"),
         errno::ENODEV => String::from("Automatic time is off."),
-        errno::EAGAIN => String::from("A time server was just asked; try again in a moment."),
+        errno::EAGAIN => String::from(
+            "Not now: a time server was asked a moment ago, or asked to be left alone for a while.",
+        ),
         ENETUNREACH => String::from("There is no network."),
         _ => format!("time service error {code}"),
     }

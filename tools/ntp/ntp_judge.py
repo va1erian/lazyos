@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 #: Not anchored to the start of the line: the guest's shell prompt (`~ $ `)
 #: shares a line with whatever a service prints while it waits.
-EVENT = re.compile(r"TIMED:NTP:(FLOOR:FAIL|FLOOR|STEP|SYNC|REFUSE|FAIL|RATE)\b ?(.*)$", re.M)
+EVENT = re.compile(r"TIMED:NTP:(FLOOR:FAIL|FLOOR|STEP|SYNC|REFUSE|FAIL|RATE|DENY)\b ?(.*)$", re.M)
 NUMBER = re.compile(r"\b(\w+)=(-?\d+)\b")
 READING = re.compile(r"^unix_ms=(\d+) offset=", re.M)
 #: The least time between two queries (`libs/sntp/src/schedule.rs`).
@@ -65,6 +65,14 @@ class Context:
 
     def of(self, kind: str) -> list[Event]:
         return [e for e in self.events if e.kind == kind]
+
+
+def timed_started_once(serial: str) -> list[str]:
+    """`timed` came up exactly once. `init` restarts it when it dies, and a
+    restart quietly makes the next exchange a first sync again, so a crash
+    (a hostile packet, say) must not pass unseen."""
+    starts = serial.count("TIMED:READY")
+    return [] if starts == 1 else [f"timed announced itself {starts} times (a restart?)"]
 
 
 def request_shape(requests: list) -> list[str]:

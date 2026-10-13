@@ -50,6 +50,8 @@ pub(super) enum Failure {
     Send,
     /// Every address asked (`DENY`, `RSTR`) not to be queried.
     Denied,
+    /// No entropy for the nonce: without it a reply proves nothing.
+    NoEntropy,
 }
 
 impl Failure {
@@ -60,6 +62,7 @@ impl Failure {
             Failure::Socket => "no socket",
             Failure::Send => "nothing could be sent",
             Failure::Denied => "every server address asked not to be queried",
+            Failure::NoEntropy => "no random bytes for the request nonce",
         }
     }
 }
@@ -109,15 +112,19 @@ pub(super) fn wall_unix_ns() -> i64 {
     sys::wall_centis() as i64 * 10_000_000 + 5_000_000
 }
 
-fn random_nonce() -> NonZeroU64 {
+/// The request's nonce, the one thing an off-path sender cannot guess. No
+/// fallback to a guessable value: without entropy the exchange is not sent.
+fn random_nonce() -> Option<NonZeroU64> {
     let mut bytes = [0u8; 8];
-    if sys::random(&mut bytes).is_err() {
-        // No entropy is not a reason not to ask: the monotonic clock still
-        // makes the nonce unique, if guessable.
-        bytes = sys::monotonic_ns().to_le_bytes();
-    }
-    NonZeroU64::new(u64::from_le_bytes(bytes)).unwrap_or(NonZeroU64::MIN)
+    sys::random(&mut bytes).ok()?;
+    NonZeroU64::new(u64::from_le_bytes(bytes))
 }
+
+/// How far the wall clock may disagree with the monotonic one over a round
+/// trip before the clock is taken to have been stepped under the exchange
+/// (its offset was measured against the old time). Lost timer ticks are
+/// well inside it.
+const STEP_SLACK_NS: i64 = 1_500_000_000;
 
 impl Exchange {
     /// Resolve `servers` and send each address (but a `denied` one) a
@@ -128,7 +135,6 @@ impl Exchange {
         sockets: &Rc<netsock::Client>,
         servers: &str,
         denied: &[[u8; 4]],
-        now_ms: u64,
     ) -> Result<Exchange, Failure> {
         let mut any = false;
         let mut skipped = false;
@@ -168,7 +174,9 @@ impl Exchange {
         let mono_0 = sys::monotonic_ns();
         let mut targets = Vec::new();
         for (addr, host) in addrs {
-            let nonce = random_nonce();
+            let Some(nonce) = random_nonce() else {
+                return Err(Failure::NoEntropy);
+            };
             let mono = sys::monotonic_ns();
             if socket.send_to(&encode_request(nonce), addr).is_err() {
                 continue;
@@ -189,7 +197,9 @@ impl Exchange {
             socket,
             targets,
             found: Vec::new(),
-            deadline_ms: now_ms + REPLY_WAIT_MS,
+            // From now, after the lookups: a slow resolver must not eat the
+            // time the servers are given to answer.
+            deadline_ms: sys::monotonic_ms() + REPLY_WAIT_MS,
             grace_until_ms: None,
             rate_limited: false,
             denied: Vec::new(),
@@ -239,6 +249,15 @@ impl Exchange {
             Ok(reply) => {
                 target.answered = true;
                 let rtt = sys::monotonic_ns().saturating_sub(target.sent_mono_ns);
+                // The wall clock moved by something other than time passing
+                // since the request left: the sample is against a clock that
+                // no longer exists, so it is not used.
+                let wall_elapsed = wall_unix_ns().saturating_sub(target.sent_unix_ns);
+                let stepped =
+                    (i128::from(wall_elapsed) - i128::from(rtt)).abs() > i128::from(STEP_SLACK_NS);
+                if stepped {
+                    return;
+                }
                 if let Ok(sample) = Sample::measure(&reply, target.sent_unix_ns, rtt) {
                     let [a, b, c, d] = target.addr.ip;
                     self.found.push(Found {

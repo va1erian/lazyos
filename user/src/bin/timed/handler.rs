@@ -12,7 +12,7 @@ use crate::state::{now, State};
 
 /// First second `SetTime` refuses (2200-01-01T00:00:00Z), mirroring the
 /// kernel's RTC range so an out-of-range value fails here with a clear code.
-const MAX_SET_SECS: i64 = 7_258_118_400;
+const MAX_SET_SECS: i64 = sntp::policy::MAX_UNIX_SECS;
 
 /// Why a clock or zone change was refused (with `EPERM`): the attack harness
 /// (`tools/accounts`) matches this text, so a regression that refuses for
@@ -47,7 +47,7 @@ pub(super) fn dispatch(state: &mut State, ntp: &mut Ntp, message: &Message) -> R
         }
         wire::METHOD_SETTIME => {
             let args = wire::decode_set_time_args(&message.parcel.body).map_err(Error::Parcel)?;
-            set_time(state, args.unix_secs)?;
+            set_time(state, ntp, args.unix_secs)?;
             Vec::new()
         }
         wire::METHOD_NTPSTATUS => {
@@ -98,7 +98,7 @@ fn authorized(message: &Message) -> bool {
 }
 
 /// Step the wall clock (the caller is [`authorized`]).
-fn set_time(state: &mut State, unix_secs: i64) -> Result<()> {
+fn set_time(state: &mut State, ntp: &mut Ntp, unix_secs: i64) -> Result<()> {
     // Below the floor `timed` would lift the clock again at its next start
     // (`ntp::floor_clock`): refuse it now rather than accept and undo it.
     if !(sntp::CLOCK_FLOOR_UNIX..MAX_SET_SECS).contains(&unix_secs) {
@@ -106,5 +106,6 @@ fn set_time(state: &mut State, unix_secs: i64) -> Result<()> {
     }
     sys::wall_set_centis(unix_secs as u64 * 100).map_err(Error::Errno)?;
     state.next_tick = 0;
+    ntp.clock_stepped();
     Ok(())
 }

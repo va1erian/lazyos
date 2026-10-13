@@ -39,6 +39,8 @@ pub(super) struct State {
     /// A `sys/time/*` key changed (or was read for the first time) since the
     /// network time settings were last taken.
     ntp_dirty: bool,
+    /// Tick before which the settings are not read again (`confd` down).
+    next_ntp_try: u64,
 }
 
 /// Current UTC seconds and the centisecond remainder.
@@ -61,6 +63,7 @@ impl State {
             announced: false,
             buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
             ntp_dirty: false,
+            next_ntp_try: 0,
         }
     }
 
@@ -211,13 +214,16 @@ impl State {
     /// `(enabled, servers)` as `confd` holds them (an absent key is `None`).
     /// Quiet, and still dirty, while `confd` cannot be reached.
     pub(super) fn take_ntp_config(&mut self) -> Option<(Option<bool>, Option<String>)> {
-        if !self.ntp_dirty {
+        if !self.ntp_dirty || sys::clock() < self.next_ntp_try {
             return None;
         }
         if self.confd.is_none() {
             self.confd = Confd::connect().ok();
         }
-        let client = self.confd.as_ref()?;
+        let Some(client) = self.confd.as_ref() else {
+            self.next_ntp_try = sys::clock() + RETRY_TICKS;
+            return None;
+        };
         let enabled = match client.get(sntp::ENABLED_KEY) {
             Ok(Some(confd::Value::Bool(on))) => Some(on),
             Ok(_) => None,

@@ -143,6 +143,29 @@ class Resync(unittest.TestCase):
         self.assertTrue(scenarios.check_resync(context(self.serial(""), [request(0, 0.0)])))
 
 
+class Deny(unittest.TestCase):
+    def test_a_denied_address_is_asked_once(self):
+        good = ("TIMED:NTP:DENY 10.0.2.2 will not be asked again\n"
+                "TIMED:NTP:FAIL no usable answer asked=1 answered=1\n"
+                "TIMED:NTP:FAIL every server address asked not to be queried\n")
+        self.assertEqual(scenarios.check_deny(context(good, [request(0, 0.0)])), [])
+        again = [request(0, 0.0), request(1, 20.0)]
+        self.assertTrue(scenarios.check_deny(context(good, again)))
+        self.assertTrue(scenarios.check_deny(context("", [request(0, 0.0)])))
+
+
+class Restart(unittest.TestCase):
+    def test_a_restarted_timed_is_seen(self):
+        self.assertEqual(judge.timed_started_once("TIMED:READY unix=1 interface=0x1\n"), [])
+        self.assertTrue(judge.timed_started_once(""))
+        self.assertTrue(judge.timed_started_once("TIMED:READY a\nTIMED:READY b\n"))
+
+    def test_constant_retry_gaps_are_not_a_back_off(self):
+        fails = "".join("TIMED:NTP:FAIL no usable answer asked=1 answered=0\n" for _ in range(3))
+        constant = [request(i, 15.5 * i) for i in range(4)]
+        self.assertTrue(scenarios.check_silent(context(fails, constant)))
+
+
 class Kiss(unittest.TestCase):
     def test_rate_means_one_request(self):
         serial = "TIMED:NTP:RATE asked=1\n"

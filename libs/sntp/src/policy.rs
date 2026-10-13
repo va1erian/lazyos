@@ -9,8 +9,11 @@
 //! * offsets under [`MIN_STEP_NS`] are left alone (no churn, and below the
 //!   wall clock's own 10 ms granularity plus path asymmetry anyway);
 //! * the first sync after boot may step by any amount (a dead RTC is exactly
-//!   what this exists for), later ones only up to [`MAX_STEP_NS`], so a liar
-//!   on the path cannot wander a running clock.
+//!   what this exists for), later ones only up to [`MAX_STEP_NS`], so a single
+//!   lying answer cannot wander a running clock; a larger offset is believed
+//!   only when it keeps agreeing for ten minutes ([`Persistence`]), which an
+//!   on-path attacker who answers every query the same way can also arrange:
+//!   plain SNTP gives no more than a speed bump against that.
 
 use crate::NS_PER_SEC;
 

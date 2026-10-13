@@ -144,13 +144,29 @@ def check_rate(ctx: judge.Context) -> list[str]:
     return problems
 
 
+def check_deny(ctx: judge.Context) -> list[str]:
+    """DENY: the address is remembered and never asked again this boot, even
+    when the schedule comes round (a second attempt fails without a packet)."""
+    problems = judge.request_shape(ctx.requests)
+    if len(ctx.of("DENY")) != 1:
+        problems.append(f"expected one DENY line, saw {len(ctx.of('DENY'))}")
+    if len(ctx.requests) != 1:
+        problems.append(f"{len(ctx.requests)} requests: a denied address was asked again")
+    if not any("asked not to be queried" in e.text for e in ctx.of("FAIL")):
+        problems.append("the retry did not stop at the denial")
+    if ctx.of("STEP") or ctx.of("SYNC"):
+        problems.append("a clock action followed a kiss-o'-death")
+    return problems
+
+
 def check_silent(ctx: judge.Context) -> list[str]:
     problems = judge.request_shape(ctx.requests) + judge.minimum_interval(ctx.requests)
     fails = ctx.of("FAIL")
     if len(fails) < 3 or len(ctx.requests) < 3:
         problems.append(f"{len(fails)} failures, {len(ctx.requests)} requests: it did not keep trying")
     g = judge.gaps(ctx.requests)
-    if len(g) >= 3 and not g[2] > g[0] - 1.0:
+    # 5 s, 10 s, 20 s waits under the 15 s floor: about 15, 15, 20.
+    if len(g) >= 3 and not g[2] > g[0] + 2.0:
         problems.append(f"the retry delay did not grow: {[round(x) for x in g]}")
     if ctx.of("STEP") or ctx.of("SYNC"):
         problems.append("a clock action without an answer")
@@ -202,6 +218,11 @@ def catalogue() -> list[Scenario]:
         Scenario("rate", "a RATE kiss: one request, then silence",
                  [Behaviour("rate")],
                  [*boot(), wait_event(r"TIMED:NTP:RATE"), {"wait": 40}], check_rate),
+        Scenario("deny", "a DENY kiss: that address is not asked again",
+                 [Behaviour("deny")],
+                 [*boot(), wait_event(r"TIMED:NTP:DENY"),
+                  wait_event(r"TIMED:NTP:FAIL every server address", 120), *now()],
+                 check_deny),
         Scenario("silent", "no answers: retries back off, never closer than 15 s",
                  [Behaviour("silent")],
                  [*boot(), wait_event(r"TIMED:NTP:FAIL", 300, 3), {"wait": 1}], check_silent),

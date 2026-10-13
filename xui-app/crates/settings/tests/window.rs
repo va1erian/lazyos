@@ -387,6 +387,7 @@ fn automatic_time_is_the_stores_and_sync_now_is_open() {
             time(TimeMsg::SyncNow),
             time(TimeMsg::Apply),
             time(TimeMsg::Auto(false)),
+            time(TimeMsg::Apply),
         ];
         let image = {
             let (mem, system) = (mem.clone(), system.clone());
@@ -404,10 +405,12 @@ fn automatic_time_is_the_stores_and_sync_now_is_open() {
         save(&image, "settings-time-ntp-off.png");
         assert_eq!(mem.get(sntp::ENABLED_KEY), Some(Value::Bool(false)));
         assert_eq!(*system.syncs.borrow(), 1, "Sync now did not reach timed");
+        // The first Apply (automatic time acting) was refused; the second,
+        // after switching it off, went through.
         assert_eq!(
-            system.now.borrow().as_ref().map(|n| n.unix),
-            Some(1_791_849_700),
-            "a hand-set clock went through while automatic time was on"
+            *system.times_set.borrow(),
+            1,
+            "a hand-set clock went through while automatic time was on,              or was refused after it was switched off"
         );
 
         // Back on, and the server field (loaded from the store) applied.

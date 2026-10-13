@@ -18,8 +18,11 @@ use crate::NS_PER_SEC;
 
 pub fn run(input: &[u8]) {
     match input.split_first() {
-        Some((first, rest)) if first & 1 == 0 => reply(rest),
-        Some((_, rest)) => schedule(rest),
+        Some((first, rest)) => match first & 3 {
+            0 | 3 => reply(rest),
+            1 => schedule(rest),
+            _ => persistence(rest),
+        },
         None => {}
     }
 }
@@ -86,6 +89,30 @@ fn be64(bytes: &[u8]) -> u64 {
     let mut raw = [0u8; 8];
     raw.copy_from_slice(&bytes[..8]);
     u64::from_be_bytes(raw)
+}
+
+/// Feed `Persistence` offsets and times from a script of 9-byte records
+/// (`[ms delta: u8][offset: i64 LE]`): it never says yes before three
+/// observations, never before ten minutes since the first of the run that
+/// agrees, and never panics.
+fn persistence(input: &[u8]) {
+    use crate::policy::{Persistence, PERSIST_COUNT, PERSIST_MIN_MS};
+
+    let mut p = Persistence::new();
+    let (mut now, mut seen) = (0u64, 0u32);
+    for record in input.chunks_exact(9) {
+        now = now.saturating_add(u64::from(record[0]) * 5_000);
+        let offset = i64::from_le_bytes(record[1..9].try_into().unwrap());
+        seen += 1;
+        if p.observe(now, offset) {
+            assert!(seen >= PERSIST_COUNT, "believed after {seen} observations");
+            assert!(now >= PERSIST_MIN_MS, "believed at {now} ms");
+        }
+        if record[0] == 0xff {
+            p.reset();
+            seen = 0;
+        }
+    }
 }
 
 /// Drive a schedule the way `timed` does (query only when due, record it)
@@ -194,6 +221,20 @@ mod seeded {
             let mut bytes = rng.bytes(len);
             if let Some(first) = bytes.first_mut() {
                 *first &= !1;
+            }
+            run(&bytes);
+        });
+    }
+
+    #[test]
+    fn persistence_scripts_are_safe() {
+        for_seeds("sntp::persistence_scripts", |_, rng| {
+            let records = rng.range(0, 40) as usize;
+            let mut bytes = vec![2u8];
+            for _ in 0..records {
+                bytes.push(rng.byte() % 80);
+                let offset = (rng.next_u64() % 8) as i64 * 4_000_000_000 + rng.range(0, 3) as i64;
+                bytes.extend(offset.to_le_bytes());
             }
             run(&bytes);
         });

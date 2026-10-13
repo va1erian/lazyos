@@ -1,4 +1,4 @@
-# NTP in `timed` (DRAFT)
+# NTP in `timed`
 
 Status: N0 to N3 are built (see "As built" at the end); the Settings page is
 rendered offscreen and has no QEMU session of its own.
@@ -115,7 +115,8 @@ The kernel can only step, so the policy is deliberately narrow:
   exists for).
 * **Later syncs:** step only when `250 ms <= |offset| <= 1000 s`; smaller is
   left alone (no churn), larger is logged and refused (an on-path attacker
-  cannot wander the clock after boot).
+  cannot wander the clock after boot: one lying answer cannot; see 8.2 for
+  what an attacker who answers every query alike can still do).
 * **A step** goes through the same function as `SetTime`, so the retained
   `time/tick` is republished, and prints one `TIMED:NTP:STEP` line with
   server, offset, delay, stratum.
@@ -337,3 +338,29 @@ corrected again each hour) and for the later-sync bound of 1000 s.
   time client that is actually acting (not on an image with no network).
 * **Address subscription retries** are spaced 30 s apart, and the network
   time settings are read whenever the zone was, watch or no watch.
+
+### 8.3 Changes after the second review (a fresh-context Sonnet agent)
+
+* **The reply window starts after the lookups**, not before: a slow
+  resolver no longer eats the time the servers get to answer.
+* **A clock stepped under an exchange** (`SetTime` or anything else) drops
+  that exchange (`Ntp::clock_stepped`) and a sample whose wall-clock span
+  disagrees with its monotonic round trip by more than 1.5 s is not used.
+* **Switching automatic time on, or pointing it at another server**, asks
+  at once (within the 15 s minimum and any RATE hold) instead of at the next
+  hourly poll; a new server list also forgets denied addresses.
+* **No entropy, no exchange**: the nonce is the only defence against an
+  off-path sender, so there is no guessable fallback.
+* **`elevd`'s `time.set`** refuses a time below the floor, as `timed` does,
+  so an administrator is not asked for a password for a change that must
+  fail (`libs/elevpolicy` now shares `sntp::CLOCK_FLOOR_UNIX`).
+* **The bound is honestly weaker than first written.** One lying answer
+  cannot move a running clock by more than 1000 s; an on-path attacker who
+  answers every query the same way gets there after ten minutes through
+  `Persistence`. Plain SNTP offers no defence against that; NTS would. The
+  documents that said "cannot wander" are corrected.
+* **Harness:** every scenario also asserts `timed` announced itself once
+  (a crash and restart would otherwise be invisible), a `deny` scenario
+  exists, and `silent` really requires a growing retry delay.
+* **Open:** `SyncNow` from any local app can still trigger a query every
+  15 s and does not wait out a failure back-off.

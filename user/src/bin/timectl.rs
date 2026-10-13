@@ -68,8 +68,7 @@ fn run(command: &str, arg: Option<&str>) -> Result<(), String> {
         ("ntp", None | Some("status")) => {
             let s = client.ntp_status().map_err(text)?;
             sys::write_str(&format!(
-                "enabled={} state={} server={} stratum={} offset_ms={} delay_ms={} last_sync={} next_sync={}
-",
+                "enabled={} state={} server={} stratum={} offset_ms={} delay_ms={} last_sync={} next_sync={}\n",
                 s.enabled,
                 ntp_state(s.state),
                 if s.server.is_empty() { "-" } else { &s.server },

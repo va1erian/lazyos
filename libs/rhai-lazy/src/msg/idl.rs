@@ -3269,7 +3269,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "SyncNow",
                 id: 1100029530,
                 oneway: false,
-                doc: "Ask the network time client to query a server now. Open to everyone,\nand rate-limited like the schedule: it fails with `EAGAIN` when a\nquery went out less than 15 seconds ago, `ENETUNREACH` when there is\nno network and `ENODEV` when the client is off. Whatever the server\nsays is still judged by the same clock-step policy as a scheduled\nexchange, so a caller cannot choose the time, only when to ask.",
+                doc: "Ask the network time client to query a server now. Open to everyone,\nand rate-limited like the schedule: it fails with `EAGAIN` when a\nquery went out less than 15 seconds ago or is still in flight, or a\nserver asked to be left alone (`RATE`) and its hold has not passed,\n`ENETUNREACH` when there is\nno network and `ENODEV` when the client is off. Whatever the server\nsays is still judged by the same clock-step policy as a scheduled\nexchange, so a caller cannot choose the time, only when to ask.",
                 params: &[],
                 returns: &[],
                 objects: &[],

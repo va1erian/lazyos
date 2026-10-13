@@ -133,6 +133,8 @@ impl Ntp {
 
     /// Take a fresh configuration from `confd`.
     pub(super) fn configure(&mut self, on: bool, servers: Option<String>) {
+        let was_on = self.enabled();
+        let was_servers = String::from(self.servers());
         self.configured = true;
         self.configured_on = on;
         self.configured_servers = servers
@@ -140,7 +142,26 @@ impl Ntp {
             .unwrap_or_else(|| String::from(sntp::DEFAULT_SERVER));
         if !self.enabled() {
             self.exchange = None;
+            return;
         }
+        // Switched on, or pointed somewhere else: ask now (the schedule's own
+        // minimum interval and any RATE hold still apply), not at the next
+        // hourly poll; and what an old server denied says nothing about the
+        // new one.
+        if !was_on || self.servers() != was_servers {
+            if self.servers() != was_servers {
+                self.denied.clear();
+            }
+            self.exchange = None;
+            self.schedule.sync_now(sys::monotonic_ms());
+        }
+    }
+
+    /// The wall clock was just stepped by someone else (`SetTime`): an
+    /// exchange in flight measured the old clock and is dropped; the schedule
+    /// asks again once the minimum interval has passed.
+    pub(super) fn clock_stepped(&mut self) {
+        self.exchange = None;
     }
 
     /// One pass of the client, from the service loop's housekeeping.
@@ -179,10 +200,8 @@ impl Ntp {
         self.schedule.attempted(now_ms);
         let servers = String::from(self.servers());
         let started = match self.net.clients() {
-            Some((stack, sockets)) => {
-                Exchange::start(stack, sockets, &servers, &self.denied, now_ms)
-                    .map_err(|failure| failure.text())
-            }
+            Some((stack, sockets)) => Exchange::start(stack, sockets, &servers, &self.denied)
+                .map_err(|failure| failure.text()),
             None => Err("no network stack"),
         };
         match started {

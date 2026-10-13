@@ -117,6 +117,8 @@ pub struct MemSystem {
     pub ntp: RefCell<Option<NtpStatus>>,
     /// How many times [`System::ntp_sync_now`] was asked.
     pub syncs: RefCell<u32>,
+    /// How many times [`System::set_time`] went through.
+    pub times_set: RefCell<u32>,
 }
 
 impl Default for MemSystem {
@@ -136,6 +138,7 @@ impl Default for MemSystem {
             fail: RefCell::new(None),
             ntp: RefCell::new(None),
             syncs: RefCell::new(0),
+            times_set: RefCell::new(0),
         }
     }
 }
@@ -156,6 +159,7 @@ impl System for MemSystem {
 
     fn set_time(&self, unix: i64) -> Result<(), String> {
         self.check()?;
+        *self.times_set.borrow_mut() += 1;
         if let Some(now) = self.now.borrow_mut().as_mut() {
             now.unix = unix;
         }

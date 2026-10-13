@@ -32,6 +32,11 @@ def reply(sent, rtt, pkt):
     return b"\x00" + struct.pack("<qQ", sent, rtt) + pkt
 
 
+def persistence(*records):
+    """`[2]` then `(delta in 5 s steps, offset ns)` records."""
+    return b"\x02" + b"".join(struct.pack("<Bq", d, o) for d, o in records)
+
+
 def script(*ops):
     return b"\x01" + bytes(b for op in ops for b in op)
 
@@ -64,6 +69,8 @@ def sntp_seeds():
                                 packet(b"\xFF" * 8, b"\xFF" * 8)),
         # A reply that is valid but for a nonce another request carried.
         "reply_wrong_nonce_prefix": reply(NOW, 42_000_000, good[:24] + b"\0" * 8 + good[32:]),
+        "persistence_agreeing": persistence(*[(40, 10_800 * NS)] * 4),
+        "persistence_disagreeing": persistence((40, 10_800 * NS), (40, 20_000 * NS), (40, 10_800 * NS)),
         "schedule_up_query_success": script(
             (0, 0), (2, 0), (3, 0), (2, 0), (7, 0), (2, 0), (3, 1)),
         "schedule_backoff": script(
