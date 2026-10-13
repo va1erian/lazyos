@@ -41,10 +41,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_TLS");
     println!("cargo:rerun-if-env-changed=LAZYOS_FETCH");
     // Watched even when missing: a client built later rebuilds the image.
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join(BUILT).display()
-    );
+    crate::os_image::rerun_if_changed(&manifest_dir.join(BUILT));
     if !enabled() {
         return;
     }
@@ -59,7 +56,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         "cargo:warning=LAZYOS_TLS embedded: {} as fetch, curl, wget",
         path.display()
     );
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     for name in NAMES {
         sink.add_file(name, path.clone());
     }

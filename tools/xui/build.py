@@ -52,7 +52,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import zig  # noqa: E402
+from outfile import copy_if_changed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 APP = ROOT / "xui-app"
@@ -246,7 +248,7 @@ def build_zig_apps(debug: bool, mail: bool = False) -> dict[str, str]:
         source = build_zig_package(package, env, debug)
         if source:
             dest = OUT_DIR / disk_name
-            dest.write_bytes(Path(source).read_bytes())
+            copy_if_changed(Path(source), dest)
             built[package] = str(dest)
     return built
 
@@ -340,7 +342,9 @@ def main() -> int:
         if not source.is_file():
             continue
         dest = OUT_DIR / disk_name
-        dest.write_bytes(source.read_bytes())
+        # Not when it is the same program: the image build and the core
+        # packages key on the file's time, and would all run again.
+        copy_if_changed(source, dest)
         built[name] = str(dest)
 
     mail = args.mail or os.environ.get("LAZYOS_MAIL") == "1"

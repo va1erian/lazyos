@@ -6,8 +6,9 @@
 use std::fs::OpenOptions;
 use std::path::Path;
 
-use ext2fs::Geometry;
+use ext2fs::{Ext2, Geometry};
 
+use super::os_update::{self, full_message, is_no_space, keep_set, total_bytes};
 use super::{
     ensure_journal, now, open_cached, volume_error, write_volume, OsFile, Settings, RESET_HINT,
 };
@@ -34,15 +35,34 @@ pub(super) fn create(
         .truncate(true)
         .open(temp)
         .map_err(|e| format!("create {}: {e}", temp.display()))?;
+    os_disk::mark_sparse(&file);
     file.set_len(total).map_err(|e| e.to_string())?;
     write_head(&mut file, head, 0)?;
-    let io = FileIo::new(file, OS_START_LBA, sectors, true);
+    let io = FileIo::volatile(file, OS_START_LBA, sectors, true);
     let geometry = Geometry::for_size(sectors * SECTOR);
     ext2fs::format(&io, geometry, "lazyos", uuid, now()).map_err(|e| volume_error("format", e))?;
     let volume = open_cached(io)?;
     ensure_journal(&volume, journal)?;
-    write_volume(&volume, None, dirs, files, now())?;
+    write_volume(&volume, None, dirs, files, now()).map_err(|error| {
+        if is_no_space(&error) {
+            full_message(&volume, &error, total_bytes(files), SIZE_HINT)
+        } else {
+            error
+        }
+    })?;
     Ok(())
+}
+
+/// What to do about a volume that is too small for the selection.
+const SIZE_HINT: &str = "ask for a larger volume with LAZYOS_OS_SIZE (for example 1536M) \
+    and recreate it with LAZYOS_RESET_OS=1 (the launcher's \"Recreate the OS volume\")";
+
+/// Say how long a step of the update took when it took long enough to matter.
+fn slow(step: &str, since: std::time::Instant) {
+    let seconds = since.elapsed().as_secs_f64();
+    if seconds >= 1.0 {
+        println!("cargo:warning=image build: update: {step} {seconds:.1}s");
+    }
 }
 
 pub(super) fn update(
@@ -53,6 +73,7 @@ pub(super) fn update(
     dirs: &[DirSpec],
     files: &[OsFile],
 ) -> Result<(), String> {
+    let began = std::time::Instant::now();
     let total = OS_START_LBA * SECTOR + settings.os_size;
     let sectors = settings.os_size / SECTOR;
     let mut options = OpenOptions::new();
@@ -79,15 +100,60 @@ pub(super) fn update(
     // lock), so it is checked before the boot area is touched: a refused
     // volume leaves the whole image as it was.
     let volume_file = file.try_clone().map_err(|e| e.to_string())?;
+    // Durable, unlike a new image: the volume may hold a user's state, and the
+    // dirty marker before the writes and the clean one after them only mean
+    // something when `flush` is a barrier. Unchanged files are not written,
+    // so what is flushed is what changed.
     let io = FileIo::new(volume_file, OS_START_LBA, sectors, true);
     let mut volume = open_cached(io)?;
     // `recover` commits its orphan reclaim through the cache before the
     // checker reads the raw volume.
     os_recover::recover(&mut volume, settings.update_damaged)?;
+    slow("check the volume", began);
     ensure_journal(&volume, settings.journal)?;
     write_head(&mut file, head, old_end)?;
-    write_volume(&volume, Some(old), dirs, files, now())?;
-    Ok(())
+    let writing = std::time::Instant::now();
+    let written = match write_volume(&volume, Some(old), dirs, files, now()) {
+        Err(error) if is_no_space(&error) => retry_reclaiming(&volume, old, dirs, files, &error),
+        other => other.map(|_| ()),
+    };
+    slow("write the files", writing);
+    written
+}
+
+/// The update ran out of room. Files an interrupted build left in the
+/// build-owned trees (no manifest lists them, so nothing else would ever free
+/// them) are removed and the update runs again; with none to remove the volume
+/// is really too small for the selection, which is said, with the remedy.
+fn retry_reclaiming(
+    volume: &Ext2,
+    old: &Manifest,
+    dirs: &[DirSpec],
+    files: &[OsFile],
+    error: &str,
+) -> Result<(), String> {
+    let wanted = total_bytes(files);
+    let new = Manifest::of(dirs, files)?;
+    let freed = os_update::reclaim_leftovers(volume, &keep_set(old, &new, files))?;
+    if freed.files == 0 {
+        return Err(full_message(volume, error, wanted, SIZE_HINT));
+    }
+    println!(
+        "cargo:warning=the OS volume was full: removed {} file(s), {} MiB, that an \
+         interrupted build left in /system and /docs/os (no manifest listed them); \
+         updating again",
+        freed.files,
+        freed.bytes >> 20
+    );
+    write_volume(volume, Some(old), dirs, files, now())
+        .map(|_| ())
+        .map_err(|error| {
+            if is_no_space(&error) {
+                full_message(volume, &error, wanted, SIZE_HINT)
+            } else {
+                error
+            }
+        })
 }
 
 /// Byte offset where the image's current FAT volume ends (MBR entry 2).

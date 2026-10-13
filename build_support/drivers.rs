@@ -142,7 +142,7 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         // by (stage N5), when the harness built one (`tools/abi/build.py`);
         // without a musl toolchain the image simply lacks it.
         if let Some(path) = netfix() {
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             sink.add_file(fhs::bin::NETFIX, path);
         }
         // Bulk TCP throughput (docs/performance-plan.md P4,
@@ -150,7 +150,7 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         // the fixtures were built.
         add(sink, fhs::bin::NETBULK, "netbulk");
         if let Some(path) = fixture("LAZYOS_NETBULK", "netbulk") {
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             sink.add_file(fhs::bin::NETBULK_LINUX, path);
         }
     }

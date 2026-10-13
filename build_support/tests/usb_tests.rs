@@ -17,7 +17,25 @@ use crate::os_image::{format_uuid, OsFile, Source};
 use crate::os_layout::{dirs, parse_passwd};
 use crate::usb_fat;
 use crate::usb_ramdisk::{self, fat_read, fat_volume, Settings, FAT_START_LBA, OS_START_LBA};
-use crate::usb_stick::{self, compose, home_dirs, parse_size, HOME_LABEL};
+use crate::usb_stick::{self, compose_file, home_dirs, parse_size, Stick, HOME_LABEL};
+
+/// The stick made from `boot`, the bootloader part's bytes: written to the
+/// temporary file `compose_file` makes the image from.
+fn compose(
+    image: &std::path::Path,
+    boot: &[u8],
+    settings: &usb_stick::Settings,
+    home: &[crate::os_layout::DirSpec],
+) -> Result<Stick, String> {
+    let temp = image.with_extension("img.tmp");
+    std::fs::write(&temp, boot).map_err(|e| e.to_string())?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&temp)
+        .map_err(|e| e.to_string())?;
+    compose_file(image, &temp, file, settings, home, |_, _, _| Ok(0))
+}
 
 const PASSWD: &str = "root:0:0:toor:/root:sh\nalice:1000:1000:lazy:/home/alice:sh\n";
 const MIB: u64 = 1 << 20;
@@ -252,7 +270,7 @@ fn home_dirs_follow_the_passwd_homes() {
 
 /// A FAT volume shaped like the bootloader's: `fatfs` 0.3 with `efi/boot/`
 /// and a file in it, and a lowercase label.
-fn fatfs_boot_volume() -> Vec<u8> {
+pub(crate) fn fatfs_boot_volume() -> Vec<u8> {
     let mut disk = Cursor::new(vec![0u8; 4 << 20]);
     let options = fatfs::FormatVolumeOptions::new().volume_label(*b"kernel     ");
     fatfs::format_volume(&mut disk, options).unwrap();

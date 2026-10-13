@@ -78,7 +78,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     let credits = manifest_dir.join(CREDITS);
     // Watched even when missing: an artifact built later triggers an image rebuild.
     for path in [&package, &data, &credits] {
-        println!("cargo:rerun-if-changed={}", path.display());
+        crate::os_image::rerun_if_changed(path);
     }
     if std::env::var_os("LAZYOS_SRB2KART").as_deref() != Some(OsStr::new("1")) {
         return;

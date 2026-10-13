@@ -309,9 +309,21 @@ fn emit_revision() {
         let text = String::from_utf8(out.stdout).ok()?.trim().to_owned();
         (out.status.success() && !text.is_empty()).then_some(text)
     };
-    for what in ["HEAD", "logs/HEAD"] {
-        if let Some(path) = git(&["rev-parse", "--git-path", what]) {
-            println!("cargo:rerun-if-changed={path}");
+    // The files that move with a commit or a branch switch. Only the ones that
+    // exist: cargo takes a path that is missing (a worktree has no reflog until
+    // its first commit, a packed ref has no file) for "changed", and the kernel
+    // and the image were then built again by every `cargo build`.
+    let mut watched = vec![
+        String::from("HEAD"),
+        String::from("logs/HEAD"),
+        String::from("packed-refs"),
+    ];
+    watched.extend(git(&["symbolic-ref", "-q", "HEAD"]));
+    for what in watched {
+        if let Some(path) = git(&["rev-parse", "--git-path", &what]) {
+            if std::path::Path::new(&path).exists() {
+                println!("cargo:rerun-if-changed={path}");
+            }
         }
     }
     let revision = env::var("LAZYOS_REVISION")

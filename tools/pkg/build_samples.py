@@ -30,7 +30,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / "tools"))
 import build  # noqa: E402
+from outfile import copy_file, copy_if_changed, copy_tree  # noqa: E402
 
 # name -> (the built program under --xui-dir, where it goes in the package,
 #          the file name written under --out, which is also its name on the image)
@@ -47,14 +49,14 @@ def build_sample(name: str, xui_dir: Path, out_dir: Path) -> Path | None:
         return None
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / name
-        shutil.copytree(HERE / "samples" / name, tree)
+        copy_tree(HERE / "samples" / name, tree)
         target = tree / destination
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
+        copy_file(source, target)
         archive = build.build(tree, Path(scratch) / "dist")
         out_dir.mkdir(parents=True, exist_ok=True)
         final = out_dir / disk_name
-        shutil.copyfile(archive, final)
+        copy_if_changed(archive, final)
     return final
 
 

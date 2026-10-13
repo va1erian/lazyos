@@ -23,6 +23,7 @@ pub use bios::BiosBoot;
 
 mod fat;
 mod file_data_source;
+mod sparse;
 
 use std::{
     borrow::Cow,
@@ -109,30 +110,36 @@ impl DiskImageBuilder {
     #[cfg(feature = "bios")]
     /// Create an MBR disk image for booting on BIOS systems.
     pub fn create_bios_image(&self, image_path: &Path) -> anyhow::Result<()> {
+        self.create_bios_image_file(image_path).map(drop)
+    }
+
+    #[cfg(feature = "bios")]
+    /// [`Self::create_bios_image`], returning the image file still open
+    /// (read and write) for a caller that goes on writing it.
+    pub fn create_bios_image_file(&self, image_path: &Path) -> anyhow::Result<std::fs::File> {
         const BIOS_STAGE_3_NAME: &str = "boot-stage-3";
         const BIOS_STAGE_4_NAME: &str = "boot-stage-4";
-
-        let fat_partition = NamedTempFile::new().context("failed to create temp file")?;
 
         let stage_3 = FileDataSource::Bytes(BIOS_STAGE_3);
         let stage_4 = FileDataSource::Bytes(BIOS_STAGE_4);
         let mut internal_files = BTreeMap::new();
         internal_files.insert(BIOS_STAGE_3_NAME, stage_3);
         internal_files.insert(BIOS_STAGE_4_NAME, stage_4);
-        self.create_fat_filesystem_image(internal_files, fat_partition.path())
-            .context("failed to create FAT partition")?;
+        let files = self.merged_files(&internal_files)?;
+        let size = fat::partition_size(&files)?;
+        // The FAT partition is written in the image itself, not in a file of
+        // its own that is then copied in.
         mbr::create_mbr_disk(
             BIOS_BOOT_SECTOR,
             BIOS_STAGE_2,
-            fat_partition.path(),
+            size,
             image_path,
+            |disk, start| {
+                fat::create_fat_filesystem_at(files, disk, start, size)
+                    .context("failed to create FAT filesystem")
+            },
         )
-        .context("failed to create BIOS MBR disk image")?;
-
-        fat_partition
-            .close()
-            .context("failed to delete FAT partition after disk image creation")?;
-        Ok(())
+        .context("failed to create BIOS MBR disk image")
     }
 
     #[cfg(feature = "uefi")]
@@ -207,18 +214,19 @@ impl DiskImageBuilder {
         self
     }
 
-    fn create_fat_filesystem_image(
-        &self,
-        internal_files: BTreeMap<&str, FileDataSource>,
-        partition_path: &Path,
-    ) -> anyhow::Result<()> {
+    /// The files of the image: the caller's and the bootloader's own (which
+    /// must not collide).
+    fn merged_files<'a>(
+        &'a self,
+        internal_files: &'a BTreeMap<&'a str, FileDataSource>,
+    ) -> anyhow::Result<BTreeMap<&'a str, &'a FileDataSource>> {
         let mut local_map: BTreeMap<&str, _> = BTreeMap::new();
 
         for (name, source) in &self.files {
             local_map.insert(name, source);
         }
 
-        for k in &internal_files {
+        for k in internal_files {
             if local_map.insert(k.0, k.1).is_some() {
                 return Err(anyhow::Error::msg(format!(
                     "Attempted to overwrite internal file: {}",
@@ -226,6 +234,16 @@ impl DiskImageBuilder {
                 )));
             }
         }
+
+        Ok(local_map)
+    }
+
+    fn create_fat_filesystem_image(
+        &self,
+        internal_files: BTreeMap<&str, FileDataSource>,
+        partition_path: &Path,
+    ) -> anyhow::Result<()> {
+        let local_map = self.merged_files(&internal_files)?;
 
         fat::create_fat_filesystem(local_map, partition_path)
             .context("failed to create FAT filesystem")?;

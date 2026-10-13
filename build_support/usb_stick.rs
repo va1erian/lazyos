@@ -16,8 +16,8 @@
 //! `target/home.img` (`python -m tools.mkdisk --home-volume`): one `<user>/`
 //! per account whose home is `/home/<user>`, 0700, owned by that account.
 
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom, Write};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use ext2fs::{Ext2, Geometry};
@@ -119,24 +119,26 @@ pub fn home_dirs(accounts: &[Account]) -> Vec<DirSpec> {
         .collect()
 }
 
-/// Write the stick image to `image` from `boot` (the bootloader's MBR image:
-/// entry 1 stage 2, entry 2 the FAT partition) and a fresh home volume. The
-/// file is built next to `image` and renamed into place.
-pub fn compose(
-    image: &Path,
-    boot: &[u8],
-    settings: &Settings,
-    home: &[DirSpec],
-) -> Result<Stick, String> {
-    let (kind, start, sectors) = os_disk::mbr_entry(boot, 2).ok_or("no MBR in the boot image")?;
-    if kind == 0 || !os_disk::has_signature(boot) {
+/// Where the pieces of a stick image go, from the boot part's MBR.
+struct Layout {
+    home_start: u64,
+    home_sectors: u64,
+    /// The whole image, in bytes.
+    total: u64,
+}
+
+/// Check the boot part (`mbr` is its first sector, `boot_len` the bytes it
+/// has) and place the home partition after it.
+fn layout(mbr: &[u8], boot_len: u64, settings: &Settings) -> Result<Layout, String> {
+    let (kind, start, sectors) = os_disk::mbr_entry(mbr, 2).ok_or("no MBR in the boot image")?;
+    if kind == 0 || !os_disk::has_signature(mbr) {
         return Err("the boot image has no FAT partition in MBR entry 2".into());
     }
-    if !matches!(os_disk::mbr_entry(boot, 3), Some((0, _, _))) {
+    if !matches!(os_disk::mbr_entry(mbr, 3), Some((0, _, _))) {
         return Err("MBR entry 3 of the boot image is already in use".into());
     }
     let boot_end = (start + sectors) * SECTOR;
-    if (boot.len() as u64) < boot_end {
+    if boot_len < boot_end {
         return Err("the boot image is shorter than its FAT partition".into());
     }
     let home_start = round_up(start + sectors, ALIGN_SECTORS);
@@ -145,46 +147,89 @@ pub fn compose(
     if home_start + home_sectors > u64::from(u32::MAX) {
         return Err("the stick image is past the 2 TiB MBR limit".into());
     }
-    let mut head = boot[..boot_end as usize].to_vec();
-    set_entry(&mut head[..512], 3, LINUX_TYPE, home_start, home_sectors);
+    Ok(Layout {
+        home_start,
+        home_sectors,
+        total,
+    })
+}
 
-    let temp = image.with_extension("img.tmp");
+/// Make the stick image `image` from `boot`, the open file the bootloader
+/// wrote its MBR, stage 2 and FAT partition into (MBR entry 1 stage 2, entry 2
+/// the FAT partition), which is at `boot_path`: once `tidy` has fixed the
+/// partition's directories (given the file and the partition's byte range)
+/// and the home volume is formatted after it, the file is renamed to `image`.
+/// Nothing of the boot part is read or written twice, and the file is not
+/// opened again: opening a large file just written can wait on the host's
+/// virus scanner for seconds. A failure removes `boot_path`.
+pub fn compose_file(
+    image: &Path,
+    boot_path: &Path,
+    boot: File,
+    settings: &Settings,
+    home: &[DirSpec],
+    tidy: impl FnOnce(&File, u64, u64) -> Result<usize, String>,
+) -> Result<Stick, String> {
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&temp)
-            .map_err(|e| format!("create {}: {e}", temp.display()))?;
-        file.set_len(total).map_err(|e| e.to_string())?;
+        let mut file = boot;
+        let length = file.metadata().map_err(|e| e.to_string())?.len();
+        let mut mbr = [0u8; 512];
         file.seek(SeekFrom::Start(0))
-            .and_then(|_| file.write_all(&head))
-            .map_err(|e| format!("write the boot part: {e}"))?;
-        let uuid = os_image::new_uuid();
-        format_home(
-            FileIo::new(file, home_start, home_sectors, true),
-            uuid,
-            home,
-        )?;
-        Ok(uuid)
+            .and_then(|_| file.read_exact(&mut mbr))
+            .map_err(|e| format!("read the boot part's MBR: {e}"))?;
+        let place = layout(&mbr, length, settings)?;
+        let (_, fat_start, fat_sectors) =
+            os_disk::mbr_entry(&mbr, 2).ok_or("no MBR in the boot image")?;
+        tidy(&file, fat_start * SECTOR, fat_sectors * SECTOR)
+            .map_err(|e| format!("the stick's FAT partition: {e}"))?;
+        set_entry(
+            &mut mbr,
+            3,
+            LINUX_TYPE,
+            place.home_start,
+            place.home_sectors,
+        );
+        os_disk::mark_sparse(&file);
+        file.set_len(place.total).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(0))
+            .and_then(|_| file.write_all(&mbr))
+            .map_err(|e| format!("write the MBR: {e}"))?;
+        let uuid = add_home(file, &place, home)?;
+        Ok((place, uuid))
     })();
-    let uuid = match result {
-        Ok(uuid) => uuid,
+    finish(boot_path, image, result)
+}
+
+/// Format the home volume into `file` at `place`; returns its UUID.
+fn add_home(file: File, place: &Layout, home: &[DirSpec]) -> Result<[u8; 16], String> {
+    let uuid = os_image::new_uuid();
+    let io = FileIo::volatile(file, place.home_start, place.home_sectors, true);
+    format_home(io, uuid, home)?;
+    Ok(uuid)
+}
+
+/// Rename the finished `temp` to `image`, or remove it when `made` failed.
+fn finish(
+    temp: &Path,
+    image: &Path,
+    made: Result<(Layout, [u8; 16]), String>,
+) -> Result<Stick, String> {
+    let (place, uuid) = match made {
+        Ok(made) => made,
         Err(error) => {
-            let _ = std::fs::remove_file(&temp);
+            let _ = std::fs::remove_file(temp);
             return Err(error);
         }
     };
-    std::fs::rename(&temp, image).map_err(|e| {
+    std::fs::rename(temp, image).map_err(|e| {
         format!(
             "cannot replace {} ({e}); is QEMU or a writer using it?",
             image.display()
         )
     })?;
     Ok(Stick {
-        bytes: total,
-        home_start_lba: home_start,
+        bytes: place.total,
+        home_start_lba: place.home_start,
         home_uuid: uuid,
     })
 }

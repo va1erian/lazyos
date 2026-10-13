@@ -53,10 +53,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYRAD_SAMPLES");
     // Watched even when missing: a program built later triggers a rebuild.
     for relative in ELFS {
-        println!(
-            "cargo:rerun-if-changed={}",
-            manifest_dir.join(relative).display()
-        );
+        crate::os_image::rerun_if_changed(&manifest_dir.join(relative));
     }
     if enabled() {
         embed_samples(sink, manifest_dir);
@@ -67,7 +64,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
 /// Add the development-run test package when it was built.
 fn embed_devtest(sink: &mut dyn Sink, manifest_dir: &Path) {
     let path = manifest_dir.join(DEVTEST_LZP);
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     if path.is_file() {
         println!(
             "cargo:warning=LAZYOS_LAZYRAD embedded: {} as {}",
@@ -95,7 +92,7 @@ fn embed_samples(sink: &mut dyn Sink, manifest_dir: &Path) {
             manifest_dir.join(entry)
         };
         // Tracked even when missing, so a sample added later is picked up.
-        println!("cargo:rerun-if-changed={}", source.display());
+        crate::os_image::rerun_if_changed(&source);
         if !source.is_dir() {
             println!(
                 "cargo:warning=LAZYRAD_SAMPLES entry is not a directory: {}",
@@ -160,7 +157,7 @@ fn copy_dir(sink: &mut dyn Sink, source: &Path, destination: &str) {
         if metadata.is_dir() {
             copy_dir(sink, &path, &target);
         } else if metadata.is_file() {
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             sink.add_file(&target, path);
         }
     }

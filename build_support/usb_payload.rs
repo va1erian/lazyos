@@ -86,7 +86,7 @@ pub fn build_outputs(
     let payload = prepare(kernel, &out_dir, dirs, files, id)?;
     if stick {
         let image = source.join("target").join("lazyos-usb.img");
-        usb_image::build(&payload, &out_dir, &image, accounts)?;
+        usb_image::build(&payload, &image, accounts)?;
     }
     if let Some(info) = netboot {
         let inputs = netboot::Inputs {

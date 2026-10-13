@@ -339,7 +339,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path, shell: bool) {
     let mut trees = Vec::new();
     for root in roots(manifest_dir, extra.as_deref()) {
         // A directory is watched recursively: an added asset reruns the build.
-        println!("cargo:rerun-if-changed={}", root.display());
+        crate::os_image::rerun_if_changed(&root);
         trees.push(collect(&root, LIMITS).unwrap_or_else(|why| panic!("assets: {why}")));
     }
     let chosen = select(&trees, shell, LIMITS).unwrap_or_else(|why| panic!("assets: {why}"));

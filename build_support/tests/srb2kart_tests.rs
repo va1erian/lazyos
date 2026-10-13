@@ -1,13 +1,14 @@
 //! `LAZYOS_SRB2KART=1` (docs/srb2kart-port-plan.md): the 1 GiB default OS
-//! volume and where the package, the data and the credits land.
+//! volume (1.5 GiB beside the WebKit browser) and where the package, the data
+//! and the credits land.
 
-use crate::os_disk::{default_size, parse_size, DEFAULT_OS_SIZE, SRB2KART_OS_SIZE, WEBKIT_OS_SIZE};
+use crate::os_disk::{default_size, parse_size, DEFAULT_OS_SIZE, SRB2KART_EXTRA, WEBKIT_EXTRA};
 use crate::os_image::{OsFiles, Sink, Source};
 use crate::srb2kart_embed::{data_destination, data_files};
 
 #[test]
 fn srb2kart_raises_the_default_os_size_to_one_gib() {
-    assert_eq!(SRB2KART_OS_SIZE, 1 << 30);
+    assert_eq!(DEFAULT_OS_SIZE + SRB2KART_EXTRA, 1 << 30);
     assert_eq!(default_size(true, false), parse_size("1G").unwrap());
     assert_eq!(default_size(false, false), DEFAULT_OS_SIZE);
     assert!(default_size(true, false) > default_size(false, false));
@@ -17,13 +18,21 @@ fn srb2kart_raises_the_default_os_size_to_one_gib() {
 fn webkit_raises_the_default_os_size_to_one_gib() {
     // Three programs of about 107 MiB each, their package and the image do not fit the 512 MiB
     // default with room to write.
-    assert_eq!(WEBKIT_OS_SIZE, parse_size("1G").unwrap());
-    assert_eq!(default_size(false, true), WEBKIT_OS_SIZE);
+    assert_eq!(DEFAULT_OS_SIZE + WEBKIT_EXTRA, parse_size("1G").unwrap());
+    assert_eq!(default_size(false, true), parse_size("1G").unwrap());
     let three_programs_and_an_image: u64 = 3 * (107 << 20) + (128 << 20);
     assert!(three_programs_and_an_image < default_size(false, true));
     assert!(default_size(false, true) > default_size(false, false));
-    // The larger of the two wins when both are selected.
-    assert_eq!(default_size(true, true), SRB2KART_OS_SIZE);
+    // The two add up when both are selected: SRB2Kart's data (460 MiB) beside
+    // the browser's three programs filled a 1 GiB volume and the update died
+    // halfway.
+    assert_eq!(
+        default_size(true, true),
+        parse_size("1536M").unwrap(),
+        "512 MiB base plus 512 MiB for each"
+    );
+    assert!(default_size(true, true) > default_size(true, false));
+    assert!(default_size(true, true) > default_size(false, true));
 }
 
 #[test]

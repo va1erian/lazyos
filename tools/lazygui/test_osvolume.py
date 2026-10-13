@@ -67,7 +67,8 @@ class OsVolumeTests(unittest.TestCase):
 
     def test_webkit_needs_one_gib(self) -> None:
         self.assertEqual(osvolume.required_bytes(False, True), 1024 * MIB)
-        self.assertEqual(osvolume.required_bytes(True, True), 1024 * MIB, "the larger feature wins")
+        self.assertEqual(osvolume.required_bytes(True, True), 1536 * MIB, "the features add up")
+        self.assertEqual(osvolume.required_bytes(True, False), 1024 * MIB)
         self.assertEqual(osvolume.required_bytes(False, False), 512 * MIB)
         missing = self.tmp / "none.img"
         self.assertEqual(osvolume.plan(missing, False, True), (None, False), "the build default fits")
@@ -94,6 +95,17 @@ class OsVolumeTests(unittest.TestCase):
             self.assertEqual(env["LAZYOS_OS_SIZE"], str(1024 * MIB))
         big = make_image(self.tmp, 2048)  # the same path, rewritten
         self.assertEqual(osvolume.env({"webkit": True}, big), {"LAZYOS_OS_SIZE": str(2048 * MIB)})
+
+    def test_srb2kart_beside_the_browser_needs_both(self) -> None:
+        """A 1 GiB volume filled up with both and the update died halfway."""
+        image = make_image(self.tmp, 1024)
+        self.assertEqual(osvolume.plan(image, True, True), (1536 * MIB, True))
+        self.assertEqual(osvolume.too_small(image, True, True), (1024, 1536))
+        demo = demo_config(skip_build=False, srb2kart=True, lazywebplus=True)
+        self.assertEqual(osvolume.cfg_too_small(demo, image), (1024, 1536))
+        self.assertTrue(osvolume.reset_wanted(demo, image))
+        big = make_image(self.tmp, 1536)  # the same path, rewritten
+        self.assertIsNone(osvolume.too_small(big, True, True))
 
     def test_the_demo_resets_and_other_modes_refuse(self) -> None:
         image = make_image(self.tmp, 512)
@@ -124,6 +136,52 @@ class OsVolumeTests(unittest.TestCase):
             self.assertEqual(env["LAZYOS_OS_SIZE"], str(1024 * MIB))
             argv = catalog.build_plan(demo_config(skip_build=False))[-1]["argv"]
             self.assertNotIn("--reset-os", argv)
+
+    BASE = {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+            "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+
+    def button(self, image: Path, **overrides) -> tuple[list[dict], dict[str, str]]:
+        """What the "Build image" button runs for a selection, over ``image``."""
+        cfg = {**self.BASE, **demo_config(skip_build=False), **overrides}
+        with mock.patch.object(catalog, "IMAGE", str(image)):
+            return catalog.image_build(cfg)
+
+    def test_the_build_button_recreates_a_volume_too_small_for_it(self) -> None:
+        """The button runs `cargo build` itself: it used to fail at its last step,
+        `resizing is not supported, set LAZYOS_RESET_OS=1`, after the whole build."""
+        image = make_image(self.tmp, 512)
+        steps, env = self.button(image, srb2kart=True, lazywebplus=True)
+        self.assertEqual(env["LAZYOS_RESET_OS"], "1")
+        self.assertEqual(env["LAZYOS_OS_SIZE"], str(1536 * MIB))
+        self.assertEqual(steps[-1]["argv"][1], "build")
+
+    def test_the_build_button_leaves_a_volume_that_fits(self) -> None:
+        image = make_image(self.tmp, 1536)
+        _steps, env = self.button(image, srb2kart=True, lazywebplus=True)
+        self.assertNotIn("LAZYOS_RESET_OS", env)
+        self.assertNotIn("LAZYOS_OS_SIZE", env, "the build's own default is that size")
+
+    def test_the_build_button_does_not_take_skip_build_for_a_reason_not_to_build(self) -> None:
+        image = make_image(self.tmp, 512)
+        _steps, env = self.button(image, skip_build=True, lazywebplus=True)
+        self.assertEqual(env["LAZYOS_RESET_OS"], "1")
+
+    def test_the_recreate_box_reaches_cargo_in_every_building_mode(self) -> None:
+        image = make_image(self.tmp, 1024)
+        with mock.patch.object(catalog, "IMAGE", str(image)):
+            for mode in osvolume.BUILDING_MODES:
+                cfg = {**self.BASE, **demo_config(skip_build=False), "mode": mode, "reset_os": True}
+                self.assertEqual(catalog.build_env(cfg)["LAZYOS_RESET_OS"], "1", mode)
+                skipped = {**cfg, "skip_build": True}
+                self.assertNotIn("LAZYOS_RESET_OS", catalog.build_env(skipped), mode)
+            other = {**self.BASE, **demo_config(skip_build=False), "mode": "Linux ABI bench",
+                     "reset_os": True}
+            self.assertNotIn("LAZYOS_RESET_OS", catalog.build_env(other))
+            unticked = {**self.BASE, **demo_config(skip_build=False)}
+            self.assertNotIn("LAZYOS_RESET_OS", catalog.build_env(unticked))
+
+    def test_the_building_modes_are_the_ones_skip_build_applies_to(self) -> None:
+        self.assertEqual(osvolume.BUILDING_MODES, catalog.SKIP_BUILD_MODES)
 
 
 if __name__ == "__main__":

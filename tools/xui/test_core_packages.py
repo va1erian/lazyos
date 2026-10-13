@@ -12,6 +12,7 @@ import re
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -261,6 +262,37 @@ class CorePackageTests(unittest.TestCase):
         stale.write_bytes(b"old")
         core_packages.build_core_packages(self.xui, out, "0.1.0", lazyrad_dir=self.lazyrad)
         self.assertFalse(stale.exists())
+
+    def test_an_unchanged_package_is_not_made_again(self) -> None:
+        out = self.dir / "g"
+        first = self.build("g")
+        times = {path: path.stat().st_mtime_ns for path in first}
+        autostart = {path: path.stat().st_mtime_ns
+                     for path in (out / core_packages.AUTOSTART_DIR).glob("*.lzp")}
+        again = self.build("g")
+        self.assertEqual([p.name for p in again], [p.name for p in first])
+        for path, mtime in times.items():
+            self.assertEqual(path.stat().st_mtime_ns, mtime, f"{path.name} was written again")
+        for path, mtime in autostart.items():
+            self.assertEqual(path.stat().st_mtime_ns, mtime, f"{path.name} was written again")
+
+    def test_a_changed_program_makes_only_its_package(self) -> None:
+        first = {p.name: p.stat().st_mtime_ns for p in self.build("h")}
+        (self.xui / "xui-paint.elf").write_bytes(b"\x7fELF a different paint")
+        again = {p.name: p.stat().st_mtime_ns for p in self.build("h")}
+        changed = [name for name in first if first[name] != again[name]]
+        self.assertEqual(changed, ["os.lazy.paint-0.1.0.lzp"])
+        # What it holds is the new program.
+        with zipfile.ZipFile(self.dir / "h" / "os.lazy.paint-0.1.0.lzp") as archive:
+            self.assertEqual(archive.read("bin/paint.elf"), b"\x7fELF a different paint")
+
+    def test_a_changed_version_makes_every_package_again(self) -> None:
+        self.build("i")
+        names = {p.name for p in core_packages.build_core_packages(
+            self.xui, self.dir / "i", "0.2.0", lazyrad_dir=self.lazyrad)}
+        self.assertTrue(names and all(name.endswith("-0.2.0.lzp") for name in names))
+        # The 0.1.0 archives are stale and gone, not left beside them.
+        self.assertEqual({p.name for p in (self.dir / "i").glob("*.lzp")}, names)
 
     def test_an_oversized_package_is_an_error(self) -> None:
         # Noise does not deflate, so the archive is as large as the program.

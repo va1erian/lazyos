@@ -59,6 +59,7 @@ class LazyWebPlusTests(unittest.TestCase):
         self.assertEqual([s["argv"][1] for s in steps],
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py"])
         self.assertIn("--plus", steps[2]["argv"])
+        self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
 
     def test_the_quota_and_the_volume_are_the_big_app_ones(self) -> None:
         from lazygui import osvolume

@@ -11,7 +11,9 @@ the very last build step. This works the size out first, shared by the GUI
 * an existing image that is too small has to be recreated (``--reset-os``).
 
 The sizes mirror `build_support/os_disk.rs` (`DEFAULT_OS_SIZE`,
-`SRB2KART_OS_SIZE`, `WEBKIT_OS_SIZE`, `OS_START_LBA`).
+`SRB2KART_EXTRA`, `WEBKIT_EXTRA`, `OS_START_LBA`): the default plus what each
+selected feature adds, since SRB2Kart's data beside the browser's programs does
+not fit the volume either one alone needs.
 """
 
 from __future__ import annotations
@@ -25,21 +27,23 @@ MIB = 1 << 20
 SECTOR = 512
 #: Where the OS volume starts in the MBR disk (`os_disk::OS_START_LBA`).
 OS_START_LBA = 131_072
-#: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_OS_SIZE` and `WEBKIT_OS_SIZE`.
+#: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_EXTRA` and `WEBKIT_EXTRA`.
 DEFAULT_SIZE = 512 * MIB
-SRB2KART_SIZE = 1024 * MIB
-WEBKIT_SIZE = 1024 * MIB
+SRB2KART_EXTRA = 512 * MIB
+WEBKIT_EXTRA = 512 * MIB
+#: One feature alone (`SRB2KART_OS_SIZE`, `WEBKIT_OS_SIZE`).
+SRB2KART_SIZE = DEFAULT_SIZE + SRB2KART_EXTRA
+WEBKIT_SIZE = DEFAULT_SIZE + WEBKIT_EXTRA
 
 _TABLE = 0x1BE
 _ENTRY = 16
 
 
 def required_bytes(srb2kart: bool, webkit: bool = False) -> int:
-    """The OS volume size a selection needs when none is configured (the largest of
-    what each selected feature needs, as `os_disk::default_size`)."""
-    if srb2kart:
-        return SRB2KART_SIZE
-    return WEBKIT_SIZE if webkit else DEFAULT_SIZE
+    """The OS volume size a selection needs when none is configured (the default
+    plus what each selected feature adds, as `os_disk::default_size`)."""
+    return (DEFAULT_SIZE + (SRB2KART_EXTRA if srb2kart else 0)
+            + (WEBKIT_EXTRA if webkit else 0))
 
 
 def existing_bytes(image: Path) -> int | None:
@@ -128,6 +132,25 @@ def env(cfg: dict, image: str | Path) -> dict[str, str]:
 
 
 def reset_wanted(cfg: dict, image: str | Path) -> bool:
-    """Whether the interactive demo recreates the OS volume: asked for, a
-    first-boot setup, or an existing one too small for the selection."""
+    """Whether a build recreates the OS volume: asked for, a first-boot setup,
+    or an existing one too small for the selection."""
     return bool(cfg.get("reset_os") or cfg.get("setup") or cfg_too_small(cfg, image))
+
+
+#: The run modes that build `target/lazyos.img` (unless "Skip build" is ticked).
+BUILDING_MODES = ("Interactive demo", "Headless screenshots", "Scripted session",
+                  "Kernel test suite")
+
+
+def reset_on_run(cfg: dict, image: str | Path) -> bool:
+    """Whether running ``cfg`` recreates the OS volume: it builds the image
+    (its mode does, and "Skip build" is off) and :func:`reset_wanted`."""
+    return (cfg.get("mode") in BUILDING_MODES and not cfg.get("skip_build")
+            and reset_wanted(cfg, image))
+
+
+def reset_on_build_button(cfg: dict, image: str | Path) -> bool:
+    """The same for the "Build image" button, which builds whatever the mode
+    and "Skip build" say: a volume too small for the selection is recreated,
+    after the launcher has asked, since a build cannot resize it."""
+    return reset_wanted({**cfg, "skip_build": False}, image)

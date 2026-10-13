@@ -182,7 +182,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         embed_programs(sink, manifest_dir, switch, built, programs, builder);
         let conf = manifest_dir.join(WEBKIT_FONTS_CONF);
         // Watched even when missing: a port built later rebuilds the image.
-        println!("cargo:rerun-if-changed={}", conf.display());
+        crate::os_image::rerun_if_changed(&conf);
         if conf.is_file() {
             sink.add_file(fhs::etc::FONTS_CONF, conf);
         } else {
@@ -198,7 +198,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
 /// Store every `.ttf` of `dir` under `fhs::share::FONTS_LIBERATION` (a desktop image already
 /// has them there; the later entry replaces the earlier).
 fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
-    println!("cargo:rerun-if-changed={}", dir.display());
+    crate::os_image::rerun_if_changed(&dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
         println!("cargo:warning=LAZYOS_WEBKIT: no fonts in {}", dir.display());
         return;
@@ -223,7 +223,7 @@ fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
 
 /// [`embed_tree`] for `switch`, which warns that `builder` has not run when `dir` is missing.
 fn embed_dir(sink: &mut dyn Sink, dir: &Path, image_dir: &str, switch: &str, builder: &str) {
-    println!("cargo:rerun-if-changed={}", dir.display());
+    crate::os_image::rerun_if_changed(&dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
         println!(
             "cargo:warning={switch}: {} not built, nothing added at {image_dir} (run {builder})",
@@ -239,7 +239,7 @@ fn embed_dir(sink: &mut dyn Sink, dir: &Path, image_dir: &str, switch: &str, bui
     for entry in files {
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
-        println!("cargo:rerun-if-changed={}", entry.path().display());
+        crate::os_image::rerun_if_changed(&entry.path());
         sink.add_file(&format!("{image_dir}/{name}"), entry.path());
     }
 }
@@ -258,7 +258,7 @@ fn embed_programs(
     for (file, image_path) in programs {
         let built = dir.join(file);
         // Watched even when missing: a program built later rebuilds the image.
-        println!("cargo:rerun-if-changed={}", built.display());
+        crate::os_image::rerun_if_changed(&built);
         if built.is_file() {
             sink.add_file(image_path, built);
         } else {
