@@ -50,7 +50,7 @@ pub fn dir() -> PathBuf {
 pub fn built(dir: &Path) -> Vec<CorePackage> {
     let list = dir.join(LIST);
     // Tracked even when missing, so building the packages later is picked up.
-    println!("cargo:rerun-if-changed={}", list.display());
+    crate::os_image::rerun_if_changed(&list);
     let Ok(text) = std::fs::read_to_string(&list) else {
         return Vec::new();
     };
@@ -75,7 +75,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
             autostart: (dir.join(auto), auto_digest.into()),
         };
         for (path, _) in [&package.plain, &package.autostart] {
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             if !path.is_file() {
                 panic!(
                     "{} lists {}, which is missing; rerun `python tools/xui/build.py`",

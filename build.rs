@@ -87,10 +87,12 @@ mod xui_embed;
 use os_image::Sink;
 
 fn main() {
+    let mut clock = std::time::Instant::now();
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let kernel = out_dir.join("kernel.trimmed");
     elf_trim::write_trimmed(&kernel);
+    os_image::lap("trim the kernel", &mut clock);
     usb_payload::track_sources();
     // `LAZYOS_NETBOOT=1` names the build once, for `lazyos.cfg` and the payload.
     let netboot_info = netboot::enabled().then(|| netboot::detect(&manifest_dir));
@@ -451,9 +453,11 @@ fn main() {
     quake_embed::embed(&mut files, &manifest_dir);
     // The LazyRAD MOD player package (`LAZYOS_MODPLAYER=1`) in /system/share/samples.
     modplayer_embed::embed(&mut files, &manifest_dir);
+    os_image::lap("collect the files", &mut clock);
     builder
         .create_bios_image(&bios_image)
         .expect("failed to create BIOS disk image");
+    os_image::lap("BIOS boot part", &mut clock);
 
     // Compose the stable image tooling uses (CI screenshots, scripts): the BIOS
     // part plus the OS volume, created or updated in place per `plan`.
@@ -473,6 +477,7 @@ fn main() {
         netboot_info.as_ref(),
     )
     .unwrap_or_else(|error| panic!("USB payload: {error}"));
+    os_image::lap("stick and netboot payload", &mut clock);
     os_image::compose(
         &plan,
         &stable_image,
@@ -482,16 +487,8 @@ fn main() {
         &files.files(),
     )
     .unwrap_or_else(|error| panic!("OS image: {error}"));
-    println!(
-        "cargo:warning=OS volume {} ({} files, {} MiB): {}",
-        os_image::format_uuid(plan.uuid),
-        files.len(),
-        settings.os_size >> 20,
-        match plan.action {
-            os_image::Action::Create => "created",
-            os_image::Action::Update { .. } => "updated in place",
-        }
-    );
+    os_image::lap("OS volume", &mut clock);
+    os_image::report(&plan, files.len(), settings.os_size);
 
     println!("cargo:rustc-env=BIOS_IMAGE={}", bios_image.display());
     println!("cargo:rerun-if-changed=build.rs");

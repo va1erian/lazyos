@@ -31,6 +31,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 TARGET = "x86_64-unknown-linux-musl"
 OUT_DIR = ROOT / "target" / "install"
 BIN = "lazyos-install"
@@ -99,7 +101,10 @@ def build(debug: bool) -> Path | None:
         raise SystemExit(1)
     output = ROOT / "target" / TARGET / ("debug" if debug else "release") / BIN
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy(output, OUTPUT)  # keeps the executable bit for host runs
+    # Only a changed program is written (the image build watches its time);
+    # the mode follows it either way, for host runs.
+    copy_if_changed(output, OUTPUT)
+    shutil.copymode(output, OUTPUT)
     log(f"{OUTPUT} ({OUTPUT.stat().st_size} bytes)")
     return OUTPUT
 

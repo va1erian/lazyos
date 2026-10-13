@@ -189,3 +189,63 @@ fn fix_dots(cluster: &mut [u8]) -> bool {
     }
     true
 }
+
+/// How much of the partition [`tidy_file`] reads first: the boot sector, the
+/// allocation tables, the root directory and the directories the loader's
+/// files sit in, which `bootloader` allocates before the big files.
+const WINDOW: u64 = 16 << 20;
+
+/// [`tidy`] the FAT partition of `len` bytes that starts at byte `start` of
+/// `file`, reading and writing back only the part that has the directories (a
+/// stick's partition is 600 MiB or more, nearly all of it the ramdisk). When a
+/// directory lies beyond that part the whole partition is read, as `tidy` of a
+/// buffer would.
+pub fn tidy_file(file: &std::fs::File, start: u64, len: u64) -> Result<usize, String> {
+    let mut window = WINDOW.min(len);
+    loop {
+        let original = read_at(file, start, window)?;
+        let mut changed = original.clone();
+        match tidy(&mut changed) {
+            Ok(fixed) => {
+                write_changes(file, start, &original, &changed)?;
+                return Ok(fixed);
+            }
+            Err(_) if window < len => window = len,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn read_at(file: &std::fs::File, at: u64, len: u64) -> Result<Vec<u8>, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut bytes = vec![0u8; len as usize];
+    let mut file = file;
+    file.seek(SeekFrom::Start(at))
+        .and_then(|_| file.read_exact(&mut bytes))
+        .map_err(|e| format!("read the FAT partition: {e}"))?;
+    Ok(bytes)
+}
+
+/// Write back the 4 KiB pieces of `changed` that differ from `original`.
+fn write_changes(
+    file: &std::fs::File,
+    start: u64,
+    original: &[u8],
+    changed: &[u8],
+) -> Result<(), String> {
+    use std::io::{Seek, SeekFrom, Write};
+    const PIECE: usize = 4096;
+    let mut file = file;
+    for (index, (before, after)) in original
+        .chunks(PIECE)
+        .zip(changed.chunks(PIECE))
+        .enumerate()
+    {
+        if before != after {
+            file.seek(SeekFrom::Start(start + (index * PIECE) as u64))
+                .and_then(|_| file.write_all(after))
+                .map_err(|e| format!("write the FAT partition: {e}"))?;
+        }
+    }
+    Ok(())
+}

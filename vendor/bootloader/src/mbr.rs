@@ -8,12 +8,20 @@ use std::{
 
 const SECTOR_SIZE: u32 = 512;
 
+/// Write an MBR disk image: the boot sector, the second stage, and a FAT
+/// partition of `boot_partition_size` bytes that `fill` writes into the image
+/// file (given the file and the partition's first byte). The image is
+/// `partition start + boot_partition_size` bytes long. The open file is
+/// returned: a caller that goes on with the image keeps the handle, since
+/// opening a large file just written can wait a long time for the virus
+/// scanner of the host.
 pub fn create_mbr_disk(
     bootsector_binary: &[u8],
     second_stage_binary: &[u8],
-    boot_partition_path: &Path,
+    boot_partition_size: u64,
     out_mbr_path: &Path,
-) -> anyhow::Result<()> {
+    fill: impl FnOnce(&File, u64) -> anyhow::Result<()>,
+) -> anyhow::Result<File> {
     use std::io::Cursor;
     let mut boot_sector = Cursor::new(bootsector_binary);
     let mut mbr =
@@ -43,13 +51,7 @@ pub fn create_mbr_disk(
         last_chs: mbrman::CHS::empty(),
     };
 
-    let mut boot_partition =
-        File::open(boot_partition_path).context("failed to open FAT boot partition")?;
     let boot_partition_start_sector = second_stage_start_sector + second_stage_sectors;
-    let boot_partition_size = boot_partition
-        .metadata()
-        .context("failed to read file metadata of FAT boot partition")?
-        .len();
     mbr[2] = mbrman::MBRPartitionEntry {
         boot: BOOT_ACTIVE,
         starting_lba: boot_partition_start_sector,
@@ -88,13 +90,13 @@ pub fn create_mbr_disk(
     io::copy(&mut second_stage, &mut disk)
         .context("failed to copy second stage binary to MBR disk image")?;
 
-    // fat partition
-    disk.seek(SeekFrom::Start(
-        (boot_partition_start_sector * SECTOR_SIZE).into(),
-    ))
-    .context("seek failed")?;
-    io::copy(&mut boot_partition, &mut disk)
-        .context("failed to copy FAT image to MBR disk image")?;
-
-    Ok(())
+    // fat partition, written where it will live
+    let boot_partition_start = u64::from(boot_partition_start_sector * SECTOR_SIZE);
+    crate::sparse::mark_sparse(&disk);
+    disk.set_len(boot_partition_start + boot_partition_size)
+        .context("failed to set the length of the MBR disk image")?;
+    disk.seek(SeekFrom::Start(boot_partition_start))
+        .context("seek failed")?;
+    fill(&disk, boot_partition_start).context("failed to write the FAT partition")?;
+    Ok(disk)
 }

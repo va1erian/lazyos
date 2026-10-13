@@ -175,8 +175,17 @@ never does (it has no fsck), so until a rebuild every boot of such an image
 prints `ext2: ... was not cleanly unmounted`. Damage no crash leaves fails the
 build before anything is written (copy your files off, then reset);
 `LAZYOS_UPDATE_DAMAGED_OS=1` updates such a volume anyway, at the risk of an
-updated file reusing a damaged user file's block. Changing
-`LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
+updated file reusing a damaged user file's block. An update that runs out of
+room first removes the files an interrupted build left in `/system/{bin,lib,share,packages}`
+and `/docs/os` (no manifest lists them; `build_support/os_update.rs`), then
+fails with the sizes and the remedy. The default size is `512M` plus `512M` for
+SRB2Kart and `512M` for the WebKit browsers (`1536M` with both). Changing
+`LAZYOS_OS_SIZE` on an existing image needs the reset. A build that changed
+nothing does not rewrite the image (`build_support/os_track.rs`: a missing
+optional output is watched through its directory, never as a missing file, which
+cargo takes for "always changed"), and the build tools write an output only
+when its bytes changed (`tools/outfile.py`); keep both when adding an
+embed or a tool. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 `libs/fhs`. Host tests: `cargo test -p build-support-tests`.

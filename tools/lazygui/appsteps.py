@@ -110,7 +110,7 @@ def webkit_step(cfg: dict) -> list[dict]:
     return [{"label": "Build the WebKit dependency bundle (Docker)",
              "argv": [PY, "tools/webkit/deps.py", "--require"]},
             {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
-             "argv": [PY, "tools/webkit/port.py", "--require"]},
+             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
             {"label": "Build the WebKit app: the window and the UI process (Docker)",
              "argv": [PY, "tools/webkit/app.py", "--require"]},
             {"label": "Build xui apps with WebKit", "argv": [PY, "tools/xui/build.py"]}]
@@ -125,7 +125,7 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
     return [{"label": "Build the WebKit dependency bundle (Docker)",
              "argv": [PY, "tools/webkit/deps.py", "--require"]},
             {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
-             "argv": [PY, "tools/webkit/port.py", "--require"]},
+             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
             {"label": "Build the LazyWeb+ app: the window and the UI process (Docker)",
              "argv": [PY, "tools/webkit/app.py", "--require", "--plus"]},
             {"label": "Build xui apps with LazyWeb+", "argv": [PY, "tools/xui/build.py"]}]

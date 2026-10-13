@@ -34,6 +34,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 APP = ROOT / "rhai-host"
 TARGET = "x86_64-unknown-linux-musl"
 OUT_DIR = ROOT / "target" / "rhai"
@@ -124,7 +126,7 @@ def main() -> int:
         return 1
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     dest = OUT_DIR / OUT_NAME
-    dest.write_bytes(source.read_bytes())
+    copy_if_changed(source, dest)
     built[BIN] = str(dest)
     print(json.dumps(built, indent=2))
     print(f"rhai: {dest} ({dest.stat().st_size} bytes)", file=sys.stderr)

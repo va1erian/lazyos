@@ -70,7 +70,7 @@ fn test_hosts() -> String {
         return String::new();
     };
     let path = Path::new(&path);
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("LAZYOS_TLS_TEST_HOSTS: cannot read {}: {e}", path.display()));
     let lines = parse_hosts(&text)

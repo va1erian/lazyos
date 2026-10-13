@@ -38,6 +38,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 sys.path.insert(0, str(ROOT / "tools" / "xui"))
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
 import zig  # noqa: E402
@@ -116,7 +118,7 @@ def build_program(debug: bool, local: Path | None) -> Path | None:
         raise SystemExit(1)
     output = CARGO_TARGET_DIR / TARGET / ("debug" if debug else "release") / "lazyemusic"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(output, ELF)
+    copy_if_changed(output, ELF)
     return ELF
 
 
@@ -155,7 +157,7 @@ def build_package(elf: Path, local: Path | None) -> Path:
             raise SystemExit(1)
         PACKAGE_DIR.mkdir(parents=True, exist_ok=True)
         final = PACKAGE_DIR / PACKAGE_NAME
-        shutil.copyfile(archive, final)
+        copy_if_changed(archive, final)
     log(f"{final} ({final.stat().st_size // 1024} KiB)")
     return final
 

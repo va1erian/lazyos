@@ -116,7 +116,7 @@ pub fn key_from_env() -> Result<Option<SigningKey>, String> {
         return Ok(None);
     };
     let path = PathBuf::from(path);
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("LAZYOS_NETBOOT_KEY {}: {e}", path.display()))?;
     manifest::parse_key(&text)

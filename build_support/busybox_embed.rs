@@ -25,7 +25,7 @@ pub fn embed(files: &mut dyn Sink, manifest_dir: &Path) {
             // Watch every candidate, not just the pick: a BusyBox built or
             // dropped in later (or outranking the pick) must rebuild the image.
             for path in busybox_candidates(manifest_dir) {
-                println!("cargo:rerun-if-changed={}", path.display());
+                crate::os_image::rerun_if_changed(&path);
             }
             find_busybox(manifest_dir)
         }
@@ -33,7 +33,7 @@ pub fn embed(files: &mut dyn Sink, manifest_dir: &Path) {
     match busybox {
         Some(path) => {
             println!("cargo:warning=LAZYOS_BUSYBOX embedded: {}", path.display());
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             files.add_file(fhs::bin::BUSYBOX, path);
         }
         None => println!(

@@ -101,25 +101,50 @@ def build(tree: Path, jobs: int, targets: list[str]) -> dict[str, str]:
 def collect(targets: list[str]) -> dict[str, str]:
     found: dict[str, str] = {}
     wkpins.BIN.mkdir(parents=True, exist_ok=True)
+    try:
+        records = json.loads(STRIPPED.read_text())
+    except (OSError, ValueError):
+        records = {}
     for name in targets:
         built = BUILD / "bin" / OUTPUTS.get(name, name)
         if not built.is_file():
             raise BuildError(f"ninja finished but {built} is missing")
         out = wkpins.BIN / name
-        run(["strip", "--strip-all", "-o", str(out), str(built)], BUILD, f"strip {name}")
-        out.chmod(0o755)
+        # A program ninja did not link again is not stripped again: the image
+        # build and the launcher watch these files' times, and a rewritten
+        # 100 MiB program sent every later step round again. "Linked again" is
+        # the program's own size and time against the record of the last strip
+        # (both on the build volume: no clock of another file system is read).
+        stat = built.stat()
+        signature = [stat.st_size, stat.st_mtime_ns]
+        if not (out.is_file() and records.get(name) == signature):
+            # Beside it and renamed: a cancelled strip leaves no short program.
+            part = out.with_name(out.name + ".part")
+            run(["strip", "--strip-all", "-o", str(part), str(built)], BUILD, f"strip {name}")
+            part.chmod(0o755)
+            os.replace(part, out)
+            records[name] = signature
         found[name] = str(out)
+    STRIPPED.write_text(json.dumps(records, indent=1))
     write_fonts_conf()
     sizes = {name: Path(path).stat().st_size for name, path in found.items()}
-    (wkpins.OUT / "port.json").write_text(json.dumps({"sizes": sizes, "built_at": time.time()}, indent=1))
+    record = wkpins.OUT / "port.json"
+    try:
+        previous = json.loads(record.read_text()).get("sizes")
+    except (OSError, ValueError):
+        previous = None
+    if previous != sizes:
+        record.write_text(json.dumps({"sizes": sizes, "built_at": time.time()}, indent=1))
     return found
 
 
 def write_fonts_conf() -> Path:
     """``target/webkit/fonts.conf``: the template with the paths of ``libs/fhs`` (the image embeds it)."""
     wkpins.OUT.mkdir(parents=True, exist_ok=True)
-    FONTS_CONF.write_text(fhspaths.fonts_conf((PORT_DIR / "fonts.conf.in").read_text(encoding="utf-8")),
-                          encoding="utf-8")
+    text = fhspaths.fonts_conf((PORT_DIR / "fonts.conf.in").read_text(encoding="utf-8"))
+    # Only a changed file may be written: the image build watches its time.
+    if not FONTS_CONF.is_file() or FONTS_CONF.read_text(encoding="utf-8") != text:
+        FONTS_CONF.write_text(text, encoding="utf-8")
     return FONTS_CONF
 
 
@@ -136,6 +161,9 @@ HOST_BIN = Path(fhspaths.get("system::SYSTEM_BIN"))
 HOST_FONTS = Path(fhspaths.get("share::FONTS_LIBERATION"))
 HOST_FONTS_CONF = Path(fhspaths.get("etc::FONTS_CONF"))
 REFERENCE = wkpins.OUT / "smoke.host.txt"
+#: For each program stripped into `target/webkit/bin`: the size and time of the linked
+#: program it was made from (`collect`).
+STRIPPED = wkpins.OUT / "stripped.json"
 FONTS_CONF = wkpins.OUT / "fonts.conf"
 #: The image keeps program names lowercase (libs/fhs); the build names follow WebKit.
 IMAGE_NAMES = {"WebProcess": "webprocess", "NetworkProcess": "networkprocess"}

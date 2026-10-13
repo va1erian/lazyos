@@ -38,6 +38,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "tools" / "xui"))
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
@@ -92,7 +94,7 @@ def build_engine(debug: bool) -> Path | None:
         raise SystemExit(1)
     output = CARGO_TARGET_DIR / TARGET / ("debug" if debug else "release") / "lazydoom"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(output, ELF)
+    copy_if_changed(output, ELF)
     return ELF
 
 
@@ -121,7 +123,7 @@ def build_package(elf: Path) -> Path | None:
             raise SystemExit(1)
         PACKAGE_DIR.mkdir(parents=True, exist_ok=True)
         final = PACKAGE_DIR / PACKAGE_NAME
-        shutil.copyfile(archive, final)
+        copy_if_changed(archive, final)
     fetch.log(f"{final} ({final.stat().st_size // 1024} KiB)")
     return final
 

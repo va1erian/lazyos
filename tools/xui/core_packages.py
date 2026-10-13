@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import shutil
 import sys
@@ -37,7 +38,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 SOURCES = ROOT / "xui-app" / "packages"
 sys.path.insert(0, str(ROOT / "tools" / "pkg"))
+sys.path.insert(0, str(ROOT / "tools"))
 import build as pkgbuild  # noqa: E402
+from outfile import copy_file, copy_if_changed, copy_tree, write_if_changed  # noqa: E402
 
 @dataclass(frozen=True)
 class CoreApp:
@@ -204,23 +207,101 @@ def copy_project(app: CoreApp, tree: Path, root: Path = ROOT) -> None:
     if app.project is None:
         return
     project = tree / PROJECT_DIR
-    shutil.copytree(root / app.project, project)
+    copy_tree(root / app.project, project)
     for pattern, folder in app.project_files:
         matches = sorted(root.glob(pattern))
         if not matches:
             raise CoreError(f"{app.project}: no file matches {pattern}")
         (project / folder).mkdir(parents=True, exist_ok=True)
         for path in matches:
-            shutil.copyfile(path, project / folder / path.name)
+            copy_file(path, project / folder / path.name)
+
+
+#: Beside the archives of one directory: for each package the digest of
+#: everything its archive is made of, and the archive's name.
+INPUTS_FILE = ".inputs.json"
+
+
+#: (path, size, modified time) -> digest, so the two variants of a package, and
+#: the same program in two packages, are read once per run.
+_DIGESTS: dict[tuple[str, int, int], bytes] = {}
+
+
+def file_digest(path: Path) -> bytes:
+    """A digest of a file, read a mebibyte at a time."""
+    stat = path.stat()
+    key = (str(path), stat.st_size, stat.st_mtime_ns)
+    if key not in _DIGESTS:
+        h = hashlib.blake2b(digest_size=24)
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                h.update(chunk)
+        _DIGESTS[key] = h.digest()
+    return _DIGESTS[key]
+
+
+def tree_files(base: Path) -> list[Path]:
+    """The files below `base`, in a fixed order."""
+    return sorted(path for path in base.rglob("*") if path.is_file())
+
+
+def inputs_key(short: str, programs: dict[Path, str], version: str, autostart: bool,
+               app: CoreApp | None, root: Path = ROOT) -> str:
+    """A digest of everything the archive is made of: the built programs, the
+    package's source tree (and the LazyRAD project and its extra files), the
+    version, the autostart flag and the code that renders and packs them. Two
+    runs with the same key make the same archive, so the second need not."""
+    h = hashlib.blake2b(digest_size=24)
+    h.update(f"{short}\0{version}\0{int(autostart)}\0".encode())
+    for program, inside in sorted(programs.items(), key=lambda item: item[1]):
+        h.update(inside.encode() + b"\0" + file_digest(program))
+    trees = [SOURCES / short]
+    extra: list[Path] = []
+    if app is not None and app.project is not None:
+        trees.append(root / app.project)
+        for pattern, folder in app.project_files:
+            h.update(f"{pattern}\0{folder}\0".encode())
+            extra += sorted(root.glob(pattern))
+    for tree in trees:
+        for path in tree_files(tree):
+            h.update(path.relative_to(tree).as_posix().encode() + b"\0" + file_digest(path))
+    for path in extra:
+        h.update(path.name.encode() + b"\0" + file_digest(path))
+    for code in (Path(__file__), Path(pkgbuild.__file__), HERE.parent / "pkg" / "pkgmanifest.py"):
+        h.update(code.read_bytes())
+    return h.hexdigest()
+
+
+def load_inputs(out_dir: Path) -> dict:
+    try:
+        data = json.loads((out_dir / INPUTS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_inputs(out_dir: Path, inputs: dict) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / INPUTS_FILE).write_text(json.dumps(inputs, sort_keys=True), encoding="utf-8")
 
 
 def build_one(short: str, programs: dict[Path, str], version: str, autostart: bool,
               out_dir: Path, app: CoreApp | None = None) -> Path:
     """Build one variant of one package into `out_dir`; returns the archive.
-    `programs` maps each built program to its path inside the package."""
+    `programs` maps each built program to its path inside the package.
+
+    An archive whose inputs are the ones it was last made from is kept as it is
+    (compressing a 100 MiB browser program takes seconds, and the launcher
+    makes every package at least twice per run); one made again with the same
+    bytes is not written, so its time does not change either."""
+    key = inputs_key(short, programs, version, autostart, app)
+    inputs = load_inputs(out_dir)
+    made = inputs.get(short)
+    if made and made.get("key") == key and (out_dir / made.get("archive", "")).is_file():
+        return out_dir / made["archive"]
     with tempfile.TemporaryDirectory() as scratch:
         tree = Path(scratch) / short
-        shutil.copytree(SOURCES / short, tree)
+        copy_tree(SOURCES / short, tree)
         if app is not None:
             copy_project(app, tree)
         manifest = tree / "manifest.toml"
@@ -229,7 +310,7 @@ def build_one(short: str, programs: dict[Path, str], version: str, autostart: bo
         for program, inside in programs.items():
             binary = tree / inside
             binary.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(program, binary)
+            copy_file(program, binary)
         try:
             archive = pkgbuild.build(tree, Path(scratch) / "dist")
         except pkgbuild.BuildError as error:
@@ -240,8 +321,15 @@ def build_one(short: str, programs: dict[Path, str], version: str, autostart: bo
                             f"{MAX_PACKAGE_FILE}-byte package limit")
         out_dir.mkdir(parents=True, exist_ok=True)
         final = out_dir / archive.name
-        shutil.copyfile(archive, final)
-        return final
+        # The record goes first: a copy that is cut short must not be taken
+        # for the archive of the old inputs by a later run.
+        if short in inputs:
+            del inputs[short]
+            save_inputs(out_dir, inputs)
+        copy_if_changed(archive, final)
+    inputs[short] = {"key": key, "archive": final.name}
+    save_inputs(out_dir, inputs)
+    return final
 
 
 def digest(path: Path) -> str:
@@ -253,16 +341,16 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
     """Build every core package whose programs exist; returns the archives.
 
     A missing optional program (Docs not built, LazyRAD not built) is skipped
-    with a note; a missing mandatory one is an error. Stale archives are
-    removed first, so an app dropped from the set leaves the image at the next
+    with a note; a missing mandatory one is an error. An archive whose inputs
+    did not change is kept (see `build_one`); stale archives are removed at
+    the end, so an app dropped from the set leaves the image at the next
     build.
     """
     version = version or workspace_version()
     build_dirs = {"xui": xui_dir, "lazyrad": lazyrad_dir or ROOT / "target" / "lazyrad"}
-    for stale in list(out_dir.glob("*.lzp")) + list((out_dir / AUTOSTART_DIR).glob("*.lzp")):
-        stale.unlink()
     lines = ["# short system_name version file digest autostart_file autostart_digest"]
     written = []
+    keep: set[Path] = set()
     for short, app in CORE_APPS.items():
         programs = {build_dirs[app.build_dir] / name: inside
                     for name, inside in app.programs.items()}
@@ -275,12 +363,23 @@ def build_core_packages(xui_dir: Path, out_dir: Path, version: str | None = None
             raise CoreError(f"core package {short}: {missing[0]} is not built")
         plain = build_one(short, programs, version, False, out_dir, app)
         auto = build_one(short, programs, version, True, out_dir / AUTOSTART_DIR, app)
+        keep.update((plain, auto))
         system_name = plain.name[: -len(f"-{version}.lzp")]
         lines.append(" ".join([short, system_name, version,
                                plain.relative_to(out_dir).as_posix(), digest(plain),
                                auto.relative_to(out_dir).as_posix(), digest(auto)]))
         written.append(plain)
-    (out_dir / LIST).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    for directory in (out_dir, out_dir / AUTOSTART_DIR):
+        for stale in directory.glob("*.lzp"):
+            if stale not in keep:
+                stale.unlink()
+        inputs = load_inputs(directory)
+        kept = {short: made for short, made in inputs.items()
+                if (directory / made.get("archive", "")) in keep}
+        if kept != inputs:
+            save_inputs(directory, kept)
+    # Only when it changed: the image build watches this file's time.
+    write_if_changed(out_dir / LIST, ("\n".join(lines) + "\n").encode("utf-8"))
     return written
 
 

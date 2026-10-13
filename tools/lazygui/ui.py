@@ -98,7 +98,7 @@ class Launcher:
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "Quake package in /system/share/samples (LAZYOS_QUAKE)", "quake")
-        self._check(g, "SRB2Kart package + game data (LAZYOS_SRB2KART; 1G OS volume)", "srb2kart")
+        self._check(g, "SRB2Kart package + game data (LAZYOS_SRB2KART; 1G OS volume, 1.5G with a browser)", "srb2kart")
         self._check(g, "emusic package in /system/share/samples (LAZYOS_EMUSIC)", "emusic")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
@@ -351,6 +351,9 @@ class Launcher:
             self._log(f"(plan error: {exc})\n", "fail")
             return
         if not self.runner.busy:
+            if not datavol.confirm_reset_os(self.cfg(), build_button=True):
+                self._log("OS volume reset cancelled.\n", "fail")
+                return
             self._begin(len(steps), "Build image")
             self.runner.start(steps, env, ROOT)
 

@@ -22,9 +22,9 @@ use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use ext2fs::{Ext2, Geometry};
+use ext2fs::Geometry;
 
-use crate::os_disk::{FileIo, SECTOR};
+use crate::os_disk::{self, FileIo, SECTOR};
 use crate::os_image::{self, write_volume, OsFile};
 use crate::os_layout::DirSpec;
 
@@ -141,6 +141,7 @@ fn write_once(
         .truncate(true)
         .open(path)
         .map_err(|e| failed(e.to_string()))?;
+    os_disk::mark_sparse(&file);
     file.set_len(total).map_err(|e| failed(e.to_string()))?;
     let mut mbr = [0u8; 512];
     set_entry(&mut mbr, 1, FAT12_TYPE, FAT_START_LBA, FAT_SECTORS);
@@ -153,7 +154,7 @@ fn write_once(
             .and_then(|_| file.write_all(bytes))
             .map_err(|e| failed(e.to_string()))?;
     }
-    let io = FileIo::new(file, OS_START_LBA, os_sectors, true);
+    let io = FileIo::volatile(file, OS_START_LBA, os_sectors, true);
     let stamp = os_image::now();
     ext2fs::format(
         &io,
@@ -163,8 +164,9 @@ fn write_once(
         stamp,
     )
     .map_err(|e| failed(format!("format: {e:?}")))?;
-    let volume =
-        Ext2::open(Box::new(io), os_image::now).map_err(|e| failed(format!("open: {e:?}")))?;
+    // Through the block cache like the disk image's volume: each block is
+    // written once, in large requests, not with its bitmaps again per block.
+    let volume = os_image::open_cached(io).map_err(failed)?;
     match write_volume(&volume, None, dirs, files, stamp) {
         Ok(_) => Ok(Written {
             bytes: total,

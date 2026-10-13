@@ -138,6 +138,9 @@ class WebkitBrowserTests(unittest.TestCase):
         self.assertEqual([s["argv"][1] for s in steps],
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py",
                           "tools/xui/build.py"])
+        # The browser starts two engine processes; the smoke program and its host
+        # reference run belong to the console proof (`webkit_port`) alone.
+        self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
 
     def test_the_quota_covers_three_processes_unless_the_launcher_chose_one(self) -> None:
         self.assertEqual(catalog.build_env({**self.base(), "webkit": True})["LAZYOS_LIMIT_QUOTA_USER_MEMORY"], "8G")

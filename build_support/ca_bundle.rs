@@ -177,7 +177,7 @@ fn test_ca() -> Vec<Vec<u8>> {
         return Vec::new();
     };
     let path = Path::new(&path);
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     let text = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("LAZYOS_TLS_TEST_CA: cannot read {}: {e}", path.display()));
     let certificates = parse_pem_certificates(&text)
