@@ -62,9 +62,16 @@ pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
             task::harness::switch_current(slot);
             slot
         };
+        // Listing is the provider class's (`mountd` decides what to start
+        // from it); the claim and everything after it is the program's.
+        let mut seen = words_buf();
         check!(
-            call(op::DISKS, words_buf().as_mut_ptr() as u64, 64, 0, 0) == failed(EPERM),
-            "smbfuse listed the disks"
+            call(op::DISKS, seen.as_mut_ptr() as u64, 64, 0, 0) == 1,
+            "a filesystem provider could not list the disks"
+        );
+        check!(
+            call(op::READ, id64, 0, seen.as_mut_ptr() as u64, 512) == failed(EPERM),
+            "smbfuse read a disk raw"
         );
         check!(
             call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),

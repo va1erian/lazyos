@@ -82,16 +82,26 @@ fn errno(error: RawError) -> u64 {
 /// (`task::linuxstate::record_program`), and `/system/bin` is no one's to
 /// write, so no other program can pass for it.
 pub fn may_claim(me: usize) -> bool {
+    may_list(me) && task::linuxstate::program_of(me).is_some_and(|path| &*path == fhs::bin::FATFUSE)
+}
+
+/// Whether task `me` may list the disks (which `mountd`, deciding what to
+/// start a daemon for, does): a filesystem provider, started from any program.
+pub fn may_list(me: usize) -> bool {
     let cred = credentials::of(me);
     me != task::KERNEL_TASK
         && cred.has_cap(CAP_FS_PROVIDER)
         && mounttable::FS_PROVIDER_UIDS.contains(&cred.uid)
-        && task::linuxstate::program_of(me).is_some_and(|path| &*path == fhs::bin::FATFUSE)
 }
 
 /// Ops 6-11 for task `me`.
 pub fn dispatch(me: usize, operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
-    if !may_claim(me) {
+    let allowed = if operation == op::DISKS {
+        may_list(me)
+    } else {
+        may_claim(me)
+    };
+    if !allowed {
         return negative(EPERM);
     }
     let Ok(id) = usize::try_from(a1) else {
