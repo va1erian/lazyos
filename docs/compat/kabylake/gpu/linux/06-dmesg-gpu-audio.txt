@@ -1,0 +1,34 @@
+# dmesg | grep -i -E "i915|snd_hda|hdmi|dmc|guc|huc|audio|eld|vbt|opregion|stolen|gtt|ggtt|aperture|DDI|lspcon|dp_aux"
+[    0.469959] pci 0000:00:00.0: Adding to iommu group 0
+[    0.469996] pci 0000:00:14.0: Adding to iommu group 1
+[    0.470012] pci 0000:00:14.2: Adding to iommu group 1
+[    0.470034] pci 0000:00:16.0: Adding to iommu group 2
+[    0.470050] pci 0000:00:17.0: Adding to iommu group 3
+[    0.470090] pci 0000:00:1c.0: Adding to iommu group 4
+[    0.470117] pci 0000:00:1c.4: Adding to iommu group 5
+[    0.470155] pci 0000:00:1f.0: Adding to iommu group 6
+[    0.470172] pci 0000:00:1f.2: Adding to iommu group 6
+[    0.470189] pci 0000:00:1f.3: Adding to iommu group 6
+[    0.470205] pci 0000:00:1f.4: Adding to iommu group 6
+[    0.470224] pci 0000:01:00.0: Adding to iommu group 7
+[    0.470242] pci 0000:02:00.0: Adding to iommu group 8
+[    1.405211] usb 1-4: Product: USB Audio and HID
+[    3.531594] Adding 524284k swap on /swapfile.  Priority:-1 extents:11 across:679932k SS
+[    5.070718] audit: type=1400 audit(1791905158.024:7): apparmor="STATUS" operation="profile_load" profile="unconfined" name="babeld" pid=450 comm="apparmor_parser"
+[    7.784281] i915 0000:00:02.0: [drm] Found kabylake/ult (device ID 5916) integrated display version 9.00 stepping B0
+[    7.818731] i915 0000:00:02.0: vgaarb: deactivate vga console
+[    7.826456] i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io+mem,decodes=io+mem:owns=io+mem
+[    7.828805] i915 0000:00:02.0: [drm] Finished loading DMC firmware i915/kbl_dmc_ver1_04.bin (v1.4)
+[    7.833286] mei_hdcp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+[    7.843631] i915 0000:00:02.0: [drm] Registered 3 planes with drm panic
+[    7.849602] [drm] Initialized i915 1.6.0 for 0000:00:02.0 on minor 1
+[    7.927884] fbcon: i915drmfb (fb0) is primary device
+[    7.927903] i915 0000:00:02.0: [drm] fb0: i915drmfb frame buffer device
+[    7.977603] i915 0000:00:02.0: [drm] Reducing the compressed framebuffer size. This may lead to less power savings than a non-reduced-size. Try to increase stolen memory size if available in BIOS.
+[    8.251294] usbcore: registered new interface driver snd-usb-audio
+[    8.857854] snd_hda_intel 0000:00:1f.3: enabling device (0000 -> 0002)
+[    8.858086] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+[    8.899989] input: HDA Intel PCH HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input9
+[    8.900096] input: HDA Intel PCH HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input10
+[    8.900189] input: HDA Intel PCH HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input11
+# exit 0

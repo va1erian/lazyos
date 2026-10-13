@@ -1,0 +1,6 @@
+# setpci -s 00:02.0 50.W 5C.L FC.L 2>&1; echo '(GMCH_CTRL 0x50, BDSM 0x5C, ASLS 0xFC)'
+01c1
+be000001
+bcfb1018
+(GMCH_CTRL 0x50, BDSM 0x5C, ASLS 0xFC)
+# exit 0

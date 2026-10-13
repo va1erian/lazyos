@@ -1,0 +1,39 @@
+Video Turbo Mode: yes
+HW control enabled: yes
+SW control enabled: no
+PM IER=0x00000000 IMR=0xffffffcf, MASK=0x00003ffe
+PM ISR=0x00000000 IIR=0x00000000
+pm_intrmsk_mbz: 0x80000000
+GT_PERF_STATUS: 0x00000000
+Render p-state ratio: 0
+Render p-state VID: 0
+Render p-state limit: 255
+RPSTAT1: 0x09000000
+RPMODECTL: 0x00000d92
+RPINCLIMIT: 0x00001bd5
+RPDECLIMIT: 0x00004fb0
+RPNSWREQ: 300MHz
+CAGF: 300MHz
+RP CUR UP EI: 4617 (6156000ns)
+RP CUR UP: 30 (40000ns)
+RP PREV UP: 0 (0ns)
+Up threshold: 95%
+RP UP EI: 7500 (10000000ns)
+RP UP THRESHOLD: 7125 (9500000ns)
+RP CUR DOWN EI: 23775 (31700000ns)
+RP CUR DOWN: 271 (361333ns)
+RP PREV DOWN: 0 (0ns)
+Down threshold: 85%
+RP DOWN EI: 24000 (32000000ns)
+RP DOWN THRESHOLD: 20400 (27200000ns)
+Lowest (RPN) frequency: 300MHz
+Nominal (RP1) frequency: 300MHz
+Max non-overclocked (RP0) frequency: 1000MHz
+Max overclocked frequency: 1000MHz
+Current freq: 300 MHz
+Actual freq: 300 MHz
+Idle freq: 300 MHz
+Min freq: 300 MHz
+Boost freq: 1000 MHz
+Max freq: 1000 MHz
+efficient (RPe) frequency: 300 MHz

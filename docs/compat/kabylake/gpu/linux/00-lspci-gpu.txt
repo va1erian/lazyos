@@ -1,0 +1,56 @@
+# lspci -vvv -nn -D -s 00:02.0
+0000:00:02.0 VGA compatible controller [0300]: Intel Corporation Kaby Lake-U GT2 [HD Graphics 620] [8086:5916] (rev 02) (prog-if 00 [VGA controller])
+	DeviceName:  Onboard IGD
+	Subsystem: Intel Corporation Device [8086:2212]
+	Control: I/O+ Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx+
+	Status: Cap+ 66MHz- UDF- FastB2B- ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort- >SERR- <PERR- INTx-
+	Latency: 0, Cache Line Size: 64 bytes
+	Interrupt: pin A routed to IRQ 131
+	Region 0: Memory at de000000 (64-bit, non-prefetchable) [size=16M]
+	Region 2: Memory at c0000000 (64-bit, prefetchable) [size=256M]
+	Region 4: I/O ports at f000 [size=64]
+	Expansion ROM at 000c0000 [virtual] [disabled] [size=128K]
+	Capabilities: [40] Vendor Specific Information: Intel Capabilities v1
+		CapA: Peg60Dis- Peg12Dis+ Peg11Dis+ Peg10Dis+ PeLWUDis+ DmiWidth=x4
+		      EccDis+ ForceEccEn- VTdDis- DmiG2Dis+ PegG2Dis+ DDRMaxSize=Unlimited
+		      1NDis- CDDis- DDPCDis+ X2APICEn+ PDCDis- IGDis- CDID=0 CRID=2
+		      DDROCCAP- OCEn- DDRWrtVrefEn- DDR3LEn+
+		CapB: ImguDis- OCbySSKUCap- OCbySSKUEn- SMTCap+ CacheSzCap 0x2
+		      SoftBinCap- DDR3MaxFreqWithRef100=Disabled PegG3Dis+
+		      PkgTyp- AddGfxEn+ AddGfxCap- PegX16Dis+ DmiG3Dis+ GmmDis-
+		      DDR3MaxFreq=2666MHz LPDDR3En+
+	Capabilities: [70] Express (v2) Root Complex Integrated Endpoint, IntMsgNum 0
+		DevCap:	MaxPayload 128 bytes, PhantFunc 0
+			ExtTag- RBE+ FLReset+ TEE-IO-
+		DevCtl:	CorrErr- NonFatalErr- FatalErr- UnsupReq-
+			RlxdOrd- ExtTag- PhantFunc- AuxPwr- NoSnoop- FLReset-
+			MaxPayload 128 bytes, MaxReadReq 128 bytes
+		DevSta:	CorrErr- NonFatalErr- FatalErr- UnsupReq- AuxPwr- TransPend-
+		DevCap2: Completion Timeout: Not Supported, TimeoutDis- NROPrPrP- LTR-
+			 10BitTagComp- 10BitTagReq- OBFF Not Supported, ExtFmt- EETLPPrefix-
+			 EmergencyPowerReduction Not Supported, EmergencyPowerReductionInit-
+			 FRS-
+			 AtomicOpsCap: 32bit- 64bit- 128bitCAS-
+		DevCtl2: Completion Timeout: 50us to 50ms, TimeoutDis-
+			 AtomicOpsCtl: ReqEn-
+			 IDOReq- IDOCompl- LTR- EmergencyPowerReductionReq-
+			 10BitTagReq- OBFF Disabled, EETLPPrefixBlk-
+	Capabilities: [ac] MSI: Enable+ Count=1/1 Maskable- 64bit-
+		Address: fee00018  Data: 0000
+	Capabilities: [d0] Power Management version 2
+		Flags: PMEClk- DSI+ D1- D2- AuxCurrent=0mA PME(D0-,D1-,D2-,D3hot-,D3cold-)
+		Status: D0 NoSoftRst- PME-Enable- DSel=0 DScale=0 PME-
+	Capabilities: [100 v1] Process Address Space ID (PASID)
+		PASIDCap: Exec- Priv-, Max PASID Width: 14
+		PASIDCtl: Enable- Exec- Priv-
+	Capabilities: [200 v1] Address Translation Service (ATS)
+		ATSCap:	Invalidate Queue Depth: 00
+		ATSCtl:	Enable-, Smallest Translation Unit: 00
+	Capabilities: [300 v1] Page Request Interface (PRI)
+		PRICtl: Enable- Reset-
+		PRISta: RF- UPRGI- Stopped+ PASID+
+		Page Request Capacity: 00008000, Page Request Allocation: 00000000
+	Kernel driver in use: i915
+	Kernel modules: i915
+
+# exit 0

@@ -1,0 +1,21 @@
+# lspci -vvv -nn -D -s 00:00.0
+0000:00:00.0 Host bridge [0600]: Intel Corporation Xeon E3-1200 v6/7th Gen Core Processor Host Bridge/DRAM Registers [8086:5904] (rev 02)
+	Subsystem: Intel Corporation Device [8086:2015]
+	Control: I/O- Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx-
+	Status: Cap+ 66MHz- UDF- FastB2B+ ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort+ >SERR- <PERR- INTx-
+	Latency: 0
+	IOMMU group: 0
+	Capabilities: [e0] Vendor Specific Information: Intel Capabilities v1
+		CapA: Peg60Dis- Peg12Dis+ Peg11Dis+ Peg10Dis+ PeLWUDis+ DmiWidth=x4
+		      EccDis+ ForceEccEn- VTdDis- DmiG2Dis+ PegG2Dis+ DDRMaxSize=Unlimited
+		      1NDis- CDDis- DDPCDis+ X2APICEn+ PDCDis- IGDis- CDID=0 CRID=2
+		      DDROCCAP- OCEn- DDRWrtVrefEn- DDR3LEn+
+		CapB: ImguDis- OCbySSKUCap- OCbySSKUEn- SMTCap+ CacheSzCap 0x2
+		      SoftBinCap- DDR3MaxFreqWithRef100=Disabled PegG3Dis+
+		      PkgTyp- AddGfxEn+ AddGfxCap- PegX16Dis+ DmiG3Dis+ GmmDis-
+		      DDR3MaxFreq=2666MHz LPDDR3En+
+		CapC: PegG4Dis- DDR4MaxFreq=Unlimited LPDDREn- LPDDR4MaxFreq=0MHz LPDDR4En-
+		      QClkGvDis+ SgxDis- BClkOC=Disabled IddDis- Pipe3Dis- Gear1MaxFreq=Unlimited
+	Kernel driver in use: skl_uncore
+
+# exit 0
