@@ -4,11 +4,12 @@
 // in webkit-smoke (engine.cpp), and the xui window on a second one (a Rust static library,
 // xui-app/crates/webkit, through lazyos_ui.h). A Messenger handle belongs to the thread that made
 // it, so the window is built, used and destroyed on its own thread. When the window closes the run
-// loop ends and the process exits, which closes the IPC sockets, so the WebProcess and
-// NetworkProcess follow.
+// loop ends, the UI process ends the WebProcess and the NetworkProcess (SIGTERM, SIGKILL after a
+// grace period), waits for them (WEBKIT:W5:CHILD:<name>:<pid>:GONE) and exits.
 //
 //   WEBKIT:W5:UP                 the UI process started and WebKit2 initialised
-//   WEBKIT:W5:QUIT:PASS          the window closed and the run loop ended
+//   WEBKIT:W5:CHILD:<name>:<pid>:GONE   a child process ended (ALIVE: it did not)
+//   WEBKIT:W5:QUIT:PASS          the window closed, the run loop ended and the children are gone
 //   (and the markers of engine.cpp and the window's WEBKIT:W5:UI:*)
 
 #include <WebKit/WKRunLoop.h>
@@ -60,7 +61,11 @@ int main(int argc, char** argv)
     pthread_detach(window);
 
     WKRunLoopRunMain();
-    printf("WEBKIT:W5:QUIT:%s\n", arguments.status == 0 ? "PASS" : "FAIL");
+    // End the WebProcess and the NetworkProcess ourselves and wait for them: the sockets closing
+    // is not something to rely on, and a process left behind holds its 107 MB and its share of the
+    // user's memory quota.
+    const int surviving = lzw_engine_shutdown();
+    printf("WEBKIT:W5:QUIT:%s\n", arguments.status == 0 && surviving == 0 ? "PASS" : "FAIL");
     fflush(stdout);
     _exit(arguments.status);
 }

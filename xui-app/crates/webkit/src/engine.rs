@@ -65,7 +65,8 @@ pub trait Engine {
     fn resize(&self, width: i32, height: i32);
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32);
     /// A wheel step at (x, y): `ticks_x` and `ticks_y` count notches, positive
-    /// scrolling up or left.
+    /// scrolling up or right (xui's convention, Windows'; WebKit's own x is
+    /// positive to the left, which the C++ side flips).
     fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32);
     /// A key. `text` is what it types (empty for a key that types nothing).
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32);

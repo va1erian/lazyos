@@ -6,6 +6,8 @@
 //   WEBKIT:W5:NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
 // The ones that name a page (LOAD, TITLE, JS, CLICK, INPUT, and the URL in FAIL) print only in
 // an image built with the UI probe (sayHarness).
+//   WEBKIT:W5:START:<url>               a navigation began (the page it is going to)
+//   WEBKIT:W5:CANCELLED:<what>          a load ended because the user stopped it (not a failure)
 //   WEBKIT:W5:LOAD:<url>                a navigation finished (the page's own URL)
 //   WEBKIT:W5:TITLE:<title>             the title when it finished, and again when script changes it
 //   WEBKIT:W5:JS:<title>                document.title, read back by running script in the page
@@ -50,6 +52,17 @@ std::string activeUrl()
     return text;
 }
 
+void rememberChildren()
+{
+    const pid_t web = WKPageGetProcessIdentifier(E.page);
+    if (web > 0)
+        E.webPid = static_cast<int>(web);
+    WKWebsiteDataStoreRef store = WKContextGetWebsiteDataStore(E.context);
+    const pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
+    if (network > 0)
+        E.networkPid = static_cast<int>(network);
+}
+
 std::string pageTitle()
 {
     WKStringRef title = WKPageCopyTitle(E.page);
@@ -85,13 +98,11 @@ void reportProcessesOnce()
     if (E.processesReported)
         return;
     E.processesReported = true;
-    pid_t web = WKPageGetProcessIdentifier(E.page);
-    if (web > 0)
-        say("WEBKIT:W5:WEBPROCESS:UP:%d", static_cast<int>(web));
-    WKWebsiteDataStoreRef store = WKContextGetWebsiteDataStore(E.context);
-    pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
-    if (network > 0)
-        say("WEBKIT:W5:NETWORKPROCESS:UP:%d", static_cast<int>(network));
+    rememberChildren();
+    if (E.webPid > 0)
+        say("WEBKIT:W5:WEBPROCESS:UP:%d", E.webPid);
+    if (E.networkPid > 0)
+        say("WEBKIT:W5:NETWORKPROCESS:UP:%d", E.networkPid);
 }
 
 // The guest's RAM, in MiB, after each load: what three processes of tens of MB and a page cost.
@@ -178,6 +189,7 @@ void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const 
     E.stopRequested = false;
     E.loading = true;
     E.loadFinished = false;
+    sayHarness("WEBKIT:W5:START:%s", oneLine(activeUrl()).c_str());
     E.navStartMs = elapsedMs();
     E.committedSincePaint = false;
     E.firstPaintMs = -1;
@@ -239,9 +251,17 @@ void didFail(const char* what, WKErrorRef error)
         if (text)
             WKRelease(text);
     }
-    E.error = "Could not load the page: " + (description.empty() ? std::string("unknown error") : oneLine(description));
-    // The page's address is a harness detail; the failure is not.
-    say("WEBKIT:W5:FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(activeUrl()).c_str() : "", oneLine(description).c_str(),
+    // The address that failed: not the page on show (a failed load leaves that in place).
+    std::string failing;
+    if (error) {
+        WKURLRef url = WKErrorCopyFailingURL(error);
+        failing = utf8(url);
+        if (url)
+            WKRelease(url);
+    }
+    E.error = "Could not load " + (failing.empty() ? std::string("the page") : oneLine(failing)) + ": "
+        + (description.empty() ? std::string("unknown error") : oneLine(description));
+    say("WEBKIT:W5:FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(failing).c_str() : "", oneLine(description).c_str(),
         error ? WKErrorGetErrorCode(error) : 0);
     postState();
 }

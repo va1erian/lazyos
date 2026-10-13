@@ -56,7 +56,8 @@ void lzw_engine_resize(int width, int height);
 // mods: WKEventModifiers (shift 1, control 2, alt 4, meta 8).
 void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods);
 
-// A wheel step at (x, y). ticks_y > 0 scrolls up, ticks_x > 0 scrolls right.
+// A wheel step at (x, y), in xui's convention: ticks_y > 0 scrolls up, ticks_x > 0 scrolls right
+// (WebKit's own is positive = up and positive = left: the engine flips x).
 void lzw_engine_wheel(int x, int y, int ticks_x, int ticks_y, uint32_t mods);
 
 // A key press or release. keysym is an X11 key symbol (libwpe's key codes); text is what
@@ -71,6 +72,11 @@ int lzw_engine_start(void);
 
 // Ends WKRunLoopRunMain() (callable from any thread).
 void lzw_engine_quit(void);
+
+// After WKRunLoopRunMain() returned, on the main thread: ends the WebProcess and the
+// NetworkProcess (SIGTERM, then SIGKILL after a grace period), waits for them and prints
+// WEBKIT:W5:CHILD:<web|network>:<pid>:GONE|ALIVE for each.
+int lzw_engine_shutdown(void);
 
 #ifdef __cplusplus
 }

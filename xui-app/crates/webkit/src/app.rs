@@ -303,8 +303,9 @@ fn frame_size(page: &PageView) -> (u32, u32) {
 /// The status bar's text.
 fn status_text(state: &PageState) -> String {
     if !state.error.is_empty() && !state.loading {
-        // A failure says so and stays up until the next load: "Done" would be a lie.
-        format!("{}  {}", state.error, state.url).trim_end().to_owned()
+        // A failure says so (and what failed: the page on show is the old one) and stays up
+        // until the next load: "Done" would be a lie.
+        state.error.clone()
     } else if state.loading {
         format!("Loading {}  {}%", state.url, state.progress / 10)
     } else if state.url.is_empty() {
@@ -432,12 +433,12 @@ mod tests {
     fn a_failed_load_is_not_reported_as_done() {
         let failed = PageState {
             url: "http://a:81/".into(),
-            error: "Could not load the page: Connection refused".into(),
+            error: "Could not load http://a:81/: Connection refused".into(),
             ..PageState::default()
         };
         assert_eq!(
             status_text(&failed),
-            "Could not load the page: Connection refused  http://a:81/"
+            "Could not load http://a:81/: Connection refused"
         );
         // The next load starts clean: the engine clears the error, and a load in progress says so.
         let retry = PageState {

@@ -41,6 +41,9 @@ struct Engine {
     bool crashed { false };
     // The user pressed Stop: the failure WebKit reports for it is not one.
     bool stopRequested { false };
+    // The children's ids, kept while WebKit still says them (shutdown reaps them by id).
+    int webPid { 0 };
+    int networkPid { 0 };
     long navStartMs { 0 };
     long commitMs { 0 };
     long firstPaintMs { -1 };
@@ -73,6 +76,9 @@ void onMain(std::function<void()> task);
 
 void installClients();
 void postState();
+// Reads the WebProcess's and NetworkProcess's ids from WebKit into E (they are gone from WebKit's
+// answers once the processes are).
+void rememberChildren();
 std::string activeUrl();
 std::string pageTitle();
 

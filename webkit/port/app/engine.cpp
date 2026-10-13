@@ -23,8 +23,12 @@
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
 
+#include <errno.h>
+#include <signal.h>
 #include <stdint.h>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "engine.h"
 #include "lazyos_ui.h"
@@ -105,6 +109,62 @@ int lzw_engine_start(void)
 
 void lzw_engine_quit(void) { WKRunLoopCallOnMainThread([](void*) { WKRunLoopStopMain(); }, nullptr); }
 
+// Is `pid` gone? Reaps it when it is our child; a process that is not ours (or already reaped by
+// WebKit's own launcher) is gone when the kernel has no such id.
+static bool gone(int pid)
+{
+    int status = 0;
+    const pid_t reaped = waitpid(pid, &status, WNOHANG);
+    if (reaped == pid)
+        return true;
+    return reaped < 0 && errno == ECHILD && kill(pid, 0) < 0 && errno == ESRCH;
+}
+
+int lzw_engine_shutdown(void)
+{
+    struct Child {
+        const char* name;
+        int pid;
+        bool exited;
+    } children[] = { { "web", 0, false }, { "network", 0, false } };
+    if (E.page && E.context)
+        rememberChildren();
+    children[0].pid = E.webPid;
+    children[1].pid = E.networkPid;
+    for (auto& child : children) {
+        if (child.pid > 0)
+            kill(child.pid, SIGTERM);
+    }
+    // A grace period for the processes to flush and exit; whatever is left is killed.
+    for (int round = 0; round < 2; ++round) {
+        for (int waited = 0; waited < 150; ++waited) {
+            bool all = true;
+            for (auto& child : children) {
+                if (child.pid > 0 && !child.exited)
+                    child.exited = gone(child.pid);
+                all = all && (child.pid <= 0 || child.exited);
+            }
+            if (all)
+                break;
+            usleep(20 * 1000);
+        }
+        if (round == 0) {
+            for (auto& child : children) {
+                if (child.pid > 0 && !child.exited)
+                    kill(child.pid, SIGKILL);
+            }
+        }
+    }
+    int left = 0;
+    for (auto& child : children) {
+        if (child.pid <= 0)
+            continue;
+        say("WEBKIT:W5:CHILD:%s:%d:%s", child.name, child.pid, child.exited ? "GONE" : "ALIVE");
+        left += child.exited ? 0 : 1;
+    }
+    return left;
+}
+
 void lzw_engine_load(const char* url)
 {
     std::string address = url ? url : "";
@@ -164,8 +224,9 @@ void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
         // One call per notch: the page takes the sign of each axis and scrolls a line step.
         for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
             WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));
+        // xui's positive x is to the right; WebKit's is to the left (as GTK's GDK_SCROLL_LEFT is +1).
         for (int i = 0; i < (ticksX < 0 ? -ticksX : ticksX) && i < 8; ++i)
-            WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(ticksX < 0 ? -1 : 1, 0), WKSizeMake(0, 0), mods));
+            WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(ticksX < 0 ? 1 : -1, 0), WKSizeMake(0, 0), mods));
     });
 }
 
