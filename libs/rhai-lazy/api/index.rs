@@ -79,6 +79,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[ApiTopic { helper: "session_selection", pattern: "session/+/selection" }],
     },
     ApiModule {
+        alias: "gpu",
+        interface: "os.lazy.gpu.v1",
+        source: include_str!("gpu.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "healthd",
         interface: "os.lazy.healthd.v1",
         source: include_str!("healthd.rhai"),

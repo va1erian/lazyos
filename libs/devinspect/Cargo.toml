@@ -15,5 +15,6 @@ path = "src/lib.rs"
 netpolicy = { path = "../netpolicy" }
 usbpolicy = { path = "../usbpolicy" }
 sndpolicy = { path = "../sndpolicy" }
+gpupolicy = { path = "../gpupolicy" }
 devmatch = { path = "../devmatch" }
 mounttable = { path = "../mounttable" }

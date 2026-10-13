@@ -1,0 +1,10 @@
+[
+  {"wait_for": "/ #", "timeout": 300},
+  {"wait": 1.0},
+  {"type": "gpud; echo GPUD:EXIT:$?"},
+  {"key": "enter", "until": "GPUD:EXIT:", "timeout": 60, "retries": 1},
+  {"wait": 2.0},
+  {"shot": "01_gpud_by_hand"},
+  {"wait": 1.0},
+  {"quit": true}
+]

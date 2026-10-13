@@ -144,8 +144,8 @@ jobs:
           FUZZ_CASES: "5000"
       - name: Clippy (gpt, tests and fuzz entry point)
         run: cargo clippy -p gpt --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
-      - name: gen9gfx (EDID, CEA, ELD, VBT parsers, HDMI N/CTS, seeded fuzz)
-        run: cargo test -p gen9gfx
+      - name: gen9gfx (EDID, CEA, ELD, VBT parsers, HDMI N/CTS, adopt decoders, seeded fuzz) and gpupolicy
+        run: cargo test -p gen9gfx -p gpupolicy
         env:
           FUZZ_CASES: "5000"
       - name: Clippy (gen9gfx, tests and fuzz entry point)

@@ -99,6 +99,11 @@ const NATIVE: &[&str] = &[
     // scan | list | connect SSID | disconnect | forget ID]`. On the image only
     // with `LAZYOS_WIFI=1`.
     fhs::bin::WIFICTL,
+    // The Intel GPU service (docs/kabylake-gpu-plan.md, `LAZYOS_GEN9GFX=1`),
+    // run by hand from a root console to see its `GPU:` evidence lines
+    // (without the device it prints `GPU:NO-DEVICE:FAIL` and exits 0; `init`
+    // runs it as a service through `devd` otherwise).
+    fhs::bin::GPUD,
     // The power command (docs/shutdown.md): `powerctl poweroff|reboot [-f]
     // [reason]` asks `init` for an orderly stop.
     fhs::bin::POWERCTL,

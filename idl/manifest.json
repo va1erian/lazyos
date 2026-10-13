@@ -687,6 +687,18 @@
     ]
   },
   {
+    "interface": "os.lazy.gpu.v1",
+    "interface_id": "0x53ecd075e99e0064",
+    "methods": [
+      {
+        "name": "GetState",
+        "id": 746022616,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.healthd.v1",
     "interface_id": "0xd022082ef0aaed78",
     "methods": [

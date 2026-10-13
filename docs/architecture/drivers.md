@@ -171,6 +171,28 @@ kept its shared-window PDPT after exit, and a spawned child inherited its
 parent's window with every buffer in it. The window is now each address
 space's own ([physical-memory.md](physical-memory.md), teardown invariants).
 
+## The Intel GPU: `gpud` (G1, read-only)
+
+`LAZYOS_GEN9GFX=1` adds `gpud`, which `devd` starts for `8086:5916`
+(`devmatch::GEN9GFX_MANIFEST`, passed to `plan_with` only by a build with the
+switch, so an ordinary image does not name the GPU) as `_gpu`
+(`libs/gpupolicy`: claim, map and DMA on the display class). It reads and
+decodes the display state the firmware left (`libs/gen9gfx::adopt`), prints
+`GPU:*` lines and serves `os.lazy.gpu.v1` from the snapshot; it writes no
+display register and takes no interrupt
+([../kabylake-gpu-plan.md](../kabylake-gpu-plan.md) stage G1).
+
+What a driver of a function that something else is *using* must know: a claim
+runs `quiesce` (decode and bus mastering off) like every claim, and so does
+the release when the claimant dies. On the GPU that decode is what the kernel
+console's writes into the aperture need, so `gpud` switches I/O and memory
+decode back on and then bus mastering (the `dma` right) right after the claim,
+and does not exit on purpose while it holds it. Until the kernel gains a claim
+that keeps the function's state (a later stage), a `gpud` crash or
+`dbgctl reload gpud` stops the console's picture until `init` starts it again.
+`dbgd`'s `mmio.read` refuses a claimed device unless the image has
+`LAZYOS_DBGD_MMIO_CLAIMED=1`; `pci-config` does not.
+
 ## Verification
 
 ```bash

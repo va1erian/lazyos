@@ -113,6 +113,138 @@ pub fn trans_clk_sel_port(v: u32) -> Option<u8> {
     }
 }
 
+/// Pipe/transcoder `n` (0 = A, 1 = B, 2 = C) register block bases.
+pub const fn pipe_base(pipe: u32) -> u32 {
+    PIPE_A_BASE + pipe * PIPE_STRIDE
+}
+pub const fn trans_base(pipe: u32) -> u32 {
+    TRANS_A_BASE + pipe * TRANS_STRIDE
+}
+
+/// `TRANS_CLK_SEL` of transcoder `pipe` (A 0x46140, B 0x46144, C 0x46148).
+pub const fn trans_clk_sel(pipe: u32) -> u32 {
+    TRANS_CLK_SEL_A + pipe * 4
+}
+
+/// Offsets inside a pipe block (`pipe_base`): the first universal plane
+/// (`PLANE_*_1`, +0x180 .. +0x1AC) and the other plane's control as a
+/// "something else is on" check (CONFIRMED: the box's dump).
+pub mod plane1 {
+    pub const CTL: u32 = 0x180;
+    pub const STRIDE: u32 = 0x188;
+    pub const POS: u32 = 0x18C;
+    pub const SIZE: u32 = 0x190;
+    pub const SURF: u32 = 0x19C;
+    /// `PLANE_SURFLIVE`: the surface the hardware is scanning out now.
+    pub const SURFLIVE: u32 = 0x1AC;
+    pub const BUF_CFG: u32 = 0x27C;
+}
+
+/// `PLANE_CTL` bits (CONFIRMED: the box's `0xc404b020` is enabled, XRGB 8888,
+/// Y tiled; pixel format bits 27:24, tiling bits 12:10).
+pub mod plane_ctl {
+    pub const ENABLE: u32 = 1 << 31;
+    const FORMAT_SHIFT: u32 = 24;
+    const FORMAT_MASK: u32 = 0xF << FORMAT_SHIFT;
+    const TILING_MASK: u32 = 7 << 10;
+
+    /// The pixel format field. Only the packed 32-bit formats a firmware
+    /// framebuffer can have are named; every other value is `Other`.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Format {
+        /// 32 bits per pixel, blue in the low byte or red (`ORDER_RGBX` bit).
+        Xrgb8888,
+        Other(u8),
+    }
+
+    /// The tiling field: what `PLANE_STRIDE` is counted in.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Tiling {
+        Linear,
+        X,
+        Y,
+        Yf,
+        Other(u8),
+    }
+
+    impl Tiling {
+        /// Bytes per `PLANE_STRIDE` unit: 64 linear, 512 X tile, 128 Y tile.
+        pub fn stride_unit(self) -> u32 {
+            match self {
+                Tiling::Linear => 64,
+                Tiling::X => 512,
+                Tiling::Y | Tiling::Yf => 128,
+                Tiling::Other(_) => 64,
+            }
+        }
+    }
+
+    pub fn format(ctl: u32) -> Format {
+        match ((ctl & FORMAT_MASK) >> FORMAT_SHIFT) as u8 {
+            4 => Format::Xrgb8888,
+            other => Format::Other(other),
+        }
+    }
+
+    pub fn tiling(ctl: u32) -> Tiling {
+        match ((ctl & TILING_MASK) >> 10) as u8 {
+            0 => Tiling::Linear,
+            1 => Tiling::X,
+            4 => Tiling::Y,
+            5 => Tiling::Yf,
+            other => Tiling::Other(other),
+        }
+    }
+}
+
+/// SKL power well state bits in `PWR_WELL_CTL_*` (CONFIRMED against the dump:
+/// BIOS `0x50000011`, driver `0xf0000033`): well `n`'s request is bit
+/// `2 n + 1` and its state bit `2 n`, with PW1 at index 14 and PW2 at 15,
+/// the MISC IO well at 0.
+pub mod pwr_well {
+    pub const PW1_STATE: u32 = 1 << 28;
+    pub const PW2_STATE: u32 = 1 << 30;
+    pub const MISC_IO_STATE: u32 = 1 << 0;
+}
+
+/// The pixel clock in kHz a HDMI-mode SKL DPLL (1 to 3) generates, from its
+/// `CFGCR1` and `CFGCR2`, as i915's `skl_ddi_pll_get_freq` computes it:
+/// `(DCO integer + DCO fraction / 2^15) * 24 MHz / (p0 * p1 * p2 * 5)`.
+/// CONFIRMED against the box's `DPLL1_CFGCR1 0x8046675b`, `DPLL1_CFGCR2
+/// 0x147`: 8.3346 GHz DCO / 30 = 277820 kHz, the 2560x1440 at 70 Hz clock.
+/// `None` when a divider field is reserved or the DCO is not enabled.
+pub fn dpll_hdmi_clock_khz(cfgcr1: u32, cfgcr2: u32) -> Option<u32> {
+    const REF_KHZ: u64 = 24_000;
+    if cfgcr1 & (1 << 31) == 0 {
+        return None;
+    }
+    let integer = u64::from(cfgcr1 & 0x1FF);
+    let fraction = u64::from((cfgcr1 >> 9) & 0xFFFF);
+    let p0 = match (cfgcr2 >> 2) & 7 {
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        4 => 7,
+        _ => return None,
+    };
+    let p2 = match (cfgcr2 >> 5) & 3 {
+        0 => 5,
+        1 => 2,
+        2 => 3,
+        _ => 1,
+    };
+    let p1 = if cfgcr2 & (1 << 7) != 0 {
+        u64::from((cfgcr2 >> 8) & 0xFF)
+    } else {
+        1
+    };
+    let dco = integer * REF_KHZ + ((fraction * REF_KHZ) >> 15);
+    let divider = p0 * p1 * p2 * 5;
+    // Rounded: the fraction field is a 15-bit approximation (the box's
+    // DCO is 8334599.8 kHz for an 8334600 kHz target).
+    (divider != 0 && p1 != 0).then(|| ((dco + divider / 2) / divider) as u32)
+}
+
 // TO CONFIRM against dump -----------------------------------------------------
 
 /// Per-DDI clock select of the pre-Skylake path (A at 0x46100, 4 bytes
@@ -313,5 +445,29 @@ mod tests {
         assert_eq!(PLANE_CTL_1_A + 0xC0, PLANE_WM_1_A_0);
         assert_eq!(pipesrc_size(2559 << 16 | 1439), (2560, 1440));
         assert_eq!(timing_pair(2719 << 16 | 2559), (2560, 2720));
+    }
+
+    #[test]
+    fn dpll_clock_and_plane_decode_match_the_boxs_dump() {
+        // DPLL1 as Linux left it: 277.82 MHz.
+        assert_eq!(dpll_hdmi_clock_khz(0x8046_675B, 0x147), Some(277_820));
+        assert_eq!(dpll_hdmi_clock_khz(0x0046_675B, 0x147), None, "DCO off");
+        assert_eq!(dpll_hdmi_clock_khz(0x8046_675B, 3 << 2), None, "reserved P0");
+        // PLANE_CTL_1_A 0xc404b020: enabled, XRGB 8888, Y tiled (stride 0x50
+        // x 128 = 10240 = 2560 x 4).
+        let ctl = 0xC404_B020;
+        assert_ne!(ctl & plane_ctl::ENABLE, 0);
+        assert_eq!(plane_ctl::format(ctl), plane_ctl::Format::Xrgb8888);
+        assert_eq!(plane_ctl::tiling(ctl), plane_ctl::Tiling::Y);
+        assert_eq!(0x50 * plane_ctl::tiling(ctl).stride_unit(), 2560 * 4);
+        assert_eq!(plane_ctl::tiling(0), plane_ctl::Tiling::Linear);
+        // The power wells: both display wells state bits are up in the dump.
+        for v in [0x5000_0011, 0xF000_0033] {
+            assert_ne!(v & pwr_well::PW1_STATE, 0);
+            assert_ne!(v & pwr_well::PW2_STATE, 0);
+        }
+        assert_eq!(pipe_base(1), 0x71000);
+        assert_eq!(trans_base(2), 0x62000);
+        assert_eq!(trans_clk_sel(1), 0x46144);
     }
 }

@@ -70,6 +70,18 @@ pub(super) const WIFI_CRED: SysCred = SysCred::new(
     0,
 );
 
+/// The Intel GPU service's identity (docs/kabylake-gpu-plan.md): `_gpu`
+/// holding only `CAP_DEV_CLAIM`, which the kernel's class rules narrow to
+/// display controllers (`gpupolicy::GPU_DRIVER_CLASS_RULES`).
+#[cfg(lazyos_gen9gfx)]
+pub(super) const GPU_CRED: SysCred = SysCred::new(
+    gpupolicy::GPU_UID,
+    gpupolicy::GPU_UID,
+    user::dev::CAP_DEV_CLAIM,
+    0,
+    0,
+);
+
 /// The device manager's identity (issue #497): its own system uid and **no
 /// capabilities**. It reads the kernel's read-only inventory and asks this
 /// supervisor to start drivers; it never claims a device.
@@ -160,7 +172,7 @@ pub(super) const WLAN_CRED: SysCred =
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 14] = [
+const SYSTEM_UIDS: [u32; 15] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
@@ -175,6 +187,7 @@ const SYSTEM_UIDS: [u32; 14] = [
     mounttable::MOUNTD_UID,
     netpolicy::WLAN_UID,
     netpolicy::WIFISIM_UID,
+    gpupolicy::GPU_UID,
 ];
 
 const _: () = {

@@ -174,6 +174,8 @@ members = [
     "libs/simair",
     "libs/usbpolicy",
     "libs/sndpolicy",
+    # The Intel GPU service's device-class rules (`gpud`, LAZYOS_GEN9GFX=1).
+    "libs/gpupolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
     # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.
     "libs/svcpolicy",

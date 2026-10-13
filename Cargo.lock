@@ -457,6 +457,7 @@ name = "devinspect"
 version = "0.1.0"
 dependencies = [
  "devmatch",
+ "gpupolicy",
  "mounttable",
  "netpolicy",
  "sndpolicy",
@@ -684,6 +685,7 @@ name = "gen9gfx"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "pciprobe",
 ]
 
 [[package]]
@@ -725,6 +727,10 @@ dependencies = [
  "log",
  "uuid",
 ]
+
+[[package]]
+name = "gpupolicy"
+version = "0.1.0"
 
 [[package]]
 name = "hash32"
@@ -842,6 +848,7 @@ dependencies = [
  "font-atlas",
  "fused",
  "gpt 0.1.0",
+ "gpupolicy",
  "lazyos-crypto",
  "libm",
  "libmessenger",
@@ -1743,6 +1750,8 @@ dependencies = [
  "ftpwire",
  "fused",
  "fwload",
+ "gen9gfx",
+ "gpupolicy",
  "hda",
  "ieee80211",
  "inputmap",
@@ -1758,6 +1767,7 @@ dependencies = [
  "netstack",
  "nicdrv",
  "passwd",
+ "pciprobe",
  "pcm",
  "pkgstore",
  "rtl8168",

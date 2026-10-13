@@ -43,6 +43,7 @@ Examples
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
     python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
+    python tools/run_demo.py --gen9gfx       # gpud: adopt and report the Intel GPU's display state (docs/kabylake-gpu-plan.md)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --lazysky       # desktop + networking + the LazySky Bluesky client

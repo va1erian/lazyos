@@ -6324,6 +6324,383 @@ pub mod os_lazy_files_v1 {
     }
 }
 
+/// `os.lazy.gpu.v1` (interface id `0x53ecd075e99e0064`).
+#[rustfmt::skip]
+pub mod os_lazy_gpu_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x53ecd075e99e0064;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.gpu.v1";
+
+    /// `LinkMode::None` wire value.
+    pub const LINK_MODE_NONE: u32 = 0;
+    /// `LinkMode::Hdmi` wire value.
+    pub const LINK_MODE_HDMI: u32 = 1;
+    /// `LinkMode::Dvi` wire value.
+    pub const LINK_MODE_DVI: u32 = 2;
+    /// `LinkMode::DpSst` wire value.
+    pub const LINK_MODE_DP_SST: u32 = 3;
+    /// `LinkMode::DpMst` wire value.
+    pub const LINK_MODE_DP_MST: u32 = 4;
+    /// `LinkMode::Other` wire value.
+    pub const LINK_MODE_OTHER: u32 = 5;
+
+    /// `Tiling::Linear` wire value.
+    pub const TILING_LINEAR: u32 = 0;
+    /// `Tiling::X` wire value.
+    pub const TILING_X: u32 = 1;
+    /// `Tiling::Y` wire value.
+    pub const TILING_Y: u32 = 2;
+    /// `Tiling::Yf` wire value.
+    pub const TILING_YF: u32 = 3;
+    /// `Tiling::Other` wire value.
+    pub const TILING_OTHER: u32 = 4;
+
+    /// One pipe's timing, in pixels (horizontal) or lines (vertical).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Axis {
+        pub active: u32,
+        pub total: u32,
+        pub blank_start: u32,
+        pub blank_end: u32,
+        pub sync_start: u32,
+        pub sync_end: u32,
+    }
+
+    pub fn encode_axis(value: &Axis) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.active)?;
+        target.u32(2, value.total)?;
+        target.u32(3, value.blank_start)?;
+        target.u32(4, value.blank_end)?;
+        target.u32(5, value.sync_start)?;
+        target.u32(6, value.sync_end)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_axis(body: &[u8]) -> Result<Axis, Error> {
+        let mut out = Axis::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.active = field.as_u32()?;
+                }
+                2 => {
+                    out.total = field.as_u32()?;
+                }
+                3 => {
+                    out.blank_start = field.as_u32()?;
+                }
+                4 => {
+                    out.blank_end = field.as_u32()?;
+                }
+                5 => {
+                    out.sync_start = field.as_u32()?;
+                }
+                6 => {
+                    out.sync_end = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The first universal plane of the adopted pipe.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Plane {
+        pub enabled: bool,
+        pub format: u32,
+        pub tiling: u32,
+        pub stride_bytes: u32,
+        pub width: u32,
+        pub height: u32,
+        pub surface: u32,
+        pub surface_live: u32,
+    }
+
+    pub fn encode_plane(value: &Plane) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.enabled)?;
+        target.u32(2, value.format)?;
+        target.u32(3, value.tiling)?;
+        target.u32(4, value.stride_bytes)?;
+        target.u32(5, value.width)?;
+        target.u32(6, value.height)?;
+        target.u32(7, value.surface)?;
+        target.u32(8, value.surface_live)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_plane(body: &[u8]) -> Result<Plane, Error> {
+        let mut out = Plane::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.enabled = field.as_bool()?;
+                }
+                2 => {
+                    out.format = field.as_u32()?;
+                }
+                3 => {
+                    out.tiling = field.as_u32()?;
+                }
+                4 => {
+                    out.stride_bytes = field.as_u32()?;
+                }
+                5 => {
+                    out.width = field.as_u32()?;
+                }
+                6 => {
+                    out.height = field.as_u32()?;
+                }
+                7 => {
+                    out.surface = field.as_u32()?;
+                }
+                8 => {
+                    out.surface_live = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `PLANE_CTL` format code (4 is 32-bit XRGB).
+    /// A `Tiling` ordinal.
+    /// Row pitch in bytes.
+    /// The surface being programmed and the one being scanned out, as
+    /// GGTT offsets.
+    /// The framebuffer's pages as the GGTT maps them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FbMap {
+        pub pages: u32,
+        pub present: u32,
+        pub phys_base: u64,
+        pub contiguous: bool,
+    }
+
+    pub fn encode_fb_map(value: &FbMap) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.pages)?;
+        target.u32(2, value.present)?;
+        target.u64(3, value.phys_base)?;
+        target.bool(4, value.contiguous)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_fb_map(body: &[u8]) -> Result<FbMap, Error> {
+        let mut out = FbMap::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.pages = field.as_u32()?;
+                }
+                2 => {
+                    out.present = field.as_u32()?;
+                }
+                3 => {
+                    out.phys_base = field.as_u64()?;
+                }
+                4 => {
+                    out.contiguous = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Pages the surface spans and how many entries were present.
+    /// Physical address of the first page, 0 when none was present.
+    /// Every page present and each the next after the last.
+    /// The adopted display state.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct State {
+        pub adopted: bool,
+        pub device: u32,
+        pub revision: u32,
+        pub cdclk_khz: u32,
+        pub power_well_1: bool,
+        pub power_well_2: bool,
+        pub pipes_enabled: u32,
+        pub pipe: u32,
+        pub ddi_port: u32,
+        pub link: u32,
+        pub bits_per_component: u32,
+        pub hsync_positive: bool,
+        pub vsync_positive: bool,
+        pub pixel_clock_khz: u32,
+        pub refresh_millihz: u32,
+        pub horizontal: Axis,
+        pub vertical: Axis,
+        pub plane: Plane,
+        pub framebuffer: FbMap,
+        pub audio_capable: bool,
+    }
+
+    pub fn encode_state(value: &State) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.adopted)?;
+        target.u32(2, value.device)?;
+        target.u32(3, value.revision)?;
+        target.u32(4, value.cdclk_khz)?;
+        target.bool(5, value.power_well_1)?;
+        target.bool(6, value.power_well_2)?;
+        target.u32(7, value.pipes_enabled)?;
+        target.u32(8, value.pipe)?;
+        target.u32(9, value.ddi_port)?;
+        target.u32(10, value.link)?;
+        target.u32(11, value.bits_per_component)?;
+        target.bool(12, value.hsync_positive)?;
+        target.bool(13, value.vsync_positive)?;
+        target.u32(14, value.pixel_clock_khz)?;
+        target.u32(15, value.refresh_millihz)?;
+        target.raw(Kind::Struct, 16, &encode_axis(&value.horizontal)?)?;
+        target.raw(Kind::Struct, 17, &encode_axis(&value.vertical)?)?;
+        target.raw(Kind::Struct, 18, &encode_plane(&value.plane)?)?;
+        target.raw(Kind::Struct, 19, &encode_fb_map(&value.framebuffer)?)?;
+        target.bool(20, value.audio_capable)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_state(body: &[u8]) -> Result<State, Error> {
+        let mut out = State::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.adopted = field.as_bool()?;
+                }
+                2 => {
+                    out.device = field.as_u32()?;
+                }
+                3 => {
+                    out.revision = field.as_u32()?;
+                }
+                4 => {
+                    out.cdclk_khz = field.as_u32()?;
+                }
+                5 => {
+                    out.power_well_1 = field.as_bool()?;
+                }
+                6 => {
+                    out.power_well_2 = field.as_bool()?;
+                }
+                7 => {
+                    out.pipes_enabled = field.as_u32()?;
+                }
+                8 => {
+                    out.pipe = field.as_u32()?;
+                }
+                9 => {
+                    out.ddi_port = field.as_u32()?;
+                }
+                10 => {
+                    out.link = field.as_u32()?;
+                }
+                11 => {
+                    out.bits_per_component = field.as_u32()?;
+                }
+                12 => {
+                    out.hsync_positive = field.as_bool()?;
+                }
+                13 => {
+                    out.vsync_positive = field.as_bool()?;
+                }
+                14 => {
+                    out.pixel_clock_khz = field.as_u32()?;
+                }
+                15 => {
+                    out.refresh_millihz = field.as_u32()?;
+                }
+                16 => {
+                    out.horizontal = decode_axis(field.payload)?;
+                }
+                17 => {
+                    out.vertical = decode_axis(field.payload)?;
+                }
+                18 => {
+                    out.plane = decode_plane(field.payload)?;
+                }
+                19 => {
+                    out.framebuffer = decode_fb_map(field.payload)?;
+                }
+                20 => {
+                    out.audio_capable = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `GetState` method id.
+    pub const METHOD_GETSTATE: u32 = 746022616;
+
+    /// A running pipe was found and decoded; the pipe fields below
+    /// mean nothing otherwise.
+    /// PCI device id and revision of the GPU.
+    /// Core display clock in kHz.
+    /// Bit `n`: pipe `n` (A = 0) is enabled.
+    /// The pipe (and transcoder) adopted, 0 = A.
+    /// The DDI port it drives (0 = A to 4 = E), 4294967295 when the
+    /// registers name none.
+    /// A `LinkMode` ordinal.
+    /// Bits per colour component, 0 when not a defined value.
+    /// Pixel clock in kHz and refresh rate in millihertz, 0 when the
+    /// PLL is not in a mode `gpud` can compute them from.
+    /// The link is in HDMI mode, so HDMI audio (stage G2) needs no
+    /// mode set.
+    /// The state `gpud` adopted when it started.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetStateReply {
+        pub state: State,
+    }
+
+    pub fn encode_get_state_reply(value: &GetStateReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_state(&value.state)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_state_reply(body: &[u8]) -> Result<GetStateReply, Error> {
+        let mut out = GetStateReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.state = decode_state(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
+}
+
 /// `os.lazy.healthd.v1` (interface id `0xd022082ef0aaed78`).
 #[rustfmt::skip]
 pub mod os_lazy_healthd_v1 {

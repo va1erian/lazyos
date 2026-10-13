@@ -107,7 +107,7 @@ fn run() -> Result<(), &'static str> {
 /// row that serves one device only, after the first, is `busy`.
 fn start_drivers(init: &Endpoint, tracked: &mut [Tracked]) {
     let functions: Vec<_> = tracked.iter().map(Tracked::function).collect();
-    let plan = devmatch::plan(&functions);
+    let plan = devmatch::plan_with(&functions, devices::EXTRA_MANIFEST);
     for item in tracked.iter_mut().filter(|t| t.entry.is_some()) {
         let id = item.device.id;
         let Some(planned) = plan.iter().find(|planned| planned.id == id) else {

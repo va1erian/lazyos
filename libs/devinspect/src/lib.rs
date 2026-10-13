@@ -121,6 +121,7 @@ pub fn uid_name(uid: u32) -> Option<&'static str> {
         netpolicy::NETD_UID => Some("_netd"),
         netpolicy::WIFI_UID => Some("_wifi"),
         usbpolicy::USB_UID => Some("_usb"),
+        gpupolicy::GPU_UID => Some("_gpu"),
         devmatch::DEVD_UID => Some("_devd"),
         mounttable::MOUNTD_UID => Some("_mountd"),
         ANY_ACTOR => Some("*"),
