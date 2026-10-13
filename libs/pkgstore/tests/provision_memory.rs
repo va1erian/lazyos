@@ -1,6 +1,7 @@
 //! `pkgd`'s heap while it provisions a whole core set on a fresh image (issue
 //! #509): the user heap never reuses a block over 1 MiB, and `pkgd` restarts
-//! once it grew by 32 MiB, so one first-boot pass must stay well under that.
+//! once it grew by 32 MiB beyond its package buffer (`pkgstore::recycle`, the rule
+//! `pkgd` applies), so one first-boot pass must stay under that.
 //!
 //! The set is the real one when `tools/xui/build.py` has built it
 //! (`target/pkg/core/*.lzp`; CI's xui workflow runs this test after building
@@ -28,7 +29,7 @@ use provisioning::{measure, Heap, Image, Pkgd};
 #[global_allocator]
 static HEAP: Heap = Heap;
 
-const RECYCLE_BYTES: usize = 32 * 1024 * 1024;
+const RECYCLE_BYTES: usize = pkgstore::recycle::RECYCLE_BYTES as usize;
 
 fn clock() -> i64 {
     1_700_000_000
@@ -80,18 +81,7 @@ fn provisioning_the_core_set_stays_under_the_recycle_threshold() {
             .map(|(n, v, b)| (n.as_str(), v.as_str(), b.clone()))
             .collect(),
     );
-    let size = 256usize << 20;
-    let io = MemIo::new(size);
-    let geometry = Geometry {
-        block_size: 4096,
-        blocks_count: (size / 4096) as u32,
-        bytes_per_inode: 16 * 1024,
-    };
-    ext2fs::format(&io, geometry, "lazyos-root", [7; 16], clock()).unwrap();
-    let fs = Ext2::open(Box::new(io), clock).unwrap();
-    for dir in ["/apps", "/docs", "/docs/apps", "/logs"] {
-        fs.mkdir_p(dir, 0o755, 0, 0).unwrap();
-    }
+    let fs = fresh_fs(256 << 20);
     let mut pkgd = Pkgd::new();
     let (tally, growth) = measure(|| pkgd.provision(&fs, &image));
     let tally = tally.unwrap();
@@ -102,9 +92,14 @@ fn provisioning_the_core_set_stays_under_the_recycle_threshold() {
         set.len(),
         image.largest()
     );
+    // The rule pkgd applies: the threshold counts what the heap grew beyond the kept package
+    // buffer (the largest package), so the browser's 44 MB package does not make every fresh
+    // pkgd restart after one step.
+    let buffer = image.largest() as u64;
     assert!(
-        growth < RECYCLE_BYTES,
-        "provisioning grew the heap by {growth} bytes (limit {RECYCLE_BYTES})"
+        !pkgstore::recycle::due(growth as u64, buffer),
+        "provisioning grew the heap by {growth} bytes (allowed {} with a {buffer} byte buffer)",
+        pkgstore::recycle::allowed(buffer)
     );
     // The bound is the largest package (the kept buffer) plus a little, not
     // the set and not any file: the slack is for the small blocks of the
@@ -117,6 +112,62 @@ fn provisioning_the_core_set_stays_under_the_recycle_threshold() {
     for (_, _, bytes) in &set {
         installed_files_match(&fs, &pkgd, bytes);
     }
+}
+
+/// A freshly formatted OS volume of `size` bytes with the directories `pkgd` installs into.
+fn fresh_fs(size: usize) -> Ext2 {
+    let io = MemIo::new(size);
+    let geometry = Geometry {
+        block_size: 4096,
+        blocks_count: (size / 4096) as u32,
+        bytes_per_inode: 16 * 1024,
+    };
+    ext2fs::format(&io, geometry, "lazyos-root", [7; 16], clock()).unwrap();
+    let fs = Ext2::open(Box::new(io), clock).unwrap();
+    for dir in ["/apps", "/docs", "/docs/apps", "/logs"] {
+        fs.mkdir_p(dir, 0o755, 0, 0).unwrap();
+    }
+    fs
+}
+
+/// A package over the recycle threshold (the WebKit browser's is 44 MB; this one is 36 MiB of
+/// program that does not compress) next to small ones: the pass grows the heap by about that
+/// package, which is more than the threshold, and `pkgd` must not restart for it. Whether the
+/// real set has such a package depends on the build, so the case is made here.
+#[test]
+fn a_package_over_the_recycle_threshold_does_not_make_pkgd_restart() {
+    let mut set = vec![(
+        "os.lazy.big".to_owned(),
+        "0.1.0".to_owned(),
+        package("os.lazy.big", "0.1.0", 36 << 20, 99),
+    )];
+    set.push((
+        "os.lazy.small".to_owned(),
+        "0.1.0".to_owned(),
+        package("os.lazy.small", "0.1.0", 300_000, 5),
+    ));
+    let image = Image::new(
+        set.iter()
+            .map(|(n, v, b)| (n.as_str(), v.as_str(), b.clone()))
+            .collect(),
+    );
+    let fs = fresh_fs(160 << 20);
+    let mut pkgd = Pkgd::new();
+    let (tally, growth) = measure(|| pkgd.provision(&fs, &image));
+    let tally = tally.unwrap();
+    assert_eq!((tally.installed, tally.failed), (2, 0));
+    let buffer = image.largest() as u64;
+    assert!(buffer > pkgstore::recycle::RECYCLE_BYTES);
+    println!("a {buffer} byte package: heap grew by {growth} bytes");
+    assert!(
+        growth > RECYCLE_BYTES,
+        "the case is only meaningful when the old rule (growth < {RECYCLE_BYTES}) would restart: {growth}"
+    );
+    assert!(
+        !pkgstore::recycle::due(growth as u64, buffer),
+        "pkgd would restart for a package of {buffer} bytes (grew {growth})"
+    );
+    assert!(growth < image.largest() + (1 << 20), "{growth}");
 }
 
 /// Every file of the package `bytes` is on disk, byte for byte, under its

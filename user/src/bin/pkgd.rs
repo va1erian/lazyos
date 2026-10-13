@@ -62,11 +62,15 @@
 //! (`lazypkg::CHUNK`), never whole. So a provisioning pass grows the heap by
 //! about the largest package, and `pkgd` ends itself (and `init`, which
 //! supervises it with `Restart::Always`, starts a fresh one) once its heap has
-//! grown past [`RECYCLE_BYTES`] *beyond that buffer* and it is idle between
-//! two requests. Without the allowance a package over [`RECYCLE_BYTES`] (the
-//! WebKit browser's is 44 MB) made every fresh `pkgd` size its buffer, find
-//! itself over the limit after one step and restart: five rapid restarts
-//! exhaust `init`'s budget and provisioning stops half way.
+//! grown past [`recycle::RECYCLE_BYTES`] *beyond that buffer* and it is idle
+//! between two requests (`pkgstore::recycle` has the rule and why: a package
+//! over the threshold, the WebKit browser's is 44 MB, made every fresh `pkgd`
+//! restart after one step). The buffer itself stays allocated until the next
+//! restart. Restarting as soon as a pass is over would release it, but a fresh
+//! `pkgd` reads every shipped package to describe it (`provision.rs`,
+//! `shipped_set`) before it can tell the pass is up to date, so it would size
+//! the buffer again and restart in a loop: a follow-up (describe a package
+//! from its manifest alone) would let it.
 
 #![no_std]
 #![no_main]
@@ -105,16 +109,13 @@ mod store;
 use alloc::format;
 use alloc::string::String;
 use core::panic::PanicInfo;
-use pkgstore::layout;
+use pkgstore::{layout, recycle};
 use user::messenger::services::lifecycle;
 use user::messenger::{self, pkgd, registry as names};
 use user::sys;
 use user::trace;
 
 use handlers::Pkgd;
-
-/// Heap growth after which an idle `pkgd` restarts to give its memory back.
-const RECYCLE_BYTES: u64 = 32 * 1024 * 1024;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -202,8 +203,8 @@ fn run() -> messenger::Result<()> {
             // gone: a normal race, not a fatal error.
             let _ = server.reply(txn, &reply);
         }
-        let allowed = RECYCLE_BYTES + state.buffer.capacity() as u64;
-        if sys::sbrk(0).saturating_sub(start_break) > allowed {
+        let grown = sys::sbrk(0).saturating_sub(start_break);
+        if recycle::due(grown, state.buffer.capacity() as u64) {
             trace::line!(trace::Channel::Pkgd, "RECYCLE restarting to release memory");
             return Ok(());
         }
