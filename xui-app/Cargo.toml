@@ -62,6 +62,9 @@ members = [
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
+    # LazyWeb+'s ad blocker core (docs/lazywebplus.md, issue #845): filter lists to
+    # WebKit content-rule lists; portable and host-tested.
+    "crates/adblock",
 ]
 
 [dependencies]
