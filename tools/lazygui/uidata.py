@@ -77,7 +77,8 @@ def advanced_cfg(ui) -> dict:
                                                           "wifi", "wifi_sim")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
-        "tls": ui.v["tls"].get() or ui.v["mail"].get(),
+        # LazyWeb+'s ad blocker updates its lists with curl.
+        "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazywebplus"].get(),
         "journal": ui.v["journal"].get(),
         **{app: ui.v[app].get() for app in ("lazyweb", "lazysky", "mail", "traydemo", "pictures")},
         "script": SCRIPTS.index(names[0]) if names else 0,

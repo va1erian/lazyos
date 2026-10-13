@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>blocker:waiting</title>
+</head>
+<body style="font:20px sans-serif">
+<h1>Ad blocker page</h1>
+<p>An ad picture, a tracking pixel and two scripts from the ad network, and a picture of our own.</p>
+<img src="https://ads.adnet.test/banner.gif" width="120" height="40" onload="r('ad','loaded')" onerror="r('ad','blocked')">
+<img src="https://tracker.adnet.test/pixel.gif" width="20" height="20" onload="r('tracker','loaded')" onerror="r('tracker','blocked')">
+<img src="/images/logo.png" width="120" height="40" onload="r('logo','loaded')" onerror="r('logo','blocked')">
+<script src="https://ads.adnet.test/ad.js" onload="r('script','loaded')" onerror="r('script','blocked')"></script>
+<script src="https://ads.adnet.test/allowed.js" onload="r('allowed','loaded')" onerror="r('allowed','blocked')"></script>
+<script>
+var seen = {};
+var want = ['ad', 'tracker', 'script', 'allowed', 'logo'];
+function r(name, what) {
+  seen[name] = what;
+  for (var i = 0; i < want.length; i++) { if (!(want[i] in seen)) { return; } }
+  document.title = 'blocker:' + want.map(function (k) { return k + '=' + seen[k]; }).join(',');
+}
+</script>
+</body>
+</html>

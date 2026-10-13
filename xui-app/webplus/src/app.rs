@@ -486,6 +486,7 @@ impl Browser {
             ("back", ui.bounds(self.back.id())),
             ("forward", ui.bounds(self.forward.id())),
             ("reload", ui.bounds(self.reload.id())),
+            ("shield", ui.bounds(self.shield.id())),
             ("page", page),
             (
                 "page_origin",

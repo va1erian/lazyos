@@ -114,7 +114,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     lazysky = desktop and lazysky
     webkit = desktop and webkit
     lazywebplus = desktop and lazywebplus
-    tls = tls or lazyweb or (desktop and mail)
+    # LazyWeb+'s ad blocker updates its lists with `curl` (issue #845).
+    tls = tls or lazyweb or lazywebplus or (desktop and mail)
     cfg = dict(base)
     cfg.update({
         "mode": "Interactive demo",

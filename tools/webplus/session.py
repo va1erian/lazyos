@@ -37,6 +37,9 @@ import judge as j  # noqa: E402
 EXAMPLES = ROOT / "tools" / "screenshot" / "examples"
 EXAMPLE_FIRST = EXAMPLES / "lazywebplus.json"
 EXAMPLE_SECOND = EXAMPLES / "lazywebplus_second.json"
+#: The ad blocker's two boots (`blocker.py`, issue #845).
+EXAMPLE_BLOCKER = EXAMPLES / "lazywebplus_blocker.json"
+EXAMPLE_PERSISTED = EXAMPLES / "lazywebplus_persisted.json"
 
 #: The title bar's maximize button, from the middle of the title bar, and the close button from
 #: the middle of the maximized one (1280 px wide).
@@ -262,9 +265,17 @@ def render(items: list[dict]) -> str:
     return json.dumps(items, indent=1) + "\n"
 
 
+def examples() -> dict[Path, str]:
+    """The checked-in sessions and what they render to."""
+    import blocker
+    return {EXAMPLE_FIRST: render(first()), EXAMPLE_SECOND: render(second()),
+            EXAMPLE_BLOCKER: render(blocker.blocker_boot()),
+            EXAMPLE_PERSISTED: render(blocker.persisted_boot())}
+
+
 def main_check() -> int:
-    """0 when the checked-in examples are what `first` and `second` render, else 1."""
-    for path, text in ((EXAMPLE_FIRST, render(first())), (EXAMPLE_SECOND, render(second()))):
+    """0 when the checked-in examples are what the sessions render, else 1."""
+    for path, text in examples().items():
         if not path.is_file() or path.read_text(encoding="utf-8") != text:
             print(f"{path} is stale: run python tools/webplus/session.py --write", file=sys.stderr)
             return 1
@@ -276,7 +287,7 @@ def main() -> int:
     parser.add_argument("--write", action="store_true", help="write the checked-in examples")
     parser.add_argument("--check", action="store_true", help="fail when the checked-in examples are stale")
     args = parser.parse_args()
-    wanted = {EXAMPLE_FIRST: render(first()), EXAMPLE_SECOND: render(second())}
+    wanted = examples()
     for path, text in wanted.items():
         if args.write:
             path.write_text(text, encoding="utf-8", newline="\n")
