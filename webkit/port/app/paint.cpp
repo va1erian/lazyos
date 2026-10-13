@@ -16,7 +16,8 @@
 // starts of two paints. (The profile folder is one the sandboxed NetworkProcess may write, so a
 // shipped browser does not read it.)
 //
-// Once a second, while anything is painted, the UI process prints
+// Once a second, while anything is painted (the last partial second of a burst is printed when the next
+// event arrives, not before), the UI process prints
 //   INFO:PAINT:mode=<m>:n=<paints>:needs=<reports>:px=<painted>:clear|wk|swz|post=<us, summed>:
 //              avg|max=<us per paint>:lat=<longest us from a report to the paint that took it>:
 //              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report>
@@ -319,6 +320,7 @@ void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
     paint.damage.add(static_cast<int>(floor(rect.origin.x)), static_cast<int>(floor(rect.origin.y)),
         static_cast<int>(ceil(rect.origin.x + rect.size.width)), static_cast<int>(ceil(rect.origin.y + rect.size.height)));
     const long long now = nowUs();
+    report(now); // a window that ended is printed before this event is counted
     ++stats.needs;
     if (wheelTurnedUs) {
         const long long latency = now - wheelTurnedUs;
@@ -329,19 +331,28 @@ void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
         }
     }
     requestPaint(now);
-    report(now);
 }
 
 void notePointer(bool wheel)
 {
+    const long long now = nowUs();
+    report(now);
     if (!wheel) {
         ++stats.mice;
         return;
     }
     ++stats.wheels;
-    const long long now = nowUs();
     if (!wheelTurnedUs || now - wheelTurnedUs > kWheelAnswerUs)
         wheelTurnedUs = now;
+}
+
+// The page's process is gone: what both bitmaps hold is a page that no longer exists, and the next
+// paint, whenever the new process answers, starts from white.
+void invalidatePaint()
+{
+    paint.width = 0;
+    paint.height = 0;
+    paint.full = true;
 }
 
 } // namespace webkitapp

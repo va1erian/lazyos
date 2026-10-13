@@ -56,5 +56,28 @@ class SummaryTests(unittest.TestCase):
             self.assertEqual(sample.load(path), [(0.03, 3, 0x14B10000, 0x1234)])
 
 
+class SymbolizeTests(unittest.TestCase):
+    def test_the_address_given_to_addr2line_is_the_runtime_address_less_the_base(self):
+        seen = {}
+
+        def fake(command, **_):
+            seen["command"] = command
+
+            class Done:
+                stdout = "main\nmain.cpp:3\nfoo\nfoo.cpp:9\n"
+
+            return Done()
+
+        names = sample.symbolize(Path("prog"), [0x1010, 0x2020], 0x1000, tool="addr2line", run=fake)
+        self.assertEqual(seen["command"][-2:], ["0x10", "0x1020"])
+        self.assertEqual(names, {0x1010: "main (main.cpp:3)", 0x2020: "foo (foo.cpp:9)"})
+
+    def test_static_pies_are_not_rebased_by_default(self):
+        self.assertEqual(sample.DEFAULT_BASE, 0)
+
+    def test_without_a_tool_or_addresses_there_is_nothing(self):
+        self.assertEqual(sample.symbolize(Path("prog"), [], 0, tool="addr2line"), {})
+
+
 if __name__ == "__main__":
     unittest.main()

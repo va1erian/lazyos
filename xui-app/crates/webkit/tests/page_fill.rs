@@ -85,6 +85,12 @@ impl Shown {
 }
 
 fn shown(frame: Option<(u32, u32)>, crash: bool) -> Shown {
+    shown_with(frame, crash, false)
+}
+
+/// Like [`shown`]; `hole` makes the frame's last row transparent, which shows what is under the
+/// frame: white where the view fills white first, the window's own colour where it does not.
+fn shown_with(frame: Option<(u32, u32)>, crash: bool, hole: bool) -> Shown {
     let origin = Rc::new(Cell::new((0, 0)));
     let size = Rc::new(Cell::new((0, 0)));
     let (seen_origin, seen_size) = (Rc::clone(&origin), Rc::clone(&size));
@@ -102,7 +108,14 @@ fn shown(frame: Option<(u32, u32)>, crash: bool) -> Shown {
             .expect("the engine was told the view size");
         seen_size.set(view);
         let (w, h) = frame.unwrap_or((view.0 as u32, view.1 as u32));
-        rig.mailbox.post_frame(w, h, &solid(w, h, GREEN));
+        let mut pixels = solid(w, h, GREEN);
+        if hole {
+            let last_row = ((h - 1) * w * 4) as usize;
+            for alpha in pixels[last_row..].chunks_exact_mut(4) {
+                alpha[3] = 0;
+            }
+        }
+        rig.mailbox.post_frame(w, h, &pixels);
         stage.emit(Msg::Frame);
         if crash {
             rig.mailbox.post_state(PageState {
@@ -134,6 +147,46 @@ fn a_frame_that_covers_the_view_is_not_painted_over_white() {
     let larger = shown(Some((w as u32 + 40, h as u32 + 40)), false);
     assert_eq!(larger.at(0, 0), GREEN);
     assert_eq!(larger.at(w - 1, h - 1), GREEN);
+}
+
+#[test]
+fn a_covering_frame_is_not_filled_under_and_any_shortfall_on_either_axis_is() {
+    let (w, h) = shown(None, false).size;
+    let (w32, h32) = (w as u32, h as u32);
+
+    // Covering: nothing is filled under it, so a transparent row shows the window, not white.
+    let covering = shown_with(None, false, true);
+    assert_ne!(
+        covering.at(w / 2, h - 1),
+        WHITE,
+        "no fill under a covering frame"
+    );
+    assert_eq!(covering.at(w / 2, h - 2), GREEN);
+
+    // Short of the view in height only: the strip below is white, and so is what a
+    // transparent row shows (the fill is under the frame).
+    let short = shown_with(Some((w32, h32 - 40)), false, true);
+    assert_eq!(short.at(w / 2, h - 20), WHITE, "the strip below the frame");
+    assert_eq!(
+        short.at(w / 2, h - 41),
+        WHITE,
+        "the fill is under the frame"
+    );
+    assert_eq!(short.at(w / 2, h - 42), GREEN);
+
+    // Short in width only.
+    let narrow = shown_with(Some((w32 - 40, h32)), false, true);
+    assert_eq!(
+        narrow.at(w - 20, h / 2),
+        WHITE,
+        "the strip to the right of the frame"
+    );
+    assert_eq!(
+        narrow.at(w / 2, h - 1),
+        WHITE,
+        "the fill is under the frame"
+    );
+    assert_eq!(narrow.at(w - 41, h / 2), GREEN);
 }
 
 #[test]

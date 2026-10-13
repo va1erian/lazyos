@@ -384,12 +384,13 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
   so a close that arrives while a main-frame navigation is loading is taken as the suspension: the toast stays
   until its timeout, as the notification of a page that is gone. (Turning the page cache off would tell them
   apart, and was tried: Back then reloads from the HTTP cache, which hits the crash above.)
-* **One startup crash was seen and not reproduced.** In one second boot the UI process died at its first resize
-  (`memcpy` of a 1,800,000-byte frame past the end of its destination, a page fault at the end of a mapping, rip
-  in `compiler_rt` `copyBlocks`) before `UP:PASS`; the same harness passed on the runs before and after. Reproduced
-  on 2026-10-13 in two of four launches: the destination is a block `mremap` had just moved, and the fault is at
-  the first page of a 2 MiB region the moved copy-on-write pages created with non-writable page-table parents. A
-  kernel bug, issue #853; see `lazywebplus-performance-plan.md`, section 8.
+* **A startup crash, in about every second launch of one harness.** The UI process dies at its first resize
+  (`memcpy` of a 1,800,000-byte frame past the end of its destination, a page fault at the first byte of a 2 MiB
+  region, rip in `compiler_rt` `copyBlocks`) before `UP:PASS`. Seen once earlier and not reproduced, then in two
+  of four launches on 2026-10-13, with the program the image shipped and with a rebuilt one. The destination is a
+  block `mremap` had just moved. Suspected, not yet shown by a test: the moved copy-on-write pages create the
+  region's page-table parents non-writable (the `x86_64` crate's `map_to` takes parent flags from the leaf), and
+  `cow_fault` makes only the leaf writable. Issue #853; `lazywebplus-performance-plan.md`, section 8.
 * **Toasts are made on WebKit's main thread.** The shell names an app by the task id of the sender and a
   thread other than the process's first carries its own id, so a toast from the window's thread or the download
   thread was refused as "not an app". The app now makes every call of the notification service from the first

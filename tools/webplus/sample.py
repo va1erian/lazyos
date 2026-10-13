@@ -14,14 +14,18 @@ file (`/build/webkit-port-build/bin/NetworkProcess` in the build volume).
     python tools/webplus/sample.py report samples.tsv
     python tools/webplus/sample.py report samples.tsv --cr3 14b10000 --elf NetworkProcess
 
-Static-PIE programs load at 0x400000 (`PIE_BASE`), so `--base` defaults to it. `--elf` needs
-binutils' `addr2line` (the build container has it: `docker run --rm -v VOLUME:/b debian:12-slim`).
+A static-PIE program (the WebKit processes) runs at its link addresses (the kernel moves only
+dynamically linked PIEs, to 0x400000), so `--base` defaults to 0; pass `--base 0x400000` for a
+dynamic one. `--elf` needs binutils' `addr2line`: the build container has it (image
+`lazyos-jsc-build:1`, the unstripped programs are in the volume at
+`/build/webkit-port-build/bin/`), the host usually does not.
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import random
 import re
 import shutil
 import subprocess
@@ -32,7 +36,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 
-PIE_BASE = 0x400000
+# Static PIEs run unrelocated; `--base 0x400000` is for a dynamically linked PIE (the kernel's PIE_BASE).
+DEFAULT_BASE = 0
 _FIELDS = {
     "rip": re.compile(r"RIP=([0-9a-fA-F]{16})"),
     "cr3": re.compile(r"CR3=([0-9a-fA-F]{16})"),
@@ -57,7 +62,7 @@ def record(port: int, out: Path, seconds: float, interval: float = 0.03) -> int:
     while qmp is None and time.time() < deadline:
         try:
             qmp = Qmp("127.0.0.1", port, 5.0)
-        except OSError:
+        except (OSError, RuntimeError):  # Qmp retries for a few seconds itself, then raises RuntimeError
             time.sleep(0.5)
     if qmp is None:
         raise SystemExit(f"no QMP on port {port}")
@@ -75,7 +80,8 @@ def record(port: int, out: Path, seconds: float, interval: float = 0.03) -> int:
                 handle.write(f"{time.time() - start:.3f}\t{cpl}\t{cr3:016x}\t{rip:016x}\n")
                 handle.flush()
                 count += 1
-            time.sleep(interval)
+            # Jittered: a fixed period would alias with the 100 Hz tick and the browser's paint pacing.
+            time.sleep(interval * random.uniform(0.5, 1.5))
     return count
 
 
@@ -107,12 +113,15 @@ def summarize(rows, cr3: int | None = None, top: int = 12) -> list[str]:
     return lines
 
 
-def symbolize(elf: Path, addresses: list[int], base: int) -> dict[int, str]:
-    """`address -> function (file:line)` through addr2line; empty when it is not installed."""
-    tool = shutil.which("addr2line") or shutil.which("llvm-addr2line")
+def symbolize(elf: Path, addresses: list[int], base: int, tool: str | None = None,
+              run=subprocess.run) -> dict[int, str]:
+    """`address -> function (file:line)` through addr2line; empty when it is not installed.
+
+    The address handed to addr2line is `address - base`. `tool` and `run` are for tests."""
+    tool = tool or shutil.which("addr2line") or shutil.which("llvm-addr2line")
     if not tool or not addresses:
         return {}
-    result = subprocess.run(
+    result = run(
         [tool, "-f", "-C", "-e", str(elf), *[hex(a - base) for a in addresses]],
         capture_output=True, text=True, check=False)
     rows = result.stdout.splitlines()
@@ -130,7 +139,7 @@ def main() -> int:
     rep.add_argument("samples", type=Path)
     rep.add_argument("--cr3", help="hex page-table base of one process")
     rep.add_argument("--elf", type=Path, help="that process's unstripped program, to name functions")
-    rep.add_argument("--base", type=lambda text: int(text, 0), default=PIE_BASE)
+    rep.add_argument("--base", type=lambda text: int(text, 0), default=DEFAULT_BASE)
     rep.add_argument("--top", type=int, default=15)
     args = parser.parse_args()
     if args.command == "record":
@@ -140,11 +149,20 @@ def main() -> int:
     cr3 = int(args.cr3, 16) if args.cr3 else None
     for line in summarize(rows, cr3, args.top):
         print(line)
-    if args.elf and cr3 is not None:
+    if args.elf:
+        if cr3 is None:
+            print("--elf needs --cr3: the addresses are those of one process", file=sys.stderr)
+            return 2
         users = collections.Counter(rip for _, cpl, space, rip in rows if cpl == 3 and space == cr3)
-        names = symbolize(args.elf, [rip for rip, _ in users.most_common(args.top)], args.base)
-        for rip, n in users.most_common(args.top):
-            print(f"  {n:5d}  {rip:x}  {names.get(rip, '?')}")
+        names = symbolize(args.elf, list(users), args.base)
+        if not names:
+            print("no names: addr2line is not installed here (see the docstring)", file=sys.stderr)
+        by_function = collections.Counter()
+        for rip, n in users.items():
+            by_function[names.get(rip, "?").split(" (")[0]] += n
+        print("by function:")
+        for name, n in by_function.most_common(args.top):
+            print(f"  {n:5d}  {name}")
     return 0
 
 

@@ -35,6 +35,7 @@ turns). Two boots of the same script. No new code was built.
 | M5 | 30 and 77 `ENOSYS 285 fallocate` per Ars visit, from the NetworkProcess | `WTF::FileSystem::createMappedFileData` (`FileSystem.cpp:353`, the cache's body writer) treats any errno except `EOPNOTSUPP` as a failure and returns no file: large cache bodies are probably never stored (to be confirmed by the cache directory's size) |
 | M6 | A second visit to a page the first boot cached killed the NetworkProcess (`rip` in `cc` padding, internal error 300) | the known pre-#847 bug (patch 0017); the point is that a warm profile is a different test from a cold one |
 | M7 | After the browser had run, `SYSMOND:SNAPSHOT:FAIL -7` repeats every second; a task named `fork` at slot 65 (apparently a second child process) appeared after the consent click; LazyShell logged `UI:STALL` of 663 ms at boot | unexplained, see P0 |
+| M9 | Two of four launches of LazyWeb+ died before `UP:PASS` (status 139), once with the shipped program and once with a rebuilt one | a write fault in `memcpy` of the first resized frame, at a 2 MiB boundary, into a block `mremap` had moved; issue #853, section 8 |
 | M8 | The main checkout's own image (HiDPI 2560x1440, both browsers and every app on a 1 GiB OS volume) booted with `probe write failed: no space left` for `confd` and `logd` | a full volume also fails the browser's cache and cookie writes. #852 (main, 2026-10-13) fixes the build side: the default volume now adds SRB2Kart and WebKit, and an interrupted update no longer leaves unlisted files behind |
 
 **Not reproduced: "hangs immediately and spins".** At 1x on WHPX with a fresh profile Ars is usable. So the report
@@ -47,7 +48,7 @@ JavaScript-heavy variant of Google (signed in, results page) that the console UA
 
 | # | Hypothesis | Evidence in the code | What confirms or refutes it |
 |---|---|---|---|
-| H1 | **The paint path costs about eight full-frame passes per repaint (to be counted in P0) and runs unpaced on WebKit's main thread** | `paint.cpp`: `viewNeedsDisplay` drops the rect; `paintNow` does `memset` 0xff of the whole bitmap, `WKPagePaint` of the whole rect, a scalar BGRA to RGBA loop over every byte, then `lzw_ui_frame`; `mailbox.rs::store_frame` copies it again; `PageView::show` builds a new `Image` (a new id per frame; backends cache the decoded form per id, so each frame may be decoded and cached again), and `paint` fills the bounds white before `draw_image`. The same thread runs the IPC that feeds it | per-stage time counters at 1x and 2x; one repaint at 2560x1440 is 8-13 MB per pass |
+| H1 | **The paint path costs about eight full-frame passes per repaint (to be counted in P0) and runs unpaced on WebKit's main thread** (the UI process's half is fixed by the change of section 8) | `paint.cpp` as it was: `viewNeedsDisplay` drops the rect; `paintNow` does `memset` 0xff of the whole bitmap, `WKPagePaint` of the whole rect, a scalar BGRA to RGBA loop over every byte, then `lzw_ui_frame`; `mailbox.rs::store_frame` copies it again; `PageView::show` builds a new `Image` (a new id per frame; backends cache the decoded form per id, so each frame may be decoded and cached again), and `paint` fills the bounds white before `draw_image`. The same thread runs the IPC that feeds it | per-stage time counters at 1x and 2x; one repaint at 2560x1440 is 8-13 MB per pass |
 | H2 | **Nothing paces rendering**, so any animation is a 100% duty-cycle pipeline | WebKit's classic drawing area re-arms a 0 s timer (`scheduleDisplay`: `m_displayTimer.startOneShot(0_s)`), paints dirty rects and waits only for the UI process's `DidUpdate`; the window asks `WKViewSetVisible(true)` forever; `schedulePaint` runs on the next loop turn. Carousels, GIFs, ad refresh, `requestAnimationFrame` loops and hover effects drive it | frames/s on a static page, an animated page and a minimised window |
 | H3 | **One CPU with per-thread fairness**: a WebProcess with a collector, compiler and worker threads outweighs the UI process's two | `arch.md`: "No SMP"; `sched_getaffinity` answers one CPU; the scheduler's classes are strict and the CPU guard counts **per task**, so N helper threads that are each below six ticks of ten are never demoted (`tasks.md`); `ProcessLauncherLazyOS.cpp` sets no priority | per-thread CPU split during Ars; `UI:STALL` of the window thread |
 | H4 | **Input is forwarded event by event** | `view.rs` sends every `MouseMove` to `lzw_engine_mouse`, which queues one `std::function` per event; the wheel makes one call per tick, up to 8 per event. At 200 Hz over a page full of `mouseover` handlers this is a second source of continuous work | count events per second reaching `WKPageHandleMouseEvent`; CPU while the pointer moves over Ars |
@@ -72,9 +73,10 @@ Phases are ordered by risk-adjusted value. Each ends with a number from the harn
    script-busy page: 2 MB JSON, 20k DOM nodes; 200 pictures; WOFF2 fonts; a tall page; iframes with timers) so a
    run is repeatable offline; `--live` reads `tools/webplus/perf_sites.txt` (ars, google search, wikipedia, github,
    hn, bbc, nytimes, reddit) and is manual (no copies of third-party pages are kept).
-2. UI-process counters (`WEBPLUS:INFO:PAINT:` once a second, a plain `say` of the UI process; section 8): paints per second, ms in `memset`,
-   `WKPagePaint`, swizzle and mailbox copy, dirty pixels, `postState` calls, mouse and wheel events received and
-   forwarded, window-thread `show_ms`. `WEBPROCESS:JSC:cores=<n>:markers=<n>:compilers=<n>` from the WebProcess
+2. UI-process counters. **Done in part** (`WEBPLUS:INFO:PAINT:` once a second, a plain `say` of the UI process;
+   section 8): paints, reports, dirty pixels, time in clear, `WKPagePaint`, conversion and the hand-over, the longest
+   report-to-paint wait, the wheel and mouse events the window sent, wheel-to-first-report. **Still to do:**
+   `postState` calls, events actually forwarded to WebKit, the window thread's `show_ms`. `WEBPROCESS:JSC:cores=<n>:markers=<n>:compilers=<n>` from the WebProcess
    (`JSC::Options` after `recomputeDependentOptions`).
 3. Kernel: `PERF:CPU` once a second, one line per task with more than 1% (name, slot, thread, pct, class, guard
    demotions), and a **tick sampler**: on each 100 Hz tick record (slot, user `rip`, user or kernel) into a ring,
@@ -88,6 +90,12 @@ Phases are ordered by risk-adjusted value. Each ends with a number from the harn
 `SYSMOND:SNAPSHOT:FAIL -7`, the second engine process and the 663 ms stall have an explanation.
 
 ### P1. A cheap paint path (4 days; H1, part of H4)
+
+*Status:* items 1, 3 (the UI process's half), 4 and 6 are in the change of section 8 (damage rectangle, a
+persistent BGRA target, no per-frame clear, a 32-bit conversion, the window's white fill skipped under a covering
+frame; items 3 and 6 are not finished: the mailbox still copies the frame, and `postState` is not throttled). Item 5
+shipped as a pacer thread in the UI process, not the window-owned pull described below, which would need an ABI
+addition (`lzw_engine_paint`); at the kernel's 100 Hz tick a 33 ms wait is about 40 ms.
 
 Files: `webkit/port/app/paint.cpp`, `engine.cpp`, `xui-app/crates/webkit/src/{mailbox,view,ffi}.rs`,
 `xui-app/webplus/src/app.rs`; the xui item needs a change in `va1erian/xui` (the pinned `xui-core` revision).
@@ -112,7 +120,7 @@ under 10 ms of UI-process CPU, and U2 holds on the animation fixture with the wi
 
 ### P2. Stop the spin and keep the desktop responsive (3 days; H2, H3, H4)
 
-1. **Throttle rendering in the engine.** A LazyOS patch (`0018`) to the classic drawing area so `scheduleDisplay` waits
+1. **Throttle rendering in the engine.** A LazyOS patch (`0020`; 0018 and 0019 are the content rule list patches) to the classic drawing area so `scheduleDisplay` waits
    a frame interval (33 ms by default; the interval is a preference the window can raise, up to 100 ms, while the
    page is hidden or the machine is loaded) instead of a 0 s timer; then check what `requestAnimationFrame`, CSS
    animation and `DOMTimer` do with it (the page-level knobs that exist in the C API: `WKPreferencesSetDOMTimersThrottlingEnabled`,
@@ -211,7 +219,7 @@ thread calls the shell for toasts and `mimed`; keep them off the paint thread), 
 thread; costs a run-loop round trip per toast today).
 
 New issues this plan would open: *LazyWeb+: performance baseline harness and counters (P0)*; *LazyWeb+: damage-based,
-paced paint path (P1)*; *WebKit port: frame-interval throttle and visibility (P2.1-2.2, patch 0018)*; *kernel: CPU guard
+paced paint path (P1)*; *WebKit port: frame-interval throttle and visibility (P2.1-2.2, patch 0020)*; *kernel: CPU guard
 per address space, engine process priority (P2.4)*; *Linux ABI: `fallocate`* (P3.1); *exec: demand-paged shared
 executables (P3.2)*; *WebKit port: allocator and compiler-flag A/B (P4)*; *LazyWeb+: unresponsive-page bar and
 per-site JavaScript off (P2.6, P5.3)*; *LazyWeb+: user agent (P4.6)*.
@@ -243,24 +251,28 @@ paints, damage reports, pixels, microseconds spent clearing, in `WKPagePaint`, c
 window, the longest paint, and `w2d`, the time from a wheel turn to the first damage report that followed (the
 WebProcess's share of a scroll step). `<profile>/paint-mode` (`legacy` or `fast:<ms>`, read only by an image built with
 the UI probe, because the sandboxed NetworkProcess may write that folder) switches the old whole-view path and the new
-one in the same image. The numbers below are of the first version of the change (converted in place); the committed
-one converts from a separate BGRA target, the same passes, and `lat` replaced `gap` in the line. Session: login, LazyWeb+ from the menu, Ars Technica, accept the consent, three bursts
+one in the same image. Session: login, LazyWeb+ from the menu, Ars Technica, accept the consent, three bursts
 of 15 wheel notches 100 ms apart and a 30-notch flick. WHPX, 4 GiB, 1280x720 desktop, window 1000x450 (0.45 Mpx).
 
-| | legacy (as before) | fast (damage rect, 32-bit conversion, paced at 33 ms) |
+| per paint, microseconds | legacy (as before) | fast (damage rect, 32-bit conversion, paced at 33 ms) |
 |---|---|---|
-| clear + convert, per paint | 0.99 ms | 0.04 ms |
-| `WKPagePaint`, per paint | 0.75 ms | 0.98 ms (one run; the same work) |
-| mailbox hand-over, per paint | 0.11 ms | 0.32 ms (one run) |
-| paints for 13 wheel notches | 38 (one per report) | 26 (41 reports coalesced) |
-| UI-process paint CPU per 13-notch burst | about 70 ms | about 35 ms |
-| wheel to first damage report (`w2d`), average / worst | 17-20 ms / 32-39 ms | 14-16 ms / 22-39 ms |
+| clear | 144 | 0 |
+| `WKPagePaint` | 966 | 581 |
+| convert | 236 | 76 |
+| hand the frame to the window (the mailbox copy) | 85 | 530 |
+| total | 1431 | 1186 |
+| paints for the 41-42 wheel notches | 60 | 47 (58 reports coalesced) |
+| UI-process paint CPU per notch | 2.0 ms | 1.4 ms |
+| wheel to first damage report (`w2d`), average / worst per burst | 9-15 ms / 14-42 ms | 9-19 ms / 17-36 ms |
+
+(The committed design, one run of each path in one image with `paint-mode`, three bursts of 13-15 notches. The
+mailbox copy is a 1.8 MB `memcpy` and varies run to run; `wk` and the conversion are what the change moves.)
 
 **What it says.**
 
 1. **At 1000x450 the UI process is not the jank.** A notch costs about 15-20 ms in the WebProcess (`w2d`) and 1-2 ms per
-   paint here, two or three paints per notch. The fast path halves the UI process's share; it does not change what a
-   person sees at this size.
+   paint here, one or two paints per notch. The fast path takes about a third off the UI process's share (1.4 ms
+   against 2.0 ms a notch); it does not change what a person sees at this size.
 2. **Per-pixel costs scale with the window.** Every stage that touches the frame (`memset`, `WKPagePaint`, conversion,
    the mailbox copy, xui's premultiply and opaque scan of each new `Image`, its copy to the canvas, the compositor)
    grows with the page area: x1.6 for a maximised window at 1280x720, x3.4 for an unmaximised one at 2560x1440 and
@@ -310,10 +322,10 @@ finished loading at +352 s, `SCHED:GUARD:DEMOTED task=fork slot=41` every second
 `info registers` at 30 Hz: CR3 names the process, RIP symbolizes against the unstripped program) is how to see
 where it is; `tools/webplus/README.md` has the commands.
 
-### The startup crash (M9): about half of the launches (issue #853)
+### The startup crash (M9, section 1): about half of the launches (issue #853)
 
 Two of four launches of LazyWeb+ in this harness died before `UP:PASS` (status 139, `INIT:APP:FAILED
-startup=1`), one with the binary the image shipped and one with the rebuilt one, so it is not this change. It is the
+startup=1`), one with the program the image shipped (built before this change) and one with a rebuilt one. It is the
 crash `docs/lazywebplus.md` lists under *Known limits* as seen once and not reproduced. Both traces:
 
 * a write fault, `PROTECTION_VIOLATION | CAUSED_BY_WRITE | USER_MODE`, in `memcpy` of a 1,800,000-byte frame (the
