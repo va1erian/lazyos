@@ -185,6 +185,13 @@ impl AppRegistry {
         }
     }
 
+    /// Whether two apps handle `(mime, verb)`: the only case in which a user's choice of app matters,
+    /// so the only one that costs the `confd` lookup of it (`mimed` serves every open from one thread).
+    pub(crate) fn contested(&self, mime_type: &str, verb: &str) -> bool {
+        self.entry(mime_type, verb)
+            .is_some_and(|entry| !entry.shadowed.is_empty())
+    }
+
     /// Name the fallback for an already-registered `(mime, verb)`; a no-op for
     /// a pair that was never registered.
     fn set_fallback(&mut self, mime_type: &str, verb: &str, fallback: &str) {

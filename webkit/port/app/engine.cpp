@@ -125,7 +125,7 @@ std::string profileDirectory()
 WKWebsiteDataStoreRef createDataStore(const std::string& profile)
 {
     if (profile.empty() || !makeDirectories(profile)) {
-        say("WEBKIT:W5:PROFILE:NONE:the browser keeps nothing");
+        say("PROFILE:NONE:the browser keeps nothing");
         return WKWebsiteDataStoreCreateNonPersistentDataStore();
     }
     // The children inherit these: the launcher starts them in the profile directory, WebKit's
@@ -164,8 +164,8 @@ WKWebsiteDataStoreRef createDataStore(const std::string& profile)
         makeDirectories(profile + "/" + leaf);
     WKWebsiteDataStoreRef store = WKWebsiteDataStoreCreateWithConfiguration(configuration);
     WKRelease(configuration);
-    say("WEBKIT:W5:PROFILE:PASS");
-    sayHarness("WEBKIT:W5:PROFILE:DIR:%s", oneLine(profile).c_str());
+    say("PROFILE:PASS");
+    sayHarness("PROFILE:DIR:%s", oneLine(profile).c_str());
     return store;
 }
 

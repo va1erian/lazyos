@@ -195,11 +195,13 @@ def check_webplus_licence() -> list[str]:
         text = path.read_text(encoding="utf-8")
         found = re.search(r'^license\s*=\s*"([^"]+)"', text, re.M)
         expression = found.group(1) if found else ""
-        for needed in ("GPL-2.0-only", "GPL-3.0-or-later"):
-            if needed not in expression:
-                problems.append(f"{name}: license {expression!r} must offer {needed} (the program links "
-                                "OpenSSL, Apache-2.0: docs/lazywebplus.md)")
-        if re.search(r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
+        # Exactly the choice of the two: an `AND`, or a third licence, is a different promise.
+        choices = sorted(part.strip().strip("()") for part in re.split(r"\s+OR\s+", expression))
+        if choices != ["GPL-2.0-only", "GPL-3.0-or-later"]:
+            problems.append(f"{name}: license {expression!r} must be exactly 'GPL-2.0-only OR GPL-3.0-or-later' "
+                            "(the program links OpenSSL, Apache-2.0: docs/lazywebplus.md)")
+        if re.search(r"^\s*\[(?:\w+-)?dependencies\.(openssl|openssl-sys|native-tls)\]", text, re.M) or re.search(
+                r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
             problems.append(f"{name} depends on OpenSSL: Apache-2.0 is GPLv2-incompatible")
     return problems
 

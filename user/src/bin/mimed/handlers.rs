@@ -117,7 +117,12 @@ pub(crate) fn open_path(
     uid: Option<u32>,
 ) -> messenger::Result<mime::OpenResult> {
     let mime_type = db.guess(path);
-    let preferred = uid.and_then(|uid| prefs.default_app(uid, &mime_type));
+    // The user's choice is read only when it can matter: two apps handle the type.
+    let contested =
+        apps.contested(&mime_type, verb) || apps.contested(&mime_type, mime::DEFAULT_VERB);
+    let preferred = uid
+        .filter(|_| contested)
+        .and_then(|uid| prefs.default_app(uid, &mime_type));
     let preferred = preferred.as_deref();
     let (primary, fallback) = apps
         .resolve_preferred(&mime_type, verb, preferred)

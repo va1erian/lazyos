@@ -9,11 +9,17 @@
 //! twice as many lines, so it never grows without bound.
 
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// How many visits are kept.
 pub const MAX_VISITS: usize = 1000;
+/// The longest title and address kept (a page may send a title of any length, and the network process,
+/// which may write the profile folder, could write this file): longer ones are cut, or not kept.
+pub const MAX_TITLE: usize = 512;
+pub const MAX_URL: usize = 2048;
+/// How much of the file is read: the newest part of it.
+const MAX_READ: u64 = 2 * 1024 * 1024;
 
 /// One visited page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +40,23 @@ pub struct Visits {
     lines: usize,
 }
 
+/// The text of the newest [`MAX_READ`] bytes of `file` (nothing when it cannot be read); a cut-off first
+/// line is dropped by the line parser.
+fn read_tail(file: &Path) -> String {
+    let Ok(mut f) = fs::File::open(file) else {
+        return String::new();
+    };
+    let len = f.metadata().map_or(0, |m| m.len());
+    if len > MAX_READ && f.seek(SeekFrom::Start(len - MAX_READ)).is_err() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    if f.take(MAX_READ).read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 impl Visits {
     /// A history kept only in memory.
     pub fn in_memory() -> Visits {
@@ -43,7 +66,7 @@ impl Visits {
     /// The history saved in `file` (created on the first visit). A missing
     /// or unreadable file is an empty history; broken lines are skipped.
     pub fn open(file: PathBuf) -> Visits {
-        let text = fs::read_to_string(&file).unwrap_or_default();
+        let text = read_tail(&file);
         let mut entries: Vec<Visit> = text.lines().filter_map(parse).collect();
         let lines = text.lines().count();
         let drop = entries.len().saturating_sub(MAX_VISITS);
@@ -82,10 +105,13 @@ impl Visits {
         if !worth_keeping(url) {
             return Ok(());
         }
+        if url.len() > MAX_URL {
+            return Ok(());
+        }
         let visit = Visit {
             time,
             url: url.to_string(),
-            title: one_line(title),
+            title: one_line(title).chars().take(MAX_TITLE).collect(),
         };
         match self.entries.last_mut() {
             Some(last) if last.url == visit.url => {
@@ -184,8 +210,13 @@ fn parse(line: &str) -> Option<Visit> {
     let mut fields = line.splitn(3, '\t');
     let time = fields.next()?.parse().ok()?;
     let url = fields.next()?.to_string();
-    let title = fields.next().unwrap_or("").to_string();
-    worth_keeping(&url).then_some(Visit { time, url, title })
+    let title: String = fields
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(MAX_TITLE)
+        .collect();
+    (url.len() <= MAX_URL && worth_keeping(&url)).then_some(Visit { time, url, title })
 }
 
 #[cfg(test)]
@@ -235,6 +266,52 @@ mod tests {
         let again = Visits::open(file);
         assert_eq!(again.entries().len(), 1);
         assert_eq!(again.entries()[0].url, "http://a.test/");
+    }
+
+    #[test]
+    fn titles_and_addresses_are_bounded_in_memory_and_on_disk() {
+        let file = temp("limits-titles");
+        let mut visits = Visits::open(file.clone());
+        visits
+            .record("https://a.example/", &"t".repeat(MAX_TITLE * 4), 1)
+            .unwrap();
+        visits
+            .record(
+                &format!("https://b.example/{}", "x".repeat(MAX_URL)),
+                "long",
+                2,
+            )
+            .unwrap();
+        assert_eq!(visits.entries().len(), 1);
+        assert_eq!(visits.entries()[0].title.chars().count(), MAX_TITLE);
+        // A file somebody else wrote is bounded the same way when it is read.
+        fs::write(
+            &file,
+            format!(
+                "3\thttps://c.example/\t{}\n4\thttps://d.example/{}\ttitle\n",
+                "y".repeat(100_000),
+                "z".repeat(MAX_URL)
+            ),
+        )
+        .unwrap();
+        let again = Visits::open(file);
+        assert_eq!(again.entries().len(), 1);
+        assert_eq!(again.entries()[0].title.chars().count(), MAX_TITLE);
+    }
+
+    #[test]
+    fn only_the_newest_part_of_a_huge_file_is_read() {
+        let file = temp("limits-huge");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        let mut text = String::new();
+        while text.len() < (MAX_READ as usize) + 100_000 {
+            text.push_str("1\thttps://old.example/\told\n");
+        }
+        text.push_str("2\thttps://new.example/\tnew\n");
+        fs::write(&file, text).unwrap();
+        let visits = Visits::open(file);
+        assert!(visits.entries().len() <= MAX_VISITS);
+        assert_eq!(visits.entries().last().unwrap().url, "https://new.example/");
     }
 
     #[test]

@@ -147,7 +147,7 @@ impl Transfers {
             .destination(info.id)
             .and_then(|d| d.path.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or(info.name);
-        println!("WEBPLUS:DOWNLOAD:START:{}", marker_text(&name));
+        crate::named_marker(&format!("DOWNLOAD:START:{}", marker_text(&name)));
         // Until it ends (then the toast is updated in place).
         if let Some(notifier) = &self.notifier {
             let _ = notifier.jobs.send(Job::Start(
@@ -234,15 +234,15 @@ impl Transfers {
                 {
                     t.row.received = size;
                 }
-                println!(
-                    "WEBPLUS:DOWNLOAD:DONE:{}:{}",
+                crate::named_marker(&format!(
+                    "DOWNLOAD:DONE:{}:{}",
                     marker_text(&name),
                     t.row.received
-                );
+                ));
                 format!("Saved {name} to {folder}")
             }
             Some(why) => {
-                println!("WEBPLUS:DOWNLOAD:FAIL:{}", marker_text(&why));
+                crate::named_marker(&format!("DOWNLOAD:FAIL:{}", marker_text(&why)));
                 t.row.state = DownloadState::Failed(why.clone());
                 format!("Download of {name} failed: {why}")
             }

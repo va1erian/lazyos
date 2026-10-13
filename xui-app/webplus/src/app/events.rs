@@ -200,8 +200,8 @@ impl Browser {
         self.trace(&format!("POPUP:{}", marker_text(url)));
         // Only what the engine would load itself: a scheme for another app earns no handoff
         // from a page's window request.
-        if address::engine_loads(url) && !url.trim().to_ascii_lowercase().starts_with("javascript:")
-        {
+        let lower = url.trim().to_ascii_lowercase();
+        if lower.starts_with("http:") || lower.starts_with("https:") || lower == "about:blank" {
             self.editing = false;
             self.start_navigation(url);
         }
@@ -216,7 +216,7 @@ impl Browser {
         };
         if self.internal.name_for(current).is_none() {
             // The page changed under the click: not one of ours any more.
-            println!("WEBPLUS:COMMAND:{}:BLOCKED", marker_text(url));
+            crate::named_marker(&format!("COMMAND:{}:BLOCKED", marker_text(url)));
             return;
         }
         if let Some(command) = PageCommand::parse(url) {

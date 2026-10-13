@@ -68,6 +68,11 @@ a timer, a load event or a redirect):
 | `x-lazyweb:` (the browser's own commands) | runs only from one of the browser's own pages, for a click on a link there, and never goes to another app; anything else is refused |
 | `mailto:`, `tel:`, any other scheme | handed to `mimed` only when a user gesture started it; otherwise refused and reported (`WEBPLUS:LAUNCH:<url>:BLOCKED`) |
 
+**A second lock.** The engine's gesture flag is one boolean from a large engine, and a click may authorise more than
+one thing (a timer chain, a redirect), so a hand-off to another program also needs real input the window itself
+forwarded to the page within the last three seconds, and uses it up (`xui_webkit::gesture`, `lzw_ui_navigate`): one
+click, one hand-off. A hand-off without it is refused and reported like a script's.
+
 An address the user types is opened by the window itself (`handoff.rs`), so a navigation the UI process
 started to `mailto:` with no gesture (kind `Other`) is a script's, a redirect's or a bug's, and is refused.
 The browser's own pages are `data:` URLs built in the window; "on one of the browser's own pages" is an exact
@@ -93,7 +98,12 @@ created in advance, because WebKit does not overwrite) and the NetworkProcess wr
 `$HOME/Downloads/<name>.part`, renamed when the download completes and removed when it fails or is cancelled.
 The size reported is the file's. The status bar shows the progress while it runs and `about:downloads` lists
 the session's downloads with open and cancel links. File > Save Page As Download saves the current page the
-same way. Each download also asks for a toast (`os.lazy.notify`); see *Known limits*.
+same way. A download needs no gesture (an attachment is a response, not a click), so a page can start them: a
+session is capped at 256 downloads, a name that is another download's `.part` is never reused, a file that
+appeared at the final name meanwhile is never replaced (the download fails instead), invisible direction
+characters are stripped from names, and with no home folder nothing is saved (the manifest lets the network
+process write the Downloads folder of a home only). Each download also asks for a toast (`os.lazy.notify`);
+see *Known limits*.
 
 ## Dialogs
 
@@ -128,8 +138,9 @@ open every link. There was no preference, so one was added: the confd key `user/
 types at once) and honoured by `mimed` for the uid the kernel stamped on the `Open`, only while that app still
 holds a registration for the type, so a stale choice (an uninstalled browser) falls back to the registry.
 `confd` lets a uid touch only `user/<uid>/**`, so one account's choice never moves another's. Evidence:
-`MIME:PREFER:PASS` in `mimed`'s selftest, host tests in `deskmenu`. LazyWeb stays the default of an image that
-ships both: LazyWeb+ is opt-in.
+`MIME:PREFER:PASS` in `mimed`'s selftest, host tests in `deskmenu`. With both browsers installed and no choice made, `mimed`
+keeps its old rule (the app registered last wins, which is install order), so LazyWeb+ may open links until the
+user picks LazyWeb in Settings; the lookup of the choice is made only when two apps handle the type.
 
 ## Permissions
 
@@ -159,6 +170,16 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
 
 ## Known limits
 
+* **Back to an older internal page.** The window remembers the newest `data:` URL of each of its own pages, so Back
+  to an older History or Downloads page is no longer "its own": its buttons answer "Blocked: the page tried to open
+  another app" (safe, but useless) until the page is opened again.
+* **Dialogs** are not rate-limited (a page that loops `alert()` keeps the user behind modals) and are titled with
+  the top-level site, not the frame that asked.
+* **Evidence lines** are `println!`s (the `Webplus` trace channel exists and is not used yet; the ones that name a page,
+  an address or a file print only in a `LAZYOS_UI_PROBE=1` image).
+* **`history.tsv` is in the folder the network process may write** (the profile): the window reads only the last 2 MiB
+  of it, cuts titles at 512 characters and drops addresses over 2048, but a compromised network process can still
+  forge entries.
 * **Toasts from the download thread are refused.** The shell's notification service names an app by the task
   id of the sender, and a message from a thread other than the process's first carries the thread's id, not the
   app's, so `SHELL:NOTIFY:DENY ... why=not-an-app` (the status bar and `about:downloads` carry the result; a

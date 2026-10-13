@@ -38,6 +38,22 @@ pub mod visits;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod ffi;
 
+/// Whether the markers that name a page, an address or a file (the ones a person's privacy cares about)
+/// may be printed: only in an image built with the UI probe (`LAZYOS_UI_PROBE=1`), as `engine.h` promises.
+static NAMED_MARKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Allows or forbids the markers that name pages (the window sets it from the UI probe at start).
+pub fn allow_named_markers(on: bool) {
+    NAMED_MARKERS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Prints `WEBPLUS:<line>` when named markers are allowed.
+pub fn named_marker(line: &str) {
+    if NAMED_MARKERS.load(std::sync::atomic::Ordering::Relaxed) {
+        println!("WEBPLUS:{line}");
+    }
+}
+
 /// `text` fit for one serial marker line: control characters (a title can
 /// hold newlines) become spaces.
 pub fn marker_text(text: &str) -> String {

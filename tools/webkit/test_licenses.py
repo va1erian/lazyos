@@ -79,6 +79,38 @@ class VerdictTests(unittest.TestCase):
                 licenses.ROOT = original
         self.assertTrue(any("GPL-3.0-or-later" in p for p in problems), problems)
 
+    def test_an_and_or_a_third_licence_is_not_the_promised_choice(self) -> None:
+        for expression in ("GPL-2.0-only AND GPL-3.0-or-later", "GPL-2.0-only OR GPL-3.0-or-later OR MIT",
+                           "GPL-2.0-only OR GPL-3.0-only"):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                crate = root / "xui-app" / "webplus"
+                crate.mkdir(parents=True)
+                (crate / "Cargo.toml").write_text(f'[package]\nname = "x"\nlicense = "{expression}"\n', encoding="utf-8")
+                original = licenses.ROOT
+                licenses.ROOT = root
+                try:
+                    problems = licenses.check_webplus_licence()
+                finally:
+                    licenses.ROOT = original
+            self.assertTrue(problems, expression)
+
+    def test_a_table_form_openssl_dependency_is_caught(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            crate = root / "xui-app" / "webplus"
+            crate.mkdir(parents=True)
+            (crate / "Cargo.toml").write_text(
+                '[package]\nname = "x"\nlicense = "GPL-2.0-only OR GPL-3.0-or-later"\n[dependencies.openssl]\nversion = "1"\n',
+                encoding="utf-8")
+            original = licenses.ROOT
+            licenses.ROOT = root
+            try:
+                problems = licenses.check_webplus_licence()
+            finally:
+                licenses.ROOT = original
+        self.assertTrue(any("OpenSSL" in p for p in problems), problems)
+
     def test_libpsl_records_the_list_licence_too(self) -> None:
         self.assertEqual(wkpins.BY_NAME["libpsl"].license, "MIT AND MPL-2.0")
 

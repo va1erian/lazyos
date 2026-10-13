@@ -53,10 +53,10 @@ pub fn scheme(url: &str) -> Option<String> {
 /// Whether the engine itself loads `url`: the web, local files and pages that carry their own
 /// content. Any other scheme (`mailto:`, `tel:`, `ftp:`, an app's own) is for another app.
 pub fn engine_loads(url: &str) -> bool {
-    match scheme(url).as_deref() {
-        Some("http" | "https" | "file" | "data" | "blob" | "about" | "javascript") => true,
-        _ => false,
-    }
+    matches!(
+        scheme(url).as_deref(),
+        Some("http" | "https" | "file" | "data" | "blob" | "about" | "javascript")
+    )
 }
 
 fn has_prefix(text: &str, prefixes: &[&str]) -> bool {

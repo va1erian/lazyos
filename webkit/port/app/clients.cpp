@@ -198,6 +198,7 @@ void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const 
 
 void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
+    E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
     postState();
@@ -270,6 +271,8 @@ void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, 
 
 void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void*)
 {
+    // A "save this page" load that failed before a response must not turn the next page into a download.
+    E.saveNext = false;
     didFail("provisional", error);
 }
 

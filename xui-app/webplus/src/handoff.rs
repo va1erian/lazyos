@@ -19,16 +19,16 @@ pub trait Launcher {
 /// second lock on the door.
 pub fn open(launcher: &dyn Launcher, url: &str, by_user: bool) -> String {
     if !by_user {
-        println!("WEBPLUS:LAUNCH:{}:BLOCKED", marker_text(url));
+        crate::named_marker(&format!("LAUNCH:{}:BLOCKED", marker_text(url)));
         return format!("Blocked {url}: the page tried to open another app");
     }
     match launcher.open_url(url) {
         Ok(()) => {
-            println!("WEBPLUS:LAUNCH:{}:OK", marker_text(url));
+            crate::named_marker(&format!("LAUNCH:{}:OK", marker_text(url)));
             format!("Opened {url} in another app")
         }
         Err(e) => {
-            println!("WEBPLUS:LAUNCH:{}:FAIL", marker_text(url));
+            crate::named_marker(&format!("LAUNCH:{}:FAIL", marker_text(url)));
             format!("Cannot open {url}: {e}")
         }
     }

@@ -16,6 +16,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// The longest file name kept, in bytes.
 const MAX_NAME: usize = 120;
 
+/// The most downloads one session may start: a page that starts them in a loop (no gesture is needed
+/// for an attachment) must not fill the disk or the bookkeeping.
+pub const MAX_DOWNLOADS: usize = 256;
+
 /// The name used when the server's gives nothing usable.
 const FALLBACK_NAME: &str = "download";
 
@@ -65,8 +69,11 @@ impl Saver {
             .destinations
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        if taken.len() >= MAX_DOWNLOADS {
+            return Err(io::Error::other("too many downloads in this session"));
+        }
         let path = unique_path(&self.dir, &sanitize(suggested), |p| {
-            taken.values().any(|d| d.path == p)
+            taken.values().any(|d| d.path == p || d.part == p)
         });
         let destination = Destination {
             part: part_path(&path),
@@ -92,7 +99,16 @@ impl Saver {
             return Ok(());
         };
         if completed {
-            fs::rename(&destination.part, &destination.path).inspect_err(|_| {
+            // Something else may have made the name since it was reserved: never replace it.
+            let result = if destination.path.exists() {
+                Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "a file of that name appeared meanwhile",
+                ))
+            } else {
+                fs::rename(&destination.part, &destination.path)
+            };
+            result.inspect_err(|_| {
                 let _ = fs::remove_file(&destination.part);
             })
         } else {
@@ -113,6 +129,12 @@ pub fn sanitize(name: &str) -> String {
         .chars()
         .map(|c| match c {
             c if c.is_control() => '_',
+            // Direction overrides and other invisible format characters spoof an extension
+            // (`invoice\u{202E}fdp.exe` reads as `invoice` + `exe.pdf`).
+            '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{FEFF}' => '_',
             ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
             c => c,
         })
@@ -233,6 +255,45 @@ mod tests {
         // An unknown download is nothing to do.
         saver.finish(99, true).unwrap();
         assert_eq!(saver.destination(1).unwrap().path, dir.join("files.zip"));
+    }
+
+    #[test]
+    fn invisible_direction_characters_cannot_spoof_an_extension() {
+        let name = sanitize("invoice\u{202E}fdp.exe");
+        assert!(!name.contains('\u{202E}'), "{name}");
+        assert_eq!(name, "invoice_fdp.exe");
+        assert_eq!(sanitize("a\u{200B}b\u{FEFF}c"), "a_b_c");
+    }
+
+    #[test]
+    fn a_page_cannot_start_unlimited_downloads() {
+        let saver = Saver::new(temp("cap"));
+        for id in 0..MAX_DOWNLOADS as u64 {
+            saver.reserve(id, "f.bin").unwrap();
+        }
+        assert!(saver.reserve(MAX_DOWNLOADS as u64, "f.bin").is_err());
+    }
+
+    #[test]
+    fn a_file_that_appeared_meanwhile_is_never_replaced() {
+        let dir = temp("appeared");
+        let saver = Saver::new(dir.clone());
+        let d = saver.reserve(1, "files.zip").unwrap();
+        fs::write(&d.part, b"new").unwrap();
+        fs::write(dir.join("files.zip"), b"theirs").unwrap();
+        assert!(saver.finish(1, true).is_err());
+        assert_eq!(fs::read(dir.join("files.zip")).unwrap(), b"theirs");
+        assert!(!d.part.exists());
+    }
+
+    #[test]
+    fn a_name_that_is_another_downloads_part_file_is_not_reused() {
+        let dir = temp("partclash");
+        let saver = Saver::new(dir.clone());
+        let first = saver.reserve(1, "a.zip").unwrap();
+        let second = saver.reserve(2, "a.zip.part").unwrap();
+        assert_ne!(second.path, first.part);
+        assert_ne!(second.part, first.part);
     }
 
     #[test]

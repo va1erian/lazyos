@@ -77,6 +77,9 @@ impl Engine for FfiEngine {
         unsafe { lzw_engine_resize(width, height) }
     }
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32) {
+        if !matches!(kind, MouseKind::Move) {
+            crate::gesture::stamp();
+        }
         // SAFETY: plain integers.
         unsafe { lzw_engine_mouse(kind.code(), button.code(), x, y, mods) }
     }
@@ -85,6 +88,9 @@ impl Engine for FfiEngine {
         unsafe { lzw_engine_wheel(x, y, ticks_x, ticks_y, mods) }
     }
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32) {
+        if press {
+            crate::gesture::stamp();
+        }
         let text = c_string(text);
         // SAFETY: `text` is a NUL-terminated string that outlives the call.
         unsafe { lzw_engine_key(c_int::from(press), keysym, text.as_ptr(), mods) }

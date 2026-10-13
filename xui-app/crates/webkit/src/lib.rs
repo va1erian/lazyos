@@ -16,6 +16,7 @@ pub mod abi;
 pub mod address;
 pub mod engine;
 pub mod events;
+pub mod gesture;
 pub mod keys;
 pub mod mailbox;
 pub mod view;

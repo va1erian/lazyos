@@ -11,6 +11,7 @@ use std::ffi::{c_char, c_int, CString};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use xui_app::platform::{launcher, notify};
 use xui_core::app::run_app;
@@ -19,6 +20,7 @@ use xui_core::units::Dip;
 use xui_webkit::abi::{byte_count, copy_c_string, features, first_address, NavKind, Verdict};
 use xui_webkit::events::Event;
 use xui_webkit::ffi::{arguments, connect, text, FfiEngine};
+use xui_webkit::gesture;
 use xui_webkit::mailbox;
 
 use crate::app::{Browser, Host, Setup, APP_NAME};
@@ -29,6 +31,10 @@ use crate::policy::{self, Decision};
 use crate::transfers::{Toast, ToastLevel, Toaster, Transfers};
 use crate::visits::Visits;
 use crate::{DOWNLOADS_DIR, HISTORY_FILE, SYSTEM_NAME};
+
+/// How long after a real click or key a hand-off to another program is still the person's (a slow guest
+/// takes a moment from the click to the navigation).
+const HANDOFF_WINDOW: Duration = Duration::from_millis(3000);
 
 /// The window size asked of the compositor: short enough that the status bar clears the taskbar of
 /// a 720p desktop.
@@ -113,6 +119,15 @@ pub unsafe extern "C" fn lzw_ui_navigate(
     let queue = |event| mailbox::global().post_event(event);
     let verdict = match decision {
         Decision::Allow => Verdict::Allow,
+        // Starting another program needs the engine's gesture flag *and* real input the window
+        // forwarded a moment ago, used once (`xui_webkit::gesture`).
+        Decision::Handoff(url) if !gesture::take_recent(HANDOFF_WINDOW) => {
+            queue(Event::Launch {
+                url,
+                by_user: false,
+            });
+            Verdict::Deny
+        }
         Decision::Handoff(url) => {
             queue(Event::Launch { url, by_user: true });
             Verdict::Handoff
@@ -153,6 +168,10 @@ pub unsafe extern "C" fn lzw_ui_download_start(
     }
     // SAFETY: by this function's contract.
     let (url, suggested) = unsafe { (text(url), text(suggested_name)) };
+    // The manifest lets the network process write the Downloads folder of a home only.
+    if shared().home.is_none() {
+        return 1;
+    }
     let saver = &shared().saver;
     let Ok(destination) = saver.reserve(id, &suggested) else {
         return 1;
@@ -253,7 +272,10 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             transfers: Transfers::new(Arc::clone(&shared.saver), Some(Box::new(LazyToaster))),
             internal: shared.internal.clone(),
             host: Host {
-                traces: xui_app::probe::enabled(),
+                traces: {
+                    crate::allow_named_markers(xui_app::probe::enabled());
+                    xui_app::probe::enabled()
+                },
                 focused: Rc::new(move || focus_backend.focused()),
                 launcher: Rc::new(LazyLauncher),
                 probe: Box::new(|window, name, rect| {

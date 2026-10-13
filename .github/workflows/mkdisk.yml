@@ -62,7 +62,9 @@ jobs:
           python tools/webkit/test_recipes.py
           python tools/webkit/test_paths.py
           python tools/webkit/test_licenses.py
+          python tools/webkit/test_attack_judge.py
           python tools/webkit/licenses.py
+          python tools/webplus/test_judge.py
 
       # The Rust formatter (libs/ext2fs) writes the same bytes as the Python one.
       - name: Rust and Python formatters are byte-identical
