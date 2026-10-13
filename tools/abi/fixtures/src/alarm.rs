@@ -1,6 +1,9 @@
 //! `alarm` — `alarm`, `setitimer`/`getitimer` and POSIX timers on the Linux
 //! ABI (issue #535, gap 3), through musl's wrappers like any real program:
 //!
+//! (Steps 2 and 3 arm `ITIMER_REAL` for 150 ms: the bench's capture window
+//! is short.)
+//!
 //! 1. `alarm(1)` + `pause()`: `SIGALRM` runs the handler after about a second
 //!    and `pause` returns `EINTR`; `alarm` reports the previous remainder and
 //!    `alarm(0)` cancels.
@@ -158,6 +161,20 @@ fn handle(sig: c_int, restart: bool) {
     }
 }
 
+/// Arm `ITIMER_REAL` once, `millis` from now (`alarm` only counts seconds).
+fn arm_ms(millis: i64) {
+    let timer = ITimerVal {
+        interval: TimeVal::default(),
+        value: TimeVal {
+            sec: 0,
+            usec: millis * 1000,
+        },
+    };
+    // SAFETY: a valid itimerval.
+    let ret = unsafe { setitimer(ITIMER_REAL, &timer, std::ptr::null_mut()) };
+    check(ret == 0, "setitimer(ITIMER_REAL) failed");
+}
+
 fn errno() -> i32 {
     std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
 }
@@ -222,7 +239,7 @@ fn read_interrupt_and_restart() {
     HITS.store(0, Ordering::SeqCst);
     // SAFETY: `byte` is one writable byte.
     let ret = unsafe {
-        alarm(1);
+        arm_ms(150);
         read(fds[0], &mut byte as *mut u8 as *mut c_void, 1)
     };
     check(
@@ -236,13 +253,13 @@ fn read_interrupt_and_restart() {
     HITS.store(0, Ordering::SeqCst);
     let write_fd = fds[1];
     let writer = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(2500));
+        std::thread::sleep(Duration::from_millis(600));
         // SAFETY: one byte from a live buffer.
         unsafe { write(write_fd, b"x".as_ptr() as *const c_void, 1) };
     });
     // SAFETY: as above.
     let ret = unsafe {
-        alarm(1);
+        arm_ms(150);
         read(fds[0], &mut byte as *mut u8 as *mut c_void, 1)
     };
     check(
@@ -268,7 +285,7 @@ fn sleep_interrupted() {
     let start = Instant::now();
     // SAFETY: valid timespecs.
     let ret = unsafe {
-        alarm(1);
+        arm_ms(150);
         nanosleep(&request, &mut rest)
     };
     check(
@@ -277,7 +294,7 @@ fn sleep_interrupted() {
     );
     check(start.elapsed() < Duration::from_secs(4), "the sleep ran to its end");
     check(
-        rest.sec >= 2 && rest.sec <= 4,
+        rest.sec >= 3 && rest.sec <= 4,
         &format!("remaining {}.{:09} s", rest.sec, rest.nsec),
     );
     step("nanosleep_eintr");
