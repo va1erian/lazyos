@@ -19,7 +19,8 @@ fn webkit_raises_the_default_os_size_to_one_gib() {
     // default with room to write.
     assert_eq!(WEBKIT_OS_SIZE, parse_size("1G").unwrap());
     assert_eq!(default_size(false, true), WEBKIT_OS_SIZE);
-    assert!(3 * (107 << 20) + (128 << 20) < WEBKIT_OS_SIZE);
+    let three_programs_and_an_image: u64 = 3 * (107 << 20) + (128 << 20);
+    assert!(three_programs_and_an_image < default_size(false, true));
     assert!(default_size(false, true) > default_size(false, false));
     // The larger of the two wins when both are selected.
     assert_eq!(default_size(true, true), SRB2KART_OS_SIZE);
