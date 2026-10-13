@@ -7,7 +7,7 @@
 
 use messenger_generated::os_lazy_timed_v1 as wire;
 use xui_confd_editor::store::ConfStore;
-use xui_settings::system::{Now, StoreStatus, System};
+use xui_settings::system::{Now, NtpState, NtpStatus, StoreStatus, System};
 
 use super::confd_store::ConfdStore;
 use super::messenger::Service;
@@ -55,12 +55,29 @@ impl OsSystem {
     }
 }
 
+/// `ENETUNREACH`: `SyncNow` with no address (the stack's own code).
+const ENETUNREACH: i64 = 101;
+
 /// A `timed` error code as status-line text.
 fn describe(code: i64) -> String {
     match -code {
         errno::EPERM => String::from("permission denied (needs CAP_SYS_TIME)"),
         errno::EINVAL => String::from("value refused"),
+        errno::ENODEV => String::from("Automatic time is off."),
+        errno::EAGAIN => String::from("A time server was just asked; try again in a moment."),
+        ENETUNREACH => String::from("There is no network."),
         _ => format!("time service error {code}"),
+    }
+}
+
+/// `timed`'s `NtpState` ordinal, `Failed` for one this build does not know.
+fn ntp_state(ordinal: u32) -> NtpState {
+    match ordinal {
+        wire::NTP_STATE_DISABLED => NtpState::Disabled,
+        wire::NTP_STATE_WAITING_FOR_NETWORK => NtpState::WaitingForNetwork,
+        wire::NTP_STATE_SYNCING => NtpState::Syncing,
+        wire::NTP_STATE_SYNCHRONIZED => NtpState::Synchronized,
+        _ => NtpState::Failed,
     }
 }
 
@@ -180,6 +197,22 @@ impl System for OsSystem {
             }
             Err(code) => Err(describe(code)),
         }
+    }
+
+    fn ntp_status(&self) -> Option<NtpStatus> {
+        let reply = self.call(wire::METHOD_NTPSTATUS, Vec::new()).ok()?;
+        let status = wire::decode_ntp_status_reply(&reply.body).ok()?;
+        Some(NtpStatus {
+            enabled: status.enabled,
+            state: ntp_state(status.state),
+            server: status.server,
+            offset_ms: status.offset_ms,
+            last_sync_unix: status.last_sync_unix,
+        })
+    }
+
+    fn ntp_sync_now(&self) -> Result<(), String> {
+        self.call(wire::METHOD_SYNCNOW, Vec::new()).map(|_| ())
     }
 
     fn set_zone(&self, zone: &str) -> Result<(), String> {

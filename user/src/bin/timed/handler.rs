@@ -7,6 +7,7 @@ use user::messenger::timed::{self as api, wire};
 use user::messenger::{errno, services, Error, Message, Parcel, Result};
 use user::sys;
 
+use crate::ntp::Ntp;
 use crate::state::{now, State};
 
 /// First second `SetTime` refuses (2200-01-01T00:00:00Z), mirroring the
@@ -20,7 +21,7 @@ const DENIED: &str = "only an administrator, through elevd, may change the clock
 
 /// Route one inbound message. `Ok(parcel)` is the reply; `Err` becomes the
 /// structured error reply the caller sees.
-pub(super) fn dispatch(state: &mut State, message: &Message) -> Result<Parcel> {
+pub(super) fn dispatch(state: &mut State, ntp: &mut Ntp, message: &Message) -> Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -47,6 +48,14 @@ pub(super) fn dispatch(state: &mut State, message: &Message) -> Result<Parcel> {
         wire::METHOD_SETTIME => {
             let args = wire::decode_set_time_args(&message.parcel.body).map_err(Error::Parcel)?;
             set_time(state, args.unix_secs)?;
+            Vec::new()
+        }
+        wire::METHOD_NTPSTATUS => {
+            let (unix, _) = now();
+            wire::encode_ntp_status_reply(&ntp.status(unix)).map_err(Error::Parcel)?
+        }
+        wire::METHOD_SYNCNOW => {
+            ntp.sync_now().map_err(|code| Error::Errno(-code))?;
             Vec::new()
         }
         _ => return Err(Error::Errno(-errno::EINVAL)),
@@ -90,10 +99,12 @@ fn authorized(message: &Message) -> bool {
 
 /// Step the wall clock (the caller is [`authorized`]).
 fn set_time(state: &mut State, unix_secs: i64) -> Result<()> {
-    if !(0..MAX_SET_SECS).contains(&unix_secs) {
+    // Below the floor `timed` would lift the clock again at its next start
+    // (`ntp::floor_clock`): refuse it now rather than accept and undo it.
+    if !(sntp::CLOCK_FLOOR_UNIX..MAX_SET_SECS).contains(&unix_secs) {
         return Err(Error::Errno(-errno::EINVAL));
     }
-    sys::wall_set(unix_secs as u64).map_err(Error::Errno)?;
+    sys::wall_set_centis(unix_secs as u64 * 100).map_err(Error::Errno)?;
     state.next_tick = 0;
     Ok(())
 }

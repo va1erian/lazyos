@@ -24,6 +24,6 @@ pub use lazyos_sys::spawn::{
 pub use lazyos_sys::stats::*;
 pub use lazyos_sys::storage::*;
 pub use lazyos_sys::time::{
-    clock, monotonic_ms, monotonic_ns, nap, sleep_ns, sleep_until_ns, wall_centis, wall_set,
+    clock, monotonic_ms, monotonic_ns, nap, sleep_ns, sleep_until_ns, wall_centis, wall_set_centis,
     TICK_NS,
 };

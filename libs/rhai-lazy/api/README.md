@@ -815,7 +815,11 @@ The time-of-day service (issue #369): UTC from the kernel wall clock, the
 | `get_zone()` | `GetZone() -> (name: String)` | The configured zone name (`UTC` when none is set). |
 | `set_zone(name)` | `SetZone(name: String) -> ()` | Switch to the built-in zone `name` and persist it to `confd`. |
 | `set_time(unix_secs)` | `SetTime(unix_secs: I64) -> ()` | Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped |
+| `ntp_status()` | `NtpStatus() -> (enabled: Bool, state: U32, server: String, stratum: U32, offset_ms: I64, delay_ms: I64, last_sync_unix: I64, next_sync_unix: I64)` | The state of the network time client (docs/ntp-plan.md): whether it is |
+| `sync_now()` | `SyncNow() -> ()` | Ask the network time client to query a server now. Open to everyone, |
 | `new_tick()` | struct `Tick` | a `Tick` at its zero value |
+
+- `NTP_STATE` = the `NtpState` variants; `NTP_STATE_DISABLED`, `NTP_STATE_WAITING_FOR_NETWORK`, `NTP_STATE_SYNCING`, `NTP_STATE_SYNCHRONIZED`, `NTP_STATE_FAILED`
 
 | Topic | Payload | Helpers |
 |---|---|---|

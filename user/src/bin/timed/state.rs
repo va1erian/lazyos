@@ -10,12 +10,15 @@ use alloc::vec::Vec;
 
 use timezone::{Local, Zone, DEFAULT_ZONE, ZONE_KEY};
 use user::central::{Bus, Subscription};
-use user::messenger::confd::{name_system_confd_changed, Client as Confd, CONFD_NOT_FOUND};
+use user::messenger::confd::{Client as Confd, CONFD_NOT_FOUND};
 use user::messenger::{self, errno, timed as api, Endpoint, Error, EXPIRED_DEADLINE};
 use user::sys;
 
 /// Ticks (100 Hz) between attempts to reach `confd` while it is unreachable.
 const RETRY_TICKS: u64 = 100;
+
+/// Every `sys/time/*` change: the zone and the network time settings.
+const WATCH_FILTER: &str = "system/confd/changed/sys/time/#";
 
 pub(super) struct State {
     pub(super) zone: &'static Zone,
@@ -33,6 +36,9 @@ pub(super) struct State {
     pub(super) announced: bool,
     /// Reused reply buffer for the watch poll (the heap never reclaims).
     buffer: Vec<u8>,
+    /// A `sys/time/*` key changed (or was read for the first time) since the
+    /// network time settings were last taken.
+    ntp_dirty: bool,
 }
 
 /// Current UTC seconds and the centisecond remainder.
@@ -54,6 +60,7 @@ impl State {
             next_tick: 0,
             announced: false,
             buffer: alloc::vec![0u8; messenger::DEFAULT_BUFFER],
+            ntp_dirty: false,
         }
     }
 
@@ -72,8 +79,7 @@ impl State {
             Ok(zone) => {
                 self.drop_watch();
                 let watched = self.confd.as_ref().and_then(|c| {
-                    let topic = name_system_confd_changed(ZONE_KEY).ok()?;
-                    let mut watch = c.watch(&topic).ok()?;
+                    let mut watch = c.watch(WATCH_FILTER).ok()?;
                     // The doorbell is what wakes this service for a change.
                     match watch.bell() {
                         Ok(bell) => Some((watch, bell)),
@@ -100,6 +106,9 @@ impl State {
 ",
                     );
                 }
+                // `confd` answered: the network time settings are readable
+                // too, whether or not the watch could be established.
+                self.ntp_dirty = true;
                 self.adopt(zone)
             }
             Err(_) => {
@@ -157,6 +166,7 @@ impl State {
         if !changed {
             return false;
         }
+        self.ntp_dirty = true;
         match self.read_zone() {
             Ok(zone) => self.adopt(zone),
             Err(_) => {
@@ -195,6 +205,37 @@ impl State {
             Some(_) | None => String::from(DEFAULT_ZONE),
         };
         Ok(timezone::find(&name).unwrap_or_else(timezone::default_zone))
+    }
+
+    /// The network time settings when they changed since the last call:
+    /// `(enabled, servers)` as `confd` holds them (an absent key is `None`).
+    /// Quiet, and still dirty, while `confd` cannot be reached.
+    pub(super) fn take_ntp_config(&mut self) -> Option<(Option<bool>, Option<String>)> {
+        if !self.ntp_dirty {
+            return None;
+        }
+        if self.confd.is_none() {
+            self.confd = Confd::connect().ok();
+        }
+        let client = self.confd.as_ref()?;
+        let enabled = match client.get(sntp::ENABLED_KEY) {
+            Ok(Some(confd::Value::Bool(on))) => Some(on),
+            Ok(_) => None,
+            Err(_) => {
+                self.confd = None;
+                return None;
+            }
+        };
+        let servers = match client.get(sntp::SERVERS_KEY) {
+            Ok(Some(confd::Value::Str(text))) => Some(text),
+            Ok(_) => None,
+            Err(_) => {
+                self.confd = None;
+                return None;
+            }
+        };
+        self.ntp_dirty = false;
+        Some((enabled, servers))
     }
 
     /// Persist `zone` to `confd` and make it active.

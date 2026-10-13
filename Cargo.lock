@@ -1438,6 +1438,13 @@ name = "sndpolicy"
 version = "0.1.0"
 
 [[package]]
+name = "sntp"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1749,6 +1756,7 @@ dependencies = [
  "smbfs",
  "smbwire",
  "sndpolicy",
+ "sntp",
  "spin",
  "surfbuf",
  "svcpolicy",

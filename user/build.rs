@@ -248,6 +248,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
     // `LAZYOS_NETD_ARGS` replaces `netd`'s `demo=1` (an interactive boot).
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD_ARGS");
+    // `LAZYOS_TIMED_ARGS` replaces `timed`'s `demo=1` (docs/ntp-plan.md).
+    println!("cargo:rerun-if-env-changed=LAZYOS_TIMED_ARGS");
     println!("cargo:rustc-check-cfg=cfg(lazyos_netd)");
     let netd = env::var_os("LAZYOS_NETD").as_deref() == Some(std::ffi::OsStr::new("1"));
     if netd || env::var_os("LAZYOS_NET").as_deref() == Some(std::ffi::OsStr::new("1")) {

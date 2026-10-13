@@ -16,6 +16,11 @@ const EINVAL: u64 = (-22i64) as u64;
 /// 2026-01-01T00:00:00Z.
 const Y2026: u64 = 1_767_225_600;
 
+/// `set` takes the centiseconds `get` returns.
+fn set_secs(secs: u64) -> u64 {
+    wallsys::dispatch(op::SET, secs * 100)
+}
+
 fn become_root() -> Result<(), String> {
     fresh()?;
     credentials::set(task::current(), Cred::ROOT);
@@ -33,17 +38,14 @@ pub fn native_wall_clock_contract() -> Result<(), String> {
     let orig = wallclock::unix_secs() as u64;
     let target = Y2026 + 123_456;
 
-    check!(
-        wallsys::dispatch(op::SET, target) == 0,
-        "root set was refused"
-    );
+    check!(set_secs(target) == 0, "root set was refused");
     let after = get_secs();
     check!(
         (target..target + 5).contains(&after),
         "get returned {after} after setting {target}"
     );
     check!(
-        wallsys::dispatch(op::SET, wallclock::MAX_SET_SECS as u64) == EINVAL
+        set_secs(wallclock::MAX_SET_SECS as u64) == EINVAL
             && wallsys::dispatch(op::SET, u64::MAX) == EINVAL,
         "an out-of-range time was accepted"
     );
@@ -53,10 +55,7 @@ pub fn native_wall_clock_contract() -> Result<(), String> {
     );
 
     credentials::set(task::current(), Cred::new(1000, 100, 0, 0, 0));
-    check!(
-        wallsys::dispatch(op::SET, orig) == EPERM,
-        "an unprivileged set was allowed"
-    );
+    check!(set_secs(orig) == EPERM, "an unprivileged set was allowed");
     check!(
         wallsys::dispatch(op::SET, u64::MAX) == EPERM,
         "the capability check must precede argument validation"
@@ -67,11 +66,46 @@ pub fn native_wall_clock_contract() -> Result<(), String> {
     );
     // The capability, not uid 0, is what authorises a set.
     credentials::set(task::current(), Cred::new(1000, 100, CAP_SYS_TIME, 0, 0));
-    check!(
-        wallsys::dispatch(op::SET, orig) == 0,
-        "CAP_SYS_TIME alone was not enough"
-    );
+    check!(set_secs(orig) == 0, "CAP_SYS_TIME alone was not enough");
     credentials::set(task::current(), Cred::ROOT);
+    Ok(())
+}
+
+/// `set` is in centiseconds: the fraction survives, the last representable
+/// instant is accepted and the first one past it is refused, and a refused
+/// step leaves the clock where it was.
+pub fn native_wall_clock_centiseconds() -> Result<(), String> {
+    become_root()?;
+    let orig = wallclock::unix_secs() as u64;
+    let target = Y2026 + 777;
+    for centis in [0u64, 1, 37, 50, 99] {
+        let want = target * 100 + centis;
+        check!(
+            wallsys::dispatch(op::SET, want) == 0,
+            "set to .{centis:02} refused"
+        );
+        // Reads right after the step land a few ticks later, never before.
+        let got = wallsys::dispatch(op::GET, 0);
+        check!(
+            (want..want + 50).contains(&got),
+            "set {want} then get {got}"
+        );
+    }
+    let last = wallclock::MAX_SET_SECS as u64 * 100 - 1;
+    check!(
+        wallsys::dispatch(op::SET, last) == 0,
+        "the last representable centisecond was refused"
+    );
+    let before = wallsys::dispatch(op::GET, 0);
+    check!(
+        wallsys::dispatch(op::SET, last + 1) == EINVAL,
+        "one centisecond past the range was accepted"
+    );
+    check!(
+        wallsys::dispatch(op::GET, 0) >= before,
+        "a refused step moved the clock"
+    );
+    check!(set_secs(orig) == 0, "restore failed");
     Ok(())
 }
 
@@ -87,11 +121,42 @@ pub fn soak_native_wall_clock() -> Result<(), String> {
     }
     for i in 0..500u64 {
         let target = Y2026 + i * 7919;
-        check!(wallsys::dispatch(op::SET, target) == 0, "set {i} refused");
+        check!(set_secs(target) == 0, "set {i} refused");
         let got = get_secs();
         check!((target..target + 5).contains(&got), "cycle {i}: {got}");
     }
-    check!(wallsys::dispatch(op::SET, orig) == 0, "restore failed");
+    check!(set_secs(orig) == 0, "restore failed");
+    Ok(())
+}
+
+/// Soak: the stream of small forward and backward steps an NTP client makes
+/// (and one that crosses a second boundary each time) always lands inside
+/// the tolerance, reads stay monotone between steps, and the remainder never
+/// leaves 0..100.
+pub fn soak_native_wall_clock_steps() -> Result<(), String> {
+    become_root()?;
+    let orig = wallclock::unix_secs() as u64;
+    let base = Y2026 * 100;
+    let mut x = 0x9e37_79b9_7f4a_7c15u64;
+    for i in 0..2_000u64 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        // Within +-100 s of the base, centisecond granularity.
+        let want = base + 100_000 - (x % 20_001);
+        check!(
+            wallsys::dispatch(op::SET, want) == 0,
+            "step {i} to {want} refused"
+        );
+        let (secs, centis) = wallclock::now();
+        let got = secs as u64 * 100 + u64::from(centis);
+        check!(centis < 100, "step {i}: remainder {centis}");
+        check!(
+            (want..want + 50).contains(&got),
+            "step {i}: set {want}, read {got}"
+        );
+    }
+    check!(set_secs(orig) == 0, "restore failed");
     Ok(())
 }
 
@@ -263,7 +328,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "timed_native_wall_clock_contract",
         native_wall_clock_contract,
     ),
+    (
+        "timed_native_wall_clock_centiseconds",
+        native_wall_clock_centiseconds,
+    ),
     ("timed_soak_native_wall_clock", soak_native_wall_clock),
+    (
+        "timed_soak_native_wall_clock_steps",
+        soak_native_wall_clock_steps,
+    ),
     ("timed_time_topic_policy", time_topic_policy),
     ("timed_soak_time_topic_policy", soak_time_topic_policy),
     ("timed_zone_key_in_confd", zone_key_in_confd),

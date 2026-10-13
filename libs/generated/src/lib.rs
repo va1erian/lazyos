@@ -17668,6 +17668,17 @@ pub mod os_lazy_timed_v1 {
     /// spells out what it serves (`Register.interface_names`, issue #495).
     pub const INTERFACE_NAME: &str = "os.lazy.timed.v1";
 
+    /// `NtpState::Disabled` wire value.
+    pub const NTP_STATE_DISABLED: u32 = 0;
+    /// `NtpState::WaitingForNetwork` wire value.
+    pub const NTP_STATE_WAITING_FOR_NETWORK: u32 = 1;
+    /// `NtpState::Syncing` wire value.
+    pub const NTP_STATE_SYNCING: u32 = 2;
+    /// `NtpState::Synchronized` wire value.
+    pub const NTP_STATE_SYNCHRONIZED: u32 = 3;
+    /// `NtpState::Failed` wire value.
+    pub const NTP_STATE_FAILED: u32 = 4;
+
     /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
     /// seconds, `offset` the local offset in seconds with DST included, and
     /// `zone_name` the zone (`Europe/Paris`).
@@ -17714,6 +17725,10 @@ pub mod os_lazy_timed_v1 {
     pub const METHOD_SETZONE: u32 = 1574816713;
     /// `SetTime` method id.
     pub const METHOD_SETTIME: u32 = 670376986;
+    /// `NtpStatus` method id.
+    pub const METHOD_NTPSTATUS: u32 = 209271495;
+    /// `SyncNow` method id.
+    pub const METHOD_SYNCNOW: u32 = 1100029530;
 
     /// The current instant and its local-time parameters.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -17809,7 +17824,10 @@ pub mod os_lazy_timed_v1 {
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
     /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
-    /// an administrator approved `time.set`); anyone else gets `EPERM`.
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetTimeArgs {
         pub unix_secs: i64,
@@ -17827,6 +17845,72 @@ pub mod os_lazy_timed_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.unix_secs = field.as_i64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NtpStatusReply {
+        pub enabled: bool,
+        pub state: u32,
+        pub server: alloc::string::String,
+        pub stratum: u32,
+        pub offset_ms: i64,
+        pub delay_ms: i64,
+        pub last_sync_unix: i64,
+        pub next_sync_unix: i64,
+    }
+
+    pub fn encode_ntp_status_reply(value: &NtpStatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.enabled)?;
+        target.u32(2, value.state)?;
+        target.string(3, &value.server)?;
+        target.u32(4, value.stratum)?;
+        target.i64(5, value.offset_ms)?;
+        target.i64(6, value.delay_ms)?;
+        target.i64(7, value.last_sync_unix)?;
+        target.i64(8, value.next_sync_unix)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ntp_status_reply(body: &[u8]) -> Result<NtpStatusReply, Error> {
+        let mut out = NtpStatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.enabled = field.as_bool()?;
+                }
+                2 => {
+                    out.state = field.as_u32()?;
+                }
+                3 => {
+                    out.server = field.as_str()?.into();
+                }
+                4 => {
+                    out.stratum = field.as_u32()?;
+                }
+                5 => {
+                    out.offset_ms = field.as_i64()?;
+                }
+                6 => {
+                    out.delay_ms = field.as_i64()?;
+                }
+                7 => {
+                    out.last_sync_unix = field.as_i64()?;
+                }
+                8 => {
+                    out.next_sync_unix = field.as_i64()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

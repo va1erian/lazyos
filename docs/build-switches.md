@@ -70,6 +70,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | --- | --- | --- |
 | `LAZYOS_NETD` | The network stack: `netdrv`, `netd` (DHCP, sockets), `ping`, `nslookup`, `nc`. | `--net` |
 | `LAZYOS_NETD_ARGS` | Word list passed to `netd`. `demo=0` runs it without the harness's evidence clients (what `--net` sets). | - |
+| `LAZYOS_TIMED_ARGS` | Word list passed to `timed` (default `demo=1`). `ntp.server=HOST[:PORT]` switches the network time client on and points it at that server (the NTP harness's host server). | - |
 | `LAZYOS_NET` | The older, stack-less NIC demo (`netdrv` only). Implied by `LAZYOS_NETD`. | - |
 | `LAZYOS_NET_ARGS` | Build-time `netdrv` boot arguments for `LAZYOS_NET` images. | - |
 | `LAZYOS_NETFIX`, `LAZYOS_NETBULK` | Paths to harness fixtures (`netfix`, `netbulk`) embedded for `tools/net/run.py`. | - |

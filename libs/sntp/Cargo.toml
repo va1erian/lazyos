@@ -1,0 +1,19 @@
+[package]
+name = "sntp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "SNTP for the LazyOS timed service: the RFC 4330 packet, offset and delay maths, the clock-step policy and the poll schedule (docs/ntp-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "sntp"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, shared by the in-tree seeded tests and the cargo-fuzz
+# target (`fuzz/fuzz_targets/sntp.rs`).
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
