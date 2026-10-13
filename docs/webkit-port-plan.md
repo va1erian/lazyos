@@ -675,18 +675,30 @@ no script engine) stays the browser LazyOS ships.
 *Verified.* The kernel suite `confine_*` (every gate through the Linux ABI and the native calls, a soak),
 `cargo test -p filepolicy -p pkgstore` and `python tools/webkit/attack_run.py --kernel`, which runs a probe
 program as the page process and as the network process under labels loaded the way `pkgd` loads them and requires
-every attack to be refused with a `LABEL:DENY` line and the needed accesses to work. **Not yet verified on the real
-engine:** that the real WebProcess and NetworkProcess make no call the tables refuse (`python
-tools/webkit/app_run.py --label-trace` must still print `WEBKIT:W5:HARNESS:PASS` with no `LABEL:DENY` of
-`app:os.lazy.webkit/*`; the tables were derived from reading the port, not from that run, and fontconfig's cache,
-`/etc/localtime` and `/proc` reads are the ones to watch), and `python tools/webkit/attack_run.py --browser`,
-which needs the browser's build and the package manager's child-label support.
+every attack to be refused with a `LABEL:DENY` line and the needed accesses to work.
+
+*The real engine under the tables (one experiment).* The tables were also tried on the real engine, with a
+stand-in for the package manager's child-label rule: a local, uncommitted change to `sys_execve` that stamped
+`app:os.lazy.sandbox-web` and `app:os.lazy.sandbox-net` (labels loaded with exactly the manifest's `files`, the
+attack driver's `WEB_FILES` and `NETWORK_FILES`, which `test_attack_judge.py` pins to the manifest) when the
+headless UI process (`webkit-smoke`, as `user`, in an image with `LAZYOS_LABEL_TRACE=1`) executed
+`/system/bin/webprocess` and `/system/bin/networkprocess`. The run painted the page: `WEBKIT:W4:PASS`, the title,
+the 800x600 paint and the ink all as in an unconfined run. The label trace printed seven lines, none of which
+stopped anything: the WebProcess's `stat` of `/etc/localtime`, `/etc` and `/usr/share/zoneinfo` (ICU's time zone
+lookup falls back to UTC), its `read` of `/build/webkit-deps/prefix/share/fontconfig/conf.avail` (a configuration
+directory baked in at build time, absent in the image) and the NetworkProcess's `stat` of `/etc/ssl/openssl.cnf`
+(OpenSSL's optional configuration). The tables therefore stay as they are: none of those is worth a rule.
+**Not yet verified on the real engine:** the launch through `pkgd` and the package manager's child-label support
+(`python tools/webkit/app_run.py --label-trace` must print `WEBKIT:W5:HARNESS:PASS` with no `LABEL:DENY` of
+`app:os.lazy.webkit/*` other than those lines; `python tools/webkit/attack_run.py --browser` needs the same),
+and the NetworkProcess on a real load (the experiment loaded `about:blank` and a `data:` URL: the resolver,
+the CA bundle and the cookie jar were never touched by the engine, only by the probe's stand-in).
 
 *Not verified.* HiDPI (the page is laid out in physical pixels at device scale 1, so text is small at 2x), a
 WebProcess crash or a failed launch in the guest (see *Failures*; the attack harness's stand-ins exit, they do
 not crash), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
 context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
-sandbox's tables as a minimal set for the real engine (see *Security* above), a real PC, and a second window.
+sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* above), a real PC, and a second window.
 
 ## 6. The problems that will surface
 
