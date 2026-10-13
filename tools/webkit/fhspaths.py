@@ -49,11 +49,25 @@ def program(name: str) -> str:
     return f"{get('system::SYSTEM_BIN')}/{names[name]}"
 
 
+MANIFEST = Path(__file__).resolve().parent.parent.parent / "xui-app" / "packages" / "webkit" / "manifest.toml"
+
+
+def webkit_app_id() -> str:
+    """The browser package's ``system_name`` (its per-user folder is ``<home>/.apps/<system_name>``)."""
+    found = re.search(r'^system_name\s*=\s*"([^"]+)"', MANIFEST.read_text(encoding="utf-8"), re.M)
+    if not found:
+        raise KeyError(f"{MANIFEST} has no system_name")
+    return found.group(1)
+
+
 #: What the WebKit port's C++ gets as ``-D`` macros (``port_cmake.options``; the sources refuse to
-#: compile without them): the programs the launcher and the smoke program start, and the CA bundle.
+#: compile without them): the programs the launcher and the smoke program start, the CA bundle,
+#: and the two names of the browser's profile directory (``<home>/.apps/os.lazy.webkit``).
 WEBKIT_DEFINES = {"LAZYOS_WEBPROCESS_PATH": program("WEBPROCESS"),
                   "LAZYOS_NETWORKPROCESS_PATH": program("NETWORKPROCESS"),
-                  "LAZYOS_CA_BUNDLE_PATH": CA_BUNDLE}
+                  "LAZYOS_CA_BUNDLE_PATH": CA_BUNDLE,
+                  "LAZYOS_APP_DATA_DIR": get("state::APP_DATA_DIR"),
+                  "LAZYOS_WEBKIT_APP_ID": webkit_app_id()}
 #: The ``@NAME@`` paths of ``webkit/port/fonts.conf.in``.
 FONTS_CONF_VALUES = {"FONT_DIR": FONT_DIR, "FONT_CACHE_DIR": FONT_CACHE_DIR}
 

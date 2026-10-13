@@ -17,7 +17,7 @@ name = "LazyWeb+"
 system_name = "os.lazy.lazywebplus"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web with WebKit: JavaScript, HTML, CSS and images over HTTP and HTTPS. Not sandboxed yet: the page process runs with this app's display, input, network and file access as you"
+description = "Browse the web with WebKit: JavaScript, HTML, CSS and images over HTTP and HTTPS. The page process is sandboxed: it reads only fonts, has no network, no access to your files and no windows of its own. The network process may reach the network, keep cookies in your LazyWeb+ profile folder (.apps/os.lazy.lazywebplus) and save downloads to your Downloads folder"
 category = "internet"
 
 [entry]
@@ -48,9 +48,10 @@ verbs = ["open"]
 # docs/packages.md): the window, its keyboard and pointer, the pointer shape, `mimed` for the
 # links and files it hands on, and the notification service for the download toasts. Sockets are
 # plain musl ones (the `outbound` network permission) and names resolve through
-# `/etc/resolv.conf`, so `os.lazy.net.stack.v1` is not needed. WebProcess and NetworkProcess are
-# children of the app and run under its label: the profile (cookies, site storage) lives in the
-# app's own folder, downloads go to the user's Downloads.
+# `/etc/resolv.conf`, so `os.lazy.net.stack.v1` is not needed. The UI process never fetches
+# anything itself; `network` and the reads below are listed because a child label may hold no more
+# than the app's own (the two `[processes.*]` tables), and the kernel judges the UI process by the
+# window's needs only for what it has not confined.
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
@@ -59,4 +60,46 @@ interfaces = [
     "os.lazy.notify.v1",
 ]
 network = ["outbound"]
-files = ["write:$HOME/.apps/os.lazy.lazywebplus", "write:$HOME/Downloads"]
+# What persists (cookies, site storage, the history) is kept below the app's own per-user folder,
+# and downloads go to the user's Downloads folder; nothing else is written. The reads are the union
+# of what the two processes below read.
+files = [
+    "write:$HOME/.apps/os.lazy.lazywebplus",
+    "write:$HOME/Downloads",
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+]
+
+# One process per page, running whatever the page says with the JIT on. It is the process a page's
+# exploit lands in, so it holds nothing: its image and the IPC socket it inherits are all it starts
+# with, and only the font files, the font configuration and the font cache directory may be read.
+# No Messenger interface, no network, no `$HOME`, no program to start (docs/architecture/
+# process-sandbox.md).
+[processes.webprocess]
+program = "/system/bin/webprocess"
+interfaces = []
+network = []
+files = [
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+]
+
+# The one process that fetches. It reads the resolver, the host table and the CA bundle, opens
+# outbound sockets, keeps the cookie jar and site storage in the profile folder the UI process made,
+# and writes a download's `.part` file in the Downloads folder (the window renames it when done).
+[processes.networkprocess]
+program = "/system/bin/networkprocess"
+interfaces = []
+network = ["outbound"]
+files = [
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+    "write:$HOME/.apps/os.lazy.lazywebplus",
+    "write:$HOME/Downloads",
+]

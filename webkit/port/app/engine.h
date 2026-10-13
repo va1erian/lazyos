@@ -30,7 +30,7 @@ struct PendingDialog {
 // Everything below runs on WebKit's main thread (the run loop main() starts).
 struct Engine {
     WKContextRef context { nullptr };
-    // The website data store of a window with a profile directory; null: WebKit's default.
+    // The website data store the page lives in (kept alive by the page configuration).
     WKWebsiteDataStoreRef store { nullptr };
     WKViewRef view { nullptr };
     WKPageRef page { nullptr };

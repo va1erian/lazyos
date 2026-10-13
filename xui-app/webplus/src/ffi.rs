@@ -51,6 +51,8 @@ fn shared() -> &'static Shared {
             Some(home) => PathBuf::from(home).join(DOWNLOADS_DIR),
             None => PathBuf::from(fhs::mount::TMP),
         };
+        // The folder exists before the NetworkProcess, which may only write inside it, saves a file there.
+        let _ = std::fs::create_dir_all(&folder);
         let profile = home.as_ref().and_then(|home| {
             let dir = fhs::app_data_dir(home, SYSTEM_NAME);
             std::fs::create_dir_all(&dir).ok()?;

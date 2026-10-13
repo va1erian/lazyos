@@ -141,9 +141,10 @@ pub fn about(version: &str) -> String {
         "<p>Version {}. LazyWeb's browser window on the \
 <a href=\"https://webkit.org/\">WebKit</a> engine: JavaScript and the modern web, \
 HTTPS through the system's certificate bundle.</p>\
-<p class=\"note\">The page process is not sandboxed yet: it runs with the permissions \
-of this app and of the user who started it, so open only pages you would trust a \
-program with. LazyWeb, the browser without scripts, is the safer choice for the rest.</p>\
+<p class=\"note\">The process that runs a page is sandboxed: it can read the fonts and \
+nothing else, has no network and no access to your files. The network process keeps \
+cookies in .apps/os.lazy.lazywebplus and saves downloads to your Downloads folder. \
+LazyWeb, the browser without scripts, stays the one LazyOS ships.</p>\
 <p class=\"note\">WebKit is free software under the LGPL 2.1 and BSD licences; this \
 window is under the GPL 2.0; fonts: Liberation (SIL OFL 1.1).</p>",
         escape(version)

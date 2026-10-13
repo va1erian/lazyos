@@ -45,10 +45,10 @@ beside the app's core package (below).
 musl executables), in a scratch directory of the work volume, and keeps its output in
 `target/webkit/smoke.host.txt`; `port_run.py` requires that file and the guest's painted bitmap
 (checksum and ink) to equal it. A host run that fails or times out fails the build, and a boot
-that painted nothing, or has no host run to compare with, fails the judge. The NetworkProcess keeps
-its cookie jar (`cookie.jar.db`) in the working directory it inherits (the scratch directory
-there, the launcher's directory on LazyOS); W5 did not move it: a per-user data directory is later work.
-`webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
+that painted nothing, or has no host run to compare with, fails the judge. `webkit-smoke` names no
+profile directory, so its NetworkProcess keeps its cookie jar (`cookie.jar.db`) in the working directory
+it inherits (the scratch directory there, the launcher's directory on LazyOS); the browser (`webkit-app`)
+gives its children a profile directory under `$HOME/.apps` (below). `webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
 `--accel none`).
 
 LazyOS has no file-backed `mmap` yet, and the port's Skia compiles W3's
@@ -116,6 +116,7 @@ LazyOS-gated (they only matter to `PORT=LazyOS`).
 | `0012-webkit-playstation-page-events-text-modifiers-time` | the C API a UI process sends input through (`WKPageHandleKeyboardEvent`, `...MouseEvent`, `...WheelEvent`) dropped the key's text (so nothing could be typed into a field), the modifiers, the event time (so every click at one spot counted as one more click of a series) and the held button of a drag, and sent a zero horizontal wheel step on every vertical one |
 | `0013-webkit-playstation-editing-keyboard-events` | `WebPage::handleEditingKeyboardEvent` is `notImplemented()` (the GTK and WPE ports leave it to a toolkit input method): a page got keydown, keypress and keyup but no text in any field. The hook now runs the editing command of a key down (arrows, Home, End, Delete, Backspace, select all, copy, cut, paste, undo) and inserts the text of a key press |
 | `0014-webkit-playstation-view-resize-reaches-the-drawing-area` | `PlayStationWebView::setViewSize` stored the size only: a window that was resized kept laying the page out and painting it at the old size; it now calls `DrawingAreaProxy::setSize` |
+| `0015-webkit-playstation-data-directories-in-the-profile` | `WebsiteDataStore`'s PlayStation answers for every data directory the embedder did not set were `/app0`; they now follow `LAZYOS_WEBKIT_PROFILE`, the user's profile directory the UI process names (and keep `/app0` without it) |
 
 ## Drawing
 
@@ -165,13 +166,24 @@ and the second 107 MB program's `exec` failed with `ENOMEM`: the kernel charges 
 to the user's memory quota (`docs/architecture/limits.md`), and the three processes take what the quota lets
 them reserve (2989 of the big-app profile's 3072 MiB after one page; 6957 of 8192 at the `quota_user_memory=8G`
 that `run_demo.py --webkit` and the launcher set). `engine.cpp` turns process swapping, pre-warming and the
-process cache off. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not: nothing
-is persisted yet.
+process cache off.
 
-**No sandbox.** The browser ships without one: the WebProcess runs pages and a JIT under the app's label
-(the display, input and outbound network) and the logged-in user's uid, so it is for pages you trust, not a
-replacement for LazyWeb. Nothing is persisted, and the NetworkProcess's cookie jar (`cookie.jar.db`) still
-lives in the working directory it inherits (`docs/webkit-port-plan.md`, W5 *Security*).
+**The profile directory.** WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has
+not. `engine.cpp` makes `$HOME/.apps/os.lazy.webkit` (the app's own per-user folder; mode `0700`), gives the
+page a website data store whose cache, cookie jar (`cookies/cookie.jar.db`) and storage directories are below
+it, and names it in `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` (curl opens its cookie database
+before the data store's file is applied, so the variable is what keeps `cookie.jar.db` out of the working
+directory). `ProcessLauncherLazyOS.cpp` starts the children in it, and patch `0015` makes the directories
+the C API cannot set (HSTS, alternative services, ...) follow it instead of `/app0`. With no `$HOME` the
+store is ephemeral. The manifest's `write:$HOME/.apps/os.lazy.webkit` is exactly this directory.
+
+**The sandbox.** The WebProcess and the NetworkProcess run under confined labels
+(`app:os.lazy.webkit/webprocess`, `.../networkprocess`; the `[processes.*]` tables of
+`xui-app/packages/webkit/manifest.toml`, the kernel's gates in `docs/architecture/process-sandbox.md`): the
+page process reads only fonts and has no network, files beyond them, Messenger interface or way to start a
+program; the network process has sockets, the resolver, the CA bundle and the profile folder. The launcher
+is unchanged (`fork`, `execv`); the label changes at the `execve`. The UI process is an ordinary app label.
+`python tools/webkit/attack_run.py` attacks the sandbox from inside it (below).
 
 **Quitting.** When the window closes the UI process ends the WebProcess and the NetworkProcess itself
 (SIGTERM, SIGKILL after a grace period), waits for them and prints `WEBKIT:W5:CHILD:<name>:<pid>:GONE` before
@@ -189,6 +201,21 @@ stand-in sites), serves LazyWeb's stand-ins from the host (`tools/web/sites.py` 
 recreates `target/lazyos.img`'s OS volume** (installed apps, settings, logs and files on it are erased); the
 run also needs the host's ports 80, 443 and 81 free.
 
+**The attack harness.** `python tools/webkit/attack_run.py` (`tools/abi/fixtures/src/sandboxprobe.rs`,
+judge `tools/webkit/attackjudge.py`, self-test `test_attack_judge.py`) attacks the sandbox from inside the
+two engine processes: a stand-in program (`python tools/webkit/attack_build.py`, built with Rust's musl
+target, no WebKit build needed) tries to read the user's files and the system's, write them, open a socket,
+connect to a named socket, resolve the display, execute BusyBox and a native program, `fork`, signal its
+parent and `ptrace`, while the few things the process needs must still work. Every attack must be refused
+with the policy's `EPERM` and a `LABEL:DENY` line, as in `tools/accounts/run.py`. `--kernel` (the default)
+boots a console image whose first program loads the browser's two process tables as labels the way `pkgd`
+does and starts the probe under each; `--browser` builds a desktop image with `LAZYOS_WEBKIT_ATTACK=1`, which
+ships the stand-in as `/system/bin/webprocess` and `/system/bin/networkprocess` beside the real window, so the
+real UI process starts them and the label comes from the package's tables. `LAZYOS_WEBKIT_ATTACK=1` is a
+test switch: never set it for an image anyone uses. Like `LAZYOS_TLS_TEST_CA`
+it is harness-only on purpose: `attack_run.py` sets it, and there is no
+`run_demo.py` flag or launcher GUI control for it.
+
 ## LazyWeb+ (`os.lazy.lazywebplus`)
 
 [`docs/lazywebplus.md`](../docs/lazywebplus.md): LazyWeb's chrome on this engine. The same C++ UI process
@@ -205,12 +232,12 @@ what LazyWeb's chrome needs from an engine that has scripts (all in `port/app/la
 | Which features the window uses; the marker prefix; the profile directory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir` | read once, before the window thread exists |
 | Progress, the committed URL, the padlock, how a load ended | `lzw_ui_state` (`+committed_url`, `secure`, `finished`) | the page-state and navigation clients; `finished` counts `didFinishNavigation`, so a stop, a failure and a download are told apart |
 | The link under the pointer | `lzw_ui_hover` | `mouseDidMoveOverElement` |
-| The pointer shape | `lzw_ui_cursor` | the view client's `setCursor` (patch `0015` teaches it the I-beam, wait and resize arrows) |
+| The pointer shape | `lzw_ui_cursor` | the view client's `setCursor` (patch `0016` teaches it the I-beam, wait and resize arrows) |
 | Navigation policy: `mailto:` and other schemes to `mimed`, `x-lazyweb:` only from the browser's own pages, a user gesture for both | `lzw_ui_navigate(url, kind, user_gesture, committed_url)` | `decidePolicyForNavigationAction` with `WKNavigationActionHasUnconsumedUserGesture`; the decision is `xui-app/webplus/src/policy.rs`, pure and host-tested |
 | Downloads | `lzw_ui_download_start` (the window chooses the `.part` path in `$HOME/Downloads`), `_progress`, `_done`, `_fail`, `lzw_engine_download`, `lzw_engine_download_cancel` | `decidePolicyForNavigationResponse` (an attachment or a type the view cannot show) and the `WKDownload` client; the NetworkProcess writes the file |
 | JavaScript `alert`, `confirm`, `prompt` | `lzw_ui_dialog` (returns at once), `lzw_engine_dialog_reply` | the UI client's result listeners, retained until the window answers or the page goes away |
 | A new window | `lzw_ui_new_window` | `createNewPage` returns null; the window loads the URL in its one view when a gesture started the request |
-| Cookies and site data | `lzw_engine_start` uses the profile directory | `WKWebsiteDataStoreConfigurationSetCookieStorageFile` and the local storage directory, under `$HOME/.apps/os.lazy.lazywebplus` (the network cache stays off: it maps its files, and LazyOS has no file-backed `mmap`) |
+| Cookies and site data | `lzw_ui_profile_dir` (only with `LZW_FEATURE_PROFILE`; the W5 window gets `$HOME/.apps/os.lazy.webkit`) | `createDataStore` in `engine.cpp`: every directory of the store below the profile (`$HOME/.apps/os.lazy.lazywebplus` for LazyWeb+), the cookie jar at `cookies/cookie.jar.db`, the children started in it (the sandbox: `docs/architecture/process-sandbox.md`) |
 
 Markers: the UI process prints them after the window's prefix (`WEBKIT:W5` or `WEBPLUS`: `UP`,
 `WEBPROCESS:UP:<pid>`, `INFO:TIME:...`, `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`); with

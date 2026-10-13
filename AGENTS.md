@@ -611,8 +611,7 @@ the shipped browser. `python tools/webkit/app_run.py` builds the image, serves L
 from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
 Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot
 (`tools/webkit/test_app_judge.py` is the judge's self-test; `--label-trace` lists the package's
-`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser has **no sandbox**
-(the page process holds the app's display, input and network access as the user), persists nothing, and prints
+`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser's engine processes are sandboxed (#836: `docs/architecture/process-sandbox.md`, `python tools/webkit/attack_run.py --kernel`), and it prints
 the markers that name a page only in a `LAZYOS_UI_PROBE=1` image. `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
 OpenSSL: never link any of it into LazyWeb. See [`webkit/README.md`](webkit/README.md) and
 [`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) §5 W5.
@@ -639,7 +638,7 @@ cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplu
 tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
 and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
 `mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
-`deskmenu::defaults`), install order otherwise. Not sandboxed (#832). The window crates are declared `GPL-2.0-only
+`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed like W5's (`[processes.*]` tables in the manifest). The window crates are declared `GPL-2.0-only
 OR GPL-3.0-or-later` (the program links OpenSSL through WebKit's curl and is GPL-3.0-or-later); only link
 GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplus` and `python
 tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
@@ -820,6 +819,17 @@ that way from a test package of the IDE (build it with
 image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
 LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
 LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
+
+A package may also declare helper programs that run under a narrower label of
+their own, `[processes.<name>]` tables whose `program` an `execve` of the app's
+task enters as `app:<system_name>/<name>` (issue #832; `docs/packages.md`,
+"Process tables"; `kernel/src/ipc/children.rs`). Such a label holds at most the
+app's permissions, owns no names, and may not start programs. A traced run
+prints `LABEL:ENTER label=<child> pid=<n> program=<path>` when a task enters
+one and `LABEL:DENY label=<child> start=<call>` when it tries to start a
+program; the kernel tests are `LAZYOS_TEST_FILTER=label_child python
+tools/test/run.py --accel none`, and a ring-3 `execve` of a bound program
+runs end to end in `label_child_real_execve`.
 
 ## App failures (the "stopped unexpectedly" notice)
 

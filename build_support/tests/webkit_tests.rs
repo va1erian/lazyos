@@ -35,6 +35,18 @@ fn a_missing_profile_is_named() {
 }
 
 #[test]
+fn the_engine_processes_come_from_the_port_unless_the_attack_harness_asks() {
+    use crate::webkit_embed::engine_source;
+    assert_eq!(
+        engine_source(false),
+        ("target/webkit/bin", "tools/webkit/port.py")
+    );
+    let (dir, builder) = engine_source(true);
+    assert_eq!(dir, "target/webkit/attack");
+    assert!(builder.contains("attack_build.py"));
+}
+
+#[test]
 fn not_built_says_what_to_run() {
     assert!(not_built(false).contains("tools/webkit/app.py"));
     assert!(not_built(false).contains("xui-webkit.elf"));

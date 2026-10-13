@@ -7,7 +7,7 @@ use crate::fs::ramfs::Usage;
 use crate::fs::vfs::{Filesystem, SetAttr};
 
 fn user(uid: u32) -> Id {
-    Id { uid, gid: uid }
+    Id::new(uid, uid)
 }
 
 fn usage(bytes: usize, nodes: usize) -> Usage {

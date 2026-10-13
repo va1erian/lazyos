@@ -24,9 +24,23 @@ pub const ANY_METHOD: u32 = u32::MAX;
 /// calls are denied). An empty list revokes the label. Returns how many rules
 /// the label now holds.
 pub fn load_label(label: &str, rules: &[wire::LabelRule]) -> Result<u64> {
+    load(label, rules, None)
+}
+
+/// Load the child label `label` (`app:<id>/<name>`, issue #832): `rules` as
+/// for [`load_label`] (each one the app's own loaded rules allow), and
+/// `program`, the executable path whose `execve` by a task of the app's label
+/// enters it. The app's label must have been loaded first. Loading it again
+/// with no rules and [`load_label`] (no program) revokes it.
+pub fn load_child_label(label: &str, rules: &[wire::LabelRule], program: &str) -> Result<u64> {
+    load(label, rules, Some(program))
+}
+
+fn load(label: &str, rules: &[wire::LabelRule], program: Option<&str>) -> Result<u64> {
     let body = wire::encode_load_label_args(&wire::LoadLabelArgs {
         label: String::from(label),
         rules: rules.to_vec(),
+        program: program.map(String::from),
     })
     .map_err(Error::Parcel)?;
     // The kernel op ignores the header; the body carries the request.

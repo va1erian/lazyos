@@ -49,6 +49,7 @@ fn validate_with(manifest: &Manifest, files: Option<&BTreeSet<&str>>) -> Vec<Pro
         check_mime(index, mime, files, &mut problems);
     }
     check_permissions(manifest, &mut problems);
+    crate::processes::check(manifest, &mut problems);
     problems
 }
 

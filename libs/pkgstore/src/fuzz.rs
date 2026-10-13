@@ -46,10 +46,16 @@ fn check_manifest(text: &str) -> bool {
                 assert!(!list[..index].contains(rule), "duplicate rule");
             }
             assert_eq!(rules::compile(&manifest), Ok(list.clone()), "unstable");
-            let installed = rules::installed(&manifest);
-            assert!(installed.is_ok_and(|rules| rules.len() <= MAX_RULES));
+            // A `files` entry only the file gate refuses is an install-time
+            // error (inspect), never a panic.
+            match rules::installed(&manifest) {
+                Ok(rules) => assert!(rules.len() <= MAX_RULES),
+                Err(CompileError::Files(_)) => assert!(!manifest.processes.is_empty()),
+                Err(CompileError::TooManyRules { rules }) => assert!(rules > MAX_RULES),
+            }
         }
         Err(CompileError::TooManyRules { rules }) => assert!(rules > MAX_RULES),
+        Err(CompileError::Files(error)) => panic!("compile never reads files: {error}"),
     }
 
     for entry in &wanted.files {

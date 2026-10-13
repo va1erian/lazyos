@@ -30,6 +30,8 @@
 //!   loaded an approved rule set for ([`crate::develop`]).
 //! * **Resident** (`[entry] resident = true`) adds the interfaces and topic
 //!   [`crate::resident`] lists, compiled like the manifest's own entries.
+//! * **Processes** (`[processes.<name>]`, issue #832) are not part of the
+//!   app's rules: each is a child label of its own, compiled by [`children`].
 //!
 //! [`installed`] is what `pkgd` loads for an installed app: the manifest's
 //! rules plus the [`baseline`] every app gets without asking, telling `init`
@@ -82,11 +84,15 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
 pub enum CompileError {
     /// More rules than the kernel stores per label.
     TooManyRules { rules: usize },
+    /// A `files` entry of a process table (or the app's, beside one) that the
+    /// file gate cannot compile.
+    Files(crate::filerules::FileRuleError),
 }
 
 impl core::fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            CompileError::Files(error) => write!(formatter, "{error}"),
             CompileError::TooManyRules { rules } => write!(
                 formatter,
                 "the requested permissions need {rules} policy rules, more than the {MAX_RULES} the system keeps per app"
@@ -273,6 +279,26 @@ pub fn baseline() -> Vec<LabelRule> {
 /// [`baseline`] rules it does not already hold. At most [`MAX_RULES`].
 pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     let mut rules = compile(manifest)?;
+    // An app with process tables holds its own `files` ids (not the confine
+    // marker: the app stays unconfined), so the kernel can check that a
+    // child's file rules are ones the app holds too (`acl::covered_by`).
+    //
+    // The ids of the children's `files` are held too: the manifest check
+    // (`lazypkg`) lets a child name a path below an app directory, which the
+    // kernel's exact-id coverage check can only see through them.
+    if !manifest.processes.is_empty() {
+        let marker = filepolicy::confine_id();
+        let lists = core::iter::once(&manifest.permissions.files)
+            .chain(manifest.processes.values().map(|process| &process.files));
+        for list in lists {
+            let files = crate::filerules::compile(list).map_err(CompileError::Files)?;
+            for rule in files.into_iter().filter(|rule| rule.interface_id != marker) {
+                if !rules.contains(&rule) {
+                    rules.push(rule);
+                }
+            }
+        }
+    }
     for rule in baseline() {
         if !rules.contains(&rule) {
             rules.push(rule);
@@ -283,6 +309,9 @@ pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     }
     Ok(rules)
 }
+
+mod children;
+pub use children::{children, dropped, Child};
 
 #[cfg(test)]
 mod tests;

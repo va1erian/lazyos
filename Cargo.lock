@@ -589,6 +589,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "filepolicy"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "fuzzkit",
+]
+
+[[package]]
 name = "foldhash"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -829,6 +837,7 @@ dependencies = [
  "confd",
  "ext2fs",
  "fhs",
+ "filepolicy",
  "font-atlas",
  "fused",
  "gpt 0.1.0",
@@ -1166,6 +1175,7 @@ dependencies = [
  "crc",
  "ext2fs",
  "fhs",
+ "filepolicy",
  "fuzzkit",
  "lazyos-crypto",
  "lazypkg",

@@ -28,7 +28,9 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -42,6 +44,14 @@
 #endif
 #ifndef LAZYOS_NETWORKPROCESS_PATH
 #error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
+#endif
+// The app's per-user folder is `<home>/<LAZYOS_APP_DATA_DIR>/<LAZYOS_WEBKIT_APP_ID>` (libs/fhs
+// `app_data_dir`; the package's `write:$HOME/.apps/os.lazy.webkit` rule names exactly it).
+#ifndef LAZYOS_APP_DATA_DIR
+#error "LAZYOS_APP_DATA_DIR must name the per-user app data directory (libs/fhs state::APP_DATA_DIR)"
+#endif
+#ifndef LAZYOS_WEBKIT_APP_ID
+#error "LAZYOS_WEBKIT_APP_ID must be this package's system_name (xui-app/packages/webkit)"
 #endif
 
 namespace webkitapp {
@@ -67,34 +77,96 @@ void onMain(std::function<void()> task)
 
 namespace {
 
-// A directory string for a website data store.
-WKStringRef pathString(const std::string& directory, const char* leaf)
+// The cookie jar, below the profile directory (a SQLite database the NetworkProcess owns).
+constexpr const char* kCookieJar = "cookies/cookie.jar.db";
+
+// `mkdir -p`, private to the user: what this browser keeps is the user's alone.
+bool makeDirectories(const std::string& path)
 {
-    return WKStringCreateWithUTF8CString((directory + "/" + leaf).c_str());
+    for (size_t at = 1; at <= path.size(); ++at) {
+        if (at != path.size() && path[at] != '/')
+            continue;
+        const std::string prefix = path.substr(0, at);
+        if (mkdir(prefix.c_str(), 0700) != 0 && errno != EEXIST)
+            return false;
+    }
+    return true;
 }
 
-// The website data store of a window with a profile (LZW_FEATURE_PROFILE): the cookie jar and the
-// site storage live in the window's directory instead of WebKit's PlayStation default (/app0, which
-// LazyOS has not; the cookie jar fell back to the working directory). The network cache stays off:
-// it maps its files, and LazyOS has no file-backed mmap yet (docs/webkit-port-plan.md).
-void useProfile(WKPageConfigurationRef pageConfiguration)
+// The user's profile directory, `<home>/.apps/os.lazy.webkit`: the app's own per-user folder
+// (`init` gives every app its `HOME`), and the one place the browser's rules let any of its
+// processes write. Empty when there is no home: the browser then keeps nothing at all.
+std::string profileDirectory()
 {
-    if (!has(LZW_FEATURE_PROFILE))
-        return;
-    const char* profile = lzw_ui_profile_dir();
-    if (!profile || !*profile)
-        return;
-    const std::string directory = profile;
+    // A window with a profile of its own (LazyWeb+: `$HOME/.apps/os.lazy.lazywebplus`) names it;
+    // the W5 window does not, and gets the browser's.
+    if (has(LZW_FEATURE_PROFILE)) {
+        const char* chosen = lzw_ui_profile_dir();
+        if (!chosen || *chosen != '/')
+            return std::string();
+        std::string chosenPath(chosen);
+        while (chosenPath.size() > 1 && chosenPath.back() == '/')
+            chosenPath.pop_back();
+        return chosenPath;
+    }
+    const char* home = getenv("HOME");
+    if (!home || *home != '/')
+        return std::string();
+    std::string root(home);
+    while (root.size() > 1 && root.back() == '/')
+        root.pop_back();
+    return root + "/" LAZYOS_APP_DATA_DIR "/" LAZYOS_WEBKIT_APP_ID;
+}
+
+// The website data store the page lives in: everything WebKit keeps (cookies, the HTTP cache,
+// local storage, IndexedDB, ...) below `profile`; WebKit's own defaults for the directories this
+// does not name follow the profile too (patch 0015, through LAZYOS_WEBKIT_PROFILE). No profile
+// gives an ephemeral store, never a directory of the working directory.
+WKWebsiteDataStoreRef createDataStore(const std::string& profile)
+{
+    if (profile.empty() || !makeDirectories(profile)) {
+        say("WEBKIT:W5:PROFILE:NONE:the browser keeps nothing");
+        return WKWebsiteDataStoreCreateNonPersistentDataStore();
+    }
+    // The children inherit these: the launcher starts them in the profile directory, WebKit's
+    // default data directories (patch 0015) are below it, and curl opens its cookie database at
+    // CURL_COOKIE_JAR_PATH (the working directory otherwise) before the data store's own file is
+    // applied (WebCore/platform/network/curl/NetworkStorageSessionCurl.cpp).
+    setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
+    setenv("CURL_COOKIE_JAR_PATH", (profile + "/" + kCookieJar).c_str(), 1);
+
+    auto path = [&profile](const char* leaf) {
+        return WKStringCreateWithUTF8CString((profile + "/" + leaf).c_str());
+    };
     WKWebsiteDataStoreConfigurationRef configuration = WKWebsiteDataStoreConfigurationCreate();
-    WKStringRef cookies = pathString(directory, "cookie.jar.db");
-    WKStringRef local = pathString(directory, "localstorage");
-    WKWebsiteDataStoreConfigurationSetCookieStorageFile(configuration, cookies);
-    WKWebsiteDataStoreConfigurationSetLocalStorageDirectory(configuration, local);
-    WKRelease(cookies);
-    WKRelease(local);
-    E.store = WKWebsiteDataStoreCreateWithConfiguration(configuration);
+    struct Setting {
+        void (*set)(WKWebsiteDataStoreConfigurationRef, WKStringRef);
+        const char* leaf;
+    };
+    const Setting settings[] = {
+        { WKWebsiteDataStoreConfigurationSetCookieStorageFile, kCookieJar },
+        { WKWebsiteDataStoreConfigurationSetNetworkCacheDirectory, "cache" },
+        { WKWebsiteDataStoreConfigurationSetLocalStorageDirectory, "storage/local" },
+        { WKWebsiteDataStoreConfigurationSetIndexedDBDatabaseDirectory, "storage/indexeddb" },
+        { WKWebsiteDataStoreConfigurationSetWebSQLDatabaseDirectory, "storage/websql" },
+        { WKWebsiteDataStoreConfigurationSetCacheStorageDirectory, "storage/cachestorage" },
+        { WKWebsiteDataStoreConfigurationSetGeneralStorageDirectory, "storage/general" },
+        { WKWebsiteDataStoreConfigurationSetResourceLoadStatisticsDirectory, "storage/statistics" },
+        { WKWebsiteDataStoreConfigurationSetServiceWorkerRegistrationDirectory, "storage/serviceworkers" },
+    };
+    for (const auto& setting : settings) {
+        WKStringRef value = path(setting.leaf);
+        setting.set(configuration, value);
+        WKRelease(value);
+    }
+    // The directories exist before a process that may only write inside them looks for one.
+    for (const char* leaf : { "cookies", "cache", "storage" })
+        makeDirectories(profile + "/" + leaf);
+    WKWebsiteDataStoreRef store = WKWebsiteDataStoreCreateWithConfiguration(configuration);
     WKRelease(configuration);
-    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, E.store);
+    say("WEBKIT:W5:PROFILE:PASS");
+    sayHarness("WEBKIT:W5:PROFILE:DIR:%s", oneLine(profile).c_str());
+    return store;
 }
 
 } // namespace
@@ -108,6 +180,9 @@ extern "C" {
 int lzw_engine_start(void)
 {
     elapsedMs();
+    // The user's profile directory first: it goes into the environment the children inherit,
+    // and nothing may start a process before it is there.
+    WKWebsiteDataStoreRef dataStore = createDataStore(profileDirectory());
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();
     WKStringRef webPath = WKStringCreateWithUTF8CString(LAZYOS_WEBPROCESS_PATH);
     WKStringRef networkPath = WKStringCreateWithUTF8CString(LAZYOS_NETWORKPROCESS_PATH);
@@ -123,7 +198,9 @@ int lzw_engine_start(void)
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, E.context);
-    useProfile(pageConfiguration);
+    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, dataStore);
+    E.store = dataStore; // the page configuration keeps it alive
+    WKRelease(dataStore);
     E.view = WKViewCreate(pageConfiguration);
     if (!E.view) {
         say("FAIL:view:WKViewCreate returned null");

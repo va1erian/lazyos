@@ -94,9 +94,10 @@ pub const OP_AUTHORIZE_TOPIC: u64 = 17;
 
 /// Replace every rule of one label (the `acl_load` syscall, application
 /// package system phase 1). The request parcel's body is the generated
-/// `LoadLabelArgs` (`idl/policy.midl`): the label string and its rule list.
-/// Needs `CAP_IPC_CONTROL`; an empty list revokes the label. `value` is the
-/// number of rules now held by the label.
+/// `LoadLabelArgs` (`idl/policy.midl`): the label string, its rule list and,
+/// for a child label `app:<id>/<name>` (issue #832), the program that enters
+/// it. Needs `CAP_IPC_CONTROL`; an empty list revokes the label. `value` is
+/// the number of rules now held by the label.
 pub const OP_ACL_LOAD: u64 = 18;
 
 /// Park until one of several endpoints is ready (docs/performance-plan.md

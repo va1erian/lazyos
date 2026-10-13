@@ -459,16 +459,18 @@ linked into the port's Skia. The platform macro is `PLATFORM(LAZYOS)`, not
 console code (patch `0003` renames the 44 tests in WebCore and WebKit only), so
 those three stay exactly the proven `jsc-jit` configuration.
 
-*Security.* With the sandbox, the GPU process and the remote inspector off, the
-WebProcess runs with the privileges of the UI process that launched it (the
-same uid, the same capabilities, the same file system view; the only isolation
-is the process boundary and the IPC types). That is acceptable for the W4 smoke
-program, which loads a `data:` URL; a browser that shows the web would want the
-sandbox first (a per-process label and a reduced set of capabilities for the
-WebProcess, `docs/security-model.md`). **W5 does not do that**: the browser
-ships without one, and says so (W5, *Security*). The NetworkProcess keeps its
-cookie jar (`cookie.jar.db`) in the working directory it inherits, and W5 left
-it there: a per-user data directory is later work.
+*Security.* WebKit's own sandbox (bubblewrap and seccomp on GTK, the sandbox
+extension on the console) is off, as are the GPU process and the remote
+inspector, and the programs of W4 started their children with the launching
+process's label: the WebProcess ran with the privileges of the UI process that
+launched it (the same uid, the same capabilities, the same file system view;
+the only isolation was the process boundary and the IPC types). That is
+acceptable for the W4 smoke program, which loads a `data:` URL. The browser
+(W5) does not rely on it: LazyOS's own sandbox, a *confined label* per engine
+process, is described in W5, *Security*, and `docs/architecture/process-sandbox.md`.
+The launcher and the data directories (the cookie jar used to be
+`cookie.jar.db` in the working directory the NetworkProcess inherited) follow
+the profile directory the UI process names (W5, *Security*; patch `0015`).
 
 *Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
 PlayStation port's classic one: the WebProcess paints dirty rectangles into a
@@ -633,25 +635,73 @@ still covers it.
 with a recording engine, and the session exercises the failed load and the Stop in QEMU; a real WebProcess crash
 or launch failure was not provoked.
 
-*Security: the browser ships without a sandbox.* The WebProcess, which runs whatever page the user opens
-and does it with JavaScriptCore's JIT on (memory it writes and then executes), holds the app's label and so the
-app's permissions (`xui-app/packages/webkit/manifest.toml`: the display, input and outbound network access),
-under the logged-in user's uid and with the user's view of the file system: the process boundary and the IPC
-types are the only isolation. A bug in the engine or the JIT that gives a page native code gives it those. The
-manifest asks for no file permission, but code that escaped is not held to what its label asks. Do not open
-pages you do not trust in it; LazyWeb (Blitz, no script engine) stays the browser LazyOS ships. Nothing is
-persisted: WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not, so cookies,
-history and caches last as long as the app does, and the NetworkProcess's cookie jar (`cookie.jar.db`) is
-still written to the working directory it inherits from `init`, not to a per-user directory (whether that
-directory is writable under the user's uid was not checked). The remedies, a per-process label with fewer
-permissions for the WebProcess (`docs/security-model.md`) and a profile directory under `$HOME/.apps`, are not
-part of W5.
+*Security: a confined label per engine process (issue #832).* The WebProcess runs whatever page the user opens
+and does it with JavaScriptCore's JIT on (memory it writes and then executes): the process a page's exploit
+lands in. W5 shipped it under the app's own label (the display, input and outbound network access, the user's
+uid and view of the file system, with only the process boundary and the IPC types between) and said so. It now
+runs sandboxed:
+
+| Process | Label | Holds | Refused |
+|---|---|---|---|
+| UI process (`webkit-app`) | `app:os.lazy.webkit` | the window (`os.lazy.display.v1`, `.cursor.v1`, `os.lazy.input.v1`), `write:$HOME/.apps/os.lazy.webkit`, spawning its two children | (an ordinary app label: its `files` and `network` are consent text) |
+| WebProcess, one for every page | `app:os.lazy.webkit/webprocess` | the IPC socket it inherits, `memfd` buffers, `read:` of the font directory, the font configuration and the font cache directory; threads, JIT memory | every other file (the user's home, `/system/bin`, `/conf`, `/tmp`), any `AF_INET` or named socket, every Messenger interface, `fork`/`execve`/`posix_spawn`, signals to any other process, descriptors the UI process left open |
+| NetworkProcess | `app:os.lazy.webkit/networkprocess` | outbound sockets, `read:` of `/etc/resolv.conf`, `/etc/hosts` and the CA bundle, `write:` of the profile folder (cookie jar, cache) | the display and input, the rest of `$HOME`, the system, spawning, signals |
+
+The mechanism is `docs/architecture/process-sandbox.md` (the kernel's gates) with the `[processes.<name>]`
+tables of `xui-app/packages/webkit/manifest.toml` (`docs/packages.md`; `pkgd` loads each as
+`app:os.lazy.webkit/<name>` and the kernel stamps the label when the UI process executes the table's
+`program`). Nothing in it is WebKit's own sandbox: the engine is unchanged, the port's launcher
+(`ProcessLauncherLazyOS.cpp`) still `fork`s and `execv`s with the client end of the socketpair, and it is the
+label that changes at the `execve`. The processes keep the user's uid: the audit of the Linux ABI found every path
+that reaches a file, a socket, a program or a process, and each is gated by the label, so a second uid (a
+`_webkit` account like a service's) would only have added mode bits under a label that already decides first,
+and the profile folder has to belong to the user. The JIT's W^X checks (#773) stay.
+
+*What persists.* The UI process makes `$HOME/.apps/os.lazy.webkit` (mode `0700`), puts a website data store
+there (`cache/`, `cookies/cookie.jar.db`, `storage/*`), names it in `LAZYOS_WEBKIT_PROFILE` and
+`CURL_COOKIE_JAR_PATH` for the children and starts them in it; patch `0015` points WebKit's own defaults
+(the directories the C API cannot set: HSTS, alternative services, ...) at it instead of `/app0`. Without a
+`$HOME` the browser keeps nothing (an ephemeral store), never a file in the working directory.
+
+*If an engine process crashes.* The UI process ignores `SIGPIPE`, so the dead process's socket cannot end the
+window, and `webProcessDidCrash` blanks the page and says so (Reload starts a new WebProcess). A page that
+exhausts the machine's memory ends the WebProcess with `SIGSEGV` today and with `SIGKILL` once #823 lands; either
+way only that process dies.
+
+*What this is not.* The UI process is unconfined (a bug in it, in the IPC types the WebProcess controls, or in
+the window crate is the way from a compromised page to the user's session); an ordinary app label's `files`
+and `network` stay consent text (`docs/architecture/process-sandbox.md`, *Residual gaps*); a confined process
+is still the user's uid, so a kernel bug in a syscall it can make is a way out (there is no syscall filter beyond
+"not implemented"); the processes are 107 MB each and share nothing with each other but the IPC. LazyWeb (Blitz,
+no script engine) stays the browser LazyOS ships.
+
+*Verified.* The kernel suite `confine_*` (every gate through the Linux ABI and the native calls, a soak),
+`cargo test -p filepolicy -p pkgstore` and `python tools/webkit/attack_run.py --kernel`, which runs a probe
+program as the page process and as the network process under labels loaded the way `pkgd` loads them and requires
+every attack to be refused with a `LABEL:DENY` line and the needed accesses to work.
+
+*The real engine under the tables (one experiment).* The tables were also tried on the real engine, with a
+stand-in for the package manager's child-label rule: a local, uncommitted change to `sys_execve` that stamped
+`app:os.lazy.sandbox-web` and `app:os.lazy.sandbox-net` (labels loaded with exactly the manifest's `files`, the
+attack driver's `WEB_FILES` and `NETWORK_FILES`, which `test_attack_judge.py` pins to the manifest) when the
+headless UI process (`webkit-smoke`, as `user`, in an image with `LAZYOS_LABEL_TRACE=1`) executed
+`/system/bin/webprocess` and `/system/bin/networkprocess`. The run painted the page: `WEBKIT:W4:PASS`, the title,
+the 800x600 paint and the ink all as in an unconfined run. The label trace printed seven lines, none of which
+stopped anything: the WebProcess's `stat` of `/etc/localtime`, `/etc` and `/usr/share/zoneinfo` (ICU's time zone
+lookup falls back to UTC), its `read` of `/build/webkit-deps/prefix/share/fontconfig/conf.avail` (a configuration
+directory baked in at build time, absent in the image) and the NetworkProcess's `stat` of `/etc/ssl/openssl.cnf`
+(OpenSSL's optional configuration). The tables therefore stay as they are: none of those is worth a rule.
+**Not yet verified on the real engine:** the launch through `pkgd` and the package manager's child-label support
+(`python tools/webkit/app_run.py --label-trace` must print `WEBKIT:W5:HARNESS:PASS` with no `LABEL:DENY` of
+`app:os.lazy.webkit/*` other than those lines; `python tools/webkit/attack_run.py --browser` needs the same),
+and the NetworkProcess on a real load (the experiment loaded `about:blank` and a `data:` URL: the resolver,
+the CA bundle and the cookie jar were never touched by the engine, only by the probe's stand-in).
 
 *Not verified.* HiDPI (the page is laid out in physical pixels at device scale 1, so text is small at 2x), a
-WebProcess crash or a failed launch in the guest (see *Failures*), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
+WebProcess crash or a failed launch in the guest (see *Failures*; the attack harness's stand-ins exit, they do
+not crash), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
 context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
-permissions as a minimal set (the manifest was derived from a run with `LABEL:DENY` tracing; see below), a
-real PC, and a second window.
+sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* above), a real PC, and a second window.
 
 ### W6. LazyWeb+ (built)
 
@@ -715,6 +765,14 @@ docs/lazywebplus.md.
   in WTF's `FileSystem` too (not yet exercised); expect more of the same
   until the kernel can map a file read-only and private.
 * **Process spawning: done.** Fork and exec, `ProcessLauncherLazyOS.cpp`; both children came up on the first run.
+* **The sandbox: done (issue #832), with a kernel dependency to remember.** The WebProcess and NetworkProcess run
+  under confined labels (§5 W5, *Security*; `docs/architecture/process-sandbox.md`). Two things in this plan now
+  touch it: **file-backed `mmap`**, when the kernel gets it, must take its permission from the descriptor it maps
+  (opened under the label) and never resolve a path again, or it is a way around the file gate; and any **new
+  syscall WebKit needs** (`ptrace`-like debugging, `process_vm_*`, `io_uring`, a second `socket` family) is
+  `ENOSYS` today, and a test pins that: implementing one means deciding what a confined label may do with it.
+  The label trace (`LAZYOS_LABEL_TRACE=1`) is how a refused call a page needs shows up: `app_run.py --label-trace`
+  lists them, and the table in the manifest is then widened by the least that works.
 * **Threads per process.** JSC alone starts a dozen; `task_max` is per
   machine, and a desktop session already holds a few dozen slots. The
   `bigapp` numbers are for a console image; measure a logged-in desktop.

@@ -54,7 +54,13 @@ pub fn intern_dedup_and_charset() -> Result<(), String> {
         "app:Com.Example",
         "app:com example",
         "app:com_example",
-        "app:com/example",
+        // A slash makes a child label, whose app must be interned first
+        // (`children.rs`); these are no child at all.
+        "app:com//example",
+        "app:com/example/more",
+        "app:/example",
+        "dev:com/example",
+        "system:netdrv/x",
         "app:com.example:x",
         "app:.com",
         "app:com.",

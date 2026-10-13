@@ -38,11 +38,23 @@ it through `mimed`. A page's script can never start another program: only your c
 LazyWeb and LazyWeb+ both register `http`, `https` and HTML files; `user/<uid>/mimed/default/<type>`
 (Settings, Default apps) says which one opens them.
 
-## Not sandboxed
+## Sandboxed
 
-This browser has no sandbox yet. The process that runs a page (with JavaScript and its JIT) has the
-permissions of the app (the display, input, outbound network, your Downloads and this app's folder)
-and runs as you, so use it for pages you trust. LazyWeb is the safer choice for the rest.
+The two processes that do the work run in sandboxes of their own, and LazyOS enforces them, not WebKit:
+
+* **The page process** (the one that runs a page's JavaScript with its JIT) can read the font files and
+  nothing else. It has no network, no access to your files, no window or input device, no way to start a
+  program and no way to signal another process. If a page exploits the engine, that is all it gets.
+* **The network process** can use the network, read the system's resolver and certificate list, write
+  inside the browser's own folder (`.apps/os.lazy.lazywebplus` in your home folder: cookies, site
+  storage) and in your Downloads folder (a download is saved there first as `<name>.part`). It has no
+  window, no input and no other file.
+* **This window** is an ordinary app: it draws, forwards your keys and clicks, keeps the history and
+  starts the two.
+
+The sandbox is not a reason to open anything: a bug in this window or in the messages the page process
+sends it is still a way out, and the page process runs as you. LazyWeb, which has no script engine, stays
+the browser LazyOS ships.
 
 ## Licence
 

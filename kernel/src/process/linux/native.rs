@@ -41,7 +41,7 @@ use crate::process::spawnv::{ARGC_MAX, ARGV_MAX};
 use crate::task::signal::{self, SigInfo};
 use crate::task::{self, FdKind, SpawnError, WakeReason};
 
-use super::errno::{err, fs_err, E2BIG, EAGAIN, ENOENT, ENOEXEC, ENOMEM, ESRCH};
+use super::errno::{err, fs_err, E2BIG, EAGAIN, ENOENT, ENOEXEC, ENOMEM, EPERM, ESRCH};
 use super::procctl::sys_exit_group;
 
 /// The native programs in `/system/bin` a shell can run, each found by its
@@ -261,6 +261,11 @@ pub(crate) fn spawn<A: AsRef<[u8]>, I: crate::process::image::Image + ?Sized>(
     elf: &I,
     argv: &[A],
 ) -> Result<usize, u64> {
+    // A confined label starts no program, native ones included (the file
+    // gate has normally refused the program's path before this).
+    if !crate::ipc::confine::may_spawn() {
+        return Err(EPERM);
+    }
     let slot = task::spawn_child_inheriting_fds(fhs::bin::name(file), elf).map_err(spawn_errno)?;
     // Set before the child can run: the syscall path holds interrupts off, so
     // no tick can schedule the child between the spawn and this store.

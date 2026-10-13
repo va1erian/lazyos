@@ -48,7 +48,7 @@ with host tests and in the recording engine; the table with the WebKit side is i
 |---|---|
 | Features, marker prefix, profile directory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir` |
 | Committed URL, the padlock, how a load ended | `lzw_ui_state` grows `committed_url`, `secure`, `finished` |
-| Link under the pointer, pointer shape | `lzw_ui_hover`, `lzw_ui_cursor` (patch `0015` teaches WebKit's PlayStation view the I-beam, wait and resize arrows) |
+| Link under the pointer, pointer shape | `lzw_ui_hover`, `lzw_ui_cursor` (patch `0016` teaches WebKit's PlayStation view the I-beam, wait and resize arrows) |
 | Navigation policy | `lzw_ui_navigate(url, kind, user_gesture, committed_url)` |
 | Downloads | `lzw_ui_download_start`, `_progress`, `_done`, `_fail`; `lzw_engine_download`, `lzw_engine_download_cancel` |
 | `alert`, `confirm`, `prompt` | `lzw_ui_dialog` (returns at once), `lzw_engine_dialog_reply` |
@@ -124,12 +124,18 @@ ships both: LazyWeb+ is opt-in.
 
 ## Permissions
 
-`os.lazy.display.v1`, `os.lazy.display.cursor.v1`, `os.lazy.input.v1`, `os.lazy.mimed.v1`,
-`os.lazy.notify.v1`, outbound network, and `write:$HOME/.apps/os.lazy.lazywebplus` and
-`write:$HOME/Downloads`, derived from a `--label-trace` run of the harness with no `LABEL:DENY`. The
-WebProcess and NetworkProcess are children and run under the app's label. **The WebProcess is not sandboxed**
-(W5's *Security* section stands): code that escapes the engine is not held to the label. Open only pages you
-trust; LazyWeb is the browser LazyOS ships.
+The app: `os.lazy.display.v1`, `os.lazy.display.cursor.v1`, `os.lazy.input.v1`, `os.lazy.mimed.v1`,
+`os.lazy.notify.v1`, outbound network, `write:$HOME/.apps/os.lazy.lazywebplus` and `write:$HOME/Downloads`
+and the reads the children need, derived from a `--label-trace` run of the harness. The two engine processes
+run **sandboxed** like W5's ([`architecture/process-sandbox.md`](architecture/process-sandbox.md), #836): the
+manifest's `[processes.webprocess]` and `[processes.networkprocess]` tables give `/system/bin/webprocess` and
+`/system/bin/networkprocess` the labels `app:os.lazy.lazywebplus/<name>`, which the kernel enforces for files,
+sockets, process creation, signals and inherited descriptors. The page process reads fonts and nothing else;
+the network process reads the resolver, the host table and the CA bundle, uses outbound sockets and writes the
+profile folder and `$HOME/Downloads` (the `.part` file of a download is its to write; the window renames it).
+Anything the UI process passes to the children is a socket. The UI process is an ordinary app: its file and
+network entries are consent text, not enforced. A bug in the window, or in what the page process sends it, is
+still a way out, and the children run as the user. LazyWeb stays the browser LazyOS ships.
 
 ## Licence
 

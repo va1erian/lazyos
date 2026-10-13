@@ -138,6 +138,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_X2APIC` | Switch the APIC to x2APIC mode itself. | - |
 | `LAZYOS_TLS_TEST_CA` | Extra CA appended to the bundle. Harness only, never a normal image. | - |
 | `LAZYOS_TLS_TEST_HOSTS` | Host-name mappings appended to `/etc/hosts`. Harness only. | - |
+| `LAZYOS_WEBKIT_ATTACK` | With `LAZYOS_WEBKIT=1`, ship the sandbox attack stand-in as `WebProcess` and `NetworkProcess` (`tools/webkit/attack_run.py`). Harness only, never a normal image: no `run_demo.py` flag, no GUI control. | - |
 
 ## Dependencies the build enforces
 

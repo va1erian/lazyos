@@ -38,9 +38,33 @@ fn load_request_round_trips() {
             rule(u64::MAX, u32::MAX, false),
             rule(0, 0, true),
         ],
+        program: None,
     };
     let bytes = policy::encode_load_label_args(&request).unwrap();
     assert_eq!(policy::decode_load_label_args(&bytes).unwrap(), request);
+}
+
+#[test]
+fn a_child_label_request_carries_its_program() {
+    let request = policy::LoadLabelArgs {
+        label: "app:com.example.notes/helper".into(),
+        rules: vec![rule(names::INTERFACE_ID, 0x1234_5678, true)],
+        program: Some("/system/bin/helper".into()),
+    };
+    let bytes = policy::encode_load_label_args(&request).unwrap();
+    let decoded = policy::decode_load_label_args(&bytes).unwrap();
+    assert_eq!(decoded, request);
+    assert_eq!(decoded.program.as_deref(), Some("/system/bin/helper"));
+    // No program decodes as none, never as an empty path.
+    let plain = policy::LoadLabelArgs {
+        program: None,
+        ..request
+    };
+    let bytes = policy::encode_load_label_args(&plain).unwrap();
+    assert_eq!(
+        policy::decode_load_label_args(&bytes).unwrap().program,
+        None
+    );
 }
 
 #[test]
@@ -48,6 +72,7 @@ fn an_empty_rule_list_is_a_valid_revoke() {
     let request = policy::LoadLabelArgs {
         label: "app:com.example.notes".into(),
         rules: Vec::new(),
+        program: None,
     };
     let bytes = policy::encode_load_label_args(&request).unwrap();
     let decoded = policy::decode_load_label_args(&bytes).unwrap();
@@ -60,6 +85,7 @@ fn truncated_bodies_are_rejected_not_misread() {
     let request = policy::LoadLabelArgs {
         label: "system:netdrv".into(),
         rules: vec![rule(7, 9, true), rule(8, 10, true)],
+        program: None,
     };
     let bytes = policy::encode_load_label_args(&request).unwrap();
     for cut in 1..bytes.len() {
