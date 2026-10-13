@@ -39,9 +39,12 @@
 //! IDE's spawn into a `dev:` label ([`LabelStamp::Develop`],
 //! [`super::devspawn`], issue #529): no `CAP_SETUID`, but the caller's own
 //! label rules must allow that exact label, and the child keeps the caller's
-//! uid, gid, session and (at most) capabilities. Children inherit their
-//! creator's label like the rest of the credential, which keeps an app's
-//! helpers inside its sandbox.
+//! uid, gid, session and (at most) capabilities. The last is an app's `execve`
+//! of one of its declared helper programs ([`LabelStamp::Child`],
+//! [`super::children`], issue #832): the image takes the narrower child label
+//! bound to that path, and nothing else of the credential changes. Children
+//! inherit their creator's label like the rest of the credential, which keeps
+//! an app's helpers inside its sandbox.
 //!
 //! A task created by another task (`fork`, `clone`, the native `spawn`) starts
 //! with a copy of its creator's credentials ([`inherit`]); only a program the
@@ -327,6 +330,11 @@ pub enum LabelStamp {
     /// `CAP_SETUID`, but the caller's rules must allow the label and the child
     /// keeps the caller's identity, capabilities at most narrowed.
     Develop,
+    /// An `execve` of a child's program by a task of the app's own label
+    /// ([`super::children`], issue #832): the task, which is both actor and
+    /// target, takes the child label bound to that program, keeping its whole
+    /// identity.
+    Child,
 }
 
 /// Validate a transition without applying or auditing it.
@@ -350,6 +358,9 @@ pub fn check_stamp(
     if label == LabelStamp::Develop {
         return super::devspawn::recheck(&actor, &requested).map_err(TransitionError::from);
     }
+    if label == LabelStamp::Child {
+        return super::children::recheck(&actor, &requested);
+    }
     if !actor.has_cap(CAP_SETUID) {
         return Err(TransitionError::NotPrivileged);
     }
@@ -367,7 +378,7 @@ pub fn check_stamp(
             requested.label_id != 0 && (actor.label_id == 0 || actor.label_id == requested.label_id)
         }
         // Decided above.
-        LabelStamp::Develop => false,
+        LabelStamp::Develop | LabelStamp::Child => false,
     };
     if !label_ok {
         return Err(TransitionError::LabelLocked);

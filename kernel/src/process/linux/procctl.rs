@@ -115,6 +115,10 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
         };
         task::spawn_thread_sharing("thread", stack, fs_base, clear, share)
     } else {
+        // Not a thread: a program start, which a child label never makes.
+        if !crate::ipc::children::may_start(task::current(), "vfork") {
+            return err(EPERM);
+        }
         task::spawn_vfork(stack)
     };
     // Collect exits the scheduler already flagged before deciding the table is
@@ -177,6 +181,11 @@ fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
 }
 
 pub(super) fn sys_fork() -> u64 {
+    // A new process in a child label (issue #832) would be a way to start
+    // programs by the back door: refused like `execve`.
+    if !crate::ipc::children::may_start(task::current(), "fork") {
+        return err(EPERM);
+    }
     match task::spawn_fork() {
         Ok(index) => index as u64,
         Err(_) => err(ENOMEM),
@@ -186,6 +195,11 @@ pub(super) fn sys_fork() -> u64 {
 /// `execve(path, argv, envp)`: replace the current image with `path`'s ELF (or,
 /// for a `#!` script, its interpreter's) and resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
+    // A task in a child label (`app:<id>/<name>`, issue #832) never starts a
+    // program, this one included.
+    if !crate::ipc::children::may_start(task::current(), "execve") {
+        return err(EPERM);
+    }
     let raw = match read_path(path_ptr) {
         Ok(raw) => raw,
         Err(code) => return code,
@@ -227,6 +241,13 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Ok(started) => started,
         Err(error) => return err(error.errno()),
     };
+
+    // A helper program of a labelled app takes its child label here (issue
+    // #832): the image is loaded and nothing below can fail, so a refusal is
+    // still a failed `execve` and the process never runs wider than intended.
+    if crate::ipc::children::enter_on_exec(task::current(), &image.path).is_err() {
+        return err(EPERM);
+    }
 
     // The image is committed. Record the program (`/proc/self/exe`), which
     // also stops sharing the descriptor table with the old threads, then close

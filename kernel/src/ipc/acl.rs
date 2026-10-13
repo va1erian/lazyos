@@ -67,6 +67,12 @@ pub mod reason {
     /// A topic or filter that reaches into another uid's private
     /// `user/<uid>/` namespace (`ipc::topics::private`, issue #407).
     pub const PRIVATE_NAMESPACE: u32 = 12;
+    /// A task in a child label (`app:<id>/<name>`, issue #832) tried to start
+    /// a program: `execve`, `fork`, a `vfork`-style `clone` or `spawnv`.
+    pub const CHILD_MAY_NOT_START: u32 = 13;
+    /// A child label's rules asked for a call its app's rules do not allow
+    /// (`ipc::children`, issue #832); the load was refused.
+    pub const CHILD_WIDENS_APP: u32 = 14;
 }
 
 /// Most rules one label may hold.
@@ -194,7 +200,45 @@ pub fn label_rules_total() -> usize {
 
 /// Evaluate a call by a task labelled `label_id`: first matching rule of its
 /// label wins, and no match is a default deny. There is no bootstrap allow.
+///
+/// A child label (`app:<id>/<name>`, issue #832) is judged by its own rules
+/// *and then* by its app's: the call is allowed only when both allow it, so a
+/// child never holds more than the app does, whatever was loaded for it, and
+/// revoking the app revokes its children in the same instant.
 pub fn evaluate_label(label_id: u32, interface_id: u64, method: u32) -> (Decision, u32) {
+    let own = evaluate_rules(label_id, interface_id, method);
+    if own.0.denied() {
+        return own;
+    }
+    match super::labels::parent_of(label_id) {
+        Some(parent) => {
+            let held = evaluate_rules(parent, interface_id, method);
+            if held.0.denied() {
+                held
+            } else {
+                own
+            }
+        }
+        None => own,
+    }
+}
+
+/// Whether every allow rule of `rules` is something `parent`'s loaded rules
+/// allow (first match wins, so a deny ahead of an allow counts). A rule with
+/// a wildcard is covered only by a wildcard at least as wide: the check runs
+/// the rule's own `(interface, method)` through the parent's rules as written.
+/// This is the load-time half of the child rule; [`evaluate_label`] is the
+/// call-time half.
+pub fn covered_by(parent: u32, rules: &[Rule]) -> bool {
+    rules.iter().filter(|rule| rule.allow).all(|rule| {
+        !evaluate_rules(parent, rule.interface_id, rule.method)
+            .0
+            .denied()
+    })
+}
+
+/// The rules of exactly one label, first match wins.
+fn evaluate_rules(label_id: u32, interface_id: u64, method: u32) -> (Decision, u32) {
     let policy = LABEL_POLICY.lock();
     for rule in policy.iter() {
         if rule.actor == label_id && rule.matches(label_id, interface_id, method) {
