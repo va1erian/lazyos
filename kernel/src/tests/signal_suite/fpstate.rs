@@ -159,9 +159,17 @@ pub fn fpstate_forged_images() -> Result<(), String> {
     );
     let (_, mxcsr) = live();
     settle();
+    // The kernel masks with the CPU's own `MXCSR_MASK`, which is 0xffff on
+    // Intel and 0x2ffff on AMD (bit 17, the misaligned-exception mask): the
+    // valid set is the CPU's to define, so assert against it, not a constant.
+    let mask = crate::arch::cpu::mxcsr_mask();
     check!(
-        mxcsr & 0xffff_0000 == 0,
-        "reserved MXCSR bits survived: {mxcsr:#x}"
+        mask & 0xffff_0000 & !(1 << 17) == 0,
+        "unexpected MXCSR_MASK {mask:#x}"
+    );
+    check!(
+        mxcsr & !mask == 0,
+        "reserved MXCSR bits survived: {mxcsr:#x} (mask {mask:#x})"
     );
     Ok(())
 }
