@@ -61,6 +61,15 @@
 
 namespace {
 
+// The build sets these from libs/fhs (tools/webkit/port_cmake.py, WebKit/PlatformLazyOS.cmake).
+// The shipped browser execs exactly these: no environment variable chooses what it runs.
+#ifndef LAZYOS_WEBPROCESS_PATH
+#error "LAZYOS_WEBPROCESS_PATH must name the image's webprocess (libs/fhs)"
+#endif
+#ifndef LAZYOS_NETWORKPROCESS_PATH
+#error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
+#endif
+
 constexpr int kInitialWidth = 1000;
 constexpr int kInitialHeight = 500;
 
@@ -396,12 +405,6 @@ void titleChanged(const void*)
     postState();
 }
 
-std::string environment(const char* name, const char* fallback)
-{
-    const char* value = getenv(name);
-    return value && *value ? value : fallback;
-}
-
 } // namespace
 
 extern "C" {
@@ -410,8 +413,8 @@ int lzw_engine_start(void)
 {
     elapsedMs();
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();
-    WKStringRef webPath = WKStringCreateWithUTF8CString(environment("LAZYOS_WEBPROCESS", "/system/bin/webprocess").c_str());
-    WKStringRef networkPath = WKStringCreateWithUTF8CString(environment("LAZYOS_NETWORKPROCESS", "/system/bin/networkprocess").c_str());
+    WKStringRef webPath = WKStringCreateWithUTF8CString(LAZYOS_WEBPROCESS_PATH);
+    WKStringRef networkPath = WKStringCreateWithUTF8CString(LAZYOS_NETWORKPROCESS_PATH);
     WKContextConfigurationSetWebProcessPath(configuration, webPath);
     WKContextConfigurationSetNetworkProcessPath(configuration, networkPath);
     // One WebProcess for every page, started with the view: a cross-site navigation does not get

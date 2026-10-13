@@ -182,5 +182,6 @@ if (LAZYOS_UI_LIBRARY)
         "${LAZYOS_PORT_DIR}/app/engine.cpp"
     )
     target_include_directories(webkit-app PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
+    target_compile_definitions(webkit-app PRIVATE ${_lazyos_program_definitions})
     target_link_libraries(webkit-app PRIVATE WebKit "${LAZYOS_UI_LIBRARY}")
 endif ()
