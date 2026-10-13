@@ -78,8 +78,8 @@ class CorePackageTests(unittest.TestCase):
             else:
                 self.assertIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
                 # `SetCursor` (docs/cursor-plan.md): every client window asks
-                # for its pointer shape, and a label without the scope gets one
-                # `LABEL:DENY` per run.
+                # for its pointer shape, and a label without the scope has the
+                # call refused once per run (a traced run reports it).
                 self.assertIn("os.lazy.display.cursor.v1", manifest["permissions"]["interfaces"], short)
             self.assertTrue((core_packages.SOURCES / short / "docs" / "README.md").is_file())
 
