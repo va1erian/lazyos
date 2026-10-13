@@ -2,7 +2,7 @@
 //! ticks, and fork/exit churn that must not leak timers or signal state.
 
 use super::*;
-use crate::task::itimer::{self, Kind, Notify};
+use crate::task::itimer::{self, Caller, Kind, Notify};
 use crate::task::signal::SIGALRM;
 
 /// A tiny deterministic generator so a failing round reproduces.
@@ -41,13 +41,14 @@ pub fn arm_disarm() -> Result<(), String> {
             0 => {
                 let kind = [Kind::Real, Kind::Virtual, Kind::Prof][(rng.next() % 3) as usize];
                 let value = rng.next() % 3 * NS / 2;
-                itimer::set_interval(pml4, 1, kind, t, value, value / 2)
+                itimer::set_interval(pml4, 1, Caller::KERNEL, kind, t, value, value / 2)
                     .map_err(|e| format!("round {round}: set_interval {e:?}"))?;
             }
             1 => {
                 if ids[which].len() < 20 {
-                    let id = itimer::create(pml4, 1, Notify::Process, SIGALRM, None, 1)
-                        .map_err(|e| format!("round {round}: create {e:?}"))?;
+                    let id =
+                        itimer::create(pml4, 1, Caller::KERNEL, Notify::Process, SIGALRM, None, 1)
+                            .map_err(|e| format!("round {round}: create {e:?}"))?;
                     ids[which].push(id);
                 }
             }
@@ -98,11 +99,13 @@ pub fn many_ticks() -> Result<(), String> {
     let before = itimer::fired_total();
     for step in 1..=2000u64 {
         itimer::fire_due(start + step * 50_000_000);
+        signal::harness::clear_pending(p);
     }
     let fired = itimer::fired_total() - before;
     check!(fired == 2000, "2000 periods sent {fired} signals");
     for _ in 0..2000 {
         task::itimer_tick_for_test(1, step_is_user());
+        signal::harness::clear_pending(p);
     }
     let fired = itimer::fired_total() - before - 2000;
     check!(

@@ -2,7 +2,7 @@
 //! expiry, the CPU-time timers, fork and exec.
 
 use super::*;
-use crate::task::itimer::{self, Kind};
+use crate::task::itimer::{self, Caller, Kind};
 use crate::task::signal::{SIGALRM, SIGPROF, SIGVTALRM};
 
 const ITIMER_REAL: u64 = 0;
@@ -71,9 +71,10 @@ pub fn setitimer_validation() -> Result<(), String> {
             "{bad:?} accepted"
         );
     }
+    // A NULL `new` is a zero itimerval (it disarms), as on Linux.
     check!(
-        process::linux::dispatch_for_test(SYS_SETITIMER, 0, 0, 0) != 0,
-        "NULL new accepted"
+        process::linux::dispatch_for_test(SYS_SETITIMER, 0, 0, 0) == 0,
+        "NULL new refused"
     );
     check!(
         setitimer(ITIMER_REAL, &ok, None) == 0,
@@ -127,6 +128,9 @@ pub fn interval_reloads() -> Result<(), String> {
         interval == 10_000_000 && left > 0 && left <= 30_000_000,
         "after a fire: {left} ns left, interval {interval}"
     );
+    // The first signal is still pending: delivery is what lets a repeating
+    // timer signal again.
+    signal::harness::clear_pending(p);
     itimer::fire_due(start + 500_000_000);
     check!(
         itimer::fired_total() == before + 2,
@@ -197,10 +201,20 @@ pub fn not_inherited() -> Result<(), String> {
 pub fn exec_semantics() -> Result<(), String> {
     fresh()?;
     let (old, new) = (0x1000_u64, 0x2000_u64);
-    itimer::set_interval(old, 1, Kind::Real, now(), 5 * NS, 0).map_err(|e| format!("{e:?}"))?;
-    itimer::set_interval(old, 1, Kind::Prof, now(), NS, NS).map_err(|e| format!("{e:?}"))?;
-    let id = itimer::create(old, 1, itimer::Notify::Process, SIGALRM, None, 1)
+    itimer::set_interval(old, 1, Caller::KERNEL, Kind::Real, now(), 5 * NS, 0)
         .map_err(|e| format!("{e:?}"))?;
+    itimer::set_interval(old, 1, Caller::KERNEL, Kind::Prof, now(), NS, NS)
+        .map_err(|e| format!("{e:?}"))?;
+    let id = itimer::create(
+        old,
+        1,
+        Caller::KERNEL,
+        itimer::Notify::Process,
+        SIGALRM,
+        None,
+        1,
+    )
+    .map_err(|e| format!("{e:?}"))?;
     itimer::settime(old, id, now(), Some(now() + NS), 0).map_err(|e| format!("{e:?}"))?;
     itimer::exec(old, new);
     let real = itimer::get_interval(new, Kind::Real, now());

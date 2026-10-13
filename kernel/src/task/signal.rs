@@ -78,6 +78,7 @@ pub use frames::*;
 use registry::*;
 pub use registry::{
     ensure_process, exec_thread, forget, fork_inherit, registry_locked, thread_born,
+    thread_generation,
 };
 pub use types::*;
 

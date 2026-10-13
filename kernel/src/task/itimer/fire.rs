@@ -1,23 +1,33 @@
-//! Expiry: collecting the due timers under the table lock and sending their
-//! signals after it (see the module docs of [`super`]).
+//! Expiry: collecting the due timers under the table lock, deciding and
+//! sending their signals after it (see the module docs of [`super`]).
+//!
+//! An expiry goes through three steps: the table lock pops the due timers and
+//! re-arms the repeating ones ([`Table::fired`]); with no table lock the
+//! target's signal state says whether the signal is worth sending
+//! ([`signal::timer_gate`]: not when it is already pending or ignored); and
+//! one more table pass books the outcome (the timer's overrun count).
 
 use core::sync::atomic::Ordering;
 
-use super::{next_deadline, with_table, Kind, Notify, Table, CPU_ARMED, FIRED, MAX_TIMERS};
-use crate::task::signal;
+use super::{next_deadline, with_table, Kind, Notify, Table, CPU_ARMED, FIRED, INTERVAL_POOL};
+use crate::task::signal::{self, TimerGate};
 use crate::task::{TaskState, MAX_TASKS, TASKS};
 
 /// A signal due from a timer, collected under the lock and sent after it.
 #[derive(Clone, Copy)]
 struct Fire {
+    /// The timer's slot, and what identifies it there (a slot may be freed
+    /// and reused while the signal is decided).
+    index: usize,
     pml4: u64,
+    kind: Kind,
+    id: i32,
     owner: usize,
     notify: Notify,
     signo: u8,
-    kind: Kind,
-    id: i32,
     value: u64,
-    overrun: u32,
+    /// Periods that passed unserved before this expiry.
+    missed: u32,
 }
 
 /// Most expirations collected per pass; a pass repeats while more are due.
@@ -25,7 +35,7 @@ const BATCH: usize = 8;
 
 impl Table {
     /// Record timer `index` as fired at `now_ns`, re-arm it if it repeats,
-    /// and describe the signal to send.
+    /// and describe the expiry.
     fn fired(&mut self, index: usize, now_ns: u64) -> Fire {
         let timer = &mut self.timers[index];
         let mut missed = 0u64;
@@ -43,17 +53,46 @@ impl Table {
                 timer.armed = false;
             }
         }
-        let timer = &mut self.timers[index];
-        timer.overrun = missed.min(i32::MAX as u64) as u32;
+        self.describe(index, missed)
+    }
+
+    fn describe(&self, index: usize, missed: u64) -> Fire {
+        let timer = &self.timers[index];
         Fire {
+            index,
             pml4: timer.pml4,
+            kind: timer.kind,
+            id: timer.id,
             owner: timer.owner,
             notify: timer.notify,
             signo: timer.signo,
-            kind: timer.kind,
-            id: timer.id,
             value: timer.value,
-            overrun: timer.overrun,
+            missed: missed.min(i32::MAX as u64) as u32,
+        }
+    }
+
+    /// Book what happened to the signal of `fire`: sent (it carried the
+    /// periods it missed) or suppressed (one more expiry without a signal).
+    fn book(&mut self, fire: &Fire, sent: bool) {
+        let Some(timer) = self.timers.get_mut(fire.index) else {
+            return;
+        };
+        if !(timer.used
+            && timer.pml4 == fire.pml4
+            && timer.kind == fire.kind
+            && timer.id == fire.id)
+        {
+            return;
+        }
+        if sent {
+            timer.overrun_last = fire.missed;
+            timer.overrun = 0;
+        } else {
+            timer.overrun = timer
+                .overrun
+                .saturating_add(fire.missed)
+                .saturating_add(1)
+                .min(i32::MAX as u32);
         }
     }
 }
@@ -79,12 +118,18 @@ pub fn fire_due(now_ns: u64) {
                 }
             }
         });
-        for fire in batch.iter().flatten() {
-            send(fire);
-        }
+        deliver(&batch);
         if count < BATCH {
             return;
         }
+    }
+}
+
+/// [`fire_due`] at the current time. The clock is read only when a timer is
+/// armed at all, so the scheduler's hot path pays one atomic load.
+pub fn fire_due_now() {
+    if next_deadline().is_some() {
+        fire_due(crate::arch::clock::monotonic_ns());
     }
 }
 
@@ -97,7 +142,7 @@ pub fn charge_cpu(pml4: u64, ns: u64, user: bool) {
     let mut batch = [None; BATCH];
     let mut count = 0;
     with_table(|table| {
-        for index in 0..MAX_TIMERS {
+        for index in 0..INTERVAL_POOL {
             if count == BATCH {
                 break;
             }
@@ -121,24 +166,11 @@ pub fn charge_cpu(pml4: u64, ns: u64, user: bool) {
                 timer.remaining_ns = 0;
                 table.cpu_armed -= 1;
             }
-            let timer = &mut table.timers[index];
-            timer.overrun = 0;
-            batch[count] = Some(Fire {
-                pml4,
-                owner: timer.owner,
-                notify: timer.notify,
-                signo: timer.signo,
-                kind: timer.kind,
-                id: timer.id,
-                value: timer.value,
-                overrun: 0,
-            });
+            batch[count] = Some(table.describe(index, 0));
             count += 1;
         }
     });
-    for fire in batch.iter().flatten() {
-        send(fire);
-    }
+    deliver(&batch);
 }
 
 /// The live thread of process `pml4` a process-directed timer signal is
@@ -157,22 +189,56 @@ fn live_thread(pml4: u64, owner: usize) -> Option<usize> {
     (1..MAX_TASKS).find(|&slot| live(slot))
 }
 
-/// Queue the signal of `fire`: through the signal layer, so a blocked
-/// target is interrupted and a handler or default action runs at the
-/// boundary back to ring 3.
-fn send(fire: &Fire) {
-    let (thread_directed, target) = match fire.notify {
-        Notify::None => return,
-        Notify::Process => (false, live_thread(fire.pml4, fire.owner)),
-        Notify::Thread(slot) => (true, live_thread(fire.pml4, slot).filter(|&s| s == slot)),
-    };
-    let Some(target) = target else {
+/// What to do with `fire`: the thread to signal and whether the signal is
+/// thread-directed, or `None` (no live target, or `SIGEV_NONE`).
+fn target_of(fire: &Fire) -> Option<(usize, bool)> {
+    match fire.notify {
+        Notify::None => None,
+        Notify::Process => live_thread(fire.pml4, fire.owner).map(|slot| (slot, false)),
+        Notify::Thread { slot, generation } => live_thread(fire.pml4, slot)
+            .filter(|&live| live == slot && signal::thread_generation(slot) == generation)
+            .map(|slot| (slot, true)),
+    }
+}
+
+/// Decide each collected expiry, send the signals that are worth sending,
+/// and book the outcomes in one table pass.
+fn deliver(batch: &[Option<Fire>; BATCH]) {
+    let mut sent = [false; BATCH];
+    for (slot, fire) in batch.iter().enumerate() {
+        let Some(fire) = fire else {
+            continue;
+        };
+        let Some((target, thread_directed)) = target_of(fire) else {
+            continue;
+        };
+        match signal::timer_gate(fire.pml4, target, fire.signo, thread_directed) {
+            TimerGate::Send => {
+                let info = match fire.kind {
+                    Kind::Posix => {
+                        signal::SigInfo::timer(fire.id as usize, fire.missed, fire.value)
+                    }
+                    _ => signal::SigInfo::kernel(),
+                };
+                FIRED.fetch_add(1, Ordering::Relaxed);
+                signal::send_timer(target, fire.signo, info, thread_directed);
+                sent[slot] = true;
+            }
+            // Pending: the expiry only counts. Ignored: it counts too (a
+            // handler installed later still sees the overrun).
+            TimerGate::Pending | TimerGate::Ignored => {}
+        }
+    }
+    if batch.iter().all(Option::is_none) {
         return;
-    };
-    let info = match fire.kind {
-        Kind::Posix => signal::SigInfo::timer(fire.id as usize, fire.overrun, fire.value),
-        _ => signal::SigInfo::kernel(),
-    };
-    FIRED.fetch_add(1, Ordering::Relaxed);
-    signal::send_timer(target, fire.signo, info, thread_directed);
+    }
+    with_table(|table| {
+        for (slot, fire) in batch.iter().enumerate() {
+            if let Some(fire) = fire {
+                if fire.notify != Notify::None {
+                    table.book(fire, sent[slot]);
+                }
+            }
+        }
+    });
 }

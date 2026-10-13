@@ -36,17 +36,30 @@ pub fn set_pml4(value: u64) {
                 other != me && task.as_ref().is_some_and(|task| task.pml4 == *old)
             })
     });
+    // Another *live* thread still in the old address space (an `execve` from
+    // one thread of several; its siblings are not stopped yet): the process's
+    // timers stay where they are for them.
+    let shared_live = old.is_some_and(|old| {
+        tasks.iter().enumerate().any(|(other, task)| {
+            other != me
+                && task
+                    .as_ref()
+                    .is_some_and(|task| task.pml4 == old && task.state != TaskState::Done)
+        })
+    });
     drop(tasks);
     // A kill that reached the task while it loaded the new image must still
     // end it: the old table's signal state is about to be dropped.
     if let Some(old) = old.filter(|old| *old != value) {
         signal::carry_kill(old, value);
-        // Interval timers survive an exec (the process is the same); POSIX
-        // timers do not.
-        super::itimer::exec(old, value);
         // The thread keeps its blocked mask and pending signals across the
         // exec (as on Linux), but not its alternate stack.
         signal::exec_thread(me);
+        // Interval timers survive an exec (the process is the same); POSIX
+        // timers do not. Only when no sibling still lives in the old space.
+        if !shared_live {
+            super::itimer::exec(old, value);
+        }
     }
     if let Some(old) = orphaned {
         // Guard against freeing whatever `CR3` currently points at (only

@@ -9,8 +9,9 @@
 //! blocking call it interrupts ends with `EINTR` (or restarts under
 //! `SA_RESTART`) by the rules of [`super::restartable`].
 
+use crate::ipc::credentials::{self, CAP_SYS_ADMIN};
 use crate::task;
-use crate::task::itimer::{self, Kind, Notify, Reading};
+use crate::task::itimer::{self, Caller, Kind, Notify, Reading};
 use crate::task::signal;
 use crate::user_ptr;
 
@@ -44,6 +45,16 @@ fn arming_process() -> u64 {
     let pml4 = process();
     signal::ensure_process(pml4);
     pml4
+}
+
+/// The caller's quota identity: its uid, and whether it may arm timers
+/// faster and in greater number than a program with no capability.
+fn caller() -> Caller {
+    let cred = credentials::of(task::current());
+    Caller {
+        uid: cred.uid,
+        privileged: cred.has_cap(CAP_SYS_ADMIN),
+    }
 }
 
 fn kind_of(which: u64) -> Option<Kind> {
@@ -108,6 +119,7 @@ pub(super) fn sys_alarm(seconds: u64) -> u64 {
     match itimer::set_interval(
         arming_process(),
         task::current(),
+        caller(),
         Kind::Real,
         now_ns(),
         seconds * NS_PER_SEC,
@@ -124,16 +136,19 @@ pub(super) fn sys_setitimer(which: u64, new: u64, old: u64) -> u64 {
     let Some(kind) = kind_of(which) else {
         return err(EINVAL);
     };
-    if new == 0 {
-        return err(EFAULT);
-    }
-    let (value, interval) = match read_spec(new, NS_PER_USEC) {
-        Ok(spec) => spec,
-        Err(errno) => return errno,
+    // A NULL `new` is a zero `itimerval`: the timer is disarmed (Linux).
+    let (value, interval) = if new == 0 {
+        (0, 0)
+    } else {
+        match read_spec(new, NS_PER_USEC) {
+            Ok(spec) => spec,
+            Err(errno) => return errno,
+        }
     };
     let previous = match itimer::set_interval(
         arming_process(),
         task::current(),
+        caller(),
         kind,
         now_ns(),
         value,
@@ -160,6 +175,26 @@ pub(super) fn sys_getitimer(which: u64, current: u64) -> u64 {
         Ok(()) => 0,
         Err(errno) => errno,
     }
+}
+
+/// Whether `signo` may be a timer's signal: a real signal number, and not
+/// one that acts on the whole process from the interrupt that sends it
+/// (`SIGKILL`, `SIGSTOP`) or is job control (`SIGCONT` and the tty stops).
+fn timer_signal_ok(signo: i32) -> bool {
+    let Ok(signo) = u8::try_from(signo) else {
+        return false;
+    };
+    signo != 0
+        && (signo as usize) < signal::NSIG
+        && !matches!(
+            signo,
+            signal::SIGKILL
+                | signal::SIGSTOP
+                | signal::SIGCONT
+                | signal::SIGTSTP
+                | signal::SIGTTIN
+                | signal::SIGTTOU
+        )
 }
 
 /// `timer_create(clockid, sevp, timerid)`.
@@ -196,24 +231,23 @@ pub(super) fn sys_timer_create(clock: u64, sevp: u64, timerid: u64) -> u64 {
                 if tid == 0 || task::pml4_of(tid) != Some(pml4) {
                     return err(EINVAL);
                 }
-                Notify::Thread(tid)
+                Notify::Thread {
+                    slot: tid,
+                    generation: signal::thread_generation(tid),
+                }
             }
             _ => return err(EINVAL),
         };
+        // Validated as the full `int` the user passed: 270 is not SIGALRM.
+        if notify != Notify::None && !timer_signal_ok(signo) {
+            return err(EINVAL);
+        }
         (notify, signo as u8, Some(value))
     };
-    if notify != Notify::None
-        && (signo == 0
-            || signo as usize >= signal::NSIG
-            // These act on the whole process from the sender's context.
-            || signo == signal::SIGKILL
-            || signo == signal::SIGSTOP)
-    {
-        return err(EINVAL);
-    }
     let id = match itimer::create(
         pml4,
         me,
+        caller(),
         notify,
         signo,
         value,

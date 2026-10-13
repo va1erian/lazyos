@@ -87,7 +87,7 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
         // locked: queueing their signals takes it.
         itimer_tick(cur, tick_periods, code_segment);
     }
-    itimer::fire_due(crate::arch::clock::monotonic_ns());
+    itimer::fire_due_now();
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
@@ -248,7 +248,7 @@ pub(crate) fn on_entry(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, tick: 
 /// Expire what is due now: the deadline timer's interrupt
 /// (`arch::event_timer`). Call with interrupts off and no lock held.
 pub fn expire_due() {
-    itimer::fire_due(crate::arch::clock::monotonic_ns());
+    itimer::fire_due_now();
     let mut tasks = TASKS.lock();
     expire_deadlines(&mut tasks, crate::arch::clock::monotonic_ns());
 }

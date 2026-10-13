@@ -11,6 +11,7 @@ use super::*;
 use crate::task::itimer;
 use crate::task::signal::{self, SigInfo};
 
+mod flood;
 mod interval;
 mod posix;
 mod soak;
@@ -36,7 +37,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         interval::exec_semantics,
     ),
     (
-        "itimer_scheduler_entry_fires_due",
+        "itimer_expire_due_fires_due",
         interval::scheduler_entry_fires,
     ),
     ("itimer_posix_create_and_siginfo", posix::create_and_siginfo),
@@ -50,6 +51,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("itimer_posix_argument_validation", posix::validation),
     ("itimer_posix_limit_and_delete", posix::limit_and_delete),
+    (
+        "itimer_flood_pending_signal_is_cheap",
+        flood::pending_signal_is_cheap,
+    ),
+    ("itimer_flood_ignored_and_floors", flood::ignored_and_floors),
+    ("itimer_pools_do_not_starve_intervals", flood::pools),
+    ("itimer_signo_validated_as_int", flood::signo_validated),
+    ("itimer_thread_generation_guards_slot", flood::generation),
+    (
+        "itimer_setitimer_null_and_si_pid",
+        flood::null_new_and_si_pid,
+    ),
+    ("itimer_exec_in_threaded_process", flood::exec_threaded),
+    ("itimer_decide_fires_on_yield", flood::decide_fires),
     ("itimer_soak_arm_disarm", soak::arm_disarm),
     ("itimer_soak_interval_many_ticks", soak::many_ticks),
     ("itimer_soak_fork_exit_churn", soak::fork_exit_churn),

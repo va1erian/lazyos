@@ -1,12 +1,13 @@
 //! The POSIX timer calls (`timer_create` and friends) over the shared table.
 
-use super::MAX_POSIX_PER_PROCESS;
-use super::{changed, clamp_interval, with_table, Error, Kind, Notify, Reading, Timer};
+use super::{changed, clamp_interval, with_table, Caller, Error, Kind, Notify, Reading, Timer};
+use super::{MAX_POSIX_PER_PROCESS, MAX_POSIX_PER_UID};
 
 /// `timer_create`: a disarmed POSIX timer of process `pml4`; its id.
 pub fn create(
     pml4: u64,
     owner: usize,
+    caller: Caller,
     notify: Notify,
     signo: u8,
     value: Option<u64>,
@@ -20,6 +21,16 @@ pub fn create(
             .count();
         if mine >= MAX_POSIX_PER_PROCESS {
             return Err(Error::NoSpace);
+        }
+        if !caller.privileged {
+            let theirs = table
+                .timers
+                .iter()
+                .filter(|t| t.used && t.uid == caller.uid && t.kind == Kind::Posix)
+                .count();
+            if theirs >= MAX_POSIX_PER_UID {
+                return Err(Error::NoSpace);
+            }
         }
         // The lowest id not in use, like Linux's per-process idr.
         let id = (0..)
@@ -35,6 +46,8 @@ pub fn create(
             // Without a sigevent the value is the timer's id (Linux).
             value: value.unwrap_or(id as u64),
             clock,
+            uid: caller.uid,
+            min_interval_ns: caller.min_interval_ns(),
             ..Timer::EMPTY
         })?;
         Ok(id)
@@ -61,7 +74,10 @@ pub fn settime(
                 table.disarm(index);
                 table.timers[index].interval_ns = 0;
             }
-            Some(deadline) => table.arm(index, deadline, 0, clamp_interval(interval_ns)),
+            Some(deadline) => {
+                let interval = clamp_interval(interval_ns, table.timers[index].min_interval_ns);
+                table.arm(index, deadline, 0, interval);
+            }
         }
         Ok(old)
     })?;
@@ -95,7 +111,9 @@ pub fn overrun(pml4: u64, id: i32) -> Result<u32, Error> {
         let index = table
             .find(pml4, Kind::Posix, id)
             .ok_or(Error::NoSuchTimer)?;
-        Ok(table.timers[index].overrun)
+        Ok(table.timers[index]
+            .overrun_last
+            .saturating_add(table.timers[index].overrun))
     })
 }
 

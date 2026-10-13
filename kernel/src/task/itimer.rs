@@ -10,15 +10,17 @@
 //! (`arch::event_timer`, via `sched::next_event`) folds in, so a timer fires
 //! at its instant when the APIC timer exists and at the next 10 ms tick when
 //! it does not. Nothing polls: with no timer armed the scheduler pays one
-//! relaxed atomic load.
+//! relaxed atomic load (and does not read the clock).
 //!
 //! CPU-time timers (`ITIMER_VIRTUAL`, `ITIMER_PROF`) are driven by the
 //! scheduler's tick accounting, so they are approximations: each timer tick
 //! is booked, whole, to the task it interrupted, and `ITIMER_VIRTUAL` counts
 //! the ticks that landed in ring 3 while `ITIMER_PROF` counts every tick
-//! charged to the process (user and system). Time a task spends inside a
-//! syscall with interrupts off is folded into the next tick (the catch-up
-//! periods of issue #344), and a process's threads add up, like Linux's.
+//! charged to the process (user and system). Syscalls run with interrupts
+//! off, so a tick almost always lands in ring 3 or in a wait: system time is
+//! folded into the next tick (the catch-up periods of issue #344) and the
+//! two timers advance nearly alike (`ITIMER_PROF` ~ `ITIMER_VIRTUAL`). A
+//! process's threads add up, like Linux's.
 //!
 //! **Firing context.** Expiry runs at a scheduler entry or the deadline
 //! interrupt *before* the task table is locked (`fire_due`): it pops the due
@@ -30,11 +32,21 @@
 //! **Approximations.** A relative `CLOCK_REALTIME` timer and an absolute one
 //! are converted to a monotonic deadline when armed, so a later
 //! `clock_settime` step does not move them (Linux re-evaluates absolute
-//! realtime timers). A timer's `overrun` is the periods skipped when it fires
-//! late, not the signals coalesced while one was still pending. Repeat
-//! intervals under [`MIN_INTERVAL_NS`] are raised to it. `SIGEV_THREAD` is
+//! realtime timers). `overrun` counts the expirations that did not get a
+//! signal of their own (one was still pending, or periods passed unserved)
+//! since the last signal was sent; the `si_overrun` of a signal already
+//! queued is not updated. Repeat intervals under [`MIN_INTERVAL_NS`]
+//! (privileged) or [`MIN_INTERVAL_UNPRIVILEGED_NS`] are raised to it. `SIGEV_THREAD` is
 //! user space's (musl builds it on `SIGEV_THREAD_ID` and `rt_sigtimedwait`,
 //! which this kernel does not have).
+//!
+//! **Flooding.** An expiry whose signal is already pending for its target, or
+//! ignored, only re-arms and counts an overrun: no table walk, no wakeup. Each
+//! user is capped at [`MAX_POSIX_PER_UID`] POSIX timers (unless privileged)
+//! and the interval floor is 1 ms unprivileged, so an unprivileged program
+//! can cost the interrupt path a bounded amount. The interval timers have a
+//! pool of their own ([`INTERVAL_POOL`]) and cannot be starved by
+//! `timer_create`.
 //!
 //! **Ownership.** A timer belongs to a process (its address space, the key
 //! the signal layer uses) and dies with it: `fork` gives the child none,
@@ -51,13 +63,51 @@ use super::signal;
 use super::timerq::TimerQueue;
 use super::MAX_TASKS;
 
-/// Timers the system can hold at once, across every process.
-pub const MAX_TIMERS: usize = MAX_TASKS;
+/// Slots for the three interval timers of every process that can exist (a
+/// process holds at least one task): `alarm` and `setitimer` never fail for
+/// want of room, whatever POSIX timers do to the other pool.
+pub const INTERVAL_POOL: usize = 3 * MAX_TASKS;
+/// Slots for `timer_create` timers, system-wide.
+pub const POSIX_POOL: usize = 1024;
+/// Every timer slot; also the capacity of the expiry heap.
+pub const MAX_TIMERS: usize = INTERVAL_POOL + POSIX_POOL;
 /// POSIX timers one process may own (`RLIMIT_SIGPENDING` stands in on Linux).
 pub const MAX_POSIX_PER_PROCESS: usize = 64;
-/// Shortest repeat interval honoured (nanoseconds). A shorter one would turn
-/// into an interrupt storm; Linux rounds up to its clock resolution too.
+/// POSIX timers one user may own across all its processes, unless it holds
+/// `CAP_SYS_ADMIN`: a user cannot take the whole pool by forking.
+pub const MAX_POSIX_PER_UID: usize = 128;
+/// Shortest repeat interval of a privileged caller (nanoseconds). A shorter
+/// one would turn into an interrupt storm; Linux rounds up to its clock
+/// resolution too.
 pub const MIN_INTERVAL_NS: u64 = 100_000;
+/// Shortest repeat interval of everyone else: with the per-user cap it bounds
+/// what an unprivileged program can make the interrupt path do.
+pub const MIN_INTERVAL_UNPRIVILEGED_NS: u64 = 1_000_000;
+
+/// Who arms a timer: the identity its quota and its interval floor follow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Caller {
+    pub uid: u32,
+    /// Holds `CAP_SYS_ADMIN`: no per-user cap, the short interval floor.
+    pub privileged: bool,
+}
+
+impl Caller {
+    /// The kernel itself (the test suites).
+    #[allow(dead_code)] // test hook
+    pub const KERNEL: Caller = Caller {
+        uid: 0,
+        privileged: true,
+    };
+
+    fn min_interval_ns(self) -> u64 {
+        if self.privileged {
+            MIN_INTERVAL_NS
+        } else {
+            MIN_INTERVAL_UNPRIVILEGED_NS
+        }
+    }
+}
 
 /// Which timer a process-level slot is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,8 +135,10 @@ pub enum Notify {
     None,
     /// `SIGEV_SIGNAL`: the signal goes to the process.
     Process,
-    /// `SIGEV_THREAD_ID`: the signal goes to this thread alone.
-    Thread(usize),
+    /// `SIGEV_THREAD_ID`: the signal goes to this thread alone. The slot is
+    /// the thread id; the generation (`signal::thread_generation`) tells it
+    /// from a later task that was given the same slot.
+    Thread { slot: usize, generation: u64 },
 }
 
 /// The remaining time and interval of a timer, in nanoseconds.
@@ -124,8 +176,16 @@ struct Timer {
     deadline_ns: u64,
     /// CPU time left (`Virtual`, `Prof`).
     remaining_ns: u64,
-    /// Expirations missed between the last two signals (`timer_getoverrun`).
+    /// Expirations since the last signal was sent that got none of their
+    /// own because it was still pending or ignored.
     overrun: u32,
+    /// The overrun count the last signal sent carried (periods that passed
+    /// unserved before it): `timer_getoverrun` is this plus `overrun`.
+    overrun_last: u32,
+    /// The owner's user id, for the per-user quota.
+    uid: u32,
+    /// The repeat-interval floor (`Caller::min_interval_ns`).
+    min_interval_ns: u64,
     /// The thread that created the timer: the preferred signal target.
     owner: usize,
 }
@@ -145,6 +205,9 @@ impl Timer {
         deadline_ns: 0,
         remaining_ns: 0,
         overrun: 0,
+        overrun_last: 0,
+        uid: 0,
+        min_interval_ns: MIN_INTERVAL_NS,
         owner: 0,
     };
 
@@ -166,7 +229,7 @@ impl Timer {
 struct Table {
     timers: [Timer; MAX_TIMERS],
     /// Expiry order of the wall-clock timers (key: timer index).
-    queue: TimerQueue,
+    queue: TimerQueue<MAX_TIMERS>,
     /// Armed CPU-time timers.
     cpu_armed: usize,
 }
@@ -231,21 +294,38 @@ pub fn in_use() -> usize {
 }
 
 impl Table {
+    /// The slots `kind` lives in: interval timers and POSIX timers have a
+    /// pool each.
+    fn pool(kind: Kind) -> core::ops::Range<usize> {
+        if kind == Kind::Posix {
+            INTERVAL_POOL..MAX_TIMERS
+        } else {
+            0..INTERVAL_POOL
+        }
+    }
+
     fn find(&self, pml4: u64, kind: Kind, id: i32) -> Option<usize> {
-        self.timers.iter().position(|timer| {
-            timer.used
-                && timer.pml4 == pml4
-                && timer.kind == kind
-                && (kind != Kind::Posix || timer.id == id)
-        })
+        let pool = Self::pool(kind);
+        let start = pool.start;
+        self.timers[pool]
+            .iter()
+            .position(|timer| {
+                timer.used
+                    && timer.pml4 == pml4
+                    && timer.kind == kind
+                    && (kind != Kind::Posix || timer.id == id)
+            })
+            .map(|at| at + start)
     }
 
     fn alloc(&mut self, timer: Timer) -> Result<usize, Error> {
-        let index = self
-            .timers
+        let pool = Self::pool(timer.kind);
+        let start = pool.start;
+        let index = self.timers[pool]
             .iter()
             .position(|timer| !timer.used)
-            .ok_or(Error::NoSpace)?;
+            .ok_or(Error::NoSpace)?
+            + start;
         self.timers[index] = Timer {
             used: true,
             ..timer
@@ -280,6 +360,7 @@ impl Table {
         timer.interval_ns = interval_ns;
         timer.armed = true;
         timer.overrun = 0;
+        timer.overrun_last = 0;
         if timer.kind.is_cpu() {
             timer.remaining_ns = value_ns.max(1);
             self.cpu_armed += 1;
@@ -290,12 +371,12 @@ impl Table {
     }
 }
 
-/// Clamp a repeat interval: zero stays zero (one-shot).
-fn clamp_interval(interval_ns: u64) -> u64 {
+/// Clamp a repeat interval to the floor `min_ns`: zero stays zero (one-shot).
+fn clamp_interval(interval_ns: u64, min_ns: u64) -> u64 {
     if interval_ns == 0 {
         0
     } else {
-        interval_ns.max(MIN_INTERVAL_NS)
+        interval_ns.max(min_ns)
     }
 }
 
@@ -310,6 +391,7 @@ fn changed() {
 pub fn set_interval(
     pml4: u64,
     owner: usize,
+    caller: Caller,
     kind: Kind,
     now_ns: u64,
     value_ns: u64,
@@ -339,12 +421,16 @@ pub fn set_interval(
                 ..Timer::EMPTY
             })?,
         };
-        table.timers[index].owner = owner;
+        let timer = &mut table.timers[index];
+        timer.owner = owner;
+        timer.uid = caller.uid;
+        timer.min_interval_ns = caller.min_interval_ns();
+        let interval_ns = clamp_interval(interval_ns, timer.min_interval_ns);
         table.arm(
             index,
             now_ns.saturating_add(value_ns),
             value_ns,
-            clamp_interval(interval_ns),
+            interval_ns,
         );
         Ok(old)
     })?;
@@ -403,42 +489,10 @@ pub fn exec(old: u64, new: u64) {
 
 mod fire;
 mod posix;
-pub use fire::{charge_cpu, fire_due};
+pub use fire::{charge_cpu, fire_due, fire_due_now};
 pub use posix::{clock_of, create, delete, gettime, overrun, settime};
 
-/// Test hook: forget every timer.
 #[cfg(lazyos_tests)]
-pub fn reset_for_test() {
-    with_table(|table| {
-        for index in 0..MAX_TIMERS {
-            if table.timers[index].used {
-                table.free(index);
-            }
-        }
-    });
-}
-
-/// Test hook: the expiry heap's invariants and its agreement with the table.
+mod hooks;
 #[cfg(lazyos_tests)]
-pub fn check_for_test() -> Result<(), &'static str> {
-    with_table(|table| {
-        table.queue.check()?;
-        let wall_armed = table
-            .timers
-            .iter()
-            .filter(|t| t.used && t.armed && !t.kind.is_cpu())
-            .count();
-        if wall_armed != table.queue.len() {
-            return Err("armed wall-clock timers and queue entries disagree");
-        }
-        let cpu_armed = table
-            .timers
-            .iter()
-            .filter(|t| t.used && t.armed && t.kind.is_cpu())
-            .count();
-        if cpu_armed != table.cpu_armed {
-            return Err("armed CPU timers and the counter disagree");
-        }
-        Ok(())
-    })
-}
+pub use hooks::{check_for_test, reset_for_test};
