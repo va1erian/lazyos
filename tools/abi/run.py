@@ -9,6 +9,10 @@ classify the result from the log:
     ABI:<fixture>:FAIL:<reason>   -> fail
     ABI:INIT:SKIP:<reason>        -> skip  (kernel recognised the fixture but
                                            cannot run Linux binaries yet)
+    oom: killed ...               -> oom   (the kernel ended the fixture with
+                                           SIGKILL: out of frames in a page
+                                           fault; fatal unless --expect-oom)
+    user: task N killed by ...    -> fail  (a fault ended it, e.g. SIGSEGV)
     (no marker)                   -> not-run
 
 Outputs `docs/compat/matrix.md` and `docs/compat/compat.json`.
@@ -212,6 +216,10 @@ def capture(
     return log.read_text(errors="replace") if log.is_file() else ""
 
 
+# The signals a ring-3 fault ends a process with, by number.
+SIGNALS = {4: "SIGILL", 7: "SIGBUS", 8: "SIGFPE", 9: "SIGKILL", 11: "SIGSEGV"}
+
+
 def classify(name: str, serial: str, ok: str = "PASS") -> tuple[str, str]:
     """Classify one boot; `ok` is the marker that counts as success."""
     # A row may report numbers before the marker: `ABI:bigapp:threads=9:PASS`.
@@ -224,6 +232,14 @@ def classify(name: str, serial: str, ok: str = "PASS") -> tuple[str, str]:
     match = re.search(r"ABI:INIT:SKIP:(.*)", serial)
     if match:
         return "skip", match.group(1).strip()[:120]
+    # The fixture never reached a marker: say how it ended when the kernel did.
+    if re.search(r"^oom: killed ", serial, re.M):
+        return "oom", "killed by SIGKILL (oom)"
+    match = re.search(r"user: task \d+ killed by (.+?) \(.*?status (\d+)", serial)
+    if match:
+        signal = int(match.group(2)) - 128
+        sig_name = SIGNALS.get(signal, f"signal {signal}")
+        return "fail", f"killed by {sig_name} ({match.group(1)})"
     return "not-run", ""
 
 
@@ -374,11 +390,14 @@ def run_row(name: str, image: Path, at: str, accel: str) -> tuple[str, str]:
 
 
 # skip / unavailable (n/a) stay non-fatal; a fixture that failed or never ran gates CI.
-FATAL_STATUSES = ("fail", "not-run")
+FATAL_STATUSES = ("fail", "not-run", "oom")
 
 
-def failing_rows(rows: list[dict]) -> list[str]:
-    return [r["fixture"] for r in rows if r["status"] in FATAL_STATUSES]
+def failing_rows(rows: list[dict], expect_oom: bool = False) -> list[str]:
+    """Rows that gate CI; `expect_oom` is a run that overcommits on purpose
+    (`--limit quota_user_memory=` past `--memory`), where an OOM kill is the answer."""
+    fatal = tuple(s for s in FATAL_STATUSES if not (expect_oom and s == "oom"))
+    return [r["fixture"] for r in rows if r["status"] in fatal]
 
 
 def main() -> int:
@@ -395,6 +414,10 @@ def main() -> int:
     parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
                         help="kernel limit for the images (limit.<key> in lazyos.cfg, "
                              "docs/architecture/limits.md); repeatable")
+    parser.add_argument("--expect-oom", action="store_true",
+                        help="a row ended by the kernel's OOM kill (SIGKILL) is not a failure: "
+                             "for runs that overcommit on purpose, e.g. --memory 1G --limit "
+                             "quota_user_memory=2G --only bigapp")
     parser.add_argument("--jobs", type=int, default=1,
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
@@ -472,7 +495,8 @@ def main() -> int:
     readme = ROOT / "docs" / "compat" / "compat.json"
     readme.write_text(json.dumps(rows_out, indent=2), encoding="utf-8")
 
-    icons = {"pass": "PASS", "fail": "FAIL", "skip": "skip", "unavailable": "n/a", "not-run": "not-run"}
+    icons = {"pass": "PASS", "fail": "FAIL", "skip": "skip", "unavailable": "n/a",
+             "not-run": "not-run", "oom": "oom"}
     lines = [
         "# Linux ABI compatibility matrix",
         "",
@@ -488,7 +512,7 @@ def main() -> int:
 
     passed = sum(1 for r in rows_out if r["status"] == "pass")
     print(f"\n{passed}/{len(rows_out)} fixtures passing")
-    failing = failing_rows(rows_out)
+    failing = failing_rows(rows_out, args.expect_oom)
     if failing:
         print(f"failing: {', '.join(failing)}", file=sys.stderr)
         return 1
