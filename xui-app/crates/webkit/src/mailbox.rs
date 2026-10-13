@@ -39,9 +39,20 @@ pub enum Notice {
 
 type Notify = Box<dyn Fn(Notice) + Send + Sync>;
 
+/// The frame and whether it is one the window has not collected. `fresh` lives under the
+/// frame's lock, with the pixels it describes: `take_frame` swaps the buffer out only when
+/// `fresh` is set, so a wake that finds the picture already collected (a frame stored between
+/// another `take_frame`'s flag and its lock) gets `None`, never the previous picture or the
+/// spare buffer it handed in.
+#[derive(Default)]
+struct Slot {
+    frame: Frame,
+    fresh: bool,
+}
+
 #[derive(Default)]
 pub struct Mailbox {
-    frame: Mutex<Frame>,
+    frame: Mutex<Slot>,
     state: Mutex<PageState>,
     frame_waiting: AtomicBool,
     state_waiting: AtomicBool,
@@ -77,13 +88,22 @@ impl Mailbox {
 
     /// The engine painted a frame (`rgba` is `width * height * 4` bytes).
     pub fn post_frame(&self, width: u32, height: u32, rgba: &[u8]) {
-        {
-            let mut frame = lock(&self.frame);
-            frame.width = width;
-            frame.height = height;
-            frame.rgba.clear();
-            frame.rgba.extend_from_slice(rgba);
-        }
+        self.store_frame(width, height, rgba);
+        self.announce_frame();
+    }
+
+    /// The first half of [`post_frame`](Self::post_frame): the picture, marked fresh.
+    fn store_frame(&self, width: u32, height: u32, rgba: &[u8]) {
+        let mut slot = lock(&self.frame);
+        slot.frame.width = width;
+        slot.frame.height = height;
+        slot.frame.rgba.clear();
+        slot.frame.rgba.extend_from_slice(rgba);
+        slot.fresh = true;
+    }
+
+    /// The second half: wake the window unless a wake is already on its way.
+    fn announce_frame(&self) {
         if !self.frame_waiting.swap(true, Ordering::AcqRel) {
             self.wake(Notice::Frame);
         }
@@ -100,14 +120,18 @@ impl Mailbox {
     /// The newest frame, if one arrived since the last call. `spare` is the
     /// previous picture's buffer, handed back to be reused.
     pub fn take_frame(&self, spare: Vec<u8>) -> Option<Frame> {
-        if !self.frame_waiting.swap(false, Ordering::AcqRel) {
+        let mut slot = lock(&self.frame);
+        // Cleared under the lock `store_frame` takes: a frame stored after this point sets
+        // the flag again and wakes the window, one stored before it is the one taken below.
+        self.frame_waiting.store(false, Ordering::Release);
+        if !slot.fresh {
             return None;
         }
-        let mut frame = lock(&self.frame);
-        let rgba = std::mem::replace(&mut frame.rgba, spare);
+        slot.fresh = false;
+        let rgba = std::mem::replace(&mut slot.frame.rgba, spare);
         Some(Frame {
-            width: frame.width,
-            height: frame.height,
+            width: slot.frame.width,
+            height: slot.frame.height,
             rgba,
         })
     }
@@ -187,5 +211,77 @@ mod tests {
         mailbox.post_frame(1, 1, &[2; 4]);
         let second = mailbox.take_frame(first.rgba).unwrap();
         assert_eq!(second.rgba, vec![2; 4]);
+    }
+
+    /// The race the old flag-then-lock order had, interleaved by hand: a frame is stored
+    /// (the engine is between its two halves) when the window collects, and the wake that
+    /// follows finds nothing left. It must not return the spare buffer as a picture, or an
+    /// old picture of another size.
+    #[test]
+    fn a_frame_stored_between_the_flag_and_the_wake_is_taken_once() {
+        let mailbox = Mailbox::default();
+        let wakes = counted(&mailbox);
+        mailbox.post_frame(2, 1, &[1; 8]);
+        let first = mailbox.take_frame(vec![0xEE; 8]).unwrap();
+        assert_eq!(first.rgba, vec![1; 8]);
+
+        // The engine has stored a larger frame but not announced it yet.
+        mailbox.store_frame(3, 1, &[2; 12]);
+        let taken = mailbox.take_frame(vec![0xAA; 8]).unwrap();
+        assert_eq!((taken.width, taken.height), (3, 1));
+        assert_eq!(taken.rgba, vec![2; 12], "the new picture, not the spare buffer");
+
+        // Now it announces: the wake finds the picture already collected.
+        mailbox.announce_frame();
+        assert_eq!(wakes.load(Ordering::SeqCst), 2);
+        assert!(mailbox.take_frame(vec![0xBB; 8]).is_none());
+        // And the next frame still wakes the window.
+        mailbox.post_frame(3, 1, &[3; 12]);
+        assert_eq!(wakes.load(Ordering::SeqCst), 3);
+        assert_eq!(mailbox.take_frame(Vec::new()).unwrap().rgba, vec![3; 12]);
+    }
+
+    #[test]
+    fn a_picture_is_never_taken_twice() {
+        let mailbox = Mailbox::default();
+        let _wakes = counted(&mailbox);
+        mailbox.post_frame(1, 1, &[7; 4]);
+        assert!(mailbox.take_frame(Vec::new()).is_some());
+        mailbox.announce_frame();
+        assert!(mailbox.take_frame(vec![0xCC; 4]).is_none());
+    }
+
+    /// A poster and a collector racing for real: every picture taken is whole, whatever
+    /// its size, and the newest one is always collected in the end.
+    #[test]
+    fn concurrent_posts_and_takes_only_ever_give_whole_pictures() {
+        const LAST: u32 = 2000;
+        let mailbox = Arc::new(Mailbox::default());
+        let _wakes = counted(&mailbox);
+        let poster = {
+            let mailbox = Arc::clone(&mailbox);
+            std::thread::spawn(move || {
+                for n in 1..=LAST {
+                    let width = 1 + n % 5;
+                    let rgba = vec![(n % 251) as u8; (width * 4) as usize];
+                    mailbox.post_frame(width, 1, &rgba);
+                }
+            })
+        };
+        let mut spare = Vec::new();
+        let mut newest = 0u8;
+        while !poster.is_finished() {
+            if let Some(frame) = mailbox.take_frame(std::mem::take(&mut spare)) {
+                assert_eq!(frame.rgba.len(), (frame.width * frame.height * 4) as usize);
+                assert!(frame.rgba.iter().all(|b| *b == frame.rgba[0]), "a torn picture");
+                newest = frame.rgba[0];
+                spare = frame.rgba;
+            }
+        }
+        poster.join().unwrap();
+        if let Some(frame) = mailbox.take_frame(spare) {
+            newest = frame.rgba[0];
+        }
+        assert_eq!(u32::from(newest), LAST % 251);
     }
 }
