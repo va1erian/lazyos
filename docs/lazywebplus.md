@@ -297,6 +297,33 @@ excluded domains. A trailing `^` matches a separator character and not the end o
 can only block *less* than Adblock Plus would. More lists (EasyPrivacy, Peter Lowe's, uBlock's), element hiding
 and a user filter editor are separate issues.
 
+### Results (issue #845)
+
+* **The real list** (EasyList of 13 Oct 2026, 82,058 lines): 56,918 rules (56,331 blocks, 587 exceptions) in 12 MB
+  of JSON, 0.11 s to convert in release on a fast host. Not used: 24,822 element-hiding lines, 18 lines with an
+  option WebKit has no trigger for, 19 patterns outside WebKit's regex subset, 3 exceptions (which would cancel a
+  block, so those blocks stay: `dropped_exceptions`), 8 duplicates.
+* **Through WebKit itself** (`python tools/webkit/blockcheck.py --list ...`, the port's `webkit-smoke` in rules
+  mode, 20-CPU Docker host): the list is accepted; `WKUserContentExtensionStoreCompile` 2.8 s, process peak
+  resident set 391 MB; read back from the store in under 2 ms (what every later start pays); on a page with two
+  EasyList-matching requests and one clean one, 2 loads blocked, 0 on a clean page.
+* **In the guest** (`python tools/webplus/run.py --label-trace`, WHPX, 4 GiB; the harness's small list, four
+  boots of one image): the `listupdate` child fetched the list under its own label (no `LABEL:DENY`; the nine
+  documented optional denials of #836 are the only ones), it was converted, compiled by WebKit in the UI
+  process, shared with the web processes (file-backed `mmap` and a passed descriptor) and attached; a later
+  boot loaded it from the store with no conversion; a page loaded with the ad picture, the tracking pixel and
+  the ad script **never requested** (the host saw each exactly once, after the user excepted the site) and its
+  excepted script and own picture loaded; *Update now* sent the ETag and was told 304; the exception and the
+  compiled list outlived a boot. All the browser's earlier checks (HTTPS pages, dialogs, downloads, cookies,
+  the sandbox) pass with content extensions on.
+* **Not measured**: compile time and memory of the *real* EasyList in the guest (the harness list is 1 KB), nor
+  page-load times on real pages with and without blocking. The first is the next number to take (it runs on the
+  UI process's work queue, so the browser stays up, and a start after the first loads from the store).
+* **Found on the way** (patches `0018` and `0019`): the UI process did not link with content extensions on the
+  curl backend, and `NetworkCache::fileTimes()` had no branch for Linux with curl, so the first cache *hit* of a
+  run killed the NetworkProcess (any revisit of a page with a cached picture): unrelated to blocking, fixed here
+  because the ad blocker's harness found it.
+
 ## Permissions
 
 The app: `os.lazy.display.v1`, `os.lazy.display.cursor.v1`, `os.lazy.input.v1`, `os.lazy.mimed.v1`,

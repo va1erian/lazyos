@@ -33,7 +33,11 @@ FUZZ_SEED=0x<seed> cargo test ... -p lazyadblock <test>    # replay a printed fa
 * regex with `|`, `{n,m}`, `\b`, `\s`, lazy quantifiers, lookarounds, reversed class ranges:
   `unsupported-pattern`;
 * non-ASCII patterns: `non-ascii` (the list would need punycode);
-* `domain=` with both included and excluded domains: `mixed-domains`.
+* `domain=` with both included and excluded domains: `mixed-domains`;
+* `$object`/`$object-subrequest` (WebKit has no plugin type; `other` would be wider), a pattern that is only anchors
+  and wildcards with no type, party or domain, and patterns over 2048 characters or with over 16 wildcards:
+  `unsupported-*`. A dropped exception (`dropped_exceptions`) is the one drop that blocks *more*, so it is
+  counted apart.
 
 ## The WebKit subset, and why it is checked twice
 

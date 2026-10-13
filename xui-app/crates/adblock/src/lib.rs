@@ -95,7 +95,8 @@ pub fn convert(source: &str, options: &Options) -> Converted {
                 match build(&f) {
                     Ok(b) => built.push(b),
                     Err(reason) => {
-                        if f.exception {
+                        // An element-hiding exception cancels no block: not what this counts.
+                        if f.exception && reason != DropReason::Cosmetic {
                             stats.dropped_exceptions += 1;
                         }
                         stats.drop_filter(reason);
