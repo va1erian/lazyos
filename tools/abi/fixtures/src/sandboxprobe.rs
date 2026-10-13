@@ -372,7 +372,6 @@ fn load_label(label: &str, ids: &[u64]) -> Result<(), i64> {
     let body = policy::encode_load_label_args(&policy::LoadLabelArgs {
         label: label.into(),
         rules,
-        // A label with no program is the kernel-only harness's: the driver starts the probe itself.
         program: None,
     })
     .map_err(|_| -22i64)?;

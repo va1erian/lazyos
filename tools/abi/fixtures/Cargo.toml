@@ -49,6 +49,11 @@ path = "src/memstress.rs"
 name = "jitmem"
 path = "src/jitmem.rs"
 
+# File-backed mmap: private and shared mappings, write-back, fork (issue #535).
+[[bin]]
+name = "filemap"
+path = "src/filemap.rs"
+
 [[bin]]
 name = "procstress"
 path = "src/procstress.rs"
@@ -80,6 +85,11 @@ path = "src/avx.rs"
 [[bin]]
 name = "threadsig"
 path = "src/threadsig.rs"
+
+# alarm, setitimer/getitimer and POSIX timers (issue #535, gap 3).
+[[bin]]
+name = "alarm"
+path = "src/alarm.rs"
 
 [[bin]]
 name = "epollstress"

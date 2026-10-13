@@ -100,6 +100,7 @@ pub(super) fn release_address_space(pml4: u64) -> usize {
     crate::quota::forget_address_space(pml4);
     forget_bumps(pml4);
     signal::forget(pml4);
+    super::itimer::forget(pml4);
     mem::free_user_table(PhysAddr::new(pml4))
 }
 

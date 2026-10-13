@@ -39,11 +39,21 @@ syscall shim.
   headers, then copies each segment's file bytes in 128 KiB chunks straight
   into the new frames.
 - Headers are validated before anything is mapped (little-endian ELF64,
-  x86-64, `ET_EXEC` or static-PIE `ET_DYN`, 56-byte program headers inside the
+  x86-64, `ET_EXEC` or `ET_DYN`, 56-byte program headers inside the
   file; every `PT_LOAD` inside the file, below the layout's `MMAP_BASE`, clear
   of the reserved windows, no two segments sharing a byte, the entry inside a
   segment). There is no cap on image size or segment count: the overlap check
   sorts the segments and compares neighbours.
+- A program with `PT_INTERP` is dynamically linked (issue #535): the Linux
+  loader maps the interpreter named there (read as stored, else the file of
+  that name in `/system/lib` for `/lib`, `/usr/lib`, `/usr/local/lib` and
+  `/lib64`) at `INTERP_BASE` (1 GiB below `MMAP_LIMIT`), moves a PIE program to
+  `PIE_BASE` (`0x40_0000`), starts at the interpreter's entry and passes
+  `AT_BASE` (the interpreter's load bias), `AT_PHDR` and `AT_ENTRY` of the
+  program; musl's `ld-musl-x86_64.so.1` then maps the libraries with
+  file-backed `mmap`. An interpreter that is missing is `ENOENT`, one that
+  is not an ELF or has a `PT_INTERP` itself `ENOEXEC`. Static and static-PIE
+  images load exactly as before.
 - Pages holding file bytes are mapped eagerly; a segment's `.bss` tail past
   its last file page is an `Anon` VMA, zero-filled on first touch, so the
   eager cost is bounded by the file, not by what its headers claim.
@@ -469,8 +479,13 @@ supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
 linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`;
-`alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
-regular files; the umask is global, not per process. `SCM_RIGHTS`,
+`SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
+regular files; the umask is global, not per process. `alarm`, `setitimer`/`getitimer` and POSIX timers
+(`timer_create` with `SIGEV_SIGNAL`/`SIGEV_THREAD_ID`/`SIGEV_NONE`) exist
+(issue #535: `task/itimer.rs`, `process/linux/timers.rs`; wall-clock timers
+share the deadline timer, CPU-time timers are charged per scheduler tick, so
+they are tick-granular; `fork` gives the child none, `execve` keeps the
+interval timers; tests `itimer_suite`, fixture `alarm`). `SCM_RIGHTS`,
 `memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
 "Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
 filesystem stores links). The `persist` fixture also sets and re-checks mode,

@@ -41,6 +41,13 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("rg", fhs::bin::RG),
 ];
 
+/// Where `tools/abi/dynlink.py` writes the dynamic-linking check (`LAZYOS_DYNLINK=1`): the
+/// programs go to `/system/bin`, the interpreter and the libraries to `fhs::SYSTEM_LIB`
+/// (the Linux ABI serves `/lib/<name>` from there).
+const DYNLINK_BUILT: &str = "target/dynlink";
+const DYNLINK_PROGRAMS: &[(&str, &str)] =
+    &[("dynlink", fhs::bin::DYNLINK), ("dynpie", fhs::bin::DYNPIE)];
+
 /// Where `tools/jsc/build.py` writes its programs, and what `LAZYOS_JSC=1` embeds.
 const JSC_BUILT: &str = "target/jsc/bin";
 const JSC_PROGRAMS: &[(&str, &str)] = &[
@@ -93,6 +100,25 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
+    if switch_on("LAZYOS_DYNLINK") {
+        let built = manifest_dir.join(DYNLINK_BUILT);
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_DYNLINK",
+            &format!("{DYNLINK_BUILT}/bin"),
+            DYNLINK_PROGRAMS,
+            "tools/abi/dynlink.py",
+        );
+        embed_dir(
+            sink,
+            &built.join("lib"),
+            fhs::SYSTEM_LIB,
+            "LAZYOS_DYNLINK",
+            "tools/abi/dynlink.py",
+        );
+    }
     if enabled() {
         embed_programs(
             sink,
@@ -192,10 +218,15 @@ fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
 /// Store every regular file directly under `dir` (when it exists) at
 /// `image_dir/<name>`. The directory is watched, so a new bundle rebuilds the image.
 fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
+    embed_dir(sink, dir, image_dir, "LAZYOS_JSC", "tools/jsc/stress.py");
+}
+
+/// [`embed_tree`] for `switch`, which warns that `builder` has not run when `dir` is missing.
+fn embed_dir(sink: &mut dyn Sink, dir: &Path, image_dir: &str, switch: &str, builder: &str) {
     println!("cargo:rerun-if-changed={}", dir.display());
     let Ok(entries) = std::fs::read_dir(dir) else {
         println!(
-            "cargo:warning=LAZYOS_JSC: {} not built, no stress tests (run tools/jsc/stress.py)",
+            "cargo:warning={switch}: {} not built, nothing added at {image_dir} (run {builder})",
             dir.display()
         );
         return;

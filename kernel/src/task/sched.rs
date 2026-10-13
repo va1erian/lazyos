@@ -309,7 +309,12 @@ pub(super) fn rearm_event_timer() {
 /// counts as a deadline too.
 fn next_event(earliest: Option<(u64, usize)>) -> Option<u64> {
     let period_end = super::ticks_to_ns(super::ticks().saturating_add(1));
-    let deadline = earliest.map(|(deadline, _)| deadline);
+    // The earliest interval or POSIX timer counts like a sleeper's deadline.
+    let deadline = earliest
+        .map(|(deadline, _)| deadline)
+        .into_iter()
+        .chain(super::itimer::next_deadline())
+        .min();
     let deferred = super::preempt::deferred();
     let next = match (deadline, deferred) {
         (Some(a), Some(b)) => Some(a.min(b)),

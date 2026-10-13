@@ -17,6 +17,12 @@ use super::*;
 /// kernel needs a shootdown here. Always returns true; the `bool` is kept for
 /// callers that treat a refusal as `ENOMEM`.
 pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> bool {
+    // Pages of a `MAP_SHARED` file mapping gain write access through the
+    // write-protection fault (which dirties them), never here.
+    let shared_files: alloc::vec::Vec<_> = vma::find_range(table, start, end)
+        .into_iter()
+        .filter(|piece| piece.kind == vma::Kind::FileShared)
+        .collect();
     let mut va = start & !(FRAME_SIZE - 1);
     while va < end {
         // Safety: `table` is a live address space and we own its entries.
@@ -29,6 +35,9 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
                     new &= !COW_BIT;
                 }
                 let mut applied = apply_prot(new, prot);
+                if old & PTE_WRITABLE == 0 && shared_files.iter().any(|piece| piece.contains(va)) {
+                    applied &= !PTE_WRITABLE;
+                }
                 if applied & COW_BIT != 0 {
                     // Still shared: stays read-only until the first store.
                     applied &= !PTE_WRITABLE;

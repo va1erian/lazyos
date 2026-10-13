@@ -76,6 +76,8 @@ pub const MINSIGSTKSZ: u64 = 2048;
 // `siginfo.si_code` values used by the kernel.
 pub const SI_USER: i32 = 0;
 pub const SI_TKILL: i32 = -6;
+/// `si_code` of a POSIX timer's signal: `si_tid`, `si_overrun`, `si_value`.
+pub const SI_TIMER: i32 = -2;
 pub const SI_KERNEL: i32 = 0x80;
 pub const SEGV_MAPERR: i32 = 1;
 pub const SEGV_ACCERR: i32 = 2;
