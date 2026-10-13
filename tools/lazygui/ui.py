@@ -168,6 +168,11 @@ class Launcher:
                         variable=self.v["data_disk"]).pack(side="left")
         ttk.Entry(row, textvariable=self.v["data_path"]).pack(side="left", fill="x",
                                                               expand=True, padx=(6, 0))
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 2))
+        ttk.Label(row, text="USB sticks (FAT images, mounted at /media; paths separated by "
+                  "spaces, made if missing):").pack(side="left")
+        ttk.Entry(row, textvariable=self.v["usb_sticks"]).pack(side="left", fill="x",
+                                                               expand=True, padx=(6, 0))
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 6))
         ttk.Checkbutton(row, text="Recreate the OS volume (erases installed apps, settings, "
                         "logs and /data; needs a build)",

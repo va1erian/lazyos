@@ -1,15 +1,38 @@
 # Plan: USB hot-plug for HID devices and storage
 
-> **Status: draft proposal, scope settled (2026-10-10).** Builds on
+> **Status: scope settled (2026-10-10); the FAT path is implemented
+> (2026-10-13), the rest is not.** Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (`usbd`, HID, U3 hot-plug),
 > [architecture/usb.md](architecture/usb.md) and
 > [architecture/usb-storage.md](architecture/usb-storage.md) (syscall 33, the
-> late `/home` mount). Nothing here is implemented yet.
+> late `/home` mount). See "As built" below for what exists and how it
+> differs from the design.
 >
 > Decisions taken: read-write **FAT32 and exFAT are in scope** (a stock stick
 > must work); `/home` moves into `storaged` and `fs/late.rs` is deleted;
 > volumes **automount** with a notice from a **tray applet**; the
 > real-hardware target is the **AMD NUC** ([compat/amd-nuc](compat/amd-nuc/README.md)).
+
+## As built (2026-10-13): FAT sticks mount themselves
+
+A FAT12/16/32 stick (long names, read-write) plugged in while someone is
+logged in appears at `/media/<label>`, owned by the session user, and is gone
+when pulled; a new plug mounts again, any number of times. The shortest path
+to that was taken, and it differs from the design below in these ways:
+
+| Plan | As built |
+|---|---|
+| P2 disk lifecycle with leases, `block::unregister`, partition-pool recycling | Dead slots are reused once no request, claim, partition view or late mount refers to them; **generations** guard every operation (`provider/lifecycle.rs`). A disk the late-mount scan looked at keeps its slot until reboot (its partition views and `/home` mount hold `&'static` references); the pool and registry are not recycled. |
+| P5 `libs/fatfs`, written from the specifications, with an independent checker | **`rust-fatfs`** (MIT, pinned 0.4 commit) inside `libs/fatvol`, which adds what a hostile stick needs around it: strict boot-sector validation (the library overflows on damaged BPB fields), a sector cache that is written back at the end of every operation, MBR/GPT discovery, and a host test suite (power cut after every write, damaged boot sectors and tables, a model soak). Independent verification: `fsck.fat -n` from dosfstools in `tools/storage/fat_run.py`. **FAT12/16/32 only; exFAT is not done.** |
+| P6 raw-block syscall with its own capability | Ops 6-11 of syscall 33 for `CAP_FS_PROVIDER` + `_mountd` or root (what `mountd` and its daemons already hold): list disks, an exclusive **claim** bound to the disk's generation, read/write/flush through the requests the kernel's own filesystems make. |
+| P4 `storaged` service, `idl/storage.midl`, kernel mount op for ext2 | The automount policy is a module of **`mountd`** (`user/src/bin/mountd/volumes.rs`, rules in `libs/mounttable/src/volumes.rs`): one `fatfuse` per plug, as the session user. No new service, interface or capability. ext2 data sticks, the `/home` replace-mount and `fs/late.rs` are untouched. |
+| P3 inventory and events (`os.lazy.usb.v1`, topics) | Not done. `mountd` polls the kernel's disk list once a second. |
+| P7 eject, P8 tray applet, Files "Devices" section | Not done. Pulling the stick is the only way out; Files reaches `/media` by path. |
+
+What a person gets: `ls /media`, Files' address bar and every program see the
+volume as an ordinary directory. The limits worth knowing: one volume per
+stick (the first that validates), 512-byte sectors, no eject, nothing on the
+volume is executable, a `-2` suffix names a second volume of the same label.
 
 ## Goal
 

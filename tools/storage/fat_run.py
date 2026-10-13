@@ -245,6 +245,8 @@ def main() -> int:
         failures.append("fsck.fat is not clean:\n" + output)
     elif clean is None:
         print(f"fsck.fat skipped: {output}")
+    else:
+        print(f"fsck.fat clean: {output.splitlines()[-1]}")
     for failure in failures:
         print(f"FAIL: {failure}")
     print("fat harness: " + ("FAIL" if failures else "PASS"))

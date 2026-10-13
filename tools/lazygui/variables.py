@@ -59,6 +59,7 @@ def make_vars() -> dict:
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),
+        "usb_sticks": s(value=""),
         "reset_os": b(value=False),
         "desktop": b(value=False),
         "services": b(value=False),

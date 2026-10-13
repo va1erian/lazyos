@@ -36,3 +36,22 @@ nothing failed (`USBD:FATAL|PANIC|MSC:FAIL|PORT:FAIL`, a kernel panic,
 
 Under TCG (`--accel none`) a run takes about half an hour; output lands in
 `shots/storage/`.
+
+## FAT sticks at `/media`
+
+```bash
+python tools/storage/fat_run.py               # build, boot once, judge
+python tools/storage/fat_run.py --no-build    # reuse target/lazyos.img
+```
+
+The same image and `/home` stick as above, plus a 64 MiB FAT32 stick (MBR,
+label `MY STICK`, made by `cargo run -p fatvol --example fatstick`) that is
+**not** attached at boot. The session logs in, plugs the stick in over QMP,
+reads, writes, makes a directory and copies a file under
+`/media/MY_STICK`, pulls the stick (the mount must go and the shell keep
+answering), plugs it in again (`blockdev-add`: QEMU drops a `-drive` when its
+device is removed) and reads what it wrote, then powers off. The host then
+reads the stick with the same library (`fatstick cat`) and runs
+`fsck.fat -n` from dosfstools through Docker when Docker is there. The judge
+fails on a kernel panic, a failed final sync, a disk provider that hung, a
+volume that did not mount twice or left the home stick mounted wrongly.

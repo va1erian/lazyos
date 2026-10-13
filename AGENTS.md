@@ -1439,6 +1439,37 @@ have their own harness, `tools/storage/README.md`:
 python tools/storage/run.py              # two boots: write /home/user on the stick, power off, read it back; e2fsck
 python tools/storage/test_judge.py       # the judge fails when it should
 cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
+```
+
+## FAT sticks at `/media` (`fatfuse`, `libs/fatvol`)
+
+A FAT12/16/32 stick plugged in while someone is logged in is mounted by
+`mountd` at `/media/<label>` through a `fatfuse` daemon (a FUSE provider that
+holds a raw claim on the disk, `docs/architecture/usb-storage.md` "Removable
+volumes"; plan and what differs from it: `docs/usb-hotplug-plan.md` "As
+built"). The FAT code is `libs/fatvol` (`rust-fatfs` pinned, plus boot-sector
+validation, a write-back sector cache, MBR/GPT discovery), host-tested; the
+`fatstick` example makes and reads sticks without `mkfs.fat`. A kernel disk
+slot (`usb<n>`) is reused after an unplug: an operation takes the slot's
+**generation** when it starts and fails once the slot holds another disk, so
+never keep a `&'static` reference to a provider disk for longer than one
+operation (the late `/home` mount is the one holder, and pins its slot).
+
+```bash
+cargo test -p fatvol -p mounttable                                  # the library and the automount rules
+cargo test -p fatvol --release soak -- --ignored                    # a long model soak
+cargo run -p fatvol --example fatstick -- make s.img --label X --file a.txt=hi
+LAZYOS_BUSYBOX=<busybox> python tools/storage/fat_run.py            # build, plug, use, pull, replug, power off, judge
+LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none   # slot reuse, generations, claims
+```
+
+`fat_run.py` plugs the stick in over QMP (`blockdev-add` + `device_add`: QEMU
+drops a `-drive` when its device is pulled), writes, pulls it, plugs it in
+again and reads the host copy with the same library and `fsck.fat -n`
+(Docker). Daemons are ended with `SIGKILL` by `mountd`: a `SIGTERM` to a
+native daemon parked in its provider `NEXT` was seen not to land before the
+power-off sync.
+
 ## Networking in an interactive boot
 
 `python tools/run_demo.py --net` (the launcher: *Networking* on the Simple

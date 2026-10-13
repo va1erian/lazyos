@@ -141,6 +141,14 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="also write target/lazyos-usb.img, the image for a real PC's "
                              "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
+    parser.add_argument("--usb-stick", action="append", default=[], metavar="PATH",
+                        help="plug a USB stick image into the guest's xHCI controller "
+                             "(repeatable; created as an empty 64 MiB FAT32 stick, label LAZYFAT, "
+                             "if missing). Builds with LAZYOS_USB=1 (usbd, a services session): "
+                             "a FAT stick is mounted at /media/<label> once you are logged in "
+                             "(docs/architecture/usb-storage.md). The devices are `usbstick<n>`, "
+                             "so QEMU's monitor (Ctrl-A c) can `device_del usbstick0` and "
+                             "`device_add usb-storage,bus=xhci.0,drive=ustk0,id=usbstick0`")
     parser.add_argument("--installer", action="store_true",
                         help="put lazyos-install on the USB stick (LAZYOS_INSTALLER=1; implies "
                              "--usb-image; builds it with tools/install/build.py): from Linux it "
