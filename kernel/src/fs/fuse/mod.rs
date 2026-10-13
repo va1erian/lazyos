@@ -80,6 +80,12 @@ pub use mount::{reap, register, teardown_task, unregister};
 pub const MAX_PROVIDERS: usize = 8;
 /// How long one request may take (PIT ticks, 100 Hz): 10 s.
 pub const REQUEST_TICKS: u64 = 1000;
+/// The same for a removable-media mount (`/media`): 45 s, the patience of
+/// the stick driver's own request budget (`usbd`, below the block layer's
+/// 60 s). A flash stick can stall a write for seconds while it reorganises,
+/// and the daemon's request is a handful of those; a 10 s limit declared a
+/// healthy stick dead after two slow writes.
+pub const MEDIA_REQUEST_TICKS: u64 = 4500;
 /// How often a waiting requester checks that its daemon is alive.
 pub const SLICE_TICKS: u64 = 10;
 /// How long the VFS believes metadata a daemon answered (ticks): 1 s. A

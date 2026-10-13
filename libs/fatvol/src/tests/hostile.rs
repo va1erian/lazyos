@@ -197,3 +197,36 @@ fn a_directory_that_loops_ends() {
         assert!(matches!(outcome, Outcome::Used | Outcome::Rejected), "{outcome:?}");
     }
 }
+
+#[test]
+fn damaged_directory_entries_never_panic_or_hang() {
+    let mut rng = Rng(0x0123_4567_89AB_CDEF);
+    let mut panics = Vec::new();
+    for fat in [16, 32] {
+        let base = populated(fat);
+        // The short entries and the long-name entries before them.
+        let needles: [&[u8]; 3] = [b"TOP     BIN", b"DIR        ", b"INNER   TXT"];
+        let mut spots = Vec::new();
+        for needle in needles {
+            if let Some(at) = base.windows(needle.len()).position(|w| w == needle) {
+                spots.push(at);
+            }
+        }
+        assert!(!spots.is_empty(), "no directory entry found to damage");
+        for round in 0..60 {
+            let mut image = base.clone();
+            let spot = spots[round % spots.len()];
+            for _ in 0..(1 + round % 6) {
+                // Anywhere in the entry and the long-name entries before it:
+                // names, attributes, first cluster, sizes, sequence numbers.
+                let at = spot - (rng.next() as usize % 96).min(spot) + (rng.next() as usize % 32);
+                image[at] = rng.next() as u8;
+            }
+            let label = alloc::format!("FAT{fat} directory round {round}");
+            if let Outcome::Panicked(text) = run_bounded(image, &label) {
+                panics.push(alloc::format!("{label}: {text}"));
+            }
+        }
+    }
+    assert!(panics.is_empty(), "{} panics:\n{}", panics.len(), panics.join("\n"));
+}

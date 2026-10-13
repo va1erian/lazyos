@@ -6,7 +6,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use fused::wire::{Reply, Request, MAX_PAYLOAD};
 
 use super::{
-    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, REQUEST_TICKS, SLICE_TICKS,
+    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, MEDIA_REQUEST_TICKS, REQUEST_TICKS,
+    SLICE_TICKS,
     SLOTS,
 };
 use crate::fs::vfs::FsError;
@@ -31,7 +32,12 @@ pub(super) fn transact(
     if payload_len > MAX_PAYLOAD {
         return Err(FsError::Invalid);
     }
-    let deadline = now() + REQUEST_TICKS;
+    let ticks = if slot.state.lock().media {
+        MEDIA_REQUEST_TICKS
+    } else {
+        REQUEST_TICKS
+    };
+    let deadline = now() + ticks;
     // Take the request slot.
     let tag = loop {
         {
