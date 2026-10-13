@@ -475,7 +475,9 @@ fn main() {
     // cancels it and reports.
     // SAFETY: plain libc call.
     unsafe { alarm(30) };
-    let exe = std::env::current_exe().unwrap_or_else(|_| "/system/bin/abi-init".into());
-    let error = std::process::Command::new(exe).arg("--after-exec").exec();
+    // The fixture's own name: the kernel maps the `$PATH` search to /system/bin.
+    let error = std::process::Command::new("abi-init")
+        .arg("--after-exec")
+        .exec();
     common::fail("alarm", &format!("execve failed: {error}"));
 }
