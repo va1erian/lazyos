@@ -84,7 +84,7 @@ impl Resource {
 /// `lazyos.cfg`); the rest are fixed policy:
 ///
 /// * kernel memory: `limit.quota_kernel_memory` (32 MiB on a 256 MiB guest);
-/// * user memory: `limit.quota_user_memory` (256 MiB on a 256 MiB guest);
+/// * user memory: `limit.quota_user_memory` (224 MiB on a 256 MiB guest);
 /// * 1024 handles;
 /// * fds: four full descriptor tables (`limit.fd_max` each);
 /// * 4 MiB / 1024 messages of Messenger queueing;

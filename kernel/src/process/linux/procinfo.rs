@@ -64,16 +64,21 @@ fn cpuinfo() -> String {
     let family = (leaf1.eax >> 8) & 0xf;
     let model = (leaf1.eax >> 4) & 0xf;
     let mut flags = String::from("fpu tsc cx8 cmov mmx fxsr sse sse2");
-    for (bit, name) in [
-        (0, "pni"),
-        (9, "ssse3"),
-        (19, "sse4_1"),
-        (20, "sse4_2"),
-        (28, "avx"),
-    ] {
+    for (bit, name) in [(0, "pni"), (9, "ssse3"), (19, "sse4_1"), (20, "sse4_2")] {
         if leaf1.ecx & (1 << bit) != 0 {
             flags.push(' ');
             flags.push_str(name);
+        }
+    }
+    // Linux lists `xsave`/`avx` only for state the OS enabled (issue #822):
+    // a program that reads this instead of `CPUID` must not see AVX the
+    // kernel does not save.
+    if crate::arch::cpu::xsave_mask() & crate::task::fpu::XFEATURE_AVX != 0 {
+        flags.push_str(" xsave avx");
+        let avx2 = core::arch::x86_64::__cpuid(0).eax >= 7
+            && core::arch::x86_64::__cpuid_count(7, 0).ebx & (1 << 5) != 0;
+        if avx2 {
+            flags.push_str(" avx2");
         }
     }
     format!(

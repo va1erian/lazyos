@@ -53,8 +53,12 @@ impl Limits {
             stack_size: base.stack_size,
             // Charged on reservation (mappings, `brk`), not residency, so it
             // may exceed what is resident; three quarters of RAM keeps one
-            // runaway user from reserving everything.
-            quota_user_memory: down(ram / 4 * 3).max(base.quota_user_memory),
+            // runaway user from reserving everything. Never more than the
+            // frames a user could be given: on the smallest machine the
+            // 256 MiB floor is all of RAM, a promise nothing could keep.
+            quota_user_memory: down(ram / 4 * 3)
+                .max(base.quota_user_memory)
+                .min(user_memory_ceiling(ram)),
             // Shared buffers: a desktop holds a few screen-sized surfaces
             // per window, so the quota follows the screen as well as RAM.
             quota_kernel_memory: up(down(ram / 8).max(screen.saturating_mul(8)))
@@ -115,6 +119,15 @@ impl Limits {
             task_max,
         }
     }
+}
+
+/// The most user memory a default quota may promise: RAM less what the kernel
+/// takes at boot (the initial heap and the DMA pool, [`heap_initial_bytes`]
+/// and [`dma_pool_bytes`]). A configured quota may go past it (a program that
+/// reserves more than it touches needs the room, and the page fault answers a
+/// real shortage with an OOM kill), but `limits::apply_config` says so.
+pub fn user_memory_ceiling(ram: u64) -> u64 {
+    ram.saturating_sub(heap_initial_bytes(ram) + dma_pool_bytes(ram))
 }
 
 /// The heap mapped at boot, before `lazyos.cfg` can be read: 1/32 of RAM,

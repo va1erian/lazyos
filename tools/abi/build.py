@@ -39,6 +39,7 @@ NAMES = [
     "procstress",
     "sigstress",
     "fpsig",
+    "avx",
     "threadsig",
     "epollstress",
     "msgpoll",

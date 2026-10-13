@@ -8,6 +8,8 @@ mod heap;
 mod layout;
 pub mod memfd;
 pub mod mmio;
+pub mod oom;
+mod pagefault;
 mod protect;
 pub mod pte;
 mod reclaim;
@@ -24,6 +26,9 @@ pub mod wc;
 pub use cow::clone_user_table;
 pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
+#[cfg(lazyos_tests)]
+pub use pagefault::{cow_fault, demand_fault};
+pub use pagefault::{cow_resolve, demand_resolve, Resolve};
 pub use protect::protect_range;
 pub use table_guard::UserTableGuard;
 pub use uspace::*;
@@ -34,6 +39,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::idt::PageFaultErrorCode;
+use x86_64::structures::paging::mapper::MapToError;
 use x86_64::structures::paging::{
     FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
 };

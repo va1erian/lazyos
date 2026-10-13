@@ -10,7 +10,9 @@ surface used by every address space.
 | `kernel/src/mem/frames.rs` | `Frames` allocator and frame refcounts |
 | `libs/membook/src/frames.rs` | The refcount rules (`shared`/`dropped`), the free chain and the counters (`Ledger`), over a `FrameMemory` trait the kernel implements on the physical-memory mapping (`PhysTable`); host-tested with a model soak and under Miri (issue #485) |
 | `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool, stats and test ordering log |
-| `kernel/src/mem/uspace.rs` | User tables, COW, teardown, `demand_fault`/`cow_fault` |
+| `kernel/src/mem/uspace.rs` | User tables, COW fork, teardown |
+| `kernel/src/mem/pagefault.rs` | `demand_fault`/`cow_fault` (and `demand_resolve`/`cow_resolve`, which say `OutOfFrames`) |
+| `kernel/src/mem/oom.rs` | The OOM kill: `SIGKILL` when a fault finds no frame (issue #823, `limits.md`) |
 | `kernel/src/mem/mod.rs` | Kernel tables, `init`, `map_kernel_range`, re-exports |
 | `kernel/src/mem/regions.rs` | The usable regions: firmware map merged, sorted, page aligned |
 | `kernel/src/mem/layout.rs` | The shared virtual layout (user window, shared-buffer window, kernel half) |

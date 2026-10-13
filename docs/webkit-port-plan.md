@@ -51,8 +51,9 @@ raster backend and a CPU path still exists.
 
 Not done: the whole of `JSTests/stress` (a fixed 255-file subset runs once with
 default options; the Ruby harness cannot run in the guest, so the harness's
-option sets are not), FTL (B3), WebAssembly, and a kernel that enables AVX
-state (the JIT shell is patched not to use AVX, see "W2 result" in section 5).
+option sets are not), FTL (B3), WebAssembly. (The kernel now enables AVX
+state, issue #822; the JIT shell keeps the `OSXSAVE` patch, see "W2 result" in
+section 5.)
 
 Scope: what it would take to run a mainstream browser engine on LazyOS, and
 the shortest credible path to a page rendered by WebKit in a desktop window.
@@ -237,10 +238,12 @@ LazyOS sets neither `CR4.OSXSAVE` nor `XCR0`, so every VEX instruction is
 `#UD`; a QEMU guest on WHPX or KVM reports AVX. The executable-memory side
 (`mmap`/`mprotect` flips, thousands of them, with the compile thread running)
 needed nothing. `tools/jsc/patches/webkit/0002` makes JSC check `OSXSAVE` and
-`XGETBV` as Intel's manual prescribes; the kernel-side alternative is to
-enable AVX state (`CR4.OSXSAVE`, `XSETBV`, `XSAVE` in the context switch and the
-signal frame), which is not done. Without the patch a real PC with AVX would
-hit the same `SIGILL`.
+`XGETBV` as Intel's manual prescribes. The kernel-side fix landed with
+issue #822: `CR4.OSXSAVE`, `XSETBV` (`XCR0` = x87 | SSE | AVX), `XSAVE` in the
+context switch and the signal frame (`architecture/arch.md`), so a program that
+trusts `CPUID` alone now runs. The patch stays: it is correct upstream
+behaviour (and protects a kernel or CPU that leaves AVX off). Whether the JIT
+shell now emits VEX code was not re-measured (it needs the Docker build).
 
 ### W3. The dependency bundle (built)
 
@@ -710,11 +713,15 @@ sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* abo
   the run has no `ENOSYS 314` line.
 * **ABI gaps JSC met while running its tests.** `mprotect(addr, 0, prot)` was
   `EINVAL` (Linux: 0), which aborted two growable-ArrayBuffer stress files;
-  fixed. A process that exhausts the frame allocator in a page fault is killed
+  fixed. A process that exhausted the frame allocator in a page fault was killed
   with `SIGSEGV` where Linux would OOM-kill it (`get-array-length-reuse.js`,
-  2 GiB in a 2 GiB guest); open.
+  2 GiB in a 2 GiB guest); now it is `SIGKILL` with an `oom: killed` line, and
+  an `mmap` larger than all of RAM is `ENOMEM` (issue #823, `docs/architecture/limits.md`
+  "Running out of memory"). Not yet re-run through `tools/jsc/stress.py`.
 * **No AVX state.** See W2 above: JIT code that uses VEX instructions needs the
-  kernel to enable AVX or JSC to be told not to (done, by patch).
+* **AVX state.** See W2 above: JIT code that uses VEX instructions needed the
+  kernel to enable AVX or JSC to be told not to; both are done now (patch
+  `0002`, and the kernel since issue #822).
 * **Binary size.** `jsc` is 44.5 MiB because ICU's data (about 30 MB: every
   locale, converter and break rule) is inside; there is no file-backed `mmap`
   to load `icudt74l.dat`. An ICU data filter (locales, converters) would cut

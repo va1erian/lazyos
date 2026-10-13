@@ -3,6 +3,7 @@
 use crate::arch::fault::{contain, Fault};
 use crate::arch::fault_storm::Path;
 use crate::arch::pic;
+use crate::mem::Resolve;
 use crate::task::signal::Exception;
 use alloc::boxed::Box;
 use core::arch::global_asm;
@@ -376,15 +377,29 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
         // A write to a present copy-on-write user page takes a private copy.
         // This must come first: such a page is present, so the demand-zero
         // path below would never apply to it.
-        if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
-            && crate::mem::cow_fault(table, fault.as_u64())
-        {
-            return handled(Path::Cow);
+        let mut starved = false;
+        if error.contains(PageFaultErrorCode::CAUSED_BY_WRITE) {
+            match crate::mem::cow_resolve(table, fault.as_u64()) {
+                Resolve::Handled => return handled(Path::Cow),
+                Resolve::OutOfFrames => starved = true,
+                Resolve::Refused => {}
+            }
         }
         // A not-present page inside an Anon/Heap VMA is demand-zero memory:
         // materialize it (if the VMA permits this access) and resume.
-        if crate::mem::demand_fault(table, fault.as_u64(), error) {
-            return handled(Path::Demand);
+        if !starved {
+            match crate::mem::demand_resolve(table, fault.as_u64(), error) {
+                Resolve::Handled => return handled(Path::Demand),
+                Resolve::OutOfFrames => starved = true,
+                Resolve::Refused => {}
+            }
+        }
+        // The access was fine and the machine has no frame to back it: that
+        // is not the program's bug, so no `SIGSEGV` (and no handler to run
+        // on a stack that may itself need the frame). Linux's OOM killer
+        // ends the process with `SIGKILL`; so do we.
+        if starved && crate::arch::fault::from_user(saved_cs) {
+            crate::mem::oom::kill_current();
         }
         // Still a fault: a ring-3 process with a `SIGSEGV` handler resumes
         // there (a kernel-mode fault must never have its frame rewritten to

@@ -57,7 +57,7 @@ off, where a lock could deadlock against a preempted holder (the #382 class).
 | `heap_max` | Kernel heap ceiling (`mem::heap` grows on demand up to it) | `r / 2` | 16 MiB .. 512 GiB |
 | `fd_max` | Descriptors per process: the hard `RLIMIT_NOFILE`; a process may set its soft limit anywhere below (`task::FdTable`, `task/fdlimit.rs`) | 8192 | 64 .. 1 Mi |
 | `stack_size` | Linux main-thread stack (`RLIMIT_STACK`) | 8 MiB | 64 KiB .. 1 GiB |
-| `quota_user_memory` | Per-uid user memory (mappings, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)` | 16 MiB .. 1 TiB |
+| `quota_user_memory` | Per-uid user memory (mappings, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)`, at most `r` less the initial heap and the DMA pool | 16 MiB .. 1 TiB |
 | `quota_kernel_memory` | Per-uid kernel memory (shared buffers), non-root | `max(32 MiB, r/8, 8s)`, at most `max(32 MiB, r/2)` | 4 MiB .. 1 TiB |
 | `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 3s)`, at most `max(16 MiB, r/4)` | 8 MiB .. 64 GiB |
 | `scratch_max` | File bytes the in-memory scratch filesystem (`/transient` and `/tmp`, one instance) holds; a non-root uid may hold half | `min(1 GiB, heap_max / 2)`, at least 32 MiB | 4 MiB .. 64 GiB |
@@ -67,7 +67,7 @@ What that gives (screen 1280x720 unless stated):
 
 | Machine | `heap_max` | `quota_user_memory` | `quota_kernel_memory` | `shared_buffer_max` | DMA pool |
 |---|---|---|---|---|---|
-| 256 MiB | 128 MiB | 256 MiB | 32 MiB | 16 MiB | 16 MiB |
+| 256 MiB | 128 MiB | 224 MiB | 32 MiB | 16 MiB | 16 MiB |
 | 1 GiB | 512 MiB | 768 MiB | 128 MiB | 16 MiB | 32 MiB |
 | 1 GiB, 1920x1080 | 512 MiB | 768 MiB | 128 MiB | 24 MiB | 32 MiB |
 | 1 GiB, 3840x2160 | 512 MiB | 768 MiB | 254 MiB | 95 MiB | 32 MiB |
@@ -122,7 +122,7 @@ Results (QEMU/WHPX, a console image with only the fixture running, 1280x720):
 | 4 GiB | `fd_max=65536` | 1022 | 3064 | 65536 |
 | 4 GiB | `heap_max=64M` | 1022 | 3064 | 8192 |
 | 1 GiB | `heap_max=32M` (the heap the boot mapped) | 517 | 760 | 8192 |
-| 1 GiB | `quota_user_memory=2G` | 1016 | killed at ~940 | - |
+| 1 GiB | `quota_user_memory=2G` | 1016 | killed by `SIGKILL` (oom) at ~940 | - |
 
 How to read it:
 
@@ -146,9 +146,9 @@ How to read it:
   map 4 x 64 MiB at once.
   Raising the quota past what the machine has is not an `ENOMEM` any more:
   pages are demand-zero, so the quota is a promise and the allocator answers
-  at the first touch of a page with no frame behind it. The faulting process
-  dies with the page fault (`SIGSEGV`, status 139) and its address space is
-  reclaimed; nothing else is hurt. Keep `quota_user_memory` below RAM.
+  at the first touch of a page with no frame behind it. See "Running out of
+  memory" below: the process is ended with `SIGKILL`, as Linux's OOM killer
+  does, and its address space is reclaimed; nothing else is hurt.
 * **Descriptors** stop at `fd_max` (`EMFILE`; `dup` used to answer `EBADF`
   for a full table, it answers `EMFILE` since #774). The per-uid quota is
   `4 * fd_max`. A table slot is 32 bytes and the table doubles as it grows: 52 bytes of
@@ -200,6 +200,51 @@ descriptors already open stay open. Tests: `linux_nofile_*`,
 byte, and a refusal changes nothing (no charge, no frames): tests
 `linux_mmap_quota_exhaustion_is_enomem`, `..._soak` (2000 rounds) and
 `..._returns_when_the_process_exits`.
+
+## Running out of memory
+
+The quota counts reservations, not frames, so a program can reserve more than
+the machine has and find out only when it touches the last frame. Three rules
+keep that honest (issue #823):
+
+* **The page fault never answers a shortage with `SIGSEGV`.** When the
+  demand-zero or copy-on-write path finds the frame allocator empty, the
+  faulting process is ended with `SIGKILL` (`mem::oom`, status 137, which
+  `wait4` reports as the signal) and the kernel prints
+  `oom: killed <comm> (<uid>): <n> MiB mapped, <n> frames`. Every thread of the
+  process goes, the frames come back with its address space, and other
+  processes are untouched. A bad address (no VMA, `PROT_NONE`, a store to a
+  read-only page) is still `SIGSEGV`. Only a user-mode fault is killed this
+  way; a kernel-mode fault that cannot get a frame keeps the old diagnostic
+  halt, and the syscall copy paths (`copy_to_user` and friends) answer
+  `ENOMEM` (not `EFAULT`: the pointer was fine). Two limits: the victim is
+  always the process that faulted (not the largest), and its frames come back
+  when its parent reaps it (`wait4`), not at the kill, so a process that
+  faults in that window while the allocator is still empty is killed too.
+* **A request that could never fit is refused up front** (Linux's heuristic
+  overcommit, `process::linux::overcommit`): `mmap`, `brk` and growing
+  `mremap` of private anonymous memory answer `ENOMEM` when the one request
+  is larger than every frame the allocator owns (`FrameStats::total`), so
+  `malloc` returns null and a JavaScript engine's "allocation failed" path
+  runs. It is one request against the machine's total, not against what is free
+  now or what the process already holds: a big sparse reservation that fits
+  must work. `PROT_NONE` ranges and `MAP_NORESERVE` mappings commit nothing and
+  are never refused here (they still count against the quota). Shared mappings
+  keep their stricter eager check (`fits_in_memory`, against the free frames).
+* **The default quota never exceeds what the user can be given**: `3r/4`, at
+  most RAM less the initial heap and the DMA pool, so a 256 MiB guest gets
+  224 MiB instead of all of its RAM. A quota set in `lazyos.cfg` is kept
+  whatever it is (the WebKit profile asks for 8G on a 4 GiB guest, see below), but
+  one above that ceiling prints `limits: quota_user_memory=... is more than the
+  ... MiB of RAM the user can be given; a process that touches more than the
+  frames is killed (oom)`.
+
+Tests: `mem_oom_kill_is_sigkill_and_returns_frames`, `mem_oom_refusals_stay_segv`,
+`mem_soak_oom_kill_generations` (300 generations at the edge of the
+allocator, no leak), `linux_overcommit_*`, `limits_quota_default_stays_below_ram`.
+The `bigapp` row with the quota past RAM (`python tools/abi/run.py --only bigapp
+--at 40 --memory 1G --limit quota_user_memory=2G --expect-oom`) reads
+"killed by SIGKILL (oom)".
 
 ## The "big app" profile
 

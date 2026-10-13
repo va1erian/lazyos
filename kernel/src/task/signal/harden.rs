@@ -20,7 +20,7 @@ use super::{
 pub const USER_MAX: u64 = 0x0000_8000_0000_0000;
 
 /// Page 0 is never user memory, so a frame cannot legitimately start below it.
-const MIN_FRAME_ADDR: u64 = 0x1000;
+pub(super) const MIN_FRAME_ADDR: u64 = 0x1000;
 
 const RFLAGS_IF: u64 = 1 << 9;
 /// Bit 1 of RFLAGS always reads as one.
@@ -87,7 +87,7 @@ pub fn sanitize_regs(regs: &mut UserRegs) -> bool {
 
 /// One word of the frame, or `None` if that user memory is unreadable: an
 /// unmapped frame must not read as zeros and pass for a valid context.
-fn read_word(addr: u64) -> Option<u64> {
+pub(super) fn read_word(addr: u64) -> Option<u64> {
     crate::user_ptr::try_read::<u64>(addr).ok()
 }
 
@@ -134,11 +134,12 @@ pub fn restore_frame(user_rsp: u64) -> Option<(UserRegs, u64)> {
     sanitize_regs(&mut regs).then_some((regs, mask))
 }
 
-/// Restore the interrupted x87/SSE state from the frame `rt_sigreturn` was
+/// Restore the interrupted x87/SSE/AVX state from the frame `rt_sigreturn` was
 /// entered with, into the calling task's live registers. A null `fpstate`
 /// resets to the power-on state (as Linux does); a misaligned or unreadable
-/// image is a forged frame (`None`). MXCSR's reserved bits are cleared by
-/// [`crate::task::fpu::load`].
+/// image is a forged frame (`None`). The image's extended part is used only
+/// when its markers are consistent ([`super::fpframe`]); MXCSR's reserved
+/// bits and the `XSAVE` header are cleaned by [`crate::task::fpu::load`].
 pub fn restore_fpstate(user_rsp: u64) -> Option<()> {
     use crate::task::fpu;
     let frame = user_rsp.checked_sub(8)?;
@@ -148,14 +149,7 @@ pub fn restore_fpstate(user_rsp: u64) -> Option<()> {
         fpu::reset_for(me);
         return Some(());
     }
-    let size = fpu::IMAGE_SIZE as u64;
-    if ptr % 16 != 0 || ptr < MIN_FRAME_ADDR || ptr.checked_add(size)? > USER_MAX {
-        return None;
-    }
-    let mut image = fpu::FxImage::ZERO;
-    for index in 0..fpu::IMAGE_SIZE / 8 {
-        image.set_word(index, read_word(ptr + 8 * index as u64)?);
-    }
+    let image = super::fpframe::read(ptr)?;
     fpu::load(me, &image);
     Some(())
 }

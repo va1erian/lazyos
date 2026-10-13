@@ -69,6 +69,12 @@ path = "src/sigstress.rs"
 name = "fpsig"
 path = "src/fpsig.rs"
 
+# AVX state: OSXSAVE/XCR0, per-thread YMM halves under preemption and signals,
+# the signal frame's XSAVE area, fork and execve (issue #822).
+[[bin]]
+name = "avx"
+path = "src/avx.rs"
+
 # Per-thread signal masks and thread-directed signals: the JavaScriptCore
 # stop-the-world pattern (issue #772).
 [[bin]]

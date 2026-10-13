@@ -12,6 +12,7 @@ use crate::quota::{self, Resource};
 use crate::task;
 
 use super::errno::{err, EFAULT, EINVAL, ENOMEM};
+use super::overcommit::{hopeless, MAP_NORESERVE};
 use super::{BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
 
 const MAP_SHARED: u64 = 0x1;
@@ -104,6 +105,11 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: u64, offs
         (true, true) => return super::mmapfile::map_shared_anon(&spec),
         (false, shared) => return super::mmapfile::map_memfd(&spec, fd, offset, shared),
         (true, false) => {}
+    }
+    // More than the machine could ever back is refused now (`ENOMEM`), not at
+    // the first touch (an OOM kill): see `overcommit`.
+    if flags & MAP_NORESERVE == 0 && hopeless(prot, len) {
+        return err(ENOMEM);
     }
     // Per-uid user-memory quota (issue #103), charged before any VMA or page
     // table changes so a refusal leaves the address space untouched. The
@@ -258,6 +264,10 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
         return current;
     }
     if new > current {
+        // The heap is read-write anonymous memory: see `overcommit`.
+        if hopeless(Prot::READ | Prot::WRITE, new - current) {
+            return current;
+        }
         // Per-uid user-memory quota (issue #103): charge the growth before the
         // VMA exists. A refusal reports the unchanged break, which is how a
         // caller detects a failed brk.
@@ -312,6 +322,14 @@ pub(super) fn sys_mremap(
     let Some(vma) = crate::mem::vma::find(table, old_addr) else {
         return err(EFAULT);
     };
+    // Growth the machine could never back is refused before anything moves
+    // (see `overcommit`); memfd and shared pages are accounted elsewhere.
+    if matches!(vma.kind, Kind::Anon | Kind::Heap)
+        && new_len > old_end - old_addr
+        && hopeless(vma.prot, new_len - (old_end - old_addr))
+    {
+        return err(ENOMEM);
+    }
     // The range may cover only part of a coalesced VMA (adjacent anonymous
     // mappings merge): split at both boundaries so it is exactly one VMA.
     if old_addr < vma.start || old_end > vma.end {
