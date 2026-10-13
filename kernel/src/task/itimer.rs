@@ -27,6 +27,15 @@
 //! syscall (`EINTR`, or `SA_RESTART`) exactly as `kill` does. Nothing in the
 //! path allocates.
 //!
+//! **Approximations.** A relative `CLOCK_REALTIME` timer and an absolute one
+//! are converted to a monotonic deadline when armed, so a later
+//! `clock_settime` step does not move them (Linux re-evaluates absolute
+//! realtime timers). A timer's `overrun` is the periods skipped when it fires
+//! late, not the signals coalesced while one was still pending. Repeat
+//! intervals under [`MIN_INTERVAL_NS`] are raised to it. `SIGEV_THREAD` is
+//! user space's (musl builds it on `SIGEV_THREAD_ID` and `rt_sigtimedwait`,
+//! which this kernel does not have).
+//!
 //! **Ownership.** A timer belongs to a process (its address space, the key
 //! the signal layer uses) and dies with it: `fork` gives the child none,
 //! `execve` keeps the three interval timers and deletes POSIX timers (as
@@ -387,6 +396,9 @@ pub fn exec(old: u64, new: u64) {
             }
         }
     });
+    // The new address space has no signal state yet, and a timer's signal is
+    // queued from an interrupt that must not allocate it.
+    signal::ensure_process(new);
 }
 
 mod fire;

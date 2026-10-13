@@ -130,6 +130,14 @@ fn proc_index(all: &mut Vec<Signals>, pml4: u64) -> usize {
     }
 }
 
+/// Make sure process `pml4` has its signal state. A timer fires from the
+/// scheduler's interrupt, where nothing may allocate, and the registry grows
+/// its process list on first use: the syscall that arms a timer calls this
+/// first so the interrupt only ever finds an entry.
+pub fn ensure_process(pml4: u64) {
+    with_signals(pml4, |_| {});
+}
+
 /// Whether a signal table lock is held right now (the NMI hang report, issue #382).
 pub fn registry_locked() -> bool {
     PROCS.is_locked() || THREADS.is_locked()

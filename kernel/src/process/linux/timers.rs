@@ -38,6 +38,14 @@ fn process() -> u64 {
     task::pml4_of(task::current()).unwrap_or(0)
 }
 
+/// The process's address space, with its signal state created: a timer
+/// signals from an interrupt, where the registry must not grow.
+fn arming_process() -> u64 {
+    let pml4 = process();
+    signal::ensure_process(pml4);
+    pml4
+}
+
 fn kind_of(which: u64) -> Option<Kind> {
     match which {
         ITIMER_REAL => Some(Kind::Real),
@@ -98,7 +106,7 @@ fn write_spec(addr: u64, reading: Reading, unit: u64) -> Result<(), u64> {
 pub(super) fn sys_alarm(seconds: u64) -> u64 {
     let seconds = seconds as u32 as u64;
     match itimer::set_interval(
-        process(),
+        arming_process(),
         task::current(),
         Kind::Real,
         now_ns(),
@@ -123,11 +131,17 @@ pub(super) fn sys_setitimer(which: u64, new: u64, old: u64) -> u64 {
         Ok(spec) => spec,
         Err(errno) => return errno,
     };
-    let previous =
-        match itimer::set_interval(process(), task::current(), kind, now_ns(), value, interval) {
-            Ok(previous) => previous,
-            Err(error) => return timer_error(error),
-        };
+    let previous = match itimer::set_interval(
+        arming_process(),
+        task::current(),
+        kind,
+        now_ns(),
+        value,
+        interval,
+    ) {
+        Ok(previous) => previous,
+        Err(error) => return timer_error(error),
+    };
     if old != 0 {
         if let Err(errno) = write_spec(old, previous, NS_PER_USEC) {
             return errno;
@@ -160,7 +174,7 @@ pub(super) fn sys_timer_create(clock: u64, sevp: u64, timerid: u64) -> u64 {
         return err(EINVAL);
     }
     let me = task::current();
-    let pml4 = process();
+    let pml4 = arming_process();
     let (notify, signo, value) = if sevp == 0 {
         // Without a sigevent the value is the timer id (Linux).
         (Notify::Process, signal::SIGALRM, None)
