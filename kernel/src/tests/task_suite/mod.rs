@@ -68,6 +68,7 @@ fn finish_and_reap_all(slots: &[usize]) -> Result<(), String> {
     Ok(())
 }
 
+mod avx_state;
 mod direction_flag;
 mod fpu_state;
 mod lifecycle;
@@ -78,6 +79,7 @@ mod tick_catchup;
 mod wait_queue;
 mod yield_clock;
 
+pub(super) use avx_state::*;
 pub(super) use direction_flag::*;
 pub(super) use fpu_state::*;
 pub(super) use lifecycle::*;
@@ -157,6 +159,30 @@ pub(super) const CASES: &[(&str, Test)] = &[
         fpu_real_switch_to_a_user_task,
     ),
     ("task_fpu_switch_soak_all_slots", fpu_switch_soak_all_slots),
+    ("task_avx_enabled_at_boot", avx_enabled_at_boot),
+    (
+        "task_avx_vex_instructions_execute",
+        avx_vex_instructions_execute,
+    ),
+    (
+        "task_avx_switch_keeps_each_tasks_ymm",
+        avx_switch_keeps_each_tasks_ymm,
+    ),
+    (
+        "task_avx_inherit_then_exec_reset",
+        avx_inherit_then_exec_reset,
+    ),
+    (
+        "task_avx_real_switch_to_a_user_task",
+        avx_real_switch_to_a_user_task,
+    ),
+    ("task_avx_switch_soak_all_slots", avx_switch_soak_all_slots),
+    ("task_avx_fxsave_fallback_path", avx_fxsave_fallback_path),
+    ("task_avx_switch_cost", avx_switch_cost),
+    (
+        "task_avx_other_slot_and_header_sanitising",
+        avx_other_slot_and_header_sanitising,
+    ),
     (
         "task_voluntary_park_expires_deadline",
         voluntary_park_expires_deadline,

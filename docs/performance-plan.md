@@ -475,7 +475,7 @@ native user programs is feasible but not done: `x86_64-unknown-none` is a
 soft-float target, and turning `soft-float` off per package is being phased
 out by rustc (rust-lang/rust#162235), so it needs its own target spec built
 with `-Zbuild-std` and a second artifact target; the kernel already saves
-FXSAVE state per task.
+x87/SSE/AVX state per task (`XSAVE`, issue #822).
 
 ### Later: SMP
 
