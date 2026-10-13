@@ -340,10 +340,10 @@ class SessionTests(unittest.TestCase):
         try:
             port = closer.listener.getsockname()[1]
             with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
-                client.sendall(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
                 try:
+                    client.sendall(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
                     self.assertEqual(client.recv(100), b"")
-                except ConnectionResetError:
+                except ConnectionError:
                     pass  # a hang-up with the request unread is a reset on some hosts: a failure all the same
         finally:
             closer.close()
