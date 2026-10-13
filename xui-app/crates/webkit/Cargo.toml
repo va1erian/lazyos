@@ -6,14 +6,15 @@
 # (`tools/webkit/app.py`); the window logic stays portable and host-tested
 # against a recording engine.
 #
-# The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is
-# GPL-3.0-or-later like the rest of the tree.
+# The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is GPL-3.0-or-later like the
+# rest of the tree, and also GPL-2.0-only: LazyWeb+'s window (`xui-app/webplus`, which links this
+# crate without its W5 window) keeps LazyWeb's GPLv2-compatible rule (docs/lazywebplus.md).
 [package]
 name = "xui-webkit"
 version = "0.1.0"
 edition = "2021"
 publish = false
-license = "GPL-3.0-or-later"
+license = "GPL-2.0-only OR GPL-3.0-or-later"
 description = "WebKit's window for LazyOS: chrome, page view and the UI-process C ABI"
 
 [lib]

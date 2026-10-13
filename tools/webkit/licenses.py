@@ -177,6 +177,33 @@ def check_lazyweb_apart() -> list[str]:
     return problems
 
 
+#: LazyWeb+'s window crates: LazyWeb's chrome (GPL-2.0-only) and the seam it links, in a program that
+#: also links OpenSSL (docs/lazywebplus.md, THIRD_PARTY.md).
+WEBPLUS_CRATES = ["xui-app/webplus/Cargo.toml", "xui-app/crates/webkit/Cargo.toml"]
+
+
+def check_webplus_licence() -> list[str]:
+    """The program LazyWeb+ ends up in links OpenSSL (Apache-2.0), which a GPL-2.0-only program cannot
+    carry, so its window crates must be offered under GPL-3.0-or-later as well as GPL-2.0-only (the
+    rule LazyWeb keeps for what is linked into the window), and never reference the bundle's
+    OpenSSL themselves."""
+    problems = []
+    for name in WEBPLUS_CRATES:
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        found = re.search(r'^license\s*=\s*"([^"]+)"', text, re.M)
+        expression = found.group(1) if found else ""
+        for needed in ("GPL-2.0-only", "GPL-3.0-or-later"):
+            if needed not in expression:
+                problems.append(f"{name}: license {expression!r} must offer {needed} (the program links "
+                                "OpenSSL, Apache-2.0: docs/lazywebplus.md)")
+        if re.search(r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
+            problems.append(f"{name} depends on OpenSSL: Apache-2.0 is GPLv2-incompatible")
+    return problems
+
+
 def check_manifest(manifest: dict) -> list[str]:
     """The licences a build recorded are the pins' (a stale build is named)."""
     problems = []
@@ -207,6 +234,7 @@ def main() -> int:
     problems += check_register(third_party)
     problems += check_notices(third_party, README.read_text(encoding="utf-8"))
     problems += check_lazyweb_apart()
+    problems += check_webplus_licence()
     print("\n".join(table(nettls)))
     if MANIFEST.is_file():
         problems += check_manifest(json.loads(MANIFEST.read_text(encoding="utf-8")))

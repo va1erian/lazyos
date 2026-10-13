@@ -46,10 +46,12 @@ ROOT = HERE.parent.parent
 for sub in ("tools/web", "tools/abi", "tools"):
     sys.path.insert(0, str(ROOT / sub))
 sys.path.insert(0, str(HERE))
+# This directory's `judge` and `session` first: tools/web has modules of the same names, and
+# `certs` and `busybox` put their own directories at the front of the path.
+import judge  # noqa: E402  (LazyWeb's is tools/web/judge.py, loaded by path in ours)
+import session  # noqa: E402
 import busybox  # noqa: E402
 import certs  # noqa: E402
-import judge  # noqa: E402  (this directory's: LazyWeb's is tools/web/judge.py)
-import session  # noqa: E402
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 

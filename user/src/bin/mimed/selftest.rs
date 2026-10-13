@@ -294,8 +294,7 @@ fn prefers(apps: &mut AppRegistry) {
         .is_none();
     apps.unregister(TYPE, "os.lazy.second", "open");
     apps.unregister(TYPE, "os.lazy.first", "open");
-    if by_install_order && chosen && registered_is_chosen && stranger && empty && untyped
-    {
+    if by_install_order && chosen && registered_is_chosen && stranger && empty && untyped {
         trace::line!(
             trace::Channel::Mime,
             "PREFER:PASS a user's default app wins, a stranger does not"

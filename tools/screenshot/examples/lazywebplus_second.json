@@ -1,0 +1,110 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "WEBPLUS:UP",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "WEBPLUS:LOAD:about:start",
+  "timeout": 300.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webplus/cookie",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBPLUS:LOAD:https://theoldnet.com/webplus/cookie",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:cookie:kept",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "30_cookie_kept"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "h",
+  "until": "WEBPLUS:LOAD:about:history",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "31_history_kept"
+ },
+ {
+  "click_at": {
+   "window": "History - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    170,
+    78
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:LOAD:about:history",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "32_history_cleared"
+ },
+ {
+  "click_at": {
+   "target": "title:History - LazyWeb+",
+   "offset": [
+    630,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBPLUS:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 9.0
+ },
+ {
+  "quit": true
+ }
+]

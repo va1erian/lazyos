@@ -21,6 +21,8 @@ mod hosts_embed;
 mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
 mod lazyweb_embed;
+#[path = "../lazywebplus_embed.rs"]
+mod lazywebplus_embed;
 #[path = "../netboot.rs"]
 mod netboot;
 #[path = "../os_disk.rs"]
@@ -47,8 +49,6 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
-#[path = "../lazywebplus_embed.rs"]
-mod lazywebplus_embed;
 #[path = "../webkit_embed.rs"]
 mod webkit_embed;
 #[path = "../wifi_embed.rs"]

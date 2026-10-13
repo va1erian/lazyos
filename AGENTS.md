@@ -602,7 +602,7 @@ them (`webkit/README.md` says how to keep the caches).
 W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
 the run loop and the C API on the main thread) with the xui window as a Rust static library
 (`xui-app/crates/webkit`: chrome, page view, input forwarding, host-tested against a recording engine)
-on a second thread, joined by a sixteen-function C ABI (`webkit/port/app/lazyos_ui.h`). `python
+on a second thread, joined by a C ABI (`webkit/port/app/lazyos_ui.h`: sixteen functions in W5, more for LazyWeb+ below). `python
 tools/webkit/app.py` builds the library on the host and links the program in the build container;
 `python tools/xui/build.py` packages it as a core package, and only a `LAZYOS_WEBKIT=1` image
 (`run_demo.py --webkit`, the launcher's WebKit group; needs the desktop and the network stack, a 1 GiB OS
@@ -622,6 +622,35 @@ python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webki
 python tools/xui/build.py                                                                  # the package
 python tools/webkit/app_run.py --accel auto                                                # boot and judge
 python tools/webkit/test_app_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webkit
+```
+
+## LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, `os.lazy.lazywebplus`)
+
+LazyWeb's browser window on the WebKit engine ([`docs/lazywebplus.md`](docs/lazywebplus.md), issue #835; W6 of
+the plan). The same C++ UI process as `webkit-app` (`webkit/port/app/`) with a different Rust window:
+`xui-app/webplus` (`xui-webplus`: LazyWeb's menu bar, toolbar, status bar, history, downloads, internal
+pages and hand-offs, driving WebKit through the `xui-webkit` seam, `xui-app/crates/webkit`, which both
+windows share) linked by `python tools/webkit/app.py --plus` into `lazywebplus-app`. The seam's C ABI grew
+(`webkit/port/app/lazyos_ui.h`, table in [`webkit/README.md`](webkit/README.md)) by a navigation policy
+(`policy.rs`: **a page's script can never start another program or run a browser command: only a user
+gesture can**), downloads to `$HOME/Downloads` through `.part` files, JavaScript dialogs drawn as xui
+dialogs, the link under the pointer, the pointer shape, new-window requests and a profile directory for
+cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplus`, the launcher's Simple
+tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
+and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
+`mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
+`deskmenu::defaults`), install order otherwise. Not sandboxed (#832). The window crates are declared `GPL-2.0-only
+OR GPL-3.0-or-later` (the program links OpenSSL through WebKit's curl and is GPL-3.0-or-later); only link
+GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplus` and `python
+tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
+first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
+and the screenshots; `--label-trace` fails on any `LABEL:DENY`.
+
+```bash
+python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
+python tools/xui/build.py                                                                         # the package
+python tools/webplus/run.py --accel auto                                                          # boot twice, judge
+python tools/webplus/test_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)

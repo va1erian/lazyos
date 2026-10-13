@@ -159,23 +159,14 @@ mod tests {
     fn the_image_id_is_the_proc_version_suffix_the_kernel_writes() {
         use crate::system::image_from_proc_version as image;
         let line = "LazyOS version 0.1.0 (x86_64) Linux-compatible ABI image 20261012-093000-01234567-dirty\n";
-        assert_eq!(
-            image(line).as_deref(),
-            Some("20261012-093000-01234567-dirty")
-        );
+        assert_eq!(image(line).as_deref(), Some("20261012-093000-01234567-dirty"));
         // A build with no id has no suffix; nothing else is taken for one.
-        assert_eq!(
-            image("LazyOS version 0.1.0 (x86_64) Linux-compatible ABI\n"),
-            None
-        );
+        assert_eq!(image("LazyOS version 0.1.0 (x86_64) Linux-compatible ABI\n"), None);
         assert_eq!(image(""), None);
         assert_eq!(image("x image \n"), None);
         assert_eq!(image(&format!("x image {}", "a".repeat(65))), None);
         assert_eq!(image("x image has space"), None);
-        assert_eq!(
-            image(&format!("x image {}", "a".repeat(64))).map(|id| id.len()),
-            Some(64)
-        );
+        assert_eq!(image(&format!("x image {}", "a".repeat(64))).map(|id| id.len()), Some(64));
     }
 
     #[test]

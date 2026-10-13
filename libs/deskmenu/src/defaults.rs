@@ -38,9 +38,9 @@ pub fn user_key(uid: u32, mime: &str) -> Option<String> {
     let segment_ok = |part: &str| {
         !part.is_empty()
             && part != ".."
-            && part
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-'))
+            && part.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+            })
     };
     (segment_ok(kind) && segment_ok(subtype)).then(|| format!("user/{uid}/mimed/default/{mime}"))
 }

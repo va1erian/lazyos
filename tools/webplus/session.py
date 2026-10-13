@@ -253,6 +253,15 @@ def render(items: list[dict]) -> str:
     return json.dumps(items, indent=1) + "\n"
 
 
+def main_check() -> int:
+    """0 when the checked-in examples are what `first` and `second` render, else 1."""
+    for path, text in ((EXAMPLE_FIRST, render(first())), (EXAMPLE_SECOND, render(second()))):
+        if not path.is_file() or path.read_text(encoding="utf-8") != text:
+            print(f"{path} is stale: run python tools/webplus/session.py --write", file=sys.stderr)
+            return 1
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--write", action="store_true", help="write the checked-in examples")

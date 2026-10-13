@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use xui_core::app::{App, Ui};
-use xui_core::backend::{Result, WidgetId};
+use xui_core::backend::Result;
 use xui_core::geometry::Rect;
 use xui_core::icon::Lucide;
 use xui_core::widget::{Button, DialogAction, Edit, HasText, Label, Menu, Placeable, ProgressBar};
@@ -26,12 +26,14 @@ use xui_webkit::view::PageView;
 
 mod commands;
 mod events;
+mod host;
+
+pub use host::{Host, Probe, Setup};
 
 use crate::address;
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
-use crate::handoff::Launcher;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
@@ -71,54 +73,6 @@ pub enum Msg {
     PageMenu(i32, i32),
     /// The answer to a JavaScript dialog.
     Dialog(DialogAction),
-}
-
-/// Tells a session script where a named control is: (window title, name, rectangle in the
-/// window's content, physical pixels).
-pub type Probe = Box<dyn Fn(&str, &str, Rect)>;
-
-/// What the platform adds to the window.
-pub struct Host {
-    /// Print the markers that name pages (`LOAD`, `TITLE`, `NAV`, ...): the UI probe's.
-    pub traces: bool,
-    /// The widget holding the keyboard focus (Enter belongs to the address field only while it
-    /// has it).
-    pub focused: Rc<dyn Fn() -> Option<WidgetId>>,
-    /// Starts another program for a URL.
-    pub launcher: Rc<dyn Launcher>,
-    /// The probe (a normal image has none: nothing is printed).
-    pub probe: Probe,
-}
-
-impl Host {
-    /// A host with nothing to add: no traces, no probe, nothing launched.
-    pub fn none() -> Host {
-        struct NoLauncher;
-        impl Launcher for NoLauncher {
-            fn open_url(&self, _url: &str) -> std::result::Result<(), String> {
-                Err(String::from("no launcher"))
-            }
-            fn open_path(&self, _path: &str) -> std::result::Result<(), String> {
-                Err(String::from("no launcher"))
-            }
-        }
-        Host {
-            traces: false,
-            focused: Rc::new(|| None),
-            launcher: Rc::new(NoLauncher),
-            probe: Box::new(|_, _, _| {}),
-        }
-    }
-}
-
-/// What the browser keeps beside its widgets.
-pub struct Setup {
-    pub url: Option<String>,
-    pub visits: Visits,
-    pub transfers: Transfers,
-    /// The browser's own pages, shared with the navigation policy.
-    pub internal: Internal,
-    pub host: Host,
 }
 
 /// The window's widgets and state.

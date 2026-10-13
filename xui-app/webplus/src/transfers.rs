@@ -189,6 +189,7 @@ impl Transfers {
     pub fn finished(&mut self, id: u64, error: Option<String>) -> Option<String> {
         let folder = self.saver.dir().display().to_string();
         let completed = error.is_none();
+        let saved_as = self.saver.destination(id).map(|d| d.path);
         let error = error.or_else(|| {
             self.saver
                 .finish(id, true)
@@ -226,6 +227,13 @@ impl Transfers {
         Some(match error {
             None => {
                 t.row.state = DownloadState::Done;
+                // The engine's progress can be missing for a quick download: the file is the truth.
+                if let Some(size) = saved_as
+                    .and_then(|path| std::fs::metadata(path).ok())
+                    .map(|m| m.len())
+                {
+                    t.row.received = size;
+                }
                 println!(
                     "WEBPLUS:DOWNLOAD:DONE:{}:{}",
                     marker_text(&name),
