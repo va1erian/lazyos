@@ -219,8 +219,8 @@ def classify(name: str, serial: str, ok: str = "PASS") -> tuple[str, str]:
     match = re.search(r"user: task \d+ killed by (.+?) \(.*?status (\d+)", serial)
     if match:
         signal = int(match.group(2)) - 128
-        name = SIGNALS.get(signal, f"signal {signal}")
-        return "fail", f"killed by {name} ({match.group(1)})"
+        sig_name = SIGNALS.get(signal, f"signal {signal}")
+        return "fail", f"killed by {sig_name} ({match.group(1)})"
     return "not-run", ""
 
 

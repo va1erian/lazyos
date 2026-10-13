@@ -5,8 +5,8 @@
 //! Each resolver says *why* it did not resolve a fault ([`Resolve`]): a page
 //! the address space has no right to is the program's bug (`SIGSEGV`), but a
 //! machine with no frame left to give is not (`oom_kill`, `SIGKILL`, as on
-//! Linux). The `bool` forms ([`cow_fault`], [`demand_fault`]) are for callers
-//! that treat both as "not resolved".
+//! Linux). The `bool` forms ([`cow_fault`], [`demand_fault`]) exist for the kernel
+//! suite, which asks only whether a page got mapped.
 
 use super::*;
 
@@ -24,6 +24,7 @@ pub enum Resolve {
 
 /// Resolve a write fault on a COW page: copy the frame and map it writable.
 /// Returns true if the fault was handled (caller should resume).
+#[cfg(lazyos_tests)]
 pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     cow_resolve(table, va) == Resolve::Handled
 }
@@ -85,6 +86,7 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
 /// mapped eagerly and never demand-fault; a stack is mapped eagerly only where
 /// the loader wrote its start frame, the rest of its reservation fills on
 /// first touch.
+#[cfg(lazyos_tests)]
 pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool {
     demand_resolve(table, va, error) == Resolve::Handled
 }

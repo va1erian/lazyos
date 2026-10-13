@@ -121,6 +121,11 @@ fn round(round: usize) -> Result<u64, String> {
     task::harness::switch_current(task::KERNEL_TASK);
     check!(ended == 1, "round {round}: the kill ended {ended} tasks");
     check!(
+        task::linuxstate::term_signal(slot) == signal::SIGKILL,
+        "round {round}: wait4 would report signal {}",
+        task::linuxstate::term_signal(slot)
+    );
+    check!(
         task::harness::state(slot) == Some(TaskState::Done),
         "round {round}: the victim is {:?}",
         task::harness::state(slot)
@@ -144,6 +149,12 @@ fn round(round: usize) -> Result<u64, String> {
 pub fn oom_kill_is_sigkill_and_returns_frames() -> Result<(), String> {
     fresh()?;
     let bystander = task::spawn_fork().map_err(|error| format!("spawn bystander: {error}"))?;
+    // Warm the kernel's caches (heap, slabs, VMA lists) with one ordinary
+    // spawn and exit, so the starved round below measures the kill and not a
+    // first-use allocation.
+    let (warm, _, _) = victim()?;
+    task::harness::finish(warm, 0);
+    let _ = task::reap_child();
     let live = mem::frame_stats().live();
     let hoard = Hoard::leave(KEEP)?;
     let outcome = round(0);
@@ -168,42 +179,103 @@ pub fn oom_kill_is_sigkill_and_returns_frames() -> Result<(), String> {
 }
 
 /// The fault resolver keeps telling a refused access from a shortage: no VMA,
-/// `PROT_NONE` and a present page are `Refused` even with no frame free, so
-/// they stay `SIGSEGV`; a mapped page with no frame to back it is the shortage.
+/// `PROT_NONE` and a protection violation are `Refused` even with no frame
+/// free, so they stay `SIGSEGV`; a mapped page with no frame to back it is the
+/// shortage.
 pub fn oom_refusals_stay_segv() -> Result<(), String> {
     fresh()?;
     let (slot, table, base) = victim()?;
     let none_at = base + RANGE_PAGES * PAGE + 16 * PAGE;
     mem::vma::insert(table, none_at, none_at + 4 * PAGE, Prot(0), Kind::Anon);
-    let hoard = Hoard::leave(0)?;
     let write = PageFaultErrorCode::CAUSED_BY_WRITE;
-    let cases = [
-        ("unmapped", base - 64 * PAGE, write),
-        ("PROT_NONE", none_at, PageFaultErrorCode::empty()),
-        (
-            "present page",
-            base,
-            PageFaultErrorCode::PROTECTION_VIOLATION,
-        ),
-    ];
-    let mut failure = None;
-    for (what, va, error) in cases {
-        let answer = mem::demand_resolve(table, va, error);
-        if answer != mem::Resolve::Refused {
-            failure = Some(format!("{what}: {answer:?}, not Refused"));
-        }
-    }
+    let hoard = Hoard::leave(0)?;
+    // Nothing below allocates: the answers are kept and judged after.
+    let unmapped = mem::demand_resolve(table, base - 64 * PAGE, write);
+    let none = mem::demand_resolve(table, none_at, PageFaultErrorCode::empty());
+    let protection = mem::demand_resolve(table, base, PageFaultErrorCode::PROTECTION_VIOLATION);
     let starved = mem::demand_resolve(table, base, write);
     drop(hoard);
     task::harness::finish(slot, 0);
     let _ = task::reap_child();
     task::harness::reset();
-    if let Some(failure) = failure {
-        return Err(failure);
-    }
+    check!(unmapped == mem::Resolve::Refused, "unmapped: {unmapped:?}");
+    check!(none == mem::Resolve::Refused, "PROT_NONE: {none:?}");
+    check!(
+        protection == mem::Resolve::Refused,
+        "protection violation: {protection:?}"
+    );
     check!(
         starved == mem::Resolve::OutOfFrames,
         "a mapped page with no frame free: {starved:?}"
+    );
+    Ok(())
+}
+
+/// A copy-on-write copy with no frame to copy into is a shortage, not a bad
+/// access: the page stays shared and read-only (nothing half done), and the
+/// same fault succeeds once memory is back.
+pub fn oom_cow_copy_without_a_frame() -> Result<(), String> {
+    fresh()?;
+    let parent = mem::new_user_table().ok_or("new_user_table failed")?;
+    process::map_range(parent, TEST_VA, TEST_VA + PAGE).map_err(to_string)?;
+    let child = mem::clone_user_table(parent).ok_or("clone_user_table failed")?;
+    let shared = frame_of(child, TEST_VA)?;
+    let hoard = Hoard::leave(0)?;
+    let answer = mem::cow_resolve(child, TEST_VA);
+    let entry = raw_entry(child, TEST_VA);
+    let references = mem::frame_refcount(PhysAddr::new(shared));
+    drop(hoard);
+    let retried = mem::cow_resolve(child, TEST_VA);
+    mem::free_user_table(child);
+    mem::free_user_table(parent);
+    check!(
+        answer == mem::Resolve::OutOfFrames,
+        "COW with no frame: {answer:?}"
+    );
+    check!(
+        entry.is_some_and(|e| e & COW_BIT != 0 && e & PTE_WRITABLE == 0 && e & PTE_ADDR == shared),
+        "the failed copy changed the entry: {entry:x?}"
+    );
+    check!(
+        references == 2,
+        "the shared frame has {references} references"
+    );
+    check!(
+        retried == mem::Resolve::Handled,
+        "the copy still fails with memory back: {retried:?}"
+    );
+    Ok(())
+}
+
+/// Running out of frames for a page *table* (not the page) is the same
+/// shortage, and the data frame already taken goes back.
+pub fn oom_page_table_frame_shortage() -> Result<(), String> {
+    fresh()?;
+    let table = mem::new_user_table().ok_or("new_user_table failed")?;
+    // A region no earlier mapping shares tables with: it needs a new PDPT,
+    // PD and PT, and the allocator will have one frame to give.
+    let base = process::linux::MMAP_BASE + 0x40_0000_0000;
+    mem::vma::insert(
+        table,
+        base,
+        base + PAGE,
+        Prot::READ | Prot::WRITE,
+        Kind::Anon,
+    );
+    let hoard = Hoard::leave(1)?;
+    let live = mem::frame_stats().live();
+    let answer = mem::demand_resolve(table, base, PageFaultErrorCode::CAUSED_BY_WRITE);
+    let live_after = mem::frame_stats().live();
+    let free = mem::frame_stats().free;
+    drop(hoard);
+    mem::free_user_table(table);
+    check!(
+        answer == mem::Resolve::OutOfFrames,
+        "no page-table frame: {answer:?}"
+    );
+    check!(
+        live_after == live && free == 1,
+        "the data frame was not returned: live {live} -> {live_after}, {free} free"
     );
     Ok(())
 }

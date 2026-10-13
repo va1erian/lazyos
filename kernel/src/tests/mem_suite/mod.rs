@@ -62,5 +62,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
         oom_kill_is_sigkill_and_returns_frames,
     ),
     ("mem_oom_refusals_stay_segv", oom_refusals_stay_segv),
+    (
+        "mem_oom_cow_copy_without_a_frame",
+        oom_cow_copy_without_a_frame,
+    ),
+    (
+        "mem_oom_page_table_frame_shortage",
+        oom_page_table_frame_shortage,
+    ),
     ("mem_soak_oom_kill_generations", soak_oom_kill_generations),
 ];

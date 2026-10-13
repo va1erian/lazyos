@@ -217,7 +217,10 @@ keep that honest (issue #823):
   read-only page) is still `SIGSEGV`. Only a user-mode fault is killed this
   way; a kernel-mode fault that cannot get a frame keeps the old diagnostic
   halt, and the syscall copy paths (`copy_to_user` and friends) answer
-  `EFAULT` as before.
+  `ENOMEM` (not `EFAULT`: the pointer was fine). Two limits: the victim is
+  always the process that faulted (not the largest), and its frames come back
+  when its parent reaps it (`wait4`), not at the kill, so a process that
+  faults in that window while the allocator is still empty is killed too.
 * **A request that could never fit is refused up front** (Linux's heuristic
   overcommit, `process::linux::overcommit`): `mmap`, `brk` and growing
   `mremap` of private anonymous memory answer `ENOMEM` when the one request

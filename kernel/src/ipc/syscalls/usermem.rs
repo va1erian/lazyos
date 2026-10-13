@@ -123,8 +123,11 @@ fn walk(table: PhysAddr, va: u64, write: bool, demand: bool) -> Result<u64, i64>
     }
     if write && l1 & PTE_WRITABLE == 0 {
         // A shared COW page: privatize it, then re-walk for the new frame.
-        if !mem::cow_fault(table, va & !0xfff) {
-            return Err(errno::EFAULT);
+        match mem::cow_resolve(table, va & !0xfff) {
+            mem::Resolve::Handled => {}
+            // No frame for the copy: a shortage, not a bad pointer.
+            mem::Resolve::OutOfFrames => return Err(errno::ENOMEM),
+            mem::Resolve::Refused => return Err(errno::EFAULT),
         }
         return walk(table, va, write, demand);
     }
@@ -141,8 +144,10 @@ pub(super) fn materialize(table: PhysAddr, va: u64, write: bool) -> Result<u64, 
     if write {
         error.insert(PageFaultErrorCode::CAUSED_BY_WRITE);
     }
-    if !mem::demand_fault(table, va, error) {
-        return Err(errno::EFAULT);
+    match mem::demand_resolve(table, va, error) {
+        mem::Resolve::Handled => {}
+        mem::Resolve::OutOfFrames => return Err(errno::ENOMEM),
+        mem::Resolve::Refused => return Err(errno::EFAULT),
     }
     translate(table, va, write)
 }

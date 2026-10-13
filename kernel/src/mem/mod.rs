@@ -26,7 +26,9 @@ pub mod wc;
 pub use cow::clone_user_table;
 pub use dma::{dma_alloc, dma_stats};
 pub use frames::*;
-pub use pagefault::{cow_fault, cow_resolve, demand_fault, demand_resolve, Resolve};
+#[cfg(lazyos_tests)]
+pub use pagefault::{cow_fault, demand_fault};
+pub use pagefault::{cow_resolve, demand_resolve, Resolve};
 pub use protect::protect_range;
 pub use table_guard::UserTableGuard;
 pub use uspace::*;
