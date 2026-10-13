@@ -75,6 +75,11 @@ path = "src/fpsig.rs"
 name = "threadsig"
 path = "src/threadsig.rs"
 
+# alarm, setitimer/getitimer and POSIX timers (issue #535, gap 3).
+[[bin]]
+name = "alarm"
+path = "src/alarm.rs"
+
 [[bin]]
 name = "epollstress"
 path = "src/epollstress.rs"

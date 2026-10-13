@@ -68,6 +68,7 @@ ORDER = [
     "sigstress",
     "fpsig",
     "threadsig",
+    "alarm",
     "epollstress",
     "msgpoll",
     "unixstress",
