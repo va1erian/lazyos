@@ -91,9 +91,9 @@ mod samples_tests;
 #[cfg(test)]
 mod srb2kart_tests;
 #[cfg(test)]
-mod stick_file_tests;
-#[cfg(test)]
 mod state_tests;
+#[cfg(test)]
+mod stick_file_tests;
 #[cfg(test)]
 mod tls_files_tests;
 #[cfg(test)]

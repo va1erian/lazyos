@@ -173,14 +173,12 @@ fn sweep(
 /// Every path an update may leave alone: both manifests' files and every file
 /// of the build (seeds included, which no manifest lists).
 pub(super) fn keep_set(old: &Manifest, new: &Manifest, files: &[OsFile]) -> BTreeSet<String> {
-    let listed = |manifest: &Manifest| {
-        manifest
-            .entries
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect::<Vec<_>>()
-    };
-    let mut keep: BTreeSet<String> = listed(old).into_iter().chain(listed(new)).collect();
+    let mut keep: BTreeSet<String> = old
+        .entries
+        .keys()
+        .chain(new.entries.keys())
+        .cloned()
+        .collect();
     keep.extend(files.iter().map(|file| file.path.clone()));
     keep
 }

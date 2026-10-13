@@ -75,7 +75,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
             autostart: (dir.join(auto), auto_digest.into()),
         };
         for (path, _) in [&package.plain, &package.autostart] {
-            crate::os_image::rerun_if_changed(&path);
+            crate::os_image::rerun_if_changed(path);
             if !path.is_file() {
                 panic!(
                     "{} lists {}, which is missing; rerun `python tools/xui/build.py`",
