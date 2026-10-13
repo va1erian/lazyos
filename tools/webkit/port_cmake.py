@@ -159,6 +159,8 @@ def host_reference() -> bool:
     for directory in (HOST_BIN, HOST_FONTS, HOST_FONTS_CONF.parent):
         directory.mkdir(parents=True, exist_ok=True)
     for name in OUTPUTS:
+        if not (wkpins.BIN / name).is_file():
+            continue  # the desktop apps are built on request (`app.py`), after this
         installed = HOST_BIN / IMAGE_NAMES.get(name, name)
         shutil.copy2(wkpins.BIN / name, installed)
         installed.chmod(0o755)

@@ -21,6 +21,12 @@ name = "xui_webkit"
 path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 
+[features]
+default = ["window"]
+# The W5 window (`os.lazy.webkit`): toolbar, address field, status line, and the C ABI functions
+# that decide for it. LazyWebPlus links this crate without it and defines those functions itself.
+window = []
+
 [dependencies]
 xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 

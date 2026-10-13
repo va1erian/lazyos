@@ -136,6 +136,7 @@ channels! {
     Usbd => "USBD",
     Volume => "VOLUME",
     Web => "WEB",
+    Webplus => "WEBPLUS",
     Widget => "WIDGET",
     Wifid => "WIFID",
     Wifi => "WIFI",

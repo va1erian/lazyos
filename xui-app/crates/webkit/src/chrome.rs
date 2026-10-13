@@ -11,9 +11,9 @@ use xui_core::layout::Insets;
 use xui_core::widget::{Button, Edit, Label};
 use xui_core::Dip;
 
-use crate::app::Msg;
+use crate::app::{shortcut, Msg};
 use crate::engine::Engine;
-use crate::view::PageView;
+use crate::view::{Hooks, PageView};
 
 const TOOLBAR_HEIGHT: Dip = Dip(38.0);
 const STATUS_HEIGHT: Dip = Dip(24.0);
@@ -22,7 +22,7 @@ const TOOL_SIDE: Dip = Dip(30.0);
 /// The widgets the window changes after building.
 #[derive(Default)]
 pub struct Widgets {
-    pub page: Handle<PageView>,
+    pub page: Handle<PageView<Msg>>,
     pub address: Handle<Edit<Msg>>,
     pub back: Handle<Button<Msg>>,
     pub forward: Handle<Button<Msg>>,
@@ -35,9 +35,16 @@ pub struct Widgets {
 pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>) -> Layout<Msg> {
     column().children((
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
-        build(move |ui| PageView::new(ui, engine))
-            .bind(&widgets.page)
-            .fill(1),
+        build(move |ui| {
+            let hooks = Hooks {
+                is_shortcut: Rc::new(|key, mods| shortcut(key, mods, false).is_some()),
+                clicked: Msg::PageClicked,
+                right_click: None,
+            };
+            PageView::new(ui, engine, hooks)
+        })
+        .bind(&widgets.page)
+        .fill(1),
         status_bar(widgets).fixed(STATUS_HEIGHT),
     ))
 }

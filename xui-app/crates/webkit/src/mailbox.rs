@@ -8,12 +8,21 @@
 //! only the latest picture matters, and the buffer is reused.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+use crate::events::{Event, Events};
 
 /// What the engine reports about the page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PageState {
+    /// The address on show: the page being loaded, or the one that is committed.
     pub url: String,
+    /// The address of the page that is on screen (what its scripts and links belong to); empty
+    /// before the first page commits.
+    pub committed_url: String,
+    /// The committed page came over HTTPS with a verified certificate (a failed verification is
+    /// an error, never a page, so a committed `https:` page is a secure one).
+    pub secure: bool,
     pub title: String,
     pub loading: bool,
     pub can_back: bool,
@@ -24,6 +33,9 @@ pub struct PageState {
     pub error: String,
     /// The page's process is gone: the page on show is blanked until the next load.
     pub crashed: bool,
+    /// How many navigations have finished loading (`didFinishNavigation`) since the engine
+    /// started. A load that ends without this growing was stopped, failed, or became a download.
+    pub finished: u32,
 }
 
 /// A painted frame: top-down RGBA, opaque.
@@ -39,6 +51,8 @@ pub struct Frame {
 pub enum Notice {
     Frame,
     State,
+    /// [`Mailbox::take_events`] has something.
+    Events,
 }
 
 type Notify = Box<dyn Fn(Notice) + Send + Sync>;
@@ -60,7 +74,14 @@ pub struct Mailbox {
     state: Mutex<PageState>,
     frame_waiting: AtomicBool,
     state_waiting: AtomicBool,
+    events: Events,
     notify: Mutex<Option<Notify>>,
+}
+
+/// The process's mailbox: the engine's C ABI posts into it, the window attaches to it.
+pub fn global() -> &'static Arc<Mailbox> {
+    static MAILBOX: OnceLock<Arc<Mailbox>> = OnceLock::new();
+    MAILBOX.get_or_init(|| Arc::new(Mailbox::default()))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -82,6 +103,21 @@ impl Mailbox {
         if self.state_waiting.load(Ordering::Acquire) {
             self.wake(Notice::State);
         }
+        if self.events.pending() {
+            self.wake(Notice::Events);
+        }
+    }
+
+    /// The engine has news for the window (a download, a dialog, the link under the pointer).
+    pub fn post_event(&self, event: Event) {
+        if self.events.push(event) {
+            self.wake(Notice::Events);
+        }
+    }
+
+    /// Everything the engine reported since the last call, oldest first.
+    pub fn take_events(&self) -> Vec<Event> {
+        self.events.take()
     }
 
     fn wake(&self, notice: Notice) {
@@ -206,6 +242,24 @@ mod tests {
     }
 
     #[test]
+    fn events_wake_the_window_once_per_burst_and_wait_for_a_window_that_attaches_late() {
+        let mailbox = Mailbox::default();
+        mailbox.post_event(Event::Hover("http://a/".into()));
+        mailbox.post_event(Event::Popup { url: "b".into() });
+        let wakes = counted(&mailbox);
+        assert_eq!(
+            wakes.load(Ordering::SeqCst),
+            1,
+            "what arrived first wakes it on attach"
+        );
+        mailbox.post_event(Event::Popup { url: "c".into() });
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        assert_eq!(mailbox.take_events().len(), 3);
+        mailbox.post_event(Event::Hover(String::new()));
+        assert_eq!(wakes.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn the_spare_buffer_comes_back_as_the_next_frames_storage() {
         let mailbox = Mailbox::default();
         let _wakes = counted(&mailbox);
@@ -233,7 +287,11 @@ mod tests {
         mailbox.store_frame(3, 1, &[2; 12]);
         let taken = mailbox.take_frame(vec![0xAA; 8]).unwrap();
         assert_eq!((taken.width, taken.height), (3, 1));
-        assert_eq!(taken.rgba, vec![2; 12], "the new picture, not the spare buffer");
+        assert_eq!(
+            taken.rgba,
+            vec![2; 12],
+            "the new picture, not the spare buffer"
+        );
 
         // Now it announces: the wake finds the picture already collected.
         mailbox.announce_frame();
@@ -277,7 +335,10 @@ mod tests {
         while !poster.is_finished() {
             if let Some(frame) = mailbox.take_frame(std::mem::take(&mut spare)) {
                 assert_eq!(frame.rgba.len(), (frame.width * frame.height * 4) as usize);
-                assert!(frame.rgba.iter().all(|b| *b == frame.rgba[0]), "a torn picture");
+                assert!(
+                    frame.rgba.iter().all(|b| *b == frame.rgba[0]),
+                    "a torn picture"
+                );
                 newest = frame.rgba[0];
                 spare = frame.rgba;
             }

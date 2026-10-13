@@ -1,36 +1,31 @@
-//! The C ABI between WebKit's UI process (C++, `webkit/port/app/`) and this
-//! window. `webkit/port/app/lazyos_ui.h` is the other half of every function
-//! here.
+//! The C ABI between WebKit's UI process (C++, `webkit/port/app/`) and the window, the half every
+//! window shares. `webkit/port/app/lazyos_ui.h` is the other half of every function here.
 //!
-//! The process has two threads that matter. WebKit's run loop owns the
-//! process's main thread (as in `webkit-smoke`); the C++ `main` starts a second
-//! thread that calls [`lzw_ui_main`], which runs the window until it closes.
-//! Everything the window asks of WebKit (`lzw_engine_*`, implemented in C++)
-//! only queues work for the run loop; everything WebKit says
-//! (`lzw_ui_frame`, `lzw_ui_state`) goes through the [`Mailbox`].
+//! The process has two threads that matter. WebKit's run loop owns the process's main thread (as
+//! in `webkit-smoke`); the C++ `main` starts a second thread that calls `lzw_ui_main`, which runs
+//! the window until it closes. Everything the window asks of WebKit (`lzw_engine_*`, implemented in
+//! C++) only queues work for the run loop; everything WebKit says (`lzw_ui_frame`, `lzw_ui_state`,
+//! `lzw_ui_hover`, ...) goes through the [`Mailbox`](crate::mailbox::Mailbox).
 //!
-//! This is a static library with no `main`: Rust's runtime start-up never ran,
-//! so `std::env::args` is empty. The arguments come in explicitly, and the
-//! window is always a compositor client.
+//! The functions that differ from one window to another (`lzw_ui_main`, `lzw_ui_features`,
+//! `lzw_ui_profile_dir`, `lzw_ui_navigate`, `lzw_ui_download_start`, `lzw_ui_marker_prefix`) are
+//! defined by the window's own crate: `window_ffi.rs` for the W5 window (feature `window`),
+//! `xui-app/webplus` for LazyWebPlus. The C++ is the same for both.
+//!
+//! This is a static library with no `main`: Rust's runtime start-up never ran, so
+//! `std::env::args` is empty. The arguments come in explicitly, and the window is always a
+//! compositor client.
 
 use std::ffi::{c_char, c_int, CStr};
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use xui_app::backend::LazyOSBackend;
-use xui_core::app::run_app;
-use xui_core::backend::{Backend, PlatformSpec};
-use xui_core::units::Dip;
 
-use crate::abi::{c_string, first_address, frame_geometry, page_state};
-use crate::app::{Browser, Host, APP_NAME};
-use crate::engine::{Button, Engine, MouseKind};
-use crate::mailbox::Mailbox;
-
-/// The window size asked of the compositor: short enough that the status bar
-/// clears the taskbar of a 720p desktop.
-const WINDOW: (i32, i32) = (1000, 560);
+use crate::abi::{byte_count, c_string, frame_geometry, page_state};
+use crate::engine::{Button, DialogKind, Engine, MouseKind};
+use crate::events::{CursorKind, Event};
+use crate::mailbox;
 
 /// How long to wait for the compositor before giving up.
 const CONNECT_WAIT: Duration = Duration::from_secs(900);
@@ -46,15 +41,13 @@ extern "C" {
     fn lzw_engine_wheel(x: c_int, y: c_int, ticks_x: c_int, ticks_y: c_int, mods: u32);
     fn lzw_engine_key(press: c_int, keysym: u32, text: *const c_char, mods: u32);
     fn lzw_engine_focus(focused: c_int);
-}
-
-fn mailbox() -> &'static Arc<Mailbox> {
-    static MAILBOX: OnceLock<Arc<Mailbox>> = OnceLock::new();
-    MAILBOX.get_or_init(|| Arc::new(Mailbox::default()))
+    fn lzw_engine_download(url: *const c_char);
+    fn lzw_engine_download_cancel(id: u64);
+    fn lzw_engine_dialog_reply(id: u64, accepted: c_int, value: *const c_char);
 }
 
 /// The engine behind the C++ functions.
-struct FfiEngine;
+pub struct FfiEngine;
 
 impl Engine for FfiEngine {
     fn load(&self, url: &str) {
@@ -100,13 +93,27 @@ impl Engine for FfiEngine {
         // SAFETY: a plain integer.
         unsafe { lzw_engine_focus(c_int::from(focused)) }
     }
+    fn download(&self, url: &str) {
+        let url = c_string(url);
+        // SAFETY: `url` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_download(url.as_ptr()) }
+    }
+    fn download_cancel(&self, id: u64) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_download_cancel(id) }
+    }
+    fn dialog_reply(&self, id: u64, accepted: bool, value: &str) {
+        let value = c_string(value);
+        // SAFETY: `value` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_dialog_reply(id, c_int::from(accepted), value.as_ptr()) }
+    }
 }
 
 /// The arguments the C++ `main` got, as text.
 ///
 /// # Safety
 /// `argv` must point at `argc` valid NUL-terminated strings (or be null).
-unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
+pub unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
     if argv.is_null() {
         return Vec::new();
     }
@@ -124,8 +131,23 @@ unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
         .collect()
 }
 
+/// `text` for a NUL-terminated argument that may be null.
+///
+/// # Safety
+/// `pointer` must be null or a NUL-terminated string.
+pub unsafe fn text(pointer: *const c_char) -> String {
+    if pointer.is_null() {
+        String::new()
+    } else {
+        // SAFETY: a non-null argument is a NUL-terminated string.
+        unsafe { CStr::from_ptr(pointer) }
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
 /// Whether this image carries the UI probe: the C++ side prints the markers that name pages
-/// (and this side `UI:NAV`) only then.
+/// (and the window the ones that name addresses) only then.
 #[no_mangle]
 pub extern "C" fn lzw_ui_probe_enabled() -> c_int {
     c_int::from(xui_app::probe::enabled())
@@ -156,8 +178,8 @@ pub unsafe extern "C" fn lzw_ui_user_memory(used: *mut u64, limit: *mut u64) -> 
 
 /// The compositor client, waiting for the compositor: an app that opens at login starts while the
 /// core apps are still being installed, and `xuid` serves no display until they are (LazyShell
-/// retries the same way, `SHELL:CONNECT:RETRY`).
-fn connect() -> Option<Rc<LazyOSBackend>> {
+/// retries the same way, `SHELL:CONNECT:RETRY`). `marker` is the window's marker prefix.
+pub fn connect(marker: &str) -> Option<Rc<LazyOSBackend>> {
     let started = Instant::now();
     let mut said = false;
     loop {
@@ -165,61 +187,17 @@ fn connect() -> Option<Rc<LazyOSBackend>> {
             Ok(backend) => return Some(Rc::new(backend)),
             Err(code) if started.elapsed() < CONNECT_WAIT => {
                 if !said {
-                    println!("WEBKIT:W5:UI:WAIT:{code}");
+                    println!("{marker}:WAIT:{code}");
                     said = true;
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }
             Err(code) => {
-                println!("WEBKIT:W5:UI:BIND:FAIL:{code}");
+                println!("{marker}:BIND:FAIL:{code}");
                 return None;
             }
         }
     }
-}
-
-/// Runs the window until it is closed. Returns the process exit status.
-///
-/// # Safety
-/// `argv` must point at `argc` valid NUL-terminated strings (or be null).
-#[no_mangle]
-pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) -> c_int {
-    // SAFETY: forwarded from this function's contract.
-    let args = unsafe { arguments(argc, argv) };
-    let first = first_address(&args);
-    let Some(backend) = connect() else {
-        return 1;
-    };
-    let (width, height) = backend.window_size(WINDOW);
-    // Below this the toolbar clips.
-    backend.set_size_hints(360, 240, 0, 0);
-    backend.on_first_frame(|| println!("WEBKIT:W5:UI:UP"));
-    let theme = backend.desktop_theme();
-    let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
-    let focus_backend = Rc::clone(&backend);
-    let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
-        if let Some(theme) = theme {
-            ui.set_theme(theme);
-        }
-        let host = Host {
-            traces: xui_app::probe::enabled(),
-            focused: Box::new(move || focus_backend.focused()),
-            probe: Box::new(|window, name, rect| {
-                xui_app::probe::widget(
-                    window,
-                    name,
-                    rect.left,
-                    rect.top,
-                    rect.width(),
-                    rect.height(),
-                );
-            }),
-        };
-        Browser::build(ui, Rc::new(FfiEngine), Arc::clone(mailbox()), first, host)
-            .expect("the WebKit window's widgets built")
-    });
-    backend.unbind();
-    c_int::from(xui_app::launch::finish("WEBKIT:W5:UI", outcome))
 }
 
 /// WebKit painted a frame: `rgba` is exactly `width * height * 4` bytes, top row first, opaque.
@@ -238,13 +216,13 @@ pub unsafe extern "C" fn lzw_ui_frame(rgba: *const u8, width: c_int, height: c_i
     }
     // SAFETY: the caller promises `len` readable bytes.
     let pixels = unsafe { std::slice::from_raw_parts(rgba, len) };
-    mailbox().post_frame(width, height, pixels);
+    mailbox::global().post_frame(width, height, pixels);
 }
 
 /// The page's state changed.
 ///
 /// # Safety
-/// `url`, `title` and `error` must be null or NUL-terminated strings.
+/// `url`, `title`, `error` and `committed_url` must be null or NUL-terminated strings.
 #[no_mangle]
 pub unsafe extern "C" fn lzw_ui_state(
     url: *const c_char,
@@ -255,25 +233,106 @@ pub unsafe extern "C" fn lzw_ui_state(
     progress: c_int,
     error: *const c_char,
     crashed: c_int,
+    committed_url: *const c_char,
+    secure: c_int,
+    finished: c_int,
 ) {
-    let text = |pointer: *const c_char| {
-        if pointer.is_null() {
-            String::new()
-        } else {
-            // SAFETY: a non-null argument is a NUL-terminated string.
-            unsafe { CStr::from_ptr(pointer) }
-                .to_string_lossy()
-                .into_owned()
-        }
+    // SAFETY: each argument is null or a NUL-terminated string, by this function's contract.
+    let state = unsafe {
+        page_state(
+            text(url),
+            text(title),
+            loading,
+            can_back,
+            can_forward,
+            progress,
+            text(error),
+            crashed,
+            text(committed_url),
+            secure,
+            finished,
+        )
     };
-    mailbox().post_state(page_state(
-        text(url),
-        text(title),
-        loading,
-        can_back,
-        can_forward,
-        progress,
-        text(error),
-        crashed,
-    ));
+    mailbox::global().post_state(state);
+}
+
+/// The pointer is over a link (`url`), or no longer (empty).
+///
+/// # Safety
+/// `url` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_hover(url: *const c_char) {
+    // SAFETY: by this function's contract.
+    let url = unsafe { text(url) };
+    mailbox::global().post_event(Event::Hover(url));
+}
+
+/// The page wants this pointer shape over itself (`CursorKind::code`).
+#[no_mangle]
+pub extern "C" fn lzw_ui_cursor(kind: c_int) {
+    mailbox::global().post_event(Event::Cursor(CursorKind::from_code(kind)));
+}
+
+/// A page asked for a new window (`target=_blank`, `window.open`). Only a request with a user
+/// gesture is passed on: the window opens `url` in its one view.
+///
+/// # Safety
+/// `url` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_new_window(url: *const c_char, user_gesture: c_int) {
+    if user_gesture == 0 {
+        return;
+    }
+    // SAFETY: by this function's contract.
+    let url = unsafe { text(url) };
+    mailbox::global().post_event(Event::Popup { url });
+}
+
+/// Download `id` received `received` bytes of `total` (negative: not announced).
+#[no_mangle]
+pub extern "C" fn lzw_ui_download_progress(id: u64, received: i64, total: i64) {
+    mailbox::global().post_event(Event::DownloadProgress {
+        id,
+        received: byte_count(received).unwrap_or(0),
+        total: byte_count(total),
+    });
+}
+
+/// Download `id` completed: every byte is in the file.
+#[no_mangle]
+pub extern "C" fn lzw_ui_download_done(id: u64) {
+    mailbox::global().post_event(Event::DownloadDone { id });
+}
+
+/// Download `id` failed, or was cancelled; `reason` says why.
+///
+/// # Safety
+/// `reason` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_download_fail(id: u64, reason: *const c_char) {
+    // SAFETY: by this function's contract.
+    let reason = unsafe { text(reason) };
+    mailbox::global().post_event(Event::DownloadFailed { id, reason });
+}
+
+/// A page opened a JavaScript dialog; the answer comes back through `lzw_engine_dialog_reply`.
+/// Returns at once: the window draws the dialog on its own thread.
+///
+/// # Safety
+/// `message` and `default_value` must be null or NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_dialog(
+    id: u64,
+    kind: c_int,
+    message: *const c_char,
+    default_value: *const c_char,
+) {
+    // SAFETY: by this function's contract.
+    let (text, default) = unsafe { (text(message), text(default_value)) };
+    mailbox::global().post_event(Event::Dialog {
+        id,
+        kind: DialogKind::from_code(kind),
+        text,
+        default,
+    });
 }
