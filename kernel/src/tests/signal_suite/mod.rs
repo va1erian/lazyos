@@ -34,6 +34,7 @@ mod native_kill;
 mod suspend;
 mod sweep_space;
 mod wait_interrupt;
+mod xstate;
 
 pub(super) use delivery::*;
 pub(super) use fpstate::*;
@@ -44,6 +45,7 @@ pub(super) use native_kill::*;
 pub(super) use suspend::*;
 pub(super) use sweep_space::*;
 pub(super) use wait_interrupt::*;
+pub(super) use xstate::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("task_signal_fpstate_roundtrip", fpstate_frame_roundtrip),
@@ -54,6 +56,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         fpstate_other_slot_uses_saved_area,
     ),
     ("task_signal_fpstate_soak", fpstate_soak),
+    ("task_signal_xstate_frame_layout", xstate_frame_layout),
+    (
+        "task_signal_xstate_roundtrip_edit",
+        xstate_roundtrip_and_edit,
+    ),
+    ("task_signal_xstate_forged_areas", xstate_forged_areas),
+    ("task_signal_xstate_fxsave_frame", xstate_fxsave_frame),
+    ("task_signal_xstate_soak", xstate_soak),
     (
         "task_signal_fpstate_sweep_follows_task",
         sweep_fpstate_follows_task,

@@ -39,7 +39,9 @@ fn live() -> (u64, u32) {
 /// runnable, so no live task's saved state is overwritten), with interrupts
 /// off as every real caller is; then put the kernel task's own state back so
 /// later tests start clean.
-fn with_kernel_state_kept(body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+pub(super) fn with_kernel_state_kept(
+    body: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -114,7 +116,7 @@ pub fn fpu_inherit_then_exec_reset() -> Result<(), String> {
 }
 
 /// Where the peer task's program is mapped in its own address space.
-const PEER_CODE: u64 = 0x0060_0000;
+pub(super) const PEER_CODE: u64 = 0x0060_0000;
 /// The XMM0 value the peer loads, distinct from every kernel-side pattern.
 const PEER_XMM0: u64 = 0x5eed_0f_face_b00c;
 
@@ -152,14 +154,14 @@ fn peer_program() -> [u8; 44] {
 
 /// A forked peer whose saved frame resumes, in ring 3, at [`peer_program`]
 /// in its own table, plus a kernel view of its progress counter.
-struct Peer {
-    slot: usize,
+pub(super) struct Peer {
+    pub(super) slot: usize,
     counter: *const u64,
 }
 
 impl Peer {
     /// How many loop iterations the peer has completed.
-    fn progress(&self) -> u64 {
+    pub(super) fn progress(&self) -> u64 {
         // SAFETY: `counter` points into the peer's code page through the
         // physical-memory map, 8-aligned (offset 32 of a page); the page
         // stays allocated until the peer is reaped, after the last read.
@@ -168,6 +170,13 @@ impl Peer {
 }
 
 fn spawn_peer() -> Result<Peer, String> {
+    spawn_peer_running(&peer_program())
+}
+
+/// [`spawn_peer`] for any program: `code` is copied to [`PEER_CODE`] and the
+/// peer starts there. The program keeps its progress counter at
+/// [`PEER_COUNTER`] (offset 32) of its page.
+pub(super) fn spawn_peer_running(code: &[u8]) -> Result<Peer, String> {
     use crate::mem::vma::{Kind, Prot};
     let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
     let pml4 = x86_64::PhysAddr::new(task::harness::pml4(slot).ok_or("peer has no table")?);
@@ -180,10 +189,9 @@ fn spawn_peer() -> Result<Peer, String> {
     )
     .map_err(|error| format!("map peer code: {error}"))?;
     let (_, phys) = *pages.first().ok_or("no peer code page")?;
-    let code = peer_program();
     let page = mem::phys_to_virt(x86_64::PhysAddr::new(phys)).as_mut_ptr::<u8>();
     // SAFETY: `phys` is the frame `map_range_kind` just allocated for the
-    // peer, reached through the physical-memory map; 44 bytes fit in it.
+    // peer, reached through the physical-memory map; `code` fits in it (at most a page).
     unsafe { core::ptr::copy_nonoverlapping(code.as_ptr(), page, code.len()) };
     // The program never touches its stack; an interrupt from ring 3 switches
     // to the task's kernel stack, so any user `rsp` will do.

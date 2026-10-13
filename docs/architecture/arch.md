@@ -19,13 +19,41 @@
 | `kernel/src/arch/lapic.rs` | local APIC (x2APIC MSRs or uncached xAPIC MMIO), virtual wire (LINT0 ExtINT, LINT1 NMI), periodic timer |
 | `kernel/src/arch/refclock.rs` | ACPI PM timer and HPET as reference clocks; PIT channel-0 reads |
 | `kernel/src/arch/acpi_tables.rs` | `libs/acpi` over the physical map: RSDP -> XSDT/RSDT -> FADT, MADT, HPET, DSDT (`HW:ACPI:` line) |
-| `kernel/src/arch/cpu.rs` | FPU/SSE enable (clear `CR0.EM`, set `CR4.OSFXSR`) |
+| `kernel/src/arch/cpu.rs` | FPU/SSE enable (clear `CR0.EM`, set `CR4.OSFXSR`), and AVX state when the CPU has it (`CR4.OSXSAVE`, `XCR0`; below) |
+| `kernel/src/task/fpu.rs` | per-task register areas and the `XSAVE`/`FXSAVE` calls the scheduler, spawn and signal code use |
 | `kernel/src/arch/msr.rs` | `IA32_EFER/STAR/LSTAR/FMASK/FS_BASE` read/write wrappers |
 | `kernel/src/arch/linux.rs` | `linux_syscall_entry`, `linux_dispatch` plumbing |
 | `kernel/src/process/gate.rs` | Native `int 0x80` stub (`syscall_isr`) and dispatcher |
 | `kernel/src/arch/irq_window.rs` | Interrupt windows: bounded interrupts-off stretches inside syscalls |
 | `kernel/src/arch/irqoff.rs` | Worst interrupts-off stretch per syscall, `IRQOFF:MAX` reports |
 | `kernel/src/arch/clock.rs` | TSC calibration, tick catch-up, `missed_ticks` |
+
+**FPU, SSE and AVX state** (`cpu.rs`, `task/fpu.rs`, issues #373, #822).
+`CPUID` reports AVX whatever the OS did, but a VEX instruction raises `#UD`
+until `CR4.OSXSAVE` is set and `XCR0` enables the state, so `cpu::init` does
+that when the CPU has `XSAVE` and `AVX` and its `XSAVE` layout is the standard
+one (`CPUID.(0DH,2)`: `YMM_Hi128` at offset 576, 256 bytes): `XCR0` = x87 |
+SSE | AVX (`0x7`), nothing else. AVX-512, MPX, PKRU and the rest stay off
+because nothing saves their state, so `XGETBV` shows user code exactly what
+the kernel handles. The boot prints `HW:CPU:fpu xsave_mask=<xcr0> area=<bytes>
+mxcsr_mask=<mask>`. Without `XSAVE`/`AVX` (QEMU's default `qemu64` model) the
+kernel keeps `FXSAVE` and `OSXSAVE` stays clear, as before.
+
+Each task slot owns one static 64-byte-aligned area of `fpu::AREA_SIZE` = 832
+bytes (`FXSAVE` image, `XSAVE` header, `YMM_Hi128`; the static array is 1024
+slots, about 850 KiB); only the first 512 are used on an `FXSAVE` CPU. The
+scheduler `XSAVE`s the outgoing task into its area and `XRSTOR`s the incoming
+one's (plain `XSAVE`, with the full `XCR0` mask: not `XSAVEOPT`/`XSAVEC`, so the
+header's reserved words stay zero in every area and a signal frame can carry
+the image as is). A new program (`reset`, `execve`) starts from the power-on
+image whose `XSTATE_BV` marks x87 and SSE in use, so the upper YMM halves are
+initial (zero); `fork` and threads `XSAVE` the creator's live registers into
+the child's area. Everything runs with interrupts off on the one CPU. Images
+that come from user memory (a signal frame at `rt_sigreturn`) go through
+`FpuImage::sanitize` before they reach `XRSTOR`: MXCSR is masked with the CPU's
+own `MXCSR_MASK` (not the image's), `XSTATE_BV` is cut to `XCR0`, and the
+compaction bit and reserved header words are cleared, since any of them would
+raise `#GP` in ring 0.
 
 **GDT layout** (`gdt.rs:39`) - order matters for `sysret`, which loads
 `CS = base+16`, `SS = base+8`:

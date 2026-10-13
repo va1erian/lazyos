@@ -67,6 +67,7 @@ ORDER = [
     "procstress",
     "sigstress",
     "fpsig",
+    "avx",
     "threadsig",
     "epollstress",
     "msgpoll",
@@ -79,8 +80,8 @@ ORDER = [
     "fdinherit",
     "statmiss",
     "compat",
-    # rustls + the nettls provider in memory, and no AVX dispatch on LazyOS
-    # (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
+    # rustls + the nettls provider in memory, through the AVX dispatch where
+    # the CPU has it (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
     "tlsfix",
     "busybox",
     # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
@@ -158,6 +159,23 @@ def build_image(
 
 # Guest RAM for every boot (`--memory`); `None` keeps qemu_shot's default.
 GUEST_MEMORY: str | None = None
+# QEMU `-cpu` model for every boot (`--cpu`), see `cpu_args`.
+GUEST_CPU = "auto"
+
+
+def cpu_args(accel: str) -> list[str]:
+    """`qemu_shot.py` arguments for the guest CPU model. The `avx` fixture
+    (issue #822) needs XSAVE and AVX in the guest, which QEMU's default model
+    (qemu64) lacks. `auto`: max under TCG, host under KVM, and QEMU's own
+    default under WHPX (which already exposes the host's features, and does
+    not boot with max or host)."""
+    cpu = GUEST_CPU
+    if cpu == "auto":
+        sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
+        from qemu_qmp import find_qemu, resolve_accel
+
+        cpu = {"none": "max", "kvm": "host"}.get(resolve_accel(accel, find_qemu()), "default")
+    return [] if cpu == "default" else ["--extra-arg=-cpu", f"--extra-arg={cpu}"]
 
 
 def capture(
@@ -180,6 +198,7 @@ def capture(
         command += ["--data-disk", str(data_disk)]
     if GUEST_MEMORY:
         command += ["--memory", GUEST_MEMORY]
+    command += cpu_args(accel)
     # A boot must be judged only by its own log: a stale one left by an earlier
     # run could carry the marker and pass a boot that never happened, and a
     # failed capture must not fall back to whatever is on disk.
@@ -369,6 +388,10 @@ def main() -> int:
     parser.add_argument("--accel", default="auto",
                         help="QEMU accelerator: auto (kvm/whpx if usable, else TCG), kvm, whpx, none")
     parser.add_argument("--memory", help="guest RAM, passed to the session tool (default: its own, 1G)")
+    parser.add_argument("--cpu", default="auto",
+                        help="QEMU -cpu model (default auto: max under TCG, host under KVM, "
+                             "none under WHPX); the avx fixture needs a model with AVX; "
+                             "'default' passes no -cpu")
     parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
                         help="kernel limit for the images (limit.<key> in lazyos.cfg, "
                              "docs/architecture/limits.md); repeatable")
@@ -376,8 +399,9 @@ def main() -> int:
                         help="guests to boot side by side (default 1; the images are "
                              "always built one at a time)")
     args = parser.parse_args()
-    global GUEST_MEMORY
+    global GUEST_MEMORY, GUEST_CPU
     GUEST_MEMORY = args.memory
+    GUEST_CPU = args.cpu
     try:
         os.environ.update(limit_env(args.limit))
     except ValueError as error:

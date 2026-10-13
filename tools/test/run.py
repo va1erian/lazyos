@@ -223,6 +223,16 @@ def main() -> int:
         help="QEMU accelerator (default: %(default)s)",
     )
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
+    parser.add_argument(
+        "--cpu",
+        default="auto",
+        help="QEMU -cpu model. The AVX state tests of issue #822 need XSAVE and "
+        "AVX in the guest, which QEMU's own default model (qemu64) lacks (the kernel "
+        "then stays on FXSAVE and they pass vacuously). 'auto' (default): max under "
+        "TCG, host under KVM, and none under WHPX, whose default model already "
+        "exposes the host's features (and which does not boot with max or host); "
+        "'default' passes no -cpu",
+    )
     # The full suite takes ~720 s under TCG (`--accel none`, and the `auto`
     # fallback when KVM is unusable) since the filesystem phases F3-F5 and the
     # block cache added their soaks, so the old 600 s default failed a correct
@@ -292,6 +302,12 @@ def main() -> int:
     extra = list(extra or [])
     if args.machine:
         extra += ["-machine", args.machine]
+    cpu = args.cpu
+    if cpu == "auto":
+        accel = extra[1] if extra and extra[0] == "-accel" else "none"
+        cpu = {"none": "max", "kvm": "host"}.get(accel, "default")
+    if cpu != "default" and "-cpu" not in args.extra_arg:
+        extra += ["-cpu", cpu]
     extra += args.extra_arg
     if args.nic:
         extra += [

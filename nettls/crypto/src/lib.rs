@@ -19,11 +19,11 @@
 //! CPU dispatch: AES, GHASH/POLYVAL, ChaCha20, SHA-2 and curve25519 pick
 //! their SIMD backends at run time through the `cpufeatures` crate. Its AVX
 //! and AVX2 checks require CPUID.1:ECX.XSAVE and OSXSAVE (bits 26 and 27) and
-//! then XCR0's XMM/YMM bits (`__xgetbv!` in `cpufeatures` 0.2.17 `x86.rs`), so
-//! on LazyOS, which saves state with FXSAVE and leaves CR4.OSXSAVE clear,
-//! every AVX/AVX2 backend is rejected and the SSE2/SSSE3/AES-NI/PCLMULQDQ
-//! (XMM-only) or portable code runs. The ABI fixture `tlsfix` checks this
-//! on LazyOS.
+//! then XCR0's XMM/YMM bits (`__xgetbv!` in `cpufeatures` 0.2.17 `x86.rs`).
+//! LazyOS sets CR4.OSXSAVE and XCR0 on a CPU that has AVX and saves the YMM
+//! state per task and in signal frames (issue #822), so the AVX/AVX2
+//! backends run there; on a CPU without AVX the SSE2/SSSE3/AES-NI/PCLMULQDQ
+//! (XMM-only) or portable code does. The ABI fixture `tlsfix` reports which.
 
 mod aead;
 mod hash;
