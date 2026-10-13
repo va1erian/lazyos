@@ -70,6 +70,9 @@ usbpolicy = { path = "../libs/usbpolicy" }
 # Who may serve a user-space filesystem (`fs/fuse`, `FS_PROVIDER_UIDS`).
 mounttable = { path = "../libs/mounttable" }
 sndpolicy = { path = "../libs/sndpolicy" }
+# dbgd's read-only config and MMIO reads: the range allowlist the kernel
+# enforces (`dev::peek`, docs/dbgd-plan.md).
+pciprobe = { path = "../libs/pciprobe" }
 libm = "0.2"
 libmessenger = { path = "../libs/messenger" }
 linked_list_allocator = "0.10"

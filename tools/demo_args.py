@@ -206,6 +206,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "docs/dbgd-plan.md v2): restart and hot-reload services remotely, "
                              "`python tools/dbg/dbgctl.py reload usbd`; remote code execution "
                              "by design, for development machines only")
+    parser.add_argument("--dbgd-mmio", action="store_true",
+                        help="`--dbgd` plus MMIO register reads (LAZYOS_DBGD_MMIO=1, "
+                             "docs/dbgd-plan.md \"Hardware reads\"): `dbgctl.py mmio BDF BAR OFF LEN` "
+                             "answers only inside allowlisted ranges of a device (the built-in table "
+                             "or --dbgd-mmio-allow), read-only; a register read can wedge hardware, "
+                             "so this is its own switch. PCI config reads need no switch")
+    parser.add_argument("--dbgd-mmio-claimed", action="store_true",
+                        help="`--dbgd-mmio` that may also read a device a driver has claimed "
+                             "(LAZYOS_DBGD_MMIO_CLAIMED=1): the read can race the driver")
+    parser.add_argument("--dbgd-mmio-allow", action="append", default=[], metavar="V:D:BAR:START-END",
+                        help="one more readable range, hex (LAZYOS_DBGD_MMIO_ALLOW); repeatable; "
+                             "implies --dbgd-mmio. Offsets are dword aligned, at most 64 MiB")
     parser.add_argument("--wifi", action="store_true",
                         help="networking plus Wi-Fi (LAZYOS_WIFI=1, docs/wifi-rtw88-plan.md): "
                              "`wifid`, the RTL8822CE driver devd starts as wlan0, and its "
@@ -296,7 +308,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
-    args.dbgd = args.dbgd or args.dbgd_control
+    args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
+    args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
     args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi

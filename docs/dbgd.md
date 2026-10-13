@@ -2,7 +2,8 @@
 
 `dbgd` lets you (or an AI agent) read a running LazyOS machine without a serial
 port or a camera: the live boot log, what each service printed, tasks, memory,
-PCI devices, driver state, a USB controller snapshot and Messenger's registry.
+PCI devices, their configuration space and (allowlisted) registers, driver
+state, a USB controller snapshot and Messenger's registry.
 This is the how-to; the design, protocol and threat model are in
 [`dbgd-plan.md`](dbgd-plan.md). Inspection is read-only; an image built with
 `LAZYOS_DBGD_CONTROL=1` can also restart and hot-reload services (section 5).
@@ -50,6 +51,8 @@ python tools/dbg/dbgctl.py --host 192.168.1.50 usb              # xHCI regs, por
 | `tasks`, `sysinfo`, `mem`, `fabric` | scheduler, kernel statistics, memory, Messenger counters |
 | `devices`, `drivers` | PCI inventory with owner and rights; `devd`'s match and driver state |
 | `usb` | `USBD:DUMP:HC` / `PORT` / `DEV`: controller registers, port status, slot and endpoint 0 state |
+| `pci-config BDF [OFFSET [LEN]]` | read-only PCI configuration space of a function (`devices` shows the BDFs): the 64-byte header, all 256 bytes on an image built with `LAZYOS_DBGD_MMIO=1`; no claim, works while a driver owns the device |
+| `mmio BDF BAR OFFSET [LEN]` | read-only 32-bit register reads of allowlisted BAR ranges; needs an image built with `LAZYOS_DBGD_MMIO=1` (below) |
 | `hw` | the `HW:*` verdicts of the boot log |
 | `msg-registry`, `msg-services`, `msg-topics`, `topic NAME` | Messenger: names, supervised services, topics, one retained value |
 | `cat PATH` | a file under `/transient`, `/tmp`, `/logs`, `/system/etc`, `/system/share`, `/docs` |
@@ -66,6 +69,26 @@ A trace can be compiled out (`LAZYOS_TRACE=0`) or masked (`trace.mask=` in
 prints as `trace_channels`, so a masked channel can be told from a silent one
 ([`tracing-plan.md`](tracing-plan.md)).
 
+### Reading hardware (`pci-config`, `mmio`)
+
+```bash
+python tools/dbg/dbgctl.py --host 192.168.1.50 devices                 # BDFs: 00:02.0 8086:5916 ...
+python tools/dbg/dbgctl.py --host 192.168.1.50 pci-config 00:02.0 0 256
+python tools/dbg/dbgctl.py --host 192.168.1.50 mmio 00:02.0 0 0x70008 16   # BDF BAR OFFSET LEN
+```
+
+Config space needs `diag.dbg=1` for the 64-byte header; bytes 0x40..0x100 and MMIO need the box built with
+`LAZYOS_DBGD_MMIO=1` (`run_demo.py --dbgd-mmio`, or the launcher's *dbgd
+register reads* checkbox) because a register read can wedge hardware, and it
+only answers inside ranges listed for that exact `vendor:device` and BAR:
+the built-in table in `libs/pciprobe/src/builtin.rs`, plus
+`LAZYOS_DBGD_MMIO_ALLOW=8086:5916:0:0x45400-0x45410` (comma separated, also
+`--dbgd-mmio-allow`) which becomes `diag.dbg.mmio.allow=` lines. A refusal
+names the allowed ranges. A device a driver holds is refused too, unless
+`LAZYOS_DBGD_MMIO_CLAIMED=1` (`--dbgd-mmio-claimed`). Reads are rate limited
+to about 256 KiB/s; the design and what is deliberately not reachable (RAM,
+I2C, writes) are in [`dbgd-plan.md`](dbgd-plan.md#hardware-reads-pciconfig-and-mmioread).
+
 ## 3. Let an agent use it (MCP)
 
 ```bash
@@ -74,7 +97,7 @@ claude mcp add lazyos-dbg -- python tools/mcp/debug_bridge.py --connect 192.168.
 ```
 
 Start a new Claude Code session so the tools load: `log_tail`, `list_tasks`,
-`fabric_stats`, `devices`, `drivers`, `usb_dump`, `hwreport`,
+`fabric_stats`, `devices`, `drivers`, `usb_dump`, `hwreport`, `pci_config`, `mmio_read`,
 `messenger_registry`, `messenger_services`, `messenger_topics`, `fs_read` and
 `dbgd_call`. The `lazyos-dbg` project skill (`.claude/skills/lazyos-dbg`)
 tells an agent how to use them for bring-up and driver debugging.
@@ -113,6 +136,11 @@ interface id to its service with `idl/manifest.json`.
 | `usb.dump` unavailable | the image has no `usbd` (`LAZYOS_USB=1`), or no xHCI controller |
 | Second client hangs | one client at a time: close the first (the MCP bridge holds a connection) |
 | `-32002 control is off` | the image was built without `LAZYOS_DBGD_CONTROL=1` |
+| `mmio.read` `-32002 ... diag.dbg.mmio=1` | the image was built without `LAZYOS_DBGD_MMIO=1` (`DBGD:READY ... mmio=0`) |
+| `mmio.read` `-32002 ... allowed for BAR0: ...` | the span is not inside a listed range: choose one of the named ranges, or add one with `LAZYOS_DBGD_MMIO_ALLOW` after reading what the register does |
+| `mmio.read` `-32002 ... claimed` | a driver holds the device: `LAZYOS_DBGD_MMIO_CLAIMED=1` allows it, at the risk of racing the driver |
+| `-32003 ... BAR is not readable memory` | an I/O or unassigned BAR, memory decode off (a quiesced claim), or a BAR over RAM |
+| `-32005` | hardware reads are rate limited: wait the milliseconds the message names |
 | `reload` says `rolled-back` | the new binary exited or did not spawn in its trial: read `log --source programs` (`INIT:RELOAD:ROLLBACK reason=`) |
 
 ## 5. Hot-reload a service (control images only)
@@ -180,5 +208,7 @@ use it only on development machines on a network you trust.
 ```bash
 python tools/dbg/run.py [--usb]        # builds, boots QEMU, judges every method, refusal and reload
 python tools/dbg/run.py --no-control   # an image without the control tier refuses it
+python tools/dbg/run.py --no-mmio      # an image without MMIO reads: config space only
+python tools/dbg/test_judge.py         # the hardware-read judge's self-test
 cargo test -p dbgwire                  # protocol, config, allowlist, control rules, seeded fuzz
 ```

@@ -183,6 +183,8 @@ pub fn load(boot: &dyn Filesystem) -> Option<BootCfg> {
                     crate::limits::apply_config(text);
                     crate::trace::apply_config(text);
                     crate::fs::boot_image::apply_config(text);
+                    #[cfg(lazyos_dbgd)]
+                    crate::dev::peek::apply_config(text);
                 }
                 parse_bytes(&buf[..read])
             }

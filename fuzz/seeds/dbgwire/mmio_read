@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":4,"method":"mmio.read","params":{"bdf":"00:02.0","bar":0,"offset":458752,"len":64}}

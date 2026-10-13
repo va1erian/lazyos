@@ -35,6 +35,7 @@ Examples
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
+    python tools/run_demo.py --dbgd-mmio     # ...plus allowlisted register reads (dbgctl.py mmio ...)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
     python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
     python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
@@ -340,6 +341,10 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_DBGD"] = "1"
             # Its control tier (restart, hot reload) only when asked for.
             env["LAZYOS_DBGD_CONTROL"] = "1" if args.dbgd_control else "0"
+            # MMIO register reads (allowlisted ranges) only when asked for.
+            env["LAZYOS_DBGD_MMIO"] = "1" if args.dbgd_mmio else "0"
+            env["LAZYOS_DBGD_MMIO_CLAIMED"] = "1" if args.dbgd_mmio_claimed else "0"
+            env["LAZYOS_DBGD_MMIO_ALLOW"] = ",".join(args.dbgd_mmio_allow)
         if args.smb:
             # The SMB client is a `user` binary: no separate build step.
             env["LAZYOS_SMB"] = "1"

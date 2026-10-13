@@ -31,6 +31,8 @@ live. Inspection cannot change the machine; a box built with
 | Is a service up, restarting, unhealthy? | `messenger_services` (state, pid, restarts, health), `list_tasks` |
 | Who is registered on Messenger, what topics exist? | `messenger_registry`, `messenger_topics`, `dbgd_call("msg.topic", {"topic": ...})` |
 | Which PCI function has which driver, who owns it? | `devices` (inventory, owner, rights), `drivers` (devd match and state) |
+| A function's PCI configuration space (ids, BARs, `BDSM`/`ASLS`, capabilities) | `pci_config(bdf, offset, length)`: read-only, any enumerated function, the 64-byte header (256 bytes on a box built with `LAZYOS_DBGD_MMIO=1`); `devices` gives the BDFs. Works while a driver owns the device |
+| A device's registers (display, pipe, DDI, power wells...) | `mmio_read(bdf, bar, offset, length)`: dwords, at most 4096 bytes, **only inside ranges the box allows** (`libs/pciprobe/src/builtin.rs` plus `diag.dbg.mmio.allow=`) and only on an image built with `LAZYOS_DBGD_MMIO=1` (`DBGD:READY ... mmio=1`). A refusal names the allowed ranges; do not ask the user to widen them until you know the register has no side effect on read |
 | xHCI controller, port and slot state | `usb_dump`: `USBD:DUMP:HC` (usbcmd, usbsts, crcr, dcbaap, erdp), `PORT` (portsc, ccs, ped, pls), `DEV` (slot state, ep0state, ep0dq vs ring) |
 | Memory, counters, timeouts | `dbgd_call("mem.stats")`, `dbgd_call("sysinfo")`, `fabric_stats` |
 | A file on the box | `fs_read(path)` (allowlisted roots only) |
@@ -46,6 +48,12 @@ live. Inspection cannot change the machine; a box built with
   TRBs; `usbsts` bits (HSE, HCE) say whether it died.
 - The program-output ring is 64 KiB: a chatty boot can push early lines out.
   Say so rather than concluding a line never happened.
+- Hardware reads: a register is reachable because someone listed it. Never
+  suggest `LAZYOS_DBGD_MMIO_ALLOW` for a register you have not looked up (a
+  GMBUS or ELD data port advances on read), and say when a read returned
+  `ffffffff` or zeros: a powered-down well or a decode-off device looks the
+  same as a register that is really that value. They are rate limited
+  (`-32005`: wait the milliseconds named).
 - Everything you do is audited on the box (`DBGD:AUDIT` lines): fine, but do
   not poll in a tight loop.
 

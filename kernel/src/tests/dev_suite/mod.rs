@@ -35,6 +35,12 @@ mod sys_dma_life;
 mod sys_guard;
 mod sys_inspect;
 mod sys_ops;
+#[cfg(lazyos_dbgd)]
+mod sys_peek;
+#[cfg(lazyos_dbgd)]
+mod sys_peek_hw;
+#[cfg(lazyos_dbgd)]
+mod sys_peek_util;
 mod sys_policy;
 mod sys_teardown;
 mod sys_usb_policy;
@@ -59,6 +65,10 @@ pub(super) const SYSCALL_OPS: &[(&str, Test)] = sys_ops::CASES;
 pub(super) const SYSCALL_POLICY: &[(&str, Test)] = sys_policy::CASES;
 pub(super) const SYSCALL_BOOT_POLICY: &[(&str, Test)] = sys_boot_policy::CASES;
 pub(super) const SYSCALL_INSPECT: &[(&str, Test)] = sys_inspect::CASES;
+#[cfg(lazyos_dbgd)]
+pub(super) const SYSCALL_PEEK: &[(&str, Test)] = sys_peek::CASES;
+#[cfg(lazyos_dbgd)]
+pub(super) const SYSCALL_PEEK_HW: &[(&str, Test)] = sys_peek_hw::CASES;
 pub(super) const SYSCALL_USB_POLICY: &[(&str, Test)] = sys_usb_policy::CASES;
 pub(super) const TEARDOWN: &[(&str, Test)] = sys_teardown::CASES;
 pub(super) const DMA: &[(&str, Test)] = sys_dma::CASES;

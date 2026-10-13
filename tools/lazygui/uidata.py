@@ -72,7 +72,9 @@ def advanced_cfg(ui) -> dict:
         "webkit_deps": ui.v["webkit_deps"].get(),
         "webkit_port": ui.v["webkit_port"].get(),
         "webkit": ui.v["webkit"].get(),
-        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "wifi", "wifi_sim")},
+        **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "dbgd_mmio", "dbgd_mmio_claimed",
+                                                          "wifi", "wifi_sim")},
+        "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
         "tls": ui.v["tls"].get() or ui.v["mail"].get(),
         "journal": ui.v["journal"].get(),

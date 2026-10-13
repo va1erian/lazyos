@@ -22,7 +22,7 @@ from pathlib import Path
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
 )
-from seeds_dbg import dbgwire_seeds
+from seeds_dbg import dbgwire_seeds, pciprobe_seeds
 from seeds_formats import ipp_seeds, lazypkg_seeds, pwgraster_seeds
 from seeds_messenger import messenger_seeds
 from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
@@ -65,6 +65,7 @@ TARGETS = {
     "pkgstore_rules": pkgstore_rules_seeds,
     "smbwire": smbwire_seeds,
     "dbgwire": dbgwire_seeds,
+    "pciprobe": pciprobe_seeds,
     "messenger": messenger_seeds,
     "ieee80211": ieee80211_seeds,
     "eapol": eapol_seeds,

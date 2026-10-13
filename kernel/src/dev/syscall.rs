@@ -25,14 +25,17 @@
 //!   INVENTORY(10)  a1 -> rows, a2 = capacity   -> total (read-only, [`super::inspect`])
 //!   POLICY(11)     a1 -> rows, a2 = capacity   -> total class rules, ENOENT if none
 //!   DENIALS(12)    a1 -> rows, a2 = capacity   -> total refused claims (CAP_AUDIT_READ)
+//!   DBG_CONFIG_READ(13)  a1 = bus << 8 | device << 3 | function, a2 = offset,
+//!                  a3 = length, a4 -> buffer     -> bytes read (`dbgd` only,
+//!                  `cfg(lazyos_dbgd)`; no claim, read-only, [`super::peek`])
+//!   DBG_MMIO_READ(14)  a1 = bdf, a2 = offset in the BAR, a3 = bar | length << 8,
+//!                  a4 -> buffer                   -> bytes read (as above,
+//!                  allowlisted ranges only)
 //! ```
 //!
 //! No operation takes a raw physical or port address: everything is resolved
 //! from the device's own enumerated resources. See [`super::ops`] for the
 //! resource operations and [`super::teardown`] for release.
-
-use alloc::vec::Vec;
-use core::mem::size_of;
 
 use crate::ipc::channels;
 use crate::ipc::credentials::{self, CAP_DEV_CLAIM};
@@ -41,16 +44,14 @@ use crate::quota::{self, Resource};
 use crate::user_ptr;
 
 use super::claims::{self, Claim, InstallError, IrqBinding, CLAIMS, MAX_DMA_BUFFERS};
-use super::class::{class_of, method, DEV_INTERFACE};
+use super::class::{class_of, method};
 use super::errno::*;
 use super::grant;
 use super::irq;
 use super::pci::{self, COMMAND_BUS_MASTER, COMMAND_INTX_DISABLE, COMMAND_IO, COMMAND_MEMORY};
 use super::report::{self, reason};
 use super::resources::MAX_BARS;
-use super::{
-    dma, inspect, intx, ops, table, teardown, BarKind, BusId, DeviceId, DeviceInfo, TaskSlot,
-};
+use super::{dma, inspect, intx, ops, table, teardown, BusId, DeviceId, DeviceInfo, TaskSlot};
 
 pub const OP_LIST: u64 = 0;
 pub const OP_CLAIM: u64 = 1;
@@ -65,6 +66,15 @@ pub const OP_DMA_ALLOC: u64 = 9;
 pub const OP_INVENTORY: u64 = 10;
 pub const OP_POLICY: u64 = 11;
 pub const OP_DENIALS: u64 = 12;
+/// `dbgd`'s read-only reads of an unclaimed device (`cfg(lazyos_dbgd)`
+/// kernels only; every other kernel answers `EINVAL`).
+pub const OP_DBG_CONFIG_READ: u64 = 13;
+pub const OP_DBG_MMIO_READ: u64 = 14;
+/// The highest op this kernel knows (the suite probes the one after it).
+#[cfg(lazyos_dbgd)]
+pub const LAST_KNOWN_OP: u64 = OP_DBG_MMIO_READ;
+#[cfg(not(lazyos_dbgd))]
+pub const LAST_KNOWN_OP: u64 = OP_DENIALS;
 
 /// `claim` flag: the claimant accepts sharing its interrupt line.
 pub const FLAG_SHARED_IRQ: u64 = 1;
@@ -93,7 +103,7 @@ pub mod row_flag {
 pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
     let slot = crate::task::current();
     let result = match op {
-        OP_LIST => list(slot, a1, a2),
+        OP_LIST => super::list::list(slot, a1, a2),
         OP_CLAIM => claim(slot, a1, a2, a3, a4),
         OP_MAP_BAR => with_handle(slot, a1, rights::DEV_MMIO, |r| ops::map_bar(r, a2)),
         OP_PIO => with_handle(slot, a1, rights::DEV_PIO, |r| ops::pio(r, a2, a3, a4)),
@@ -108,6 +118,10 @@ pub fn dispatch(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
         OP_INVENTORY => inspect::inventory(slot, a1, a2),
         OP_POLICY => inspect::policy(slot, a1, a2),
         OP_DENIALS => inspect::denials(slot, a1, a2),
+        #[cfg(lazyos_dbgd)]
+        OP_DBG_CONFIG_READ => super::peek::config_read(slot, a1, a2, a3, a4),
+        #[cfg(lazyos_dbgd)]
+        OP_DBG_MMIO_READ => super::peek::mmio_read(slot, a1, a2, a3, a4),
         _ => Err(EINVAL),
     };
     match result {
@@ -169,96 +183,6 @@ fn with_handle(
 ) -> Result<u64, Errno> {
     let resolved = resolve(slot, handle, need)?;
     op(&resolved)
-}
-
-/// Encode one device as a `list` row (see [`ROW_WORDS`]). Physical BAR bases
-/// are deliberately absent: a driver needs sizes and kinds, and maps by index.
-fn row(info: &DeviceInfo, owned: bool, generation: u32) -> [u64; ROW_WORDS] {
-    let mut words = [0u64; ROW_WORDS];
-    words[0] = u64::from(info.id.0);
-    words[1] = u64::from(info.vendor)
-        | u64::from(info.device) << 16
-        | u64::from(info.subsystem_vendor) << 32
-        | u64::from(info.subsystem_device) << 48;
-    words[2] = u64::from(info.class)
-        | u64::from(info.subclass) << 8
-        | u64::from(info.prog_if) << 16
-        | u64::from(info.revision) << 24;
-    words[3] = class_of(info).interface_id;
-    let line = info.resources.irq().map_or(0xFF, |irq| irq.line);
-    let mut flags = 0;
-    if owned {
-        flags |= row_flag::OWNED;
-    }
-    if matches!(info.bus, BusId::Pci(_)) {
-        flags |= row_flag::PCI;
-    }
-    if irq::routable(line) {
-        flags |= row_flag::IRQ_ROUTABLE;
-    }
-    if info.resources.msi().is_some() {
-        flags |= row_flag::MSI;
-    }
-    if info.resources.msix().is_some() {
-        flags |= row_flag::MSIX;
-    }
-    words[4] = flags | u64::from(line) << 8;
-    words[5] = u64::from(generation);
-    for bar in info.resources.bars() {
-        let index = usize::from(bar.index);
-        let mut meta = 1u64;
-        if bar.kind == BarKind::Io {
-            meta |= 2;
-        }
-        if bar.is_64 {
-            meta |= 4;
-        }
-        if bar.prefetchable {
-            meta |= 8;
-        }
-        words[6] |= meta << (index * 4);
-        words[7 + index] = bar.len;
-    }
-    words
-}
-
-/// `list(buf, capacity)`: copy device rows to the caller and return the total
-/// number of devices (so a short buffer can be retried larger).
-fn list(slot: usize, buf: u64, capacity: u64) -> Result<u64, Errno> {
-    if credentials::of(slot).caps & CAP_DEV_CLAIM == 0 {
-        return Err(EPERM);
-    }
-    if acl_denies(slot, DEV_INTERFACE, method::LIST) {
-        return Err(EACCES);
-    }
-    let rows: Vec<[u64; ROW_WORDS]> = {
-        let devices = table().lock();
-        devices
-            .iter()
-            .map(|info| {
-                row(
-                    &info,
-                    devices.owner(info.id).is_some(),
-                    devices.generation(info.id).unwrap_or(0),
-                )
-            })
-            .collect()
-    };
-    let count = rows
-        .len()
-        .min(usize::try_from(capacity).unwrap_or(usize::MAX));
-    if count > 0 {
-        let words: Vec<u64> = rows[..count].iter().flatten().copied().collect();
-        debug_assert_eq!(words.len() * size_of::<u64>(), count * ROW_WORDS * 8);
-        user_ptr::try_copy_words(buf, &words).map_err(|_| EFAULT)?;
-    }
-    Ok(rows.len() as u64)
-}
-
-/// Whether the ACL refuses `interface`/`method` for `slot` (recording the
-/// denial, as every Messenger decision does).
-fn acl_denies(slot: usize, interface: u64, method: u32) -> bool {
-    crate::ipc::authorize(slot, interface, method, 0).denied()
 }
 
 /// Refuse a claim, recording why. `info` is `None` when the device does not

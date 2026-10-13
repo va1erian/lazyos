@@ -317,9 +317,12 @@ pub(crate) fn devices_list() -> Result<String, Failure> {
         let owner = d
             .owner
             .map_or(String::from("-"), |uid| format!("{}", devinspect::Uid(uid)));
-        Object::new()
-            .uint("id", u64::from(d.id))
-            .str("class", d.class_name())
+        let mut row = Object::new();
+        row = row.uint("id", u64::from(d.id));
+        if let Some(bdf) = d.bdf_text() {
+            row = row.str("bdf", &bdf);
+        }
+        row.str("class", d.class_name())
             .uint("pci_class", u64::from(d.class))
             .uint("pci_subclass", u64::from(d.subclass))
             .uint("pci_prog_if", u64::from(d.prog_if))

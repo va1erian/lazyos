@@ -331,6 +331,10 @@ const SUITE: &[&[(&str, Test)]] = &[
     dev_suite::SYSCALL_USB_POLICY,
     dev_suite::SYSCALL_BOOT_POLICY,
     dev_suite::SYSCALL_INSPECT,
+    #[cfg(lazyos_dbgd)]
+    dev_suite::SYSCALL_PEEK,
+    #[cfg(lazyos_dbgd)]
+    dev_suite::SYSCALL_PEEK_HW,
     dev_suite::SYSCALL_CFG,
     dev_suite::TEARDOWN,
     dev_suite::DMA,

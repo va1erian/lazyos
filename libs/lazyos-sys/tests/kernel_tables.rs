@@ -217,6 +217,8 @@ fn the_device_ops_match_the_kernel() {
         ("OP_INVENTORY", dev::op::INVENTORY),
         ("OP_POLICY", dev::op::POLICY),
         ("OP_DENIALS", dev::op::DENIALS),
+        ("OP_DBG_CONFIG_READ", dev::op::DBG_CONFIG_READ),
+        ("OP_DBG_MMIO_READ", dev::op::DBG_MMIO_READ),
         ("FLAG_SHARED_IRQ", dev::FLAG_SHARED_IRQ),
         ("NO_ENDPOINT", dev::NO_ENDPOINT),
         ("KERNEL_CHANNEL", dev::KERNEL_CHANNEL),
@@ -229,5 +231,5 @@ fn the_device_ops_match_the_kernel() {
         assert_eq!(value_of(theirs), value, "{name}");
     }
     let op_count = table.keys().filter(|name| name.starts_with("OP_")).count();
-    assert_eq!(op_count, 13, "a new kernel op needs a name in dev::op");
+    assert_eq!(op_count, 15, "a new kernel op needs a name in dev::op");
 }

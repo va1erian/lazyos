@@ -1380,9 +1380,12 @@ python tools/run_demo.py --dbgd-control         # ...plus restart and service ho
 python tools/dbg/dbgctl.py reload usbd          # rebuilt /system/bin/usbd from target/lazyos.img, rolled back if it dies
 python tools/dbg/dbgctl.py app-install X.lzp    # install an app package (core too), relaunch its windows
 python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
+python tools/dbg/dbgctl.py pci-config 00:02.0 0 256   # read-only config space of a function (no claim)
+python tools/run_demo.py --dbgd-mmio            # + allowlisted register reads: dbgctl.py mmio 00:02.0 0 0x70008 16
 python tools/dbg/run.py [--usb] [--no-control]  # build, boot, judge every method and the reloads (shots/dbg)
 python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
-cargo test -p dbgwire                           # protocol, config, allowlist, seeded fuzz
+cargo test -p dbgwire -p pciprobe               # protocol, config, allowlists (fs, MMIO ranges), seeded fuzz
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=dev_peek python tools/test/run.py --accel none   # the hardware-read kernel ops
 LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none
 ```
 

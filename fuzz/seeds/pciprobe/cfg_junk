@@ -1,0 +1,4 @@
+diag.dbg=1
+diag.dbg.mmio=1
+diag.dbg.mmio.allow=zz:1:0:0-4
+ÿÿÿÿ

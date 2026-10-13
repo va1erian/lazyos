@@ -14,11 +14,17 @@ user-mode networking (docs/dbgd-plan.md, issue #701).
    restart, a hot reload committed, two rolled back, a revert, the
    refusals, and app swapping (`app_checks.py`: a package installed and
    upgraded through `pkgd`); `--no-control` builds without it and checks it is refused.
+5. Hardware reads (`hw_checks.py`): `pci.config` and, with
+   `LAZYOS_DBGD_MMIO=1`, `mmio.read` against QEMU's standard VGA: its
+   vendor id, the VBE id register, a register the allowlist leaves out, the
+   bounds and the byte budget; `--no-mmio` builds without the switch and
+   checks `mmio.read` is refused while config space still reads.
 
     python tools/dbg/run.py                 # build, boot, judge
     python tools/dbg/run.py --no-build      # the image already built
     python tools/dbg/run.py --accel none
     python tools/dbg/run.py --no-control    # an image without the control tier
+    python tools/dbg/run.py --no-mmio       # an image without MMIO reads (config space only)
 
 Exit status is non-zero on any failed check; logs go to `shots/dbg`.
 """
@@ -40,6 +46,7 @@ sys.path.insert(0, str(HERE))
 from dbgclient import DbgClient, DbgError, default_key  # noqa: E402
 import app_checks  # noqa: E402
 import control_checks  # noqa: E402
+import hw_checks  # noqa: E402
 
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
@@ -47,11 +54,12 @@ PORT = 9701
 HOST_PORT = 19701
 
 
-def build(peer: str | None, usb: bool, control: bool) -> str | None:
+def build(peer: str | None, usb: bool, control: bool, mmio: bool = True) -> str | None:
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_DBGD="1", LAZYOS_RESET_OS="1")
     env.pop("LAZYOS_DESKTOP", None)
     env["LAZYOS_DBGD_CONTROL"] = "1" if control else "0"
+    env["LAZYOS_DBGD_MMIO"] = "1" if mmio else "0"
     if peer:
         env["LAZYOS_DBGD_PEER"] = peer
     if usb:
@@ -261,6 +269,8 @@ def main() -> int:
                         help="LAZYOS_USB=1 and a QEMU xHCI with a keyboard: judge usb.dump")
     parser.add_argument("--no-control", action="store_true",
                         help="build without LAZYOS_DBGD_CONTROL and check control is refused")
+    parser.add_argument("--no-mmio", action="store_true",
+                        help="build without LAZYOS_DBGD_MMIO and check mmio.read is refused")
     parser.add_argument("--accel", default="auto")
     parser.add_argument("--memory")
     parser.add_argument("--qemu")
@@ -271,7 +281,7 @@ def main() -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / "serial.log").unlink(missing_ok=True)
     if not args.no_build:
-        error = build("10.0.2.2", args.usb, not args.no_control)
+        error = build("10.0.2.2", args.usb, not args.no_control, not args.no_mmio)
         if error:
             print(error)
             return 1
@@ -301,6 +311,12 @@ def main() -> int:
             return 1
         time.sleep(2)  # the stack's address and the listener settle
         exercise(key, checks, args.usb)
+        with DbgClient("127.0.0.1", HOST_PORT, key) as hw:
+            time.sleep(1.0)
+            if args.no_mmio:
+                hw_checks.exercise_off(checks, hw.call)
+            else:
+                hw_checks.exercise(checks, hw.call, hw)
         if args.no_control:
             control_checks.exercise_off(key, checks, "127.0.0.1", HOST_PORT)
         else:

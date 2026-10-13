@@ -13,6 +13,8 @@ python tools/run_demo.py --dbgd                       # QEMU: networking + dbgd,
 python tools/dbg/dbgctl.py log --follow               # the kernel boot log, live
 python tools/dbg/dbgctl.py log --source programs      # what usbd, netdrv, ... printed
 python tools/dbg/dbgctl.py tasks | usb | devices | drivers | hw | msg-services
+python tools/dbg/dbgctl.py pci-config 00:02.0 0 256   # read-only config space (no switch)
+python tools/dbg/dbgctl.py mmio 00:02.0 0 0x70008 16  # allowlisted registers (--dbgd-mmio)
 python tools/dbg/run.py [--usb]                       # build, boot, judge every method
 python tools/mcp/debug_bridge.py --connect HOST       # the same data as MCP tools
 ```
@@ -30,6 +32,7 @@ NIC driver the box needs), read `target/dbgd.key`, and
 | `LAZYOS_DBGD_KEY=<hex>` | The key (16 to 64 bytes of hex). Unset: one is made once and kept in `target/dbgd.key`. |
 | `LAZYOS_DBGD_PORT`, `LAZYOS_DBGD_PEER` | TCP port (9701); the only IPv4 address that may connect. |
 | `LAZYOS_DBGD_CONTROL=1` | `diag.dbg.control=1`: the control tier below. Off by default. |
+| `LAZYOS_DBGD_MMIO=1` | `diag.dbg.mmio=1`: `mmio.read` of allowlisted ranges. Off by default; `LAZYOS_DBGD_MMIO_CLAIMED=1` (`diag.dbg.mmio.claimed=1`) and `LAZYOS_DBGD_MMIO_ALLOW=V:D:BAR:S-E[,...]` need it. |
 
 Without `LAZYOS_DBGD=1` none of it exists: a kernel built without it answers
 syscall 14 op 2 with `-EINVAL` (the kernel suite checks both ways, and the
@@ -67,16 +70,113 @@ Errors: `-32700` parse, `-32600` invalid request, `-32601` unknown method,
 | `log.tail {lines, source}` | `kernel` (the boot log), `programs` (what services printed: `USBD:`, `NETDRV:`...), or a `logd` journal; every line split into `tag`, `fields`, `text`, `pos` (byte offset) |
 | `log.sources`, `log.follow {lines, source}`, `log.unfollow` | journals; a stream of `log` notifications with `cursor` and `dropped` (bytes the ring overwrote before they were read) |
 | `tasks.list`, `sysinfo`, `mem.stats`, `fabric.stats` | the scheduler table, the kernel statistics snapshot, its memory counters, the Messenger fabric counters |
-| `devices.list`, `drivers.list` | the PCI inventory with owner and rights (`devctl devices`); `devd`'s match, driver and state (`devctl drivers`) |
+| `devices.list`, `drivers.list` | the PCI inventory with address (`bdf`), owner and rights (`devctl devices`); `devd`'s match, driver and state (`devctl drivers`) |
+| `pci.config {bdf, offset, len}` | read-only configuration space of any enumerated function, no claim: the 64-byte header (all 256 bytes with `diag.dbg.mmio=1`), any alignment, as `hex` ([Hardware reads](#hardware-reads-pciconfig-and-mmioread)) |
+| `mmio.read {bdf, bar, offset, len}` | read-only 32-bit register reads of **allowlisted ranges** of a memory BAR, at most 4096 bytes; off unless `diag.dbg.mmio=1` ([Hardware reads](#hardware-reads-pciconfig-and-mmioread)) |
 | `usb.dump` | `usbd`'s last snapshot: `USBD:DUMP:HC` (USBCMD, USBSTS, CRCR, DCBAAP, CONFIG, command and event ring pointers), `USBD:DUMP:PORT` (PORTSC fields), `USBD:DUMP:DEV` (slot state and address, endpoint 0 state and dequeue pointer, ids) |
 | `msg.registry`, `msg.services`, `msg.topics`, `msg.topic {topic}` | Messenger: registered names with owners and interfaces; `init`'s supervised services; the broker's topics; one exact topic's retained value |
 | `fs.read {path, offset, len}` | a file under `/transient`, `/tmp`, `/logs`, `/system/etc`, `/system/share`, `/docs` (never the shadow file, `/conf`, `/accounts` or `lazyos.cfg`); at most 32 KiB; a directory lists its names |
 | `hwreport` | the `HW:*` verdict lines of the boot log, as fields |
 
-Not in v1 (the issue's list): `pci.config` and `mmio.read` need a driver's
-claim on the device, which `dbgd` deliberately does not hold; `usb.dump`
-carries the registers `usbd` itself owns instead. Both are v2 candidates
-(config-space reads for unclaimed functions through the kernel).
+`usb.dump` carries the registers `usbd` itself owns; `pci.config` and
+`mmio.read` read hardware nobody has claimed (or that a driver has, see
+below) through two read-only kernel ops, with rules of their own.
+
+## Hardware reads: `pci.config` and `mmio.read`
+
+The issue's list had both; v1 left them out because the only way to touch a
+BAR was a driver's claim, which `dbgd` deliberately does not hold (no
+capability, uid 914). Stage G0 of the Kaby Lake GPU plan
+([`kabylake-gpu-plan.md`](kabylake-gpu-plan.md)) needs to dump display
+registers of a device `gpud` does not exist for yet, so the kernel got two
+ops that name a PCI function instead of a `Device` handle.
+
+**Kernel** (`kernel/src/dev/peek.rs`, device syscall 23 ops 13 and 14,
+`cfg(lazyos_dbgd)`: a kernel built without `LAZYOS_DBGD=1` answers `EINVAL`
+and has none of the code):
+
+| Op | Arguments | Returns |
+|---|---|---|
+| `DBG_CONFIG_READ` 13 | bdf, offset, len, buffer | bytes read |
+| `DBG_MMIO_READ` 14 | bdf, offset in the BAR, `bar | len << 8`, buffer | bytes read |
+
+Both are callable by uid 914 (`dbgd`) only, never uid 0 (services authorize
+by a kernel-stamped identity, not by being root; the in-kernel suite alone may
+call as the kernel task), and by the Messenger policy for `os.kernel.dev`
+like `inventory` (a labelled app is refused). Neither answers anything
+unless the kernel itself read `diag.dbg=1` in `lazyos.cfg`. There is no
+write path of any kind, and no request names a physical address: the kernel
+resolves the BAR from the function's own enumerated resources. A malformed
+request is `EDOM`; `EINVAL` is only the unknown-op answer of a kernel built
+without the switch, which is how `dbgd` tells the two apart.
+
+**Rules** (`libs/pciprobe`, shared by the kernel, which enforces them,
+and `dbgwire`/`dbgd`, which apply them first to give a refusal a reason):
+
+| Rule | What |
+|---|---|
+| Config space | needs `diag.dbg=1` (as the kernel read it) and nothing else for the standard 64-byte header (`0x00..0x40`: ids, command, BARs, capability pointer). Bytes `0x40..0x100` (capabilities, device-specific registers) need `diag.dbg.mmio=1` as well, because reading device-specific config registers is not always harmless (`lspci` restricts the full dump to root for that reason), and the extended 4 KiB is not reachable at all: the kernel has only legacy mechanism 1, no MMCONFIG. Any alignment. Works while a driver owns the device |
+| MMIO is off | unless `lazyos.cfg` says `diag.dbg=1` **and** `diag.dbg.mmio=1` (build: `LAZYOS_DBGD_MMIO=1`, `run_demo.py --dbgd-mmio`, the launcher's checkbox). A register read can wedge hardware, so it is a switch of its own and is not implied by control |
+| Allowlist, not denylist | an MMIO span is answered only if every byte lies inside a range listed for that exact `vendor:device` and BAR: the built-in table (`libs/pciprobe/src/builtin.rs`) plus `diag.dbg.mmio.allow=VVVV:DDDD:BAR:START-END` lines of the box's own `lazyos.cfg` (at most 8, dword aligned, 64 MiB each). A register is allowed because somebody listed it, so one with a side effect on read (a FIFO data port, an indexed auto-increment register) stays out until someone has read what it does. The built-in table has QEMU's standard VGA (the test target) and the HD Graphics 620 (`8086:5916`), with the PCH GMBUS block (`0xC5100..0xC5130`, whose data register pops the I2C FIFO) and the three audio ELD data ports (`0x65050`, `0x65150`, `0x65250`) as holes |
+| 32-bit and bounded | offset and length are multiples of 4, 4..4096 bytes per request; the wire (`params`) is validated before any handler runs |
+| Not behind a driver | a device a task owns (any claim, an in-kernel driver too) is `EBUSY` for MMIO unless `diag.dbg.mmio.claimed=1`: a read racing a driver can hit a register the driver is mid-sequence on, and a claim turns memory decode off until the driver turns on what it uses. Config space is still read |
+| Only memory that is there | the BAR must be a memory BAR, assigned, at least a page, below the CPU's address width and not over RAM (the `map_bar` checks), and the function's memory decode must be on (`ENXIO`: the kernel never writes the command register, so it never turns decode on to read); past the BAR's end is `ERANGE` |
+| Bounded resources | only the 4 KiB pages a request touches are mapped, read-only and uncached, once, into the kernel MMIO window and kept (that window never unmaps); 64 MiB of it at most, failed maps counted (`ENOMEM`), and only the bytes inside an allowed range are ever read. Interrupt windows open every 64 dwords (`arch::irq_window::poll_point`) |
+| A gone function | a function whose vendor id reads `0xFFFF` (gone, link down) is `ENODEV` before any BAR read, and a read that returns all-ones makes the kernel re-check once per window: a dead link completes reads by timeout, which with interrupts off can stall for milliseconds per read |
+| Rate limited | a byte budget per `dbgd` (`dbgwire::probe::Budget`: 512 KiB burst, 256 KiB/s, at least 64 bytes a request), `-32005` with the wait in the message |
+
+**Single CPU.** The claim check and the register reads are one critical
+section only because LazyOS runs on CPU 0 and the interrupt windows of
+`poll_point` never switch tasks, so nothing else can claim, release or
+reprogram the device in between (the device table lock is held across the
+loop as well). An SMP port must make this a real critical section.
+
+**Power wells.** The built-in 8086:5916 table lists registers by what they
+are, not by whether their well is up. Display registers of pipe B/C, the
+transcoders and the audio block sit behind display power wells: read
+`HSW_PWR_WELL_CTL` (`0x45400`) first and read the gated blocks only when the
+well is on, because a power-gated well may not return cleanly (all-ones or
+zeros, and Linux counts these as unclaimed accesses). `ffffffff` from a
+register is a fact about the well, not the register.
+
+**GT registers read as zero in RC6.** Without forcewake, ranges such as
+`0x2000`, `0x12000`, `0x1A000` and `0x22000` of the HD 620 read 0 or garbage
+while the GT sleeps; that is not a fault of the probe (it never takes
+forcewake or writes anything). Config bytes `0x40..0x100` of a *claimed*
+device are readable with `diag.dbg.mmio=1` alone, by design: config reads
+have no side effects that can corrupt a driver's transaction the way MMIO
+reads can.
+
+**Memory-type aliasing.** The kernel maps a BAR page uncached for these
+reads. If another mapping of the same frames uses a different type (the
+display path maps the VGA framebuffer BAR write-combining, and a GPU driver
+will map the aperture and GTT WC), the two aliases are architecturally
+unsupported (Intel SDM vol. 3, memory types). The built-in table therefore
+leaves framebuffer and aperture BARs out (QEMU's VGA BAR0 is not listed; the
+HD 620 GTT upper half of BAR0 is, because only a driver the box does not
+have yet would alias it). Add such a range with `diag.dbg.mmio.allow=` only
+knowing that.
+
+**Why claimed devices are refused by default** (the decision): `claims.rs`
+keeps one claim per device and `claim` quiesces the function (memory and I/O
+decode off, bus mastering off), so a driver's BARs read as all-ones until it
+turns decode back on, and a read of a register the driver is sequencing (a
+GMBUS transaction, an AUX transfer, an index/data pair) can corrupt *its*
+transaction even though the read is harmless alone. The kernel therefore checks the claim table on every MMIO read, not `dbgd`.
+`diag.dbg.mmio.claimed=1` exists because G1's `gpud` will hold the iGPU while
+a person still wants a register diff; it is an explicit second key, off in
+every build switch combination that does not name it.
+
+Answers: `pci.config` and `mmio.read` return `{bdf, vendor, device, [bar,]
+offset, len, hex}` with `hex` the bytes in memory order (registers are
+little-endian dwords). Errors: `-32602` bad params or `ERANGE`, `-32002` the
+rules (off, not in a range, claimed, a refused uid), `-32003` no such
+function or an unusable BAR, `-32005` over the byte budget.
+
+Not covered, on purpose: reading RAM (the ACPI IGD OpRegion and VBT that
+`ASLS` points at, stolen memory, the aperture), I2C/DDC (the GMBUS block is a
+write-driven controller, so an EDID needs a driver), and any write. Each is a
+different threat model; G0 reads the OpRegion some other way.
 
 ## Where the data comes from, and why a program-output ring
 
@@ -107,7 +207,9 @@ is built to be refused by default:
 * **Peer-restricted** (`diag.dbg.peer`) when set; checked before the nonce.
 * **Least authority**: uid 914, no capability, read-only calls; `fs.read` is
   an allowlist of roots minus a list of secrets, on top of the VFS's own
-  permissions.
+  permissions. Hardware reads go through two kernel ops that only uid 914 and
+  root may call, resolve the BAR themselves and read only allowlisted
+  ranges (above).
 * **Bounded input**: line, JSON depth, element count and string length caps;
   the parser and method table are `libs/dbgwire`, host-tested and fuzzed
   (`fuzz/fuzz_targets/dbgwire.rs`).
@@ -136,6 +238,10 @@ python fuzz/gen_corpus.py --check                  # the checked-in seeds are cu
 LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none   # kernel ops
 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none                                # compiled out
 python tools/dbg/run.py [--usb]                    # QEMU: every method, the refusals, the live stream, the MCP bridge
+python tools/dbg/run.py --no-control --no-mmio     # an image without MMIO reads: config space only, mmio.read refused
+python tools/dbg/test_judge.py                     # the hardware-read judge fails when it should
+cargo test -p pciprobe                             # the allowlist, config lines, seeded fuzz
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=dev_peek python tools/test/run.py --accel none   # the kernel ops: callers, allowlist, claims, soak
 cd tools/lazygui && python -m unittest test_catalog_dbgd
 ```
 

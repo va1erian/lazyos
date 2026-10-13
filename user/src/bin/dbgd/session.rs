@@ -15,6 +15,7 @@ use dbgwire::config::Config;
 use dbgwire::json::{self, Object, Value};
 use dbgwire::logline;
 use dbgwire::methods::{self, Access};
+use dbgwire::probe;
 use dbgwire::rpc::{self, code, Id};
 use user::messenger::netsock::Addr;
 use user::messenger::netstd::{is_timeout, TcpStream};
@@ -40,6 +41,9 @@ pub(crate) struct Shared {
     pub lockout: Lockout,
     /// The boot-log read buffer, kept between calls.
     pub scratch: Vec<u8>,
+    /// Bytes of hardware (`pci.config`, `mmio.read`) a client may read per
+    /// second, across connections.
+    pub hardware: probe::Budget,
 }
 
 impl Shared {
@@ -47,6 +51,7 @@ impl Shared {
         Shared {
             lockout: Lockout::new(),
             scratch: Vec::new(),
+            hardware: probe::Budget::new(0),
         }
     }
 }
@@ -353,6 +358,21 @@ fn dispatch(
         "devices.list" => handlers::devices_list(),
         "drivers.list" => handlers::drivers_list(),
         "usb.dump" => handlers::usb_dump(),
+        "pci.config" | "mmio.read" => {
+            // The request line itself, with what it asked to read.
+            audit::note(
+                session.peer,
+                &super::hw::audit_token(name, params),
+                "request",
+            );
+            let default_len = if name == "mmio.read" { 4 } else { 64 };
+            super::hw::within_budget(&mut shared.hardware, now_ms(), params, default_len, |p| {
+                match name {
+                    "mmio.read" => super::hw::mmio_read(p, config),
+                    _ => super::hw::pci_config(p, config),
+                }
+            })
+        }
         "fs.read" => handlers::fs_read(params),
         "hwreport" => handlers::hwreport(&mut shared.scratch),
         "control.begin" => begin_control(session, params, config),

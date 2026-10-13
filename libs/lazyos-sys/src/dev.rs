@@ -26,6 +26,12 @@ pub mod op {
     pub const POLICY: u64 = 11;
     /// Inspection: refused claims in the audit ring.
     pub const DENIALS: u64 = 12;
+    /// `dbgd`'s read of configuration space, no claim (`LAZYOS_DBGD=1`
+    /// kernels; others answer `-EINVAL`, which is also how a caller tells a
+    /// missing op from a malformed request, `-EDOM`).
+    pub const DBG_CONFIG_READ: u64 = 13;
+    /// `dbgd`'s read of allowlisted MMIO ranges, no claim.
+    pub const DBG_MMIO_READ: u64 = 14;
 }
 
 /// `claim`'s "no interrupt endpoint" argument (a polling driver).
@@ -50,7 +56,7 @@ pub unsafe fn dev_syscall(op: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> i64 {
 }
 
 #[cfg(feature = "devinspect")]
-pub use inspect::{denials, inventory, policy};
+pub use inspect::{config_read, denials, inventory, mmio_read, policy};
 
 #[cfg(feature = "devinspect")]
 mod inspect {
@@ -107,5 +113,42 @@ mod inspect {
         Ok(devinspect::rows::<DENIAL_WORDS>(&words, count)
             .map(|row| Denial::from_words(&row))
             .collect())
+    }
+
+    /// `len` bytes of configuration space of the function at `bdf`
+    /// (`bus << 8 | device << 3 | function`), without claiming it. Only
+    /// `dbgd` may ask (`kernel/src/dev/peek.rs`).
+    pub fn config_read(bdf: u16, offset: u64, len: usize) -> Result<Vec<u8>, i64> {
+        let mut bytes = vec![0u8; len];
+        // SAFETY: the kernel writes at most `len` bytes, the size of `bytes`.
+        let code = unsafe {
+            super::dev_syscall(
+                super::op::DBG_CONFIG_READ,
+                u64::from(bdf),
+                offset,
+                len as u64,
+                bytes.as_mut_ptr() as u64,
+            )
+        };
+        bytes.truncate(crate::value(code)? as usize);
+        Ok(bytes)
+    }
+
+    /// `len` bytes of BAR `bar` of the function at `bdf` from `offset`,
+    /// inside the ranges the box allows (`libs/pciprobe`).
+    pub fn mmio_read(bdf: u16, bar: u8, offset: u64, len: usize) -> Result<Vec<u8>, i64> {
+        let mut bytes = vec![0u8; len];
+        // SAFETY: the kernel writes at most `len` bytes, the size of `bytes`.
+        let code = unsafe {
+            super::dev_syscall(
+                super::op::DBG_MMIO_READ,
+                u64::from(bdf),
+                offset,
+                u64::from(bar) | (len as u64) << 8,
+                bytes.as_mut_ptr() as u64,
+            )
+        };
+        bytes.truncate(crate::value(code)? as usize);
+        Ok(bytes)
     }
 }

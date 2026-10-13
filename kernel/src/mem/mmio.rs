@@ -195,6 +195,17 @@ const KERNEL_WINDOW_SPAN: u64 = 1 << 30;
 /// kernel). Refuses a range that overlaps RAM or lies beyond the CPU's
 /// physical address width.
 pub fn map_kernel(phys: u64, len: u64) -> Result<u64, &'static str> {
+    map_kernel_with(phys, len, true)
+}
+
+/// [`map_kernel`] for a window that is only ever read (`dev::peek`): the
+/// pages are not writable, so a bug cannot store through them.
+#[cfg(lazyos_dbgd)]
+pub fn map_kernel_read_only(phys: u64, len: u64) -> Result<u64, &'static str> {
+    map_kernel_with(phys, len, false)
+}
+
+fn map_kernel_with(phys: u64, len: u64, writable: bool) -> Result<u64, &'static str> {
     if !phys.is_multiple_of(FRAME_SIZE) || len == 0 {
         return Err("unaligned device window");
     }
@@ -212,12 +223,14 @@ pub fn map_kernel(phys: u64, len: u64) -> Result<u64, &'static str> {
     }
     let base = kernel_window()?;
     let va = base + *used;
-    let flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
+    let mut flags = PageTableFlags::PRESENT
         | PageTableFlags::NO_EXECUTE
         | PageTableFlags::NO_CACHE
         | PageTableFlags::WRITE_THROUGH
         | PageTableFlags::BIT_10;
+    if writable {
+        flags |= PageTableFlags::WRITABLE;
+    }
     for page in 0..pages {
         let offset = page * FRAME_SIZE;
         if !map_page_in(

@@ -26,7 +26,9 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/dev/claims.rs` | Userspace claims: rights, `Device` handle, interrupt binding and state, BAR mappings |
 | `kernel/src/dev/grant.rs`, `class.rs` | The grant rule; PCI class to `os.kernel.dev.<class>` ids and method ids |
 | `kernel/src/dev/syscall.rs`, `ops.rs`, `dma.rs` | Syscall 23: `list`/`claim`/`release`/`irq_*`; `map_bar`/`pio`/`cfg_*`; `dma_alloc` |
-| `kernel/src/dev/policy.rs`, `inspect.rs` | The driver class rules installed at boot (#481); the read-only `inventory`/`policy`/`denials` ops |
+| `kernel/src/dev/policy.rs`, `inspect.rs` | The driver class rules installed at boot (#481); the read-only `inventory`/`policy`/`denials` ops (`inventory` rows carry the PCI address in word 0, bits 40 to 56) |
+| `kernel/src/dev/peek.rs` | `dbgd`'s read-only ops 13 and 14 (`cfg(lazyos_dbgd)`): config space and allowlisted MMIO of a function by PCI address, no claim; rules in `libs/pciprobe`, see [dbgd-plan.md](../dbgd-plan.md) |
+| `kernel/src/dev/list.rs` | The `list` op's rows (split out of `syscall.rs`) |
 | `kernel/src/dev/teardown.rs`, `report.rs`, `selfcheck.rs` | Release on exit; audit records; the `DEV:IRQ`/`DEV:SYSCALL`/`DEV:DMA` boot lines and routing log |
 | `kernel/src/mem/dma.rs` | Boot-time contiguous DMA pool: bitmap, first-fit with alignment, stats |
 | `kernel/src/ipc/shared/dma.rs` | `create_from_frames`: a Buffer over an existing contiguous run, `DmaOwner` |

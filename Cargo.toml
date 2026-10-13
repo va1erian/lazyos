@@ -144,6 +144,10 @@ members = [
     # dbgd's wire: JSON-RPC lines, the HMAC challenge, config, method table
     # (docs/dbgd-plan.md, issue #701): pure no_std + alloc, host-tested.
     "libs/dbgwire",
+    # What dbgd may read of a PCI device without owning it: config space and
+    # allowlisted MMIO ranges (docs/dbgd-plan.md, hardware reads): pure
+    # no_std + alloc, host-tested and fuzzed; the kernel enforces it.
+    "libs/pciprobe",
     "libs/tracefmt",
     # 802.11 management frames, information elements (RSN) and the scan table,
     # and the EAPOL-Key supplicant (docs/wifi-prerequisites-plan.md WP3): pure
@@ -223,6 +227,9 @@ user = { path = "user", artifact = "bin", target = "x86_64-unknown-none" }
 bootloader = "0.11.17"
 # The OS random source for the generated dbgd key (`build_support/dbgd_cfg.rs`).
 getrandom = "0.4.3"
+# The range parser the kernel reads `diag.dbg.mmio.allow=` with, so the build
+# validates a line exactly as the box will (`build_support/dbgd_cfg.rs`).
+pciprobe = { path = "libs/pciprobe" }
 # The OS volume is formatted and updated with the same ext2 code the kernel
 # reads it with (docs/filesystem-plan.md F2). `check` lets an update re-certify
 # a volume that stopped uncleanly (`Ext2::recover`).

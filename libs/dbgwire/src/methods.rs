@@ -60,8 +60,11 @@ const fn text(name: &'static str, max: usize) -> Param {
 pub const MAX_TAIL_LINES: u64 = 2000;
 /// Most bytes one `fs.read` returns.
 pub const MAX_READ: u64 = 32 * 1024;
-/// Most bytes of PCI configuration space.
-pub const PCI_CONFIG_BYTES: u64 = 4096;
+/// Most bytes of PCI configuration space one `pci.config` returns (the
+/// kernel's legacy mechanism reaches the first 256 only).
+pub const PCI_CONFIG_BYTES: u64 = pciprobe::CONFIG_BYTES;
+/// Most bytes one `mmio.read` returns.
+pub const MAX_MMIO: u64 = pciprobe::MAX_MMIO_BYTES;
 
 /// Most bytes of a service binary one `service.upload` carries, before
 /// base64: its base64 is exactly the JSON reader's longest string
@@ -132,7 +135,22 @@ pub const METHODS: &[Method] = &[
         "Messenger: the retained value of one exact topic: {topic}",
         [text("topic", 128)]
     ),
-    read!("devices.list", "the PCI inventory: owner, class, rights", []),
+    read!("devices.list", "the PCI inventory: address, owner, class, rights", []),
+    read!(
+        "pci.config",
+        "read-only PCI configuration space of a function, no claim: {bdf (\"00:02.0\"), offset, len}",
+        [text("bdf", 16), uint("offset", 0, PCI_CONFIG_BYTES - 1), uint("len", 1, PCI_CONFIG_BYTES)]
+    ),
+    read!(
+        "mmio.read",
+        "read-only 32-bit register reads of allowlisted BAR ranges (needs diag.dbg.mmio=1): {bdf, bar, offset, len}",
+        [
+            text("bdf", 16),
+            uint("bar", 0, pciprobe::MAX_BAR as u64),
+            uint("offset", 0, 1 << 40),
+            uint("len", 4, MAX_MMIO)
+        ]
+    ),
     read!("drivers.list", "devd's view: match, driver, state", []),
     read!(
         "usb.dump",

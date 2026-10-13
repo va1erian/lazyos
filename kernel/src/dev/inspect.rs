@@ -38,7 +38,7 @@ pub const POLICY: u32 = fnv1a32("policy");
 pub const DENIALS: u32 = fnv1a32("denials");
 
 /// Ask the Messenger policy whether `slot` may use inspection `method`.
-fn authorized(slot: usize, method: u32) -> Result<(), Errno> {
+pub(super) fn authorized(slot: usize, method: u32) -> Result<(), Errno> {
     if crate::ipc::authorize(slot, DEV_INTERFACE, method, 0).denied() {
         return Err(EACCES);
     }
@@ -58,10 +58,22 @@ fn copy_rows<const N: usize>(rows: &[[u64; N]], buf: u64, capacity: u64) -> Resu
     Ok(rows.len() as u64)
 }
 
+/// Inventory word-0 bits 40..=56: the PCI address and a flag that it is one.
+fn bdf_bits(bus: super::BusId) -> u64 {
+    match bus {
+        super::BusId::Pci(a) => {
+            let bdf = u64::from(a.bus) << 8 | u64::from(a.device) << 3 | u64::from(a.function);
+            bdf << 40 | 1 << 56
+        }
+        super::BusId::Platform => 0,
+    }
+}
+
 /// `inventory(buf, capacity)`: one row per device.
 ///
 /// ```text
 ///   w0 = id | class << 16 | subclass << 24 | prog_if << 32
+///        | bdf << 40 | pci << 56   (bus << 8 | device << 3 | function)
 ///   w1 = vendor | device << 16
 ///   w2 = class interface id (os.kernel.dev.<class>)
 ///   w3 = owner uid (NO_OWNER when free) | claim rights << 32
@@ -80,7 +92,8 @@ pub fn inventory(slot: usize, buf: u64, capacity: u64) -> Result<u64, Errno> {
                 u64::from(info.id.0)
                     | u64::from(info.class) << 16
                     | u64::from(info.subclass) << 24
-                    | u64::from(info.prog_if) << 32,
+                    | u64::from(info.prog_if) << 32
+                    | bdf_bits(info.bus),
                 u64::from(info.vendor) | u64::from(info.device) << 16,
                 class_of(info).interface_id,
                 owner | u64::from(rights) << 32,

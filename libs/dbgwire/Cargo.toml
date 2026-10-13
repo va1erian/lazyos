@@ -22,6 +22,9 @@ fhs = { path = "../fhs" }
 tracefmt = { path = "../tracefmt" }
 # HMAC-SHA256 (the same vetted primitive keyd uses).
 lazyos-crypto = { path = "../crypto" }
+# Hardware reads (`pci.config`, `mmio.read`): the allowlist and the bounds the
+# kernel enforces too.
+pciprobe = { path = "../pciprobe" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

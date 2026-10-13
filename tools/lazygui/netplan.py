@@ -44,6 +44,46 @@ def wants_dbgd(cfg: dict) -> bool:
     return True
 
 
+def dbgd_env(cfg: dict) -> dict[str, str]:
+    """The `dbgd` build switches: the service, its control tier (restart and
+    hot reload, v2) and, only when ticked, MMIO register reads of allowlisted
+    ranges, a switch of its own because a register read can wedge hardware
+    (docs/dbgd-plan.md, "Hardware reads")."""
+    env = {"LAZYOS_DBGD": "1", "LAZYOS_DBGD_CONTROL": "1"}
+    ranges = dbgd_mmio_ranges(cfg)
+    if dbgd_mmio_on(cfg):
+        env["LAZYOS_DBGD_MMIO"] = "1"
+    if cfg.get("dbgd_mmio_claimed"):
+        env["LAZYOS_DBGD_MMIO_CLAIMED"] = "1"
+    if ranges:
+        env["LAZYOS_DBGD_MMIO_ALLOW"] = ",".join(ranges)
+    return env
+
+
+def dbgd_mmio_ranges(cfg: dict) -> list[str]:
+    """The extra readable ranges typed in the Advanced tab
+    (`VVVV:DDDD:BAR:START-END`, space or comma separated)."""
+    return [r for r in cfg.get("dbgd_mmio_allow", "").replace(",", " ").split() if r]
+
+
+def dbgd_mmio_on(cfg: dict) -> bool:
+    """Register reads: ticked, or implied by the claimed switch or a range
+    (they mean nothing without it)."""
+    return bool(cfg.get("dbgd_mmio") or cfg.get("dbgd_mmio_claimed") or dbgd_mmio_ranges(cfg))
+
+
+def dbgd_argv(cfg: dict) -> list[str]:
+    """The run_demo flags that make `dbgd_env` (it sets the variables itself)."""
+    argv = ["--dbgd-control"]
+    if dbgd_mmio_on(cfg):
+        argv.append("--dbgd-mmio")
+    if cfg.get("dbgd_mmio_claimed"):
+        argv.append("--dbgd-mmio-claimed")
+    for range_ in dbgd_mmio_ranges(cfg):
+        argv += ["--dbgd-mmio-allow", range_]
+    return argv
+
+
 def net_specs(cfg: dict) -> list[str]:
     """The port forwards typed in the launcher (space- or comma-separated);
     empty means run_demo's default (host 8080 to the Net Tools server)."""

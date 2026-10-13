@@ -16,8 +16,12 @@
 //! are `libs/dbgwire` (host-tested and fuzzed); this crate is the glue to
 //! the system's data sources.
 //!
-//! Serial lines: `DBGD:OFF <why>`, `DBGD:READY port=<p> peer=<ip|any> control=<0|1>`,
+//! Serial lines: `DBGD:OFF <why>`, `DBGD:READY port=<p> peer=<ip|any> control=<0|1> mmio=<0|1>`,
 //! `DBGD:AUDIT ...` and `DBGD:SECURITY ...` (`audit.rs`).
+//!
+//! `pci.config` and `mmio.read` (`hw.rs`) read a PCI function's
+//! configuration space and allowlisted registers through two read-only
+//! kernel ops; the MMIO one is off unless `diag.dbg.mmio=1`.
 
 #![no_std]
 #![no_main]
@@ -32,6 +36,8 @@ mod audit;
 mod control;
 #[path = "dbgd/handlers.rs"]
 mod handlers;
+#[path = "dbgd/hw.rs"]
+mod hw;
 #[path = "dbgd/msg.rs"]
 mod msg;
 #[path = "dbgd/session.rs"]
@@ -119,9 +125,10 @@ fn serve(config: &Config) -> u32 {
         control::prepare();
     }
     sys::write_str(&format!(
-        "DBGD:READY port={} peer={peer} control={}\n",
+        "DBGD:READY port={} peer={peer} control={} mmio={}\n",
         config.port,
-        u8::from(config.control)
+        u8::from(config.control),
+        u8::from(config.probe.mmio)
     ));
     let mut shared = session::Shared::new();
     loop {

@@ -5,6 +5,7 @@
 pub const EPERM: i64 = 1;
 pub const ENOENT: i64 = 2;
 pub const EIO: i64 = 5;
+pub const ENXIO: i64 = 6;
 pub const E2BIG: i64 = 7;
 pub const EBADF: i64 = 9;
 pub const ENOMEM: i64 = 12;
@@ -14,6 +15,8 @@ pub const EFAULT: i64 = 14;
 pub const EBUSY: i64 = 16;
 pub const ENODEV: i64 = 19;
 pub const ENOSPC: i64 = 28;
+pub const EDOM: i64 = 33;
+pub const ERANGE: i64 = 34;
 pub const EINVAL: i64 = 22;
 pub const ENOSYS: i64 = 38;
 pub const EOVERFLOW: i64 = 75;

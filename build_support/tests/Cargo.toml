@@ -34,6 +34,8 @@ getrandom = "0.4.3"
 # The network payload's manifest and signature (`netboot.rs`).
 ed25519-dalek = { version = "2", default-features = false }
 sha2 = "0.10"
+# The build validates allow lines with the same parser (`dbgd_cfg.rs`).
+pciprobe = { path = "../../libs/pciprobe" }
 
 [dev-dependencies]
 # Parses the manifest the way the registry will (`netboot_tests.rs`).

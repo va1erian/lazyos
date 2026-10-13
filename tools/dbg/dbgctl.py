@@ -10,6 +10,16 @@
     python tools/dbg/dbgctl.py call log.tail '{"lines": 5, "source": "kernel"}'
     python tools/dbg/dbgctl.py methods
 
+Hardware (read-only, no claim; docs/dbgd-plan.md "Hardware reads"):
+
+    python tools/dbg/dbgctl.py pci-config 00:02.0              # first 64 bytes of config space
+    python tools/dbg/dbgctl.py pci-config 00:02.0 0 256        # BDF OFFSET LEN (numbers: 0x.. ok)
+    python tools/dbg/dbgctl.py mmio 00:02.0 0 0x70008 16       # BDF BAR OFFSET LEN (needs diag.dbg.mmio=1)
+
+`mmio` answers dwords inside ranges the box allows (the built-in table of
+libs/pciprobe plus its lazyos.cfg `diag.dbg.mmio.allow=` lines); anything
+else is refused with the allowed ranges named. `devices` lists each BDF.
+
 Control (an image built with `LAZYOS_DBGD_CONTROL=1`, docs/dbgd-plan.md v2):
 
     python tools/dbg/dbgctl.py reload usbd             # /system/bin/usbd from target/lazyos.img
@@ -84,6 +94,8 @@ def run(args, dbg: DbgClient) -> object:
         return dbg.call("msg.topic", topic=args.name)
     if cmd == "cat":
         return dbg.call("fs.read", path=args.name, len=args.len)
+    if cmd in ("pci-config", "mmio"):
+        return hardware_command(args, dbg)
     if cmd in ("restart", "revert"):
         hotreload.begin(dbg)
         return dbg.call(f"service.{cmd}", name=args.name)
@@ -105,6 +117,40 @@ def run(args, dbg: DbgClient) -> object:
     if cmd == "call":
         return dbg.call(args.name, **json.loads(args.params or "{}"))
     raise SystemExit(f"unknown command {cmd}")
+
+
+def hardware_command(args, dbg: DbgClient) -> dict:
+    """`pci-config BDF [OFFSET [LEN]]` and `mmio BDF BAR OFFSET [LEN]`."""
+    if not args.name:
+        raise SystemExit("dbgctl: " + args.command + " needs a BDF such as 00:02.0")
+    numbers = [int(word, 0) for word in ([args.params] if args.params else []) + args.extra]
+    if args.command == "pci-config":
+        offset = numbers[0] if numbers else 0
+        length = numbers[1] if len(numbers) > 1 else 64
+        return dbg.call("pci.config", bdf=args.name, offset=offset, len=length)
+    if len(numbers) < 2:
+        raise SystemExit("dbgctl: mmio needs BDF BAR OFFSET [LEN]")
+    bar, offset = numbers[:2]
+    length = numbers[2] if len(numbers) > 2 else 4
+    return dbg.call("mmio.read", bdf=args.name, bar=bar, offset=offset, len=length)
+
+
+def hexdump(result: dict) -> None:
+    """Print a hardware read as `offset: bytes` rows (config space) or
+    `offset: dwords` rows (registers), the way `lspci -xxx` and `intel_reg`
+    show them."""
+    data = bytes.fromhex(result["hex"])
+    base = result["offset"]
+    print(f"{result['bdf']} {result['vendor']}:{result['device']}"
+          + (f" BAR{result['bar']}" if "bar" in result else " config"))
+    if "bar" in result:
+        for at in range(0, len(data), 16):
+            words = [int.from_bytes(data[i:i + 4], "little") for i in range(at, min(at + 16, len(data)), 4)]
+            print(f"0x{base + at:06x}: " + " ".join(f"{w:08x}" for w in words))
+    else:
+        for at in range(0, len(data), 16):
+            row = data[at:at + 16]
+            print(f"0x{base + at:03x}: " + " ".join(f"{b:02x}" for b in row))
 
 
 def reload_command(args, dbg: DbgClient) -> dict:
@@ -131,7 +177,7 @@ def reload_command(args, dbg: DbgClient) -> dict:
 
 def pretty(cmd: str, result: dict) -> None:
     tables = {"tasks": ("tasks", ["pid", "ppid", "state", "class", "cpu_ticks", "name"]),
-              "devices": ("devices", ["id", "class", "vendor", "device", "owner", "rights"]),
+              "devices": ("devices", ["id", "bdf", "class", "vendor", "device", "owner", "rights"]),
               "drivers": ("drivers", ["id", "vendor", "device", "class", "driver", "state", "owner"]),
               "msg-registry": ("services", ["name", "owner_slot", "interfaces"]),
               "msg-services": ("services", ["name", "state", "pid", "restarts", "health"]),
@@ -147,6 +193,8 @@ def pretty(cmd: str, result: dict) -> None:
         print(f"{result['name']}: {result['state']} (pid {result.get('pid', 0)}, "
               f"sha256 {result['uploaded_sha256'][:16]}..., {result['bytes']} bytes)"
               + (f": {result['detail']}" if result.get("detail") else ""))
+    elif cmd in ("pci-config", "mmio"):
+        hexdump(result)
     elif cmd == "cat" and result.get("kind") == "file":
         sys.stdout.write(result["text"])
     else:
@@ -177,7 +225,10 @@ def main() -> int:
                                           "(pkgd refuses the one already installed)")
     parser.add_argument("name", nargs="?", help="topic, path, method, service, package or app")
     parser.add_argument("params", nargs="?",
-                        help="with `call`: params as JSON; with `reload`: the ELF to upload")
+                        help="with `call`: params as JSON; with `reload`: the ELF to upload; "
+                             "with `pci-config`/`mmio`: OFFSET / BAR")
+    parser.add_argument("extra", nargs="*",
+                        help="with `pci-config`: LEN; with `mmio`: OFFSET LEN")
     args = parser.parse_args()
     key = args.key or default_key()
     if not key:
