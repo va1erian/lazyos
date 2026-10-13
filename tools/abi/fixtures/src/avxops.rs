@@ -108,7 +108,6 @@ pub fn dirty_all_ymm() {
     }
 }
 
-
 /// Hold `block` in YMM0-YMM7 until `STOP`, checking all 256 bits on every
 /// pass. Returns 0, or the 1-based register that changed.
 pub fn spin(block: &Block) -> u64 {

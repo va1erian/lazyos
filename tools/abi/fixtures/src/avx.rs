@@ -87,10 +87,8 @@ struct KernelSigaction {
     mask: u64,
 }
 
-
 mod avxops;
-use avxops::{check_ymm_hi, dirty_all_ymm, set_ymm_hi, block, hi, spin, Block, Hi, STOP};
-
+use avxops::{block, check_ymm_hi, dirty_all_ymm, hi, set_ymm_hi, spin, Hi, STOP};
 
 unsafe fn syscall6(nr: u64, a: [u64; 6]) -> i64 {
     let ret: i64;
@@ -104,7 +102,6 @@ unsafe fn syscall6(nr: u64, a: [u64; 6]) -> i64 {
     );
     ret
 }
-
 
 /// Handler for `SIGUSR1`: note whether it started from the initial state
 /// (upper halves of YMM0-YMM7 all zero), overwrite every YMM register, count.
@@ -196,12 +193,13 @@ fn install(signal: u64, handler: usize, flags: u64) -> i64 {
     }
 }
 
-
-
 fn spinner(seed: u8, tid: &'static AtomicU64) -> u64 {
     let block = block(seed);
     // SAFETY: plain syscall with no pointers.
-    tid.store(unsafe { syscall6(SYS_GETTID, [0; 6]) } as u64, Ordering::SeqCst);
+    tid.store(
+        unsafe { syscall6(SYS_GETTID, [0; 6]) } as u64,
+        Ordering::SeqCst,
+    );
     spin(&block)
 }
 
@@ -215,7 +213,9 @@ fn probe() -> Result<bool, String> {
     );
     println!("ABI:avx:INFO:cpuid xsave={xsave} osxsave={osxsave} avx={avx}");
     if !avx {
-        println!("ABI:avx:INFO:no AVX on this CPU (QEMU's qemu64? try --cpu max); nothing to check");
+        println!(
+            "ABI:avx:INFO:no AVX on this CPU (QEMU's qemu64? try --cpu max); nothing to check"
+        );
         return Ok(false);
     }
     if !(xsave && osxsave) {
@@ -226,10 +226,14 @@ fn probe() -> Result<bool, String> {
     let size = __cpuid_count(0xd, 0).ebx;
     println!("ABI:avx:INFO:xcr0={xcr0:#x} xsave_size={size}");
     if xcr0 & 7 != 7 {
-        return Err(format!("XCR0 is {xcr0:#x}: x87, SSE and AVX must be enabled"));
+        return Err(format!(
+            "XCR0 is {xcr0:#x}: x87, SSE and AVX must be enabled"
+        ));
     }
     if xcr0 & 0xe0 != 0 {
-        return Err(format!("XCR0 {xcr0:#x} enables AVX-512 state the kernel does not save"));
+        return Err(format!(
+            "XCR0 {xcr0:#x} enables AVX-512 state the kernel does not save"
+        ));
     }
     Ok(true)
 }
@@ -321,7 +325,10 @@ fn fork_copy() -> Result<(), String> {
     let mut status = 0i32;
     // SAFETY: `status` is a live local the kernel writes 4 bytes to.
     let waited = unsafe {
-        syscall6(SYS_WAIT4, [pid as u64, &mut status as *mut i32 as u64, 0, 0, 0, 0])
+        syscall6(
+            SYS_WAIT4,
+            [pid as u64, &mut status as *mut i32 as u64, 0, 0, 0, 0],
+        )
     };
     if waited != pid {
         return Err(format!("wait4 = {waited}"));
@@ -335,7 +342,10 @@ fn fork_copy() -> Result<(), String> {
     }
     let after = check_ymm_hi(&pattern);
     if after != 0 {
-        return Err(format!("the child's YMM changes reached the parent (YMM{})", after - 1));
+        return Err(format!(
+            "the child's YMM changes reached the parent (YMM{})",
+            after - 1
+        ));
     }
     Ok(())
 }
@@ -350,12 +360,20 @@ fn exec_reset() -> Result<(), String> {
         .map_err(|error| format!("spawn {PROGRAM}: {error}"))?;
     match status.code() {
         Some(0) => {}
-        Some(code) => return Err(format!("the exec'd program inherited YMM{} (upper half)", code - 1)),
+        Some(code) => {
+            return Err(format!(
+                "the exec'd program inherited YMM{} (upper half)",
+                code - 1
+            ))
+        }
         None => return Err(format!("the exec'd program ended with {status:?}")),
     }
     let after = check_ymm_hi(&pattern);
     if after != 0 {
-        return Err(format!("the exec'd program's run changed the parent's YMM{}", after - 1));
+        return Err(format!(
+            "the exec'd program's run changed the parent's YMM{}",
+            after - 1
+        ));
     }
     Ok(())
 }
@@ -395,7 +413,12 @@ fn run() -> Result<(), String> {
         let tid = if turn % 2 == 0 { &TID_A } else { &TID_B };
         turn += 1;
         // SAFETY: tgkill takes three integers.
-        unsafe { syscall6(SYS_TGKILL, [pid, tid.load(Ordering::SeqCst), SIGUSR1, 0, 0, 0]) };
+        unsafe {
+            syscall6(
+                SYS_TGKILL,
+                [pid, tid.load(Ordering::SeqCst), SIGUSR1, 0, 0, 0],
+            )
+        };
         std::thread::sleep(Duration::from_micros(500));
     }
     STOP.store(1, Ordering::SeqCst);
@@ -416,7 +439,10 @@ fn run() -> Result<(), String> {
             "{leaked} handlers started with the interrupted code's upper YMM halves"
         ));
     }
-    println!("ABI:avx:INFO:{ran} signals in {} ms", started.elapsed().as_millis());
+    println!(
+        "ABI:avx:INFO:{ran} signals in {} ms",
+        started.elapsed().as_millis()
+    );
     Ok(())
 }
 

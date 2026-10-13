@@ -18,8 +18,8 @@
 //! ```
 //!
 //! On a CPU run with `FXSAVE` alone the frame holds the 512 bytes and the
-//! same software bytes with `xstate_size = extended_size = 512` and no
-//! trailing magic, as Linux writes them.
+//! software bytes stay zero: a reader finds no `FP_XSTATE_MAGIC1` and takes
+//! it for a plain `FXSAVE` image.
 //!
 //! `rt_sigreturn` reads the image back from user memory, which a handler (or
 //! an attacker) may have rewritten: a missing or inconsistent marker falls
@@ -58,14 +58,15 @@ pub(super) fn write(addr: u64, fp: &FpuImage) {
     for index in 0..size / 8 {
         write_u64(addr + 8 * index, fp.word(index as usize));
     }
-    write_u32(addr + SW_BYTES_OFFSET, FP_XSTATE_MAGIC1);
-    write_u32(addr + SW_BYTES_OFFSET + 4, frame_size() as u32);
-    write_u64(addr + SW_BYTES_OFFSET + 8, fpu::xfeatures());
-    write_u32(addr + SW_BYTES_OFFSET + 16, size as u32);
-    for pad in 0..7 {
-        write_u32(addr + SW_BYTES_OFFSET + 20 + 4 * pad, 0);
+    // The software bytes: all zero unless an `XSAVE` area follows.
+    for word in 0..6 {
+        write_u64(addr + SW_BYTES_OFFSET + 8 * word, 0);
     }
     if xsave() {
+        write_u32(addr + SW_BYTES_OFFSET, FP_XSTATE_MAGIC1);
+        write_u32(addr + SW_BYTES_OFFSET + 4, frame_size() as u32);
+        write_u64(addr + SW_BYTES_OFFSET + 8, fpu::xfeatures());
+        write_u32(addr + SW_BYTES_OFFSET + 16, size as u32);
         write_u32(addr + size, FP_XSTATE_MAGIC2);
     }
 }

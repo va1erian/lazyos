@@ -180,6 +180,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("task_avx_fxsave_fallback_path", avx_fxsave_fallback_path),
     ("task_avx_switch_cost", avx_switch_cost),
     (
+        "task_avx_other_slot_and_header_sanitising",
+        avx_other_slot_and_header_sanitising,
+    ),
+    (
         "task_voluntary_park_expires_deadline",
         voluntary_park_expires_deadline,
     ),

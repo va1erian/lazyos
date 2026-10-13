@@ -93,6 +93,11 @@ pub fn avx_enabled_at_boot() -> Result<(), String> {
             "XSAVE mask {:#x} on a CPU without XSAVE and AVX",
             cpu::xsave_mask()
         );
+        check!(
+            !x86_64::registers::control::Cr4::read()
+                .contains(x86_64::registers::control::Cr4Flags::OSXSAVE),
+            "CR4.OSXSAVE is set although the kernel does not save XSAVE state"
+        );
         return Ok(());
     }
     check!(
@@ -436,6 +441,57 @@ pub fn avx_switch_cost() -> Result<(), String> {
             "a save + restore pair costs {xsave} cycles with XSAVE, {fxsave} with FXSAVE"
         );
         fpu::reset(SLOT_A);
+        Ok(())
+    })
+}
+
+/// A task that is not on the CPU (the timer sweep delivers to sibling threads)
+/// keeps its YMM halves in its saved area, and an image from user memory
+/// reaches that area sanitised: a hostile header is cut to `XCR0` with the
+/// reserved words clear, and an image that does not mark AVX in use restores
+/// as the initial (zero) upper halves whatever bytes it carries there.
+pub fn avx_other_slot_and_header_sanitising() -> Result<(), String> {
+    if !avx_on() {
+        return Ok(());
+    }
+    with_kernel_state_kept(|| {
+        let other = SLOT_A;
+        let mut image = fpu::capture(other);
+        let p = pattern(21);
+        image.set_word(YMM0_HI_WORD, p[2]);
+        image.set_word(YMM0_HI_WORD + 1, p[3]);
+        image.set_xstate_bv(!0);
+        for word in 65..72 {
+            image.set_word(word, !0);
+        }
+        fpu::load(other, &image);
+        let saved = fpu::capture(other);
+        check!(
+            saved.word(YMM0_HI_WORD) == p[2] && saved.word(YMM0_HI_WORD + 1) == p[3],
+            "load did not reach the saved area's YMM_Hi128"
+        );
+        check!(
+            saved.xstate_bv() == cpu::xsave_mask() && (65..72).all(|word| saved.word(word) == 0),
+            "the saved header is XSTATE_BV {:#x} with reserved words {:x?}",
+            saved.xstate_bv(),
+            (65..72)
+                .map(|word| saved.word(word))
+                .collect::<alloc::vec::Vec<_>>()
+        );
+
+        // Not marked in use: the bytes at 576 do not reach the registers.
+        let mut stale = fpu::capture(task::current());
+        stale.set_word(YMM0_HI_WORD, !0);
+        stale.set_word(YMM0_HI_WORD + 1, !0);
+        stale.set_xstate_bv(fpu::XFEATURE_X87 | fpu::XFEATURE_SSE);
+        set_ymm0(&pattern(22));
+        fpu::load(task::current(), &stale);
+        check!(
+            ymm0()[2..] == [0, 0],
+            "an image without the AVX bit restored upper halves {:x?}",
+            &ymm0()[2..]
+        );
+        fpu::reset(other);
         Ok(())
     })
 }

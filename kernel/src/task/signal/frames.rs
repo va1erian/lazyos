@@ -164,7 +164,11 @@ pub fn build_linux_frame_fp(
     let frame = frame_base(stack_top)?;
     write_u64(frame, restorer);
     // ucontext_t.
-    write_u64(frame + lf::UC_FLAGS, 0);
+    // `UC_FP_XSTATE`: the frame carries an XSAVE area (`fpframe`).
+    write_u64(
+        frame + lf::UC_FLAGS,
+        u64::from(crate::arch::cpu::xsave_mask() != 0),
+    );
     write_u64(frame + lf::UC_LINK, 0);
     // uc_stack: report the (empty by default) alternate stack slot musl reads.
     write_u64(frame + lf::UC_STACK, 0);

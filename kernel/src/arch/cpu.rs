@@ -76,7 +76,22 @@ pub fn init() {
         core::arch::asm!("fninit");
     }
     MXCSR_MASK.store(read_mxcsr_mask(), Ordering::Relaxed);
-    enable_avx();
+    if !enable_avx() {
+        disable_osxsave();
+    }
+}
+
+/// Firmware may leave `CR4.OSXSAVE` (and an `XCR0` with AVX or AVX-512 bits)
+/// set. When the kernel does not save that state, user code must not be told
+/// it can use it: with `OSXSAVE` clear, `CPUID` reports it clear and VEX
+/// instructions raise `#UD`, as before.
+fn disable_osxsave() {
+    if Cr4::read().contains(Cr4Flags::OSXSAVE) {
+        // SAFETY: only clears the documented feature bit; no XSAVE-family
+        // instruction runs before `enable_avx` sets it again or the kernel
+        // keeps using `FXSAVE`.
+        unsafe { Cr4::update(|cr4| cr4.remove(Cr4Flags::OSXSAVE)) };
+    }
 }
 
 /// The `MXCSR_MASK` field of an `FXSAVE` image (0 means the architectural
@@ -97,24 +112,27 @@ fn read_mxcsr_mask() -> u32 {
 }
 
 /// Set `CR4.OSXSAVE` and `XCR0 = x87 | SSE | AVX` if the CPU supports them
-/// and the `XSAVE` area has the layout [`XSAVE_AREA_SIZE`] assumes.
-fn enable_avx() {
+/// and the `XSAVE` area has the layout [`XSAVE_AREA_SIZE`] assumes. Returns
+/// whether the kernel now saves AVX state.
+fn enable_avx() -> bool {
     let leaf1 = __cpuid(1);
     if leaf1.ecx & CPUID_XSAVE == 0 || leaf1.ecx & CPUID_AVX == 0 || __cpuid(0).eax < 0xd {
-        return;
+        return false;
     }
     let want = XCr0Flags::X87 | XCr0Flags::SSE | XCr0Flags::AVX;
     let supported = __cpuid_count(0xd, 0).eax as u64;
     let avx = __cpuid_count(0xd, 2);
     if supported & want.bits() != want.bits() || avx.ebx != AVX_OFFSET || avx.eax != AVX_SIZE {
-        return;
+        return false;
     }
     // SAFETY: `XSAVE` is present, so `CR4.OSXSAVE` exists, and `XCR0` takes
     // only components `CPUID.(EAX=0DH,ECX=0)` lists as supported, with x87
     // set and SSE set whenever AVX is.
     unsafe {
         Cr4::update(|cr4| cr4.insert(Cr4Flags::OSXSAVE));
-        XCr0::write(want);
+        // `write_raw`: `write` keeps the bits it does not know (AMX, CET, ...),
+        // which firmware may have set and nothing here saves.
+        XCr0::write_raw(want.bits());
     }
     // The size the CPU reports for exactly the enabled components.
     let size = __cpuid_count(0xd, 0).ebx as usize;
@@ -122,8 +140,9 @@ fn enable_avx() {
         // Cannot happen with a standard layout; back out rather than overrun
         // the per-task areas.
         // SAFETY: as above, with the components cut back to the SSE default.
-        unsafe { XCr0::write(XCr0Flags::X87 | XCr0Flags::SSE) };
-        return;
+        unsafe { XCr0::write_raw((XCr0Flags::X87 | XCr0Flags::SSE).bits()) };
+        return false;
     }
     XSAVE_MASK.store(want.bits(), Ordering::Relaxed);
+    true
 }

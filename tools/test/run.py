@@ -417,6 +417,14 @@ def main() -> int:
         args.ahci and any(AHCI_SKIPPED in line for line in payload["info"])
     )
 
+    cpu_line = re.search(r"HW:CPU:fpu xsave_mask=(0x[0-9a-f]+) area=(\d+)", text)
+    if cpu_line:
+        avx = int(cpu_line.group(1), 16) & 4 != 0
+        print(
+            f"guest FPU state: xsave_mask={cpu_line.group(1)} area={cpu_line.group(2)}"
+            + ("" if avx else " (no AVX: the AVX state tests passed vacuously; try --cpu max)")
+        )
+
     report_md = write_report(payload)
     passed = sum(1 for test in payload["tests"] if test["status"] == "pass")
     failed = sum(1 for test in payload["tests"] if test["status"] == "fail")

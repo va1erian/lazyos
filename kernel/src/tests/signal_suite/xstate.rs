@@ -266,8 +266,7 @@ pub fn xstate_forged_areas() -> Result<(), String> {
 }
 
 /// On a CPU run with `FXSAVE` alone the frame is the 512-byte image with
-/// Linux's software bytes (`xstate_size = extended_size = 512`) and no
-/// trailing magic, and it round-trips.
+/// zero software bytes (no `FP_XSTATE_MAGIC1`), and it round-trips.
 pub fn xstate_fxsave_frame() -> Result<(), String> {
     fresh()?;
     let stack = UserStack::new()?;
@@ -282,15 +281,9 @@ pub fn xstate_fxsave_frame() -> Result<(), String> {
             let frame = build(stack.top())?;
             let fp = read_u64(fpstate_slot(&frame));
             check!(
-                read_u32(fp + SW_BYTES) == signal::FP_XSTATE_MAGIC1
-                    && read_u32(fp + SW_BYTES + 4) == 512
-                    && read_u64(fp + SW_BYTES + 8) == 3
-                    && read_u32(fp + SW_BYTES + 16) == 512,
-                "software bytes: {:#x} {} {:#x} {}",
-                read_u32(fp + SW_BYTES),
-                read_u32(fp + SW_BYTES + 4),
-                read_u64(fp + SW_BYTES + 8),
-                read_u32(fp + SW_BYTES + 16)
+                (0..6).all(|word| read_u64(fp + SW_BYTES + 8 * word) == 0),
+                "the software bytes of an FXSAVE frame are not zero: magic1 {:#x}",
+                read_u32(fp + SW_BYTES)
             );
             check!(
                 read_u64(fp + XMM0_OFFSET) == xmm[0],
