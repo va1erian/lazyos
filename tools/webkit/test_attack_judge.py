@@ -289,7 +289,7 @@ class AgreementTests(unittest.TestCase):
     def test_the_ad_blockers_updater_may_fetch_and_write_only_the_lists_folder(self) -> None:
         plus = tomllib.loads(PLUS_MANIFEST.read_text(encoding="utf-8"))
         table = plus["processes"]["listupdate"]
-        self.assertEqual(table["program"], "/system/bin/curl")
+        self.assertEqual(table["program"], fhspaths.program("CURL"))
         self.assertEqual(table["interfaces"], [])
         self.assertEqual(table["network"], ["outbound"])
         writes = [r for r in table["files"] if r.startswith("write:")]

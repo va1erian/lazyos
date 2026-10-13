@@ -498,7 +498,7 @@ int main(int argc, char** argv)
         state.controller = WKUserContentControllerCreate();
         WKPageConfigurationSetUserContentController(pageConfiguration, state.controller);
         std::string folder = environment("WEBKIT_SMOKE_RULES_STORE",
-            (environment("TMPDIR", "/tmp") + "/webkit-smoke-rules-" + std::to_string(getpid())).c_str());
+            (environment("TMPDIR", P_tmpdir) + "/webkit-smoke-rules-" + std::to_string(getpid())).c_str());
         WKStringRef path = makeString(folder);
         state.store = WKUserContentExtensionStoreCreate(path);
         WKRelease(path);
