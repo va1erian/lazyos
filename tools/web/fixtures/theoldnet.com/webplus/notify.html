@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>notify-pending</title>
+<style>
+  body { margin: 0; font: 22px sans-serif; background: #f4fff4; }
+  /* Three big boxes the harness clicks at known places: 360 x 70, a row every 90 px from the
+     page's top-left (tools/webplus/notify_session.py: BOX). */
+  .box { position: absolute; left: 0; width: 360px; height: 70px; color: #fff; border: 0;
+         font: bold 24px sans-serif; line-height: 70px; text-align: center; cursor: pointer; }
+  #ask { top: 0; background: #36c; }
+  #post { top: 90px; background: #293; }
+  #burst { top: 180px; background: #c72; }
+  #away { top: 270px; background: #727; }
+  #later { top: 360px; background: #377; }
+  #log { position: absolute; left: 400px; top: 20px; width: 520px; margin: 0; font: 20px monospace; }
+</style>
+</head>
+<body>
+<button id="ask" class="box">Ask permission</button>
+<button id="post" class="box">Post, then update</button>
+<button id="burst" class="box">Burst of six</button>
+<button id="away" class="box">Go to another page</button>
+<button id="later" class="box">Post in four seconds</button>
+<pre id="log"></pre>
+<script>
+// The Notifications API against LazyWeb+ (docs/lazywebplus.md, "Notifications"). The title says
+// what the page learned; the harness waits on it (`WEBPLUS:TITLE:<title>`).
+var log = document.getElementById('log');
+function say(line) { log.textContent += line + '\n'; }
+function title(text) { document.title = text; }
+
+// With no user gesture the request is refused outright: the page learns "denied" and no bar opens.
+var before = Notification.permission;
+say('permission at load: ' + before);
+Notification.requestPermission().then(function (result) {
+  say('request without a gesture: ' + result);
+  title('notify:ready:' + before + ':' + result);
+});
+
+document.getElementById('ask').onclick = function () {
+  Notification.requestPermission().then(function (result) {
+    say('asked: ' + result);
+    title('notify:perm:' + result);
+  });
+};
+
+function clicked() { title('notify:clicked:' + this.title); }
+
+document.getElementById('post').onclick = function () {
+  var first = new Notification('First title', { body: 'first body', tag: 'one' });
+  first.onclick = clicked;
+  first.onshow = function () { say('shown: ' + this.title); };
+  first.onerror = function () { say('error: ' + this.title); };
+  // The same tag a moment later: the toast is updated in place, not a second one.
+  setTimeout(function () {
+    var second = new Notification('Second title', { body: 'second body', tag: 'one' });
+    second.onclick = clicked;
+    second.onshow = function () { say('shown: ' + this.title); };
+  }, 1500);
+};
+
+// Posts and leaves in one click (a toast lives five seconds, and typing an address takes longer):
+// the notification then belongs to a document that is gone.
+document.getElementById('away').onclick = function () {
+  new Notification('Leaving title', { body: 'the page is gone', tag: 'leaving' });
+  setTimeout(function () { location.href = 'links.html'; }, 300);
+};
+
+// Posts later, so the harness can minimize the window first: the toast comes up over a window
+// that is not on screen, and a click on it must bring that window back.
+document.getElementById('later').onclick = function () {
+  setTimeout(function () {
+    var later = new Notification('Later title', { body: 'posted while minimized', tag: 'later' });
+    later.onclick = clicked;
+  }, 4000);
+};
+
+document.getElementById('burst').onclick = function () {
+  for (var i = 1; i <= 6; i++) {
+    var n = new Notification('Burst ' + i, { body: 'burst body ' + i, tag: 'burst' + i });
+    n.onclick = clicked;
+  }
+  say('burst posted');
+};
+</script>
+</body>
+</html>

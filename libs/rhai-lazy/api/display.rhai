@@ -527,6 +527,22 @@ fn set_close_mode(surface, ask) {
     msg::connect("os.lazy.display.v1").invoke("SetCloseMode", [surface, ask])
 }
 
+/// `ActivateApp(label: U32, session: U64) -> ()`
+///
+/// Shell-only: restore, raise and focus every window created by a program
+/// running under the package label `label` in `session`, the one that was
+/// topmost ending up focused (a click on one of that app's notifications:
+/// `os.lazy.notify.events.v1` `Activated`, which the shell also sends the
+/// app). Both numbers are what the kernel stamped on the notification
+/// call, never ones an app chose, and they name the *app*, so the window
+/// of a program that notifies from another thread than the one that made
+/// its window still comes forward. An unlabelled program has no label to
+/// name (`EINVAL`); `ENOENT` when the app owns no window. Desktops and
+/// panels are never touched.
+fn activate_app(label, session) {
+    msg::connect("os.lazy.display.v1").invoke("ActivateApp", [label, session])
+}
+
 // Not callable from a script (the request carries a channel, buffer
 // or ring): CreateSurface, AttachBuffer, Subscribe, AttachBufferSlot.
 

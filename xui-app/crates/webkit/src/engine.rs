@@ -90,6 +90,29 @@ impl DialogKind {
     }
 }
 
+/// What the window answers a page that asked for the permission to notify.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyAnswer {
+    /// The person allowed the site: remembered by the engine from now on.
+    Allow,
+    /// The person blocked it: remembered too.
+    Block,
+    /// No decision (the bar was closed, the page had no gesture, the page is gone): the page's
+    /// request is refused and the site may ask again.
+    Dismiss,
+}
+
+impl NotifyAnswer {
+    /// The ABI value: 1 allow, 0 block, -1 dismiss.
+    pub const fn code(self) -> i32 {
+        match self {
+            NotifyAnswer::Allow => 1,
+            NotifyAnswer::Block => 0,
+            NotifyAnswer::Dismiss => -1,
+        }
+    }
+}
+
 /// The engine, as the window sees it. Calls come from the UI thread and must
 /// not block; positions are in the page view's pixels.
 pub trait Engine {
@@ -117,6 +140,23 @@ pub trait Engine {
     /// Answers the dialog `id` that [`Event::Dialog`](crate::events::Event::Dialog) announced:
     /// `accepted` is OK, `value` the text of a prompt.
     fn dialog_reply(&self, id: u64, accepted: bool, value: &str);
+    /// The notification `id` that [`Event::NotifyShow`](crate::events::Event::NotifyShow)
+    /// announced is on screen: the page gets its `show` event.
+    fn notify_shown(&self, id: u64);
+    /// The person clicked notification `id`: the page's `click` handler runs (when its document
+    /// is still there).
+    fn notify_clicked(&self, id: u64);
+    /// Notification `id` went away without the page asking (the person dismissed it, it timed
+    /// out): the page gets its `close` event.
+    fn notify_closed(&self, id: u64);
+    /// The answer to a [`Event::NotifyPermission`](crate::events::Event::NotifyPermission) for
+    /// `origin`: an allow or a block is remembered by the engine for the pages of that origin
+    /// (`Notification.permission` reads `granted` or `denied` from then on), a dismissal only
+    /// refuses the pages' pending requests.
+    fn notify_permission(&self, origin: &str, answer: NotifyAnswer);
+    /// Forgets what the engine knows about `origin`'s decision (`Notification.permission` is
+    /// `default` again): a decision the person revoked.
+    fn notify_forget(&self, origin: &str);
 }
 
 /// One call an engine received, for tests.
@@ -135,6 +175,11 @@ pub enum Call {
     Download(String),
     DownloadCancel(u64),
     DialogReply(u64, bool, String),
+    NotifyShown(u64),
+    NotifyClicked(u64),
+    NotifyClosed(u64),
+    NotifyPermission(String, NotifyAnswer),
+    NotifyForget(String),
 }
 
 /// An engine that records its calls.
@@ -198,5 +243,52 @@ impl Engine for Recorder {
     }
     fn dialog_reply(&self, id: u64, accepted: bool, value: &str) {
         self.push(Call::DialogReply(id, accepted, value.to_string()));
+    }
+    fn notify_shown(&self, id: u64) {
+        self.push(Call::NotifyShown(id));
+    }
+    fn notify_clicked(&self, id: u64) {
+        self.push(Call::NotifyClicked(id));
+    }
+    fn notify_closed(&self, id: u64) {
+        self.push(Call::NotifyClosed(id));
+    }
+    fn notify_permission(&self, origin: &str, answer: NotifyAnswer) {
+        self.push(Call::NotifyPermission(origin.to_string(), answer));
+    }
+    fn notify_forget(&self, origin: &str) {
+        self.push(Call::NotifyForget(origin.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_permission_answer_has_the_documented_codes() {
+        assert_eq!(NotifyAnswer::Allow.code(), 1);
+        assert_eq!(NotifyAnswer::Block.code(), 0);
+        assert_eq!(NotifyAnswer::Dismiss.code(), -1);
+    }
+
+    #[test]
+    fn the_recorder_keeps_every_notification_call_in_order() {
+        let engine = Recorder::default();
+        engine.notify_shown(1);
+        engine.notify_clicked(1);
+        engine.notify_closed(1);
+        engine.notify_permission("https://a.test", NotifyAnswer::Allow);
+        engine.notify_forget("https://a.test");
+        assert_eq!(
+            engine.calls(),
+            vec![
+                Call::NotifyShown(1),
+                Call::NotifyClicked(1),
+                Call::NotifyClosed(1),
+                Call::NotifyPermission("https://a.test".into(), NotifyAnswer::Allow),
+                Call::NotifyForget("https://a.test".into()),
+            ]
+        );
     }
 }

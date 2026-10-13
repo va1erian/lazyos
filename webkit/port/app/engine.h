@@ -14,6 +14,7 @@
 #include <map>
 #include <stdint.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace webkitapp {
@@ -68,6 +69,11 @@ struct Engine {
     // Downloads under way, by id (retained until they end).
     std::map<uint64_t, WKDownloadRef> downloads;
     uint64_t nextDownload { 1 };
+    // The context's notification manager (set with the provider, LZW_FEATURE_NOTIFICATIONS), and
+    // the permission requests waiting for the window's answer, by the origin that asked
+    // (retained until answered).
+    WKNotificationManagerRef notifications { nullptr };
+    std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> permissionRequests;
     // The link last reported under the pointer.
     std::string hover;
     // Whether the page's last new-window request came with a user gesture, and its address.
@@ -127,6 +133,16 @@ void navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKD
 void installUiClient();
 // The view client's pointer-shape callback (engine.cpp installs it with the others).
 void viewSetCursor(WKViewRef view, uint32_t cursorType, const void* clientInfo);
+
+// ---- notify.cpp: the Notifications API ------------------------------------------------------
+
+// Registers WebKit's notification provider and tells it the decisions the window kept (a no-op
+// without LZW_FEATURE_NOTIFICATIONS). After the context exists.
+void installNotifications();
+// The page UI client's permission request callback (uiclient.cpp installs it).
+void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef, WKNotificationPermissionRequestRef, const void*);
+// The page that asked is going away: its pending requests are refused.
+void dropNotificationRequests();
 
 // ---- paint.cpp ----------------------------------------------------------------------------
 

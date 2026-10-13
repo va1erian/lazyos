@@ -90,7 +90,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel | - | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
-| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown | programs |
+| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/webplus | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SKY` | `Sky` | `sky` | xui-app | sessions, tools/lazysky | programs |
 | `SMB` | `Smb` | `smb` | user | tools/smb | programs |
@@ -126,4 +126,4 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `WRITER` | `Writer` | `writer` | xui-app | sessions, tools/print | programs |
 | `XDEMO` | `Xdemo` | `xdemo` | user | sessions, tools/bench, tools/services | programs |
 | `XUIAPP` | `Xuiapp` | `xuiapp` | xui-app | sessions, tools/accounts | programs |
-| `XUID` | `Xuid` | `xuid` | user | sessions, tools/accounts, tools/bench, tools/input, tools/keyd, tools/perf, tools/screenshot, tools/shutdown | programs |
+| `XUID` | `Xuid` | `xuid` | user | sessions, tools/accounts, tools/bench, tools/input, tools/keyd, tools/perf, tools/screenshot, tools/shutdown, tools/webplus | programs |

@@ -113,6 +113,42 @@ pub enum Event {
         text: String,
         default: String,
     },
+    /// A page asked to show a notification (`new Notification(...)`, WebKit's provider `show`).
+    /// `origin` is the page's security origin as WebKit writes it (`https://example.com`),
+    /// `page_url` the address of the page that asked; the texts are the page's own, untrusted.
+    /// The window answers with [`Engine::notify_shown`](crate::engine::Engine::notify_shown) once
+    /// it is on screen, or says nothing when it drops it.
+    NotifyShow {
+        id: u64,
+        origin: String,
+        page_url: String,
+        title: String,
+        body: String,
+        tag: String,
+    },
+    /// The page took notification `id` down itself (`Notification.close()`).
+    NotifyCancel {
+        id: u64,
+    },
+    /// The page's `Notification` object `id` is gone (its document went away). The toast is the
+    /// user's now and stays; a click can no longer reach a script.
+    NotifyGone {
+        id: u64,
+    },
+    /// A page called `Notification.requestPermission()` and waits for
+    /// [`Engine::notify_permission`](crate::engine::Engine::notify_permission).
+    /// `user_gesture` is whether real input from the person started it (WebKit refuses the call
+    /// without one, and the window checks again).
+    NotifyPermission {
+        origin: String,
+        user_gesture: bool,
+    },
+    /// The requests for `origin` that were waiting were refused by the engine itself (their page
+    /// navigated away or its process went): the question is not the person's to answer any more,
+    /// and the engine needs no answer.
+    NotifyPermissionGone {
+        origin: String,
+    },
 }
 
 impl Event {
@@ -128,7 +164,9 @@ impl Event {
     }
 
     /// Whether the event may be dropped when the queue is full: news a page can produce in a
-    /// loop. Downloads and dialogs are one WebKit call each and the window must see all of them.
+    /// loop (a notification costs the page a call, and the window limits them per site anyway).
+    /// Downloads, dialogs and permission requests (each needs a user gesture) are one WebKit call
+    /// each, and the window must see all of them: the page waits for an answer.
     fn droppable(&self) -> bool {
         matches!(
             self,
@@ -137,6 +175,9 @@ impl Event {
                 | Event::Launch { .. }
                 | Event::Command { .. }
                 | Event::Popup { .. }
+                | Event::NotifyShow { .. }
+                | Event::NotifyCancel { .. }
+                | Event::NotifyGone { .. }
         )
     }
 }
@@ -257,6 +298,37 @@ mod tests {
         let taken = events.take();
         assert_eq!(taken.len(), MAX_QUEUED + 2);
         assert!(matches!(taken[MAX_QUEUED], Event::Dialog { id: 1, .. }));
+    }
+
+    #[test]
+    fn a_page_that_posts_notifications_in_a_loop_cannot_grow_the_queue_either() {
+        let events = Events::default();
+        for n in 0..(MAX_QUEUED * 2) {
+            events.push(Event::NotifyShow {
+                id: n as u64,
+                origin: "https://a.test".into(),
+                page_url: "https://a.test/".into(),
+                title: "t".into(),
+                body: String::new(),
+                tag: String::new(),
+            });
+        }
+        events.push(Event::NotifyPermission {
+            origin: "https://a.test".into(),
+            user_gesture: true,
+        });
+        events.push(Event::DownloadDone { id: 9 });
+        let taken = events.take();
+        assert_eq!(
+            taken.len(),
+            MAX_QUEUED + 2,
+            "the request and the download got through"
+        );
+        assert!(matches!(taken[MAX_QUEUED], Event::NotifyPermission { .. }));
+        assert!(matches!(
+            taken[MAX_QUEUED + 1],
+            Event::DownloadDone { id: 9 }
+        ));
     }
 
     #[test]

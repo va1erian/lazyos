@@ -588,6 +588,11 @@
         "name": "SetCloseMode",
         "id": 48,
         "oneway": false
+      },
+      {
+        "name": "ActivateApp",
+        "id": 49,
+        "oneway": false
       }
     ],
     "topics": []

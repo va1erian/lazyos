@@ -3706,6 +3706,8 @@ pub mod os_lazy_display_v1 {
     pub const METHOD_TRAYKEYS: u32 = 47;
     /// `SetCloseMode` method id.
     pub const METHOD_SETCLOSEMODE: u32 = 48;
+    /// `ActivateApp` method id.
+    pub const METHOD_ACTIVATEAPP: u32 = 49;
 
     /// Create a surface of `width` x `height` pixels titled `title`. `role` is
     /// a `Role` value: a decorated window (also the meaning of an absent
@@ -5516,6 +5518,46 @@ pub mod os_lazy_display_v1 {
                 }
                 2 => {
                     out.ask = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shell-only: restore, raise and focus every window created by a program
+    /// running under the package label `label` in `session`, the one that was
+    /// topmost ending up focused (a click on one of that app's notifications:
+    /// `os.lazy.notify.events.v1` `Activated`, which the shell also sends the
+    /// app). Both numbers are what the kernel stamped on the notification
+    /// call, never ones an app chose, and they name the *app*, so the window
+    /// of a program that notifies from another thread than the one that made
+    /// its window still comes forward. An unlabelled program has no label to
+    /// name (`EINVAL`); `ENOENT` when the app owns no window. Desktops and
+    /// panels are never touched.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ActivateAppArgs {
+        pub label: u32,
+        pub session: u64,
+    }
+
+    pub fn encode_activate_app_args(value: &ActivateAppArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.label)?;
+        target.u64(2, value.session)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_activate_app_args(body: &[u8]) -> Result<ActivateAppArgs, Error> {
+        let mut out = ActivateAppArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.label = field.as_u32()?;
+                }
+                2 => {
+                    out.session = field.as_u64()?;
                 }
                 _ => {}
             }

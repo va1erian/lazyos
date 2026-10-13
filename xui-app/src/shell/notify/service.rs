@@ -142,9 +142,10 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
     };
     let deny = |why: Deny| {
         println!(
-            "SHELL:NOTIFY:DENY uid={} label={} why={}",
+            "SHELL:NOTIFY:DENY uid={} label={} sender={} why={}",
             origin.uid,
             origin.label_id,
+            call.sender,
             why.as_str()
         );
         match why {
@@ -183,6 +184,12 @@ fn dispatch(ctx: &Ctx, owner: &str, method: u32, call: &Call) -> Result<Vec<u8>,
     let body = &call.parcel.body;
     let state = &ctx.notify;
     let now = sys::clock_ticks();
+    // Which app's windows a click on this owner's toast brings forward: the label and session
+    // the kernel stamped, the same for every thread of the app.
+    state
+        .listeners
+        .borrow_mut()
+        .note_sender(owner, call.origin.label_id, call.origin.session);
     match method {
         wire::METHOD_NOTIFY => {
             let args = wire::decode_notify_args(body).map_err(|_| bad)?;

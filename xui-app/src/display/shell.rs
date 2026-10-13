@@ -128,6 +128,14 @@ impl Client {
         self.unit(wire::METHOD_ACTIVATESURFACE, body)
     }
 
+    /// `ActivateApp`: restore, raise and focus every window of the app (package label `label`,
+    /// `session`) that a click on one of its toasts names. `-ENOENT` when it has none.
+    pub fn activate_app(&self, label: u32, session: u64) -> Result<(), i64> {
+        let body = wire::encode_activate_app_args(&wire::ActivateAppArgs { label, session })
+            .map_err(|_| -errno::EINVAL)?;
+        self.unit(wire::METHOD_ACTIVATEAPP, body)
+    }
+
     /// `MinimizeSurface`.
     pub fn minimize_surface(&self, surface: u64) -> Result<(), i64> {
         let body = wire::encode_minimize_surface_args(&wire::MinimizeSurfaceArgs { surface })

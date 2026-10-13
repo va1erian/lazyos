@@ -7,6 +7,7 @@
 //! pages is on show and only for a click: a web page linking to
 //! `x-lazyweb:clear-history` gets nothing.
 
+use crate::notify::{Decision, Site};
 use crate::visits::Visit;
 
 /// The pages' addresses as the address bar shows them.
@@ -25,6 +26,9 @@ pub enum Command {
     OpenDownload(usize),
     /// Cancel download `n`.
     CancelDownload(usize),
+    /// Forget what the person decided about a site's notifications (an origin as
+    /// `notify::Origin::key` writes it).
+    ForgetNotify(String),
 }
 
 impl Command {
@@ -36,6 +40,9 @@ impl Command {
             "clear-history" => Some(Command::ClearHistory),
             "open" => arg.parse().ok().map(Command::OpenDownload),
             "cancel" => arg.parse().ok().map(Command::CancelDownload),
+            "forget-notify" => percent_decode(arg)
+                .filter(|origin| !origin.is_empty())
+                .map(Command::ForgetNotify),
             _ => None,
         }
     }
@@ -135,9 +142,9 @@ pub fn downloads(rows: &[DownloadRow], folder: &str) -> String {
     page("Downloads", &body)
 }
 
-/// The About page.
-pub fn about(version: &str) -> String {
-    let body = format!(
+/// The About page, with the sites whose notifications the person decided about.
+pub fn about(version: &str, sites: &[Site]) -> String {
+    let mut body = format!(
         "<p>Version {}. LazyWeb's browser window on the \
 <a href=\"https://webkit.org/\">WebKit</a> engine: JavaScript and the modern web, \
 HTTPS through the system's certificate bundle.</p>\
@@ -149,7 +156,67 @@ LazyWeb, the browser without scripts, stays the one LazyOS ships.</p>\
 window is under the GPL 2.0; fonts: Liberation (SIL OFL 1.1).</p>",
         escape(version)
     );
+    body.push_str(&notification_sites(sites));
     page("About LazyWeb+", &body)
+}
+
+/// The notification decisions, each with the button that forgets it (the site may ask again).
+fn notification_sites(sites: &[Site]) -> String {
+    let mut html = String::from("<h2>Notifications</h2>");
+    if sites.is_empty() {
+        html.push_str(
+            "<p class=\"note\">No site has asked to show notifications. A site that does asks first, in a bar above its page.</p>",
+        );
+        return html;
+    }
+    html.push_str(
+        "<p class=\"note\">Sites you allowed show notifications as toasts under this browser's name; sites you blocked cannot ask again until you forget them here.</p><table>",
+    );
+    for site in sites.iter().rev() {
+        let word = match site.decision {
+            Decision::Allow => "Allowed",
+            Decision::Block => "Blocked",
+        };
+        html.push_str(&format!(
+            "<tr><td><b>{}</b></td><td class=\"when\">{word}</td><td class=\"when\">{}</td><td><a class=\"button\" href=\"{SCHEME}forget-notify/{}\">Forget</a></td></tr>",
+            escape(&site.origin),
+            date_time(site.time),
+            percent_encode(&site.origin),
+        ));
+    }
+    html.push_str("</table>");
+    html
+}
+
+/// `text` with every byte outside the unreserved set as `%XX`.
+pub fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// `text` with its `%XX` escapes decoded; `None` for a broken escape or bytes that are not UTF-8.
+pub fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// `received` of `total` bytes, as people read it.
@@ -299,6 +366,52 @@ mod tests {
         ] {
             assert_eq!(Command::parse(url), None, "{url}");
         }
+    }
+
+    #[test]
+    fn the_about_page_lists_notification_decisions_each_with_a_forget_button() {
+        let site = |origin: &str, decision, time| Site {
+            origin: origin.into(),
+            decision,
+            time,
+        };
+        let html = about(
+            "1.0",
+            &[
+                site("https://a.test", Decision::Allow, 0),
+                site("http://b.test:8080", Decision::Block, 86_400),
+            ],
+        );
+        assert!(html.contains("Notifications"));
+        assert!(html.contains("Allowed") && html.contains("Blocked"));
+        assert!(html.contains("x-lazyweb:forget-notify/https%3A%2F%2Fa.test"));
+        assert!(html.contains("x-lazyweb:forget-notify/http%3A%2F%2Fb.test%3A8080"));
+        assert!(html.contains("1970-01-02 00:00"));
+        assert!(about("1.0", &[]).contains("No site has asked"));
+    }
+
+    #[test]
+    fn forgetting_a_site_is_a_command_naming_its_origin() {
+        assert_eq!(
+            Command::parse("x-lazyweb:forget-notify/https%3A%2F%2Fa.test"),
+            Some(Command::ForgetNotify("https://a.test".into()))
+        );
+        for url in [
+            "x-lazyweb:forget-notify/",
+            "x-lazyweb:forget-notify/%zz",
+            "x-lazyweb:forget-notify/%FF",
+            "x-lazyweb:forget-notify",
+        ] {
+            assert_eq!(Command::parse(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn percent_encoding_round_trips() {
+        for text in ["https://a.test:8443", "x y%z", "é☃", ""] {
+            assert_eq!(percent_decode(&percent_encode(text)).as_deref(), Some(text));
+        }
+        assert_eq!(percent_encode("a b"), "a%20b");
     }
 
     #[test]

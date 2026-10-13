@@ -149,6 +149,15 @@ no clock), `Motion` (the setting). It can move upstream unchanged.
 * **Scripts**: `sys::notify::notify("Info", "Title", "Body", (), [], (), (), ())`
   from `rhai` or a LazyRAD form (Rhai first for small apps). `Listen` carries
   a channel and is not callable from a script.
+* **LazyWeb+ web notifications** (issue #839, [`lazywebplus.md`](lazywebplus.md)): a page the person allowed
+  (`Notification.requestPermission()`, a bar in the browser, kept per origin) shows a toast through
+  `os.lazy.notify`. The sender is the browser: the title is the site's host (never the page's text), the page's
+  `title` and `body` go in the body as two lines (a body may hold a line feed), the level is Info and the
+  icon the app's own, so no page can look like a download or a system warning. Per-site rule: at most 3 live
+  toasts and a burst of 3 plus one a second, 10 in all, so one site never uses the app's allowance of 16 live
+  and a burst of 6. The click comes back as `Activated` and, from the same label and session, the shell raises the
+  app's windows (`ActivateApp` of `idl/display.midl`); the browser's toast calls are made from its first thread
+  (a thread's id is not the app's).
 * **Next**: the removable-media applet of
   [`usb-hotplug-plan.md`](usb-hotplug-plan.md) ("stick mounted", "removed
   without ejecting").

@@ -27,6 +27,17 @@ impl Browser {
                     self.engine.download_cancel(id);
                 }
             }
+            PageCommand::ForgetNotify(origin) => {
+                let had = self.notifications.forget(self.engine.as_ref(), &origin);
+                self.set_status(if had {
+                    "Notification choice forgotten"
+                } else {
+                    "No notification choice for that site"
+                });
+                if self.showing(ABOUT) {
+                    self.open(ABOUT);
+                }
+            }
         }
     }
 

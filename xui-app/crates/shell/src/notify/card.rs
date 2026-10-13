@@ -104,7 +104,7 @@ impl Card {
                 return Vec::new();
             }
             let measure_one = |t: &str| measure(t, bold);
-            let mut wrapped = wrap(text, text_w, &measure_one);
+            let mut wrapped = wrap_paragraphs(text, text_w, &measure_one);
             if wrapped.len() > limit {
                 wrapped.truncate(limit);
                 if let Some(last) = wrapped.last_mut() {
@@ -212,6 +212,19 @@ pub fn wrap(text: &str, width: i32, measure: &dyn Fn(&str) -> i32) -> Vec<String
     }
     if !line.is_empty() || lines.is_empty() {
         lines.push(line);
+    }
+    lines
+}
+
+/// [`wrap`] for text with line feeds: each paragraph starts a line of its own, and an empty one
+/// is dropped. Never returns an empty list.
+pub fn wrap_paragraphs(text: &str, width: i32, measure: &dyn Fn(&str) -> i32) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n').filter(|p| !p.trim().is_empty()) {
+        lines.extend(wrap(paragraph, width, measure));
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
     }
     lines
 }

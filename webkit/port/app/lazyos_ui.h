@@ -38,6 +38,9 @@ extern "C" {
 #define LZW_FEATURE_OWN_MARKERS 16
 // A website data store in the directory lzw_ui_profile_dir() names.
 #define LZW_FEATURE_PROFILE 32
+// The Notifications API: WebKit's provider and the page's permission requests,
+// lzw_ui_notify_* / lzw_engine_notify_*.
+#define LZW_FEATURE_NOTIFICATIONS 64
 
 // ---- decisions (lzw_ui_navigate) ----
 
@@ -141,6 +144,34 @@ void lzw_ui_download_done(uint64_t id);
 // The download failed or was cancelled; reason says why.
 void lzw_ui_download_fail(uint64_t id, const char* reason);
 
+// LZW_FEATURE_NOTIFICATIONS: the decisions the window kept about which sites may notify, read when
+// WebKit starts a page's process and again at start-up. `index` counts from 0; origin gets the
+// site as WebKit spells it ("https://example.com", the port only when it is not the scheme's own),
+// NUL-terminated within origin_size bytes. Returns 1 allowed, 0 blocked, -1 past the end, -2 for
+// a row that does not fit (the caller skips it). Called on the run loop and on the main thread
+// before the window exists: it reads a mutex-guarded list and never waits for the window.
+int lzw_ui_notify_permission_at(size_t index, char* origin, size_t origin_size);
+
+// LZW_FEATURE_NOTIFICATIONS: a page asked to show notification `id` (WebKit's own id, nonzero).
+// origin is the page's security origin as WebKit writes it; page_url the address of the page that
+// asked; title, body and tag are the page's own words, untrusted. The window answers with
+// lzw_engine_notify_shown when it is up, and says nothing when it drops it.
+void lzw_ui_notify_show(uint64_t id, const char* origin, const char* page_url, const char* title,
+    const char* body, const char* tag);
+// The page took notification `id` down itself (Notification.close()).
+void lzw_ui_notify_cancel(uint64_t id);
+// The page's object for notification `id` is gone (its document was): a click can no longer reach
+// a script, and the toast, if any, stays.
+void lzw_ui_notify_gone(uint64_t id);
+// A page called Notification.requestPermission() for `origin` and waits. user_gesture is 1: WebKit
+// itself refuses the call without a user gesture (a transient activation) before the UI process
+// hears of it; the window looks at the input it forwarded as well. The answer is
+// lzw_engine_notify_permission(origin, ...).
+void lzw_ui_notify_permission_request(const char* origin, int user_gesture);
+// The pending permission requests of `origin` were refused by the UI process itself (their page
+// started another navigation, or its process went): they need no answer.
+void lzw_ui_notify_permission_gone(const char* origin);
+
 // ---- implemented by the engine (C++) ----
 
 void lzw_engine_load(const char* url);
@@ -173,6 +204,27 @@ void lzw_engine_download(const char* url);
 void lzw_engine_download_cancel(uint64_t id);
 // Answers the dialog id lzw_ui_dialog announced: accepted is OK, value the prompt's text.
 void lzw_engine_dialog_reply(uint64_t id, int accepted, const char* value);
+
+// LZW_FEATURE_NOTIFICATIONS. Notification `id` is on screen: the page gets its `show` event.
+void lzw_engine_notify_shown(uint64_t id);
+// The person clicked notification `id`: the page's `click` handler runs, when its document is
+// still there.
+void lzw_engine_notify_clicked(uint64_t id);
+// Notification `id` went away without the page asking (dismissed, timed out): the page gets its
+// `close` event.
+void lzw_engine_notify_closed(uint64_t id);
+// The answer to lzw_ui_notify_permission_request: answer 1 allows `origin`, 0 blocks it (both are
+// remembered by WebKit for the pages of that origin: Notification.permission reads `granted` or
+// `denied`), -1 refuses the pending requests and remembers nothing (the site may ask again).
+void lzw_engine_notify_permission(const char* origin, int answer);
+// The person revoked the decision about `origin`: Notification.permission is `default` again.
+void lzw_engine_notify_forget(const char* origin);
+
+// Runs task(context) once on WebKit's main thread, the process's first thread, and returns at once
+// (callable from any thread). A Messenger service names a caller by its task, and the shell's
+// notification service refuses a thread that is not the process's first (docs/lazywebplus.md): a
+// window's calls to it are made from here.
+void lzw_engine_run_on_main(void (*task)(void* context), void* context);
 
 // Creates the context, the page and the view; must run on the main thread, before
 // WKRunLoopRunMain(). Returns 0 on success. With LZW_FEATURE_PROFILE the website data store lives in

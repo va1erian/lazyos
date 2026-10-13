@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
@@ -27,6 +27,7 @@ use xui_webkit::view::PageView;
 mod commands;
 mod events;
 mod host;
+mod notifications;
 
 pub use host::{Host, Probe, Setup};
 
@@ -38,6 +39,7 @@ use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
 use crate::marker_text;
+use crate::notify::{BarAnswer, Notifications};
 use crate::pages::{self, ABOUT, DOWNLOADS, HISTORY};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
@@ -73,6 +75,10 @@ pub enum Msg {
     PageMenu(i32, i32),
     /// The answer to a JavaScript dialog.
     Dialog(DialogAction),
+    /// The person answered the bar a site's request to notify them shows.
+    NotifyAnswer(BarAnswer),
+    /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
+    Shell,
 }
 
 /// The window's widgets and state.
@@ -90,6 +96,11 @@ pub struct Browser {
     download_label: Rc<Label<Msg>>,
     download_bar: Rc<ProgressBar<Msg>>,
     dialogs: Dialogs,
+    /// The permission bar and what it is asking about.
+    bar: notifications::Bar,
+    notifications: Notifications,
+    /// When the window was built: the clock the notification limits run on.
+    started: Instant,
     engine: Rc<dyn Engine>,
     mailbox: Arc<Mailbox>,
     visits: Visits,
@@ -138,6 +149,8 @@ impl Browser {
             visits,
             transfers,
             internal,
+            permissions,
+            toasts,
             host,
         } = setup;
         let loading = Rc::new(Cell::new(false));
@@ -180,6 +193,9 @@ impl Browser {
             download_label: widgets.download_label.get(),
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
+            bar: notifications::Bar::new(&widgets),
+            notifications: Notifications::new(permissions, toasts),
+            started: Instant::now(),
             engine,
             mailbox,
             visits,
@@ -204,6 +220,7 @@ impl Browser {
         browser.start_navigation(&first);
         browser.update_buttons();
         browser.update_downloads(ui);
+        browser.bar.start_hidden(ui);
         ui.set_window_title(APP_NAME);
         Ok(browser)
     }
@@ -308,7 +325,10 @@ impl Browser {
                 &self.transfers.rows(),
                 &self.transfers.folder().display().to_string(),
             ),
-            ABOUT => pages::about(env!("CARGO_PKG_VERSION")),
+            ABOUT => pages::about(
+                env!("CARGO_PKG_VERSION"),
+                &self.notifications.permissions().sites(),
+            ),
             _ => return self.internal.start(),
         };
         self.internal.build(name, &html)
@@ -392,7 +412,7 @@ impl Browser {
     fn announce(&self, ui: &Ui<Msg>) {
         let page = ui.bounds(self.page.id());
         self.announced.set((page.width(), page.height()));
-        let named = [
+        let mut named = vec![
             ("address", ui.bounds(self.address.id())),
             ("back", ui.bounds(self.back.id())),
             ("forward", ui.bounds(self.forward.id())),
@@ -403,6 +423,10 @@ impl Browser {
                 Rect::new(page.left, page.top, page.left + 1, page.top + 1),
             ),
         ];
+        // The bar's own controls, while it is up: a session answers it by name.
+        if self.bar.shown().is_some() {
+            named.extend(self.bar.controls(ui));
+        }
         for (name, rect) in named {
             (self.host.probe)(&self.caption, name, rect);
         }
@@ -467,6 +491,8 @@ impl App for Browser {
                         .dialog_reply(answer.id, answer.accepted, &answer.value);
                 }
             }
+            Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
+            Msg::Shell => self.shell_news(ui),
         }
         self.update_buttons();
     }

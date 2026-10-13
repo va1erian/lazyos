@@ -7,11 +7,11 @@ use xui_core::widget::HasText;
 use xui_webkit::events::Event;
 
 use super::{caption, now, Browser, Msg};
-use crate::address;
 use crate::dialogs;
 use crate::handoff;
 use crate::indicators::Security;
 use crate::marker_text;
+use crate::notify::Incoming;
 use crate::pages::{Command as PageCommand, DOWNLOADS};
 use crate::transfers::Started;
 
@@ -44,13 +44,18 @@ impl Browser {
 
         if self.state.crashed && !old.crashed {
             self.page.clear();
+            self.notifications.page_crashed();
         }
         if self.state.committed_url != old.committed_url {
-            // The page that asked is gone: its dialog is answered "no".
+            // The page that asked is gone: its dialog is answered "no", and a site that asked to
+            // notify and was not answered may ask again.
             if let Some(answer) = self.dialogs.dismiss() {
                 self.engine
                     .dialog_reply(answer.id, answer.accepted, &answer.value);
             }
+            self.notifications
+                .page_moved(self.engine.as_ref(), &self.state.committed_url);
+            self.update_notify_bar(ui);
         }
         self.load_state(&old, &shown);
         self.update_buttons();
@@ -174,6 +179,31 @@ impl Browser {
                     self.download_ended(ui, id, Some(reason));
                 }
                 Event::Dialog { id, kind, text, .. } => self.dialog(id, kind, &text),
+                Event::NotifyShow {
+                    id,
+                    origin,
+                    page_url,
+                    title,
+                    body,
+                    tag,
+                } => self.notify_show(&Incoming {
+                    id,
+                    origin: &origin,
+                    page_url: &page_url,
+                    title: &title,
+                    body: &body,
+                    tag: &tag,
+                }),
+                Event::NotifyCancel { id } => self.notifications.cancel(id),
+                Event::NotifyGone { id } => self.notifications.gone(id),
+                Event::NotifyPermission {
+                    origin,
+                    user_gesture,
+                } => self.notify_request(ui, &origin, user_gesture),
+                Event::NotifyPermissionGone { origin } => {
+                    self.notifications.request_gone(&origin);
+                    self.update_notify_bar(ui);
+                }
             }
         }
         self.update_buttons();

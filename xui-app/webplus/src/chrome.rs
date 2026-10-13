@@ -7,11 +7,12 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build, button, column, edit, label, menu_bar, progress, row, Align, Handle, Layout, LayoutExt,
+    build, button, column, edit, group, label, menu_bar, progress, row, Align, Handle, Layout,
+    LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::layout::Insets;
-use xui_core::widget::{Button, Edit, Label, Menu, MenuId, ProgressBar};
+use xui_core::widget::{Button, Edit, GroupBox, Label, Menu, MenuId, ProgressBar};
 use xui_core::Dip;
 
 use xui_webkit::engine::Engine;
@@ -20,11 +21,15 @@ use xui_webkit::view::{Hooks, PageView};
 use crate::app::Msg;
 use crate::indicators::{Badge, Throbber};
 use crate::keys;
+use crate::notify::BarAnswer;
 
 /// Heights of the menu bar, the toolbar and the status bar.
 const MENU_HEIGHT: Dip = Dip(28.0);
 const TOOLBAR_HEIGHT: Dip = Dip(38.0);
 const STATUS_HEIGHT: Dip = Dip(24.0);
+/// The bar a site's request to notify shows in, between the toolbar and the page.
+const NOTIFY_HEIGHT: Dip = Dip(64.0);
+const NOTIFY_BUTTON: Dip = Dip(84.0);
 /// The square icon buttons of the toolbar, and the download progress bar.
 const TOOL_SIDE: Dip = Dip(30.0);
 const PROGRESS_WIDTH: Dip = Dip(120.0);
@@ -101,6 +106,12 @@ pub struct Widgets {
     pub badge: Handle<Badge>,
     pub download_label: Handle<Label<Msg>>,
     pub download_bar: Handle<ProgressBar<Msg>>,
+    /// The permission bar (hidden until a page asks to show notifications) and its parts.
+    pub notify_bar: Handle<GroupBox<Msg>>,
+    pub notify_text: Handle<Label<Msg>>,
+    pub notify_allow: Handle<Button<Msg>>,
+    pub notify_block: Handle<Button<Msg>>,
+    pub notify_later: Handle<Button<Msg>>,
 }
 
 /// The whole window. `loading` is whether a page loads (Escape means Stop only then, so the page
@@ -109,6 +120,7 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
     column().children((
         menus(widgets).fixed(MENU_HEIGHT),
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
+        notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         build(move |ui| {
             let hooks = Hooks {
                 is_shortcut: Rc::new(move |key, mods| {
@@ -231,6 +243,32 @@ fn toolbar(widgets: &Widgets) -> Layout<Msg> {
             tool(Lucide::ExternalLink, "Go (Enter)", Msg::Go).width(TOOL_SIDE),
             build(Throbber::new).bind(&widgets.throbber),
         ))
+}
+
+/// The question a page's request to show notifications asks: whose it is, and Allow, Block or
+/// "Not now" (the bar closes and the site may ask again). It is the browser's own bar, not a toast:
+/// a toast never takes the keyboard and an answer must never need one.
+fn notify_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
+    let answer = |text: &str, which, handle: &Handle<Button<Msg>>| {
+        button(text)
+            .on_click(Msg::NotifyAnswer(which))
+            .bind(handle)
+            .width(NOTIFY_BUTTON)
+    };
+    group(
+        "Notifications",
+        row()
+            .gap(8)
+            .align(Align::Center)
+            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
+            .children((
+                label("").bind(&widgets.notify_text).fill(1),
+                answer("Allow", BarAnswer::Allow, &widgets.notify_allow),
+                answer("Block", BarAnswer::Block, &widgets.notify_block),
+                answer("Not now", BarAnswer::Later, &widgets.notify_later),
+            )),
+    )
+    .bind(&widgets.notify_bar)
 }
 
 /// The status text taking the rest, a download's progress, and the badge.

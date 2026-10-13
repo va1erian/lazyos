@@ -61,6 +61,13 @@ SLOW_SECONDS = 30
 COOKIE_PATH = "/webplus/cookie"
 COOKIE_NAME = "lwp"
 COOKIE_VALUE = "kept"
+#: LazyWeb+'s notification harness (tools/webplus/notify_run.py): a static page
+#: (`fixtures/theoldnet.com/webplus/notify.html`, also served on www.theoldnet.com, which is another
+#: origin) with three boxes: ask for the permission on a click, post a notification with a `tag` and
+#: update it, post six in a burst. A `click` handler sets `document.title`; the page's title says
+#: what it learned (`notify:ready:<permission>:<answer without a gesture>`, `notify:perm:<answer>`,
+#: `notify:clicked:<title>`).
+NOTIFY_PATH = "/webplus/notify.html"
 
 
 def echo_page(path: str) -> bytes:
@@ -217,7 +224,12 @@ class Handler(BaseHTTPRequestHandler):
         if found is None:
             return 404, [("Content-Type", "text/html")], b"<html><body>404 Not Found</body></html>\n"
         kind = TYPES.get(found.suffix, "application/octet-stream")
-        return 200, [("Content-Type", kind), ("Cache-Control", "max-age=604800")], found.read_bytes()
+        # The notification page is never cached: a second boot that finds it in the HTTP cache
+        # (written by the first) hits a crash in WebKit's NetworkCache::Storage (a thread of the
+        # NetworkProcess jumps into padding in `updateFileModificationTime`), which has nothing to
+        # do with notifications and is followed up on its own (docs/lazywebplus.md, Known limits).
+        cache = "no-store" if urlsplit(self.path).path == NOTIFY_PATH else "max-age=604800"
+        return 200, [("Content-Type", kind), ("Cache-Control", cache)], found.read_bytes()
 
 
 class Server(ThreadingHTTPServer):

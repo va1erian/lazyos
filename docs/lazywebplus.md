@@ -53,6 +53,8 @@ with host tests and in the recording engine; the table with the WebKit side is i
 | Downloads | `lzw_ui_download_start`, `_progress`, `_done`, `_fail`; `lzw_engine_download`, `lzw_engine_download_cancel` |
 | `alert`, `confirm`, `prompt` | `lzw_ui_dialog` (returns at once), `lzw_engine_dialog_reply` |
 | `window.open`, `target=_blank` | `lzw_ui_new_window` |
+| Notifications API | `lzw_ui_notify_show`, `_cancel`, `_gone`, `_permission_request`, `_permission_gone`, `lzw_ui_notify_permission_at`; `lzw_engine_notify_shown`, `_clicked`, `_closed`, `_permission`, `_forget` (see *Notifications*) |
+| A call on the process's first thread | `lzw_engine_run_on_main` |
 
 ## Navigation policy: a script never starts anything
 
@@ -112,6 +114,76 @@ keeps the listener, tells the window (`lzw_ui_dialog`, which returns at once: th
 blocked) and answers when the window calls `lzw_engine_dialog_reply`, or abandons it when the page goes away.
 The window draws them with xui's `Dialog::message/confirm/prompt` ("theoldnet.com says"), modal to the page
 area.
+
+## Notifications
+
+A page's `Notification` API works: `Notification.requestPermission()`, `new Notification(title, {body, tag})`,
+and the `show`, `click` and `close` events. WebKit has the machinery in the UI process (the notification
+manager, the provider, the UI client's permission request) but a port supplies the provider, or every page
+sees `denied` and nothing shows; `webkit/port/app/notify.cpp` is that provider (feature
+`LZW_FEATURE_NOTIFICATIONS`), and `ENABLE_NOTIFICATIONS` is on in the port's build (`tools/webkit/port_cmake.py`
+passes it, because CMake keeps the first default in a build tree's cache). It turns every WebKit object file
+over once; a build tree configured before it rebuilds. The shell's toasts (`os.lazy.notify`,
+[`notify-plan.md`](notify-plan.md)) are the other half; the model between them is `xui-app/webplus/src/notify.rs`
+and its parts, no window and no engine needed to test it.
+
+* **Permission is per origin, asked once, kept.** A request starts a bar above the page (the browser's own
+  chrome, not a toast: a toast never takes the keyboard, and an answer must never depend on one) naming the host
+  with *Allow*, *Block* and *Not now*. Allow and Block are written to
+  `$HOME/.apps/os.lazy.lazywebplus/notify.tsv` (`origin<TAB>allow|block<TAB>seconds`, the origin as WebKit
+  writes it, `https://example.com` or `http://host:8080`) and told to WebKit
+  (`WKNotificationManagerProviderDidUpdateNotificationPolicy`); the file is read back when WebKit starts a page
+  process (`notificationPermissions`) and again at start-up. *Not now* refuses the pending requests and keeps
+  nothing: the site may ask again. A request that came without a user gesture is refused outright (WebKit does
+  it before the UI process hears of it; the window looks at the input it forwarded as well), and so is one for a
+  page that is not `http:` or `https:` (`data:`, `about:`, `file:`). One site is asked at a time, four at most
+  wait, and a bar goes when its page does. `about:lazyweb` lists the decisions with a *Forget* button each:
+  the page's `Notification.permission` is `default` again and the site's live toasts go.
+* **Identity.** The toast is posted by the UI process, so the shell shows it under **LazyWeb+**, and the title
+  is the host (`example.com`, `host:8443`: never the page's words; a host too long for it keeps its end).
+  The page's `title` and `body` go in the toast's body as two lines (the body may now hold a line feed, which
+  ends a line), control, bidirectional-override and zero-width characters removed, cut to the shell's limits (64
+  and 256 characters). The level is always Info, the icon the app's own (the page's `icon` is fetched by the
+  page's own process, as WebCore does before it shows, and the toast does not use it),
+  there is no action and the timeout is the level's, so nothing a page sends can look like a download or a
+  system warning.
+* **`tag` replaces in place**: the same tag from the same site updates the live toast (`replaces_id`), and the
+  page's earlier object gets its `close`.
+* **A click brings the page back.** The shell raises the app's windows on a click
+  (`ActivateApp(label, session)`, shell-only, below), the window then tells WebKit
+  (`WKNotificationManagerProviderDidClickNotification`) so the page's `click` handler runs, when its document is
+  still there. A notification of a page that has gone (WebKit says so with `didDestroyNotification`; the toast
+  stays) opens the page's address in the one view, when it is a page of the notifying site (otherwise the site's
+  front page); the old handler cannot run, there is no document for it. A toast the person dismisses or that
+  times out is a `close` event for the page.
+* **Limits are per site** ([`notify/live.rs`](../xui-app/webplus/src/notify/live.rs)): 3 live toasts, a burst of
+  3 posts and one more a second; 10 live web toasts in all, so the shell's 16 and its burst of 6 are never used
+  up by a site, and a download's toast always has room. What a site posts beyond that is dropped
+  (`WEBPLUS:NOTIFY:DROP:<origin>:<why>`), not queued. A toast outlives its page until its timeout; closing the
+  browser takes its toasts down (the worker closes what it made).
+* **Nothing persists but the permissions**: no notification history (the shell keeps none either).
+  The file is in the folder the network process may write, like `history.tsv`: it is read only for
+  canonical `http:`/`https:` origins and at most 512 lines, but a compromised network process can still
+  write `https://evil.test<TAB>allow<TAB>0` and have a standing permission at the next start.
+* **The page's process is not trusted to say whose a notification is.** A notification is shown only when
+  its origin is the origin of the page the UI process reports on screen, and a request for the permission
+  opens a bar only for that page's own origin; anything else is `DENY:<origin>:page`. A notification from a
+  cross-origin frame is therefore refused. A notification over the limits is answered as closed, so the
+  page's object does not stay "showing".
+
+The shell calls are made on **WebKit's main thread** (`lzw_engine_run_on_main`): the notification service names
+an app by the task id of the sender, and a message from a thread other than the process's first carries the
+thread's own id and is refused as "not an app" (this is why the download toasts did not show before this
+change). The shell's own half changed in three ways: it hands the click to the compositor
+(`ActivateApp(label, session)` in `idl/display.midl`, from the label and session the kernel stamped on the
+notification calls, so whichever thread made the window is covered), a toast body keeps its line feeds, and
+the platform client (`xui_app::platform::notify`) can `Listen`.
+
+Markers (UI-probe images only: they name sites), after `WEBPLUS:NOTIFY:`: `ASK:<origin>`,
+`ALLOW|BLOCK|DISMISS:<origin>`, `SHOW:<origin>:<id>`, `CLICK:<id>`, `CLOSE:<id>`, `DROP:<origin>:<why>`,
+`DENY:<origin>:<why>`, `FORGET:<origin>`. Verified by `python tools/webplus/notify_run.py`
+([`tools/webplus/README.md`](../tools/webplus/README.md)) and the host tests of `xui-app/webplus`
+(`tests/notifications.rs`, `notify/*`) and `lazyshell`.
 
 ## The profile
 
@@ -180,11 +252,26 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
 * **`history.tsv` is in the folder the network process may write** (the profile): the window reads only the last 2 MiB
   of it, cuts titles at 512 characters and drops addresses over 2048, but a compromised network process can still
   forge entries.
-* **Toasts from the download thread are refused.** The shell's notification service names an app by the task
-  id of the sender, and a message from a thread other than the process's first carries the thread's id, not the
-  app's, so `SHELL:NOTIFY:DENY ... why=not-an-app` (the status bar and `about:downloads` carry the result; a
-  toast is best effort, so nothing else is affected). A fix is in the shell (map a thread to its process), not
-  in this app.
+* **A page served from the HTTP cache crashes the network process on a later boot.** The notification harness
+  found it: the second boot loads a page the first one cached and a thread of `NetworkProcess` jumps into
+  padding in `NetworkCache::Storage::updateFileModificationTime`'s callable (`rip` at the `cc` filler before a
+  function; `internal error (code 300)`, the load fails). It is not about notifications (the first boot's
+  cache is what the second reads; the old harness's second boot only loaded a page that is never cached), and
+  the harness serves its notification page `no-store` so it does not depend on it.
+* **`Notification.close()` during a navigation leaves the toast up.** A page that enters the back/forward cache is
+  suspended and WebKit closes its notifications exactly as `close()` does (the provider cannot tell them apart),
+  so a close that arrives while a main-frame navigation is loading is taken as the suspension: the toast stays
+  until its timeout, as the notification of a page that is gone. (Turning the page cache off would tell them
+  apart, and was tried: Back then reloads from the HTTP cache, which hits the crash above.)
+* **One startup crash was seen and not reproduced.** In one second boot the UI process died at its first resize
+  (`memcpy` of a 1,800,000-byte frame past the end of its destination, a page fault at the end of a mapping, rip
+  in `compiler_rt` `copyBlocks`) before `UP:PASS`; the same harness passed on the runs before and after. The code
+  is the frame path (`paint.cpp` to `mailbox.rs`), which this change does not touch.
+* **Toasts are made on WebKit's main thread.** The shell names an app by the task id of the sender and a
+  thread other than the process's first carries its own id, so a toast from the window's thread or the download
+  thread was refused as "not an app". The app now makes every call of the notification service from the first
+  thread (`lzw_engine_run_on_main`), which costs the run loop one shell round trip (about 30 ms at most) per
+  toast. The proper fix is a kernel stamp of the thread group's leader; this one needs none.
 * The window and WebKit run on two threads of one process; the page area is drawn at device scale 1 (small
   text at 2x).
 * No tabs, no find in page, no context menu, no pasteboard beyond WebKit's own, no IME, no WebGL, video or
@@ -233,12 +320,31 @@ reaped both children (`CHILD:web:<pid>:GONE`, `CHILD:network:<pid>:GONE`, `QUIT:
 | Labels | `LABEL:ENTER` for both children; **no `LABEL:DENY` beyond the nine optional ones #836 documents** (stat of `/etc`, `/etc/localtime`, `/usr/share/zoneinfo`; `/etc/ssl/openssl.cnf`; fontconfig's baked-in `conf.avail` and its cache writes under `/tmp` and `/system/share/fonts`); the judge (`tools/webplus/denies.py`) fails on any other |
 | Sandbox attack harness | `attack_run.py --kernel`: 60 probes as expected; `attack_run.py --browser --app lazywebplus` (the real UI process starts the stand-ins under `app:os.lazy.lazywebplus/<name>`): **60 probes, every one as expected** (every refusal `EPERM` with its `LABEL:DENY`, the network process's `write_downloads` allowed, the page process's refused) |
 
+### Notifications (`python tools/webplus/notify_run.py`)
+
+WHPX, 4 GiB guest, two boots of one image; `WEBPLUS:NOTIFY:HARNESS:PASS` with every check green. First boot:
+the page's request at load, with no gesture, is refused (`notify:ready:default:denied`) and opens no bar; a
+click on *Ask* opens the bar (`NOTIFY:ASK:https://theoldnet.com`, exactly once) and *Allow* is kept; *Post*
+makes a toast the shell attributes to `os.lazy.lazywebplus`, `level=info`, `title=theoldnet.com`, and the same
+`tag` a second and a half later updates that toast in place (one `SHELL:NOTIFY:SHOW id=1`, two `POST id=1`);
+a click on it runs the page's `click` handler (`notify:clicked:Second title`); a click on a toast of a
+page that left in the same click brings the page back (`LOAD` twice); a post that comes up while the window is
+minimized shows over the desktop and a click on it restores the window (`XUID:WM:MINIMIZE`, then
+`XUID:WM:UNMINIMIZE`) and runs the handler; a burst of six makes three toasts and three `DROP`s, and the
+shell's own limit is never hit. Second boot: the allowed site needs no bar, the other origin
+(`www.theoldnet.com`) is asked, blocked and shows nothing, `about:lazyweb` lists both decisions and *Forget*
+removes the blocked one (`notify.tsv` on the OS volume is exactly `https://theoldnet.com<TAB>allow<TAB>...`),
+and both boots close and reap both children. What WebKit refuses before the UI process hears of it (a request
+without a gesture, a post before the permission) is judged from the page's own titles; `DENY:...:gesture` and
+`:not-allowed` are covered by the host tests only.
+
 ## Not verified, and known limits of what was
 
 * **Download progress while a download runs.** The status bar showed "0 bytes of 200.0 KB" four seconds into a
   ten-second download: the engine's `didWriteData` did not arrive before the end on a slow attachment, so the
   progress bar jumps from 0 to done (the file, its size and the rename are verified).
-* **Toasts** (see *Known limits*): the shell refuses them from the download thread.
+* **Notifications** were verified by `tools/webplus/notify_run.py` (see *Notifications*); a service worker's
+  `showNotification`, the page's `icon` and `image`, actions, sound and a system-wide list of sites are not done.
 * Not tried: HiDPI, a WebProcess crash in this window (W5's *Failures* path is shared), IME, the pasteboard,
   Settings > Default apps by a session (the preference is covered by `deskmenu` host tests and `mimed`'s
   boot self-test), a real PC.

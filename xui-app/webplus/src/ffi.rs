@@ -7,11 +7,13 @@
 //! They run on WebKit's run loop, so none may block: the policy is a pure function and a
 //! download's destination is a `create_dir_all` and a few `exists` calls.
 
-use std::ffi::{c_char, c_int, CString};
+use std::cell::RefCell;
+use std::ffi::{c_char, c_int, c_void, CString};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use xui_app::platform::{launcher, notify};
 use xui_core::app::run_app;
@@ -23,14 +25,16 @@ use xui_webkit::ffi::{arguments, connect, text, FfiEngine};
 use xui_webkit::gesture;
 use xui_webkit::mailbox;
 
-use crate::app::{Browser, Host, Setup, APP_NAME};
+use crate::app::{Browser, Host, Msg, Setup, APP_NAME};
 use crate::downloads::Saver;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
+use crate::notify::shell::{Event as ShellEvent, Shell, ShellWorker};
+use crate::notify::{Permissions, Reason, Toasts};
 use crate::policy::{self, Decision};
 use crate::transfers::{Toast, ToastLevel, Toaster, Transfers};
 use crate::visits::Visits;
-use crate::{DOWNLOADS_DIR, HISTORY_FILE, SYSTEM_NAME};
+use crate::{DOWNLOADS_DIR, HISTORY_FILE, NOTIFY_FILE, SYSTEM_NAME};
 
 /// How long after a real click or key a hand-off to another program is still the person's (a slow guest
 /// takes a moment from the click to the navigation).
@@ -40,6 +44,38 @@ const HANDOFF_WINDOW: Duration = Duration::from_millis(3000);
 /// a 720p desktop.
 const WINDOW: (i32, i32) = (1000, 540);
 
+extern "C" {
+    /// `lazyos_ui.h`: runs `task(context)` once on WebKit's main thread and returns.
+    fn lzw_engine_run_on_main(task: extern "C" fn(*mut c_void), context: *mut c_void);
+}
+
+/// How long a call into the main thread is waited for. The main thread is WebKit's run loop, which
+/// only ever waits for the shell's answer (bounded) inside what is sent to it.
+const MAIN_WAIT: Duration = Duration::from_secs(3);
+
+/// Runs `job` on WebKit's main thread and returns what it returned; `None` when the thread did not
+/// get to it in [`MAIN_WAIT`] (the job then still runs, its answer unread).
+///
+/// The shell's notification service names an app by the task id of the sender, and a message from
+/// a thread other than the process's first carries the thread's id: the window's thread, and a
+/// worker's, are refused as "not an app". The first thread is WebKit's run loop, so the calls the
+/// window makes of that service are made there.
+fn on_main<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    extern "C" fn run(context: *mut c_void) {
+        // SAFETY: `context` is the pointer `Box::into_raw` made in `on_main`, handed over once.
+        let job = unsafe { Box::from_raw(context.cast::<Box<dyn FnOnce() + Send>>()) };
+        job();
+    }
+    let (answer, reply) = mpsc::channel();
+    let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let _ = answer.send(job());
+    });
+    let context = Box::into_raw(Box::new(job)).cast::<c_void>();
+    // SAFETY: `run` takes the pointer back exactly once; the engine calls it once, on its thread.
+    unsafe { lzw_engine_run_on_main(run, context) };
+    reply.recv_timeout(MAIN_WAIT).ok()
+}
+
 /// What the three threads of the process share: made once, by whichever call comes first (the UI
 /// process asks for the profile directory before it starts the window).
 struct Shared {
@@ -47,6 +83,9 @@ struct Shared {
     saver: Arc<Saver>,
     internal: Internal,
     profile: Option<CString>,
+    /// The sites allowed to notify: the UI process reads them when WebKit asks, before the window
+    /// exists, and the window changes them.
+    permissions: Permissions,
 }
 
 fn shared() -> &'static Shared {
@@ -64,11 +103,18 @@ fn shared() -> &'static Shared {
             std::fs::create_dir_all(&dir).ok()?;
             CString::new(dir).ok()
         });
+        let permissions = match &home {
+            Some(home) => Permissions::open(
+                PathBuf::from(fhs::app_data_dir(home, SYSTEM_NAME)).join(NOTIFY_FILE),
+            ),
+            None => Permissions::in_memory(),
+        };
         Shared {
             home,
             saver: Arc::new(Saver::new(folder)),
             internal: Internal::default(),
             profile,
+            permissions,
         }
     })
 }
@@ -197,6 +243,33 @@ pub unsafe extern "C" fn lzw_ui_download_start(
     0
 }
 
+/// The decision at `index` about notifications, which WebKit asks for when it starts a page's
+/// process (and the window changes later through `lzw_engine_notify_permission`): writes the
+/// origin as WebKit spells it into `origin` (`origin_size` bytes) and returns 1 for allowed and 0
+/// for blocked, -1 past the end, -2 for a row that does not fit (the caller skips it).
+///
+/// # Safety
+/// `origin` must be valid for `origin_size` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_notify_permission_at(
+    index: usize,
+    origin: *mut c_char,
+    origin_size: usize,
+) -> c_int {
+    let Some((site, allowed)) = shared().permissions.at(index) else {
+        return -1;
+    };
+    if origin.is_null() || origin_size == 0 {
+        return -2;
+    }
+    // SAFETY: `origin` is valid for `origin_size` bytes, by this function's contract.
+    let out = unsafe { std::slice::from_raw_parts_mut(origin.cast::<u8>(), origin_size) };
+    if !copy_c_string(&site, out) {
+        return -2;
+    }
+    c_int::from(allowed)
+}
+
 /// `mimed`, for the links and files the browser hands on.
 struct LazyLauncher;
 
@@ -225,11 +298,104 @@ impl Toaster for LazyToaster {
             replaces: toast.replaces,
             ..notify::Notice::new(level, &toast.title, &toast.body)
         };
-        notify::post(&notice).map_err(|code| format!("errno {code}"))
+        // Made from the main thread: the shell refuses any other as "not an app" (`on_main`).
+        on_main(move || notify::post(&notice))
+            .ok_or_else(|| String::from("the browser's main thread did not answer"))?
+            .map_err(|code| format!("errno {code}"))
     }
 
     fn close(&mut self, id: u64) {
-        let _ = notify::close(id);
+        let _ = on_main(move || notify::close(id));
+    }
+}
+
+/// The shell's event channel for web notifications. Messenger handles belong to the thread that
+/// made them: this lives on WebKit's main thread (`on_main`), which is also the thread the shell
+/// accepts the app's calls from.
+struct Listening {
+    listener: Option<notify::Listener>,
+    retry_at: Option<Instant>,
+}
+
+thread_local! {
+    static LISTENING: RefCell<Listening> = const { RefCell::new(Listening { listener: None, retry_at: None }) };
+}
+
+impl Listening {
+    /// Asks for the event channel when there is none (before the first toast, so no event is
+    /// missed; again, a little later, when the shell restarted).
+    fn listen(&mut self) {
+        if self.listener.is_some() || self.retry_at.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
+        match notify::listen() {
+            Ok(listener) => {
+                self.listener = Some(listener);
+                self.retry_at = None;
+            }
+            Err(_) => self.retry_at = Some(Instant::now() + Duration::from_secs(2)),
+        }
+    }
+
+    fn poll(&mut self) -> Vec<ShellEvent> {
+        self.listen();
+        let Some(listener) = self.listener.as_mut() else {
+            return Vec::new();
+        };
+        match listener.poll() {
+            Ok(events) => events
+                .into_iter()
+                .filter_map(|event| match event {
+                    notify::Event::Activated { id } => Some(ShellEvent::Activated { toast: id }),
+                    notify::Event::Closed { id, reason } => Some(ShellEvent::Closed {
+                        toast: id,
+                        reason: match reason {
+                            notify::CloseReason::User => Reason::User,
+                            notify::CloseReason::Timeout => Reason::Timeout,
+                            notify::CloseReason::Replaced => Reason::Replaced,
+                            notify::CloseReason::Sender => Reason::Sender,
+                            notify::CloseReason::Restart => Reason::Restart,
+                            notify::CloseReason::Muted => Reason::Muted,
+                            notify::CloseReason::Other => Reason::Other,
+                        },
+                    }),
+                    // A web notification offers no buttons of its own.
+                    notify::Event::Action { .. } => None,
+                })
+                .collect(),
+            Err(_) => {
+                // The shell's end is gone (it restarted): ask again.
+                self.listener = None;
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// `os.lazy.notify`, for web notifications: posts them, and listens to what becomes of them. Every
+/// call is made on WebKit's main thread (`on_main`); this value is only the worker's handle.
+struct LazyShell;
+
+impl Shell for LazyShell {
+    fn post(&mut self, toast: &Toast) -> Result<u64, String> {
+        let notice = notify::Notice {
+            replaces: toast.replaces,
+            ..notify::Notice::new(notify::Level::Info, &toast.title, &toast.body)
+        };
+        on_main(move || {
+            LISTENING.with(|state| state.borrow_mut().listen());
+            notify::post(&notice)
+        })
+        .ok_or_else(|| String::from("the browser's main thread did not answer"))?
+        .map_err(|code| format!("errno {code}"))
+    }
+
+    fn close(&mut self, toast: u64) {
+        let _ = on_main(move || notify::close(toast));
+    }
+
+    fn poll(&mut self) -> Vec<ShellEvent> {
+        on_main(|| LISTENING.with(|state| state.borrow_mut().poll())).unwrap_or_default()
     }
 }
 
@@ -266,11 +432,19 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
         if let Some(theme) = theme {
             ui.set_theme(theme);
         }
+        // The shell's toasts for web notifications, on a thread of their own that wakes this window.
+        let proxy = ui.proxy();
+        let toasts = ShellWorker::spawn(LazyShell, move || {
+            let _ = proxy.send(Msg::Shell);
+        })
+        .map(|worker| Rc::new(worker) as Rc<dyn Toasts>);
         let setup = Setup {
             url: first,
             visits: visits(shared),
             transfers: Transfers::new(Arc::clone(&shared.saver), Some(Box::new(LazyToaster))),
             internal: shared.internal.clone(),
+            permissions: shared.permissions.clone(),
+            toasts,
             host: Host {
                 traces: {
                     crate::allow_named_markers(xui_app::probe::enabled());

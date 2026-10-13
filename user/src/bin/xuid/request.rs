@@ -42,6 +42,7 @@ impl Compositor {
             message.method(),
             wire::METHOD_LISTSURFACES
                 | wire::METHOD_ACTIVATESURFACE
+                | wire::METHOD_ACTIVATEAPP
                 | wire::METHOD_MINIMIZESURFACE
                 | wire::METHOD_SETWORKAREA
                 | wire::METHOD_SETICONGEOMETRY
@@ -70,6 +71,7 @@ impl Compositor {
             wire::METHOD_GETOUTPUT => self.get_output(message),
             wire::METHOD_PLACESURFACE => self.place_surface(message, body),
             wire::METHOD_ACTIVATESURFACE => self.activate_surface(message, body),
+            wire::METHOD_ACTIVATEAPP => self.activate_app(message, body),
             wire::METHOD_MINIMIZESURFACE => self.minimize_request(message, body),
             wire::METHOD_SETWORKAREA => self.set_work_area(message, body),
             wire::METHOD_SETICONGEOMETRY => self.set_icon_geometry(message, body),
@@ -403,6 +405,8 @@ fn new_surface(
         h: size.1,
         events,
         owner: message.sender,
+        label: message.caller.label_id,
+        session: message.caller.session,
         pixels: 0,
         bytes: 0,
         buf_w: 0,

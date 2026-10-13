@@ -487,6 +487,7 @@ older peers, and the no-shell sessions above are unchanged.
 | 40 | `SetIconGeometry` | shell → compositor | `surface`, `x`/`y`/`w`/`h`: its taskbar entry, the minimize/restore zoom target |
 | 41 | `HintLaunchOrigin` | shell → compositor | `x`/`y`/`w`/`h`: the next window any task opens within 2 s zooms from it |
 | 42 | `Dismiss` | compositor → shell | – (a press landed outside every panel) |
+| 49 | `ActivateApp` | shell → compositor | `label`, `session` (what the kernel stamped on the app's `CreateSurface` and on its notification calls): restore, raise and focus every window of that app, the one that was topmost staying topmost; `EINVAL` for label 0, `ENOENT` for none. A click on a toast of the app (`os.lazy.notify.events.v1` `Activated`) |
 
 - **Roles.** `CreateSurface` gains a `role` (`0` window, the default when
   absent; `1` desktop; `2` panel, issue #157). A desktop surface paints at the
@@ -701,7 +702,7 @@ front of the one that spawned it instead of behind it (the Files app
 double-clicking a folder opens a new window). The first window still gets
 focus; focusing the surface that already holds it sends no `FocusChanged`. The
 boot self-test prints `XUID:FOCUS:PASS` (`window::selftest_focus_on_create`).
-Only the shell may raise or focus an *existing* window (`ActivateSurface`), so
+Only the shell may raise or focus an *existing* window (`ActivateSurface`, and `ActivateApp` for a click on one of the app's toasts), so
 the portable explorer still reports a duplicate open in its status bar rather
 than bringing the open window forward.
 

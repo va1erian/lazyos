@@ -13,6 +13,9 @@ python tools/webplus/run.py --label-trace                  # build with LAZYOS_L
 python tools/webplus/run.py --judge-only shots/webplus     # judge a saved run again
 python tools/webplus/test_judge.py                         # the judge fails when it should; sessions current
 python tools/webplus/session.py --write                    # regenerate tools/screenshot/examples/lazywebplus*.json
+python tools/webplus/notify_run.py                         # web notifications: build, boot twice, judge (shots/webplus-notify)
+python tools/webplus/test_notify_judge.py                  # its judge fails when it should; its sessions are current
+python tools/webplus/notify_session.py --write             # regenerate tools/screenshot/examples/lazywebplus_notify*.json
 ```
 
 | File | What |
@@ -21,6 +24,7 @@ python tools/webplus/session.py --write                    # regenerate tools/sc
 | `session.py` | the two session scripts: the first boot browses, answers dialogs, clicks, downloads, closes; the second finds the history and the cookie and clears the history |
 | `judge.py`, `pixels.py` | the verdict as pure functions: serial markers, the host's request log, the profile, the page area of the screenshots |
 | `test_judge.py` | the judge's own tests |
+| `notify_run.py`, `notify_session.py`, `notify_judge.py`, `test_notify_judge.py` | the web notifications harness: the page `fixtures/theoldnet.com/webplus/notify.html` over two origins in two boots (no bar without a gesture, Allow kept, the toast titled with the site and updated in place, a burst cut, a click on a live and on a gone page, Block, Forget), judged from the markers, the shell's `SHELL:NOTIFY:POST` lines, the page's titles and `notify.tsv` on the OS volume |
 
 The sites are LazyWeb's (`example.com`, `theoldnet.com` with its pictures and a download), WebKit's test pages
 (`fixtures/theoldnet.com/webkit/`: script, form, a tall page for the wheel) and LazyWeb+'s

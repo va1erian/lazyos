@@ -25,8 +25,9 @@
 // this interface in its manifest. Anyone else gets `EACCES`.
 //
 // Every field is validated: a title of at most 64 characters (not empty), a
-// body of at most 256, at most 3 actions of at most 24 characters with
-// unique non-zero ids, a Lucide name or an image of at most 64 x 64
+// body of at most 256 (a line feed ends a line of it; every other control
+// character is shown as a space), at most 3 actions of at most 24
+// characters with unique non-zero ids, a Lucide name or an image of at most 64 x 64
 // pixels, `progress` at most 100, a `level` that is a `Level` value;
 // anything else is `EINVAL`. An unusable icon is not an error: it falls
 // back to the level's own. At most 16 notifications of one sender are

@@ -8,6 +8,7 @@ use xui_core::geometry::Rect;
 
 use crate::handoff::Launcher;
 use crate::internal::Internal;
+use crate::notify::{Permissions, Toasts};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -56,5 +57,9 @@ pub struct Setup {
     pub transfers: Transfers,
     /// The browser's own pages, shared with the navigation policy.
     pub internal: Internal,
+    /// The sites the person allowed or blocked to notify (shared with the UI process).
+    pub permissions: Permissions,
+    /// The shell's toasts; `None` shows no notification.
+    pub toasts: Option<Rc<dyn Toasts>>,
     pub host: Host,
 }

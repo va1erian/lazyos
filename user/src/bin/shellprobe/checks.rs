@@ -318,6 +318,12 @@ pub(super) fn denied_child(panel: u64) -> ! {
         client.create_panel_surface(64, 64, "evil", &panel_end.1),
         eacces,
     ) && refused("SHELLONLY", "activate", client.activate_surface(1), eacces)
+        && refused(
+            "SHELLONLY",
+            "activate app",
+            client.activate_app(1, 1),
+            eacces,
+        )
         && refused("SHELLONLY", "minimize", client.minimize_surface(1), eacces)
         && refused("SHELLONLY", "work area", client.set_work_area(rect), eacces)
         && refused(

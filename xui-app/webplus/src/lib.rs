@@ -15,6 +15,7 @@
 //! - [`visits`]: the browsing history kept per user.
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
+//! - [`notify`]: web notifications: per-site permission, the limits, the shell's toasts.
 //! - [`internal`]: those pages as the `data:` URLs the engine shows.
 //!
 //! The window itself ([`app`], [`chrome`]) is driven offscreen against a recording engine in
@@ -30,6 +31,7 @@ pub mod handoff;
 pub mod indicators;
 pub mod internal;
 pub mod keys;
+pub mod notify;
 pub mod pages;
 pub mod policy;
 pub mod transfers;
@@ -68,3 +70,5 @@ pub const SYSTEM_NAME: &str = "os.lazy.lazywebplus";
 pub const HISTORY_FILE: &str = "history.tsv";
 /// The downloads folder in the home.
 pub const DOWNLOADS_DIR: &str = "Downloads";
+/// The sites allowed or blocked to notify, in the same folder (`origin<TAB>allow|block<TAB>time`).
+pub const NOTIFY_FILE: &str = "notify.tsv";

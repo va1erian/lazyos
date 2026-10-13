@@ -66,6 +66,19 @@ pub unsafe extern "C" fn lzw_ui_download_start(
     1
 }
 
+/// The W5 window keeps no notification decisions (it does not ask for the feature).
+///
+/// # Safety
+/// The pointers are not used.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_notify_permission_at(
+    _index: usize,
+    _origin: *mut c_char,
+    _origin_size: usize,
+) -> c_int {
+    -1
+}
+
 /// Runs the window until it is closed. Returns the process exit status.
 ///
 /// # Safety
