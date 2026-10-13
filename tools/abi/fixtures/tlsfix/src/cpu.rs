@@ -4,9 +4,10 @@
 //! ChaCha20, SHA-2, curve25519) choose backends at run time through the
 //! `cpufeatures` crate. Its `avx`/`avx2` checks (0.2.17, `src/x86.rs`)
 //! require CPUID.1:ECX.XSAVE and OSXSAVE (bits 26 and 27) and then the XMM
-//! and YMM bits of XCR0. LazyOS saves FPU state with FXSAVE and leaves
-//! CR4.OSXSAVE clear, so on LazyOS no AVX path may be chosen: YMM state would
-//! not survive a context switch. This module reads the same inputs.
+//! and YMM bits of XCR0. LazyOS enables AVX state (CR4.OSXSAVE, XCR0 = x87 |
+//! SSE | AVX) and saves it with XSAVE on every context switch and in signal
+//! frames (issue #822), so an AVX path may be chosen on a CPU that has it.
+//! This module reads the same inputs and reports what the dispatch will see.
 
 use std::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv};
 

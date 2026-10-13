@@ -8,8 +8,10 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | Path | Role |
 |---|---|
 | `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
-| `kernel/src/mem/uspace.rs` | `demand_fault`, `cow_fault`, `unmap_range`, `protect_range` |
-| `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV` |
+| `kernel/src/mem/pagefault.rs` | `demand_fault`, `cow_fault` (`Resolve`: handled, refused, out of frames) |
+| `kernel/src/mem/uspace.rs` | `unmap_range`, `protect_range`, user table construction |
+| `kernel/src/mem/oom.rs` | `kill_current`: a fault with no frame to give ends the process with `SIGKILL` |
+| `kernel/src/arch/idt.rs:196` | `page_fault_dispatch`: COW -> demand-zero -> `SIGSEGV`, or `SIGKILL` (OOM) when no frame is left |
 | `kernel/src/process/linux/mem.rs` | `sys_mmap`, `sys_munmap`, `sys_mprotect`, `sys_brk`, `sys_mremap` |
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
 | `kernel/src/task/mod.rs` | `Bump` state (`task/mod.rs`): per-PML4 `brk` and `mmap_next` |
@@ -37,7 +39,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `protect` | splits at boundaries, sets `prot` on covered pieces, re-merges |
 | `list` | snapshot for diagnostics/tests (a future `/proc/self/maps`) |
 
-**Fault resolution** (`mem/uspace.rs`)
+**Fault resolution** (`mem/pagefault.rs`; a fault with no frame left to give is an OOM kill, `mem/oom.rs`)
 
 - Page tables are the source of truth for what is present; the VMA list for what
   may become present. `demand_fault` consults it and only materializes

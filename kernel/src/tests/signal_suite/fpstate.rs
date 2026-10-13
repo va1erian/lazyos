@@ -32,18 +32,18 @@ fn live() -> (u64, u32) {
     (xmm0, mxcsr)
 }
 
-fn read_u64(addr: u64) -> u64 {
+pub(super) fn read_u64(addr: u64) -> u64 {
     // SAFETY: the caller passes an address inside the test's `UserStack`.
     unsafe { core::ptr::read_volatile(addr as *const u64) }
 }
 
-fn write_u64(addr: u64, value: u64) {
+pub(super) fn write_u64(addr: u64, value: u64) {
     // SAFETY: as `read_u64`.
     unsafe { core::ptr::write_volatile(addr as *mut u64, value) };
 }
 
 /// A frame built from `top`; the interrupted FP state is whatever is live.
-fn build(top: u64) -> Result<signal::FrameResult, String> {
+pub(super) fn build(top: u64) -> Result<signal::FrameResult, String> {
     let regs = signal::UserRegs {
         rip: 0x0040_1000,
         rsp: top - 0x80,
@@ -65,7 +65,7 @@ fn build(top: u64) -> Result<signal::FrameResult, String> {
     .ok_or_else(|| String::from("frame does not fit the stack"))
 }
 
-fn fpstate_slot(frame: &signal::FrameResult) -> u64 {
+pub(super) fn fpstate_slot(frame: &signal::FrameResult) -> u64 {
     frame.rsp + signal::lf::MCONTEXT + signal::lf::FPSTATE
 }
 
@@ -86,7 +86,7 @@ pub fn fpstate_frame_roundtrip() -> Result<(), String> {
     let fp = read_u64(fpstate_slot(&frame));
     check!(fp % 64 == 0, "fpstate {fp:#x} is not 64-byte aligned");
     check!(
-        fp >= frame.rsp + 512 - 8 && fp + fpu::IMAGE_SIZE as u64 <= top - 128,
+        fp >= frame.rsp + 512 - 8 && fp + fpu::state_size() as u64 <= top - 128,
         "fpstate {fp:#x} overlaps the frame {:#x} or the red zone below {top:#x}",
         frame.rsp
     );
@@ -159,9 +159,17 @@ pub fn fpstate_forged_images() -> Result<(), String> {
     );
     let (_, mxcsr) = live();
     settle();
+    // The kernel masks with the CPU's own `MXCSR_MASK`, which is 0xffff on
+    // Intel and 0x2ffff on AMD (bit 17, the misaligned-exception mask): the
+    // valid set is the CPU's to define, so assert against it, not a constant.
+    let mask = crate::arch::cpu::mxcsr_mask();
     check!(
-        mxcsr & 0xffff_0000 == 0,
-        "reserved MXCSR bits survived: {mxcsr:#x}"
+        mask & 0xffff_0000 & !(1 << 17) == 0,
+        "unexpected MXCSR_MASK {mask:#x}"
+    );
+    check!(
+        mxcsr & !mask == 0,
+        "reserved MXCSR bits survived: {mxcsr:#x} (mask {mask:#x})"
     );
     Ok(())
 }

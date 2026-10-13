@@ -233,9 +233,12 @@ pub fn derived_defaults_scale() -> Result<(), String> {
         "4K buffers {}",
         uhd.shared_buffer_max
     );
+    // The floor of 256 MiB used to be all of a 256 MiB guest's RAM: the
+    // default quota now stays under what the user can be given.
     check!(
-        Limits::for_machine(256 * MIB, 0).quota_user_memory == 256 * MIB,
-        "256 MiB guest quota"
+        Limits::for_machine(256 * MIB, 0).quota_user_memory == 224 * MIB,
+        "256 MiB guest quota {}",
+        Limits::for_machine(256 * MIB, 0).quota_user_memory / MIB
     );
     // The scratch area stages a LazyRAD package (7 MiB player): 1 GiB on a
     // machine whose heap ceiling allows it, never more than half that ceiling.
@@ -286,6 +289,51 @@ pub fn task_max_defaults() -> Result<(), String> {
     Ok(())
 }
 
+/// A default quota never promises more than RAM less the kernel's boot-time
+/// share, for any machine, and a quota in `lazyos.cfg` above that is kept
+/// (the WebKit profile asks for 8G on 4 GiB) with a log line, not clamped.
+pub fn quota_default_stays_below_ram() -> Result<(), String> {
+    for ram in [
+        32 * MIB,
+        64 * MIB,
+        128 * MIB,
+        256 * MIB,
+        512 * MIB,
+        GIB,
+        4 * GIB,
+        64 * GIB,
+    ] {
+        let quota = Limits::for_machine(ram, 0).quota_user_memory;
+        let ceiling = limits::user_memory_ceiling(ram);
+        check!(
+            quota <= ceiling.max(16 * MIB) && (quota < ram || ram <= 16 * MIB),
+            "ram {} MiB: default quota {} MiB, ceiling {} MiB",
+            ram / MIB,
+            quota / MIB,
+            ceiling / MIB
+        );
+    }
+    check!(
+        limits::user_memory_ceiling(GIB) == GIB - 2 * (GIB / 32),
+        "1 GiB ceiling {}",
+        limits::user_memory_ceiling(GIB)
+    );
+    let over = sets("limit.quota_user_memory=8G");
+    check!(
+        over.len() == 1 && over[0].value == 8 * GIB && !over[0].clamped,
+        "limit.quota_user_memory=8G -> {over:?}"
+    );
+    limits::reset_for_test();
+    limits::apply_config(
+        "limit.quota_user_memory=8G
+",
+    );
+    let kept = limits::get(Id::QuotaUserMemory);
+    limits::reset_for_test();
+    check!(kept == 8 * GIB, "the configured quota became {kept}");
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("limits_parses_values", parses_values),
     ("limits_rejects_hostile_values", rejects_hostile_values),
@@ -296,4 +344,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("limits_apply_config_and_reset", apply_config_and_reset),
     ("limits_derived_defaults_scale", derived_defaults_scale),
     ("limits_task_max_defaults", task_max_defaults),
+    (
+        "limits_quota_default_stays_below_ram",
+        quota_default_stays_below_ram,
+    ),
 ];

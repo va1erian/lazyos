@@ -92,6 +92,20 @@ delivery.
   instruction (`rip - 2`, `rax` = the number), so `rt_sigreturn` issues the
   call again with its saved arguments. The saved registers are read only when
   a handler needs a frame.
+- The frame's `uc_mcontext.fpstate` points at a 64-byte-aligned copy of the
+  interrupted task's FP state placed above the `rt_sigframe`
+  (`signal/fpframe.rs`): with `XSAVE` in use the whole 832-byte standard-format
+  area (legacy region, header, `YMM_Hi128` at offset 576) followed by
+  `FP_XSTATE_MAGIC2`, with `struct _fpx_sw_bytes` (`FP_XSTATE_MAGIC1`,
+  `extended_size = xstate_size + 4`, `xfeatures`, `xstate_size`) in the legacy
+  region's software bytes at offset 464, the layout musl, glibc, libgcc and
+  debuggers read; on an `FXSAVE`-only CPU the 512 bytes with the same bytes
+  (`xstate_size = 512`) and no trailing magic. The handler starts from the
+  power-on state, as on Linux. `rt_sigreturn` restores the area only when its
+  markers are consistent (magics, sizes, `xfeatures` within `XCR0`, 64-byte
+  alignment); otherwise it restores the legacy 512 bytes and resets the AVX
+  state, and a header or `MXCSR` naming bits the CPU does not accept is
+  masked, never passed to `XRSTOR` (issue #822).
 - Native frames are `[old_rip, old_rsp, old_rflags, sig, GP regs...]` and a bare
   `ret` returns to the interrupted instruction (native programs have no
   `sigreturn` syscall yet).

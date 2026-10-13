@@ -60,7 +60,7 @@ Related: [networking-plan.md](networking-plan.md),
 | Throughput and latency | *(performance plan P4)* `netd` is woken by a kernel doorbell instead of its tick: a `connect` takes 0.5-1 ms on the local link; bulk TCP measures about 70 MB/s out and 130-190 MB/s in under WHPX (`tools/net/bulk.py`, `docs/perf/network.md`). Before P4 the table read "about 1.6 MB/s", a figure derived from the code; the first measurement found 50-60 MB/s under load and 10-13 ms per `connect` | `kernel/src/ipc/inet/bell.rs`, `user/src/bin/netd/inet/flow.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom` (seeded from `RDRAND` and timing) and native syscall 26 | `kernel/src/entropy.rs` |
 | Wall clock | RTC read once at boot plus PIT uptime; `clock_settime` with `CAP_SYS_TIME`; **no NTP**. A garbage RTC falls back to 2026-01-01 | `kernel/src/wallclock.rs` |
-| FPU/SIMD state | `FXSAVE`/`FXRSTOR` per task (x87 + SSE). **No `XSAVE`**, so AVX state is not preserved and `OSXSAVE` is off; AES-NI and `PCLMULQDQ` work (they use XMM registers) | `kernel/src/task/fpu.rs` |
+| FPU/SIMD state | `XSAVE`/`XRSTOR` per task (x87, SSE, AVX; `CR4.OSXSAVE` and `XCR0` set at boot when the CPU has them, issue #822), `FXSAVE` otherwise; AES-NI, `PCLMULQDQ` and AVX/AVX2 code work | `kernel/src/task/fpu.rs`, `kernel/src/arch/cpu.rs` |
 | Crypto in tree | `libs/crypto` (SHA-256, HMAC, HKDF, Argon2id; `keyd`'s primitives). No AEAD, no public-key | `libs/crypto/src/lib.rs` |
 | `keyd` | `Verify`, `Sign` (HMAC), `Wrap`/`Unwrap`, `Random`, `Generate`, `List`; no asymmetric keys, no per-user sealing yet | `idl/keyd.midl`, [security-model.md](security-model.md) §8 |
 | musl cross builds | `tools/abi/build.py`, `tools/rhai/build.py`, `tools/xui/build.py` (rust-lld, no C); `tools/doom/build.py` and the Docs app compile C/C++ with zig | `tools/xui/zig.py` |
@@ -88,7 +88,7 @@ What G1 and G2 need from a TLS client on the wire, today:
 | rustls + **`ring`** provider | `ring` 0.17: BoringSSL-derived primitives, Rust with C and pre-generated assembly | Fast (AES-NI, `PCLMULQDQ`), the most deployed rustls configuration. Needs a C compiler for the musl target: zig, which Doom and `xui-docs` already depend on | Was the default; ruled out by licence (§3.2) |
 | rustls + `aws-lc-rs` | rustls's own default provider | Needs CMake and a large C build; adds FIPS and post-quantum key exchange we do not need yet | No |
 | rustls + `rustls-rustcrypto` | Pure-Rust provider over the RustCrypto crates | No C at all, builds with rust-lld like `rhai`; younger and marked experimental, slower without hand-written assembly | Considered; an alpha (§3.2) |
-| rustls + `graviola` | Pure Rust plus Rust-embedded assembly, fast | Its x86_64 code assumes AVX2-class CPUs; LazyOS does not save AVX state (§2), so it is unusable until `XSAVE` lands | Not now |
+| rustls + `graviola` | Pure Rust plus Rust-embedded assembly, fast | Its x86_64 code assumes AVX2-class CPUs; LazyOS saves AVX state since issue #822 (§2), so it is no longer ruled out on that count | Not now |
 | [embedded-tls](https://crates.io/crates/embedded-tls) | `no_std`, no allocator, TLS 1.3 client only | Certificate verification is partial; no TLS 1.2. Good for a microcontroller talking to one known server, not for the public web | No (for G1/G2) |
 | BusyBox `wget` / `ssl_client` | BusyBox's own TLS (`tls.c`) | Does not verify certificates at all; TLS 1.2 with a handful of suites | No; never treat it as secure |
 | mbedTLS, BearSSL, OpenSSL through zig | Mature C libraries | A C parser of hostile input in every client, against the code standards in `README.md`; OpenSSL is also large | No |
@@ -118,9 +118,11 @@ TLS stack it links must be available under a GPLv2-compatible licence, and
   instead.
 - **No C, no zig:** the tools build with rust-lld like `rhai`.
 - **AVX:** the RustCrypto crates pick SIMD paths through `cpufeatures`, which
-  checks `XSAVE` and `OSXSAVE` and reads `XCR0` before choosing AVX; LazyOS
-  leaves `CR4.OSXSAVE` clear, so no AVX path is taken. The `tlsfix` fixture
-  reports it on every bench run and fails if that changes.
+  checks `XSAVE` and `OSXSAVE` and reads `XCR0` before choosing AVX. LazyOS
+  originally left `CR4.OSXSAVE` clear, so no AVX path was taken; since issue
+  #822 it enables x87, SSE and AVX state and saves it, so on a CPU with AVX the
+  AVX/AVX2 backends run. The `tlsfix` fixture reports what the dispatch sees
+  on every bench run.
 - **Cost:** our provider glue has had no outside audit (the RustCrypto
   crates under it have), and it is slower than `ring`'s assembly; under TCG a
   handshake is noticeably slower, invisible with KVM.
@@ -419,7 +421,7 @@ saw and what crossed the wire.
 | Layer | What | Run |
 |---|---|---|
 | Host unit | The tools' own logic against in-memory transports: URL and redirect rules, body caps, IMAP command encoding (quoting, literals, CRLF injection refused), response handling, the password never in error text | `cargo test --manifest-path nettls/Cargo.toml` |
-| ABI fixture | `tlsfix`: one rustls handshake against the harness server, plus a CPU-feature report (no AVX path may be chosen) | `python tools/abi/run.py` |
+| ABI fixture | `tlsfix`: one rustls handshake against the harness server, plus a CPU-feature report | `python tools/abi/run.py` |
 | End to end | `python tools/net/run.py --tls`: `fetch` of every page (body hashes equal what the server served), the server saw SNI = the name and ALPN `http/1.1`; `imapc login`, `list`, `headers` (output equals the server's mailbox) | new |
 | Negative | The client **must refuse**: an expired leaf, a not-yet-valid leaf, a wrong host name, a self-signed leaf, an unknown CA, a TLS 1.0-only server, a server offering only CBC/RC4 suites, a truncated record, an `https`→`http` redirect, an IMAP server advertising `LOGINDISABLED` without `AUTH=PLAIN`. For each, the server's record shows no application data (or, for the last, no credentials) from the client, and `imapc` never sent `LOGIN` | in `--tls` |
 | Wire | From the pcap: every flow to the TLS ports starts with a ClientHello carrying the expected SNI; **the password's bytes appear nowhere in the capture**; nothing on 993 is plaintext after the handshake | `tools/net/tls_pcap.py` + `test_tls_pcap.py` (the judge fails when it should) |
@@ -443,7 +445,7 @@ typed with the ordinary `type` step from `LAZYOS_IMAP_USER`.
 
 | Stage | Deliverable | Kernel change | Evidence |
 |---|---|---|---|
-| **T0** | This plan reviewed; library choices pinned; `tlsfix` built and run on the bench | none | `ABI:tlsfix:PASS` against a harness server, no AVX path |
+| **T0** | This plan reviewed; library choices pinned; `tlsfix` built and run on the bench | none | `ABI:tlsfix:PASS` against a harness server |
 | **T1** | `/etc/resolv.conf` and `/etc/hosts` (R2 static first, then R1 from `netd`); CA bundle at `/system/etc/ssl` and `/etc/ssl` | the `/etc` mappings, with tests | `netfix` resolves a name with `std`; `tlsfix` validates against the system bundle |
 | **T2** | `SO_RCVTIMEO`/`SO_SNDTIMEO` in the shim | **yes**, correctness + soak | kernel suite; a client against a silent server times out |
 | **T3** | `fetch`, `LAZYOS_TLS=1`, `--tls` in `run_demo.py` and the GUI, harness HTTPS peer and negative cases | none | `run.py --tls` page hashes and refusals; **G1 reached** with `--live` |

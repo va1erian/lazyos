@@ -376,7 +376,7 @@ picked a slot and before the stub pops its frame), in this order:
    `arch::linux::KERNEL_STACK` (where `linux_syscall_entry` switches to) are
    both set to its `kstack_top`. They must always move together; a task entered
    with one stale would trap onto another task's stack.
-4. `IA32_FS_BASE` and the FPU state are restored.
+4. `IA32_FS_BASE` and the FPU state are restored (`fpu::save`/`restore`: `XSAVE`/`XRSTOR` of x87, SSE and AVX state into the slot's 832-byte area, `FXSAVE` on a CPU without AVX; [arch.md](arch.md)).
 5. Only then is the new `rsp` returned and the frame popped.
 
 The `signal::deliver_on_resume` step (#375) runs between 4 and 5 and may

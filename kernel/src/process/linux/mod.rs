@@ -57,6 +57,7 @@ mod mmapvfs;
 mod msgio;
 mod names;
 pub(crate) mod native;
+mod overcommit;
 mod path;
 mod pathops;
 mod pipes;

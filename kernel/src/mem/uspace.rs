@@ -34,6 +34,24 @@ pub fn new_user_table() -> Option<PhysAddr> {
 /// Each page is a poll point (`arch::irq_window`): a screen-sized shared
 /// buffer is hundreds of them in one syscall.
 pub fn map_page_in(table: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageTableFlags) -> bool {
+    match try_map_page_in(table, virt, phys, flags) {
+        Ok(()) => true,
+        Err(err) => {
+            crate::serial_println!("map_page_in {:#x} failed: {:?}", virt.as_u64(), err);
+            false
+        }
+    }
+}
+
+/// [`map_page_in`] that says why it failed: `FrameAllocationFailed` means a
+/// page-table frame could not be allocated (out of memory), anything else is a
+/// bad request. Prints nothing.
+pub fn try_map_page_in(
+    table: PhysAddr,
+    virt: VirtAddr,
+    phys: PhysAddr,
+    flags: PageTableFlags,
+) -> Result<(), MapToError<Size4KiB>> {
     crate::arch::irq_window::poll_point();
     let offset = physical_offset();
     let table_virt = phys_to_virt(table);
@@ -46,18 +64,9 @@ pub fn map_page_in(table: PhysAddr, virt: VirtAddr, phys: PhysAddr, flags: PageT
     let page = Page::<Size4KiB>::containing_address(virt);
     let frame = PhysFrame::containing_address(phys);
     // Safety: the virtual page is not otherwise mapped in this table.
-    unsafe {
-        match mapper.map_to(page, frame, flags, &mut frames) {
-            Ok(flush) => {
-                flush.flush();
-                true
-            }
-            Err(err) => {
-                crate::serial_println!("map_page_in {:#x} failed: {:?}", virt.as_u64(), err);
-                false
-            }
-        }
-    }
+    let flush = unsafe { mapper.map_to(page, frame, flags, &mut frames) }?;
+    flush.flush();
+    Ok(())
 }
 
 /// Switch the active address space.
@@ -272,59 +281,6 @@ pub fn pte_chain(table: PhysAddr, va: u64) -> [u64; 4] {
     chain
 }
 
-/// Resolve a write fault on a COW page: copy the frame and map it writable.
-/// Returns true if the fault was handled (caller should resume).
-pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
-    // Safety: we walk the given PML4, whose entries we own.
-    let entry = unsafe { leaf_entry(table, va & !(FRAME_SIZE - 1)) };
-    let Some(entry) = entry else {
-        return false;
-    };
-    // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
-    // this same table.
-    let old = unsafe { *entry };
-    if old & pte::SHARED != 0 && old & PTE_USER != 0 && old & PTE_WRITABLE == 0 {
-        // A shared file page maps read-only until its first store.
-        return super::filemap::shared_write_fault(table, va, entry);
-    }
-    if old & PTE_USER == 0 || old & COW_BIT == 0 {
-        return false;
-    }
-    // COW only defers the copy of a page the address space may write. A fork
-    // marks every leaf COW, read-only ones (`PROT_READ`, `PROT_READ|EXEC`: a
-    // JIT's code cache) included, and a private memfd view is mapped COW
-    // whatever its protection; a store to one of those is an access error
-    // (`SIGSEGV`, `SEGV_ACCERR`), not a request for a private copy. A page
-    // with no VMA (a loader's or test's own mapping) keeps the old rule.
-    if vma::forbids_write(table, va) {
-        return false;
-    }
-    let shared = PhysAddr::new(old & PTE_ADDR);
-    // The other sharers already took their copies (or exited): this mapping
-    // is the frame's only reference, so it becomes writable in place, with
-    // no frame allocated and nothing copied (P6.6).
-    if super::frame_refcount(shared) == 1 {
-        // Safety: `entry` is the same present leaf read above; nothing else
-        // can have unmapped it in between (single-threaded fault handling).
-        unsafe { *entry = (old & !COW_BIT) | PTE_WRITABLE };
-        x86_64::instructions::tlb::flush(VirtAddr::new(va));
-        return true;
-    }
-    // Every byte of the new frame is overwritten by the copy: no zeroing.
-    let Some(frame) = super::alloc_frame() else {
-        return false;
-    };
-    copy_frame(shared, frame);
-    // Safety: `entry` is the same present leaf read above; nothing else can
-    // have unmapped it in between (single-threaded fault handling).
-    unsafe { *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE };
-    // The page now lives privately here: release our reference to the shared
-    // frame (which frees it if this was the last user).
-    free_frame(PhysAddr::new(old & PTE_ADDR));
-    x86_64::instructions::tlb::flush(VirtAddr::new(va));
-    true
-}
-
 /// Drop `[start, end)` from `table`'s user mappings: clear each present leaf
 /// and return its frame to the allocator (shared COW frames just lose one
 /// reference). Page tables are left in place; [`free_user_table`] reaps them.
@@ -412,47 +368,6 @@ pub fn prot_flags(prot: vma::Prot) -> PageTableFlags {
         flags |= PageTableFlags::NO_EXECUTE;
     }
     flags
-}
-
-/// Resolve a not-present page fault by materializing a zeroed page for an
-/// `Anon`/`Heap`/`Stack` VMA. Returns true if the fault was handled.
-///
-/// Only access the VMA permits is granted: a write fault in a read-only range
-/// (or any access to `PROT_NONE`) stays unresolved and falls through to the
-/// fatal path, where a future signal would be delivered. `File` VMAs are
-/// mapped eagerly and never demand-fault; a stack is mapped eagerly only where
-/// the loader wrote its start frame, the rest of its reservation fills on
-/// first touch.
-pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool {
-    if error.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
-        return false; // present but forbidden: not a missing page
-    }
-    let Some(vma) = vma::find(table, va) else {
-        return false;
-    };
-    if vma.kind.is_file_mapping() {
-        return super::filemap::fault(table, va, error, vma);
-    }
-    if !matches!(
-        vma.kind,
-        vma::Kind::Anon | vma::Kind::Heap | vma::Kind::Stack
-    ) {
-        return false;
-    }
-    // x86 has no write-only or execute-only page, so (as on Linux) any right
-    // implies a readable page; only `PROT_NONE` has nothing to materialize.
-    if vma.prot.0 & (vma::Prot::READ.0 | vma::Prot::WRITE.0 | vma::Prot::EXEC.0) == 0 {
-        return false;
-    }
-    let Some(frame) = alloc_zeroed_frame() else {
-        return false;
-    };
-    let page = VirtAddr::new(va & !(FRAME_SIZE - 1));
-    if !map_page_in(table, page, frame, prot_flags(vma.prot)) {
-        free_frame(frame);
-        return false;
-    }
-    true
 }
 
 /// Per-address-space accounting: `(vsz_bytes, resident_pages)`.

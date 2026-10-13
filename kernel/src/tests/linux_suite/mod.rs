@@ -216,6 +216,7 @@ mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
 mod nofile_limit;
+mod overcommit;
 mod random;
 mod sendfile;
 mod seqpacket_unix;
@@ -239,6 +240,7 @@ pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
 pub(super) use nofile_limit::*;
+pub(super) use overcommit::*;
 pub(super) use random::*;
 pub(super) use sendfile::*;
 pub(super) use seqpacket_unix::*;
@@ -355,6 +357,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "linux_mmap_quota_returns_when_the_process_exits",
         mmap_quota_returns_when_the_process_exits,
     ),
+    (
+        "linux_overcommit_refuses_what_could_never_fit",
+        overcommit_refuses_what_could_never_fit,
+    ),
+    ("linux_overcommit_refusals_soak", overcommit_refusals_soak),
     (
         "linux_nofile_soft_limit_is_enforced",
         nofile_soft_limit_is_enforced,

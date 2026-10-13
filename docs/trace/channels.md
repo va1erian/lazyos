@@ -80,7 +80,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NSLOOKUP` | `Nslookup` | `nslookup` | user | tools/net | programs |
 | `PAINT` | `Paint` | `paint` | xui-app | sessions | programs |
 | `PDF` | `Pdf` | `pdf` | xui-app | sessions | programs |
-| `PERF` | `Perf` | `perf` | kernel, user | - | programs |
+| `PERF` | `Perf` | `perf` | kernel, kernel suite, user | - | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
 | `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/wifi | programs |

@@ -351,6 +351,16 @@ pub fn take_file_mappings(table: PhysAddr) -> Vec<Unmapped> {
     taken
 }
 
+/// Bytes `table` has reserved (the summed VMA lengths), without allocating:
+/// the out-of-memory report asks while the allocator has nothing left.
+pub fn mapped_bytes(table: PhysAddr) -> u64 {
+    let spaces = SPACES.lock();
+    spaces
+        .iter()
+        .find(|space| space.pml4 == table.as_u64())
+        .map_or(0, |space| space.vmas.iter().map(|vma| vma.len()).sum())
+}
+
 /// Whether `va` lies in a VMA that does not permit writing. A page with no
 /// VMA (unit tests map frames by hand) is not second-guessed. Copy-on-write
 /// asks it: a private view of a memfd is mapped COW whatever its protection,
