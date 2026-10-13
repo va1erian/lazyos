@@ -1,0 +1,17 @@
+PLL refclks: non-SSC: 24000 kHz, SSC: 0 kHz
+DPLL0: DPLL 0, id: 0
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: ctrl1: 0x5, cfgcr1: 0x0, cfgcr2: 0x0
+DPLL1: DPLL 1, id: 1
+ pipe_mask: 0x1, active: 0x1, on: yes
+ tracked hardware state:
+dpll_hw_state: ctrl1: 0x21, cfgcr1: 0x8046675b, cfgcr2: 0x147
+DPLL2: DPLL 2, id: 2
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: ctrl1: 0x0, cfgcr1: 0x0, cfgcr2: 0x0
+DPLL3: DPLL 3, id: 3
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: ctrl1: 0x0, cfgcr1: 0x0, cfgcr2: 0x0

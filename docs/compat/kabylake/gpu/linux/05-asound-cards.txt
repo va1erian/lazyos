@@ -1,0 +1,21 @@
+# cat /proc/asound/cards 2>&1; echo; ls -l /proc/asound 2>&1
+ 0 [PCH            ]: HDA-Intel - HDA Intel PCH
+                      HDA Intel PCH at 0xdf220000 irq 133
+ 1 [HID            ]: USB-Audio - USB Audio and HID
+                      CSCTEK USB Audio and HID at usb-0000:00:14.0-4, full speed
+
+total 0
+lrwxrwxrwx 1 root root 5 Oct 13 17:29 HID -> card1
+lrwxrwxrwx 1 root root 5 Oct 13 17:29 PCH -> card0
+dr-xr-xr-x 5 root root 0 Oct 13 17:26 card0
+dr-xr-xr-x 4 root root 0 Oct 13 17:26 card1
+-r--r--r-- 1 root root 0 Oct 13 17:29 cards
+-r--r--r-- 1 root root 0 Oct 13 17:29 devices
+-r--r--r-- 1 root root 0 Oct 13 17:29 hwdep
+-r--r--r-- 1 root root 0 Oct 13 17:29 modules
+dr-xr-xr-x 2 root root 0 Oct 13 17:29 oss
+-r--r--r-- 1 root root 0 Oct 13 17:29 pcm
+dr-xr-xr-x 2 root root 0 Oct 13 17:29 seq
+-r--r--r-- 1 root root 0 Oct 13 17:29 timers
+-r--r--r-- 1 root root 0 Oct 13 17:29 version
+# exit 0
