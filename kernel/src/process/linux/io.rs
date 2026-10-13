@@ -189,29 +189,7 @@ pub(super) fn write_stream_rights(
         };
     }
     if seqpacket {
-        if len > pipe::CAPACITY as u64 {
-            return err(EMSGSIZE);
-        }
-        let want = len as usize;
-        let mut buf = Vec::new();
-        if buf.try_reserve_exact(want).is_err() {
-            return err(ENOMEM);
-        }
-        buf.resize(want, 0);
-        match user_ptr::try_bytes(ptr, want) {
-            Ok(bytes) => buf.copy_from_slice(bytes),
-            Err(_) => return err(EFAULT),
-        }
-        return match task::fd_stream_send_rights(fd as usize, &buf, dont_wait, rights) {
-            Ok(n) => n as u64,
-            Err(pipe::Error::WouldBlock) => err(EAGAIN),
-            Err(pipe::Error::BrokenPipe) => err(EPIPE),
-            Err(pipe::Error::Interrupted) => err(EINTR),
-            Err(pipe::Error::MessageTooLong) => err(EMSGSIZE),
-            Err(pipe::Error::TooManyRefs) => err(ETOOMANYREFS),
-            Err(pipe::Error::Invalid) => err(EINVAL),
-            Err(pipe::Error::BadEnd) => err(EBADF),
-        };
+        return send_gathered(fd, &[(ptr, len)], dont_wait, rights);
     }
     let want = (len as usize).min(STREAM_MAX);
     let (mut stack, mut heap) = ([0u8; STREAM_CHUNK], Vec::new());
@@ -223,6 +201,43 @@ pub(super) fn write_stream_rights(
         Err(_) => return err(EFAULT),
     }
     match task::fd_stream_send_rights(fd as usize, buf, dont_wait, rights) {
+        Ok(n) => n as u64,
+        Err(error) => pipe_error(error),
+    }
+}
+
+/// Send the user segments `parts`, in order, as ONE message on a `SOCK_SEQPACKET`
+/// socket (what `write`, `writev` and `sendmsg` mean there: a gather never splits
+/// the record). Staged in one heap buffer; over the pipe capacity is `-EMSGSIZE`.
+pub(super) fn send_gathered(
+    fd: u64,
+    parts: &[(u64, u64)],
+    dont_wait: bool,
+    rights: &mut Option<pipe::Rights>,
+) -> u64 {
+    let mut total = 0u64;
+    for &(_, len) in parts {
+        total = match total.checked_add(len) {
+            Some(sum) if sum <= pipe::CAPACITY as u64 => sum,
+            _ => return err(EMSGSIZE),
+        };
+    }
+    // Nothing to send is not a record (as for `write` of no bytes above); descriptors alone
+    // still make an empty one.
+    if total == 0 && rights.is_none() {
+        return 0;
+    }
+    let mut buf = Vec::new();
+    if buf.try_reserve_exact(total as usize).is_err() {
+        return err(ENOMEM);
+    }
+    for &(base, len) in parts {
+        match user_ptr::try_bytes(base, len as usize) {
+            Ok(bytes) => buf.extend_from_slice(bytes),
+            Err(_) => return err(EFAULT),
+        }
+    }
+    match task::fd_stream_send_rights(fd as usize, &buf, dont_wait, rights) {
         Ok(n) => n as u64,
         Err(error) => pipe_error(error),
     }

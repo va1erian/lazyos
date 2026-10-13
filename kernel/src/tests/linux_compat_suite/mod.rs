@@ -18,6 +18,8 @@ mod futex;
 mod locks;
 mod memfd;
 mod msg;
+mod msg_gather;
+mod msg_gather_limits;
 mod ptyflow;
 mod readthrough;
 mod resources;
@@ -42,6 +44,13 @@ use futex::*;
 use locks::*;
 use memfd::*;
 use msg::*;
+use msg_gather::{
+    msg_gather_carries_rights, msg_gather_refusals_keep_rights, msg_writev_gather_errors,
+};
+use msg_gather_limits::{
+    msg_gather_dontwait_full_queue, msg_gather_large_soak, msg_gather_near_capacity,
+    msg_gather_segment_limit,
+};
 use ptyflow::*;
 use resources::*;
 use schedattr::*;
@@ -68,6 +77,7 @@ const EFAULT: u64 = neg(14);
 const EEXIST: u64 = neg(17);
 const EINVAL: u64 = neg(22);
 const ENOSYS: u64 = neg(38);
+const EMSGSIZE: u64 = neg(90);
 const EOPNOTSUPP: u64 = neg(95);
 const ETIMEDOUT: u64 = neg(110);
 
@@ -189,6 +199,30 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
     ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
+    (
+        "compat_msg_seqpacket_gathers_one_record",
+        msg_seqpacket_gathers_one_record,
+    ),
+    (
+        "compat_msg_seqpacket_gather_soak",
+        msg_seqpacket_gather_soak,
+    ),
+    (
+        "compat_msg_gather_carries_rights",
+        msg_gather_carries_rights,
+    ),
+    (
+        "compat_msg_gather_refusals_keep_rights",
+        msg_gather_refusals_keep_rights,
+    ),
+    ("compat_msg_writev_gather_errors", msg_writev_gather_errors),
+    ("compat_msg_gather_segment_limit", msg_gather_segment_limit),
+    ("compat_msg_gather_near_capacity", msg_gather_near_capacity),
+    (
+        "compat_msg_gather_dontwait_full_queue",
+        msg_gather_dontwait_full_queue,
+    ),
+    ("compat_msg_gather_large_soak", msg_gather_large_soak),
     ("compat_scmrights_round_trip", scmrights_round_trip),
     ("compat_scmrights_cloexec", scmrights_cloexec),
     ("compat_scmrights_ctrunc", scmrights_ctrunc),

@@ -1,0 +1,17 @@
+Add LazyOS to the ports WebKit's CMake knows.
+
+WebKitCommon.cmake checks PORT against a fixed list before including
+Source/cmake/Options${PORT}.cmake. The port's Options and Platform files are
+laid into the tree by tools/webkit/port_tree.py (webkit/port/tree); this is the
+one line of existing CMake that has to change to reach them.
+
+--- a/Source/cmake/WebKitCommon.cmake
++++ b/Source/cmake/WebKitCommon.cmake
+@@ -76,6 +76,7 @@
+         GTK
+         IOS
+         JSCOnly
++        LazyOS
+         Mac
+         PlayStation
+         WPE

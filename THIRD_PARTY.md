@@ -76,14 +76,21 @@ image under its own licence text. Every entry below records its origin
 | openssl 3.5.9 | `https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz`, SHA-256 `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` | Apache-2.0; GPLv2-incompatible: never link into LazyWeb (GPL-2.0-only) or the nettls stack | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | nghttp2 1.70.0 | `https://github.com/nghttp2/nghttp2/releases/download/v1.70.0/nghttp2-1.70.0.tar.xz`, SHA-256 `e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2` | MIT | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | curl 8.22.0 | `https://github.com/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.tar.xz`, SHA-256 `f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7` | curl | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
+| libwpe 1.16.2 | `https://github.com/WebPlatformForEmbedded/libwpe/releases/download/1.16.2/libwpe-1.16.2.tar.xz`, SHA-256 `960bdd11c3f2cf5bd91569603ed6d2aa42fd4000ed7cac930a804eac367888d7` | BSD-2-Clause | linked into the port's `/system/bin/webprocess`, `networkprocess` and `webkit-smoke` (`LAZYOS_WEBKIT=1`, `tools/webkit`) |
+| glstub 2.54.1 | `https://webkitgtk.org/releases/webkitgtk-2.54.1.tar.xz`, SHA-256 `ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d` | MIT; generated from the Khronos headers in the WebKitGTK tarball's ANGLE copy; no code of its own | linked into the port's `/system/bin/webprocess`, `networkprocess` and `webkit-smoke` (`LAZYOS_WEBKIT=1`, `tools/webkit`) |
 | icu 74.2 | `https://github.com/unicode-org/icu/releases/download/release-74-2/icu4c-74_2-src.tgz`, SHA-256 `68db082212a96d6f53e35d60f47d38b962e9f9d207a74cfac78029ae8ff5e08c` | Unicode-3.0 | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | skia 2.54.1 | `https://webkitgtk.org/releases/webkitgtk-2.54.1.tar.xz`, SHA-256 `ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d` | BSD-3-Clause; Source/ThirdParty/skia of the WebKitGTK tarball, built with WebKit's own CMake | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
+| WebKit 2.54.1 | `https://webkitgtk.org/releases/webkitgtk-2.54.1.tar.xz`, SHA-256 `ea0bbb02dbdbc596874a4e7ad35b66645b3e0a232bd0e4081de5ed92eb0a397d` | LGPL-2.1-or-later AND BSD-2-Clause; WebCore, WebKit, JavaScriptCore, WTF and bmalloc of the WebKitGTK tarball, patched (`webkit/patches`) and statically linked into the shipped binaries | linked into the port's `/system/bin/webprocess`, `networkprocess` and `webkit-smoke` (`LAZYOS_WEBKIT=1`, `tools/webkit`) |
 | Liberation Sans Regular 2.1.5 | `assets/fonts/liberation/LiberationSans-Regular.ttf` (`assets/manifest.txt`) | OFL-1.1 | compiled into `/system/bin/depsproof` as its test font |
 
 The rows from zlib to the Liberation font are the WebKit dependency bundle
 (`tools/webkit`, [`README`](tools/webkit/README.md)): static libraries that
 `LAZYOS_WEBKIT_DEPS=1` images link into `/system/bin/depsproof` and that
-WebKit (LGPL-2.1) will link. They are built from the pinned, hash-checked
+WebKit (LGPL-2.1) links statically into the port's programs
+(`/system/bin/webprocess`, `networkprocess` and `webkit-smoke`, `LAZYOS_WEBKIT=1`;
+libwpe and glstub only there). WebKit 2.54.1 itself has a row: the WebKitGTK
+tarball (LGPL-2.1-or-later AND BSD-2-Clause) is statically linked into those
+three binaries. They are built from the pinned, hash-checked
 archives named in `tools/webkit/wkpins.py`; none is copied into the tree.
 Two rows are exceptions to the rule above, on purpose:
 

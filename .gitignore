@@ -45,3 +45,6 @@ __pycache__/
 
 # netboot registry URL of this machine (tools/netboot/push.py)
 tools/netboot/registry.local.json
+
+# WebKit NetworkProcess cookie jars (it keeps one in its working directory; webkit/README.md)
+cookie.jar.db*

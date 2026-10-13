@@ -34,7 +34,9 @@ const MSG_MORE: u64 = 0x8000;
 const MSG_CMSG_CLOEXEC: u64 = 0x4000_0000;
 
 const SEND_FLAGS: u64 = MSG_DONTWAIT | MSG_EOR | MSG_NOSIGNAL | MSG_MORE;
-const RECV_FLAGS: u64 = MSG_PEEK | MSG_DONTWAIT | MSG_WAITALL | MSG_CMSG_CLOEXEC;
+/// `MSG_NOSIGNAL` is accepted on a receive and means nothing there, as on Linux
+/// (WebKit's IPC passes it to `recvmsg`).
+const RECV_FLAGS: u64 = MSG_PEEK | MSG_DONTWAIT | MSG_WAITALL | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL;
 
 /// Most `iovec` entries one call takes (`UIO_MAXIOV`).
 const IOV_MAX: u64 = 1024;
@@ -169,7 +171,9 @@ fn segments(iov: Vec<(u64, u64)>) -> impl Iterator<Item = (u64, u64)> {
 /// and stops at the first short or failed transfer (a short count is legal).
 /// A message socket (datagram, seqpacket) needs the message in one piece, so
 /// it takes at most one non-empty segment and refuses a scattered one with
-/// `EOPNOTSUPP` instead of splitting the message.
+/// `EOPNOTSUPP` instead of splitting the message; only a `SOCK_SEQPACKET`
+/// pair gathers the segments into the one record (WebKit's IPC sends a
+/// header and a body that way).
 pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     let dont_wait = match send_flags(flags) {
         Ok(dont_wait) => dont_wait,
@@ -200,6 +204,11 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
         return match parts.as_slice() {
             [] => send(fd, 0, 0, to, (dont_wait, &mut rights)),
             [(base, len)] => send(fd, *base, *len, to, (dont_wait, &mut rights)),
+            // A seqpacket gather is one record (Linux builds it from the segments);
+            // a scattered datagram is still refused.
+            _ if task::fd_seqpacket(fd as usize) => {
+                super::io::send_gathered(fd, &parts, dont_wait, &mut rights)
+            }
             _ => err(EOPNOTSUPP),
         };
     }

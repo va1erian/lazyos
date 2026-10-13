@@ -56,6 +56,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
 | `LAZYOS_JSC` | JavaScriptCore's `jsc` shell and the C++/ICU check `cxxproof` in `/system/bin` (built in Docker; wants `--big-app`). | `tools/jsc/build.py` | `--jsc` |
 | `LAZYOS_WEBKIT_DEPS` | `depsproof`, one C++ program linking the WebKit dependency bundle (zlib to curl, Skia), in `/system/bin` (built in Docker; implies networking and `--big-app`). | `tools/webkit/deps.py` | `--webkit-deps` |
+| `LAZYOS_WEBKIT` | The WebKit port (W4): `WebProcess`, `NetworkProcess` and the headless UI process `webkit-smoke` in `/system/bin`, `fonts.conf` in `/system/etc/fonts` (built in Docker after the bundle; implies networking and `--big-app`). | `tools/webkit/port.py` | `--webkit` |
 | `LAZYOS_TLS` | `curl`, `wget`, `fetch` and the Mozilla CA bundle. | - | `--tls` |
 | `LAZYOS_FETCH` | Path to the `nettls` binary to embed (default: `target/nettls/fetch.elf`). | `LAZYOS_TLS` | - |
 | `LAZYOS_SMB` | The `smb` client and `smbfuse`. | `LAZYOS_NETD` | `--smb` |
@@ -94,7 +95,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
-| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
+| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, `768M` with `LAZYOS_WEBKIT=1`, `1G` with `LAZYOS_SRB2KART=1`, `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
 | `LAZYOS_RESET_OS` | Recreate the OS volume with a new UUID instead of updating in place. CI sets it everywhere. | `--reset-os` |
 | `LAZYOS_UPDATE_DAMAGED_OS` | Update a volume anyway when the checker finds damage a crash does not leave. | - |
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |

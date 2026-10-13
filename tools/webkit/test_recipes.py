@@ -85,7 +85,9 @@ class PinTests(unittest.TestCase):
                 self.assertEqual(mirror.rsplit("/", 1)[1], dep.archive, dep.name)
 
     def test_archive_names_are_unique_in_the_cache(self) -> None:
-        names = [dep.archive for dep in [*wkpins.DEPS, *wkpins.BUNDLED]]
+        # Downloads must not collide in the cache; the bundled libraries (Skia,
+        # the GL stubs) legitimately share the one WebKit tarball.
+        names = [dep.archive for dep in wkpins.DEPS] + sorted({dep.archive for dep in wkpins.BUNDLED})
         self.assertEqual(len(names), len(set(names)))
 
     def test_a_forge_generated_archive_is_explained_and_has_a_mirror(self) -> None:

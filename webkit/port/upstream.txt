@@ -1,0 +1,85 @@
+# Source files the PlayStation port needs that the WebKitGTK 2.54.1 release
+# tarball does not carry (its libwpe directories were left out; the tarball is
+# GTK's). They are fetched at build time from WebKit's git at the commit the
+# webkitgtk-2.54.1 tag points to and checked against the git blob digest
+# below (tools/webkit/port_tree.py); nothing here is vendored.
+#
+# commit 628d6ce1850e17225185a5807a9d0aa375bae2be
+# <git blob sha1>                          <path in the WebKit tree>
+d0a3d5c048647b07772e1581c76c4eb60ecf41b0 Source/WebCore/editing/libwpe/EditorLibWPE.cpp
+19c4683b7f5dfe2a7215c0c8694b8444d018761d Source/WebCore/platform/libwpe/PasteboardLibWPE.cpp
+ee7238303b628d0be016c80e391fe8edb9de1439 Source/WebCore/platform/libwpe/PlatformKeyboardEventLibWPE.cpp
+e47f5bade7c0a27e8a27f8dc95b51174f025b4a6 Source/WebCore/platform/libwpe/PlatformPasteboardLibWPE.cpp
+306d78f0b3b7d9b254c2afb00b77abd29daf2eb4 Source/WebKit/Shared/libwpe/NativeWebKeyboardEventLibWPE.cpp
+05ff09009da74b1cc95683c4db7468bf919a15e3 Source/WebKit/Shared/libwpe/NativeWebMouseEventLibWPE.cpp
+13bb0ac83774372e2f3bcf737f871b24c527986b Source/WebKit/Shared/libwpe/NativeWebTouchEventLibWPE.cpp
+b05a9089a6ea072c463d315827f2ba600d28ecdc Source/WebKit/Shared/libwpe/NativeWebWheelEventLibWPE.cpp
+d7b30b4ffb9b168b88a8d702ffc46691e8b878c5 Source/WebKit/Shared/libwpe/WebEventFactory.cpp
+284ab0fcbe6c2cd6c52640ffd9d2d76b79a840db Source/WebKit/Shared/libwpe/WebEventFactory.h
+42f147cf35f40ae51730b9358055eb08276efd9a Source/WebKit/UIProcess/libwpe/WebPasteboardProxyLibWPE.cpp
+79ae90c2656cce8304a8d949b058b665bee016da Source/WebCore/platform/network/curl/AuthenticationChallenge.h
+1373e6e9b7b3e517f8570d11022f02a40ce42c27 Source/WebCore/platform/network/curl/AuthenticationChallengeCurl.cpp
+9723fa83d3c5b6e1e08234c8155c781a038dcb62 Source/WebCore/platform/network/curl/CertificateInfo.h
+5076ddb3f9b168d83b3f8fae2580f8190a7b05ec Source/WebCore/platform/network/curl/CertificateInfoCurl.cpp
+d49c4431f78b54c5d05eebfefc27914d174c71a3 Source/WebCore/platform/network/curl/CookieJarDB.cpp
+96e0a63b347c170c963bc7e851f383b91665c5c8 Source/WebCore/platform/network/curl/CookieJarDB.h
+5e3adf0a7053482c3b39da5c96ed7aee2f39f102 Source/WebCore/platform/network/curl/CookieStorageCurl.cpp
+7d0ffb01d0cfc846045fea9ad8a4b2e7a7d63e8c Source/WebCore/platform/network/curl/CookieUtil.cpp
+7dc22680ab7447786be9fed7f40cf422810c053b Source/WebCore/platform/network/curl/CookieUtil.h
+b9c680d9909a2974929c671c6efd63bffc509c98 Source/WebCore/platform/network/curl/CurlContext.cpp
+7cc418aecda678c62d6e0873e87c1f19425113fa Source/WebCore/platform/network/curl/CurlContext.h
+8f3a145618a1b7303b8f38448cb1aa8150df9bd5 Source/WebCore/platform/network/curl/CurlFormDataStream.cpp
+c8ff425b1f0490722cb89f0e42454fe18dcea182 Source/WebCore/platform/network/curl/CurlFormDataStream.h
+f2eec76cae624686418255d737dc6575094a3ca5 Source/WebCore/platform/network/curl/CurlMultipartHandle.cpp
+d56d09759ba0211f89ed9c5684cfc8f6eda5a24e Source/WebCore/platform/network/curl/CurlMultipartHandle.h
+c2effa72121da79fc1108069ec3a3c68f2028217 Source/WebCore/platform/network/curl/CurlMultipartHandleClient.h
+d915c55c02022b26df82a116caaf4faec3740894 Source/WebCore/platform/network/curl/CurlProxySettings.cpp
+40b459c3c9ef871d37ae99274af4698828e8b4a3 Source/WebCore/platform/network/curl/CurlProxySettings.h
+dba3460cfb793364bcb82c103009b6cbeff34f54 Source/WebCore/platform/network/curl/CurlRequest.cpp
+a90eec38e1fddb16e1f5fe271966c28183b078ef Source/WebCore/platform/network/curl/CurlRequest.h
+64dbc254d60ad4fb87da4d1c829e1d5ae7146544 Source/WebCore/platform/network/curl/CurlRequestClient.h
+393535b29c7ea90e6c7cb83d261a93963e09b5d7 Source/WebCore/platform/network/curl/CurlRequestScheduler.cpp
+8f554b37e49dee04ddd702866d9efd764ed5d2a6 Source/WebCore/platform/network/curl/CurlRequestScheduler.h
+66535f1df34c441dc870e08f245085fb0d8e0b1d Source/WebCore/platform/network/curl/CurlRequestSchedulerClient.h
+0b3c6dc95533467d41d4314ef777c4cc7ea8608f Source/WebCore/platform/network/curl/CurlResponse.h
+6336ef416220bf73ed3750b99b582df691da8966 Source/WebCore/platform/network/curl/CurlSSLHandle.cpp
+38841fda2439f4beff6e842a96d7d7f173f85ef2 Source/WebCore/platform/network/curl/CurlSSLHandle.h
+d6d5147a8a67e2f70a2be61f8056ee99ad8181b6 Source/WebCore/platform/network/curl/CurlSSLVerifier.cpp
+0dc0ea7f528e6c82a7cb16a0429ea8b1ac495043 Source/WebCore/platform/network/curl/CurlSSLVerifier.h
+e7708fd8bf2a6a759976953050c4ac007c36f06f Source/WebCore/platform/network/curl/CurlStream.cpp
+af04c9f7ac0333ffdb5c6638eb6b1ae20ab8104e Source/WebCore/platform/network/curl/CurlStream.h
+2bfaac5ae763e24745eb99c41967cde078345355 Source/WebCore/platform/network/curl/CurlStreamScheduler.cpp
+4aa8f5e2ad82c59e7dfa4f66e56a83bec94581f6 Source/WebCore/platform/network/curl/CurlStreamScheduler.h
+0a21c097975d267a561b77b3f750872b987bd98f Source/WebCore/platform/network/curl/DNSResolveQueueCurl.cpp
+7d6642596d09f158f5a29eabb128c507b7d8c688 Source/WebCore/platform/network/curl/DNSResolveQueueCurl.h
+5a78d6c775542cd62d3b192dc60972fdbea92270 Source/WebCore/platform/network/curl/NetworkStorageSessionCurl.cpp
+9708d27d3a7535bc694acbe064f635464709ebce Source/WebCore/platform/network/curl/OpenSSLHelper.cpp
+17fed28e2b14ad18a66e3f7408ffd6dcfde2fe5f Source/WebCore/platform/network/curl/OpenSSLHelper.h
+fd821b3cba2c532788b01f0c215f0c53fe398515 Source/WebCore/platform/network/curl/ProtectionSpaceCurl.cpp
+a8649f7a38ab8abe04a447f959170d23b2e871f0 Source/WebCore/platform/network/curl/ProtectionSpaceCurl.h
+c813bc872d4102aa109f94a72c4dc39606e299d5 Source/WebCore/platform/network/curl/PublicSuffixStoreCurl.cpp
+ace8e48724354162cc202326ce1e8ea301e5d3db Source/WebCore/platform/network/curl/ResourceError.h
+58ed88ac89507470c94ade2ef6bfd87e3074940e Source/WebCore/platform/network/curl/ResourceErrorCurl.cpp
+d6f770b201ce8d2befbed6550d5a360c61ef413d Source/WebCore/platform/network/curl/ResourceRequest.h
+335893f23f76c3086fee3778d1f54ab3a632cb7c Source/WebCore/platform/network/curl/ResourceRequestCurl.cpp
+b054c8fcec81e249da178db6712bad5f8953d56e Source/WebCore/platform/network/curl/ResourceResponse.h
+b354f4b3a2c549d012a324d1bba002656ac3e4fb Source/WebCore/platform/network/curl/ResourceResponseCurl.cpp
+b258db68c8ec1df7e2bd87aaa1c5d3ccc9a8a47e Source/WebKit/NetworkProcess/Cookies/curl/WebCookieManagerCurl.cpp
+0a2c25f815f594b2de6168ffd8b083c625e42e1f Source/WebKit/NetworkProcess/curl/NetworkDataTaskCurl.cpp
+7babe41b8351f8adbffcf194310d4df41637b192 Source/WebKit/NetworkProcess/curl/NetworkDataTaskCurl.h
+b68db820939bc7a3c8b127a7dd41e785fdf07596 Source/WebKit/NetworkProcess/curl/NetworkProcessCurl.cpp
+d01bd56a6687fbed6340cbd62081e14fb170b050 Source/WebKit/NetworkProcess/curl/NetworkProcessMainCurl.cpp
+65481bfd7e71e12544da896fa5b7034e815f719a Source/WebKit/NetworkProcess/curl/NetworkSessionCurl.cpp
+c5e968f8312dfcb5612b45d043a8fc36533478d9 Source/WebKit/NetworkProcess/curl/NetworkSessionCurl.h
+d94cbabdd72853564a28c096e6dfd36ed26da9da Source/WebKit/NetworkProcess/curl/WebSocketTaskCurl.cpp
+47996ff2009b82e183c5b28c73794781c6cb4a95 Source/WebKit/NetworkProcess/curl/WebSocketTaskCurl.h
+71b9cfc048ed6061d4712a1fa2f6f339270374ea Source/WebKit/Shared/API/c/curl/WKCertificateInfoCurl.cpp
+dd8c8d3e05d0b4cf2e7e501c4b13f6135a9f8848 Source/WebKit/Shared/API/c/curl/WKCertificateInfoCurl.h
+db9f9a522fb77defa965688278bfaeb9554d6f7b Source/WebKit/Shared/curl/WebCoreArgumentCodersCurl.serialization.in
+4af9c39c896c61621c7972a7453d88e3a2a2b0ab Source/WebKit/UIProcess/API/C/curl/WKProtectionSpaceCurl.cpp
+9ad4000ab9b7cfc0887d9470b22caf57de97c366 Source/WebKit/UIProcess/API/C/curl/WKProtectionSpaceCurl.h
+7c21991bda3588a0d85abc6c708d7bdc4e98b573 Source/WebKit/UIProcess/API/C/curl/WKWebsiteDataStoreRefCurl.cpp
+7bb27aa4a2e5e24bcf2df3b7842ccb072097ef6f Source/WebKit/UIProcess/API/C/curl/WKWebsiteDataStoreRefCurl.h
+a282874cfa4acf9e4d50ec98ac9fef3300ff7bcd Source/WebKit/UIProcess/WebsiteData/curl/WebsiteDataStoreCurl.cpp
+d4ff6dac716d1ae6b8f996fadf48a72fcd3ebcb8 Source/WebKit/WebProcess/WebCoreSupport/curl/WebFrameNetworkingContext.cpp
+abcbe482d04c3c0d6603e467a2f82230ab2d4bb6 Source/WebKit/WebProcess/WebCoreSupport/curl/WebFrameNetworkingContext.h
