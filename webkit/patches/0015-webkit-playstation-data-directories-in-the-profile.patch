@@ -1,0 +1,56 @@
+WebKit: the PlayStation data directories follow the profile named in the environment.
+
+WebsiteDataStore::cacheDirectoryFileSystemRepresentation and
+websiteDataDirectoryFileSystemRepresentation answer `/app0` (the PlayStation's application
+directory) for every data directory the embedder did not set with the C API: the HSTS and
+alternative-services caches, the media and device-id directories, the service worker and
+statistics directories. LazyOS has no `/app0`, and a sandboxed NetworkProcess must write only
+below the user's profile directory (`$HOME/.apps/os.lazy.webkit`). The UI process names that
+directory in LAZYOS_WEBKIT_PROFILE before it starts WebKit (webkit/port/app/engine.cpp), and
+these two functions now build their paths below it; an environment without it keeps `/app0`,
+so nothing else changes.
+
+--- a/Source/WebKit/UIProcess/WebsiteData/playstation/WebsiteDataStorePlayStation.cpp
++++ b/Source/WebKit/UIProcess/WebsiteData/playstation/WebsiteDataStorePlayStation.cpp
+@@ -27,6 +27,7 @@
+ #include "WebsiteDataStore.h"
+
+ #include <WebCore/NotImplemented.h>
++#include <stdlib.h>
+ #include <wtf/FileSystem.h>
+
+ namespace WebKit {
+@@ -41,18 +42,31 @@
+     notImplemented();
+ }
+
++// Where the browser keeps what it persists when the embedder named no directory of its own. The
++// PlayStation keeps it under its application directory, `/app0`, which LazyOS has not; there the
++// UI process names the user's profile directory (`$HOME/.apps/os.lazy.webkit`) in the
++// environment before it starts WebKit (webkit/port/app/engine.cpp), and an environment that does
++// not say keeps the old answer.
++static String profileDirectory()
++{
++    const char* profile = getenv("LAZYOS_WEBKIT_PROFILE");
++    if (profile && *profile == '/')
++        return String::fromUTF8(profile);
++    return "/app0"_s;
++}
++
+ String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& directoryName, const String& baseCacheDirectory, ShouldCreateDirectory)
+ {
+     if (!baseCacheDirectory.isNull())
+         return FileSystem::pathByAppendingComponent(baseCacheDirectory, directoryName);
+-    return FileSystem::pathByAppendingComponent("/app0"_s, directoryName);
++    return FileSystem::pathByAppendingComponent(profileDirectory(), directoryName);
+ }
+
+ String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const String& directoryName, const String& baseDataDirectory, ShouldCreateDirectory)
+ {
+     if (!baseDataDirectory.isNull())
+         return FileSystem::pathByAppendingComponent(baseDataDirectory, directoryName);
+-    return FileSystem::pathByAppendingComponent("/app0"_s, directoryName);
++    return FileSystem::pathByAppendingComponent(profileDirectory(), directoryName);
+ }
+
+ UnifiedOriginStorageLevel WebsiteDataStore::defaultUnifiedOriginStorageLevel()

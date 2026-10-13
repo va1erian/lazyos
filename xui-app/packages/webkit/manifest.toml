@@ -16,7 +16,7 @@ name = "WebKit"
 system_name = "os.lazy.webkit"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. Not sandboxed: the page process has this app's display, input and network access as you; nothing is saved between runs"
+description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. Not sandboxed yet: the page process has this app's display, input and network access as you. Cookies and the cache are kept in your WebKit profile folder (.apps/os.lazy.webkit)"
 category = "internet"
 
 [entry]
@@ -33,12 +33,13 @@ autostart = false
 # `os.lazy.display.cursor.v1` the run prints `LABEL:DENY ... SetCursor`). Sockets are plain musl
 # ones (the `outbound` network permission) and names resolve through `/etc/resolv.conf`, so
 # `os.lazy.net.stack.v1` is not needed. WebProcess and NetworkProcess are children of the app and
-# run under its label. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS
-# has not, so nothing is persisted yet and no file is asked
-# for (a persistent profile would ask for `write:$HOME/.apps/os.lazy.webkit`).
+# run under its label.
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
 ]
 network = ["outbound"]
+# The UI process, the NetworkProcess and WebKit's data stores keep what persists (cookies, the
+# HTTP cache, local storage, history) below the app's own per-user folder, and write nowhere else.
+files = ["write:$HOME/.apps/os.lazy.webkit"]

@@ -48,6 +48,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -137,6 +138,14 @@ void ProcessLauncher::launchProcess()
 
     char* argv[] = { const_cast<char*>(path.data()), processIdentifier, connection, nullptr };
 
+    // The children start in the user's profile directory (the UI process names it in
+    // LAZYOS_WEBKIT_PROFILE, engine.cpp), not in whatever directory `init` started the app in:
+    // the NetworkProcess's relative paths then land in the one place its rules let it write. The
+    // environment is inherited (execv), and carries the same name and the cookie jar's path.
+    const char* profile = getenv("LAZYOS_WEBKIT_PROFILE");
+    if (profile && *profile != '/')
+        profile = nullptr;
+
     pid_t pid = fork();
     if (pid < 0) {
         fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(errno));
@@ -148,6 +157,11 @@ void ProcessLauncher::launchProcess()
         return;
     }
     if (!pid) {
+        // chdir is async-signal-safe; a profile that cannot be entered leaves the directory as it is.
+        if (profile) {
+            int ignored = chdir(profile);
+            (void)ignored;
+        }
         execv(path.data(), argv);
         // exec failed: say so with write(), which is async-signal-safe (hence the hand-made number),
         // and leave without atexit handlers.
