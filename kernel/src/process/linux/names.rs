@@ -212,6 +212,8 @@ pub(super) fn syscall_name(nr: u64) -> &'static str {
         292 => "dup3",
         294 => "inotify_init1",
         309 => "getcpu",
+        314 => "sched_setattr",
+        315 => "sched_getattr",
         316 => "renameat2",
         319 => "memfd_create",
         324 => "membarrier",

@@ -171,7 +171,12 @@ ring-3 fault (bad pointer, privileged instruction, #DE, #UD, ...) terminates the
 faulting process (all threads of its address space) with status `128 + signal`
 (#PF/#GP -> SIGSEGV 11, #DE -> SIGFPE 8, #UD -> SIGILL 4), posts `SIGCHLD`, and
 the scheduler moves on. A `SIGSEGV` handler still gets the first chance for #PF.
-Evidence: the `fault_*` kernel tests; `faultprobe` (`/system/bin/faultprobe`) is also
+The report printed before the process is ended (`arch/fault_report.rs`:
+registers, the 16 code bytes at `rip`, the top of the stack, signal state and
+the task's last syscalls) reads user memory only where a page is already
+present (`user_ptr::try_resident_bytes`): a kernel or non-canonical `rip`
+prints `??`, and the report never demand-pages or allocates for the task it
+describes. Evidence: the `fault_*` kernel tests; `faultprobe` (`/system/bin/faultprobe`) is also
 runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 
 **Linux shim** (`process/linux/`, issues #55-#60; plan: [linux-abi-plan.md](../linux-abi-plan.md))
@@ -203,8 +208,43 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   calibrated TSC's progress within the tick, so 1 ns resolution; realtime adds
   the wall-clock offset to it),
   `gettimeofday`, `getrandom`, `uname`, `access`, `umask`, `arch_prctl`,
-  `sched_getaffinity`). Everything else logs `ENOSYS <nr> <name>`; the bench's
+  `sched_getaffinity`, `getcpu` (309), and the scheduler calls below).
+  Everything else logs `ENOSYS <nr> <name>`; the bench's
   `coverage.py` summarises what real programs still hit.
+- **Thread-directed signal count.** `tkill`/`tgkill` with a real signal add
+  one to a counter on the sender's thread-group leader
+  (`LinuxExtras::thread_signals`), shown as `LazyOS_ThreadSignals` in
+  `/proc/self/status`; the `jsc` fixture's scripts read it and the judge
+  requires it to be positive for `suspend` (`compat_threadsig_*count*`).
+- **Scheduling attributes** (`process/linux/{schedattr,procattr}.rs`,
+  `task/schedupdate.rs`). `sched_yield` (24), `sched_getparam` (143),
+  `sched_getscheduler` (145), `sched_get_priority_max`/`min` (146, 147),
+  `sched_setattr` (314) and `sched_getattr` (315). The plain policies
+  (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are kept per
+  thread and mapped onto the stride scheduler's per-task weight
+  (`task/nice.rs`); `sched_setattr` reads the old state, decides and stores
+  the state and the weight in one hold of the task-table lock
+  (`task::sched_update`), so two threads of a user cannot pass the "cannot
+  lower nice / leave `SCHED_IDLE` / clear `reset_on_fork`" checks against a
+  stale state, and the stored nice value and the live weight never disagree
+  after a `sched_setattr` (a task the CPU guard has demoted gets the new
+  weight when its window ends; the native `task::set_priority` and
+  `raise_priority`, which kernel code and tools call, reset the weight to the
+  class default and leave the stored nice value alone). As in Linux
+  `SCHED_IDLE` takes no nice value: it keeps the task's own and needs no
+  privilege for the one asked. `sched_getattr` writes `min(size, 56)` bytes
+  and an `E2BIG` always writes 56 back. The `pid` argument is a thread id (a task slot) checked on all 64
+  bits (`EINVAL` above `INT_MAX`, `ESRCH` for an empty slot); without
+  `CAP_SYS_ADMIN` a caller may change only tasks of its own process (same
+  thread-group leader and uid), never another process of its uid such as a
+  native service, while privileged callers reach any slot. Reading is open.
+  `sched_setscheduler` (144), `sched_setparam` (142), `setpriority` (141) and
+  `getpriority` (140) are not offered (`ENOSYS`, pinned by
+  `compat_schedattr_other_setters_not_offered`), so no other call can move
+  the policy or nice value behind `sched_getattr`. WTF calls `sched_setattr`
+  directly; musl's `pthread_setschedparam` (`sched_setscheduler`) and
+  `pthread_setschedprio` (`sched_setparam`) get `ENOSYS`. Tests: `compat_schedattr_*` (including the two-thread soak
+  and the guard-demotion case).
 - File I/O runs against the ABI's own mount table. In the configured layout it
   mounts the same volumes as the native table (ext2 `/`, `/home`, ramfs `/tmp`;
   `fs/mounts.rs`), with no overlay; only the legacy layout roots it at the

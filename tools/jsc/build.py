@@ -7,7 +7,8 @@ Stages W1 and W2 of ``docs/webkit-port-plan.md`` (``tools/jsc/README.md``):
   ``std::filesystem`` and ICU (``cxx.py``, ``cxxproof/main.cpp``);
 * ``icu``: ICU 74.2, static, its data compiled in (``icu.py``);
 * ``jsc``: WebKitGTK 2.54.1's ``JSCOnly`` port with the C-loop interpreter,
-  patched by ``tools/jsc/patches/`` (``webkit.py``).
+  patched by ``tools/jsc/patches/`` (``webkit.py``);
+* ``jsc-jit`` (``--jit``): the same with the JIT (LLInt, baseline, DFG; no FTL).
 
 All three are static-PIE ``x86_64-linux-musl`` executables built by zig, in
 ``target/jsc/bin/``. The build needs cmake, ninja, perl, python, ruby, gperf
@@ -19,6 +20,7 @@ the tools. Sources are pinned by SHA-256 (``pins.py``).
 Usage::
 
     python tools/jsc/build.py                  # everything, in Docker
+    python tools/jsc/build.py --jit            # also jsc-jit (a second WebKit build)
     python tools/jsc/build.py --only cxxproof  # ICU and the proof program
     python tools/jsc/build.py --no-docker      # on this host (Linux, WSL, CI)
     python tools/jsc/build.py --require        # a missing download/Docker fails
@@ -43,7 +45,9 @@ sys.path.insert(0, str(HERE))
 import pins  # noqa: E402
 from toolenv import BuildError  # noqa: E402
 
-NAMES = ["cxxproof", "jsc"]
+NAMES = ["cxxproof", "jsc", "jsc-jit"]
+#: What a build makes without `--jit` (the JIT shell is a second WebKit build).
+DEFAULT_NAMES = ["cxxproof", "jsc"]
 IMAGE = "lazyos-jsc-build:1"
 VOLUME = "lazyos-jsc-work"
 
@@ -61,10 +65,11 @@ def run_steps(names: list[str], jobs: int, no_icu: bool) -> dict[str, str | None
         if not no_icu:
             icu.build(jobs)
         built["cxxproof"] = str(cxx.build(with_icu=not no_icu))
-    if "jsc" in names:
-        import webkit
-        icu.build(jobs)
-        built["jsc"] = str(webkit.build(jobs))
+    for shell in ("jsc", "jsc-jit"):
+        if shell in names:
+            import webkit
+            icu.build(jobs)
+            built[shell] = str(webkit.build(jobs, shell))
     chown_outputs()
     return built
 
@@ -97,6 +102,8 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", nargs="+", choices=NAMES, metavar="NAME",
                         help=f"build only these ({', '.join(NAMES)})")
+    parser.add_argument("--jit", action="store_true",
+                        help="also build jsc-jit (ENABLE_JIT=ON, a second WebKit build)")
     parser.add_argument("--require", action="store_true",
                         help="fail (exit 1) when Docker or a download is unavailable")
     parser.add_argument("--no-docker", action="store_true",
@@ -105,7 +112,7 @@ def main() -> int:
     parser.add_argument("--no-icu", action="store_true",
                         help="cxxproof without ICU (the toolchain-only check)")
     args = parser.parse_args()
-    names = args.only or NAMES
+    names = args.only or [*DEFAULT_NAMES, *(["jsc-jit"] if args.jit else [])]
 
     if not in_container() and not args.no_docker:
         forwarded = [a for a in sys.argv[1:] if a != "--no-docker"]

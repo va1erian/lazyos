@@ -95,6 +95,17 @@ fn check(addr: u64, len: usize, write: bool) -> Result<(), Fault> {
     crate::ipc::syscalls::access_range(addr, len, write).map_err(|_| Fault)
 }
 
+/// Validate `[addr, addr + len)` for a read that must not change anything: as
+/// [`check`], but a page that is not present is a [`Fault`] even where a page
+/// fault would have materialized it (see `access_resident`).
+fn check_resident(addr: u64, len: usize) -> Result<(), Fault> {
+    #[cfg(lazyos_tests)]
+    if TRUST_KERNEL_POINTERS.load(core::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
+    crate::ipc::syscalls::access_resident(addr, len).map_err(|_| Fault)
+}
+
 /// Read a `T` from `addr`.
 pub fn try_read<T: Pod>(addr: u64) -> Result<T, Fault> {
     check(addr, size_of::<T>(), false)?;
@@ -102,6 +113,34 @@ pub fn try_read<T: Pod>(addr: u64) -> Result<T, Fault> {
     // readable range in the active address space, and `T: Pod` is valid for
     // any bit pattern.
     Ok(unsafe { (addr as *const T).read_unaligned() })
+}
+
+/// Read a `T` from `addr` only if its pages are already present and
+/// user-readable: unlike [`try_read`] it never demand-materializes a page, so
+/// it neither allocates a frame nor alters the address space. For reports
+/// about a task that is being ended (`arch::fault_report`).
+pub fn try_read_resident<T: Pod>(addr: u64) -> Result<T, Fault> {
+    check_resident(addr, size_of::<T>())?;
+    // SAFETY: `check_resident` proved `addr..addr + size_of::<T>()` is present
+    // and user-readable in the active address space, and `T: Pod` is valid for
+    // any bit pattern.
+    Ok(unsafe { (addr as *const T).read_unaligned() })
+}
+
+/// Borrow `len` bytes at `addr` as [`try_read_resident`] reads them: all of
+/// the range's pages must already be present, none is materialized.
+///
+/// The slice aliases user memory for `'a`; the caller must not hold it across
+/// a point where the task's own threads could unmap the range, and must use
+/// it at once (as [`try_bytes`]: within one handler or one report).
+pub fn try_resident_bytes<'a>(addr: u64, len: usize) -> Result<&'a [u8], Fault> {
+    check_resident(addr, len)?;
+    if len == 0 {
+        return Ok(&[]);
+    }
+    // SAFETY: `check_resident` proved the whole range is present and readable
+    // in the active address space; the caller uses the slice at once.
+    Ok(unsafe { core::slice::from_raw_parts(addr as *const u8, len) })
 }
 
 /// Write `value` to `addr`.

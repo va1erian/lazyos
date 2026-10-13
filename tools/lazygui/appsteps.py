@@ -77,7 +77,16 @@ def jsc_step(cfg: dict) -> list[dict]:
     if not cfg.get("jsc"):
         return []
     return [{"label": "Build jsc, JavaScriptCore's shell (Docker)",
-             "argv": [PY, "tools/jsc/build.py", "--require"]}]
+             "argv": [PY, "tools/jsc/build.py", "--require", "--jit"]}]
+
+
+def webkit_deps_step(cfg: dict) -> list[dict]:
+    """The step that builds the WebKit dependency bundle and `depsproof` (in
+    Docker, tools/webkit/deps.py), when embedded."""
+    if not cfg.get("webkit_deps"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle and depsproof (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]}]
 
 
 def webkit_deps_step(cfg: dict) -> list[dict]:

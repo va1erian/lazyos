@@ -14,6 +14,8 @@ use crate::task::trace::{self, Event};
 
 /// Words of the user stack printed from `rsp` upward.
 const STACK_WORDS: usize = 16;
+/// Instruction bytes printed from `rip` (the longest x86 instruction is 15).
+const CODE_BYTES: u64 = 16;
 
 /// Print everything known about the faulting task `slot`. `regs` is the
 /// interrupted register set when the exception stub saved one (the naked
@@ -21,6 +23,7 @@ const STACK_WORDS: usize = 16;
 pub fn print(slot: usize, regs: Option<&UserRegs>) {
     if let Some(regs) = regs {
         print_registers(regs);
+        print_code(regs.rip);
         print_stack(regs.rsp);
     }
     print_signals(slot);
@@ -57,15 +60,66 @@ fn print_registers(regs: &UserRegs) {
     );
 }
 
+/// The bytes at `rip`, the way a debugger's "code:" line shows them: an
+/// `#UD` is only diagnosable (a `ud2`, a VEX prefix without AVX state, a
+/// garbled JIT page) from the instruction itself. An unreadable byte (the
+/// page is gone, or the jump was wild) prints as `??`.
+fn print_code(rip: u64) {
+    crate::serial_println!("{}", code_line(rip));
+}
+
+/// The report line for the instruction bytes at `rip`.
+///
+/// `rip` is whatever the faulting task jumped to: a kernel address, a
+/// non-canonical one, an unmapped one. The read goes through
+/// [`user_ptr::try_resident_bytes`], which walks the faulting task's page
+/// table and refuses anything at or above the user limit (kernel and
+/// non-canonical addresses) and any page that is not present and user
+/// readable. It never demand-pages: a fault report must not allocate frames or
+/// change the address space of the task it describes. The 16 bytes are read
+/// as at most two ranges (the instruction may cross into a page that is not
+/// there), so the bytes of the first page still print when the second is gone.
+pub fn code_line(rip: u64) -> alloc::string::String {
+    use core::fmt::Write;
+    let mut bytes = [None; CODE_BYTES as usize];
+    let first = (CODE_BYTES.min(0x1000 - (rip & 0xfff))) as usize;
+    for (start, len) in [(0, first), (first, CODE_BYTES as usize - first)] {
+        if len == 0 {
+            continue;
+        }
+        let range = rip
+            .checked_add(start as u64)
+            .and_then(|at| crate::user_ptr::try_resident_bytes(at, len).ok());
+        if let Some(range) = range {
+            for (slot, byte) in bytes[start..start + len].iter_mut().zip(range) {
+                *slot = Some(*byte);
+            }
+        }
+    }
+    let mut line = alloc::string::String::new();
+    let _ = write!(line, "user: code at {rip:#x}:");
+    for byte in bytes {
+        match byte {
+            Some(byte) => {
+                let _ = write!(line, " {byte:02x}");
+            }
+            None => line.push_str(" ??"),
+        }
+    }
+    line
+}
+
 /// The words above `rsp`, four per line; an unmapped word prints as `?`. The
-/// faulting task's own table is active, so the reads see its memory.
+/// faulting task's own table is active, so the reads see its memory, and (as
+/// for [`code_line`]) a page that is not present is not materialized.
 fn print_stack(rsp: u64) {
     for line in 0..STACK_WORDS / 4 {
         let base = rsp.wrapping_add((line * 4 * 8) as u64);
-        let word = |i: u64| match crate::user_ptr::try_read::<u64>(base.wrapping_add(i * 8)) {
-            Ok(value) => alloc::format!("{value:#018x}"),
-            Err(_) => alloc::string::String::from("?"),
-        };
+        let word =
+            |i: u64| match crate::user_ptr::try_read_resident::<u64>(base.wrapping_add(i * 8)) {
+                Ok(value) => alloc::format!("{value:#018x}"),
+                Err(_) => alloc::string::String::from("?"),
+            };
         crate::serial_println!(
             "user: stack {base:#x}: {} {} {} {}",
             word(0),

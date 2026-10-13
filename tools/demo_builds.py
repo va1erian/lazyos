@@ -95,9 +95,15 @@ def build_linuxapps() -> bool:
 
 
 def build_jsc() -> bool:
-    """`jsc` (WebKit's JSCOnly port) and `cxxproof`, built in Docker by
+    """`jsc`, `jsc-jit` (WebKit's JSCOnly port) and `cxxproof`, built in Docker by
     `tools/jsc/build.py`; a missing Docker or download stops the run."""
-    return required("JavaScriptCore", "jsc/build.py", ("--require",))
+    return required("JavaScriptCore", "jsc/build.py", ("--require", "--jit"))
+
+
+def build_webkit_deps() -> bool:
+    """The WebKit dependency bundle and `depsproof`, built in Docker by
+    `tools/webkit/deps.py`; a missing Docker or download stops the run."""
+    return required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
 
 
 def build_webkit_deps() -> bool:

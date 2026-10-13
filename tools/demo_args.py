@@ -163,7 +163,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
     parser.add_argument("--jsc", action="store_true",
-                        help="embed JavaScriptCore's jsc shell and the C++/ICU check cxxproof in "
+                        help="embed JavaScriptCore's jsc (C-loop) and jsc-jit (JIT) shells and the C++/ICU check cxxproof in "
                              "/system/bin (LAZYOS_JSC=1), built by tools/jsc/build.py (Docker: "
                              "WebKit's JSCOnly port, docs/webkit-port-plan.md W1/W2); a static jsc "
                              "is tens of MB, so this implies the --big-app profile")

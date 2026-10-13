@@ -42,6 +42,62 @@ pub struct LinuxExtras {
     /// The controlling pseudo-terminal (`TIOCSCTTY`, or opening a slave),
     /// which `/dev/tty` opens; `None` means the console window.
     pub ctty: Option<Arc<crate::tty::pty::Pty>>,
+    /// What `sched_setattr` last set (read back by `sched_getattr`).
+    pub sched: SchedState,
+    /// Thread-directed signals (`tkill`/`tgkill` with a real signal) the
+    /// process has sent. Kept on the thread-group leader only and read as
+    /// `LazyOS_ThreadSignals` in `/proc/self/status`: a guard that the
+    /// per-thread signal path is used (JavaScriptCore's collector suspends a
+    /// parked mutator with one).
+    pub thread_signals: u64,
+}
+
+/// A thread's Linux scheduling attributes. Only the plain policies are ever
+/// stored (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`); the nice value also
+/// sets the task's stride weight ([`super::nice`]), the policy only `IDLE`.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct SchedState {
+    /// `SCHED_OTHER` (0), `SCHED_BATCH` (3) or `SCHED_IDLE` (5).
+    pub policy: u8,
+    /// `SCHED_FLAG_RESET_ON_FORK`: a child starts with a nice value of 0 at
+    /// most, and without the flag itself.
+    pub reset_on_fork: bool,
+    /// -20..=19.
+    pub nice: i8,
+}
+
+impl SchedState {
+    /// The `SCHED_IDLE` policy number.
+    pub const IDLE: u8 = 5;
+
+    /// Whether the task runs at the least weight (`SCHED_IDLE`).
+    pub fn is_idle(self) -> bool {
+        self.policy == Self::IDLE
+    }
+
+    /// What a forked or cloned child starts with: the same, but a negative
+    /// nice value is lost to `reset_on_fork`, and the flag is not inherited.
+    pub fn for_child(self) -> SchedState {
+        SchedState {
+            policy: self.policy,
+            reset_on_fork: false,
+            nice: if self.reset_on_fork {
+                self.nice.max(0)
+            } else {
+                self.nice
+            },
+        }
+    }
+
+    /// The weight a child starts with: its parent's (`weight`), or the
+    /// class default when `reset_on_fork` took away a negative nice value.
+    pub fn child_weight(self, class: PriorityClass, weight: u16) -> u16 {
+        if self.reset_on_fork && self.nice < 0 {
+            class.default_weight()
+        } else {
+            weight
+        }
+    }
 }
 
 /// Source of fresh share-group ids (never 0).
@@ -93,6 +149,8 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         no_new_privs: parent.linux.no_new_privs,
         console: None,
         ctty: parent.linux.ctty.clone(),
+        sched: parent.linux.sched.for_child(),
+        thread_signals: 0,
     }
 }
 
@@ -103,6 +161,7 @@ pub(super) fn for_fork(parent: &Task) -> LinuxExtras {
         comm: parent.linux.comm,
         no_new_privs: parent.linux.no_new_privs,
         ctty: parent.linux.ctty.clone(),
+        sched: parent.linux.sched.for_child(),
         ..LinuxExtras::default()
     }
 }
@@ -114,6 +173,20 @@ pub fn tgid() -> usize {
         Some(0) | None => me,
         Some(leader) => leader,
     }
+}
+
+/// Count one thread-directed signal sent by the calling task's process. It
+/// lands on the thread-group leader; if the leader's slot is already gone the
+/// count is lost, which only a diagnostic can notice.
+pub fn note_thread_signal() {
+    with_extras_of(tgid(), |extras| {
+        extras.thread_signals = extras.thread_signals.saturating_add(1);
+    });
+}
+
+/// How many thread-directed signals the calling task's process has sent.
+pub fn thread_signals() -> u64 {
+    with_extras_of(tgid(), |extras| extras.thread_signals).unwrap_or(0)
 }
 
 /// The signal that ended `slot` (0 for a normal exit; tests and diagnostics).
@@ -193,6 +266,16 @@ pub fn share_groups(slot: usize) -> (u32, u32) {
 /// Run `f` on the calling task's extras (`None` if the slot is empty).
 pub fn with_extras<R>(f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
     TASKS.lock()[current()]
+        .as_mut()
+        .map(|task| f(&mut task.linux))
+}
+
+/// Run `f` on slot `slot`'s extras (`None` if the slot is empty).
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
+pub fn with_extras_of<R>(slot: usize, f: impl FnOnce(&mut LinuxExtras) -> R) -> Option<R> {
+    TASKS
+        .lock()
+        .get_mut(slot)?
         .as_mut()
         .map(|task| f(&mut task.linux))
 }

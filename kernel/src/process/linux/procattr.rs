@@ -10,7 +10,7 @@ use crate::ipc::credentials::{self, CAP_SETUID};
 use crate::task;
 use crate::user_ptr;
 
-use super::errno::{err, EFAULT, EINVAL, EPERM};
+use super::errno::{err, EFAULT, EINVAL, EPERM, ESRCH};
 use super::futex::futex_wake;
 
 const PR_SET_PDEATHSIG: u64 = 1;
@@ -201,18 +201,20 @@ pub(super) fn sys_sched_yield() -> u64 {
     0
 }
 
-/// `sched_getscheduler(pid)`: every task is `SCHED_OTHER`.
+/// `sched_getscheduler(pid)`: the policy `sched_setattr` set (`SCHED_OTHER`
+/// unless it was), with `SCHED_RESET_ON_FORK` ORed in when that flag is on.
 pub(super) fn sys_sched_getscheduler(pid: u64) -> u64 {
-    if (pid as i64) < 0 {
-        return err(EINVAL);
+    match super::schedattr::target(pid).map(super::schedattr::policy_of) {
+        Ok(Some(policy)) => policy,
+        Ok(None) => err(ESRCH),
+        Err(errno) => errno,
     }
-    0
 }
 
 /// `sched_getparam(pid, param)`: priority 0, as for any `SCHED_OTHER` task.
 pub(super) fn sys_sched_getparam(pid: u64, param: u64) -> u64 {
-    if (pid as i64) < 0 {
-        return err(EINVAL);
+    if let Err(errno) = super::schedattr::target(pid) {
+        return errno;
     }
     match user_ptr::try_write::<i32>(param, 0) {
         Ok(()) => 0,

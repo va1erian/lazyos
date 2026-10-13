@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Boot LazyOS with ``jsc`` and ``cxxproof`` and judge what they print.
+"""Boot LazyOS with ``jsc``, ``jsc-jit`` and ``cxxproof`` and judge what they print.
 
-Needs ``python tools/jsc/build.py`` first (``target/jsc/bin/``). Then:
+Needs ``python tools/jsc/build.py --jit`` first (``target/jsc/bin/``). Then:
 
-1. builds the ``jsc`` fixture (``tools/abi/fixtures/src/jsc.rs``) for static
+1. writes the stress-test bundle (``stress.py``: ``target/jsc/jsc-tests/``; it
+   fetches from the network once) unless it exists;
+2. builds the ``jsc`` fixture (``tools/abi/fixtures/src/jsc.rs``) for static
    musl, if it is not built;
-2. builds an image with the fixture as ``/system/bin/abi-init`` and
-   ``LAZYOS_JSC=1`` (the two programs in ``/system/bin``) into
-   ``target/jsc/lazyos-jsc.img``;
-3. boots it headless with 2 GiB (a static ``jsc`` is tens of MB and LazyOS
+3. builds an image with the fixture as ``/system/bin/abi-init`` and
+   ``LAZYOS_JSC=1`` (the programs in ``/system/bin``, the tests in
+   ``/system/share/jsc-tests``) into ``target/jsc/lazyos-jsc.img``;
+4. boots it headless with 2 GiB (a static ``jsc`` is tens of MB and LazyOS
    loads an ELF whole into RAM) and waits for ``ABI:jsc:PASS|FAIL``;
-4. judges ``shots/jsc/serial.log`` (``judge.py``) and prints each verdict.
+5. judges ``shots/jsc/serial.log`` (``judge.py``) and prints each verdict, the
+   JIT's speedup over the interpreter and every stress failure.
 
 Usage::
 
@@ -36,9 +39,11 @@ sys.path.insert(0, str(ROOT / "tools" / "abi"))
 import judge  # noqa: E402
 
 BIN = ROOT / "target" / "jsc" / "bin"
+TESTS = ROOT / "target" / "jsc" / "jsc-tests"
 IMAGE = ROOT / "target" / "jsc" / "lazyos-jsc.img"
 OUT = ROOT / "shots" / "jsc"
 FIXTURE = ROOT / "target" / "abi" / "fixtures" / "jsc.elf"
+PROGRAMS = ("jsc", "jsc-jit", "cxxproof")
 
 
 def build_fixture() -> bool:
@@ -63,7 +68,7 @@ def build_fixture() -> bool:
 def build_image(limits: list[str]) -> bool:
     env = dict(os.environ)
     env.update({"LAZYOS_INIT": str(FIXTURE), "LAZYOS_JSC": "1", "LAZYOS_RESET_OS": "1"})
-    # jsc and cxxproof are ~70 MB with ICU's data; the volume needs room.
+    # The shells and cxxproof are ~130 MB with ICU's data; the volume needs room.
     env.setdefault("LAZYOS_OS_SIZE", "512M")
     for key in ("LAZYOS_LINUXAPPS", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST"):
         env.pop(key, None)
@@ -105,12 +110,23 @@ def report(serial: str, stages: tuple[str, ...]) -> int:
     verdicts = judge.judge(serial, stages)
     for verdict in verdicts:
         print(f"{'PASS' if verdict.ok else 'FAIL'}  {verdict.name}  {verdict.detail}".rstrip())
-    ms = judge.startup_ms(serial)
-    if ms is not None:
-        print(f"jsc -e 'print(1+1)' took {ms} ms in the guest")
-    for name, took in judge.times(serial).items():
-        print(f"script {name} took {took} ms in the guest")
-    for name in ("jsc", "cxxproof"):
+    for prefix, program in judge.SHELLS.items():
+        ms = judge.startup_ms(serial, prefix)
+        if ms is not None:
+            print(f"{program} -e 'print(1+1)' took {ms} ms in the guest")
+        for name, took in judge.times(serial, prefix).items():
+            print(f"{program}: script {name} took {took} ms in the guest")
+        took = judge.stress_ms(serial, prefix)
+        if took is not None:
+            print(f"{program}: the stress subset took {took} ms in the guest")
+        for name, reason in judge.stress_failures(serial, prefix).items():
+            print(f"{program}: stress FAIL {name}: {reason}")
+    plain, jit = judge.times(serial, "JSC:"), judge.times(serial, "JSC:JIT:")
+    for name in judge.RUNS:
+        if plain.get(name) and jit.get(name):
+            print(f"jit speedup on {name}: {plain[name] / jit[name]:.2f}x "
+                  f"({plain[name]} ms -> {jit[name]} ms)")
+    for name in PROGRAMS:
         if (BIN / name).is_file():
             print(f"{name}: {(BIN / name).stat().st_size / 1048576:.1f} MiB")
     return 0 if judge.passed(verdicts) else 1
@@ -122,7 +138,7 @@ def main() -> int:
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
     parser.add_argument("--memory", default="2G", help="guest RAM (default 2G)")
-    parser.add_argument("--timeout", type=float, default=900.0,
+    parser.add_argument("--timeout", type=float, default=3600.0,
                         help="seconds to wait for the fixture to finish")
     parser.add_argument("--limit", action="append", default=[], metavar="KEY=VALUE",
                         help="kernel limit for the image (docs/architecture/limits.md)")
@@ -136,10 +152,17 @@ def main() -> int:
     if args.judge_only:
         return report(Path(args.judge_only).read_text(errors="replace"), stages)
     if not args.no_build:
-        if not (BIN / "cxxproof").is_file():
-            print("jsc: target/jsc/bin/cxxproof is missing (python tools/jsc/build.py)",
-                  file=sys.stderr)
-            return 1
+        for name in PROGRAMS if "w2" in stages else ("cxxproof",):
+            if not (BIN / name).is_file():
+                print(f"jsc: target/jsc/bin/{name} is missing "
+                      "(python tools/jsc/build.py --jit)", file=sys.stderr)
+                return 1
+        if not (TESTS / "index.txt").is_file():
+            import stress
+            stress.bundle()
+            # `stress` put this directory first; `import build` below means
+            # tools/abi/build.py, not tools/jsc/build.py.
+            sys.path.insert(0, str(ROOT / "tools" / "abi"))
         if not build_fixture() or not build_image(args.limit):
             return 1
     return report(boot(args), stages)
