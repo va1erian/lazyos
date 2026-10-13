@@ -13,8 +13,9 @@ be found again):
   attachment whose progress is on screen), `about:history` and `about:downloads` by key, the wheel
   over a tall page, a form typed into, Back, an address nothing answers, a page that never
   answers and Stop, Maximize, and a close from the title bar;
-* **second boot** (`second`): the history of the first is in `about:history`, the cookie rides on
-  the request, and the Clear history button of the history page (a click on a link of one of the
+* **second boot** (`second`): theoldnet.com again, which the HTTP cache on the profile serves (the
+  first boot's copy: no request reaches the server), the history of the first is in `about:history`, the
+  cookie rides on the request, and the Clear history button of the history page (a click on a link of one of the
   browser's own pages: the one `x-lazyweb:` command a person may give) empties it.
 
 Clicks are at page coordinates through the window's `page_origin` probe control.
@@ -231,6 +232,12 @@ def second(timeout: float = 300.0) -> list[dict]:
     return [
         *boot_gates(timeout),
         wait(loaded(j.START)),
+        # A page the first run fetched (max-age=604800): the HTTP cache on the profile serves it, and
+        # a hit refreshes the record's modification time on the network process's background queue.
+        *navigate(j.OLDNET_URL, loaded(j.OLDNET_URL), timeout),
+        wait(f"{j.P}:TITLE:{j.OLDNET_TITLE}"),
+        {"wait": 3.0},
+        {"shot": "29_cached"},
         # The cookie of the first run rides on the request.
         *navigate(j.COOKIE_URL, loaded(j.COOKIE_URL), timeout),
         wait(f"{j.P}:TITLE:{j.COOKIE_KEPT}"),

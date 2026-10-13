@@ -194,6 +194,16 @@ storage live there, so a second run of the app finds the first one's cookie and 
 both, from the OS volume and from the second boot). The folder and `$HOME/Downloads` exist before a child that
 may only write inside them looks for them.
 
+**The HTTP cache is used across boots.** The second boot of the harness reloads theoldnet.com, which the first
+one fetched with `max-age=604800`: it is served from the cache on the profile, no request for the page or any
+of its pictures reaches the host (`judge_servers` fails if one does), and a task killed by a fault fails the
+run. That read path once killed a
+network-process thread: `NetworkCache::fileTimes()` had no branch for a port with neither `st_birthtime` nor GLib,
+fell off its end, and clang compiled the whole cache-hit refresh to a trap (patch `0017`; `webkit/README.md`).
+Without a creation time every record's "worth" is 0, so the cache's random shrink deletes each record with the
+same probability (less for a shared body; it is not an LRU), and a hit always refreshes the modification time
+(one `utimensat` per hit: the once-an-hour throttle needs a creation time that differs from it).
+
 **The cookie jar needed a change to the SQLite build.** WebKit opens its databases with write-ahead logging,
 whose index is a mapped `-shm` file (`unixShmMap`); LazyOS has no file-backed `mmap`, so every open failed
 with `SQLITE_IOERR_SHMMAP` ("disk I/O error"), `CookieJarDB` gave up and *no cookie was ever stored*, not even
@@ -286,7 +296,8 @@ twice and judges the serial markers, the requests the host saw, the profile on t
 The first boot browses, answers the three dialogs, tries the blocked launches, follows a `mailto:` link, a
 `target=_blank` link and a `window.open` button, downloads two files, opens `about:history` and
 `about:downloads` by key, scrolls, submits a form, stops a load, goes Back, maximizes the window and quits;
-the second boot finds the cookie and the history, clears the history and quits clean.
+the second boot loads theoldnet.com from the HTTP cache (nothing reaches the host for it), finds the cookie
+and the history, clears the history and quits clean.
 
 ### The sandbox attack harness
 

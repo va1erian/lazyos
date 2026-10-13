@@ -35,6 +35,37 @@
   "wait": 1.0
  },
  {
+  "type": "https://theoldnet.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBPLUS:LOAD:https://theoldnet.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:TheOldNet.com - Surf the Old Web",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "29_cached"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
   "type": "https://theoldnet.com/webplus/cookie",
   "delay": 0.05
  },
