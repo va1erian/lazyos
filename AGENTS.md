@@ -647,6 +647,8 @@ GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplu
 tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
 first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
 and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
+The harness boots four times: a third and a fourth boot judge the ad blocker (below), and a run needs
+`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazywebplus` brings.
 
 A page's **Notifications API** works (#839, `webkit/port/app/notify.cpp`, `xui-app/webplus/src/notify*`): a
 bar in the browser asks once per site (`notify.tsv` in the profile), and an allowed site's notifications are
@@ -658,10 +660,29 @@ thread other than the process's first. `python tools/webplus/notify_run.py` is i
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
 python tools/xui/build.py                                                                         # the package
-python tools/webplus/run.py --accel auto                                                          # boot twice, judge
+python tools/webplus/run.py --accel auto                                                          # boot four times, judge
 python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
 python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
+
+**The ad blocker** (issue #845, [`docs/lazywebplus.md`](docs/lazywebplus.md) "Blocking ads"): WebKit content
+extensions (on in `OptionsLazyOS.cmake`; patches `0018` and `0019`), `xui-app/crates/adblock` (Adblock Plus lists
+to WebKit rule lists; strict: one pattern WebKit refuses fails a whole list), `xui-app/webplus/src/blocker/`
+(settings in `confd`, the per-navigation decision, the list worker, `about:blocker`) and a `curl` child under
+the `listupdate` label. The filter list is fetched at runtime and never committed or shipped. Check a
+converter change against the real engine, not only the tests: `python tools/webkit/blockcheck.py --list
+FILE` (the port's `webkit-smoke` in rules mode; needs the build volume of `tools/webkit/port.py`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock       # unit, conversion, differential, fuzz
+FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock --release
+python tools/webkit/blockcheck.py --list easylist.txt              # compile it with WebKit (Docker)
+python tools/webplus/test_blocker_judge.py                         # the harness's judge fails when it should
+```
+
+The web harnesses bind host ports 80/81/443, and Windows lets a second process bind a port that is already
+listening: two harness runs at once (two agents) silently corrupt each other (certificate errors, an empty
+request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a run.
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
