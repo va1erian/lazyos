@@ -235,8 +235,8 @@ automaton by the UI process, stored on disk, shared with the web processes and e
 Four pieces make it work here:
 
 * **The engine.** `ENABLE_CONTENT_EXTENSIONS` is on in `OptionsLazyOS.cmake` (WebKit has it off for this port by
-  default). With it on the UI process did not link with the curl network backend; patch `0018` supplies
-  `NetworkCache::Data::tryCreateSharedMemory()`. Patch `0017` makes the C API report a *blocked* load, so the
+  default). With it on the UI process did not link with the curl network backend; patch `0019` supplies
+  `NetworkCache::Data::tryCreateSharedMemory()`. Patch `0018` makes the C API report a *blocked* load, so the
   count needs no second rule per block. `webkit/port/app/blocking.cpp` holds the store
   (`<profile>/contentextensions`), the page's user content controller and the per-navigation decision.
 * **The converter**, `xui-app/crates/adblock` (`lazyadblock`, MIT, no dependencies): Adblock Plus syntax to
@@ -321,10 +321,9 @@ and a user filter editor are separate issues.
   by WebKit in about 4.3 s, ready 4.8 s after the download ended, with the browser up throughout (the compile is
   on the UI process's work queue); a later start loads it from the store. Memory of that compile in the guest and
   page-load times on real pages, with and without blocking, were **not** measured.
-* **Found on the way** (patches `0018` and `0019`): the UI process did not link with content extensions on the
-  curl backend, and `NetworkCache::fileTimes()` had no branch for Linux with curl, so the first cache *hit* of a
-  run killed the NetworkProcess (any revisit of a page with a cached picture): unrelated to blocking, fixed here
-  because the ad blocker's harness found it.
+* **Found on the way**: the UI process did not link with content extensions on the curl backend (patch
+  `0019`), and the guest harness's second visit of a page with a cached picture killed the NetworkProcess: the
+  `NetworkCache::fileTimes()` crash that patch `0017` fixes (#847), unrelated to blocking.
 
 ## Permissions
 

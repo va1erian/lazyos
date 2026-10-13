@@ -1,7 +1,7 @@
 //! The worker's steps, driven with a fake `curl` and a recording engine.
 use super::*;
 use std::sync::Mutex;
-use xui_webkit::engine::{Button, MouseKind};
+use xui_webkit::engine::{Button, MouseKind, NotifyAnswer};
 
 /// Records the blocking calls; the rest of the engine is not used here.
 #[derive(Default)]
@@ -29,6 +29,11 @@ impl Engine for Recording {
     fn download(&self, _: &str) {}
     fn download_cancel(&self, _: u64) {}
     fn dialog_reply(&self, _: u64, _: bool, _: &str) {}
+    fn notify_shown(&self, _: u64) {}
+    fn notify_clicked(&self, _: u64) {}
+    fn notify_closed(&self, _: u64) {}
+    fn notify_permission(&self, _: &str, _: NotifyAnswer) {}
+    fn notify_forget(&self, _: &str) {}
     fn blocking_load(&self, id: &str) {
         self.calls.lock().unwrap().push(format!("load {id}"));
     }

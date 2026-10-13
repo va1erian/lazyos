@@ -320,7 +320,7 @@ void installClients()
     navigation.didFailNavigation = didFailNavigation;
     navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
     navigation.webProcessDidCrash = webProcessDidCrash;
-    // What the content rule lists did (issue #845): the count of blocked loads (patch 0017).
+    // What the content rule lists did (issue #845): the count of blocked loads (patch 0018).
     if (has(LZW_FEATURE_BLOCKING))
         navigation.contentRuleListNotification = contentRuleListNotification;
     WKPageSetPageNavigationClient(E.page, &navigation.base);

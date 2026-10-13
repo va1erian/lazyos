@@ -160,7 +160,7 @@ void blockingSettle();
 // The main frame committed (the count of blocked loads starts again) and finished loading.
 void blockingCommitted();
 void blockingFinished();
-// The navigation client's callback for what the rule lists did (patch 0017).
+// The navigation client's callback for what the rule lists did (patch 0018).
 void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef, const void*);
 
 // ---- paint.cpp ----------------------------------------------------------------------------

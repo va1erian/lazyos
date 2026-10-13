@@ -7,7 +7,7 @@
 //  * lzw_engine_blocking_load / _compile put a list in the store and on the page, and say how it went;
 //  * every main-frame navigation asks lzw_ui_blocking and attaches the lists or takes them off, before
 //    the load starts, so a site the user excepted loads whole and the next one is blocked again;
-//  * a load a list blocked comes back as a count (patch 0017 makes the C API report it).
+//  * a load a list blocked comes back as a count (patch 0018 makes the C API report it).
 //
 // Compiling happens on WebKit's work queue and the callbacks come back on the run loop; nothing here
 // blocks it.
@@ -34,7 +34,7 @@ namespace {
 
 // The compiled lists live in this folder of the profile.
 constexpr const char* kStoreFolder = "contentextensions";
-// What patch 0017 reports for a load a rule list blocked.
+// What patch 0018 reports for a load a rule list blocked.
 constexpr const char* kBlockedNotification = "lazyos:blocked";
 
 struct Blocking {

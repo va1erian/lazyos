@@ -15,7 +15,7 @@ for.
 
 ``--list`` converts a filter list first (``cargo run -p lazyadblock --example convert``), then
 checks every part. Needs ``target/webkit/bin`` from ``python tools/webkit/port.py`` in a build
-whose volume has content extensions on (``OptionsLazyOS.cmake``) and patch 0017 (the blocked
+whose volume has content extensions on (``OptionsLazyOS.cmake``) and patch 0018 (the blocked
 count), and Docker, like the port build.
 """
 

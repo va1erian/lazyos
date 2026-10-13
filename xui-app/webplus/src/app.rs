@@ -18,7 +18,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::geometry::Rect;
-use xui_core::icon::Lucide;
 use xui_core::widget::{Button, DialogAction, Edit, HasText, Label, Menu, Placeable, ProgressBar};
 use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
@@ -29,6 +28,7 @@ mod events;
 mod host;
 mod notifications;
 mod shield;
+mod status;
 
 pub use host::{Host, Probe, Setup};
 
@@ -262,78 +262,6 @@ impl Browser {
     /// What the status bar shows.
     pub fn status_text(&self) -> String {
         self.shown.borrow().clone()
-    }
-
-    fn trace(&self, line: &str) {
-        if self.host.traces {
-            println!("WEBPLUS:{line}");
-        }
-    }
-
-    fn set_loading(&mut self, on: bool) {
-        self.loading.set(on);
-        self.throbber.set_spinning(on);
-    }
-
-    /// Shows `text` in the status bar until something replaces it; a link under the pointer is
-    /// shown over it.
-    fn set_status(&mut self, text: &str) {
-        self.message = text.to_owned();
-        self.refresh_status();
-    }
-
-    fn refresh_status(&self) {
-        let text = if self.hover.is_empty() {
-            &self.message
-        } else {
-            &self.hover
-        };
-        if *self.shown.borrow() != *text {
-            self.status.set_text(text);
-            self.shown.replace(text.clone());
-        }
-    }
-
-    /// The address the bar shows for the engine's `url`: our pages by name.
-    fn shown_url(&self, url: &str) -> String {
-        self.internal.shown(url).to_owned()
-    }
-
-    /// Enables Back, Forward and Stop, and turns Reload into Stop while a page
-    /// loads, touching them only when that changed.
-    fn update_buttons(&self) {
-        let state = [
-            self.state.can_back,
-            self.state.can_forward,
-            self.state.loading,
-        ];
-        if self.buttons.replace(Some(state)) == Some(state) {
-            return;
-        }
-        self.back.set_enabled(state[0]);
-        self.forward.set_enabled(state[1]);
-        let (icon, tip) = if state[2] {
-            (Lucide::X, "Stop (Esc)")
-        } else {
-            (Lucide::RefreshCw, "Reload (F5)")
-        };
-        self.reload.set_icon(Some(icon));
-        let _ = self.reload.set_tooltip(tip);
-        self.menu.set_enabled(Command::Back.id(), state[0]);
-        self.menu.set_enabled(Command::Forward.id(), state[1]);
-        self.menu.set_enabled(Command::Stop.id(), state[2]);
-    }
-
-    /// Shows the running downloads in the status bar, or hides that part.
-    fn update_downloads(&self, ui: &Ui<Msg>) {
-        let summary = self.transfers.summary();
-        ui.set_visible(self.download_label.id(), summary.is_some());
-        let percent = summary.as_ref().and_then(|s| s.percent);
-        ui.set_visible(self.download_bar.id(), percent.is_some());
-        if let Some(summary) = summary {
-            self.download_label.set_text(&summary.text);
-            self.download_bar.set_value(percent.unwrap_or(0));
-        }
     }
 
     /// Builds one of the browser's own pages as it stands now.
