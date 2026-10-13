@@ -4,62 +4,30 @@
 // thread calls the lzw_engine_* functions, each of which only queues a task for this
 // thread (lazyos_ui.h). WebKit is used through its C API alone, as webkit-smoke does:
 // a context pointed at the WebProcess and NetworkProcess binaries, a page configuration,
-// the PlayStation port's WKView; the page is painted into a bitmap with WKPagePaint and
-// handed to the window; mouse, wheel and key events go in through WKPageHandle*Event.
-//
-// Markers (one line each, on stdout; tools/webkit/appjudge.py reads them):
-//   WEBKIT:W5:WEBPROCESS:UP:<pid>       the page's WebProcess is running (after the first load)
-//   WEBKIT:W5:NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
-//   WEBKIT:W5:LOAD:<url>                a navigation finished (the page's own URL)
-//   WEBKIT:W5:TITLE:<title>             the title when it finished, and again when script changes it
-//   WEBKIT:W5:JS:<title>                document.title, read back by running script in the page
-//   WEBKIT:W5:CLICK:<url>               a link was clicked: the navigation it started
-//   WEBKIT:W5:INPUT:<title>             a form was submitted and the response's title (the echo)
-//   WEBKIT:W5:FAIL:<what>               a navigation failed or the WebProcess crashed
-//   WEBKIT:W5:INFO:TIME:...             milliseconds: start, load start/finish, first paint
-//   WEBKIT:W5:INFO:MEM:...              the guest's RAM in MiB (sysinfo): total, free, and what this
-//                                       process and its children took since the UI process started
+// the PlayStation port's WKView; the page is painted into a bitmap with WKPagePaint
+// (paint.cpp) and handed to the window; mouse, wheel and key events go in through
+// WKPageHandle*Event. What the page says back, and the markers, are in clients.cpp.
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
 #include <WebKit/WKContextConfigurationPlayStation.h>
 #include <WebKit/WKContextConfigurationRef.h>
-#include <WebKit/WKData.h>
-#include <WebKit/WKErrorRef.h>
-#include <WebKit/WKFramePolicyListener.h>
 #include <WebKit/WKGeometry.h>
-#include <WebKit/WKNavigationActionRef.h>
 #include <WebKit/WKPage.h>
 #include <WebKit/WKPageConfigurationRef.h>
-#include <WebKit/WKPageNavigationClient.h>
-#include <WebKit/WKPagePrivate.h>
 #include <WebKit/WKPagePrivatePlayStation.h>
-#include <WebKit/WKPageStateClient.h>
 #include <WebKit/WKRunLoop.h>
 #include <WebKit/WKString.h>
 #include <WebKit/WKType.h>
 #include <WebKit/WKURL.h>
-#include <WebKit/WKURLRequest.h>
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
-#include <WebKit/WKWebsiteDataStoreRef.h>
 
-#include <functional>
-#include <signal.h>
-#include <stdarg.h>
-#include <sys/sysinfo.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <string>
-#include <time.h>
-#include <unistd.h>
-#include <vector>
 
+#include "engine.h"
 #include "lazyos_ui.h"
-
-namespace {
 
 // The build sets these from libs/fhs (tools/webkit/port_cmake.py, WebKit/PlatformLazyOS.cmake).
 // The shipped browser execs exactly these: no environment variable chooses what it runs.
@@ -70,101 +38,11 @@ namespace {
 #error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
 #endif
 
-constexpr int kInitialWidth = 1000;
-constexpr int kInitialHeight = 500;
+namespace webkitapp {
 
-struct Engine {
-    WKContextRef context { nullptr };
-    WKViewRef view { nullptr };
-    WKPageRef page { nullptr };
-    int width { kInitialWidth };
-    int height { kInitialHeight };
-    std::vector<uint8_t> pixels;
-    bool paintScheduled { false };
-    bool loading { false };
-    bool processesReported { false };
-    bool formNavigation { false };
-    bool inputPending { false };
-    bool committedSincePaint { false };
-    bool loadFinished { false };
-    std::string lastTitleSaid;
-    long navStartMs { 0 };
-    long commitMs { 0 };
-    long firstPaintMs { -1 };
-    int navigations { 0 };
-} E;
+Engine E;
 
-void say(const char* format, ...) __attribute__((format(printf, 1, 2)));
-void say(const char* format, ...)
-{
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-    printf("\n");
-    fflush(stdout);
-}
-
-long elapsedMs()
-{
-    static const long origin = [] {
-        timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
-    }();
-    timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return now.tv_sec * 1000L + now.tv_nsec / 1000000L - origin;
-}
-
-std::string utf8(WKStringRef string)
-{
-    if (!string)
-        return std::string();
-    size_t size = WKStringGetMaximumUTF8CStringSize(string);
-    std::vector<char> buffer(size + 1);
-    size_t written = WKStringGetUTF8CString(string, buffer.data(), buffer.size());
-    return std::string(buffer.data(), written ? written - 1 : 0);
-}
-
-std::string utf8(WKURLRef url)
-{
-    if (!url)
-        return std::string();
-    WKStringRef string = WKURLCopyString(url);
-    std::string text = utf8(string);
-    if (string)
-        WKRelease(string);
-    return text;
-}
-
-// A line of text for a marker: no newlines, so one marker stays one line.
-std::string oneLine(std::string text)
-{
-    for (char& c : text) {
-        if (c == '\n' || c == '\r')
-            c = ' ';
-    }
-    return text;
-}
-
-std::string activeUrl()
-{
-    WKURLRef url = WKPageCopyActiveURL(E.page);
-    std::string text = utf8(url);
-    if (url)
-        WKRelease(url);
-    return text;
-}
-
-std::string pageTitle()
-{
-    WKStringRef title = WKPageCopyTitle(E.page);
-    std::string text = utf8(title);
-    if (title)
-        WKRelease(title);
-    return text;
-}
+namespace {
 
 // Tasks from other threads: queued on the run loop, run once, freed.
 void runTask(void* context)
@@ -174,238 +52,16 @@ void runTask(void* context)
     delete task;
 }
 
+} // namespace
+
 void onMain(std::function<void()> task)
 {
     WKRunLoopCallOnMainThread(runTask, new std::function<void()>(std::move(task)));
 }
 
-// ---- state for the window -------------------------------------------------------------
+} // namespace webkitapp
 
-void postState()
-{
-    // The WebProcess exists as soon as the page does: when did it come up?
-    static bool webProcessSeen = false;
-    if (!webProcessSeen && WKPageGetProcessIdentifier(E.page) > 0) {
-        webProcessSeen = true;
-        say("WEBKIT:W5:INFO:TIME:webprocess=%ld", elapsedMs());
-    }
-    std::string url = activeUrl();
-    std::string title = pageTitle();
-    int progress = static_cast<int>(WKPageGetEstimatedProgress(E.page) * 1000.0);
-    lzw_ui_state(url.c_str(), title.c_str(), E.loading ? 1 : 0, WKPageCanGoBack(E.page) ? 1 : 0,
-        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000);
-}
-
-// ---- painting -------------------------------------------------------------------------
-
-void paintNow(void*)
-{
-    E.paintScheduled = false;
-    if (!E.page || E.width <= 0 || E.height <= 0)
-        return;
-    const size_t bytes = static_cast<size_t>(E.width) * E.height * 4;
-    if (E.pixels.size() != bytes)
-        E.pixels.assign(bytes, 0xff);
-    // What the page does not cover is white, never see-through.
-    memset(E.pixels.data(), 0xff, bytes);
-    WKPagePaint(E.page, E.pixels.data(), WKSizeMake(E.width, E.height), WKRectMake(0, 0, E.width, E.height));
-    // Skia's N32 is BGRA on this target and premultiplied; the window wants opaque RGBA.
-    uint8_t* p = E.pixels.data();
-    for (size_t i = 0; i < bytes; i += 4) {
-        uint8_t blue = p[i];
-        p[i] = p[i + 2];
-        p[i + 2] = blue;
-        p[i + 3] = 0xff;
-    }
-    lzw_ui_frame(E.pixels.data(), E.width, E.height);
-    if (E.firstPaintMs < 0 && E.committedSincePaint) {
-        E.firstPaintMs = elapsedMs();
-        say("WEBKIT:W5:INFO:TIME:firstpaint=%ld:sincecommit=%ld:sincenav=%ld", E.firstPaintMs, E.firstPaintMs - E.commitMs,
-            E.firstPaintMs - E.navStartMs);
-    }
-}
-
-// Many rectangles arrive for one change: one paint takes them all.
-void schedulePaint()
-{
-    if (E.paintScheduled)
-        return;
-    E.paintScheduled = true;
-    WKRunLoopCallOnMainThread(paintNow, nullptr);
-}
-
-void viewNeedsDisplay(WKViewRef, WKRect, const void*) { schedulePaint(); }
-
-// ---- the page's news ------------------------------------------------------------------
-
-void reportProcessesOnce()
-{
-    if (E.processesReported)
-        return;
-    E.processesReported = true;
-    pid_t web = WKPageGetProcessIdentifier(E.page);
-    if (web > 0)
-        say("WEBKIT:W5:WEBPROCESS:UP:%d", static_cast<int>(web));
-    WKWebsiteDataStoreRef store = WKContextGetWebsiteDataStore(E.context);
-    pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
-    if (network > 0)
-        say("WEBKIT:W5:NETWORKPROCESS:UP:%d", static_cast<int>(network));
-}
-
-// The guest's RAM, in MiB, after each load: what three processes of tens of MB and a page cost.
-void reportMemory()
-{
-    static long firstFreeMiB = -1;
-    struct sysinfo info;
-    if (sysinfo(&info) != 0)
-        return;
-    const long unit = info.mem_unit ? info.mem_unit : 1;
-    const long totalMiB = static_cast<long>(info.totalram * unit / (1024 * 1024));
-    const long freeMiB = static_cast<long>(info.freeram * unit / (1024 * 1024));
-    if (firstFreeMiB < 0)
-        firstFreeMiB = freeMiB;
-    say("WEBKIT:W5:INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
-    uint64_t used = 0, limit = 0;
-    if (!lzw_ui_user_memory(&used, &limit))
-        say("WEBKIT:W5:INFO:QUOTA:user_memory_mib=%lu:limit_mib=%lu", static_cast<unsigned long>(used >> 20), static_cast<unsigned long>(limit >> 20));
-}
-
-void sayTitle()
-{
-    std::string title = oneLine(pageTitle());
-    if (title.empty())
-        return;
-    say("WEBKIT:W5:TITLE:%s", title.c_str());
-    E.lastTitleSaid = title;
-}
-
-// The title of the page a form submission led to: what the server echoed back.
-void sayInput()
-{
-    if (!E.inputPending || !E.loadFinished)
-        return;
-    std::string title = oneLine(pageTitle());
-    if (title.empty())
-        return;
-    E.inputPending = false;
-    say("WEBKIT:W5:INPUT:%s", title.c_str());
-}
-
-// Reads document.title back by running script in the page: the proof that script ran there.
-void scriptResult(WKTypeRef result, WKErrorRef, void*)
-{
-    std::string title;
-    if (result && WKGetTypeID(result) == WKStringGetTypeID())
-        title = utf8(static_cast<WKStringRef>(result));
-    say("WEBKIT:W5:JS:%s", oneLine(title).c_str());
-}
-
-void readTitleBySript()
-{
-    WKStringRef script = WKStringCreateWithUTF8CString("document.title");
-    WKPageEvaluateJavaScriptInMainFrame(E.page, script, nullptr, scriptResult);
-    WKRelease(script);
-}
-
-void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WKFramePolicyListenerRef listener, WKTypeRef, const void*)
-{
-    WKFrameNavigationType type = WKNavigationActionGetNavigationType(action);
-    if (type == kWKFrameNavigationTypeLinkClicked || type == kWKFrameNavigationTypeFormSubmitted) {
-        WKURLRequestRef request = WKNavigationActionCopyRequest(action);
-        WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
-        if (type == kWKFrameNavigationTypeLinkClicked)
-            say("WEBKIT:W5:CLICK:%s", oneLine(utf8(url)).c_str());
-        else
-            E.formNavigation = true;
-        if (url)
-            WKRelease(url);
-        if (request)
-            WKRelease(request);
-    }
-    WKFramePolicyListenerUse(listener);
-}
-
-void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
-{
-    E.loading = true;
-    E.loadFinished = false;
-    E.navStartMs = elapsedMs();
-    E.committedSincePaint = false;
-    E.firstPaintMs = -1;
-    ++E.navigations;
-    postState();
-}
-
-void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
-{
-    E.commitMs = elapsedMs();
-    E.committedSincePaint = true;
-    postState();
-}
-
-void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
-{
-    E.loading = false;
-    E.loadFinished = true;
-    long finished = elapsedMs();
-    say("WEBKIT:W5:LOAD:%s", oneLine(activeUrl()).c_str());
-    sayTitle();
-    if (E.formNavigation) {
-        // The echo is the response's title; it can arrive a moment after the load finished.
-        E.formNavigation = false;
-        E.inputPending = true;
-        sayInput();
-    }
-    readTitleBySript();
-    reportProcessesOnce();
-    say("WEBKIT:W5:INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
-        finished, finished - E.navStartMs);
-    reportMemory();
-    postState();
-    schedulePaint();
-}
-
-void didFail(const char* what, WKErrorRef error)
-{
-    E.loading = false;
-    std::string description;
-    if (error) {
-        WKStringRef text = WKErrorCopyLocalizedDescription(error);
-        description = utf8(text);
-        if (text)
-            WKRelease(text);
-        description += " (code " + std::to_string(WKErrorGetErrorCode(error)) + ")";
-    }
-    say("WEBKIT:W5:FAIL:%s:%s:%s", what, oneLine(activeUrl()).c_str(), oneLine(description).c_str());
-    postState();
-}
-
-void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void*) { didFail("navigation", error); }
-
-void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void*)
-{
-    didFail("provisional", error);
-}
-
-void webProcessDidCrash(WKPageRef, const void*)
-{
-    E.loading = false;
-    say("WEBKIT:W5:FAIL:webprocess:crashed");
-    postState();
-}
-
-void stateChanged(const void*) { postState(); }
-
-// The title can change after the load finished (script): say so, once per new title.
-void titleChanged(const void*)
-{
-    if (E.loadFinished && oneLine(pageTitle()) != E.lastTitleSaid)
-        sayTitle();
-    sayInput();
-    postState();
-}
-
-} // namespace
+using namespace webkitapp;
 
 extern "C" {
 
@@ -443,26 +99,7 @@ int lzw_engine_start(void)
     WKViewSetFocus(E.view, true);
     WKViewSetVisible(E.view, true);
 
-    static WKPageNavigationClientV0 navigation = { };
-    navigation.base.version = 0;
-    navigation.decidePolicyForNavigationAction = decidePolicyForNavigationAction;
-    navigation.didStartProvisionalNavigation = didStartProvisionalNavigation;
-    navigation.didCommitNavigation = didCommitNavigation;
-    navigation.didFinishNavigation = didFinishNavigation;
-    navigation.didFailNavigation = didFailNavigation;
-    navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
-    navigation.webProcessDidCrash = webProcessDidCrash;
-    WKPageSetPageNavigationClient(E.page, &navigation.base);
-
-    static WKPageStateClientV0 state = { };
-    state.base.version = 0;
-    state.didChangeIsLoading = stateChanged;
-    state.didChangeTitle = titleChanged;
-    state.didChangeActiveURL = stateChanged;
-    state.didChangeEstimatedProgress = stateChanged;
-    state.didChangeCanGoBack = stateChanged;
-    state.didChangeCanGoForward = stateChanged;
-    WKPageSetPageStateClient(E.page, &state.base);
+    installClients();
     return 0;
 }
 

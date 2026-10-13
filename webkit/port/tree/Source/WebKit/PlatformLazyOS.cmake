@@ -180,6 +180,9 @@ if (LAZYOS_UI_LIBRARY)
     add_executable(webkit-app
         "${LAZYOS_PORT_DIR}/app/main.cpp"
         "${LAZYOS_PORT_DIR}/app/engine.cpp"
+        "${LAZYOS_PORT_DIR}/app/clients.cpp"
+        "${LAZYOS_PORT_DIR}/app/paint.cpp"
+        "${LAZYOS_PORT_DIR}/app/log.cpp"
     )
     target_include_directories(webkit-app PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
     target_compile_definitions(webkit-app PRIVATE ${_lazyos_program_definitions})
