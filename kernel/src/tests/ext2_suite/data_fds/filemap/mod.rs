@@ -12,6 +12,7 @@ use crate::quota::{self, Resource};
 mod basic;
 mod coherence;
 mod lifecycle;
+mod refresh;
 
 pub(super) const PAGE: u64 = 4096;
 pub(super) const PROT_NONE: u64 = 0;
@@ -250,7 +251,7 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     (
         "linux_filemap_refresh_keeps_a_stored_page",
-        coherence::refresh_keeps_a_stored_page,
+        refresh::refresh_keeps_a_stored_page,
     ),
     (
         "linux_filemap_change_behind_the_cache",
