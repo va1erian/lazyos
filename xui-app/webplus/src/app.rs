@@ -32,6 +32,7 @@ mod notifications;
 pub use host::{Host, Probe, Setup};
 
 use crate::address;
+use crate::blocker::{self, Blocker, ListState};
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
@@ -40,7 +41,7 @@ use crate::internal::Internal;
 use crate::keys::shortcut;
 use crate::marker_text;
 use crate::notify::{BarAnswer, Notifications};
-use crate::pages::{self, ABOUT, DOWNLOADS, HISTORY};
+use crate::pages::{self, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -79,6 +80,8 @@ pub enum Msg {
     NotifyAnswer(BarAnswer),
     /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
     Shell,
+    /// A list of the ad blocker changed state on the worker's thread.
+    BlockerChanged,
 }
 
 /// The window's widgets and state.
@@ -91,6 +94,7 @@ pub struct Browser {
     forward: Rc<Button<Msg>>,
     reload: Rc<Button<Msg>>,
     throbber: Rc<Throbber>,
+    shield: Rc<Button<Msg>>,
     status: Rc<Label<Msg>>,
     badge: Rc<Badge>,
     download_label: Rc<Label<Msg>>,
@@ -106,6 +110,11 @@ pub struct Browser {
     visits: Visits,
     transfers: Transfers,
     internal: Internal,
+    blocker: Blocker,
+    /// The web page browsed last (not one of our own): what the ad blocker's "this site" means.
+    site_url: Option<String>,
+    /// What the shield shows now: (blocked, applies, ready), so it is touched only on a change.
+    shield_shown: Cell<Option<(u32, bool, bool)>>,
     host: Host,
     /// The page as the engine last reported it.
     state: PageState,
@@ -151,6 +160,7 @@ impl Browser {
             internal,
             permissions,
             toasts,
+            blocker,
             host,
         } = setup;
         let loading = Rc::new(Cell::new(false));
@@ -162,6 +172,10 @@ impl Browser {
         ))?;
 
         let proxy = ui.proxy();
+        let blocker_proxy = ui.proxy();
+        blocker.on_change(move || {
+            let _ = blocker_proxy.send(Msg::BlockerChanged);
+        });
         mailbox.set_notify(move |notice| {
             let _ = proxy.send(match notice {
                 Notice::Frame => Msg::Frame,
@@ -188,6 +202,7 @@ impl Browser {
             forward: widgets.forward.get(),
             reload: widgets.reload.get(),
             throbber: widgets.throbber.get(),
+            shield: widgets.shield.get(),
             status: widgets.status.get(),
             badge: widgets.badge.get(),
             download_label: widgets.download_label.get(),
@@ -201,6 +216,9 @@ impl Browser {
             visits,
             transfers,
             internal,
+            blocker,
+            site_url: None,
+            shield_shown: Cell::new(None),
             host,
             state: PageState::default(),
             caption: APP_NAME.to_owned(),
@@ -221,6 +239,7 @@ impl Browser {
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
+        browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
     }
@@ -317,6 +336,50 @@ impl Browser {
         }
     }
 
+    /// Shows what the ad blocker does for the page on show: the icon is the eye that sees nothing
+    /// while it blocks, and the tooltip says how much it stopped.
+    pub(super) fn update_shield(&self) {
+        let site = self.site_url.as_deref().and_then(blocker::site_of);
+        let enabled = self.blocker.settings().enabled;
+        let excepted = site
+            .as_deref()
+            .is_some_and(|site| self.blocker.site_excepted(site));
+        let applies = enabled && !excepted;
+        let ready = self.blocker.any_ready();
+        let blocked = self.blocker.blocked();
+        let key = (blocked, applies, ready);
+        if self.shield_shown.replace(Some(key)) == Some(key) {
+            return;
+        }
+        let (icon, tip) = if !enabled {
+            (Lucide::Eye, String::from("Ad blocker: off"))
+        } else if excepted {
+            let site = site.unwrap_or_default();
+            (Lucide::Eye, format!("Ad blocker: off for {site}"))
+        } else if !ready {
+            let lists = self.blocker.lists();
+            let why = match lists.iter().find(|l| l.enabled).map(|l| &l.state) {
+                None => "no list is on",
+                Some(ListState::Failed(_)) => "a list does not work",
+                Some(ListState::Unavailable) => "not available in this build",
+                Some(_) => "preparing its lists",
+            };
+            (Lucide::EyeOff, format!("Ad blocker: {why}"))
+        } else if blocked == 0 {
+            (
+                Lucide::EyeOff,
+                String::from("Ad blocker: on, nothing blocked here"),
+            )
+        } else {
+            (
+                Lucide::EyeOff,
+                format!("Ad blocker: {blocked} blocked on this page"),
+            )
+        };
+        self.shield.set_icon(Some(icon));
+        let _ = self.shield.set_tooltip(&tip);
+    }
+
     /// Builds one of the browser's own pages as it stands now.
     fn build_page(&mut self, name: &'static str) -> String {
         let html = match name {
@@ -329,6 +392,12 @@ impl Browser {
                 env!("CARGO_PKG_VERSION"),
                 &self.notifications.permissions().sites(),
             ),
+            BLOCKER => blocker::page::blocker(&blocker::page::Report {
+                settings: self.blocker.settings(),
+                lists: self.blocker.lists(),
+                site: self.site_url.as_deref().and_then(blocker::site_of),
+                blocked: self.blocker.blocked(),
+            }),
             _ => return self.internal.start(),
         };
         self.internal.build(name, &html)
@@ -485,6 +554,7 @@ impl App for Browser {
                 }
             }
             Msg::PageMenu(x, y) => self.show_context(ui, (x, y)),
+            Msg::BlockerChanged => self.blocker_changed(),
             Msg::Dialog(action) => {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine

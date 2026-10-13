@@ -6,6 +6,7 @@ use std::rc::Rc;
 use xui_core::backend::WidgetId;
 use xui_core::geometry::Rect;
 
+use crate::blocker::Blocker;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
 use crate::notify::{Permissions, Toasts};
@@ -61,5 +62,7 @@ pub struct Setup {
     pub permissions: Permissions,
     /// The shell's toasts; `None` shows no notification.
     pub toasts: Option<Rc<dyn Toasts>>,
+    /// The ad blocker's state, shared with the engine's policy callback and the worker.
+    pub blocker: Blocker,
     pub host: Host,
 }

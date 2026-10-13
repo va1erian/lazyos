@@ -7067,9 +7067,11 @@ name = "xui-webplus"
 version = "0.1.0"
 dependencies = [
  "fhs",
+ "lazyadblock",
  "xui-app",
  "xui-canvas",
  "xui-core",
+ "xui-settings",
  "xui-webkit",
 ]
 

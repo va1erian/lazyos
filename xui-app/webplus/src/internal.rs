@@ -11,13 +11,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::address::{self, START};
-use crate::pages::{ABOUT, DOWNLOADS, HISTORY};
+use crate::pages::{ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 
 /// The built-in start page.
 const START_HTML: &str = include_str!("start.html");
 
 /// The pages the browser builds itself.
-pub const NAMES: [&str; 4] = [START, HISTORY, DOWNLOADS, ABOUT];
+pub const NAMES: [&str; 5] = [START, HISTORY, DOWNLOADS, ABOUT, BLOCKER];
 
 /// The `data:` URL last built for each page.
 #[derive(Clone, Default)]

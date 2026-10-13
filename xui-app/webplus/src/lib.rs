@@ -16,6 +16,8 @@
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
 //! - [`notify`]: web notifications: per-site permission, the limits, the shell's toasts.
+//! - [`blocker`]: the ad blocker's settings, its decision per navigation, its lists and their
+//!   updates (issue #845).
 //! - [`internal`]: those pages as the `data:` URLs the engine shows.
 //!
 //! The window itself ([`app`], [`chrome`]) is driven offscreen against a recording engine in
@@ -23,6 +25,7 @@
 
 pub mod address;
 pub mod app;
+pub mod blocker;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;

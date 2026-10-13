@@ -7,6 +7,7 @@
 //! pages is on show and only for a click: a web page linking to
 //! `x-lazyweb:clear-history` gets nothing.
 
+use crate::blocker;
 use crate::notify::{Decision, Site};
 use crate::visits::Visit;
 
@@ -14,9 +15,10 @@ use crate::visits::Visit;
 pub const HISTORY: &str = "about:history";
 pub const DOWNLOADS: &str = "about:downloads";
 pub const ABOUT: &str = "about:lazyweb";
+pub const BLOCKER: &str = "about:blocker";
 
 /// The scheme of the pages' commands.
-const SCHEME: &str = "x-lazyweb:";
+pub(crate) const SCHEME: &str = "x-lazyweb:";
 
 /// A command one of the pages asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +31,18 @@ pub enum Command {
     /// Forget what the person decided about a site's notifications (an origin as
     /// `notify::Origin::key` writes it).
     ForgetNotify(String),
+    /// The ad blocker on or off, for every site.
+    BlockerEnabled(bool),
+    /// Stop blocking on `site` (`excepted`), or block there again.
+    Site { site: String, excepted: bool },
+    /// A filter list on or off.
+    List { id: String, on: bool },
+    /// Fetch the lists now.
+    UpdateLists,
+    /// Reload the page browsed last once, without blocking.
+    ReloadUnblocked,
+    /// Go back to the page browsed last.
+    OpenSite,
 }
 
 impl Command {
@@ -43,6 +57,19 @@ impl Command {
             "forget-notify" => percent_decode(arg)
                 .filter(|origin| !origin.is_empty())
                 .map(Command::ForgetNotify),
+            "blocker-on" => Some(Command::BlockerEnabled(true)),
+            "blocker-off" => Some(Command::BlockerEnabled(false)),
+            "site-off" | "site-on" => blocker::normalize_site(arg).map(|site| Command::Site {
+                site,
+                excepted: verb == "site-off",
+            }),
+            "list-on" | "list-off" => blocker::lists::spec(arg).map(|spec| Command::List {
+                id: spec.id.to_owned(),
+                on: verb == "list-on",
+            }),
+            "update-lists" => Some(Command::UpdateLists),
+            "reload-unblocked" => Some(Command::ReloadUnblocked),
+            "open-site" => Some(Command::OpenSite),
             _ => None,
         }
     }
@@ -70,9 +97,9 @@ const STYLE: &str = "body{font-family:sans-serif;margin:24px 32px;color:#202124}
 h1{font-size:22px;margin:0 0 4px}p.note{color:#5f6368;margin:0 0 16px}\
 table{border-collapse:collapse;width:100%}td{padding:6px 8px;border-bottom:1px solid #e0e0e0;vertical-align:top}\
 td.when{color:#5f6368;white-space:nowrap;width:9em}td.url{color:#5f6368;font-size:12px}\
-a.button{border:1px solid #c0c0c0;padding:2px 10px;text-decoration:none;color:#202124;background:#f4f4f4}";
+a.button{border:1px solid #c0c0c0;padding:2px 10px;text-decoration:none;color:#202124;background:#f4f4f4}h2{font-size:16px;margin:20px 0 6px}";
 
-fn page(title: &str, body: &str) -> String {
+pub(crate) fn page(title: &str, body: &str) -> String {
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{}</title>\
 <style>{STYLE}</style></head><body><h1>{}</h1>{body}</body></html>",
@@ -363,6 +390,9 @@ mod tests {
             "x-lazyweb:rm",
             "mailto:a@b",
             "x-lazyweb:open/-1",
+            "x-lazyweb:site-off/",
+            "x-lazyweb:site-off/not a site",
+            "x-lazyweb:list-on/nosuchlist",
         ] {
             assert_eq!(Command::parse(url), None, "{url}");
         }
@@ -412,6 +442,45 @@ mod tests {
             assert_eq!(percent_decode(&percent_encode(text)).as_deref(), Some(text));
         }
         assert_eq!(percent_encode("a b"), "a%20b");
+    }
+
+    #[test]
+    fn the_blockers_commands_parse() {
+        assert_eq!(
+            Command::parse("x-lazyweb:blocker-off"),
+            Some(Command::BlockerEnabled(false))
+        );
+        assert_eq!(
+            Command::parse("x-lazyweb:blocker-on"),
+            Some(Command::BlockerEnabled(true))
+        );
+        assert_eq!(
+            Command::parse("x-lazyweb:site-off/WWW.News.Example"),
+            Some(Command::Site {
+                site: "news.example".into(),
+                excepted: true
+            })
+        );
+        assert_eq!(
+            Command::parse("x-lazyweb:site-on/news.example"),
+            Some(Command::Site {
+                site: "news.example".into(),
+                excepted: false
+            })
+        );
+        assert_eq!(
+            Command::parse("x-lazyweb:list-off/easylist"),
+            Some(Command::List {
+                id: "easylist".into(),
+                on: false
+            })
+        );
+        assert_eq!(Command::parse("x-lazyweb:update-lists"), Some(Command::UpdateLists));
+        assert_eq!(
+            Command::parse("x-lazyweb:reload-unblocked"),
+            Some(Command::ReloadUnblocked)
+        );
+        assert_eq!(Command::parse("x-lazyweb:open-site"), Some(Command::OpenSite));
     }
 
     #[test]

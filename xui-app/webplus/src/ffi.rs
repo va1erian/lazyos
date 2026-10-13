@@ -15,10 +15,13 @@ use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use xui_app::platform::confd_store::ConfdStore;
+use xui_app::platform::messenger::Service;
 use xui_app::platform::{launcher, notify};
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
+use xui_settings::store::{ConfigStore, Value as StoreValue};
 use xui_webkit::abi::{byte_count, copy_c_string, features, first_address, NavKind, Verdict};
 use xui_webkit::events::Event;
 use xui_webkit::ffi::{arguments, connect, text, FfiEngine};
@@ -26,6 +29,8 @@ use xui_webkit::gesture;
 use xui_webkit::mailbox;
 
 use crate::app::{Browser, Host, Msg, Setup, APP_NAME};
+use crate::blocker::worker::{Cmd as BlockerCmd, Exit, Runner, Worker};
+use crate::blocker::{Blocker, Persist, Settings, Volatile};
 use crate::downloads::Saver;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
@@ -86,6 +91,8 @@ struct Shared {
     /// The sites allowed to notify: the UI process reads them when WebKit asks, before the window
     /// exists, and the window changes them.
     permissions: Permissions,
+    /// The ad blocker's state: the engine's policy callback asks it for every navigation.
+    blocker: Blocker,
 }
 
 fn shared() -> &'static Shared {
@@ -115,6 +122,7 @@ fn shared() -> &'static Shared {
             internal: Internal::default(),
             profile,
             permissions,
+            blocker: Blocker::new(settings_store()),
         }
     })
 }
@@ -123,6 +131,101 @@ fn shared() -> &'static Shared {
 #[no_mangle]
 pub extern "C" fn lzw_ui_features() -> c_int {
     features::ALL
+}
+
+/// `confd`'s registered name: a store call blocks while it is not registered, so nothing is read or
+/// written unless it already is.
+const CONFD: &str = "os.lazy.confd";
+
+/// The ad blocker's switches, as `confd` keys under `user/<uid>/lazywebplus/blocker/`: the global
+/// switch (a bool), the sites left alone and the lists turned off (space separated text). They are
+/// the user's, out of reach of the engine's processes, which may write the profile folder.
+struct ConfdSettings {
+    store: ConfdStore,
+    uid: u32,
+}
+
+impl ConfdSettings {
+    fn key(&self, name: &str) -> String {
+        format!("user/{}/lazywebplus/blocker/{name}", self.uid)
+    }
+
+    fn text(&self, name: &str) -> Option<String> {
+        match self.store.get(&self.key(name))? {
+            StoreValue::Str(text) => Some(text),
+            StoreValue::Bool(on) => Some(on.to_string()),
+            _ => None,
+        }
+    }
+}
+
+impl Persist for ConfdSettings {
+    fn load(&self) -> Settings {
+        Settings::from_texts(
+            self.text("enabled").as_deref(),
+            &self.text("exceptions").unwrap_or_default(),
+            &self.text("lists_off").unwrap_or_default(),
+        )
+    }
+
+    fn save(&self, settings: &Settings) {
+        let writes = [
+            ("enabled", StoreValue::Bool(settings.enabled)),
+            ("exceptions", StoreValue::Str(settings.exceptions_text())),
+            ("lists_off", StoreValue::Str(settings.lists_off_text())),
+        ];
+        for (name, value) in writes {
+            if let Err(e) = self.store.set(&self.key(name), value) {
+                println!("WEBPLUS:BLOCK:SETTINGS:FAIL:{name}:{e}");
+            }
+        }
+    }
+}
+
+/// `confd` when it is up and tells this task its uid; settings kept nowhere otherwise.
+fn settings_store() -> Arc<dyn Persist> {
+    if Service::try_connect(CONFD).is_none() {
+        return Arc::new(Volatile);
+    }
+    let store = ConfdStore::new();
+    match store.uid() {
+        Some(uid) => Arc::new(ConfdSettings { store, uid }),
+        None => Arc::new(Volatile),
+    }
+}
+
+/// Runs `curl` as a child of this program: the kernel enters it under the manifest's
+/// `[processes.listupdate]` label, which holds the network and the lists folder and nothing else.
+struct CurlRunner;
+
+impl Runner for CurlRunner {
+    fn curl(&self, args: &[String]) -> std::io::Result<Exit> {
+        let output = std::process::Command::new(fhs::bin::CURL)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        let note = String::from_utf8_lossy(&output.stderr)
+            .trim()
+            .chars()
+            .take(200)
+            .collect();
+        Ok(Exit {
+            code: output.status.code().unwrap_or(-1),
+            note,
+        })
+    }
+}
+
+/// Whether the rule lists apply to a page whose main-frame address is `url`: the user's switch,
+/// their exceptions, a one-shot "reload without blocking" (`blocker::Blocker::decide`).
+///
+/// # Safety
+/// `url` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_blocking(url: *const c_char) -> c_int {
+    // SAFETY: by this function's contract.
+    let url = unsafe { text(url) };
+    c_int::from(shared().blocker.decide(&url))
 }
 
 /// The prefix of the UI process's markers.
@@ -426,6 +529,25 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     backend.set_size_hints(420, 300, 0, 0);
     backend.on_first_frame(|| println!("WEBPLUS:UP:PASS"));
     let theme = backend.desktop_theme();
+    // The lists' worker: a thread that fetches and converts, started with the window. Nothing waits
+    // for it: a page loads unblocked until a list is ready.
+    if let Some(profile) = &shared.profile {
+        let folder = PathBuf::from(profile.to_string_lossy().into_owned()).join("lists");
+        let now = Arc::new(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        });
+        let worker = Worker::new(
+            folder,
+            Arc::new(FfiEngine),
+            Arc::new(CurlRunner),
+            shared.blocker.clone(),
+            now,
+        );
+        let commands = worker.spawn();
+        let _ = commands.send(BlockerCmd::Start);
+    }
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
     let focus_backend = Rc::clone(&backend);
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
@@ -445,6 +567,7 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             internal: shared.internal.clone(),
             permissions: shared.permissions.clone(),
             toasts,
+            blocker: shared.blocker.clone(),
             host: Host {
                 traces: {
                     crate::allow_named_markers(xui_app::probe::enabled());
