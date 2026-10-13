@@ -240,10 +240,57 @@ fn regex_subset(inner: &str) -> Result<String, DropReason> {
         }
         i += 1;
     }
-    if depth != 0 || out.is_empty() {
+    // A regular expression that matches the empty string matches every address: a rule that
+    // blocks everything the page asks for, whatever the list meant.
+    if depth != 0 || out.is_empty() || matches_empty(&out) {
         return unsupported;
     }
     Ok(out)
+}
+
+/// Whether `regex` (already inside the subset: no alternation, no counted repeats) matches the
+/// empty string: every element of the sequence is optional or an anchor.
+fn matches_empty(regex: &str) -> bool {
+    let b = regex.as_bytes();
+    // One entry per open group: whether everything in it so far can be empty.
+    let mut open = vec![true];
+    let mut i = 0;
+    while i < b.len() {
+        // The element at `i`: whether it can be empty before a quantifier is looked at.
+        let mut empty = match b[i] {
+            b'^' | b'$' => true,
+            b'(' => {
+                open.push(true);
+                i += 1;
+                continue;
+            }
+            b')' => open.pop().unwrap_or(true),
+            b'\\' => {
+                i += 1;
+                false
+            }
+            b'[' => {
+                // To the closing bracket; an escaped bracket is not one.
+                while i + 1 < b.len() && b[i + 1] != b']' {
+                    i += usize::from(b[i + 1] == b'\\') + 1;
+                }
+                i += 1;
+                false
+            }
+            _ => false,
+        };
+        i += 1;
+        if matches!(b.get(i), Some(b'*' | b'?')) {
+            empty = true;
+            i += 1;
+        } else if b.get(i) == Some(&b'+') {
+            i += 1;
+        }
+        if let Some(top) = open.last_mut() {
+            *top &= empty;
+        }
+    }
+    open.first().copied().unwrap_or(true)
 }
 
 #[cfg(test)]
@@ -319,6 +366,32 @@ mod tests {
             r"/[a\-z]+/",
         ] {
             assert_eq!(url_filter(p), Err(DropReason::UnsupportedPattern), "{p}");
+        }
+    }
+
+    #[test]
+    fn a_regex_that_matches_the_empty_string_is_refused() {
+        for r in [
+            "/^/",
+            "/(a)?/",
+            "/a?b*/",
+            "/(a*)(b?)/",
+            "/(a*)+/",
+            "/^(a)?$/",
+            "/[a-z]*/",
+        ] {
+            assert!(url_filter(r).is_err(), "{r}");
+        }
+        for r in [
+            "/^a/",
+            "/a+/",
+            "/(a?)b/",
+            "/ads?[0-9]/",
+            "/\\.js$/",
+            "/(a)+/",
+            "/[\\]]+/",
+        ] {
+            assert!(url_filter(r).is_ok(), "{r}");
         }
     }
 

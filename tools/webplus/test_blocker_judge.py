@@ -126,6 +126,8 @@ class BlockerJudgeTests(unittest.TestCase):
         self.assertTrue(any("304" in p for p in b.judge_blocker_boot(no_update)))
         few = BLOCKER.replace(f"{P}:BLOCK:COUNT:3", f"{P}:BLOCK:COUNT:1")
         self.assertTrue(any("counted" in p for p in b.judge_blocker_boot(few)))
+        many = BLOCKER.replace(f"{P}:BLOCK:COUNT:3", f"{P}:BLOCK:COUNT:5")
+        self.assertTrue(any("counted" in p for p in b.judge_blocker_boot(many)), "an inflated count is a bug too")
 
     def test_a_script_that_started_a_program_fails_the_boot(self) -> None:
         text = BLOCKER + f"{P}:LAUNCH:mailto:x@y:BLOCKED\n"

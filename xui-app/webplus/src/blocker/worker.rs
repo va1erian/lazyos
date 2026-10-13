@@ -78,11 +78,25 @@ pub struct Worker {
 /// The parts of one list the engine has been asked for.
 struct Pending {
     parts: Vec<String>,
-    ready: usize,
+    /// The parts the engine has answered Ready for.
+    ready: HashSet<String>,
     /// Asked with `blocking_load` (the store may not have them) and not yet compiled from source.
     loading: bool,
     rules: usize,
     dropped: usize,
+    /// A new version of the list that is only being tried: it replaces the one on disk, and the
+    /// parts of the old one go, once every part of it is Ready. Until then the old list keeps
+    /// blocking, and a version the engine refuses changes nothing.
+    candidate: Option<Candidate>,
+    /// The parts of the version in use, forgotten when the candidate is ready.
+    superseded: Vec<String>,
+}
+
+/// A downloaded version of a list that has not been taken yet.
+struct Candidate {
+    source: Vec<u8>,
+    /// What the record will say once it is taken: the validators of the download, the counts.
+    meta: Meta,
 }
 
 fn say(line: &str) {
@@ -171,11 +185,22 @@ impl Worker {
         true
     }
 
-    fn enabled(&self, spec: &ListSpec) -> bool {
+    /// Whether the user has `spec` switched on (its parts are forgotten when not).
+    fn list_on(&self, spec: &ListSpec) -> bool {
         self.blocker
             .lists()
             .iter()
             .any(|l| l.id == spec.id && l.enabled)
+    }
+
+    /// Whether the blocker is on at all: when it is off nothing is fetched and nothing is loaded
+    /// (the engine's lists stay as they are, and decide nothing).
+    fn blocking_on(&self) -> bool {
+        self.blocker.settings().enabled
+    }
+
+    fn enabled(&self, spec: &ListSpec) -> bool {
+        self.blocking_on() && self.list_on(spec)
     }
 
     fn set_state(&self, spec: &ListSpec, state: ListState) {
@@ -202,12 +227,21 @@ impl Worker {
     /// converts and compiles.
     fn activate(&mut self, spec: &'static ListSpec) {
         let meta = self.read_meta(spec);
-        if !self.enabled(spec) {
+        if !self.list_on(spec) {
             self.pending.remove(spec.id);
             for part in &meta.parts {
                 self.engine.blocking_forget(part);
             }
             self.set_state(spec, ListState::Waiting);
+            return;
+        }
+        if !self.blocking_on() {
+            return;
+        }
+        let too_large = fs::metadata(self.path(spec, "txt"))
+            .is_ok_and(|m| m.len() > lists::MAX_SOURCE_BYTES as u64);
+        if too_large {
+            self.set_state(spec, ListState::Failed("the list file is too large".into()));
             return;
         }
         let Ok(source) = fs::read(self.path(spec, "txt")) else {
@@ -223,34 +257,38 @@ impl Worker {
                 spec.id,
                 Pending {
                     parts: meta.parts.clone(),
-                    ready: 0,
+                    ready: HashSet::new(),
                     loading: true,
                     rules: meta.rules,
                     dropped: meta.dropped,
+                    candidate: None,
+                    superseded: Vec::new(),
                 },
             );
             for part in &meta.parts {
                 self.engine.blocking_load(part);
             }
         } else {
-            self.compile(spec, &source);
+            self.compile(spec, &source, None);
         }
     }
 
-    /// Converts `source` and gives the parts to the engine; the old parts it no longer needs go.
-    fn compile(&mut self, spec: &'static ListSpec, source: &[u8]) {
+    /// Converts `source` and gives the parts to the engine.
+    ///
+    /// `update` is a version just downloaded (its record, with the new validators): it is only
+    /// tried, and replaces the list on disk and the parts in use when every part is Ready, so a
+    /// version the engine refuses changes nothing. Without it `source` is what the disk already
+    /// holds (the store lost its parts), and the record is written at once.
+    fn compile(&mut self, spec: &'static ListSpec, source: &[u8], update: Option<Meta>) {
         let started = (self.now)();
         let prepared = lists::prepare(spec.id, source);
-        let mut meta = self.read_meta(spec);
         let ids: Vec<String> = prepared.parts.iter().map(|(id, _)| id.clone()).collect();
-        for old in meta.parts.iter().filter(|old| !ids.contains(old)) {
-            self.engine.blocking_forget(old);
-        }
+        let on_disk = self.read_meta(spec);
+        let mut meta = update.clone().unwrap_or_else(|| on_disk.clone());
         meta.hash = prepared.hash.clone();
         meta.parts = ids.clone();
         meta.rules = prepared.rules();
         meta.dropped = prepared.dropped();
-        self.write_meta(spec, &meta);
         say(&format!(
             "CONVERT:{}:rules={}:dropped={}:parts={}:t={}",
             spec.id,
@@ -259,28 +297,98 @@ impl Worker {
             ids.len(),
             (self.now)().saturating_sub(started)
         ));
+        let stale: Vec<String> = on_disk
+            .parts
+            .iter()
+            .filter(|old| !ids.contains(old))
+            .cloned()
+            .collect();
         if ids.is_empty() {
-            self.pending.remove(spec.id);
-            self.set_state(
-                spec,
-                ListState::Failed("the list has no rule the engine can use".into()),
-            );
+            let why = prepared
+                .refused
+                .unwrap_or("the list has no rule the engine can use");
+            self.refuse(spec, &[], why, update.is_some());
             return;
         }
-        self.set_state(spec, ListState::Compiling);
+        let candidate = update.is_some();
+        if candidate {
+            // The list that works keeps working until the new one is ready.
+            if self.state_of(spec) != Some(ListState::Ready) {
+                self.set_state(spec, ListState::Compiling);
+            }
+        } else {
+            for old in &stale {
+                self.engine.blocking_forget(old);
+            }
+            self.write_meta(spec, &meta);
+            self.set_state(spec, ListState::Compiling);
+        }
         self.pending.insert(
             spec.id,
             Pending {
                 parts: ids,
-                ready: 0,
+                ready: HashSet::new(),
                 loading: false,
                 rules: meta.rules,
                 dropped: meta.dropped,
+                candidate: candidate.then(|| Candidate {
+                    source: source.to_vec(),
+                    meta,
+                }),
+                superseded: if candidate { stale } else { Vec::new() },
             },
         );
         for (id, json) in &prepared.parts {
             self.engine.blocking_compile(id, json);
         }
+    }
+
+    fn state_of(&self, spec: &ListSpec) -> Option<ListState> {
+        self.blocker
+            .lists()
+            .iter()
+            .find(|l| l.id == spec.id)
+            .map(|l| l.state.clone())
+    }
+
+    /// The engine took every part of a version that was only being tried: it becomes the list on
+    /// disk, and the parts it replaces go.
+    fn promote(&mut self, spec: &'static ListSpec) {
+        let Some(p) = self.pending.get_mut(spec.id) else {
+            return;
+        };
+        let (Some(candidate), superseded) = (p.candidate.take(), std::mem::take(&mut p.superseded))
+        else {
+            return;
+        };
+        let staging = self.path(spec, "new");
+        let stored = fs::write(&staging, &candidate.source)
+            .and_then(|()| fs::rename(&staging, self.path(spec, "txt")));
+        match stored {
+            Ok(()) => self.write_meta(spec, &candidate.meta),
+            Err(e) => say(&format!("FAIL:{}:keep:{e}", spec.id)),
+        }
+        let fetched = (candidate.meta.fetched > 0).then_some(candidate.meta.fetched);
+        self.blocker.update_list(spec.id, |l| l.fetched = fetched);
+        for old in &superseded {
+            self.engine.blocking_forget(old);
+        }
+    }
+
+    /// A version the engine (or the converter) refused. A version that was only being tried
+    /// leaves the list that works in place; otherwise the list fails.
+    fn refuse(&mut self, spec: &'static ListSpec, parts: &[String], why: &str, was_trial: bool) {
+        self.pending.remove(spec.id);
+        if was_trial && self.state_of(spec) == Some(ListState::Ready) {
+            // The parts that did compile are no use to anyone.
+            for part in parts {
+                self.engine.blocking_forget(part);
+            }
+            say(&format!("REFUSED:{}:{why}", spec.id));
+            return;
+        }
+        self.set_state(spec, ListState::Failed(why.to_owned()));
+        say(&format!("FAIL:{}:{why}", spec.id));
     }
 
     /// The engine's answer for part `id`.
@@ -298,9 +406,10 @@ impl Worker {
                 let Some(p) = self.pending.get_mut(spec.id) else {
                     return;
                 };
-                p.ready += 1;
-                if p.ready == p.parts.len() {
+                p.ready.insert(id.to_owned());
+                if p.ready.len() == p.parts.len() {
                     let (rules, dropped) = (p.rules, p.dropped);
+                    self.promote(spec);
                     self.blocker.update_list(spec.id, |l| {
                         l.state = ListState::Ready;
                         l.rules = rules;
@@ -314,148 +423,31 @@ impl Worker {
             ListStatus::NotStored | ListStatus::Stale if loading => {
                 say(&format!("RECOMPILE:{}:{}", spec.id, status.name()));
                 match fs::read(self.path(spec, "txt")) {
-                    Ok(source) => self.compile(spec, &source),
+                    Ok(source) => self.compile(spec, &source, None),
                     Err(_) => self.set_state(spec, ListState::Waiting),
                 }
             }
+            // Another part of the same load, answered after the first one started the compile.
+            ListStatus::NotStored | ListStatus::Stale => {}
             ListStatus::Unavailable => {
                 self.pending.remove(spec.id);
                 self.set_state(spec, ListState::Unavailable);
                 say(&format!("UNAVAILABLE:{}", spec.id));
             }
             other => {
-                self.pending.remove(spec.id);
+                let (parts, trial) = self
+                    .pending
+                    .get(spec.id)
+                    .map(|p| (p.parts.clone(), p.candidate.is_some()))
+                    .unwrap_or_default();
                 let why = format!("the engine did not take the list ({})", other.name());
-                self.set_state(spec, ListState::Failed(why));
-                say(&format!("FAIL:{}:{}", spec.id, other.name()));
+                self.refuse(spec, &parts, &why, trial);
             }
-        }
-    }
-
-    /// Fetches the list when it is due (or `force`), keeping a good copy on any failure. The
-    /// download runs on a thread of its own once the worker is spawned, so the engine's answers
-    /// (and a list that is already blocking) never wait behind a slow network.
-    fn fetch(&mut self, spec: &'static ListSpec, force: bool) {
-        if !self.enabled(spec) || self.fetching.contains(spec.id) {
-            return;
-        }
-        let now = (self.now)();
-        let mut meta = self.read_meta(spec);
-        if !force && !meta.due(now) {
-            return;
-        }
-        let was_ready = self
-            .blocker
-            .lists()
-            .iter()
-            .any(|l| l.id == spec.id && l.state == ListState::Ready);
-        if !was_ready {
-            self.set_state(spec, ListState::Fetching);
-        }
-        meta.attempted = now;
-        self.write_meta(spec, &meta);
-
-        let download = self.path(spec, "dl");
-        let args = update::curl_args(spec.url, &download.to_string_lossy(), &meta);
-        let runner = Arc::clone(&self.runner);
-        let work = move || -> Result<update::Reply, String> {
-            let outcome = match runner.curl(&args) {
-                Ok(exit) if exit.code == 0 => fs::read(&download)
-                    .map_err(|e| format!("no answer: {e}"))
-                    .and_then(|raw| {
-                        update::parse_reply(&raw).ok_or_else(|| String::from("not an HTTP answer"))
-                    }),
-                Ok(exit) => Err(format!("curl exit {}: {}", exit.code, exit.note)),
-                Err(e) => Err(format!("curl did not run: {e}")),
-            };
-            let _ = fs::remove_file(&download);
-            outcome
-        };
-        if !self.background {
-            let outcome = work();
-            self.finish_fetch(spec, outcome, was_ready, now);
-            return;
-        }
-        self.fetching.insert(spec.id);
-        let blocker = self.blocker.clone();
-        let id = spec.id.to_owned();
-        let spawned = std::thread::Builder::new()
-            .name(String::from("blocker-fetch"))
-            .spawn(move || {
-                let outcome = work();
-                blocker.send(Cmd::Fetched {
-                    id,
-                    outcome,
-                    was_ready,
-                    now,
-                });
-            });
-        if spawned.is_err() {
-            self.fetching.remove(spec.id);
-            self.fetch_failed(spec, was_ready, "no thread to fetch with");
-        }
-    }
-
-    /// What a fetch brought back, applied: the list kept, replaced or left alone.
-    fn finish_fetch(
-        &mut self,
-        spec: &'static ListSpec,
-        outcome: Result<update::Reply, String>,
-        was_ready: bool,
-        now: u64,
-    ) {
-        let mut meta = self.read_meta(spec);
-        match outcome {
-            Ok(reply) if reply.status == 304 => {
-                meta.fetched = now;
-                self.write_meta(spec, &meta);
-                self.blocker.update_list(spec.id, |l| l.fetched = Some(now));
-                say(&format!("UPDATE:{}:NOTMODIFIED", spec.id));
-                if !was_ready {
-                    self.activate(spec);
-                }
-            }
-            Ok(reply) if reply.status == 200 && update::looks_like_list(&reply.body) => {
-                let text = String::from_utf8_lossy(&reply.body).into_owned();
-                let staging = self.path(spec, "new");
-                let stored = fs::write(&staging, &reply.body)
-                    .and_then(|()| fs::rename(&staging, self.path(spec, "txt")));
-                if let Err(e) = stored {
-                    self.fetch_failed(spec, was_ready, &format!("cannot keep the list: {e}"));
-                    return;
-                }
-                meta.fetched = now;
-                meta.expires = update::expires_of(&text);
-                meta.etag = reply.etag;
-                meta.last_modified = reply.last_modified;
-                self.write_meta(spec, &meta);
-                say(&format!("UPDATE:{}:OK:bytes={}", spec.id, reply.body.len()));
-                self.activate(spec);
-            }
-            Ok(reply) => {
-                let why = if reply.status == 200 {
-                    String::from("the answer is not a filter list")
-                } else {
-                    format!("HTTP {}", reply.status)
-                };
-                self.fetch_failed(spec, was_ready, &why);
-            }
-            Err(why) => self.fetch_failed(spec, was_ready, &why),
-        }
-    }
-
-    /// A failed fetch changes nothing about a list that works.
-    fn fetch_failed(&self, spec: &ListSpec, was_ready: bool, why: &str) {
-        say(&format!(
-            "UPDATE:{}:FAIL:{}",
-            spec.id,
-            why.replace(['\n', '\r'], " ")
-        ));
-        if !was_ready {
-            self.set_state(spec, ListState::Failed(why.to_owned()));
         }
     }
 }
+
+mod fetch;
 
 #[cfg(test)]
 mod tests;

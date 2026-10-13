@@ -7,6 +7,7 @@ use xui_core::widget::HasText;
 use xui_webkit::events::Event;
 
 use super::{caption, now, Browser, Msg};
+use crate::address;
 use crate::blocker;
 use crate::dialogs;
 use crate::handoff;
@@ -218,8 +219,12 @@ impl Browser {
                     self.blocker.list_result(&id, status);
                 }
                 Event::Blocked(count) => {
-                    self.blocker.set_blocked(count);
-                    self.update_shield();
+                    // The count starts again with every commit, our own pages' included; what
+                    // `about:blocker` and the shield report is the web page browsed last.
+                    if count > 0 || address::is_network(&self.state.committed_url) {
+                        self.blocker.set_blocked(count);
+                        self.update_shield();
+                    }
                 }
             }
         }

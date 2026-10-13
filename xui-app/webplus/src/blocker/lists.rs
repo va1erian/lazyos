@@ -48,12 +48,21 @@ pub fn part_id(list: &str, hash: &str, n: usize) -> String {
     format!("{list}-{hash}-{n}")
 }
 
+/// The largest list source taken (EasyList is about 2 MB): a hostile or broken server cannot make
+/// the worker convert, and WebKit compile in the UI process, an unbounded list.
+pub const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+
+/// The most rules a list may become.
+pub const MAX_RULES: usize = 500_000;
+
 /// A converted list: its parts as `(id, json)` and what the conversion kept and dropped.
 #[derive(Debug)]
 pub struct Prepared {
     pub hash: String,
     pub parts: Vec<(String, String)>,
     pub stats: Stats,
+    /// Why the list was refused whole (too large), when it was.
+    pub refused: Option<&'static str>,
 }
 
 impl Prepared {
@@ -72,18 +81,37 @@ impl Prepared {
 /// page). Cheap enough for a worker thread: EasyList is about 0.15 s in release.
 pub fn prepare(list: &str, source: &[u8]) -> Prepared {
     let hash = source_hash(source);
+    if source.len() > MAX_SOURCE_BYTES {
+        return Prepared {
+            hash,
+            parts: Vec::new(),
+            stats: Stats::default(),
+            refused: Some("the list is larger than the blocker takes"),
+        };
+    }
     let text = String::from_utf8_lossy(source);
     let converted = convert(&text, &Options::default());
-    let parts = converted
-        .lists
-        .into_iter()
-        .enumerate()
-        .map(|(n, part)| (part_id(list, &hash, n), part.json))
-        .collect();
+    let stats = converted.stats;
+    let rules = stats.blocks + stats.exceptions + stats.important;
+    let (parts, refused) = if rules > MAX_RULES {
+        (
+            Vec::new(),
+            Some("the list has more rules than the blocker takes"),
+        )
+    } else {
+        let parts = converted
+            .lists
+            .into_iter()
+            .enumerate()
+            .map(|(n, part)| (part_id(list, &hash, n), part.json))
+            .collect();
+        (parts, None)
+    };
     Prepared {
         hash,
         parts,
-        stats: converted.stats,
+        stats,
+        refused,
     }
 }
 
@@ -119,6 +147,22 @@ mod tests {
         let prepared = prepare("easylist", b"! only a comment\nexample.com##.ad\n");
         assert!(prepared.parts.is_empty());
         assert_eq!(prepared.rules(), 0);
+    }
+
+    #[test]
+    fn a_list_beyond_the_bounds_is_refused_whole() {
+        let big = vec![b'!'; MAX_SOURCE_BYTES + 1];
+        let prepared = prepare("easylist", &big);
+        assert!(prepared.parts.is_empty() && prepared.refused.is_some());
+
+        let mut many = String::new();
+        for n in 0..=MAX_RULES {
+            many.push_str(&format!("||a{n}.example^\n"));
+        }
+        let prepared = prepare("easylist", many.as_bytes());
+        assert!(prepared.parts.is_empty(), "{} parts", prepared.parts.len());
+        assert!(prepared.refused.is_some());
+        assert!(prepare("easylist", b"||ads.example^\n").refused.is_none());
     }
 
     #[test]

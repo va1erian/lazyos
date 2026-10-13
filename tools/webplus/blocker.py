@@ -105,7 +105,7 @@ def judge_blocker_boot(text: str) -> list[str]:
     if f"{SITE_NAME}:OFF" not in block_markers(text, "SITE"):
         problems.append(f"the exception for {SITE_NAME} was not made (no {j.P}:BLOCK:SITE:{SITE_NAME}:OFF)")
     counts = [int(m) for m in block_markers(text, "COUNT") if m.isdigit()]
-    if not counts or max(counts) < 3:
+    if not counts or max(counts) != 3:
         problems.append(f"the engine counted {counts} blocked loads on the page (wanted 3: banner, pixel, script)")
     if f"{LIST_ID}:NOTMODIFIED" not in block_markers(text, "UPDATE"):
         problems.append(f"Update now did not get a 304 ({j.P}:BLOCK:UPDATE:{LIST_ID}:NOTMODIFIED; saw "

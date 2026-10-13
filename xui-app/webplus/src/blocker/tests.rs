@@ -10,6 +10,7 @@ fn a_site_is_the_host_without_www_port_and_credentials() {
         ("HTTP://example.com", "example.com"),
         ("https://192.168.0.1/", "192.168.0.1"),
         ("https://example.com./", "example.com"),
+        ("https://ads_.example.com/", "ads_.example.com"),
     ] {
         assert_eq!(site_of(url).as_deref(), Some(site), "{url}");
     }
@@ -48,6 +49,15 @@ fn the_decision_follows_the_switch_the_exceptions_and_the_one_shot() {
         "our own pages are not blocked"
     );
     assert!(!blocker.decide("data:text/html,x"));
+    // A host the site list cannot name is still blocked: an address must not switch it off.
+    for url in [
+        "https://[::1]/",
+        "http://[2001:db8::1]:8080/x",
+        "https://exa mple.com/",
+    ] {
+        assert_eq!(site_of(url), None, "{url}");
+        assert!(blocker.decide(url), "{url}");
+    }
 
     assert_eq!(
         blocker.set_site_excepted("WWW.Example.com", true),

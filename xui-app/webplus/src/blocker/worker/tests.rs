@@ -303,31 +303,121 @@ fn a_list_that_never_fetched_shows_why() {
     let _ = fs::remove_dir_all(&f.dir);
 }
 
-#[test]
-fn a_new_version_replaces_the_old_parts() {
+/// A running worker whose list is Ready, and the id of its part.
+fn ready_worker(name: &str, now: u64) -> (Worker, Fixture, Vec<u8>, String) {
     let body = list_text();
-    let (mut w, f) = worker(
-        "new",
-        Fake::answering(&reply("200 OK", "", &body)),
-        1_791_000_000,
-    );
+    let (mut w, f) = worker(name, Fake::answering(&reply("200 OK", "", &body)), now);
     w.handle(Cmd::Start);
-    let old = format!("easylist-{}-0", lists::source_hash(&body));
+    let id = format!("easylist-{}-0", lists::source_hash(&body));
     w.handle(Cmd::ListResult {
-        id: old.clone(),
+        id: id.clone(),
         status: ListStatus::Ready,
     });
     f.engine.take();
+    (w, f, body, id)
+}
 
-    let mut newer = body.clone();
+fn newer(body: &[u8]) -> Vec<u8> {
+    let mut newer = body.to_vec();
     newer.extend_from_slice(b"||tracker.example^\n");
+    newer
+}
+
+#[test]
+fn a_new_version_replaces_the_old_parts_only_once_it_is_ready() {
+    let (mut w, f, body, old) = ready_worker("new", 1_791_000_000);
+    let newer = newer(&body);
+    let fresh = format!("easylist-{}-0", lists::source_hash(&newer));
     w.runner = Fake::answering(&reply("200 OK", "", &newer));
     w.handle(Cmd::UpdateNow);
     let calls = f.engine.take();
+    assert_eq!(
+        calls.len(),
+        1,
+        "the old part is not forgotten yet: {calls:?}"
+    );
+    assert!(calls[0].starts_with(&format!("compile {fresh} ")));
+    assert_eq!(state(&f), ListState::Ready, "the old list keeps blocking");
+    assert_eq!(fs::read(f.dir.join("easylist.txt")).unwrap(), body);
+
+    w.handle(Cmd::ListResult {
+        id: fresh.clone(),
+        status: ListStatus::Ready,
+    });
+    assert_eq!(f.engine.take(), [format!("forget {old}")]);
+    assert_eq!(fs::read(f.dir.join("easylist.txt")).unwrap(), newer);
+    let meta = Meta::parse(&fs::read_to_string(f.dir.join("easylist.meta")).unwrap());
+    assert_eq!(meta.parts, [fresh]);
+    assert_eq!(
+        (state(&f), f.blocker.lists()[0].rules),
+        (ListState::Ready, 3)
+    );
+    let _ = fs::remove_dir_all(&f.dir);
+}
+
+#[test]
+fn a_new_version_the_engine_refuses_changes_nothing() {
+    let (mut w, f, body, old) = ready_worker("refused", 1_791_000_000);
+    let newer = newer(&body);
     let fresh = format!("easylist-{}-0", lists::source_hash(&newer));
-    assert_eq!(calls.len(), 2, "{calls:?}");
-    assert_eq!(calls[0], format!("forget {old}"));
-    assert!(calls[1].starts_with(&format!("compile {fresh} ")));
+    w.runner = Fake::answering(&reply("200 OK", "ETag: \"v2\"", &newer));
+    w.handle(Cmd::UpdateNow);
+    f.engine.take();
+
+    w.handle(Cmd::ListResult {
+        id: fresh.clone(),
+        status: ListStatus::CompileFailed,
+    });
+    // Only the refused version's own parts are cleaned up; the list in use is untouched.
+    assert_eq!(f.engine.take(), [format!("forget {fresh}")]);
+    assert_eq!(state(&f), ListState::Ready);
+    assert!(f.blocker.any_ready());
+    assert_eq!(fs::read(f.dir.join("easylist.txt")).unwrap(), body);
+    let meta = Meta::parse(&fs::read_to_string(f.dir.join("easylist.meta")).unwrap());
+    assert_eq!(meta.parts, [old], "the record still names the working part");
+    assert_eq!(
+        meta.etag, None,
+        "the refused version's validators are not kept"
+    );
+    let _ = fs::remove_dir_all(&f.dir);
+}
+
+#[test]
+fn a_due_fetch_that_fails_at_start_does_not_fail_a_list_the_store_brings_up() {
+    let (_w, f, _body, id) = ready_worker("due", 1_791_000_000);
+    // Three days later (past the list's two): due, and the network is down.
+    let (mut again, f2) = worker_in(
+        f.dir.clone(),
+        Fake::failing(6, "Could not resolve host"),
+        1_791_000_000 + 3 * 86_400,
+    );
+    again.handle(Cmd::Start);
+    assert_eq!(f2.engine.take(), [format!("load {id}")]);
+    assert_eq!(f2.blocker.lists()[0].state, ListState::Compiling);
+    again.handle(Cmd::ListResult {
+        id,
+        status: ListStatus::Ready,
+    });
+    assert_eq!(f2.blocker.lists()[0].state, ListState::Ready);
+    let _ = fs::remove_dir_all(&f.dir);
+}
+
+#[test]
+fn with_the_blocker_off_nothing_is_fetched_loaded_or_compiled() {
+    let (mut w, f) = worker("off", Fake::failing(7, "must not run"), 1_791_000_000);
+    f.blocker.set_enabled(false);
+    w.handle(Cmd::Start);
+    w.handle(Cmd::UpdateNow);
+    assert!(f.engine.take().is_empty());
+    assert!(!f.dir.join("easylist.dl").exists());
+    assert_eq!(state(&f), ListState::Waiting);
+
+    // Switched on again: the list is fetched and compiled.
+    let body = list_text();
+    w.runner = Fake::answering(&reply("200 OK", "", &body));
+    f.blocker.set_enabled(true);
+    w.handle(Cmd::ListsChanged);
+    assert_eq!(f.engine.take().len(), 1);
     let _ = fs::remove_dir_all(&f.dir);
 }
 

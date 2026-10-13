@@ -42,6 +42,10 @@ impl Browser {
             }
             PageCommand::BlockerEnabled(on) => {
                 self.blocker.set_enabled(on);
+                if on {
+                    // Nothing was fetched or loaded while it was off.
+                    self.blocker.send(WorkerCmd::ListsChanged);
+                }
                 self.trace(&format!("BLOCK:ENABLED:{}", if on { "ON" } else { "OFF" }));
                 self.blocker_page_changed();
             }

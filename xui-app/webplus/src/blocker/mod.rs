@@ -200,10 +200,16 @@ impl Blocker {
 
     /// Whether the rule lists apply to a page whose main-frame address is `url`
     /// (`lzw_ui_blocking`). Only the web is blocked: the browser's own pages and `file:`
-    /// are not.
+    /// are not. A web address whose host this does not name as a site (an IPv6 literal, a host
+    /// the engine accepts and the site list cannot spell) is blocked like any other: no
+    /// exception can match it, and a page must not be able to switch the blocker off by
+    /// its address.
     pub fn decide(&self, url: &str) -> bool {
-        let Some(site) = site_of(url) else {
+        if !is_web_address(url) {
             return false;
+        }
+        let Some(site) = site_of(url) else {
+            return self.lock().settings.enabled;
         };
         let inner = self.lock();
         inner.settings.enabled
@@ -376,6 +382,14 @@ pub fn site_of(url: &str) -> Option<String> {
     normalize_site(host)
 }
 
+/// Whether `url` is an `http:` or `https:` address, whatever its host.
+fn is_web_address(url: &str) -> bool {
+    let url = url.trim();
+    strip_scheme(url, "http://")
+        .or_else(|| strip_scheme(url, "https://"))
+        .is_some()
+}
+
 fn strip_scheme<'a>(url: &'a str, scheme: &str) -> Option<&'a str> {
     let head = url.get(..scheme.len())?;
     head.eq_ignore_ascii_case(scheme)
@@ -394,9 +408,9 @@ pub fn normalize_site(text: &str) -> Option<String> {
         && host.len() <= 253
         && !host.starts_with(['.', '-'])
         && !host.contains("..")
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-');
+        && host.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'_')
+        });
     valid.then(|| host.to_owned())
 }
 

@@ -153,6 +153,13 @@ fn the_engines_news_reaches_the_blocker() {
             rig.state(stage, loaded("https://news.example/", "News", 1));
             rig.events(stage, vec![Event::Blocked(7)]);
             assert_eq!(rig.blocker.blocked(), 7);
+            // Opening our own page starts the engine's count again; the page browsed last keeps
+            // its number.
+            rig.state(stage, loaded("about:blocker", "Ad blocker", 2));
+            rig.events(stage, vec![Event::Blocked(0)]);
+            assert_eq!(rig.blocker.blocked(), 7);
+            // A web page that commits does start again.
+            rig.state(stage, loaded("https://news.example/", "News", 3));
             rig.events(stage, vec![Event::Blocked(0)]);
             assert_eq!(rig.blocker.blocked(), 0);
             // A list's answer is the worker's business; with none connected it changes nothing here.

@@ -264,11 +264,18 @@ Four pieces make it work here:
    (`lzw_engine_blocking_load`, which costs a millisecond or so for EasyList); only when the store has none (a
    new profile, a WebKit that changed its format) is the text converted and compiled
    (`lzw_engine_blocking_compile`, seconds on a fast host).
-3. Parts are named `<list>-<hash of the source>-<n>`: a new version of a list is a new name, the old parts are
-   forgotten.
-4. A failed or broken download (not HTTP 200, no `[Adblock` header, too short) changes nothing: the list that
-   works keeps blocking. A list nobody could fetch yet shows why on `about:blocker`.
-5. A page loads **unblocked until its list is ready**; nothing waits for it.
+3. Parts are named `<list>-<hash of the source>-<n>`: a new version of a list is a new name.
+4. A new version is **tried first**: its parts are compiled while the old ones keep blocking, and only when the
+   engine has taken every part does it replace `lists/<id>.txt` and the record, and the old parts are forgotten.
+   A version the engine refuses (one pattern its parser does not take fails a whole list) changes nothing: the
+   old list keeps blocking, the refused version's validators are not kept, and it is tried again at the next
+   due time (`WEBPLUS:BLOCK:REFUSED:<id>:...`).
+5. A failed or broken download (not HTTP 200, no `[Adblock` header, too short) changes nothing either. A list
+   nobody could fetch yet shows why on `about:blocker`. A list over 16 MiB, or one that becomes more than
+   500,000 rules, is refused whole.
+6. With the blocker switched off **nothing is fetched, loaded or compiled** (the engine's lists stay as they are
+   and decide nothing); switching it on again does the work.
+7. A page loads **unblocked until its list is ready**; nothing waits for it.
 
 ### Switching it off when a page breaks
 
@@ -390,13 +397,27 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
   text at 2x).
 * No tabs, no find in page, no context menu, no pasteboard beyond WebKit's own, no IME, no WebGL, video or
   WebAssembly.
-* **The ad blocker's lists** live in the profile folder, which the network process may write: a compromised
-  network process could replace a downloaded list (with a list that blocks everything, say), though not the
-  user's switches (`confd`). The converted rules are data for WebKit's parser, never code.
-* **The list file is read whole** and converted on a thread of the window's process: EasyList is 2 MB and 0.15 s
-  on a fast host; a list ten times that is a few seconds of one core on the guest.
-* The blocked count of `about:blocker` and the shield is for the page browsed last; a load a script makes in a
-  loop is counted as often as it is blocked.
+* **The ad blocker's lists, and the compiled rules, live in the profile folder**, which the network process may
+  write: a compromised network process could replace a downloaded list (with a list that blocks everything,
+  say), though not the user's switches (`confd`). The worse case is the compiled store (`contentextensions/`):
+  WebKit maps the file and shares the mapping with the web processes without verifying it, so a compromised
+  network process that writes it (or writes through the path to the shared pages) feeds bytecode to the
+  interpreter of the web process, which is a way across the sandbox that does not exist with the store
+  outside the network process's reach. The cure is to keep the lists and the store in a folder of their own
+  (a sibling of the app's profile, which no process label but the app's may write; label rules are by path
+  segment), and it needs a guest run to confirm what the kernel lets an app create there: left for a follow-up.
+* **The list file is read whole**, bounded at 16 MiB and 500,000 rules, and converted on a thread of the
+  window's process; WebKit compiles it in the UI process, so a hostile list that stays inside the bounds still
+  costs seconds of one core and a few hundred MB while it compiles. Regular expressions that match the empty
+  string (a rule that would block everything) are refused by the converter; nested quantifiers are not
+  detected.
+* **A host the site list cannot spell** (an IPv6 literal) is blocked like any other but cannot be excepted by
+  name.
+* **The filter lists need `/system/bin/curl`**, which `LAZYOS_TLS=1` ships (`run_demo.py --lazywebplus` sets
+  it). A build with `LAZYOS_LAZYWEBPLUS=1` alone browses and blocks nothing, and `about:blocker` says "curl did
+  not run".
+* The blocked count of `about:blocker` and the shield is for the web page on show or browsed last (opening
+  `about:blocker` does not reset it); a load a script makes in a loop is counted as often as it is blocked.
 * The prompt dialog does not seed the page's default value.
 
 ## Testing
