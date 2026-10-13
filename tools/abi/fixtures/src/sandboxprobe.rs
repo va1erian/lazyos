@@ -77,8 +77,18 @@ fn io_attempt<T>(result: io::Result<T>) -> Attempt {
 /// lines in a ten second window: the probes are paced so that none is dropped.
 const PACE: std::time::Duration = std::time::Duration::from_millis(350);
 
+/// Under the real browser both engine processes probe at once, so each paces itself twice as slowly to
+/// keep the two together under the label trace's rate limit (the kernel-only harness runs one at a time).
+fn pace() -> std::time::Duration {
+    if std::env::var_os("LAZYOS_WEBKIT_PROFILE").is_some() {
+        PACE * 2
+    } else {
+        PACE
+    }
+}
+
 fn say(role: &str, probe: &str, attempt: Attempt) {
-    std::thread::sleep(PACE);
+    std::thread::sleep(pace());
     match attempt {
         Ok(()) => println!("ATTACK:{role}:{probe}:ALLOWED:ok"),
         Err(code) if matches!(code, EPERM | EACCES | ENOSYS) => {
@@ -362,6 +372,8 @@ fn load_label(label: &str, ids: &[u64]) -> Result<(), i64> {
     let body = policy::encode_load_label_args(&policy::LoadLabelArgs {
         label: label.into(),
         rules,
+        // A label with no program is the kernel-only harness's: the driver starts the probe itself.
+        program: None,
     })
     .map_err(|_| -22i64)?;
     let request = parcel::request(policy::INTERFACE_ID, policy::METHOD_LOADLABEL, 0, body);

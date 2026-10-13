@@ -715,8 +715,13 @@ directory; `lzw_ui_features()` keeps W5's window as it was. The rule a script en
 must never start another program or run a browser command**, which is `policy::decide` in front of every
 navigation (docs/lazywebplus.md, *Navigation policy*). `mimed` had no way to choose between two browsers, so
 `user/<uid>/mimed/default/<type>` and a Settings > Default apps page were added. The harness is
-`python tools/webplus/run.py`. The W5 browser (`os.lazy.webkit`) is **not retired** by W6: see
-docs/lazywebplus.md.
+`python tools/webplus/run.py` (two boots of one image: pages, dialogs, blocked launches, downloads, profile,
+cookie and history across the second boot; `WEBPLUS:HARNESS:PASS`). Its engine processes are sandboxed like
+W5's (the manifest's `[processes.*]` tables, the network process also writing `$HOME/Downloads`;
+`attack_run.py --browser --app lazywebplus`: 60 probes as expected). The harness found that **no cookie was
+ever stored**: WebKit opens its SQLite databases in WAL mode, whose index is a mapped file, and LazyOS has no
+file-backed `mmap` (`SQLITE_IOERR_SHMMAP`), so the bundle's SQLite is built with `SQLITE_OMIT_WAL`. The W5
+browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
 
 ## 6. The problems that will surface
 

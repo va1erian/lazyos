@@ -83,10 +83,13 @@ _FILES = {
     "write_tmp": blocked(r"file=/tmp/sandbox-breach access=(write|stat)"),
     "unix_connect": blocked(r"file=/tmp/sandbox-probe\.sock access=write"),
 }
+#: A refused start is `spawn=process|exec` for a label of the kernel-only harness and `start=<call>` (the
+#: system call that tried: `fork`, `vfork`, `execve`, ...) for a child label of a package.
+_START = r"(spawn=(process|exec)|start=\w+)"
 _PROCESS = {
-    "exec_busybox": blocked(r"spawn=(process|exec)"),
-    "exec_native": blocked(r"spawn=(process|exec)"),
-    "fork": blocked(r"spawn=process"),
+    "exec_busybox": blocked(_START),
+    "exec_native": blocked(_START),
+    "fork": blocked(_START),
     "signal_parent": blocked(r"signal=other"),
     "resolve_display": blocked(r"resolve=os\.lazy\.display\.v1"),
     "resolve_input": blocked(r"resolve=os\.lazy\.input\.v1"),

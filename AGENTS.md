@@ -638,12 +638,15 @@ cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplu
 tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
 and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
 `mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
-`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed like W5's (`[processes.*]` tables in the manifest). The window crates are declared `GPL-2.0-only
+`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed like W5's (`[processes.*]` tables in the manifest, the network
+process also writing `$HOME/Downloads`; attack them with `python tools/webkit/attack_run.py --browser --app
+lazywebplus`). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
+otherwise). The window crates are declared `GPL-2.0-only
 OR GPL-3.0-or-later` (the program links OpenSSL through WebKit's curl and is GPL-3.0-or-later); only link
 GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplus` and `python
 tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
 first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
-and the screenshots; `--label-trace` fails on any `LABEL:DENY`.
+and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
 
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker

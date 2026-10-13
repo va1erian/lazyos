@@ -38,3 +38,7 @@ Markers (`WEBPLUS:` is a channel, `libs/tracefmt`, `docs/trace/channels.md`): th
 `DOWNLOAD:START|DONE|FAIL`, `FAIL`, `STOPPED`; the UI process `UP`, `WEBPROCESS:UP:<pid>`,
 `NETWORKPROCESS:UP:<pid>`, `INFO:TIME:...`, `INFO:RESIZE:<w>x<h>`, `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`. The
 ones that name a page print only in a `LAZYOS_UI_PROBE=1` image.
+
+The sandbox of the two engine processes is attacked by `python tools/webkit/attack_run.py --browser --app
+lazywebplus` (and `--kernel`), see [`docs/lazywebplus.md`](../../docs/lazywebplus.md). `--label-trace` here fails
+on any `LABEL:DENY` beyond the nine optional ones of #836 (`denies.py`).

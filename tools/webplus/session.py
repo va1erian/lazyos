@@ -41,6 +41,8 @@ EXAMPLE_SECOND = EXAMPLES / "lazywebplus_second.json"
 #: the middle of the maximized one (1280 px wide).
 MAXIMIZE_AT = (472, 0)
 CLOSE_AT = (630, 0)
+#: The close button of the window at its first size (1004 px wide, as the second boot has it).
+CLOSE_AT_NORMAL = (491, 0)
 #: Where the pointer rests for the wheel: inside the page, away from links.
 WHEEL_AT = (600, 300)
 #: The links page's boxes, in page pixels (`fixtures/theoldnet.com/webplus/links.html`): 360 x 70,
@@ -242,7 +244,7 @@ def second(timeout: float = 300.0) -> list[dict]:
         page_click(j.caption("History"), CLEAR_AT, timeout, f"{j.P}:LOAD:about:history"),
         {"wait": 3.0},
         {"shot": "32_history_cleared"},
-        {"click_at": {"target": f"title:{j.caption('History')}", "offset": list(CLOSE_AT)},
+        {"click_at": {"target": f"title:{j.caption('History')}", "offset": list(CLOSE_AT_NORMAL)},
          "timeout": 60, "until": f"{j.P}:QUIT:", "retries": 2},
         {"wait": 9.0},
         {"quit": True},

@@ -190,4 +190,43 @@ The judge's table (`tools/webkit/attackjudge.py`) is the same for both browsers 
 network process may write the Downloads folder (the probe `write_downloads`), WebKit's and either page
 process may not; `test_attack_judge.py` checks that LazyWeb+'s manifest tables are WebKit's plus that grant.
 
-RESULTS
+## Results
+
+`python tools/webplus/run.py --label-trace` (WHPX, 4 GiB guest, a desktop image with networking and the UI
+probe, the 8G user memory quota the launchers set): `WEBPLUS:HARNESS:PASS` with every check green: both
+boots ran to their end, every page loaded with its title, the three dialogs were answered from the keyboard
+and the answers reached the page, the script's `mailto:`, `x-lazyweb:clear-history` and `window.open` with no
+click were refused (`LAUNCH:...:BLOCKED`), the click on the `mailto:` link reached `mimed`, `target=_blank` and
+a clicked `window.open` opened in the one view, both attachments (300 KiB, and 200 KiB sent over ten seconds)
+were saved whole, the host saw the pages, the six resources over HTTPS with SNI, the form's query and the
+cookie on the second boot, the profile (history, `Downloads`, `cookies/cookie.jar.db`) was on the OS volume
+and Clear history emptied it, the wheel moved the static bands exactly 200 px, the page was laid out again
+when the window grew and painted to the right edge when maximized, and both boots closed the window and
+reaped both children (`CHILD:web:<pid>:GONE`, `CHILD:network:<pid>:GONE`, `QUIT:PASS`).
+
+| | |
+|---|---|
+| Load (ms, `WEBPLUS:INFO:TIME`) | 17 navigations: 1 to 262 ms from request to the last byte of the document for most pages (example.com 62, theoldnet.com with its pictures 262, a form 24 to 45); 3.25 s for the script page, which waits for three dialogs; first paint 3 to 119 ms after the load |
+| Programs | `lazywebplus-app` **108.0 MiB** stripped static-PIE (113,235,512 bytes); `WebProcess` and `NetworkProcess` 107.4 MiB each; the window's static library is 161 MiB of archive and costs about what W5's does (the seam is shared). The package `os.lazy.lazywebplus-0.1.0.lzp` is **44.7 MB** (deflate); the first boot installs it in about 4.9 s (`PKGD:PROVISION:INSTALL ... ticks=495`) |
+| Memory | free RAM of the 4 GiB guest after the first page 3,479 MiB, after 19 navigations 3,404 MiB (`INFO:MEM:used_since_first_load=75`) |
+| Labels | `LABEL:ENTER` for both children; **no `LABEL:DENY` beyond the nine optional ones #836 documents** (stat of `/etc`, `/etc/localtime`, `/usr/share/zoneinfo`; `/etc/ssl/openssl.cnf`; fontconfig's baked-in `conf.avail` and its cache writes under `/tmp` and `/system/share/fonts`); the judge (`tools/webplus/denies.py`) fails on any other |
+| Sandbox attack harness | `attack_run.py --kernel`: 60 probes as expected; `attack_run.py --browser --app lazywebplus` (the real UI process starts the stand-ins under `app:os.lazy.lazywebplus/<name>`): **60 probes, every one as expected** (every refusal `EPERM` with its `LABEL:DENY`, the network process's `write_downloads` allowed, the page process's refused) |
+
+## Not verified, and known limits of what was
+
+* **Download progress while a download runs.** The status bar showed "0 bytes of 200.0 KB" four seconds into a
+  ten-second download: the engine's `didWriteData` did not arrive before the end on a slow attachment, so the
+  progress bar jumps from 0 to done (the file, its size and the rename are verified).
+* **Toasts** (see *Known limits*): the shell refuses them from the download thread.
+* Not tried: HiDPI, a WebProcess crash in this window (W5's *Failures* path is shared), IME, the pasteboard,
+  Settings > Default apps by a session (the preference is covered by `deskmenu` host tests and `mimed`'s
+  boot self-test), a real PC.
+* The harness's stand-in sites are LazyWeb's (`tools/web/sites.py`): nothing was loaded from the internet.
+
+## `os.lazy.webkit` is not retired
+
+The issue allows retiring the W5 browser once this harness passes everything W5's did. It was not done: LazyWeb+
+is the same engine with LazyWeb's window, W5's `app_run.py` harness has not been run against it page for page,
+and the W5 package is the smaller program for anyone who wants the engine with no chrome. The two stay; the
+retirement (the package, `LAZYOS_WEBKIT`, `app.py` without `--plus`, `xui-app/crates/webkit`'s window feature)
+is a follow-up once someone decides that.
