@@ -16014,10 +16014,23 @@ pub mod os_lazy_messenger_policy_v1 {
     /// unmatched is denied). An empty list revokes the label's grants. The
     /// label is interned if new; a malformed label or more rules than the
     /// kernel stores per label (256) fails with `EINVAL`.
+    /// 
+    /// `program` is for a child label only (`app:<id>/<name>`, issue #832): the
+    /// absolute path of the executable that takes it. A task labelled
+    /// `app:<id>` that `execve`s exactly that path becomes `app:<id>/<name>`,
+    /// whose rules are the intersection of these and the app's own, and which
+    /// may not start programs itself. The app's label must already be
+    /// interned (`ENOENT` otherwise); `program` on any other label, a path
+    /// that is not absolute and canonical, or a child label with rules but no
+    /// program is `EINVAL`; every rule of the child must be one the app's
+    /// loaded rules allow (`EACCES`: it would widen the app). Loading a child
+    /// with no rules and no `program` revokes it and drops the binding, and
+    /// so does revoking the app (an empty list for `app:<id>`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LoadLabelArgs {
         pub label: alloc::string::String,
         pub rules: alloc::vec::Vec<LabelRule>,
+        pub program: core::option::Option<alloc::string::String>,
     }
 
     pub fn encode_load_label_args(value: &LoadLabelArgs) -> Result<Vec<u8>, Error> {
@@ -16028,6 +16041,16 @@ pub mod os_lazy_messenger_policy_v1 {
             nested.raw(Kind::Struct, 1, &encode_label_rule(item)?)?;
         }
         target.array(2, &nested)?;
+        match &value.program {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(3, Some(&nested))?;
+            }
+            None => {
+                target.option(3, None)?;
+            }
+        }
         Ok(target.finish())
     }
 
@@ -16043,6 +16066,15 @@ pub mod os_lazy_messenger_policy_v1 {
                     let mut nested = field.nested(0)?;
                     while let Some(item) = nested.next()? {
                         out.rules.push(decode_label_rule(item.payload)?);
+                    }
+                }
+                3 => {
+                    if field.payload.is_empty() {
+                        out.program = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.program = Some(item.as_str()?.into());
                     }
                 }
                 _ => {}
