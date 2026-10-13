@@ -3,6 +3,7 @@
 
 mod cow;
 pub mod dma;
+pub mod filemap;
 mod frames;
 mod heap;
 mod layout;

@@ -48,6 +48,15 @@ impl Node {
         self.fs.write_node(self.id, offset, data)
     }
 
+    /// [`Filesystem::flush_page`]: one page of a mapped file, cut at the
+    /// size at write time. `None`: busy or unsupported without waiting.
+    pub fn flush_page(&self, offset: u64, data: &[u8], wait: bool) -> Option<Result<usize, FsError>> {
+        if !self.writable {
+            return Some(Err(FsError::ReadOnly));
+        }
+        self.fs.flush_page(self.id, offset, data, wait)
+    }
+
     pub fn stat(&self) -> Result<Meta, FsError> {
         self.fs.stat_node(self.id)
     }

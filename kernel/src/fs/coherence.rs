@@ -33,6 +33,10 @@ pub(super) enum Change {
 /// before it changed anything.
 pub(super) fn native_changed<T>(path: &str, change: Change, result: &Result<T, FsError>) {
     if may_have_changed(result) {
+        if change == Change::Content {
+            // Pages of a file-backed mapping follow a native write.
+            super::openfile::content_changed(path, true);
+        }
         abi_with(|vfs| apply(vfs, path, change));
     }
 }
@@ -41,6 +45,10 @@ pub(super) fn native_changed<T>(path: &str, change: Change, result: &Result<T, F
 /// table's cache for it, unless it was refused before it changed anything.
 pub(super) fn abi_changed<T>(path: &str, change: Change, result: &Result<T, FsError>) {
     if may_have_changed(result) {
+        if change == Change::Content {
+            // Pages of a file-backed mapping follow a truncation by name.
+            super::openfile::content_changed(path, false);
+        }
         with(|vfs| apply(vfs, path, change));
     }
 }

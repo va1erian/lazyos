@@ -205,6 +205,10 @@ programs! {
     CXXPROOF = "cxxproof";
     /// `depsproof`, the WebKit dependency bundle check (`LAZYOS_WEBKIT_DEPS=1`, W3).
     DEPSPROOF = "depsproof";
+    /// `dynlink`, the dynamic-linking check program (`LAZYOS_DYNLINK=1`, Linux ABI, issue #535).
+    DYNLINK = "dynlink";
+    /// `dynpie`, the same program as a PIE (`LAZYOS_DYNLINK=1`).
+    DYNPIE = "dynpie";
     /// `webprocess`, WebKit's page process (`LAZYOS_WEBKIT=1` or `LAZYOS_WEBKIT_PORT=1`, Linux ABI, W4; the build
     /// calls it `WebProcess`, the image keeps program names lowercase).
     WEBPROCESS = "webprocess";

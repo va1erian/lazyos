@@ -56,6 +56,9 @@ pub fn set_pml4(value: u64) {
         // `execve` starts a fresh signal disposition table (Linux keeps SIG_IGN
         // but resets handlers; a fresh table means ignored ones reset too).
         signal::forget(old);
+        // The old image's shared file pages go to their files now, in the
+        // exec'ing task's own context.
+        mem::filemap::flush_table(PhysAddr::new(old));
         let released = mem::free_user_table(PhysAddr::new(old));
         let stats = mem::frame_stats();
         serial_println!(
@@ -64,6 +67,16 @@ pub fn set_pml4(value: u64) {
             stats.total
         );
     }
+}
+
+/// How many tasks run in the address space `pml4`.
+pub fn address_space_users(pml4: u64) -> usize {
+    TASKS
+        .lock()
+        .iter()
+        .flatten()
+        .filter(|task| task.pml4 == pml4 && task.state != TaskState::Done)
+        .count()
 }
 
 /// The current task's `brk` break.

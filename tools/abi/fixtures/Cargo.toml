@@ -49,6 +49,11 @@ path = "src/memstress.rs"
 name = "jitmem"
 path = "src/jitmem.rs"
 
+# File-backed mmap: private and shared mappings, write-back, fork (issue #535).
+[[bin]]
+name = "filemap"
+path = "src/filemap.rs"
+
 [[bin]]
 name = "procstress"
 path = "src/procstress.rs"

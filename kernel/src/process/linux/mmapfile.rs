@@ -19,8 +19,8 @@
 //!
 //! A `PROT_NONE` mapping of either kind is refused (`EINVAL`): its pages
 //! cannot be mapped without being readable, and there is no fault path to
-//! fill them in when `mprotect` opens them later. Mapping a regular file is
-//! still `ENODEV`: only a memfd has pages to share.
+//! fill them in when `mprotect` opens them later. A regular file is mapped
+//! lazily from its page cache instead ([`super::mmapvfs`]).
 
 use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
@@ -29,7 +29,7 @@ use crate::mem::vma::Kind;
 use crate::quota::{self, Resource};
 use crate::task::{self, Fd};
 
-use super::errno::{err, EBADF, EINVAL, ENODEV, ENOMEM, EOVERFLOW};
+use super::errno::{err, EBADF, EINVAL, ENOMEM, EOVERFLOW};
 use super::mem::{charged_len, Mapping};
 use super::PAGE;
 
@@ -76,8 +76,8 @@ pub(super) fn map_memfd(spec: &Mapping, fd: u64, offset: u64, shared: bool) -> u
     let mem = match &opened {
         Some(Fd::Memfd { mem }) => mem,
         None => return err(EBADF),
-        // A regular file has no pages to share.
-        Some(_) => return err(ENODEV),
+        // A regular file maps from its page cache (`mmapvfs`).
+        Some(_) => return super::mmapvfs::map_fd(spec, fd, offset, shared),
     };
     if offset & (PAGE - 1) != 0 || (offset as i64) < 0 {
         return err(EINVAL);
@@ -132,9 +132,7 @@ fn install(
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        let removed = crate::mem::vma::remove(table, spec.base, spec.end);
-        replaced = charged_len(&removed);
-        crate::mem::unmap_range(table, spec.base, spec.end);
+        replaced = charged_len(&super::mem::unmap_vmas(table, spec.base, spec.end, true));
     }
     let mut va = spec.base;
     while va < spec.end {

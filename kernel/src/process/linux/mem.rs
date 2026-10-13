@@ -5,9 +5,10 @@
 //! quota charge for it), then make the page tables agree, deferring frames to
 //! first touch wherever demand-zero is safe.
 
+use alloc::vec::Vec;
 use x86_64::PhysAddr;
 
-use crate::mem::vma::{Kind, Prot};
+use crate::mem::vma::{Kind, Prot, Vma};
 use crate::quota::{self, Resource};
 use crate::task;
 
@@ -54,14 +55,28 @@ pub(super) fn charged_len(vmas: &[crate::mem::vma::Vma]) -> u64 {
         .sum()
 }
 
+/// Take `[start, end)` out of the VMAs and the page tables, and let go of
+/// the file pages its file mappings held. Returns the removed pieces. A range
+/// with no VMA is left alone unless `always` (`MAP_FIXED` clears pages the
+/// VMAs do not know).
+pub(super) fn unmap_vmas(table: PhysAddr, start: u64, end: u64, always: bool) -> Vec<Vma> {
+    let pieces = crate::mem::vma::remove_files(table, start, end);
+    if always || !pieces.is_empty() {
+        crate::mem::unmap_range(table, start, end);
+    }
+    let vmas = pieces.iter().map(|piece| piece.vma).collect();
+    crate::mem::filemap::released(pieces, true);
+    vmas
+}
+
 /// `mmap(addr, len, prot, flags, fd, offset)`.
 ///
 /// Anonymous private memory is recorded as an `Anon` VMA and populated lazily
 /// (demand-zero): no frames are spent until a page is first touched, which
 /// matches Linux for a buffer that is allocated and never (fully) used.
 /// `MAP_FIXED` replaces whatever was mapped there before, VMAs and page
-/// tables alike. Shared mappings and memfd mappings are
-/// [`super::mmapfile`]'s; a regular file is `ENODEV`.
+/// tables alike. Shared anonymous and memfd mappings are
+/// [`super::mmapfile`]'s, a regular file's [`super::mmapvfs`].
 pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: u64, offset: u64) -> u64 {
     let anonymous = flags & MAP_ANONYMOUS != 0;
     let sharing = flags & MAP_TYPE;
@@ -113,8 +128,7 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: u64, offs
     }
     let mut replaced = 0u64;
     if flags & MAP_FIXED != 0 {
-        replaced = charged_len(&crate::mem::vma::remove(table, base, end));
-        crate::mem::unmap_range(table, base, end);
+        replaced = charged_len(&unmap_vmas(table, base, end, true));
     }
     crate::mem::vma::insert(table, base, end, prot, Kind::Anon);
     if flags & MAP_FIXED == 0 {
@@ -139,11 +153,10 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
         return err(EINVAL);
     };
     let table = crate::mem::kernel_table();
-    let removed = crate::mem::vma::remove(table, start, end);
+    let removed = unmap_vmas(table, start, end, false);
     if !removed.is_empty() {
-        let bytes = charged_len(&removed);
-        crate::mem::unmap_range(table, start, end);
         // Unmapping gives the user's quota back (issue #103).
+        let bytes = charged_len(&removed);
         quota::release_for_slot(task::current(), Resource::UserMemory, bytes);
     }
     0
@@ -169,6 +182,8 @@ pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
         let (start, stop) = (vma.start.max(addr), vma.end.min(end));
         match vma.kind {
             Kind::Shared | Kind::SharedAnon => {}
+            // Private modifications go; a shared page's contents are the
+            // file's, and the next touch maps it again.
             Kind::Stack => {
                 if vma.prot.has_write() {
                     let zeros = [0u8; PAGE as usize];
@@ -228,6 +243,9 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
     let table = crate::mem::kernel_table();
     if crate::mem::vma::find_range(table, start, end).is_empty() {
         return 0;
+    }
+    if let Err(code) = super::mmapvfs::protect_shared(table, start, end, prot) {
+        return code;
     }
     if !crate::mem::protect_range(table, start, end, prot) {
         return err(ENOMEM);
@@ -334,8 +352,7 @@ pub(super) fn sys_mremap(
         if new_len <= old_len {
             let new_end = old_addr + new_len;
             if new_end < old_end {
-                crate::mem::vma::remove(table, new_end, old_end);
-                crate::mem::unmap_range(table, new_end, old_end);
+                unmap_vmas(table, new_end, old_end, true);
                 if vma.kind != Kind::Shared {
                     quota::release_for_slot(
                         task::current(),
@@ -393,11 +410,7 @@ pub(super) fn sys_mremap(
         return err(ENOMEM);
     }
     // Replacing a live destination range returns its charge (MAP_FIXED rules).
-    let displaced = crate::mem::vma::remove(table, dest, dest_end);
-    let replaced = charged_len(&displaced);
-    if !displaced.is_empty() {
-        crate::mem::unmap_range(table, dest, dest_end);
-    }
+    let replaced = charged_len(&unmap_vmas(table, dest, dest_end, false));
     // Only `min(old, new)` pages move; a shrinking move drops the old tail.
     let keep = old_len.min(new_len);
     let mut offset = 0;
@@ -418,9 +431,15 @@ pub(super) fn sys_mremap(
         }
         offset += PAGE;
     }
-    crate::mem::vma::remove(table, old_addr, old_end);
-    crate::mem::unmap_range(table, old_addr, old_end);
-    crate::mem::vma::insert(table, dest, dest_end, vma.prot, vma.kind);
+    // A file mapping keeps its file: take it out before the old range goes.
+    let file = crate::mem::vma::file_of(table, &vma);
+    unmap_vmas(table, old_addr, old_end, true);
+    match file {
+        Some(file) => crate::mem::vma::insert_file(
+            table, dest, dest_end, vma.prot, vma.kind, file, vma.file_off,
+        ),
+        None => crate::mem::vma::insert(table, dest, dest_end, vma.prot, vma.kind),
+    }
     if replaced > 0 {
         quota::release_for_slot(task::current(), Resource::UserMemory, replaced);
     }

@@ -7,6 +7,7 @@
 use super::*;
 use crate::process::load_segments;
 
+pub(super) mod dynamic;
 mod quota;
 mod stream;
 

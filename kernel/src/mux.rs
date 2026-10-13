@@ -53,7 +53,8 @@ pub fn run() -> ! {
         // Reclaim task slots the scheduler flagged (issue #133) before any
         // window work: interrupts off, so the drop of a dead task's buffers
         // cannot be preempted by the timer while it holds the task table.
-        without_interrupts(task::reclaim_pending);
+        // A task's last file pages may be written back there: a kernel section.
+        without_interrupts(|| crate::arch::irqoff::kernel_section(task::reclaim_pending));
         // Post interrupt messages for claimed device lines and expire ack
         // deadlines (issue #240); the ISR only records that a line fired.
         crate::dev::intx::service();

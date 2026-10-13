@@ -302,6 +302,10 @@ pub(super) fn sys_getsid(pid: u64) -> u64 {
 /// control unit, the thread group is the process. Every thread's
 /// `clear_child_tid` word is zeroed and futex-woken so joiners wake.
 pub(super) fn sys_exit_group(code: u64) -> u64 {
+    // Shared file pages are written back here, in the exiting task's own
+    // context, where waiting for the volume is fine; the teardown that
+    // follows (any task, or the kernel's) then has nothing left to wait for.
+    crate::mem::filemap::flush_table(crate::mem::kernel_table());
     let tids = task::exit_thread_group(code & 0xff);
     for tid in tids {
         if tid != 0 {
@@ -314,6 +318,11 @@ pub(super) fn sys_exit_group(code: u64) -> u64 {
 }
 
 pub(super) fn sys_exit(code: u64) -> u64 {
+    // Only the last thread of an address space flushes it at exit; the
+    // others leave the pages to the thread that does.
+    if task::address_space_users(crate::mem::kernel_table().as_u64()) <= 1 {
+        crate::mem::filemap::flush_table(crate::mem::kernel_table());
+    }
     // Robust mutexes the thread still holds become owner-dead.
     super::procattr::exit_robust_list(task::current());
     // Thread exit: clear the TID word and wake anyone joining on it.

@@ -115,6 +115,7 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
         fhs::SYSTEM,
         fhs::SYSTEM_BIN,
         fhs::SYSTEM_ETC,
+        fhs::SYSTEM_LIB,
         fhs::SYSTEM_SHARE,
         fhs::SYSTEM_PACKAGES,
         fhs::etc::SKEL,
@@ -162,16 +163,19 @@ pub fn dirs(accounts: &[Account]) -> Vec<DirSpec> {
 }
 
 /// The mode of a file the build places, from where it goes: 0755 for anything
-/// under `/system/bin` (the programs), 0644 for everything else. A name never
+/// under `/system/bin` (the programs) and `/system/lib` (the dynamic linker
+/// and shared objects, which a program's interpreter must be able to execute),
+/// 0644 for everything else. A name never
 /// decides it, so a data file cannot become executable by being called
 /// `*.ELF`. (The account database is placed with its own mode and owner,
 /// `accounts_seed.rs`.)
 pub fn file_mode(path: &str) -> u16 {
-    let in_bin = path
-        .trim_start_matches('/')
-        .strip_prefix(fhs::SYSTEM_BIN.trim_start_matches('/'))
-        .is_some_and(|rest| rest.starts_with('/') && rest.len() > 1);
-    if in_bin {
+    let under = |dir: &str| {
+        path.trim_start_matches('/')
+            .strip_prefix(dir.trim_start_matches('/'))
+            .is_some_and(|rest| rest.starts_with('/') && rest.len() > 1)
+    };
+    if under(fhs::SYSTEM_BIN) || under(fhs::SYSTEM_LIB) {
         0o755
     } else {
         0o644

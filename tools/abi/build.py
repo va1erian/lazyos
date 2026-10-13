@@ -36,6 +36,7 @@ NAMES = [
     "memstress",
     "bigapp",
     "jitmem",
+    "filemap",
     "procstress",
     "sigstress",
     "fpsig",
@@ -150,6 +151,27 @@ def build_tlsfix() -> dict[str, str]:
     return {"tlsfix": str(dest)}
 
 
+def build_dynlink() -> dict[str, str]:
+    """Build the dynamic-linking fixture (`tools/abi/dynlink.py`, zig): the
+    program is `dynlink.elf` like any fixture; its interpreter, libraries and
+    PIE twin land in `target/dynlink/` for `LAZYOS_DYNLINK=1`."""
+    done = run([sys.executable, str(ROOT / "tools" / "abi" / "dynlink.py")])
+    if done.returncode != 0:
+        print("warning: dynlink build failed", file=sys.stderr)
+        print(done.stderr[-2000:], file=sys.stderr)
+        return {}
+    try:
+        built = json.loads(done.stdout)
+    except ValueError:
+        return {}
+    if "dynlink" not in built:
+        print("warning: dynlink not built (needs zig)", file=sys.stderr)
+        return {}
+    dest = OUT_DIR / "dynlink.elf"
+    dest.write_bytes(Path(built["dynlink"]).read_bytes())
+    return {"dynlink": str(dest)}
+
+
 def build_busybox() -> dict[str, str]:
     """Fetch/build the pinned BusyBox, or report it unavailable."""
     shell = busybox.ensure_busybox()
@@ -165,6 +187,7 @@ def main() -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     built = build_fixtures()
     built.update(build_tlsfix())
+    built.update(build_dynlink())
     built.update(build_busybox())
     print(json.dumps(built, indent=2))
     return 0

@@ -25,6 +25,7 @@ pub fn phdr_address_ignores_unmapped_headers() -> Result<(), String> {
         memsz: 0,
     };
     let headers = Headers {
+        etype: 2,
         entry: 0,
         phoff: 64,
         phdrs: alloc::vec![hostile],
@@ -39,6 +40,7 @@ pub fn phdr_address_ignores_unmapped_headers() -> Result<(), String> {
         ..hostile
     };
     let headers = Headers {
+        etype: 2,
         entry: 0,
         phoff: 64,
         phdrs: alloc::vec![hostile, real],
@@ -57,7 +59,7 @@ fn payload_offset(phdrs: usize) -> u64 {
 }
 
 /// The kernel task as root over a fresh ramfs ABI table.
-fn setup_ramfs() {
+pub(super) fn setup_ramfs() {
     task::register_kernel();
     credentials::set(task::current(), Cred::ROOT);
     crate::fs::install_abi_ramfs_for_test();

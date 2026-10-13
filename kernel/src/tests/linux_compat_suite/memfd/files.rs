@@ -169,12 +169,14 @@ pub fn memfd_mmap_refusals() -> Result<(), String> {
         mmap(BASE, PAGE, rw, MAP_SHARED | MAP_FIXED, r, 0) == ENODEV,
         "a pipe"
     );
-    let file = cpath("/tmp/regular");
-    let opened = sys(2, &[file.as_ptr() as u64, 0o102, 0o600]);
+    // A snapshot descriptor (a device) has no pages to share; a regular
+    // file maps from its page cache (`filemap` cases).
+    let file = cpath("/dev/null");
+    let opened = sys(2, &[file.as_ptr() as u64, 2, 0]);
     check!((opened as i64) > 2, "open");
     check!(
         mmap(BASE, PAGE, rw, MAP_SHARED | MAP_FIXED, opened, 0) == ENODEV,
-        "MAP_SHARED of a regular file was not refused"
+        "MAP_SHARED of a snapshot descriptor was not refused"
     );
     check!(
         mem::vma::find(a.table, BASE).is_none(),
