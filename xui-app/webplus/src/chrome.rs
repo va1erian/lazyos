@@ -50,13 +50,17 @@ pub enum Command {
     ClearHistory,
     ShowDownloads,
     About,
+    /// `about:blocker` (the toolbar's shield and the View menu).
+    Blocker,
+    /// Reload the page once with the ad blocker off for it.
+    ReloadUnblocked,
     /// The context menu's: act on what was right-clicked.
     OpenLink,
     CopyLink,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 14] = [
+const COMMANDS: [Command; 16] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -69,6 +73,8 @@ const COMMANDS: [Command; 14] = [
     Command::ClearHistory,
     Command::ShowDownloads,
     Command::About,
+    Command::Blocker,
+    Command::ReloadUnblocked,
     Command::OpenLink,
     Command::CopyLink,
 ];
@@ -102,6 +108,8 @@ pub struct Widgets {
     /// Reload while idle, Stop while loading.
     pub reload: Handle<Button<Msg>>,
     pub throbber: Handle<Throbber>,
+    /// The ad blocker's button: its icon and tooltip say what it does for this page.
+    pub shield: Handle<Button<Msg>>,
     pub status: Handle<Label<Msg>>,
     pub badge: Handle<Badge>,
     pub download_label: Handle<Label<Msg>>,
@@ -151,6 +159,14 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
         bar.submenu(VIEW_MENU, "&View", |m| {
             item(m, Command::Reload, "&Reload", Lucide::RefreshCw);
             item(m, Command::Stop, "&Stop", Lucide::CircleX);
+            m.separator();
+            item(m, Command::Blocker, "Ad &Blocker...", Lucide::EyeOff);
+            item(
+                m,
+                Command::ReloadUnblocked,
+                "Reload Without &Blocking",
+                Lucide::Eye,
+            );
         });
         bar.submenu(HISTORY_MENU, "Hi&story", |m| {
             item(m, Command::Back, "&Back", Lucide::ChevronLeft);
@@ -241,6 +257,9 @@ fn toolbar(widgets: &Widgets) -> Layout<Msg> {
                 .on_change(|_| Msg::AddressEdited)
                 .fill(1),
             tool(Lucide::ExternalLink, "Go (Enter)", Msg::Go).width(TOOL_SIDE),
+            tool(Lucide::EyeOff, "Ad blocker", Msg::Menu(Command::Blocker))
+                .bind(&widgets.shield)
+                .width(TOOL_SIDE),
             build(Throbber::new).bind(&widgets.throbber),
         ))
 }

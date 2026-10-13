@@ -224,11 +224,122 @@ holds a registration for the type, so a stale choice (an uninstalled browser) fa
 keeps its old rule (the app registered last wins, which is install order), so LazyWeb+ may open links until the
 user picks LazyWeb in Settings; the lookup of the choice is made only when two apps handle the type.
 
+## Blocking ads
+
+LazyWeb+ blocks the requests the community filter lists mark as ads (issue #845), so a page loads less: a
+blocked resource is never fetched, its script never runs and its box is never laid out. v1 ships **EasyList**,
+network blocking only (no element hiding), fetched at runtime and never part of the image.
+
+**The mechanism is WebKit's content extensions** (Safari content-blocker rule lists): JSON compiled to a bytecode
+automaton by the UI process, stored on disk, shared with the web processes and enforced before a request leaves.
+Four pieces make it work here:
+
+* **The engine.** `ENABLE_CONTENT_EXTENSIONS` is on in `OptionsLazyOS.cmake` (WebKit has it off for this port by
+  default). With it on the UI process did not link with the curl network backend; patch `0019` supplies
+  `NetworkCache::Data::tryCreateSharedMemory()`. Patch `0018` makes the C API report a *blocked* load, so the
+  count needs no second rule per block. `webkit/port/app/blocking.cpp` holds the store
+  (`<profile>/contentextensions`), the page's user content controller and the per-navigation decision.
+* **The converter**, `xui-app/crates/adblock` (`lazyadblock`, MIT, no dependencies): Adblock Plus syntax to
+  rule lists. It emits only what WebKit's own parsers accept (one refused pattern fails a whole list, so it is
+  strict and its tests parse every output with an independent parser of WebKit's URL-filter subset), splits at
+  the 150,000-rule limit repeating the exceptions in each part (an exception only reaches back inside its own
+  list), and drops what WebKit cannot say exactly, counting it, never widening it. `README.md` of the crate has
+  the table of what becomes what and what is dropped.
+* **The window's half**, `xui-app/webplus/src/blocker/`: the user's settings, the per-navigation decision, the
+  lists and the worker that fetches and converts them, and `about:blocker`.
+* **The fetch**, `curl` (the `nettls` program, `LAZYOS_TLS=1`: `run_demo.py --lazywebplus` and the launcher
+  bring it), run by the window as a child under a label of its own, `app:os.lazy.lazywebplus/listupdate`
+  (`[processes.listupdate]` in the manifest): outbound network, the resolver, the host table and the CA bundle,
+  and write access to `$HOME/.apps/os.lazy.lazywebplus/lists`, nothing else. It sends no cookie and no referrer
+  (curl keeps none), so a list server cannot tie a request to the browsing profile. A conditional request (the
+  list's `ETag` and `Last-Modified`) is made at most when the list's own `! Expires:` line says so (bounded
+  from one hour to fourteen days; EasyList says four days), at most once an hour after a failure, and on
+  *Update now*.
+
+### How a list becomes a block
+
+1. The worker reads `lists/<id>.txt` and its record `lists/<id>.meta` (the source's hash, the engine's ids of
+   the compiled parts, the ETag, when it was fetched and tried).
+2. A source whose hash is the record's is **not converted**: the engine is asked for the parts the store holds
+   (`lzw_engine_blocking_load`, which costs a millisecond or so for EasyList); only when the store has none (a
+   new profile, a WebKit that changed its format) is the text converted and compiled
+   (`lzw_engine_blocking_compile`, seconds on a fast host).
+3. Parts are named `<list>-<hash of the source>-<n>`: a new version of a list is a new name.
+4. A new version is **tried first**: its parts are compiled while the old ones keep blocking, and only when the
+   engine has taken every part does it replace `lists/<id>.txt` and the record, and the old parts are forgotten.
+   A version the engine refuses (one pattern its parser does not take fails a whole list) changes nothing: the
+   old list keeps blocking, the refused version's validators are not kept, and it is tried again at the next
+   due time (`WEBPLUS:BLOCK:REFUSED:<id>:...`).
+5. A failed or broken download (not HTTP 200, no `[Adblock` header, too short) changes nothing either. A list
+   nobody could fetch yet shows why on `about:blocker`. A list over 16 MiB, or one that becomes more than
+   500,000 rules, is refused whole.
+6. With the blocker switched off **nothing is fetched, loaded or compiled** (the engine's lists stay as they are
+   and decide nothing); switching it on again does the work.
+7. A page loads **unblocked until its list is ready**; nothing waits for it.
+
+### Switching it off when a page breaks
+
+* **This site**: *Turn off for <site>* on `about:blocker` (the toolbar's shield opens it) excepts the site and its
+  subdomains for good. The engine takes the lists off the page for a main-frame navigation to such a site and
+  puts them back for the next one (`lzw_ui_blocking` is asked before the load starts), so nothing is
+  recompiled.
+* **Once**: *Reload once without blocking* (also View > Reload Without Blocking) loads the page whole until the
+  browser leaves its site; nothing is remembered.
+* **Everything**: *Turn ad blocking off*, and a list can be switched off by itself.
+
+The switches are `confd` keys under `user/<uid>/lazywebplus/blocker/` (`enabled`, `exceptions`, `lists_off`):
+the user's, out of the engine's processes' reach (the network process may write the profile folder, and a
+compromised one must not be able to switch the blocker off for a site). Without `confd` they last for the run.
+The price is `os.lazy.confd.v1` in the app's permissions, which the UI process (the one a browser exploit
+would have to escape into) holds for every `user/<uid>/**` key, as the other core apps do.
+`x-lazyweb:` commands of `about:blocker` obey the rule of the other internal pages: only from that page and only
+for a click.
+
+### What it does not do
+
+Element hiding (the part of a list that hides boxes: `##`, `#@#`, the `$elemhide` family; it is counted and not
+used), `$redirect`, `$removeparam`, `$csp`, scriptlets (code injected into pages: not in v1), regexes WebKit's
+parser cannot take (alternation, `{n,m}`, `\b`), non-ASCII patterns, and `$domain=` with both included and
+excluded domains. A trailing `^` matches a separator character and not the end of the address, so such a filter
+can only block *less* than Adblock Plus would. More lists (EasyPrivacy, Peter Lowe's, uBlock's), element hiding
+and a user filter editor are separate issues.
+
+### Results (issue #845)
+
+* **The real list** (EasyList of 13 Oct 2026, 82,058 lines): 56,918 rules (56,331 blocks, 587 exceptions) in 12 MB
+  of JSON, 0.11 s to convert in release on a fast host. Not used: 24,822 element-hiding lines, 18 lines with an
+  option WebKit has no trigger for, 19 patterns outside WebKit's regex subset, 3 exceptions (which would cancel a
+  block, so those blocks stay: `dropped_exceptions`), 8 duplicates.
+* **Through WebKit itself** (`python tools/webkit/blockcheck.py --list ...`, the port's `webkit-smoke` in rules
+  mode, 20-CPU Docker host): the list is accepted; `WKUserContentExtensionStoreCompile` 2.8 s, process peak
+  resident set 391 MB; read back from the store in under 2 ms (what every later start pays); on a page with two
+  EasyList-matching requests and one clean one, 2 loads blocked, 0 on a clean page.
+* **In the guest** (`python tools/webplus/run.py --label-trace`, WHPX, 4 GiB; the harness's small list, four
+  boots of one image): the `listupdate` child fetched the list under its own label (no `LABEL:DENY`; the nine
+  documented optional denials of #836 are the only ones), it was converted, compiled by WebKit in the UI
+  process, shared with the web processes (file-backed `mmap` and a passed descriptor) and attached; a later
+  boot loaded it from the store with no conversion; a page loaded with the ad picture, the tracking pixel and
+  the ad script **never requested** (the host saw each exactly once, after the user excepted the site) and its
+  excepted script and own picture loaded; *Update now* sent the ETag and was told 304; the exception and the
+  compiled list outlived a boot. All the browser's earlier checks (HTTPS pages, dialogs, downloads, cookies,
+  the sandbox) pass with content extensions on.
+* **The real list in the guest** (a fresh image whose list host serves the real EasyList, WHPX, 4 GiB): fetched
+  (2,150,374 bytes), converted to 56,918 rules (24,859 filters not used) in about a second, compiled and attached
+  by WebKit in about 4.3 s, ready 4.8 s after the download ended, with the browser up throughout (the compile is
+  on the UI process's work queue); a later start loads it from the store. Memory of that compile in the guest and
+  page-load times on real pages, with and without blocking, were **not** measured.
+* **Found on the way**: the UI process did not link with content extensions on the curl backend (patch
+  `0019`), and the guest harness's second visit of a page with a cached picture killed the NetworkProcess: the
+  `NetworkCache::fileTimes()` crash that patch `0017` fixes (#847), unrelated to blocking.
+
 ## Permissions
 
 The app: `os.lazy.display.v1`, `os.lazy.display.cursor.v1`, `os.lazy.input.v1`, `os.lazy.mimed.v1`,
-`os.lazy.notify.v1`, outbound network, `write:$HOME/.apps/os.lazy.lazywebplus` and `write:$HOME/Downloads`
-and the reads the children need, derived from a `--label-trace` run of the harness. The two engine processes
+`os.lazy.notify.v1`, `os.lazy.confd.v1` (the blocker's switches), outbound network,
+`write:$HOME/.apps/os.lazy.lazywebplus` and `write:$HOME/Downloads`
+and the reads the children need, derived from a `--label-trace` run of the harness. The ad blocker's
+`listupdate` child (`curl`) holds the network, the resolver, the host table, the CA bundle and
+`write:$HOME/.apps/os.lazy.lazywebplus/lists`, and no interface. The two engine processes
 run **sandboxed** like W5's ([`architecture/process-sandbox.md`](architecture/process-sandbox.md), #836): the
 manifest's `[processes.webprocess]` and `[processes.networkprocess]` tables give `/system/bin/webprocess` and
 `/system/bin/networkprocess` the labels `app:os.lazy.lazywebplus/<name>`, which the kernel enforces for files,
@@ -286,6 +397,27 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
   text at 2x).
 * No tabs, no find in page, no context menu, no pasteboard beyond WebKit's own, no IME, no WebGL, video or
   WebAssembly.
+* **The ad blocker's lists, and the compiled rules, live in the profile folder**, which the network process may
+  write: a compromised network process could replace a downloaded list (with a list that blocks everything,
+  say), though not the user's switches (`confd`). The worse case is the compiled store (`contentextensions/`):
+  WebKit maps the file and shares the mapping with the web processes without verifying it, so a compromised
+  network process that writes it (or writes through the path to the shared pages) feeds bytecode to the
+  interpreter of the web process, which is a way across the sandbox that does not exist with the store
+  outside the network process's reach. The cure is to keep the lists and the store in a folder of their own
+  (a sibling of the app's profile, which no process label but the app's may write; label rules are by path
+  segment), and it needs a guest run to confirm what the kernel lets an app create there: left for a follow-up.
+* **The list file is read whole**, bounded at 16 MiB and 500,000 rules, and converted on a thread of the
+  window's process; WebKit compiles it in the UI process, so a hostile list that stays inside the bounds still
+  costs seconds of one core and a few hundred MB while it compiles. Regular expressions that match the empty
+  string (a rule that would block everything) are refused by the converter; nested quantifiers are not
+  detected.
+* **A host the site list cannot spell** (an IPv6 literal) is blocked like any other but cannot be excepted by
+  name.
+* **The filter lists need `/system/bin/curl`**, which `LAZYOS_TLS=1` ships (`run_demo.py --lazywebplus` sets
+  it). A build with `LAZYOS_LAZYWEBPLUS=1` alone browses and blocks nothing, and `about:blocker` says "curl did
+  not run".
+* The blocked count of `about:blocker` and the shield is for the web page on show or browsed last (opening
+  `about:blocker` does not reset it); a load a script makes in a loop is counted as often as it is blocked.
 * The prompt dialog does not seed the page's default value.
 
 ## Testing

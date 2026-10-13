@@ -17,6 +17,7 @@ use xui_webkit::engine::{Call, Recorder};
 use xui_webkit::events::Event;
 use xui_webkit::mailbox::{Mailbox, PageState};
 use xui_webplus::app::{Browser, Host, Msg, Setup};
+use xui_webplus::blocker::Blocker;
 use xui_webplus::downloads::Saver;
 use xui_webplus::handoff::Launcher;
 use xui_webplus::internal::Internal;
@@ -146,6 +147,7 @@ pub struct Rig {
     pub mailbox: Arc<Mailbox>,
     pub opened: Rc<Opened>,
     pub internal: Internal,
+    pub blocker: Blocker,
     pub home: PathBuf,
 }
 
@@ -201,6 +203,7 @@ pub fn drive_full(
     let mailbox = Arc::new(Mailbox::default());
     let opened = Rc::new(Opened::default());
     let internal = Internal::default();
+    let blocker = Blocker::volatile();
     let started = Rc::clone(&opened);
     let toasts = Rc::new(FakeToasts::default());
     let permissions = Permissions::open(home.join("notify.tsv"));
@@ -211,6 +214,7 @@ pub fn drive_full(
         mailbox: Arc::clone(&mailbox),
         opened: Rc::clone(&opened),
         internal: internal.clone(),
+        blocker: blocker.clone(),
         home: home.clone(),
     };
     let first = first.map(str::to_owned);
@@ -230,6 +234,7 @@ pub fn drive_full(
                     internal,
                     permissions,
                     toasts: Some(toasts as Rc<dyn Toasts>),
+                    blocker,
                     host: Host {
                         launcher: Rc::new(RecordingLauncher(opened)),
                         ..Host::none()
@@ -277,4 +282,23 @@ pub fn key_down(key: Key) -> UiEvent {
         repeat: 1,
         system: false,
     }
+}
+
+/// The bytes of a `data:` URL the window built (percent-encoded after the first comma).
+pub fn support_decode(url: &str) -> Vec<u8> {
+    let body = url.split_once(',').map_or("", |(_, rest)| rest).as_bytes();
+    let mut out = Vec::with_capacity(body.len());
+    let mut i = 0;
+    while i < body.len() {
+        if body[i] == b'%' && i + 2 < body.len() + 0 {
+            if let Ok(hex) = u8::from_str_radix(&String::from_utf8_lossy(&body[i + 1..i + 3]), 16) {
+                out.push(hex);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(body[i]);
+        i += 1;
+    }
+    out
 }

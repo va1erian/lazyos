@@ -50,6 +50,12 @@ pub extern "C" fn lzw_ui_navigate(
     Verdict::Allow.code()
 }
 
+/// No content blocking (the UI process never asks: no feature), so no page is blocked.
+#[no_mangle]
+pub extern "C" fn lzw_ui_blocking(_url: *const c_char) -> c_int {
+    0
+}
+
 /// Downloads are refused (the UI process never asks: no feature).
 ///
 /// # Safety

@@ -22,11 +22,15 @@ import tlscerts  # noqa: E402
 sys.path.insert(0, str(HERE))
 from wiki import HOSTS as WIKI_HOSTS  # noqa: E402
 
+#: LazyWeb+'s ad blocker harness: the list host (the browser fetches EasyList from it) and the
+#: two hosts of the stand-in ad network (`sites.py`).
+BLOCKER_HOSTS = ["easylist.to", "ads.adnet.test", "tracker.adnet.test"]
+
 #: The names the leaf covers; the first is the subject.
-LEAF_NAMES = ["theoldnet.com", "www.theoldnet.com", *WIKI_HOSTS]
+LEAF_NAMES = ["theoldnet.com", "www.theoldnet.com", *WIKI_HOSTS, *BLOCKER_HOSTS]
 #: Every name the test image maps to the host.
 HOST_NAMES = ["example.com", "www.example.com", "theoldnet.com", "www.theoldnet.com",
-              *WIKI_HOSTS]
+              *WIKI_HOSTS, *BLOCKER_HOSTS]
 #: The host, from the guest on QEMU's user network.
 GATEWAY = "10.0.2.2"
 

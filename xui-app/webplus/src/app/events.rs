@@ -7,6 +7,8 @@ use xui_core::widget::HasText;
 use xui_webkit::events::Event;
 
 use super::{caption, now, Browser, Msg};
+use crate::address;
+use crate::blocker;
 use crate::dialogs;
 use crate::handoff;
 use crate::indicators::Security;
@@ -47,6 +49,13 @@ impl Browser {
             self.notifications.page_crashed();
         }
         if self.state.committed_url != old.committed_url {
+            // The page browsed last, and the one-shot "without blocking" ends with its site.
+            let committed = self.state.committed_url.clone();
+            let site = blocker::site_of(&committed);
+            if site.is_some() {
+                self.site_url = Some(committed);
+            }
+            self.blocker.leave_unless(site.as_deref());
             // The page that asked is gone: its dialog is answered "no", and a site that asked to
             // notify and was not answered may ask again.
             if let Some(answer) = self.dialogs.dismiss() {
@@ -59,6 +68,7 @@ impl Browser {
         }
         self.load_state(&old, &shown);
         self.update_buttons();
+        self.update_shield();
     }
 
     /// A load began, went on, or ended. The engine posts its newest state only (several load
@@ -203,6 +213,18 @@ impl Browser {
                 Event::NotifyPermissionGone { origin } => {
                     self.notifications.request_gone(&origin);
                     self.update_notify_bar(ui);
+                }
+                Event::BlockingList { id, status } => {
+                    self.trace(&format!("BLOCK:LIST:{id}:{}", status.name()));
+                    self.blocker.list_result(&id, status);
+                }
+                Event::Blocked(count) => {
+                    // The count starts again with every commit, our own pages' included; what
+                    // `about:blocker` and the shield report is the web page browsed last.
+                    if count > 0 || address::is_network(&self.state.committed_url) {
+                        self.blocker.set_blocked(count);
+                        self.update_shield();
+                    }
                 }
             }
         }

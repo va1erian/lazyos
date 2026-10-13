@@ -315,8 +315,9 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.setup)
-    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
-    args.tls = args.tls or args.lazyweb or args.mail
+    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
+    # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
+    args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus
     args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is

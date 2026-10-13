@@ -187,6 +187,7 @@ set(_lazyos_app_sources
     "${LAZYOS_PORT_DIR}/app/policy.cpp"
     "${LAZYOS_PORT_DIR}/app/uiclient.cpp"
     "${LAZYOS_PORT_DIR}/app/notify.cpp"
+    "${LAZYOS_PORT_DIR}/app/blocking.cpp"
     "${LAZYOS_PORT_DIR}/app/paint.cpp"
     "${LAZYOS_PORT_DIR}/app/log.cpp"
 )

@@ -201,6 +201,10 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
+    // After redirects the committed address is the one that counts, and it is known before the page's
+    // first subresource is asked for.
+    blockingSettle();
+    blockingCommitted();
     postState();
 }
 
@@ -224,6 +228,7 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
         finished, finished - E.navStartMs);
     reportMemory();
+    blockingFinished();
     postState();
     schedulePaint();
 }
@@ -273,6 +278,8 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
 {
     // A "save this page" load that failed before a response must not turn the next page into a download.
     E.saveNext = false;
+    // The page on show stays, and so does what blocks it (issue #845).
+    blockingSettle();
     didFail("provisional", error);
 }
 
@@ -313,6 +320,9 @@ void installClients()
     navigation.didFailNavigation = didFailNavigation;
     navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
     navigation.webProcessDidCrash = webProcessDidCrash;
+    // What the content rule lists did (issue #845): the count of blocked loads (patch 0018).
+    if (has(LZW_FEATURE_BLOCKING))
+        navigation.contentRuleListNotification = contentRuleListNotification;
     WKPageSetPageNavigationClient(E.page, &navigation.base);
 
     static WKPageStateClientV0 state = { };

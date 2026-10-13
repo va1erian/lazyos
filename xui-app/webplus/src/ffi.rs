@@ -15,10 +15,13 @@ use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use xui_app::platform::confd_store::ConfdStore;
+use xui_app::platform::messenger::Service;
 use xui_app::platform::{launcher, notify};
 use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
+use xui_settings::store::{ConfigStore, Value as StoreValue};
 use xui_webkit::abi::{byte_count, copy_c_string, features, first_address, NavKind, Verdict};
 use xui_webkit::events::Event;
 use xui_webkit::ffi::{arguments, connect, text, FfiEngine};
@@ -26,6 +29,8 @@ use xui_webkit::gesture;
 use xui_webkit::mailbox;
 
 use crate::app::{Browser, Host, Msg, Setup, APP_NAME};
+use crate::blocker::worker::{Cmd as BlockerCmd, Exit, Runner, Worker};
+use crate::blocker::{Blocker, Persist, Settings, Volatile};
 use crate::downloads::Saver;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
@@ -86,6 +91,8 @@ struct Shared {
     /// The sites allowed to notify: the UI process reads them when WebKit asks, before the window
     /// exists, and the window changes them.
     permissions: Permissions,
+    /// The ad blocker's state: the engine's policy callback asks it for every navigation.
+    blocker: Blocker,
 }
 
 fn shared() -> &'static Shared {
@@ -115,6 +122,7 @@ fn shared() -> &'static Shared {
             internal: Internal::default(),
             profile,
             permissions,
+            blocker: Blocker::new(settings_store()),
         }
     })
 }
@@ -270,44 +278,10 @@ pub unsafe extern "C" fn lzw_ui_notify_permission_at(
     c_int::from(allowed)
 }
 
-/// `mimed`, for the links and files the browser hands on.
-struct LazyLauncher;
-
-impl Launcher for LazyLauncher {
-    fn open_url(&self, url: &str) -> Result<(), String> {
-        launcher::open_url(url).map_err(|e| e.to_string())
-    }
-    fn open_path(&self, path: &str) -> Result<(), String> {
-        launcher::open_path(path).map_err(|e| e.to_string())
-    }
-}
-
-/// `os.lazy.notify`, for the download toasts.
-struct LazyToaster;
-
-impl Toaster for LazyToaster {
-    fn post(&mut self, toast: &Toast) -> Result<u64, String> {
-        let level = match toast.level {
-            ToastLevel::Info => notify::Level::Info,
-            ToastLevel::Success => notify::Level::Success,
-            ToastLevel::Error => notify::Level::Error,
-        };
-        let notice = notify::Notice {
-            icon: toast.sticky.then(|| String::from("download")),
-            timeout_ms: toast.sticky.then_some(0),
-            replaces: toast.replaces,
-            ..notify::Notice::new(level, &toast.title, &toast.body)
-        };
-        // Made from the main thread: the shell refuses any other as "not an app" (`on_main`).
-        on_main(move || notify::post(&notice))
-            .ok_or_else(|| String::from("the browser's main thread did not answer"))?
-            .map_err(|code| format!("errno {code}"))
-    }
-
-    fn close(&mut self, id: u64) {
-        let _ = on_main(move || notify::close(id));
-    }
-}
+mod blocker;
+mod hosts;
+use blocker::{settings_store, CurlRunner};
+use hosts::{LazyLauncher, LazyToaster};
 
 /// The shell's event channel for web notifications. Messenger handles belong to the thread that
 /// made them: this lives on WebKit's main thread (`on_main`), which is also the thread the shell
@@ -426,6 +400,33 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     backend.set_size_hints(420, 300, 0, 0);
     backend.on_first_frame(|| println!("WEBPLUS:UP:PASS"));
     let theme = backend.desktop_theme();
+    // The lists' worker: a thread that fetches and converts, started with the window. Nothing waits
+    // for it: a page loads unblocked until a list is ready.
+    if let Some(profile) = &shared.profile {
+        let folder = PathBuf::from(profile.to_string_lossy().into_owned()).join("lists");
+        let now = Arc::new(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        });
+        let worker = Worker::new(
+            folder,
+            Arc::new(FfiEngine),
+            Arc::new(CurlRunner),
+            shared.blocker.clone(),
+            now,
+        );
+        let commands = worker.spawn();
+        let _ = commands.send(BlockerCmd::Start);
+    } else {
+        // No home folder, so nowhere for a list or the engine's store to live: say so, rather than
+        // leaving the shield at "preparing" for ever.
+        for list in shared.blocker.lists() {
+            shared
+                .blocker
+                .update_list(list.id, |l| l.state = crate::blocker::ListState::Unavailable);
+        }
+    }
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
     let focus_backend = Rc::clone(&backend);
     let outcome = run_app(Rc::clone(&backend) as Rc<dyn Backend>, spec, move |ui| {
@@ -445,6 +446,7 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             internal: shared.internal.clone(),
             permissions: shared.permissions.clone(),
             toasts,
+            blocker: shared.blocker.clone(),
             host: Host {
                 traces: {
                     crate::allow_named_markers(xui_app::probe::enabled());

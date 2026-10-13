@@ -1,0 +1,27 @@
+WebKit: the C API's content-rule-list notification also reports a load a list blocked.
+
+WebPageProxy::contentRuleListNotification fires for every load a rule list blocked (the
+WebProcess sends it when ContentRuleListResults::shouldNotifyApplication() holds, which includes
+blockedLoad), but the C API wrapper in WKPage.cpp forwards only the strings of `notify` actions:
+a blocked load with no `notify` rule reaches the embedder as nothing. LazyWeb+'s ad blocker
+(issue #845) wants the number of loads it stopped on the page, and a `notify` duplicate of every
+`block` rule would double the compiled list for it. The wrapper now appends one entry per list
+that blocked the load, with the notification string "lazyos:blocked", so the navigation client's
+contentRuleListNotification callback sees the load. A rule list that uses `notify` for something
+else is unaffected (its own strings come first, unchanged).
+
+--- a/Source/WebKit/UIProcess/API/C/WKPage.cpp
++++ b/Source/WebKit/UIProcess/API/C/WKPage.cpp
+@@ -2515,6 +2515,12 @@
+                     apiListIdentifiers.append(API::String::create(listIdentifier));
+                     apiNotifications.append(API::String::create(notification));
+                 }
++                // LazyOS: a load a rule list blocked is reported too, as "lazyos:blocked", so the
++                // browser can count what its ad blocker stopped without a `notify` rule per block.
++                if (result.blockedLoad) {
++                    apiListIdentifiers.append(API::String::create(listIdentifier));
++                    apiNotifications.append(API::String::create("lazyos:blocked"_s));
++                }
+             }
+ 
+             if (!apiNotifications.isEmpty())

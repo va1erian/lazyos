@@ -21,6 +21,18 @@
 // by the build from libs/fhs). argv[1] and argv[2] override the two URLs; with an argv[2] the
 // title only has to be non-empty (the default page's title is "hello lazyos"). The watchdog gives
 // up after WEBKIT_SMOKE_TIMEOUT seconds (default 90).
+//
+// Rules mode (issue #845, tools/webkit/blockcheck.py): with WEBKIT_SMOKE_RULES=<file.json> the
+// program first compiles that content-rule list through WKUserContentExtensionStore (into
+// WEBKIT_SMOKE_RULES_STORE, default a directory of $TMPDIR), looks it up again as a start does,
+// attaches it to the page and only then loads argv[1]. It prints
+//
+//   WEBKIT:BLOCK:FILE:<bytes>                    the rule list
+//   WEBKIT:BLOCK:COMPILE:<status>:<ms>:hwm_kb=<n>  WKUserContentExtensionStoreResult, time, peak RSS
+//   WEBKIT:BLOCK:LOOKUP:<status>:<ms>            the same list read back from the store
+//   WEBKIT:BLOCK:BLOCKED:<n>:NOTIFY:<m>          loads a rule blocked, notifications in all
+//
+// and exits non-zero when the list does not compile. Without the variable nothing changes.
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -34,8 +46,11 @@
 #include <WebKit/WKPagePrivatePlayStation.h>
 #include <WebKit/WKRunLoop.h>
 #include <WebKit/WKString.h>
+#include <WebKit/WKArray.h>
 #include <WebKit/WKType.h>
 #include <WebKit/WKURL.h>
+#include <WebKit/WKUserContentControllerRef.h>
+#include <WebKit/WKUserContentExtensionStoreRef.h>
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
@@ -83,6 +98,13 @@ struct State {
     bool customPage { false }; // argv[2] named the page: any title will do
     unsigned timeoutSeconds { kDefaultTimeoutSeconds };
     const char* stage { "init" };
+    // Rules mode.
+    std::string rulesFile;
+    WKUserContentExtensionStoreRef store { nullptr };
+    WKUserContentControllerRef controller { nullptr };
+    long rulesStartMs { 0 };
+    int blocked { 0 };
+    int notifications { 0 };
 } state;
 
 void say(const char* format, ...) __attribute__((format(printf, 1, 2)));
@@ -160,6 +182,87 @@ void loadUrl(const std::string& url)
     WKRelease(wkUrl);
 }
 
+// The process's peak resident set, in KiB (VmHWM), or 0.
+long peakKiB()
+{
+    FILE* status = fopen("/proc/self/status", "r");
+    if (!status)
+        return 0;
+    char line[256];
+    long kib = 0;
+    while (fgets(line, sizeof line, status)) {
+        if (!strncmp(line, "VmHWM:", 6)) {
+            kib = strtol(line + 6, nullptr, 10);
+            break;
+        }
+    }
+    fclose(status);
+    return kib;
+}
+
+std::string readFile(const std::string& path)
+{
+    FILE* file = fopen(path.c_str(), "rb");
+    if (!file)
+        return std::string();
+    std::string text;
+    char buffer[65536];
+    size_t n;
+    while ((n = fread(buffer, 1, sizeof buffer, file)) > 0)
+        text.append(buffer, n);
+    fclose(file);
+    return text;
+}
+
+// A lookup finished: the page gets the list, and loads.
+void rulesLookedUp(WKUserContentFilterRef filter, WKUserContentExtensionStoreResult result, void*)
+{
+    say("WEBKIT:BLOCK:LOOKUP:%u:%ld", result, elapsedMs() - state.rulesStartMs);
+    if (result != kWKUserContentExtensionStoreSuccess || !filter)
+        fail("rules", "the stored list cannot be read back");
+    WKUserContentControllerAddUserContentFilter(state.controller, filter);
+    loadUrl(state.firstUrl);
+}
+
+void rulesCompiled(WKUserContentFilterRef filter, WKUserContentExtensionStoreResult result, void*)
+{
+    say("WEBKIT:BLOCK:COMPILE:%u:%ld:hwm_kb=%ld", result, elapsedMs() - state.rulesStartMs, peakKiB());
+    if (result != kWKUserContentExtensionStoreSuccess || !filter)
+        fail("rules", "WebKit refused the rule list");
+    // The compiled list is not attached: a start reads it back from the store, so that is tested.
+    WKRelease(filter);
+    state.rulesStartMs = elapsedMs();
+    WKStringRef identifier = makeString("smoke");
+    WKUserContentExtensionStoreLookup(state.store, identifier, nullptr, rulesLookedUp);
+    WKRelease(identifier);
+}
+
+void startRules()
+{
+    state.stage = "rules";
+    std::string json = readFile(state.rulesFile);
+    if (json.empty())
+        fail("rules", "the rule list cannot be read");
+    say("WEBKIT:BLOCK:FILE:%zu", json.size());
+    state.rulesStartMs = elapsedMs();
+    WKStringRef identifier = makeString("smoke");
+    WKStringRef source = makeString(json);
+    WKUserContentExtensionStoreCompile(state.store, identifier, source, nullptr, rulesCompiled);
+    WKRelease(source);
+    WKRelease(identifier);
+}
+
+void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef notifications, const void*)
+{
+    for (size_t i = 0, n = notifications ? WKArrayGetSize(notifications) : 0; i < n; ++i) {
+        ++state.notifications;
+        WKTypeRef item = WKArrayGetItemAtIndex(notifications, i);
+        if (item && WKGetTypeID(item) == WKStringGetTypeID()
+            && WKStringIsEqualToUTF8CString(static_cast<WKStringRef>(item), "lazyos:blocked"))
+            ++state.blocked;
+    }
+}
+
 void reportProcesses()
 {
     pid_t web = WKPageGetProcessIdentifier(state.page);
@@ -222,6 +325,8 @@ void paintAndFinish(void*)
     }
     say("WEBKIT:W4:INFO:TIME:up=%ld:about=%ld:data=%ld:title=%ld:paint=%ld", state.upMs, state.aboutMs, state.dataMs,
         state.titleMs, elapsedMs());
+    if (!state.rulesFile.empty())
+        say("WEBKIT:BLOCK:BLOCKED:%d:NOTIFY:%d", state.blocked, state.notifications);
     say("WEBKIT:W4:PASS");
     WKRunLoopStopMain();
 }
@@ -387,6 +492,19 @@ int main(int argc, char** argv)
     state.stage = "page";
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, state.context);
+    state.rulesFile = environment("WEBKIT_SMOKE_RULES", "");
+    if (!state.rulesFile.empty()) {
+        // The controller is part of the page's configuration, so it exists before the view.
+        state.controller = WKUserContentControllerCreate();
+        WKPageConfigurationSetUserContentController(pageConfiguration, state.controller);
+        std::string folder = environment("WEBKIT_SMOKE_RULES_STORE",
+            (environment("TMPDIR", P_tmpdir) + "/webkit-smoke-rules-" + std::to_string(getpid())).c_str());
+        WKStringRef path = makeString(folder);
+        state.store = WKUserContentExtensionStoreCreate(path);
+        WKRelease(path);
+        if (!state.store)
+            fail("rules", "this WebKit has no content extensions");
+    }
     state.view = WKViewCreate(pageConfiguration);
     if (!state.view)
         fail("page", "WKViewCreate returned null");
@@ -401,9 +519,11 @@ int main(int argc, char** argv)
     WKViewSetFocus(state.view, true);
     WKViewSetVisible(state.view, true);
 
-    WKPageNavigationClientV0 navigation = { };
-    navigation.base.version = 0;
+    // Version 3: the callback for what rule lists did exists from version 2 on.
+    WKPageNavigationClientV3 navigation = { };
+    navigation.base.version = 3;
     navigation.didFinishNavigation = didFinishNavigation;
+    navigation.contentRuleListNotification = contentRuleListNotification;
     navigation.didFailNavigation = didFailNavigation;
     navigation.didFailProvisionalNavigation = [](WKPageRef, WKNavigationRef, WKErrorRef, WKTypeRef, const void*) {
         fail(state.stage, "the provisional navigation failed");
@@ -411,7 +531,10 @@ int main(int argc, char** argv)
     navigation.webProcessDidCrash = webProcessDidCrash;
     WKPageSetPageNavigationClient(state.page, &navigation.base);
 
-    loadUrl(state.firstUrl);
+    if (state.rulesFile.empty())
+        loadUrl(state.firstUrl);
+    else
+        startRules();
     WKRunLoopRunMain();
     return state.titleSeen ? 0 : 1;
 }
