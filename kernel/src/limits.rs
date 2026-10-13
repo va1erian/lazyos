@@ -29,7 +29,7 @@ use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 mod derive;
 mod parse;
 
-pub use derive::{dma_pool_bytes, heap_initial_bytes, Limits};
+pub use derive::{dma_pool_bytes, heap_initial_bytes, user_memory_ceiling, Limits};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))]
 pub use parse::{parse, parse_size, Outcome, Override, PREFIX};
 
@@ -276,12 +276,30 @@ pub fn apply_config(text: &str) {
             }
         }
     }
+    note_overcommit();
     // The heap may never be asked to stay smaller than it already is.
     let floor = crate::mem::heap_stats().total as u64;
     if get(Id::HeapMax) < floor {
         VALUES[Id::HeapMax as usize].store(floor, Ordering::Relaxed);
         SOURCES[Id::HeapMax as usize].store(Source::Clamped as u8, Ordering::Relaxed);
         serial_println!("limits: heap_max raised to the mapped heap ({floor} bytes)");
+    }
+}
+
+/// Say so when the user-memory quota promises more than the machine has.
+/// It is allowed (the quota counts reservations, and a runtime that reserves
+/// far more than it touches needs the room), so this only explains what
+/// happens at the limit: the process that touches the last frame is killed.
+fn note_overcommit() {
+    let ram = ram_bytes();
+    let quota = get(Id::QuotaUserMemory);
+    let ceiling = user_memory_ceiling(ram);
+    if ram != 0 && quota > ceiling {
+        serial_println!(
+            "limits: quota_user_memory={} MiB is more than the {} MiB of RAM the user can be given; a process that touches more than the frames is killed (oom)",
+            quota / MIB,
+            ceiling / MIB
+        );
     }
 }
 

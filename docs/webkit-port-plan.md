@@ -660,9 +660,11 @@ real PC, and a second window.
   the run has no `ENOSYS 314` line.
 * **ABI gaps JSC met while running its tests.** `mprotect(addr, 0, prot)` was
   `EINVAL` (Linux: 0), which aborted two growable-ArrayBuffer stress files;
-  fixed. A process that exhausts the frame allocator in a page fault is killed
+  fixed. A process that exhausted the frame allocator in a page fault was killed
   with `SIGSEGV` where Linux would OOM-kill it (`get-array-length-reuse.js`,
-  2 GiB in a 2 GiB guest); open.
+  2 GiB in a 2 GiB guest); now it is `SIGKILL` with an `oom: killed` line, and
+  an `mmap` larger than all of RAM is `ENOMEM` (issue #823, `docs/architecture/limits.md`
+  "Running out of memory"). Not yet re-run through `tools/jsc/stress.py`.
 * **No AVX state.** See W2 above: JIT code that uses VEX instructions needs the
   kernel to enable AVX or JSC to be told not to (done, by patch).
 * **Binary size.** `jsc` is 44.5 MiB because ICU's data (about 30 MB: every

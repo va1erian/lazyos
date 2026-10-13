@@ -11,11 +11,13 @@ use super::*;
 mod fault_storm;
 mod frames_and_cow;
 mod layout;
+mod oom;
 mod vma;
 
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
 pub(super) use layout::*;
+pub(super) use oom::*;
 pub(super) use vma::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -55,4 +57,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("mem_high_frames_reachable", high_frames_reachable),
     ("mem_linux_stack_is_lazy", linux_stack_is_lazy),
+    (
+        "mem_oom_kill_is_sigkill_and_returns_frames",
+        oom_kill_is_sigkill_and_returns_frames,
+    ),
+    ("mem_oom_refusals_stay_segv", oom_refusals_stay_segv),
+    ("mem_soak_oom_kill_generations", soak_oom_kill_generations),
 ];

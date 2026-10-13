@@ -59,6 +59,7 @@ from qemu_qmp import DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_q
 DEFAULT_FATAL = [
     r"EXCEPTION:", r"LazyOS PANIC", r"HANG:", r"double fault",
     r"killed by ",  # ring-3 fault: contained, but still a bug worth catching
+    r"oom: killed ",  # out of frames in a page fault: the kernel killed the process (SIGKILL)
 ]
 
 # Weighted action mix. Clicks and drags dominate because window management and
