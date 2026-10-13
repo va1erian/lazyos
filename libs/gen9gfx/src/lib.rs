@@ -16,7 +16,8 @@
 //!   sits behind it;
 //! * [`hdmi_audio`]: N and CTS for the audio clock regeneration packet;
 //! * [`regs`]: the few register offsets the plan's first stages need, each
-//!   marked as to be confirmed against a register dump from the box.
+//!   marked `CONFIRMED` (checked against the box's `intel_reg dump` by the
+//!   tests) or to be confirmed.
 //!
 //! Every parser takes hostile input (a monitor's EDID, firmware's VBT) and
 //! must neither panic nor index out of bounds; `fuzz::run` is the byte

@@ -9,8 +9,8 @@
 //! The tables below are the HDMI specification's recommended values for 32,
 //! 44.1 and 48 kHz (88.2/96 and 176.4/192 kHz reuse the 44.1/48 kHz `N`
 //! multiplied by 2 and 4 with the same `CTS`), written from memory and
-//! checked by the tests against the defining formula. The box's own mode
-//! (2560x1440 at about 241.5 MHz) is not in the table, so [`select`] also
+//! checked by the tests against the defining formula. The box's modes
+//! (2560x1440 at 241.5 MHz, and 277.82 MHz at 70 Hz) are not in the table, so [`select`] also
 //! derives a value.
 
 /// An audio sample rate HDMI can carry as LPCM.

@@ -1,3 +1,7 @@
+NOTE: a snapshot of the first run. Afterwards the debugfs files were
+reduced to one copy named 03-dri0000_00_02.0-* and 05-aplay-l/L.txt became
+05-aplay-cards/pcms.txt (see ../README.md); the listing below is as run.
+
 GPU survey by tools/boot/survey_gpu.sh on REDACTED-HOST at 20261013-1739
 run as uid 0; gpu=0000:00:02.0 audio=0000:00:1f.3
 MISSING.txt lists what could not be collected.

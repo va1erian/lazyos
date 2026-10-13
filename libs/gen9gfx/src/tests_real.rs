@@ -15,9 +15,10 @@ use alloc::vec::Vec;
 
 const EDID: &[u8] =
     include_bytes!("../../../docs/compat/kabylake/gpu/linux/04-card1-HDMI-A-1-edid.bin");
-const VBT: &[u8] = include_bytes!("../../../docs/compat/kabylake/gpu/linux/03-dri128-vbt.bin");
+const VBT: &[u8] =
+    include_bytes!("../../../docs/compat/kabylake/gpu/linux/03-dri0000_00_02.0-vbt.bin");
 const OPREGION: &[u8] =
-    include_bytes!("../../../docs/compat/kabylake/gpu/linux/03-dri128-opregion.bin");
+    include_bytes!("../../../docs/compat/kabylake/gpu/linux/03-dri0000_00_02.0-opregion.bin");
 
 #[test]
 fn opregion_carries_the_vbt_i915_exported() {
@@ -84,11 +85,12 @@ fn edid_is_a_hdmi_monitor_whose_preferred_mode_is_2560x1440_at_241_5_mhz() {
 }
 
 #[test]
-fn edid_caps_the_link_at_280_mhz_so_70_hz_is_the_fastest_2560x1440() {
+fn edid_caps_the_link_at_280_mhz_and_lists_a_277_82_mhz_2560x1440_mode() {
     let edid = Edid::parse(EDID).unwrap();
     let cea = edid.cea.as_ref().expect("CEA extension");
-    // An HDMI 1.4 sink: no HDMI Forum block, 280 MHz TMDS ceiling. The 70 Hz
-    // mode Linux ran is 277.82 MHz, 2.18 MHz under it.
+    // An HDMI 1.x sink: no HDMI Forum block, a 280 MHz TMDS ceiling. The 70 Hz
+    // mode Linux ran is the fastest 1440p timing the EDID lists; it is
+    // 2.18 MHz under that ceiling.
     assert_eq!(cea.hdmi.as_ref().and_then(|h| h.max_tmds_mhz), Some(280));
     assert!(cea.hdmi_forum.is_none());
     let seventy = cea
@@ -122,8 +124,14 @@ fn the_eld_built_from_the_edid_matches_what_the_codec_reported() {
     assert!(eld.supports_lpcm(48_000, 2));
     assert!(!eld.supports_lpcm(96_000, 2));
     assert!(!eld.supports_lpcm(48_000, 8));
-    // And it survives the byte form the codec's ELD buffer holds.
-    assert_eq!(Eld::parse(&eld.to_bytes()).unwrap(), eld);
+    // The byte form is exactly what the codec held: `amixer` `ELD` control of
+    // PCM device 3 in 05-amixer.txt (32 bytes).
+    const CODEC_ELD: [u8; 32] = [
+        0x10, 0x00, 0x07, 0x00, 0x67, 0x10, 0x00, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0x26, 0xcd, 0x43,
+        0x66, b'P', b'L', b'2', b'7', b'3', b'0', b'Q', 0x09, 0x07, 0x07, 0x00, 0x00,
+    ];
+    assert_eq!(&eld.to_bytes()[..32], &CODEC_ELD);
+    assert_eq!(Eld::parse(&CODEC_ELD).unwrap(), eld);
 }
 
 #[test]

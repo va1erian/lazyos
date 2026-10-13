@@ -30,7 +30,6 @@ pub mod trans {
     pub const VTOTAL: u32 = 0x0C;
     pub const VBLANK: u32 = 0x10;
     pub const VSYNC: u32 = 0x14;
-    pub const PIPESRC: u32 = 0x1C;
     /// `TRANS_DDI_FUNC_CTL` sits at +0x400 of the transcoder block.
     pub const DDI_FUNC_CTL: u32 = 0x400;
 }
@@ -115,8 +114,13 @@ pub fn trans_clk_sel_port(v: u32) -> Option<u8> {
 
 // TO CONFIRM against dump -----------------------------------------------------
 
+/// `PIPESRC` (the pipe's source size) inside the transcoder block, `0x6001C`
+/// for pipe A. `intel_reg dump` does not list it.
+pub const TRANS_PIPESRC: u32 = 0x1C;
+
 /// Per-DDI clock select of the pre-Skylake path (A at 0x46100, 4 bytes
-/// apart); Gen9 does not use it. Kept so a dump that shows it can be read.
+/// apart). Gen9 routes the DDI clock through `DPLL_CTRL2` instead, so this is
+/// only here so a dump that shows it can be read; the Gen9 dump does not.
 pub const PORT_CLK_SEL_A: u32 = 0x4_6100;
 
 /// DDI buffer control for DDI A, stride 0x100 per port.
@@ -224,6 +228,12 @@ pub fn pipesrc_size(v: u32) -> (u32, u32) {
     ((v >> 16 & 0x1FFF) + 1, (v & 0x1FFF) + 1)
 }
 
+/// Decode `PLANE_SIZE_n_x` (`(height - 1) << 16 | (width - 1)`, CONFIRMED:
+/// `PLANE_SIZE_1_A` reads `0x059f09ff`, 2560x1440), as `(width, height)`.
+pub fn plane_size(v: u32) -> (u32, u32) {
+    ((v & 0xFFFF) + 1, (v >> 16) + 1)
+}
+
 /// Decode a `HTOTAL`/`VTOTAL`-style register: active-1 in the low half,
 /// total-1 in the high half (CONFIRMED: `TRANS_HTOTAL_A` reads `0x0a6d09ff`,
 /// 2560 active, 2670 total).
@@ -258,52 +268,106 @@ mod tests {
         assert_eq!(DdiFunc::decode(7 << 20).bits_per_component, None);
     }
 
-    /// Registers of the survey's capture (`01-intel_reg-dump.txt`): pipe A
-    /// carrying 2560x1440 at 70 Hz (277.82 MHz) on DDI B, set by i915.
+    /// The survey's `intel_reg dump`, taken while i915 drove pipe A with
+    /// 2560x1440 at 70 Hz (277.82 MHz) on DDI B.
+    const DUMP: &str =
+        include_str!("../../../docs/compat/kabylake/gpu/linux/01-intel_reg-dump.txt");
+
+    /// `(offset, value)` of the dump line `NAME (0xOFFSET): 0xVALUE ...`.
+    fn dump(name: &str) -> (u32, u32) {
+        let hex = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).unwrap();
+        for line in DUMP.lines() {
+            let Some((head, tail)) = line.trim().split_once(" (0x") else {
+                continue;
+            };
+            if head != name {
+                continue;
+            }
+            let (offset, rest) = tail.split_once("): ").expect("dump line shape");
+            let value = rest.split_whitespace().next().expect("dump value");
+            return (hex(offset), hex(value));
+        }
+        panic!("{name} is not in the dump");
+    }
+
+    #[test]
+    fn confirmed_offsets_are_the_dumps() {
+        for (name, offset) in [
+            ("TRANS_HTOTAL_A", TRANS_A_BASE + trans::HTOTAL),
+            ("TRANS_HBLANK_A", TRANS_A_BASE + trans::HBLANK),
+            ("TRANS_HSYNC_A", TRANS_A_BASE + trans::HSYNC),
+            ("TRANS_VTOTAL_A", TRANS_A_BASE + trans::VTOTAL),
+            ("TRANS_VBLANK_A", TRANS_A_BASE + trans::VBLANK),
+            ("TRANS_VSYNC_A", TRANS_A_BASE + trans::VSYNC),
+            ("TRANS_DDI_FUNC_CTL_A", TRANS_DDI_FUNC_CTL_A),
+            ("TRANS_DDI_FUNC_CTL_A", TRANS_A_BASE + trans::DDI_FUNC_CTL),
+            ("TRANS_CONF_A", PIPE_A_BASE + PIPECONF),
+            ("PLANE_CTL_1_A", PLANE_CTL_1_A),
+            ("PLANE_STRIDE_1_A", PLANE_STRIDE_1_A),
+            ("PLANE_POS_1_A", PLANE_POS_1_A),
+            ("PLANE_SIZE_1_A", PLANE_SIZE_1_A),
+            ("PLANE_SURF_1_A", PLANE_SURF_1_A),
+            ("PLANE_BUF_CFG_1_A", PLANE_BUF_CFG_1_A),
+            ("PLANE_WM_1_A_0", PLANE_WM_1_A_0),
+            ("CDCLK_CTL", CDCLK_CTL),
+            ("LCPLL1_CTL", LCPLL1_CTL),
+            ("LCPLL2_CTL", LCPLL2_CTL),
+            ("TRANS_CLK_SEL_A", TRANS_CLK_SEL_A),
+            ("TRANS_CLK_SEL_B", TRANS_CLK_SEL_A + 4),
+            ("DPLL_CTRL1", DPLL_CTRL1),
+            ("DPLL_CTRL2", DPLL_CTRL2),
+            ("DPLL_STATUS", DPLL_STATUS),
+            ("DPLL1_CFGCR1", DPLL1_CFGCR1),
+            ("DPLL1_CFGCR2", DPLL1_CFGCR2),
+            ("DPLL2_CFGCR1", DPLL1_CFGCR1 + DPLL_CFGCR_STRIDE),
+            ("DPLL3_CFGCR1", DPLL1_CFGCR1 + 2 * DPLL_CFGCR_STRIDE),
+            ("WM_LINETIME_A", WM_LINETIME_A),
+            ("VIDEO_DIP_CTL_A", VIDEO_DIP_CTL_A),
+            ("PWR_WELL_BIOS", PWR_WELL_CTL_BIOS),
+            ("PWR_WELL_DRIVER", PWR_WELL_CTL_DRIVER),
+            ("DC_STATE_EN", DC_STATE_EN),
+        ] {
+            assert_eq!(dump(name).0, offset, "{name}");
+        }
+        // Per-pipe stride: plane 1 of pipe B is one pipe block up.
+        assert_eq!(dump("PLANE_CTL_1_B").0, PLANE_CTL_1_A + PIPE_STRIDE);
+        assert_eq!(dump("TRANS_HTOTAL_B").0, TRANS_A_BASE + TRANS_STRIDE);
+    }
+
     #[test]
     fn decodes_the_boxs_display_state() {
-        const CDCLK_CTL_V: u32 = 0x0800_02A1;
-        const TRANS_CLK_SEL_A_V: u32 = 0x4000_0000;
-        const DPLL_CTRL1_V: u32 = 0x0000_0845;
-        const DPLL_CTRL2_V: u32 = 0x00A2_0018;
-        const TRANS_DDI_FUNC_CTL_A_V: u32 = 0x9003_0000;
-        const TRANS_HTOTAL_A_V: u32 = 0x0A6D_09FF;
-        const PLANE_SIZE_1_A_V: u32 = 0x059F_09FF;
-        const VIDEO_DIP_CTL_A_V: u32 = 0x0001_1001;
-
-        assert_eq!(cdclk_khz(CDCLK_CTL_V), 337_500);
-        assert_eq!(trans_clk_sel_port(TRANS_CLK_SEL_A_V), Some(1), "DDI B");
-        assert_eq!(trans_clk_sel_port(0), None);
+        let v = |name| dump(name).1;
+        assert_eq!(cdclk_khz(v("CDCLK_CTL")), 337_500);
+        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_A")), Some(1), "DDI B");
+        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_B")), None);
         // PLL1 is in HDMI mode; PLL0 (the CDCLK PLL) is not.
-        assert!(dpll_ctrl1_hdmi_mode(DPLL_CTRL1_V, 1));
-        assert!(!dpll_ctrl1_hdmi_mode(DPLL_CTRL1_V, 0));
+        assert!(dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 1));
+        assert!(!dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 0));
         // DDI B (port 1) is overridden to PLL1; DDI A has no override.
-        assert_eq!(dpll_ctrl2_ddi_pll(DPLL_CTRL2_V, 1), Some(1));
-        assert_eq!(dpll_ctrl2_ddi_pll(DPLL_CTRL2_V, 0), None);
-        let f = DdiFunc::decode(TRANS_DDI_FUNC_CTL_A_V);
+        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 1), Some(1));
+        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 0), None);
+        let f = DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_A"));
         assert!(f.enabled);
         assert_eq!(f.ddi_select, 1);
         assert_eq!(f.mode, DdiMode::Hdmi, "HDMI mode: audio needs no mode set");
         assert_eq!(f.bits_per_component, Some(8));
         assert!(f.hsync_positive && f.vsync_positive);
-        assert_eq!(timing_pair(TRANS_HTOTAL_A_V), (2560, 2670));
-        assert_eq!(
-            (
-                (PLANE_SIZE_1_A_V & 0xFFFF) + 1,
-                (PLANE_SIZE_1_A_V >> 16) + 1
-            ),
-            (2560, 1440)
-        );
+        assert!(!DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_B")).enabled);
+        assert_eq!(timing_pair(v("TRANS_HTOTAL_A")), (2560, 2670));
+        assert_eq!(timing_pair(v("TRANS_VTOTAL_A")), (1440, 1488));
+        assert_eq!(plane_size(v("PLANE_SIZE_1_A")), (2560, 1440));
+        let pipeconf = v("TRANS_CONF_A");
+        assert_ne!(pipeconf & PIPECONF_ENABLE, 0);
+        assert_ne!(pipeconf & PIPECONF_STATE, 0);
+        assert_ne!(v("PLANE_CTL_1_A") & PLANE_CTL_ENABLE, 0);
         for bit in [dip::ENABLE_AVI, dip::ENABLE_GCP, dip::ENABLE_SPD] {
-            assert_ne!(VIDEO_DIP_CTL_A_V & bit, 0);
+            assert_ne!(v("VIDEO_DIP_CTL_A") & bit, 0);
         }
     }
 
     #[test]
     fn new_offsets_follow_the_documented_strides() {
         assert_eq!(DPLL1_CFGCR2, DPLL1_CFGCR1 + 4);
-        assert_eq!(DPLL1_CFGCR1 + DPLL_CFGCR_STRIDE, 0x6_C048, "DPLL2_CFGCR1");
-        assert_eq!(TRANS_CLK_SEL_A + 4, 0x4_6144, "TRANS_CLK_SEL_B");
     }
 
     #[test]
@@ -312,6 +376,7 @@ mod tests {
         assert_eq!(TRANS_A_BASE + trans::DDI_FUNC_CTL, TRANS_DDI_FUNC_CTL_A);
         assert_eq!(PLANE_CTL_1_A + 0xC0, PLANE_WM_1_A_0);
         assert_eq!(pipesrc_size(2559 << 16 | 1439), (2560, 1440));
+        assert_eq!(TRANS_A_BASE + TRANS_PIPESRC, 0x6001C);
         assert_eq!(timing_pair(2719 << 16 | 2559), (2560, 2720));
     }
 }
