@@ -18,7 +18,7 @@
 //! Serial: `SHELL:NOTIFY:SERVICE:PASS`, `SHELL:NOTIFY:POST owner=<key>
 //! id=<n> level=<l> title=<t>`, `SHELL:NOTIFY:SHOW id=<n>`, `SHELL:NOTIFY:
 //! CLOSE id=<n> reason=<r>`, `SHELL:NOTIFY:ACTION id=<n> action=<n>`,
-//! `SHELL:NOTIFY:DENY uid=<n> label=<id> why=<...>`, `SHELL:NOTIFY:LISTEN
+//! `SHELL:NOTIFY:DENY uid=<n> label=<id> sender=<task> why=<...>`, `SHELL:NOTIFY:LISTEN
 //! owner=<key>`, `SHELL:NOTIFY:SETTINGS motion=<m> dnd=<0|1> muted=<n>`;
 //! and for the app-stopped notice `SHELL:NOTICE:OPEN app=<id> title=<t>`,
 //! `SHELL:NOTICE:RESTART app=<id>`, `SHELL:NOTICE:CLOSE app=<id>`. With the
@@ -129,7 +129,16 @@ fn handle_events<M: 'static>(ctx: &Rc<Ctx>, _ui: &Ui<M>) {
             EventKind::Action(action) => {
                 println!("SHELL:NOTIFY:ACTION id={} action={action}", event.id);
             }
-            EventKind::Activated => {}
+            EventKind::Activated => {
+                // The toast belongs to an app: its windows come forward (the shell's own
+                // notices bring nothing).
+                if event.owner != SYSTEM_OWNER {
+                    let app = ctx.notify.listeners.borrow().app_of(&event.owner);
+                    if let Some((label, session)) = app {
+                        let _ = ctx.client.activate_app(label, session);
+                    }
+                }
+            }
         }
         if event.owner == SYSTEM_OWNER {
             notice_event(ctx, event.id, event.kind);

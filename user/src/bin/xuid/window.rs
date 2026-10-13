@@ -306,6 +306,8 @@ pub(super) fn test_surface(id: u64, minimized: bool, desktop: bool) -> Surface {
         h: 10,
         events: 0,
         owner: 0,
+        label: 0,
+        session: 0,
         pixels: 0,
         bytes: 0,
         buf_w: 0,

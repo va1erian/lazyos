@@ -46,7 +46,9 @@ verbs = ["open"]
 [permissions]
 # Derived from a run under `LAZYOS_LABEL_TRACE=1` (`python tools/webplus/run.py --label-trace`,
 # docs/packages.md): the window, its keyboard and pointer, the pointer shape, `mimed` for the
-# links and files it hands on, and the notification service for the download toasts. Sockets are
+# links and files it hands on, and the notification service for the download toasts and the toasts
+# of the pages the person allowed (the notification calls are made from the first thread, which the
+# shell names an app by, and `Listen` carries a click back). Sockets are
 # plain musl ones (the `outbound` network permission) and names resolve through
 # `/etc/resolv.conf`, so `os.lazy.net.stack.v1` is not needed. The UI process never fetches
 # anything itself; `network` and the reads below are listed because a child label may hold no more

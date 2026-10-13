@@ -4,7 +4,7 @@
 //! app, a command, a download, a dialog) goes where the policy and the window say. Snapshots go to
 //! `xui-app/target/snapshots/lazywebplus-*.png` for a human to look at.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -20,7 +20,8 @@ use xui_webplus::app::{Browser, Host, Msg, Setup};
 use xui_webplus::downloads::Saver;
 use xui_webplus::handoff::Launcher;
 use xui_webplus::internal::Internal;
-use xui_webplus::transfers::Transfers;
+use xui_webplus::notify::{Permissions, ShellNews, Toasts};
+use xui_webplus::transfers::{Toast, Transfers};
 use xui_webplus::visits::Visits;
 
 pub const SIZE: (i32, i32) = (900, 560);
@@ -86,8 +87,62 @@ impl Launcher for RecordingLauncher {
     }
 }
 
+/// The shell's toasts, answered at once: what was posted, what was closed, and the news the
+/// shell would send next.
+#[derive(Default)]
+pub struct FakeToasts {
+    pub posted: RefCell<Vec<(u64, Toast)>>,
+    pub closed: RefCell<Vec<u64>>,
+    news: RefCell<Vec<ShellNews>>,
+    next: Cell<u64>,
+    /// The shell refuses every post (no shell, rate limited).
+    pub refuse: Cell<bool>,
+}
+
+impl Toasts for FakeToasts {
+    fn post(&self, key: u64, toast: Toast) {
+        if self.refuse.get() {
+            self.news.borrow_mut().push(ShellNews::Failed { key });
+            return;
+        }
+        // An update keeps its toast's id, as the shell does.
+        let id = toast.replaces.unwrap_or_else(|| {
+            self.next.set(self.next.get() + 1);
+            100 + self.next.get()
+        });
+        self.posted.borrow_mut().push((key, toast));
+        self.news
+            .borrow_mut()
+            .push(ShellNews::Posted { key, toast: id });
+    }
+
+    fn close(&self, toast: u64) {
+        self.closed.borrow_mut().push(toast);
+    }
+
+    fn drain(&self) -> Vec<ShellNews> {
+        std::mem::take(&mut *self.news.borrow_mut())
+    }
+}
+
+impl FakeToasts {
+    /// The person clicks toast `toast`.
+    pub fn click(&self, toast: u64) {
+        self.news.borrow_mut().push(ShellNews::Activated { toast });
+    }
+
+    /// Toast `toast` goes away for `reason`.
+    pub fn end(&self, toast: u64, reason: xui_webplus::notify::Reason) {
+        self.news
+            .borrow_mut()
+            .push(ShellNews::Closed { toast, reason });
+    }
+}
+
 pub struct Rig {
     pub engine: Rc<Recorder>,
+    pub toasts: Rc<FakeToasts>,
+    pub permissions: Permissions,
     pub mailbox: Arc<Mailbox>,
     pub opened: Rc<Opened>,
     pub internal: Internal,
@@ -101,6 +156,15 @@ impl Rig {
 
     pub fn history_file(&self) -> PathBuf {
         self.home.join("history.tsv")
+    }
+
+    pub fn notify_file(&self) -> PathBuf {
+        self.home.join("notify.tsv")
+    }
+
+    /// Has the window take what the shell reported (the toasts the fake answered at once).
+    pub fn shell(&self, stage: &Stage<'_, Msg>) {
+        stage.emit(Msg::Shell);
     }
 
     /// Posts a page state (what the engine reports) and has the window take it.
@@ -138,7 +202,11 @@ pub fn drive_full(
     let opened = Rc::new(Opened::default());
     let internal = Internal::default();
     let started = Rc::clone(&opened);
+    let toasts = Rc::new(FakeToasts::default());
+    let permissions = Permissions::open(home.join("notify.tsv"));
     let rig = Rig {
+        toasts: Rc::clone(&toasts),
+        permissions: permissions.clone(),
         engine: Rc::clone(&engine),
         mailbox: Arc::clone(&mailbox),
         opened: Rc::clone(&opened),
@@ -160,6 +228,8 @@ pub fn drive_full(
                     visits: Visits::open(home.join("history.tsv")),
                     transfers: Transfers::new(saver, None),
                     internal,
+                    permissions,
+                    toasts: Some(toasts as Rc<dyn Toasts>),
                     host: Host {
                         launcher: Rc::new(RecordingLauncher(opened)),
                         ..Host::none()

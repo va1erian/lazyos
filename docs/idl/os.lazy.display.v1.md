@@ -85,6 +85,7 @@ fields, which never use that id.
 | PanelKey | 46 | oneway | `(key: U32) -> ()` |
 | TrayKeys | 47 | oneway | `() -> ()` |
 | SetCloseMode | 48 | sync | `(surface: U64, ask: Bool) -> ()` |
+| ActivateApp | 49 | sync | `(label: U32, session: U64) -> ()` |
 
 ## Objects
 

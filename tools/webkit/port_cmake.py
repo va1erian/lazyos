@@ -57,6 +57,9 @@ def options() -> dict[str, str]:
         **window,
         "PORT": "LazyOS", "CMAKE_BUILD_TYPE": "Release", "DEVELOPER_MODE": "OFF",
         "ENABLE_TOOLS": "OFF", "ENABLE_MINIBROWSER": "OFF", "USE_HEADER_MAPS": "OFF",
+        # The Notifications API (docs/lazywebplus.md): on, explicitly, so a build tree configured
+        # before it was (the cache keeps the first default) is configured again.
+        "ENABLE_NOTIFICATIONS": "ON",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],
         "CMAKE_AR": wrap["zar"], "CMAKE_RANLIB": wrap["zranlib"],
         "CMAKE_C_FLAGS": flags, "CMAKE_CXX_FLAGS": f"{flags} {simd_flags()} -std=c++2b",

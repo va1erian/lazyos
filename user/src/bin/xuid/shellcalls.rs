@@ -9,6 +9,8 @@
 //! `origin::translate` the open-origin hints use, and the pure rules are
 //! boot-tested.
 
+use alloc::vec::Vec;
+
 use libmessenger::Parcel;
 use user::messenger::display::{wire, Rect};
 use user::messenger::{self, Message};
@@ -17,6 +19,7 @@ use user::sys;
 use super::compositor::Compositor;
 use super::origin::{translate, OpenHint, HINT_TTL_TICKS};
 use super::protocol::{empty_reply, error_reply};
+use super::surface::Surface;
 use super::window::surface_by_id;
 
 /// Where a `size` panel asked to sit at `at` lands: kept wholly on `screen`
@@ -24,6 +27,22 @@ use super::window::surface_by_id;
 pub(super) fn clamp_panel(size: (i32, i32), at: (i32, i32), screen: Rect) -> (i32, i32) {
     let axis = |pos: i32, extent: i32, limit: i32| pos.min(limit - extent).max(0);
     (axis(at.0, size.0, screen.w), axis(at.1, size.1, screen.h))
+}
+
+/// The windows `ActivateApp` names: those created under package label `label` in `session`, in
+/// creation order. A desktop or panel is never one, and label 0 (an unlabelled program) names
+/// nothing.
+pub(super) fn app_windows(surfaces: &[Surface], label: u32, session: u64) -> Vec<u64> {
+    if label == 0 {
+        return Vec::new();
+    }
+    surfaces
+        .iter()
+        .filter(|surface| {
+            surface.is_window() && surface.label == label && surface.session == session
+        })
+        .map(|surface| surface.id)
+        .collect()
 }
 
 /// Who asks for the shell role, as the rule needs it.
@@ -112,6 +131,28 @@ impl Compositor {
             return error_reply(message.method(), code);
         }
         self.restore_and_focus(id);
+        self.repaint_full();
+        empty_reply(message.method())
+    }
+
+    /// `ActivateApp`: restore, raise and focus every window created under package label `label` in
+    /// `session` (paint order is kept, so the one that was topmost ends focused; a click on one of
+    /// that app's toasts: the shell
+    /// asks, the app never does, so a background app cannot take the focus by itself). The pair
+    /// is what the kernel stamped on the creating `CreateSurface`, so it names the app whichever
+    /// thread made the window; an unlabelled program is never named.
+    pub(super) fn activate_app(&mut self, message: &Message, body: &[u8]) -> Parcel {
+        let args = wire::decode_activate_app_args(body).unwrap_or_default();
+        if args.label == 0 {
+            return error_reply(message.method(), messenger::errno::EINVAL);
+        }
+        let windows = app_windows(&self.surfaces, args.label, args.session);
+        if windows.is_empty() {
+            return error_reply(message.method(), messenger::errno::ENOENT);
+        }
+        for id in windows {
+            self.restore_and_focus(id);
+        }
         self.repaint_full();
         empty_reply(message.method())
     }
@@ -232,7 +273,29 @@ pub(super) fn selftest_shell_calls() -> &'static str {
         && !shell_allowed(claim(9), None, true)
         && !shell_allowed(app, None, false)
         && !shell_allowed(claim(0), None, false);
-    if placed && auth {
+    // `ActivateApp` names the windows of one app in one session, and only windows.
+    let window = |id: u64, label: u32, session: u64| {
+        let mut surface = super::window::test_surface(id, false, false);
+        surface.label = label;
+        surface.session = session;
+        surface
+    };
+    let mut desktop = super::window::test_surface(5, false, true);
+    desktop.label = 7;
+    desktop.session = 2;
+    let surfaces = [
+        window(1, 7, 2),
+        window(2, 7, 2),
+        window(3, 8, 2),
+        window(4, 7, 9),
+        desktop,
+        window(6, 0, 0),
+    ];
+    let app = app_windows(&surfaces, 7, 2) == [1, 2]
+        && app_windows(&surfaces, 8, 2) == [3]
+        && app_windows(&surfaces, 7, 3).is_empty()
+        && app_windows(&surfaces, 0, 0).is_empty();
+    if placed && auth && app {
         "XUID:SHELLCALLS:PASS\n"
     } else {
         "XUID:SHELLCALLS:FAIL\n"

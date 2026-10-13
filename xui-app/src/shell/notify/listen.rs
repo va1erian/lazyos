@@ -16,16 +16,22 @@ const PING_TICKS: u64 = 100;
 /// Most senders listening at once.
 pub const LISTENERS_MAX: usize = 64;
 
+/// Most senders whose app identity is remembered.
+const SENDERS_MAX: usize = 128;
+
 /// One sender's channel and the label its `Listen` came with.
 struct Listener {
     owner: String,
     channel: u64,
 }
 
-/// Every sender's event channel.
+/// Every sender's event channel, and the package label and session the kernel stamped on each
+/// sender's calls (what a click on its toast brings forward: the shell raises the windows of that
+/// app, whether or not it listens, and whichever thread of it made the call).
 #[derive(Default)]
 pub struct Listeners {
     rows: Vec<Listener>,
+    senders: Vec<(String, u32, u64)>,
     next_ping: u64,
 }
 
@@ -44,6 +50,31 @@ impl Listeners {
             channel,
         });
         true
+    }
+
+    /// Remember the package label and session the kernel stamped on `owner`'s call. An
+    /// unlabelled sender (a script) has nothing a window could be named by and is not kept.
+    pub fn note_sender(&mut self, owner: &str, label: u32, session: u64) {
+        if label == 0 {
+            return;
+        }
+        match self.senders.iter_mut().find(|(name, ..)| name == owner) {
+            Some(row) => (row.1, row.2) = (label, session),
+            None => {
+                if self.senders.len() >= SENDERS_MAX {
+                    self.senders.remove(0);
+                }
+                self.senders.push((owner.to_owned(), label, session));
+            }
+        }
+    }
+
+    /// The label and session `owner` last called under.
+    pub fn app_of(&self, owner: &str) -> Option<(u32, u64)> {
+        self.senders
+            .iter()
+            .find(|(name, ..)| name == owner)
+            .map(|(_, label, session)| (*label, *session))
     }
 
     /// Forget (and close) `owner`'s channel.

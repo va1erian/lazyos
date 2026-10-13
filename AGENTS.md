@@ -648,11 +648,19 @@ tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots
 first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
 and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
 
+A page's **Notifications API** works (#839, `webkit/port/app/notify.cpp`, `xui-app/webplus/src/notify*`): a
+bar in the browser asks once per site (`notify.tsv` in the profile), and an allowed site's notifications are
+toasts titled with its host, never its own words, at Info, under a per-site limit; a click raises the window
+(display `ActivateApp`) and runs the page's handler or reopens the page. Every call of the shell's
+notification service is made from WebKit's main thread (`lzw_engine_run_on_main`): the service refuses a
+thread other than the process's first. `python tools/webplus/notify_run.py` is its harness.
+
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
 python tools/xui/build.py                                                                         # the package
 python tools/webplus/run.py --accel auto                                                          # boot twice, judge
-python tools/webplus/test_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
+python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
+python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)

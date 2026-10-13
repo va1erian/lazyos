@@ -49,6 +49,19 @@ fn long_text_is_cut_with_an_ellipsis() {
 }
 
 #[test]
+fn a_line_feed_in_the_body_starts_a_new_line() {
+    let note = Note::new(Level::Info, "example.com", "New mail\nFrom Ada Lovelace");
+    let card = Card::new(&note, "LazyWeb+", &mono);
+    let body: Vec<&str> = card.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(body, ["New mail", "From Ada Lovelace"]);
+    // Empty paragraphs are not lines, and a run of line feeds is one break.
+    let note = Note::new(Level::Info, "T", "a\n\n\nb\n");
+    let card = Card::new(&note, "A", &mono);
+    let body: Vec<&str> = card.body.iter().map(|line| line.text.as_str()).collect();
+    assert_eq!(body, ["a", "b"]);
+}
+
+#[test]
 fn a_small_toast_is_as_tall_as_its_icon_and_padding() {
     let note = Note::new(Level::Info, "Hi", "");
     let card = Card::new(&note, "A", &mono);

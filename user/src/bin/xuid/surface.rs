@@ -28,6 +28,11 @@ pub(super) struct Surface {
     /// Task slot that created the surface; only it may start or cancel a drag
     /// for this surface (issue #145).
     pub(super) owner: u64,
+    /// The package label and session of the program that created it, as the kernel stamped them
+    /// on the `CreateSurface`: what a click on one of the app's toasts names (`ActivateApp`),
+    /// whichever thread of the app made the window. `0` for an unlabelled program.
+    pub(super) label: u32,
+    pub(super) session: u64,
     /// App pixel buffer mapped into this task (`0` until attached): always
     /// the *current* slot of `slots` (issue #361).
     pub(super) pixels: u64,

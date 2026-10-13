@@ -5,6 +5,7 @@
 use std::ffi::CString;
 
 use crate::address;
+use crate::events::Event;
 use crate::mailbox::PageState;
 
 /// A C string from text that may not be one (a NUL ends it).
@@ -81,8 +82,12 @@ pub mod features {
     pub const OWN_MARKERS: i32 = 16;
     /// A website data store in the profile directory (`lzw_ui_profile_dir`).
     pub const PROFILE: i32 = 32;
+    /// The Notifications API: WebKit's notification provider and permission requests
+    /// (`lzw_ui_notify_*` and `lzw_ui_notify_permission_at`).
+    pub const NOTIFICATIONS: i32 = 64;
     /// Everything LazyWebPlus asks for.
-    pub const ALL: i32 = PAGE_UI | DIALOGS | DOWNLOADS | POLICY | OWN_MARKERS | PROFILE;
+    pub const ALL: i32 =
+        PAGE_UI | DIALOGS | DOWNLOADS | POLICY | OWN_MARKERS | PROFILE | NOTIFICATIONS;
 }
 
 /// How a navigation began (`WKFrameNavigationType`).
@@ -137,6 +142,33 @@ impl Verdict {
 /// A download's size as the engine reports it: a negative number is "not announced".
 pub fn byte_count(bytes: i64) -> Option<u64> {
     u64::try_from(bytes).ok()
+}
+
+/// What `lzw_ui_notify_show` reports: a page asked to show notification `id`.
+pub fn notify_show(
+    id: u64,
+    origin: String,
+    page_url: String,
+    title: String,
+    body: String,
+    tag: String,
+) -> Event {
+    Event::NotifyShow {
+        id,
+        origin,
+        page_url,
+        title,
+        body,
+        tag,
+    }
+}
+
+/// What `lzw_ui_notify_permission_request` reports: any non-zero `user_gesture` is a gesture.
+pub fn notify_permission(origin: String, user_gesture: i32) -> Event {
+    Event::NotifyPermission {
+        origin,
+        user_gesture: user_gesture != 0,
+    }
 }
 
 /// Copies `text` and a NUL into `out`; false (and `out` untouched) when they do not fit.
@@ -264,7 +296,15 @@ mod tests {
     #[test]
     fn every_feature_is_its_own_bit_and_all_is_their_union() {
         use super::features::*;
-        let each = [PAGE_UI, DIALOGS, DOWNLOADS, POLICY, OWN_MARKERS, PROFILE];
+        let each = [
+            PAGE_UI,
+            DIALOGS,
+            DOWNLOADS,
+            POLICY,
+            OWN_MARKERS,
+            PROFILE,
+            NOTIFICATIONS,
+        ];
         let mut seen = 0;
         for bit in each {
             assert_eq!(bit.count_ones(), 1);
@@ -272,6 +312,37 @@ mod tests {
             seen |= bit;
         }
         assert_eq!(ALL, seen);
+    }
+
+    #[test]
+    fn a_notification_and_a_permission_request_become_the_windows_events() {
+        assert_eq!(
+            notify_show(
+                7,
+                "https://a.test".into(),
+                "https://a.test/x".into(),
+                "t".into(),
+                "b".into(),
+                "tag".into()
+            ),
+            Event::NotifyShow {
+                id: 7,
+                origin: "https://a.test".into(),
+                page_url: "https://a.test/x".into(),
+                title: "t".into(),
+                body: "b".into(),
+                tag: "tag".into(),
+            }
+        );
+        let request = |gesture| Event::NotifyPermission {
+            origin: "https://a.test".into(),
+            user_gesture: gesture,
+        };
+        assert_eq!(notify_permission("https://a.test".into(), 1), request(true));
+        assert_eq!(
+            notify_permission("https://a.test".into(), 0),
+            request(false)
+        );
     }
 
     #[test]

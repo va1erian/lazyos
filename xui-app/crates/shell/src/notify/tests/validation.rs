@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn a_good_request_is_kept_with_control_characters_as_spaces() {
     let mut wire = args(wire::LEVEL_WARN, "Disk\tfull");
-    wire.body = "line one\nline two".into();
+    wire.body = "line one\r\nline\ttwo\u{7}".into();
     wire.progress = Some(40);
     wire.timeout = Some(3000);
     wire.replaces_id = Some(7);
@@ -17,7 +17,8 @@ fn a_good_request_is_kept_with_control_characters_as_spaces() {
     let request = Request::from_wire(wire).expect("valid");
     assert_eq!(request.note.level, Level::Warn);
     assert_eq!(request.note.title, "Disk full");
-    assert_eq!(request.note.body, "line one line two");
+    // The body keeps its line break; the other control characters are spaces.
+    assert_eq!(request.note.body, "line one\nline two ");
     assert_eq!(request.note.progress, Some(40));
     assert_eq!(request.note.timeout, Timeout::Millis(3000));
     assert_eq!(request.replaces, Some(7));

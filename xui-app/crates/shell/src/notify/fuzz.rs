@@ -104,6 +104,7 @@ fn validated_requests_stay_within_their_limits() {
         assert!(note.actions.len() <= super::note::ACTIONS_MAX);
         assert!(note.progress.is_none_or(|p| p <= 100));
         assert!(!note.title.chars().any(char::is_control));
+        assert!(note.body.chars().all(|c| c == '\n' || !c.is_control()));
         let mut ids: Vec<u32> = note.actions.iter().map(|a| a.id).collect();
         ids.sort_unstable();
         ids.dedup();

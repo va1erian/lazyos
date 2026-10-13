@@ -1,5 +1,6 @@
 // The page's UI client and the view's pointer (docs/lazywebplus.md): the link under the pointer, the
-// pointer shape, a request for a new window, and the page's JavaScript dialogs.
+// pointer shape, a request for a new window, the page's JavaScript dialogs, and (notify.cpp's
+// callback) the permission to notify.
 //
 // Dialogs never block this thread: the question goes to the window (lzw_ui_dialog) and the result
 // listener is kept, retained, until the window answers (lzw_engine_dialog_reply) or the page it
@@ -141,6 +142,8 @@ void viewSetCursor(WKViewRef, uint32_t cursorType, const void*) { lzw_ui_cursor(
 
 void dropDialogs()
 {
+    // A request to notify belongs to the page that asked too.
+    dropNotificationRequests();
     // The page that asked is going away (or its process is): its question gets the "no" a closed
     // dialog gives, so nothing waits on a listener that is released.
     auto pending = std::move(E.dialogs);
@@ -162,6 +165,8 @@ void installUiClient()
         ui.runJavaScriptConfirm = runJavaScriptConfirm;
         ui.runJavaScriptPrompt = runJavaScriptPrompt;
     }
+    if (has(LZW_FEATURE_NOTIFICATIONS))
+        ui.decidePolicyForNotificationPermissionRequest = notificationPermissionRequest;
     WKPageSetPageUIClient(E.page, &ui.base);
 }
 

@@ -38,6 +38,16 @@ it through `mimed`. A page's script can never start another program: only your c
 LazyWeb and LazyWeb+ both register `http`, `https` and HTML files; `user/<uid>/mimed/default/<type>`
 (Settings, Default apps) says which one opens them.
 
+## Notifications
+
+A page can ask to show notifications (a mail site, a chat). When it asks, a bar appears above the page
+with the site's name and **Allow**, **Block** and **Not now**; nothing shows until you choose. What you
+choose is remembered per site and listed in `about:lazyweb`, where **Forget** takes a decision back. An
+allowed site's notifications are toasts in the corner of the screen under the name LazyWeb+, with the
+site's host as the title and the page's own words below it; a site can only post a few at a time. Click a
+toast and LazyWeb+ comes forward (a site that has gone is opened again). LazyWeb+ itself, a download and
+the system can never be impersonated this way: the title is always the site, never what the page says.
+
 ## Sandboxed
 
 The two processes that do the work run in sandboxes of their own, and LazyOS enforces them, not WebKit:

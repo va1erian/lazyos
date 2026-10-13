@@ -6,7 +6,7 @@
 //! progress, image size against data. A broken *icon* is not an error: it is
 //! dropped and the toast shows its level's icon. Anything else out of bounds
 //! refuses the whole call with [`Invalid`]. Text is plain: control
-//! characters become spaces, there is no markup.
+//! characters become spaces (a body keeps its line feeds), there is no markup.
 
 use messenger_generated::os_lazy_notify_v1 as wire;
 
@@ -249,7 +249,7 @@ impl Request {
         if title.trim().is_empty() {
             return Err(Invalid::Title);
         }
-        let body = text(&args.body, BODY_MAX).ok_or(Invalid::Body)?;
+        let body = body_text(&args.body, BODY_MAX).ok_or(Invalid::Body)?;
         let progress = match args.progress {
             Some(value) if value > u32::from(PROGRESS_DONE) => return Err(Invalid::Progress),
             Some(value) => Some(value as u8),
@@ -284,6 +284,21 @@ fn text(value: &str, max: usize) -> Option<String> {
         value
             .chars()
             .map(|c| if c.is_control() { ' ' } else { c })
+            .collect(),
+    )
+}
+
+/// A body: like [`text`], except that a line feed stays (it ends a line of the toast's body;
+/// `\r\n` is one) and the card lays the paragraphs out.
+fn body_text(value: &str, max: usize) -> Option<String> {
+    if value.chars().count() > max {
+        return None;
+    }
+    Some(
+        value
+            .replace("\r\n", "\n")
+            .chars()
+            .map(|c| if c != '\n' && c.is_control() { ' ' } else { c })
             .collect(),
     )
 }

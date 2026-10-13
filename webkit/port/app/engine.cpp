@@ -195,6 +195,8 @@ int lzw_engine_start(void)
     WKContextConfigurationSetPrewarmsProcessesAutomatically(configuration, false);
     WKContextConfigurationSetUsesWebProcessCache(configuration, false);
     E.context = WKContextCreateWithConfiguration(configuration);
+    // The notification provider before any page process: it reads the decisions when it starts.
+    installNotifications();
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, E.context);
@@ -220,7 +222,7 @@ int lzw_engine_start(void)
     WKViewSetVisible(E.view, true);
 
     installClients();
-    if (has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS))
+    if (has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_NOTIFICATIONS))
         installUiClient();
     return 0;
 }
@@ -292,6 +294,12 @@ void lzw_engine_load(const char* url)
         WKPageLoadURL(E.page, wkUrl);
         WKRelease(wkUrl);
     });
+}
+
+void lzw_engine_run_on_main(void (*task)(void*), void* context)
+{
+    if (task)
+        onMain([task, context] { task(context); });
 }
 
 void lzw_engine_reload(void) { onMain([] { WKPageReload(E.page); }); }

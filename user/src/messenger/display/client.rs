@@ -308,6 +308,13 @@ impl Client {
         self.call_unit(wire::METHOD_ACTIVATESURFACE, body)
     }
 
+    /// `ActivateApp` (shell-only): restore, raise and focus every window of
+    /// the app with package label `label` in `session`.
+    pub fn activate_app(&self, label: u32, session: u64) -> Result<()> {
+        let body = wire::encode_activate_app_args(&wire::ActivateAppArgs { label, session });
+        self.call_unit(wire::METHOD_ACTIVATEAPP, body)
+    }
+
     /// `MinimizeSurface` (shell-only): minimize a window, like its title-bar
     /// button.
     pub fn minimize_surface(&self, surface: u64) -> Result<()> {

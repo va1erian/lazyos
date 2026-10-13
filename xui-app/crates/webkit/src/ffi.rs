@@ -22,8 +22,10 @@ use std::time::{Duration, Instant};
 
 use xui_app::backend::LazyOSBackend;
 
-use crate::abi::{byte_count, c_string, frame_geometry, page_state};
-use crate::engine::{Button, DialogKind, Engine, MouseKind};
+use crate::abi::{
+    byte_count, c_string, frame_geometry, notify_permission, notify_show, page_state,
+};
+use crate::engine::{Button, DialogKind, Engine, MouseKind, NotifyAnswer};
 use crate::events::{CursorKind, Event};
 use crate::mailbox;
 
@@ -44,6 +46,11 @@ extern "C" {
     fn lzw_engine_download(url: *const c_char);
     fn lzw_engine_download_cancel(id: u64);
     fn lzw_engine_dialog_reply(id: u64, accepted: c_int, value: *const c_char);
+    fn lzw_engine_notify_shown(id: u64);
+    fn lzw_engine_notify_clicked(id: u64);
+    fn lzw_engine_notify_closed(id: u64);
+    fn lzw_engine_notify_permission(origin: *const c_char, answer: c_int);
+    fn lzw_engine_notify_forget(origin: *const c_char);
 }
 
 /// The engine behind the C++ functions.
@@ -112,6 +119,28 @@ impl Engine for FfiEngine {
         let value = c_string(value);
         // SAFETY: `value` is a NUL-terminated string that outlives the call; the C++ side copies it.
         unsafe { lzw_engine_dialog_reply(id, c_int::from(accepted), value.as_ptr()) }
+    }
+    fn notify_shown(&self, id: u64) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_notify_shown(id) }
+    }
+    fn notify_clicked(&self, id: u64) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_notify_clicked(id) }
+    }
+    fn notify_closed(&self, id: u64) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_notify_closed(id) }
+    }
+    fn notify_permission(&self, origin: &str, answer: NotifyAnswer) {
+        let origin = c_string(origin);
+        // SAFETY: `origin` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_notify_permission(origin.as_ptr(), answer.code()) }
+    }
+    fn notify_forget(&self, origin: &str) {
+        let origin = c_string(origin);
+        // SAFETY: `origin` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_notify_forget(origin.as_ptr()) }
     }
 }
 
@@ -341,4 +370,70 @@ pub unsafe extern "C" fn lzw_ui_dialog(
         text,
         default,
     });
+}
+
+/// A page asked to show a notification (WebKit's provider `show`). Every text is the page's own and
+/// untrusted: the window trims and cleans it before it reaches the shell. Returns at once.
+///
+/// # Safety
+/// `origin`, `page_url`, `title`, `body` and `tag` must be null or NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_notify_show(
+    id: u64,
+    origin: *const c_char,
+    page_url: *const c_char,
+    title: *const c_char,
+    body: *const c_char,
+    tag: *const c_char,
+) {
+    // SAFETY: by this function's contract.
+    let event = unsafe {
+        notify_show(
+            id,
+            text(origin),
+            text(page_url),
+            text(title),
+            text(body),
+            text(tag),
+        )
+    };
+    mailbox::global().post_event(event);
+}
+
+/// The page took notification `id` down itself (`Notification.close()`).
+#[no_mangle]
+pub extern "C" fn lzw_ui_notify_cancel(id: u64) {
+    mailbox::global().post_event(Event::NotifyCancel { id });
+}
+
+/// The page's object for notification `id` is gone (its document was): the toast stays.
+#[no_mangle]
+pub extern "C" fn lzw_ui_notify_gone(id: u64) {
+    mailbox::global().post_event(Event::NotifyGone { id });
+}
+
+/// The engine refused the pending permission requests of `origin` itself (their page went away).
+///
+/// # Safety
+/// `origin` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_notify_permission_gone(origin: *const c_char) {
+    // SAFETY: by this function's contract.
+    let origin = unsafe { text(origin) };
+    mailbox::global().post_event(Event::NotifyPermissionGone { origin });
+}
+
+/// A page asked for the permission to notify (`Notification.requestPermission()`); the answer is
+/// `lzw_engine_notify_permission(origin, allow)`.
+///
+/// # Safety
+/// `origin` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_notify_permission_request(
+    origin: *const c_char,
+    user_gesture: c_int,
+) {
+    // SAFETY: by this function's contract.
+    let origin = unsafe { text(origin) };
+    mailbox::global().post_event(notify_permission(origin, user_gesture));
 }
