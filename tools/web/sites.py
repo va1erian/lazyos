@@ -51,6 +51,10 @@ DOWNLOAD_NAME = "oldnet-kit.zip"
 #: The WebKit browser harness's form target (its runner, app_run.py): answers a GET with a page whose
 #: title is `echo:<q>`, so what a browser typed into the field comes back as evidence.
 ECHO_PATH = "/webkit/echo"
+#: A page that answers after `SLOW_SECONDS`: the browser has time to stop the load (the harness
+#: presses Stop and judges that a cancelled load is not reported as a failure).
+SLOW_PATH = "/webkit/slow"
+SLOW_SECONDS = 30
 
 
 def echo_page(path: str) -> bytes:
@@ -151,6 +155,10 @@ class Handler(BaseHTTPRequestHandler):
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == ECHO_PATH:
             return 200, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], \
                 echo_page(self.path)
+        if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == SLOW_PATH:
+            time.sleep(SLOW_SECONDS)
+            return 200, [("Content-Type", "text/html"), ("Cache-Control", "no-store")], \
+                b"<!doctype html><title>slow</title><h1>too slow</h1>\n"
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == DOWNLOAD_PATH:
             return 200, [("Content-Type", "application/zip"),
                          ("Content-Disposition", f'attachment; filename="{DOWNLOAD_NAME}"')], \
@@ -205,12 +213,42 @@ class Server(ThreadingHTTPServer):
         self.server_close()
 
 
+class Closer:
+    """A port whose server accepts a connection and hangs up without a word: a client's request
+    fails at once ("Empty reply from server"), where a closed port can take seconds to be
+    refused (or never, through a user-mode network): the harness's address that must fail."""
+
+    def __init__(self, port: int, address: str = "127.0.0.1") -> None:
+        self.listener = socket.socket()
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.listener.bind((address, port))
+        except OSError:
+            self.listener.close()
+            raise
+        self.listener.listen(8)
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                connection, _peer = self.listener.accept()
+            except OSError:
+                return  # closed
+            connection.close()
+
+    def close(self) -> None:
+        self.listener.close()
+
+
 class Sites:
-    """Both stand-in servers, sharing one record."""
+    """Both stand-in servers, sharing one record (and, with `closer_port`, a port that hangs up)."""
 
     def __init__(self, leaf_cert: Path, leaf_key: Path, example_page: str = "index.html",
                  script: tuple[str, bytes] | None = None,
-                 http_port: int = HTTP_PORT, https_port: int = HTTPS_PORT) -> None:
+                 http_port: int = HTTP_PORT, https_port: int = HTTPS_PORT,
+                 closer_port: int | None = None) -> None:
         self.record = Record()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(leaf_cert, leaf_key)
@@ -219,6 +257,8 @@ class Sites:
         self.servers = [Server(http_port, self.record, None, example_page, script)]
         try:
             self.servers.append(Server(https_port, self.record, context, example_page))
+            if closer_port is not None:
+                self.servers.append(Closer(closer_port))
         except OSError:
             self.close()
             raise

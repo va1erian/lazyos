@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>WebKit tall</title>
+<style>
+  /* A page much taller than the window, built of 50 px bands that each look different from
+     their neighbours and never change: the harness turns the wheel and measures how far the
+     bands moved (tools/webkit/appjudge.py, scroll_offset). No script, no animation. */
+  body { margin: 0; font: bold 24px sans-serif; color: #fff; }
+  div { height: 50px; line-height: 50px; padding-left: 12px; }
+  div:nth-child(7n+1) { background: #c0392b; }
+  div:nth-child(7n+2) { background: #e67e22; }
+  div:nth-child(7n+3) { background: #d4ac0d; color: #000; }
+  div:nth-child(7n+4) { background: #27ae60; }
+  div:nth-child(7n+5) { background: #2980b9; }
+  div:nth-child(7n+6) { background: #8e44ad; }
+  div:nth-child(7n)   { background: #34495e; }
+</style>
+</head>
+<body>
+<div>band 1</div><div>band 2</div><div>band 3</div><div>band 4</div><div>band 5</div>
+<div>band 6</div><div>band 7</div><div>band 8</div><div>band 9</div><div>band 10</div>
+<div>band 11</div><div>band 12</div><div>band 13</div><div>band 14</div><div>band 15</div>
+<div>band 16</div><div>band 17</div><div>band 18</div><div>band 19</div><div>band 20</div>
+<div>band 21</div><div>band 22</div><div>band 23</div><div>band 24</div><div>band 25</div>
+<div>band 26</div><div>band 27</div><div>band 28</div><div>band 29</div><div>band 30</div>
+<div>band 31</div><div>band 32</div><div>band 33</div><div>band 34</div><div>band 35</div>
+<div>band 36</div><div>band 37</div><div>band 38</div><div>band 39</div><div>band 40</div>
+</body>
+</html>

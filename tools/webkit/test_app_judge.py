@@ -38,6 +38,8 @@ WEBKIT:W5:INFO:TIME:nav=1:start=2200:commit=3800:finish=4200:load=2000
 WEBKIT:W5:LOAD:{aj.OLDNET_URL}
 WEBKIT:W5:TITLE:{aj.OLDNET_TITLE}
 WEBKIT:W5:JS:{aj.OLDNET_TITLE}
+WEBKIT:W5:LOAD:{aj.TALL_URL}
+WEBKIT:W5:TITLE:{aj.TALL_TITLE}
 WEBKIT:W5:LOAD:{aj.JS_URL}
 WEBKIT:W5:TITLE:js-off
 WEBKIT:W5:TITLE:{aj.JS_TITLE}
@@ -52,6 +54,13 @@ WEBKIT:W5:JS:{aj.FORM_TITLE}
 WEBKIT:W5:LOAD:https://theoldnet.com/webkit/echo?q=hello+lazyos
 WEBKIT:W5:TITLE:{aj.ECHO_TITLE}
 WEBKIT:W5:INPUT:{aj.ECHO_TITLE}
+WEBKIT:W5:NAV:{aj.FAIL_URL}
+WEBKIT:W5:FAIL:provisional:{aj.FAIL_URL}:Could not connect to server (code 300)
+WEBKIT:W5:UI:ERROR:Could not load {aj.FAIL_URL}: Could not connect to server
+WEBKIT:W5:START:{aj.SLOW_URL}
+WEBKIT:W5:CANCELLED:provisional
+WEBKIT:W5:CHILD:web:12:GONE
+WEBKIT:W5:CHILD:network:13:GONE
 WEBKIT:W5:QUIT:PASS
 """
 
@@ -60,7 +69,8 @@ def good_record() -> Record:
     record = Record(handshakes=["theoldnet.com"])
     agent = "Mozilla/5.0 (Unknown; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)"
     record.requests.append(Request("http", "example.com", "GET", "/", 200, agent))
-    for path in ["/", *aj.web_judge.page_assets(), "/webkit/js.html", "/webkit/links.html", "/webkit/form.html",
+    for path in ["/", *aj.web_judge.page_assets(), "/webkit/tall.html", "/webkit/js.html", "/webkit/links.html",
+                 "/webkit/form.html",
                  "/webkit/echo?q=hello+lazyos"]:
         record.requests.append(Request("https", "theoldnet.com", "GET", path, 200, agent, "theoldnet.com"))
     return record
@@ -81,6 +91,34 @@ class SerialTests(unittest.TestCase):
         problems = aj.judge_serial(GOOD + "WEBKIT:W5:FAIL:webprocess:crashed\n")
         self.assertTrue(any("crashed" in p for p in problems), problems)
         self.assertTrue(aj.judge_serial(GOOD + "WEBKIT:W5:UI:BIND:FAIL:5\n"))
+        # Only the load the session breaks on purpose may fail.
+        other = GOOD + "WEBKIT:W5:FAIL:provisional:http://example.com/:Could not connect (code 300)\n"
+        self.assertTrue(any("example.com/:" in p for p in aj.judge_serial(other)))
+
+    def test_the_load_that_must_fail_is_reported_and_shown(self) -> None:
+        self.assertEqual(aj.judge_errors(GOOD), [])
+        failure = f"WEBKIT:W5:FAIL:provisional:{aj.FAIL_URL}:Could not connect to server (code 300)\n"
+        self.assertTrue(any("hangs up" in p for p in aj.judge_errors(GOOD.replace(failure, ""))))
+        shown = f"WEBKIT:W5:UI:ERROR:Could not load {aj.FAIL_URL}: Could not connect to server\n"
+        self.assertTrue(any("never showed" in p for p in aj.judge_errors(GOOD.replace(shown, ""))))
+
+    def test_a_stopped_load_is_cancelled_not_failed(self) -> None:
+        self.assertTrue(any("cancelled" in p for p in aj.judge_errors(
+            GOOD.replace("WEBKIT:W5:CANCELLED:provisional\n", ""))))
+        # Showing the stop as a second error, or letting the slow page finish, fails.
+        twice = GOOD + f"WEBKIT:W5:UI:ERROR:Could not load {aj.SLOW_URL}: cancelled\n"
+        self.assertTrue(any("more than one" in p for p in aj.judge_errors(twice)))
+        self.assertTrue(aj.judge_errors(GOOD + f"WEBKIT:W5:LOAD:{aj.SLOW_URL}\n"))
+        self.assertTrue(aj.judge_errors(GOOD.replace(f"WEBKIT:W5:START:{aj.SLOW_URL}\n", "")))
+
+    def test_closing_the_window_ends_both_children(self) -> None:
+        self.assertEqual(aj.judge_quit(GOOD), [])
+        self.assertTrue(aj.judge_quit(GOOD.replace("WEBKIT:W5:QUIT:PASS\n", "")))
+        self.assertTrue(aj.judge_quit(GOOD.replace("WEBKIT:W5:QUIT:PASS", "WEBKIT:W5:QUIT:FAIL")))
+        for line in ("WEBKIT:W5:CHILD:web:12:GONE\n", "WEBKIT:W5:CHILD:network:13:GONE\n"):
+            self.assertTrue(aj.judge_quit(GOOD.replace(line, "")), line)
+        alive = GOOD.replace("WEBKIT:W5:CHILD:web:12:GONE", "WEBKIT:W5:CHILD:web:12:ALIVE")
+        self.assertTrue(any("ALIVE" in p for p in aj.judge_quit(alive)))
 
     def test_a_script_that_never_ran_is_caught_by_the_readback(self) -> None:
         text = GOOD.replace(f"WEBKIT:W5:JS:{aj.JS_TITLE}", "WEBKIT:W5:JS:js-off")
@@ -134,6 +172,12 @@ class ServerTests(unittest.TestCase):
         for request in record.requests:
             request.user_agent = "LazyWeb"
         self.assertTrue(any("WebKit" in p for p in aj.judge_servers(record, self.assets())))
+
+    def test_requests_without_a_user_agent_do_not_pass(self) -> None:
+        record = good_record()
+        for request in record.requests:
+            request.user_agent = ""
+        self.assertTrue(any("User-Agent" in p for p in aj.judge_servers(record, self.assets())))
 
     def test_the_echo_page_escapes_what_was_typed(self) -> None:
         self.assertIn(b"<title>echo:a &lt;b&gt; &amp; c</title>", sites.echo_page("/webkit/echo?q=a+%3Cb%3E+%26+c"))
@@ -211,15 +255,38 @@ class ShotTests(unittest.TestCase):
             shots[3] = twin
             self.assertTrue(any("identical" in p for p in aj.judge_shots(shots, region)))
 
-    def test_the_wheel_must_change_the_page(self) -> None:
-        region = (0, 0, 50, 50)
+    def test_the_wheel_must_move_the_bands_by_a_known_number_of_rows(self) -> None:
+        region = (0, 0, 120, 400)
+
+        def bands(top: int):
+            # Static 50 px bands of different colours, the page `top` rows further down.
+            def paint(x: int, y: int):
+                band = (y + top) // 50
+                return ((band * 37) % 256, (band * 91 + 40) % 256, (band * 53 + 90) % 256)
+            return paint
+
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            a = png(tmp / "a.png", 50, 50, lambda x, y: (x * 4 % 256, y * 4 % 256, 0))
-            b = png(tmp / "b.png", 50, 50, lambda x, y: (x * 4 % 256, (y * 4 + 40) % 256, 0))
-            self.assertEqual(aj.judge_scroll({"before": a, "after": b}, region), [])
-            self.assertTrue(aj.judge_scroll({"before": a, "after": a}, region))
-            self.assertTrue(aj.judge_scroll({"before": a}, region))
+            a = png(tmp / "a.png", 120, 400, bands(0))
+            b = png(tmp / "b.png", 120, 400, bands(23))
+            c = png(tmp / "c.png", 120, 400, bands(130))
+            self.assertEqual(aj.judge_scroll({"before": a, "after": b}, region), ([], 23))
+            self.assertEqual(aj.judge_scroll({"before": a, "after": c}, region, 130), ([], 130))
+            self.assertEqual(aj.SCROLL_PX, 5 * 40, "five notches at WebKit's 40 px line step")
+            wrong, shift = aj.judge_scroll({"before": a, "after": b}, region, 40)
+            self.assertEqual(shift, 23)
+            self.assertTrue(any("expected 40" in p for p in wrong), wrong)
+            # The same picture is not a scroll, though static bands look alike a row apart.
+            self.assertTrue(aj.judge_scroll({"before": a, "after": a}, region)[0])
+            self.assertTrue(aj.judge_scroll({"before": a}, region)[0])
+
+    def test_a_page_that_animates_instead_of_scrolling_does_not_pass(self) -> None:
+        region = (0, 0, 120, 400)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            a = png(tmp / "a.png", 120, 400, lambda x, y: ((x * 3 + y) % 256, (x + y * 5) % 256, 10))
+            b = png(tmp / "b.png", 120, 400, lambda x, y: ((x * 7 + y * 3) % 256, (x * 5 + y) % 256, 99))
+            self.assertTrue(aj.judge_scroll({"before": a, "after": b}, region)[0])
 
 
 class SessionTests(unittest.TestCase):
@@ -229,10 +296,14 @@ class SessionTests(unittest.TestCase):
 
     def test_every_page_the_judge_wants_is_visited_and_every_shot_taken(self) -> None:
         text = app_session.render(app_session.steps())
-        for url in (aj.EXAMPLE_URL, aj.OLDNET_URL, aj.JS_URL, aj.LINKS_URL):
+        for url in (aj.EXAMPLE_URL, aj.OLDNET_URL, aj.TALL_URL, aj.JS_URL, aj.LINKS_URL, aj.FAIL_URL, aj.SLOW_URL):
             self.assertIn(url, text)
-        for shot in ("00_window", "01_example", "02_theoldnet", "03_theoldnet_later", "04_scrolled", "05_js",
-                     "06_form", "07_typed", "08_echo", "09_back", "10_maximized"):
+        # The window is closed from its title bar, and the session waits for the close to finish.
+        self.assertIn("WEBKIT:W5:QUIT:", text)
+        self.assertIn("WEBKIT:W5:CANCELLED:", text)
+        for shot in ("00_window", "01_example", "02_theoldnet", "03_theoldnet_later", "03b_tall", "04_scrolled",
+                     "05_js", "06_form", "07_typed", "08_echo", "09_back", "10_failed", "11_stopped",
+                     "12_maximized"):
             self.assertIn(f'"shot": "{shot}"', text)
         self.assertIn("mouse_scroll", text)
         self.assertIn(aj.INPUT_TEXT, text)
@@ -251,6 +322,38 @@ class SessionTests(unittest.TestCase):
         self.assertIn(f"<title>{aj.FORM_TITLE}</title>", form)
         self.assertIn("left: 20px; top: 20px; width: 400px; height: 44px", form)
         self.assertIn("<title>js-off</title>", (root / "js.html").read_text(encoding="utf-8"))
+        tall = (root / "tall.html").read_text(encoding="utf-8")
+        self.assertIn(f"<title>{aj.TALL_TITLE}</title>", tall)
+        self.assertIn("height: 50px", tall)
+        self.assertNotIn("<script", tall)
+        self.assertNotIn("@keyframes", tall)
+        self.assertNotIn("animation:", tall)
+
+    def test_the_slow_page_outlasts_the_session_step_that_stops_it(self) -> None:
+        self.assertEqual(sites.SLOW_PATH, "/webkit/slow")
+        self.assertEqual(aj.SLOW_URL, "https://theoldnet.com" + sites.SLOW_PATH)
+        self.assertGreaterEqual(sites.SLOW_SECONDS, 20)
+
+    def test_the_closer_hangs_up_on_whoever_connects(self) -> None:
+        import socket
+        closer = sites.Closer(0)
+        try:
+            port = closer.listener.getsockname()[1]
+            with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+                client.sendall(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+                try:
+                    self.assertEqual(client.recv(100), b"")
+                except ConnectionResetError:
+                    pass  # a hang-up with the request unread is a reset on some hosts: a failure all the same
+        finally:
+            closer.close()
+
+    def test_the_run_fails_on_every_failure_but_the_planned_one(self) -> None:
+        import re
+        pattern = re.compile(r"WEBKIT:W5:FAIL:(?!provisional:" + re.escape(aj.FAIL_URL) + ":)")
+        self.assertIsNone(pattern.search(f"WEBKIT:W5:FAIL:provisional:{aj.FAIL_URL}:refused (code 300)"))
+        self.assertTrue(pattern.search("WEBKIT:W5:FAIL:webprocess:crashed"))
+        self.assertTrue(pattern.search("WEBKIT:W5:FAIL:provisional:http://example.com/:refused"))
 
 
 if __name__ == "__main__":

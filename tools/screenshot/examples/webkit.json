@@ -94,8 +94,39 @@
   "shot": "03_theoldnet_later"
  },
  {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/tall.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/webkit/tall.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:WebKit tall",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "03b_tall"
+ },
+ {
   "move_to": {
-   "window": "TheOldNet.com - Surf the Old Web - WebKit",
+   "window": "WebKit tall - WebKit",
    "widget": "page_origin",
    "offset": [
     600,
@@ -103,12 +134,6 @@
    ]
   },
   "timeout": 60
- },
- {
-  "wait": 0.5
- },
- {
-  "mouse_scroll": -5
  },
  {
   "wait": 0.5
@@ -255,6 +280,76 @@
   "shot": "09_back"
  },
  {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "http://example.com:81/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:FAIL:provisional:http://example.com:81/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:UI:ERROR:Could not load http://example.com:81/",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "10_failed"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/slow",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:START:https://theoldnet.com/webkit/slow",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit form - WebKit",
+   "widget": "reload"
+  },
+  "timeout": 300.0,
+  "until": "WEBKIT:W5:CANCELLED:",
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "11_stopped"
+ },
+ {
   "click_at": {
    "target": "title:WebKit form - WebKit",
    "offset": [
@@ -270,7 +365,22 @@
   "wait": 4.0
  },
  {
-  "shot": "10_maximized"
+  "shot": "12_maximized"
+ },
+ {
+  "click_at": {
+   "target": "title:WebKit form - WebKit",
+   "offset": [
+    630,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBKIT:W5:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
  },
  {
   "quit": true

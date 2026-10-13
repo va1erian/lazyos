@@ -5,7 +5,10 @@ so the browser's window is the only one and opens at login. The script types int
 field (Ctrl+L), waits for each page's markers (`appjudge.py` lists them), clicks a link and a text
 field by page coordinates (the window prints `UI:WIDGET name=page_origin`, one pixel at the page's
 top-left, so `offset` is the page coordinate), types into the form, submits it from the keyboard,
-turns the wheel, and goes Back; a screenshot after each. Regenerate the checked-in example with
+turns the wheel over a tall page of static bands (so the judge can measure how far it moved),
+goes Back, loads an address nothing listens on (the window says so) and a page that never
+answers in time and presses Stop (not a failure), maximizes the window, and closes it from
+its title bar (the UI process ends both children and says so); a screenshot after each. Regenerate the checked-in example with
 `python tools/webkit/app_session.py --write`.
 """
 
@@ -28,17 +31,19 @@ FIELD_AT = (200, 42)
 #: The title bar's maximize button, from the middle of the title bar (1004 px wide; `xuid` draws
 #: its buttons at the right).
 MAXIMIZE_AT = (472, 0)
+#: The close button, from the middle of the maximized title bar (1280 px wide).
+CLOSE_AT = (630, 0)
 #: Where the pointer rests for the wheel: inside the page, away from links.
 WHEEL_AT = (600, 300)
 
 
-def navigate(url: str, loaded: str, timeout: float) -> list[dict]:
-    """Ctrl+L, the address, Enter; then wait for the page's `LOAD` marker."""
+def navigate(url: str, loaded: str | None, timeout: float, until: str | None = None) -> list[dict]:
+    """Ctrl+L, the address, Enter; then wait for the page's `LOAD` marker (or `until`)."""
     return [
         {"key_down": "ctrl"}, {"key": "l"}, {"key_up": "ctrl"},
         {"wait": 1.0},
         {"type": url, "delay": 0.05},
-        {"key": "enter", "until": f"WEBKIT:W5:LOAD:{loaded}", "timeout": timeout},
+        {"key": "enter", "until": until or f"WEBKIT:W5:LOAD:{loaded}", "timeout": timeout},
     ]
 
 
@@ -73,11 +78,13 @@ def steps(timeout: float = 300.0) -> list[dict]:
         {"shot": "02_theoldnet"},
         {"wait": 3.0},
         {"shot": "03_theoldnet_later"},
-        # The wheel: the page moves under the pointer.
-        {"move_to": {"window": aj.caption(aj.OLDNET_TITLE), "widget": "page_origin", "offset": list(WHEEL_AT)},
+        # The wheel: a page of static bands moves under the pointer by a measured number of rows.
+        *navigate(aj.TALL_URL, aj.TALL_URL, timeout),
+        wait(f"WEBKIT:W5:TITLE:{aj.TALL_TITLE}"),
+        {"wait": 3.0},
+        {"shot": "03b_tall"},
+        {"move_to": {"window": aj.caption(aj.TALL_TITLE), "widget": "page_origin", "offset": list(WHEEL_AT)},
          "timeout": 60},
-        {"wait": 0.5},
-        {"mouse_scroll": -5},
         {"wait": 0.5},
         {"mouse_scroll": -5},
         {"wait": 3.0},
@@ -109,11 +116,27 @@ def steps(timeout: float = 300.0) -> list[dict]:
          "until": f"WEBKIT:W5:LOAD:{aj.FORM_URL}", "retries": 1},
         {"wait": 3.0},
         {"shot": "09_back"},
+        # An address nothing listens on: the load fails, the window says so, the form stays.
+        *navigate(aj.FAIL_URL, None, timeout, until=f"WEBKIT:W5:FAIL:provisional:{aj.FAIL_URL}"),
+        wait(f"WEBKIT:W5:UI:ERROR:Could not load {aj.FAIL_URL}"),
+        {"wait": 1.0},
+        {"shot": "10_failed"},
+        # A page that does not answer in time; Stop ends the load, and that is not a failure.
+        *navigate(aj.SLOW_URL, None, timeout, until=f"WEBKIT:W5:START:{aj.SLOW_URL}"),
+        {"wait": 2.0},
+        {"click_at": {"window": aj.caption(aj.FORM_TITLE), "widget": "reload"}, "timeout": timeout,
+         "until": "WEBKIT:W5:CANCELLED:", "retries": 2},
+        {"wait": 2.0},
+        {"shot": "11_stopped"},
         # Maximize: the page is laid out again at the new size and the engine paints it.
         {"click_at": {"target": f"title:{aj.caption(aj.FORM_TITLE)}", "offset": list(MAXIMIZE_AT)},
          "timeout": 60, "until": "WEBKIT:W5:INFO:RESIZE:", "retries": 2},
         {"wait": 4.0},
-        {"shot": "10_maximized"},
+        {"shot": "12_maximized"},
+        # Close the window from its title bar: the run loop ends, both children are ended and reaped.
+        {"click_at": {"target": f"title:{aj.caption(aj.FORM_TITLE)}", "offset": list(CLOSE_AT)},
+         "timeout": 60, "until": "WEBKIT:W5:QUIT:", "retries": 2},
+        {"wait": 3.0},
         {"quit": True},
     ]
 

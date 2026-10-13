@@ -97,7 +97,9 @@ def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
     command = [PY, str(ROOT / "tools" / "screenshot" / "qemu_session.py"), "--image", str(IMAGE),
                "--out", str(out), "--script", str(script), "--accel", args.accel, "--memory", args.memory,
                "--net", "--net-forward", "none", "--net-pcap", str(out / "net.pcap"),
-               "--fail-on", "PANIC", "--fail-on", "EXCEPTION", "--fail-on", r"WEBKIT:W5:FAIL",
+               "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
+               # Every failure but the one load the session breaks on purpose.
+               "--fail-on", r"WEBKIT:W5:FAIL:(?!provisional:" + re.escape(appjudge.FAIL_URL) + ":)",
                "--fail-on", r"WEBKIT:(W5:UI:)?(BIND|RUN):FAIL"]
     if args.qemu:
         command += ["--qemu", args.qemu]
@@ -134,7 +136,7 @@ def report(section: str, detail: str, problems: list[str]) -> bool:
 
 def shots(out: Path) -> list[Path]:
     """The page screenshots, in session order (`00_window` is the empty window)."""
-    return sorted(p for p in out.glob("shot_*.png") if not re.search(r"shot_(00|failed)", p.name))
+    return sorted(p for p in out.glob("shot_*.png") if not re.search(r"shot_00", p.name))
 
 
 def sizes() -> str:
@@ -153,15 +155,19 @@ def verdict(out: Path, session_ok: bool, text: str, record) -> int:
     region = appjudge.window_region(text)
     pictures = shots(out)
     by_name = {p.name: p for p in pictures}
-    page_shots = [p for p in pictures if not re.search(r"shot_(04_scrolled|09_back|10_maximized)", p.name)]
+    page_shots = [p for p in pictures
+                  if not re.search(r"shot_(04_scrolled|09_back|10_failed|11_stopped|12_maximized)", p.name)]
     ok = report("SHOTS", f"{len(pictures)} shots, page area {region}", appjudge.judge_shots(page_shots, region)) and ok
-    scroll = {"before": by_name.get("shot_03_theoldnet_later.png"), "after": by_name.get("shot_04_scrolled.png")}
-    ok = report("SCROLL", "the wheel moved the page", appjudge.judge_scroll(scroll, region)) and ok
+    scroll = {"before": by_name.get("shot_03b_tall.png"), "after": by_name.get("shot_04_scrolled.png")}
+    problems, moved = appjudge.judge_scroll(scroll, region, appjudge.SCROLL_PX)
+    ok = report("SCROLL", f"the wheel moved the static bands {moved} px", problems) and ok
+    ok = report("ERRORS", "a failed load says so, a stopped one does not", appjudge.judge_errors(text)) and ok
     ok = report("RESIZE", f"the page was laid out again when the window grew: {appjudge.resizes(text)}",
                 appjudge.judge_resize(text)) and ok
     grown = appjudge.window_region(text, last=True)
     ok = report("MAXIMIZED", f"the page is painted to the right edge of the maximized window {grown}",
-                appjudge.judge_maximized(by_name.get("shot_10_maximized.png"), grown)) and ok
+                appjudge.judge_maximized(by_name.get("shot_12_maximized.png"), grown)) and ok
+    ok = report("QUIT", "the window closed, both children were ended and reaped", appjudge.judge_quit(text)) and ok
     denied = sorted(set(re.findall(r"LABEL:DENY[^\r\n]*", text)))
     if denied:
         print(f"WEBKIT:W5:INFO:LABEL:DENY {len(denied)} distinct line(s) (package permissions to derive):")
@@ -198,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     if problem:
         print(f"WEBKIT:W5:HARNESS:FAIL {problem}")
         return 1
-    busy = sites.ports_free()
+    busy = sites.ports_free((sites.HTTP_PORT, sites.HTTPS_PORT, appjudge.CLOSER_PORT))
     if busy:
         print(f"WEBKIT:W5:HARNESS:FAIL host port(s) {busy} in use: {sites.port_hint(OSError('busy'))}")
         return 1
@@ -213,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"WEBKIT:W5:HARNESS:FAIL {error}")
             return 1
     try:
-        served = sites.Sites(files.leaf_cert, files.leaf_key)
+        served = sites.Sites(files.leaf_cert, files.leaf_key, closer_port=appjudge.CLOSER_PORT)
     except OSError as error:
         print(f"WEBKIT:W5:HARNESS:FAIL cannot start the host servers: {sites.port_hint(error)}")
         return 1

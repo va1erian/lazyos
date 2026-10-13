@@ -45,6 +45,15 @@ LINKS_URL = "https://theoldnet.com/webkit/links.html"
 LINKS_TITLE = "WebKit links"
 FORM_URL = "https://theoldnet.com/webkit/form.html"
 FORM_TITLE = "WebKit form"
+#: A tall page of static bands: the wheel moves them by a measurable number of rows.
+TALL_URL = "https://theoldnet.com/webkit/tall.html"
+TALL_TITLE = "WebKit tall"
+#: A page that never answers in time (`sites.SLOW_PATH`): Stop ends it, and that is no failure.
+SLOW_URL = "https://theoldnet.com/webkit/slow"
+#: The host accepts a connection here and hangs up (`sites.Closer`): the load fails at once and the
+#: window says so.
+CLOSER_PORT = 81
+FAIL_URL = f"http://example.com:{CLOSER_PORT}/"
 #: What the session types into the form; the echo page's title is `echo:` + it.
 INPUT_TEXT = "hello lazyos"
 ECHO_TITLE = f"echo:{INPUT_TEXT}"
@@ -82,12 +91,13 @@ def judge_serial(text: str, oldnet_title: str = OLDNET_TITLE) -> list[str]:
         if not pids:
             problems.append(f"no WEBKIT:W5:{kind}:UP:<pid>")
     for failure in lines(text, "WEBKIT:W5:FAIL:"):
-        problems.append(f"WebKit reported a failure: {failure}")
+        if not expected_failure(failure):
+            problems.append(f"WebKit reported a failure: {failure}")
     for failure in re.findall(r"WEBKIT:(?:W5:UI:)?(?:BIND|RUN):FAIL[^\r\n]*", text):
         problems.append(f"the window failed: {failure}")
     titles = lines(text, "WEBKIT:W5:TITLE:")
-    for url, title in ((EXAMPLE_URL, EXAMPLE_TITLE), (OLDNET_URL, oldnet_title), (JS_URL, JS_TITLE),
-                       (LINKS_URL, LINKS_TITLE), (FORM_URL, FORM_TITLE)):
+    for url, title in ((EXAMPLE_URL, EXAMPLE_TITLE), (OLDNET_URL, oldnet_title), (TALL_URL, TALL_TITLE),
+                       (JS_URL, JS_TITLE), (LINKS_URL, LINKS_TITLE), (FORM_URL, FORM_TITLE)):
         if not loaded(text, url):
             problems.append(f"no WEBKIT:W5:LOAD:{url}")
         if title not in titles:
@@ -103,6 +113,49 @@ def judge_serial(text: str, oldnet_title: str = OLDNET_TITLE) -> list[str]:
     echoed = lines(text, "WEBKIT:W5:INPUT:")
     if ECHO_TITLE not in echoed:
         problems.append(f"the typed text did not come back: no WEBKIT:W5:INPUT:{ECHO_TITLE} (seen: {echoed})")
+    return problems
+
+
+def expected_failure(failure: str) -> bool:
+    """The one load the session makes fail on purpose (`FAIL_URL`)."""
+    return failure.startswith(f"provisional:{FAIL_URL}:")
+
+
+def judge_errors(text: str) -> list[str]:
+    """A load that fails is reported (`FAIL`, the window's `UI:ERROR`) and a load the user stops
+    is not: one failure for `FAIL_URL`, one error line in the window, a `CANCELLED` for the slow
+    page, which never finished loading."""
+    problems = []
+    failed = [f for f in lines(text, "WEBKIT:W5:FAIL:") if expected_failure(f)]
+    if not failed:
+        problems.append(f"no WEBKIT:W5:FAIL:provisional:{FAIL_URL}: for the address that hangs up")
+    errors = lines(text, "WEBKIT:W5:UI:ERROR:")
+    if not any(e.startswith(f"Could not load {FAIL_URL}") for e in errors):
+        problems.append(f"the window never showed the error (UI:ERROR lines: {errors})")
+    if len(errors) > 1:
+        problems.append(f"the window showed more than one error: {errors} (a stopped load is not one)")
+    if f"WEBKIT:W5:START:{SLOW_URL}" not in text:
+        problems.append(f"the slow page's load never started: no WEBKIT:W5:START:{SLOW_URL}")
+    if not lines(text, "WEBKIT:W5:CANCELLED:"):
+        problems.append("the stopped load was not reported as cancelled: no WEBKIT:W5:CANCELLED")
+    if loaded(text, SLOW_URL):
+        problems.append("the stopped page loaded anyway")
+    return problems
+
+
+def judge_quit(text: str) -> list[str]:
+    """Closing the window ends the run loop and both child processes: `QUIT:PASS`, and for each
+    pid the UI process named, a `CHILD:<name>:<pid>:GONE` (what its own waitpid/kill saw)."""
+    problems = []
+    if "WEBKIT:W5:QUIT:PASS" not in text:
+        quits = re.findall(r"WEBKIT:W5:QUIT:\w+", text)
+        problems.append(f"the window did not close cleanly: no WEBKIT:W5:QUIT:PASS (saw {quits})")
+    for name, kind in (("web", "WEBPROCESS"), ("network", "NETWORKPROCESS")):
+        for pid in sorted(set(re.findall(rf"WEBKIT:W5:{kind}:UP:(\d+)", text))):
+            if f"WEBKIT:W5:CHILD:{name}:{pid}:GONE" not in text:
+                problems.append(f"the {name} process {pid} was not seen to end: no WEBKIT:W5:CHILD:{name}:{pid}:GONE")
+    for alive in re.findall(r"WEBKIT:W5:CHILD:\w+:\d+:ALIVE", text):
+        problems.append(f"a child outlived the window: {alive}")
     return problems
 
 
@@ -149,7 +202,7 @@ def judge_servers(record, assets: list[str]) -> list[str]:
     for path in assets:
         if not asked("https", web_judge.OLDNET_HOSTS, path):
             problems.append(f"WebKit never fetched {path} from theoldnet.com")
-    for path in ("/webkit/js.html", "/webkit/links.html", "/webkit/form.html"):
+    for path in ("/webkit/tall.html", "/webkit/js.html", "/webkit/links.html", "/webkit/form.html"):
         if not asked("https", ("theoldnet.com",), path):
             problems.append(f"WebKit never fetched {path}")
     typed = [r for r in asked("https", ("theoldnet.com",), "/webkit/echo")
@@ -162,7 +215,9 @@ def judge_servers(record, assets: list[str]) -> list[str]:
     if not any(sni == "theoldnet.com" for sni in record.handshakes):
         problems.append("no TLS handshake with SNI theoldnet.com")
     agents = {r.user_agent for r in browser if r.user_agent}
-    if agents and not any("AppleWebKit" in agent for agent in agents):
+    if not agents:
+        problems.append("no request carried a User-Agent: cannot tell WebKit's requests from anyone's")
+    elif not any("AppleWebKit" in agent for agent in agents):
         problems.append(f"the requests do not look like WebKit's: {sorted(agents)}")
     return problems
 
@@ -249,13 +304,55 @@ def judge_maximized(shot: Path | None, region: tuple[int, int, int, int] | None,
     return []
 
 
-def judge_scroll(shots: dict[str, Path], region: tuple[int, int, int, int] | None) -> list[str]:
-    """The wheel moved the page: the scrolled shot's page area differs from the one before it."""
+#: How far five wheel notches move the page, in pixels: WebKit's line step of 40 px per notch
+#: (`Scrollbar::pixelsPerLineStep`), measured in a run (docs/webkit-port-plan.md, W5).
+SCROLL_PX: int | None = 200
+#: The left part of the page area that a scroll is measured on: the scroll bar's thumb moves with
+#: the page and the pointer (drawn into the screenshot) rests further right.
+SCROLL_COLUMNS = 300
+
+
+def crop_rows(path: Path, region: tuple[int, int, int, int], columns: int = SCROLL_COLUMNS) -> list[bytes]:
+    """The rows of the left `columns` pixels of a rectangle of a screenshot, each as bytes."""
+    width, height, channels, pixels = pngstats.decode_png(Path(path))
+    x, y, w, h = region
+    x0, y0, x1, y1 = max(x, 0), max(y, 0), min(x + min(w, columns), width), min(y + h, height)
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError(f"region {region} is outside the {width}x{height} screenshot")
+    return [bytes(pixels[(row * width + x0) * channels:(row * width + x1) * channels]) for row in range(y0, y1)]
+
+
+def scroll_offset(before: list[bytes], after: list[bytes], need: float = 0.97) -> int | None:
+    """By how many rows the picture moved up between two crops of a page of static content: the
+    shift with the most identical rows, when at least `need` of the compared rows match. A page of
+    animations or one that did not move gives None (a shift of 0 is not a scroll)."""
+    rows = min(len(before), len(after))
+    if sum(1 for y in range(rows) if after[y] == before[y]) >= need * rows:
+        return None  # the same picture: static bands look alike a row apart, so say so first
+    best, best_same = None, 0
+    for shift in range(1, rows - rows // 4):
+        compared = rows - shift
+        same = sum(1 for y in range(compared) if after[y] == before[y + shift])
+        if same > best_same:
+            best, best_same = shift, same
+    if best is None or best_same < need * (rows - best):
+        return None
+    return best
+
+
+def judge_scroll(shots: dict[str, Path], region: tuple[int, int, int, int] | None,
+                 expected: int | None = None) -> tuple[list[str], int | None]:
+    """The wheel moved a page of static bands by a whole number of rows (`expected`, when known):
+    the problems, and the shift measured."""
     before, after = shots.get("before"), shots.get("after")
     if before is None or after is None or region is None:
-        return ["the scroll shots or the page area are missing"]
+        return ["the scroll shots or the page area are missing"], None
     try:
-        a, b = region_stats(before, region), region_stats(after, region)
+        shift = scroll_offset(crop_rows(before, region), crop_rows(after, region))
     except (OSError, ValueError) as error:
-        return [str(error)]
-    return [] if a["digest"] != b["digest"] else ["the page looks the same after the wheel turned"]
+        return [str(error)], None
+    if shift is None:
+        return ["the page did not move as one picture after the wheel turned (no row shift fits)"], None
+    if expected is not None and shift != expected:
+        return [f"the wheel moved the page {shift} px, expected {expected}"], shift
+    return [], shift
