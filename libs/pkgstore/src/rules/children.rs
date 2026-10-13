@@ -151,10 +151,7 @@ mod tests {
         let net_only = compile(&webkit_like("")).unwrap();
         let files = crate::filerules::compile(&["write:$HOME/.apps/org.lazy.web"]).unwrap();
         for rule in &net.rules {
-            assert!(
-                net_only.contains(rule) || files.contains(rule),
-                "{rule:?}"
-            );
+            assert!(net_only.contains(rule) || files.contains(rule), "{rule:?}");
         }
         assert!(net.rules.len() < net_only.len() + files.len());
     }

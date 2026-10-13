@@ -353,7 +353,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "confine_inherited_descriptors_are_scrubbed",
         procs::scrub_inherited,
     ),
-    ("confine_terminal_reads_are_eof", tty::terminal_reads_are_eof),
+    (
+        "confine_terminal_reads_are_eof",
+        tty::terminal_reads_are_eof,
+    ),
     ("confine_signals_stay_in_the_process", procs::signals),
     ("confine_dangerous_calls_stay_unimplemented", procs::enosys),
     (

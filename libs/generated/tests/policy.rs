@@ -61,7 +61,10 @@ fn a_child_label_request_carries_its_program() {
         ..request
     };
     let bytes = policy::encode_load_label_args(&plain).unwrap();
-    assert_eq!(policy::decode_load_label_args(&bytes).unwrap().program, None);
+    assert_eq!(
+        policy::decode_load_label_args(&bytes).unwrap().program,
+        None
+    );
 }
 
 #[test]
