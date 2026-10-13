@@ -172,6 +172,7 @@ mod boot_trace_suite;
 mod bufops;
 mod chmod_suite;
 mod confd_suite;
+mod confine_suite;
 mod connect_suite;
 mod credentials_suite;
 mod crypto_suite;
@@ -361,6 +362,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     spawn_suite::CASES,
     native_exec_suite::CASES,
     exec_perm_suite::CASES,
+    confine_suite::CASES,
     chmod_suite::CASES,
     display_suite::CASES,
     mux_suite::CASES,

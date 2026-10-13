@@ -25,6 +25,7 @@
 //! label and in total, so a policy loader cannot exhaust kernel memory.
 
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 /// Wildcard actor: matches any authority.
@@ -67,6 +68,12 @@ pub mod reason {
     /// A topic or filter that reaches into another uid's private
     /// `user/<uid>/` namespace (`ipc::topics::private`, issue #407).
     pub const PRIVATE_NAMESPACE: u32 = 12;
+    /// A task in a child label (`app:<id>/<name>`, issue #832) tried to start
+    /// a program: `execve`, `fork`, a `vfork`-style `clone` or `spawnv`.
+    pub const CHILD_MAY_NOT_START: u32 = 13;
+    /// A child label's rules asked for a call its app's rules do not allow
+    /// (`ipc::children`, issue #832); the load was refused.
+    pub const CHILD_WIDENS_APP: u32 = 14;
 }
 
 /// Most rules one label may hold.
@@ -169,6 +176,8 @@ pub fn load_label(label_id: u32, rules: &[Rule]) -> Result<(), LoadError> {
         actor: label_id,
         ..*rule
     }));
+    super::confine::note_rules(label_id, rules);
+    LABEL_GENERATION.fetch_add(1, Ordering::Release);
     Ok(())
 }
 
@@ -176,6 +185,45 @@ pub fn load_label(label_id: u32, rules: &[Rule]) -> Result<(), LoadError> {
 #[cfg(lazyos_tests)]
 pub fn reset_labels_for_tests() {
     LABEL_POLICY.lock().clear();
+    LABEL_GENERATION.fetch_add(1, Ordering::Release);
+}
+
+/// Counts every change of the label-keyed rules. A cache derived from them
+/// (`super::confine`) is valid while this number is the one it was built at.
+static LABEL_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// The current rule generation: it changes whenever any label's rules do.
+pub fn label_generation() -> u64 {
+    LABEL_GENERATION.load(Ordering::Acquire)
+}
+
+/// The interface ids `label_id` is *allowed* with the wildcard method, sorted,
+/// as [`evaluate_label`] would decide them one by one: the first rule that
+/// names an id decides it, and a rule that matches every interface ends the
+/// list (what follows can never be reached). A rule for one method of an
+/// interface decides nothing here. For callers that key their own tables by
+/// rule id (`super::confine`).
+pub fn label_allowed_ids(label_id: u32) -> Vec<u64> {
+    let policy = LABEL_POLICY.lock();
+    let mut decided: Vec<u64> = Vec::new();
+    let mut allowed: Vec<u64> = Vec::new();
+    for rule in policy.iter().filter(|rule| rule.actor == label_id) {
+        if rule.method != ANY_METHOD {
+            continue;
+        }
+        if rule.interface_id == ANY_INTERFACE {
+            break;
+        }
+        if decided.contains(&rule.interface_id) {
+            continue;
+        }
+        decided.push(rule.interface_id);
+        if rule.allow {
+            allowed.push(rule.interface_id);
+        }
+    }
+    allowed.sort_unstable();
+    allowed
 }
 
 /// Number of rules loaded for `label_id`.
@@ -194,7 +242,54 @@ pub fn label_rules_total() -> usize {
 
 /// Evaluate a call by a task labelled `label_id`: first matching rule of its
 /// label wins, and no match is a default deny. There is no bootstrap allow.
+///
+/// A child label (`app:<id>/<name>`, issue #832) is judged by its own rules
+/// *and then* by its app's: the call is allowed only when both allow it, so a
+/// child never holds more than the app does, whatever was loaded for it, and
+/// revoking the app revokes its children in the same instant.
 pub fn evaluate_label(label_id: u32, interface_id: u64, method: u32) -> (Decision, u32) {
+    let own = evaluate_rules(label_id, interface_id, method);
+    if own.0.denied() {
+        return own;
+    }
+    match super::labels::parent_of(label_id) {
+        Some(parent) => {
+            let held = evaluate_rules(parent, interface_id, method);
+            if held.0.denied() {
+                held
+            } else {
+                own
+            }
+        }
+        None => own,
+    }
+}
+
+/// Whether every allow rule of `rules` is something `parent`'s loaded rules
+/// allow (first match wins, so a deny ahead of an allow counts). A rule with
+/// a wildcard is covered only by a wildcard at least as wide: the check runs
+/// the rule's own `(interface, method)` through the parent's rules as written.
+/// This is the load-time half of the child rule; [`evaluate_label`] is the
+/// call-time half.
+///
+/// The confine marker ([`filepolicy::confine_id`]) is the one rule that is
+/// not an authority: it only narrows (a labelled task that holds it is judged
+/// by the file, socket and spawn gates), so an app, which stays unconfined,
+/// never holds it and a child may.
+pub fn covered_by(parent: u32, rules: &[Rule]) -> bool {
+    let marker = filepolicy::confine_id();
+    rules
+        .iter()
+        .filter(|rule| rule.allow && rule.interface_id != marker)
+        .all(|rule| {
+            !evaluate_rules(parent, rule.interface_id, rule.method)
+                .0
+                .denied()
+        })
+}
+
+/// The rules of exactly one label, first match wins.
+fn evaluate_rules(label_id: u32, interface_id: u64, method: u32) -> (Decision, u32) {
     let policy = LABEL_POLICY.lock();
     for rule in policy.iter() {
         if rule.actor == label_id && rule.matches(label_id, interface_id, method) {

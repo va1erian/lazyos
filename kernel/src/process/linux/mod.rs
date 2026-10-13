@@ -126,6 +126,8 @@ pub(crate) use native::{read_redirected, write_redirected};
 // otherwise-unused-import warning this silences.
 #[allow(unused_imports)]
 pub use fd::close_cloexec_fds;
+/// Descriptor 0 becomes `/dev/null` for an image that starts confined (`ipc::confine`).
+pub use fd::null_stdin;
 
 /// Resolve an executable for a `spawnv` of a Linux-personality program: the
 /// named file, `/system/bin/<base>`, or a BusyBox applet alias, opened for

@@ -15,7 +15,7 @@ use crate::user_ptr;
 
 use super::errno::{
     err, EADDRINUSE, EAFNOSUPPORT, EAGAIN, EBADF, ECONNREFUSED, EINTR, EINVAL, EMFILE, ENOENT,
-    ENOPROTOOPT, ENOTCONN, ENOTSOCK, EOPNOTSUPP,
+    ENOPROTOOPT, ENOTCONN, ENOTSOCK, EOPNOTSUPP, EPERM,
 };
 use super::flags::{AF_UNIX, SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_SEQPACKET, SOCK_STREAM};
 use super::io::write_stream_rights;
@@ -120,6 +120,9 @@ pub(super) fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
         Ok(name) => name,
         Err(error) => return err(error),
     };
+    if crate::ipc::confine::check_socket_name(&name).is_err() {
+        return err(EPERM);
+    }
     let listener = match unix::bind(name) {
         Ok(listener) => listener,
         Err(()) => return err(EADDRINUSE),
@@ -168,6 +171,9 @@ pub(super) fn sys_connect(fd: u64, addr: u64, len: u64) -> u64 {
         Ok(name) => name,
         Err(error) => return err(error),
     };
+    if crate::ipc::confine::check_socket_name(&name).is_err() {
+        return err(EPERM);
+    }
     let Some(listener) = unix::lookup(&name) else {
         return err(ENOENT);
     };

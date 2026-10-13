@@ -42,6 +42,7 @@ mod inflate;
 mod layout;
 mod manifest;
 mod path;
+mod processes;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -55,7 +56,9 @@ mod zip;
 pub use chunks::CHUNK;
 pub use error::{ChunkError, ManifestError, OpenError, Problem, ReadError};
 pub use files::HOME_VAR;
-pub use manifest::{App, Category, Entry, Manifest, MimeHandler, Permissions};
+pub use grammar::{MAX_PROCESS_NAME, MAX_PROGRAM};
+pub use manifest::{App, Category, Entry, Manifest, MimeHandler, Permissions, Process};
+pub use processes::{child_label, MAX_PROCESSES};
 pub use version::{Version, VersionError, MAX_VERSION_LEN};
 pub use zip::EntryInfo;
 

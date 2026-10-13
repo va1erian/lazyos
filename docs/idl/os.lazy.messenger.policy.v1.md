@@ -16,7 +16,7 @@ request body of the privileged `acl_load` messenger op, which needs
 
 | Method | Id | Kind | Signature |
 |---|---|---|---|
-| LoadLabel | 888159937 | sync | `(label: String, rules: Array<LabelRule>) -> ()` |
+| LoadLabel | 888159937 | sync | `(label: String, rules: Array<LabelRule>, program: Option<String>) -> ()` |
 
 ## struct `LabelRule`
 

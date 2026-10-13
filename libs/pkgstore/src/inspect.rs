@@ -57,7 +57,13 @@ pub fn assess(bytes: &[u8]) -> Result<Assessed<'_>, Box<PackageInfo>> {
             permissions.len()
         ));
     }
-    if let Err(error) = rules::compile(manifest) {
+    // What `pkgd` will load: the app's rules, then each process table's, so a
+    // `files` entry the file gate cannot compile is refused here and not at
+    // boot (where the app would be left without a policy).
+    let compiled = rules::compile(manifest)
+        .and_then(|_| rules::installed(manifest))
+        .and_then(|_| rules::children(manifest));
+    if let Err(error) = compiled {
         problems.push(format!("{error}"));
     }
     let install_dir = package.install_dir();

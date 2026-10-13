@@ -258,6 +258,17 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::Exists);
         }
+        // A name that is already there is `EEXIST` before it is a question of whether the
+        // caller may write the directory above it, as on Linux: programs that make every
+        // component of a path (`mkdir -p`, WebKit's `makeAllDirectories`) walk through
+        // directories they may look at but not change. A caller that cannot look at the name
+        // (no search permission on the way, or a confined label's gate) gets that error
+        // instead, so existence is never told to someone who may not see it.
+        match self.check_path(id, &path, 0) {
+            Ok(_) => return Err(FsError::Exists),
+            Err(FsError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
         self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
         let (mount, rel) = self.resolve_writable(&path)?;
@@ -373,7 +384,12 @@ impl Vfs {
     }
 
     /// Walk ancestors for search and the path itself for `mask`.
+    ///
+    /// A task whose label is confined (`ipc::confine`) is judged first, by
+    /// the path and what `mask` asks of it, before anything about the node is
+    /// looked at: a refusal never says whether a file exists.
     fn check_path(&mut self, id: Id, path: &Path, mask: u8) -> Result<Meta, FsError> {
+        confine_gate(id, path, crate::ipc::confine::access_of_mask(mask))?;
         for ancestor in path.ancestors() {
             let meta = self.stat_path(&ancestor)?;
             if meta.kind != FileKind::Dir {
@@ -420,4 +436,19 @@ impl Default for Vfs {
     fn default() -> Self {
         Vfs::new()
     }
+}
+
+/// The file gate of a confined label ([`crate::ipc::confine`]): `Ok` for the
+/// kernel, every unlabelled task and every label that is not confined, and
+/// `EPERM` (`NotPermitted`) for a path the label's rules do not cover.
+pub(crate) fn confine_gate(
+    id: Id,
+    path: &Path,
+    access: crate::ipc::confine::Access,
+) -> Result<(), FsError> {
+    if !crate::ipc::confine::confined(id.label) {
+        return Ok(());
+    }
+    crate::ipc::confine::check_path(id.label, &path.to_path_string(), access)
+        .map_err(|_| FsError::NotPermitted)
 }

@@ -77,6 +77,8 @@
 
 extern crate alloc;
 
+#[path = "pkgd/activate.rs"]
+mod activate;
 #[path = "pkgd/approval.rs"]
 mod approval;
 #[path = "pkgd/audit.rs"]

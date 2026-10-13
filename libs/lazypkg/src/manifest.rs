@@ -5,6 +5,7 @@
 //! the document; semantic rules live in [`crate::validate`], which returns
 //! every problem instead of stopping at the first.
 
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -24,6 +25,10 @@ pub struct Manifest {
     pub mime: Vec<MimeHandler>,
     #[serde(default)]
     pub permissions: Permissions,
+    /// `[processes.<name>]`: helper programs the app starts, each run under a
+    /// label of its own that holds no more than the app's ([`Process`]).
+    #[serde(default)]
+    pub processes: BTreeMap<String, Process>,
 }
 
 /// `[app]`: identity and display metadata.
@@ -166,6 +171,30 @@ pub struct Permissions {
     /// each development label gets its rules.
     #[serde(default)]
     pub develop: bool,
+}
+
+/// `[processes.<name>]`: a helper program of the app and the narrower label
+/// it runs under (`app:<system_name>/<name>`, issue #832).
+///
+/// The app starts `program` (an absolute path, run with `execve`) and the
+/// kernel gives that image the child label instead of the app's own. The label
+/// can only hold a subset of the app's permissions ([`crate::validate`] refuses
+/// a table that asks for more), and a process in it may not start programs
+/// itself. The fields have the syntax and meaning of the same-named fields of
+/// `[permissions]`; there is no `topics` (a child owns no `app/<id>/`
+/// namespace) and no `develop`.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Process {
+    /// The executable, as the image names it: an absolute path
+    /// (`/system/bin/webprocess`).
+    pub program: String,
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub network: Vec<String>,
 }
 
 /// Parse the manifest text, tolerating a leading UTF-8 BOM. A TOML syntax

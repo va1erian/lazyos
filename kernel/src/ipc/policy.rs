@@ -395,6 +395,8 @@ pub fn explain(label_id: u32, reason_code: u32) -> String {
         reason::OUTSIDE_NAMESPACE => "apps may only publish names in their own namespace",
         reason::UNNAMED_INTERFACE => "an app must name every interface it serves, as its id",
         reason::FOREIGN_INTERFACE => "apps may only serve interfaces in their own domain",
+        reason::CHILD_MAY_NOT_START => "a helper process of an app may not start programs",
+        reason::CHILD_WIDENS_APP => "a helper process may hold no more than its app does",
         _ => "it was not granted access to that Messenger interface",
     };
     format!("denied: {why}; {may}")

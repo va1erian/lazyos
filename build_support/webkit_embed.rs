@@ -60,6 +60,18 @@ pub fn requirements(webkit: bool, desktop: bool, netd: bool) -> Result<(), Strin
     ))
 }
 
+/// Where the browser's two engine processes come from, and what builds them: the WebKit port
+/// (`tools/webkit/port.py`), or with `LAZYOS_WEBKIT_ATTACK=1` the stand-ins of the sandbox attack
+/// harness (`tools/webkit/attack_build.py`, `tools/webkit/attack_run.py`): one test program,
+/// under the two programs' names, that attacks from inside their labels.
+pub fn engine_source(attack: bool) -> (&'static str, &'static str) {
+    if attack {
+        ("target/webkit/attack", "tools/webkit/attack_build.py")
+    } else {
+        ("target/webkit/bin", "tools/webkit/port.py")
+    }
+}
+
 /// The build failure for a wanted but unbuilt package, naming what to run.
 pub fn not_built(elf_present: bool) -> String {
     if elf_present {
