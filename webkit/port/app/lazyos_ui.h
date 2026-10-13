@@ -18,6 +18,10 @@ extern "C" {
 
 // ---- implemented by the window (Rust) ----
 
+// Whether this image carries the UI probe (LAZYOS_UI_PROBE=1): session scripts read markers that
+// name pages (WEBKIT:W5:LOAD, TITLE, JS, CLICK, INPUT, NAV), which a shipped browser does not print.
+int lzw_ui_probe_enabled(void);
+
 // The calling user's user-memory charge and limit in bytes, as the kernel counts them (the length
 // of every mapping, not the pages touched). Returns 0 on success.
 int lzw_ui_user_memory(uint64_t* used, uint64_t* limit);

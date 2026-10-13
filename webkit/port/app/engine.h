@@ -45,7 +45,13 @@ extern Engine E;
 
 // ---- log.cpp: markers and small helpers --------------------------------------------------
 
+// A marker that always prints: process ids, timings, failures. Nothing in it names a page.
 void say(const char* format, ...) __attribute__((format(printf, 1, 2)));
+// A marker that names a page (its URL, title or script result): printed only in an image built
+// with the UI probe (LAZYOS_UI_PROBE=1), where a session reads them. A shipped browser does not
+// log what the user types or visits.
+void sayHarness(const char* format, ...) __attribute__((format(printf, 1, 2)));
+bool harness();
 long elapsedMs();
 std::string utf8(WKStringRef string);
 std::string utf8(WKURLRef url);

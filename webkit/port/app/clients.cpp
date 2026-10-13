@@ -4,6 +4,8 @@
 // Markers (one line each, on stdout; tools/webkit/appjudge.py reads them):
 //   WEBKIT:W5:WEBPROCESS:UP:<pid>       the page's WebProcess is running (after the first load)
 //   WEBKIT:W5:NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
+// The ones that name a page (LOAD, TITLE, JS, CLICK, INPUT, and the URL in FAIL) print only in
+// an image built with the UI probe (sayHarness).
 //   WEBKIT:W5:LOAD:<url>                a navigation finished (the page's own URL)
 //   WEBKIT:W5:TITLE:<title>             the title when it finished, and again when script changes it
 //   WEBKIT:W5:JS:<title>                document.title, read back by running script in the page
@@ -115,7 +117,7 @@ void sayTitle()
     std::string title = oneLine(pageTitle());
     if (title.empty())
         return;
-    say("WEBKIT:W5:TITLE:%s", title.c_str());
+    sayHarness("WEBKIT:W5:TITLE:%s", title.c_str());
     E.lastTitleSaid = title;
 }
 
@@ -128,7 +130,7 @@ void sayInput()
     if (title.empty())
         return;
     E.inputPending = false;
-    say("WEBKIT:W5:INPUT:%s", title.c_str());
+    sayHarness("WEBKIT:W5:INPUT:%s", title.c_str());
 }
 
 // Reads document.title back by running script in the page: the proof that script ran there.
@@ -137,11 +139,15 @@ void scriptResult(WKTypeRef result, WKErrorRef, void*)
     std::string title;
     if (result && WKGetTypeID(result) == WKStringGetTypeID())
         title = utf8(static_cast<WKStringRef>(result));
-    say("WEBKIT:W5:JS:%s", oneLine(title).c_str());
+    sayHarness("WEBKIT:W5:JS:%s", oneLine(title).c_str());
 }
 
 void readTitleBySript()
 {
+    // Only for a session: it is the proof that script ran in the page, and costs a round trip
+    // to the WebProcess per page.
+    if (!harness())
+        return;
     WKStringRef script = WKStringCreateWithUTF8CString("document.title");
     WKPageEvaluateJavaScriptInMainFrame(E.page, script, nullptr, scriptResult);
     WKRelease(script);
@@ -154,7 +160,7 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
         WKURLRequestRef request = WKNavigationActionCopyRequest(action);
         WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
         if (type == kWKFrameNavigationTypeLinkClicked)
-            say("WEBKIT:W5:CLICK:%s", oneLine(utf8(url)).c_str());
+            sayHarness("WEBKIT:W5:CLICK:%s", oneLine(utf8(url)).c_str());
         else
             E.formNavigation = true;
         if (url)
@@ -188,7 +194,7 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.loading = false;
     E.loadFinished = true;
     long finished = elapsedMs();
-    say("WEBKIT:W5:LOAD:%s", oneLine(activeUrl()).c_str());
+    sayHarness("WEBKIT:W5:LOAD:%s", oneLine(activeUrl()).c_str());
     sayTitle();
     if (E.formNavigation) {
         // The echo is the response's title; it can arrive a moment after the load finished.
@@ -216,7 +222,8 @@ void didFail(const char* what, WKErrorRef error)
             WKRelease(text);
         description += " (code " + std::to_string(WKErrorGetErrorCode(error)) + ")";
     }
-    say("WEBKIT:W5:FAIL:%s:%s:%s", what, oneLine(activeUrl()).c_str(), oneLine(description).c_str());
+    // The page's address is a harness detail; the failure is not.
+    say("WEBKIT:W5:FAIL:%s:%s:%s", what, harness() ? oneLine(activeUrl()).c_str() : "", oneLine(description).c_str());
     postState();
 }
 

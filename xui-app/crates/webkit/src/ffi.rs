@@ -130,6 +130,13 @@ unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
         .collect()
 }
 
+/// Whether this image carries the UI probe: the C++ side prints the markers that name pages
+/// (and this side `UI:NAV`) only then.
+#[no_mangle]
+pub extern "C" fn lzw_ui_probe_enabled() -> c_int {
+    c_int::from(xui_app::probe::enabled())
+}
+
 /// The calling user's user-memory charge and limit, in bytes, as the kernel counts them: the
 /// length of every mapping, not the pages touched, so what a JIT or a collector reserves counts
 /// (the page's WebProcess, the NetworkProcess and this process share one user's quota).
@@ -205,6 +212,7 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             ui.set_theme(theme);
         }
         let host = Host {
+            traces: xui_app::probe::enabled(),
             focused: Box::new(move || focus_backend.focused()),
             probe: Box::new(|window, name, rect| {
                 xui_app::probe::widget(

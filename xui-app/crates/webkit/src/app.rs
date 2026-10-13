@@ -50,6 +50,9 @@ pub type Probe = Box<dyn Fn(&str, &str, Rect)>;
 
 /// What the platform adds to the window.
 pub struct Host {
+    /// Print `WEBKIT:W5:UI:NAV:<url>` for each address opened: the UI probe's, so a shipped
+    /// browser does not log what the user types.
+    pub traces: bool,
     /// The widget holding the keyboard focus (Enter and Escape belong to the address field
     /// only while it has it).
     pub focused: Box<dyn Fn() -> Option<WidgetId>>,
@@ -61,6 +64,7 @@ impl Host {
     /// A host with nothing to add.
     pub fn none() -> Host {
         Host {
+            traces: false,
             focused: Box::new(|| None),
             probe: Box::new(|_, _, _| {}),
         }
@@ -77,6 +81,7 @@ pub struct Browser {
     engine: Rc<dyn Engine>,
     mailbox: Arc<Mailbox>,
     probe: Probe,
+    traces: bool,
     /// The page as the engine last reported it.
     state: PageState,
     /// The window's caption as last set.
@@ -115,7 +120,11 @@ impl Browser {
 
         let address = widgets.address.get();
         let field = address.id();
-        let Host { focused, probe } = host;
+        let Host {
+            traces,
+            focused,
+            probe,
+        } = host;
         ui.on_key(move |key, mods| shortcut(key, mods, focused() == Some(field)));
         ui.set_window_title(APP_NAME);
 
@@ -129,6 +138,7 @@ impl Browser {
             engine,
             mailbox,
             probe,
+            traces,
             state: PageState::default(),
             title: APP_NAME.to_owned(),
             announced: Cell::new((0, 0)),
@@ -140,7 +150,7 @@ impl Browser {
         browser.update_buttons();
         if let Some(url) = first {
             browser.address.set_text(&url);
-            println!("WEBKIT:W5:UI:NAV:{url}");
+            browser.trace_navigation(&url);
             browser.engine.load(&url);
         }
         browser.page.focus();
@@ -162,6 +172,12 @@ impl Browser {
         &self.page
     }
 
+    fn trace_navigation(&self, url: &str) {
+        if self.traces {
+            println!("WEBKIT:W5:UI:NAV:{url}");
+        }
+    }
+
     /// Opens what the address field holds.
     fn go(&mut self) {
         let text = self.address.text();
@@ -169,7 +185,7 @@ impl Browser {
             Some(url) => {
                 self.address.set_text(&url);
                 self.editing = false;
-                println!("WEBKIT:W5:UI:NAV:{url}");
+                self.trace_navigation(&url);
                 self.engine.load(&url);
                 self.page.focus();
             }

@@ -9,17 +9,43 @@
 #include <time.h>
 
 #include "engine.h"
+#include "lazyos_ui.h"
 
 namespace webkitapp {
+
+namespace {
+
+void print(const char* format, va_list args)
+{
+    vprintf(format, args);
+    printf("\n");
+    fflush(stdout);
+}
+
+} // namespace
 
 void say(const char* format, ...)
 {
     va_list args;
     va_start(args, format);
-    vprintf(format, args);
+    print(format, args);
     va_end(args);
-    printf("\n");
-    fflush(stdout);
+}
+
+bool harness()
+{
+    static const bool on = lzw_ui_probe_enabled() != 0;
+    return on;
+}
+
+void sayHarness(const char* format, ...)
+{
+    if (!harness())
+        return;
+    va_list args;
+    va_start(args, format);
+    print(format, args);
+    va_end(args);
 }
 
 long elapsedMs()

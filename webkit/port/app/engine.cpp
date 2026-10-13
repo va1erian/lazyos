@@ -110,7 +110,7 @@ void lzw_engine_load(const char* url)
     std::string address = url ? url : "";
     onMain([address] {
         WKURLRef wkUrl = WKURLCreateWithUTF8CString(address.c_str());
-        say("WEBKIT:W5:NAV:%s", oneLine(address).c_str());
+        sayHarness("WEBKIT:W5:NAV:%s", oneLine(address).c_str());
         WKPageLoadURL(E.page, wkUrl);
         WKRelease(wkUrl);
     });
