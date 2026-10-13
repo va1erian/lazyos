@@ -83,6 +83,13 @@ pub struct Vma {
     pub file: u32,
     /// The file offset of `start` (`0` without a file).
     pub file_off: u64,
+    /// The range is a *reservation* (`mmap` of `PROT_NONE` or with
+    /// `MAP_NORESERVE`): address space a runtime sets aside and commits in
+    /// pieces. Its user-memory quota charge is the pages resident in it, taken
+    /// at the first touch (`mem::demand_resolve`) and given back as they are
+    /// unmapped, not its length at `mmap`; it stays so through `mprotect`.
+    /// Only anonymous private mappings carry it.
+    pub reserve: bool,
 }
 
 impl Vma {

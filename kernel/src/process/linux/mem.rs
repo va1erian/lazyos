@@ -1,6 +1,7 @@
-//! The `mmap` family: `mmap`, `munmap`, `mprotect`, `brk` and `mremap`.
+//! The `mmap` family: `mmap`, `munmap`, `mprotect` and `brk` (`mremap` is
+//! [`super::mremap`]'s).
 //!
-//! All five work the same way underneath: update the [`crate::mem::vma`]
+//! All of them work the same way underneath: update the [`crate::mem::vma`]
 //! table first (the source of truth for what a range means and who owns the
 //! quota charge for it), then make the page tables agree, deferring frames to
 //! first touch wherever demand-zero is safe.
@@ -11,7 +12,7 @@ use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task;
 
-use super::errno::{err, EFAULT, EINVAL, ENOMEM};
+use super::errno::{err, EINVAL, ENOMEM};
 use super::mmapvfs::unmap_vmas;
 use super::overcommit::{hopeless, MAP_NORESERVE};
 use super::{BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
@@ -24,14 +25,10 @@ const MAP_TYPE: u64 = 0xf;
 const MAP_FIXED: u64 = 0x10;
 const MAP_ANONYMOUS: u64 = 0x20;
 
-/// `mremap(2)` flags.
-const MREMAP_MAYMOVE: u64 = 1;
-const MREMAP_FIXED: u64 = 2;
-
 /// Round `value` up to a multiple of `align`, or `None` if the rounding would
 /// overflow `u64`. All callers feed this untrusted user lengths, so the
 /// addition must be checked: the default profile panics on overflow.
-fn align_up(value: u64, align: u64) -> Option<u64> {
+pub(super) fn align_up(value: u64, align: u64) -> Option<u64> {
     value
         .checked_add(align - 1)
         .map(|value| value & !(align - 1))
@@ -45,15 +42,6 @@ pub(super) struct Mapping {
     pub(super) end: u64,
     pub(super) prot: Prot,
     pub(super) fixed: bool,
-}
-
-/// The bytes of `vmas` whose quota charge `munmap` and its relatives give
-/// back: a memfd mapping's pages are charged to the memfd, not the mapping.
-pub(super) fn charged_len(vmas: &[crate::mem::vma::Vma]) -> u64 {
-    vmas.iter()
-        .filter(|vma| vma.kind != Kind::Shared)
-        .map(|vma| vma.len())
-        .sum()
 }
 
 /// `mmap(addr, len, prot, flags, fd, offset)`.
@@ -112,17 +100,26 @@ pub(super) fn sys_mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: u64, offs
     if flags & MAP_NORESERVE == 0 && hopeless(prot, len) {
         return err(ENOMEM);
     }
+    // A reservation (`PROT_NONE`, `MAP_NORESERVE`) commits nothing, so it is
+    // charged by the pages that come to be resident (`demand_resolve`), not by
+    // its length: a runtime that sets aside gigabytes of address space and
+    // fills it in pieces pays for the pieces.
+    let reserve = flags & MAP_NORESERVE != 0 || prot.0 == 0;
     // Per-uid user-memory quota (issue #103), charged before any VMA or page
     // table changes so a refusal leaves the address space untouched. The
     // closest Linux errno for "over the user's memory quota" is ENOMEM.
-    if quota::charge_for_slot(task::current(), Resource::UserMemory, len).is_err() {
+    if !reserve && quota::charge_for_slot(task::current(), Resource::UserMemory, len).is_err() {
         return err(ENOMEM);
     }
     let mut replaced = 0u64;
     if flags & MAP_FIXED != 0 {
-        replaced = charged_len(&unmap_vmas(table, base, end, true));
+        replaced = unmap_vmas(table, base, end, true).charged;
     }
-    crate::mem::vma::insert(table, base, end, prot, Kind::Anon);
+    if reserve {
+        crate::mem::vma::insert_reserve(table, base, end, prot, Kind::Anon);
+    } else {
+        crate::mem::vma::insert(table, base, end, prot, Kind::Anon);
+    }
     if flags & MAP_FIXED == 0 {
         task::set_mmap_next(end);
     }
@@ -145,11 +142,10 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
         return err(EINVAL);
     };
     let table = crate::mem::kernel_table();
-    let removed = unmap_vmas(table, start, end, false);
-    if !removed.is_empty() {
+    let gone = unmap_vmas(table, start, end, false);
+    if !gone.vmas.is_empty() {
         // Unmapping gives the user's quota back (issue #103).
-        let bytes = charged_len(&removed);
-        quota::release_for_slot(task::current(), Resource::UserMemory, bytes);
+        quota::release_for_slot(task::current(), Resource::UserMemory, gone.charged);
     }
     0
 }
@@ -185,7 +181,12 @@ pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
                 }
             }
             _ => {
-                crate::mem::unmap_range(table, start, stop);
+                let dropped = crate::mem::unmap_range(table, start, stop) as u64;
+                // A reservation is charged by its resident pages: the ones
+                // just dropped are no longer held.
+                if vma.reserve {
+                    quota::release_for_slot(task::current(), Resource::UserMemory, dropped * PAGE);
+                }
             }
         }
     }
@@ -288,185 +289,6 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
     new
 }
 
-/// `mremap(old_address, old_size, new_size, flags, new_address)`: grow, shrink
-/// or relocate an existing mapping.
-///
-/// The whole `[old_address, old_address + old_size)` range must be exactly one
-/// VMA. Shrinking and growing a heap/anonymous mapping in place just adjust the
-/// VMA (new pages stay demand-zero); anything else with `MREMAP_MAYMOVE`
-/// relocates the resident PTEs to a fresh range (`MREMAP_FIXED` places it
-/// exactly). Overlapping source and destination ranges are refused with
-/// `-EINVAL`; Linux supports them, but nothing here needs that yet.
-pub(super) fn sys_mremap(
-    old_addr: u64,
-    old_size: u64,
-    new_size: u64,
-    flags: u64,
-    new_addr: u64,
-) -> u64 {
-    if old_addr & (PAGE - 1) != 0 || (flags & MREMAP_FIXED != 0 && new_addr & (PAGE - 1) != 0) {
-        return err(EINVAL);
-    }
-    if old_size == 0 || new_size == 0 || flags & !(MREMAP_MAYMOVE | MREMAP_FIXED) != 0 {
-        return err(EINVAL);
-    }
-    if flags & MREMAP_FIXED != 0 && flags & MREMAP_MAYMOVE == 0 {
-        return err(EINVAL);
-    }
-    let Some(old_end) = old_addr
-        .checked_add(old_size)
-        .and_then(|end| align_up(end, PAGE))
-    else {
-        return err(EINVAL);
-    };
-    let Some(new_len) = align_up(new_size, PAGE) else {
-        return err(EINVAL);
-    };
-    let table = crate::mem::kernel_table();
-    let Some(vma) = crate::mem::vma::find(table, old_addr) else {
-        return err(EFAULT);
-    };
-    // Growth the machine could never back is refused before anything moves
-    // (see `overcommit`); memfd and shared pages are accounted elsewhere.
-    if matches!(vma.kind, Kind::Anon | Kind::Heap)
-        && new_len > old_end - old_addr
-        && hopeless(vma.prot, new_len - (old_end - old_addr))
-    {
-        return err(ENOMEM);
-    }
-    // The range may cover only part of a coalesced VMA (adjacent anonymous
-    // mappings merge): split at both boundaries so it is exactly one VMA.
-    if old_addr < vma.start || old_end > vma.end {
-        return err(EFAULT);
-    }
-    if vma.start < old_addr {
-        crate::mem::vma::split(table, old_addr);
-    }
-    if old_end < vma.end {
-        crate::mem::vma::split(table, old_end);
-    }
-    let Some(vma) = crate::mem::vma::find(table, old_addr) else {
-        return err(EFAULT);
-    };
-    let old_len = old_end - old_addr;
-    let fixed_elsewhere = flags & MREMAP_FIXED != 0 && new_addr != old_addr;
-
-    if !fixed_elsewhere {
-        // Shrinking (or the same size): keep the base address and drop the tail.
-        if new_len <= old_len {
-            let new_end = old_addr + new_len;
-            if new_end < old_end {
-                unmap_vmas(table, new_end, old_end, true);
-                if vma.kind != Kind::Shared {
-                    quota::release_for_slot(
-                        task::current(),
-                        Resource::UserMemory,
-                        old_end - new_end,
-                    );
-                }
-            }
-            return old_addr;
-        }
-
-        // Growing: the pages above the old end are demand-zero (anonymous
-        // memory), so a free range above the VMA can be claimed by extending it.
-        let delta = new_len - old_len;
-        let Some(grow_end) = old_end.checked_add(delta) else {
-            return err(ENOMEM);
-        };
-        let free_above = crate::mem::vma::find_range(table, old_end, grow_end).is_empty();
-        if free_above && matches!(vma.kind, Kind::Anon | Kind::Heap) {
-            if quota::charge_for_slot(task::current(), Resource::UserMemory, delta).is_err() {
-                return err(ENOMEM);
-            }
-            crate::mem::vma::insert(table, old_addr, grow_end, vma.prot, vma.kind);
-            // Keep the bump past a mapping that grew in place, so the next
-            // `mmap` does not land on top of it.
-            if task::mmap_next() < grow_end {
-                task::set_mmap_next(grow_end);
-            }
-            return old_addr;
-        }
-    }
-    if flags & MREMAP_MAYMOVE == 0 {
-        return err(ENOMEM);
-    }
-    if new_len > old_len && !matches!(vma.kind, Kind::Anon | Kind::Heap) {
-        return err(EINVAL); // a stack/file mapping cannot grow by relocation
-    }
-
-    let dest = if fixed_elsewhere {
-        new_addr
-    } else {
-        match choose_mremap_dest(table, new_len) {
-            Some(dest) => dest,
-            None => return err(ENOMEM),
-        }
-    };
-    let Some(dest_end) = dest.checked_add(new_len) else {
-        return err(ENOMEM);
-    };
-    if dest_end > MMAP_LIMIT || (dest < old_end && old_addr < dest_end) {
-        return err(EINVAL);
-    }
-    let extra = new_len.saturating_sub(old_len);
-    if extra > 0 && quota::charge_for_slot(task::current(), Resource::UserMemory, extra).is_err() {
-        return err(ENOMEM);
-    }
-    // Replacing a live destination range returns its charge (MAP_FIXED rules).
-    let replaced = charged_len(&unmap_vmas(table, dest, dest_end, false));
-    // Only `min(old, new)` pages move; a shrinking move drops the old tail.
-    let keep = old_len.min(new_len);
-    let mut offset = 0;
-    while offset < keep {
-        if crate::mem::remap_page(table, old_addr + offset, dest + offset).is_err() {
-            // Roll the pages already moved back, then undo the charge. The
-            // destination was free (or replaced on request), so only the move
-            // needs undoing.
-            let mut back = 0;
-            while back < offset {
-                let _ = crate::mem::remap_page(table, dest + back, old_addr + back);
-                back += PAGE;
-            }
-            if extra > 0 {
-                quota::release_for_slot(task::current(), Resource::UserMemory, extra);
-            }
-            return err(ENOMEM);
-        }
-        offset += PAGE;
-    }
-    // A file mapping keeps its file: take it out before the old range goes.
-    let file = crate::mem::vma::file_of(table, &vma);
-    unmap_vmas(table, old_addr, old_end, true);
-    match file {
-        Some(file) => crate::mem::vma::insert_file(
-            table,
-            dest,
-            dest_end,
-            vma.prot,
-            vma.kind,
-            file,
-            vma.file_off,
-        ),
-        None => crate::mem::vma::insert(table, dest, dest_end, vma.prot, vma.kind),
-    }
-    if replaced > 0 {
-        quota::release_for_slot(task::current(), Resource::UserMemory, replaced);
-    }
-    if new_len < old_len && vma.kind != Kind::Shared {
-        quota::release_for_slot(task::current(), Resource::UserMemory, old_len - new_len);
-    }
-    if !fixed_elsewhere {
-        task::set_mmap_next(dest_end);
-    }
-    dest
-}
-
-/// First free address in the mmap region that fits `len`.
-fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
-    first_free_range(table, len)
-}
-
 /// First-fit search of the mmap region for a hole of `len` bytes.
 ///
 /// It starts at [`MMAP_BASE`] every time rather than at the bump pointer, so a
@@ -475,7 +297,7 @@ fn choose_mremap_dest(table: PhysAddr, len: u64) -> Option<u64> {
 /// 345 KiB clip mask per repaint): the 768 MiB region was gone after ~2300
 /// cycles and the process died with `memory allocation failed` although
 /// almost no memory was resident.
-fn first_free_range(table: PhysAddr, len: u64) -> Option<u64> {
+pub(super) fn first_free_range(table: PhysAddr, len: u64) -> Option<u64> {
     // One pass over the VMAs in address order: `candidate` only moves forward,
     // past each mapping that overlaps it, so the cost is one scan however
     // large the mappings are.

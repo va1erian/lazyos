@@ -577,7 +577,7 @@ kernel prints no pid when a task ends.
 | On LazyOS (WHPX, 4 GiB, desktop image with networking and the UI probe) | the whole `app_run.py` session passes: `WEBKIT:W5:HARNESS:PASS`, no `FAIL` line, no `LABEL:DENY`, no `ENOSYS`; the same image also ran W4's `port_run.py` (`WEBKIT:W4:HARNESS:PASS`) |
 | Cold start | the window's first layout 63 to 94 ms after the UI process started WebKit (the compositor was up); a WebProcess and a NetworkProcess answering **4.3 s** after the UI process created its view (two 107 MB programs read whole from ext2 and started: the cost W4 measured for its three) |
 | Pages (the host serves them over QEMU's user network, so the network is nearly free) | `http://example.com/`: load (navigation start to `didFinishNavigation`) 39 to 58 ms, first paint 46 to 67 ms after the navigation started (the WebProcess is already running); `https://theoldnet.com/` with six sub-resources (PNG, JPEG, GIF, animated GIF, tiled background, style sheet) over a verified TLS handshake: load 84 to 109 ms, first paint 47 to 75 ms; the script, link, form and echo pages 3 to 20 ms |
-| Memory | guest RAM 4019 MiB: **3476 MiB free** after the first page (the desktop, the UI process, one WebProcess and one NetworkProcess), 3405 MiB after seven pages (+71 MiB). The user's memory quota charges mapping *lengths*: at the big-app profile's 3G the three processes held 2989 MiB of 3072 after the first page and 3059 MiB after seven (99.6%); at 8G they hold 6957 and 7027 MiB. The engine takes what the quota lets it reserve; the launchers now set 8G for this app |
+| Memory | guest RAM 4019 MiB: **3476 MiB free** after the first page (the desktop, the UI process, one WebProcess and one NetworkProcess), 3405 MiB after seven pages (+71 MiB). The user's memory quota used to charge mapping *lengths*: at the big-app profile's 3G the three processes held 2989 MiB of 3072 after the first page and 3059 MiB after seven (99.6%); at 8G they held 6957 and 7027 MiB, because the engine takes what the quota lets it reserve. Reservations (`PROT_NONE`, `MAP_NORESERVE`) are charged by resident page now (`docs/architecture/limits.md`); the launchers still set 8G for this app |
 
 *What the screenshots show* (`shots/webkit`, `tools/webkit/app_run.py`): the window on the dark desktop with its
 toolbar and caption; `example.com` in its grey, centred layout with the link in blue; the retro `theoldnet.com`
@@ -617,8 +617,12 @@ of every `mmap` (`kernel/src/process/linux/mem.rs`), not the pages touched, so t
 a collector count; one WebProcess and a NetworkProcess and the UI process fit, three WebProcesses' worth did
 not. The port turns process swapping, pre-warming and the process cache off
 (`WKContextConfigurationSetProcessSwapsOnNavigation(false)` and two more): one WebProcess serves every page,
-which is also what a 4 GiB machine wants. Open: charge on commit rather than on reservation (a `PROT_NONE`
-mapping commits nothing), or give the quota a virtual-size allowance. Userspace, not the kernel: `pkgd`
+which is also what a 4 GiB machine wants. The kernel side is done: a `PROT_NONE` or `MAP_NORESERVE` mapping
+(the JIT pool, the structure heap, libpas's pages) is charged by the pages resident in it, not by its length
+(`docs/architecture/limits.md`), so a second process no longer starves for quota. (A response with
+`Cross-Origin-Opener-Policy: same-origin`, such as www.iana.org, starts a second WebProcess whatever
+`ProcessSwapsOnNavigation` says: it found the length-charged quota exhausted and crashed in `fastMalloc` with
+a 64 MiB structure heap.) Userspace, not the kernel: `pkgd`
 (core packages are provisioned at first boot) restarts itself once its heap has grown 32 MB past where it
 started, and sizes a buffer for the largest package first, so the 44 MB package made every fresh `pkgd` over
 the limit after one step; five rapid restarts exhaust `init`'s budget and provisioning stopped half way (`PKGD:

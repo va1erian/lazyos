@@ -130,11 +130,32 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
     let Some(frame) = alloc_zeroed_frame() else {
         return Resolve::OutOfFrames;
     };
+    // A reservation's quota charge is its resident pages (and the page tables
+    // they need): this one starts to count now. The fault cannot return
+    // `ENOMEM`, so a uid at its quota is answered like a machine with no frame
+    // left (`oom_kill`, or `ENOMEM` from the syscall that touched the page):
+    // the page stays unmapped. The frame comes first so that the out-of-frames
+    // path has nothing to undo (nothing there may allocate).
+    let charged = if vma.reserve {
+        let bytes = FRAME_SIZE * (1 + missing_tables(table, va));
+        match charge_reserved(table, bytes) {
+            Some(uid) => Some((uid, bytes)),
+            None => {
+                free_frame(frame);
+                return Resolve::OutOfFrames;
+            }
+        }
+    } else {
+        None
+    };
     let page = VirtAddr::new(va & !(FRAME_SIZE - 1));
     match try_map_page_in(table, page, frame, prot_flags(vma.prot)) {
         Ok(()) => Resolve::Handled,
         Err(error) => {
             free_frame(frame);
+            if let Some((uid, bytes)) = charged {
+                crate::quota::release_space(uid, table.as_u64(), bytes);
+            }
             // A page-table frame the allocator could not give is the same
             // shortage as a data frame; anything else is a bad request.
             if matches!(error, MapToError::FrameAllocationFailed) {
@@ -144,4 +165,16 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
             Resolve::Refused
         }
     }
+}
+
+/// Charge `bytes` (a page and the table frames it needs) to the user-memory
+/// quota of the uid running the fault, recorded against `table` so that the
+/// space's teardown gives them back. The uid, or `None` when it is at its
+/// quota (the denial is counted in its ledger; the process dies with the
+/// report of `mem::oom`). Allocates nothing that can fail the fault.
+fn charge_reserved(table: PhysAddr, bytes: u64) -> Option<u32> {
+    let uid = crate::ipc::credentials::of(crate::task::current()).uid;
+    crate::quota::charge_space(uid, table.as_u64(), bytes)
+        .ok()
+        .map(|()| uid)
 }

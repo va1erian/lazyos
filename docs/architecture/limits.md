@@ -57,7 +57,7 @@ off, where a lock could deadlock against a preempted holder (the #382 class).
 | `heap_max` | Kernel heap ceiling (`mem::heap` grows on demand up to it) | `r / 2` | 16 MiB .. 512 GiB |
 | `fd_max` | Descriptors per process: the hard `RLIMIT_NOFILE`; a process may set its soft limit anywhere below (`task::FdTable`, `task/fdlimit.rs`) | 8192 | 64 .. 1 Mi |
 | `stack_size` | Linux main-thread stack (`RLIMIT_STACK`) | 8 MiB | 64 KiB .. 1 GiB |
-| `quota_user_memory` | Per-uid user memory (mappings, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)`, at most `r` less the initial heap and the DMA pool | 16 MiB .. 1 TiB |
+| `quota_user_memory` | Per-uid user memory (mappings by length, reservations by resident page, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)`, at most `r` less the initial heap and the DMA pool | 16 MiB .. 1 TiB |
 | `quota_kernel_memory` | Per-uid kernel memory (shared buffers), non-root | `max(32 MiB, r/8, 8s)`, at most `max(32 MiB, r/2)` | 4 MiB .. 1 TiB |
 | `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 3s)`, at most `max(16 MiB, r/4)` | 8 MiB .. 64 GiB |
 | `scratch_max` | File bytes the in-memory scratch filesystem (`/transient` and `/tmp`, one instance) holds; a non-root uid may hold half | `min(1 GiB, heap_max / 2)`, at least 32 MiB | 4 MiB .. 64 GiB |
@@ -138,8 +138,8 @@ How to read it:
   `EAGAIN`, no panic: a stack is refused while the heap would drop under its
   reserve of 4 MiB or `heap_max / 16`).
 * **Memory** stops at `quota_user_memory` less the program image and stacks
-  (the quota is charged at `mmap`, so the failure is a clean `ENOMEM`, nothing
-  is touched). `quota_user_memory` and `heap_max` scale with `--memory` as the
+  (counted mappings are charged at `mmap`, so the failure is a clean `ENOMEM`,
+  nothing is touched; a reservation fails at the touch, see below). `quota_user_memory` and `heap_max` scale with `--memory` as the
   table above says (4 GiB: 3 GiB and 2 GiB), and the quota is per uid, not per
   process, so a 600 MB mapping in one process plus 200 MB in a sibling fits
   at 4 GiB (3064 MiB) but not at 1 GiB (760 MiB); the four children above
@@ -196,16 +196,44 @@ descriptors already open stay open. Tests: `linux_nofile_*`,
 
 ## Hitting a quota
 
-`mmap` over `quota_user_memory` is `ENOMEM`, unmapping or exiting returns every
-byte, and a refusal changes nothing (no charge, no frames): tests
+`mmap` of counted memory over `quota_user_memory` is `ENOMEM`, unmapping or
+exiting returns every byte, and a refusal changes nothing (no charge, no
+frames): tests
 `linux_mmap_quota_exhaustion_is_enomem`, `..._soak` (2000 rounds) and
 `..._returns_when_the_process_exits`.
 
+**Reservations are charged by resident pages.** An anonymous private mapping
+made `PROT_NONE` or `MAP_NORESERVE` commits nothing, so `mmap` charges nothing
+for it; each page is charged to the uid when it is first touched
+(`mem::demand_resolve`) and given back when it is unmapped, dropped by
+`madvise(MADV_DONTNEED)`, or left behind by a shrinking `mremap`. The mapping
+stays a reservation through `mprotect`. Everything else (read-write memory
+without `MAP_NORESERVE`, `brk`, file and shared mappings, an ELF's segments)
+is still charged by length, with `ENOMEM` at the call. A touch the quota
+cannot cover cannot fail with `ENOMEM`, so it is answered like a machine with
+no frame left: the process is killed (`oom: killed ...`, then `oom: uid N is
+at its user-memory quota ...`), or a syscall that touched the page is refused
+(`EFAULT` from the `user_ptr::try_*` copies, `ENOMEM` from `copy_in`/`copy_out`).
+A runtime that probes how much it may have by watching an `mmap(MAP_NORESERVE)`
+fail therefore never sees it fail: it is killed at the touch, as on Linux with
+overcommit. This is what lets a JavaScript engine reserve a 1 GiB code pool and
+an 8 GiB heap in each of several processes without the sum of the reservations
+exhausting one uid.
+
+Two details. The page-table frames a touch has to create are charged with the
+page (a page per 2 MiB of a sparse touch pattern would otherwise pin RAM for
+free) and stay charged until the address space is freed, as the tables do.
+And `fork` charges the child nothing, as it always did: a child's inherited
+pages are the parent's charge, so a child cannot be charged for, or give back,
+what it did not touch. Tests: `linux_mmap_reservation_*` (charge by page and
+by table, the refused touch at the quota and through a syscall, `mremap` moves
+and shrinks, a span of reservation and counted memory, a 3000-round soak).
+
 ## Running out of memory
 
-The quota counts reservations, not frames, so a program can reserve more than
-the machine has and find out only when it touches the last frame. Three rules
-keep that honest (issue #823):
+The quota counts reservations (apart from the ones above), not frames, so a
+program can reserve more than the machine has and find out only when it touches
+the last frame. Three rules keep that honest (issue #823):
 
 * **The page fault never answers a shortage with `SIGSEGV`.** When the
   demand-zero or copy-on-write path finds the frame allocator empty, the
@@ -229,7 +257,7 @@ keep that honest (issue #823):
   runs. It is one request against the machine's total, not against what is free
   now or what the process already holds: a big sparse reservation that fits
   must work. `PROT_NONE` ranges and `MAP_NORESERVE` mappings commit nothing and
-  are never refused here (they still count against the quota). Shared mappings
+  are never refused here (the quota counts their resident pages, above). Shared mappings
   keep their stricter eager check (`fits_in_memory`, against the free frames).
 * **The default quota never exceeds what the user can be given**: `3r/4`, at
   most RAM less the initial heap and the DMA pool, so a 256 MiB guest gets
@@ -268,12 +296,14 @@ launcher has no checkbox for it: type the memory in the Machine settings and
 "Kernel limits".
 
 **The WebKit browser** (`run_demo.py --webkit`, docs/webkit-port-plan.md W5) adds `quota_user_memory=8G`
-(`lazygui.limits.WEBKIT_LIMITS`; `--limit` still wins). The quota charges the *length* of every `mmap`, not
-the pages touched, and the three WebKit processes (the UI process, one WebProcess, the NetworkProcess) took
-what the quota let them: 2989 MiB of the profile's 3072 after the first page and 3059 after seven, 6957 and
-7027 MiB of 8192 at 8G, while 3405 of 4019 MiB of RAM stayed free. A second WebProcess's `exec` failed with
-`ENOMEM` under the 3G quota, so the port keeps one process for every page. Charging on commit instead of on
-reservation (a `PROT_NONE` mapping commits nothing) is the open kernel question.
+(`lazygui.limits.WEBKIT_LIMITS`; `--limit` still wins). The quota used to charge the *length* of every
+`mmap`, and the three WebKit processes (the UI process, one WebProcess, the NetworkProcess) took what it let
+them: 2989 MiB of the profile's 3072 after the first page and 3059 after seven, 6957 and 7027 MiB of 8192 at
+8G, while 3405 of 4019 MiB of RAM stayed free (each process's JIT pool and structure heap are
+`MAP_NORESERVE` reservations, and the structure heap halves its request until it fits). A second WebProcess
+(a page with `Cross-Origin-Opener-Policy`, such as www.iana.org, starts one whatever
+`ProcessSwapsOnNavigation` says) got a 64 MiB structure heap, ran out and crashed in `fastMalloc`. Reservations
+are charged by resident page now (above), so a process costs what it touches and the headroom stays.
 
 ## Derived only
 

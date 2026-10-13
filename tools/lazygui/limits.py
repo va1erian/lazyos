@@ -19,11 +19,13 @@ BIG_APP_MEMORY = "4G"
 BIG_APP_LIMITS = ("quota_user_memory=3G", "fd_max=8192", "task_max=1024")
 
 
-#: The WebKit browser (docs/webkit-port-plan.md W5) on top of the big-app profile: the kernel charges
-#: the *length* of every mapping to the user's memory quota, and the UI process, WebProcess and
-#: NetworkProcess take what the quota lets them reserve: 2989 of the profile's 3072 MiB after the
+#: The WebKit browser (docs/webkit-port-plan.md W5) on top of the big-app profile. The kernel used to
+#: charge the *length* of every mapping to the user's memory quota, and the UI process, WebProcess and
+#: NetworkProcess took what the quota let them reserve: 2989 of the profile's 3072 MiB after the
 #: first page and 3059 after seven (a second WebProcess's `exec` failed with ENOMEM), 6957 and 7027 of
-#: 8192 at 8G. The charge is virtual: the guest still had 3405 of 4019 MiB of RAM free.
+#: 8192 at 8G. Reservations (`PROT_NONE`, `MAP_NORESERVE`: the JIT pool, the structure heap) are charged
+#: by resident page now (docs/architecture/limits.md), so the three processes cost what they touch and
+#: the 8G is headroom, kept so the length-charged mappings that remain (ELF images, counted heaps) fit.
 WEBKIT_LIMITS = ("quota_user_memory=8G",)
 
 

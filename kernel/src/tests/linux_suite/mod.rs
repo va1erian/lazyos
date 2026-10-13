@@ -212,6 +212,7 @@ mod inet_server;
 mod inet_soak;
 mod inet_timeouts;
 mod mmap_quota;
+pub(super) mod mmap_reserve;
 mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;

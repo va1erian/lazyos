@@ -194,6 +194,7 @@ pub fn vma_cow_mprotect() -> Result<(), String> {
         kind: Kind::Heap,
         file: 0,
         file_off: 0,
+        reserve: false,
     };
     let child_list = mem::vma::list(child);
     check!(

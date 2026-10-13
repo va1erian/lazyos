@@ -42,6 +42,18 @@ pub fn kill(slot: usize) -> usize {
         super::vma::mapped_bytes(x86_64::PhysAddr::new(pml4)) >> 20,
         super::frame_stats().free
     );
+    // A reservation's page the uid's quota would not cover ends the same way
+    // (`mem::demand_resolve`): say so, once, instead of a line per refusal.
+    let uid = crate::ipc::credentials::of(slot).uid;
+    let held = crate::quota::stats(uid);
+    let index = crate::quota::Resource::UserMemory.index();
+    if held.usage[index].saturating_add(super::FRAME_SIZE) > held.limits[index] {
+        crate::serial_println!(
+            "oom: uid {uid} is at its user-memory quota ({} of {} MiB)",
+            held.usage[index] >> 20,
+            held.limits[index] >> 20
+        );
+    }
     signal::terminate_process(pml4, EXIT_STATUS)
 }
 
