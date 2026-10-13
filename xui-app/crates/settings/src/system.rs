@@ -17,6 +17,29 @@ pub struct Now {
     pub zone: String,
 }
 
+/// What the network time client is doing (`timed`'s `NtpState`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NtpState {
+    Disabled,
+    WaitingForNetwork,
+    Syncing,
+    Synchronized,
+    Failed,
+}
+
+/// `timed`'s `NtpStatus`: the network time client and its last exchange.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NtpStatus {
+    pub enabled: bool,
+    pub state: NtpState,
+    /// The server of the last accepted exchange, empty when none yet.
+    pub server: String,
+    /// Server minus local clock at the last accepted exchange, milliseconds.
+    pub offset_ms: i64,
+    /// UTC seconds of the last accepted exchange, 0 when none yet.
+    pub last_sync_unix: i64,
+}
+
 /// Where `confd` keeps the settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoreStatus {
@@ -37,6 +60,16 @@ pub trait System {
     /// Switch the system time zone (persisted by the service). The same
     /// rule as [`System::set_time`]: a machine setting.
     fn set_zone(&self, zone: &str) -> Result<(), String>;
+    /// What the network time client is doing, or `None` when the time
+    /// service is unreachable.
+    fn ntp_status(&self) -> Option<NtpStatus> {
+        None
+    }
+    /// Ask the network time client to query a server now (open to every
+    /// user; the service rate-limits it).
+    fn ntp_sync_now(&self) -> Result<(), String> {
+        Err(String::from("network time is not available"))
+    }
     /// The OS name and version (`LazyOS 0.1.0 (x86_64)`).
     fn os_version(&self) -> String;
     /// The SHA-1 of the source revision the OS was built from, when known.
@@ -80,6 +113,12 @@ pub struct MemSystem {
     pub pictures: Vec<String>,
     /// When set, `set_time` and `set_zone` fail with this message.
     pub fail: RefCell<Option<String>>,
+    /// What [`System::ntp_status`] reports.
+    pub ntp: RefCell<Option<NtpStatus>>,
+    /// How many times [`System::ntp_sync_now`] was asked.
+    pub syncs: RefCell<u32>,
+    /// How many times [`System::set_time`] went through.
+    pub times_set: RefCell<u32>,
 }
 
 impl Default for MemSystem {
@@ -97,6 +136,9 @@ impl Default for MemSystem {
             }),
             pictures: Vec::new(),
             fail: RefCell::new(None),
+            ntp: RefCell::new(None),
+            syncs: RefCell::new(0),
+            times_set: RefCell::new(0),
         }
     }
 }
@@ -117,6 +159,7 @@ impl System for MemSystem {
 
     fn set_time(&self, unix: i64) -> Result<(), String> {
         self.check()?;
+        *self.times_set.borrow_mut() += 1;
         if let Some(now) = self.now.borrow_mut().as_mut() {
             now.unix = unix;
         }
@@ -130,6 +173,16 @@ impl System for MemSystem {
             now.zone = found.name.to_owned();
             now.offset = timezone::local(found, now.unix).offset;
         }
+        Ok(())
+    }
+
+    fn ntp_status(&self) -> Option<NtpStatus> {
+        self.ntp.borrow().clone()
+    }
+
+    fn ntp_sync_now(&self) -> Result<(), String> {
+        self.check()?;
+        *self.syncs.borrow_mut() += 1;
         Ok(())
     }
 

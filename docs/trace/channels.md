@@ -52,7 +52,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/webkit, tools/webplus, tools/wifi | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
-| `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/storage, tools/tray, tools/wifi | programs |
+| `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
 | `LRIDE` | `Lride` | `lride` | lazyrad-os | sessions | programs |
 | `LRPLAY` | `Lrplay` | `lrplay` | lazyrad-os | sessions, tools/lazyrad, tools/rhai | programs |
 | `MAIL` | `Mail` | `mail` | xui-app | sessions, tools/mail | programs |
@@ -103,7 +103,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TEST` | `Test` | `test` | kernel, kernel suite, other | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
-| `TIMED` | `Timed` | `timed` | user | tools/services | programs |
+| `TIMED` | `Timed` | `timed` | user | tools/ntp, tools/services | programs |
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |

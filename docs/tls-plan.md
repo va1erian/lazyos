@@ -236,13 +236,16 @@ starts at host time, so G1/G2 work from day one in the harness. Elsewhere:
 - A machine with a wrong RTC fails every handshake ("certificate not valid
   yet/expired"). The fallback base (2026-01-01) is *before* most current leaves
   were issued, so a dead RTC breaks TLS outright.
-- **Recommendation:** an SNTP client in the `timed` service (it already owns
-  time policy), off by default, steps the clock once at boot through
-  `clock_settime` (it would need `CAP_SYS_TIME`, which `timed` does not hold
-  today). Plain SNTP is
-  unauthenticated; it is a correctness aid, not a security control. A sanity
-  floor (never earlier than the image's build date) catches a dead RTC without
-  any network.
+- **Built (docs/ntp-plan.md):** an SNTP client in the `timed` service (it
+  already owns time policy and, as a child of `init`, holds `CAP_SYS_TIME`),
+  on when there is a network and switchable with `sys/time/ntp/enabled`
+  (this reverses the "off by default" this section first recommended). It
+  steps the clock through the native wall-clock syscall under a narrow
+  policy (the first sync of a boot may step by any amount, later ones by at
+  most 1000 s, never to before the floor). Plain SNTP is unauthenticated; it
+  is a correctness aid, not a security control. A sanity floor (a checked-in
+  build date, `sntp::CLOCK_FLOOR_UNIX`) catches a dead RTC at `timed`'s
+  start, without any network.
 - Clients report a clock error clearly ("system clock is 2026-01-01, the
   certificate is valid from 2026-09-12"), because otherwise the failure looks
   like an attack.
@@ -450,7 +453,7 @@ typed with the ordinary `type` step from `LAZYOS_IMAP_USER`.
 | **T2** | `SO_RCVTIMEO`/`SO_SNDTIMEO` in the shim | **yes**, correctness + soak | kernel suite; a client against a silent server times out |
 | **T3** | `fetch`, `LAZYOS_TLS=1`, `--tls` in `run_demo.py` and the GUI, harness HTTPS peer and negative cases | none | `run.py --tls` page hashes and refusals; **G1 reached** with `--live` |
 | **T4** | Terminal secret-input mode (§6.4), `type_secret` session step, `imapc` (password typed at a prompt), harness IMAPS peer | none | `run.py --tls` IMAP session judged with the password typed over QMP and absent from every log; **G2 reached** with `--live` against Gmail |
-| **T5** | SNTP in `timed` with a build-date floor; `keyd`-wrapped saved password; `http` module for Rhai | none (capability grant for `timed`) | clock stepped from a skewed RTC in the harness; Rhai script fetches a page |
+| **T5** | SNTP in `timed` with a build-date floor (built, `docs/ntp-plan.md`, `python tools/ntp/run.py`); `keyd`-wrapped saved password; `http` module for Rhai | none (capability grant for `timed`) | clock stepped from a skewed RTC in the harness; Rhai script fetches a page |
 
 **Where it stands (2026-10-03):** T0 to T3 are built. `tlsfix` passes on the
 bench; T1's `/etc` mappings and `netd`'s `resolv.conf` are covered by the

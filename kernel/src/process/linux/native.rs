@@ -108,6 +108,10 @@ const NATIVE: &[&str] = &[
     // The async Messenger and `wait` op demo (issues #91, #309): `async-echo`.
     // On non-desktop images.
     fhs::bin::ASYNC_ECHO,
+    // The time service's command line (docs/ntp-plan.md): `timectl [now |
+    // zone [name] | set <unix> | ntp [status | sync]]`. On the image with
+    // the services.
+    fhs::bin::TIMECTL,
 ];
 
 /// Names that differ from the file: `(name typed at the prompt, program,

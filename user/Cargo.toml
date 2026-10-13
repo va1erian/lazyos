@@ -49,6 +49,8 @@ surfbuf = { path = "../libs/surfbuf" }
 messenger-generated = { path = "../libs/generated" }
 # Time-zone and DST resolution for `timed` (issue #369).
 timezone = { path = "../libs/timed" }
+# SNTP for `timed` (docs/ntp-plan.md): packet, step policy, schedule.
+sntp = { path = "../libs/sntp" }
 uitheme = { path = "../libs/uitheme" }
 cursorgfx = { path = "../libs/cursorgfx" }
 # Modern virtio-PCI transport and the virtio-sound protocol for `sndd`

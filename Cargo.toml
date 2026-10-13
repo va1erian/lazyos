@@ -54,6 +54,9 @@ members = [
     # Time-zone and DST resolution for the `timed` service (issue #369): pure
     # `no_std` logic with host tests.
     "libs/timed",
+    # SNTP for `timed` (docs/ntp-plan.md): the packet, offset and delay
+    # maths, the clock-step policy and the poll schedule; host-tested.
+    "libs/sntp",
     # Desktop theme schema + palette resolution shared by xuid and Settings.
     "libs/uitheme",
     # Antialiased vector cursor sprites rendered by xuid (docs/cursor-plan.md).

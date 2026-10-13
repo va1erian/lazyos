@@ -8,10 +8,13 @@
 //!   notifications. Zone and DST maths live in `libs/timed` (`timezone`).
 //! * Each minute it publishes the retained `time/tick` event
 //!   (`os.lazy.timed.v1`'s `Tick`) on the central broker.
+//! * When the network has an address it asks NTP servers for the time and
+//!   steps the clock (`ntp.rs`, `docs/ntp-plan.md`); at start it lifts a
+//!   clock that is earlier than the build's floor.
 //!
 //! `demo=1` (boot evidence) writes a zone straight into `confd` and waits for
 //! the change notification to move the service, printing `TIMED:DEMO:PASS`.
-//! Other boot lines: `TIMED:READY`, `TIMED:TICK:PASS`.
+//! Other boot lines: `TIMED:READY`, `TIMED:TICK:PASS`, and `TIMED:NTP:*`.
 
 #![no_std]
 #![no_main]
@@ -29,9 +32,16 @@ use user::sys;
 mod demo;
 #[path = "timed/handler.rs"]
 mod handler;
+#[path = "timed/ntp.rs"]
+mod ntp;
+#[path = "timed/ntp_exchange.rs"]
+mod ntp_exchange;
+#[path = "timed/ntp_net.rs"]
+mod ntp_net;
 #[path = "timed/state.rs"]
 mod state;
 
+use ntp::Ntp;
 use state::{now, State};
 
 /// How often the `demo=1` evidence steps while it runs (PIT ticks, 100 Hz).
@@ -52,6 +62,8 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn run() -> messenger::Result<()> {
+    // Before anything can read the clock (and before the service exists).
+    ntp::floor_clock(now().0);
     let (published, server) = messenger::create_pair()?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)?;
     trace::line!(
@@ -64,39 +76,65 @@ fn run() -> messenger::Result<()> {
     user::messenger::services::init::notify_ready();
 
     let mut state = State::new();
+    let mut ntp = Ntp::new();
     let mut demo = demo::Demo::from_args();
     // One receive buffer for the life of the service (the heap never reclaims
     // per-call buffers).
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     let mut announced = false;
     let mut rung = false;
+    let mut net_rung = false;
     loop {
-        housekeeping(&mut state, &mut demo, &mut announced, rung);
+        housekeeping(
+            &mut state,
+            &mut ntp,
+            &mut demo,
+            &mut announced,
+            Rung {
+                confd: rung,
+                net: net_rung,
+            },
+        );
         let deadline = [
             state.next_wake(),
+            ntp.next_wake(),
             demo.running().then(|| sys::clock() + DEMO_TICKS),
         ]
         .into_iter()
         .flatten()
         .min();
-        let ready = match state.bell() {
-            Some(bell) => wait::wait_any(&[server, bell], 0, deadline),
-            None => wait::wait_any(&[server], 0, deadline),
-        };
-        let ready = match ready {
+        // The service endpoint is bit 0; each doorbell that exists follows.
+        let mut endpoints = [server; 3];
+        let mut count = 1;
+        let mut confd_bit = None;
+        let mut net_bit = None;
+        if let Some(bell) = state.bell() {
+            endpoints[count] = bell;
+            confd_bit = Some(count);
+            count += 1;
+        }
+        if let Some(bell) = ntp.bell() {
+            endpoints[count] = bell;
+            net_bit = Some(count);
+            count += 1;
+        }
+        let ready = match wait::wait_any(&endpoints[..count], 0, deadline) {
             Ok(ready) => ready,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
         };
-        rung = ready & 0b10 != 0;
+        let rang = |bit: Option<usize>| bit.is_some_and(|bit| ready & (1 << bit) != 0);
+        rung = rang(confd_bit);
+        net_rung = rang(net_bit);
         if ready & 1 == 0 {
             continue;
         }
         match server.recv_with(&mut buffer, Some(messenger::EXPIRED_DEADLINE)) {
             Ok(message) => {
-                let reply = handler::dispatch(&mut state, &message).unwrap_or_else(|error| {
-                    services::error_reply(message.interface_id(), message.method(), error)
-                });
+                let reply =
+                    handler::dispatch(&mut state, &mut ntp, &message).unwrap_or_else(|error| {
+                        services::error_reply(message.interface_id(), message.method(), error)
+                    });
                 if let Some(txn) = message.txn {
                     server.reply_or_drop(txn, &reply)?;
                 }
@@ -107,11 +145,29 @@ fn run() -> messenger::Result<()> {
     }
 }
 
-/// Zone sync, a rung change notification, the minute tick and the demo,
-/// once per wakeup.
-fn housekeeping(state: &mut State, demo: &mut demo::Demo, announced: &mut bool, rung: bool) {
+/// Which doorbells rang for this wakeup.
+struct Rung {
+    /// A `confd` change notification is waiting.
+    confd: bool,
+    /// A network address event is waiting.
+    net: bool,
+}
+
+/// Zone sync, a rung change notification, the network time client, the
+/// minute tick and the demo, once per wakeup.
+fn housekeeping(
+    state: &mut State,
+    ntp: &mut Ntp,
+    demo: &mut demo::Demo,
+    announced: &mut bool,
+    rung: Rung,
+) {
     let mut changed = state.sync_zone();
-    changed |= state.poll_changes(rung);
+    changed |= state.poll_changes(rung.confd);
+    if let Some((enabled, servers)) = state.take_ntp_config() {
+        ntp.configure(enabled.unwrap_or(true), servers);
+    }
+    ntp.step(state, rung.net);
     if changed {
         trace::line!(trace::Channel::Timed, "ZONE zone={}", state.zone.name);
         // A zone change must reach `time/tick` subscribers promptly.

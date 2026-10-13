@@ -953,6 +953,36 @@ cd lazyrad-os && cargo test                   # tracker unit tests; tests/modpla
 python tools/lazyrad/gen_demo_song.py --check # the built-in song (an original, CC0) is current
 ```
 
+## Network time (`timed`, SNTP)
+
+When the network has an address `timed` asks NTP servers for the time and
+steps the wall clock; at start it lifts a clock earlier than the build's floor
+(`sntp::CLOCK_FLOOR_UNIX`, a checked-in date: raise it when you cut a release).
+It is on by default and switched with `sys/time/ntp/enabled` and
+`sys/time/ntp/servers` (Settings -> Time & Date, through `elevd`; a session
+cannot write `sys/**`). The first sync of a boot may step by any amount, later
+ones by at most 1000 s (a larger offset only when answers keep agreeing for ten
+minutes), never to before the floor, and offsets under 250 ms are left alone
+(`libs/sntp/src/policy.rs`). Plain SNTP is unauthenticated: it is a
+correctness aid (certificate validity, SMB/NTLM times), not a security
+control. Plan and as-built notes: [`docs/ntp-plan.md`](docs/ntp-plan.md).
+
+The packet, step policy and schedule are host-tested; the QEMU harness boots a
+services console image against a misbehaving host server (`tools/ntp`) with a
+good or years-off RTC and judges the guest's `TIMED:NTP:*` lines, the clock
+`timectl now` prints and what the server received (nonce, request spacing).
+`LAZYOS_TIMED_ARGS=ntp.server=10.0.2.2:PORT` is the harness switch (it also
+forces the client on); `timectl ntp [status|sync]` is the command line.
+
+```bash
+cargo test -p sntp                       # packet, maths, policy, schedule, seeded fuzz
+python fuzz/gen_corpus.py --check        # the sntp seeds are current
+python tools/ntp/test_judge.py           # the harness judge fails when it should
+python tools/ntp/run.py --accel none     # build, boot once per scenario, judge (--only NAME, --list)
+LAZYOS_TEST_FILTER=timed python tools/test/run.py --accel none   # the clock syscall (centiseconds)
+cargo test --manifest-path xui-app/Cargo.toml -p xui-settings    # the Time & Date page
+```
+
 ## Latency harness
 
 `python tools/perf/run.py` builds the desktop with `LAZYOS_PERF=1` (kernel cfg
