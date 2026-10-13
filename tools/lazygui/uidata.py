@@ -70,6 +70,7 @@ def advanced_cfg(ui) -> dict:
         "linuxapps": ui.v["linuxapps"].get(),
         "jsc": ui.v["jsc"].get(),
         "webkit_deps": ui.v["webkit_deps"].get(),
+        "webkit": ui.v["webkit"].get(),
         **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "dbgd_mmio", "dbgd_mmio_claimed",
                                                           "wifi", "wifi_sim")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),

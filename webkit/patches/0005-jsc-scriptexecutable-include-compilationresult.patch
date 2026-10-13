@@ -1,0 +1,18 @@
+JavaScriptCore: ScriptExecutable.cpp includes CompilationResult.h.
+
+ScriptExecutable.cpp names JSC::CompilationResult::CompilationSuccessful but
+only gets a forward declaration (bytecode/CodeBlock.h) unless an earlier file
+of its unified-source bundle happened to include CompilationResult.h. The
+bundle's composition depends on the port's source list, and with WebCore in the
+build it no longer does (the `jsc` shells of W2 compiled). Include what is used.
+
+--- a/Source/JavaScriptCore/runtime/ScriptExecutable.cpp
++++ b/Source/JavaScriptCore/runtime/ScriptExecutable.cpp
+@@ -26,6 +26,7 @@
+ #include "config.h"
+ 
+ #include "CodeBlock.h"
++#include "CompilationResult.h"
+ #include "Debugger.h"
+ #include "EvalCodeBlock.h"
+ #include "FunctionCodeBlock.h"

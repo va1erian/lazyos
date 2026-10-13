@@ -329,7 +329,9 @@ impl Compositor {
         }
         // The shell's panel menu has the keys: `inputd` holds the focused
         // window's key content without moving focus (`panelkeys.rs`).
-        let keys_held = self.panel_keys_active();
+        // Also while the screen is blank (`idle.rs`): nobody sees what a key
+        // typed into the dark would do.
+        let keys_held = self.panel_keys_active() || super::idle::blanked();
         if self.input.told_held != Some(keys_held) {
             match sent(link.note_keys_held(keys_held)) {
                 Some(true) => self.input.told_held = Some(keys_held),

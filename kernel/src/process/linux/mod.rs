@@ -63,6 +63,7 @@ mod procctl;
 mod procfs;
 mod procinfo;
 mod resources;
+mod schedattr;
 mod select;
 pub(crate) mod shebang;
 

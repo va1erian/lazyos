@@ -1,0 +1,31 @@
+WebKit C API: the PlayStation platform types for the LazyOS port.
+
+WKBase.h includes WKBasePlayStation.h (WKViewRef) and WKAPICast.h its
+PlayStation casts when the compiler defines __SCE__, which only the
+PlayStation SDK does. The LazyOS port uses the PlayStation port's WKView API
+and defines BUILDING_LAZYOS__ (the way BUILDING_GTK__ and BUILDING_WPE__ select
+their port's types); __SCE__ itself must stay undefined because bmalloc and
+libpas read it as "this is a PlayStation" and pick console allocation code.
+
+--- a/Source/WebKit/Shared/API/c/WKBase.h
++++ b/Source/WebKit/Shared/API/c/WKBase.h
+@@ -38,7 +38,7 @@
+ #include <WebKit/WKBaseMac.h>
+ #elif defined(_WIN32)
+ #include <WebKit/WKBaseWin.h>
+-#elif defined(__SCE__)
++#elif defined(__SCE__) || defined(BUILDING_LAZYOS__)
+ #include <WebKit/WKBasePlayStation.h>
+ #endif
+ 
+--- a/Source/WebKit/UIProcess/API/C/WKAPICast.h
++++ b/Source/WebKit/UIProcess/API/C/WKAPICast.h
+@@ -444,7 +444,7 @@
+ #include "WKAPICastWin.h"
+ #endif
+ 
+-#if defined(__SCE__)
++#if defined(__SCE__) || defined(BUILDING_LAZYOS__)
+ #include "WKAPICastPlayStation.h"
+ #endif
+ 

@@ -181,6 +181,7 @@ mod display_suite;
 mod endpoint_fd_suite;
 mod exec_perm_suite;
 mod ext2_suite;
+mod fault_resident_suite;
 mod fault_suite;
 mod firmware_suite;
 mod fs_suite;
@@ -275,6 +276,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     deadline_suite::CASES,
     signal_suite::CASES,
     fault_suite::CASES,
+    fault_resident_suite::CASES,
     ipc_suite::CASES,
     ipc_channel_suite::CASES,
     waitset_suite::CASES,

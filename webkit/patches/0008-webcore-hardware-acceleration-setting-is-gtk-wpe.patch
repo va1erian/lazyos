@@ -1,0 +1,19 @@
+WebCore: the hardwareAcceleration setting exists on GTK and WPE only.
+
+Page::preferredFilterRenderingModes asks Settings for hardwareAccelerationEnabled
+for every Skia port that is not Windows or legacy WPE, but WTF/Scripts/Preferences
+declares the preference with `condition: PLATFORM(GTK) || ENABLE(WPE_PLATFORM)`.
+Use the same condition (the PlayStation port, which has USE_SKIA, does not
+compile otherwise).
+
+--- a/Source/WebCore/page/Page.cpp
++++ b/Source/WebCore/page/Page.cpp
+@@ -4909,7 +4909,7 @@
+         modes.add(FilterRenderingMode::Accelerated);
+ #endif
+ 
+-#if USE(SKIA) && !PLATFORM(WIN) && (!PLATFORM(WPE) || ENABLE(WPE_PLATFORM))
++#if USE(SKIA) && (PLATFORM(GTK) || ENABLE(WPE_PLATFORM))
+     if (settings().hardwareAccelerationEnabled())
+         modes.add(FilterRenderingMode::Accelerated);
+ #endif

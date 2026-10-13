@@ -7,7 +7,9 @@ use crate::task;
 
 use super::cwd::AT_FDCWD;
 use super::errno::{err, EFAULT, EINTR, EPERM};
-use super::{epoll, fd, links, locks, msgio, pathops, procattr, procctl, resources, select, wait};
+use super::{
+    epoll, fd, links, locks, msgio, pathops, procattr, procctl, resources, schedattr, select, wait,
+};
 
 /// Handle syscall `nr` with arguments `a`, or `None` when it is unknown.
 pub(super) fn dispatch(nr: u64, a: [u64; 6]) -> Option<u64> {
@@ -56,6 +58,8 @@ pub(super) fn dispatch(nr: u64, a: [u64; 6]) -> Option<u64> {
         292 => fd::sys_dup3(a1, a2, a3),
         302 => resources::sys_prlimit64(a1, a2, a3, a4),
         309 => sys_getcpu(a1, a2),
+        314 => schedattr::sys_sched_setattr(a1, a2, a3),
+        315 => schedattr::sys_sched_getattr(a1, a2, a3, a4),
         316 => pathops::sys_renameat2(a1, a2, a3, a4, a5),
         _ => return None,
     })

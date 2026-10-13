@@ -1,0 +1,37 @@
+WebCore: GLES 3 enums for ports that build without libepoxy.
+
+With USE(LIBEPOXY) <epoxy/gl.h> declares GL_RGBA8, GL_R8, GL_RG8, GL_R16 and
+GL_RG16; without it TextureMapperGLHeaders.h includes only GLES2, so the
+coordinated-graphics and Skia code that uses them does not compile. The
+LazyOS port has no epoxy (it has no GPU: the EGL and GLESv2 libraries are
+do-nothing stand-ins). Include GLES3 (core since ES 3.0) and define the two
+norm16 formats from EXT_texture_norm16.
+
+--- a/Source/WebCore/platform/graphics/texmap/TextureMapperGLHeaders.h
++++ b/Source/WebCore/platform/graphics/texmap/TextureMapperGLHeaders.h
+@@ -30,6 +30,15 @@
+ #else
+ #include <GLES2/gl2.h>
+ #include <GLES2/gl2ext.h>
++#include <GLES3/gl3.h>
++#endif
++
++#ifndef GL_R16
++#define GL_R16 0x822A
++#endif
++
++#ifndef GL_RG16
++#define GL_RG16 0x822C
+ #endif
+ 
+ #ifndef GL_BGRA
+--- a/Source/WebCore/platform/graphics/skia/SkiaBackingStore.cpp
++++ b/Source/WebCore/platform/graphics/skia/SkiaBackingStore.cpp
+@@ -34,6 +34,7 @@
+ #include "SkiaDamageRegion.h"
+ #include "SkiaPaintingEngine.h"
+ #include "SkiaUtilities.h"
++#include "TextureMapperGLHeaders.h"
+ WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+ #include <skia/core/SkColorSpace.h>
+ #include <skia/gpu/ganesh/GrBackendSurface.h>

@@ -39,23 +39,57 @@ pub(crate) fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64>
     Ok(())
 }
 
+/// Like [`access_range`] for a read, but it only looks: a page that is not
+/// present is `-EFAULT` even inside an `Anon`/`Heap` VMA, nothing is
+/// materialized and nothing is allocated. For diagnostics that run while a
+/// task is being ended (the fault report), which must not change the memory
+/// they describe.
+pub(crate) fn access_resident(ptr: u64, len: usize) -> Result<(), i64> {
+    if len == 0 {
+        return Ok(());
+    }
+    let end = ptr.checked_add(len as u64).ok_or(errno::EFAULT)?;
+    let table = mem::kernel_table();
+    let mut va = ptr & !0xfff;
+    while va < end {
+        walk(table, va, false, false)?;
+        va += 4096;
+    }
+    Ok(())
+}
+
 /// Translate one user virtual address in `table` to a kernel-accessible
 /// physical address (page base plus the in-page offset). `-EFAULT` when the
 /// range is not present/accessible to user mode.
 pub(super) fn translate(table: PhysAddr, va: u64, write: bool) -> Result<u64, i64> {
+    walk(table, va, write, true)
+}
+
+/// A page that is not present: demand-materialized as a fault would when
+/// `demand`, else `-EFAULT` (the caller must not change the address space).
+fn missing(table: PhysAddr, va: u64, write: bool, demand: bool) -> Result<u64, i64> {
+    if demand {
+        materialize(table, va, write)
+    } else {
+        Err(errno::EFAULT)
+    }
+}
+
+/// The page-table walk behind [`translate`] and [`access_resident`].
+fn walk(table: PhysAddr, va: u64, write: bool, demand: bool) -> Result<u64, i64> {
     if va >= USER_MAX {
         return Err(errno::EFAULT);
     }
     let l4 = entry_at(table.as_u64(), ((va >> 39) & 0x1ff) as usize);
     if l4 & PTE_PRESENT == 0 {
-        return materialize(table, va, write);
+        return missing(table, va, write, demand);
     }
     if l4 & PTE_USER == 0 {
         return Err(errno::EFAULT);
     }
     let l3 = entry_at(l4 & PTE_ADDR, ((va >> 30) & 0x1ff) as usize);
     if l3 & PTE_PRESENT == 0 {
-        return materialize(table, va, write);
+        return missing(table, va, write, demand);
     }
     if l3 & PTE_USER == 0 {
         return Err(errno::EFAULT);
@@ -68,7 +102,7 @@ pub(super) fn translate(table: PhysAddr, va: u64, write: bool) -> Result<u64, i6
     }
     let l2 = entry_at(l3 & PTE_ADDR, ((va >> 21) & 0x1ff) as usize);
     if l2 & PTE_PRESENT == 0 {
-        return materialize(table, va, write);
+        return missing(table, va, write, demand);
     }
     if l2 & PTE_USER == 0 {
         return Err(errno::EFAULT);
@@ -81,7 +115,7 @@ pub(super) fn translate(table: PhysAddr, va: u64, write: bool) -> Result<u64, i6
     }
     let l1 = entry_at(l2 & PTE_ADDR, ((va >> 12) & 0x1ff) as usize);
     if l1 & PTE_PRESENT == 0 {
-        return materialize(table, va, write);
+        return missing(table, va, write, demand);
     }
     // Device MMIO is never a syscall buffer: it is not RAM (issue #240).
     if l1 & PTE_USER == 0 || l1 & pte::MMIO != 0 {
@@ -92,7 +126,7 @@ pub(super) fn translate(table: PhysAddr, va: u64, write: bool) -> Result<u64, i6
         if !mem::cow_fault(table, va & !0xfff) {
             return Err(errno::EFAULT);
         }
-        return translate(table, va, write);
+        return walk(table, va, write, demand);
     }
     Ok((l1 & PTE_ADDR) + (va & 0xfff))
 }

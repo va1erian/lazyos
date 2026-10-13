@@ -119,6 +119,10 @@ runsh 07-gpu-dmesg.txt 'dmesg | grep -i -E "i915|drm|efifb|simpledrm|fb0|framebu
 runsh 08-asound-cards.txt 'cat /proc/asound/cards; echo; ls /proc/asound; for c in /proc/asound/card*/codec#*; do echo "== $c"; head -30 "$c"; done'
 runsh 08-snd-dmesg.txt 'dmesg | grep -i -E "snd|hda|audio|codec"'
 
+# The GPU facts docs/kabylake-gpu-plan.md stage G0 needs: registers, VBT, EDID,
+# ELD, codec dump (tools/boot/survey_gpu.sh; read-only, degrades by itself).
+sh "$(dirname "$0")/survey_gpu.sh" "$out/gpu" >/dev/null 2>&1 || echo "# survey_gpu.sh failed" >"$out/07-gpu-note.txt"
+
 # Network ------------------------------------------------------------------------------
 runsh 09-ip-link.txt 'ip -d link show; ip addr show'
 runsh 09-ethtool.txt 'for i in $(ls /sys/class/net | grep -v "^lo$"); do echo "== $i"; ethtool -i $i 2>&1; ethtool $i 2>&1 | head -30; done'

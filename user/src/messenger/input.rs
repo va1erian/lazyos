@@ -99,6 +99,8 @@ pub enum ShellEvent {
     /// previous event (positive is up / right). Position and wheel apply
     /// before the button change.
     Pointer(PointerState),
+    /// A key went down on some keyboard (after `inputd` handled it).
+    KeyActivity,
 }
 
 /// One `PointerEvent` from `inputd`.
@@ -133,6 +135,7 @@ pub fn decode_shell_event(parcel: &Parcel) -> Option<ShellEvent> {
             ShellEvent::GrabChanged(shell_wire::decode_grab_changed_args(body).ok()?.surface)
         }
         shell_wire::METHOD_ESCAPECHORD => ShellEvent::EscapeChord,
+        shell_wire::METHOD_KEYACTIVITY => ShellEvent::KeyActivity,
         shell_wire::METHOD_SESSIONOPENED => {
             ShellEvent::SessionOpened(shell_wire::decode_session_opened_args(body).ok()?.surface)
         }

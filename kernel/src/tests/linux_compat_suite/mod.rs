@@ -18,9 +18,15 @@ mod futex;
 mod locks;
 mod memfd;
 mod msg;
+mod msg_gather;
+mod msg_gather_limits;
 mod ptyflow;
 mod readthrough;
 mod resources;
+mod schedattr;
+mod schedattr_more;
+mod schedattr_race;
+mod schedattr_target;
 mod scmrights;
 mod select;
 mod termios;
@@ -38,8 +44,19 @@ use futex::*;
 use locks::*;
 use memfd::*;
 use msg::*;
+use msg_gather::{
+    msg_gather_carries_rights, msg_gather_refusals_keep_rights, msg_writev_gather_errors,
+};
+use msg_gather_limits::{
+    msg_gather_dontwait_full_queue, msg_gather_large_soak, msg_gather_near_capacity,
+    msg_gather_segment_limit,
+};
 use ptyflow::*;
 use resources::*;
+use schedattr::*;
+use schedattr_more::*;
+use schedattr_race::*;
+use schedattr_target::*;
 use scmrights::*;
 use select::*;
 use termios::*;
@@ -60,6 +77,7 @@ const EFAULT: u64 = neg(14);
 const EEXIST: u64 = neg(17);
 const EINVAL: u64 = neg(22);
 const ENOSYS: u64 = neg(38);
+const EMSGSIZE: u64 = neg(90);
 const EOPNOTSUPP: u64 = neg(95);
 const ETIMEDOUT: u64 = neg(110);
 
@@ -181,6 +199,30 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_msg_recvmsg_scatters", msg_recvmsg_scatters),
     ("compat_msg_soak", msg_soak),
     ("compat_msg_recvmsg_soak", msg_recvmsg_soak),
+    (
+        "compat_msg_seqpacket_gathers_one_record",
+        msg_seqpacket_gathers_one_record,
+    ),
+    (
+        "compat_msg_seqpacket_gather_soak",
+        msg_seqpacket_gather_soak,
+    ),
+    (
+        "compat_msg_gather_carries_rights",
+        msg_gather_carries_rights,
+    ),
+    (
+        "compat_msg_gather_refusals_keep_rights",
+        msg_gather_refusals_keep_rights,
+    ),
+    ("compat_msg_writev_gather_errors", msg_writev_gather_errors),
+    ("compat_msg_gather_segment_limit", msg_gather_segment_limit),
+    ("compat_msg_gather_near_capacity", msg_gather_near_capacity),
+    (
+        "compat_msg_gather_dontwait_full_queue",
+        msg_gather_dontwait_full_queue,
+    ),
+    ("compat_msg_gather_large_soak", msg_gather_large_soak),
     ("compat_scmrights_round_trip", scmrights_round_trip),
     ("compat_scmrights_cloexec", scmrights_cloexec),
     ("compat_scmrights_ctrunc", scmrights_ctrunc),
@@ -321,6 +363,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_threadsig_soak", threadsig_soak),
     (
+        "compat_threadsig_counts_sent_signals",
+        threadsig_counts_sent_signals,
+    ),
+    ("compat_threadsig_count_soak", threadsig_count_soak),
+    (
         "compat_ramfs_opens_read_through",
         readthrough::ramfs_opens_read_through,
     ),
@@ -328,6 +375,66 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_ramfs_open_soak_copies_nothing",
         readthrough::ramfs_open_soak_copies_nothing,
     ),
+    (
+        "compat_schedattr_set_and_get_back",
+        schedattr_set_and_get_back,
+    ),
+    (
+        "compat_schedattr_nice_maps_to_weight",
+        schedattr_nice_maps_to_weight,
+    ),
+    (
+        "compat_schedattr_realtime_refused",
+        schedattr_realtime_refused,
+    ),
+    (
+        "compat_schedattr_argument_errors",
+        schedattr_argument_errors,
+    ),
+    ("compat_schedattr_size_rules", schedattr_size_rules),
+    (
+        "compat_schedattr_privilege_rules",
+        schedattr_privilege_rules,
+    ),
+    ("compat_schedattr_keep_flags", schedattr_keep_flags),
+    (
+        "compat_schedattr_idle_ignores_nice",
+        schedattr_idle_ignores_nice,
+    ),
+    (
+        "compat_schedattr_getattr_end_of_mapping",
+        schedattr_getattr_end_of_mapping,
+    ),
+    (
+        "compat_schedattr_children_inherit",
+        schedattr_children_inherit,
+    ),
+    ("compat_schedattr_soak", schedattr_soak),
+    (
+        "compat_schedattr_two_thread_soak",
+        schedattr_two_thread_soak,
+    ),
+    (
+        "compat_schedattr_pid_is_checked_whole",
+        schedattr_pid_is_checked_whole,
+    ),
+    (
+        "compat_schedattr_dead_slot_is_esrch",
+        schedattr_dead_slot_is_esrch,
+    ),
+    (
+        "compat_schedattr_unprivileged_needs_same_process",
+        schedattr_unprivileged_needs_same_process,
+    ),
+    (
+        "compat_schedattr_other_setters_not_offered",
+        schedattr_other_setters_not_offered,
+    ),
+    (
+        "compat_schedattr_applies_after_guard_demotion",
+        schedattr_applies_after_guard_demotion,
+    ),
+    ("execmem_mprotect_zero_length", execmem_mprotect_zero_length),
     ("execmem_wx_cycle", execmem_wx_cycle),
     ("execmem_rwx_page", execmem_rwx_page),
     ("execmem_prot_bits_map_to_pte", execmem_prot_bits_map_to_pte),

@@ -40,7 +40,7 @@ use xui_core::widget::{
 
 use self::chrome::{Chrome, Handles};
 pub use self::chrome::{SORT_DESCENDING, sort_id as sort_menu_id};
-use crate::model::{History, Listing, SharedListing, SortOrder};
+use crate::model::{History, Listing, SharedListing, SortOrder, Thumbs};
 use crate::shell::Explorer;
 
 /// How a window shows its folder.
@@ -101,6 +101,8 @@ pub enum Msg {
     /// A drag out of the view started carrying the selection the press
     /// collapsed: select it again.
     RestoreSelection,
+    /// Background workers made picture thumbnails: take them in and repaint.
+    Thumbs,
     /// Go to the previous folder.
     Back,
     /// Go to the next folder.
@@ -152,6 +154,8 @@ pub struct ExplorerWindow {
     /// The selection an Alt+arrow navigation left, and when: see
     /// [`keys::ARROW_ECHO`].
     arrow_guard: Option<(Instant, Vec<usize>)>,
+    /// Picture thumbnails for the icon view, when the platform reads them.
+    thumbs: Option<Rc<Thumbs>>,
     /// This window's raw id, under which its view state is published.
     window: u64,
     /// Reaches this window from the platform's drag hooks and worker threads.
@@ -185,8 +189,17 @@ impl ExplorerWindow {
         options: ViewOptions,
     ) -> Result<ExplorerWindow, BackendError> {
         let listing = Rc::new(Listing::load(explorer.platform(), &dir, options.sort));
+        let proxy = ui.proxy();
+        let thumbs = explorer.platform().thumb_reader().map(|reader| {
+            let proxy = proxy.clone();
+            let wake = Arc::new(move || {
+                let _ = proxy.send(Msg::Thumbs);
+            });
+            Rc::new(Thumbs::new(reader, wake))
+        });
         let handles = Handles::default();
-        ui.root(handles.layout(SharedListing::new(Rc::clone(&listing))))?;
+        let model = SharedListing::new(Rc::clone(&listing)).with_thumbs(thumbs.clone());
+        ui.root(handles.layout(model))?;
         let chrome = handles.get();
         ui.register_events(chrome.status.id(), backdrop::dismiss);
         ui.on_key(|key, modifiers| {
@@ -208,8 +221,9 @@ impl ExplorerWindow {
             properties: None,
             address_dirty: false,
             arrow_guard: None,
+            thumbs,
             window: ui.window().raw(),
-            proxy: ui.proxy(),
+            proxy,
             pasting: false,
             pasted: Arc::default(),
             selected: Vec::new(),
@@ -314,6 +328,7 @@ impl ExplorerWindow {
             | Msg::PropertiesClosed
             | Msg::RestoreSelection
             | Msg::AddressEdited
+            | Msg::Thumbs
             | Msg::Dismiss => {}
         }
     }
@@ -326,6 +341,14 @@ impl App for ExplorerWindow {
         // xui's in-window menus close only on a choice or Escape, so any
         // other interaction that reaches the window dismisses them.
         let sort_was_open = self.sort_menu.is_open();
+        // A thumbnail arriving is not an interaction: it must not close a
+        // menu the user has open, nor wait behind a dialog.
+        if matches!(msg, Msg::Thumbs) {
+            if self.thumbs.as_ref().is_some_and(|thumbs| thumbs.drain()) {
+                self.chrome.icons.invalidate();
+            }
+            return;
+        }
         if !matches!(msg, Msg::Menu(_) | Msg::SortChosen(_)) {
             self.menu.close();
             self.sort_menu.close();

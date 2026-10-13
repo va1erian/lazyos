@@ -1,0 +1,21 @@
+CMake: forward headers with symlinks on the LazyOS port.
+
+WEBKIT_COPY_FILES copies a public header into the build tree's
+<Project>/Headers/<Project>/ directory except on macOS, where it makes a symlink
+so that #import (and #pragma once) see one file however it is reached.
+WebKit's C API headers are reached both as <WebKit/WKPageUIClient.h> and, from
+files next to them, as "WKPageUIClient.h"; with copies they are parsed twice
+and every enumerator is redefined. Symlinks (the clang file manager identifies
+a file by its inode) make them one file, as on macOS.
+
+--- a/Source/cmake/WebKitMacros.cmake
++++ b/Source/cmake/WebKitMacros.cmake
+@@ -791,7 +791,7 @@
+         # NO_SYMLINK for destinations post-processed in-place (e.g. ANGLE headers).
+         if (opt_COMMAND)
+             set(command ${opt_COMMAND})
+-        elseif (APPLE AND NOT opt_NO_SYMLINK)
++        elseif ((APPLE OR PORT STREQUAL "LazyOS") AND NOT opt_NO_SYMLINK)
+             set(command ${CMAKE_COMMAND} -E create_symlink)
+         else ()
+             set(command ${CMAKE_COMMAND} -E copy_if_different)

@@ -65,6 +65,36 @@ class OsVolumeTests(unittest.TestCase):
         self.assertEqual(osvolume.too_small(image, True), (512, 1024))
         self.assertIsNone(osvolume.too_small(image, False))
 
+    def test_webkit_needs_768_mib(self) -> None:
+        self.assertEqual(osvolume.required_bytes(False, True), 768 * MIB)
+        self.assertEqual(osvolume.required_bytes(True, True), 1024 * MIB, "the larger feature wins")
+        self.assertEqual(osvolume.required_bytes(False, False), 512 * MIB)
+        missing = self.tmp / "none.img"
+        self.assertEqual(osvolume.plan(missing, False, True), (None, False), "the build default fits")
+        image = make_image(self.tmp, 512)
+        self.assertEqual(osvolume.plan(image, False, True), (768 * MIB, True))
+        self.assertEqual(osvolume.too_small(image, False, True), (512, 768))
+        self.assertIsNone(osvolume.too_small(make_image(self.tmp, 1024), False, True))
+
+    def test_the_webkit_selection_resets_a_small_volume(self) -> None:
+        image = make_image(self.tmp, 512)
+        demo = demo_config(skip_build=False, webkit=True)
+        self.assertEqual(osvolume.cfg_too_small(demo, image), (512, 768))
+        self.assertTrue(osvolume.reset_wanted(demo, image))
+        session = {**demo, "mode": "Scripted session"}
+        with self.assertRaises(ValueError):
+            osvolume.check(session, image)
+        self.assertIsNone(osvolume.cfg_too_small(demo_config(skip_build=True, webkit=True), image))
+        with mock.patch.object(catalog, "IMAGE", str(image)):
+            argv = catalog.build_plan(demo)[-1]["argv"]
+            self.assertIn("--reset-os", argv)
+            base = {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                    "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+            env = catalog.build_env({**base, "desktop": False, "webkit": True})
+            self.assertEqual(env["LAZYOS_OS_SIZE"], str(768 * MIB))
+        big = make_image(self.tmp, 1024)  # the same path, rewritten
+        self.assertEqual(osvolume.env({"webkit": True}, big), {"LAZYOS_OS_SIZE": str(1024 * MIB)})
+
     def test_the_demo_resets_and_other_modes_refuse(self) -> None:
         image = make_image(self.tmp, 512)
         demo = demo_config(skip_build=False, srb2kart=True)

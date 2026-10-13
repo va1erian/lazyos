@@ -94,6 +94,18 @@ fn run_vector(iov: u64, count: u64, mut transfer: impl FnMut(u64, u64, u64) -> u
 
 /// `writev(fd, iov, iovcnt)`: `struct iovec { void *base; size_t len; }`.
 pub(super) fn sys_writev(fd: u64, iov: u64, count: u64) -> u64 {
+    // On a seqpacket socket the whole vector is one message, not one per segment.
+    if count > 1 && count <= UIO_MAXIOV && task::fd_seqpacket(fd as usize) {
+        let mut parts = alloc::vec::Vec::new();
+        for index in 0..count {
+            match iovec_at(iov, index) {
+                Ok((base, len)) if len > 0 => parts.push((base, len)),
+                Ok(_) => {}
+                Err(code) => return code,
+            }
+        }
+        return super::io::send_gathered(fd, &parts, false, &mut None);
+    }
     run_vector(iov, count, |base, len, _| sys_write(fd, base, len))
 }
 

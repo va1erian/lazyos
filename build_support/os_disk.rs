@@ -23,6 +23,10 @@ pub const DEFAULT_OS_SIZE: u64 = 512 << 20;
 /// Default OS volume size with `LAZYOS_SRB2KART=1`: its game data is about
 /// 250 MB, too much for [`DEFAULT_OS_SIZE`].
 pub const SRB2KART_OS_SIZE: u64 = 1 << 30;
+/// Default OS volume size with `LAZYOS_WEBKIT=1`: the WebKit port's three static programs
+/// (`webprocess`, `networkprocess`, `webkit-smoke`) are about 107 MiB each, over 320 MiB
+/// together, which leaves too little of [`DEFAULT_OS_SIZE`] for the rest of the image.
+pub const WEBKIT_OS_SIZE: u64 = 768 << 20;
 /// Smallest OS volume the build accepts.
 pub const MIN_OS_SIZE: u64 = 128 << 20;
 
@@ -30,19 +34,24 @@ const TABLE: usize = 0x1BE;
 const ENTRY: usize = 16;
 const SIGNATURE: usize = 510;
 
-/// The OS volume size when `LAZYOS_OS_SIZE` is unset.
-pub fn default_size(srb2kart: bool) -> u64 {
+/// The OS volume size when `LAZYOS_OS_SIZE` is unset: the largest any selected feature needs.
+pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
     if srb2kart {
         SRB2KART_OS_SIZE
+    } else if webkit {
+        WEBKIT_OS_SIZE
     } else {
         DEFAULT_OS_SIZE
     }
 }
 
-/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1` asks for the larger one.
+/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1` and `LAZYOS_WEBKIT=1` ask for
+/// larger ones (`tools/lazygui/osvolume.py` mirrors this).
 pub fn default_size_env() -> u64 {
     println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
-    default_size(std::env::var_os("LAZYOS_SRB2KART").is_some_and(|value| value == "1"))
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
+    let on = |name: &str| std::env::var_os(name).is_some_and(|value| value == "1");
+    default_size(on("LAZYOS_SRB2KART"), on("LAZYOS_WEBKIT"))
 }
 
 /// `LAZYOS_OS_SIZE`: bytes with an optional `K`, `M` or `G` suffix (binary),

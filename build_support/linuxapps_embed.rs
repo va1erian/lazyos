@@ -18,6 +18,11 @@
 //! `LAZYOS_WEBKIT_DEPS=1` embeds `depsproof`, the C++ program that links the
 //! whole WebKit dependency bundle (`tools/webkit/deps.py`, built in the same
 //! container into `target/webkit/bin/`; docs/webkit-port-plan.md W3).
+//!
+//! `LAZYOS_WEBKIT=1` embeds the WebKit port (`tools/webkit/port.py`, W4): the
+//! `WebProcess` and `NetworkProcess` it launches, the headless UI process
+//! `webkit-smoke`, and the Fontconfig configuration they read
+//! (`webkit/port/fonts.conf.in`, filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`).
 
 use std::path::Path;
 
@@ -36,11 +41,31 @@ const PROGRAMS: &[(&str, &str)] = &[
 
 /// Where `tools/jsc/build.py` writes its programs, and what `LAZYOS_JSC=1` embeds.
 const JSC_BUILT: &str = "target/jsc/bin";
-const JSC_PROGRAMS: &[(&str, &str)] = &[("jsc", fhs::bin::JSC), ("cxxproof", fhs::bin::CXXPROOF)];
+const JSC_PROGRAMS: &[(&str, &str)] = &[
+    ("jsc", fhs::bin::JSC),
+    ("jsc-jit", fhs::bin::JSC_JIT),
+    ("cxxproof", fhs::bin::CXXPROOF),
+];
+/// The stress-test bundle `tools/jsc/stress.py` writes, embedded at `fhs::share::JSC_TESTS`.
+const JSC_TESTS_BUILT: &str = "target/jsc/jsc-tests";
 
 /// Where `tools/webkit/deps.py` writes `depsproof`, and what `LAZYOS_WEBKIT_DEPS=1` embeds.
 const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
+
+/// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT=1` embeds.
+const WEBKIT_BUILT: &str = "target/webkit/bin";
+const WEBKIT_PROGRAMS: &[(&str, &str)] = &[
+    ("WebProcess", fhs::bin::WEBPROCESS),
+    ("NetworkProcess", fhs::bin::NETWORKPROCESS),
+    ("webkit-smoke", fhs::bin::WEBKIT_SMOKE),
+];
+/// The Fontconfig configuration of those programs, written beside them from the template
+/// `webkit/port/fonts.conf.in` and the paths of `libs/fhs` (`tools/webkit/port_cmake.py`).
+const WEBKIT_FONTS_CONF: &str = "target/webkit/fonts.conf";
+/// The Liberation fonts (`assets/manifest.txt` installs them in desktop images only): a
+/// console image with the WebKit port has no other fonts, and a page without fonts has no text.
+const WEBKIT_FONTS: &str = "assets/fonts/liberation";
 
 /// Whether the environment variable `name` is `1`.
 fn switch_on(name: &str) -> bool {
@@ -58,6 +83,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     if enabled() {
         embed_programs(
             sink,
@@ -77,6 +103,11 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             JSC_PROGRAMS,
             "tools/jsc/build.py",
         );
+        embed_tree(
+            sink,
+            &manifest_dir.join(JSC_TESTS_BUILT),
+            fhs::share::JSC_TESTS,
+        );
     }
     if switch_on("LAZYOS_WEBKIT_DEPS") {
         embed_programs(
@@ -87,6 +118,72 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             WEBKIT_DEPS_PROGRAMS,
             "tools/webkit/deps.py",
         );
+    }
+    if switch_on("LAZYOS_WEBKIT") {
+        embed_programs(
+            sink,
+            manifest_dir,
+            "LAZYOS_WEBKIT",
+            WEBKIT_BUILT,
+            WEBKIT_PROGRAMS,
+            "tools/webkit/port.py",
+        );
+        let conf = manifest_dir.join(WEBKIT_FONTS_CONF);
+        // Watched even when missing: a port built later rebuilds the image.
+        println!("cargo:rerun-if-changed={}", conf.display());
+        if conf.is_file() {
+            sink.add_file(fhs::etc::FONTS_CONF, conf);
+        } else {
+            println!(
+                "cargo:warning=LAZYOS_WEBKIT: {} not built, no fonts.conf (run tools/webkit/port.py)",
+                conf.display()
+            );
+        }
+        embed_fonts(sink, &manifest_dir.join(WEBKIT_FONTS));
+    }
+}
+
+/// Store every `.ttf` of `dir` under `fhs::share::FONTS_LIBERATION` (a desktop image already
+/// has them there; the later entry replaces the earlier).
+fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        println!("cargo:warning=LAZYOS_WEBKIT: no fonts in {}", dir.display());
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str().filter(|name| name.ends_with(".ttf")) else {
+            continue;
+        };
+        sink.add_file(
+            &format!("{}/{name}", fhs::share::FONTS_LIBERATION),
+            entry.path(),
+        );
+    }
+}
+
+/// Store every regular file directly under `dir` (when it exists) at
+/// `image_dir/<name>`. The directory is watched, so a new bundle rebuilds the image.
+fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
+    println!("cargo:rerun-if-changed={}", dir.display());
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        println!(
+            "cargo:warning=LAZYOS_JSC: {} not built, no stress tests (run tools/jsc/stress.py)",
+            dir.display()
+        );
+        return;
+    };
+    let mut files: Vec<_> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .collect();
+    files.sort_by_key(|entry| entry.file_name());
+    for entry in files {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+        sink.add_file(&format!("{image_dir}/{name}"), entry.path());
     }
 }
 

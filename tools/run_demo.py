@@ -88,7 +88,7 @@ import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
-    build_srb2kart, build_tls, build_webkit_deps, build_wifi, build_xui_apps,
+    build_srb2kart, build_tls, build_webkit, build_webkit_deps, build_wifi, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -279,7 +279,8 @@ def main(argv: list[str]) -> int:
             # The build cannot resize an OS volume: fit it to the selection, or
             # say now (not after the build) that it has to be recreated.
             wants = args.srb2kart or os.environ.get("LAZYOS_SRB2KART") == "1"
-            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants)
+            wants_webkit = args.webkit or os.environ.get("LAZYOS_WEBKIT") == "1"
+            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants, wants_webkit)
             if recreate:
                 have = (osvolume.existing_bytes(osvolume.DEFAULT_IMAGE) or 0) >> 20
                 if not args.yes and not confirm(
@@ -316,6 +317,7 @@ def main(argv: list[str]) -> int:
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
+                                      (args.webkit, build_webkit, "LAZYOS_WEBKIT"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),

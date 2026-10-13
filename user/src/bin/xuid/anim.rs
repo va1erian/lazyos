@@ -115,7 +115,13 @@ impl Compositor {
         // so the trail is drawn as disjoint pieces, each pixel inverted once.
         // Every piece lies inside this frame's strips, recomposed above.
         let mut pieces = [Rect::new(0, 0, 0, 0); MAX_PIECES];
-        let count = trail_pieces(rects, &mut pieces);
+        // None while the screen is blank (`idle.rs`): a window opening in
+        // the dark must not flash a wireframe on it.
+        let count = if super::idle::blanked() {
+            0
+        } else {
+            trail_pieces(rects, &mut pieces)
+        };
         for piece in &pieces[..count] {
             self.screen.invert(*piece, full);
         }

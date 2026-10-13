@@ -251,5 +251,18 @@ fn grab_changed(surface) {
     msg::connect("os.lazy.input.shell.v1").invoke("GrabChanged", [surface])
 }
 
+/// `KeyActivity() -> () oneway`
+///
+/// Shell event: a key went down on some keyboard (PS/2 or USB; sent after
+/// `inputd` handled it, so a key held back while the shell asked for the
+/// keys was already dropped). The kernel key stream only carries PS/2, so
+/// this is how the compositor sees that someone is typing, for the idle
+/// timer and to wake a blank screen.
+///
+/// One-way: returns `()` once the message is queued.
+fn key_activity() {
+    msg::connect("os.lazy.input.shell.v1").invoke("KeyActivity", [])
+}
+
 // Not callable from a script (the request carries a channel, buffer
 // or ring): Attach.

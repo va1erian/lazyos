@@ -8806,6 +8806,8 @@ pub mod os_lazy_input_shell_v1 {
     pub const METHOD_POINTEREVENT: u32 = 25;
     /// `GrabChanged` method id.
     pub const METHOD_GRABCHANGED: u32 = 26;
+    /// `KeyActivity` method id.
+    pub const METHOD_KEYACTIVITY: u32 = 27;
 
     /// Become the shell client; `events` is the endpoint that receives the
     /// shell events below, and on which the compositor makes every later

@@ -199,10 +199,19 @@ programs! {
     RG = "rg";
     /// `jsc`, JavaScriptCore's shell (`LAZYOS_JSC=1`, Linux ABI, docs/webkit-port-plan.md W2).
     JSC = "jsc";
+    /// `jsc-jit`, the same shell built with the JIT (`LAZYOS_JSC=1`, `tools/jsc/build.py --jit`).
+    JSC_JIT = "jsc-jit";
     /// `cxxproof`, the C++/ICU toolchain check (`LAZYOS_JSC=1`, W1).
     CXXPROOF = "cxxproof";
     /// `depsproof`, the WebKit dependency bundle check (`LAZYOS_WEBKIT_DEPS=1`, W3).
     DEPSPROOF = "depsproof";
+    /// `webprocess`, WebKit's page process (`LAZYOS_WEBKIT=1`, Linux ABI, W4; the build
+    /// calls it `WebProcess`, the image keeps program names lowercase).
+    WEBPROCESS = "webprocess";
+    /// `networkprocess`, WebKit's network process (`LAZYOS_WEBKIT=1`, W4).
+    NETWORKPROCESS = "networkprocess";
+    /// `webkit-smoke`, the headless WebKit UI process of the W4 check (`LAZYOS_WEBKIT=1`).
+    WEBKIT_SMOKE = "webkit-smoke";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

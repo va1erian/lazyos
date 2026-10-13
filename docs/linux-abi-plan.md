@@ -132,7 +132,48 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > Evidence: `kernel/src/tests/linux_compat_suite/{scmrights,memfd}.rs` (with
 > soaks that check descriptors, pipes, frames and quota against their
 > baselines) and the `scmrights` fixture (`ABI:scmrights:PASS`).
+>
+> **Round 5 (WebKit W4): what the WebKit IPC needed on top of that.** Found
+> by running the port's three processes (`docs/webkit-port-plan.md` W4):
+>
+> * `sendmsg` and `writev` of several segments on an `AF_UNIX`
+>   `SOCK_SEQPACKET` socket send **one record**, built from the segments
+>   (WebKit sends a header and a body); `sendmsg` used to answer `EOPNOTSUPP`
+>   and `writev` made one record per segment. A scattered datagram on `AF_INET`
+>   is still refused. (`io::send_gathered`; `compat_msg_seqpacket_gathers_one_record`
+>   and its soak.)
+> * `recvmsg`/`recvfrom` accept `MSG_NOSIGNAL` (ignored, as on Linux); they
+>   answered `EINVAL`. (`compat_msg_bad_flags`.)
+> * Still missing and met again: file-backed `mmap` (Skia's font manager,
+>   W3's shim) and `fadvise64` (221, `ENOSYS`, harmless).
 
+> **`sched_setattr`/`sched_getattr` (314, 315): supported (W2).** The plain
+> policies (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are
+> accepted, kept per thread, read back by `sched_getattr` and
+> `sched_getscheduler` (with `SCHED_RESET_ON_FORK`), inherited by `clone`/
+> `fork`, and mapped onto the stride scheduler's per-task weight
+> (`task/nice.rs`; `SCHED_IDLE` weighs the least; a task the CPU guard has
+> demoted gets the weight when its window ends). The decision and both stores
+> are one step under the task-table lock (`task::sched_update`). As on Linux
+> with `RLIMIT_NICE` 0, lowering a nice value, leaving `SCHED_IDLE`, clearing
+> `reset_on_fork` and touching another user's task need privilege
+> (`CAP_SYS_ADMIN` stands in for `CAP_SYS_NICE`); so does touching a task of
+> another *process*, even of the caller's own uid (a native service shares the
+> uid of a session). `pid` is a thread id checked on all 64 bits (`EINVAL` above
+> `INT_MAX`, `ESRCH` for an empty slot). `SCHED_FIFO`/`SCHED_RR`/
+> `SCHED_DEADLINE` are `EPERM` without privilege and `EINVAL` with it (there is
+> no such policy to give), the utilization-clamp flags are `EOPNOTSUPP`, a bad
+> flag word is `EINVAL` and a `sched_attr` that is too small or has unknown
+> non-zero tail bytes is `E2BIG` (Linux's size handshake). Still missing, and
+> `ENOSYS` so that nothing can change the policy or nice value behind
+> `sched_getattr`: `sched_setscheduler`/`sched_setparam` (142, 144),
+> `setpriority`/`getpriority` (140, 141), `sched_setaffinity` (so musl's
+> `pthread_setschedparam` and `pthread_setschedprio`, which call the first
+> two, fail; WTF calls `sched_setattr` directly). `SCHED_IDLE` ignores the
+> attr's nice value and keeps the task's own, as Linux does. Tests:
+> `compat_schedattr_*` (a two-thread soak, the same-process rule, dead slots,
+> odd pids, the guard-demotion case).
+>
 > **JIT-style executable memory: supported (#773).** `mmap` with `PROT_EXEC`,
 > W^X flips with `mprotect` (RW -> RX -> RW, with another thread executing the
 > page), RWX, `mremap` and `fork` keeping the rights, `SIGSEGV` with
@@ -140,6 +181,14 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > stack and heap are tested (`execmem_*` in the compat suite, the `jitmem`
 > fixture) and described, with the single-CPU TLB assumption, in
 > [`architecture/virtual-memory.md`](architecture/virtual-memory.md#executable-memory-jit-style-wx).
+> `mprotect` answers `EINVAL` for a `prot` with a bit beyond read, write and
+> exec whatever the length. A fatal fault's report (`user: code at <rip>`)
+> reads the code bytes without demand paging (`user_ptr::try_resident_bytes`).
+> Follow-ups: CPUID advertises AVX although the kernel enables no OSXSAVE/XCR0,
+> so any guest that trusts `CPUID.1:ECX` bit 28 alone takes `#UD` (JSC is
+> patched around it; a kernel-side fix is issue #822), and a 2 GiB typed
+> array that exhausts the frame allocator ends in `SIGSEGV` in the fault path
+> instead of failing the allocation (Linux would OOM-kill; issue #823).
 
 **Goal:** run ordinary, prebuilt **`x86_64-unknown-linux-musl` static binaries**
 (including Rust programs that link `std`) on LazyOS, by implementing enough of

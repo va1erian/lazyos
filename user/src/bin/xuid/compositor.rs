@@ -11,6 +11,7 @@ use user::messenger::display::{Canvas, Rect};
 use super::cursor::CursorOverlay;
 use super::drag::DragSession;
 use super::held::HeldInput;
+use super::idle::IdleTimer;
 use super::inputlink::InputLink;
 use super::layoutfeed::LayoutFeed;
 use super::loginfeed::LoginFeed;
@@ -90,6 +91,8 @@ pub(super) struct Compositor {
     pub(super) layoutfeed: LayoutFeed,
     /// `init`'s shutdown progress (the shutting-down overlay).
     pub(super) powerfeed: PowerFeed,
+    /// The quiet time before the screen blanks (`idle.rs`).
+    pub(super) idle: IdleTimer,
     /// `logind`'s logouts (who owns the display next).
     pub(super) loginfeed: LoginFeed,
     /// The compositor's side of `inputd` (`docs/input-plan.md`).
@@ -147,6 +150,7 @@ impl Compositor {
             themefeed,
             layoutfeed: LayoutFeed::new(),
             powerfeed: PowerFeed::new(),
+            idle: IdleTimer::new(user::sys::clock()),
             loginfeed: LoginFeed::new(),
             input: InputLink::new(),
             held: HeldInput::new(),

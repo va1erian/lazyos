@@ -1,19 +1,26 @@
-//! `jsc` — run JavaScriptCore's shell and the C++ proof that
+//! `jsc` — run JavaScriptCore's shells and the C++ proof that
 //! `tools/jsc/build.py` builds (an image built with `LAZYOS_JSC=1` puts
-//! `jsc` and `cxxproof` in `/system/bin`; docs/webkit-port-plan.md W1, W2).
+//! `jsc`, `jsc-jit` and `cxxproof` in `/system/bin`; docs/webkit-port-plan.md
+//! W1, W2).
 //!
 //! The markers are the evidence and go to the serial log, one per line:
-//! everything `cxxproof` prints (`JSC:W1:*`), then `JSC:UP:PASS` once `jsc`
-//! answers, `JSC:START:<ms>` (how long `jsc -e` took), `JSC:TIME:<name>:<ms>` per
-//! script, and `JSC:RUN:PASS:<name>` or
-//! `JSC:RUN:FAIL:<name>:<reason>` for each script: arithmetic, a script that
+//! everything `cxxproof` prints (`JSC:W1:*`), then for the C-loop shell
+//! `JSC:UP:PASS` once it answers, `JSC:START:<ms>` (how long `jsc -e` took),
+//! `JSC:TIME:<name>:<ms>` per script and `JSC:RUN:PASS:<name>` or
+//! `JSC:RUN:FAIL:<name>:<reason>` for each: arithmetic, a script that
 //! allocates enough to force collections with concurrent marker threads on,
-//! and one with classes, Promises, async generators and Intl (ICU). The
-//! fixture ends with `ABI:jsc:PASS` when every one passed; `tools/jsc/run.py`
-//! judges the log (`tools/jsc/judge.py`).
+//! one with classes, Promises, async generators and Intl (ICU), a hot numeric
+//! one, and four SharedArrayBuffer agents (threads) under the collector. The
+//! JIT shell runs the same with a `JSC:JIT:` prefix, and each shell then runs
+//! the stress subset (`jsc_stress.rs`: `<prefix>STRESS:<pass>/<total>`). The
+//! fixture ends with `ABI:jsc:PASS` when every check passed;
+//! `tools/jsc/run.py` judges the log (`tools/jsc/judge.py`).
 
 mod common;
+mod jsc_scripts;
+mod jsc_stress;
 
+use jsc_scripts::*;
 use std::fs;
 use std::process::{Command, Stdio};
 use std::time::Instant;
@@ -21,53 +28,26 @@ use std::time::Instant;
 const BIN: &str = "/system/bin";
 const SCRATCH: &str = "/tmp/jsc";
 
-/// Allocates a million and a half objects, keeps one in twenty, and asks
-/// for collections: the concurrent marker threads suspend the mutator with
-/// signals (per-thread signals, docs/webkit-port-plan.md 4.2).
-const GC_SCRIPT: &str = r#"
-let keep = [];
-let total = 0;
-for (let i = 0; i < 1500000; i++) {
-  let o = { a: i, b: [i, i + 1, i + 2], s: "str" + i };
-  if (i % 20 == 0) keep.push(o);
-  total += o.b.length;
-  if (i % 250000 == 0) gc(); else if (i % 50000 == 0) edenGC();
+/// A shell under test and the prefix its markers carry.
+struct Shell {
+    program: &'static str,
+    prefix: &'static str,
+    /// Whether the DFG is expected to compile the hot function.
+    jit: bool,
 }
-fullGC();
-let sum = 0;
-for (const o of keep) sum += o.a;
-print("gc-ok:" + total + ":" + keep.length + ":" + sum);
-"#;
 
-const GC_WANT: &str = "gc-ok:4500000:75000:56249250000\n";
-
-const PROMISE_SCRIPT: &str = r#"
-class Animal {
-  #n;
-  constructor(n) { this.#n = n; }
-  get name() { return this.#n; }
-  speak() { return `${this.name} makes a sound`; }
-  static make(n) { return new this(n); }
-}
-class Dog extends Animal { speak() { return super.speak() + " (woof)"; } }
-const out = [];
-const later = (v) => new Promise((r) => Promise.resolve().then(() => r(v)));
-async function main() {
-  out.push(Dog.make("Rex").speak());
-  const vals = await Promise.all([later(1), later(2), later(3)]);
-  out.push(vals.reduce((a, b) => a + b));
-  try { await Promise.reject(new Error("boom")); } catch (e) { out.push(e.message); }
-  for await (const x of (async function* () { yield "a"; yield "b"; })()) out.push(x);
-  out.push([..."héllo".normalize("NFD")].length);
-  out.push("İ".toLowerCase().length);
-  out.push(new Intl.NumberFormat("en-US").format(1234567.891));
-  out.push("straße".toUpperCase());
-  print(out.join("|"));
-}
-main().catch((e) => print("error: " + e));
-"#;
-
-const PROMISE_WANT: &str = "Rex makes a sound (woof)|6|boom|a|b|6|2|1,234,567.891|STRASSE\n";
+const SHELLS: [Shell; 2] = [
+    Shell {
+        program: "jsc",
+        prefix: "JSC:",
+        jit: false,
+    },
+    Shell {
+        program: "jsc-jit",
+        prefix: "JSC:JIT:",
+        jit: true,
+    },
+];
 
 /// Run `program args` with the collector's thread count forced up; `(ok, stdout, stderr)`.
 fn run(program: &str, args: &[&str]) -> Result<(bool, String, String), String> {
@@ -87,32 +67,110 @@ fn run(program: &str, args: &[&str]) -> Result<(bool, String, String), String> {
 
 /// One-line, colon-free text for a marker's reason.
 fn tidy(text: &str) -> String {
-    text.trim().replace('\n', "\\n").replace(':', ";").chars().take(160).collect()
+    text.trim()
+        .replace('\n', "\\n")
+        .replace(':', ";")
+        .chars()
+        .take(160)
+        .collect()
 }
 
-/// Run a `jsc` check and report it as `JSC:RUN:PASS|FAIL:<name>`.
-fn check(name: &str, args: &[&str], want: &str) -> bool {
-    let began = Instant::now();
-    let result = run("jsc", args);
-    let ms = began.elapsed().as_millis();
-    match result {
-        Ok((true, out, _)) if out == want => {
-            println!("JSC:RUN:PASS:{name}");
-            println!("JSC:TIME:{name}:{ms}");
-            true
+/// A script's output without its last line when that is `signals:<n>`, and
+/// the number (`None` when the line is missing or is not one: a kernel that
+/// does not count prints `-1`).
+fn split_signals(out: &str) -> (&str, Option<u64>) {
+    let body = out.strip_suffix('\n').unwrap_or(out);
+    if let Some((head, last)) = body.rsplit_once('\n') {
+        if let Some(count) = last.strip_prefix("signals:") {
+            return (&out[..=head.len()], count.parse().ok());
         }
-        Ok((true, out, _)) => {
-            println!("JSC:RUN:FAIL:{name}:got {}", tidy(&out));
-            false
+    }
+    (out, None)
+}
+
+impl Shell {
+    /// Run a script and report it as `<prefix>RUN:PASS|FAIL:<name>`, and the
+    /// thread-directed signals it says its process sent (`signals:<n>` as the
+    /// last output line) as `<prefix>SIGNALS:<name>:<n>`.
+    fn check(&self, name: &str, args: &[&str], want: &str) -> bool {
+        let prefix = self.prefix;
+        // Names the script in the serial log before anything it makes the kernel say.
+        println!("{prefix}RUN:BEGIN:{name}");
+        let began = Instant::now();
+        let result = run(self.program, args);
+        let ms = began.elapsed().as_millis();
+        match result {
+            Ok((true, out, _)) => {
+                let (body, signals) = split_signals(&out);
+                if let Some(count) = signals {
+                    println!("{prefix}SIGNALS:{name}:{count}");
+                }
+                if body == want {
+                    println!("{prefix}RUN:PASS:{name}");
+                    println!("{prefix}TIME:{name}:{ms}");
+                    true
+                } else {
+                    println!("{prefix}RUN:FAIL:{name}:got {}", tidy(body));
+                    false
+                }
+            }
+            Ok((false, out, err)) => {
+                println!(
+                    "{prefix}RUN:FAIL:{name}:exit failure {} {}",
+                    tidy(&out),
+                    tidy(&err)
+                );
+                false
+            }
+            Err(error) => {
+                println!("{prefix}RUN:FAIL:{name}:{}", tidy(&error));
+                false
+            }
         }
-        Ok((false, out, err)) => {
-            println!("JSC:RUN:FAIL:{name}:exit failure {} {}", tidy(&out), tidy(&err));
-            false
+    }
+
+    /// The whole W2 sequence for this shell; whether every check passed.
+    fn exercise(&self) -> bool {
+        let prefix = self.prefix;
+        let mut ok = true;
+        // The first run is also the startup measurement.
+        let began = Instant::now();
+        let first = run(self.program, &["-e", "print(1+1)"]);
+        let ms = began.elapsed().as_millis();
+        match first {
+            Ok((true, out, _)) if out == "2\n" => {
+                println!("{prefix}UP:PASS");
+                println!("{prefix}START:{ms}");
+                println!("{prefix}RUN:PASS:arith");
+            }
+            Ok((status, out, err)) => {
+                println!("{prefix}UP:FAIL:{status} {} {}", tidy(&out), tidy(&err));
+                return false;
+            }
+            Err(error) => {
+                println!("{prefix}UP:FAIL:{}", tidy(&error));
+                return false;
+            }
         }
-        Err(error) => {
-            println!("JSC:RUN:FAIL:{name}:{}", tidy(&error));
-            false
+        let tier = if self.jit { "tier:dfg" } else { "tier:none" };
+        let hot_want = format!("{HOT_COMMON}{tier}\n");
+        for (name, body, want) in [
+            ("gc", GC_SCRIPT, GC_WANT),
+            ("promise", PROMISE_SCRIPT, PROMISE_WANT),
+            ("hot", HOT_SCRIPT, hot_want.as_str()),
+            ("agents", AGENTS_SCRIPT, AGENTS_WANT),
+            ("suspend", SUSPEND_SCRIPT, SUSPEND_WANT),
+        ] {
+            // The scripts that report `signals:<n>` start with its helper.
+            let source = match name {
+                "gc" | "suspend" => format!("{SIGNALS_JS}{body}"),
+                _ => body.to_string(),
+            };
+            let path = script(&format!("{}-{name}", self.program), &source);
+            ok &= self.check(name, &[&path], want);
         }
+        ok &= jsc_stress::run(self.program, prefix);
+        ok
     }
 }
 
@@ -145,29 +203,10 @@ fn main() {
         }
     }
 
-    // W2: the shell. The first run is also the startup measurement.
-    let began = Instant::now();
-    let first = run("jsc", &["-e", "print(1+1)"]);
-    let ms = began.elapsed().as_millis();
-    match first {
-        Ok((true, out, _)) if out == "2\n" => {
-            println!("JSC:UP:PASS");
-            println!("JSC:START:{ms}");
-            println!("JSC:RUN:PASS:arith");
-        }
-        Ok((status, out, err)) => {
-            println!("JSC:UP:FAIL:{status} {} {}", tidy(&out), tidy(&err));
-            ok = false;
-        }
-        Err(error) => {
-            println!("JSC:UP:FAIL:{}", tidy(&error));
-            ok = false;
-        }
+    // W2: the shells. A shell that was not built is a failure, not a skip.
+    for shell in &SHELLS {
+        ok &= shell.exercise();
     }
-    let gc = script("gc", GC_SCRIPT);
-    ok &= check("gc", &[&gc], GC_WANT);
-    let promise = script("promise", PROMISE_SCRIPT);
-    ok &= check("promise", &[&promise], PROMISE_WANT);
 
     if ok {
         common::pass("jsc");
