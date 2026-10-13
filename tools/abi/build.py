@@ -60,6 +60,8 @@ NAMES = [
     "netbulk",
     # Storage throughput and exec time: run by `tools/perf/disk.py`.
     "diskbench",
+    # The browser sandbox's attack stand-in: run by `tools/webkit/attack_run.py`.
+    "sandboxprobe",
 ]
 
 

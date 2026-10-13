@@ -20,6 +20,10 @@ impl Vfs {
     /// the node's metadata after the change.
     pub fn setattr(&mut self, id: Id, path: &str, request: AttrRequest) -> Result<Meta, FsError> {
         let path = Path::parse(path);
+        // Changing a mode, an owner or a time is a write, whatever the node's
+        // permission bits say: a confined label's read-only grant is not a
+        // licence to `chmod` what it can read.
+        super::confine_gate(id, &path, crate::ipc::confine::Access::Write)?;
         let meta = self.check_path(id, &path, 0)?;
         self.apply_attr(id, &path, meta, request)
     }
@@ -36,6 +40,9 @@ impl Vfs {
         request: AttrRequest,
     ) -> Result<Meta, FsError> {
         let path = Path::parse(path);
+        // Not asked again for the name, but a confined label still needs a
+        // write grant on it to change an attribute.
+        super::confine_gate(id, &path, crate::ipc::confine::Access::Write)?;
         let meta = self.stat_path(&path)?;
         self.apply_attr(id, &path, meta, request)
     }

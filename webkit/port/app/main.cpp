@@ -15,6 +15,7 @@
 #include <WebKit/WKRunLoop.h>
 
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -42,6 +43,11 @@ void* windowThread(void* context)
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
+    // A WebProcess or NetworkProcess that dies (a crash, the OOM kill, a refused call it did not
+    // survive) closes its end of the IPC socket; the next `write` here must be `EPIPE`, not a
+    // SIGPIPE that ends the window with it. (WebKit sends with MSG_NOSIGNAL; the Rust half and any
+    // plain write do not.) A C++ `main` does not get the Rust runtime's ignore of it.
+    signal(SIGPIPE, SIG_IGN);
     WKRunLoopInitializeMain();
     printf("WEBKIT:W5:UP\n");
     fflush(stdout);

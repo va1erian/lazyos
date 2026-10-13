@@ -6,8 +6,21 @@ version = 4
 name = "abi-fixtures"
 version = "0.1.0"
 dependencies = [
+ "filepolicy",
  "lazyos-sys",
  "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
+name = "fhs"
+version = "0.1.0"
+
+[[package]]
+name = "filepolicy"
+version = "0.1.0"
+dependencies = [
+ "fhs",
 ]
 
 [[package]]

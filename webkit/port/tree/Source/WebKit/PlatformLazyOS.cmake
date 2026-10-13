@@ -24,14 +24,17 @@ include(Platform/Curl.cmake)
 
 # The image's paths of the programs, from libs/fhs (tools/webkit/port_cmake.py passes them):
 # the launcher's defaults and the smoke program's.
-foreach (_lazyos_path LAZYOS_WEBPROCESS_PATH LAZYOS_NETWORKPROCESS_PATH)
+foreach (_lazyos_path LAZYOS_WEBPROCESS_PATH LAZYOS_NETWORKPROCESS_PATH LAZYOS_APP_DATA_DIR LAZYOS_WEBKIT_APP_ID)
     if (NOT ${_lazyos_path})
         message(FATAL_ERROR "${_lazyos_path} is not set (tools/webkit/port_cmake.py passes it from libs/fhs)")
     endif ()
 endforeach ()
+# The UI process's profile directory is `<home>/<LAZYOS_APP_DATA_DIR>/<LAZYOS_WEBKIT_APP_ID>`.
 set(_lazyos_program_definitions
     "LAZYOS_WEBPROCESS_PATH=\"${LAZYOS_WEBPROCESS_PATH}\""
     "LAZYOS_NETWORKPROCESS_PATH=\"${LAZYOS_NETWORKPROCESS_PATH}\""
+    "LAZYOS_APP_DATA_DIR=\"${LAZYOS_APP_DATA_DIR}\""
+    "LAZYOS_WEBKIT_APP_ID=\"${LAZYOS_WEBKIT_APP_ID}\""
 )
 set_source_files_properties("${WEBKIT_DIR}/UIProcess/Launcher/ProcessLauncherLazyOS.cpp"
     PROPERTIES COMPILE_DEFINITIONS "${_lazyos_program_definitions}")

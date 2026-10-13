@@ -10,8 +10,8 @@
 //!   service name and no `app/<id>/` topic (the kernel's `app_id_of` knows
 //!   only `app:` and `dev:` labels), so none is compiled;
 //! * no baseline (`init.ReportFailure`): the app reports for itself;
-//! * `files` stay consent-only, like the app's own: recorded and shown, and
-//!   compiled to nothing.
+//! * `files` are enforced: they compile (`crate::filerules`) to the file gate's
+//!   rule ids and the confine marker, which is what makes the label a sandbox.
 //!
 //! The kernel also checks that a child never holds more than the app: the
 //! rules are refused unless the app's loaded rules cover each, and a call is
@@ -78,6 +78,12 @@ pub fn children(manifest: &Manifest) -> Result<Vec<Child>, CompileError> {
         if process.network.iter().any(|entry| entry == "outbound") {
             list.allow_interface(NETWORK_INTERFACE, None);
         }
+        let files = crate::filerules::compile(&process.files).map_err(CompileError::Files)?;
+        for rule in files {
+            if !list.rules.contains(&rule) {
+                list.rules.push(rule);
+            }
+        }
         if list.rules.len() > MAX_RULES {
             return Err(CompileError::TooManyRules {
                 rules: list.rules.len(),
@@ -127,18 +133,30 @@ mod tests {
         let web = kids.iter().find(|c| c.name == "webprocess").unwrap();
         assert_eq!(web.label, "app:org.lazy.web/webprocess");
         assert_eq!(web.program, "/system/bin/webprocess");
-        // A page process asks for no interface: default-deny, no rule at all.
-        assert!(web.rules.is_empty());
+        // A page process asks for no interface: only the file gate's rules,
+        // the confine marker among them.
+        let marker = filepolicy::confine_id();
+        assert!(web.rules.iter().any(|rule| rule.interface_id == marker));
+        let web_messenger: Vec<_> = web
+            .rules
+            .iter()
+            .filter(|rule| rule.interface_id == fnv1a64(NETWORK_INTERFACE))
+            .collect();
+        assert!(web_messenger.is_empty());
         let net = kids.iter().find(|c| c.name == "networkprocess").unwrap();
         assert_eq!(net.label, "app:org.lazy.web/networkprocess");
         assert!(!net.rules.is_empty());
         // Exactly what the app's own `outbound` compiles to, and nothing of
         // the baseline.
         let net_only = compile(&webkit_like("")).unwrap();
+        let files = crate::filerules::compile(&["write:$HOME/.apps/org.lazy.web"]).unwrap();
         for rule in &net.rules {
-            assert!(net_only.contains(rule), "{rule:?}");
+            assert!(
+                net_only.contains(rule) || files.contains(rule),
+                "{rule:?}"
+            );
         }
-        assert!(net.rules.len() < net_only.len());
+        assert!(net.rules.len() < net_only.len() + files.len());
     }
 
     #[test]
@@ -151,7 +169,10 @@ mod tests {
         let kids = children(&manifest).unwrap();
         assert_eq!(kids.len(), 1);
         assert!(!kids[0].rules.is_empty());
-        for rule in &kids[0].rules {
+        // Everything but the confine marker, which only the child carries.
+        let marker = filepolicy::confine_id();
+        assert!(kids[0].rules.iter().any(|rule| rule.interface_id == marker));
+        for rule in kids[0].rules.iter().filter(|r| r.interface_id != marker) {
             assert!(parent.contains(rule), "the app lacks {rule:?}");
         }
         // The child does not get the app's other interface.

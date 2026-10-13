@@ -80,22 +80,37 @@ pub struct DirEntry {
 }
 
 /// A kernel-stamped `uid`/`gid` pair: the owner stamped on new nodes, or the
-/// caller checked for access. Linux tasks keep their caps and label elsewhere
-/// ([`crate::ipc::credentials`]); the VFS only needs the ids.
+/// caller checked for access, plus the caller's label id. Linux tasks keep
+/// their caps elsewhere ([`crate::ipc::credentials`]); the VFS needs the ids
+/// and, for a task whose label is confined to a few paths, the label the file
+/// gate ([`crate::ipc::confine`]) judges every path by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Id {
     pub uid: u32,
     pub gid: u32,
+    /// The caller's label id; `0` (unlabelled) for the kernel and for every
+    /// identity built from just a uid and a gid.
+    pub label: u32,
 }
 
 impl Id {
     /// The kernel/bring-up identity: uid 0, gid 0.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
-    pub const ROOT: Id = Id { uid: 0, gid: 0 };
+    pub const ROOT: Id = Id {
+        uid: 0,
+        gid: 0,
+        label: 0,
+    };
 
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
     pub const fn new(uid: u32, gid: u32) -> Id {
-        Id { uid, gid }
+        Id { uid, gid, label: 0 }
+    }
+
+    /// An identity with a label, as a labelled task's credentials give it.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // used by tests/diagnostics
+    pub const fn with_label(uid: u32, gid: u32, label: u32) -> Id {
+        Id { uid, gid, label }
     }
 
     /// The current task's kernel-stamped credentials, read once per VFS call
@@ -105,6 +120,7 @@ impl Id {
         Id {
             uid: cred.uid,
             gid: cred.gid,
+            label: cred.label_id,
         }
     }
 

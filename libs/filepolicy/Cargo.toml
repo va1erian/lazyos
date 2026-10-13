@@ -1,0 +1,18 @@
+[package]
+name = "filepolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "File confinement for sandboxed process labels: what a files rule compiles to, and the one function the kernel judges every path with"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "filepolicy"
+path = "src/lib.rs"
+
+[dependencies]
+# The home root a `$HOME/...` rule stands for.
+fhs = { path = "../fhs" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

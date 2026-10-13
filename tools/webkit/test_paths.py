@@ -99,7 +99,8 @@ class PortTests(unittest.TestCase):
     def test_the_cpp_refuses_to_compile_without_them(self) -> None:
         sources = {
             "smoke/main.cpp": ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH"),
-            "app/engine.cpp": ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH"),
+            "app/engine.cpp": ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH",
+                               "LAZYOS_APP_DATA_DIR", "LAZYOS_WEBKIT_APP_ID"),
             "tree/Source/WebKit/UIProcess/Launcher/ProcessLauncherLazyOS.cpp":
                 ("LAZYOS_WEBPROCESS_PATH", "LAZYOS_NETWORKPROCESS_PATH"),
             "tree/Source/WebCore/platform/network/lazyos/CurlSSLHandleLazyOS.cpp": ("LAZYOS_CA_BUNDLE_PATH",),

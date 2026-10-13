@@ -50,6 +50,7 @@ fn check_manifest(text: &str) -> bool {
             assert!(installed.is_ok_and(|rules| rules.len() <= MAX_RULES));
         }
         Err(CompileError::TooManyRules { rules }) => assert!(rules > MAX_RULES),
+        Err(CompileError::Files(error)) => panic!("compile never reads files: {error}"),
     }
 
     for entry in &wanted.files {

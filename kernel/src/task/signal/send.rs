@@ -26,6 +26,16 @@ pub(super) fn may_signal(caller: usize, target: usize, sig: u8) -> bool {
     if caller == target || caller == KERNEL_TASK {
         return true;
     }
+    // A confined label (`ipc::confine`) signals only its own process: its
+    // threads share the address space of the caller. The uid rule below is
+    // the user's, and a sandbox is not.
+    let same_process = match (slot_info(caller), slot_info(target)) {
+        (Some((mine, _)), Some((theirs, _))) => mine == theirs,
+        _ => false,
+    };
+    if !crate::ipc::confine::may_signal(caller, same_process) {
+        return false;
+    }
     let sender = credentials::of(caller);
     let victim = credentials::of(target);
     if sender.has_cap(CAP_KILL) || sender.uid == victim.uid {

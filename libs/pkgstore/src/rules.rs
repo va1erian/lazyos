@@ -84,11 +84,15 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
 pub enum CompileError {
     /// More rules than the kernel stores per label.
     TooManyRules { rules: usize },
+    /// A `files` entry of a process table (or the app's, beside one) that the
+    /// file gate cannot compile.
+    Files(crate::filerules::FileRuleError),
 }
 
 impl core::fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            CompileError::Files(error) => write!(formatter, "{error}"),
             CompileError::TooManyRules { rules } => write!(
                 formatter,
                 "the requested permissions need {rules} policy rules, more than the {MAX_RULES} the system keeps per app"
@@ -275,6 +279,19 @@ pub fn baseline() -> Vec<LabelRule> {
 /// [`baseline`] rules it does not already hold. At most [`MAX_RULES`].
 pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     let mut rules = compile(manifest)?;
+    // An app with process tables holds its own `files` ids (not the confine
+    // marker: the app stays unconfined), so the kernel can check that a
+    // child's file rules are ones the app holds too (`acl::covered_by`).
+    if !manifest.processes.is_empty() {
+        let marker = filepolicy::confine_id();
+        let files = crate::filerules::compile(&manifest.permissions.files)
+            .map_err(CompileError::Files)?;
+        for rule in files.into_iter().filter(|rule| rule.interface_id != marker) {
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+        }
+    }
     for rule in baseline() {
         if !rules.contains(&rule) {
             rules.push(rule);

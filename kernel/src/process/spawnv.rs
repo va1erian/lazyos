@@ -122,7 +122,11 @@ pub(super) fn sys_spawnv(req_ptr: u64) -> u64 {
 fn spawnv(req_ptr: u64) -> Result<usize, u64> {
     // A task in a child label (`app:<id>/<name>`, issue #832) never starts a
     // program, by any personality or credential mode.
-    if !crate::ipc::children::may_start(task::current(), "spawnv") {
+    // A confined label (`ipc::confine`) starts no process, whatever the
+    // personality or credential mode it asks for.
+    if !crate::ipc::children::may_start(task::current(), "spawnv")
+        || !crate::ipc::confine::may_spawn()
+    {
         return Err(syscall_error(super::creds::EPERM));
     }
     let words = read_words(req_ptr)?;

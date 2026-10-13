@@ -16,6 +16,8 @@
 //! * [`explain`]: the plain-language sentence and risk for every permission,
 //!   keyed by MIDL interface name (a test proves it covers every `idl/*.midl`
 //!   interface);
+//! * [`filerules`]: what a sandboxed process table's `files` compile to (the
+//!   rule ids the kernel's file gate looks for), by `libs/filepolicy`;
 //! * [`audit`]: the hash-chained `/logs/pkg.log` format and its verifier;
 //! * [`layout`]: install directory paths and the extraction plan, with the
 //!   path-safety checks a root writer must make even for a validated package;
@@ -50,6 +52,7 @@ pub mod audit;
 pub mod develop;
 pub mod docs;
 pub mod explain;
+pub mod filerules;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod hash;
