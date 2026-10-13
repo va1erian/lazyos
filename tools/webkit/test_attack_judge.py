@@ -18,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 import attackjudge as judge  # noqa: E402
+import fhspaths  # noqa: E402
 
 PROBE_SOURCE = ROOT / "tools" / "abi" / "fixtures" / "src" / "sandboxprobe.rs"
 MANIFEST = ROOT / "xui-app" / "packages" / "webkit" / "manifest.toml"
@@ -204,8 +205,8 @@ class AgreementTests(unittest.TestCase):
 
     def test_the_tables_name_the_programs_and_the_network(self) -> None:
         processes = self.table()
-        self.assertEqual(processes["webprocess"]["program"], "/system/bin/webprocess")
-        self.assertEqual(processes["networkprocess"]["program"], "/system/bin/networkprocess")
+        self.assertEqual(processes["webprocess"]["program"], fhspaths.program("WEBPROCESS"))
+        self.assertEqual(processes["networkprocess"]["program"], fhspaths.program("NETWORKPROCESS"))
         self.assertEqual(processes["webprocess"]["network"], [])
         self.assertEqual(processes["networkprocess"]["network"], ["outbound"])
         # The page process holds no Messenger interface at all.
@@ -232,7 +233,7 @@ class AgreementTests(unittest.TestCase):
         self.assertEqual(web & net, set())
         # Nothing below the user's home, nothing in /system/bin, no root.
         for rule in web | net:
-            self.assertNotIn("/system/bin", rule)
+            self.assertNotIn(fhspaths.get("system::SYSTEM_BIN"), rule)
             self.assertNotEqual(rule.split(":", 1)[1], "/")
         self.assertTrue(all(not rule.startswith("write:") for rule in web))
 

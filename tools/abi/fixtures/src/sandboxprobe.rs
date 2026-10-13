@@ -51,6 +51,7 @@ const ENOSYS: i32 = 38;
 unsafe extern "C" {
     fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
     fn socket(domain: i32, kind: i32, protocol: i32) -> i32;
+    fn bind(fd: i32, addr: *const u8, len: u32) -> i32;
     fn close(fd: i32) -> i32;
     fn fork() -> i32;
     fn kill(pid: i32, sig: i32) -> i32;
@@ -114,6 +115,28 @@ fn inet_socket() -> Attempt {
     // SAFETY: `fd` was just returned by `socket`.
     unsafe { close(fd) };
     Ok(())
+}
+
+/// `socket(AF_INET)` and `bind` to port 8080: whether the process may be a server.
+fn inet_serve() -> Attempt {
+    // SAFETY: plain libc calls with integer arguments.
+    let fd = unsafe { socket(2, 1, 0) };
+    if fd < 0 {
+        return Err(last_errno());
+    }
+    let mut addr = [0u8; 16];
+    addr[..2].copy_from_slice(&2u16.to_le_bytes());
+    addr[2..4].copy_from_slice(&8080u16.to_be_bytes());
+    // SAFETY: `addr` is a live `struct sockaddr_in` of 16 bytes and `fd` a socket.
+    let bound = unsafe { bind(fd, addr.as_ptr(), 16) };
+    let error = last_errno();
+    // SAFETY: `fd` was just returned by `socket`.
+    unsafe { close(fd) };
+    if bound < 0 {
+        Err(error)
+    } else {
+        Ok(())
+    }
 }
 
 fn resolve(name: &str) -> Attempt {
@@ -182,6 +205,7 @@ fn main() {
         write_probe(&format!("{home}/.apps/os.lazy.webkit"), "attack-probe"),
     );
     say(role, "inet_socket", inet_socket());
+    say(role, "inet_serve", inet_serve());
 
     // What an exploit would reach for.
     say(role, "read_home_dir", io_attempt(fs::read_dir(&home)));
