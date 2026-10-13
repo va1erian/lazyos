@@ -55,51 +55,7 @@ IMAGE_DIR = ROOT / "target" / "abi" / "images"
 SHOTS = ROOT / "shots" / "abi"
 COMPAT = ROOT / "docs" / "compat"
 IMAGE = ROOT / "target" / "lazyos.img"
-
-ORDER = [
-    "hello",
-    "alloc",
-    "hashmap",
-    "file",
-    "time",
-    "thread",
-    "syncstress",
-    "fsstress",
-    "memstress",
-    "bigapp",
-    "jitmem",
-    "filemap",
-    "procstress",
-    "sigstress",
-    "fpsig",
-    "avx",
-    "threadsig",
-    "alarm",
-    "epollstress",
-    "msgpoll",
-    "unixstress",
-    "scmrights",
-    "persist",
-    "statxio",
-    "cwd",
-    "fsops",
-    "fdinherit",
-    "statmiss",
-    "compat",
-    # rustls + the nettls provider in memory, through the AVX dispatch where
-    # the CPU has it (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
-    "tlsfix",
-    # A dynamically linked musl program, its interpreter and libraries
-    # (`tools/abi/dynlink.py`, `LAZYOS_DYNLINK=1`; issue #535).
-    "dynlink",
-    "busybox",
-    # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
-    # fixture, one row per program (see `LINUXAPPS`).
-    "dash",
-    "sqlite3",
-    "jq",
-    "rg",
-]
+from rows_order import ORDER  # noqa: E402
 
 # Rows judged from one boot of the `linuxapps` fixture on an image built with
 # `LAZYOS_LINUXAPPS=1` (the programs in /system/bin) and BusyBox (dash's

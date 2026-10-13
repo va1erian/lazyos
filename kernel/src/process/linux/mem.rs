@@ -5,14 +5,14 @@
 //! quota charge for it), then make the page tables agree, deferring frames to
 //! first touch wherever demand-zero is safe.
 
-use alloc::vec::Vec;
 use x86_64::PhysAddr;
 
-use crate::mem::vma::{Kind, Prot, Vma};
+use crate::mem::vma::{Kind, Prot};
 use crate::quota::{self, Resource};
 use crate::task;
 
 use super::errno::{err, EFAULT, EINVAL, ENOMEM};
+use super::mmapvfs::unmap_vmas;
 use super::overcommit::{hopeless, MAP_NORESERVE};
 use super::{BRK_LIMIT, MMAP_BASE, MMAP_LIMIT, PAGE};
 
@@ -54,20 +54,6 @@ pub(super) fn charged_len(vmas: &[crate::mem::vma::Vma]) -> u64 {
         .filter(|vma| vma.kind != Kind::Shared)
         .map(|vma| vma.len())
         .sum()
-}
-
-/// Take `[start, end)` out of the VMAs and the page tables, and let go of
-/// the file pages its file mappings held. Returns the removed pieces. A range
-/// with no VMA is left alone unless `always` (`MAP_FIXED` clears pages the
-/// VMAs do not know).
-pub(super) fn unmap_vmas(table: PhysAddr, start: u64, end: u64, always: bool) -> Vec<Vma> {
-    let pieces = crate::mem::vma::remove_files(table, start, end);
-    if always || !pieces.is_empty() {
-        crate::mem::unmap_range(table, start, end);
-    }
-    let vmas = pieces.iter().map(|piece| piece.vma).collect();
-    crate::mem::filemap::released(pieces, true);
-    vmas
 }
 
 /// `mmap(addr, len, prot, flags, fd, offset)`.

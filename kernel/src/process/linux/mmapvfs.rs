@@ -32,6 +32,25 @@ use super::errno::{err, EACCES, EBADF, EINVAL, ENODEV, ENOMEM, EOVERFLOW};
 use super::mem::Mapping;
 use super::PAGE;
 
+/// Take `[start, end)` out of the VMAs and the page tables, and let go of
+/// the file pages its file mappings held. Returns the removed pieces. A range
+/// with no VMA is left alone unless `always` (`MAP_FIXED` clears pages the
+/// VMAs do not know).
+pub(super) fn unmap_vmas(
+    table: PhysAddr,
+    start: u64,
+    end: u64,
+    always: bool,
+) -> alloc::vec::Vec<vma::Vma> {
+    let pieces = vma::remove_files(table, start, end);
+    if always || !pieces.is_empty() {
+        crate::mem::unmap_range(table, start, end);
+    }
+    let vmas = pieces.iter().map(|piece| piece.vma).collect();
+    crate::mem::filemap::released(pieces, true);
+    vmas
+}
+
 const MS_ASYNC: u64 = 1;
 const MS_INVALIDATE: u64 = 2;
 const MS_SYNC: u64 = 4;
@@ -78,7 +97,7 @@ fn map_file(spec: &Mapping, file: Arc<OpenFile>, offset: u64, shared: bool) -> u
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        let gone = super::mem::unmap_vmas(table, spec.base, spec.end, true);
+        let gone = unmap_vmas(table, spec.base, spec.end, true);
         replaced = super::mem::charged_len(&gone);
     }
     let kind = if shared {
@@ -112,7 +131,7 @@ fn map_snapshot(spec: &Mapping, fd: u64, offset: u64) -> u64 {
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        let gone = super::mem::unmap_vmas(table, spec.base, spec.end, true);
+        let gone = unmap_vmas(table, spec.base, spec.end, true);
         replaced = super::mem::charged_len(&gone);
     }
     let flags = crate::mem::prot_flags(spec.prot);
