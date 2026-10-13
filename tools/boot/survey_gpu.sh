@@ -250,8 +250,8 @@ done
 
 # Audio -------------------------------------------------------------------------------
 runsh 05-asound-cards.txt 'cat /proc/asound/cards 2>&1; echo; ls -l /proc/asound 2>&1'
-run 05-aplay-l.txt aplay -l
-run 05-aplay-L.txt aplay -L
+run 05-aplay-cards.txt aplay -l
+run 05-aplay-pcms.txt aplay -L
 runsh 05-eld.txt 'for f in /proc/asound/card*/eld#*; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'
 runsh 05-codecs.txt 'for f in /proc/asound/card*/codec#*; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'
 runsh 05-pcm-info.txt 'for f in /proc/asound/card*/pcm*/info; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'

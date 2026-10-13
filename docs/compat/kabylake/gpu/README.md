@@ -44,7 +44,7 @@ by hand or note why they are absent.
 | `03-dri*-i915_display_info`, `-i915_dmc_info`, `-i915_ddb_info`, `-i915_shared_dplls_info`, `-i915_power_domain_info`, `-i915_engine_info`, ... | the driver's own decode | pipe/DDI/PLL in use, DDB layout, engines and their MMIO bases |
 | `03-dri*-vbt.bin`, `03-intel_vbt_decode.txt`, `03-dri*-opregion.bin` | the VBT blob and its decode, the OpRegion | **DDI port, DDC pin, HDMI vs DP vs DVI, LSPCON flag**; `libs/gen9gfx` `tests_real` parses these |
 | `04-card*-connector.txt`, `04-*-edid.bin`, `.hex`, `-edid-decode.txt` | connector state, raw EDID, decode | modes, CEA audio blocks, HDMI VSDB; `tests_real` parses the EDID |
-| `05-eld.txt`, `05-codecs.txt`, `05-aplay-l.txt`, `05-pcm-info.txt`, `05-amixer.txt` | ELD per pin, full HDA codec dump, card and PCM listing | ELD valid/presence detect, converter-to-pin mapping, rates |
+| `05-eld.txt`, `05-codecs.txt`, `05-aplay-cards.txt`, `05-pcm-info.txt`, `05-amixer.txt` | ELD per pin, full HDA codec dump, card and PCM listing | ELD valid/presence detect, converter-to-pin mapping, rates |
 | `06-dmesg-*.txt`, `06-firmware.txt` | `i915`/`snd_hda`/`hdmi`/`dmc`/`guc`/`huc` log lines | DMC/GuC state, stepping, any quirk i915 applied |
 | `07-gt-freq.txt`, `07-thermal.txt` | frequency and temperature | the idle baseline of plan section 7 |
 
@@ -89,7 +89,9 @@ Redact before committing:
    so a wrong edit shows up in `cargo test -p gen9gfx`.
 3. Do not commit the firmware image blobs (`/lib/firmware/i915/*`); only the
    names and versions in `06-firmware.txt` are kept.
-4. File names must not contain `:` (they cannot be checked out on Windows):
+4. File names must not contain `:` and must not differ only in case
+   (`aplay -l` and `aplay -L` outputs are `05-aplay-cards.txt` and
+   `05-aplay-pcms.txt` for that reason; neither can be checked out on Windows):
    the script names debugfs files `03-dri<name>-...` with `:` turned into `_`
    and skips the symlinked duplicates (`dri/1`, `dri/128`).
 
