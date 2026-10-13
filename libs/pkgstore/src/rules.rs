@@ -30,6 +30,8 @@
 //!   loaded an approved rule set for ([`crate::develop`]).
 //! * **Resident** (`[entry] resident = true`) adds the interfaces and topic
 //!   [`crate::resident`] lists, compiled like the manifest's own entries.
+//! * **Processes** (`[processes.<name>]`, issue #832) are not part of the
+//!   app's rules: each is a child label of its own, compiled by [`children`].
 //!
 //! [`installed`] is what `pkgd` loads for an installed app: the manifest's
 //! rules plus the [`baseline`] every app gets without asking, telling `init`
@@ -283,6 +285,9 @@ pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     }
     Ok(rules)
 }
+
+mod children;
+pub use children::{children, dropped, Child};
 
 #[cfg(test)]
 mod tests;

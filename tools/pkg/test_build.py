@@ -215,7 +215,7 @@ def _case_manifest(case):
         '[app]\nname = "Demo"\nsystem_name = "org.lazy.demo"\nauthor = "Tester"\n'
         f'version = "{case.get("version", "1.0.0")}"\n{case.get("app", "")}\n'
         f'[entry]\nbinary = "bin/app.elf"\n{case.get("entry", "")}\n'
-        f'[permissions]\n{case.get("permissions", "")}\n'
+        f'[permissions]\n{case.get("permissions", "")}\n{case.get("processes", "")}\n'
     )
 
 
@@ -244,6 +244,8 @@ class SharedCaseTests(unittest.TestCase):
                     if "develop" in case:
                         permissions = manifest.get("permissions", {})
                         self.assertEqual(permissions.get("develop", False), case["develop"])
+                    if "children" in case:
+                        self.assertEqual(sorted(manifest.get("processes", {})), case["children"])
                 else:
                     self.assertTrue(any(case["error"] in p for p in problems), problems)
 
