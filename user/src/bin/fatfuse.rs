@@ -38,7 +38,7 @@ use user::trace;
 use fatvol::parts::{candidates, Slice, Window};
 use fatvol::{BlockIo, Clock, Fault, Options, Volume, MAX_IO};
 use fused::daemon::{serve_one, Buffers};
-use fused::wire::{FLAG_MEDIA, FLAG_RO};
+use fused::wire::{FLAG_MEDIA, FLAG_NOEXEC, FLAG_RO};
 use user::sys;
 
 /// Most disks one listing can carry (the kernel has eight slots).
@@ -126,6 +126,8 @@ struct RawDisk {
     writable: bool,
 }
 
+/// `ENODEV` and `ESTALE` are the medium (or its slot's disk) being gone;
+/// anything else is that request failing.
 fn fault(errno: i64) -> Fault {
     match errno {
         sys::ENODEV | sys::ESTALE => Fault::Gone,
@@ -160,6 +162,11 @@ impl BlockIo for RawDisk {
     }
 
     fn flush(&mut self) -> Result<(), Fault> {
+        // A write-protected stick has nothing to flush, and may answer the
+        // command with DATA PROTECT.
+        if !self.writable {
+            return Ok(());
+        }
         sys::block_flush(self.id).map_err(fault)
     }
 }
@@ -267,7 +274,9 @@ fn run() -> Result<(), Failed> {
         Some(name) => mount_name(name, &fallback),
         None => mount_name(volume.label(), &fallback),
     };
-    let flags = FLAG_MEDIA | if raw.writable { 0 } else { FLAG_RO };
+    // Nothing on a stick runs: its files carry no execute bit, and the mount
+    // says so too.
+    let flags = FLAG_MEDIA | FLAG_NOEXEC | if raw.writable { 0 } else { FLAG_RO };
     let mut registered = None;
     for attempt in 1..=NAME_TRIES {
         let name = if attempt == 1 {
@@ -315,9 +324,17 @@ fn run() -> Result<(), Failed> {
             Ok(false) => {
                 if dirty {
                     dirty = false;
-                    volume
-                        .settle()
-                        .map_err(|_| (Failure::Lost, String::from("cannot write the volume")))?;
+                    // A failed write ends the volume (the cache is no longer
+                    // the medium's state); the device's flush failing, or a
+                    // read timing out, does not.
+                    if volume.settle().is_err() && volume.failure().is_some() {
+                        let gone = volume.failure() == Some(Fault::Gone);
+                        return Err(if gone {
+                            (Failure::Lost, String::from("the medium was pulled"))
+                        } else {
+                            (Failure::Damaged, String::from("cannot write the volume"))
+                        });
+                    }
                 }
             }
             // The kernel took the mount away (it was unmounted, or its

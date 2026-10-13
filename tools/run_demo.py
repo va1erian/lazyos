@@ -87,7 +87,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui import osvolume  # noqa: E402
-from demo_qemu import device_env, sound_args  # noqa: E402
+from demo_qemu import device_env, sound_args, usb_env, usb_sticks  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
@@ -148,22 +148,6 @@ def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
     """Make sure the legacy data volume exists, resetting it only when asked to."""
     return prepare_volume("data disk", path, reset, assume_yes, mkdisk.seeded,
                           mkdisk.DEFAULT_LABEL)
-
-
-def prepare_usb_stick(path: Path) -> bool:
-    """Make sure a USB stick image exists: a missing one becomes an empty
-    64 MiB FAT32 stick (MBR, one partition, label LAZYFAT) made by
-    `libs/fatvol`'s `fatstick`. An existing file is never touched."""
-    if path.is_file():
-        return True
-    path.parent.mkdir(parents=True, exist_ok=True)
-    command = ["cargo", "run", "-q", "-p", "fatvol", "--example", "fatstick", "--",
-               "make", str(path.resolve()), "--size", "64M", "--label", "LAZYFAT"]
-    print(f"creating the USB stick {path} (64 MiB FAT32, label LAZYFAT)", flush=True)
-    if subprocess.run(command, cwd=ROOT).returncode != 0 or not path.is_file():
-        print(f"could not create the USB stick {path}", file=sys.stderr)
-        return False
-    return True
 
 
 def prepare_home_disk(path: Path, reset: bool, assume_yes: bool, empty: bool = False) -> bool:
@@ -402,11 +386,7 @@ def main(argv: list[str]) -> int:
         if args.traydemo:
             # Built with the other xui apps above (`TRAYDEMO_APPS`).
             env["LAZYOS_TRAYDEMO"] = "1"
-        if args.usb_stick:
-            # Sticks in the guest need the driver and a session that starts it.
-            env["LAZYOS_USB"] = "1"
-            if not args.desktop:
-                env["LAZYOS_SERVICES"] = "1"
+        env.update(usb_env(args.usb_stick, args.desktop))
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).
@@ -459,18 +439,12 @@ def main(argv: list[str]) -> int:
         if not prepare_data_disk(data_disk, args.reset_data, args.yes):
             return 1
 
-    sticks = [Path(p) for p in args.usb_stick]
-    for stick in sticks:
-        if not prepare_usb_stick(stick):
-            return 1
-
+    stick_args = usb_sticks(args.usb_stick)  # makes a missing image
+    if stick_args is None:
+        return 1
     qemu = find_qemu(args.qemu)
-    command = [
-        qemu,
-        "-m", args.memory,
-        "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-        "-serial", "mon:stdio",
-    ]
+    command = [qemu, "-m", args.memory, "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+               "-serial", "mon:stdio"]
     # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
     # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
     if args.disk == "virtio":
@@ -489,13 +463,7 @@ def main(argv: list[str]) -> int:
         command += data_disk_args(data_disk)
     if home_disk:
         command += home_disk_args(home_disk)
-    if sticks:
-        # One xHCI controller; each stick is its own drive and device, named
-        # so the monitor can unplug and plug it (`usbstick<n>`, `ustk<n>`).
-        command += ["-device", "qemu-xhci,id=xhci"]
-        for index, stick in enumerate(sticks):
-            command += ["-drive", f"format=raw,file={stick},if=none,id=ustk{index}",
-                        "-device", f"usb-storage,bus=xhci.0,drive=ustk{index},id=usbstick{index}"]
+    command += stick_args
     if args.sound:
         command += sound_args(args.sound, args.sound_card)
     if args.net:

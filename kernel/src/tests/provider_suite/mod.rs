@@ -5,6 +5,7 @@
 //! dies or stops answering mid-request, and the syscall 33 gate.
 
 mod cache;
+mod claims;
 mod hostile;
 mod io;
 mod lifecycle;
@@ -419,7 +420,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     (
         "provider_raw_syscalls_are_gated_and_checked",
-        lifecycle::raw_syscalls_are_gated_and_checked,
+        claims::raw_syscalls_are_gated_and_checked,
+    ),
+    (
+        "provider_kernel_mounted_disk_is_pinned",
+        lifecycle::kernel_mounted_disk_is_pinned,
+    ),
+    (
+        "provider_stale_provider_handle_is_refused",
+        lifecycle::stale_provider_handle_is_refused,
     ),
     ("provider_churn_one_slot_400_times", lifecycle::churn),
 ];

@@ -15,10 +15,11 @@
 //!   op 11 FLUSH(id)              the device's write cache -> 0
 //! ```
 //!
-//! The caller needs `CAP_FS_PROVIDER` and a filesystem-provider uid
-//! (`mounttable::FS_PROVIDER_UIDS`): the processes `mountd` starts for a
-//! volume, and root. A claim is exclusive and tied to the generation of the
-//! disk it was taken on; reads and writes go through the same requests the
+//! The caller needs `CAP_FS_PROVIDER`, a filesystem-provider uid
+//! (`mounttable::FS_PROVIDER_UIDS`) **and** to have been started from
+//! `fatfuse`'s program ([`may_claim`]). A claim is exclusive, refused on a
+//! disk the kernel mounted a volume through, and tied to the generation of
+//! the disk it was taken on; reads and writes go through the same requests the
 //! kernel's own filesystems make, data only ever through a kernel buffer.
 //! A medium that is gone answers `ENODEV`, which the daemon takes as the end
 //! of its volume.
@@ -73,12 +74,19 @@ fn errno(error: RawError) -> u64 {
     })
 }
 
-/// Whether task `me` may claim and use a disk raw.
+/// Whether task `me` may claim and use a disk raw: a filesystem provider
+/// (`CAP_FS_PROVIDER` and a provider uid) **started from the volume daemon's
+/// program**. `ftpfuse` and `smbfuse` hold the same capability and uid (they
+/// are `mountd`'s children too) and parse hostile network input; the program
+/// path is what keeps them from the disks. It is the path `spawnv` was given
+/// (`task::linuxstate::record_program`), and `/system/bin` is no one's to
+/// write, so no other program can pass for it.
 pub fn may_claim(me: usize) -> bool {
     let cred = credentials::of(me);
     me != task::KERNEL_TASK
         && cred.has_cap(CAP_FS_PROVIDER)
         && mounttable::FS_PROVIDER_UIDS.contains(&cred.uid)
+        && task::linuxstate::program_of(me).is_some_and(|path| &*path == fhs::bin::FATFUSE)
 }
 
 /// Ops 6-11 for task `me`.

@@ -81,6 +81,21 @@ fn rename_moves_files_and_trees_and_replaces() {
 }
 
 #[test]
+fn a_directory_cannot_move_into_itself_in_any_case() {
+    let (mut vol, _) = volume(32);
+    vol.mkdir("Docs", 0o755, 0, 0).unwrap();
+    vol.mkdir("Docs/inner", 0o755, 0, 0).unwrap();
+    for to in ["docs/x", "DOCS/inner/x", "Docs/INNER/y/z", "docs/Inner"] {
+        assert_errno(vol.rename("Docs", to), e::EINVAL);
+        assert_errno(vol.rename("docs", to), e::EINVAL);
+    }
+    // A sibling whose name only starts the same is fine.
+    vol.rename("Docs", "Docs2").unwrap();
+    assert_eq!(names(&mut vol, ""), ["Docs2"]);
+    assert_eq!(names(&mut vol, "Docs2"), ["inner"]);
+}
+
+#[test]
 fn nodes_name_files_by_inode_and_go_stale() {
     let (mut vol, _) = volume(16);
     put(&mut vol, "n.txt", b"abcdef").unwrap();

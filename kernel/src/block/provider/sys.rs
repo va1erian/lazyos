@@ -4,7 +4,9 @@
 //!   rdi = op, rsi/rdx/r10/r8 = a1..a4; every return is a value or -errno
 //!
 //!   op 0 REGISTER(info)           info -> [u64; 4] {sectors, sector_size,
-//!                                 flags (bit 0 writable), 0} -> disk id
+//!                                 flags (bit 0 writable), 0} -> the disk's
+//!                                 handle: its slot (`usb<n>`, low byte) and
+//!                                 generation above it, which ops 1-3 take
 //!   op 1 NEXT(id, req, data, cap|deadline << 32)
 //!                                 wait until `deadline` (absolute ticks,
 //!                                 capped at now + 1 s) for a request;
@@ -104,10 +106,9 @@ pub fn dispatch(operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
             crate::fs::late::provider_scanned();
             0
         }
-        op::REMOVE => match usize::try_from(a1).map(|id| super::remove(id, me)) {
-            Ok(Ok(())) => 0,
-            Ok(Err(error)) => errno(error),
-            Err(_) => negative(EINVAL),
+        op::REMOVE => match super::resolve(a1).and_then(|id| super::remove(id, me)) {
+            Ok(()) => 0,
+            Err(error) => errno(error),
         },
         _ => negative(EINVAL),
     }
@@ -126,14 +127,14 @@ fn register(me: usize, info: u64) -> u64 {
         return negative(EINVAL);
     }
     match super::register(me, sectors, flags & FLAG_WRITABLE != 0) {
-        Ok(id) => id as u64,
+        Ok(id) => super::handle(id),
         Err(error) => errno(error),
     }
 }
 
-fn next(me: usize, id: u64, req: u64, data: u64, packed: u64) -> u64 {
-    let Ok(id) = usize::try_from(id) else {
-        return negative(EINVAL);
+fn next(me: usize, handle: u64, req: u64, data: u64, packed: u64) -> u64 {
+    let Ok(id) = super::resolve(handle) else {
+        return negative(ESRCH);
     };
     // The record must be writable before a request is taken for it.
     if user_ptr::try_copy_words(req, &[0; 4]).is_err() {
@@ -171,9 +172,9 @@ fn write_request(req: u64, request: &Request) -> u64 {
     }
 }
 
-fn complete(me: usize, id: u64, tag: u64, code: u64, data: u64) -> u64 {
-    let Ok(id) = usize::try_from(id) else {
-        return negative(EINVAL);
+fn complete(me: usize, handle: u64, tag: u64, code: u64, data: u64) -> u64 {
+    let Ok(id) = super::resolve(handle) else {
+        return negative(ESRCH);
     };
     let mut copy_in = |bounce: &mut [u8]| {
         if bounce.len() > MAX_REQUEST_BYTES {

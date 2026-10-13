@@ -252,7 +252,7 @@ pub fn exit_reason(status: u64) -> String {
         11 => "the disk is in use",
         12 => "no FAT volume on the disk",
         13 => "the volume cannot be read",
-        14 => "cannot mount the volume (its name is in use)",
+        14 => "cannot mount the volume (no /media, or every name is in use)",
         15 => "the disk was removed",
         129..=191 => return format!("the daemon was stopped (signal {})", status - 128),
         _ => return format!("the daemon exited with status {status}"),

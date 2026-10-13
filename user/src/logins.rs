@@ -11,9 +11,10 @@
 //! holds) and believes that answer. A console `logind` sitting at the login
 //! prompt answers only after the next key, so the question has a short
 //! deadline; when it goes unanswered after an `end` hint, the user named in
-//! it is dropped anyway (dropping only ever stops auto-connect, so a forged
-//! `end` costs nothing worse than a manual `Connect`), and nothing is ever
-//! added on a hint alone.
+//! it is dropped anyway (for `wlanmd` dropping only stops auto-connect; for
+//! `mountd` it unmounts that user's volumes, which a forged `end` could
+//! cause until the next answer from `logind` puts the session back: a
+//! nuisance, never a way in), and nothing is ever added on a hint alone.
 //!
 //! Serial: `<CHANNEL>:USERS <uid,...>` when the set changes, on the channel
 //! of the service that asked.

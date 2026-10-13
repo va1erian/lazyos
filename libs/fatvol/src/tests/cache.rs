@@ -198,3 +198,48 @@ fn a_cut_after_any_write_still_mounts() {
         }
     }
 }
+
+#[test]
+fn a_failed_read_is_that_requests_error_alone() {
+    let (mut vol, disk) = volume(16);
+    put(&mut vol, "keep.txt", &pattern(3000, 7)).unwrap();
+    vol.settle().unwrap();
+    drop(vol);
+    let mut vol = open(&disk, opts());
+    vol.lookup(path("keep.txt")).unwrap(); // the directory is warm now
+    // The file's data is cold: the read that has to go to the stick fails
+    // once (a slow stick that timed out), and the next request is answered.
+    disk.fail_next_reads(1);
+    let mut buf = [0u8; 3000];
+    assert_errno(vol.read(path("keep.txt"), 0, &mut buf), e::EIO);
+    assert_eq!(vol.failure(), None);
+    assert_eq!(get(&mut vol, "keep.txt").unwrap(), pattern(3000, 7));
+    // Writing still works afterwards.
+    put(&mut vol, "after.txt", b"ok").unwrap();
+}
+
+#[test]
+fn reads_never_flush_the_device_and_a_read_only_mount_writes_nothing() {
+    let (mut vol, disk) = volume(32);
+    put(&mut vol, "r.txt", b"data").unwrap();
+    vol.settle().unwrap();
+    let flushes = disk.flushes();
+    for _ in 0..5 {
+        assert_eq!(get(&mut vol, "r.txt").unwrap(), b"data");
+        vol.settle().unwrap();
+    }
+    assert_eq!(disk.flushes(), flushes, "idle reads sent a flush");
+    // A write-protected stick: settling after reads must not touch it.
+    disk.set_read_only(true);
+    drop(vol);
+    let mut vol = open(
+        &disk,
+        Options {
+            writable: false,
+            ..opts()
+        },
+    );
+    get(&mut vol, "r.txt").unwrap();
+    vol.settle().unwrap();
+    assert_eq!(disk.flushes(), flushes);
+}

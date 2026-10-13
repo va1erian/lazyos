@@ -165,8 +165,15 @@ def judge(log: str) -> list[str]:
         failures.append(f"the pulled stick's daemon was neither stopped nor ended: {ended}")
     if f"fuse: {MOUNT} unmounted" not in log:
         failures.append("the pulled stick's mount was never taken out")
-    if not any("no FAT volume" in line for line in ended):
-        failures.append(f"the home stick was not looked at and left alone: {ended}")
+    # The home stick is the kernel's (`/home` is mounted through it): no
+    # daemon is started for it, and it is never offered for a raw claim.
+    if "MOUNTD:VOLUME START usb0 " in log:
+        failures.append("a volume daemon was started for the home stick")
+    # The pulled stick's slot is the next plug's: generation 2 of the same id.
+    slots = re.findall(r"block: (usb\d+) registered by task \d+: \d+ sectors \(rw\), generation (\d+)", log)
+    reused = [(name, int(gen)) for name, gen in slots if int(gen) >= 2]
+    if not reused:
+        failures.append(f"the replugged stick did not reuse its disk slot: {slots}")
     for pattern, why in [
         (r"FATFUSE:FAIL", "fatfuse failed"),
         (r"LazyOS PANIC", "a kernel panic"),

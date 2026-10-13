@@ -19,6 +19,8 @@ struct Inner {
     log: Vec<(u64, usize)>,
     /// Fail with `Fault::Io` once this many more writes have landed.
     fail_writes_after: Option<u64>,
+    /// Fail this many of the next reads with `Fault::Io`.
+    fail_reads: u64,
     gone: bool,
     read_only: bool,
 }
@@ -102,6 +104,11 @@ impl MemDisk {
         self.inner.borrow_mut().fail_writes_after = Some(count);
     }
 
+    /// The next `count` reads fail with `Fault::Io`, then reads work again.
+    pub fn fail_next_reads(&self, count: u64) {
+        self.inner.borrow_mut().fail_reads = count;
+    }
+
     pub fn unplug(&self) {
         self.inner.borrow_mut().gone = true;
     }
@@ -120,6 +127,10 @@ impl BlockIo for MemDisk {
         let mut inner = self.inner.borrow_mut();
         if inner.gone {
             return Err(Fault::Gone);
+        }
+        if inner.fail_reads > 0 {
+            inner.fail_reads -= 1;
+            return Err(Fault::Io);
         }
         let from = lba as usize * SECTOR;
         let slice = inner.bytes.get(from..from + buf.len()).ok_or(Fault::Eof)?;

@@ -308,9 +308,13 @@ opt-level = "s"
 
 # rust-fatfs does its cluster arithmetic in `u32`: a damaged FAT or directory
 # entry makes `cluster * 4` overflow. With checks that is a panic (which aborts
-# `fatfuse` and costs the mount); without, it is a wild offset that the sector
-# cache refuses as past the end of the volume (libs/fatvol, tests/hostile.rs).
-[profile.dev.package.fatfs]
+# `fatfuse` and costs the mount); without, it wraps to some other offset of the
+# same volume (a wrong sector, or past its end, which the sector cache refuses;
+# `Slice` confines every access to the volume's window, so nothing outside it
+# is reachable). Release builds already have the checks off. Only 0.4.0, the
+# `libs/fatvol` one: the host image builder's fatfs 0.3 keeps its checks.
+# (libs/fatvol, tests/hostile.rs)
+[profile.dev.package."fatfs@0.4.0"]
 overflow-checks = false
 
 # The full kernel ELF (with line tables) stays in `target/` for panic triage;

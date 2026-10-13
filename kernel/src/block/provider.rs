@@ -57,7 +57,8 @@ use super::{BlockDevice, BlockError};
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
 pub use lifecycle::{
-    claim, list, raw_flush, raw_read, raw_write, register, release, RawError,
+    claim, handle, list, mark_in_use, raw_flush, raw_read, raw_write, register, release,
+    resolve, RawError,
 };
 #[cfg(lazyos_tests)]
 pub use lifecycle::{read_as_generation, write_as_generation};
@@ -169,6 +170,9 @@ struct State {
     generation: u64,
     /// The task that holds the exclusive raw claim on the disk, if any.
     claim: Option<usize>,
+    /// The kernel mounted a volume through this disk (the late `/home`
+    /// mount): no daemon may claim it raw, and its slot is never reused.
+    in_use: bool,
     stats: Stats,
 }
 
@@ -212,6 +216,7 @@ impl UserDisk {
                 scanned: false,
                 generation: 0,
                 claim: None,
+                in_use: false,
                 stats: Stats {
                     requests: 0,
                     errors: 0,

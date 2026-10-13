@@ -43,6 +43,7 @@ pub struct DiskInfo {
     pub generation: u64,
     pub sectors: u64,
     pub writable: bool,
+    /// Claimed by a daemon, or used by a kernel mount: not available.
     pub claimed: bool,
 }
 
@@ -71,7 +72,12 @@ impl State {
     /// Whether the slot can take a new disk: the old one is dead and nothing
     /// refers to it.
     pub(super) fn reclaimable(&self) -> bool {
-        self.registered && !self.alive && !self.busy && !self.scanned && self.claim.is_none()
+        self.registered
+            && !self.alive
+            && !self.busy
+            && !self.scanned
+            && !self.in_use
+            && self.claim.is_none()
     }
 }
 
@@ -108,6 +114,7 @@ pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, Pro
             state.taken_at = 0;
             state.timeouts = 0;
             state.scanned = false;
+            state.in_use = false;
             state.claim = None;
             state.stats = Stats::default();
             // Tags carry the slot, so one disk's tag never matches
@@ -136,6 +143,29 @@ pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, Pro
     Ok(disk.index)
 }
 
+/// The handle a provider names disk `index` by: the slot in the low byte and
+/// the generation above it. Every provider operation (`NEXT`, `COMPLETE`,
+/// `REMOVE`) takes it, so a provider that still holds the handle of a disk
+/// that has died cannot serve, complete or remove the disk its slot was
+/// given to next, even when both are the same task (`usbd` registers the
+/// next stick before it has noticed the old one is gone).
+pub fn handle(index: usize) -> u64 {
+    let generation = DISKS.get(index).map_or(0, |disk| disk.state.lock().generation);
+    generation << 8 | index as u64
+}
+
+/// The slot `handle` names, if the disk it was made for still holds it.
+pub fn resolve(handle: u64) -> Result<usize, ProviderError> {
+    let index = (handle & 0xFF) as usize;
+    let disk = DISKS.get(index).ok_or(ProviderError::NotOwner)?;
+    let state = disk.state.lock();
+    if state.registered && state.generation == handle >> 8 {
+        Ok(index)
+    } else {
+        Err(ProviderError::NotOwner)
+    }
+}
+
 /// Every live disk.
 pub fn list() -> Vec<DiskInfo> {
     DISKS
@@ -147,7 +177,7 @@ pub fn list() -> Vec<DiskInfo> {
                 generation: state.generation,
                 sectors: state.sectors,
                 writable: state.writable,
-                claimed: state.claim.is_some(),
+                claimed: state.claim.is_some() || state.in_use,
             })
         })
         .collect()
@@ -161,13 +191,33 @@ pub fn claim(id: usize, generation: u64, owner: usize) -> Result<(), RawError> {
     if !state.alive || state.generation != generation {
         return Err(RawError::Stale);
     }
-    if state.claim.is_some() {
+    // A volume the kernel mounted through this disk is the kernel's: a
+    // daemon reading it raw would see every user's files, and one writing it
+    // would corrupt a mounted filesystem.
+    if state.in_use || state.claim.is_some() {
         return Err(RawError::Busy);
     }
     state.claim = Some(owner);
     drop(state);
     serial_println!("block: {} claimed by task {owner}", NAMES[id]);
     Ok(())
+}
+
+/// The kernel mounted a volume of the device `name` (`usb<n>` or its
+/// partition `usb<n>p<k>`): pin its disk (see `State::in_use`).
+pub fn mark_in_use(name: &str) {
+    let Some(rest) = name.strip_prefix("usb") else {
+        return;
+    };
+    let digits: usize = rest.chars().take_while(char::is_ascii_digit).count();
+    let Ok(index) = rest[..digits].parse::<usize>() else {
+        return;
+    };
+    if let Some(disk) = DISKS.get(index) {
+        let mut state = disk.state.lock();
+        state.in_use = true;
+        state.scanned = true;
+    }
 }
 
 /// Give the claim on disk `id` up.

@@ -90,7 +90,8 @@ pub fn gate() -> Result<(), String> {
         );
         for id in 0..provider::MAX_PROVIDERS as u64 {
             let got = register_call(64 + id, 512, FLAG_WRITABLE);
-            check!(got == id, "registration {id} returned {got:#x}");
+            check!(got & 0xFF == id, "registration {id} returned {got:#x}");
+            check!(got == provider::handle(id as usize), "the handle of {id}");
         }
         check!(register_call(64, 512, 1) == failed(EBUSY), "a ninth disk");
         let device = crate::block::device("usb7").ok_or("usb7 not in the registry")?;
@@ -102,18 +103,18 @@ pub fn gate() -> Result<(), String> {
         let me = task::current();
         task_with(usb, CAP_BLOCK_PROVIDER)?;
         let mut req = [0u64; 4];
-        let next = call(op::NEXT, 0, req.as_mut_ptr() as u64, 0, 0);
+        let next = call(op::NEXT, provider::handle(0), req.as_mut_ptr() as u64, 0, 0);
         check!(
             next == failed(ESRCH),
             "another _usb task took a request: {next:#x}"
         );
         check!(
-            call(op::REMOVE, 0, 0, 0, 0) == failed(ESRCH),
+            call(op::REMOVE, provider::handle(0), 0, 0, 0) == failed(ESRCH),
             "another _usb task removed a disk"
         );
         task::harness::switch_current(me);
         check!(
-            call(op::REMOVE, 0, 0, 0, 0) == 0,
+            call(op::REMOVE, provider::handle(0), 0, 0, 0) == 0,
             "the owner could not remove its disk"
         );
 
@@ -173,13 +174,13 @@ fn serve_sys(index: usize) {
     let record = req.as_mut_ptr() as u64;
     let got = if trick == Trick::BadRecord {
         let previous = user_ptr::set_trust_kernel_pointers(false);
-        let got = call(op::NEXT, index as u64, 0x10, data.as_mut_ptr() as u64, cap);
+        let got = call(op::NEXT, provider::handle(index), 0x10, data.as_mut_ptr() as u64, cap);
         user_ptr::set_trust_kernel_pointers(previous);
         got
     } else {
         call(
             op::NEXT,
-            index as u64,
+            provider::handle(index),
             record,
             data.as_mut_ptr() as u64,
             cap,
@@ -203,13 +204,13 @@ fn serve_sys(index: usize) {
     }
     let done = if trick == Trick::BadData {
         let previous = user_ptr::set_trust_kernel_pointers(false);
-        let done = call(op::COMPLETE, index as u64, tag, status::OK, 0x10);
+        let done = call(op::COMPLETE, provider::handle(index), tag, status::OK, 0x10);
         user_ptr::set_trust_kernel_pointers(previous);
         done
     } else {
         call(
             op::COMPLETE,
-            index as u64,
+            provider::handle(index),
             tag,
             status::OK,
             data.as_ptr() as u64,
@@ -245,7 +246,7 @@ pub fn request_cycle() -> Result<(), String> {
         let results = take_results();
         check!(results == [1, 0, 1, 0, 1, 0], "provider saw {results:x?}");
         // Nothing queued: NEXT reports none, COMPLETE is stale.
-        let id = with_fake(|fake| fake.disk) as u64;
+        let id = provider::handle(with_fake(|fake| fake.disk));
         let mut req = [0u64; 4];
         let next = call(op::NEXT, id, req.as_mut_ptr() as u64, 0, 0);
         check!(next == 0, "NEXT on an idle disk: {next:#x}");
@@ -320,7 +321,7 @@ pub fn hostile_lengths() -> Result<(), String> {
             "the disk did not recover"
         );
         // A completion naming nothing in flight is stale.
-        let id = with_fake(|fake| fake.disk) as u64;
+        let id = provider::handle(with_fake(|fake| fake.disk));
         let stale = call(op::COMPLETE, id, 0, status::OK, 0);
         check!(
             stale == failed(ESTALE),

@@ -4,11 +4,8 @@
 //! is exclusive, generation-bound, gated and dropped with its task.
 
 use super::*;
-use crate::block::provider::rawsys::op;
-use crate::block::provider::sys as storage;
 use crate::block::provider::{RawError, MAX_REQUEST_BYTES};
 use crate::ipc::credentials::CAP_FS_PROVIDER;
-use crate::user_ptr;
 
 const ENOENT: i64 = 2;
 const EPERM: i64 = 1;
@@ -17,14 +14,15 @@ const ENODEV: i64 = 19;
 const EINVAL: i64 = 22;
 const EROFS: i64 = 30;
 const ESTALE: i64 = 116;
+const ESRCH_: i64 = 3;
 
-fn failed(code: i64) -> u64 {
+pub(super) fn failed(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
 /// A daemon task (`_mountd` with `CAP_FS_PROVIDER`), made current; returns
 /// its slot.
-fn daemon_task() -> Result<usize, String> {
+pub(super) fn daemon_task() -> Result<usize, String> {
     task::harness::switch_current(task::KERNEL_TASK);
     let slot = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
     credentials::set(
@@ -37,15 +35,17 @@ fn daemon_task() -> Result<usize, String> {
             0,
         ),
     );
+    // The program `mountd` starts it from: the claim gate looks at it.
+    task::linuxstate::record_program(slot, fhs::bin::FATFUSE);
     task::harness::switch_current(slot);
     Ok(slot)
 }
 
-fn disk_id() -> usize {
+pub(super) fn disk_id() -> usize {
     with_fake(|fake| fake.disk)
 }
 
-fn owner() -> usize {
+pub(super) fn owner() -> usize {
     with_fake(|fake| fake.owner)
 }
 
@@ -57,7 +57,7 @@ fn fresh_store() {
     });
 }
 
-fn generation_of(id: usize) -> Option<u64> {
+pub(super) fn generation_of(id: usize) -> Option<u64> {
     provider::list()
         .iter()
         .find(|info| info.id == id)
@@ -266,111 +266,74 @@ pub fn claim_dies_with_its_task() -> Result<(), String> {
     result
 }
 
-pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
+/// A disk the kernel mounted a volume through (the late `/home` mount) is
+/// the kernel's: no daemon claims it, it is listed as taken, and its slot is
+/// never reused.
+pub fn kernel_mounted_disk_is_pinned() -> Result<(), String> {
     let _ = setup(Mode::Normal)?;
     let result = (|| {
         let (id, me) = (disk_id(), owner());
         let generation = generation_of(id).ok_or("not listed")?;
-        let call = |operation, a1, a2, a3, a4| storage::dispatch(operation, a1, a2, a3, a4);
-        let id64 = id as u64;
-        // The provider (`_usb`, CAP_BLOCK_PROVIDER) is not a daemon, nor is
-        // another uid with the capability, nor root without it.
-        task::harness::switch_current(me);
+        let daemon = daemon_task()?;
+        provider::mark_in_use(&format!("usb{id}p1"));
         check!(
-            call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),
-            "the provider claimed"
+            provider::claim(id, generation, daemon) == Err(RawError::Busy),
+            "a daemon claimed a kernel-mounted disk"
         );
-        let stranger = {
-            task::harness::switch_current(task::KERNEL_TASK);
-            let slot = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
-            credentials::set(slot, Cred::new(1000, 1000, CAP_FS_PROVIDER, 0, 0));
-            task::harness::switch_current(slot);
-            slot
-        };
-        check!(
-            call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),
-            "uid 1000 claimed"
-        );
-        let _ = stranger;
-        task::harness::switch_current(task::KERNEL_TASK);
-        check!(
-            call(op::DISKS, 0, 0, 0, 0) == failed(EPERM),
-            "the kernel task listed"
-        );
-        let _daemon = daemon_task()?;
-        // The listing: one record of four words.
-        let mut words = [0u64; 8];
-        let listed = call(op::DISKS, words.as_mut_ptr() as u64, 64, 0, 0);
-        check!(listed == 1, "listed {listed:#x}");
-        check!(
-            words[..4] == [id64, generation, SECTORS, 1],
-            "the record {:x?}",
-            &words[..4]
-        );
-        check!(
-            call(op::DISKS, words.as_mut_ptr() as u64, 31, 0, 0) == 0,
-            "a buffer too small for one record"
-        );
-        // Claim, then hostile reads and writes.
-        check!(
-            call(op::CLAIM, id64, generation + 1, 0, 0) == failed(ESTALE),
-            "stale generation"
-        );
-        check!(
-            call(op::CLAIM, 99, generation, 0, 0) == failed(ENOENT),
-            "no such disk"
-        );
-        check!(call(op::CLAIM, id64, generation, 0, 0) == 0, "claim");
-        check!(
-            call(op::CLAIM, id64, generation, 0, 0) == failed(EBUSY),
-            "claim twice"
-        );
-        let mut sector = vec![0u8; SECTOR_SIZE];
-        let ptr = sector.as_mut_ptr() as u64;
-        check!(
-            call(op::READ, id64, 0, ptr, 100) == failed(EINVAL),
-            "a partial sector"
-        );
-        check!(
-            call(op::READ, id64, SECTORS, ptr, SECTOR_SIZE as u64) == failed(EINVAL),
-            "past the end"
-        );
-        check!(
-            call(op::READ, id64, 0, ptr, (MAX_REQUEST_BYTES + SECTOR_SIZE) as u64)
-                == failed(EINVAL),
-            "longer than a request"
-        );
-        let previous = user_ptr::set_trust_kernel_pointers(false);
-        let bad = call(op::READ, id64, 0, 0x10, SECTOR_SIZE as u64);
-        let bad_write = call(op::WRITE, id64, 0, 0x10, SECTOR_SIZE as u64);
-        user_ptr::set_trust_kernel_pointers(previous);
-        check!(bad == failed(14), "an unwritable buffer: {bad:#x}");
-        check!(bad_write == failed(14), "an unreadable buffer: {bad_write:#x}");
-        sector.fill(0xA7);
-        check!(
-            call(op::WRITE, id64, 5, ptr, SECTOR_SIZE as u64) == SECTOR_SIZE as u64,
-            "write"
-        );
-        sector.fill(0);
-        check!(
-            call(op::READ, id64, 5, ptr, SECTOR_SIZE as u64) == SECTOR_SIZE as u64,
-            "read"
-        );
-        check!(sector.iter().all(|&b| b == 0xA7), "read back other bytes");
-        check!(call(op::FLUSH, id64, 0, 0, 0) == 0, "flush");
-        check!(call(op::RELEASE, id64, 0, 0, 0) == 0, "release");
-        check!(
-            call(op::READ, id64, 5, ptr, SECTOR_SIZE as u64) == failed(EPERM),
-            "read after release"
-        );
-        // A dead medium is ENODEV to a claimant, a read-only one EROFS.
-        check!(call(op::CLAIM, id64, generation, 0, 0) == 0, "claim again");
+        let listed = provider::list();
+        let info = listed.iter().find(|info| info.id == id).ok_or("not listed")?;
+        check!(info.claimed, "a kernel-mounted disk is listed as available");
         provider::remove(id, me).map_err(|e| format!("{e:?}"))?;
-        check!(
-            call(op::READ, id64, 5, ptr, SECTOR_SIZE as u64) == failed(ENODEV),
-            "read of a dead medium"
+        let again = provider::register(me, SECTORS, true).map_err(|e| format!("{e:?}"))?;
+        check!(again != id, "a kernel-mounted disk's slot was reused");
+        Ok(())
+    })();
+    teardown();
+    result
+}
+
+/// A provider keeps the handle of the disk it registered. Once that disk is
+/// dead and the slot is the next one's, the old handle serves, completes and
+/// removes nothing, though both are the same task: `usbd` registers the next
+/// stick before it has noticed the old one is gone.
+pub fn stale_provider_handle_is_refused() -> Result<(), String> {
+    let _ = setup(Mode::Normal)?;
+    let result = (|| {
+        let (id, me) = (disk_id(), owner());
+        let old = provider::handle(id);
+        provider::remove(id, me).map_err(|e| format!("{e:?}"))?;
+        let again = provider::register(me, SECTORS, true).map_err(|e| format!("{e:?}"))?;
+        check!(again == id, "slot {again}, wanted {id}");
+        let new = provider::handle(id);
+        check!(new != old, "the handle did not change with the generation");
+        let call = |op, handle: u64| crate::block::provider::sys::dispatch(op, handle, 0, 0, 0);
+        use crate::block::provider::sys::op as provider_op;
+        task::harness::switch_current(me);
+        let mut record = [0u64; 4];
+        let next = crate::block::provider::sys::dispatch(
+            provider_op::NEXT,
+            old,
+            record.as_mut_ptr() as u64,
+            0,
+            0,
         );
-        let _ = EROFS;
+        check!(next == failed(ESRCH_), "NEXT on the old handle: {next:#x}");
+        check!(
+            call(provider_op::COMPLETE, old) == failed(ESRCH_),
+            "COMPLETE on the old handle"
+        );
+        check!(
+            call(provider_op::REMOVE, old) == failed(ESRCH_),
+            "REMOVE on the old handle"
+        );
+        check!(
+            provider::list().iter().any(|info| info.id == id),
+            "the old handle killed the new disk"
+        );
+        check!(
+            call(provider_op::REMOVE, new) == 0,
+            "the new handle could not remove its disk"
+        );
         Ok(())
     })();
     teardown();

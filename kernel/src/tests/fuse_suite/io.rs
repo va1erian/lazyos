@@ -334,7 +334,6 @@ pub fn media_mounts() -> Result<(), String> {
                 && mounts.iter().any(|(p, _)| p == "/mnt/t"),
             "after unregister: {mounts:?}"
         );
-        // With no `/media` directory the registration is refused.
         Ok(())
     })
 }

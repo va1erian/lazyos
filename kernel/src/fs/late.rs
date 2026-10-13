@@ -98,6 +98,9 @@ pub fn settle() -> u32 {
     if PENDING.lock().take().is_none() {
         return state::MOUNTED_EARLIER;
     }
+    // The disk is the kernel's from here on: no daemon claims it raw, and its
+    // slot is never reused (the mount holds it for good).
+    provider::mark_in_use(device.name());
     super::mounts::reclaim_orphans(&volume, fhs::mount::HOME);
     let flags = flags.union(MountFlags {
         nosuid: true,

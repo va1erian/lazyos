@@ -240,6 +240,25 @@ pub fn exe() -> Option<Arc<str>> {
         .and_then(|task| task.linux.exe.clone())
 }
 
+/// Record the program a native task was started from (`spawnv`), which
+/// `slot` is not yet running: unlike [`set_exe`] it leaves the share groups.
+pub fn record_program(slot: usize, path: &str) {
+    let new: Arc<str> = Arc::from(path);
+    let old = TASKS.lock()[slot]
+        .as_mut()
+        .and_then(|task| task.linux.exe.replace(new));
+    drop(old);
+}
+
+/// The program task `slot` was started from, if one was recorded.
+pub fn program_of(slot: usize) -> Option<Arc<str>> {
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .and_then(|task| task.linux.exe.clone())
+}
+
 /// Record the calling task's new program (`execve`), and leave any
 /// descriptor-table share group: like Linux, an image that replaces a thread's
 /// program stops sharing its table with the old threads.

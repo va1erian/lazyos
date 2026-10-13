@@ -16,9 +16,12 @@
 //! requests instead of thousands. Nothing is ever held back past an
 //! operation: a stick that is pulled has nothing in this process to lose.
 //!
-//! A failed device request is sticky: every later call fails with the same
+//! A failed **write** is sticky: every later call fails with the same
 //! [`Fault`], because the sectors that did not land are still dirty and the
-//! volume above no longer knows what is on the medium.
+//! volume above no longer knows what is on the medium. So is a medium that
+//! is gone. A failed **read** is only that call's error (a slow stick that
+//! timed out once answers the next request), and the device's own flush is
+//! only sent after something was written.
 //!
 //! Large aligned transfers (a file's data) bypass the pages: they would only
 //! be copied through and evict the metadata that makes the next lookup fast.
@@ -26,10 +29,12 @@
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use core::cell::RefCell;
 
-use alloc::rc::Rc;
-use fatfs::{IoBase, IoError, Read, Seek, SeekFrom, Write};
+use fatfs::IoError;
+
+mod stream;
+
+pub use stream::Shared;
 
 /// Bytes in a sector.
 pub const SECTOR: usize = 512;
@@ -126,6 +131,8 @@ pub struct Cache<D> {
     tick: u64,
     pos: u64,
     dirty_bytes: usize,
+    /// Something was written since the device was last flushed.
+    wrote: bool,
     failed: Option<Fault>,
     writable: bool,
     stats: Stats,
@@ -139,6 +146,7 @@ impl<D: BlockIo> Cache<D> {
             tick: 0,
             pos: 0,
             dirty_bytes: 0,
+            wrote: false,
             failed: None,
             writable,
             stats: Stats::default(),
@@ -181,6 +189,16 @@ impl<D: BlockIo> Cache<D> {
     fn fail(&mut self, fault: Fault) -> Fault {
         self.failed = Some(fault);
         fault
+    }
+
+    /// A failed read: the medium being gone ends the volume, anything else
+    /// is this request's error alone.
+    fn read_failed(&mut self, fault: Fault) -> Fault {
+        if fault == Fault::Gone {
+            self.fail(fault)
+        } else {
+            fault
+        }
     }
 
     /// Read `buf` at byte offset `at`.
@@ -290,6 +308,7 @@ impl<D: BlockIo> Cache<D> {
             if let Err(fault) = self.dev.write(dirty[start], &staging) {
                 return Err(self.fail(fault));
             }
+            self.wrote = true;
             for &sector in &dirty[start..end] {
                 if let Some(page) = self.pages.get_mut(&(sector / PAGE_SECTORS)) {
                     page.dirty &= !(1 << (sector % PAGE_SECTORS));
@@ -304,7 +323,14 @@ impl<D: BlockIo> Cache<D> {
     /// [`Cache::flush_dirty`], then the device's own flush.
     pub fn sync(&mut self) -> Result<(), Fault> {
         self.flush_dirty()?;
-        self.dev.flush().map_err(|fault| self.fail(fault))
+        if !self.wrote {
+            return Ok(());
+        }
+        // The device's own flush failing loses no sector this cache holds:
+        // it is that call's error, and the next sync tries again.
+        self.dev.flush().map_err(|fault| self.read_failed(fault))?;
+        self.wrote = false;
+        Ok(())
     }
 
     fn touch(&mut self) -> u64 {
@@ -317,7 +343,7 @@ impl<D: BlockIo> Cache<D> {
             let at = lba + (index * MAX_IO / SECTOR) as u64;
             self.stats.reads += 1;
             if let Err(fault) = self.dev.read(at, chunk) {
-                return Err(self.fail(fault));
+                return Err(self.read_failed(fault));
             }
         }
         // What the device returned may predate sectors still waiting here.
@@ -332,6 +358,7 @@ impl<D: BlockIo> Cache<D> {
             if let Err(fault) = self.dev.write(at, chunk) {
                 return Err(self.fail(fault));
             }
+            self.wrote = true;
         }
         // Cached copies of these sectors now hold the new bytes, clean.
         for (n, sector_bytes) in data.chunks(SECTOR).enumerate() {
@@ -439,7 +466,7 @@ impl<D: BlockIo> Cache<D> {
         let mut staging = alloc::vec![0u8; sectors as usize * SECTOR];
         self.stats.reads += 1;
         if let Err(fault) = self.dev.read(first, &mut staging) {
-            return Err(self.fail(fault));
+            return Err(self.read_failed(fault));
         }
         for n in 0..count {
             let page_index = index + n;
@@ -465,72 +492,5 @@ impl<D: BlockIo> Cache<D> {
             }
         }
         Ok(())
-    }
-}
-
-/// One [`Cache`] shared between the filesystem object (which owns its
-/// storage) and the volume (which flushes it): `rust-fatfs` takes its
-/// storage by value, so the stream is a handle.
-pub struct Shared<D>(pub Rc<RefCell<Cache<D>>>);
-
-impl<D> Clone for Shared<D> {
-    fn clone(&self) -> Self {
-        Shared(Rc::clone(&self.0))
-    }
-}
-
-impl<D> IoBase for Shared<D> {
-    type Error = Fault;
-}
-
-impl<D: BlockIo> Read for Shared<D> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Fault> {
-        let mut cache = self.0.borrow_mut();
-        let remaining = cache.len_bytes().saturating_sub(cache.pos);
-        let take = usize::try_from(remaining).map_or(buf.len(), |r| r.min(buf.len()));
-        let pos = cache.pos;
-        cache.read_at(pos, &mut buf[..take])?;
-        cache.pos += take as u64;
-        Ok(take)
-    }
-}
-
-impl<D: BlockIo> Write for Shared<D> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Fault> {
-        let mut cache = self.0.borrow_mut();
-        let remaining = cache.len_bytes().saturating_sub(cache.pos);
-        let take = usize::try_from(remaining).map_or(buf.len(), |r| r.min(buf.len()));
-        if take == 0 && !buf.is_empty() {
-            return Ok(0);
-        }
-        let pos = cache.pos;
-        cache.write_at(pos, &buf[..take])?;
-        cache.pos += take as u64;
-        Ok(take)
-    }
-
-    /// `rust-fatfs` flushes at its own moments; the volume decides when the
-    /// device is written ([`Cache::flush_dirty`] at the end of an operation).
-    fn flush(&mut self) -> Result<(), Fault> {
-        Ok(())
-    }
-}
-
-impl<D: BlockIo> Seek for Shared<D> {
-    fn seek(&mut self, from: SeekFrom) -> Result<u64, Fault> {
-        let mut cache = self.0.borrow_mut();
-        let len = cache.len_bytes() as i64;
-        let target = match from {
-            SeekFrom::Start(at) => i64::try_from(at).map_err(|_| Fault::Eof)?,
-            SeekFrom::End(delta) => len.checked_add(delta).ok_or(Fault::Eof)?,
-            SeekFrom::Current(delta) => (cache.pos as i64)
-                .checked_add(delta)
-                .ok_or(Fault::Eof)?,
-        };
-        if target < 0 {
-            return Err(Fault::Eof);
-        }
-        cache.pos = target as u64;
-        Ok(cache.pos)
     }
 }

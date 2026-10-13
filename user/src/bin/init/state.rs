@@ -358,7 +358,8 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // `smbfuse` for the Network Drives app (the daemons wait for `netd`
     // themselves) and, on `LAZYOS_USB=1` images, `fatfuse` for every USB
     // volume that appears while someone is logged in. It waits for the home
-    // volume's answer (`home.rs`), so it never claims the stick `/home` is on.
+    // volume's answer (`home.rs`); the kernel then refuses it a disk a mount
+    // of its own (`/home`) uses.
     #[cfg(any(lazyos_netd, lazyos_usb))]
     ServiceSpec {
         name: "mountd",
