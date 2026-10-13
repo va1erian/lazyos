@@ -249,8 +249,12 @@ class CorePackageTests(unittest.TestCase):
 
     def test_an_oversized_package_is_an_error(self) -> None:
         # Noise does not deflate, so the archive is as large as the program.
-        noise = random.Random(7).randbytes(core_packages.MAX_PACKAGE_FILE + 4096)
-        (self.xui / "xui-paint.elf").write_bytes(noise)
+        # Written a mebibyte at a time: `randbytes` of the whole limit at once
+        # asks `getrandbits` for more bits than a C int holds.
+        rng = random.Random(7)
+        with (self.xui / "xui-paint.elf").open("wb") as program:
+            for _ in range(core_packages.MAX_PACKAGE_FILE // (1 << 20) + 1):
+                program.write(rng.randbytes(1 << 20))
         with self.assertRaises(core_packages.CoreError):
             self.build("f")
 

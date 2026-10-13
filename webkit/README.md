@@ -18,7 +18,7 @@ python tools/webkit/port_run.py      # console image with LAZYOS_WEBKIT_PORT=1, 
 python tools/webkit/test_port_judge.py
 python tools/run_demo.py --webkit-port   # an interactive console proof image (networking, big-app profile)
 python tools/webkit/app.py           # W5: the window library (host) and webkit-app (Docker)
-python tools/xui/build.py            # ... which packages it as org.lazy.webkit
+python tools/xui/build.py            # ... which packages it as os.lazy.webkit
 python tools/webkit/app_run.py       # W5: desktop image, browse, judge (QEMU, shots/webkit)
 python tools/webkit/test_app_judge.py
 python tools/run_demo.py --webkit    # the desktop with the browser (networking, big-app profile, 1 GiB volume)
@@ -132,7 +132,7 @@ EGL and GLESv2 stand-ins and are never reached.
 
 ## The desktop app (W5)
 
-`org.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of sixteen
+`os.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of sixteen
 functions (`port/app/lazyos_ui.h`):
 
 * **the UI process, C++** (`port/app/main.cpp`, `engine.cpp`): WebKit's run loop on the process's main

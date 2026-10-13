@@ -3,7 +3,7 @@
 //! The app is `webkit-app`, WebKit's UI process with its window (`webkit/port/app/` in
 //! C++ and `xui-app/crates/webkit` in Rust, linked by `tools/webkit/app.py` in the WebKit
 //! build container into `target/xui/xui-webkit.elf`). Like every desktop app it ships as a
-//! core package, `org.lazy.webkit` (`xui-app/packages/webkit`, packed by
+//! core package, `os.lazy.webkit` (`xui-app/packages/webkit`, packed by
 //! `tools/xui/core_packages.py`), which `xui_embed::embed_xui_apps` embeds in
 //! `/system/packages` when [`enabled`] (`LAZYOS_WEBKIT=1`) and `pkgd` installs at boot. The two
 //! processes it starts, `WebProcess` and `NetworkProcess`, are system programs in `/system/bin`

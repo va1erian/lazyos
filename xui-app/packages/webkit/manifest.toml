@@ -13,7 +13,7 @@
 
 [app]
 name = "WebKit"
-system_name = "org.lazy.webkit"
+system_name = "os.lazy.webkit"
 author = "LazyOS"
 version = "0.1.0"
 description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. Not sandboxed: the page process has this app's display, input and network access as you; nothing is saved between runs"
@@ -35,7 +35,7 @@ autostart = false
 # `os.lazy.net.stack.v1` is not needed. WebProcess and NetworkProcess are children of the app and
 # run under its label. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS
 # has not, so nothing is persisted yet and no file is asked
-# for (a persistent profile would ask for `write:$HOME/.apps/org.lazy.webkit`).
+# for (a persistent profile would ask for `write:$HOME/.apps/os.lazy.webkit`).
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",

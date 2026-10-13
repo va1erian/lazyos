@@ -104,7 +104,7 @@ def webkit_port_step(cfg: dict) -> list[dict]:
 def webkit_step(cfg: dict) -> list[dict]:
     """The steps that build the WebKit browser (docs/webkit-port-plan.md W5): the
     bundle, the port's processes and the app (the window's static library and the UI
-    process, in Docker), then the xui apps, which package it as `org.lazy.webkit`."""
+    process, in Docker), then the xui apps, which package it as `os.lazy.webkit`."""
     if not cfg.get("webkit"):
         return []
     return [{"label": "Build the WebKit dependency bundle (Docker)",

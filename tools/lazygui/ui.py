@@ -118,7 +118,7 @@ class Launcher:
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
                     "webkit_port")
-        self._check(g, "WebKit browser, org.lazy.webkit, built in Docker (LAZYOS_WEBKIT; run_demo "
+        self._check(g, "WebKit browser, os.lazy.webkit, built in Docker (LAZYOS_WEBKIT; run_demo "
                        "--webkit; desktop, networking, big-app profile, 1 GiB OS volume)", "webkit")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")

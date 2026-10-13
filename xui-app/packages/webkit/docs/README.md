@@ -30,7 +30,7 @@ pages you trust. Nothing is saved between runs: no cookies, history or cache sur
 
 ## What is where
 
-* The app is `org.lazy.webkit`; its processes are `/system/bin/webprocess` and
+* The app is `os.lazy.webkit`; its processes are `/system/bin/webprocess` and
   `/system/bin/networkprocess`. The window talks to WebKit through a small C ABI
   (`webkit/port/app/lazyos_ui.h`).
 * Nothing is persisted yet: WebKit's data directories default to the PlayStation's `/app0`, which

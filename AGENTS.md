@@ -597,7 +597,7 @@ python tools/webkit/test_port_judge.py
 rebuilds everything, and the build can fail half way): set `LAZYOS_JSC_VOLUME=<name>` for one of
 them (`webkit/README.md` says how to keep the caches).
 
-## The WebKit browser (`LAZYOS_WEBKIT=1`, `org.lazy.webkit`)
+## The WebKit browser (`LAZYOS_WEBKIT=1`, `os.lazy.webkit`)
 
 W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
 the run loop and the C API on the main thread) with the xui window as a Rust static library

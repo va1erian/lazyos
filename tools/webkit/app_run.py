@@ -3,7 +3,7 @@
 host's servers and the screen saw (docs/webkit-port-plan.md W5).
 
 Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py``, ``app.py``;
-then ``python tools/xui/build.py`` packages it as ``org.lazy.webkit``). Then:
+then ``python tools/xui/build.py`` packages it as ``os.lazy.webkit``). Then:
 
 1. a throwaway test CA and a leaf for theoldnet.com (``tools/web/certs.py``); the image is built
    with ``LAZYOS_WEBKIT=1`` (desktop, ``netd``, the big-app limits), the CA appended to the

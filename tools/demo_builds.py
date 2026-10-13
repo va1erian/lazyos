@@ -118,7 +118,7 @@ def build_webkit() -> bool:
     """The WebKit browser (`--webkit`): the bundle and the port's processes, then
     the app (the window's static library and the UI process, `tools/webkit/app.py`),
     all in Docker, then the xui apps, whose build packages `xui-webkit.elf` as the
-    core package `org.lazy.webkit`; a missing Docker or download stops the run."""
+    core package `os.lazy.webkit`; a missing Docker or download stops the run."""
     return (build_webkit_port()
             and required("the WebKit app", "webkit/app.py", ("--require",))
             and build_xui_apps())

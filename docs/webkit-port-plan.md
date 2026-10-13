@@ -11,7 +11,7 @@ on LazyOS, including an HTTPS fetch, and **WebCore and WebKit2 build as
 (`webkit-smoke`) launches a WebProcess and a NetworkProcess over the Unix IPC,
 loads `about:blank` and a `data:` URL, reads the title and paints the page into a
 bitmap that equals, pixel for pixel, the one the same programs paint on Linux
-(§5 W4), and **WebKit runs in a desktop window**: `org.lazy.webkit`, a core
+(§5 W4), and **WebKit runs in a desktop window**: `os.lazy.webkit`, a core
 package that `LAZYOS_WEBKIT=1` images ship, whose C++ UI process on WebKit's C
 API has its window from a Rust xui static library. In QEMU it loads
 `http://example.com/` and `https://theoldnet.com/` with their pictures through
@@ -532,7 +532,7 @@ WebKit's needs the window's thread. They talk through a mailbox (the newest pain
 wake-up per burst, through xui's `Proxy`) and `WKRunLoopCallOnMainThread` (every `lzw_engine_*` call only
 queues work). 
 
-**What runs.** `org.lazy.webkit`, "WebKit" in the menu, a core package shipped only by `LAZYOS_WEBKIT=1` images
+**What runs.** `os.lazy.webkit`, "WebKit" in the menu, a core package shipped only by `LAZYOS_WEBKIT=1` images
 (`run_demo.py --webkit`, the launcher's WebKit group; the build refuses it without `LAZYOS_DESKTOP=1` and
 `LAZYOS_NETD=1`, as LazyWeb's does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
 Enter, Esc), the page, a status line with the load progress, and the page title in the caption. The page's
@@ -567,7 +567,7 @@ kernel prints no pid when a task ends.
 
 | | |
 |---|---|
-| Program | `webkit-app` **107.8 MiB** stripped static-PIE (112,985,656 bytes; W4's `webkit-smoke` is 104.4 MiB: the window adds 3.4 MiB). The package `org.lazy.webkit-0.1.0.lzp` is **44.6 MB** (deflate); first boot installs it in 4.1 s (`PKGD:PROVISION:INSTALL org.lazy.webkit ticks=408`). The window's static library is 134 MiB of archive. Each of `WebProcess` and `NetworkProcess` is 107.4 MiB |
+| Program | `webkit-app` **107.8 MiB** stripped static-PIE (112,985,656 bytes; W4's `webkit-smoke` is 104.4 MiB: the window adds 3.4 MiB). The package `os.lazy.webkit-0.1.0.lzp` is **44.6 MB** (deflate); first boot installs it in 4.1 s (`PKGD:PROVISION:INSTALL os.lazy.webkit ticks=408`). The window's static library is 134 MiB of archive. Each of `WebProcess` and `NetworkProcess` is 107.4 MiB |
 | Build | the window library, `cargo build -p xui-webkit --lib --release` for musl: 28 s when only it changed; the program, `port.py --only webkit-app`: 4 s after a changed source (zig and lld); a clean WebKit rebuild after a changed applied patch: ninja 299 s on 20 cores (531 s while another Docker build shared the VM) |
 | On LazyOS (WHPX, 4 GiB, desktop image with networking and the UI probe) | the whole `app_run.py` session passes: `WEBKIT:W5:HARNESS:PASS`, no `FAIL` line, no `LABEL:DENY`, no `ENOSYS`; the same image also ran W4's `port_run.py` (`WEBKIT:W4:HARNESS:PASS`) |
 | Cold start | the window's first layout 63 to 94 ms after the UI process started WebKit (the compositor was up); a WebProcess and a NetworkProcess answering **4.3 s** after the UI process created its view (two 107 MB programs read whole from ext2 and started: the cost W4 measured for its three) |
@@ -706,7 +706,7 @@ real PC, and a second window.
 `webkit/` beside `doom/` and `quake/`: the port layer (`webkit/port`, with the
 UI process in `webkit/port/app`), the dependency and build scripts
 (`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
-`org.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
+`os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
 (`run_demo.py --webkit`, a launcher group), with WebKit fetched at a pinned
 revision at build time and never vendored.
 

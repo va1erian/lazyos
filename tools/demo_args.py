@@ -180,7 +180,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "(docs/webkit-port-plan.md W4); three static programs of tens of MB "
                              "(big-app profile) over the network stack, so this implies networking")
     parser.add_argument("--webkit", action="store_true",
-                        help="the WebKit browser, org.lazy.webkit (LAZYOS_WEBKIT=1; docs/webkit-port-plan.md "
+                        help="the WebKit browser, os.lazy.webkit (LAZYOS_WEBKIT=1; docs/webkit-port-plan.md "
                              "W5): the desktop, the network stack, the big-app profile, a 1 GiB OS "
                              "volume, WebProcess and NetworkProcess in /system/bin and the app's core "
                              "package; built in Docker (tools/webkit/deps.py, port.py, app.py) and "

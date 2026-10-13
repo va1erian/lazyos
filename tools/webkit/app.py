@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the WebKit desktop app, ``org.lazy.webkit`` (stage W5).
+"""Build the WebKit desktop app, ``os.lazy.webkit`` (stage W5).
 
 ``docs/webkit-port-plan.md`` section 5, W5. The app is one static-PIE musl program,
 ``webkit-app``, in two halves that meet through a small C ABI

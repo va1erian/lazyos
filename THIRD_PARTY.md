@@ -95,7 +95,7 @@ BSD-2-Clause) is statically linked into those binaries. They are built from the
 pinned, hash-checked archives named in `tools/webkit/wkpins.py`; none is copied
 into the tree.
 
-`webkit-app` (the browser, `org.lazy.webkit`, `LAZYOS_WEBKIT=1`) is this
+`webkit-app` (the browser, `os.lazy.webkit`, `LAZYOS_WEBKIT=1`) is this
 repository's own code on top of WebKit: the C++ UI process
 (`webkit/port/app`) and the Rust window (`xui-app/crates/webkit`), both
 GPL-3.0-or-later like the rest of the tree. The window links `xui-app` and so
