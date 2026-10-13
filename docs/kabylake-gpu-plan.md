@@ -463,19 +463,31 @@ kernel, `user/`, `idl/` or `build.rs`, and nothing has run under LazyOS yet.
   accepts the default, is a G2 decision (the audio registers are the missing
   input, below).
 
-**Next, in order, none started:**
+**Next, in order:**
 
-1. **Re-run `tools/boot/survey_gpu.sh` on the box** (with `intel-gpu-tools`
-   installed and HDMI audio playing, as the README says), redact, commit
-   over `docs/compat/kabylake/gpu/linux/`. That settles the audio offsets and
-   `DDI_BUF_CTL`; then correct `regs.rs` (move the audio block above the
-   `TO CONFIRM` marker or fix the offsets).
-2. **The `dbgd` read ops G0 and G1 need**: `pci.config` and `mmio.read`
-   (docs/dbgd-plan.md lists them as not in v1 and `dbgwire` does not have
-   them), plus a VBT/EDID copy, and the device claim for 00:02.0 in
-   `dev/claims.rs`. This is what answers "what does the firmware leave"
-   (§2.1): the link mode, the timing (241.5 or 277.82 MHz), CDCLK and the
-   framebuffer address, read on a LazyOS boot before anything writes.
-3. **G1**: the `gpud` skeleton (`user/src/bin/gpud/`, `idl/gpu.midl`,
-   `set_scanout` in the kernel, the `LAZYOS_GEN9GFX` switch and launcher
-   flags of §8).
+1. **Read what the firmware leaves, on a LazyOS boot, with the dbgd ops that
+   already exist.** `pci.config` and `mmio.read` landed in #829
+   ([dbgd.md](dbgd.md), `libs/pciprobe`): build the box's image with
+   `run_demo.py --dbgd --dbgd-mmio`, boot it, and
+   `dbgctl.py mmio 00:02.0 0 <offset> <len>` the registers of §2.1's last list
+   (`TRANS_DDI_FUNC_CTL_A`, the transcoder timings, `CDCLK_CTL`,
+   `PLANE_SURF_1_A`, the audio block). The built-in HD 620 allowlist already
+   covers all of them except `0x51000` (DFSM fuses) and `0x130040` (the blitter
+   forcewake ack), which `survey_gpu.sh` also reads under Linux; add them to
+   `libs/pciprobe/src/builtin.rs` when G3 needs the latter. The audio block
+   sits behind a power well: read `0x45400` first (a gated well may not return
+   cleanly), and the ELD data ports (`0x65050`, `0x65150`, `0x65250`) stay out
+   as deliberate holes. A small `tools/gpu/probe.py` that runs the whole read
+   list and writes `docs/compat/kabylake/gpu/lazyos/` would make it
+   repeatable and diffable against the Linux capture. Nothing writes: this is
+   the "before anything writes" baseline G1 and G2 need.
+2. **Re-run `tools/boot/survey_gpu.sh` on the box** (with `intel-gpu-tools`
+   installed and HDMI audio playing, as the README says), redact, commit over
+   `docs/compat/kabylake/gpu/linux/`. That settles the audio offsets and
+   `DDI_BUF_CTL` *as Linux uses them while playing*; then correct `regs.rs`
+   (move the audio block above the `TO CONFIRM` marker or fix the offsets).
+3. **G1**: the `gpud` skeleton (`user/src/bin/gpud/`, `idl/gpu.midl`, the
+   `LAZYOS_GEN9GFX` switch and launcher flags of §8, the device claim for
+   00:02.0, then `set_scanout` in the kernel). Its first job is the same read
+   as step 1, decoded with `libs/gen9gfx::regs` and reported as `GPU:*`
+   markers.
