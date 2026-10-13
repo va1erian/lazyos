@@ -16,10 +16,19 @@ mod posix;
 mod soak;
 
 pub(super) const CASES: &[(&str, Test)] = &[
-    ("itimer_alarm_remaining_and_cancel", interval::alarm_remaining),
+    (
+        "itimer_alarm_remaining_and_cancel",
+        interval::alarm_remaining,
+    ),
     ("itimer_alarm_fires_once", interval::alarm_fires_once),
-    ("itimer_setitimer_validation", interval::setitimer_validation),
-    ("itimer_interval_reloads_and_skips", interval::interval_reloads),
+    (
+        "itimer_setitimer_validation",
+        interval::setitimer_validation,
+    ),
+    (
+        "itimer_interval_reloads_and_skips",
+        interval::interval_reloads,
+    ),
     ("itimer_cpu_timers_count_ticks", interval::cpu_timers),
     ("itimer_not_inherited_by_fork", interval::not_inherited),
     (

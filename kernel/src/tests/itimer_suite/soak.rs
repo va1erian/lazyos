@@ -24,7 +24,14 @@ impl Lcg {
 pub fn arm_disarm() -> Result<(), String> {
     fresh()?;
     let mut rng = Lcg(0x5eed);
-    let spaces = [0x10_000u64, 0x20_000, 0x30_000, 0x40_000, 0x50_000, 0x60_000];
+    let spaces = [
+        0x10_000u64,
+        0x20_000,
+        0x30_000,
+        0x40_000,
+        0x50_000,
+        0x60_000,
+    ];
     let mut ids: [alloc::vec::Vec<i32>; 6] = Default::default();
     for round in 0..4000u32 {
         let which = (rng.next() % 6) as usize;
@@ -52,12 +59,11 @@ pub fn arm_disarm() -> Result<(), String> {
                 }
             }
             4 => {
-                if let Some(index) = (!ids[which].is_empty())
-                    .then(|| (rng.next() as usize) % ids[which].len())
+                if let Some(index) =
+                    (!ids[which].is_empty()).then(|| (rng.next() as usize) % ids[which].len())
                 {
                     let id = ids[which].swap_remove(index);
-                    itimer::delete(pml4, id)
-                        .map_err(|e| format!("round {round}: delete {e:?}"))?;
+                    itimer::delete(pml4, id).map_err(|e| format!("round {round}: delete {e:?}"))?;
                 }
             }
             _ => itimer::fire_due(t + rng.next() % (2 * NS)),
@@ -99,7 +105,10 @@ pub fn many_ticks() -> Result<(), String> {
         task::itimer_tick_for_test(1, step_is_user());
     }
     let fired = itimer::fired_total() - before - 2000;
-    check!(fired == 2000, "2000 ticks fired the PROF timer {fired} times");
+    check!(
+        fired == 2000,
+        "2000 ticks fired the PROF timer {fired} times"
+    );
     itimer::check_for_test()?;
     finish(&[p])
 }
@@ -123,8 +132,7 @@ pub fn fork_exit_churn() -> Result<(), String> {
         check!(setitimer(2, &t, None) == 0, "round {round}: setitimer");
         for _ in 0..3 {
             let mut id = -1i32;
-            let ret =
-                process::linux::dispatch_for_test(SYS_TIMER_CREATE, 1, 0, ptr_mut(&mut id));
+            let ret = process::linux::dispatch_for_test(SYS_TIMER_CREATE, 1, 0, ptr_mut(&mut id));
             check!(ret == 0, "round {round}: timer_create {ret:#x}");
             let arm = [0i64, 1_000_000, 0, 2_000_000];
             let ret = process::linux::dispatch_args_for_test(
@@ -136,7 +144,11 @@ pub fn fork_exit_churn() -> Result<(), String> {
             );
             check!(ret == 0, "round {round}: timer_settime {ret:#x}");
         }
-        check!(itimer::in_use() == 6, "round {round}: {} timers", itimer::in_use());
+        check!(
+            itimer::in_use() == 6,
+            "round {round}: {} timers",
+            itimer::in_use()
+        );
         // Every other round fires some before the process dies.
         if round % 2 == 0 {
             itimer::fire_due(now() + NS);

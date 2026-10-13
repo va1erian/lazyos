@@ -123,17 +123,11 @@ pub(super) fn sys_setitimer(which: u64, new: u64, old: u64) -> u64 {
         Ok(spec) => spec,
         Err(errno) => return errno,
     };
-    let previous = match itimer::set_interval(
-        process(),
-        task::current(),
-        kind,
-        now_ns(),
-        value,
-        interval,
-    ) {
-        Ok(previous) => previous,
-        Err(error) => return timer_error(error),
-    };
+    let previous =
+        match itimer::set_interval(process(), task::current(), kind, now_ns(), value, interval) {
+            Ok(previous) => previous,
+            Err(error) => return timer_error(error),
+        };
     if old != 0 {
         if let Err(errno) = write_spec(old, previous, NS_PER_USEC) {
             return errno;

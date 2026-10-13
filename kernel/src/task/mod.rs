@@ -91,10 +91,10 @@ mod fdtable;
 mod fdtypes;
 pub mod fpu;
 mod fs_base;
-pub mod itimer;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+pub mod itimer;
 mod kernel_task;
 mod kstack;
 #[cfg(lazyos_tests)]

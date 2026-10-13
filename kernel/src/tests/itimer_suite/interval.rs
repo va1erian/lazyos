@@ -43,7 +43,10 @@ pub fn alarm_fires_once() -> Result<(), String> {
     check!(pending(p) & bit(SIGALRM) != 0, "no SIGALRM when due");
     check!(itimer::fired_total() == before + 1, "fired count off");
     itimer::fire_due(now() + 10 * NS);
-    check!(itimer::fired_total() == before + 1, "a one-shot fired twice");
+    check!(
+        itimer::fired_total() == before + 1,
+        "a one-shot fired twice"
+    );
     let (left, _) = getitimer(ITIMER_REAL)?;
     check!(left == 0, "a fired one-shot still shows {left} ns");
     itimer::check_for_test()?;
@@ -175,7 +178,10 @@ pub fn not_inherited() -> Result<(), String> {
     task::harness::set_kind(child, task::Kind::Linux);
     task::harness::switch_current(child);
     let (left, _) = getitimer(ITIMER_REAL)?;
-    check!(left == 0, "the child inherited an alarm with {left} ns left");
+    check!(
+        left == 0,
+        "the child inherited an alarm with {left} ns left"
+    );
     check!(
         process::linux::dispatch_for_test(SYS_ALARM, 0, 0, 0) == 0,
         "the child's alarm(0) reported a remainder"
@@ -203,7 +209,10 @@ pub fn exec_semantics() -> Result<(), String> {
         "ITIMER_REAL lost over exec: {real:?}"
     );
     let prof = itimer::get_interval(new, Kind::Prof, now());
-    check!(prof.interval_ns == NS, "ITIMER_PROF lost over exec: {prof:?}");
+    check!(
+        prof.interval_ns == NS,
+        "ITIMER_PROF lost over exec: {prof:?}"
+    );
     check!(
         itimer::get_interval(old, Kind::Real, now()).remaining_ns == 0,
         "the old address space still has a timer"

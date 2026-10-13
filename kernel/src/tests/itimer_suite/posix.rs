@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::task::itimer;
-use crate::task::signal::{SI_TIMER, SIGALRM, SIGUSR1};
+use crate::task::signal::{SIGALRM, SIGUSR1, SI_TIMER};
 
 const SIGEV_SIGNAL: u64 = 0;
 const SIGEV_NONE: u64 = 1;
@@ -116,7 +116,10 @@ pub fn settime_gettime_overrun() -> Result<(), String> {
         gettime(id)
     );
     let (ret, old) = settime(id, 0, [0, 1_000_000, 1, 0]); // 1 s, then every 1 ms
-    check!(ret == 0 && old == [0, 0, 0, 0], "first settime: {ret:#x} {old:?}");
+    check!(
+        ret == 0 && old == [0, 0, 0, 0],
+        "first settime: {ret:#x} {old:?}"
+    );
     let (left, interval) = gettime(id).map_err(|e| format!("gettime {e:#x}"))?;
     check!(
         left > 900_000_000 && left <= NS && interval == 1_000_000,
@@ -185,7 +188,10 @@ pub fn absolute_and_clocks() -> Result<(), String> {
     );
     check!(pending(p) & bit(12) != 0, "SIGUSR2 (12) not pending");
 
-    check!(create(CLOCK_BOOTTIME, None).is_ok(), "CLOCK_BOOTTIME refused");
+    check!(
+        create(CLOCK_BOOTTIME, None).is_ok(),
+        "CLOCK_BOOTTIME refused"
+    );
     for clock in [2, 3, 4, 99] {
         check!(
             create(clock, None) == Err(EINVAL),
@@ -206,7 +212,10 @@ pub fn validation() -> Result<(), String> {
         ("signal 0", sig(0, SIGEV_SIGNAL, 0)),
         ("signal 65", sig(65, SIGEV_SIGNAL, 0)),
         ("SIGEV_THREAD", sig(10, SIGEV_THREAD, 0)),
-        ("a thread of another process", sig(10, SIGEV_THREAD_ID, 4000)),
+        (
+            "a thread of another process",
+            sig(10, SIGEV_THREAD_ID, 4000),
+        ),
         ("tid 0", sig(10, SIGEV_THREAD_ID, 0)),
     ] {
         check!(
@@ -263,10 +272,7 @@ pub fn limit_and_delete() -> Result<(), String> {
     );
     let before = itimer::fired_total();
     itimer::fire_due(now() + NS);
-    check!(
-        itimer::fired_total() == before,
-        "a deleted timer fired"
-    );
+    check!(itimer::fired_total() == before, "a deleted timer fired");
     let reused = create(CLOCK_MONOTONIC, None).map_err(|e| format!("{e:#x}"))?;
     check!(reused == victim, "id {reused} not reused, wanted {victim}");
     for id in ids.iter().filter(|&&id| id != victim) {
