@@ -232,16 +232,21 @@ pub fn exec_semantics() -> Result<(), String> {
 }
 
 /// The scheduler's expiry entry (`task::expire_due`, what the deadline
-/// interrupt and every tick run) fires a due timer.
+/// interrupt and every tick run) fires a due timer. The timer's absolute
+/// expiry is already in the past, so nothing waits on the clock.
 pub fn scheduler_entry_fires() -> Result<(), String> {
     fresh()?;
     let p = process()?;
-    let t = spec((0, 0), (0, 1)); // 1 us
-    check!(setitimer(ITIMER_REAL, &t, None) == 0, "setitimer");
-    let until = now() + 2_000_000;
-    while now() < until {
-        core::hint::spin_loop();
-    }
+    let mut id = -1i32;
+    let ret = process::linux::dispatch_for_test(SYS_TIMER_CREATE, 1, 0, ptr_mut(&mut id));
+    check!(ret == 0, "timer_create returned {ret:#x}");
+    let abs = [0i64, 0, 0, 1]; // 1 ns on CLOCK_MONOTONIC: long past
+    let ret = process::linux::dispatch_args_for_test(SYS_TIMER_SETTIME, id as u64, 1, ptr(&abs), 0);
+    check!(ret == 0, "timer_settime returned {ret:#x}");
+    check!(
+        pending(p) & bit(SIGALRM) == 0,
+        "fired before an expiry pass"
+    );
     task::expire_due();
     check!(
         pending(p) & bit(SIGALRM) != 0,
