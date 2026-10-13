@@ -115,6 +115,9 @@ members = [
     "libs/rtl8168",
     # Intel High Definition Audio behind sndd (issue #497, driver-plan D7).
     "libs/hda",
+    # Intel Gen9 display and HDMI audio logic for the Kaby Lake GPU plan
+    # (docs/kabylake-gpu-plan.md): EDID, ELD, VBT, N/CTS, register map.
+    "libs/gen9gfx",
     # devd's static driver manifest (issue #497, driver-plan 3.6).
     "libs/devmatch",
     "libs/ftpwire",
