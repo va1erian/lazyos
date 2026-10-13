@@ -25,8 +25,6 @@ path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-# The app's data folder (`app_data_dir`), the Downloads and scratch folders.
-fhs = { path = "../../libs/fhs", features = ["alloc"] }
 # One xui revision for every crate, so a single `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
 # The seam: the engine trait, the mailbox, the page view and the C ABI shared with the W5
@@ -37,6 +35,8 @@ xui-webkit = { path = "../crates/webkit", default-features = false }
 # (`src/ffi.rs`) is built for LazyOS only, everything else runs on any host.
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 xui-app = { path = ".." }
+# The app's data folder (`app_data_dir`), the Downloads and scratch folders.
+fhs = { path = "../../libs/fhs", features = ["alloc"] }
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }

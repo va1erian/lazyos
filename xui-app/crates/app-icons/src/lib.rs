@@ -60,6 +60,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/webkit",
         Art::Lucide(Lucide::ExternalLink, Tone::Cobalt),
     ),
+    // LazyWeb+: LazyWeb's link, on a rose tile (the same chrome on the real engine).
+    (
+        "xui-app/packages/lazywebplus",
+        Art::Lucide(Lucide::Link, Tone::Rose),
+    ),
     // LazySky: a paper plane, Lucide `send`, on a cobalt tile.
     (
         "xui-app/packages/lazysky",

@@ -57,6 +57,7 @@ impl Browser {
             Command::Forward => self.engine.forward(),
             Command::Reload => self.reload(),
             Command::Stop => {
+                self.stopping = self.loading.get();
                 self.engine.stop();
                 self.set_status("Stopped");
             }

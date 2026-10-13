@@ -45,36 +45,46 @@ impl Browser {
         if self.state.crashed && !old.crashed {
             self.page.clear();
         }
-        if self.state.loading != old.loading {
-            self.set_loading(self.state.loading);
-            if self.state.loading {
-                self.set_status(&format!("Opening {shown}"));
+        if self.state.committed_url != old.committed_url {
+            // The page that asked is gone: its dialog is answered "no".
+            if let Some(answer) = self.dialogs.dismiss() {
+                self.engine
+                    .dialog_reply(answer.id, answer.accepted, &answer.value);
             }
         }
-        if self.state.loading || old.loading {
-            self.load_progress(&old, &shown);
-        }
-        if !self.state.loading && self.state.title != old.title {
-            self.title_changed();
-        }
+        self.load_state(&old, &shown);
         self.update_buttons();
     }
 
-    /// A load began, went on, or ended.
-    fn load_progress(&mut self, old: &xui_webkit::mailbox::PageState, shown: &str) {
-        if self.state.loading || !old.loading {
-            return;
-        }
-        // It ended. How tells: a finished navigation, an error, or neither (stopped, or a
-        // download took the page's place).
-        if self.state.finished > old.finished {
+    /// A load began, went on, or ended. The engine posts its newest state only (several load
+    /// steps can be one report), so how a load ended is read from what changed: `finished` grew
+    /// (it loaded), an error appeared (it failed), or the window was waiting and the engine is
+    /// idle with neither (it was stopped, or a download took the page's place).
+    fn load_state(&mut self, old: &xui_webkit::mailbox::PageState, shown: &str) {
+        let was_loading = self.loading.get();
+        let loaded = self.state.finished > old.finished;
+        let failed =
+            !self.state.loading && !self.state.error.is_empty() && self.state.error != old.error;
+        if self.state.loading {
+            if !was_loading || self.state.url != old.url {
+                self.set_status(&format!("Opening {shown}"));
+            }
+            self.set_loading(true);
+        } else if loaded {
+            self.set_loading(false);
             self.load_finished();
-        } else if !self.state.error.is_empty() {
+        } else if failed {
+            self.set_loading(false);
             self.load_failed();
-        } else {
+        } else if was_loading {
+            self.set_loading(false);
             self.set_status("");
+            if std::mem::take(&mut self.stopping) {
+                println!("WEBPLUS:STOPPED");
+            }
+        } else if self.state.title != old.title {
+            self.title_changed();
         }
-        let _ = shown;
     }
 
     fn load_finished(&mut self) {

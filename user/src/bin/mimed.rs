@@ -51,6 +51,8 @@ mod apps;
 mod db;
 #[path = "mimed/handlers.rs"]
 mod handlers;
+#[path = "mimed/prefs.rs"]
+mod prefs;
 #[path = "mimed/selftest.rs"]
 mod selftest;
 #[path = "mimed/validate.rs"]
@@ -65,6 +67,7 @@ use user::sys;
 use apps::{seed_default_apps, AppRegistry};
 use db::{MimeDb, OVERRIDE_BUFFER};
 use handlers::dispatch;
+use prefs::Prefs;
 use selftest::selftest;
 
 #[no_mangle]
@@ -107,12 +110,13 @@ fn run() -> messenger::Result<()> {
     sys::write_str("mimed: serving\n");
 
     let mut bus: Option<central::Bus> = None;
+    let mut prefs = Prefs::new();
     // One receive buffer for the life of the service: the user bump allocator
     // never reclaims memory, so the loop must not allocate one per request.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
         let message = server.recv_with(&mut buffer, None)?;
-        let reply = match dispatch(&db, &mut apps, &mut bus, &message) {
+        let reply = match dispatch(&db, &mut apps, &mut bus, &mut prefs, &message) {
             Ok(parcel) => parcel,
             // A malformed request still gets an answer, or its caller would
             // wait forever.

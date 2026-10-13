@@ -22,6 +22,8 @@
 #include <WebKit/WKURL.h>
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
+#include <WebKit/WKWebsiteDataStoreConfigurationRef.h>
+#include <WebKit/WKWebsiteDataStoreRef.h>
 
 #include <errno.h>
 #include <signal.h>
@@ -63,6 +65,40 @@ void onMain(std::function<void()> task)
     WKRunLoopCallOnMainThread(runTask, new std::function<void()>(std::move(task)));
 }
 
+namespace {
+
+// A directory string for a website data store.
+WKStringRef pathString(const std::string& directory, const char* leaf)
+{
+    return WKStringCreateWithUTF8CString((directory + "/" + leaf).c_str());
+}
+
+// The website data store of a window with a profile (LZW_FEATURE_PROFILE): the cookie jar and the
+// site storage live in the window's directory instead of WebKit's PlayStation default (/app0, which
+// LazyOS has not; the cookie jar fell back to the working directory). The network cache stays off:
+// it maps its files, and LazyOS has no file-backed mmap yet (docs/webkit-port-plan.md).
+void useProfile(WKPageConfigurationRef pageConfiguration)
+{
+    if (!has(LZW_FEATURE_PROFILE))
+        return;
+    const char* profile = lzw_ui_profile_dir();
+    if (!profile || !*profile)
+        return;
+    const std::string directory = profile;
+    WKWebsiteDataStoreConfigurationRef configuration = WKWebsiteDataStoreConfigurationCreate();
+    WKStringRef cookies = pathString(directory, "cookie.jar.db");
+    WKStringRef local = pathString(directory, "localstorage");
+    WKWebsiteDataStoreConfigurationSetCookieStorageFile(configuration, cookies);
+    WKWebsiteDataStoreConfigurationSetLocalStorageDirectory(configuration, local);
+    WKRelease(cookies);
+    WKRelease(local);
+    E.store = WKWebsiteDataStoreCreateWithConfiguration(configuration);
+    WKRelease(configuration);
+    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, E.store);
+}
+
+} // namespace
+
 } // namespace webkitapp
 
 using namespace webkitapp;
@@ -87,9 +123,10 @@ int lzw_engine_start(void)
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, E.context);
+    useProfile(pageConfiguration);
     E.view = WKViewCreate(pageConfiguration);
     if (!E.view) {
-        say("WEBKIT:W5:FAIL:view:WKViewCreate returned null");
+        say("FAIL:view:WKViewCreate returned null");
         return 1;
     }
     E.page = WKViewGetPage(E.view);
@@ -97,6 +134,8 @@ int lzw_engine_start(void)
     static WKViewClientV0 viewClient = { };
     viewClient.base.version = 0;
     viewClient.setViewNeedsDisplay = viewNeedsDisplay;
+    if (has(LZW_FEATURE_PAGE_UI))
+        viewClient.setCursor = viewSetCursor;
     WKViewSetViewClient(E.view, &viewClient.base);
     WKViewSetSize(E.view, WKSizeMake(E.width, E.height));
     WKViewSetActive(E.view, true);
@@ -104,6 +143,8 @@ int lzw_engine_start(void)
     WKViewSetVisible(E.view, true);
 
     installClients();
+    if (has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS))
+        installUiClient();
     return 0;
 }
 
@@ -159,7 +200,7 @@ int lzw_engine_shutdown(void)
     for (auto& child : children) {
         if (child.pid <= 0)
             continue;
-        say("WEBKIT:W5:CHILD:%s:%d:%s", child.name, child.pid, child.exited ? "GONE" : "ALIVE");
+        say("CHILD:%s:%d:%s", child.name, child.pid, child.exited ? "GONE" : "ALIVE");
         left += child.exited ? 0 : 1;
     }
     return left;
@@ -170,7 +211,7 @@ void lzw_engine_load(const char* url)
     std::string address = url ? url : "";
     onMain([address] {
         WKURLRef wkUrl = WKURLCreateWithUTF8CString(address.c_str());
-        sayHarness("WEBKIT:W5:NAV:%s", oneLine(address).c_str());
+        sayHarness("NAV:%s", oneLine(address).c_str());
         WKPageLoadURL(E.page, wkUrl);
         WKRelease(wkUrl);
     });
@@ -194,13 +235,13 @@ void lzw_engine_resize(int width, int height)
         static bool windowSeen = false;
         if (!windowSeen) {
             windowSeen = true;
-            say("WEBKIT:W5:INFO:TIME:window=%ld:size=%dx%d", elapsedMs(), width, height);
+            say("INFO:TIME:window=%ld:size=%dx%d", elapsedMs(), width, height);
         }
         if (width <= 0 || height <= 0 || (width == E.width && height == E.height))
             return;
         E.width = width;
         E.height = height;
-        say("WEBKIT:W5:INFO:RESIZE:%dx%d", width, height);
+        say("INFO:RESIZE:%dx%d", width, height);
         WKViewSetSize(E.view, WKSizeMake(width, height));
         schedulePaint();
     });

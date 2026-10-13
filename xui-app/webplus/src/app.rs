@@ -152,6 +152,8 @@ pub struct Browser {
     hover: String,
     /// A load is under way (shared with the page view: Escape means Stop only then).
     loading: Rc<Cell<bool>>,
+    /// The user pressed Stop: the end of the load that follows is a stop, not a failure.
+    stopping: bool,
     /// The user is typing an address: the page's own news (its URL as it loads, redirects) must
     /// not replace what they typed.
     editing: bool,
@@ -235,6 +237,7 @@ impl Browser {
             message: String::new(),
             hover: String::new(),
             loading,
+            stopping: false,
             editing: false,
             recorded: None,
             announced: Cell::new((0, 0)),
@@ -377,6 +380,7 @@ impl Browser {
     fn start_navigation(&mut self, url: &str) {
         let shown = self.shown_url(url);
         self.trace(&format!("NAV:{}", marker_text(&shown)));
+        self.stopping = false;
         self.set_loading(true);
         self.set_status(&format!("Opening {shown}"));
         if !self.editing {

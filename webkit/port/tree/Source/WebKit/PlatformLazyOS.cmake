@@ -172,19 +172,31 @@ target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR}
 target_compile_definitions(webkit-smoke PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
 
-# The desktop UI process (webkit/port/app/, docs W5): WebKit's run loop in C++, the xui
-# window in a Rust static library (xui-app/crates/webkit, built by tools/webkit/app.py;
-# LAZYOS_UI_LIBRARY names it). Without the library the target does not exist, so the
-# W4 programs build as before.
+# The desktop UI process (webkit/port/app/, docs W5 and docs/lazywebplus.md): WebKit's run loop in
+# C++, the window in a Rust static library. One set of sources, one program per window:
+# webkit-app links xui-app/crates/webkit's own window (LAZYOS_UI_LIBRARY, built by
+# tools/webkit/app.py) and lazywebplus-app LazyWeb's (LAZYOS_PLUS_LIBRARY, `app.py --plus`). Without
+# a library its target does not exist, so the W4 programs build as before.
+set(_lazyos_app_sources
+    "${LAZYOS_PORT_DIR}/app/main.cpp"
+    "${LAZYOS_PORT_DIR}/app/engine.cpp"
+    "${LAZYOS_PORT_DIR}/app/clients.cpp"
+    "${LAZYOS_PORT_DIR}/app/policy.cpp"
+    "${LAZYOS_PORT_DIR}/app/uiclient.cpp"
+    "${LAZYOS_PORT_DIR}/app/paint.cpp"
+    "${LAZYOS_PORT_DIR}/app/log.cpp"
+)
+
+function (lazyos_add_app name library)
+    add_executable(${name} ${_lazyos_app_sources})
+    target_include_directories(${name} PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
+    target_compile_definitions(${name} PRIVATE ${_lazyos_program_definitions})
+    target_link_libraries(${name} PRIVATE WebKit "${library}")
+endfunction ()
+
 if (LAZYOS_UI_LIBRARY)
-    add_executable(webkit-app
-        "${LAZYOS_PORT_DIR}/app/main.cpp"
-        "${LAZYOS_PORT_DIR}/app/engine.cpp"
-        "${LAZYOS_PORT_DIR}/app/clients.cpp"
-        "${LAZYOS_PORT_DIR}/app/paint.cpp"
-        "${LAZYOS_PORT_DIR}/app/log.cpp"
-    )
-    target_include_directories(webkit-app PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
-    target_compile_definitions(webkit-app PRIVATE ${_lazyos_program_definitions})
-    target_link_libraries(webkit-app PRIVATE WebKit "${LAZYOS_UI_LIBRARY}")
+    lazyos_add_app(webkit-app "${LAZYOS_UI_LIBRARY}")
+endif ()
+if (LAZYOS_PLUS_LIBRARY)
+    lazyos_add_app(lazywebplus-app "${LAZYOS_PLUS_LIBRARY}")
 endif ()

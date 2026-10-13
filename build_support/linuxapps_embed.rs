@@ -92,6 +92,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
     if enabled() {
         embed_programs(
             sink,
@@ -130,6 +131,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
         ("LAZYOS_WEBKIT", WEBKIT_PROCESSES),
+        ("LAZYOS_LAZYWEBPLUS", WEBKIT_PROCESSES),
     ] {
         if !switch_on(switch) {
             continue;

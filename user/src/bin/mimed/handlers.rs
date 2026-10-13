@@ -14,6 +14,7 @@ use user::sys;
 
 use super::apps::{choose, AppRegistry};
 use super::db::MimeDb;
+use super::prefs::Prefs;
 use super::validate::{valid_app_id, valid_mime, valid_token};
 
 /// Dispatch one inbound message on the MIME interface.
@@ -21,6 +22,7 @@ pub(crate) fn dispatch(
     db: &MimeDb,
     apps: &mut AppRegistry,
     bus: &mut Option<central::Bus>,
+    prefs: &mut Prefs,
     message: &Message,
 ) -> messenger::Result<Parcel> {
     if message.interface_id() != mime::INTERFACE {
@@ -56,7 +58,9 @@ pub(crate) fn dispatch(
         wire::METHOD_OPEN => {
             let args = wire::decode_open_args(body).map_err(parse)?;
             let session = caller_session(message);
-            let result = open_path(db, apps, bus, &args.path, &args.verb, session)?;
+            // The caller's own choice of default app, by the uid the kernel stamped.
+            let uid = Some(message.caller().uid);
+            let result = open_path(db, apps, bus, prefs, &args.path, &args.verb, session, uid)?;
             reply(wire::METHOD_OPEN, wire::encode_open_reply(&result))
         }
         wire::METHOD_REGISTER => {
@@ -97,21 +101,27 @@ fn reply(method: u32, body: Result<Vec<u8>, libmessenger::Error>) -> messenger::
     Ok(mime::parcel(method, body.map_err(Error::Parcel)?))
 }
 
-/// Guess the path, resolve the app (`verb`, then the default verb), ask `init`
-/// to launch it when the supervisor is reachable, and publish the launch event
-/// on the central broker.
+/// Guess the path, resolve the app (`verb`, then the default verb; the caller's own choice of app
+/// for the type first, `prefs`), ask `init` to launch it when the supervisor is reachable, and
+/// publish the launch event on the central broker. `uid` is `None` for the service's own
+/// self-test, which has no user.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn open_path(
     db: &MimeDb,
     apps: &AppRegistry,
     bus: &mut Option<central::Bus>,
+    prefs: &mut Prefs,
     path: &str,
     verb: &str,
     session: Option<u64>,
+    uid: Option<u32>,
 ) -> messenger::Result<mime::OpenResult> {
     let mime_type = db.guess(path);
+    let preferred = uid.and_then(|uid| prefs.default_app(uid, &mime_type));
+    let preferred = preferred.as_deref();
     let (primary, fallback) = apps
-        .resolve(&mime_type, verb)
-        .or_else(|| apps.resolve(&mime_type, mime::DEFAULT_VERB))
+        .resolve_preferred(&mime_type, verb, preferred)
+        .or_else(|| apps.resolve_preferred(&mime_type, mime::DEFAULT_VERB, preferred))
         .ok_or(Error::Errno(-errno::ENOENT))?;
     // The gated `init` launch (issue #158): best-effort, so an absent
     // supervisor, an app it does not know, or an app whose ELF is not

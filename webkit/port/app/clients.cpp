@@ -1,22 +1,24 @@
 // What the page tells the UI process: navigation and state clients, the markers a session
-// reads, and the state handed to the window (docs/webkit-port-plan.md, W5).
+// reads, and the state handed to the window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
 //
-// Markers (one line each, on stdout; tools/webkit/appjudge.py reads them):
-//   WEBKIT:W5:WEBPROCESS:UP:<pid>       the page's WebProcess is running (after the first load)
-//   WEBKIT:W5:NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
+// Markers (one line each, on stdout, after the window's prefix: WEBKIT:W5 or WEBPLUS;
+// tools/webkit/appjudge.py and tools/webplus/judge.py read them):
+//   WEBPROCESS:UP:<pid>       the page's WebProcess is running (after the first load)
+//   NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
 // The ones that name a page (LOAD, TITLE, JS, CLICK, INPUT, and the URL in FAIL) print only in
-// an image built with the UI probe (sayHarness).
-//   WEBKIT:W5:START:<url>               a navigation began (the page it is going to)
-//   WEBKIT:W5:CANCELLED:<what>          a load ended because the user stopped it (not a failure)
-//   WEBKIT:W5:LOAD:<url>                a navigation finished (the page's own URL)
-//   WEBKIT:W5:TITLE:<title>             the title when it finished, and again when script changes it
-//   WEBKIT:W5:JS:<title>                document.title, read back by running script in the page
-//   WEBKIT:W5:CLICK:<url>               a link was clicked: the navigation it started
-//   WEBKIT:W5:INPUT:<title>             a form was submitted and the response's title (the echo)
-//   WEBKIT:W5:FAIL:<what>               a navigation failed or the WebProcess crashed
-//   WEBKIT:W5:INFO:TIME:...             milliseconds: start, load start/finish, first paint
-//   WEBKIT:W5:INFO:MEM:...              the guest's RAM in MiB (sysinfo): total, free, and what this
-//                                       process and its children took since the UI process started
+// an image built with the UI probe (sayHarness), and a window that prints them itself
+// (LZW_FEATURE_OWN_MARKERS) has none of them from here.
+//   START:<url>               a navigation began (the page it is going to)
+//   CANCELLED:<what>          a load ended because the user stopped it (not a failure)
+//   LOAD:<url>                a navigation finished (the page's own URL)
+//   TITLE:<title>             the title when it finished, and again when script changes it
+//   JS:<title>                document.title, read back by running script in the page
+//   CLICK:<url>               a link was clicked: the navigation it started
+//   INPUT:<title>             a form was submitted and the response's title (the echo)
+//   FAIL:<what>               a navigation failed or the WebProcess crashed
+//   INFO:TIME:...             milliseconds: start, load start/finish, first paint
+//   INFO:MEM:...              the guest's RAM in MiB (sysinfo): total, free, and what this
+//                             process and its children took since the UI process started
 
 #include <WebKit/WKContext.h>
 #include <WebKit/WKErrorRef.h>
@@ -57,10 +59,19 @@ void rememberChildren()
     const pid_t web = WKPageGetProcessIdentifier(E.page);
     if (web > 0)
         E.webPid = static_cast<int>(web);
-    WKWebsiteDataStoreRef store = WKContextGetWebsiteDataStore(E.context);
+    WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
     const pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
     if (network > 0)
         E.networkPid = static_cast<int>(network);
+}
+
+std::string committedUrl()
+{
+    WKURLRef url = WKPageCopyCommittedURL(E.page);
+    std::string text = utf8(url);
+    if (url)
+        WKRelease(url);
+    return text;
 }
 
 std::string pageTitle()
@@ -80,13 +91,18 @@ void postState()
     static bool webProcessSeen = false;
     if (!webProcessSeen && WKPageGetProcessIdentifier(E.page) > 0) {
         webProcessSeen = true;
-        say("WEBKIT:W5:INFO:TIME:webprocess=%ld", elapsedMs());
+        say("INFO:TIME:webprocess=%ld", elapsedMs());
     }
     std::string url = activeUrl();
+    std::string committed = committedUrl();
     std::string title = pageTitle();
     int progress = static_cast<int>(WKPageGetEstimatedProgress(E.page) * 1000.0);
+    // A committed https: page was fetched over a verified connection: a certificate that does not
+    // verify fails the load (the TLS plan's rule), it never shows a page.
+    const bool secure = committed.size() > 8 && committed.compare(0, 8, "https://") == 0;
     lzw_ui_state(url.c_str(), title.c_str(), E.loading ? 1 : 0, WKPageCanGoBack(E.page) ? 1 : 0,
-        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000, E.error.c_str(), E.crashed ? 1 : 0);
+        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000, E.error.c_str(), E.crashed ? 1 : 0,
+        committed.c_str(), secure ? 1 : 0, E.finished);
 }
 
 namespace {
@@ -100,9 +116,9 @@ void reportProcessesOnce()
     E.processesReported = true;
     rememberChildren();
     if (E.webPid > 0)
-        say("WEBKIT:W5:WEBPROCESS:UP:%d", E.webPid);
+        say("WEBPROCESS:UP:%d", E.webPid);
     if (E.networkPid > 0)
-        say("WEBKIT:W5:NETWORKPROCESS:UP:%d", E.networkPid);
+        say("NETWORKPROCESS:UP:%d", E.networkPid);
 }
 
 // The guest's RAM, in MiB, after each load: what three processes of tens of MB and a page cost.
@@ -117,10 +133,10 @@ void reportMemory()
     const long freeMiB = static_cast<long>(info.freeram * unit / (1024 * 1024));
     if (firstFreeMiB < 0)
         firstFreeMiB = freeMiB;
-    say("WEBKIT:W5:INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
+    say("INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
     uint64_t used = 0, limit = 0;
     if (!lzw_ui_user_memory(&used, &limit))
-        say("WEBKIT:W5:INFO:QUOTA:user_memory_mib=%lu:limit_mib=%lu", static_cast<unsigned long>(used >> 20), static_cast<unsigned long>(limit >> 20));
+        say("INFO:QUOTA:user_memory_mib=%lu:limit_mib=%lu", static_cast<unsigned long>(used >> 20), static_cast<unsigned long>(limit >> 20));
 }
 
 void sayTitle()
@@ -128,7 +144,7 @@ void sayTitle()
     std::string title = oneLine(pageTitle());
     if (title.empty())
         return;
-    sayHarness("WEBKIT:W5:TITLE:%s", title.c_str());
+    sayHarness("TITLE:%s", title.c_str());
     E.lastTitleSaid = title;
 }
 
@@ -141,7 +157,7 @@ void sayInput()
     if (title.empty())
         return;
     E.inputPending = false;
-    sayHarness("WEBKIT:W5:INPUT:%s", title.c_str());
+    sayHarness("INPUT:%s", title.c_str());
 }
 
 // Reads document.title back by running script in the page: the proof that script ran there.
@@ -150,7 +166,7 @@ void scriptResult(WKTypeRef result, WKErrorRef, void*)
     std::string title;
     if (result && WKGetTypeID(result) == WKStringGetTypeID())
         title = utf8(static_cast<WKStringRef>(result));
-    sayHarness("WEBKIT:W5:JS:%s", oneLine(title).c_str());
+    sayHarness("JS:%s", oneLine(title).c_str());
 }
 
 void readTitleBySript()
@@ -164,32 +180,15 @@ void readTitleBySript()
     WKRelease(script);
 }
 
-void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WKFramePolicyListenerRef listener, WKTypeRef, const void*)
-{
-    WKFrameNavigationType type = WKNavigationActionGetNavigationType(action);
-    if (type == kWKFrameNavigationTypeLinkClicked || type == kWKFrameNavigationTypeFormSubmitted) {
-        WKURLRequestRef request = WKNavigationActionCopyRequest(action);
-        WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
-        if (type == kWKFrameNavigationTypeLinkClicked)
-            sayHarness("WEBKIT:W5:CLICK:%s", oneLine(utf8(url)).c_str());
-        else
-            E.formNavigation = true;
-        if (url)
-            WKRelease(url);
-        if (request)
-            WKRelease(request);
-    }
-    WKFramePolicyListenerUse(listener);
-}
-
 void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
+    dropDialogs();
     E.error.clear();
     E.crashed = false;
     E.stopRequested = false;
     E.loading = true;
     E.loadFinished = false;
-    sayHarness("WEBKIT:W5:START:%s", oneLine(activeUrl()).c_str());
+    sayHarness("START:%s", oneLine(activeUrl()).c_str());
     E.navStartMs = elapsedMs();
     E.committedSincePaint = false;
     E.firstPaintMs = -1;
@@ -209,8 +208,9 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.error.clear();
     E.loading = false;
     E.loadFinished = true;
+    ++E.finished;
     long finished = elapsedMs();
-    sayHarness("WEBKIT:W5:LOAD:%s", oneLine(activeUrl()).c_str());
+    sayHarness("LOAD:%s", oneLine(activeUrl()).c_str());
     sayTitle();
     if (E.formNavigation) {
         // The echo is the response's title; it can arrive a moment after the load finished.
@@ -220,7 +220,7 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     }
     readTitleBySript();
     reportProcessesOnce();
-    say("WEBKIT:W5:INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
+    say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
         finished, finished - E.navStartMs);
     reportMemory();
     postState();
@@ -240,7 +240,7 @@ void didFail(const char* what, WKErrorRef error)
     E.loading = false;
     if (cancelled(error)) {
         E.stopRequested = false;
-        sayHarness("WEBKIT:W5:CANCELLED:%s", what);
+        sayHarness("CANCELLED:%s", what);
         postState();
         return;
     }
@@ -261,7 +261,7 @@ void didFail(const char* what, WKErrorRef error)
     }
     E.error = "Could not load " + (failing.empty() ? std::string("the page") : oneLine(failing)) + ": "
         + (description.empty() ? std::string("unknown error") : oneLine(description));
-    say("WEBKIT:W5:FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(failing).c_str() : "", oneLine(description).c_str(),
+    say("FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(failing).c_str() : "", oneLine(description).c_str(),
         error ? WKErrorGetErrorCode(error) : 0);
     postState();
 }
@@ -275,10 +275,11 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
 
 void webProcessDidCrash(WKPageRef, const void*)
 {
+    dropDialogs();
     E.loading = false;
     E.crashed = true;
     E.error = "The page's process stopped. Reload (F5) starts it again.";
-    say("WEBKIT:W5:FAIL:webprocess:crashed");
+    say("FAIL:webprocess:crashed");
     postState();
 }
 
@@ -297,9 +298,12 @@ void titleChanged(const void*)
 
 void installClients()
 {
-    static WKPageNavigationClientV0 navigation = { };
-    navigation.base.version = 0;
+    static WKPageNavigationClientV3 navigation = { };
+    navigation.base.version = 3;
     navigation.decidePolicyForNavigationAction = decidePolicyForNavigationAction;
+    navigation.decidePolicyForNavigationResponse = decidePolicyForNavigationResponse;
+    navigation.navigationActionDidBecomeDownload = navigationActionDidBecomeDownload;
+    navigation.navigationResponseDidBecomeDownload = navigationResponseDidBecomeDownload;
     navigation.didStartProvisionalNavigation = didStartProvisionalNavigation;
     navigation.didCommitNavigation = didCommitNavigation;
     navigation.didFinishNavigation = didFinishNavigation;

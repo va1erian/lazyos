@@ -1,4 +1,6 @@
-// Markers and text helpers for the UI process (docs/webkit-port-plan.md, W5).
+// Markers and text helpers for the UI process (docs/webkit-port-plan.md, W5, and LazyWebPlus,
+// docs/lazywebplus.md). A marker is "<prefix>:<text>", the prefix being the window's
+// (lzw_ui_marker_prefix: WEBKIT:W5 for os.lazy.webkit, WEBPLUS for LazyWebPlus).
 
 #include <WebKit/WKString.h>
 #include <WebKit/WKType.h>
@@ -17,6 +19,7 @@ namespace {
 
 void print(const char* format, va_list args)
 {
+    printf("%s:", lzw_ui_marker_prefix());
     vprintf(format, args);
     printf("\n");
     fflush(stdout);
@@ -38,9 +41,16 @@ bool harness()
     return on;
 }
 
+bool has(int feature)
+{
+    static const int features = lzw_ui_features();
+    return (features & feature) != 0;
+}
+
 void sayHarness(const char* format, ...)
 {
-    if (!harness())
+    // A window that prints the page markers itself (LOAD, TITLE, ...) says them once.
+    if (!harness() || has(LZW_FEATURE_OWN_MARKERS))
         return;
     va_list args;
     va_start(args, format);

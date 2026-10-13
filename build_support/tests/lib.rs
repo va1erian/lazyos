@@ -47,6 +47,8 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
+#[path = "../lazywebplus_embed.rs"]
+mod lazywebplus_embed;
 #[path = "../webkit_embed.rs"]
 mod webkit_embed;
 #[path = "../wifi_embed.rs"]
@@ -72,6 +74,8 @@ mod layout_tests;
 mod lazysky_tests;
 #[cfg(test)]
 mod lazyweb_tests;
+#[cfg(test)]
+mod lazywebplus_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]

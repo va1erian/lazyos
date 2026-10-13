@@ -1,16 +1,19 @@
-// webkit-app: WebKit in a desktop window (docs/webkit-port-plan.md, W5).
+// The desktop UI process: WebKit in a window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
+// One program for both windows: `webkit-app` links the W5 window, `lazywebplus-app` LazyWeb's
+// (the Rust library each one links is the only difference).
 //
 // The UI process has two threads that matter: WebKit's run loop on the process's main thread, as
-// in webkit-smoke (engine.cpp), and the xui window on a second one (a Rust static library,
-// xui-app/crates/webkit, through lazyos_ui.h). A Messenger handle belongs to the thread that made
-// it, so the window is built, used and destroyed on its own thread. When the window closes the run
-// loop ends, the UI process ends the WebProcess and the NetworkProcess (SIGTERM, SIGKILL after a
-// grace period), waits for them (WEBKIT:W5:CHILD:<name>:<pid>:GONE) and exits.
+// in webkit-smoke (engine.cpp), and the xui window on a second one (a Rust static library through
+// lazyos_ui.h). A Messenger handle belongs to the thread that made it, so the window is built, used
+// and destroyed on its own thread. When the window closes the run loop ends, the UI process ends
+// the WebProcess and the NetworkProcess (SIGTERM, SIGKILL after a grace period), waits for them
+// (<prefix>:CHILD:<name>:<pid>:GONE) and exits.
 //
-//   WEBKIT:W5:UP                 the UI process started and WebKit2 initialised
-//   WEBKIT:W5:CHILD:<name>:<pid>:GONE   a child process ended (ALIVE: it did not)
-//   WEBKIT:W5:QUIT:PASS          the window closed, the run loop ended and the children are gone
-//   (and the markers of engine.cpp and the window's WEBKIT:W5:UI:*)
+// Markers, after the window's prefix (WEBKIT:W5 or WEBPLUS):
+//   UP                 the UI process started and WebKit2 initialised
+//   CHILD:<name>:<pid>:GONE   a child process ended (ALIVE: it did not)
+//   QUIT:PASS          the window closed, the run loop ended and the children are gone
+//   (and the markers of engine.cpp and the window's own)
 
 #include <WebKit/WKRunLoop.h>
 
@@ -19,6 +22,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "engine.h"
 #include "lazyos_ui.h"
 
 namespace {
@@ -43,8 +47,7 @@ int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
     WKRunLoopInitializeMain();
-    printf("WEBKIT:W5:UP\n");
-    fflush(stdout);
+    webkitapp::say("UP");
     if (lzw_engine_start() != 0)
         return 1;
 
@@ -55,7 +58,7 @@ int main(int argc, char** argv)
     pthread_attr_setstacksize(&attributes, 8u << 20);
     pthread_t window;
     if (pthread_create(&window, &attributes, windowThread, &arguments) != 0) {
-        printf("WEBKIT:W5:FAIL:window:cannot start the window's thread\n");
+        webkitapp::say("FAIL:window:cannot start the window's thread");
         return 1;
     }
     pthread_detach(window);
@@ -65,7 +68,7 @@ int main(int argc, char** argv)
     // is not something to rely on, and a process left behind holds its 107 MB and its share of the
     // user's memory quota.
     const int surviving = lzw_engine_shutdown();
-    printf("WEBKIT:W5:QUIT:%s\n", arguments.status == 0 && surviving == 0 ? "PASS" : "FAIL");
+    webkitapp::say("QUIT:%s", arguments.status == 0 && surviving == 0 ? "PASS" : "FAIL");
     fflush(stdout);
     _exit(arguments.status);
 }

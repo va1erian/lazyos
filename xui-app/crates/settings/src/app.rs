@@ -24,20 +24,21 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::{
     build, column, icon_view_with, label, list, panel, row, Build, Handle, LayoutExt, Mounted,
 };
-use xui_core::backend::{NodeKind, NodeSpec, Result, WidgetId};
-use xui_core::geometry::Size;
-use xui_core::layout::{Constraints, Insets};
-use xui_core::widget::{Control, IconSize, Label, ListView, Panel, Placeable};
-use xui_core::{Color, Dip, HasText, Point, Rect, Rgba};
+use xui_core::backend::Result;
+use xui_core::layout::Insets;
+use xui_core::widget::{IconSize, Label, ListView, Panel};
+use xui_core::{Color, Dip, HasText};
 
 use crate::about_page::AboutPage;
 use crate::accounts::Accounts;
 use crate::accounts_page::{AccountsMsg, AccountsPage};
 use crate::appearance_page::AppearancePage;
+use crate::defaults_page::{DefaultsMsg, DefaultsPage};
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard_page::{self, KeyboardMsg, KeyboardPage};
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
+use crate::sidebar::sidebar_backdrop;
 use crate::store::ConfigStore;
 use crate::system::System;
 use crate::theme_ops;
@@ -92,6 +93,7 @@ pub enum Msg {
     Keyboard(KeyboardMsg),
     Menu(MenuMsg),
     Hidden(HiddenMsg),
+    Defaults(DefaultsMsg),
     Time(TimeMsg),
     Accounts(AccountsMsg),
     AboutRefresh,
@@ -113,6 +115,7 @@ struct Pages {
     keyboard: KeyboardPage,
     menu: MenuPage,
     hidden: HiddenPage,
+    defaults: DefaultsPage,
     time: TimePage,
     about: AboutPage,
     accounts: AccountsPage,
@@ -210,6 +213,7 @@ impl SettingsApp {
             keyboard: KeyboardPage::build(ui, page(Section::Keyboard))?,
             menu: MenuPage::build(ui, page(Section::Menu))?,
             hidden: HiddenPage::build(ui, page(Section::Hidden))?,
+            defaults: DefaultsPage::build(ui, page(Section::Defaults))?,
             time: TimePage::build(ui, page(Section::Time))?,
             about: AboutPage::build(ui, page(Section::About))?,
             accounts: AccountsPage::build(ui, page(Section::Accounts))?,
@@ -242,7 +246,7 @@ impl SettingsApp {
     }
 
     /// Show `section`'s page and hide the others. The Time & Date, Hidden
-    /// apps and About pages show live values, so they are re-read each time
+    /// apps, Default apps and About pages show live values, so they are re-read each time
     /// they appear.
     fn show(&mut self, ui: &Ui<Msg>, section: Section) {
         self.title.set_text(section.label());
@@ -254,6 +258,7 @@ impl SettingsApp {
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
             Section::Hidden => p.hidden.load(self.store.as_ref()),
+            Section::Defaults => p.defaults.load(self.store.as_ref()),
             Section::Accounts => self
                 .status
                 .set_text(&p.accounts.load(self.accounts.as_ref())),
@@ -431,6 +436,7 @@ impl App for SettingsApp {
             ),
             Msg::Menu(msg) => say(&self.status, self.pages.menu.update(msg, store)),
             Msg::Hidden(msg) => say(&self.status, self.pages.hidden.update(msg, store)),
+            Msg::Defaults(msg) => say(&self.status, self.pages.defaults.update(msg, store)),
         }
     }
 }
@@ -440,42 +446,6 @@ fn say(status: &Label<Msg>, text: String) {
     if !text.is_empty() {
         status.set_text(&text);
     }
-}
-
-/// The sidebar's own background: the window darkened, with a hairline on its
-/// right edge, so the section list reads as a column apart from the page. A
-/// container, so the section list sits inside it.
-struct Backdrop(Control<Msg>);
-
-/// A painted container has no content to size it: the layout gives it its
-/// width and the window's height.
-impl Placeable<Msg> for Backdrop {
-    fn id(&self) -> WidgetId {
-        self.0.id()
-    }
-
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
-        Size::new(0, 0)
-    }
-}
-
-fn sidebar_backdrop(ui: &Ui<Msg>) -> Result<Backdrop> {
-    let back = Control::new(ui, &NodeSpec::new(NodeKind::Container, Rect::default()))?;
-    let theme = ui.theme_handle();
-    back.set_painter(Rc::new(move |canvas| {
-        let theme = theme.get();
-        let b = canvas.bounds();
-        xui_core::theme::look::backdrop(canvas, theme.background);
-        let shade = if theme.is_dark { 0x40 } else { 0x0C };
-        canvas.fill_rect_rgba(b, Rgba::with_alpha(0, 0, 0, shade));
-        canvas.draw_line(
-            Point::new(b.right - 1, b.top),
-            Point::new(b.right - 1, b.bottom),
-            theme.border,
-            1.0,
-        );
-    }));
-    Ok(Backdrop(back))
 }
 
 #[cfg(test)]
