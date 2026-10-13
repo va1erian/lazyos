@@ -113,6 +113,7 @@ mod sockopt;
 mod stat;
 mod statx;
 mod time;
+mod timers;
 mod tty;
 mod uaccess;
 mod vfsfd;
@@ -259,6 +260,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         32 | 33 => fd::sys_dup(nr, a1, a2), // dup / dup2
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.
         35 => time::sys_clock_nanosleep(time::CLOCK_MONOTONIC, 0, a1, a2),
+        36 => timers::sys_getitimer(a1, a2), // getitimer(which, cur)
+        37 => timers::sys_alarm(a1),         // alarm(seconds)
+        38 => timers::sys_setitimer(a1, a2, a3), // setitimer(which, new, old)
         40 => sendfile::sys_sendfile(a1, a2, a3, a4), // sendfile(out, in, offset, count)
         41 => socket::sys_socket(a1, a2, a3),         // socket(domain, type, protocol)
         42 => socket::sys_connect(a1, a2, a3),        // connect(fd, addr, len)
@@ -330,6 +334,11 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         204 => misc::sys_sched_getaffinity(a3, a2), // sched_getaffinity(pid, len, mask)
         217 => dents::sys_getdents64(a1, a2, a3),   // getdents64
         218 => procctl::sys_set_tid_address(a1),
+        222 => timers::sys_timer_create(a1, a2, a3), // timer_create(clock, sevp, timerid)
+        223 => timers::sys_timer_settime(a1, a2, a3, a4), // timer_settime(id, flags, new, old)
+        224 => timers::sys_timer_gettime(a1, a2),    // timer_gettime(id, cur)
+        225 => timers::sys_timer_getoverrun(a1),     // timer_getoverrun(id)
+        226 => timers::sys_timer_delete(a1),         // timer_delete(id)
         227 => time::sys_clock_settime(a1, a2),
         228 => time::sys_clock_gettime(a1, a2),
         229 => time::sys_clock_getres(a2),

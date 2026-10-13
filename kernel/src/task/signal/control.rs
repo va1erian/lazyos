@@ -36,6 +36,21 @@ pub fn send_to_thread(
     send_checked(caller, target, sig, info, None, Scope::Thread)
 }
 
+/// An interval or POSIX timer's expiry (`task::itimer`): `sig` for the
+/// process of `target`, or for the thread `target` alone when
+/// `thread_directed`. The timer is its own sender, so no credential check
+/// applies; a signal that is ignored or blocked is handled by the usual
+/// rules. `SIGKILL` and `SIGSTOP` are refused when a timer is created, never
+/// reached here.
+pub fn send_timer(target: usize, sig: u8, info: SigInfo, thread_directed: bool) {
+    let scope = if thread_directed {
+        Scope::Thread
+    } else {
+        Scope::Process
+    };
+    let _ = send_checked(target, target, sig, info, None, scope);
+}
+
 /// The process group and session a terminal's signal is meant for. The
 /// kernel sends it past every credential check, so the target is re-checked
 /// at delivery: a slot whose task left the group or session, or that a new
@@ -97,7 +112,12 @@ pub(super) fn send_checked(
         }
     }
     let info = SigInfo {
-        pid: if info.pid == 0 { caller } else { info.pid },
+        // A timer's `si_tid` is its id, 0 included.
+        pid: if info.pid == 0 && info.code != SI_TIMER {
+            caller
+        } else {
+            info.pid
+        },
         ..info
     };
 

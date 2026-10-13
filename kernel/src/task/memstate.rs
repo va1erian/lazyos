@@ -41,6 +41,9 @@ pub fn set_pml4(value: u64) {
     // end it: the old table's signal state is about to be dropped.
     if let Some(old) = old.filter(|old| *old != value) {
         signal::carry_kill(old, value);
+        // Interval timers survive an exec (the process is the same); POSIX
+        // timers do not.
+        super::itimer::exec(old, value);
         // The thread keeps its blocked mask and pending signals across the
         // exec (as on Linux), but not its alternate stack.
         signal::exec_thread(me);

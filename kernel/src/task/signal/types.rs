@@ -90,6 +90,17 @@ impl SigInfo {
         }
     }
 
+    /// A POSIX timer's expiry: `pid` carries `si_tid`, `uid` the overrun
+    /// count and `addr` the `sigev_value` (frame offsets 16, 20 and 24).
+    pub const fn timer(id: usize, overrun: u32, value: u64) -> Self {
+        SigInfo {
+            code: SI_TIMER,
+            pid: id,
+            uid: overrun,
+            addr: value,
+        }
+    }
+
     /// A synchronous fault reported by the kernel.
     pub const fn fault(code: i32, addr: u64) -> Self {
         SigInfo {

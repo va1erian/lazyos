@@ -198,6 +198,7 @@ mod ipc_shared_suite;
 mod ipc_suite;
 mod irq_window_deadline;
 mod irq_window_suite;
+mod itimer_suite;
 mod keyboard_suite;
 mod label_suite;
 mod limits_suite;
@@ -275,6 +276,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
+    itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,
     ipc_suite::CASES,
