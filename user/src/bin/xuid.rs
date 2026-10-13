@@ -116,6 +116,8 @@ mod grabs;
 mod held;
 #[path = "xuid/icons.rs"]
 mod icons;
+#[path = "xuid/idle.rs"]
+mod idle;
 #[path = "xuid/inputlink.rs"]
 mod inputlink;
 #[path = "xuid/keys.rs"]
@@ -312,6 +314,7 @@ fn run() -> ! {
         reap::selftest_reap,
         pointer_feed::selftest_pointer_feed,
         held::selftest_held,
+        idle::selftest_idle,
         cursor::selftest_cursor,
         cursor_request::selftest_cursor_request,
         shellcalls::selftest_shell_calls,
@@ -348,6 +351,7 @@ fn run() -> ! {
         comp.reap_dead_shell();
         comp.tick_theme();
         comp.tick_power();
+        comp.tick_idle();
         comp.tick_opening();
         comp.tick_spinner();
         comp.tick_prompt();

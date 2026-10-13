@@ -60,7 +60,44 @@ pub fn reset(store: &dyn ConfigStore) -> Result<(), StoreError> {
     for key in uitheme::ALL_KEYS {
         store.delete(key)?;
     }
+    store.delete(uitheme::KEY_SCREEN_OFF)?;
     store.delete(uitheme::KEY_WALLPAPER)
+}
+
+/// Minutes of quiet before the screen goes black (`sys/ui/screen/off_minutes`,
+/// followed by `xuid`; `0` is never).
+pub fn screen_off(store: &dyn ConfigStore) -> u32 {
+    uitheme::screen_off_from_value(store.get(uitheme::KEY_SCREEN_OFF).as_ref())
+}
+
+/// The row of [`uitheme::SCREEN_OFF_CHOICES`] showing the stored delay (a
+/// value outside the list reads as "Never", which is what `xuid` does too).
+pub fn screen_off_row(store: &dyn ConfigStore) -> usize {
+    let minutes = screen_off(store);
+    uitheme::SCREEN_OFF_CHOICES
+        .iter()
+        .position(|&choice| choice == minutes)
+        .unwrap_or(uitheme::SCREEN_OFF_CHOICES.len() - 1)
+}
+
+/// The delay a picked row means (the default for a row out of range).
+pub fn screen_off_choice(row: usize) -> u32 {
+    uitheme::SCREEN_OFF_CHOICES
+        .get(row)
+        .copied()
+        .unwrap_or(uitheme::DEFAULT_SCREEN_OFF_MINUTES)
+}
+
+/// Store the delay `row` names; the status line's text for it.
+pub fn choose_screen_off(store: &dyn ConfigStore, row: usize) -> Result<String, StoreError> {
+    let minutes = screen_off_choice(row);
+    set_screen_off(store, minutes)?;
+    Ok(format!("Screen off: {}.", uitheme::ScreenOffLabel(minutes)))
+}
+
+/// Blank the screen after `minutes` without input (`0`: never).
+pub fn set_screen_off(store: &dyn ConfigStore, minutes: u32) -> Result<(), StoreError> {
+    store.set(uitheme::KEY_SCREEN_OFF, Value::U64(u64::from(minutes)))
 }
 
 /// Switch the desktop animations on or off (`sys/ui/anim`, followed by
@@ -205,6 +242,18 @@ mod tests {
         assert!(!load(&store).anim);
         set_animations(&store, true).unwrap();
         assert!(load(&store).anim);
+    }
+
+    #[test]
+    fn screen_off_round_trips_and_resets_to_never() {
+        let store = MemStore::new();
+        assert_eq!(screen_off(&store), 0);
+        assert_eq!(screen_off_row(&store), 6);
+        set_screen_off(&store, 15).unwrap();
+        assert_eq!(screen_off(&store), 15);
+        assert_eq!(screen_off_choice(screen_off_row(&store)), 15);
+        reset(&store).unwrap();
+        assert_eq!(screen_off(&store), 0);
     }
 
     #[test]

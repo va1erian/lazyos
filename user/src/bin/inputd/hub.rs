@@ -298,7 +298,14 @@ impl Hub {
                 ),
                 Output::Escape => self.escape_chord(),
                 Output::Key(key) => {
-                    if !self.admit_key(key) {
+                    let admitted = self.admit_key(key);
+                    // After the hold decided, so the compositor never wakes
+                    // the keys before this one was dropped. One-way: a full
+                    // queue only loses an activity note.
+                    if key.state == KeyState::Down {
+                        self.shell_event(shell_wire::METHOD_KEYACTIVITY, Ok(Vec::new()));
+                    }
+                    if !admitted {
                         continue;
                     }
                     if let Some(session) = self.router.focused_session() {

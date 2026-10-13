@@ -80,6 +80,8 @@ pub enum Msg {
     Wallpaper(usize),
     /// The animations checkbox changed.
     Anim(bool),
+    /// A blank-screen delay row was picked.
+    ScreenOff(usize),
     ResetAppearance,
     Target(usize),
     /// The colour panel committed `0xRRGGBB` for the selected target.
@@ -272,6 +274,8 @@ impl SettingsApp {
         let a = &p.appearance;
         a.mode.select(usize::from(settings.mode == Mode::Light));
         a.anim.set_checked(settings.anim);
+        a.screen_off
+            .select(theme_ops::screen_off_row(self.store.as_ref()));
         // A custom colour matches no swatch, which clears the selection.
         let accent = settings.accent.unwrap_or(uitheme::DEFAULT_ACCENT);
         a.accent.select(Color::hex(accent));
@@ -367,6 +371,10 @@ impl App for SettingsApp {
                     "Animations off."
                 },
             ),
+            Msg::ScreenOff(row) => match theme_ops::choose_screen_off(store, row) {
+                Ok(text) => self.status.set_text(&text),
+                Err(error) => self.report(Err(error), ""),
+            },
             Msg::ResetAppearance => {
                 self.report(theme_ops::reset(store), "Appearance reset to defaults.");
                 self.load_state();

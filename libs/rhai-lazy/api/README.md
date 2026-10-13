@@ -465,6 +465,7 @@ The compositor side of `inputd`. Only the compositor may call it: `inputd`
 | `session_closed(surface)` | `SessionClosed(surface: U64) -> () oneway` | Shell event: the last input session of `surface` ended; legacy key |
 | `pointer_event(x, y, buttons, wheel, wheel_h, ts_ns, seq)` | `PointerEvent(x: I32, y: I32, buttons: U32, wheel: I32, wheel_h: I32, ts_ns: U64, seq: U64) -> () oneway` | Shell event: the pointer changed. One cursor for every pointing device |
 | `grab_changed(surface)` | `GrabChanged(surface: Option<U64>) -> () oneway` | Shell event: `surface` now holds the keyboard grab (absent: nobody |
+| `key_activity()` | `KeyActivity() -> () oneway` | Shell event: a key went down on some keyboard (PS/2 or USB; sent after |
 
 Not callable from a script (the request carries a kernel object): `Attach`.
 

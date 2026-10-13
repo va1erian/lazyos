@@ -48,11 +48,13 @@ impl UserTheme {
     }
 }
 
-/// The keys a user may make its own: the palette, the animations switch and
-/// the desktop picture. The UI scale stays machine-wide (the compositor fixes
+/// The keys a user may make its own: the palette, the animations switch, the
+/// desktop picture and the screen blanking delay. The UI scale stays machine-wide (the compositor fixes
 /// it at start-up).
 fn is_theme_key(key: &str) -> bool {
-    uitheme::ALL_KEYS.contains(&key) || key == uitheme::KEY_WALLPAPER
+    uitheme::ALL_KEYS.contains(&key)
+        || key == uitheme::KEY_WALLPAPER
+        || key == uitheme::KEY_SCREEN_OFF
 }
 
 impl ConfigStore for UserTheme {
@@ -117,7 +119,7 @@ pub fn make_default(machine: &dyn ConfigStore, uid: u32) -> Result<Published, St
     let mut adopted = Vec::new();
     for key in uitheme::ALL_KEYS
         .into_iter()
-        .chain([uitheme::KEY_WALLPAPER])
+        .chain([uitheme::KEY_SCREEN_OFF, uitheme::KEY_WALLPAPER])
     {
         let Some(own) = uitheme::user_key(uid, key) else {
             continue;
