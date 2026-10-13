@@ -389,7 +389,7 @@ impl Netdrives {
 }
 
 fn main() {
-    launch::run("NETDRIVES", TITLE, WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Netdrives, TITLE, WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("NETDRIVES:UP:PASS"));
         let w = Widgets::default();
         ui.root(w.layout())

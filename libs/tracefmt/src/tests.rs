@@ -163,6 +163,22 @@ fn a_full_buffer_cuts_the_line_and_keeps_the_newline() {
     assert!(core::str::from_utf8(buf.finish()).is_ok());
 }
 
+#[test]
+fn a_cut_line_ends_in_dots_and_a_whole_one_does_not() {
+    let mut buf = LineBuf::<16>::new();
+    write!(buf, "{}", "x".repeat(100)).unwrap();
+    assert_eq!(buf.finish(), b"xxxxxxxxxxxx...\n");
+    // The dots land on a character boundary.
+    let mut buf = LineBuf::<12>::new();
+    write!(buf, "abcdefgéééé").unwrap();
+    let line = buf.finish();
+    assert!(core::str::from_utf8(line).is_ok());
+    assert!(line.ends_with(b"...\n"));
+    let mut buf = LineBuf::<16>::new();
+    write!(buf, "short").unwrap();
+    assert_eq!(buf.finish(), b"short\n");
+}
+
 // ---- the parser (moved from dbgwire::logline) -----------------------------
 
 #[test]
@@ -333,6 +349,22 @@ fn a_channel_over_budget_prints_one_suppressed_line_per_window() {
     assert_eq!(lines.len(), rate.lines as usize + 2);
     assert_eq!(lines[rate.lines as usize], "LABEL:SUPPRESSED n=25\n");
     assert_eq!(lines[rate.lines as usize + 1], "LABEL:DENY\n");
+}
+
+#[test]
+fn the_ui_channel_is_not_rate_limited_for_its_probe_evidence() {
+    // `UI:RECT` lines (a menu opens fifty rows at once; a session clicks them
+    // by name) share the channel with `UI:STALL`, which has a budget of its
+    // own: a channel-wide limit would drop probe lines and break a session.
+    assert_eq!(Channel::Ui.rate(), None);
+    let tracer = Tracer::new();
+    let sink = Capture::default();
+    for _ in 0..500 {
+        tracer.emit(&sink, 1, Channel::Ui, |b| {
+            let _ = write::line(b, Channel::Ui, format_args!("RECT x=0 y=0 w=1 h=1 name=a"));
+        });
+    }
+    assert_eq!(sink.0.borrow().len(), 500);
 }
 
 #[test]

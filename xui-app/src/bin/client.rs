@@ -131,5 +131,5 @@ fn main() {
         });
 
     backend.unbind();
-    std::process::exit(i32::from(xui_app::launch::finish("XUIAPP", outcome)))
+    std::process::exit(i32::from(xui_app::launch::finish(xui_app::trace::Channel::Xuiapp, outcome)))
 }

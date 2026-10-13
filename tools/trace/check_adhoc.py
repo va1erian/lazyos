@@ -4,14 +4,18 @@
 docs/tracing-plan.md (stage T0). Test evidence, UI markers and the like must
 go through the `trace` API (`libs/tracefmt` and its three sinks), never a
 print; this lint is the progress bar of that migration. It reports a count
-per file (and per tree), and `--enforce` fails on any hit, which CI turns on
-at T4.
+per file (and per tree). `--enforce` fails on any hit (CI turns it on when the
+migration ends, T4); until then CI runs `--ratchet`: the per-file counts may
+only go down. A new file, or a file whose count rises, fails, so a new app or
+a new marker cannot be written as a print while the old ones are moved, and
+a file that improves must lower its entry (`--update-baseline`), so the
+saved headroom cannot be spent on a new print.
 
 A hit is a literal that starts with a capital letter and has a colon:
 
     serial_println!("UP:...")   serial_print!("UP:...")
     println!("UP:...")          eprintln!("UP:...")
-    write_str(&format!("UP:...")
+    write_str(&format!("UP:..."))   write_str("UP:...")
 
 Not hits: the `libs/tracefmt` crate and the three sink modules (they are the
 one place a line is written), the kernel suite (`kernel/src/tests/`, whose
@@ -24,6 +28,7 @@ rings in every image.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -31,12 +36,13 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+BASELINE = Path(__file__).with_name("adhoc_baseline.json")
 
 # One print macro (or the services' write) followed by a format string that
 # starts with a marker: `UPPER` then a colon.
 CALL = re.compile(
     r"""(?:\bserial_println!|\bserial_print!|\beprintln!|\bprintln!|\beprint!|\bprint!
-        |write_str\(\s*&format!)\(\s*"(?P<tag>[A-Z][A-Z0-9_]*:)""",
+        |write_str\(\s*&format!|write_str)\(\s*"(?P<tag>[A-Z][A-Z0-9_]*:)""",
     re.VERBOSE,
 )
 
@@ -59,7 +65,6 @@ EXCLUDED_PREFIXES = (
     "kernel/src/trace.rs",
     "user/src/trace.rs",
     "xui-app/src/trace.rs",
-    "xui-app/src/trace/",
     "kernel/src/tests/",
     "tools/abi/fixtures/",
 )
@@ -165,6 +170,21 @@ def secret_hits(text: str) -> list[tuple[int, str]]:
     return found
 
 
+# The std apps write their lines with `xui_app::trace` (one sink that opens
+# the console device); another opener is a private copy of the old `emit`
+# helper, which is how a marker slipped past the print patterns above.
+CONSOLE_OPENERS = ("xui-app/", "lazyrad-os/", "doom/", "emusic/", "quake/", "srb2kart/")
+CONSOLE = re.compile(r"\bdev::CONSOLE\b")
+
+
+def scan_console(text: str) -> list[tuple[int, str, str]]:
+    """Uses of `fhs::dev::CONSOLE` in a std app, as `(line, tag, text)`."""
+    return [
+        (text.count("\n", 0, match.start()) + 1, "CONSOLE:", "dev::CONSOLE")
+        for match in CONSOLE.finditer(text)
+    ]
+
+
 def scan(root: Path) -> dict[str, list[tuple[int, str, str]]]:
     result: dict[str, list[tuple[int, str, str]]] = {}
     for path in tracked_rust_files(root):
@@ -173,15 +193,48 @@ def scan(root: Path) -> dict[str, list[tuple[int, str, str]]]:
         file = root / path
         if not file.is_file():
             continue
-        hits = scan_text(file.read_text(encoding="utf-8", errors="replace"))
+        text = file.read_text(encoding="utf-8", errors="replace")
+        hits = scan_text(text)
+        if path.startswith(CONSOLE_OPENERS):
+            hits += scan_console(text)
         if hits:
             result[path] = hits
     return result
 
 
+def ratchet(found: dict[str, list], baseline: dict[str, int]) -> list[str]:
+    """What is wrong with the counts against the saved baseline: a file with
+    more hits than it had (or any hit in a file with none), and a file with
+    fewer that left its entry too high."""
+    problems = []
+    for path in sorted(set(found) | set(baseline)):
+        now, was = len(found.get(path, [])), baseline.get(path, 0)
+        if now > was:
+            problems.append(
+                f"{path}: {now} ad hoc print(s), baseline {was}: write the marker "
+                f"with `trace::pass!`/`fail!`/`event!`/`line!` (docs/tracing-plan.md; "
+                f"a crate with no `xui-app` dependency: AGENTS.md, \"Tracing\")"
+            )
+        elif now < was:
+            problems.append(
+                f"{path}: {now} ad hoc print(s), baseline {was}: lower it with "
+                f"`python tools/trace/check_adhoc.py --update-baseline`"
+            )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--enforce", action="store_true", help="fail on any hit")
+    parser.add_argument(
+        "--ratchet",
+        action="store_true",
+        help=f"fail when a file has more hits than {BASELINE.name} (or fewer: lower it)",
+    )
+    parser.add_argument(
+        "--update-baseline", action="store_true", help=f"rewrite {BASELINE.name} from the tree"
+    )
+    parser.add_argument("--baseline", type=Path, default=BASELINE, help=argparse.SUPPRESS)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--verbose", "-v", action="store_true", help="list every hit")
     args = parser.parse_args(argv)
@@ -213,10 +266,26 @@ def main(argv: list[str] | None = None) -> int:
     for path, line, tag in leaks:
         print(f"SECRET?  {path}:{line}: {tag} mentions password/secret/token")
 
+    if args.update_baseline:
+        counts = {path: len(found[path]) for path in sorted(found)}
+        args.baseline.write_text(json.dumps(counts, indent=1) + "\n", encoding="utf-8")
+        print(f"wrote {args.baseline.name}: {sum(counts.values())} prints in {len(counts)} files")
+        return 0
+    status = 0
+    if args.ratchet:
+        saved = (
+            json.loads(args.baseline.read_text(encoding="utf-8")) if args.baseline.is_file() else {}
+        )
+        problems = ratchet(found, saved)
+        for problem in problems:
+            print(f"RATCHET  {problem}", file=sys.stderr)
+        if problems or leaks:
+            print("check_adhoc: markers go through `trace`, never a print", file=sys.stderr)
+            status = 1
     if args.enforce and (total or leaks):
         print("check_adhoc: markers go through `trace`, never a print", file=sys.stderr)
-        return 1
-    return 0
+        status = 1
+    return status
 
 
 if __name__ == "__main__":

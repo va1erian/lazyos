@@ -2685,6 +2685,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
+name = "tracefmt"
+version = "0.1.0"
+
+[[package]]
 name = "trayclient"
 version = "0.1.0"
 dependencies = [
@@ -3058,6 +3062,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-about"
+version = "0.1.0"
+dependencies = [
+ "xui-core",
+]
+
+[[package]]
 name = "xui-app"
 version = "0.1.0"
 dependencies = [
@@ -3083,8 +3094,10 @@ dependencies = [
  "printd",
  "surfbuf",
  "timezone",
+ "tracefmt",
  "trayclient",
  "uitheme",
+ "xui-about",
  "xui-archiver",
  "xui-calc",
  "xui-canvas",
@@ -3167,6 +3180,7 @@ dependencies = [
 name = "xui-explorer"
 version = "0.1.0"
 dependencies = [
+ "image",
  "xui-core",
  "xui-icons",
 ]

@@ -55,5 +55,8 @@ fn main() -> std::process::ExitCode {
         docs
     });
     backend.unbind();
-    std::process::ExitCode::from(xui_app::launch::finish("DOCS", outcome))
+    std::process::ExitCode::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Docs,
+        outcome,
+    ))
 }

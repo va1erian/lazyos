@@ -356,7 +356,7 @@ fn sentence(reason: &str) -> String {
 }
 
 fn main() {
-    launch::run("GREETER", "Log in", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Greeter, "Log in", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("GREETER:UP:PASS"));
         let mut greeter = Greeter {
             w: Widgets::default(),

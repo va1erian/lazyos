@@ -161,7 +161,7 @@ impl Consent {
 fn ask(path: &Path, package: Package) -> ExitCode {
     let path = path.to_path_buf();
     launch::run(
-        "INSTALLER",
+        xui_app::trace::Channel::Installer,
         "Run from development",
         (560, 400),
         move |ui, backend| {

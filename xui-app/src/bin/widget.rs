@@ -164,7 +164,7 @@ fn paint(canvas: &mut dyn Canvas, theme: Theme, state: &State) {
 }
 
 fn main() {
-    launch::run("WIDGET", "widget", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Widget, "widget", WINDOW, |ui, backend| {
         let state = Rc::new(RefCell::new(State::load()));
         {
             let state = Rc::clone(&state);

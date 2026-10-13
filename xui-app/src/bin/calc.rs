@@ -11,7 +11,7 @@ use xui_app::launch;
 use xui_calc::{CalcApp, Msg, Report, WINDOW};
 
 fn main() {
-    launch::run("CALC", "Calculator", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Calc, "Calculator", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("CALC:UP:PASS"));
         CalcApp::build(ui, |report| match report {
             Report::Msg(msg) => {

@@ -294,5 +294,8 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             .expect("the LazyWebPlus window's widgets built")
     });
     backend.unbind();
-    c_int::from(xui_app::launch::finish("WEBPLUS", outcome))
+    c_int::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Webplus,
+        outcome,
+    ))
 }

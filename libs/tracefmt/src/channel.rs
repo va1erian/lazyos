@@ -39,6 +39,7 @@ macro_rules! channels {
 
 channels! {
     Abi => "ABI",
+    About => "ABOUT",
     Accounts => "ACCOUNTS",
     App => "APP",
     Archiver => "ARCHIVER",
@@ -116,6 +117,7 @@ channels! {
     Settings => "SETTINGS",
     Shell => "SHELL",
     Shellprobe => "SHELLPROBE",
+    Sky => "SKY",
     Smb => "SMB",
     Smbfuse => "SMBFUSE",
     Snd => "SND",
@@ -134,8 +136,10 @@ channels! {
     Traydemo => "TRAYDEMO",
     Ui => "UI",
     Usbd => "USBD",
+    Video => "VIDEO",
     Volume => "VOLUME",
     Web => "WEB",
+    Webkit => "WEBKIT",
     Webplus => "WEBPLUS",
     Widget => "WIDGET",
     Wifid => "WIFID",
@@ -199,9 +203,15 @@ impl Channel {
     /// The rate limit of a channel that can fire from a wedged peer or a
     /// tight loop, in ticks of 10 ms (a 10 s window): past it the channel
     /// prints one `SUPPRESSED` line per window instead.
+    ///
+    /// A limit is per channel, so only a channel every line of which is the
+    /// same noisy event has one. `Ui` carries the probe's `UI:RECT` and
+    /// `UI:WIDGET` evidence (a menu opens fifty rows at once, and a session
+    /// clicks them by name) beside `UI:STALL`: the stall alone is limited,
+    /// with a `Budget` of its own (`xui_app::stall`).
     pub const fn rate(self) -> Option<Rate> {
         match self {
-            Channel::Ui | Channel::Label => Some(Rate {
+            Channel::Label => Some(Rate {
                 lines: 40,
                 window: 1000,
             }),

@@ -21,7 +21,7 @@ use xui_confd_editor::store::Scope;
 use xui_settings::store::ConfigStore;
 
 fn main() {
-    launch::run("CONFDED", "Config", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Confded, "Config", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("CONFDED:UP:PASS"));
         // The user's own keys until Elevate (docs/accounts-plan.md U2).
         let scope = match ConfigStore::uid(&ConfdStore::new()) {

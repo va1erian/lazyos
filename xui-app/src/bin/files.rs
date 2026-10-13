@@ -189,7 +189,7 @@ fn main() {
     let platform = Rc::new(StdPlatform::new());
     let start = start();
 
-    launch::run("FILES", "Files", WINDOW, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Files, "Files", WINDOW, move |ui, backend| {
         let launcher = ReportingLauncher {
             backend: Rc::clone(backend),
         };

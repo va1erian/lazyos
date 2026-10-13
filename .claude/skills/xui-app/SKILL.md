@@ -63,13 +63,15 @@ Write **Rust** only when the app needs it:
 
 `xui_app::launch::run` is the whole `main`: it connects (display owner or
 `xuid` client), opens the window in the desktop's theme, builds the app,
-runs it, releases the display and exits, printing `<MARKER>:BIND:FAIL:<errno>`
-or `<MARKER>:RUN:FAIL:<error>` when it cannot.
+runs it, releases the display and exits, printing `<PREFIX>:BIND:FAIL:<errno>`
+or `<PREFIX>:RUN:FAIL:<error>` when it cannot.
 
 ```rust
+use xui_app::trace::{self, Channel};
+
 fn main() {
-    launch::run("NOTES", "Notes", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| println!("NOTES:UP:PASS"));
+    launch::run(Channel::Notes, "Notes", WINDOW, |ui, backend| {
+        backend.on_first_frame(|| trace::pass!(Channel::Notes, "UP"));
         let app = Notes::default();
         ui.root(/* the layout */)?;
         ui.on_close(|| Some(Msg::Quit));
@@ -78,10 +80,20 @@ fn main() {
 }
 ```
 
-Markers are `<MARKER>:<STEP>:PASS|FAIL[:detail]`, printed once per event the
-session waits on (`UP`, `APPLY`, `QUIT`, ...). Printing each message in
-`update` (`println!("SETTINGS:MSG:{msg:?}")`) lets a session confirm a click
-landed (`until`) instead of sleeping.
+**Markers go through `xui_app::trace`, never `println!`** (AGENTS.md,
+"Tracing"; CI runs `python tools/trace/check_adhoc.py --ratchet`, which fails
+a new file that prints one). A marker is `<PREFIX>:<STEP>:PASS|FAIL[:detail]`:
+`trace::pass!(Channel::Notes, "APPLY")`, `trace::fail!(Channel::Notes, "SAVE",
+"{error}")`, or `trace::event!(Channel::Notes, "FPS", fps = fps)` for
+`key=value` fields. Printed once per event the session waits on (`UP`,
+`APPLY`, `QUIT`, ...); a trace in `update`
+(`trace::line!(Channel::Settings, "MSG:{msg:?}")`) lets a session confirm a
+click landed (`until`) instead of sleeping. The prefix is a `Channel` in
+`libs/tracefmt/src/channel.rs`; `tools/xui/new_app.py` adds the row (and
+`python tools/trace/catalog.py` regenerates `docs/trace/channels.md`). Probe
+rectangles are `xui_app::probe`, never hand-built `UI:RECT` lines. A
+`LAZYOS_TRACE=0` image prints none of them, so work that only feeds a trace
+sits behind `trace::enabled(Channel::X)`.
 
 ### Layouts and builders
 

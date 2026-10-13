@@ -5,6 +5,7 @@ when it should."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,15 @@ class Scan(unittest.TestCase):
             self.hits(source),
             ["DEV:", "FS:", "PERF:", "CALC:", "WEB:", "INIT:", "PKGD:"],
         )
+
+    def test_a_plain_write_str_literal_is_a_hit(self):
+        self.assertEqual(self.hits('sys::write_str("MIME:SELFTEST:PASS\\n");'), ["MIME:"])
+        self.assertEqual(self.hits('sys::write_str("not a marker\\n");'), [])
+
+    def test_a_private_console_opener_is_a_hit_in_a_std_app(self):
+        source = 'let f = OpenOptions::new().write(true).open(fhs::dev::CONSOLE);\n'
+        self.assertEqual([tag for _, tag, _ in check_adhoc.scan_console(source)], ["CONSOLE:"])
+        self.assertEqual(check_adhoc.scan_console("let x = 1;\n"), [])
 
     def test_diagnostics_and_ordinary_text_are_not_hits(self):
         source = "\n".join(
@@ -74,9 +84,16 @@ class Scan(unittest.TestCase):
 
 
 class Enforce(unittest.TestCase):
-    def run_lint(self, files: dict[str, str], *flags: str) -> tuple[int, str]:
+    def run_lint(
+        self, files: dict[str, str], *flags: str, baseline: dict[str, int] | None = None
+    ) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            saved = Path(tmp) / "baseline.json"
+            if baseline is not None:
+                saved.write_text(json.dumps(baseline), encoding="utf-8")
+            flags = (*flags, "--baseline", str(saved))
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             for name, text in files.items():
                 path = root / name
@@ -88,7 +105,7 @@ class Enforce(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            return done.returncode, done.stdout
+            return done.returncode, done.stdout + done.stderr
 
     def test_report_mode_passes_and_enforce_fails(self):
         files = {"user/src/a.rs": 'fn f() { println!("INIT:UP:PASS"); }\n'}
@@ -98,6 +115,53 @@ class Enforce(unittest.TestCase):
         self.assertIn("1 tree user", " ".join(out.split()))
         code, _ = self.run_lint(files, "--enforce")
         self.assertEqual(code, 1)
+
+    def test_ratchet_refuses_a_new_print_and_a_stale_baseline(self):
+        old = 'fn f() { println!("INIT:UP:PASS"); }\n'
+        new = old + 'fn g() { println!("WRITER:SAVE:PASS"); }\n'
+        fresh = 'fn h() { println!("CALC:UP:PASS"); }\n'
+        base = {"user/src/a.rs": 1}
+        # Unchanged: fine.
+        code, out = self.run_lint({"user/src/a.rs": old}, "--ratchet", baseline=base)
+        self.assertEqual(code, 0, out)
+        # A second print in a file that had one.
+        code, out = self.run_lint({"user/src/a.rs": new}, "--ratchet", baseline=base)
+        self.assertEqual(code, 1)
+        self.assertIn("user/src/a.rs: 2 ad hoc print(s), baseline 1", out)
+        # A new app that prints.
+        files = {"user/src/a.rs": old, "xui-app/src/bin/notes.rs": fresh}
+        code, out = self.run_lint(files, "--ratchet", baseline=base)
+        self.assertEqual(code, 1)
+        self.assertIn("xui-app/src/bin/notes.rs: 1 ad hoc print(s), baseline 0", out)
+        # A file that improved must lower its entry, or the room is spent later.
+        code, out = self.run_lint({"user/src/a.rs": "fn f() {}\n"}, "--ratchet", baseline=base)
+        self.assertEqual(code, 1)
+        self.assertIn("--update-baseline", out)
+        # A missing baseline means every print is new.
+        code, _ = self.run_lint({"user/src/a.rs": old}, "--ratchet")
+        self.assertEqual(code, 1)
+
+    def test_update_baseline_writes_the_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "user/src").mkdir(parents=True)
+            (root / "user/src/a.rs").write_text(
+                'fn f() { println!("INIT:A"); println!("INIT:B"); }\n', encoding="utf-8"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            saved = Path(tmp) / "baseline.json"
+            subprocess.run(
+                [sys.executable, str(HERE / "check_adhoc.py"), "--root", str(root),
+                 "--baseline", str(saved), "--update-baseline"],
+                check=True, capture_output=True,
+            )
+            self.assertEqual(json.loads(saved.read_text()), {"user/src/a.rs": 2})
+
+    def test_the_committed_baseline_is_current(self):
+        found = check_adhoc.scan(check_adhoc.ROOT)
+        saved = json.loads(check_adhoc.BASELINE.read_text(encoding="utf-8"))
+        self.assertEqual(check_adhoc.ratchet(found, saved), [])
 
     def test_the_sinks_and_the_suite_are_excluded(self):
         files = {

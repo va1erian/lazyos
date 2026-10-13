@@ -17,12 +17,14 @@
 //! (compare it with `sysinfo`'s `ticks`, 100 Hz). Read it with
 //! `dbgctl log --source programs`. At most [`BUDGET`] lines are printed per
 //! [`WINDOW_TICKS`] per thread, then a `UI:STALL:SUPPRESSED` count follows, so
-//! a wedged peer cannot flood the ring the evidence lives in.
+//! a wedged peer cannot flood the ring the evidence lives in. The line goes
+//! through [`crate::trace`] (channel `ui`), whole, to the console device: an
+//! app started in the Terminal reaches `dbgctl` too, not its pty.
 
-use std::cell::Cell;
 use std::sync::OnceLock;
 
 use crate::sys;
+use crate::trace::{self, Budget, Channel};
 
 /// Work shorter than this is not a stall (a frame is 16 ms; this is six).
 pub const SLOW_NS: u64 = 100_000_000;
@@ -34,13 +36,19 @@ const BUDGET: u32 = 40;
 const WINDOW_TICKS: u64 = 1000;
 
 thread_local! {
-    /// `(window start tick, lines printed in it, lines suppressed in it)`.
-    static RATE: Cell<(u64, u32, u32)> = const { Cell::new((0, 0, 0)) };
+    /// This thread's budget (the channel itself carries `UI:RECT` evidence
+    /// that must never be dropped, so only the stall is limited).
+    static RATE: Budget = const { Budget::new(BUDGET, WINDOW_TICKS) };
 }
 
-/// A stopwatch start: the monotonic clock now.
+/// A stopwatch start: the monotonic clock now (nothing in a `LAZYOS_TRACE=0`
+/// build, whose [`finish`] never prints).
 pub fn start() -> u64 {
-    sys::monotonic_ns()
+    if trace::ENABLED {
+        sys::monotonic_ns()
+    } else {
+        0
+    }
 }
 
 /// This program's name, once.
@@ -57,34 +65,27 @@ fn app() -> &'static str {
 /// Print a `UI:STALL` line when the work that began at `since` ran past
 /// `limit_ns`. `what` is built only then.
 pub fn finish(since: u64, limit_ns: u64, kind: &str, what: impl FnOnce() -> String) {
+    if !trace::ENABLED {
+        return;
+    }
     let took = sys::monotonic_ns().saturating_sub(since);
     if took < limit_ns {
         return;
     }
-    let now = sys::clock_ticks();
-    let allowed = RATE.with(|rate| {
-        let (begin, printed, suppressed) = rate.get();
-        if now.saturating_sub(begin) >= WINDOW_TICKS {
-            if suppressed > 0 {
-                println!("UI:STALL:SUPPRESSED n={suppressed} app={}", app());
-            }
-            rate.set((now, 1, 0));
-            true
-        } else if printed < BUDGET {
-            rate.set((begin, printed + 1, suppressed));
-            true
-        } else {
-            rate.set((begin, printed, suppressed + 1));
-            false
-        }
+    let allowed = RATE.with(|budget| {
+        trace::within_with(budget, Channel::Ui, |count| {
+            trace::line!(Channel::Ui, "STALL:SUPPRESSED n={count} app={}", app());
+        })
     });
     if !allowed {
         return;
     }
     let thread = std::thread::current();
-    println!(
-        "UI:STALL kind={kind} ms={} at={now} app={} thread={} what={}",
+    trace::line!(
+        Channel::Ui,
+        "STALL kind={kind} ms={} at={} app={} thread={} what={}",
         took / 1_000_000,
+        sys::clock_ticks(),
         app(),
         thread.name().unwrap_or("?"),
         what()

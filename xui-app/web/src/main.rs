@@ -91,9 +91,14 @@ fn main() {
         visits,
         transfers,
     };
-    launch::run("WEB", "LazyWeb", WINDOW, move |ui, backend| {
-        backend.set_size_hints(420, 300, 0, 0);
-        backend.on_first_frame(|| println!("WEB:UP:PASS"));
-        Browser::build(ui, Rc::clone(backend), setup)
-    })
+    launch::run(
+        xui_app::trace::Channel::Web,
+        "LazyWeb",
+        WINDOW,
+        move |ui, backend| {
+            backend.set_size_hints(420, 300, 0, 0);
+            backend.on_first_frame(|| println!("WEB:UP:PASS"));
+            Browser::build(ui, Rc::clone(backend), setup)
+        },
+    )
 }

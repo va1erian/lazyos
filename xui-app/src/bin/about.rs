@@ -13,7 +13,7 @@ use xui_about::{AboutApp, Info, Msg, Report, WINDOW};
 use xui_app::launch;
 
 fn main() {
-    launch::run("ABOUT", "About LazyOS", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::About, "About LazyOS", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("ABOUT:UP:PASS"));
         // Resizable down to 320 x 240 and up to the screen: the view
         // re-renders at the new size.

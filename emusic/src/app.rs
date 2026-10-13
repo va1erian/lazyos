@@ -82,7 +82,10 @@ pub fn run() -> ! {
     };
     let outcome = run_on(startup, host);
     backend.unbind();
-    std::process::exit(i32::from(xui_app::launch::finish("EMUSIC", outcome)))
+    std::process::exit(i32::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Emusic,
+        outcome,
+    )))
 }
 
 /// `--sound-check <file>`: plays `file` through `audiod` in the fixed

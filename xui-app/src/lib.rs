@@ -36,6 +36,7 @@ pub mod services;
 pub mod shell;
 pub mod stall;
 pub mod sys;
+pub mod trace;
 /// The system-stats snapshot (syscall 14), shared with the native `top`.
 pub use lazyos_sys::sysinfo;
 pub mod themed;

@@ -407,7 +407,7 @@ fn main() {
     // without, the Ethernet-only window the sessions know.
     let wifi = wifipage::Page::detect();
     let size = if wifi.is_some() { WINDOW_WIFI } else { WINDOW };
-    launch::run("NETAPP", TITLE, size, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Netapp, TITLE, size, move |ui, backend| {
         backend.on_first_frame(|| println!("NETAPP:UP:PASS"));
         let w = Widgets::default();
         let mut wifi = wifi;

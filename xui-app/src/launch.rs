@@ -12,6 +12,7 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::Backend;
 
 use crate::backend::LazyOSBackend;
+use crate::trace::{self, Channel};
 
 /// The argument `init`'s app registry passes to a desktop app.
 pub const CLIENT_ARG: &str = "--client";
@@ -50,12 +51,12 @@ impl LazyOSBackend {
 /// the desktop's theme, builds the app with `make`, runs it, releases the
 /// display and exits the process.
 ///
-/// Failures are reported on the serial console as `<marker>:BIND:FAIL:<errno>`
-/// (no display) and `<marker>:RUN:FAIL:<error>` (the window or a widget could
-/// not be built); the process exits 0 after a clean quit, 1 otherwise. `make`
-/// gets the backend for app-specific evidence (`on_first_frame`) and requests
-/// (`request_size`).
-pub fn run<A, F>(marker: &str, title: &str, windowed: (i32, i32), make: F) -> !
+/// Failures are reported on the serial console as `<channel>:BIND:FAIL:<errno>`
+/// (no display) and `<channel>:RUN:FAIL:<error>` (the window or a widget could
+/// not be built), through [`crate::trace`]; the process exits 0 after a clean
+/// quit, 1 otherwise. `make` gets the backend for app-specific evidence
+/// (`on_first_frame`) and requests (`request_size`).
+pub fn run<A, F>(channel: Channel, title: &str, windowed: (i32, i32), make: F) -> !
 where
     A: App,
     F: FnOnce(&mut Ui<A::Msg>, &Rc<LazyOSBackend>) -> xui_core::backend::Result<A>,
@@ -63,7 +64,7 @@ where
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
-            println!("{marker}:BIND:FAIL:{code}");
+            trace::fail!(channel, "BIND", "{code}");
             std::process::exit(1);
         }
     };
@@ -73,17 +74,17 @@ where
         .backend(Rc::clone(&backend) as Rc<dyn Backend>)
         .run(|ui| make(ui, &backend));
     backend.unbind();
-    std::process::exit(i32::from(finish(marker, outcome)))
+    std::process::exit(i32::from(finish(channel, outcome)))
 }
 
 /// The process exit status for an app's `run` outcome, reporting a failure as
-/// `<marker>:RUN:FAIL:<error>`.
+/// `<channel>:RUN:FAIL:<error>`.
 ///
 /// A window closed before its first attach (issue #498: the user, or monkey
 /// input, dismissed it while it opened) is not a failure: it prints
-/// `<marker>:RUN:CLOSED` and exits 0, so `init` does not mark the app
+/// `<channel>:RUN:CLOSED` and exits 0, so `init` does not mark the app
 /// degraded.
-pub fn finish<E: std::fmt::Display>(marker: &str, outcome: Result<(), E>) -> u8 {
+pub fn finish<E: std::fmt::Display>(channel: Channel, outcome: Result<(), E>) -> u8 {
     match outcome {
         Ok(()) => 0,
         // The flag is process-wide, so the error must also be the close the
@@ -94,11 +95,11 @@ pub fn finish<E: std::fmt::Display>(marker: &str, outcome: Result<(), E>) -> u8 
                     .to_string()
                     .contains(&crate::client_window::OpenError::Closed.to_string()) =>
         {
-            println!("{marker}:RUN:CLOSED");
+            trace::line!(channel, "RUN:CLOSED");
             0
         }
         Err(error) => {
-            println!("{marker}:RUN:FAIL:{error}");
+            trace::fail!(channel, "RUN", "{error}");
             1
         }
     }

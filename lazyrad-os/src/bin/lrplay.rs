@@ -35,13 +35,13 @@ use std::rc::Rc;
 
 use lazyrad_os::args;
 use lazyrad_os::failure::{report_to_init, StderrTap};
-use lazyrad_os::marker::Markers;
+use lazyrad_os::marker::{self, Markers};
 use lazyrad_os::platform::{data_root, player_policy, Home, LazyOsPlatform};
 use lazyrad_player::{run_with_backend, EXIT_OK};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::Backend;
 
-const MARK: Markers = Markers::PLAYER;
+const MARK: Markers = marker::PLAYER;
 
 fn main() -> ExitCode {
     MARK.install_panic_hook();

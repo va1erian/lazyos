@@ -36,6 +36,7 @@ REGISTRIES = [
     "tools/lazygui/catalog.py",
     "tools/screenshot/examples/core_apps.json",
     "xui-app/crates/app-icons/src/lib.rs",
+    "libs/tracefmt/src/channel.rs",
 ]
 
 
@@ -56,8 +57,10 @@ class NewAppTests(unittest.TestCase):
         touched = new_app.scaffold(self.root, self.app)
         self.assertEqual(len(touched), len(REGISTRIES) + 4)
         source = self.text("xui-app/src/bin/notes.rs")
-        self.assertIn('launch::run("NOTES", "Notes"', source)
-        self.assertIn("NOTES:UP:PASS", source)
+        self.assertIn('launch::run(Channel::Notes, "Notes"', source)
+        self.assertIn('trace::pass!(Channel::Notes, "UP")', source)
+        self.assertNotIn("println!", source)  # markers go through xui_app::trace
+        self.assertIn('    Notes => "NOTES",', self.text("libs/tracefmt/src/channel.rs"))
         self.assertIn("NOTES:QUIT:PASS", source)
         self.assertIn('system_name = "os.lazy.notes"', self.text("xui-app/packages/notes/manifest.toml"))
         self.assertIn("NOTES:UP:PASS", self.text("tools/screenshot/examples/xui_notes.json"))
@@ -76,6 +79,19 @@ class NewAppTests(unittest.TestCase):
         }
         for rel, needle in expected.items():
             self.assertIn(needle, self.text(rel).replace("\r\n", "\n"), rel)
+
+    def test_an_already_catalogued_prefix_keeps_its_variant(self) -> None:
+        # Someone catalogued NOTES under another spelling: the app must name
+        # that variant, and no second row for the prefix is added.
+        channels = self.root / "libs/tracefmt/src/channel.rs"
+        text = channels.read_text(encoding="utf-8")
+        channels.write_text(
+            text.replace('    Nslookup => "NSLOOKUP",\n', '    Nslookup => "NSLOOKUP",\n    Notebook => "NOTES",\n', 1),
+            encoding="utf-8",
+        )
+        new_app.scaffold(self.root, self.app)
+        self.assertIn("launch::run(Channel::Notebook,", self.text("xui-app/src/bin/notes.rs"))
+        self.assertEqual(self.text("libs/tracefmt/src/channel.rs").count('"NOTES"'), 1)
 
     def test_a_second_run_refuses_and_changes_nothing(self) -> None:
         new_app.scaffold(self.root, self.app)
