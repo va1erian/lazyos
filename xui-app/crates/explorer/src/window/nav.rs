@@ -32,6 +32,9 @@ impl ExplorerWindow {
     ) {
         self.dir = listing.dir.clone();
         self.listing = listing;
+        if let Some(thumbs) = &self.thumbs {
+            thumbs.folder_changed();
+        }
         self.set_models(ui);
         let rows = self.listing.indices_of(select);
         self.set_selection(&rows);

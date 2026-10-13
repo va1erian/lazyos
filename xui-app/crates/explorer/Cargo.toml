@@ -22,6 +22,10 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba2
 # off; the LazyOS Files app turns it on.
 xui-icons = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", optional = true }
 
+# GIF, BMP, WebP and ICO thumbnails. PNG and JPEG go through xui-core's
+# decoders; these are pure-Rust codecs, the same set LazySky uses.
+image = { version = "0.25", default-features = false, features = ["gif", "bmp", "webp", "ico"] }
+
 [features]
 # The std-backed `Platform` (`StdPlatform`), which the LazyOS app reuses over
 # the Linux shim. The app supplies its own `Launcher` (init.Launch).

@@ -15,6 +15,7 @@ use xui_core::theme::Theme;
 use xui_core::widget::{IconModel, ListModel};
 
 use super::sort::{SortOrder, sort_entries};
+use super::thumbs::Thumbs;
 use super::village;
 use super::{format_size, format_time};
 use crate::platform::{Kind, Platform, RawEntry};
@@ -167,12 +168,22 @@ impl Listing {
 #[derive(Clone)]
 pub struct SharedListing {
     listing: Rc<Listing>,
+    thumbs: Option<Rc<Thumbs>>,
 }
 
 impl SharedListing {
     /// Wraps `listing`.
     pub fn new(listing: Rc<Listing>) -> SharedListing {
-        SharedListing { listing }
+        SharedListing {
+            listing,
+            thumbs: None,
+        }
+    }
+
+    /// Draws picture thumbnails from `thumbs` where they are ready.
+    pub fn with_thumbs(mut self, thumbs: Option<Rc<Thumbs>>) -> SharedListing {
+        self.thumbs = thumbs;
+        self
     }
 }
 
@@ -196,6 +207,11 @@ impl IconModel for SharedListing {
         let Some(entry) = self.listing.entries.get(item) else {
             return false;
         };
+        if let Some(thumbs) = &self.thumbs
+            && thumbs.paint(&self.listing.dir, entry, canvas, rect)
+        {
+            return true;
+        }
         village::paint(entry, canvas, rect, theme, dpi)
     }
 
