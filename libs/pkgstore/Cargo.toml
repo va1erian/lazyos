@@ -22,6 +22,8 @@ fhs = { path = "../fhs" }
 lazypkg = { path = "../lazypkg" }
 # SHA-256 for the audit chain, hex for the log lines.
 lazyos-crypto = { path = "../crypto" }
+# What a sandboxed process's `files` rules compile to, shared with the kernel's file gate.
+filepolicy = { path = "../filepolicy" }
 # The generated `os.lazy.pkgd.v1` records (`PkgEvent`, `Permission`) and the
 # kernel policy rule type: the wire shapes are never re-declared here.
 messenger-generated = { path = "../generated" }

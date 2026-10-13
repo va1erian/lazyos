@@ -153,6 +153,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             "tools/webkit/deps.py",
         );
     }
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_ATTACK");
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
         ("LAZYOS_WEBKIT", WEBKIT_PROCESSES),
@@ -160,14 +161,22 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         if !switch_on(switch) {
             continue;
         }
-        embed_programs(
-            sink,
-            manifest_dir,
-            switch,
-            WEBKIT_BUILT,
-            programs,
-            "tools/webkit/port.py",
-        );
+        // The sandbox attack harness (`tools/webkit/attack_run.py`): the browser's two engine
+        // processes are replaced by a stand-in that attacks from inside their labels. Never
+        // for an image anyone uses: it is a test fixture, and says so.
+        let attack = switch == "LAZYOS_WEBKIT" && switch_on("LAZYOS_WEBKIT_ATTACK");
+        let (built, builder) = if switch == "LAZYOS_WEBKIT" {
+            crate::webkit_embed::engine_source(attack)
+        } else {
+            (WEBKIT_BUILT, "tools/webkit/port.py")
+        };
+        if attack {
+            println!(
+                "cargo:warning=LAZYOS_WEBKIT_ATTACK=1: the WebProcess and NetworkProcess are \
+                 attack stand-ins (test image, never ship it)"
+            );
+        }
+        embed_programs(sink, manifest_dir, switch, built, programs, builder);
         let conf = manifest_dir.join(WEBKIT_FONTS_CONF);
         // Watched even when missing: a port built later rebuilds the image.
         println!("cargo:rerun-if-changed={}", conf.display());

@@ -792,6 +792,17 @@ image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
 LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
 LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
+A package may also declare helper programs that run under a narrower label of
+their own, `[processes.<name>]` tables whose `program` an `execve` of the app's
+task enters as `app:<system_name>/<name>` (issue #832; `docs/packages.md`,
+"Process tables"; `kernel/src/ipc/children.rs`). Such a label holds at most the
+app's permissions, owns no names, and may not start programs. A traced run
+prints `LABEL:ENTER label=<child> pid=<n> program=<path>` when a task enters
+one and `LABEL:DENY label=<child> start=<call>` when it tries to start a
+program; the kernel tests are `LAZYOS_TEST_FILTER=label_child python
+tools/test/run.py --accel none`, and a ring-3 `execve` of a bound program
+runs end to end in `label_child_real_execve`.
+
 ## App failures (the "stopped unexpectedly" notice)
 
 `init` restarts services and the desktop shell as before, but a launched app

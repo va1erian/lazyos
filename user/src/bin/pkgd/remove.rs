@@ -89,6 +89,16 @@ impl Pkgd {
                             .mime_unregister(&handler.mime_type, &row.system_name, verb);
                 }
             }
+            // The app's child labels go with it (the kernel also drops them
+            // when the app's own rules are revoked just below).
+            let revoked = policy::revoke_dropped(&manifest, None);
+            if revoked > 0 {
+                trace::line!(
+                    trace::Channel::Pkgd,
+                    "REMOVE:CHILDREN {} n={revoked}",
+                    row.system_name
+                );
+            }
         }
         policy::revoke(&row.system_name).map_err(|error| {
             fail(

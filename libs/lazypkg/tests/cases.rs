@@ -22,6 +22,8 @@ struct ManifestCase {
     #[serde(default)]
     permissions: String,
     #[serde(default)]
+    processes: String,
+    #[serde(default)]
     version: Option<String>,
     valid: bool,
     #[serde(default)]
@@ -34,6 +36,8 @@ struct ManifestCase {
     resident: Option<bool>,
     #[serde(default)]
     develop: Option<bool>,
+    #[serde(default)]
+    children: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -58,11 +62,12 @@ fn cases() -> Cases {
 fn manifest_text(case: &ManifestCase) -> String {
     format!(
         "[app]\nname = \"Demo\"\nsystem_name = \"org.lazy.demo\"\nauthor = \"Tester\"\n\
-         version = \"{}\"\n{}\n[entry]\nbinary = \"bin/app.elf\"\n{}\n[permissions]\n{}\n",
+         version = \"{}\"\n{}\n[entry]\nbinary = \"bin/app.elf\"\n{}\n[permissions]\n{}\n{}\n",
         case.version.as_deref().unwrap_or("1.0.0"),
         case.app,
         case.entry,
-        case.permissions
+        case.permissions,
+        case.processes
     )
 }
 
@@ -89,6 +94,10 @@ fn manifest_cases() {
                 }
                 if let Some(develop) = case.develop {
                     assert_eq!(manifest.permissions.develop, develop, "{}", case.name);
+                }
+                if let Some(children) = &case.children {
+                    let names: Vec<&String> = manifest.processes.keys().collect();
+                    assert_eq!(names, children.iter().collect::<Vec<_>>(), "{}", case.name);
                 }
             }
             (true, Err(error)) => panic!("{}: expected valid, got {error}", case.name),

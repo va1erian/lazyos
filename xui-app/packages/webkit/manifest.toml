@@ -10,13 +10,18 @@
 # `LAZYOS_XUI_AUTOSTART`. Only a desktop image with the network stack ships it
 # (`LAZYOS_WEBKIT=1`, `python tools/run_demo.py --webkit`). LazyWeb stays the shipped browser;
 # this one claims no file or link type.
+#
+# The two engine processes run sandboxed (docs/webkit-port-plan.md W5, *Security*): the kernel
+# gives the program named in a `[processes.<name>]` table the label `app:os.lazy.webkit/<name>`
+# when this app executes it, and judges that label by the table alone. The tables below are what
+# each process needs and nothing more.
 
 [app]
 name = "WebKit"
 system_name = "os.lazy.webkit"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. Not sandboxed: the page process has this app's display, input and network access as you; nothing is saved between runs"
+description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. The page process is sandboxed: it reads only fonts, has no network, no access to your files and no windows of its own. The network process may reach the network and keep cookies and a cache in your WebKit profile folder (.apps/os.lazy.webkit)"
 category = "internet"
 
 [entry]
@@ -28,17 +33,57 @@ abi = "linux"
 autostart = false
 
 [permissions]
-# Derived from a run under `LAZYOS_LABEL_TRACE=1` (`python tools/webkit/app_run.py --label-trace`,
-# docs/packages.md): the window, its keyboard and pointer, and the pointer shape (without
-# `os.lazy.display.cursor.v1` the run prints `LABEL:DENY ... SetCursor`). Sockets are plain musl
-# ones (the `outbound` network permission) and names resolve through `/etc/resolv.conf`, so
-# `os.lazy.net.stack.v1` is not needed. WebProcess and NetworkProcess are children of the app and
-# run under its label. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS
-# has not, so nothing is persisted yet and no file is asked
-# for (a persistent profile would ask for `write:$HOME/.apps/os.lazy.webkit`).
+# The window's own needs, derived from a run under `LAZYOS_LABEL_TRACE=1` (`python
+# tools/webkit/app_run.py --label-trace`, docs/packages.md): the window, its keyboard and pointer,
+# and the pointer shape (without `os.lazy.display.cursor.v1` the run prints `LABEL:DENY ...
+# SetCursor`). The UI process never fetches anything itself; `network` is listed because a child
+# label may hold no more than the app's own (`[processes.networkprocess]` needs it), and the
+# kernel judges the UI process's sockets by this label only for what it has not confined.
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
 ]
 network = ["outbound"]
+# What persists (cookies, the HTTP cache, local storage, history) is kept below the app's own
+# per-user folder, and nothing is written anywhere else. The reads are the union of what the two
+# processes below read (a child label holds no more than the app's own); the UI process itself
+# touches none of them, and the table of each process says which one holds which.
+files = [
+    "write:$HOME/.apps/os.lazy.webkit",
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+]
+
+# One process per page, running whatever the page says with the JIT on. It is the process a
+# page's exploit lands in, so it holds nothing: its image and the IPC socket it inherits are all it
+# starts with, and only the font files, the font configuration and the font cache directory may be
+# read. No Messenger interface (it never draws on the display: the UI process does, from the
+# shared bitmap it sends), no network, no `$HOME`, no program to start.
+[processes.webprocess]
+program = "/system/bin/webprocess"
+interfaces = []
+network = []
+files = [
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+]
+
+# The one process that fetches. It reads the resolver, the host table and the CA bundle (the
+# Linux paths `libs/fhs` names), opens outbound sockets, and keeps the cookie jar and the cache
+# in the profile folder the UI process made. It has no window, no input and no other file.
+[processes.networkprocess]
+program = "/system/bin/networkprocess"
+interfaces = []
+network = ["outbound"]
+files = [
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+    "write:$HOME/.apps/os.lazy.webkit",
+]

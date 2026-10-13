@@ -120,6 +120,15 @@ pub(super) fn sys_spawnv(req_ptr: u64) -> u64 {
 
 /// The body of [`sys_spawnv`]; the error is the syscall return value.
 fn spawnv(req_ptr: u64) -> Result<usize, u64> {
+    // A task in a child label (`app:<id>/<name>`, issue #832) never starts a
+    // program, by any personality or credential mode.
+    // A confined label (`ipc::confine`) starts no process, whatever the
+    // personality or credential mode it asks for.
+    if !crate::ipc::children::may_start(task::current(), "spawnv")
+        || !crate::ipc::confine::may_spawn()
+    {
+        return Err(syscall_error(super::creds::EPERM));
+    }
     let words = read_words(req_ptr)?;
     let mut request = read_request(&words)?;
     let stamp = approve(core::mem::replace(&mut request.cred, CredReq::Inherit))?;

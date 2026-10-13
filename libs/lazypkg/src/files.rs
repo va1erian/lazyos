@@ -31,17 +31,23 @@ pub(crate) enum RuleError {
 }
 
 impl RuleError {
-    /// The problem line for `rule`.
+    /// The problem line for `rule`, a `permissions.files` entry.
     pub(crate) fn message(self, rule: &str) -> alloc::string::String {
+        self.message_in("permissions.files", rule)
+    }
+
+    /// The problem line for `rule`, an entry of the manifest field `field`
+    /// (`permissions.files`, or `processes.<name>.files`).
+    pub(crate) fn message_in(self, field: &str, rule: &str) -> alloc::string::String {
         match self {
             RuleError::Shape => alloc::format!(
-                "permissions.files entry {rule:?} is not a read:/write: absolute or $HOME/ path"
+                "{field} entry {rule:?} is not a read:/write: absolute or $HOME/ path"
             ),
-            RuleError::HomeNotFirst => alloc::format!(
-                "permissions.files entry {rule:?} may use $HOME only as its first segment"
-            ),
+            RuleError::HomeNotFirst => {
+                alloc::format!("{field} entry {rule:?} may use $HOME only as its first segment")
+            }
             RuleError::AbsoluteHome => alloc::format!(
-                "permissions.files entry {rule:?} names a home directory; write it as $HOME/..."
+                "{field} entry {rule:?} names a home directory; write it as $HOME/..."
             ),
         }
     }
@@ -71,6 +77,43 @@ fn check_rule_with(rule: &str, reject_absolute_home: bool) -> Result<(), RuleErr
         return Err(RuleError::AbsoluteHome);
     }
     Ok(())
+}
+
+/// Whether the app's rule `app` covers the child process's rule `child`
+/// (`[processes.<name>] files`, issue #832): the child may only hold what the
+/// app holds. Both must already pass [`check_rule`].
+///
+/// The verb must be the same (`write:` does not imply `read:`: list both),
+/// and the app's path must be the child's, or a directory above it. Segments
+/// compare one at a time, and an app `*` matches any one child segment (a
+/// literal or a `*`); a child `*` under an app literal is wider, so refused,
+/// as is a child path shorter than the app's.
+pub(crate) fn covers(app: &str, child: &str) -> bool {
+    let (Some((app_verb, app_path)), Some((child_verb, child_path))) =
+        (verb_and_path(app), verb_and_path(child))
+    else {
+        return false;
+    };
+    if app_verb != child_verb {
+        return false;
+    }
+    // `$HOME` and the empty segment before an absolute path's first `/` only
+    // ever come first, so they match themselves like any literal.
+    let mut child_segments = child_path.split('/');
+    app_path.split('/').all(|wanted| {
+        child_segments
+            .next()
+            .is_some_and(|got| wanted == got || wanted == "*")
+    })
+}
+
+/// A rule split into its verb and path, `None` when it has neither.
+fn verb_and_path(rule: &str) -> Option<(&'static str, &str)> {
+    ["read", "write"].into_iter().find_map(|verb| {
+        rule.strip_prefix(verb)
+            .and_then(|rest| rest.strip_prefix(':'))
+            .map(|path| (verb, path))
+    })
 }
 
 fn valid_segment(segment: &str) -> bool {
@@ -137,6 +180,49 @@ mod tests {
         assert!(!is_absolute_home("/data/homework"));
         assert!(!is_absolute_home("/database/home"));
         assert!(!is_absolute_home("/data/apps/x"));
+    }
+
+    #[test]
+    fn an_app_rule_covers_the_same_or_a_narrower_child_rule() {
+        let covered = [
+            ("read:/system/share/fonts", "read:/system/share/fonts"),
+            (
+                "read:/system/share/fonts",
+                "read:/system/share/fonts/a/b.ttf",
+            ),
+            (
+                "write:$HOME/.apps/org.lazy.x",
+                "write:$HOME/.apps/org.lazy.x/db",
+            ),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/*"),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/2026"),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/2026/a.png"),
+            ("read:/a/*/c", "read:/a/b/c"),
+            ("read:/a/*/c", "read:/a/*/c/d"),
+        ];
+        for (app, child) in covered {
+            assert!(covers(app, child), "{app} should cover {child}");
+        }
+        let refused = [
+            // The verb is part of the rule.
+            ("write:/a/b", "read:/a/b"),
+            ("read:/a/b", "write:/a/b"),
+            // Wider, or somewhere else.
+            ("read:/a/b", "read:/a"),
+            ("read:/a/b", "read:/a/*"),
+            ("read:/a/b", "read:/a/c"),
+            ("read:/a/b", "read:/ab"),
+            ("read:/a/b", "read:$HOME/a/b"),
+            ("read:$HOME/a", "read:/a"),
+            ("read:/a/*/c", "read:/a/b"),
+            ("read:/a/*/c", "read:/a/b/d"),
+            // Not rules at all.
+            ("exec:/a", "read:/a"),
+            ("read:/a", "x"),
+        ];
+        for (app, child) in refused {
+            assert!(!covers(app, child), "{app} must not cover {child}");
+        }
     }
 
     #[test]

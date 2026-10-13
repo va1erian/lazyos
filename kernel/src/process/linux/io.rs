@@ -277,6 +277,10 @@ fn write_eventfd(fd: u64, ptr: u64, len: u64) -> u64 {
 
 pub(super) fn sys_read(fd: u64, ptr: u64, len: u64) -> u64 {
     match task::fd_kind(fd as usize) {
+        // A confined task reads nothing from its launcher's terminal (the
+        // keystrokes of the shell the browser was started from), whichever of
+        // the descriptors it was left on: end of file.
+        FdKind::Terminal | FdKind::Pty if crate::ipc::confine::slot_confined(task::current()) => 0,
         FdKind::Terminal => super::tty::read_console(ptr, len),
         FdKind::Pty => super::tty::read_pty(fd, ptr, len),
         FdKind::File => read_file_bytes(fd, ptr, len),

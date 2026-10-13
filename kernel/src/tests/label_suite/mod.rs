@@ -13,6 +13,7 @@ use credentials::Cred;
 use libmessenger::{Header, Parcel, VERSION};
 
 mod calls;
+mod children;
 mod identity;
 mod names;
 mod nic_names;
@@ -174,9 +175,19 @@ fn unregister_current(name: &str) -> Result<u64, String> {
 
 /// Load `rules` for `label` through `OP_ACL_LOAD` as the current task.
 fn load_current(label: &str, rules: &[policy::wire::LabelRule]) -> Result<u64, String> {
+    load_with_program(label, rules, None)
+}
+
+/// [`load_current`] with the `program` of a child label (`app:<id>/<name>`).
+fn load_with_program(
+    label: &str,
+    rules: &[policy::wire::LabelRule],
+    program: Option<&str>,
+) -> Result<u64, String> {
     let body = policy::wire::encode_load_label_args(&policy::wire::LoadLabelArgs {
         label: label.into(),
         rules: rules.to_vec(),
+        program: program.map(String::from),
     })
     .map_err(|error| String::from(error.message()))?;
     let bytes = parcel_bytes(policy::LOADER_INTERFACE, policy::LOAD_METHOD, body)?;
@@ -274,4 +285,34 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "label_soak_register_load_cycles",
         soak::register_load_cycles,
     ),
+    ("label_child_grammar", children::child_label_grammar),
+    ("label_child_load_rules", children::child_load_rules),
+    ("label_child_revocation", children::child_revocation),
+    (
+        "label_child_calls_are_the_intersection",
+        children::child_calls_are_the_intersection,
+    ),
+    (
+        "label_child_entered_only_by_its_program",
+        children::child_entered_only_by_its_program,
+    ),
+    (
+        "label_child_stamp_is_narrow",
+        children::child_stamp_is_narrow,
+    ),
+    (
+        "label_child_may_not_start_programs",
+        children::child_may_not_start_programs,
+    ),
+    (
+        "label_child_file_rules_are_covered",
+        children::child_file_rules_are_covered,
+    ),
+    (
+        "label_child_not_entered_with_handles",
+        children::child_not_entered_with_handles,
+    ),
+    ("label_child_label_cap", children::child_label_cap),
+    ("label_child_soak", children::child_label_soak),
+    ("label_child_real_execve", children::child_label_real_execve),
 ];

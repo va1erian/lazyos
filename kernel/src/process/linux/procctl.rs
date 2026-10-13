@@ -115,6 +115,14 @@ pub(super) fn sys_clone(flags: u64, stack: u64, parent_tid: u64, child_tid: u64,
         };
         task::spawn_thread_sharing("thread", stack, fs_base, clear, share)
     } else {
+        // Not a thread: a program start, which a child label never makes.
+        // A vfork-style child is a new process (`posix_spawn`'s): not for a
+        // confined label.
+        if !crate::ipc::children::may_start(task::current(), "vfork")
+            || !crate::ipc::confine::may_spawn()
+        {
+            return err(EPERM);
+        }
         task::spawn_vfork(stack)
     };
     // Collect exits the scheduler already flagged before deciding the table is
@@ -177,6 +185,16 @@ fn read_str_ptr_array(arr: u64) -> Vec<Vec<u8>> {
 }
 
 pub(super) fn sys_fork() -> u64 {
+    // A new process in a child label (issue #832) would be a way to start
+    // programs by the back door: refused like `execve`.
+    // A confined label creates no process (`ipc::confine`): a copy of itself
+    // would only be one more of the same sandbox, but it is also a way to
+    // exhaust the user's task slots and memory quota.
+    if !crate::ipc::children::may_start(task::current(), "fork")
+        || !crate::ipc::confine::may_spawn()
+    {
+        return err(EPERM);
+    }
     match task::spawn_fork() {
         Ok(index) => index as u64,
         Err(_) => err(ENOMEM),
@@ -186,6 +204,15 @@ pub(super) fn sys_fork() -> u64 {
 /// `execve(path, argv, envp)`: replace the current image with `path`'s ELF (or,
 /// for a `#!` script, its interpreter's) and resume at its entry point.
 pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
+    // A task in a child label (`app:<id>/<name>`, issue #832) never starts a
+    // program, this one included.
+    // A confined label (`ipc::confine`) runs the one image it was started
+    // with: refused before the path is even read.
+    if !crate::ipc::children::may_start(task::current(), "execve")
+        || !crate::ipc::confine::may_exec()
+    {
+        return err(EPERM);
+    }
     let raw = match read_path(path_ptr) {
         Ok(raw) => raw,
         Err(code) => return code,
@@ -210,6 +237,7 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
 
     // A `#!` script runs its interpreter instead (issue #491); `image` is the
     // ELF at the end of that chain, with argv rewritten for it.
+    let spelled = path.clone();
     let image = match super::shebang::resolve(path, raw.into_bytes(), argv) {
         Ok(image) => image,
         Err(code) => return code,
@@ -228,12 +256,25 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
         Err(error) => return err(error.errno()),
     };
 
+    // A helper program of a labelled app takes its child label here (issue
+    // #832), matched on the file that runs or the path as spelled (a bound
+    // script): the image is loaded and nothing below can fail, so a refusal is
+    // still a failed `execve` and the process never runs wider than intended.
+    let matches = [image.path.as_str(), spelled.as_str()];
+    if crate::ipc::children::enter_on_exec(task::current(), &matches).is_err() {
+        return err(EPERM);
+    }
+
     // The image is committed. Record the program (`/proc/self/exe`), which
     // also stops sharing the descriptor table with the old threads, then close
     // the descriptors std marked `O_CLOEXEC` (the child's copies of the
     // inherit-only pipe ends) before resuming.
     task::linuxstate::set_exe(&image.path);
     close_cloexec_fds();
+    // An image that starts under a confined label (the label of a sandboxed
+    // child program, stamped at this exec) keeps only its standard streams and
+    // connected sockets, whatever the launcher forgot to mark `FD_CLOEXEC`.
+    crate::ipc::confine::scrub_inherited_descriptors();
 
     // Replace the process image: switch to the new table and make `sysretq`
     // resume at the new entry. Only now does the table outlive this call, so

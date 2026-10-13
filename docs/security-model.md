@@ -39,10 +39,15 @@ What is enforced today, honestly:
 - **Installed apps are confined.** A packaged app runs labelled
   `app:<system_name>` and is default-deny on Messenger except for what its
   manifest grants (`pkgstore::rules`, [`packages.md`](packages.md)). Its
-  `files` permissions are consent-only (there is no file sandbox), and its
-  `network` permission gates only the Messenger socket interface: the Linux
-  `AF_INET` path in the kernel does not check labels, and the per-uid call
-  rules in `libs/netpolicy` wait for the uid policy loader.
+  own `files` permissions are consent-only (an ordinary app is not confined,
+  so there is no file sandbox for it), and its `network` permission gates
+  only the Messenger socket interface: the Linux `AF_INET` path does not
+  check an ordinary app's label, and the per-uid call rules in
+  `libs/netpolicy` wait for the uid policy loader. An app may declare helper
+  programs with narrower, **confined** labels (`[processes.<name>]`, section
+  2.1, issue #832): for those the kernel does enforce `files` (the VFS gate),
+  `network` (`socket(AF_INET)` and its client-only rule), process creation
+  and signals ([`architecture/process-sandbox.md`](architecture/process-sandbox.md)).
 - **The desktop session is not root** (U0, issue #623). A desktop image
   boots to a login screen (or the build's autologin account); LazyShell, the
   Terminal and every app, installed autostart apps included, run as the
@@ -113,7 +118,7 @@ memory/fds/handles within their quota, and race multi-threaded code.
 | Group | `gid`; a user has a primary group + supplementary groups |
 | Service account | a user with no login, owning service state |
 | Session | `session_id`, created by `logind`; scopes topic/service namespaces and default ACLs |
-| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
+| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `app:<id>/<name>` for a helper program of that app that holds less (a *child label*, issue #832), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
 | Kernel | the only component that stamps credentials; userspace can never set them |
 
 Credentials travel with every Messenger message and syscall and are copied into
@@ -123,7 +128,54 @@ elevation service. A label is assigned once, when a child is created, by an
 unlabelled `CAP_SETUID` holder (`init`); the one exception is an IDE package
 with `develop = true` spawning a child into a `dev:` label that `pkgd` holds an
 approved rule set for: same uid, gid and session, never more capabilities
-(`docs/architecture/ipc-security.md`, "Spawning into `dev:`").
+(`docs/architecture/ipc-security.md`, "Spawning into `dev:`"), and an app's own
+`execve` of a helper program its manifest declares (below).
+
+### 2.1 Child labels (issue #832)
+
+An app that runs code it does not trust as much as itself (a browser's page
+process executes whatever a website sends, with a JIT) declares that helper in
+its manifest, `[processes.<name>]` with the helper's `program` and a subset of
+the app's own `interfaces`, `network` and `files`
+([`packages.md`](packages.md), section 3). `pkgd` loads it as the label
+`app:<system_name>/<name>`, and the kernel applies one rule
+(`kernel/src/ipc/children.rs`, `docs/architecture/ipc-security.md`):
+
+* **Entering.** A task labelled `app:<system_name>` that `execve`s exactly the
+  declared `program` takes the child label: the same uid, gid, capabilities and
+  session, a narrower label. Nothing else gives a task a child label, and the
+  lookup is keyed by the caller's *own* label, so an app can enter only its own
+  children, another app's child or a path nothing is bound to changes nothing,
+  and a task already in a child has no children to enter.
+* **Never wider.** A Messenger call by a child is allowed only when its own
+  rules and its app's rules both allow it (the intersection), and its rules
+  are refused at load unless the app's loaded rules cover each one. The file
+  and `AF_INET` gates judge a child by its own rule ids alone (its `files`
+  and `network`); that they are a subset of the app's is what the load-time
+  check guarantees, with the app holding its children's file ids for the
+  purpose and the confine marker, which only narrows, left out of the check.
+  A child owns no `app.<id>.*` service name and no `app/<id>/` topic.
+  Revoking the app (removing the package) revokes every child with it, and
+  an upgrade that drops a table drops its label.
+* **No state carried in.** An `execve` into a child label is refused
+  (`EPERM`, not entered) while the task's slot holds Messenger handles,
+  because channels and buffers belong to the slot and would survive into the
+  helper; a helper started by a fork holds none. A confined task also reads
+  end of file from a terminal descriptor, so the keystrokes of the shell it
+  was launched from are not its to read.
+* **No further processes.** A task in a child label cannot start a program:
+  `execve`, `fork`, `vfork`/`clone` without `CLONE_THREAD` and `spawnv` are
+  refused with `EPERM` and audited. Threads are allowed.
+
+A child label is a **confined** label: its `files` rules compile to the file
+gate's rule ids plus the confine marker, and the kernel refuses any path they
+do not cover, any `AF_INET` socket its `network` does not allow and any
+signal to another process
+([`architecture/process-sandbox.md`](architecture/process-sandbox.md)). What
+it does *not* do: the app's own `files` stay consent text, a confined process
+is still the user's uid (the label, not ownership, protects the user's
+files), and the gaps listed on that page (no per-process `/proc`, a shared
+audit ring, a path-based gate for a symlink-free filesystem) apply.
 
 ---
 

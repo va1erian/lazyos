@@ -15,7 +15,7 @@ use crate::ipc::inet::{self, Addr, InetSock, Kind, State, DGRAM_HEADER, MAX_DGRA
 use crate::task::{self, Fd, FdKind};
 use crate::user_ptr;
 
-use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK};
+use super::errno::{err, EBADF, EFAULT, EINVAL, EMFILE, EMSGSIZE, ENOTSOCK, EPERM};
 use super::flags::{SOCK_CLOEXEC, SOCK_NONBLOCK, SOCK_STREAM};
 use super::io::{recv_stream, write_stream_opts};
 use super::scatter::{Received, Scatter};
@@ -98,6 +98,12 @@ fn write_addr(addr: u64, addrlen: u64, value: Addr) {
 
 /// `socket(AF_INET, type, protocol)`.
 pub(super) fn sys_socket(kind: u64, protocol: u64) -> u64 {
+    // A confined label's network access is the socket interface its manifest
+    // asked for (`network = ["outbound"]`): without it there is no socket,
+    // and so no connect, bind, send or DNS lookup that could follow.
+    if !crate::ipc::confine::may_open_inet() {
+        return err(EPERM);
+    }
     let (sock_kind, wanted) = match kind & 0xf {
         SOCK_STREAM => (Kind::Stream, IPPROTO_TCP),
         SOCK_DGRAM => (Kind::Dgram, IPPROTO_UDP),
@@ -132,6 +138,10 @@ pub(super) fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
         Ok(addr) => addr,
         Err(e) => return e,
     };
+    // A confined label's network is `outbound`: a local port of its own choosing is a server.
+    if addr.port != 0 && !crate::ipc::confine::may_serve() {
+        return err(EPERM);
+    }
     match sock.begin_bind(addr).and_then(|t| sock.finish(t)) {
         Ok(()) => 0,
         Err(e) => code(e),
@@ -162,6 +172,9 @@ pub(super) fn sys_listen(fd: u64, backlog: u64) -> u64 {
         Ok(sock) => sock,
         Err(e) => return e,
     };
+    if !crate::ipc::confine::may_serve() {
+        return err(EPERM);
+    }
     match sock
         .begin_listen(backlog.min(u32::MAX as u64) as u32)
         .and_then(|t| sock.finish(t))
