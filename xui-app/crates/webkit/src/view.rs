@@ -85,6 +85,14 @@ impl PageView {
         spare
     }
 
+    /// Shows the blank page again (the page's process is gone).
+    pub fn clear(&self) {
+        let had = self.state.borrow_mut().image.take().is_some();
+        if had {
+            self.control.invalidate();
+        }
+    }
+
     /// The size of the picture on show.
     pub fn picture_size(&self) -> Option<(u32, u32)> {
         self.state

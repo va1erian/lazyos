@@ -34,8 +34,12 @@ int lzw_ui_main(int argc, const char* const* argv);
 // The bytes are copied before the call returns.
 void lzw_ui_frame(const uint8_t* rgba, int width, int height);
 
-// The page's state changed (UTF-8, never null). progress is in thousandths.
-void lzw_ui_state(const char* url, const char* title, int loading, int can_back, int can_forward, int progress);
+// The page's state changed (UTF-8, never null). progress is in thousandths. error is "" or what
+// the window shows in its status line: a load that failed (the page on show stays), or, with
+// crashed set, the page's process is gone (the window blanks the page until the next load).
+// A load the user stopped is not an error.
+void lzw_ui_state(const char* url, const char* title, int loading, int can_back, int can_forward, int progress,
+    const char* error, int crashed);
 
 // ---- implemented by the engine (C++) ----
 

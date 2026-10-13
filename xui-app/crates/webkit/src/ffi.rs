@@ -259,7 +259,7 @@ pub unsafe extern "C" fn lzw_ui_frame(rgba: *const u8, width: c_int, height: c_i
 /// The page's state changed.
 ///
 /// # Safety
-/// `url` and `title` must be null or NUL-terminated strings.
+/// `url`, `title` and `error` must be null or NUL-terminated strings.
 #[no_mangle]
 pub unsafe extern "C" fn lzw_ui_state(
     url: *const c_char,
@@ -268,6 +268,8 @@ pub unsafe extern "C" fn lzw_ui_state(
     can_back: c_int,
     can_forward: c_int,
     progress: c_int,
+    error: *const c_char,
+    crashed: c_int,
 ) {
     let text = |pointer: *const c_char| {
         if pointer.is_null() {
@@ -286,5 +288,7 @@ pub unsafe extern "C" fn lzw_ui_state(
         can_back: can_back != 0,
         can_forward: can_forward != 0,
         progress: u32::try_from(progress).unwrap_or(0).min(1000),
+        error: text(error),
+        crashed: crashed != 0,
     });
 }

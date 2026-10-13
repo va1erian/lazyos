@@ -35,6 +35,12 @@ struct Engine {
     bool committedSincePaint { false };
     bool loadFinished { false };
     std::string lastTitleSaid;
+    // What the status line says about a failed load; empty when the last one worked.
+    std::string error;
+    // The WebProcess is gone (crashed, or did not start): the page is blank until the next load.
+    bool crashed { false };
+    // The user pressed Stop: the failure WebKit reports for it is not one.
+    bool stopRequested { false };
     long navStartMs { 0 };
     long commitMs { 0 };
     long firstPaintMs { -1 };

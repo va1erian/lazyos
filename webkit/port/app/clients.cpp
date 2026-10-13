@@ -73,7 +73,7 @@ void postState()
     std::string title = pageTitle();
     int progress = static_cast<int>(WKPageGetEstimatedProgress(E.page) * 1000.0);
     lzw_ui_state(url.c_str(), title.c_str(), E.loading ? 1 : 0, WKPageCanGoBack(E.page) ? 1 : 0,
-        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000);
+        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000, E.error.c_str(), E.crashed ? 1 : 0);
 }
 
 namespace {
@@ -173,6 +173,9 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
 
 void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
+    E.error.clear();
+    E.crashed = false;
+    E.stopRequested = false;
     E.loading = true;
     E.loadFinished = false;
     E.navStartMs = elapsedMs();
@@ -191,6 +194,7 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 
 void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
 {
+    E.error.clear();
     E.loading = false;
     E.loadFinished = true;
     long finished = elapsedMs();
@@ -211,19 +215,34 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     schedulePaint();
 }
 
+// Stop (or a download taking over, or the page's own redirect) ends a load with an error that is
+// not a failure: nothing to show, nothing to report.
+bool cancelled(WKErrorRef error)
+{
+    const int code = error ? WKErrorGetErrorCode(error) : 0;
+    return E.stopRequested || code == kWKErrorCodeCancelled || code == kWKErrorCodeFrameLoadInterruptedByPolicyChange;
+}
+
 void didFail(const char* what, WKErrorRef error)
 {
     E.loading = false;
+    if (cancelled(error)) {
+        E.stopRequested = false;
+        sayHarness("WEBKIT:W5:CANCELLED:%s", what);
+        postState();
+        return;
+    }
     std::string description;
     if (error) {
         WKStringRef text = WKErrorCopyLocalizedDescription(error);
         description = utf8(text);
         if (text)
             WKRelease(text);
-        description += " (code " + std::to_string(WKErrorGetErrorCode(error)) + ")";
     }
+    E.error = "Could not load the page: " + (description.empty() ? std::string("unknown error") : oneLine(description));
     // The page's address is a harness detail; the failure is not.
-    say("WEBKIT:W5:FAIL:%s:%s:%s", what, harness() ? oneLine(activeUrl()).c_str() : "", oneLine(description).c_str());
+    say("WEBKIT:W5:FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(activeUrl()).c_str() : "", oneLine(description).c_str(),
+        error ? WKErrorGetErrorCode(error) : 0);
     postState();
 }
 
@@ -237,6 +256,8 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
 void webProcessDidCrash(WKPageRef, const void*)
 {
     E.loading = false;
+    E.crashed = true;
+    E.error = "The page's process stopped. Reload (F5) starts it again.";
     say("WEBKIT:W5:FAIL:webprocess:crashed");
     postState();
 }

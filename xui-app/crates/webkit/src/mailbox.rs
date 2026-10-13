@@ -20,6 +20,10 @@ pub struct PageState {
     pub can_forward: bool,
     /// Load progress in thousandths.
     pub progress: u32,
+    /// What the status line says about a load that failed; empty when it did not.
+    pub error: String,
+    /// The page's process is gone: the page on show is blanked until the next load.
+    pub crashed: bool,
 }
 
 /// A painted frame: top-down RGBA, opaque.

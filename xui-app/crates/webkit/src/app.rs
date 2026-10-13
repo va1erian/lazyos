@@ -195,6 +195,11 @@ impl Browser {
 
     fn show_frame(&mut self, ui: &Ui<Msg>) {
         if let Some(frame) = self.mailbox.take_frame(std::mem::take(&mut self.spare)) {
+            if self.state.crashed {
+                // A picture painted just before the page's process went away.
+                self.spare = frame.rgba;
+                return;
+            }
             self.spare = self.page.show(frame);
             self.frames += 1;
             if self.frames == 1 {
@@ -244,6 +249,12 @@ impl Browser {
             self.title = caption;
         }
         let text = status_text(&state);
+        if state.crashed {
+            self.page.clear();
+        }
+        if self.traces && !state.error.is_empty() && state.error != self.state.error {
+            println!("WEBKIT:W5:UI:ERROR:{}", state.error);
+        }
         self.state = state;
         self.status.set_text(&text);
         self.update_buttons();
@@ -291,7 +302,10 @@ fn frame_size(page: &PageView) -> (u32, u32) {
 
 /// The status bar's text.
 fn status_text(state: &PageState) -> String {
-    if state.loading {
+    if !state.error.is_empty() && !state.loading {
+        // A failure says so and stays up until the next load: "Done" would be a lie.
+        format!("{}  {}", state.error, state.url).trim_end().to_owned()
+    } else if state.loading {
         format!("Loading {}  {}%", state.url, state.progress / 10)
     } else if state.url.is_empty() {
         String::new()
@@ -412,5 +426,25 @@ mod tests {
         };
         assert_eq!(status_text(&done), "Done  http://a/");
         assert_eq!(status_text(&PageState::default()), "");
+    }
+
+    #[test]
+    fn a_failed_load_is_not_reported_as_done() {
+        let failed = PageState {
+            url: "http://a:81/".into(),
+            error: "Could not load the page: Connection refused".into(),
+            ..PageState::default()
+        };
+        assert_eq!(
+            status_text(&failed),
+            "Could not load the page: Connection refused  http://a:81/"
+        );
+        // The next load starts clean: the engine clears the error, and a load in progress says so.
+        let retry = PageState {
+            loading: true,
+            progress: 100,
+            ..failed
+        };
+        assert!(status_text(&retry).starts_with("Loading http://a:81/"));
     }
 }

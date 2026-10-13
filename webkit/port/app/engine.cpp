@@ -117,7 +117,14 @@ void lzw_engine_load(const char* url)
 }
 
 void lzw_engine_reload(void) { onMain([] { WKPageReload(E.page); }); }
-void lzw_engine_stop(void) { onMain([] { WKPageStopLoading(E.page); }); }
+void lzw_engine_stop(void)
+{
+    onMain([] {
+        // The error WebKit reports for this is the user's own doing, not a failure.
+        E.stopRequested = E.loading;
+        WKPageStopLoading(E.page);
+    });
+}
 void lzw_engine_back(void) { onMain([] { WKPageGoBack(E.page); }); }
 void lzw_engine_forward(void) { onMain([] { WKPageGoForward(E.page); }); }
 

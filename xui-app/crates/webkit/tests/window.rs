@@ -133,6 +133,56 @@ fn a_frame_from_the_engine_is_drawn_in_the_page_area() {
     assert!(blues > 5_000, "the blue block is on screen: {blues}");
 }
 
+fn red_pixels(image: &Image) -> usize {
+    image
+        .pixels()
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[0] > 200 && p[1] < 60 && p[2] < 60)
+        .count()
+}
+
+/// A page on show, then the engine's news that its load failed or its process went away.
+fn after_a_failure(state: PageState) -> Image {
+    let (image, _) = drive(None, move |stage, rig| {
+        rig.mailbox.post_frame(780, 400, &test_page(780, 400));
+        stage.emit(Msg::Frame);
+        rig.mailbox.post_state(PageState {
+            url: "http://example.com/".into(),
+            title: "Example Domain".into(),
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+        rig.mailbox.post_state(state);
+        stage.emit(Msg::State);
+        // A picture painted after the process died must not bring the page back.
+        rig.mailbox.post_frame(780, 400, &test_page(780, 400));
+        stage.emit(Msg::Frame);
+    });
+    image
+}
+
+#[test]
+fn a_failed_load_keeps_the_page_on_show_and_a_dead_process_blanks_it() {
+    let failed = after_a_failure(PageState {
+        url: "http://example.com:81/".into(),
+        error: "Could not load the page: Connection refused".into(),
+        ..PageState::default()
+    });
+    save(&failed, "webkit-load-failed.png");
+    assert!(red_pixels(&failed) > 5_000, "the page stays after a failed load");
+
+    let crashed = after_a_failure(PageState {
+        url: "http://example.com/".into(),
+        error: "The page's process stopped. Reload (F5) starts it again.".into(),
+        crashed: true,
+        ..PageState::default()
+    });
+    save(&crashed, "webkit-crashed.png");
+    assert_eq!(red_pixels(&crashed), 0, "a crashed page is blank");
+}
+
 #[test]
 fn clicks_moves_and_wheel_reach_the_engine_in_page_coordinates() {
     let (_, calls) = drive(None, |stage, rig| {
