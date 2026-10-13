@@ -30,8 +30,9 @@ int lzw_ui_user_memory(uint64_t* used, uint64_t* limit);
 // it is not an option, is the first address to open.
 int lzw_ui_main(int argc, const char* const* argv);
 
-// WebKit painted a frame: width * height * 4 bytes of opaque RGBA, top row first.
-// The bytes are copied before the call returns.
+// WebKit painted a frame: exactly width * height * 4 bytes of opaque RGBA, top row first.
+// The bytes are copied before the call returns, so the pointer need not outlive the call (the
+// engine reuses its buffer for the next frame). A non-positive size or a null pointer is ignored.
 void lzw_ui_frame(const uint8_t* rgba, int width, int height);
 
 // The page's state changed (UTF-8, never null). progress is in thousandths. error is "" or what

@@ -13,7 +13,7 @@
 //! so `std::env::args` is empty. The arguments come in explicitly, and the
 //! window is always a compositor client.
 
-use std::ffi::{c_char, c_int, CStr, CString};
+use std::ffi::{c_char, c_int, CStr};
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -23,10 +23,10 @@ use xui_core::app::run_app;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
 
-use crate::address;
+use crate::abi::{c_string, first_address, frame_geometry, page_state};
 use crate::app::{Browser, Host, APP_NAME};
 use crate::engine::{Button, Engine, MouseKind};
-use crate::mailbox::{Mailbox, PageState};
+use crate::mailbox::Mailbox;
 
 /// The window size asked of the compositor: short enough that the status bar
 /// clears the taskbar of a 720p desktop.
@@ -51,12 +51,6 @@ extern "C" {
 fn mailbox() -> &'static Arc<Mailbox> {
     static MAILBOX: OnceLock<Arc<Mailbox>> = OnceLock::new();
     MAILBOX.get_or_init(|| Arc::new(Mailbox::default()))
-}
-
-/// A C string from text that may not be one (a NUL ends it).
-fn c_string(text: &str) -> CString {
-    let end = text.find('\0').unwrap_or(text.len());
-    CString::new(&text[..end]).unwrap_or_default()
 }
 
 /// The engine behind the C++ functions.
@@ -192,11 +186,7 @@ fn connect() -> Option<Rc<LazyOSBackend>> {
 pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) -> c_int {
     // SAFETY: forwarded from this function's contract.
     let args = unsafe { arguments(argc, argv) };
-    let first = args
-        .iter()
-        .skip(1)
-        .find(|arg| !arg.starts_with('-') && !arg.starts_with("attempt="))
-        .and_then(|arg| address::normalize(arg));
+    let first = first_address(&args);
     let Some(backend) = connect() else {
         return 1;
     };
@@ -232,23 +222,18 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     c_int::from(xui_app::launch::finish("WEBKIT:W5:UI", outcome))
 }
 
-/// WebKit painted a frame: `rgba` is `width * height * 4` bytes, top-down,
-/// opaque.
+/// WebKit painted a frame: `rgba` is exactly `width * height * 4` bytes, top row first, opaque.
+/// The bytes are copied into the mailbox before this returns, so the pointer needs to be valid
+/// for the call only (the engine reuses its buffer for the next frame).
 ///
 /// # Safety
-/// `rgba` must point at that many readable bytes.
+/// `rgba` must point at `width * height * 4` readable bytes for the duration of the call.
 #[no_mangle]
 pub unsafe extern "C" fn lzw_ui_frame(rgba: *const u8, width: c_int, height: c_int) {
-    let (Ok(width), Ok(height)) = (u32::try_from(width), u32::try_from(height)) else {
+    let Some((width, height, len)) = frame_geometry(width, height) else {
         return;
     };
-    let Some(len) = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return;
-    };
-    if rgba.is_null() || len == 0 {
+    if rgba.is_null() {
         return;
     }
     // SAFETY: the caller promises `len` readable bytes.
@@ -281,14 +266,14 @@ pub unsafe extern "C" fn lzw_ui_state(
                 .into_owned()
         }
     };
-    mailbox().post_state(PageState {
-        url: text(url),
-        title: text(title),
-        loading: loading != 0,
-        can_back: can_back != 0,
-        can_forward: can_forward != 0,
-        progress: u32::try_from(progress).unwrap_or(0).min(1000),
-        error: text(error),
-        crashed: crashed != 0,
-    });
+    mailbox().post_state(page_state(
+        text(url),
+        text(title),
+        loading,
+        can_back,
+        can_forward,
+        progress,
+        text(error),
+        crashed,
+    ));
 }
