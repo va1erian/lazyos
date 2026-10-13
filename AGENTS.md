@@ -611,9 +611,11 @@ the shipped browser. `python tools/webkit/app_run.py` builds the image, serves L
 from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
 Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot
 (`tools/webkit/test_app_judge.py` is the judge's self-test; `--label-trace` lists the package's
-`LABEL:DENY` lines). `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
+`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser has **no sandbox**
+(the page process holds the app's display, input and network access as the user), persists nothing, and prints
+the markers that name a page only in a `LAZYOS_UI_PROBE=1` image. `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
 OpenSSL: never link any of it into LazyWeb. See [`webkit/README.md`](webkit/README.md) and
-[`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) ง5 W5.
+[`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) ยง5 W5.
 
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
