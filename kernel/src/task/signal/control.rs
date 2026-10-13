@@ -36,6 +36,66 @@ pub fn send_to_thread(
     send_checked(caller, target, sig, info, None, Scope::Thread)
 }
 
+/// An interval or POSIX timer's expiry (`task::itimer`): `sig` for the
+/// process of `target`, or for the thread `target` alone when
+/// `thread_directed`. The timer is its own sender, so no credential check
+/// applies; a signal that is ignored or blocked is handled by the usual
+/// rules. `SIGKILL` and `SIGSTOP` are refused when a timer is created, never
+/// reached here.
+pub fn send_timer(target: usize, sig: u8, info: SigInfo, thread_directed: bool) {
+    let scope = if thread_directed {
+        Scope::Thread
+    } else {
+        Scope::Process
+    };
+    let _ = send_checked(target, target, sig, info, None, scope);
+}
+
+/// What a timer's expiry should do with its signal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimerGate {
+    /// Queue it.
+    Send,
+    /// The same signal is already pending for the target: a second one would
+    /// merge into it, so the expiry only counts as an overrun.
+    Pending,
+    /// Ignored (or the process is gone): nothing to queue.
+    Ignored,
+}
+
+/// Decide, cheaply and without allocating, whether a timer's `sig` for
+/// `target` (a thread of process `pml4`) needs the full send path. A flood
+/// of expiries of a blocked or ignored signal must not walk the task table
+/// each time.
+pub fn timer_gate(pml4: u64, target: usize, sig: u8, thread_directed: bool) -> TimerGate {
+    if sig as usize >= NSIG {
+        return TimerGate::Ignored;
+    }
+    peek(|procs, threads| {
+        let Some(state) = procs.iter().find(|state| state.pml4 == pml4) else {
+            return TimerGate::Ignored;
+        };
+        let ignored = match state.actions[sig as usize] {
+            Disposition::Ignore => true,
+            Disposition::Default => default_action(sig) == DefaultAction::Ignore,
+            Disposition::Handler { .. } => false,
+        };
+        if ignored {
+            return TimerGate::Ignored;
+        }
+        let pending = if thread_directed {
+            threads[target].pending
+        } else {
+            state.pending
+        };
+        if pending & bit(sig) != 0 {
+            TimerGate::Pending
+        } else {
+            TimerGate::Send
+        }
+    })
+}
+
 /// The process group and session a terminal's signal is meant for. The
 /// kernel sends it past every credential check, so the target is re-checked
 /// at delivery: a slot whose task left the group or session, or that a new
@@ -97,7 +157,14 @@ pub(super) fn send_checked(
         }
     }
     let info = SigInfo {
-        pid: if info.pid == 0 { caller } else { info.pid },
+        // A timer's `si_tid` is its id, 0 included.
+        // A timer's `si_tid` is its id, 0 included, and a kernel-raised
+        // `SI_KERNEL` signal has no sending process.
+        pid: if info.pid == 0 && info.code != SI_TIMER && info.code != SI_KERNEL {
+            caller
+        } else {
+            info.pid
+        },
         ..info
     };
 

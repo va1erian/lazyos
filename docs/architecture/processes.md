@@ -479,8 +479,13 @@ supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
 linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`;
-`alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
-regular files; the umask is global, not per process. `SCM_RIGHTS`,
+`SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
+regular files; the umask is global, not per process. `alarm`, `setitimer`/`getitimer` and POSIX timers
+(`timer_create` with `SIGEV_SIGNAL`/`SIGEV_THREAD_ID`/`SIGEV_NONE`) exist
+(issue #535: `task/itimer.rs`, `process/linux/timers.rs`; wall-clock timers
+share the deadline timer, CPU-time timers are charged per scheduler tick, so
+they are tick-granular; `fork` gives the child none, `execve` keeps the
+interval timers; tests `itimer_suite`, fixture `alarm`). `SCM_RIGHTS`,
 `memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
 "Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
 filesystem stores links). The `persist` fixture also sets and re-checks mode,

@@ -68,6 +68,10 @@ pub(super) struct ThreadSig {
     /// restored when the handler it woke for returns (it becomes that frame's
     /// saved mask), or at once when no handler ran.
     pub(super) suspend_restore: Option<u64>,
+    /// Which task has lived in this slot: a fresh value for every task, so
+    /// something that remembers a thread by slot (a `SIGEV_THREAD_ID` timer)
+    /// can tell it from a successor.
+    pub(super) generation: u64,
 }
 
 impl ThreadSig {
@@ -78,7 +82,23 @@ impl ThreadSig {
         altstack: AltStack::DISABLED,
         on_altstack: false,
         suspend_restore: None,
+        generation: 0,
     };
+}
+
+/// The last generation handed to a task.
+static GENERATION: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+fn next_generation() -> u64 {
+    GENERATION.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1
+}
+
+/// The generation of the task now in `slot` (0 for a slot never used).
+pub fn thread_generation(slot: usize) -> u64 {
+    THREADS
+        .lock()
+        .get(slot)
+        .map_or(0, |thread| thread.generation)
 }
 
 /// The process table. Lock order: task table, then this, then [`THREADS`].
@@ -130,6 +150,14 @@ fn proc_index(all: &mut Vec<Signals>, pml4: u64) -> usize {
     }
 }
 
+/// Make sure process `pml4` has its signal state. A timer fires from the
+/// scheduler's interrupt, where nothing may allocate, and the registry grows
+/// its process list on first use: the syscall that arms a timer calls this
+/// first so the interrupt only ever finds an entry.
+pub fn ensure_process(pml4: u64) {
+    with_signals(pml4, |_| {});
+}
+
 /// Whether a signal table lock is held right now (the NMI hang report, issue #382).
 pub fn registry_locked() -> bool {
     PROCS.is_locked() || THREADS.is_locked()
@@ -149,6 +177,7 @@ pub fn thread_born(slot: usize, creator: Option<usize>) {
     let blocked = creator.map_or(0, |creator| threads[creator].blocked);
     threads[slot] = ThreadSig {
         blocked,
+        generation: next_generation(),
         ..ThreadSig::NEW
     };
 }
@@ -174,6 +203,7 @@ pub fn fork_inherit(parent_slot: usize, parent: u64, child_slot: usize, child: u
     threads[child_slot] = ThreadSig {
         blocked,
         altstack,
+        generation: next_generation(),
         ..ThreadSig::NEW
     };
 }
@@ -228,5 +258,21 @@ pub mod harness {
     pub fn recorded_info(sig: u8) -> Option<SigInfo> {
         let (slot, _) = super::super::current_info()?;
         Some(with_thread(slot, |thread| thread.infos[sig as usize]))
+    }
+
+    /// Drop every pending signal of `slot` and of its process (the mask is
+    /// kept): a test that counts a timer's signals one at a time.
+    pub fn clear_pending(slot: usize) {
+        if let Some((pml4, _)) = super::super::slot_info(slot) {
+            with_signals(pml4, |state| state.pending = 0);
+        }
+        with_thread(slot, |thread| thread.pending = 0);
+    }
+
+    /// The `siginfo` recorded for a process-directed `sig` (`kill`, an
+    /// interval timer) of `slot`'s process.
+    pub fn recorded_process_info(slot: usize, sig: u8) -> Option<SigInfo> {
+        let (pml4, _) = super::super::slot_info(slot)?;
+        Some(with_signals(pml4, |state| state.infos[sig as usize]))
     }
 }

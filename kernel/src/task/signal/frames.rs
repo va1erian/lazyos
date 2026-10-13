@@ -219,6 +219,9 @@ pub fn build_linux_frame_fp(
     } else {
         write_u32(si + 16, info.pid as u32);
         write_u32(si + 20, info.uid);
+        if info.code == SI_TIMER {
+            write_u64(si + 24, info.addr);
+        }
     }
 
     // SIG_DFL/SIG_IGN cannot be reached here (the shim replaces them with a

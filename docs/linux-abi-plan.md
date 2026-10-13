@@ -78,7 +78,7 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > Still missing, by how much software it blocks: (dynamic linking and
 > file-backed `mmap` landed afterwards, issue #535, see the note at the end of
 > this section); `rt_sigtimedwait`/`sigqueue` payloads;
-> `timerfd`/`signalfd`/`inotify`; `alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`
+> `timerfd`/`signalfd`/`inotify`; `SIGTTIN`/`SIGTTOU`
 > job-control stops; symlinks and hard links in the filesystems; record locks
 > are not dropped when *one* descriptor of the file closes (only at unlock or
 > exit); memfd seals (`F_ADD_SEALS`) and `MAP_SHARED` of regular files (round
