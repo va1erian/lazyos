@@ -61,7 +61,10 @@ fn fork_on(dir: &str) -> Result<(), String> {
     );
     drop(child);
     parent.enter();
-    check!(munmap(shared, 2 * PAGE) == 0 && munmap(private, 2 * PAGE) == 0, "munmap");
+    check!(
+        munmap(shared, 2 * PAGE) == 0 && munmap(private, 2 * PAGE) == 0,
+        "munmap"
+    );
     close(fd);
     let file = bytes_of(&path)?;
     check!(
@@ -100,7 +103,14 @@ fn truncation_on(dir: &str) -> Result<(), String> {
         "the tail of the last page kept stale bytes"
     );
     check!(
-        mmap(BASE + 2 * PAGE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 2 * PAGE) == BASE + 2 * PAGE,
+        mmap(
+            BASE + 2 * PAGE,
+            PAGE,
+            RW,
+            MAP_SHARED | MAP_FIXED,
+            fd,
+            2 * PAGE
+        ) == BASE + 2 * PAGE,
         "mapping past the end is allowed"
     );
     check!(
@@ -130,7 +140,14 @@ fn truncation_on(dir: &str) -> Result<(), String> {
     );
     check!(munmap(BASE + 2 * PAGE, PAGE) == 0, "munmap page 2");
     check!(
-        mmap(BASE + 2 * PAGE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 2 * PAGE) == BASE + 2 * PAGE,
+        mmap(
+            BASE + 2 * PAGE,
+            PAGE,
+            RW,
+            MAP_SHARED | MAP_FIXED,
+            fd,
+            2 * PAGE
+        ) == BASE + 2 * PAGE,
         "remap page 2"
     );
     check!(
@@ -174,8 +191,7 @@ fn partial_on(dir: &str) -> Result<(), String> {
         "the upper piece lost its offset: {upper:?}"
     );
     check!(
-        space.load(BASE + 2 * PAGE + 9, 16)?
-            == data[3 * PAGE as usize + 9..3 * PAGE as usize + 25],
+        space.load(BASE + 2 * PAGE + 9, 16)? == data[3 * PAGE as usize + 9..3 * PAGE as usize + 25],
         "the upper piece maps the wrong file page"
     );
     check!(
@@ -192,14 +208,22 @@ fn partial_on(dir: &str) -> Result<(), String> {
     let target = BASE + 0x20_0000;
     let moved = sys6(
         SYS_MREMAP,
-        [BASE + 2 * PAGE, PAGE, PAGE, MREMAP_MAYMOVE | MREMAP_FIXED, target, 0],
+        [
+            BASE + 2 * PAGE,
+            PAGE,
+            PAGE,
+            MREMAP_MAYMOVE | MREMAP_FIXED,
+            target,
+            0,
+        ],
     );
     check!(moved == target, "mremap {moved:#x}");
     check!(
         space.load(moved, 4)? == data[3 * PAGE as usize..3 * PAGE as usize + 4],
         "moved mapping changed content"
     );
-    let rest = mem::vma::find(space.table, BASE + 3 * PAGE).ok_or("the page after the moved one")?;
+    let rest =
+        mem::vma::find(space.table, BASE + 3 * PAGE).ok_or("the page after the moved one")?;
     check!(
         rest.file_off == 4 * PAGE,
         "the neighbour's offset changed: {rest:?}"

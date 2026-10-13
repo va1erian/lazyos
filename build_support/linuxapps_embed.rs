@@ -110,7 +110,13 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             DYNLINK_PROGRAMS,
             "tools/abi/dynlink.py",
         );
-        embed_dir(sink, &built.join("lib"), fhs::SYSTEM_LIB, "LAZYOS_DYNLINK", "tools/abi/dynlink.py");
+        embed_dir(
+            sink,
+            &built.join("lib"),
+            fhs::SYSTEM_LIB,
+            "LAZYOS_DYNLINK",
+            "tools/abi/dynlink.py",
+        );
     }
     if enabled() {
         embed_programs(

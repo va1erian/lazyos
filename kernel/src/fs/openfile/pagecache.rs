@@ -35,7 +35,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 use x86_64::PhysAddr;
 
-use crate::mem::{free_frame, frame_refcount, phys_to_virt, share_frame};
+use crate::mem::{frame_refcount, free_frame, phys_to_virt, share_frame};
 
 /// Bytes in a page.
 pub const PAGE: u64 = 4096;
@@ -302,7 +302,9 @@ impl PageCache {
             let stale: Vec<u64> = pages
                 .range(first..=last)
                 .filter(|(_, page)| {
-                    !page.dirty && page.flushing == 0 && frame_refcount(PhysAddr::new(page.frame)) == 1
+                    !page.dirty
+                        && page.flushing == 0
+                        && frame_refcount(PhysAddr::new(page.frame)) == 1
                 })
                 .map(|(&index, _)| index)
                 .collect();

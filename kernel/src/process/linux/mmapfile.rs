@@ -132,7 +132,9 @@ fn install(
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        replaced = charged_len(&super::mmapvfs::unmap_vmas(table, spec.base, spec.end, true));
+        replaced = charged_len(&super::mmapvfs::unmap_vmas(
+            table, spec.base, spec.end, true,
+        ));
     }
     let mut va = spec.base;
     while va < spec.end {

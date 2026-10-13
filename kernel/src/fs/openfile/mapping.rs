@@ -319,7 +319,10 @@ fn write_by_name(path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError>
 impl Inode {
     /// Report a write-back failure of this file, once.
     fn report_failure(&self, error: FsError) {
-        if !self.failure_logged.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        if !self
+            .failure_logged
+            .swap(true, core::sync::atomic::Ordering::Relaxed)
+        {
             crate::serial_println!(
                 "mmap: writeback of {} failed: {error:?} (reported once)",
                 self.path()
@@ -348,7 +351,11 @@ impl Inode {
             return Ok(());
         }
         let (dirty, complete) = self.cache.take_dirty(first, last);
-        let mut result = if complete { Ok(()) } else { Err(FsError::NoSpace) };
+        let mut result = if complete {
+            Ok(())
+        } else {
+            Err(FsError::NoSpace)
+        };
         if !dirty.is_empty() {
             let indices: Vec<u64> = dirty.iter().map(|page| page.index).collect();
             crate::mem::filemap::write_protect(self as *const Inode as usize, &indices);

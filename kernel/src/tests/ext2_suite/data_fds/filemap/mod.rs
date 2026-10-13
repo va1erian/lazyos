@@ -61,7 +61,12 @@ pub(super) fn ftruncate(fd: u64, len: u64) -> u64 {
 /// `len` bytes that differ per page and per `seed`.
 pub(super) fn pattern(len: usize, seed: u8) -> Vec<u8> {
     (0..len)
-        .map(|i| (i as u8).wrapping_mul(7).wrapping_add(seed).wrapping_add((i / 4096) as u8))
+        .map(|i| {
+            (i as u8)
+                .wrapping_mul(7)
+                .wrapping_add(seed)
+                .wrapping_add((i / 4096) as u8)
+        })
         .collect()
 }
 

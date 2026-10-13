@@ -40,10 +40,13 @@ impl Table {
         let timer = &mut self.timers[index];
         let mut missed = 0u64;
         if timer.armed && !timer.kind.is_cpu() {
-            if timer.interval_ns > 0 {
-                // Skip the periods that already passed while nothing ran:
-                // they are the overrun, not a burst of signals.
-                missed = now_ns.saturating_sub(timer.deadline_ns) / timer.interval_ns;
+            // Skip the periods that already passed while nothing ran: they
+            // are the overrun, not a burst of signals.
+            if let Some(periods) = now_ns
+                .saturating_sub(timer.deadline_ns)
+                .checked_div(timer.interval_ns)
+            {
+                missed = periods;
                 let next = timer
                     .deadline_ns
                     .saturating_add(timer.interval_ns.saturating_mul(missed + 1));

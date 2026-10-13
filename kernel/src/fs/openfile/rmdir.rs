@@ -7,8 +7,8 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
-use crate::fs::vfs::{FsError, Id, Path};
 use super::{hidden_name, Inode, OPEN};
+use crate::fs::vfs::{FsError, Id, Path};
 /// `rmdir` of `path` (issue #612). On Linux an unlinked-but-open file has no
 /// name left, so its directory is empty and can go; here the file is parked
 /// as a hidden entry *in* that directory. So when the directory holds nothing

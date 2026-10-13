@@ -54,7 +54,13 @@ mod tests {
 
     #[test]
     fn directories_nest_under_system() {
-        for dir in [SYSTEM_BIN, SYSTEM_ETC, SYSTEM_LIB, SYSTEM_SHARE, SYSTEM_PACKAGES] {
+        for dir in [
+            SYSTEM_BIN,
+            SYSTEM_ETC,
+            SYSTEM_LIB,
+            SYSTEM_SHARE,
+            SYSTEM_PACKAGES,
+        ] {
             let rest = dir.strip_prefix(SYSTEM).expect(dir);
             assert!(rest.starts_with('/') && !rest[1..].contains('/'), "{dir}");
         }

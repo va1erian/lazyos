@@ -440,7 +440,13 @@ pub(super) fn sys_mremap(
     unmap_vmas(table, old_addr, old_end, true);
     match file {
         Some(file) => crate::mem::vma::insert_file(
-            table, dest, dest_end, vma.prot, vma.kind, file, vma.file_off,
+            table,
+            dest,
+            dest_end,
+            vma.prot,
+            vma.kind,
+            file,
+            vma.file_off,
         ),
         None => crate::mem::vma::insert(table, dest, dest_end, vma.prot, vma.kind),
     }

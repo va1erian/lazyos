@@ -120,7 +120,14 @@ fn shared_mapping_on(dir: &str) -> Result<(), String> {
     );
     b.enter();
     check!(
-        mmap(BASE + 0x10_0000, 2 * PAGE, RW, MAP_SHARED | MAP_FIXED, fdb, 0) == BASE + 0x10_0000,
+        mmap(
+            BASE + 0x10_0000,
+            2 * PAGE,
+            RW,
+            MAP_SHARED | MAP_FIXED,
+            fdb,
+            0
+        ) == BASE + 0x10_0000,
         "mmap in B"
     );
     let vb = BASE + 0x10_0000;
@@ -152,7 +159,10 @@ fn shared_mapping_on(dir: &str) -> Result<(), String> {
         a.entry(BASE).ok_or("unmapped")? & PTE_WRITABLE != 0,
         "a store left the shared page read-only"
     );
-    check!(b.load(vb + 100, 11)? == b"stored by A", "B misses A's store");
+    check!(
+        b.load(vb + 100, 11)? == b"stored by A",
+        "B misses A's store"
+    );
     check!(
         pread_ok(fdb, 11, 100)? == b"stored by A",
         "read(2) misses a store through a mapping"
@@ -278,7 +288,10 @@ fn refusals_on(dir: &str) -> Result<(), String> {
     );
     check!(!space.can_touch(BASE, false), "PROT_NONE page was mapped");
     check!(mprotect(BASE, PAGE, PROT_READ) == 0, "mprotect");
-    check!(space.can_touch(BASE, false), "page not faulted after mprotect");
+    check!(
+        space.can_touch(BASE, false),
+        "page not faulted after mprotect"
+    );
     check!(
         space.load(BASE, 4)? == pattern(4, 2),
         "wrong bytes after mprotect"
@@ -287,7 +300,10 @@ fn refusals_on(dir: &str) -> Result<(), String> {
     // A directory, a pipe and a shared mapping of a snapshot are ENODEV.
     let (r, w) = {
         let mut fds = [0i32; 2];
-        check!(syscall(SYS_PIPE, fds.as_mut_ptr() as u64, 0, 0, 0) == 0, "pipe");
+        check!(
+            syscall(SYS_PIPE, fds.as_mut_ptr() as u64, 0, 0, 0) == 0,
+            "pipe"
+        );
         (fds[0] as u64, fds[1] as u64)
     };
     check!(

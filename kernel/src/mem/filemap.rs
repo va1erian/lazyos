@@ -123,13 +123,12 @@ pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vm
     // Reading the file may have parked: another thread can have mapped the
     // page, or changed or removed the mapping. Whatever the answer, the
     // faulting access is simply tried again.
-    let unchanged = vma::find(table, va)
-        .is_some_and(|now| {
-            now.kind == vma.kind
-                && now.file == vma.file
-                && now.prot == vma.prot
-                && now.offset_at(page) == vma.offset_at(page)
-        });
+    let unchanged = vma::find(table, va).is_some_and(|now| {
+        now.kind == vma.kind
+            && now.file == vma.file
+            && now.prot == vma.prot
+            && now.offset_at(page) == vma.offset_at(page)
+    });
     // SAFETY: `table` is the live address space this fault happened in.
     let present = unsafe { leaf_entry(table, page) }.is_some();
     if !unchanged || present {

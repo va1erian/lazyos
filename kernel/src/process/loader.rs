@@ -218,7 +218,11 @@ pub fn load_planned<I: Image + ?Sized>(
     Ok(Loaded {
         entry: headers.entry.wrapping_add(bias),
         end: segments.iter().map(|seg| seg.end).max().unwrap_or(0),
-        phdr: if phdr == 0 { 0 } else { phdr.wrapping_add(bias) },
+        phdr: if phdr == 0 {
+            0
+        } else {
+            phdr.wrapping_add(bias)
+        },
         phent: elfhdr::PHDR_SIZE,
         phnum: headers.phdrs.len() as u16,
     })

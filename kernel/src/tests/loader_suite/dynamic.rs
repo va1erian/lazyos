@@ -115,7 +115,8 @@ pub fn interpreter_parsing() -> Result<(), String> {
     let good = image(ET_DYN, 0, 0x1000, Some(b"/lib/ld-musl-x86_64.so.1\0"));
     let headers = elfhdr::read(&good[..]).map_err(String::from)?;
     check!(
-        elfhdr::interpreter(&good[..], &headers) == Ok(Some(String::from("/lib/ld-musl-x86_64.so.1"))),
+        elfhdr::interpreter(&good[..], &headers)
+            == Ok(Some(String::from("/lib/ld-musl-x86_64.so.1"))),
         "a valid PT_INTERP was not read"
     );
     check!(headers.etype == ET_DYN, "e_type {}", headers.etype);
@@ -178,7 +179,10 @@ pub fn pie_loads_beside_its_interpreter() -> Result<(), String> {
             started.entry
         );
         let vector = auxv(table, started.rsp)?;
-        check!(aux(&vector, AT_BASE) == Some(INTERP_BASE), "AT_BASE {vector:x?}");
+        check!(
+            aux(&vector, AT_BASE) == Some(INTERP_BASE),
+            "AT_BASE {vector:x?}"
+        );
         check!(
             aux(&vector, AT_ENTRY) == Some(PIE_BASE + 0x1100),
             "AT_ENTRY {vector:x?}"
@@ -194,7 +198,10 @@ pub fn pie_loads_beside_its_interpreter() -> Result<(), String> {
         );
         for (va, what) in [(PIE_BASE, "program"), (INTERP_BASE, "interpreter")] {
             let vma = mem::vma::find(table, va).ok_or(format!("{what} not mapped"))?;
-            check!(!vma.prot.has_write() && vma.prot.has_exec(), "{what}: {vma:?}");
+            check!(
+                !vma.prot.has_write() && vma.prot.has_exec(),
+                "{what}: {vma:?}"
+            );
             check!(raw_entry(table, va).is_some(), "{what}: page not present");
         }
         check!(
@@ -213,7 +220,11 @@ pub fn static_images_are_unchanged() -> Result<(), String> {
     let fixed = image(ET_EXEC, 0x40_0000, 0x40_1100, Some(b"/lib/ld-test.so\0"));
     with_table(|table| {
         let started = start(table, &fixed).map_err(|e| format!("{e:?}"))?;
-        check!(started.entry == INTERP_BASE + 0x1200, "entry {:#x}", started.entry);
+        check!(
+            started.entry == INTERP_BASE + 0x1200,
+            "entry {:#x}",
+            started.entry
+        );
         let vector = auxv(table, started.rsp)?;
         check!(
             aux(&vector, AT_ENTRY) == Some(0x40_1100) && aux(&vector, AT_PHDR) == Some(0x40_0040),
@@ -228,9 +239,16 @@ pub fn static_images_are_unchanged() -> Result<(), String> {
     let static_pie = image(ET_DYN, 0, 0x1100, None);
     with_table(|table| {
         let started = start(table, &static_pie).map_err(|e| format!("{e:?}"))?;
-        check!(started.entry == 0x1100, "static-PIE entry {:#x}", started.entry);
+        check!(
+            started.entry == 0x1100,
+            "static-PIE entry {:#x}",
+            started.entry
+        );
         let vector = auxv(table, started.rsp)?;
-        check!(aux(&vector, AT_BASE) == Some(0), "AT_BASE of a static image");
+        check!(
+            aux(&vector, AT_BASE) == Some(0),
+            "AT_BASE of a static image"
+        );
         check!(raw_entry(table, 0).is_some(), "static-PIE not at zero");
         Ok(())
     })
@@ -241,13 +259,20 @@ pub fn static_images_are_unchanged() -> Result<(), String> {
 pub fn interpreter_failures() -> Result<(), String> {
     setup_ramfs();
     install_lib("good.so", &image(ET_DYN, 0, 0x1200, None))?;
-    install_lib("chained.so", &image(ET_DYN, 0, 0x1200, Some(b"/lib/good.so\0")))?;
+    install_lib(
+        "chained.so",
+        &image(ET_DYN, 0, 0x1200, Some(b"/lib/good.so\0")),
+    )?;
     install_lib("garbage.so", &[0x42u8; 300])?;
     install_lib("fixed.so", &image(ET_EXEC, 0x40_0000, 0x40_1000, None))?;
     install_lib("tiny.so", &image(ET_DYN, 0, 0x1200, None)[..64])?;
     let cases: [(&str, &[u8], Option<u64>); 5] = [
         ("/lib/missing.so", b"missing", Some(2)),
-        ("/lib/chained.so", b"an interpreter with an interpreter", Some(8)),
+        (
+            "/lib/chained.so",
+            b"an interpreter with an interpreter",
+            Some(8),
+        ),
         ("/lib/garbage.so", b"garbage", Some(8)),
         ("/lib/tiny.so", b"a truncated header table", Some(8)),
         // At the program's own address: refused as overlapping.
@@ -304,7 +329,10 @@ pub fn lib_directories_are_served_from_system_lib() -> Result<(), String> {
         );
     }
     check!(read("/lib/LIBX.so").is_none(), "a different case was found");
-    check!(read("/lib/sub/libx.so").is_none(), "a subdirectory was aliased");
+    check!(
+        read("/lib/sub/libx.so").is_none(),
+        "a subdirectory was aliased"
+    );
     // A file that really exists in /lib wins.
     let _ = crate::fs::abi_mkdir(root, "/lib", 0o755);
     crate::fs::abi_create(root, "/lib/libx.so", 0o644).map_err(|_| "create /lib/libx.so")?;
@@ -326,7 +354,11 @@ pub fn dynamic_load_soak() -> Result<(), String> {
     let broken = image(ET_DYN, 0, 0x1100, Some(b"/lib/none.so\0"));
     let held = crate::quota::usage(0, crate::quota::Resource::UserMemory);
     for round in 0..150 {
-        for (name, elf, ok) in [("pie", &pie, true), ("fixed", &fixed, true), ("broken", &broken, false)] {
+        for (name, elf, ok) in [
+            ("pie", &pie, true),
+            ("fixed", &fixed, true),
+            ("broken", &broken, false),
+        ] {
             with_table(|table| {
                 let loaded = start(table, elf);
                 check!(

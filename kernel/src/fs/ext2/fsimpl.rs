@@ -133,7 +133,11 @@ impl Filesystem for Ext2 {
         };
         // The periodic flusher runs on the kernel task: it skips a volume
         // another task holds (`Ext2::writeback`) and writes next round.
-        let gate = if wait { self.enter() } else { self.try_enter()? };
+        let gate = if wait {
+            self.enter()
+        } else {
+            self.try_enter()?
+        };
         let size = match self.volume.handle_meta(handle) {
             Ok(meta) => meta.size,
             Err(error) => return Some(Err(error.into())),
@@ -147,7 +151,10 @@ impl Filesystem for Ext2 {
             if done > 0 {
                 gate.breathe();
             }
-            match self.volume.write_handle(handle, offset + done as u64, piece) {
+            match self
+                .volume
+                .write_handle(handle, offset + done as u64, piece)
+            {
                 Ok(written) => {
                     done += written;
                     if written < piece.len() {

@@ -155,7 +155,13 @@ fn map_snapshot(spec: &Mapping, fd: u64, offset: u64) -> u64 {
 }
 
 /// Map one zeroed page at `va` holding the snapshot's bytes at `offset`.
-fn fill_snapshot_page(table: PhysAddr, fd: u64, va: u64, offset: u64, flags: PageTableFlags) -> bool {
+fn fill_snapshot_page(
+    table: PhysAddr,
+    fd: u64,
+    va: u64,
+    offset: u64,
+    flags: PageTableFlags,
+) -> bool {
     let Some(frame) = crate::mem::alloc_zeroed_frame() else {
         return false;
     };
@@ -199,7 +205,10 @@ pub(super) fn sys_msync(addr: u64, len: u64, flags: u64) -> u64 {
     if flags & MS_ASYNC != 0 && flags & MS_SYNC != 0 {
         return err(EINVAL);
     }
-    let Some(end) = addr.checked_add(len).and_then(|end| end.checked_add(PAGE - 1)) else {
+    let Some(end) = addr
+        .checked_add(len)
+        .and_then(|end| end.checked_add(PAGE - 1))
+    else {
         return err(ENOMEM);
     };
     let end = end & !(PAGE - 1);
@@ -225,8 +234,8 @@ pub(super) fn sys_msync(addr: u64, len: u64, flags: u64) -> u64 {
         };
         let first = piece.file_off / PAGE;
         let last = first + (piece.end - piece.start) / PAGE - 1;
-        let done = file.writeback(first, last).is_ok()
-            && (flags & MS_SYNC == 0 || file.flush().is_ok());
+        let done =
+            file.writeback(first, last).is_ok() && (flags & MS_SYNC == 0 || file.flush().is_ok());
         failed |= !done;
     }
     if failed {

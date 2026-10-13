@@ -51,7 +51,10 @@ pub fn dirty_tracking_and_flusher() -> Result<(), String> {
     );
     // The flusher's write-back: no waiting, so a node-backed file only.
     crate::fs::openfile::writeback_all(false);
-    check!(!file.has_dirty_pages(), "the write-back left the page dirty");
+    check!(
+        !file.has_dirty_pages(),
+        "the write-back left the page dirty"
+    );
     check!(
         space.entry(BASE).ok_or("unmapped")? & PTE_WRITABLE == 0,
         "the mapping was not write-protected after the write-back"
@@ -63,7 +66,10 @@ pub fn dirty_tracking_and_flusher() -> Result<(), String> {
     );
     // A second store dirties it again (the page was re-protected).
     space.store(BASE + 100, b"again")?;
-    check!(file.has_dirty_pages(), "a store after a write-back stayed clean");
+    check!(
+        file.has_dirty_pages(),
+        "a store after a write-back stayed clean"
+    );
     // Idle rounds write nothing and keep the page clean.
     crate::fs::openfile::writeback_all(false);
     crate::fs::openfile::writeback_all(false);
@@ -247,7 +253,10 @@ pub fn store_during_writeback_is_not_lost() -> Result<(), String> {
     *crate::fs::openfile::BEFORE_FLUSH.lock() = Some(store_second);
     crate::fs::openfile::writeback_all(true);
     let on_file = crate::fs::abi_read(Id::ROOT, path).map_err(|_| "read")?;
-    check!(on_file[8..14] == *b"before", "the first store is not on the file");
+    check!(
+        on_file[8..14] == *b"before",
+        "the first store is not on the file"
+    );
     check!(
         on_file[300..306] == *b"second",
         "a store during the write-back did not reach the file"
@@ -258,7 +267,10 @@ pub fn store_during_writeback_is_not_lost() -> Result<(), String> {
         "a store during a write-back left the page clean"
     );
     crate::fs::openfile::writeback_all(true);
-    check!(!file.has_dirty_pages(), "the second write-back left it dirty");
+    check!(
+        !file.has_dirty_pages(),
+        "the second write-back left it dirty"
+    );
     drop(file);
     check!(munmap(BASE, PAGE) == 0, "munmap");
     close(fd);
@@ -300,7 +312,10 @@ pub fn fork_and_write_protect() -> Result<(), String> {
         "the parent misses the child's store"
     );
     let file = file_of(fd)?;
-    check!(file.has_dirty_pages(), "the child's store left the page clean");
+    check!(
+        file.has_dirty_pages(),
+        "the child's store left the page clean"
+    );
     drop(file);
     crate::fs::openfile::writeback_all(true);
     check!(

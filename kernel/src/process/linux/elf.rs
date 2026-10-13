@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 
 use x86_64::PhysAddr;
 
-use crate::mem::vma::{Kind, Prot};
 use crate::fs::vfs::FsError;
+use crate::mem::vma::{Kind, Prot};
 use crate::process::elfhdr::{self, Headers, ET_DYN, PT_INTERP};
 use crate::process::image::{self, Image};
 use crate::process::layout::{IMAGE_RESERVED, MMAP_LIMIT, STACK_MAX, STACK_TOP};
