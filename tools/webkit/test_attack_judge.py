@@ -22,6 +22,7 @@ import fhspaths  # noqa: E402
 
 PROBE_SOURCE = ROOT / "tools" / "abi" / "fixtures" / "src" / "sandboxprobe.rs"
 MANIFEST = ROOT / "xui-app" / "packages" / "webkit" / "manifest.toml"
+PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
 
 #: What the kernel's label trace prints for each refused probe (`kernel/src/ipc/confine.rs`,
 #: `ipc/policy.rs`): the judge's patterns must match these.
@@ -257,6 +258,24 @@ class AgreementTests(unittest.TestCase):
             self.assertNotIn(fhspaths.get("system::SYSTEM_BIN"), rule)
             self.assertNotEqual(rule.split(":", 1)[1], "/")
         self.assertTrue(all(not rule.startswith("write:") for rule in web))
+
+    def test_lazywebplus_declares_webkits_tables_plus_the_downloads_folder(self) -> None:
+        plus = tomllib.loads(PLUS_MANIFEST.read_text(encoding="utf-8"))
+        webkit = self.table()
+        self.assertEqual(plus["processes"]["webprocess"], webkit["webprocess"])
+        want = dict(webkit["networkprocess"])
+        want["files"] = [r.replace("os.lazy.webkit", "os.lazy.lazywebplus") for r in want["files"]]
+        want["files"].append("write:$HOME/Downloads")
+        got = plus["processes"]["networkprocess"]
+        self.assertEqual({**got, "files": sorted(got["files"])}, {**want, "files": sorted(want["files"])})
+        # ... and what the judge expects of it: the one extra grant, and nothing else is a write.
+        writes = [r for r in got["files"] if r.startswith("write:")]
+        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.lazywebplus", "write:$HOME/Downloads"])
+        self.assertEqual(judge.expected("os.lazy.lazywebplus")["networkprocess"]["write_downloads"].kind, "allowed")
+        self.assertEqual(plus["app"]["system_name"], "os.lazy.lazywebplus")
+        for table in plus["processes"].values():
+            self.assertLessEqual(set(table["files"]), set(plus["permissions"]["files"]))
+            self.assertLessEqual(set(table["network"]), set(plus["permissions"]["network"]))
 
 
 if __name__ == "__main__":

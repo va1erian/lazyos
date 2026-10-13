@@ -17,6 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import denies  # noqa: E402
 import judge as j  # noqa: E402
 import pixels  # noqa: E402
 import run  # noqa: E402
@@ -337,6 +338,27 @@ class RunTests(unittest.TestCase):
         source = (HERE / "run.py").read_text(encoding="utf-8")
         for needle in ("LAZYOS_LAZYWEBPLUS", "LAZYOS_XUI_AUTOSTART=\"lazywebplus\"", "LAZYOS_UI_PROBE", "WEBKIT_LIMITS"):
             self.assertIn(needle, source, needle)
+
+
+
+class DenyTests(unittest.TestCase):
+    PAGE = f"LABEL:DENY label=app:{denies.APP}/webprocess"
+    NET = f"LABEL:DENY label=app:{denies.APP}/networkprocess"
+
+    def test_the_documented_optional_denials_pass(self) -> None:
+        lines = [f"{self.PAGE} file=/etc access=stat", f"{self.PAGE} file=/usr/share/zoneinfo access=stat",
+                 f"{self.PAGE} file=/build/webkit-deps/prefix/share/fontconfig/conf.avail access=read",
+                 f"{self.PAGE} file=/system/share/fonts/liberation access=write", f"{self.PAGE} file=/tmp access=write",
+                 f"{self.NET} file=/etc/ssl/openssl.cnf access=stat"]
+        self.assertEqual(denies.unexpected(lines), [])
+
+    def test_anything_else_is_a_missing_permission_or_an_attack(self) -> None:
+        for line in (f"{self.PAGE} file=/home/user/.profile access=stat",
+                     f"{self.PAGE} net=inet",
+                     f"{self.NET} file=/etc/localtime access=stat",   # the other child's optional lookup
+                     f"LABEL:DENY label=app:{denies.APP} iface=0x1 method=2",
+                     "LABEL:DENY label=app:os.lazy.webkit/webprocess file=/etc access=stat"):
+            self.assertEqual(denies.unexpected([line]), [line], line)
 
 
 if __name__ == "__main__":

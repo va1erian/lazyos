@@ -105,10 +105,19 @@ area.
 
 ## The profile
 
-Cookies (`WKWebsiteDataStoreConfigurationSetCookieStorageFile`) and local storage live under
-`$HOME/.apps/os.lazy.lazywebplus`, so a second run of the app finds the first one's cookie and history
-(the harness checks both, from the OS volume and from the second boot). The network cache stays off: it maps
-its files, and LazyOS has no file-backed `mmap`.
+The data store is built by `createDataStore` in `webkit/port/app/engine.cpp` (#836): every directory of it
+below one profile folder, which the window names (`lzw_ui_profile_dir`: `$HOME/.apps/os.lazy.lazywebplus`;
+the W5 window gets `$HOME/.apps/os.lazy.webkit`). Cookies (`cookies/cookie.jar.db`), the HTTP cache and site
+storage live there, so a second run of the app finds the first one's cookie and history (the harness checks
+both, from the OS volume and from the second boot). The folder and `$HOME/Downloads` exist before a child that
+may only write inside them looks for them.
+
+**The cookie jar needed a change to the SQLite build.** WebKit opens its databases with write-ahead logging,
+whose index is a mapped `-shm` file (`unixShmMap`); LazyOS has no file-backed `mmap`, so every open failed
+with `SQLITE_IOERR_SHMMAP` ("disk I/O error"), `CookieJarDB` gave up and *no cookie was ever stored*, not even
+for the session (found by logging the open from the NetworkProcess). The bundle's SQLite is now built with
+`SQLITE_OMIT_WAL` (`tools/webkit/recipes_text.py`): a rollback journal on plain `pread`/`pwrite` and `fcntl`
+locks. Drop it when the kernel can map a file shared (PR #837).
 
 ## `mimed`: which browser opens a link
 
@@ -170,5 +179,15 @@ The first boot browses, answers the three dialogs, tries the blocked launches, f
 `target=_blank` link and a `window.open` button, downloads two files, opens `about:history` and
 `about:downloads` by key, scrolls, submits a form, stops a load, goes Back, maximizes the window and quits;
 the second boot finds the cookie and the history, clears the history and quits clean.
+
+### The sandbox attack harness
+
+`python tools/webkit/attack_run.py --browser --app lazywebplus` (issue #832's harness, parametrised) boots a
+desktop image with `LAZYOS_LAZYWEBPLUS=1 LAZYOS_WEBKIT_ATTACK=1`, in which the two engine programs are a
+stand-in that attacks from inside the labels `app:os.lazy.lazywebplus/webprocess` and `.../networkprocess`
+(the real UI process starts them), and `python tools/webkit/attack_run.py --kernel` is the kernel-only mode.
+The judge's table (`tools/webkit/attackjudge.py`) is the same for both browsers but one row: LazyWeb+'s
+network process may write the Downloads folder (the probe `write_downloads`), WebKit's and either page
+process may not; `test_attack_judge.py` checks that LazyWeb+'s manifest tables are WebKit's plus that grant.
 
 RESULTS

@@ -52,7 +52,7 @@ FIELD_AT = (200, 42)
 LINK_AT = (150, 50)
 #: The history page's "Clear history" button, in page pixels: the note line under the title
 #: (`pages.history`: 24 px of margin, a 22 px title) ends with it.
-CLEAR_AT = (170, 78)
+CLEAR_AT = (212, 63)
 
 
 def navigate(url: str, until: str, timeout: float) -> list[dict]:

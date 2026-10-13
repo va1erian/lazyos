@@ -36,7 +36,11 @@ LIBXML2 = {"LIBXML2_WITH_ICONV": "OFF", "LIBXML2_WITH_ICU": "ON", "LIBXML2_WITH_
            "LIBXML2_WITH_ZLIB": "ON", "LIBXML2_WITH_PYTHON": "OFF", "LIBXML2_WITH_PROGRAMS": "OFF",
            "LIBXML2_WITH_TESTS": "OFF", "LIBXML2_WITH_MODULES": "OFF", "LIBXML2_WITH_THREADS": "ON",
            "LIBXML2_WITH_DOCB": "OFF"}
-SQLITE_DEFS = ["-DSQLITE_THREADSAFE=1", "-DSQLITE_DEFAULT_MEMSTATUS=0", "-DSQLITE_ENABLE_FTS3",
+# SQLITE_OMIT_WAL: WebKit asks for write-ahead logging, which keeps its index in a mapped `-shm` file
+# (`unixShmMap`: SQLITE_IOERR_SHMMAP, "disk I/O error"); LazyOS has no file-backed `mmap`, so every
+# database (the cookie jar first) failed to open. Without WAL they use a rollback journal on plain
+# pread/pwrite and fcntl locks, which work. Drop it when the kernel can map a file shared.
+SQLITE_DEFS = ["-DSQLITE_THREADSAFE=1", "-DSQLITE_DEFAULT_MEMSTATUS=0", "-DSQLITE_OMIT_WAL", "-DSQLITE_ENABLE_FTS3",
                "-DSQLITE_ENABLE_FTS3_PARENTHESIS", "-DSQLITE_ENABLE_COLUMN_METADATA",
                "-DSQLITE_ENABLE_RTREE", "-DSQLITE_OMIT_LOAD_EXTENSION", "-DSQLITE_ENABLE_STAT4"]
 LIBPSL = ["--enable-static", "--disable-shared", "--enable-runtime=libicu",

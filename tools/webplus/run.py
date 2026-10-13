@@ -52,6 +52,7 @@ import judge  # noqa: E402  (LazyWeb's is tools/web/judge.py, loaded by path in 
 import session  # noqa: E402
 import busybox  # noqa: E402
 import certs  # noqa: E402
+import denies  # noqa: E402
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 
@@ -130,10 +131,11 @@ def read_profile() -> dict[str, bytes | None]:
     listing: dict[str, bytes | None] = {}
     for name in (judge.DOWNLOAD_NAME, judge.SLOW_NAME, f"{judge.DOWNLOAD_NAME}.part", f"{judge.SLOW_NAME}.part"):
         listing[f"Downloads/{name}"] = osread("cat", f"{HOME}/Downloads/{name}")
-    ls = osread("ls", APP_DIR)
+    folder, _, leaf = judge.COOKIE_DB.rpartition("/")
+    ls = osread("ls", f"{APP_DIR}/{folder}" if folder else APP_DIR)
     names = ls.decode(errors="replace").split() if ls is not None else []
     listing[f".apps/os.lazy.lazywebplus/{judge.COOKIE_DB}"] = (
-        osread("cat", f"{APP_DIR}/{judge.COOKIE_DB}") if judge.COOKIE_DB in names else None)
+        osread("cat", f"{APP_DIR}/{judge.COOKIE_DB}") if leaf in names else None)
     return listing
 
 
@@ -217,7 +219,10 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
         print(f"{judge.P}:INFO:LABEL:DENY {len(denied)} distinct line(s) (package permissions to derive):")
         for line in denied[:40]:
             print("  " + line)
-    ok = (not denied or not os.environ.get("LAZYOS_WEBPLUS_LABEL_STRICT")) and ok
+    if os.environ.get("LAZYOS_WEBPLUS_LABEL_STRICT"):
+        new = denies.unexpected(denied)
+        ok = report("LABEL", f"no LABEL:DENY beyond the {len(denied) - len(new)} documented optional ones",
+                    [f"not a documented optional denial: {line}" for line in new]) and ok
     print(f"{judge.P}:INFO:TIMES first paint after navigation (ms) {judge.first_paint_ms(first)}; "
           f"load (ms) {judge.load_ms(first)}")
     print(f"{judge.P}:INFO:SIZES {sizes()}")

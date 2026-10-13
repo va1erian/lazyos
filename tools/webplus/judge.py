@@ -98,7 +98,8 @@ FAIL_URL = f"http://example.com:{CLOSER_PORT}/"
 page_assets = web_judge.page_assets
 HISTORY_FILE = "history.tsv"
 #: What the profile's folder holds that a persistent engine writes.
-COOKIE_DB = "cookie.jar.db"
+#: Where the engine keeps the cookie jar below the profile folder (`createDataStore` in webkit/port/app/engine.cpp).
+COOKIE_DB = "cookies/cookie.jar.db"
 
 
 def caption(title: str) -> str:
