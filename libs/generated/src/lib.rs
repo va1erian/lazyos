@@ -16018,14 +16018,17 @@ pub mod os_lazy_messenger_policy_v1 {
     /// `program` is for a child label only (`app:<id>/<name>`, issue #832): the
     /// absolute path of the executable that takes it. A task labelled
     /// `app:<id>` that `execve`s exactly that path becomes `app:<id>/<name>`,
-    /// whose rules are the intersection of these and the app's own, and which
-    /// may not start programs itself. The app's label must already be
+    /// and may not start programs itself. A Messenger call by the child
+    /// needs the intersection of these rules and the app's own; the file
+    /// and `AF_INET` gates of a confined label use the child's own rule ids
+    /// (its file ids and the confine marker), which the app's loaded rules
+    /// must hold too, the marker apart. The app's label must already be
     /// interned (`ENOENT` otherwise); `program` on any other label, a path
     /// that is not absolute and canonical, or a child label with rules but no
-    /// program is `EINVAL`; every rule of the child must be one the app's
-    /// loaded rules allow (`EACCES`: it would widen the app). Loading a child
-    /// with no rules and no `program` revokes it and drops the binding, and
-    /// so does revoking the app (an empty list for `app:<id>`).
+    /// program is `EINVAL`; every allow rule of the child must be one the
+    /// app's loaded rules allow (`EACCES`: it would widen the app). Loading a
+    /// child with no rules and no `program` revokes it and drops the binding,
+    /// and so does revoking the app (an empty list for `app:<id>`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LoadLabelArgs {
         pub label: alloc::string::String,

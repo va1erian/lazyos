@@ -15,6 +15,7 @@
 //!   point and the labels that are not confined;
 //! * [`procs`]: sockets, process creation, signals and the calls that must
 //!   stay unimplemented (`ptrace`, `process_vm_readv`, `mount`, ...);
+//! * [`tty`]: a confined task reads end of file from a terminal;
 //! * [`policy`]: rule reloads, revocation, the wildcard rule, the audit
 //!   trail, and a soak of many allowed and refused calls.
 
@@ -30,6 +31,7 @@ mod entry;
 mod files;
 mod policy;
 mod procs;
+mod tty;
 
 /// The user the harness task runs as, and who owns the "private" files.
 const USER: Id = Id::new(1000, 100);
@@ -351,6 +353,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "confine_inherited_descriptors_are_scrubbed",
         procs::scrub_inherited,
     ),
+    ("confine_terminal_reads_are_eof", tty::terminal_reads_are_eof),
     ("confine_signals_stay_in_the_process", procs::signals),
     ("confine_dangerous_calls_stay_unimplemented", procs::enosys),
     (

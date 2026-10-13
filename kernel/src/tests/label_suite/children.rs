@@ -121,10 +121,12 @@ fn allowed(slot: usize, interface: &str) -> bool {
 
 mod behave;
 mod exec;
+mod files;
 mod load;
 mod start;
 
 pub(super) use behave::*;
 pub(super) use exec::*;
+pub(super) use files::*;
 pub(super) use load::*;
 pub(super) use start::*;

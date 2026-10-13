@@ -39,12 +39,15 @@ What is enforced today, honestly:
 - **Installed apps are confined.** A packaged app runs labelled
   `app:<system_name>` and is default-deny on Messenger except for what its
   manifest grants (`pkgstore::rules`, [`packages.md`](packages.md)). Its
-  `files` permissions are consent-only (there is no file sandbox), and its
-  `network` permission gates only the Messenger socket interface: the Linux
-  `AF_INET` path in the kernel does not check labels, and the per-uid call
-  rules in `libs/netpolicy` wait for the uid policy loader. An app may declare
-  helper programs with narrower labels (`[processes.<name>]`, section 2.1,
-  issue #832); the same limits apply to them.
+  own `files` permissions are consent-only (an ordinary app is not confined,
+  so there is no file sandbox for it), and its `network` permission gates
+  only the Messenger socket interface: the Linux `AF_INET` path does not
+  check an ordinary app's label, and the per-uid call rules in
+  `libs/netpolicy` wait for the uid policy loader. An app may declare helper
+  programs with narrower, **confined** labels (`[processes.<name>]`, section
+  2.1, issue #832): for those the kernel does enforce `files` (the VFS gate),
+  `network` (`socket(AF_INET)` and its client-only rule), process creation
+  and signals ([`architecture/process-sandbox.md`](architecture/process-sandbox.md)).
 - **The desktop session is not root** (U0, issue #623). A desktop image
   boots to a login screen (or the build's autologin account); LazyShell, the
   Terminal and every app, installed autostart apps included, run as the
@@ -144,20 +147,35 @@ the app's own `interfaces`, `network` and `files`
   lookup is keyed by the caller's *own* label, so an app can enter only its own
   children, another app's child or a path nothing is bound to changes nothing,
   and a task already in a child has no children to enter.
-* **Never wider.** A child is allowed a call only when its own rules and its
-  app's rules both allow it, and its rules are refused at load unless the
-  app's loaded rules cover them. A child owns no `app.<id>.*` service name and
-  no `app/<id>/` topic. Revoking the app (removing the package) revokes every
-  child with it, and an upgrade that drops a table drops its label.
+* **Never wider.** A Messenger call by a child is allowed only when its own
+  rules and its app's rules both allow it (the intersection), and its rules
+  are refused at load unless the app's loaded rules cover each one. The file
+  and `AF_INET` gates judge a child by its own rule ids alone (its `files`
+  and `network`); that they are a subset of the app's is what the load-time
+  check guarantees, with the app holding its children's file ids for the
+  purpose and the confine marker, which only narrows, left out of the check.
+  A child owns no `app.<id>.*` service name and no `app/<id>/` topic.
+  Revoking the app (removing the package) revokes every child with it, and
+  an upgrade that drops a table drops its label.
+* **No state carried in.** An `execve` into a child label is refused
+  (`EPERM`, not entered) while the task's slot holds Messenger handles,
+  because channels and buffers belong to the slot and would survive into the
+  helper; a helper started by a fork holds none. A confined task also reads
+  end of file from a terminal descriptor, so the keystrokes of the shell it
+  was launched from are not its to read.
 * **No further processes.** A task in a child label cannot start a program:
   `execve`, `fork`, `vfork`/`clone` without `CLONE_THREAD` and `spawnv` are
   refused with `EPERM` and audited. Threads are allowed.
 
-What a child label does *not* do yet: its `files` rules, like the app's own,
-are recorded and shown at consent but are not a kernel file sandbox (section 0
-and [`packages.md`](packages.md)); the guarantees above are about Messenger
-authority, programs and the network interface, which are the label rules the
-kernel has.
+A child label is a **confined** label: its `files` rules compile to the file
+gate's rule ids plus the confine marker, and the kernel refuses any path they
+do not cover, any `AF_INET` socket its `network` does not allow and any
+signal to another process
+([`architecture/process-sandbox.md`](architecture/process-sandbox.md)). What
+it does *not* do: the app's own `files` stay consent text, a confined process
+is still the user's uid (the label, not ownership, protects the user's
+files), and the gaps listed on that page (no per-process `/proc`, a shared
+audit ring, a path-based gate for a symlink-free filesystem) apply.
 
 ---
 

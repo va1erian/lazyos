@@ -196,9 +196,16 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
 * **What it compiles to.** `pkgstore::rules::children` compiles each table
   like the app's own entries (an interface allows every method and the names
   it is served under, `outbound` allows the socket interface), without the
-  baseline and without topics; `files` are consent-only, as the app's.
-  `pkgd` loads the app's label first and then each child with its `program`
-  (`LoadLabel`, `idl/policy.midl`).
+  baseline and without topics. Its `files` compile
+  (`pkgstore::filerules`) to the file gate's rule ids plus the confine marker
+  (`filepolicy::confine_id()`), which is what makes the label a sandbox: the
+  kernel judges every path the process touches against them (see the next
+  point). An app with process tables also holds its own and its children's
+  file ids, minus the marker (`pkgstore::rules::installed`), so the kernel can
+  check at load that each id of a child is one the app holds
+  (`acl::covered_by`, which ignores the marker: it only narrows). `pkgd` loads
+  the app's label first and then each child with its `program` (`LoadLabel`,
+  `idl/policy.midl`).
 * **The kernel rule** (`docs/architecture/ipc-security.md`, "Child labels"):
   a task of `app:<system_name>` that `execve`s the `program` takes the child
   label (same uid, gid, capabilities and session); a call by the child needs
@@ -206,9 +213,14 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
   and may not start programs (`execve`, `fork`, `vfork`, `spawnv`: `EPERM`);
   removing the app revokes its children, and an upgrade that drops a table
   drops its label.
-* **Not covered.** The child's `files` are not kernel-enforced file access
-  yet, for the same reason the app's are not (section "What a manifest
-  compiles to").
+* **Files and network are enforced for a process table.** A child label is a
+  confined label (`docs/architecture/process-sandbox.md`): the VFS refuses a
+  path no `files` rule covers (`EPERM`, audited), `socket(AF_INET)` needs the
+  child's `outbound`, a named `AF_UNIX` socket a `write` rule, and its
+  signals stay inside the process. The app's own `files` are still consent
+  text (the app is not confined). An `execve` into a child label is refused
+  while the task's slot holds Messenger handles (they would survive into the
+  helper); a helper started by a fork holds none.
 * A development run (`dev:` label) does not get child labels; its helpers
   inherit the development label.
 
@@ -562,11 +574,14 @@ the consent screen and the enforcement come from the same data:
   runs");
 * `resident = true` (under `[entry]`) compiles the two interfaces and the topic
   it implies exactly as if the manifest listed them (see `entry.resident`);
-* `files` rules are **consent only** today: there is no file sandbox in the
-  kernel yet, so they are recorded and shown but compile to nothing;
+* an app's own `files` rules are **consent only**: an ordinary app is not
+  confined, so they are recorded and shown, and compile to no rule of its own
+  (an app that declares process tables holds their ids so the kernel can
+  check its children against them);
 * each `[processes.<name>]` table compiles to a child label of its own
   (`pkgstore::rules::children`, see "Process tables" in section 3): the same
-  entries by the same functions, without the baseline.
+  entries by the same functions, without the baseline, and its `files` and
+  `network` are enforced by the kernel's file and `AF_INET` gates.
 
 A label carries at most 256 rules; a manifest that needs more is refused.
 The count includes the baseline every installed app gets (`init`'s

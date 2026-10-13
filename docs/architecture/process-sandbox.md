@@ -124,7 +124,8 @@ a program, a process or a socket, followed to the VFS.
 | `/dev/ptmx`, `/dev/pts/*`, `/dev/tty` | open | refused without a rule |
 | native `read_file`, `list`, `write_file`, `mkdir`, `remove`, `rename`, `chmod`, `read_at` (syscalls 3, 15-20, 28, 30, 32) | VFS with the uid only | the same VFS gate |
 | descriptors inherited across `fork`+`exec` | all that are not `FD_CLOEXEC` | closed above fd 2 unless a connected socket |
-| Messenger handles | not inherited (per task slot) | unchanged; an endpoint descriptor is only a pollable view |
+| Messenger handles | not inherited by a fork (per task slot), but they survive an `execve` | `execve` into a child label is refused (`EPERM`, `children::enter_on_exec`) while the slot holds any handle, so a task cannot become its confined helper in place carrying channels or buffers; an endpoint descriptor is only a pollable view |
+| `read` of a terminal (`FdKind::Terminal`, a pty) | the launcher's keystrokes | end of file (`0`) for a confined task, whichever descriptor it was left on (`sys_read`), and the input stays queued for its owner |
 
 ## Residual gaps (stated, not hidden)
 
@@ -170,8 +171,12 @@ suite is `kernel/src/tests/confine_suite`): the path matrix through the Linux
 ABI and the native calls (with the mode bits permissive, so a refusal is the
 label's), `..` and directory descriptors, the fabricated entries, `execve`,
 sockets, process creation, signals, descriptors, reload and revocation,
-wildcard rules, the audit trail, and a soak of thousands of allowed and
-refused calls and rule reloads that must leave descriptors, frames, heap and
-task slots where they were. `cargo test -p filepolicy` covers the grammar and
+wildcard rules, terminal reads (`confine_terminal_reads_are_eof`), the audit
+trail, and a soak of thousands of allowed and refused calls and rule reloads
+that must leave descriptors, frames, heap and task slots where they were. The
+child-label side is `LAZYOS_TEST_FILTER=label` (`label_child_*` in
+`kernel/src/tests/label_suite/children*`): binding and entering, coverage of
+a child's file ids by its app (`label_child_file_rules_are_covered`), and no
+entry while the slot holds handles (`label_child_not_entered_with_handles`). `cargo test -p filepolicy` covers the grammar and
 the judgement against a reference matcher with seeded fuzzing
 (`FUZZ_CASES=20000 cargo test -p filepolicy --release`).

@@ -212,4 +212,6 @@ boots a console image whose first program loads the browser's two process tables
 does and starts the probe under each; `--browser` builds a desktop image with `LAZYOS_WEBKIT_ATTACK=1`, which
 ships the stand-in as `/system/bin/webprocess` and `/system/bin/networkprocess` beside the real window, so the
 real UI process starts them and the label comes from the package's tables. `LAZYOS_WEBKIT_ATTACK=1` is a
-test switch: never set it for an image anyone uses.
+test switch: never set it for an image anyone uses. Like `LAZYOS_TLS_TEST_CA`
+it is harness-only on purpose: `attack_run.py` sets it, and there is no
+`run_demo.py` flag or launcher GUI control for it.

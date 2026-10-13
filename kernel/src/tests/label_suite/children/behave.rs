@@ -301,3 +301,56 @@ pub fn child_stamp_is_narrow() -> Result<(), String> {
         reap(slot)
     })
 }
+
+/// An `execve` into a child label is refused while the task's slot holds
+/// Messenger state (a channel, a buffer, an endpoint survive an `execve`),
+/// and goes through when it holds none: a helper is started by a fork whose
+/// slot is empty.
+pub fn child_not_entered_with_handles() -> Result<(), String> {
+    use crate::ipc::handles::{self, rights, HandleKind};
+
+    fresh_children()?;
+    in_space(|| -> Result<(), String> {
+        let app = load_app()?;
+        let (web, _) = load_children()?;
+        let slot = task_of(app)?;
+        check!(
+            handles::entries_for_task(slot).is_empty(),
+            "setup: a fresh task holds handles"
+        );
+        let handle = handles::open_for_task(slot, HandleKind::Channel, rights::CALL, 0x5eed)
+            .map_err(|error| String::from(error.message()))?;
+        let before = audit::total();
+
+        let entered = children::enter_on_exec(slot, &[WEB_PATH]);
+        check!(
+            entered == Err(TransitionError::Widening),
+            "an app task holding a handle entered its child: {entered:?}"
+        );
+        check!(
+            credentials::of(slot).label_id == app,
+            "a refused entry moved the label"
+        );
+        check!(
+            audit::total() == before,
+            "a refusal before the gate was audited as a transition"
+        );
+        check!(
+            handles::entries_for_task(slot).len() == 1,
+            "the refusal touched the handles"
+        );
+
+        // With the state gone the same exec is allowed.
+        handles::close_for_task(slot, handle).map_err(|error| String::from(error.message()))?;
+        check!(
+            handles::entries_for_task(slot).is_empty(),
+            "the handle was not closed"
+        );
+        check!(
+            children::enter_on_exec(slot, &[WEB_PATH]) == Ok(Some(web)),
+            "a task with no handles did not enter its child"
+        );
+        check!(credentials::of(slot).label_id == web, "the stamp was lost");
+        reap(slot)
+    })
+}
