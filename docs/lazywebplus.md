@@ -316,9 +316,11 @@ and a user filter editor are separate issues.
   excepted script and own picture loaded; *Update now* sent the ETag and was told 304; the exception and the
   compiled list outlived a boot. All the browser's earlier checks (HTTPS pages, dialogs, downloads, cookies,
   the sandbox) pass with content extensions on.
-* **Not measured**: compile time and memory of the *real* EasyList in the guest (the harness list is 1 KB), nor
-  page-load times on real pages with and without blocking. The first is the next number to take (it runs on the
-  UI process's work queue, so the browser stays up, and a start after the first loads from the store).
+* **The real list in the guest** (a fresh image whose list host serves the real EasyList, WHPX, 4 GiB): fetched
+  (2,150,374 bytes), converted to 56,918 rules (24,859 filters not used) in about a second, compiled and attached
+  by WebKit in about 4.3 s, ready 4.8 s after the download ended, with the browser up throughout (the compile is
+  on the UI process's work queue); a later start loads it from the store. Memory of that compile in the guest and
+  page-load times on real pages, with and without blocking, were **not** measured.
 * **Found on the way** (patches `0018` and `0019`): the UI process did not link with content extensions on the
   curl backend, and `NetworkCache::fileTimes()` had no branch for Linux with curl, so the first cache *hit* of a
   run killed the NetworkProcess (any revisit of a page with a cached picture): unrelated to blocking, fixed here
