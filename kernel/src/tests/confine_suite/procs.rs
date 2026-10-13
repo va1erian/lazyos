@@ -136,6 +136,23 @@ pub fn sockets() -> Result<(), String> {
             );
             close(got);
         }
+        // `outbound` makes a client: a port of its own to listen on is refused, before the
+        // network stack is asked anything.
+        let fd = socket(AF_INET, SOCK_STREAM);
+        check!(fd >= 0, "socket with the network rule");
+        let mut addr = [0u8; 16];
+        addr[..2].copy_from_slice(&(AF_INET as u16).to_le_bytes());
+        addr[2..4].copy_from_slice(&8080u16.to_be_bytes());
+        let bound = process::linux::dispatch_for_test(
+            SYS_BIND,
+            fd as u64,
+            addr.as_ptr() as u64,
+            addr.len() as u64,
+        ) as i64;
+        check!(bound == EPERM, "bind to port 8080 gave {bound}");
+        let listening = process::linux::dispatch_for_test(50, fd as u64, 4, 0) as i64;
+        check!(listening == EPERM, "listen gave {listening}");
+        close(fd);
         // The rule grants sockets, not files: the same label is still held.
         check!(
             !opens("/home/user/.ssh/id_rsa", O_RDONLY),
@@ -346,9 +363,34 @@ pub fn scrub_inherited() -> Result<(), String> {
             );
         }
 
+        // Standard input becomes the null device: a pipe or terminal the launcher had there
+        // (the keystrokes of a shell) is not the sandbox's to read.
+        let terminal = task::fd_clone(0).ok_or("no standard input")?;
+        let mut feed = [0i32; 2];
+        check!(
+            process::linux::dispatch_for_test(22, feed.as_mut_ptr() as u64, 0, 0) as i64 == 0,
+            "pipe for stdin"
+        );
+        let wrote =
+            process::linux::dispatch_for_test(1, feed[1] as u64, b"secret".as_ptr() as u64, 6);
+        check!(wrote == 6, "feed the pipe: {wrote}");
+        check!(
+            process::linux::dispatch_for_test(33, feed[0] as u64, 0, 0) == 0,
+            "dup2 onto stdin"
+        );
+        close(i64::from(feed[0]));
+        close(i64::from(feed[1]));
+
         // A confined one is left with the streams and the connected socket.
         confine_as_user(RULES, &[])?;
         let closed = confine::scrub_inherited_descriptors();
+        let mut byte = [0u8; 8];
+        let read = process::linux::dispatch_for_test(0, 0, byte.as_mut_ptr() as u64, 8);
+        check!(
+            read == 0,
+            "stdin still delivers bytes after the scrub: {read}"
+        );
+        let _ = task::fd_replace(0, terminal);
         check!(
             closed == leftovers.len(),
             "closed {closed}, want {}",
@@ -398,6 +440,10 @@ pub fn enosys() -> Result<(), String> {
             (425, "io_uring_setup"),
             (323, "userfaultfd"),
             (312, "kcmp"),
+            // file handles name a file without a path: they would walk around the file gate
+            (303, "name_to_handle_at"),
+            (304, "open_by_handle_at"),
+            (437, "openat2"),
         ] {
             let got = process::linux::dispatch_for_test(nr, 0, 0, 0) as i64;
             check!(got == ENOSYS, "{name} ({nr}) gave {got}, not ENOSYS");

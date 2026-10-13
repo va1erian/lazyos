@@ -46,12 +46,21 @@ changes) and are otherwise untouched.
 | The device nodes the Linux layer fabricates before the VFS is asked (`/dev/tty`, `/dev/ptmx`, `/dev/pts/*`, data devices) | `open_path` (`process/linux/path.rs`) | the same call, same answer |
 | `/proc`, `/etc/passwd`, `/etc/resolv.conf`, ... (fabricated) | named by path, so judged by the VFS gate first (`resolve` and `check_path` ask the VFS before they look at a fabricated entry) | same |
 | `socket(AF_INET, ...)` | `inet::sys_socket` | `EPERM` unless the label holds the `os.lazy.net.socket.v1` rule (`network = ["outbound"]`) |
+| `bind` to a port other than `0`, `listen` on `AF_INET` | `inet::sys_bind`, `sys_listen` | `EPERM`: `outbound` is a client (port `0` is the ephemeral port a resolver binds) |
 | `bind`/`connect` of a named `AF_UNIX` socket | `socket.rs` | needs a `write` rule for the path; abstract names refused |
 | `fork`, `vfork`, `clone` without `CLONE_THREAD`, `posix_spawn`'s `CLONE_VM` child, native `spawnv`, a native program `execve` starts as a child | `procctl.rs`, `native.rs`, `spawnv.rs` | `EPERM` |
 | `execve` | `sys_execve` | `EPERM`: a confined image runs the one program it started with |
 | `kill`, `tkill`, `tgkill`, native syscall 29, broadcast and group forms | `task::signal::send::may_signal` | only its own process (its threads); everything else `EPERM` |
-| Descriptors at exec | `procctl::sys_execve` -> `confine::scrub_inherited_descriptors` | everything above fd 2 that is not a connected socket is closed |
+| Descriptors at exec | `procctl::sys_execve` -> `confine::scrub_inherited_descriptors` | everything above fd 2 that is not a connected socket is closed, and standard input becomes `/dev/null` (a terminal's keystrokes are not the sandbox's) |
 | Messenger calls, name resolution, topics | the label ACL (`ipc::policy`, unchanged) | default deny |
+
+**Descriptors.** Audit of the browser's UI process: nothing in `webkit/port/app` opens a
+file, a socket or a pipe itself; the window library's `eventfd` and `epoll` are created
+`*_CLOEXEC` (`xui-app/src/backend/wakeup.rs`); an endpoint descriptor is only a pollable view
+(`ipc::endpointfd`), whatever crosses; WebKit's IPC socketpair marks the *server* end
+close-on-exec and leaves the client end open for the child (`ProcessLauncherLazyOS.cpp`), which
+is the one descriptor meant to cross. The kernel does not rely on any of that: an image that
+starts confined keeps only descriptors 0 to 2 and connected sockets.
 
 **Baseline.** A confined task may always read the data devices (`/dev/null`,
 `/dev/zero`, `/dev/full`, `/dev/random`, `/dev/urandom`; write to the first
@@ -62,6 +71,13 @@ stat `/`. The list is `filepolicy::baseline`. Everything else needs a rule.
 `realpath` walk, `access(F_OK)`), not read or list them, and sees no sibling:
 `stat /home/user/.ssh` is `EPERM` while `stat /home/user/.apps` is fine under a
 `$HOME/.apps/...` grant.
+
+A walk that makes every component of a path (`mkdir -p`, WebKit's
+`makeAllDirectories`, Rust's `create_dir_all`) goes through those ancestors:
+`mkdir` of a name that exists is `EEXIST` for whoever may look at it, before
+the question whether they may write the directory above (`Vfs::mkdir`, as on
+Linux; the confined NetworkProcess could not open its own cache otherwise),
+and `EPERM` for whoever may not.
 
 **`$HOME`.** `$HOME/...` in a rule stands for `/home/<any name>/...`. That is
 sound because the gate only narrows: the mode bits still apply, and a user's
@@ -100,7 +116,8 @@ a program, a process or a socket, followed to the VFS.
 | `fork`/`vfork`/`clone`/`spawnv` | child inherits the label | refused |
 | `mmap` of a file | `ENODEV` (only memfd and anonymous memory) | unchanged. **When file-backed mmap lands it must take its permission from the `open` and never resolve a path again** |
 | `memfd_create` + `execve("/proc/self/fd/N")` / `execveat` | no `/proc/self/fd` open, `execveat` is `ENOSYS`; `execve` refused anyway | unchanged |
-| `ptrace`, `process_vm_readv/writev`, `kcmp`, `mount`, `umount2`, `chroot`, `unshare`, `setns`, `io_uring_setup`, `userfaultfd`, `clone3` | `ENOSYS` | unchanged, and **pinned by a test** (`confine_dangerous_calls_stay_unimplemented`): implementing one means gating it |
+| `ptrace`, `process_vm_readv/writev`, `kcmp`, `mount`, `umount2`, `chroot`, `unshare`, `setns`, `io_uring_setup`, `userfaultfd`, `clone3`, `name_to_handle_at`/`open_by_handle_at` (a file named without a path), `openat2` | `ENOSYS` | unchanged, and **pinned by a test** (`confine_dangerous_calls_stay_unimplemented`): implementing one means gating it |
+| `ioctl(TIOCSTI)` on an inherited terminal | not implemented | unchanged (nothing to inject with); standard input is `/dev/null` for a confined image anyway |
 | `kill` of a same-uid process | allowed (uid rule) | refused outside the caller's process |
 | `socket(AF_INET)` | no label check at all | needs the socket-interface rule |
 | named `AF_UNIX` sockets | global name table, no check | path rule required, abstract names refused |

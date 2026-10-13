@@ -45,9 +45,19 @@ interfaces = [
     "os.lazy.input.v1",
 ]
 network = ["outbound"]
-# The UI process, the NetworkProcess and WebKit's data stores keep what persists (cookies, the
-# HTTP cache, local storage, history) below the app's own per-user folder, and write nowhere else.
-files = ["write:$HOME/.apps/os.lazy.webkit"]
+# What persists (cookies, the HTTP cache, local storage, history) is kept below the app's own
+# per-user folder, and nothing is written anywhere else. The reads are the union of what the two
+# processes below read (a child label holds no more than the app's own); the UI process itself
+# touches none of them, and the table of each process says which one holds which.
+files = [
+    "write:$HOME/.apps/os.lazy.webkit",
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+]
 
 # One process per page, running whatever the page says with the JIT on. It is the process a
 # page's exploit lands in, so it holds nothing: its image and the IPC socket it inherits are all it

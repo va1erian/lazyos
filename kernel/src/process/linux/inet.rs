@@ -138,6 +138,10 @@ pub(super) fn sys_bind(fd: u64, addr: u64, len: u64) -> u64 {
         Ok(addr) => addr,
         Err(e) => return e,
     };
+    // A confined label's network is `outbound`: a local port of its own choosing is a server.
+    if addr.port != 0 && !crate::ipc::confine::may_serve() {
+        return err(EPERM);
+    }
     match sock.begin_bind(addr).and_then(|t| sock.finish(t)) {
         Ok(()) => 0,
         Err(e) => code(e),
@@ -168,6 +172,9 @@ pub(super) fn sys_listen(fd: u64, backlog: u64) -> u64 {
         Ok(sock) => sock,
         Err(e) => return e,
     };
+    if !crate::ipc::confine::may_serve() {
+        return err(EPERM);
+    }
     match sock
         .begin_listen(backlog.min(u32::MAX as u64) as u32)
         .and_then(|t| sock.finish(t))

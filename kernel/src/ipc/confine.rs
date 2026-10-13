@@ -1,5 +1,5 @@
 //! Confined labels: the file, network, spawn and signal gates of a sandboxed
-//! process (issue #832, `docs/security-model.md` "Sandboxed processes").
+//! process (issue #832, `docs/architecture/process-sandbox.md`).
 //!
 //! A label's Messenger rules never covered the rest of what a process can do:
 //! open a file, open a socket, start a program, signal another process. For an
@@ -16,13 +16,16 @@
 //!   [`Id`](crate::fs::vfs::Id); the fabricated entries (`/etc`, `/proc`,
 //!   devices) are named by the same paths and judged first by the same call.
 //! * **Network.** `socket(AF_INET)` needs the label's `os.lazy.net.socket.v1`
-//!   rule, which `network = ["outbound"]` compiles to; named `AF_UNIX` sockets
-//!   are file-like names and need a `write` rule on the path.
-//! * **Spawning.** A confined task creates no process: `fork`, `vfork`,
-//!   `clone` without `CLONE_THREAD`, a native `spawnv` and the native
-//!   programs `execve` starts as children are `EPERM`. (`execve` of a file
-//!   needs a read rule for it, which a sandbox does not have for programs.)
+//!   rule, which `network = ["outbound"]` compiles to, and what it gets is a
+//!   client (no `listen`, no named local port); named `AF_UNIX` sockets are
+//!   file-like names and need a `write` rule on the path.
+//! * **Spawning.** A confined task creates no process and starts no program:
+//!   `fork`, `vfork`, `clone` without `CLONE_THREAD`, a native `spawnv`, the
+//!   native programs `execve` starts as children, and `execve` itself are
+//!   `EPERM`. Its image was loaded before its label took effect.
 //! * **Signals.** A confined task signals only itself and its own threads.
+//! * **Descriptors.** An image that starts confined keeps descriptors 0 to 2
+//!   and connected sockets ([`scrub_inherited_descriptors`]).
 //!
 //! A label is confined when its rule set carries the marker
 //! [`filepolicy::confine_id`] (what `pkgstore` compiles `files` to for
@@ -71,6 +74,7 @@ mod what {
     pub const INET: u32 = 3;
     pub const UNIX: u32 = 4;
     pub const EXEC: u32 = 5;
+    pub const SERVE: u32 = 6;
 }
 
 /// What a label is, as the gates need it.
@@ -177,9 +181,23 @@ pub fn check_path(label_id: u32, path: &str, access: Access) -> Result<(), Denie
         label_id,
         FILE_SCOPE,
         fnv1a32(path),
-        format_args!("file={path} access={mode}"),
+        format_args!("file={} access={mode}", Printable(path)),
     );
     Err(Denied)
+}
+
+/// A path as one line of a trace: a sandboxed task chose the name, and a newline in it must not
+/// start a line of its own (a forged `LABEL:DENY`), so control characters print as `?`.
+struct Printable<'a>(&'a str);
+
+impl core::fmt::Display for Printable<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        use core::fmt::Write;
+        for ch in self.0.chars() {
+            f.write_char(if ch.is_control() { '?' } else { ch })?;
+        }
+        Ok(())
+    }
 }
 
 /// The access a VFS permission mask asks for (`vfs::READ`/`WRITE`/`EXECUTE`,
@@ -266,7 +284,10 @@ pub fn scrub_inherited_descriptors() -> usize {
     if !slot_confined(crate::task::current()) {
         return 0;
     }
-    crate::task::fd_close_all_but_sockets()
+    let closed = crate::task::fd_close_all_but_sockets();
+    // Standard input too: it is whatever the launcher's terminal or pipe delivers.
+    crate::process::linux::null_stdin();
+    closed
 }
 
 /// Whether the current task may bind or connect the named `AF_UNIX` socket
@@ -313,6 +334,25 @@ pub fn may_open_inet() -> bool {
         PROCESS_SCOPE,
         what::INET,
         format_args!("net=inet"),
+    );
+    false
+}
+
+/// Whether the current task may serve on the network: bind a named port or listen. The
+/// `network` permission is `outbound` (v1), so a confined task is a client only: it may bind
+/// port `0` (the ephemeral local port a resolver or a connect picks) and never listen.
+pub fn may_serve() -> bool {
+    let slot = crate::task::current();
+    let label_id = credentials::of(slot).label_id;
+    if !confined(label_id) {
+        return true;
+    }
+    refuse(
+        slot,
+        label_id,
+        PROCESS_SCOPE,
+        what::SERVE,
+        format_args!("net=serve"),
     );
     false
 }

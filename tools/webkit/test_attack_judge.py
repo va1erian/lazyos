@@ -29,6 +29,7 @@ TRACE = {
     "read_ca_bundle": "file=/etc/ssl/certs/ca-certificates.crt access=stat",
     "write_profile": "file=/home/user/.apps access=write",
     "inet_socket": "net=inet",
+    "inet_serve": "net=inet",
     "tcp_connect": "net=inet",
     "read_home_dir": "file=/home/user access=stat",
     "write_home": "file=/home/user/sandbox-breach.txt access=stat",
@@ -51,7 +52,7 @@ TRACE = {
     "read_fonts": "file=/system/share/fonts access=stat",
 }
 #: The network role's own trace for the one probe that differs.
-TRACE_NETWORK = {"read_home_dir": "file=/home/user access=read"}
+TRACE_NETWORK = {"read_home_dir": "file=/home/user access=read", "inet_serve": "net=serve"}
 
 
 def perfect(mode: str = "kernel", drop=(), tweak=None) -> str:
@@ -210,6 +211,14 @@ class AgreementTests(unittest.TestCase):
         # The page process holds no Messenger interface at all.
         self.assertEqual(processes["webprocess"]["interfaces"], [])
         self.assertEqual(processes["networkprocess"]["interfaces"], [])
+
+    def test_a_child_label_holds_no_more_than_the_app(self) -> None:
+        manifest = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
+        app = manifest["permissions"]
+        for name, table in manifest["processes"].items():
+            self.assertLessEqual(set(table["files"]), set(app["files"]), name)
+            self.assertLessEqual(set(table["interfaces"]), set(app["interfaces"]), name)
+            self.assertLessEqual(set(table["network"]), set(app["network"]), name)
 
     def test_the_browsers_labels_are_app_slash_process(self) -> None:
         app = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))["app"]["system_name"]

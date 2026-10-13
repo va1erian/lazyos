@@ -83,6 +83,21 @@ pub(super) fn open_device_fd(path: &str) -> u64 {
     )
 }
 
+/// Make descriptor 0 the null device (`/dev/null`: reads end at once, writes vanish). An image
+/// that starts confined has no business reading what its launcher's terminal or pipe delivers
+/// (the keystrokes of a shell the browser was started from); its output streams stay.
+pub fn null_stdin() {
+    let null = open_device_fd("/dev/null");
+    if (null as i64) < 0 {
+        return;
+    }
+    // `dup2(null, 0)`: the old entry on 0 is closed, whatever it was.
+    let _ = sys_dup(33, null, 0);
+    if null != 0 {
+        task::fd_close(null as usize);
+    }
+}
+
 pub(super) fn sys_close(fd: u64) -> u64 {
     if task::fd_close(fd as usize) {
         0
