@@ -46,7 +46,7 @@ impl Persist for ConfdSettings {
         ];
         for (name, value) in writes {
             if let Err(e) = self.store.set(&self.key(name), value) {
-                println!("WEBPLUS:BLOCK:SETTINGS:FAIL:{name}:{e}");
+                crate::marker(&format!("BLOCK:SETTINGS:FAIL:{name}:{e}"));
             }
         }
     }

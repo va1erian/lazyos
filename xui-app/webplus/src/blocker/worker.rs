@@ -100,7 +100,7 @@ struct Candidate {
 }
 
 fn say(line: &str) {
-    println!("WEBPLUS:BLOCK:{line}");
+    crate::marker(&format!("BLOCK:{line}"));
 }
 
 impl Worker {

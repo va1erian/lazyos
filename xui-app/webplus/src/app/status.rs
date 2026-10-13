@@ -11,7 +11,7 @@ use crate::chrome::Command;
 impl Browser {
     pub(super) fn trace(&self, line: &str) {
         if self.host.traces {
-            println!("WEBPLUS:{line}");
+            crate::marker(line);
         }
     }
 

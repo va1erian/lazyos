@@ -55,8 +55,14 @@ pub fn allow_named_markers(on: bool) {
 /// Prints `WEBPLUS:<line>` when named markers are allowed.
 pub fn named_marker(line: &str) {
     if NAMED_MARKERS.load(std::sync::atomic::Ordering::Relaxed) {
-        println!("WEBPLUS:{line}");
+        marker(line);
     }
+}
+
+/// Prints `WEBPLUS:<line>`: a marker that names no page, address or file. The one place this
+/// crate's evidence lines are printed from (the trace ratchet counts it once).
+pub fn marker(line: &str) {
+    println!("WEBPLUS:{line}");
 }
 
 /// `text` fit for one serial marker line: control characters (a title can
