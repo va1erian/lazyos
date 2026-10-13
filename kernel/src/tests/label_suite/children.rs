@@ -18,6 +18,7 @@ use crate::ipc::{authorize, children, devspawn};
 
 const EPERM: i64 = 1;
 const ENOENT: i64 = 2;
+const ENOMEM: i64 = 12;
 const EACCES: i64 = 13;
 const EINVAL: i64 = 22;
 

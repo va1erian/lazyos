@@ -56,8 +56,9 @@ pub(crate) struct Loaded {
 /// Compile `manifest`'s permissions (plus the baseline, `rules::installed`)
 /// and load them as the policy of `app:<system_name>`, then each of its
 /// declared child labels. Everything is compiled before anything is loaded;
-/// if a child is refused, the children loaded so far are revoked again (the
-/// app's own label stays, the caller decides what an install failure undoes).
+/// if a child is refused, the app's own label is revoked again too (which
+/// takes the children with it): an app whose helpers could not be confined
+/// is never left loaded, or the helper would run with the app's own label.
 pub(crate) fn load(manifest: &Manifest) -> core::result::Result<Loaded, LoadError> {
     let app_rules = rules::installed(manifest).map_err(LoadError::Compile)?;
     let children = rules::children(manifest).map_err(LoadError::Compile)?;
@@ -73,9 +74,8 @@ pub(crate) fn load(manifest: &Manifest) -> core::result::Result<Loaded, LoadErro
                 .children
                 .push((child.label.clone(), count, child.program.clone())),
             Err(error) => {
-                for (label, _, _) in &loaded.children {
-                    let _ = revoke_label(label);
-                }
+                // Fail closed: the kernel drops the children with the app.
+                let _ = revoke(&manifest.app.system_name);
                 return Err(LoadError::Kernel(error));
             }
         }

@@ -165,16 +165,25 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
 
 * **Fields.** `program` (required) is the absolute path of the executable
   (`/` then `/`-separated segments of `[A-Za-z0-9_.-]`, none `.` or `..`, at
-  most 255 bytes), compared byte for byte with the path `execve` runs. It
-  must be a Linux-ABI program: `execve` of a native one (the short list in
-  `kernel/src/process/linux/native.rs`) starts a child instead of replacing
-  the image and does not enter the label. `interfaces`, `network` and
+  most 255 bytes), compared byte for byte with the file `execve` runs (the
+  end of a `#!` chain, so a bound interpreter such as `/system/bin/busybox`
+  captures every script run through it) or with the path as the caller
+  spelled it (a bound script). It must be a Linux-ABI program: `execve` of a
+  native one (the short list in `kernel/src/process/linux/native.rs`) starts a
+  child instead of replacing the image, and `spawnv` from a native app only
+  inherits; neither enters the label. A path that does not match (an alias, a
+  differently spelled name) silently enters nothing and the helper keeps the
+  app's label, so spell the program as the launcher does and check a traced
+  run for `LABEL:ENTER`. `interfaces`, `network` and
   `files` have exactly the meaning and syntax of the same fields of
   `[permissions]`; there is no `topics` (a child owns no `app/<id>/`
   namespace) and no `develop`. Unknown fields are errors.
 * **Names.** `<name>` is `[a-z0-9]` then `[a-z0-9_-]`, at most 24 bytes, so
   `app:<system_name>/<name>` always fits the kernel's 160-byte label. At most
-  4 tables; two of them may not name the same `program`.
+  4 tables; two of them may not name the same `program`. The kernel's label
+  table never forgets a label, so it also refuses (`ENOMEM`) a ninth distinct
+  child name for one app until the next boot: do not rename tables between
+  versions.
 * **Never wider than the app.** Every `interfaces` entry must be one of the
   app's own `permissions.interfaces`; `network = ["outbound"]` needs the
   app's `outbound`; every `files` rule must be *covered* by one of the app's

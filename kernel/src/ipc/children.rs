@@ -72,7 +72,8 @@ pub enum BindError {
 }
 
 /// Whether `program` is an absolute path of non-empty segments, none of them
-/// `.` or `..` and none containing a NUL, at most [`MAX_PROGRAM_BYTES`] long.
+/// `.` or `..` and none containing a control character (the path is printed
+/// in trace lines), at most [`MAX_PROGRAM_BYTES`] long.
 /// `execve` hands the kernel a canonical path, so a bound path must already be
 /// one, or it could never match.
 pub fn valid_program(program: &str) -> bool {
@@ -84,7 +85,7 @@ pub fn valid_program(program: &str) -> bool {
             !segment.is_empty()
                 && segment != "."
                 && segment != ".."
-                && !segment.bytes().any(|b| b == 0)
+                && !segment.bytes().any(|b| b < 0x20 || b == 0x7f)
         })
 }
 
@@ -206,14 +207,20 @@ pub fn recheck(actor: &Cred, requested: &Cred) -> Result<(), TransitionError> {
     }
 }
 
-/// What `execve`ing `path` does to the label of the task in `slot`: it takes
-/// the child label bound to the path, if any. `Ok(None)` when the path is not
-/// a child's program; an `Err` must fail the `execve` (the process would
+/// What `execve`ing a program does to the label of the task in `slot`: it
+/// takes the child label bound to the first of `paths` that has one. The
+/// caller passes the file that runs (the end of a `#!` chain, which an
+/// interpreter's binding matches) and the path as spelled (a bound script).
+/// `Ok(None)` when no path is a child's program; an `Err` must fail the
+/// `execve` (the process would
 /// otherwise run with the wider label its app holds). The stamp goes through
 /// the credential gate, so it is audited like every other transition.
-pub fn enter_on_exec(slot: usize, path: &str) -> Result<Option<u32>, TransitionError> {
+pub fn enter_on_exec(slot: usize, paths: &[&str]) -> Result<Option<u32>, TransitionError> {
     let actor = credentials::of(slot);
-    let Some(child) = label_for_exec(&actor, path) else {
+    let Some((child, path)) = paths
+        .iter()
+        .find_map(|path| label_for_exec(&actor, path).map(|child| (child, *path)))
+    else {
         return Ok(None);
     };
     let requested = Cred {

@@ -35,14 +35,15 @@
 //! on a *child being created* by a [`CAP_SETUID`] holder (the labelled spawn,
 //! [`LabelStamp::Assign`]); every other stamp must keep the label it lands on
 //! ([`LabelStamp::Keep`]), so a task cannot relabel itself, strip its label
-//! or hand a different one to a peer. The one other assignment is a labelled
-//! IDE's spawn into a `dev:` label ([`LabelStamp::Develop`],
-//! [`super::devspawn`], issue #529): no `CAP_SETUID`, but the caller's own
-//! label rules must allow that exact label, and the child keeps the caller's
-//! uid, gid, session and (at most) capabilities. The last is an app's `execve`
-//! of one of its declared helper programs ([`LabelStamp::Child`],
-//! [`super::children`], issue #832): the image takes the narrower child label
-//! bound to that path, and nothing else of the credential changes. Children
+//! or hand a different one to a peer. There are two exceptions, neither of
+//! which widens anything. A labelled IDE's spawn into a `dev:` label
+//! ([`LabelStamp::Develop`], [`super::devspawn`], issue #529): no
+//! `CAP_SETUID`, but the caller's own label rules must allow that exact
+//! label, and the child keeps the caller's uid, gid, session and (at most)
+//! capabilities. And an app's `execve` of one of its declared helper programs
+//! ([`LabelStamp::Child`], [`super::children`], issue #832), the only time a
+//! live task's label changes: the image takes the narrower child label bound
+//! to that path, and nothing else of the credential changes. Children
 //! inherit their creator's label like the rest of the credential, which keeps
 //! an app's helpers inside its sandbox.
 //!

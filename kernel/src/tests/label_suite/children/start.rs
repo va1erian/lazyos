@@ -96,7 +96,7 @@ pub fn child_label_soak() -> Result<(), String> {
                 (NET_PATH, net)
             };
             check!(
-                children::enter_on_exec(slot, path) == Ok(Some(want)),
+                children::enter_on_exec(slot, &[path]) == Ok(Some(want)),
                 "cycle {cycle}: no entry"
             );
             check!(

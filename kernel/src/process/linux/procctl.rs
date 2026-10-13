@@ -224,6 +224,7 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
 
     // A `#!` script runs its interpreter instead (issue #491); `image` is the
     // ELF at the end of that chain, with argv rewritten for it.
+    let spelled = path.clone();
     let image = match super::shebang::resolve(path, raw.into_bytes(), argv) {
         Ok(image) => image,
         Err(code) => return code,
@@ -243,9 +244,11 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     };
 
     // A helper program of a labelled app takes its child label here (issue
-    // #832): the image is loaded and nothing below can fail, so a refusal is
+    // #832), matched on the file that runs or the path as spelled (a bound
+    // script): the image is loaded and nothing below can fail, so a refusal is
     // still a failed `execve` and the process never runs wider than intended.
-    if crate::ipc::children::enter_on_exec(task::current(), &image.path).is_err() {
+    let matches = [image.path.as_str(), spelled.as_str()];
+    if crate::ipc::children::enter_on_exec(task::current(), &matches).is_err() {
         return err(EPERM);
     }
 

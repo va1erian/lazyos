@@ -304,6 +304,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "label_child_may_not_start_programs",
         children::child_may_not_start_programs,
     ),
+    ("label_child_label_cap", children::child_label_cap),
     ("label_child_soak", children::child_label_soak),
     ("label_child_real_execve", children::child_label_real_execve),
 ];

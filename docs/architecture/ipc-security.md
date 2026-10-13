@@ -78,7 +78,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   is write-once: `LabelStamp::Assign` (the labelled spawn, `spawnv` with
   `AsLabelled`) sets it on a new child for an unlabelled `CAP_SETUID` creator;
   every other stamp is `LabelStamp::Keep` and fails with
-  `TransitionError::LabelLocked` if it would change it. Children inherit their
+  `TransitionError::LabelLocked` if it would change it, apart from the two
+  narrowing exceptions below (`dev:` and child labels). Children inherit their
   creator's label, so an app's helpers stay in its sandbox.
 - **Spawning into `dev:`** (`devspawn.rs`, `LabelStamp::Develop`, issue #529).
   The one assignment without `CAP_SETUID`: a *labelled* caller's `spawnv`
@@ -101,8 +102,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   [packages.md](../packages.md)); `pkgd` loads each as `app:<id>/<name>` with
   `LoadLabel`'s `program`. The kernel rule, in full:
   1. *Entering.* A task labelled `app:<id>` that `execve`s a program whose
-     canonical path equals the `program` bound to one of **its own label's**
-     children takes that child's label, through the credential gate (audited
+     canonical path (the file that runs, or the path as spelled, which is how
+     a bound script matches) equals the `program` bound to one of **its own
+     label's** children takes that child's label, through the credential gate (audited
      as an allowed transition, uid, gid, capabilities and session unchanged).
      The lookup is keyed by the caller's label, so another app's child, a
      path nothing is bound to, an unlabelled task and a task already in a
@@ -125,7 +127,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   4. *Leaving.* `LoadLabel` of a child with no rules and no program unbinds
      it, and so does an empty load for the app: the children go with it.
      Tasks still holding the label then have no rules.
-  The binding table is bounded (64) and a program enters one child per app:
+  The binding table is bounded (64), an app may have at most 8 distinct child
+  labels interned (the label table is append-only), and a program enters one
+  child per app:
   binding it to another child of the same app (a table renamed in an upgrade)
   takes it over and clears the older child's rules. The tests are in
   `kernel/src/tests/label_suite/children/`: each clause, and a thousand-cycle

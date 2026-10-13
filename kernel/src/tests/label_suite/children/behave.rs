@@ -128,13 +128,13 @@ pub fn child_entered_only_by_its_program() -> Result<(), String> {
 
         // Entering stamps the label and nothing else, and audits it.
         let slot = task_of(app)?;
-        let entered = children::enter_on_exec(slot, "/system/bin/busybox");
+        let entered = children::enter_on_exec(slot, &["/system/bin/busybox"]);
         check!(entered == Ok(None), "an unrelated path: {entered:?}");
         check!(
             credentials::of(slot).label_id == app,
             "an unrelated exec changed the label"
         );
-        let entered = children::enter_on_exec(slot, NET_PATH);
+        let entered = children::enter_on_exec(slot, &[NET_PATH]);
         check!(entered == Ok(Some(net)), "entering: {entered:?}");
         check!(
             credentials::of(slot) == Cred::new(UID, UID, CAPS, net, SESSION),
@@ -151,7 +151,7 @@ pub fn child_entered_only_by_its_program() -> Result<(), String> {
         );
         // From inside there is nowhere further to go.
         check!(
-            children::enter_on_exec(slot, WEB_PATH) == Ok(None),
+            children::enter_on_exec(slot, &[WEB_PATH]) == Ok(None),
             "a child entered another child"
         );
         check!(
@@ -160,11 +160,20 @@ pub fn child_entered_only_by_its_program() -> Result<(), String> {
         );
         reap(slot)?;
 
+        // A bound script: the file that runs is its interpreter, and the
+        // path as spelled is the one that is bound.
+        let slot = task_of(app)?;
+        check!(
+            children::enter_on_exec(slot, &["/system/bin/busybox", WEB_PATH]) == Ok(Some(web)),
+            "a bound script did not enter its child"
+        );
+        reap(slot)?;
+
         // Another app's task, or an unlabelled one, is left as it was.
         for label in [other, 0] {
             let slot = task_of(label)?;
             check!(
-                children::enter_on_exec(slot, WEB_PATH) == Ok(None)
+                children::enter_on_exec(slot, &[WEB_PATH]) == Ok(None)
                     && credentials::of(slot).label_id == label,
                 "label {label} entered a child"
             );
@@ -175,7 +184,7 @@ pub fn child_entered_only_by_its_program() -> Result<(), String> {
         check!(load_with_program(WEB, &[], None)? == 0, "revoke");
         let slot = task_of(app)?;
         check!(
-            children::enter_on_exec(slot, WEB_PATH) == Ok(None)
+            children::enter_on_exec(slot, &[WEB_PATH]) == Ok(None)
                 && credentials::of(slot).label_id == app,
             "a revoked child was entered"
         );

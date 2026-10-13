@@ -247,6 +247,20 @@ pub fn parent_of(id: u32) -> Option<u32> {
         .filter(|parent| *parent != 0)
 }
 
+/// Most distinct child labels one app may ever have interned (the table is
+/// append-only, so a label stays after its binding goes: an app that renamed
+/// its tables on every upgrade would otherwise fill it for everyone).
+pub const MAX_CHILD_LABELS_PER_APP: usize = 8;
+
+/// How many child labels of the app label `parent` are interned.
+pub fn child_label_count(parent: u32) -> usize {
+    let table = TABLE.lock();
+    table.slots[..table.used]
+        .iter()
+        .filter(|slot| slot.parent == parent && slot.kind == Kind::Child)
+        .count()
+}
+
 /// Number of interned labels.
 pub fn count() -> usize {
     TABLE.lock().used

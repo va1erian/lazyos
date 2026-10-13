@@ -143,7 +143,13 @@ fn load_child(
         return Err(errno::EINVAL);
     }
     // Before the label table or the rule store is touched.
-    if !children::has_room_for(labels::lookup(&request.label)) {
+    let existing = labels::lookup(&request.label);
+    if !children::has_room_for(existing) {
+        return Err(errno::ENOMEM);
+    }
+    // The label table never forgets a label: bound how many distinct children
+    // one app can leave in it.
+    if existing.is_none() && labels::child_label_count(parent) >= labels::MAX_CHILD_LABELS_PER_APP {
         return Err(errno::ENOMEM);
     }
     let child = labels::intern(&request.label).map_err(intern_error)?;

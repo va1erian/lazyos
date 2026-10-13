@@ -169,7 +169,17 @@ pub fn child_load_rules() -> Result<(), String> {
         // Malformed requests change nothing.
         let bound = children::count();
         let used = labels::count();
-        for program in ["relative/x", "/a/../b", "/a//b", "/a/./b", "/a/", "/"] {
+        let programs = [
+            "relative/x",
+            "/a/../b",
+            "/a//b",
+            "/a/./b",
+            "/a/",
+            "/",
+            "/a/b\nc",
+            "/a/\u{7f}",
+        ];
+        for program in programs {
             let code = load_with_program(WEB, &[], Some(program))?;
             check!(code == failed(EINVAL), "program {program:?} -> {code:#x}");
         }
@@ -295,6 +305,46 @@ pub fn child_revocation() -> Result<(), String> {
         load_children()?;
         load_app()?;
         check!(children::count() == 3, "an app reload dropped a child");
+        Ok(())
+    })
+}
+
+/// The label table never forgets, so one app may leave only so many distinct
+/// child labels in it, whatever it binds: renaming tables across upgrades
+/// cannot fill the table for every other app.
+pub fn child_label_cap() -> Result<(), String> {
+    fresh_children()?;
+    in_space(|| -> Result<(), String> {
+        load_app()?;
+        check!(load_current(OTHER, &[any(DISPLAY)])? == 0, "other app");
+        let cap = labels::MAX_CHILD_LABELS_PER_APP;
+        for index in 0..cap {
+            let label = format!("{APP}/c{index}");
+            let program = format!("/system/bin/c{index}");
+            check!(
+                load_with_program(&label, &[], Some(&program))? == 0,
+                "child {index} of {cap} was refused"
+            );
+            // Revoked at once, as an upgrade that dropped it would: the
+            // binding goes, the label stays.
+            check!(load_with_program(&label, &[], None)? == 0, "revoke {index}");
+        }
+        let used = labels::count();
+        check!(
+            load_with_program(&format!("{APP}/c{cap}"), &[], Some("/system/bin/more"))?
+                == failed(ENOMEM),
+            "a child past the cap was accepted"
+        );
+        check!(labels::count() == used, "a refused child took a slot");
+        // A label already interned reloads, and another app has its own cap.
+        check!(
+            load_with_program(&format!("{APP}/c0"), &[], Some("/system/bin/c0"))? == 0,
+            "an interned child could not be reloaded"
+        );
+        check!(
+            load_with_program(OTHER_WEB, &[], Some(WEB_PATH))? == 0,
+            "another app was held to this app's cap"
+        );
         Ok(())
     })
 }
