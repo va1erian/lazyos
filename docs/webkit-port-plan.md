@@ -460,11 +460,12 @@ those three stay exactly the proven `jsc-jit` configuration.
 WebProcess runs with the privileges of the UI process that launched it (the
 same uid, the same capabilities, the same file system view; the only isolation
 is the process boundary and the IPC types). That is acceptable for the W4 smoke
-program, which loads a `data:` URL; a browser that shows the web needs the
-sandbox first (W5 and later: a per-process label and a reduced set of
-capabilities for the WebProcess, `docs/security-model.md`). The NetworkProcess
-keeps its cookie jar (`cookie.jar.db`) in the working directory it inherits,
-which W5 replaces with a per-user data directory.
+program, which loads a `data:` URL; a browser that shows the web would want the
+sandbox first (a per-process label and a reduced set of capabilities for the
+WebProcess, `docs/security-model.md`). **W5 does not do that**: the browser
+ships without one, and says so (W5, *Security*). The NetworkProcess keeps its
+cookie jar (`cookie.jar.db`) in the working directory it inherits, and W5 left
+it there: a per-user data directory is later work.
 
 *Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
 PlayStation port's classic one: the WebProcess paints dirty rectangles into a
@@ -544,12 +545,23 @@ serves LazyWeb's stand-in sites from the host (`tools/web/sites.py`: `http://exa
 CA, plus three pages of ours: a script, a link, a form with an echo), boots it in QEMU (WHPX, 4 GiB) and
 drives the window with QMP: it types addresses, clicks the link and the text field by page coordinates (the
 window prints `UI:WIDGET name=page_origin`), types into the form, submits it from the keyboard, turns the
-wheel, goes Back and maximizes. The judge reads three kinds of evidence: the markers
+wheel over a tall page of static bands, goes Back, loads an address whose server hangs up (the window says so),
+loads a page that answers after 30 s and presses Stop, maximizes, and closes the window from its title bar.
+The judge reads three kinds of evidence: the markers
 (`WEBKIT:W5:UP`, `UI:UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, then per page `LOAD:<url>` and
 `TITLE:<title>`, `JS:<document.title>` read back by running script in the page, `CLICK:<url>`, `INPUT:<title>`,
-never `FAIL`), the host's request log (every picture and style sheet, SNI matching the Host header, the form's
-query `?q=hello+lazyos`, a WebKit user agent) and the screenshots (the page area is not blank, the retro page is
-colourful, the wheel changed the page, the maximized page is painted to its right edge).
+and no `FAIL` but the one planned; `FAIL:provisional:<address>` with the window's `UI:ERROR`, `START` and
+`CANCELLED` for the stopped load, `CHILD:<name>:<pid>:GONE` for each child and `QUIT:PASS` at the end), the
+host's request log (every picture and style sheet, SNI matching the Host header, the form's query
+`?q=hello+lazyos`, a WebKit user agent, which must be present) and the screenshots (the page area is not
+blank, the retro page is colourful, the wheel moved the static bands by exactly 200 px, the maximized page
+is painted to its right edge). The markers that name a page (`LOAD`, `TITLE`, `JS`, `CLICK`, `INPUT`, `NAV`,
+`START`, `CANCELLED`, the URL in `FAIL`, the window's `UI:NAV`) and the readback of `document.title` after each
+load exist only in an image built with the UI probe (`LAZYOS_UI_PROBE=1`): a shipped browser does not log what
+its user visits or types. The close is observed from the UI process itself: it ends the WebProcess and the
+NetworkProcess (SIGTERM, SIGKILL after a grace period), waits for them and prints their ids as it sees
+them gone (`waitpid`, then `kill(pid, 0)` returning `ESRCH`); no Terminal is in the image to run `ps`, and the
+kernel prints no pid when a task ends.
 
 **W5 results** (`python tools/webkit/app.py`, `python tools/xui/build.py`, `python tools/webkit/app_run.py`):
 
@@ -566,16 +578,21 @@ colourful, the wheel changed the page, the maximized page is painted to its righ
 toolbar and caption; `example.com` in its grey, centred layout with the link in blue; the retro `theoldnet.com`
 home page with a starfield tile, an orange-to-red logo, a sunset JPEG, the rainbow rule, the "under
 construction" GIF, bordered tables, hover colouring on the link under the pointer, and a scroll bar; the same
-page after the wheel, moved up 23 px; a green box with `script says 385 JAVA-SCRIPT-WORKS` and `js-on:385` in
+tall page of static colour bands after the wheel, moved up exactly 200 px (five notches at WebKit's 40 px
+line step; the 23 px an earlier run measured on the retro page was, most likely, that page's whole scroll range: it is barely taller than the window); a green box with `script says 385 JAVA-SCRIPT-WORKS` and `js-on:385` in
 the caption (the title the page's script set); the form with the caret in the text field and, under it, the
 page's own log of its keydown, keypress, input and keyup events for `hello lazyos`; the echo page (`echo:hello
-lazyos`, the server's answer to `?q=hello+lazyos`); the form again after Back; and the page laid out and
+lazyos`, the server's answer to `?q=hello+lazyos`); the form again after Back; the form still on show with
+"Could not load http://example.com:81/: Server returned nothing (no headers, no data)" in the status line
+after the address that hangs up; the same page with an ordinary status after Stop; and the page laid out and
 painted at 1276 x 602 when the window is maximized.
 
 
 *What had to be written.* The window crate (`xui-app/crates/webkit`: `app`, `chrome`, `view`, `keys`,
-`mailbox`, `engine`, `address`, `ffi`; 25 host tests, seven of them an offscreen window driven against a recording engine); the UI process
-(`webkit/port/app/`: `main.cpp`, `engine.cpp`, `lazyos_ui.h`); the build (`tools/webkit/app.py`, the
+`mailbox`, `engine`, `address`, `abi` (the pure parts of the C ABI), `ffi`; 35 host tests, nine of them an
+offscreen window driven against a recording engine; `lazyos_sys::quota` reads the user's memory charge); the UI
+process (`webkit/port/app/`: `main.cpp`, `engine.cpp` and its `clients.cpp`, `paint.cpp`, `log.cpp` over
+`engine.h`, `lazyos_ui.h`); the build (`tools/webkit/app.py`, the
 `webkit-app` target in `PlatformLazyOS.cmake`); the package (`xui-app/packages/webkit`); the switches
 (`LAZYOS_WEBKIT` is now the browser and needs the desktop; `LAZYOS_WEBKIT_PORT` is W4's console proof;
 `build_support/webkit_embed.rs`, `run_demo.py --webkit`/`--webkit-port`, the launcher's Simple "WebKit" group
@@ -606,9 +623,29 @@ instead of the 6 s of `Client::connect`, as LazyShell does (`SHELL:CONNECT:RETRY
 starts while the core apps are still being installed. File-backed `mmap` is unchanged (`ENODEV`); Skia's shim
 still covers it.
 
+*Failures.* A load that fails (`didFailProvisionalNavigation` and `didFailNavigation`) puts "Could not load
+<address>: <reason>" in the status line instead of "Done" and prints `WEBKIT:W5:FAIL`; a load the user stops
+(`kWKErrorCodeCancelled`, an interrupted frame load, or any failure after Stop) is neither. A dead WebProcess
+(`webProcessDidCrash`) blanks the page and says so; Reload starts it again. The window tests drive both states
+with a recording engine, and the session exercises the failed load and the Stop in QEMU; a real WebProcess crash
+or launch failure was not provoked.
+
+*Security: the browser ships without a sandbox.* The WebProcess, which runs whatever page the user opens
+and does it with JavaScriptCore's JIT on (memory it writes and then executes), holds the app's label and so the
+app's permissions (`xui-app/packages/webkit/manifest.toml`: the display, input and outbound network access),
+under the logged-in user's uid and with the user's view of the file system: the process boundary and the IPC
+types are the only isolation. A bug in the engine or the JIT that gives a page native code gives it those. The
+manifest asks for no file permission, but code that escaped is not held to what its label asks. Do not open
+pages you do not trust in it; LazyWeb (Blitz, no script engine) stays the browser LazyOS ships. Nothing is
+persisted: WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not, so cookies,
+history and caches last as long as the app does, and the NetworkProcess's cookie jar (`cookie.jar.db`) is
+still written to the working directory it inherits from `init`, not to a per-user directory (whether that
+directory is writable under the user's uid was not checked). The remedies, a per-process label with fewer
+permissions for the WebProcess (`docs/security-model.md`) and a profile directory under `$HOME/.apps`, are not
+part of W5.
+
 *Not verified.* HiDPI (the page is laid out in physical pixels at device scale 1, so text is small at 2x), a
-WebProcess crash or a failed launch (the window shows nothing on a launch failure; `webProcessDidCrash` prints
-`WEBKIT:W5:FAIL`), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
+WebProcess crash or a failed launch in the guest (see *Failures*), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
 context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
 permissions as a minimal set (the manifest was derived from a run with `LABEL:DENY` tracing; see below), a
 real PC, and a second window.

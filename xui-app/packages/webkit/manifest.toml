@@ -16,7 +16,7 @@ name = "WebKit"
 system_name = "org.lazy.webkit"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS"
+description = "Browse the web with WebKit: HTML, CSS, JavaScript and images over HTTP and HTTPS. Not sandboxed: the page process has this app's display, input and network access as you; nothing is saved between runs"
 category = "internet"
 
 [entry]

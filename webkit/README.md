@@ -47,7 +47,7 @@ musl executables), in a scratch directory of the work volume, and keeps its outp
 (checksum and ink) to equal it. A host run that fails or times out fails the build, and a boot
 that painted nothing, or has no host run to compare with, fails the judge. The NetworkProcess keeps
 its cookie jar (`cookie.jar.db`) in the working directory it inherits (the scratch directory
-there, the launcher's directory on LazyOS); W5 needs a per-user data directory instead.
+there, the launcher's directory on LazyOS); W5 did not move it: a per-user data directory is later work.
 `webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
 `--accel none`).
 
@@ -168,6 +168,16 @@ that `run_demo.py --webkit` and the launcher set). `engine.cpp` turns process sw
 process cache off. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not: nothing
 is persisted yet.
 
+**No sandbox.** The browser ships without one: the WebProcess runs pages and a JIT under the app's label
+(the display, input and outbound network) and the logged-in user's uid, so it is for pages you trust, not a
+replacement for LazyWeb. Nothing is persisted, and the NetworkProcess's cookie jar (`cookie.jar.db`) still
+lives in the working directory it inherits (`docs/webkit-port-plan.md`, W5 *Security*).
+
+**Quitting.** When the window closes the UI process ends the WebProcess and the NetworkProcess itself
+(SIGTERM, SIGKILL after a grace period), waits for them and prints `WEBKIT:W5:CHILD:<name>:<pid>:GONE` before
+`WEBKIT:W5:QUIT:PASS`. The markers that name a page (`LOAD`, `TITLE`, `JS`, `CLICK`, `INPUT`, `NAV`, `START`) print
+only in a UI-probe image (`LAZYOS_UI_PROBE=1`).
+
 **The harness.** `python tools/webkit/app_run.py` (docs/webkit-port-plan.md, W5) builds the desktop image
 (`LAZYOS_WEBKIT=1`, `LAZYOS_XUI_AUTOSTART=webkit`, the UI probe, a throwaway test CA and `/etc/hosts` for the
 stand-in sites), serves LazyWeb's stand-ins from the host (`tools/web/sites.py` and a few pages of ours in
@@ -175,4 +185,6 @@ stand-in sites), serves LazyWeb's stand-ins from the host (`tools/web/sites.py` 
 `tools/screenshot/examples/webkit.json` and judges the markers, the host's request log and the screenshots
 (`tools/webkit/appjudge.py`, self-test `test_app_judge.py`). `--label-trace` also lists the package's
 `LABEL:DENY` lines; the manifest's permissions were derived that way. Output is in `shots/webkit`
-(`serial.log`, `shot_*.png`, `requests.json`, `net.pcap`).
+(`serial.log`, `shot_*.png`, `requests.json`, `net.pcap`). The build uses `LAZYOS_RESET_OS=1`, so **every run
+recreates `target/lazyos.img`'s OS volume** (installed apps, settings, logs and files on it are erased); the
+run also needs the host's ports 80, 443 and 81 free.

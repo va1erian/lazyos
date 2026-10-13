@@ -22,6 +22,12 @@ page.
 * Pages run JavaScript (JavaScriptCore with the JIT) and show PNG, JPEG and GIF pictures (WebP is built in, not tried).
   Video, WebGL, WebAssembly, downloads, printing and the developer tools are not there yet.
 
+## Not sandboxed
+
+This browser has no sandbox yet. The process that runs a page (with JavaScript and its JIT) has the
+permissions of the app (the display, input and outbound network access) and runs as you, so use it for
+pages you trust. Nothing is saved between runs: no cookies, history or cache survive closing the window.
+
 ## What is where
 
 * The app is `org.lazy.webkit`; its processes are `/system/bin/webprocess` and
