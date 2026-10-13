@@ -5,9 +5,11 @@
 
 #pragma once
 
+#include <WebKit/WKArray.h>
 #include <WebKit/WKBase.h>
 #include <WebKit/WKGeometry.h>
 #include <WebKit/WKPage.h>
+#include <WebKit/WKPageConfigurationRef.h>
 #include <WebKit/WKView.h>
 
 #include <functional>
@@ -143,6 +145,20 @@ void installNotifications();
 void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef, WKNotificationPermissionRequestRef, const void*);
 // The page that asked is going away: its pending requests are refused.
 void dropNotificationRequests();
+
+// ---- blocking.cpp: content-extension rule lists (issue #845) ----------------------------
+
+// Before the view exists, with LZW_FEATURE_BLOCKING: the page's user content controller and the store
+// below the profile. Nothing happens without the feature.
+void startBlocking(WKPageConfigurationRef configuration, const std::string& profile);
+// A navigation is about to begin: the rule lists go on the page or off it as lzw_ui_blocking says.
+// Only a main frame decides; a frame's own navigation keeps the page's state.
+void blockingNavigation(const std::string& address, bool mainFrame);
+// The main frame committed (the count of blocked loads starts again) and finished loading.
+void blockingCommitted();
+void blockingFinished();
+// The navigation client's callback for what the rule lists did (patch 0017).
+void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef, const void*);
 
 // ---- paint.cpp ----------------------------------------------------------------------------
 

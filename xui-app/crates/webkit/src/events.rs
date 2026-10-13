@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
+use crate::abi::ListStatus;
 use crate::engine::DialogKind;
 
 /// The most events kept for the window; see the module note.
@@ -149,13 +150,22 @@ pub enum Event {
     NotifyPermissionGone {
         origin: String,
     },
+    /// What became of rule list `id` after `blocking_load` or `blocking_compile`.
+    BlockingList {
+        id: String,
+        status: ListStatus,
+    },
+    /// The number of loads the rule lists blocked on the page on show (0 when a page commits).
+    Blocked(u32),
 }
 
 impl Event {
     /// Whether a newer event of the same kind makes this one obsolete (the pointer moved on).
     fn superseded_by(&self, newer: &Event) -> bool {
         match (self, newer) {
-            (Event::Hover(_), Event::Hover(_)) | (Event::Cursor(_), Event::Cursor(_)) => true,
+            (Event::Hover(_), Event::Hover(_))
+            | (Event::Cursor(_), Event::Cursor(_))
+            | (Event::Blocked(_), Event::Blocked(_)) => true,
             (Event::DownloadProgress { id: a, .. }, Event::DownloadProgress { id: b, .. }) => {
                 a == b
             }
@@ -178,6 +188,7 @@ impl Event {
                 | Event::NotifyShow { .. }
                 | Event::NotifyCancel { .. }
                 | Event::NotifyGone { .. }
+                | Event::Blocked(_)
         )
     }
 }
@@ -260,6 +271,41 @@ mod tests {
             events.take(),
             vec![Event::Hover(String::new()), Event::Cursor(CursorKind::Text)]
         );
+    }
+
+    #[test]
+    fn the_blocked_count_keeps_only_the_newest_and_a_list_result_is_never_dropped() {
+        let events = Events::default();
+        events.push(Event::Blocked(1));
+        events.push(Event::Blocked(2));
+        events.push(Event::BlockingList {
+            id: "easylist".into(),
+            status: ListStatus::Ready,
+        });
+        events.push(Event::Blocked(3));
+        assert_eq!(
+            events.take(),
+            vec![
+                Event::BlockingList {
+                    id: "easylist".into(),
+                    status: ListStatus::Ready,
+                },
+                Event::Blocked(3),
+            ]
+        );
+        // A page that loops cannot grow the queue; the list's result still arrives.
+        for n in 0..(MAX_QUEUED * 2) {
+            events.push(Event::Launch {
+                url: format!("mailto:{n}"),
+                by_user: false,
+            });
+        }
+        events.push(Event::BlockingList {
+            id: "x".into(),
+            status: ListStatus::CompileFailed,
+        });
+        let taken = events.take();
+        assert!(matches!(taken.last(), Some(Event::BlockingList { .. })));
     }
 
     #[test]

@@ -141,6 +141,24 @@ FONTS_CONF = wkpins.OUT / "fonts.conf"
 IMAGE_NAMES = {"WebProcess": "webprocess", "NetworkProcess": "networkprocess"}
 
 
+def install_host_layout() -> None:
+    """Lays the image's programs and fonts down at their ``/system`` paths of the build container,
+    so a built program runs there as it does on LazyOS (``host_reference``, ``blockcheck.py``)."""
+    import shutil
+    for directory in (HOST_BIN, HOST_FONTS, HOST_FONTS_CONF.parent):
+        directory.mkdir(parents=True, exist_ok=True)
+    for name in OUTPUTS:
+        if not (wkpins.BIN / name).is_file():
+            continue  # the desktop apps are built on request (`app.py`), after this
+        installed = HOST_BIN / IMAGE_NAMES.get(name, name)
+        shutil.copy2(wkpins.BIN / name, installed)
+        installed.chmod(0o755)
+    for font in (wkpins.ROOT / "assets" / "fonts" / "liberation").glob("*.ttf"):
+        shutil.copy2(font, HOST_FONTS / font.name)
+    shutil.copy2(write_fonts_conf(), HOST_FONTS_CONF)
+    shutil.rmtree(fhspaths.FONT_CACHE_DIR, ignore_errors=True)
+
+
 def host_reference() -> bool:
     """Run ``webkit-smoke`` once on the build host and keep what it printed.
 
@@ -162,18 +180,7 @@ def host_reference() -> bool:
     if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
         wkpins.log("not in the build container: no host reference run")
         return False
-    for directory in (HOST_BIN, HOST_FONTS, HOST_FONTS_CONF.parent):
-        directory.mkdir(parents=True, exist_ok=True)
-    for name in OUTPUTS:
-        if not (wkpins.BIN / name).is_file():
-            continue  # the desktop apps are built on request (`app.py`), after this
-        installed = HOST_BIN / IMAGE_NAMES.get(name, name)
-        shutil.copy2(wkpins.BIN / name, installed)
-        installed.chmod(0o755)
-    for font in (wkpins.ROOT / "assets" / "fonts" / "liberation").glob("*.ttf"):
-        shutil.copy2(font, HOST_FONTS / font.name)
-    shutil.copy2(write_fonts_conf(), HOST_FONTS_CONF)
-    shutil.rmtree(fhspaths.FONT_CACHE_DIR, ignore_errors=True)
+    install_host_layout()
     wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="webkit-smoke-", dir=wkpins.jsc_pins.WORK,
                                      ignore_cleanup_errors=True) as scratch:

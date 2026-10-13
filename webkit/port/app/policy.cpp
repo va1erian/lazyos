@@ -162,10 +162,12 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
     // A request for a new window (target=_blank, window.open) has no target frame: createNewPage
     // follows, and needs to know whether a gesture started it.
     WKFrameInfoRef target = WKNavigationActionCopyTargetFrameInfo(action);
+    bool mainFrame = true;
     if (!target) {
         E.popupGesture = gesture;
         E.popupUrl = address;
     } else {
+        mainFrame = WKFrameInfoGetIsMainFrame(target);
         WKRelease(target);
     }
 
@@ -176,6 +178,8 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
             return;
         }
     }
+    // The rule lists apply or not to the page this begins (issue #845), before its first request.
+    blockingNavigation(address, mainFrame);
     // <a download>: the page asked for a file, not a page.
     if (has(LZW_FEATURE_DOWNLOADS) && WKNavigationActionShouldPerformDownload(action))
         WKFramePolicyListenerDownload(listener);

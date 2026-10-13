@@ -201,6 +201,7 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
+    blockingCommitted();
     postState();
 }
 
@@ -224,6 +225,7 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
         finished, finished - E.navStartMs);
     reportMemory();
+    blockingFinished();
     postState();
     schedulePaint();
 }
@@ -313,6 +315,9 @@ void installClients()
     navigation.didFailNavigation = didFailNavigation;
     navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
     navigation.webProcessDidCrash = webProcessDidCrash;
+    // What the content rule lists did (issue #845): the count of blocked loads (patch 0017).
+    if (has(LZW_FEATURE_BLOCKING))
+        navigation.contentRuleListNotification = contentRuleListNotification;
     WKPageSetPageNavigationClient(E.page, &navigation.base);
 
     static WKPageStateClientV0 state = { };

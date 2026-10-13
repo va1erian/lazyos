@@ -41,6 +41,11 @@ extern "C" {
 // The Notifications API: WebKit's provider and the page's permission requests,
 // lzw_ui_notify_* / lzw_engine_notify_*.
 #define LZW_FEATURE_NOTIFICATIONS 64
+// Content blocking (issue #845): rule lists compiled into a store below the profile directory and
+// attached to the page; lzw_ui_blocking decides per main-frame navigation whether they apply.
+// Needs LZW_FEATURE_PROFILE (the store lives in the profile) and a WebKit built with content
+// extensions (ENABLE_CONTENT_EXTENSIONS, OptionsLazyOS.cmake).
+#define LZW_FEATURE_BLOCKING 128
 
 // ---- decisions (lzw_ui_navigate) ----
 
@@ -67,6 +72,13 @@ extern "C" {
 #define LZW_CURSOR_RESIZE_V 6
 #define LZW_CURSOR_RESIZE_NWSE 7
 #define LZW_CURSOR_RESIZE_NESW 8
+
+// What became of a rule list (lzw_ui_blocking_list).
+#define LZW_BLOCK_READY 0         // stored, attached to the page
+#define LZW_BLOCK_NOT_STORED 1    // lzw_engine_blocking_load: nothing stored under that id
+#define LZW_BLOCK_STALE 2         // stored by an older WebKit format: compile it again
+#define LZW_BLOCK_COMPILE_FAILED 3 // the JSON was refused (WebKit's parser; one bad rule fails a list)
+#define LZW_BLOCK_UNAVAILABLE 4   // no store: no profile, or no content extensions in this build
 
 // JavaScript dialogs (lzw_ui_dialog).
 #define LZW_DIALOG_ALERT 0
@@ -172,6 +184,18 @@ void lzw_ui_notify_permission_request(const char* origin, int user_gesture);
 // started another navigation, or its process went): they need no answer.
 void lzw_ui_notify_permission_gone(const char* origin);
 
+// LZW_FEATURE_BLOCKING: whether the rule lists apply to a page whose main-frame address is url (the
+// user's switch, their exceptions, a one-shot "reload without blocking"). Called on the run loop for
+// every main-frame navigation, redirects included, before the load starts; a pure decision that must
+// not block. Non-zero: apply.
+int lzw_ui_blocking(const char* url);
+// LZW_FEATURE_BLOCKING: what became of rule list id after lzw_engine_blocking_load or _compile
+// (LZW_BLOCK_*). Attached to the page already when it is LZW_BLOCK_READY.
+void lzw_ui_blocking_list(const char* id, int status);
+// LZW_FEATURE_BLOCKING: the number of loads the lists blocked on the page on show, since it
+// committed (0 when a page commits).
+void lzw_ui_blocked(int count);
+
 // ---- implemented by the engine (C++) ----
 
 void lzw_engine_load(const char* url);
@@ -225,6 +249,16 @@ void lzw_engine_notify_forget(const char* origin);
 // notification service refuses a thread that is not the process's first (docs/lazywebplus.md): a
 // window's calls to it are made from here.
 void lzw_engine_run_on_main(void (*task)(void* context), void* context);
+
+// LZW_FEATURE_BLOCKING: attaches rule list `id` from the store (a list compiled earlier, so a start
+// pays no compile). The result comes as lzw_ui_blocking_list.
+void lzw_engine_blocking_load(const char* id);
+// LZW_FEATURE_BLOCKING: compiles `json` (a WebKit content-rule list, NUL-terminated and copied) as
+// list `id`, stores it and attaches it, replacing a list of that id. Compiles on WebKit's work queue;
+// the result comes as lzw_ui_blocking_list.
+void lzw_engine_blocking_compile(const char* id, const char* json);
+// LZW_FEATURE_BLOCKING: detaches list `id` and removes it from the store.
+void lzw_engine_blocking_forget(const char* id);
 
 // Creates the context, the page and the view; must run on the main thread, before
 // WKRunLoopRunMain(). Returns 0 on success. With LZW_FEATURE_PROFILE the website data store lives in

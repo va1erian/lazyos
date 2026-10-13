@@ -201,6 +201,8 @@ int lzw_engine_start(void)
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, E.context);
     WKPageConfigurationSetWebsiteDataStore(pageConfiguration, dataStore);
+    // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
+    startBlocking(pageConfiguration, profileDirectory());
     E.store = dataStore; // the page configuration keeps it alive
     WKRelease(dataStore);
     E.view = WKViewCreate(pageConfiguration);
