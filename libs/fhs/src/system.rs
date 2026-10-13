@@ -10,6 +10,14 @@ pub const SYSTEM_BIN: &str = "/system/bin";
 /// System configuration ([`crate::etc`]).
 pub const SYSTEM_ETC: &str = "/system/etc";
 
+/// Shared objects of Linux programs: the dynamic linker
+/// (`ld-musl-x86_64.so.1`) and the libraries it loads. The Linux ABI serves
+/// `/lib/<name>`, `/usr/lib/<name>`, `/usr/local/lib/<name>` and
+/// `/lib64/<name>` from here when no such file exists, which is where a
+/// prebuilt program's `PT_INTERP` and a `dlopen` search look. Written by the
+/// image build (`LAZYOS_DYNLINK=1`).
+pub const SYSTEM_LIB: &str = "/system/lib";
+
 /// Read-only data: MIME types, samples ([`crate::share`]).
 pub const SYSTEM_SHARE: &str = "/system/share";
 
@@ -41,7 +49,7 @@ mod tests {
 
     #[test]
     fn directories_nest_under_system() {
-        for dir in [SYSTEM_BIN, SYSTEM_ETC, SYSTEM_SHARE, SYSTEM_PACKAGES] {
+        for dir in [SYSTEM_BIN, SYSTEM_ETC, SYSTEM_LIB, SYSTEM_SHARE, SYSTEM_PACKAGES] {
             let rest = dir.strip_prefix(SYSTEM).expect(dir);
             assert!(rest.starts_with('/') && !rest[1..].contains('/'), "{dir}");
         }

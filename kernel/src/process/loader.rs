@@ -60,6 +60,8 @@ pub fn is_out_of_memory(reason: &str) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Loaded {
     pub entry: u64,
+    /// Page-aligned start of the lowest segment.
+    pub start: u64,
     /// Page-aligned end of the highest segment: where a heap may begin.
     pub end: u64,
     /// `AT_PHDR`, `AT_PHENT`, `AT_PHNUM` for the start stack.
@@ -94,13 +96,17 @@ fn plan(
     headers: &Headers,
     file_len: u64,
     reserved: &[(u64, u64)],
+    bias: u64,
 ) -> Result<Vec<Segment>, &'static str> {
     let mut segments: Vec<Segment> = Vec::new();
     for header in headers.phdrs.iter().filter(|ph| ph.kind == PT_LOAD) {
-        let (vaddr, mem_size, file_size) = (header.vaddr, header.memsz, header.filesz);
+        let (mem_size, file_size) = (header.memsz, header.filesz);
         if mem_size == 0 {
             continue;
         }
+        // A position-independent image loaded at `bias` (a dynamically
+        // linked program and its interpreter): every address moves by it.
+        let vaddr = header.vaddr.checked_add(bias).ok_or("segment wraps")?;
         if file_size > mem_size {
             return Err("segment filesz exceeds memsz");
         }
@@ -159,9 +165,10 @@ fn plan(
             previous.lazy_end = previous.lazy_end.min(shared);
         }
     }
+    let entry = headers.entry.wrapping_add(bias);
     if !segments
         .iter()
-        .any(|seg| headers.entry >= seg.vaddr && headers.entry < seg.vend)
+        .any(|seg| entry >= seg.vaddr && entry < seg.vend)
     {
         return Err("entry point outside loaded segments");
     }
@@ -191,14 +198,32 @@ pub fn load_segments<I: Image + ?Sized>(
     uid: u32,
 ) -> Result<Loaded, &'static str> {
     let headers = elfhdr::read(image)?;
-    let segments = plan(&headers, image.len(), reserved)?;
+    load_planned(table, image, &headers, reserved, uid, 0)
+}
+
+/// [`load_segments`] for headers already read, with every address moved up by
+/// `bias` (a page multiple; `0` loads at the link addresses). The entry point
+/// and `AT_PHDR` of the result carry the bias.
+pub fn load_planned<I: Image + ?Sized>(
+    table: PhysAddr,
+    image: &I,
+    headers: &Headers,
+    reserved: &[(u64, u64)],
+    uid: u32,
+    bias: u64,
+) -> Result<Loaded, &'static str> {
+    let segments = plan(headers, image.len(), reserved, bias)?;
     crate::quota::charge_space(uid, table.as_u64(), span_bytes(&segments))
         .map_err(|_| QUOTA_EXCEEDED)?;
     map_plan(table, image, &segments)?;
+    let phdr = elfhdr::phdr_address(headers);
     Ok(Loaded {
-        entry: headers.entry,
+        entry: headers.entry.wrapping_add(bias),
+        // The first byte of the lowest segment, so a caller can tell where
+        // the image sits (a relocated image's base).
+        start: segments.iter().map(|seg| seg.start).min().unwrap_or(0),
         end: segments.iter().map(|seg| seg.end).max().unwrap_or(0),
-        phdr: elfhdr::phdr_address(&headers),
+        phdr: if phdr == 0 { 0 } else { phdr.wrapping_add(bias) },
         phent: elfhdr::PHDR_SIZE,
         phnum: headers.phdrs.len() as u16,
     })

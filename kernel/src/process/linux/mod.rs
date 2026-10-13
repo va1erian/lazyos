@@ -51,6 +51,7 @@ mod locks;
 mod mem;
 mod memfd;
 mod misc;
+mod libpath;
 mod mmapfile;
 mod mmapvfs;
 mod msgio;
@@ -120,6 +121,8 @@ mod vfsfd;
 mod wait;
 
 pub use elf::{load_image, nul_terminated};
+#[cfg(lazyos_tests)]
+pub use elf::{LoadError, Started, INTERP_BASE, PIE_BASE};
 pub(crate) use native::{read_redirected, write_redirected};
 // Only the `#[cfg(lazyos_tests)]` harness (`kernel/src/tests.rs`) reaches this
 // through the `process::linux::` path; a normal build never does, hence the

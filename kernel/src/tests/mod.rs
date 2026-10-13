@@ -267,6 +267,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_suite::CASES,
     linux_compat_suite::CASES,
     loader_suite::CASES,
+    loader_suite::dynamic::CASES,
     sched_suite::CASES,
     guard_suite::CASES,
     runq_suite::CASES,
