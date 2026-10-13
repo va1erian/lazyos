@@ -86,7 +86,13 @@ class PortTests(unittest.TestCase):
 
     def test_cmake_gets_the_macros(self) -> None:
         import port_cmake
-        options = port_cmake.options()
+        import toolenv
+        from unittest import mock
+        # The options need the zig wrappers' paths, which a host without zig
+        # (CI's) cannot write: stand them in, the macros are what is tested.
+        wrappers = {name: f"/wrap/{name}" for name in ("zcc", "zc++", "zar", "zranlib")}
+        with mock.patch.object(toolenv, "wrappers", return_value=wrappers):
+            options = port_cmake.options()
         for name, value in fhspaths.WEBKIT_DEFINES.items():
             self.assertEqual(options[name], value)
 
