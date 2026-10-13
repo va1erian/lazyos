@@ -49,7 +49,11 @@ NAMES = ["cxxproof", "jsc", "jsc-jit"]
 #: What a build makes without `--jit` (the JIT shell is a second WebKit build).
 DEFAULT_NAMES = ["cxxproof", "jsc"]
 IMAGE = "lazyos-jsc-build:1"
-VOLUME = "lazyos-jsc-work"
+#: The work volume (sources, ICU, the dependency bundle, WebKit's build trees). A checkout that
+#: builds WebKit while another one does would fight over the shared trees (each re-extracts it and
+#: rebuilds everything): give each its own with `LAZYOS_JSC_VOLUME` (the first build fills it; copy
+#: this volume's `src`, `webkit-deps`, `prefix`, `wrap` and `zig-cache` to keep the caches).
+VOLUME = os.environ.get("LAZYOS_JSC_VOLUME", "lazyos-jsc-work")
 
 
 def in_container() -> bool:

@@ -77,6 +77,8 @@ mod usb_payload;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
+#[path = "build_support/webkit_embed.rs"]
+mod webkit_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 
@@ -383,11 +385,7 @@ fn main() {
     }
 
     // The desktop shell (issue #157), on by default with the desktop profile.
-    println!("cargo:rerun-if-changed=build_support/xui_embed.rs");
-    println!("cargo:rerun-if-changed=build_support/core_packages.rs");
-    println!("cargo:rerun-if-changed=build_support/lazyweb_embed.rs");
-    println!("cargo:rerun-if-changed=build_support/lazysky_embed.rs");
-    println!("cargo:rerun-if-changed=build_support/pictures_embed.rs");
+    xui_embed::rerun_if_changed();
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
     xui_embed::embed_xui_apps(&mut files, desktop, shell);
     // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in

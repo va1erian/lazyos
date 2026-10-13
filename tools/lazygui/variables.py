@@ -96,7 +96,11 @@ def make_vars() -> dict:
         "jsc": b(value=False),
         # The WebKit dependency bundle's proof (LAZYOS_WEBKIT_DEPS, run_demo --webkit-deps).
         "webkit_deps": b(value=False),
-        # The WebKit port: WebProcess, NetworkProcess, webkit-smoke (LAZYOS_WEBKIT, run_demo --webkit).
+        # The WebKit port's console proof: WebProcess, NetworkProcess, webkit-smoke
+        # (LAZYOS_WEBKIT_PORT, run_demo --webkit-port).
+        "webkit_port": b(value=False),
+        # The WebKit browser, os.lazy.webkit (LAZYOS_WEBKIT, run_demo --webkit; implies the desktop,
+        # the stack and the big-app profile).
         "webkit": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),

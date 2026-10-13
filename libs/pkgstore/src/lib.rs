@@ -30,6 +30,8 @@
 //! * [`inspect`]: an archive turned into the `PackageInfo` the consent screen
 //!   shows, shared by `pkgd`'s `Inspect` and `Install` and by the LazyRAD IDE's
 //!   pre-check;
+//! * [`recycle`]: when an idle `pkgd` restarts to give its heap back (the one rule, so
+//!   the memory tests judge what `pkgd` does);
 //! * [`resident`]: the permissions `[entry] resident = true` implies, read by
 //!   both [`explain`] and [`rules`];
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
@@ -52,6 +54,7 @@ pub mod hash;
 pub mod inspect;
 pub mod layout;
 pub mod provision;
+pub mod recycle;
 pub mod resident;
 pub mod rules;
 pub mod tree;

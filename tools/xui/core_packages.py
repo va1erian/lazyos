@@ -14,7 +14,7 @@ time, and writes the index `pkgd` reads at boot from `target/pkg/core/core.lst`.
 
 The archives are reproducible (fixed zip timestamps and order), so rebuilding
 an unchanged app gives the same digest and `pkgd` does nothing at the next
-boot. Every archive is checked against `pkgd`'s 8 MiB package limit.
+boot. Every archive is checked against `pkgd`'s 256 MiB package limit.
 
 `tools/xui/build.py` runs this after building the apps; by hand:
 
@@ -106,6 +106,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
+    # WebKit, the browser (docs/webkit-port-plan.md W5): one static program linked in the WebKit
+    # build container by `tools/webkit/app.py`. Only a `LAZYOS_WEBKIT=1` image ships it
+    # (`build_support/webkit_embed.rs`, which fails that build when it is missing).
+    "webkit": CoreApp({"xui-webkit.elf": "bin/webkit.elf"}, optional=True,
+                      built_by="python tools/webkit/app.py"),
     # The Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1` image
     # ships it (`build_support/lazysky_embed.rs`, which fails that build when
     # it is missing).
@@ -153,7 +158,7 @@ CORE_APPS: dict[str, CoreApp] = {
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
-MAX_PACKAGE_FILE = 8 * 1024 * 1024
+MAX_PACKAGE_FILE = 256 * 1024 * 1024
 
 #: The list `build.rs` reads (one line per package).
 LIST = "core.lst"

@@ -1,6 +1,6 @@
 # A WebKit port — exploration and plan
 
-Status: **W0 to W4 built** (2026-10-12). The four kernel prerequisites
+Status: **W0 to W5 built** (2026-10-13). The four kernel prerequisites
 landed (issues #771 to #774, §4); the C++ toolchain is proven and WebKit's
 `JSCOnly` shell runs on LazyOS both as the C-loop interpreter (`jsc`) and with
 the JIT (`jsc-jit`: LLInt, baseline, DFG), each passing 254 of 255 files of a
@@ -11,9 +11,16 @@ on LazyOS, including an HTTPS fetch, and **WebCore and WebKit2 build as
 (`webkit-smoke`) launches a WebProcess and a NetworkProcess over the Unix IPC,
 loads `about:blank` and a `data:` URL, reads the title and paints the page into a
 bitmap that equals, pixel for pixel, the one the same programs paint on Linux
-(§5 W4). Next is W5 (the window). Decisions taken: WebKit2 is
+(§5 W4), and **WebKit runs in a desktop window**: `os.lazy.webkit`, a core
+package that `LAZYOS_WEBKIT=1` images ship, whose C++ UI process on WebKit's C
+API has its window from a Rust xui static library. In QEMU it loads
+`http://example.com/` and `https://theoldnet.com/` with their pictures through
+the NetworkProcess, runs script in the page, follows a link with the mouse,
+takes typed text in a form, scrolls, goes Back and lays the page out again when
+the window is maximized (§5 W5). Decisions taken: WebKit2 is
 the engine (§2), the port is modeled on the PlayStation port with WebKit's C
-API as the seam to a Rust xui window (§5), and the port files live out of
+API as the seam to a Rust xui window (§5; the window is a static library linked
+into the C++ UI process, not the other way round), and the port files live out of
 tree like `doom/` and `quake/` (§7).
 
 **W1/W2 results** (`tools/jsc/`, [README](../tools/jsc/README.md); `python
@@ -453,11 +460,12 @@ those three stay exactly the proven `jsc-jit` configuration.
 WebProcess runs with the privileges of the UI process that launched it (the
 same uid, the same capabilities, the same file system view; the only isolation
 is the process boundary and the IPC types). That is acceptable for the W4 smoke
-program, which loads a `data:` URL; a browser that shows the web needs the
-sandbox first (W5 and later: a per-process label and a reduced set of
-capabilities for the WebProcess, `docs/security-model.md`). The NetworkProcess
-keeps its cookie jar (`cookie.jar.db`) in the working directory it inherits,
-which W5 replaces with a per-user data directory.
+program, which loads a `data:` URL; a browser that shows the web would want the
+sandbox first (a per-process label and a reduced set of capabilities for the
+WebProcess, `docs/security-model.md`). **W5 does not do that**: the browser
+ships without one, and says so (W5, *Security*). The NetworkProcess keeps its
+cookie jar (`cookie.jar.db`) in the working directory it inherits, and W5 left
+it there: a per-user data directory is later work.
 
 *Drawing.* `acceleratedCompositingEnabled` is false, the drawing area is the
 PlayStation port's classic one: the WebProcess paints dirty rectangles into a
@@ -497,18 +505,150 @@ hardware. `webkit-smoke` prints one `WEBKIT:W4:INFO:*` line each for what a
 reader would otherwise have to guess (fonts Fontconfig sees, the glyphs as
 text, timings).
 
-### W5. The window (a few weeks)
+### W5. The window (built)
 
-The UI process is a Rust `xui-app` client, as Doom and Quake are, with the
-WebKit UI library statically linked in and driven through WebKit's C API:
-create a context and a page, hand it the shared bitmap the WebProcess
-paints, blit that into the client window, forward xui input as page events.
-Doom already links C compiled by zig into a Rust musl binary, so the recipe
-exists. Ctrl+L, history and downloads come later, and can borrow LazyWeb's
-chrome.
+**The seam, decided.** There were two routes. (A) A Rust `xui-app` binary that links the WebKit
+UI-process libraries through the C API, with zig as the final linker. (B) A C++ UI process (the
+`webkit-smoke` of W4, grown) that gets its window from a Rust static library with a small C ABI. Route B
+was taken, for three reasons. *The link stays where it is proven.* WebKit, WebCore, JavaScriptCore, WTF,
+bmalloc, Skia and the bundle's archives live in the build container's work volume (the build tree alone is 3 GB),
+and W4's CMake knows their order, flags and the stand-ins; route A moves them to the host and re-states that
+link line in a `build.rs`, then runs rustc and zig over all of it on a Windows host. In B the Rust half is a static
+library, which needs no linker at all (`cargo build -p xui-webkit --lib --target x86_64-unknown-linux-musl`
+on any host that has the target), and CMake adds one `add_executable` when `LAZYOS_UI_LIBRARY` names it.
+*The window logic stays portable.* The toolbar, the address field, the page view and the input mapping are
+Rust over `xui_core` with the engine behind a trait; they run on the host against a recording engine
+(`cargo test -p xui-webkit`, with offscreen snapshots). The C++ half is an adapter of sixteen functions
+(`webkit/port/app/lazyos_ui.h`) over WebKit's C API. *It costs little.* The library is 134 MB of archive
+(all of `xui-app`'s dependency closure) and adds **3.4 MiB** to the program after `--gc-sections`
+(`webkit-app` 107.8 MiB against `webkit-smoke`'s 104.4); `zig c++` supplies libc++ and libunwind for the Rust
+standard library as it does for WebKit. The price is a second language at the seam and a build in two places
+(`tools/webkit/app.py`: the library on the host, the program in Docker).
 
-**First render:** a static page with CSS and images, JavaScript
-interpreted, no video, no GPU, two to three months in.
+**Threads.** WebKit's run loop owns the process's main thread, as in W4; `main` starts a second thread (8 MiB
+stack) that runs the window. A Messenger handle belongs to the task slot that made it (a thread has its own
+table), so the window cannot move to another thread after it has bound the compositor, and nothing of
+WebKit's needs the window's thread. They talk through a mailbox (the newest painted frame and page state, one
+wake-up per burst, through xui's `Proxy`) and `WKRunLoopCallOnMainThread` (every `lzw_engine_*` call only
+queues work). 
+
+**What runs.** `os.lazy.webkit`, "WebKit" in the menu, a core package shipped only by `LAZYOS_WEBKIT=1` images
+(`run_demo.py --webkit`, the launcher's WebKit group; the build refuses it without `LAZYOS_DESKTOP=1` and
+`LAZYOS_NETD=1`, as LazyWeb's does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
+Enter, Esc), the page, a status line with the load progress, and the page title in the caption. The page's
+bitmap is blitted at the page view's size; a resize (maximize) lays the page out again; the mouse (move, press,
+release, drag, double click), the wheel and the keyboard (text, arrows, Home, End, Delete, Backspace, select
+all, copy, cut, paste, undo) go to the page. `python tools/webkit/app_run.py` builds the desktop image
+(`LAZYOS_WEBKIT=1`, the UI probe, `LAZYOS_LABEL_TRACE=1`, `LAZYOS_XUI_AUTOSTART=webkit`, the big-app limits),
+serves LazyWeb's stand-in sites from the host (`tools/web/sites.py`: `http://example.com/`,
+`https://theoldnet.com/` with its PNG, JPEG, GIF, animated GIF, tiled background and style sheet, a test
+CA, plus three pages of ours: a script, a link, a form with an echo), boots it in QEMU (WHPX, 4 GiB) and
+drives the window with QMP: it types addresses, clicks the link and the text field by page coordinates (the
+window prints `UI:WIDGET name=page_origin`), types into the form, submits it from the keyboard, turns the
+wheel over a tall page of static bands, goes Back, loads an address whose server hangs up (the window says so),
+loads a page that answers after 30 s and presses Stop, maximizes, and closes the window from its title bar.
+The judge reads three kinds of evidence: the markers
+(`WEBKIT:W5:UP`, `UI:UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, then per page `LOAD:<url>` and
+`TITLE:<title>`, `JS:<document.title>` read back by running script in the page, `CLICK:<url>`, `INPUT:<title>`,
+and no `FAIL` but the one planned; `FAIL:provisional:<address>` with the window's `UI:ERROR`, `START` and
+`CANCELLED` for the stopped load, `CHILD:<name>:<pid>:GONE` for each child and `QUIT:PASS` at the end), the
+host's request log (every picture and style sheet, SNI matching the Host header, the form's query
+`?q=hello+lazyos`, a WebKit user agent, which must be present) and the screenshots (the page area is not
+blank, the retro page is colourful, the wheel moved the static bands by exactly 200 px, the maximized page
+is painted to its right edge). The markers that name a page (`LOAD`, `TITLE`, `JS`, `CLICK`, `INPUT`, `NAV`,
+`START`, `CANCELLED`, the URL in `FAIL`, the window's `UI:NAV`) and the readback of `document.title` after each
+load exist only in an image built with the UI probe (`LAZYOS_UI_PROBE=1`): a shipped browser does not log what
+its user visits or types. The close is observed from the UI process itself: it ends the WebProcess and the
+NetworkProcess (SIGTERM, SIGKILL after a grace period), waits for them and prints their ids as it sees
+them gone (`waitpid`, then `kill(pid, 0)` returning `ESRCH`); no Terminal is in the image to run `ps`, and the
+kernel prints no pid when a task ends.
+
+**W5 results** (`python tools/webkit/app.py`, `python tools/xui/build.py`, `python tools/webkit/app_run.py`):
+
+| | |
+|---|---|
+| Program | `webkit-app` **107.8 MiB** stripped static-PIE (112,985,656 bytes; W4's `webkit-smoke` is 104.4 MiB: the window adds 3.4 MiB). The package `os.lazy.webkit-0.1.0.lzp` is **44.6 MB** (deflate); first boot installs it in 4.1 s (`PKGD:PROVISION:INSTALL os.lazy.webkit ticks=408`). The window's static library is 134 MiB of archive. Each of `WebProcess` and `NetworkProcess` is 107.4 MiB |
+| Build | the window library, `cargo build -p xui-webkit --lib --release` for musl: 28 s when only it changed; the program, `port.py --only webkit-app`: 4 s after a changed source (zig and lld); a clean WebKit rebuild after a changed applied patch: ninja 299 s on 20 cores (531 s while another Docker build shared the VM) |
+| On LazyOS (WHPX, 4 GiB, desktop image with networking and the UI probe) | the whole `app_run.py` session passes: `WEBKIT:W5:HARNESS:PASS`, no `FAIL` line, no `LABEL:DENY`, no `ENOSYS`; the same image also ran W4's `port_run.py` (`WEBKIT:W4:HARNESS:PASS`) |
+| Cold start | the window's first layout 63 to 94 ms after the UI process started WebKit (the compositor was up); a WebProcess and a NetworkProcess answering **4.3 s** after the UI process created its view (two 107 MB programs read whole from ext2 and started: the cost W4 measured for its three) |
+| Pages (the host serves them over QEMU's user network, so the network is nearly free) | `http://example.com/`: load (navigation start to `didFinishNavigation`) 39 to 58 ms, first paint 46 to 67 ms after the navigation started (the WebProcess is already running); `https://theoldnet.com/` with six sub-resources (PNG, JPEG, GIF, animated GIF, tiled background, style sheet) over a verified TLS handshake: load 84 to 109 ms, first paint 47 to 75 ms; the script, link, form and echo pages 3 to 20 ms |
+| Memory | guest RAM 4019 MiB: **3476 MiB free** after the first page (the desktop, the UI process, one WebProcess and one NetworkProcess), 3405 MiB after seven pages (+71 MiB). The user's memory quota charges mapping *lengths*: at the big-app profile's 3G the three processes held 2989 MiB of 3072 after the first page and 3059 MiB after seven (99.6%); at 8G they hold 6957 and 7027 MiB. The engine takes what the quota lets it reserve; the launchers now set 8G for this app |
+
+*What the screenshots show* (`shots/webkit`, `tools/webkit/app_run.py`): the window on the dark desktop with its
+toolbar and caption; `example.com` in its grey, centred layout with the link in blue; the retro `theoldnet.com`
+home page with a starfield tile, an orange-to-red logo, a sunset JPEG, the rainbow rule, the "under
+construction" GIF, bordered tables, hover colouring on the link under the pointer, and a scroll bar; the same
+tall page of static colour bands after the wheel, moved up exactly 200 px (five notches at WebKit's 40 px
+line step; the 23 px an earlier run measured on the retro page was, most likely, that page's whole scroll range: it is barely taller than the window); a green box with `script says 385 JAVA-SCRIPT-WORKS` and `js-on:385` in
+the caption (the title the page's script set); the form with the caret in the text field and, under it, the
+page's own log of its keydown, keypress, input and keyup events for `hello lazyos`; the echo page (`echo:hello
+lazyos`, the server's answer to `?q=hello+lazyos`); the form again after Back; the form still on show with
+"Could not load http://example.com:81/: Server returned nothing (no headers, no data)" in the status line
+after the address that hangs up; the same page with an ordinary status after Stop; and the page laid out and
+painted at 1276 x 602 when the window is maximized.
+
+
+*What had to be written.* The window crate (`xui-app/crates/webkit`: `app`, `chrome`, `view`, `keys`,
+`mailbox`, `engine`, `address`, `abi` (the pure parts of the C ABI), `ffi`; 35 host tests, nine of them an
+offscreen window driven against a recording engine; `lazyos_sys::quota` reads the user's memory charge); the UI
+process (`webkit/port/app/`: `main.cpp`, `engine.cpp` and its `clients.cpp`, `paint.cpp`, `log.cpp` over
+`engine.h`, `lazyos_ui.h`); the build (`tools/webkit/app.py`, the
+`webkit-app` target in `PlatformLazyOS.cmake`); the package (`xui-app/packages/webkit`); the switches
+(`LAZYOS_WEBKIT` is now the browser and needs the desktop; `LAZYOS_WEBKIT_PORT` is W4's console proof;
+`build_support/webkit_embed.rs`, `run_demo.py --webkit`/`--webkit-port`, the launcher's Simple "WebKit" group
+and Advanced checkboxes; a browser image's OS volume defaults to 1 GiB); the harness (`app_run.py`,
+`app_session.py`, `appjudge.py` with `test_app_judge.py`, the stand-in site's script, link, form and echo
+pages). **Three patches** to WebKit's PlayStation layer, found by running it (`webkit/README.md`): `0012`
+(the C API a UI process sends input through dropped the key's text, the modifiers, the event time and the
+held button, and sent a zero horizontal wheel step with every vertical one), `0013` (`WebPage::
+handleEditingKeyboardEvent` is `notImplemented()`, so a page got keydown, keypress and keyup but no text in any
+field: the hook now runs the editing command of a key down and inserts the text of a key press) and `0014`
+(`WKViewSetSize` stored the size without telling the drawing area, so a resized window kept the old bitmap).
+
+*Gaps found by running it.* No `ENOSYS` and no refused syscall except one: with the page's process
+swapped on a cross-site navigation (WebKit's default), the second WebProcess's `execve` failed with `ENOMEM`
+under the user's memory quota (`quota_user_memory=3G` in the big-app profile). The kernel charges the **length**
+of every `mmap` (`kernel/src/process/linux/mem.rs`), not the pages touched, so the reservations of a JIT and
+a collector count; one WebProcess and a NetworkProcess and the UI process fit, three WebProcesses' worth did
+not. The port turns process swapping, pre-warming and the process cache off
+(`WKContextConfigurationSetProcessSwapsOnNavigation(false)` and two more): one WebProcess serves every page,
+which is also what a 4 GiB machine wants. Open: charge on commit rather than on reservation (a `PROT_NONE`
+mapping commits nothing), or give the quota a virtual-size allowance. Userspace, not the kernel: `pkgd`
+(core packages are provisioned at first boot) restarts itself once its heap has grown 32 MB past where it
+started, and sizes a buffer for the largest package first, so the 44 MB package made every fresh `pkgd` over
+the limit after one step; five rapid restarts exhaust `init`'s budget and provisioning stopped half way (`PKGD:
+(down)`, and `xuid` waits for provisioning before it serves a display). It now allows the buffer on top of the
+32 MB (`user/src/bin/pkgd.rs`). `webkit-app` also waits up to 15 minutes for the compositor (`WEBKIT:W5:UI:WAIT`)
+instead of the 6 s of `Client::connect`, as LazyShell does (`SHELL:CONNECT:RETRY`): an app that opens at login
+starts while the core apps are still being installed. File-backed `mmap` is unchanged (`ENODEV`); Skia's shim
+still covers it.
+
+*Failures.* A load that fails (`didFailProvisionalNavigation` and `didFailNavigation`) puts "Could not load
+<address>: <reason>" in the status line instead of "Done" and prints `WEBKIT:W5:FAIL`; a load the user stops
+(`kWKErrorCodeCancelled`, an interrupted frame load, or any failure after Stop) is neither. A dead WebProcess
+(`webProcessDidCrash`) blanks the page and says so; Reload starts it again. The window tests drive both states
+with a recording engine, and the session exercises the failed load and the Stop in QEMU; a real WebProcess crash
+or launch failure was not provoked.
+
+*Security: the browser ships without a sandbox.* The WebProcess, which runs whatever page the user opens
+and does it with JavaScriptCore's JIT on (memory it writes and then executes), holds the app's label and so the
+app's permissions (`xui-app/packages/webkit/manifest.toml`: the display, input and outbound network access),
+under the logged-in user's uid and with the user's view of the file system: the process boundary and the IPC
+types are the only isolation. A bug in the engine or the JIT that gives a page native code gives it those. The
+manifest asks for no file permission, but code that escaped is not held to what its label asks. Do not open
+pages you do not trust in it; LazyWeb (Blitz, no script engine) stays the browser LazyOS ships. Nothing is
+persisted: WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has not, so cookies,
+history and caches last as long as the app does, and the NetworkProcess's cookie jar (`cookie.jar.db`) is
+still written to the working directory it inherits from `init`, not to a per-user directory (whether that
+directory is writable under the user's uid was not checked). The remedies, a per-process label with fewer
+permissions for the WebProcess (`docs/security-model.md`) and a profile directory under `$HOME/.apps`, are not
+part of W5.
+
+*Not verified.* HiDPI (the page is laid out in physical pixels at device scale 1, so text is small at 2x), a
+WebProcess crash or a failed launch in the guest (see *Failures*), pop-ups and `target=_blank` (dropped), downloads, the pasteboard beyond WebKit's own, IME,
+context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
+permissions as a minimal set (the manifest was derived from a run with `LABEL:DENY` tracing; see below), a
+real PC, and a second window.
 
 ## 6. The problems that will surface
 
@@ -539,8 +679,10 @@ interpreted, no video, no GPU, two to three months in.
   tarball holds symlinks Windows cannot extract (hence the container).
 * **Memory for code.** LazyOS loads a static ELF whole into RAM, with no
   demand paging and no sharing of text between processes. Three WebKit
-  processes at 40 to 60 MB stripped each is roughly 150 MB resident for
-  code before a page loads. File-backed `mmap` with shared text pages is
+  processes are 107 MiB each (ICU's data is in each): measured in W5, the
+  desktop with the browser and one page open leaves 3476 of 4019 MiB free, and
+  the user's memory *quota* (which charges mapping lengths) is the tighter limit
+  (§5 W5). File-backed `mmap` with shared text pages is
   the fix, and it is the entry on the missing list of
   [linux-abi-plan.md](linux-abi-plan.md) that now matters most. Until then
   the profile is `run_demo.py --big-app --memory 4G`.
@@ -561,11 +703,12 @@ interpreted, no video, no GPU, two to three months in.
 
 ## 7. Where it would live
 
-`webkit/` beside `doom/` and `quake/`: the port layer, the dependency and
-build scripts, the Rust window, and the package `org.lazy.webkit` built
-only by `LAZYOS_WEBKIT=1` (`run_demo.py --webkit`, a GUI checkbox), with
-WebKit fetched at a pinned revision at build time and never vendored. The
-PR for this plan ships none of that.
+`webkit/` beside `doom/` and `quake/`: the port layer (`webkit/port`, with the
+UI process in `webkit/port/app`), the dependency and build scripts
+(`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
+`os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
+(`run_demo.py --webkit`, a launcher group), with WebKit fetched at a pinned
+revision at build time and never vendored.
 
 ## 8. Alternatives considered
 

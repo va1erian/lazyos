@@ -1,0 +1,31 @@
+WebKit: a resized PlayStation view tells the drawing area.
+
+PlayStationWebView::setViewSize only stored the size. A page reads it once, when it is created
+(WebPageProxy tells the drawing area then), so a view resized afterwards, a window the user
+drags or maximizes, kept laying the page out and painting it at the old size: the UI
+process drew the old bitmap at its own size and nothing else. WKViewSetSize now calls
+DrawingAreaProxy::setSize, as the GTK port's size-allocate does, which sends the geometry to
+the WebProcess (a full repaint comes back through setViewNeedsDisplay).
+
+--- a/Source/WebKit/UIProcess/playstation/PlayStationWebView.cpp
++++ b/Source/WebKit/UIProcess/playstation/PlayStationWebView.cpp
+@@ -28,6 +28,7 @@
+ 
+ #include "APIPageConfiguration.h"
+ #include "DrawingAreaProxyCoordinatedGraphics.h"
++#include "WebPageProxy.h"
+ #include "WebProcessPool.h"
+ #include <wtf/TZoneMallocInlines.h>
+ 
+@@ -95,6 +96,11 @@
+ void PlayStationWebView::setViewSize(WebCore::IntSize viewSize)
+ {
+     m_viewSize = viewSize;
++    // The page reads the size once when it is created; a view that is resized afterwards (a
++    // window) has to tell the drawing area, which has the WebProcess lay the page out again
++    // and paint it at the new size.
++    if (m_page && m_page->drawingArea())
++        m_page->drawingArea()->setSize(viewSize);
+ }
+ 
+ void PlayStationWebView::setViewState(OptionSet<WebCore::ActivityState> flags)

@@ -16,12 +16,12 @@ import sys
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from . import osvolume
-from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+from .limits import LIMIT_KEYS, cfg_limit_env, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, webkit_deps_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .netplan import net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
@@ -160,7 +160,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     env: dict[str, str] = {}
     # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if cfg.get("desktop") or cfg.get("lazyweb") or cfg.get("lazysky") or cfg.get("setup"):
+    if any(cfg.get(name) for name in ("desktop", "lazyweb", "lazysky", "webkit", "setup")):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
@@ -253,7 +253,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env.update({"LAZYOS_WIFI_SIM": "1", "LAZYOS_NETD": "1"})
         env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
-    env.update(limit_env(cfg.get("limits", "")))
+    env.update(cfg_limit_env(cfg))  # the browser's quota too (`limits.WEBKIT_LIMITS`)
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
     env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):

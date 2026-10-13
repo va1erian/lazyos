@@ -202,6 +202,21 @@ fn traydemo_app() -> bool {
 /// window: `init` starts it on every desktop image with the network stack.
 const PRINTD_ELF: &str = "xui-printd.elf";
 
+/// Rerun the build script when a module of the apps' embedding changes (`#[path]` modules are
+/// not tracked by cargo).
+pub fn rerun_if_changed() {
+    for module in [
+        "xui_embed",
+        "core_packages",
+        "lazyweb_embed",
+        "webkit_embed",
+        "lazysky_embed",
+        "pictures_embed",
+    ] {
+        println!("cargo:rerun-if-changed=build_support/{module}.rs");
+    }
+}
+
 /// Whether this build has the network stack, which brings the network apps.
 fn network_stack() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
@@ -300,12 +315,14 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     }
     // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
     // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
-    // `LAZYOS_LAZYSKY=1`,
+    // `LAZYOS_LAZYSKY=1`, `LAZYOS_WEBKIT=1`,
     // `LAZYOS_PICTURES=1`); asking for one without having built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
     println!("cargo:rerun-if-changed={}", lazyweb_elf.display());
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     println!("cargo:rerun-if-changed={}", lazysky_elf.display());
+    let webkit_elf = dir.join(crate::webkit_embed::ELF);
+    println!("cargo:rerun-if-changed={}", webkit_elf.display());
     let requested = [
         (
             crate::lazyrad_embed::enabled(),
@@ -325,6 +342,11 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazysky_embed::enabled(desktop),
             crate::lazysky_embed::PACKAGE_SHORT,
             crate::lazysky_embed::not_built(lazysky_elf.is_file()),
+        ),
+        (
+            crate::webkit_embed::enabled(desktop),
+            crate::webkit_embed::PACKAGE_SHORT,
+            crate::webkit_embed::not_built(webkit_elf.is_file()),
         ),
         (
             crate::pictures_embed::enabled(desktop),

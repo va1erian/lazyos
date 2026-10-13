@@ -49,7 +49,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/wifi | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/webkit, tools/wifi | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
 | `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/storage, tools/tray, tools/wifi | programs |
@@ -83,7 +83,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PERF` | `Perf` | `perf` | kernel, user | - | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
-| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/wifi | programs |
+| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/wifi | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
@@ -107,7 +107,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
-| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot, tools/wifi | programs |
+| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot, tools/webkit, tools/wifi | programs |
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEB` | `Web` | `web` | xui-app | sessions, tools/web | programs |

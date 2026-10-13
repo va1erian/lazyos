@@ -106,12 +106,22 @@ def build_webkit_deps() -> bool:
     return required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
 
 
-def build_webkit() -> bool:
+def build_webkit_port() -> bool:
     """The WebKit port (`WebProcess`, `NetworkProcess`, `webkit-smoke`), built in
     Docker by `tools/webkit/port.py` against the dependency bundle (built
     first); a missing Docker or download stops the run."""
     return (required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
             and required("the WebKit port", "webkit/port.py", ("--require",)))
+
+
+def build_webkit() -> bool:
+    """The WebKit browser (`--webkit`): the bundle and the port's processes, then
+    the app (the window's static library and the UI process, `tools/webkit/app.py`),
+    all in Docker, then the xui apps, whose build packages `xui-webkit.elf` as the
+    core package `os.lazy.webkit`; a missing Docker or download stops the run."""
+    return (build_webkit_port()
+            and required("the WebKit app", "webkit/app.py", ("--require",))
+            and build_xui_apps())
 
 
 def build_tls() -> bool:

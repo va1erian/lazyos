@@ -14,10 +14,10 @@ fn srb2kart_raises_the_default_os_size_to_one_gib() {
 }
 
 #[test]
-fn webkit_raises_the_default_os_size_to_768_mib() {
-    // Three programs of about 107 MiB each, plus the image, do not fit the 512 MiB default
-    // with room to write.
-    assert_eq!(WEBKIT_OS_SIZE, parse_size("768M").unwrap());
+fn webkit_raises_the_default_os_size_to_one_gib() {
+    // Three programs of about 107 MiB each, their package and the image do not fit the 512 MiB
+    // default with room to write.
+    assert_eq!(WEBKIT_OS_SIZE, parse_size("1G").unwrap());
     assert_eq!(default_size(false, true), WEBKIT_OS_SIZE);
     let three_programs_and_an_image: u64 = 3 * (107 << 20) + (128 << 20);
     assert!(three_programs_and_an_image < default_size(false, true));

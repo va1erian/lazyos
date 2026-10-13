@@ -1,0 +1,388 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "WEBKIT:W5:UP",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:UI:UP",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:UI:FRAME:",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "00_window"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "http://example.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:http://example.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:Example Domain",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "01_example"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:TheOldNet.com - Surf the Old Web",
+  "timeout": 300.0
+ },
+ {
+  "wait": 5.0
+ },
+ {
+  "shot": "02_theoldnet"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "03_theoldnet_later"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/tall.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/webkit/tall.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:WebKit tall",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "03b_tall"
+ },
+ {
+  "move_to": {
+   "window": "WebKit tall - WebKit",
+   "widget": "page_origin",
+   "offset": [
+    600,
+    300
+   ]
+  },
+  "timeout": 60
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_scroll": -5
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "04_scrolled"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/js.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/webkit/js.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:JS:js-on:385",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "05_js"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/links.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/webkit/links.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:WebKit links",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit links - WebKit",
+   "widget": "page_origin",
+   "offset": [
+    150,
+    50
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBKIT:W5:CLICK:https://theoldnet.com/webkit/form.html",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBKIT:W5:TITLE:WebKit form",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "06_form"
+ },
+ {
+  "click_at": {
+   "window": "WebKit form - WebKit",
+   "widget": "page_origin",
+   "offset": [
+    200,
+    42
+   ]
+  },
+  "timeout": 120
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "hello lazyos",
+  "delay": 0.08
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "07_typed"
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:INPUT:echo:hello lazyos",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "08_echo"
+ },
+ {
+  "click_at": {
+   "window": "echo:hello lazyos - WebKit",
+   "widget": "back"
+  },
+  "timeout": 300.0,
+  "until": "WEBKIT:W5:LOAD:https://theoldnet.com/webkit/form.html",
+  "retries": 1
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "09_back"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "http://example.com:81/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:FAIL:provisional:http://example.com:81/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBKIT:W5:UI:ERROR:Could not load http://example.com:81/",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "10_failed"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/slow",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBKIT:W5:START:https://theoldnet.com/webkit/slow",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit form - WebKit",
+   "widget": "reload"
+  },
+  "timeout": 300.0,
+  "until": "WEBKIT:W5:CANCELLED:",
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "11_stopped"
+ },
+ {
+  "click_at": {
+   "target": "title:WebKit form - WebKit",
+   "offset": [
+    472,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBKIT:W5:INFO:RESIZE:",
+  "retries": 2
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "12_maximized"
+ },
+ {
+  "click_at": {
+   "target": "title:WebKit form - WebKit",
+   "offset": [
+    630,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBKIT:W5:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "quit": true
+ }
+]

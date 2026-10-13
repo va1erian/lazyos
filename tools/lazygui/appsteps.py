@@ -89,16 +89,31 @@ def webkit_deps_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/webkit/deps.py", "--require"]}]
 
 
-def webkit_step(cfg: dict) -> list[dict]:
+def webkit_port_step(cfg: dict) -> list[dict]:
     """The step that builds the WebKit port (WebProcess, NetworkProcess,
-    webkit-smoke; in Docker, tools/webkit/port.py), when embedded. It needs the
-    dependency bundle, which `port.py` itself does not build."""
-    if not cfg.get("webkit"):
+    webkit-smoke; in Docker, tools/webkit/port.py), when its console proof is
+    embedded. It needs the dependency bundle, which `port.py` itself does not build."""
+    if not cfg.get("webkit_port"):
         return []
     return [{"label": "Build the WebKit dependency bundle (Docker)",
              "argv": [PY, "tools/webkit/deps.py", "--require"]},
             {"label": "Build the WebKit port: WebProcess, NetworkProcess, webkit-smoke (Docker)",
              "argv": [PY, "tools/webkit/port.py", "--require"]}]
+
+
+def webkit_step(cfg: dict) -> list[dict]:
+    """The steps that build the WebKit browser (docs/webkit-port-plan.md W5): the
+    bundle, the port's processes and the app (the window's static library and the UI
+    process, in Docker), then the xui apps, which package it as `os.lazy.webkit`."""
+    if not cfg.get("webkit"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]},
+            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
+             "argv": [PY, "tools/webkit/port.py", "--require"]},
+            {"label": "Build the WebKit app: the window and the UI process (Docker)",
+             "argv": [PY, "tools/webkit/app.py", "--require"]},
+            {"label": "Build xui apps with WebKit", "argv": [PY, "tools/xui/build.py"]}]
 
 
 def tls_step(cfg: dict) -> list[dict]:
@@ -173,23 +188,27 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
     `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
     `tools/jsc/build.py`; a console program, so desktop or not) and
-    `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT`
-    (the W4 port, `tools/webkit/port.py`)."""
+    `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
+    (the W4 console proof, `tools/webkit/port.py`). The WebKit browser, `LAZYOS_WEBKIT`, is a
+    desktop app like LazyWeb: it brings the desktop profile (`catalog.build_env`) and the stack,
+    and `run_demo --webkit` builds it and sets the big-app profile and the OS volume size."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
+            | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
             | ({"LAZYOS_WEBKIT": "1"} if cfg.get("webkit") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail`, `--traydemo`, `--pictures` and `--jsc`, which set
-    those switches themselves."""
+    """run_demo's `--mail`, `--traydemo`, `--pictures`, `--jsc` and `--webkit-port`, which set
+    those switches themselves, and `--webkit`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
             + (["--jsc"] if cfg.get("jsc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
+            + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
             + (["--webkit"] if cfg.get("webkit") and building else []))
 
 
@@ -212,6 +231,6 @@ def app_steps(cfg: dict) -> list[dict]:
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
-            + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_step(cfg)
+            + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg) + webkit_step(cfg)
             + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

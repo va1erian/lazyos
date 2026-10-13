@@ -42,6 +42,10 @@ SIMPLE_GROUPS = (
     ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
                    "(turns Networking on).",
      ("lazyweb", "mail", "lazysky")),
+    ("webkit", "WebKit", "The WebKit browser, a port of the real engine: three programs of about "
+                         "108 MB, 4 GiB of RAM and a 1 GiB OS volume; builds in Docker (turns "
+                         "Networking on).",
+     ("webkit",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
@@ -64,7 +68,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
-                  srb2kart: bool = False) -> dict:
+                  srb2kart: bool = False, webkit: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -89,7 +93,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
-    ``net``). Machine settings
+    ``net``); ``webkit`` the WebKit browser (Desktop only, docs/webkit-port-plan.md; it implies
+    ``net`` and the big-app profile). Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -100,6 +105,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
     lazysky = desktop and lazysky
+    webkit = desktop and webkit
     tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
@@ -135,7 +141,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or wifi or lazysky,
+        "net": net or tls or wifi or lazysky or webkit,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
@@ -147,6 +153,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "journal": False,
         "lazyweb": lazyweb,
         "lazysky": lazysky,
+        "webkit": webkit,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,

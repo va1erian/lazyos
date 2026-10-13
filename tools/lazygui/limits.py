@@ -19,13 +19,35 @@ BIG_APP_MEMORY = "4G"
 BIG_APP_LIMITS = ("quota_user_memory=3G", "fd_max=8192", "task_max=1024")
 
 
+#: The WebKit browser (docs/webkit-port-plan.md W5) on top of the big-app profile: the kernel charges
+#: the *length* of every mapping to the user's memory quota, and the UI process, WebProcess and
+#: NetworkProcess take what the quota lets them reserve: 2989 of the profile's 3072 MiB after the
+#: first page and 3059 after seven (a second WebProcess's `exec` failed with ENOMEM), 6957 and 7027 of
+#: 8192 at 8G. The charge is virtual: the guest still had 3405 of 4019 MiB of RAM free.
+WEBKIT_LIMITS = ("quota_user_memory=8G",)
+
+
+def with_defaults(entries, defaults) -> list[str]:
+    """``entries`` plus each of ``defaults`` whose key ``entries`` does not already set."""
+    chosen = {entry.partition("=")[0].strip().lower() for entry in entries}
+    return [*entries, *(entry for entry in defaults if entry.partition("=")[0] not in chosen)]
+
+
 def big_app(memory: str, default_memory: str, entries: list[str]) -> tuple[str, list[str]]:
     """``(memory, limits)`` for ``--big-app``: guest RAM unless one was chosen
     (``memory`` differs from ``default_memory``), and each of
     :data:`BIG_APP_LIMITS` unless ``entries`` already sets that key."""
-    chosen = {entry.partition("=")[0].strip().lower() for entry in entries}
-    extra = [entry for entry in BIG_APP_LIMITS if entry.partition("=")[0] not in chosen]
-    return (BIG_APP_MEMORY if memory == default_memory else memory), [*entries, *extra]
+    return (BIG_APP_MEMORY if memory == default_memory else memory), with_defaults(entries, BIG_APP_LIMITS)
+
+
+def cfg_limit_env(cfg: dict) -> dict[str, str]:
+    """:func:`limit_env` for a launcher configuration: its Advanced entries, and the WebKit
+    browser's quota unless they set one."""
+    entries = cfg.get("limits", "")
+    entries = entries.split() if isinstance(entries, str) else list(entries or ())
+    if cfg.get("webkit"):
+        entries = with_defaults(entries, WEBKIT_LIMITS)
+    return limit_env(entries)
 
 
 def limit_env(entries) -> dict[str, str]:

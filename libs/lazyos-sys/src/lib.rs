@@ -14,7 +14,7 @@
 //!   (`kernel/src/process/gate.rs`) and the Messenger op table;
 //! * the typed layer wraps each surface: [`msg`] (the fabric, with
 //!   [`msg::OwnedHandle`]), [`display`], [`cred`], [`time`], [`spawn`]
-//!   (feature `alloc`), [`stats`] and its decoded [`sysinfo`] snapshot,
+//!   (feature `alloc`), [`quota`], [`stats`] and its decoded [`sysinfo`] snapshot,
 //!   [`dev`], and the service-only surfaces the
 //!   native daemons use ([`input`], [`inet`], [`storage`], [`random`],
 //!   [`kill`], [`process`]);
@@ -43,6 +43,7 @@ pub mod kill;
 pub mod msg;
 pub mod nr;
 pub mod process;
+pub mod quota;
 pub mod random;
 pub mod raw;
 pub mod stats;

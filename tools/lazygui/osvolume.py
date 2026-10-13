@@ -28,7 +28,7 @@ OS_START_LBA = 131_072
 #: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_OS_SIZE` and `WEBKIT_OS_SIZE`.
 DEFAULT_SIZE = 512 * MIB
 SRB2KART_SIZE = 1024 * MIB
-WEBKIT_SIZE = 768 * MIB
+WEBKIT_SIZE = 1024 * MIB
 
 _TABLE = 0x1BE
 _ENTRY = 16
@@ -90,12 +90,18 @@ def configured() -> bool:
     return bool(os.environ.get("LAZYOS_OS_SIZE", "").strip())
 
 
+def wants_webkit(cfg: dict) -> bool:
+    """Whether a launcher configuration selects the browser or the console proof: the same three
+    programs of about 107 MiB each."""
+    return bool(cfg.get("webkit") or cfg.get("webkit_port"))
+
+
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
     """:func:`too_small` for a launcher configuration: ``(have MiB, need MiB)``
     when the existing image cannot hold the selection, else ``None``."""
     if configured() or cfg.get("skip_build"):
         return None
-    return too_small(Path(image), bool(cfg.get("srb2kart")), bool(cfg.get("webkit")))
+    return too_small(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
 
 
 def check(cfg: dict, image: str | Path) -> None:
@@ -117,7 +123,7 @@ def env(cfg: dict, image: str | Path) -> dict[str, str]:
     or the caller set one."""
     if configured():
         return {}
-    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")), bool(cfg.get("webkit")))
+    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
     return {"LAZYOS_OS_SIZE": str(size)} if size else {}
 
 
