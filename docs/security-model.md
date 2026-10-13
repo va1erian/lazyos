@@ -42,7 +42,9 @@ What is enforced today, honestly:
   `files` permissions are consent-only (there is no file sandbox), and its
   `network` permission gates only the Messenger socket interface: the Linux
   `AF_INET` path in the kernel does not check labels, and the per-uid call
-  rules in `libs/netpolicy` wait for the uid policy loader.
+  rules in `libs/netpolicy` wait for the uid policy loader. An app may declare
+  helper programs with narrower labels (`[processes.<name>]`, section 2.1,
+  issue #832); the same limits apply to them.
 - **The desktop session is not root** (U0, issue #623). A desktop image
   boots to a login screen (or the build's autologin account); LazyShell, the
   Terminal and every app, installed autostart apps included, run as the
