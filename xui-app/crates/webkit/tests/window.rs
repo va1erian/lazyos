@@ -183,6 +183,41 @@ fn a_failed_load_keeps_the_page_on_show_and_a_dead_process_blanks_it() {
     assert_eq!(red_pixels(&crashed), 0, "a crashed page is blank");
 }
 
+/// The toolbar's pixels after the page said it is at `http://two/`, with the address field
+/// half-typed (`typed`) and the page clicked (`clicked`) or not.
+fn toolbar_after(typed: bool, clicked: bool) -> Vec<u8> {
+    let (image, _) = drive(None, move |stage, rig| {
+        rig.mailbox.post_state(PageState {
+            url: "http://one/".into(),
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+        if typed {
+            stage.emit(Msg::AddressEdited);
+        }
+        if clicked {
+            let (ox, oy) = page_origin(stage);
+            stage.click(ox + 50, oy + 40);
+        }
+        rig.mailbox.post_state(PageState {
+            url: "http://two/".into(),
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+    });
+    let row = image.width() as usize * 4;
+    image.pixels()[..row * 38].to_vec()
+}
+
+#[test]
+fn clicking_the_page_ends_address_editing_so_its_own_address_shows_again() {
+    let untouched = toolbar_after(false, false);
+    // Half-typed: the page's news does not overwrite what the user is typing.
+    assert_ne!(toolbar_after(true, false), untouched);
+    // A click in the page abandons the edit: the next address shows.
+    assert_eq!(toolbar_after(true, true), untouched);
+}
+
 #[test]
 fn clicks_moves_and_wheel_reach_the_engine_in_page_coordinates() {
     let (_, calls) = drive(None, |stage, rig| {

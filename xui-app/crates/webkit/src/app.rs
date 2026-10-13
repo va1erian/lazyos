@@ -42,6 +42,8 @@ pub enum Msg {
     RestoreAddress,
     /// The user changed the address field's text.
     AddressEdited,
+    /// The user clicked in the page: whatever was half-typed in the address field is abandoned.
+    PageClicked,
 }
 
 /// Tells a session script where a named control is: (window title, name, rectangle in the
@@ -276,7 +278,8 @@ impl Browser {
         self.back.set_enabled(shown[0]);
         self.forward.set_enabled(shown[1]);
         let (icon, tip) = if shown[2] {
-            (Lucide::X, "Stop (Esc)")
+            // F5 and Ctrl+R stop a load too (Esc belongs to the page's own forms).
+            (Lucide::X, "Stop (F5)")
         } else {
             (Lucide::RefreshCw, "Reload (F5)")
         };
@@ -348,6 +351,9 @@ impl App for Browser {
             }
             Msg::Go => self.go(),
             Msg::FocusAddress => {
+                // Cleared, so typing replaces the address as it would if it were selected: the
+                // pinned xui's Edit has no select-all call (Ctrl+A and a triple click do it).
+                // Escape brings the old address back.
                 self.address.set_text("");
                 self.address.focus();
                 self.editing = true;
@@ -359,6 +365,14 @@ impl App for Browser {
                 self.page.focus();
             }
             Msg::AddressEdited => self.editing = true,
+            Msg::PageClicked => {
+                if self.editing {
+                    // The page has the keyboard again: its address is the field's again.
+                    self.editing = false;
+                    let url = self.state.url.clone();
+                    self.address.set_text(&url);
+                }
+            }
         }
     }
 }

@@ -60,7 +60,7 @@ impl PageView {
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
             control.on_events(move |event| {
                 handle(&ui, id, &state, engine.as_ref(), event);
-                None
+                matches!(event, Event::MouseDown { .. }).then_some(Msg::PageClicked)
             });
         }
         Ok(PageView {
