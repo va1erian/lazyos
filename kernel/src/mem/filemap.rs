@@ -124,7 +124,12 @@ pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vm
     // page, or changed or removed the mapping. Whatever the answer, the
     // faulting access is simply tried again.
     let unchanged = vma::find(table, va)
-        .is_some_and(|now| now.kind == vma.kind && now.file == vma.file && now.prot == vma.prot);
+        .is_some_and(|now| {
+            now.kind == vma.kind
+                && now.file == vma.file
+                && now.prot == vma.prot
+                && now.offset_at(page) == vma.offset_at(page)
+        });
     // SAFETY: `table` is the live address space this fault happened in.
     let present = unsafe { leaf_entry(table, page) }.is_some();
     if !unchanged || present {
@@ -168,8 +173,8 @@ pub(super) fn shared_write_fault(table: PhysAddr, va: u64, entry: *mut u64) -> b
 /// the next store faults and dirties the page again.
 pub fn write_protect(file: usize, indices: &[u64]) {
     let current = kernel_table();
-    for (table, vma, mapped) in vma::shared_file_mappings() {
-        if mapped.inode_id() != file {
+    for (table, vma, mapped) in vma::all_file_mappings() {
+        if vma.kind != vma::Kind::FileShared || mapped.inode_id() != file {
             continue;
         }
         let first = vma.file_off / FRAME_SIZE;
@@ -190,6 +195,27 @@ pub fn write_protect(file: usize, indices: &[u64]) {
                 }
             }
         }
+    }
+}
+
+/// The file of identity `file` shrank: unmap, in every address space, the
+/// pages of it from page index `keep` on (shared and private, copies
+/// included), so a store cannot go on to a frame the file no longer owns and
+/// the next touch finds the page past the end.
+pub fn unmap_from(file: usize, keep: u64) {
+    for (table, vma, mapped) in vma::all_file_mappings() {
+        if mapped.inode_id() != file {
+            continue;
+        }
+        let first = vma.file_off / FRAME_SIZE;
+        let pages = (vma.end - vma.start) / FRAME_SIZE;
+        let from = keep.max(first);
+        if from >= first + pages {
+            continue;
+        }
+        let start = vma.start + (from - first) * FRAME_SIZE;
+        // `unmap_range` flushes the TLB entry of each page it clears.
+        super::unmap_range(table, start, vma.end);
     }
 }
 

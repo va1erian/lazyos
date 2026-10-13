@@ -224,6 +224,30 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         coherence::lost_fault_race_keeps_no_extra_reference,
     ),
     (
+        "linux_filemap_store_during_writeback",
+        coherence::store_during_writeback_is_not_lost,
+    ),
+    (
+        "linux_filemap_fork_write_protect",
+        coherence::fork_and_write_protect,
+    ),
+    (
+        "linux_filemap_reaped_dirty_page_defers_the_write",
+        coherence::reaped_with_a_dirty_page_defers_the_write,
+    ),
+    (
+        "linux_filemap_truncate_down_and_up",
+        coherence::truncate_down_and_up_unmaps_dropped_pages,
+    ),
+    (
+        "linux_filemap_parked_fault_soak",
+        coherence::parked_fault_soak,
+    ),
+    (
+        "linux_filemap_refresh_keeps_a_stored_page",
+        coherence::refresh_keeps_a_stored_page,
+    ),
+    (
         "linux_filemap_change_behind_the_cache",
         coherence::change_behind_the_cache_is_refreshed,
     ),

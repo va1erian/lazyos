@@ -105,7 +105,17 @@ the first store; a write-back write-protects every mapping of the page again,
 so only changed pages are written. The address-space validators repeat a
 validation when a file fault may have parked the task (`mem::filemap::
 fault_epoch`). Quota is charged at `mmap`;
-`PROT_NONE` file mappings are fine (demand-faulted). Limits: a page past the
+`PROT_NONE` file mappings are fine (demand-faulted). A truncation tears the
+mappings of the dropped pages down in every address space, so the next touch
+faults. A file whose last reference is dropped in the reaper (where a wait is
+not allowed) parks its dirty pages for the flusher or `sync`; an unlinked
+file parks nothing. **SMP:** the design assumes one CPU. The fault epoch (a
+validation is correct only while no other task ran), the write-protection of
+other spaces' page tables without a shootdown (`filemap::write_protect`,
+`unmap_from`: another CPU's TLB would keep a writable or stale entry) and the
+lock-free "no store can land while the kernel holds the cache lock" arguments
+in `pagecache.rs` must all be revisited (TLB shootdown, a per-space
+generation, a real lock order) before the kernel runs on more than one CPU. Limits: a page past the
 end of the file is a `SIGSEGV`, not `SIGBUS`; a file truncated under a
 mapping keeps already mapped pages until unmapped; writes by native services
 through the native VFS are not seen by mapped pages; no read-ahead or

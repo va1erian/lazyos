@@ -52,7 +52,6 @@ pub(crate) fn open_interpreter(path: &str) -> Result<VfsFile, FsError> {
     let target = alias(path);
     let real = target.as_deref().unwrap_or(path);
     // Like `execve` of the program itself: the interpreter must be
-    // executable by the caller.
-    crate::fs::abi_check(id, real, crate::fs::vfs::EXECUTE)?;
-    VfsFile::abi(id, real)
+    // readable and executable by the caller.
+    VfsFile::abi_for(id, real, crate::fs::vfs::READ | crate::fs::vfs::EXECUTE)
 }

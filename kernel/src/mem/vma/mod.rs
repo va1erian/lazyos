@@ -327,13 +327,13 @@ pub fn file_mappings(table: PhysAddr) -> Vec<Unmapped> {
         .collect()
 }
 
-/// Every `MAP_SHARED` file mapping of every address space: its table, its
-/// range and its file (write-back write-protects them).
-pub fn shared_file_mappings() -> Vec<(PhysAddr, Vma, Arc<OpenFile>)> {
+/// Every file mapping of every address space: its table, its range and its
+/// file (write-back write-protects the shared ones, a truncation unmaps).
+pub fn all_file_mappings() -> Vec<(PhysAddr, Vma, Arc<OpenFile>)> {
     let spaces = SPACES.lock();
     let mut out = Vec::new();
     for space in spaces.iter() {
-        for vma in space.vmas.iter().filter(|vma| vma.kind == Kind::FileShared) {
+        for vma in space.vmas.iter().filter(|vma| vma.kind.is_file_mapping()) {
             if let Some(file) = space.file(vma.file) {
                 out.push((PhysAddr::new(space.pml4), *vma, file));
             }

@@ -69,6 +69,16 @@ pub fn set_pml4(value: u64) {
     }
 }
 
+/// How many tasks run in the address space `pml4`.
+pub fn address_space_users(pml4: u64) -> usize {
+    TASKS
+        .lock()
+        .iter()
+        .flatten()
+        .filter(|task| task.pml4 == pml4 && task.state != TaskState::Done)
+        .count()
+}
+
 /// The current task's `brk` break.
 pub fn brk() -> u64 {
     with_bump(|bump| bump.brk).unwrap_or(0)

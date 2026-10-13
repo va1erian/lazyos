@@ -53,6 +53,8 @@ mod rmdir;
 pub(super) use rmdir::rmdir;
 pub mod pagecache;
 pub use mapping::writeback_all;
+#[cfg(lazyos_tests)]
+pub use mapping::{deferred_pages, BEFORE_FLUSH};
 use pagecache::PageCache;
 
 /// One file that has at least one open description; shared by all of them.
@@ -73,6 +75,8 @@ struct Inode {
     descriptions: AtomicUsize,
     /// The frames a file-backed `mmap` maps (`mapping`).
     cache: PageCache,
+    /// A write-back failure was reported (once per file).
+    failure_logged: AtomicBool,
 }
 
 impl Inode {
@@ -219,11 +223,11 @@ impl OpenFile {
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
         let Some(node) = &self.inode.node else {
             super::abi_truncate(Id::ROOT, &self.path(), size)?;
-            self.inode.cache.truncate(size);
+            self.inode.truncated(size);
             return Ok(());
         };
         node.truncate(size)?;
-        self.inode.cache.truncate(size);
+        self.inode.truncated(size);
         let path = self.path();
         if !path.is_empty() {
             if let Ok(meta) = node.stat() {
@@ -288,6 +292,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
         node,
         descriptions: AtomicUsize::new(1),
         cache: PageCache::new(),
+        failure_logged: AtomicBool::new(false),
     });
     open.push(Arc::clone(&inode));
     Ok(inode)
@@ -318,6 +323,9 @@ pub(crate) fn content_changed(path: &str, native: bool) {
     let Some(inode) = find(path) else {
         return;
     };
+    // Whatever the cache is, a fill parked on the file must not insert what
+    // it read before this change.
+    inode.cache.invalidate_fills();
     if inode.cache.is_empty() {
         return;
     }
@@ -325,7 +333,7 @@ pub(crate) fn content_changed(path: &str, native: bool) {
         // Bytes changed behind the cache: refresh its clean pages.
         mapping::refresh(&inode);
     } else if let Ok(size) = inode.size() {
-        inode.cache.truncate(size);
+        inode.truncated(size);
     }
 }
 

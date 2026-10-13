@@ -217,3 +217,276 @@ pub fn change_behind_the_cache_is_refreshed() -> Result<(), String> {
     drop(space);
     data.check_clean()
 }
+
+/// A store lands while a write-back is between write-protecting the mapping
+/// and writing the page: the file gets it (the frame is read at write
+/// time), the page is dirty again, and the next write-back is a clean one.
+pub fn store_during_writeback_is_not_lost() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let path = "/data/during";
+    put(path, &pattern(PAGE as usize, 4))?;
+    let space = Space::new()?;
+    space.enter();
+    let fd = open_rw(path)?;
+    check!(
+        mmap(BASE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == BASE,
+        "mmap"
+    );
+    space.store(BASE + 8, b"before")?;
+    fn store_second() {
+        *crate::fs::openfile::BEFORE_FLUSH.lock() = None;
+        let table = mem::kernel_table();
+        if raw_entry(table, BASE).is_some_and(|e| e & PTE_WRITABLE == 0) {
+            assert!(mem::cow_fault(table, BASE), "write fault refused");
+        }
+        let frame = frame_of(table, BASE).unwrap();
+        let ptr = mem::phys_to_virt(PhysAddr::new(frame)).as_mut_ptr::<u8>();
+        // SAFETY: the frame is mapped by the physical-memory window.
+        unsafe { core::ptr::copy_nonoverlapping(b"second".as_ptr(), ptr.add(300), 6) };
+    }
+    *crate::fs::openfile::BEFORE_FLUSH.lock() = Some(store_second);
+    crate::fs::openfile::writeback_all(true);
+    let on_file = crate::fs::abi_read(Id::ROOT, path).map_err(|_| "read")?;
+    check!(on_file[8..14] == *b"before", "the first store is not on the file");
+    check!(
+        on_file[300..306] == *b"second",
+        "a store during the write-back did not reach the file"
+    );
+    let file = file_of(fd)?;
+    check!(
+        file.has_dirty_pages(),
+        "a store during a write-back left the page clean"
+    );
+    crate::fs::openfile::writeback_all(true);
+    check!(!file.has_dirty_pages(), "the second write-back left it dirty");
+    drop(file);
+    check!(munmap(BASE, PAGE) == 0, "munmap");
+    close(fd);
+    drop(space);
+    data.check_clean()
+}
+
+/// After `fork` both address spaces hold the shared page writable; a
+/// write-back write-protects both, and a store in the child dirties the
+/// page again and is seen by the parent.
+pub fn fork_and_write_protect() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let path = "/data/forkwp";
+    put(path, &pattern(PAGE as usize, 2))?;
+    let parent = Space::new()?;
+    parent.enter();
+    let fd = open_rw(path)?;
+    check!(
+        mmap(BASE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == BASE,
+        "mmap"
+    );
+    parent.store(BASE, b"p")?;
+    let table = mem::clone_user_table(parent.table).ok_or("fork")?;
+    let child = parent.child(table);
+    check!(
+        parent.entry(BASE).ok_or("p")? & PTE_WRITABLE != 0
+            && child.entry(BASE).ok_or("c")? & PTE_WRITABLE != 0,
+        "fork did not keep the dirty shared page writable in both"
+    );
+    crate::fs::openfile::writeback_all(true);
+    check!(
+        parent.entry(BASE).ok_or("p")? & PTE_WRITABLE == 0
+            && child.entry(BASE).ok_or("c")? & PTE_WRITABLE == 0,
+        "a write-back left one of the two mappings writable"
+    );
+    child.store(BASE + 40, b"child store")?;
+    check!(
+        parent.load(BASE + 40, 11)? == b"child store",
+        "the parent misses the child's store"
+    );
+    let file = file_of(fd)?;
+    check!(file.has_dirty_pages(), "the child's store left the page clean");
+    drop(file);
+    crate::fs::openfile::writeback_all(true);
+    check!(
+        crate::fs::abi_read(Id::ROOT, path).map_err(|_| "read")?[40..51] == *b"child store",
+        "the child's store did not reach the file"
+    );
+    drop(child);
+    parent.enter();
+    check!(munmap(BASE, PAGE) == 0, "munmap");
+    close(fd);
+    drop(parent);
+    data.check_clean()
+}
+
+/// A task killed with a dirty shared page is reaped without waiting for the
+/// volume: a page the teardown cannot write without waiting is parked, the
+/// flusher (or `sync`) writes it. An unlinked file has nothing to write to
+/// and parks nothing.
+pub fn reaped_with_a_dirty_page_defers_the_write() -> Result<(), String> {
+    let data = Data::new(0)?;
+    for unlink in [false, true] {
+        // A path-only (ramfs) file cannot be written without waiting, so the
+        // reaper has to park the page.
+        let path = "/tmp/reaped";
+        put(path, &pattern(PAGE as usize, 6))?;
+        let space = Space::new()?;
+        space.enter();
+        let fd = open_rw(path)?;
+        check!(
+            mmap(BASE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == BASE,
+            "mmap"
+        );
+        space.store(BASE + 16, b"left dirty")?;
+        close(fd);
+        if unlink {
+            check!(path_call(SYS_UNLINK, path, 0) == 0, "unlink");
+        }
+        // No flush_table: the task was killed, the reaper frees the space.
+        drop(space);
+        let parked = crate::fs::openfile::deferred_pages();
+        if unlink {
+            check!(parked == 0, "an unlinked file parked {parked} pages");
+            continue;
+        }
+        check!(parked == 1, "{parked} pages parked, expected 1");
+        check!(
+            crate::fs::abi_read(Id::ROOT, path).map_err(|_| "read")?[16..26] != *b"left dirty",
+            "the teardown waited and wrote the page itself"
+        );
+        crate::fs::openfile::writeback_all(false);
+        check!(
+            crate::fs::openfile::deferred_pages() == 1,
+            "the non-waiting flusher wrote a page that needs a wait"
+        );
+        crate::fs::openfile::writeback_all(true);
+        check!(
+            crate::fs::openfile::deferred_pages() == 0,
+            "a waiting write-back left the page parked"
+        );
+        check!(
+            crate::fs::abi_read(Id::ROOT, path).map_err(|_| "read")?[16..26] == *b"left dirty",
+            "the flusher did not write the parked page"
+        );
+    }
+    data.check_clean()
+}
+
+/// Truncating a mapped file down and up again tears the mappings of the
+/// dropped pages down: a store afterwards goes to a fresh page of the file,
+/// not to a frame the file no longer owns.
+pub fn truncate_down_and_up_unmaps_dropped_pages() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let path = "/data/shrink";
+    put(path, &pattern(2 * PAGE as usize, 1))?;
+    let (a, b) = (Space::new()?, Space::new()?);
+    let fd = open_rw(path)?;
+    for (space, at) in [(&a, BASE), (&b, BASE + 0x10_0000)] {
+        space.enter();
+        check!(
+            mmap(at, 2 * PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == at,
+            "mmap"
+        );
+        space.load(at, 4)?;
+        space.load(at + PAGE, 4)?;
+    }
+    check!(ftruncate(fd, 100) == 0, "ftruncate down");
+    for (space, at) in [(&a, BASE), (&b, BASE + 0x10_0000)] {
+        check!(space.entry(at).is_some(), "the kept page was unmapped");
+        check!(
+            space.entry(at + PAGE).is_none(),
+            "a page past the new end is still mapped"
+        );
+        check!(
+            !space.can_touch(at + PAGE, false),
+            "a page past the end was mapped again"
+        );
+    }
+    check!(ftruncate(fd, 2 * PAGE) == 0, "ftruncate up");
+    a.enter();
+    a.store(BASE + PAGE + 5, b"new page")?;
+    check!(
+        b.load(BASE + 0x10_0000 + PAGE + 5, 8)? == b"new page",
+        "two mappers see different pages after a truncate down and up"
+    );
+    check!(
+        pread_ok(fd, 8, PAGE + 5)? == b"new page",
+        "read(2) does not see the store"
+    );
+    check!(
+        a.load(BASE + PAGE + 100, 8)? == [0u8; 8],
+        "the regrown page is not zero"
+    );
+    check!(munmap(BASE, 2 * PAGE) == 0, "munmap a");
+    b.enter();
+    check!(munmap(BASE + 0x10_0000, 2 * PAGE) == 0, "munmap b");
+    close(fd);
+    drop((a, b));
+    data.check_clean()
+}
+
+/// Repeated parked faults with a sibling unmapping the buffer: nothing
+/// leaks (frames, quota, cached pages) and every call fails cleanly.
+pub fn parked_fault_soak() -> Result<(), String> {
+    let data = Data::new(0)?;
+    let path = "/data/parksoak";
+    put(path, &pattern(2 * PAGE as usize, 8))?;
+    let space = Space::new()?;
+    space.enter();
+    let fd = open_rw(path)?;
+    let other = open_ro(path)?;
+    let before = mem::frame_stats().free;
+    let held = quota::usage(0, Resource::UserMemory);
+    fn sibling_unmaps_page_zero() {
+        process::linux::dispatch_args_for_test(11, BASE, PAGE, 0, 0);
+    }
+    for round in 0..80 {
+        check!(
+            mmap(BASE, 2 * PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == BASE,
+            "mmap round {round}"
+        );
+        space.store(BASE, b"x")?;
+        *mem::filemap::AFTER_FILE_READ.lock() = Some(sibling_unmaps_page_zero);
+        let trusted = crate::user_ptr::set_trust_kernel_pointers(false);
+        let result = syscall(17, other, BASE + PAGE - 8, 16, 0);
+        crate::user_ptr::set_trust_kernel_pointers(trusted);
+        *mem::filemap::AFTER_FILE_READ.lock() = None;
+        check!(result == errno(EFAULT), "round {round}: {result:#x}");
+        check!(munmap(BASE, 2 * PAGE) == 0, "munmap round {round}");
+    }
+    check!(
+        quota::usage(0, Resource::UserMemory) == held,
+        "quota leaked across the parked faults"
+    );
+    check!(
+        mem::frame_stats().free + 4 >= before,
+        "frames leaked across the parked faults: {before} -> {}",
+        mem::frame_stats().free
+    );
+    close(other);
+    close(fd);
+    drop(space);
+    data.check_clean()
+}
+
+/// A change behind the cache does not overwrite a page that was stored to.
+pub fn refresh_keeps_a_stored_page() -> Result<(), String> {
+    let data = Data::new(0)?;
+    put("/data/kept", &pattern(PAGE as usize, 9))?;
+    let space = Space::new()?;
+    space.enter();
+    let fd = open_rw("/data/kept")?;
+    check!(
+        mmap(BASE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 0) == BASE,
+        "mmap"
+    );
+    space.store(BASE + 4, b"user store")?;
+    data.fs
+        .write("kept", 100, b"native")
+        .map_err(|_| "native write")?;
+    crate::fs::openfile::content_changed("/data/kept", true);
+    check!(
+        space.load(BASE + 4, 10)? == b"user store",
+        "a refresh overwrote a stored page"
+    );
+    check!(munmap(BASE, PAGE) == 0, "munmap");
+    close(fd);
+    drop(space);
+    data.check_clean()
+}

@@ -44,8 +44,8 @@ pub const PAGE: u64 = 4096;
 struct Page {
     frame: u64,
     dirty: bool,
-    /// A writeback of the page is in flight ([`PageCache::take_dirty`]).
-    flushing: bool,
+    /// Write-backs of the page in flight ([`PageCache::take_dirty`]).
+    flushing: u32,
 }
 
 /// The cached pages of one file, by page index.
@@ -133,7 +133,7 @@ impl PageCache {
             Page {
                 frame: frame.as_u64(),
                 dirty: false,
-                flushing: false,
+                flushing: 0,
             },
         );
         Ok(frame)
@@ -155,7 +155,7 @@ impl PageCache {
                 copy_to_frame(page.frame, (from - page_start) as usize, src);
                 // A writeback may have read the frame before these bytes:
                 // it must not call the page clean.
-                if page.flushing {
+                if page.flushing > 0 {
                     page.dirty = true;
                 }
             }
@@ -176,7 +176,7 @@ impl PageCache {
         }
         let end = offset + buf.len() as u64;
         for (&index, page) in pages.range(offset / PAGE..=(end - 1) / PAGE) {
-            if !page.dirty && !page.flushing {
+            if !page.dirty && page.flushing == 0 {
                 continue;
             }
             let page_start = index * PAGE;
@@ -197,27 +197,39 @@ impl PageCache {
     }
 
     /// The dirty pages in `first..=last`, now *flushing*, each with a frame
-    /// reference the caller must give back with [`PageCache::finish`]. The
-    /// caller write-protects the mappings of these pages before it writes
-    /// them.
-    pub fn take_dirty(&self, first: u64, last: u64) -> Vec<DirtyPage> {
+    /// reference the caller must give back with [`PageCache::finish`]; the
+    /// flag says whether every dirty page was taken (a failed allocation or
+    /// reference leaves some dirty, which the caller reports). A page being
+    /// written by someone else is taken again if it was written to since:
+    /// the latest stores must reach the file whoever's flush gets there.
+    /// The caller write-protects the mappings of these pages before it
+    /// writes them.
+    pub fn take_dirty(&self, first: u64, last: u64) -> (Vec<DirtyPage>, bool) {
         let mut pages = self.pages.lock();
         let mut out = Vec::new();
+        let mut complete = true;
         for (&index, page) in pages.range_mut(first..=last) {
-            if !page.dirty || page.flushing {
+            if !page.dirty {
                 continue;
             }
             let frame = PhysAddr::new(page.frame);
-            if out.try_reserve(1).is_err() {
-                break;
+            if out.try_reserve(1).is_err() || !share_frame(frame) {
+                complete = false;
+                continue;
             }
-            if share_frame(frame) {
-                page.dirty = false;
-                page.flushing = true;
-                out.push(DirtyPage { index, frame });
-            }
+            page.dirty = false;
+            page.flushing += 1;
+            out.push(DirtyPage { index, frame });
         }
-        out
+        (out, complete)
+    }
+
+    /// Whether a write-back of any page of `first..=last` is in flight.
+    pub fn flushing_in(&self, first: u64, last: u64) -> bool {
+        self.pages
+            .lock()
+            .range(first..=last)
+            .any(|(_, page)| page.flushing > 0)
     }
 
     /// A page's writeback ended: drop the caller's reference. A page that
@@ -227,7 +239,7 @@ impl PageCache {
             let mut pages = self.pages.lock();
             if let Some(entry) = pages.get_mut(&page.index) {
                 if entry.frame == page.frame.as_u64() {
-                    entry.flushing = false;
+                    entry.flushing = entry.flushing.saturating_sub(1);
                     if !written {
                         entry.dirty = true;
                     }
@@ -237,13 +249,39 @@ impl PageCache {
         free_frame(page.frame);
     }
 
+    /// Replace the contents of clean, idle page `index` (whose frame is
+    /// `frame`) with `data`, but only if nothing has happened to the cache
+    /// since `generation` was read: a store, a write or a write-back that
+    /// landed while the caller read the file must not be overwritten.
+    pub fn refill(&self, index: u64, frame: PhysAddr, generation: u64, data: &[u8]) -> bool {
+        let pages = self.pages.lock();
+        match pages.get(&index) {
+            Some(page)
+                if page.frame == frame.as_u64()
+                    && !page.dirty
+                    && page.flushing == 0
+                    && self.generation.load(Ordering::Acquire) == generation =>
+            {
+                copy_to_frame(page.frame, 0, data);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The file changed behind the cache: fills that read it before must
+    /// not insert what they read.
+    pub fn invalidate_fills(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
     /// The clean, idle pages of the cache with a reference each (the caller
     /// frees them): what a change made behind the cache's back refreshes.
     pub fn clean_pages(&self) -> Vec<(u64, PhysAddr)> {
         let pages = self.pages.lock();
         let mut out = Vec::new();
         for (&index, page) in pages.iter() {
-            if page.dirty || page.flushing || out.try_reserve(1).is_err() {
+            if page.dirty || page.flushing > 0 || out.try_reserve(1).is_err() {
                 continue;
             }
             let frame = PhysAddr::new(page.frame);
@@ -264,7 +302,7 @@ impl PageCache {
             let stale: Vec<u64> = pages
                 .range(first..=last)
                 .filter(|(_, page)| {
-                    !page.dirty && !page.flushing && frame_refcount(PhysAddr::new(page.frame)) == 1
+                    !page.dirty && page.flushing == 0 && frame_refcount(PhysAddr::new(page.frame)) == 1
                 })
                 .map(|(&index, _)| index)
                 .collect();

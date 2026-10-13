@@ -318,7 +318,11 @@ pub(super) fn sys_exit_group(code: u64) -> u64 {
 }
 
 pub(super) fn sys_exit(code: u64) -> u64 {
-    crate::mem::filemap::flush_table(crate::mem::kernel_table());
+    // Only the last thread of an address space flushes it at exit; the
+    // others leave the pages to the thread that does.
+    if task::address_space_users(crate::mem::kernel_table().as_u64()) <= 1 {
+        crate::mem::filemap::flush_table(crate::mem::kernel_table());
+    }
     // Robust mutexes the thread still holds become owner-dead.
     super::procattr::exit_robust_list(task::current());
     // Thread exit: clear the TID word and wake anyone joining on it.
