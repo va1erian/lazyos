@@ -223,6 +223,13 @@ pub fn enter_on_exec(slot: usize, paths: &[&str]) -> Result<Option<u32>, Transit
     else {
         return Ok(None);
     };
+    // Messenger state (channels, buffers, endpoints) belongs to the task slot
+    // and survives an `execve`: an app task that held some and became its
+    // confined helper in place would hand them over. A helper is started by a
+    // fork, whose slot holds none; anything else is refused.
+    if !super::handles::entries_for_task(slot).is_empty() {
+        return Err(TransitionError::Widening);
+    }
     let requested = Cred {
         label_id: child,
         ..actor

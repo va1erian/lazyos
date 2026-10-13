@@ -282,13 +282,20 @@ pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
     // An app with process tables holds its own `files` ids (not the confine
     // marker: the app stays unconfined), so the kernel can check that a
     // child's file rules are ones the app holds too (`acl::covered_by`).
+    //
+    // The ids of the children's `files` are held too: the manifest check
+    // (`lazypkg`) lets a child name a path below an app directory, which the
+    // kernel's exact-id coverage check can only see through them.
     if !manifest.processes.is_empty() {
         let marker = filepolicy::confine_id();
-        let files = crate::filerules::compile(&manifest.permissions.files)
-            .map_err(CompileError::Files)?;
-        for rule in files.into_iter().filter(|rule| rule.interface_id != marker) {
-            if !rules.contains(&rule) {
-                rules.push(rule);
+        let lists = core::iter::once(&manifest.permissions.files)
+            .chain(manifest.processes.values().map(|process| &process.files));
+        for list in lists {
+            let files = crate::filerules::compile(list).map_err(CompileError::Files)?;
+            for rule in files.into_iter().filter(|rule| rule.interface_id != marker) {
+                if !rules.contains(&rule) {
+                    rules.push(rule);
+                }
             }
         }
     }

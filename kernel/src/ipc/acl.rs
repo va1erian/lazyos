@@ -271,12 +271,21 @@ pub fn evaluate_label(label_id: u32, interface_id: u64, method: u32) -> (Decisio
 /// the rule's own `(interface, method)` through the parent's rules as written.
 /// This is the load-time half of the child rule; [`evaluate_label`] is the
 /// call-time half.
+///
+/// The confine marker ([`filepolicy::confine_id`]) is the one rule that is
+/// not an authority: it only narrows (a labelled task that holds it is judged
+/// by the file, socket and spawn gates), so an app, which stays unconfined,
+/// never holds it and a child may.
 pub fn covered_by(parent: u32, rules: &[Rule]) -> bool {
-    rules.iter().filter(|rule| rule.allow).all(|rule| {
-        !evaluate_rules(parent, rule.interface_id, rule.method)
-            .0
-            .denied()
-    })
+    let marker = filepolicy::confine_id();
+    rules
+        .iter()
+        .filter(|rule| rule.allow && rule.interface_id != marker)
+        .all(|rule| {
+            !evaluate_rules(parent, rule.interface_id, rule.method)
+                .0
+                .denied()
+        })
 }
 
 /// The rules of exactly one label, first match wins.
