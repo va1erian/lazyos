@@ -19,6 +19,11 @@ MAX_DESCRIPTION = 1024
 MAX_ARGS = 16
 MAX_ARG = 256
 MAX_VERB = 16
+# `lazypkg::MAX_PROCESSES`, `MAX_PROCESS_NAME` and `MAX_PROGRAM`: the
+# `[processes.<name>]` child labels (issue #832).
+MAX_PROCESSES = 4
+MAX_PROCESS_NAME = 24
+MAX_PROGRAM = 255
 
 # `lazypkg::Category::ALL`, in menu order; the first is the default.
 CATEGORIES = ("accessories", "development", "games", "graphics", "internet", "office", "system", "utilities")
@@ -40,6 +45,8 @@ _VERB = re.compile(r"[a-z]+")
 _INTERFACE = re.compile(r"[a-z0-9]+(?:\.[a-z0-9]+)*\.v[0-9]+")
 _FILE_SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
 _TOPIC_SEGMENT = re.compile(r"[a-z0-9_.-]+")
+_PROCESS_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
+_PROGRAM_SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
 
 # --- Versions (`lazypkg::Version`) -------------------------------------------
 
@@ -153,9 +160,11 @@ def is_absolute_home(path):
     return any(path == root or path.startswith(root + "/") for root in HOME_ROOTS)
 
 
-def file_rule_problem(rule):
-    """Why the files rule `rule` is refused, or None (`files::check_rule`)."""
-    shape = f"permissions.files entry {rule!r} is not a read:/write: absolute or $HOME/ path"
+def file_rule_problem(rule, field="permissions.files"):
+    """Why the files rule `rule` is refused, or None (`files::check_rule`).
+
+    `field` names the manifest field the entry is in, for the message."""
+    shape = f"{field} entry {rule!r} is not a read:/write: absolute or $HOME/ path"
     if not isinstance(rule, str):
         return shape
     for verb in ("read:", "write:"):
@@ -170,15 +179,36 @@ def file_rule_problem(rule):
         return shape
     rest = rest[1:]
     if HOME_VAR in rest:
-        return f"permissions.files entry {rule!r} may use $HOME only as its first segment"
+        return f"{field} entry {rule!r} may use $HOME only as its first segment"
     for segment in rest.split("/"):
         if not segment or segment == "..":
             return shape
         if segment != "*" and not _FILE_SEGMENT.fullmatch(segment):
             return shape
     if REJECT_ABSOLUTE_HOME and not relative and is_absolute_home(path):
-        return f"permissions.files entry {rule!r} names a home directory; write it as $HOME/..."
+        return f"{field} entry {rule!r} names a home directory; write it as $HOME/..."
     return None
+
+
+def _verb_and_path(rule):
+    for verb in ("read", "write"):
+        if rule.startswith(verb + ":"):
+            return verb, rule[len(verb) + 1:]
+    return None
+
+
+def file_rule_covers(app_rule, child_rule):
+    """Whether the app's rule covers the child process's (`files::covers`).
+
+    The verb must be the same, and the app's path must be the child's or a
+    directory above it; an app `*` matches any one child segment."""
+    app, child = _verb_and_path(app_rule), _verb_and_path(child_rule)
+    if app is None or child is None or app[0] != child[0]:
+        return False
+    wanted, got = app[1].split("/"), child[1].split("/")
+    if len(got) < len(wanted):
+        return False
+    return all(w == g or w == "*" for w, g in zip(wanted, got))
 
 
 # --- The manifest (`validate.rs`) ---------------------------------------------
@@ -290,10 +320,82 @@ def _check_permissions(permissions, problems):
         problems.append('permissions.network must be empty or exactly ["outbound"]')
 
 
+def _valid_program_path(path):
+    """`lazypkg`'s `valid_program_path`: absolute, canonical, bounded."""
+    if not isinstance(path, str) or not path.startswith("/") or len(path.encode("utf-8")) > MAX_PROGRAM:
+        return False
+    return all(
+        _PROGRAM_SEGMENT.fullmatch(segment) and segment.strip(".")
+        for segment in path[1:].split("/")
+    )
+
+
+def _check_processes(processes, permissions, problems):
+    """The `[processes.<name>]` tables: each at most what the app holds
+    (`processes.rs`, issue #832)."""
+    if not isinstance(processes, dict):
+        problems.append("processes must be a table")
+        return
+    if len(processes) > MAX_PROCESSES:
+        problems.append(f"processes may hold at most {MAX_PROCESSES} tables")
+    if not isinstance(permissions, dict):
+        permissions = {}
+    held_interfaces = permissions.get("interfaces", [])
+    held_files = permissions.get("files", [])
+    held_outbound = "outbound" in permissions.get("network", [])
+    programs = set()
+    for name in sorted(processes):
+        table = processes[name]
+        if len(name) > MAX_PROCESS_NAME or not _PROCESS_NAME.fullmatch(name):
+            problems.append(
+                f"processes name {name!r} must be 1..={MAX_PROCESS_NAME} characters of [a-z0-9_-], "
+                "starting with a letter or digit"
+            )
+            continue
+        where = f"processes.{name}"
+        if not isinstance(table, dict):
+            problems.append(f"{where} must be a table")
+            continue
+        _check_keys(table, {"program", "interfaces", "files", "network"}, where, problems)
+        program = table.get("program")
+        if not _valid_program_path(program):
+            problems.append(
+                f"{where}.program {program!r} must be an absolute path of /-separated "
+                "segments of [A-Za-z0-9_.-]"
+            )
+        elif program in programs:
+            problems.append(f"{where}.program {program!r} is also the program of another process")
+        else:
+            programs.add(program)
+        for interface in _list_field(table, "interfaces", where, problems):
+            if not isinstance(interface, str) or not _INTERFACE.fullmatch(interface):
+                problems.append(f"{where}.interfaces entry {interface!r} is not name.vN")
+            elif interface not in held_interfaces:
+                problems.append(
+                    f"{where}.interfaces entry {interface!r} is not in the app's permissions.interfaces"
+                )
+        network = table.get("network", [])
+        if network not in ([], ["outbound"]):
+            problems.append(f'{where}.network must be empty or exactly ["outbound"]')
+        elif network and not held_outbound:
+            problems.append(
+                f"{where}.network asks for outbound, which the app's permissions.network does not hold"
+            )
+        for rule in _list_field(table, "files", where, problems):
+            problem = file_rule_problem(rule, f"{where}.files")
+            if problem is not None:
+                problems.append(problem)
+            elif not any(isinstance(held, str) and file_rule_covers(held, rule) for held in held_files):
+                problems.append(
+                    f"{where}.files entry {rule!r} is not covered by a permissions.files rule of the app "
+                    "(the same read:/write: and the same path or a directory above it)"
+                )
+
+
 def validate_manifest(manifest):
     """Return every problem in a parsed manifest (empty means valid)."""
     problems = []
-    _check_keys(manifest, {"app", "entry", "mime", "permissions"}, "manifest", problems)
+    _check_keys(manifest, {"app", "entry", "mime", "permissions", "processes"}, "manifest", problems)
     app = manifest.get("app")
     _check_keys(app, {"name", "system_name", "author", "version", "description", "category"}, "app", problems)
     if not isinstance(app, dict):
@@ -306,4 +408,5 @@ def validate_manifest(manifest):
     _check_entry(entry, problems)
     _check_mime(manifest.get("mime", []), problems)
     _check_permissions(manifest.get("permissions", {}), problems)
+    _check_processes(manifest.get("processes", {}), manifest.get("permissions", {}), problems)
     return problems

@@ -30,23 +30,23 @@ const NONE: u16 = u16::MAX;
 pub static TIMERS: Mutex<TimerQueue> = Mutex::new(TimerQueue::new());
 
 /// An indexed min-heap of `(deadline, slot)`, at most one entry per slot.
-pub struct TimerQueue {
+pub struct TimerQueue<const N: usize = MAX_TASKS> {
     len: usize,
     /// Slots in heap order.
-    heap: [u16; MAX_TASKS],
+    heap: [u16; N],
     /// Slot -> index in `heap`, or [`NONE`].
-    pos: [u16; MAX_TASKS],
+    pos: [u16; N],
     /// Slot -> its deadline (meaningful while queued).
-    key: [u64; MAX_TASKS],
+    key: [u64; N],
 }
 
-impl TimerQueue {
+impl<const N: usize> TimerQueue<N> {
     pub const fn new() -> Self {
         Self {
             len: 0,
-            heap: [0; MAX_TASKS],
-            pos: [NONE; MAX_TASKS],
-            key: [0; MAX_TASKS],
+            heap: [0; N],
+            pos: [NONE; N],
+            key: [0; N],
         }
     }
 
@@ -72,7 +72,7 @@ impl TimerQueue {
     /// Queue `slot` to expire at `deadline`, replacing an earlier entry for it.
     /// Out-of-range slots are ignored.
     pub fn arm(&mut self, slot: usize, deadline: u64) {
-        if slot >= MAX_TASKS {
+        if slot >= N {
             return;
         }
         self.key[slot] = deadline;

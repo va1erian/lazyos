@@ -197,10 +197,7 @@ impl Overlay {
 
 /// The owner to stamp on a copied-up node: the lower node's owner.
 fn id_of(meta: Meta) -> Id {
-    Id {
-        uid: meta.uid,
-        gid: meta.gid,
-    }
+    Id::new(meta.uid, meta.gid)
 }
 
 /// Renumber an upper-layer node's inode into the overlay's private namespace.

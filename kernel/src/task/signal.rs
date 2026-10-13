@@ -79,7 +79,10 @@ pub use control::*;
 pub use deliver::*;
 pub use frames::*;
 use registry::*;
-pub use registry::{exec_thread, forget, fork_inherit, registry_locked, thread_born};
+pub use registry::{
+    ensure_process, exec_thread, forget, fork_inherit, registry_locked, thread_born,
+    thread_generation,
+};
 pub use types::*;
 
 #[cfg(lazyos_tests)]

@@ -15,6 +15,8 @@ use xui_settings::app::WINDOW;
 use xui_settings::keyboard_page::KeyboardMsg;
 use xui_settings::menu_page::MenuMsg;
 use xui_settings::store::{AppChoice, ConfigStore, Value};
+use xui_settings::system::{Now, NtpState, NtpStatus};
+use xui_settings::time_page::TimeMsg;
 use xui_settings::{keyboard, theme_ops, Accounts, MemAccounts, MemStore, MemSystem, Msg};
 use xui_settings::{Section, SettingsApp};
 
@@ -355,5 +357,88 @@ fn making_the_theme_the_default_does_not_stand_the_window_still() {
             },
         )
         .expect("the headless render");
+    });
+}
+
+/// Automatic time (docs/ntp-plan.md): the switch and the server list are the
+/// store's `sys/time/ntp/*` keys, a bad server list is refused and leaves the
+/// old one, a hand-set clock is refused while the switch is on, and "Sync
+/// now" reaches the time service whatever the switch says.
+#[test]
+fn automatic_time_is_the_stores_and_sync_now_is_open() {
+    watchdog(|| {
+        let mem = Rc::new(store(Mode::Dark));
+        let system = Rc::new(MemSystem::default());
+        *system.now.borrow_mut() = Some(Now {
+            unix: 1_791_849_700,
+            offset: 7200,
+            zone: "Europe/Paris".into(),
+        });
+        *system.ntp.borrow_mut() = Some(NtpStatus {
+            enabled: true,
+            state: NtpState::Synchronized,
+            server: "pool.ntp.org (162.159.200.1)".into(),
+            offset_ms: 12,
+            last_sync_unix: 1_791_849_520,
+        });
+        let time = Msg::Time;
+        let messages = vec![
+            Msg::Section(Section::Time.index()),
+            time(TimeMsg::SyncNow),
+            time(TimeMsg::Apply),
+            time(TimeMsg::Auto(false)),
+            time(TimeMsg::Apply),
+        ];
+        let image = {
+            let (mem, system) = (mem.clone(), system.clone());
+            render_with(
+                Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
+                move |ui| SettingsApp::build(ui, mem, system, Rc::new(MemAccounts::default())),
+                move |stage| {
+                    for msg in messages {
+                        stage.emit(msg);
+                    }
+                },
+            )
+            .expect("the headless render")
+        };
+        save(&image, "settings-time-ntp-off.png");
+        assert_eq!(mem.get(sntp::ENABLED_KEY), Some(Value::Bool(false)));
+        assert_eq!(*system.syncs.borrow(), 1, "Sync now did not reach timed");
+        // The first Apply (automatic time acting) was refused; the second,
+        // after switching it off, went through.
+        assert_eq!(
+            *system.times_set.borrow(),
+            1,
+            "a hand-set clock went through while automatic time was on,              or was refused after it was switched off"
+        );
+
+        // Back on, and the server field (loaded from the store) applied.
+        let messages = vec![
+            Msg::Section(Section::Time.index()),
+            time(TimeMsg::Auto(true)),
+            time(TimeMsg::ApplyServers),
+        ];
+        let image = {
+            let (mem, system) = (mem.clone(), system.clone());
+            render_with(
+                Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)),
+                move |ui| SettingsApp::build(ui, mem, system, Rc::new(MemAccounts::default())),
+                move |stage| {
+                    for msg in messages {
+                        stage.emit(msg);
+                    }
+                },
+            )
+            .expect("the headless render")
+        };
+        save(&image, "settings-time-ntp-on.png");
+        assert_eq!(mem.get(sntp::ENABLED_KEY), Some(Value::Bool(true)));
+        // The server field was loaded from the (default) store and applied:
+        // the default list, written out explicitly.
+        assert_eq!(
+            mem.get(sntp::SERVERS_KEY),
+            Some(Value::Str("pool.ntp.org".into()))
+        );
     });
 }

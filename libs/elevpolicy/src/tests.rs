@@ -49,7 +49,7 @@ fn every_row_parses_and_round_trips() {
 
 #[test]
 fn bad_arguments_are_refused() {
-    let cases: [(&str, &[&str]); 21] = [
+    let cases: [(&str, &[&str]); 23] = [
         ("rm -rf", &[]),
         ("pkg.install", &["relative.lzp"]),
         ("pkg.install", &["/a/../b.lzp"]),
@@ -59,6 +59,8 @@ fn bad_arguments_are_refused() {
         ("conf.set", &["sys/ui/demo", "float", "1.5"]),
         ("conf.set", &["sys/ui/demo", "bytes", "ABCD"]),
         ("time.set", &["-1"]),
+        ("time.set", &["0"]),
+        ("time.set", &["1767225599"]),
         ("time.set", &["99999999999"]),
         ("account.create", &["Bob", "pw", "user"]),
         ("account.create", &["_accounts", "pw", "admin"]),
@@ -86,8 +88,8 @@ fn summaries_say_what_changes_and_never_the_password() {
     assert_eq!(op.summary(), "Create the account 'bob' (an administrator)");
     let op = parse("account.password", &["bob", "hunter22"]).unwrap();
     assert!(!op.summary().contains("hunter22"));
-    let op = parse("time.set", &["0"]).unwrap();
-    assert_eq!(op.summary(), "Set the clock to 1970-01-01 00:00 UTC");
+    let op = parse("time.set", &["1767225600"]).unwrap();
+    assert_eq!(op.summary(), "Set the clock to 2026-01-01 00:00 UTC");
     let op = parse("conf.set", &["sys/ui/demo", "bytes", "00ff"]).unwrap();
     assert_eq!(op.summary(), "Set the setting sys/ui/demo to 2 bytes");
 }

@@ -37,6 +37,9 @@ import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from busybox_cwd import check_busybox_cwd  # noqa: E402
 
 
 def limit_env(entries):
@@ -55,46 +58,7 @@ IMAGE_DIR = ROOT / "target" / "abi" / "images"
 SHOTS = ROOT / "shots" / "abi"
 COMPAT = ROOT / "docs" / "compat"
 IMAGE = ROOT / "target" / "lazyos.img"
-
-ORDER = [
-    "hello",
-    "alloc",
-    "hashmap",
-    "file",
-    "time",
-    "thread",
-    "syncstress",
-    "fsstress",
-    "memstress",
-    "bigapp",
-    "jitmem",
-    "procstress",
-    "sigstress",
-    "fpsig",
-    "avx",
-    "threadsig",
-    "epollstress",
-    "msgpoll",
-    "unixstress",
-    "scmrights",
-    "persist",
-    "statxio",
-    "cwd",
-    "fsops",
-    "fdinherit",
-    "statmiss",
-    "compat",
-    # rustls + the nettls provider in memory, through the AVX dispatch where
-    # the CPU has it (tools/abi/fixtures/tlsfix, docs/tls-plan.md §8).
-    "tlsfix",
-    "busybox",
-    # Real programs (`tools/linuxapps/build.py`): one boot of the `linuxapps`
-    # fixture, one row per program (see `LINUXAPPS`).
-    "dash",
-    "sqlite3",
-    "jq",
-    "rg",
-]
+from rows_order import ORDER  # noqa: E402
 
 # Rows judged from one boot of the `linuxapps` fixture on an image built with
 # `LAZYOS_LINUXAPPS=1` (the programs in /system/bin) and BusyBox (dash's
@@ -117,11 +81,18 @@ ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
 WITH_BUSYBOX = {"statmiss"}
 
 
+# What the `dynlink` row needs on the image besides its program: the interpreter
+# (`/system/lib/ld-musl-x86_64.so.1`, served at `/lib/`), the libraries and the
+# PIE twin.
+DYNLINK_INTERPRETER = ROOT / "target" / "dynlink" / "lib" / "ld-musl-x86_64.so.1"
+
+
 def build_image(
     fixture_path: Path,
     busybox: bool = False,
     extra_busybox: Path | None = None,
     linuxapps: bool = False,
+    dynlink: bool = False,
 ) -> Path | None:
     """Build the image with the fixture embedded; its per-row copy, or `None`.
 
@@ -135,8 +106,11 @@ def build_image(
     env.setdefault("LAZYOS_RESET_OS", "1")
     # Never let a caller's exports leak between rows: a `/system/bin/busybox` embedded for
     # another fixture would shadow its `/system/bin/abi-init`, and vice versa.
-    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS"):
+    for key in ("LAZYOS_INIT", "LAZYOS_BUSYBOX", "LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS",
+                "LAZYOS_DYNLINK"):
         env.pop(key, None)
+    if dynlink:
+        env["LAZYOS_DYNLINK"] = "1"
     if linuxapps:
         env["LAZYOS_LINUXAPPS"] = "1"
         # Seven programs plus BusyBox outgrow the bench's small volume.
@@ -334,33 +308,6 @@ def run_busybox(image: Path, at: str, accel: str) -> tuple[str, str]:
     return check_busybox_cwd(serial)
 
 
-def check_busybox_cwd(serial: str) -> tuple[str, str]:
-    """`cd /data` must move the kernel's cwd, not just the shell's prompt (#365).
-
-    The script prints `pwd -P` (which asks the kernel via `getcwd`) and `ls`
-    (a forked and exec'd applet, so the directory must survive `execve`) after
-    `cd /data`, then again after `cd ..`, each under its own marker line.
-    """
-    # `ls` colours its output because the serial console looks like a terminal.
-    text = re.sub(r"\x1b?\[[0-9;]*m", "", serial)
-
-    def section(start: str, end: str) -> str:
-        pattern = rf"^ABI:busybox:{start}\r?\n(.*?)^ABI:busybox:{end}"
-        found = re.search(pattern, text, re.M | re.S)
-        return found.group(1) if found else ""
-
-    if "/data" not in [line.strip() for line in section("CWD", "LS").splitlines()]:
-        return "fail", "pwd -P after cd /data is not /data"
-    if "cwdprobe" not in section("LS", "CWD2").split():
-        return "fail", "ls after cd /data does not list the file echo wrote there"
-    if "/" not in [line.strip() for line in section("CWD2", "LS2").splitlines()]:
-        return "fail", "pwd -P after cd .. is not /"
-    root = section("LS2", "END").split()
-    if "cwdprobe" in root or "system" not in root:
-        return "fail", "ls after cd .. does not list the boot volume"
-    return "pass", ""
-
-
 # One serial log per image: the `linuxapps` rows share one boot.
 _SHARED_LOGS: dict[Path, str] = {}
 _SHARED_LOCK = threading.Lock()
@@ -470,13 +417,18 @@ def main() -> int:
         if not fixture.is_file():
             record(name, "unavailable", "fixture not built")
             continue
+        if name == "dynlink" and not DYNLINK_INTERPRETER.is_file():
+            record(name, "unavailable", "needs the interpreter and libraries (tools/abi/dynlink.py, zig)")
+            continue
         extra = None
         if name in WITH_BUSYBOX:
             extra = FIXTURE_DIR / "busybox.elf"
             if not extra.is_file():
                 record(name, "unavailable", "needs BusyBox (tools/abi/busybox.py)")
                 continue
-        image = build_image(fixture, busybox=(name == "busybox"), extra_busybox=extra)
+        image = build_image(
+            fixture, busybox=(name == "busybox"), extra_busybox=extra, dynlink=(name == "dynlink")
+        )
         if image is None:
             record(name, "fail", "image build failed")
             continue

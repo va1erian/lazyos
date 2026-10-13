@@ -16014,10 +16014,26 @@ pub mod os_lazy_messenger_policy_v1 {
     /// unmatched is denied). An empty list revokes the label's grants. The
     /// label is interned if new; a malformed label or more rules than the
     /// kernel stores per label (256) fails with `EINVAL`.
+    /// 
+    /// `program` is for a child label only (`app:<id>/<name>`, issue #832): the
+    /// absolute path of the executable that takes it. A task labelled
+    /// `app:<id>` that `execve`s exactly that path becomes `app:<id>/<name>`,
+    /// and may not start programs itself. A Messenger call by the child
+    /// needs the intersection of these rules and the app's own; the file
+    /// and `AF_INET` gates of a confined label use the child's own rule ids
+    /// (its file ids and the confine marker), which the app's loaded rules
+    /// must hold too, the marker apart. The app's label must already be
+    /// interned (`ENOENT` otherwise); `program` on any other label, a path
+    /// that is not absolute and canonical, or a child label with rules but no
+    /// program is `EINVAL`; every allow rule of the child must be one the
+    /// app's loaded rules allow (`EACCES`: it would widen the app). Loading a
+    /// child with no rules and no `program` revokes it and drops the binding,
+    /// and so does revoking the app (an empty list for `app:<id>`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LoadLabelArgs {
         pub label: alloc::string::String,
         pub rules: alloc::vec::Vec<LabelRule>,
+        pub program: core::option::Option<alloc::string::String>,
     }
 
     pub fn encode_load_label_args(value: &LoadLabelArgs) -> Result<Vec<u8>, Error> {
@@ -16028,6 +16044,16 @@ pub mod os_lazy_messenger_policy_v1 {
             nested.raw(Kind::Struct, 1, &encode_label_rule(item)?)?;
         }
         target.array(2, &nested)?;
+        match &value.program {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.string(1, item)?;
+                target.option(3, Some(&nested))?;
+            }
+            None => {
+                target.option(3, None)?;
+            }
+        }
         Ok(target.finish())
     }
 
@@ -16043,6 +16069,15 @@ pub mod os_lazy_messenger_policy_v1 {
                     let mut nested = field.nested(0)?;
                     while let Some(item) = nested.next()? {
                         out.rules.push(decode_label_rule(item.payload)?);
+                    }
+                }
+                3 => {
+                    if field.payload.is_empty() {
+                        out.program = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.program = Some(item.as_str()?.into());
                     }
                 }
                 _ => {}
@@ -17668,6 +17703,17 @@ pub mod os_lazy_timed_v1 {
     /// spells out what it serves (`Register.interface_names`, issue #495).
     pub const INTERFACE_NAME: &str = "os.lazy.timed.v1";
 
+    /// `NtpState::Disabled` wire value.
+    pub const NTP_STATE_DISABLED: u32 = 0;
+    /// `NtpState::WaitingForNetwork` wire value.
+    pub const NTP_STATE_WAITING_FOR_NETWORK: u32 = 1;
+    /// `NtpState::Syncing` wire value.
+    pub const NTP_STATE_SYNCING: u32 = 2;
+    /// `NtpState::Synchronized` wire value.
+    pub const NTP_STATE_SYNCHRONIZED: u32 = 3;
+    /// `NtpState::Failed` wire value.
+    pub const NTP_STATE_FAILED: u32 = 4;
+
     /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
     /// seconds, `offset` the local offset in seconds with DST included, and
     /// `zone_name` the zone (`Europe/Paris`).
@@ -17714,6 +17760,10 @@ pub mod os_lazy_timed_v1 {
     pub const METHOD_SETZONE: u32 = 1574816713;
     /// `SetTime` method id.
     pub const METHOD_SETTIME: u32 = 670376986;
+    /// `NtpStatus` method id.
+    pub const METHOD_NTPSTATUS: u32 = 209271495;
+    /// `SyncNow` method id.
+    pub const METHOD_SYNCNOW: u32 = 1100029530;
 
     /// The current instant and its local-time parameters.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -17809,7 +17859,10 @@ pub mod os_lazy_timed_v1 {
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
     /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
-    /// an administrator approved `time.set`); anyone else gets `EPERM`.
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct SetTimeArgs {
         pub unix_secs: i64,
@@ -17827,6 +17880,72 @@ pub mod os_lazy_timed_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.unix_secs = field.as_i64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NtpStatusReply {
+        pub enabled: bool,
+        pub state: u32,
+        pub server: alloc::string::String,
+        pub stratum: u32,
+        pub offset_ms: i64,
+        pub delay_ms: i64,
+        pub last_sync_unix: i64,
+        pub next_sync_unix: i64,
+    }
+
+    pub fn encode_ntp_status_reply(value: &NtpStatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.enabled)?;
+        target.u32(2, value.state)?;
+        target.string(3, &value.server)?;
+        target.u32(4, value.stratum)?;
+        target.i64(5, value.offset_ms)?;
+        target.i64(6, value.delay_ms)?;
+        target.i64(7, value.last_sync_unix)?;
+        target.i64(8, value.next_sync_unix)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_ntp_status_reply(body: &[u8]) -> Result<NtpStatusReply, Error> {
+        let mut out = NtpStatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.enabled = field.as_bool()?;
+                }
+                2 => {
+                    out.state = field.as_u32()?;
+                }
+                3 => {
+                    out.server = field.as_str()?.into();
+                }
+                4 => {
+                    out.stratum = field.as_u32()?;
+                }
+                5 => {
+                    out.offset_ms = field.as_i64()?;
+                }
+                6 => {
+                    out.delay_ms = field.as_i64()?;
+                }
+                7 => {
+                    out.last_sync_unix = field.as_i64()?;
+                }
+                8 => {
+                    out.next_sync_unix = field.as_i64()?;
+                }
+                _ => {}
             }
         }
         Ok(out)

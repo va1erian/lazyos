@@ -98,7 +98,10 @@ pub const POWER_PREFIX: &str = "sys/power/";
 /// The confd subtree `net.config` writes (`sys/net/<card>/...`).
 pub const NET_PREFIX: &str = "sys/net/";
 /// Latest clock `time.set` accepts (2200-01-01, as `timed`).
-const MAX_TIME: i64 = 7_258_118_400;
+const MAX_TIME: i64 = sntp::policy::MAX_UNIX_SECS;
+/// Earliest: `timed` refuses a time below its floor (it would lift it again
+/// at its next start), so asking an administrator to approve one is pointless.
+const MIN_TIME: i64 = sntp::CLOCK_FLOOR_UNIX;
 
 /// Whether a task with these kernel-stamped credentials is `elevd`: its
 /// system uid, unlabelled, outside any session. The one identity the
@@ -309,8 +312,8 @@ impl Operation {
                 want(1)?;
                 let unix: i64 = arg(0)
                     .and_then(|text| text.parse().ok())
-                    .filter(|unix| (0..MAX_TIME).contains(unix))
-                    .ok_or("not a time between 1970 and 2200")?;
+                    .filter(|unix| (MIN_TIME..MAX_TIME).contains(unix))
+                    .ok_or("not a time between 2026-01-01 and 2200")?;
                 Operation::TimeSet { unix }
             }
             "account.create" => {

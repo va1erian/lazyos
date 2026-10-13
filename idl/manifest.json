@@ -1917,6 +1917,16 @@
         "name": "SetTime",
         "id": 670376986,
         "oneway": false
+      },
+      {
+        "name": "NtpStatus",
+        "id": 209271495,
+        "oneway": false
+      },
+      {
+        "name": "SyncNow",
+        "id": 1100029530,
+        "oneway": false
       }
     ],
     "topics": [

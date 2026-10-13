@@ -1,5 +1,8 @@
 # LazyWeb, the web browser
 
+> LazyWeb's window also runs on the WebKit engine, with JavaScript: [LazyWeb+](lazywebplus.md)
+> (`os.lazy.lazywebplus`). This page is about the Blitz browser, which stays the default.
+
 LazyWeb (`os.lazy.lazyweb`) is LazyOS's web browser: the
 [Blitz](https://github.com/DioxusLabs/blitz) engine (html5ever, Servo's Stylo
 for CSS including grid, flexbox, floats and `var()`, Taffy for layout, Parley

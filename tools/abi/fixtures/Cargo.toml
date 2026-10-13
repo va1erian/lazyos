@@ -49,6 +49,11 @@ path = "src/memstress.rs"
 name = "jitmem"
 path = "src/jitmem.rs"
 
+# File-backed mmap: private and shared mappings, write-back, fork (issue #535).
+[[bin]]
+name = "filemap"
+path = "src/filemap.rs"
+
 [[bin]]
 name = "procstress"
 path = "src/procstress.rs"
@@ -80,6 +85,11 @@ path = "src/avx.rs"
 [[bin]]
 name = "threadsig"
 path = "src/threadsig.rs"
+
+# alarm, setitimer/getitimer and POSIX timers (issue #535, gap 3).
+[[bin]]
+name = "alarm"
+path = "src/alarm.rs"
 
 [[bin]]
 name = "epollstress"
@@ -157,9 +167,19 @@ path = "src/netbulk.rs"
 name = "diskbench"
 path = "src/diskbench.rs"
 
+# The stand-in WebProcess and NetworkProcess of the browser's sandbox attack harness
+# (`python tools/webkit/attack_run.py`, issue #832): tries what an exploited engine
+# process would try, from inside its label. Never run by the ABI bench.
+[[bin]]
+name = "sandboxprobe"
+path = "src/sandboxprobe.rs"
+
 [dependencies]
 # The native Messenger calls and the endpoint descriptor (`msgpoll`, issue
 # #667); `no_std` + `alloc` underneath, so the other fixtures are unaffected.
 lazyos-sys = { path = "../../../libs/lazyos-sys", features = ["parcel", "std"] }
 # The parcel type and header flags `msgpoll` sends with.
 libmessenger = { path = "../../../libs/messenger" }
+# `sandboxprobe`'s driver loads the policy of two labels (`LoadLabel`) and compiles file rules.
+messenger-generated = { path = "../../../libs/generated" }
+filepolicy = { path = "../../../libs/filepolicy" }

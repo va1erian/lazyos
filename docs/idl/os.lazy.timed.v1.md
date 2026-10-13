@@ -19,6 +19,8 @@ reply.
 | GetZone | 697211125 | sync | `() -> (name: String)` |
 | SetZone | 1574816713 | sync | `(name: String) -> ()` |
 | SetTime | 670376986 | sync | `(unix_secs: I64) -> ()` |
+| NtpStatus | 209271495 | sync | `() -> (enabled: Bool, state: U32, server: String, stratum: U32, offset_ms: I64, delay_ms: I64, last_sync_unix: I64, next_sync_unix: I64)` |
+| SyncNow | 1100029530 | sync | `() -> ()` |
 
 ## Topics
 
@@ -31,3 +33,7 @@ reply.
 - `unix: I64`
 - `offset: I32`
 - `zone_name: String`
+
+## enum `NtpState`
+
+- Disabled, WaitingForNetwork, Syncing, Synchronized, Failed

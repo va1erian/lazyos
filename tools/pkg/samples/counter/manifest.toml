@@ -19,7 +19,9 @@ abi = "linux"
 
 [permissions]
 # Exactly what the app resolves and calls: it connects to the compositor
-# (`os.lazy.display.v1`) to create its window and to the input service
-# (`os.lazy.input.v1`) for its keyboard session. It subscribes to no topics, so
-# it needs neither the topics broker nor any `topics` rule.
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+# (`os.lazy.display.v1`) to create its window, to the pointer scope of that
+# service (`os.lazy.display.cursor.v1`) for the shape under the mouse, and to
+# the input service (`os.lazy.input.v1`) for its keyboard session. It
+# subscribes to no topics, so it needs neither the topics broker nor any
+# `topics` rule.
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]

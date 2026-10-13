@@ -89,7 +89,13 @@ pub struct VfsFile {
 impl VfsFile {
     /// The regular file at `path` in the Linux ABI VFS, if `id` may read it.
     pub fn abi(id: Id, path: &str) -> Result<VfsFile, FsError> {
-        let meta = crate::fs::abi_check(id, path, crate::fs::vfs::READ)?;
+        VfsFile::abi_for(id, path, crate::fs::vfs::READ)
+    }
+
+    /// [`VfsFile::abi`] checking `mask` (read and execute, for an
+    /// interpreter) in the same call that opens the file.
+    pub fn abi_for(id: Id, path: &str, mask: u8) -> Result<VfsFile, FsError> {
+        let meta = crate::fs::abi_check(id, path, mask)?;
         let mut file = VfsFile::new(Tree::Abi, id, path, meta.kind, meta.size)?;
         file.node = crate::fs::nodes::abi_open_node(id, path, crate::fs::vfs::READ)?;
         Ok(file)

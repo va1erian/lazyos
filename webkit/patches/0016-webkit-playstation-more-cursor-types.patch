@@ -1,0 +1,57 @@
+WebKit: the PlayStation view tells its client more pointer shapes.
+
+PlayStationWebView::setCursor reaches the view client as a WKCursorType, and toWKCursorType
+answered only three of them (the arrow, the hand and none): every text field, resize edge and
+busy page showed the arrow. A browser window wants the I-beam over text, the wait and progress
+pointers, and the four resize arrows, so the enum (WKViewClient.h, numbered as the WebCore
+enum without its Invalid entry, as its first three values already were) and the switch grow
+those. The UI process maps them to xui's pointers (webkit/port/app/uiclient.cpp).
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKViewClient.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKViewClient.h
+@@ -33,9 +33,17 @@
+ #endif
+
+ enum {
+-    kWKCursorTypePointer = 0,
+-    kWKCursorTypeHand = 2,
+-    kWKCursorTypeNone = 37,
++    kWKCursorTypePointer = 0,
++    kWKCursorTypeCross = 1,
++    kWKCursorTypeHand = 2,
++    kWKCursorTypeIBeam = 3,
++    kWKCursorTypeWait = 4,
++    kWKCursorTypeNorthSouthResize = 14,
++    kWKCursorTypeEastWestResize = 15,
++    kWKCursorTypeNorthEastSouthWestResize = 16,
++    kWKCursorTypeNorthWestSouthEastResize = 17,
++    kWKCursorTypeProgress = 34,
++    kWKCursorTypeNone = 37,
+ };
+ typedef uint32_t WKCursorType;
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKView.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKView.cpp
+@@ -48,6 +48,22 @@
+         return kWKCursorTypeHand;
+     case WebCore::Cursor::Type::None:
+         return kWKCursorTypeNone;
++    case WebCore::Cursor::Type::IBeam:
++        return kWKCursorTypeIBeam;
++    case WebCore::Cursor::Type::Wait:
++        return kWKCursorTypeWait;
++    case WebCore::Cursor::Type::Progress:
++        return kWKCursorTypeProgress;
++    case WebCore::Cursor::Type::EastWestResize:
++    case WebCore::Cursor::Type::ColumnResize:
++        return kWKCursorTypeEastWestResize;
++    case WebCore::Cursor::Type::NorthSouthResize:
++    case WebCore::Cursor::Type::RowResize:
++        return kWKCursorTypeNorthSouthResize;
++    case WebCore::Cursor::Type::NorthEastSouthWestResize:
++        return kWKCursorTypeNorthEastSouthWestResize;
++    case WebCore::Cursor::Type::NorthWestSouthEastResize:
++        return kWKCursorTypeNorthWestSouthEastResize;
+     case WebCore::Cursor::Type::Pointer:
+     default:
+         return kWKCursorTypePointer;

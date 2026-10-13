@@ -10,6 +10,12 @@ use super::image::{Image, READ_FAILED};
 
 /// `PT_LOAD`: a segment the loader maps.
 pub const PT_LOAD: u32 = 1;
+/// `PT_INTERP`: the path of the program interpreter (the dynamic linker).
+pub const PT_INTERP: u32 = 3;
+/// `e_type` of a position-independent executable or shared object.
+pub const ET_DYN: u16 = 3;
+/// Longest interpreter path accepted (`PATH_MAX`, NUL included).
+pub const INTERP_MAX: u64 = 4096;
 /// Segment permission bits (`p_flags`).
 pub const PF_X: u32 = 1;
 pub const PF_W: u32 = 2;
@@ -36,6 +42,8 @@ pub struct Phdr {
 /// The decoded headers of an executable.
 #[derive(Debug)]
 pub struct Headers {
+    /// `e_type`: [`ET_EXEC`] or [`ET_DYN`].
+    pub etype: u16,
     pub entry: u64,
     /// File offset of the program header table (for `AT_PHDR`).
     pub phoff: u64,
@@ -110,10 +118,52 @@ pub fn read<I: Image + ?Sized>(image: &I) -> Result<Headers, &'static str> {
         })
         .collect();
     Ok(Headers {
+        etype: u16_at(&ehdr, 16),
         entry,
         phoff,
         phdrs,
     })
+}
+
+/// The program interpreter the image names with `PT_INTERP`, if any: the
+/// NUL-terminated path stored in the file. A path that is empty, has no NUL
+/// inside the segment, is longer than [`INTERP_MAX`] or is not UTF-8 makes
+/// the image unloadable; several `PT_INTERP` headers are refused as Linux
+/// does.
+pub fn interpreter<I: Image + ?Sized>(
+    image: &I,
+    headers: &Headers,
+) -> Result<Option<alloc::string::String>, &'static str> {
+    let mut found = headers.phdrs.iter().filter(|ph| ph.kind == PT_INTERP);
+    let Some(header) = found.next() else {
+        return Ok(None);
+    };
+    if found.next().is_some() {
+        return Err("more than one PT_INTERP");
+    }
+    if header.filesz < 2 || header.filesz > INTERP_MAX {
+        return Err("bad interpreter path length");
+    }
+    header
+        .offset
+        .checked_add(header.filesz)
+        .filter(|&end| end <= image.len())
+        .ok_or("interpreter path out of file")?;
+    let mut raw = alloc::vec![0u8; header.filesz as usize];
+    image
+        .read_exact_at(header.offset, &mut raw)
+        .map_err(|e| io_or(e, "interpreter path out of file"))?;
+    // The path ends at the first NUL, which the segment must contain.
+    let end = raw
+        .iter()
+        .position(|&byte| byte == 0)
+        .ok_or("interpreter path is not terminated")?;
+    if end == 0 {
+        return Err("empty interpreter path");
+    }
+    core::str::from_utf8(&raw[..end])
+        .map(|path| Some(alloc::string::String::from(path)))
+        .map_err(|_| "interpreter path is not UTF-8")
 }
 
 /// The runtime address of the program header table: the `PT_LOAD` segment

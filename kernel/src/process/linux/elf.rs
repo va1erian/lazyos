@@ -14,12 +14,14 @@ use alloc::vec::Vec;
 
 use x86_64::PhysAddr;
 
+use crate::fs::vfs::FsError;
 use crate::mem::vma::{Kind, Prot};
+use crate::process::elfhdr::{self, Headers, ET_DYN, PT_INTERP};
 use crate::process::image::{self, Image};
-use crate::process::layout::{IMAGE_RESERVED, STACK_MAX, STACK_TOP};
-use crate::process::{load_segments, loader, map_range_kind, page_phys, Loaded};
+use crate::process::layout::{IMAGE_RESERVED, MMAP_LIMIT, STACK_MAX, STACK_TOP};
+use crate::process::{load_planned, loader, map_range_kind, page_phys, Loaded};
 
-use super::errno::{EIO, ENOEXEC, ENOMEM};
+use super::errno::{EACCES, EIO, ENOENT, ENOEXEC, ENOMEM};
 use super::uaccess::fill_random;
 use super::PAGE;
 
@@ -42,6 +44,10 @@ pub enum LoadError {
     NoMemory,
     /// The filesystem failed to read the image (`EIO`).
     Io,
+    /// The program names an interpreter that does not exist (`ENOENT`).
+    NoInterpreter,
+    /// The interpreter exists but may not be read (`EACCES`).
+    InterpreterDenied,
 }
 
 impl LoadError {
@@ -51,6 +57,8 @@ impl LoadError {
             LoadError::BadImage(_) => ENOEXEC,
             LoadError::NoMemory => ENOMEM,
             LoadError::Io => EIO,
+            LoadError::NoInterpreter => ENOENT,
+            LoadError::InterpreterDenied => EACCES,
         }
     }
 
@@ -59,6 +67,8 @@ impl LoadError {
             LoadError::BadImage(reason) => reason,
             LoadError::NoMemory => loader::OUT_OF_MEMORY,
             LoadError::Io => image::READ_FAILED,
+            LoadError::NoInterpreter => "the program interpreter was not found",
+            LoadError::InterpreterDenied => "the program interpreter may not be read",
         }
     }
 }
@@ -81,10 +91,26 @@ pub fn stack_size() -> u64 {
     crate::limits::stack_size().min(STACK_MAX) & !(PAGE - 1)
 }
 
+/// Where a position-independent program that names an interpreter is loaded
+/// (a dynamically linked PIE): clear of page zero and of the heap that
+/// follows it, as `ET_EXEC` programs at the conventional `0x40_0000` are.
+pub const PIE_BASE: u64 = 0x40_0000;
+
+/// Where the program interpreter is loaded: 1 GiB below the end of the mmap
+/// area, far from the first-fit allocations that start at its beginning, so
+/// the libraries `ld.so` maps never collide with it.
+pub const INTERP_BASE: u64 = MMAP_LIMIT - (1 << 30);
+
 /// Load `image` into `table`: map its segments and its stack and build the
 /// start stack. `argv`/`envp` are NUL-terminated; `ids` is the `(uid, gid)`
 /// the auxiliary vector reports. On error `table` may hold a partial image,
 /// which the caller frees with the table.
+///
+/// A program with `PT_INTERP` is dynamically linked: the interpreter (musl's
+/// `ld-musl-x86_64.so.1`) is mapped as well, at [`INTERP_BASE`], and starts
+/// instead of the program, which it finds through `AT_PHDR`/`AT_ENTRY` and
+/// relocates; `AT_BASE` is where the interpreter itself sits. A PIE program
+/// is moved to [`PIE_BASE`]; a static one (or a static PIE) loads as before.
 pub fn load_image<I: Image + ?Sized>(
     table: PhysAddr,
     image: &I,
@@ -93,7 +119,19 @@ pub fn load_image<I: Image + ?Sized>(
     ids: (u32, u32),
     charge_uid: u32,
 ) -> Result<Started, LoadError> {
-    let loaded = load_segments(table, image, &IMAGE_RESERVED, charge_uid).map_err(classify)?;
+    let headers = elfhdr::read(image).map_err(classify)?;
+    let interp = elfhdr::interpreter(image, &headers).map_err(classify)?;
+    let bias = if interp.is_some() && headers.etype == ET_DYN {
+        PIE_BASE
+    } else {
+        0
+    };
+    let loaded = load_planned(table, image, &headers, &IMAGE_RESERVED, charge_uid, bias)
+        .map_err(classify)?;
+    let interpreter = match interp {
+        Some(path) => Some(load_interpreter(table, &path, &loaded, charge_uid)?),
+        None => None,
+    };
     let frame = start_frame_bytes(argv, envp);
     let size = stack_size().max(frame);
     let bottom = STACK_TOP - size;
@@ -115,12 +153,46 @@ pub fn load_image<I: Image + ?Sized>(
         Prot::READ | Prot::WRITE,
         Kind::Stack,
     );
-    let rsp = build_start_stack(&stack, argv, envp, &loaded, ids);
+    let base = interpreter.map_or(0, |(_, base)| base);
+    let rsp = build_start_stack(&stack, argv, envp, &loaded, base, ids);
     Ok(Started {
-        entry: loaded.entry,
+        entry: interpreter.map_or(loaded.entry, |(interp, _)| interp.entry),
         rsp,
         brk: crate::process::layout::heap_start(loaded.end, 0),
     })
+}
+
+/// Map the interpreter `path` names into `table`, clear of the program
+/// (`main`) and of the ranges the kernel places itself. Returns what it
+/// mapped and its load bias.
+fn load_interpreter(
+    table: PhysAddr,
+    path: &str,
+    main: &Loaded,
+    charge_uid: u32,
+) -> Result<(Loaded, u64), LoadError> {
+    let file = super::libpath::open_interpreter(path).map_err(|error| match error {
+        FsError::NotFound | FsError::NotDir => LoadError::NoInterpreter,
+        FsError::Access | FsError::NotPermitted => LoadError::InterpreterDenied,
+        _ => LoadError::Io,
+    })?;
+    let headers: Headers = elfhdr::read(&file).map_err(classify)?;
+    if headers.phdrs.iter().any(|header| header.kind == PT_INTERP) {
+        return Err(LoadError::BadImage("the interpreter has an interpreter"));
+    }
+    // A fixed-address interpreter could land in the program's heap range or
+    // on its image; only a position-independent one is placed by the kernel.
+    if headers.etype != ET_DYN {
+        return Err(LoadError::BadImage(
+            "the interpreter is not position independent",
+        ));
+    }
+    let bias = INTERP_BASE;
+    let reserved = [(0, main.end), (MMAP_LIMIT, crate::mem::USER_TOP)];
+    let loaded =
+        load_planned(table, &file, &headers, &reserved, charge_uid, bias).map_err(classify)?;
+    // `AT_BASE` is the load bias: where the interpreter's address zero is.
+    Ok((loaded, bias))
 }
 
 /// Each item followed by a NUL, as the start stack stores strings.
@@ -159,6 +231,7 @@ pub(super) fn build_start_stack(
     argv: &[Vec<u8>],
     envp: &[Vec<u8>],
     loaded: &Loaded,
+    interp_base: u64,
     (uid, gid): (u32, u32),
 ) -> u64 {
     let mut cursor = STACK_TOP;
@@ -193,7 +266,7 @@ pub(super) fn build_start_stack(
         (AT_PHENT, u64::from(loaded.phent)),
         (AT_PHNUM, u64::from(loaded.phnum)),
         (AT_PAGESZ, PAGE),
-        (AT_BASE, 0),
+        (AT_BASE, interp_base),
         (AT_ENTRY, loaded.entry),
         (AT_UID, uid as u64),
         (AT_EUID, uid as u64),

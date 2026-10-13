@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>script-pending</title>
+<style>
+  body { margin: 0; font: 22px sans-serif; background: #fff4f4; }
+  #out { position: absolute; left: 20px; top: 20px; width: 700px; height: 60px; background: #a33; color: #fff; padding: 12px; }
+</style>
+</head>
+<body>
+<p id="out">waiting for the dialogs</p>
+<script>
+// Dialogs first: each blocks the page until the person answers (the harness presses Enter, types a
+// name). Then the things a page must never be able to do on its own: start another program, run
+// the browser's commands, open a window without a click.
+var said = alert('hello from the page');
+var yes = confirm('Proceed?');
+var name = prompt('Your name?');
+document.getElementById('out').textContent = 'dialogs: ' + yes + ' ' + name;
+document.title = 'script-ok:' + (yes ? 'yes' : 'no') + ':' + name;
+setTimeout(function () { location.href = 'mailto:evil@theoldnet.com?subject=script'; }, 300);
+setTimeout(function () { location.href = 'x-lazyweb:clear-history'; }, 700);
+setTimeout(function () { window.open('opened.html'); }, 1100);
+</script>
+</body>
+</html>

@@ -330,5 +330,8 @@ fn only_safe_services_may_be_restarted() {
         assert!(op.permitted().is_err(), "{name} may be restarted");
         assert!(!restartable(name));
     }
-    assert_eq!(parse("time.set", &["0"]).unwrap().permitted(), Ok(()));
+    assert_eq!(
+        parse("time.set", &["1767225600"]).unwrap().permitted(),
+        Ok(())
+    );
 }

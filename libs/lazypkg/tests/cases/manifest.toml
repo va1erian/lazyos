@@ -17,9 +17,11 @@
 #   <entry>
 #   [permissions]
 #   <permissions>
+#   <processes>
 #
 # `valid = true` cases may say what `category`, `autostart`, `resident` and
-# `develop` read back as.
+# `develop` read back as, and `children` (the names of the `[processes.<name>]`
+# tables, sorted).
 # `valid = false` cases name a substring (`error`) that one of the reported
 # problems must contain on both sides; pick one both wordings share.
 
@@ -288,6 +290,204 @@ name = "an unknown verb is an error"
 permissions = 'files = ["exec:$HOME/bin"]'
 valid = false
 error = "permissions.files"
+
+# --- [processes.<name>] -------------------------------------------------------
+# The child labels of issue #832: each table may hold a subset of the app's own
+# permissions and nothing more.
+
+[[manifest]]
+name = "no process tables"
+valid = true
+children = []
+
+[[manifest]]
+name = "a child that asks for nothing"
+permissions = 'interfaces = ["os.lazy.display.v1"]'
+processes = '''
+[processes.webprocess]
+program = "/system/bin/webprocess"
+'''
+valid = true
+children = ["webprocess"]
+
+[[manifest]]
+name = "a child holding a subset of the app's permissions"
+permissions = '''
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+network = ["outbound"]
+files = ["read:/system/share/fonts", "write:$HOME/.apps/org.lazy.demo"]
+'''
+processes = '''
+[processes.webprocess]
+program = "/system/bin/webprocess"
+files = ["read:/system/share/fonts/liberation"]
+
+[processes.networkprocess]
+program = "/system/bin/networkprocess"
+interfaces = ["os.lazy.input.v1"]
+network = ["outbound"]
+files = ["write:$HOME/.apps/org.lazy.demo/cookies", "read:/system/share/fonts"]
+'''
+valid = true
+children = ["networkprocess", "webprocess"]
+
+[[manifest]]
+name = "a child asks for an interface the app lacks"
+permissions = 'interfaces = ["os.lazy.display.v1"]'
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+interfaces = ["os.lazy.clipboard.v1"]
+'''
+valid = false
+error = "is not in the app's permissions.interfaces"
+
+[[manifest]]
+name = "a child asks for the network the app lacks"
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+network = ["outbound"]
+'''
+valid = false
+error = "does not hold"
+
+[[manifest]]
+name = "a child asks for a file the app lacks"
+permissions = 'files = ["read:/system/share/fonts"]'
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+files = ["read:$HOME/.ssh"]
+'''
+valid = false
+error = "is not covered by a permissions.files rule"
+
+[[manifest]]
+name = "a child asks to write where the app may only read"
+permissions = 'files = ["read:/system/share/fonts"]'
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+files = ["write:/system/share/fonts"]
+'''
+valid = false
+error = "is not covered by a permissions.files rule"
+
+[[manifest]]
+name = "a child asks for the whole of a directory the app holds one file of"
+permissions = 'files = ["read:/system/share/fonts/a.ttf"]'
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+files = ["read:/system/share/fonts"]
+'''
+valid = false
+error = "is not covered by a permissions.files rule"
+
+[[manifest]]
+name = "a child's files rule has the files grammar"
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+files = ["read:$HOME"]
+'''
+valid = false
+error = "processes.web.files entry"
+
+[[manifest]]
+name = "a process name is a label part"
+processes = '''
+[processes.Web]
+program = "/system/bin/web"
+'''
+valid = false
+error = "processes name"
+
+[[manifest]]
+name = "a process name has no slash"
+processes = '''
+[processes."a/b"]
+program = "/system/bin/web"
+'''
+valid = false
+error = "processes name"
+
+[[manifest]]
+name = "a program is an absolute path"
+processes = '''
+[processes.web]
+program = "bin/web"
+'''
+valid = false
+error = "must be an absolute path"
+
+[[manifest]]
+name = "a program has no dot-dot"
+processes = '''
+[processes.web]
+program = "/system/bin/../bin/web"
+'''
+valid = false
+error = "must be an absolute path"
+
+[[manifest]]
+name = "two processes cannot share a program"
+processes = '''
+[processes.a]
+program = "/system/bin/web"
+
+[processes.b]
+program = "/system/bin/web"
+'''
+valid = false
+error = "is also the program of another process"
+
+[[manifest]]
+name = "at most four process tables"
+processes = '''
+[processes.a]
+program = "/p/a"
+[processes.b]
+program = "/p/b"
+[processes.c]
+program = "/p/c"
+[processes.d]
+program = "/p/d"
+[processes.e]
+program = "/p/e"
+'''
+valid = false
+error = "at most 4 tables"
+
+[[manifest]]
+name = "a process table has no topics"
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+topics = ["publish:a/b"]
+'''
+valid = false
+error = "topics"
+
+[[manifest]]
+name = "a process table has no develop"
+processes = '''
+[processes.web]
+program = "/system/bin/web"
+develop = true
+'''
+valid = false
+error = "develop"
+
+[[manifest]]
+name = "a process table needs its program"
+processes = '''
+[processes.web]
+interfaces = []
+'''
+valid = false
+error = "program"
 
 # --- app.version --------------------------------------------------------------
 

@@ -9,6 +9,13 @@
 //! writes on an explicit action, once: moving through the zone list only
 //! chooses, **Use this zone** applies it; a refused or cancelled change shows
 //! the stored value again.
+//!
+//! Automatic time (docs/ntp-plan.md) is two more `sys/time/ntp/*` keys that
+//! `timed` follows live: a switch, and the server list that **Use this
+//! server** applies; both sit under the taskbar clock toggles, so the layout
+//! the screenshot sessions click through is unchanged. **Sync now** is open
+//! to everyone (`timed` rate-limits it). While the switch is on, the hand-set
+//! clock is refused with a reason, not hidden.
 
 use std::rc::Rc;
 
@@ -20,7 +27,7 @@ use xui_core::HasText;
 
 use crate::app::{choice_list, Msg};
 use crate::store::ConfigStore;
-use crate::system::System;
+use crate::system::{NtpState, System};
 use crate::time_ops;
 
 /// Messages the Time & Date page's widgets raise.
@@ -36,6 +43,12 @@ pub enum TimeMsg {
     ApplyZone,
     Clock24(bool),
     Seconds(bool),
+    /// The "set the time automatically" switch.
+    Auto(bool),
+    /// Store the server list from its field.
+    ApplyServers,
+    /// Ask a time server now.
+    SyncNow,
 }
 
 /// The page's widgets.
@@ -46,6 +59,9 @@ pub struct TimePage {
     zones: Rc<ListView<Msg>>,
     clock24: Rc<CheckBox<Msg>>,
     seconds: Rc<CheckBox<Msg>>,
+    auto: Rc<CheckBox<Msg>>,
+    auto_status: Rc<Label<Msg>>,
+    servers: Rc<Edit<Msg>>,
     _mounted: Mounted<Msg>,
 }
 
@@ -54,6 +70,7 @@ impl TimePage {
     pub fn build(ui: &Ui<Msg>, page: WidgetId) -> Result<TimePage> {
         let (now, date, time, zones) = (Handle::new(), Handle::new(), Handle::new(), Handle::new());
         let (clock24, seconds) = (Handle::new(), Handle::new());
+        let (auto, auto_status, servers) = (Handle::new(), Handle::new(), Handle::new());
         let zone_names: Vec<&str> = timezone::ZONES.iter().map(|zone| zone.name).collect();
         let mounted = ui.mount_in(
             page,
@@ -96,6 +113,17 @@ impl TimePage {
                                 checkbox("Show seconds")
                                     .on_toggle(|on| Msg::Time(TimeMsg::Seconds(on)))
                                     .bind(&seconds),
+                                label("Network time"),
+                                checkbox("Set the time automatically")
+                                    .on_toggle(|on| Msg::Time(TimeMsg::Auto(on)))
+                                    .bind(&auto),
+                                label("").bind(&auto_status),
+                                edit().placeholder("pool.ntp.org").bind(&servers).width(280),
+                                row().gap(8).children((
+                                    button("Use this server")
+                                        .on_click(Msg::Time(TimeMsg::ApplyServers)),
+                                    button("Sync now").on_click(Msg::Time(TimeMsg::SyncNow)),
+                                )),
                             ))
                             .fill(1),
                     ))
@@ -109,6 +137,9 @@ impl TimePage {
             zones: zones.get(),
             clock24: clock24.get(),
             seconds: seconds.get(),
+            auto: auto.get(),
+            auto_status: auto_status.get(),
+            servers: servers.get(),
             _mounted: mounted,
         })
     }
@@ -119,12 +150,21 @@ impl TimePage {
         let format = time_ops::clock_format(store);
         self.clock24.set_checked(format.hour24);
         self.seconds.set_checked(format.seconds);
-        self.show_now(system);
+        self.auto.set_checked(time_ops::ntp_enabled(store));
+        self.servers.set_text(&time_ops::ntp_servers(store));
+        self.show_now(store, system);
     }
 
     /// Refresh the current-time line, the fields and the zone selection.
-    fn show_now(&self, system: &dyn System) {
-        match system.now() {
+    fn show_now(&self, store: &dyn ConfigStore, system: &dyn System) {
+        let now = system.now();
+        let unix = now.as_ref().map_or(0, |now| now.unix);
+        self.auto_status.set_text(&time_ops::ntp_summary(
+            time_ops::ntp_enabled(store),
+            system.ntp_status().as_ref(),
+            unix,
+        ));
+        match now {
             Some(now) => {
                 self.now.set_text(&time_ops::summary(&now));
                 let (date, time) = time_ops::fields(&now);
@@ -142,18 +182,51 @@ impl TimePage {
     pub fn update(&self, msg: TimeMsg, store: &dyn ConfigStore, system: &dyn System) -> String {
         let outcome = match msg {
             TimeMsg::Now => {
-                self.show_now(system);
+                self.show_now(store, system);
                 return String::new();
             }
             TimeMsg::Apply => {
+                // Only while a time client could put it back: switched on and,
+                // as `timed` reports, with a network (an image without one
+                // keeps its hand-set clock, whatever the default says).
+                let acting = time_ops::ntp_enabled(store)
+                    && system.ntp_status().is_some_and(|status| {
+                        !matches!(
+                            status.state,
+                            NtpState::Disabled | NtpState::WaitingForNetwork
+                        )
+                    });
+                if acting {
+                    return String::from(
+                        "The clock is set automatically. Turn that off to set it by hand.",
+                    );
+                }
                 // A typo is reported as typed; only a refused write is an error.
                 return match self.apply(system) {
                     Ok(text) => {
-                        self.show_now(system);
+                        self.show_now(store, system);
                         text
                     }
                     Err(text) => text,
                 };
+            }
+            TimeMsg::ApplyServers => {
+                return match time_ops::set_ntp_servers(store, &self.servers.text()) {
+                    Ok(()) => {
+                        self.servers.set_text(&time_ops::ntp_servers(store));
+                        String::from("Time servers saved.")
+                    }
+                    // A typo is reported as typed; the stored list stays.
+                    Err(text) => text,
+                };
+            }
+            TimeMsg::SyncNow => {
+                let text = match system.ntp_sync_now() {
+                    Ok(()) => String::from("Asking a time server..."),
+                    Err(text) => text,
+                };
+                self.show_now(store, system);
+                return text;
             }
             TimeMsg::Zone(_) => return String::new(),
             TimeMsg::ApplyZone => {
@@ -181,11 +254,23 @@ impl TimePage {
                     "Clock hides seconds."
                 })
             }),
+            TimeMsg::Auto(on) => time_ops::set_ntp_enabled(store, on).map(|()| {
+                String::from(if on {
+                    "The clock is set automatically when there is a network."
+                } else {
+                    "The clock is set by hand."
+                })
+            }),
         };
         match outcome {
             Ok(text) => {
+                if let TimeMsg::Auto(on) = msg {
+                    // Already so when the click raised it; not when a message
+                    // came from anywhere else.
+                    self.auto.set_checked(on);
+                }
                 if !matches!(msg, TimeMsg::Clock24(_) | TimeMsg::Seconds(_)) {
-                    self.show_now(system);
+                    self.show_now(store, system);
                 }
                 text
             }
@@ -204,6 +289,18 @@ impl TimePage {
             .and_then(|now| timezone::find(&now.zone))
             .unwrap_or_else(timezone::default_zone);
         let unix = time_ops::typed_instant(zone, &self.date.text(), &self.time.text())?;
+        if unix < sntp::CLOCK_FLOOR_UNIX {
+            // `timed` would refuse it too; say why, in the user's terms.
+            let floor = time_ops::fields(&crate::system::Now {
+                unix: sntp::CLOCK_FLOOR_UNIX,
+                offset: 0,
+                zone: String::from("UTC"),
+            });
+            return Err(format!(
+                "The clock cannot be set earlier than {} (UTC).",
+                floor.0
+            ));
+        }
         system
             .set_time(unix)
             .map_err(|error| format!("Could not set the time: {error}"))?;

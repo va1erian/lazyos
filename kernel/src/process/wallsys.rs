@@ -4,11 +4,13 @@
 //! | `rdi` op | call | `rsi` | result |
 //! |----------|------|-------|--------|
 //! | 0 | `get` | - | UTC centiseconds since the Unix epoch |
-//! | 1 | `set` | UTC whole seconds | 0, or `-EPERM` / `-EINVAL` |
+//! | 1 | `set` | UTC centiseconds | 0, or `-EPERM` / `-EINVAL` |
 //!
-//! `set` needs `CAP_SYS_TIME`, checked before the argument so an unprivileged
+//! `set` takes the same unit `get` returns, so a value read from one can be
+//! stepped with the other (an NTP offset is not a whole number of seconds).
+//! It needs `CAP_SYS_TIME`, checked before the argument so an unprivileged
 //! caller learns nothing about what would have been valid, and accepts the
-//! same range as `clock_settime` (`0..wallclock::MAX_SET_SECS`).
+//! same range as `clock_settime` (`0..wallclock::MAX_SET_SECS` seconds).
 
 use crate::ipc::credentials::{self, CAP_SYS_TIME};
 use crate::{task, wallclock};
@@ -17,7 +19,7 @@ use crate::{task, wallclock};
 pub mod op {
     /// Read UTC centiseconds since the epoch.
     pub const GET: u64 = 0;
-    /// Step the clock to a UTC second count (`CAP_SYS_TIME`).
+    /// Step the clock to a UTC centisecond count (`CAP_SYS_TIME`).
     pub const SET: u64 = 1;
 }
 
@@ -40,13 +42,14 @@ pub fn dispatch(operation: u64, arg: u64) -> u64 {
     }
 }
 
-fn set(secs: u64) -> u64 {
+fn set(centis: u64) -> u64 {
     if !credentials::of(task::current()).has_cap(CAP_SYS_TIME) {
         return negative(EPERM);
     }
+    let secs = centis / 100;
     if secs >= wallclock::MAX_SET_SECS as u64 {
         return negative(EINVAL);
     }
-    wallclock::set(secs as i64, 0);
+    wallclock::set(secs as i64, (centis % 100) as u32);
     0
 }

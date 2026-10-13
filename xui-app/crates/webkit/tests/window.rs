@@ -171,7 +171,10 @@ fn a_failed_load_keeps_the_page_on_show_and_a_dead_process_blanks_it() {
         ..PageState::default()
     });
     save(&failed, "webkit-load-failed.png");
-    assert!(red_pixels(&failed) > 5_000, "the page stays after a failed load");
+    assert!(
+        red_pixels(&failed) > 5_000,
+        "the page stays after a failed load"
+    );
 
     let crashed = after_a_failure(PageState {
         url: "http://example.com/".into(),

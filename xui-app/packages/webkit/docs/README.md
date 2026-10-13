@@ -22,21 +22,36 @@ page.
 * Pages run JavaScript (JavaScriptCore with the JIT) and show PNG, JPEG and GIF pictures (WebP is built in, not tried).
   Video, WebGL, WebAssembly, downloads, printing and the developer tools are not there yet.
 
-## Not sandboxed
+## Sandboxed
 
-This browser has no sandbox yet. The process that runs a page (with JavaScript and its JIT) has the
-permissions of the app (the display, input and outbound network access) and runs as you, so use it for
-pages you trust. Nothing is saved between runs: no cookies, history or cache survive closing the window.
+The two processes that do the work run in sandboxes of their own, and LazyOS enforces them, not WebKit:
+
+* **The page process** (one for every page, the one that runs a page's JavaScript with its JIT) can read
+  the font files and nothing else. It has no network, no access to your files, no window or input device,
+  no way to start a program and no way to signal another process. If a page exploits the engine, that is
+  all it gets.
+* **The network process** can use the network, read the system's resolver and certificate list, and write
+  inside the browser's own folder, `.apps/os.lazy.webkit` in your home folder. It has no window, no input
+  and no other file.
+* **This window** is an ordinary app: it draws, forwards your keys and clicks, and starts the two.
+
+The browser keeps its cookies, cache and site storage in that folder (`cookies/`, `cache/`, `storage/`).
+Delete the folder to forget them; no history is kept yet. Nothing is shared with other apps.
+
+The sandbox is not a reason to open anything: a bug in this window or in the messages the page process
+sends it is still a way out, and the page process runs as you. LazyWeb, which has no script engine,
+stays the browser LazyOS ships.
 
 ## What is where
 
 * The app is `os.lazy.webkit`; its processes are `/system/bin/webprocess` and
-  `/system/bin/networkprocess`. The window talks to WebKit through a small C ABI
+  `/system/bin/networkprocess`, each with the label `app:os.lazy.webkit/<name>` that the `[processes.*]`
+  tables of the package's manifest describe. The window talks to WebKit through a small C ABI
   (`webkit/port/app/lazyos_ui.h`).
-* Nothing is persisted yet: WebKit's data directories default to the PlayStation's `/app0`, which
-  LazyOS has not, so cookies and caches last as long as the app does.
-* The plan, the port and the numbers: `docs/webkit-port-plan.md` (W4 and W5) and `webkit/README.md` in
-  the source tree.
+* Your profile folder is `$HOME/.apps/os.lazy.webkit` (mode `0700`); without a home folder the browser
+  keeps nothing.
+* The plan, the port and the numbers: `docs/webkit-port-plan.md` (W4 and W5), the kernel's side of the
+  sandbox in `docs/architecture/process-sandbox.md`, and `webkit/README.md` in the source tree.
 
 ## Licence
 

@@ -10,7 +10,7 @@ use timezone::format::{format_clock_as, ClockFormat};
 use timezone::{Zone, ZONES};
 
 use crate::store::{ConfigStore, StoreError, Value};
-use crate::system::Now;
+use crate::system::{Now, NtpState, NtpStatus};
 
 /// Earliest year the date field accepts (the kernel clock's own floor is
 /// 1970; anything before the RTC's 19xx century is a typo).
@@ -145,10 +145,205 @@ pub fn set_show_seconds(store: &dyn ConfigStore, on: bool) -> Result<(), StoreEr
     store.set(timezone::SHOW_SECONDS_KEY, Value::Bool(on))
 }
 
+/// Whether automatic time is on: `sys/time/ntp/enabled`, on when absent,
+/// exactly as `timed` reads it.
+pub fn ntp_enabled(store: &dyn ConfigStore) -> bool {
+    flag(store, sntp::ENABLED_KEY, true)
+}
+
+/// Switch automatic time on or off.
+pub fn set_ntp_enabled(store: &dyn ConfigStore, on: bool) -> Result<(), StoreError> {
+    store.set(sntp::ENABLED_KEY, Value::Bool(on))
+}
+
+/// The configured server list, as typed (the default when none is stored).
+pub fn ntp_servers(store: &dyn ConfigStore) -> String {
+    match store.get(sntp::SERVERS_KEY) {
+        Some(Value::Str(text)) if !text.trim().is_empty() => text,
+        _ => String::from(sntp::DEFAULT_SERVER),
+    }
+}
+
+/// Store the server list: one to [`sntp::servers::MAX_SERVERS`] entries, each
+/// a name or address with an optional `:port`, which is what `timed` would
+/// use; anything else is refused by name rather than silently skipped.
+pub fn set_ntp_servers(store: &dyn ConfigStore, text: &str) -> Result<(), String> {
+    let entries: Vec<&str> = text
+        .split(|c: char| c.is_ascii_whitespace() || c == ',')
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    let value = if entries.is_empty() {
+        String::from(sntp::DEFAULT_SERVER)
+    } else {
+        if entries.len() > sntp::servers::MAX_SERVERS {
+            return Err(format!(
+                "Use at most {} servers.",
+                sntp::servers::MAX_SERVERS
+            ));
+        }
+        if let Some(bad) = entries
+            .iter()
+            .find(|entry| sntp::servers::parse(entry).count() != 1)
+        {
+            return Err(format!(
+                "\"{bad}\" is not a server name (a host name or address, then optionally :port)."
+            ));
+        }
+        entries.join(" ")
+    };
+    store
+        .set(sntp::SERVERS_KEY, Value::Str(value))
+        .map_err(|error| error.to_string())
+}
+
+/// `3 min ago`, `just now`, `2 h ago`.
+pub fn age_text(seconds: i64) -> String {
+    match seconds {
+        ..=4 => String::from("just now"),
+        5..=59 => format!("{seconds} s ago"),
+        60..=3_599 => format!("{} min ago", seconds / 60),
+        3_600..=86_399 => format!("{} h ago", seconds / 3_600),
+        _ => format!("{} d ago", seconds / 86_400),
+    }
+}
+
+/// `12 ms` or `3.4 s`, signed.
+pub fn offset_ms_text(ms: i64) -> String {
+    let sign = if ms < 0 { "-" } else { "" };
+    let abs = ms.unsigned_abs();
+    if abs < 1_000 {
+        format!("{sign}{abs} ms")
+    } else {
+        format!("{sign}{}.{} s", abs / 1_000, (abs % 1_000) / 100)
+    }
+}
+
+/// The status line under the automatic time switch, short enough for the
+/// page's half-width column. `on` is what the store says (so the line follows
+/// a click at once, before `timed` has caught up); `status` is what `timed`
+/// reports, `now_unix` the current time.
+pub fn ntp_summary(on: bool, status: Option<&NtpStatus>, now_unix: i64) -> String {
+    if !on {
+        return String::from("Automatic time is off.");
+    }
+    let Some(status) = status else {
+        return String::from("The time service is not running.");
+    };
+    let last = (status.last_sync_unix > 0).then(|| {
+        format!(
+            "Synchronized {} ({} off)",
+            age_text(now_unix - status.last_sync_unix),
+            offset_ms_text(status.offset_ms),
+        )
+    });
+    match status.state {
+        NtpState::Disabled => String::from("Turning automatic time on..."),
+        NtpState::WaitingForNetwork => String::from("Waiting for the network."),
+        NtpState::Syncing => last.unwrap_or_else(|| String::from("Contacting a time server...")),
+        NtpState::Synchronized => last.unwrap_or_else(|| String::from("Synchronized.")),
+        NtpState::Failed => match last {
+            Some(text) => format!("No answer; trying again. {text}"),
+            None => String::from("No answer from a time server."),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::MemStore;
+
+    fn status(state: NtpState) -> NtpStatus {
+        NtpStatus {
+            enabled: true,
+            state,
+            server: "pool.ntp.org (162.159.200.1)".into(),
+            offset_ms: -12,
+            last_sync_unix: 1_000,
+        }
+    }
+
+    #[test]
+    fn automatic_time_defaults_on_and_round_trips() {
+        let store = MemStore::new();
+        assert!(ntp_enabled(&store));
+        assert_eq!(ntp_servers(&store), "pool.ntp.org");
+        set_ntp_enabled(&store, false).unwrap();
+        assert!(!ntp_enabled(&store));
+        store
+            .set(sntp::ENABLED_KEY, Value::Str("no".into()))
+            .unwrap();
+        assert!(
+            ntp_enabled(&store),
+            "a value of the wrong kind is the default"
+        );
+    }
+
+    #[test]
+    fn servers_are_checked_like_timed_checks_them() {
+        let store = MemStore::new();
+        set_ntp_servers(&store, " time.example.net ,10.0.2.2:1123  ").unwrap();
+        assert_eq!(ntp_servers(&store), "time.example.net 10.0.2.2:1123");
+        // Empty means the default, stored explicitly.
+        set_ntp_servers(&store, "  ").unwrap();
+        assert_eq!(ntp_servers(&store), "pool.ntp.org");
+        set_ntp_servers(&store, "keep.example").unwrap();
+        for bad in ["a b c d e", "ok.example bad/host", "x:0", "[::1]", "-lead"] {
+            assert!(set_ntp_servers(&store, bad).is_err(), "{bad}");
+            assert_eq!(
+                ntp_servers(&store),
+                "keep.example",
+                "{bad} must not be stored"
+            );
+        }
+        let message = set_ntp_servers(&store, "good bad/host").unwrap_err();
+        assert!(message.contains("bad/host"), "{message}");
+    }
+
+    #[test]
+    fn ages_and_offsets_read_naturally() {
+        assert_eq!(age_text(0), "just now");
+        assert_eq!(age_text(30), "30 s ago");
+        assert_eq!(age_text(180), "3 min ago");
+        assert_eq!(age_text(7_300), "2 h ago");
+        assert_eq!(age_text(3 * 86_400), "3 d ago");
+        assert_eq!(age_text(-5), "just now");
+        assert_eq!(offset_ms_text(12), "12 ms");
+        assert_eq!(offset_ms_text(-12), "-12 ms");
+        assert_eq!(offset_ms_text(3_450), "3.4 s");
+        assert_eq!(offset_ms_text(-86_400_000), "-86400.0 s");
+    }
+
+    #[test]
+    fn the_status_line_follows_the_store_first() {
+        let synced = status(NtpState::Synchronized);
+        assert_eq!(
+            ntp_summary(false, Some(&synced), 1_180),
+            "Automatic time is off."
+        );
+        assert_eq!(
+            ntp_summary(true, Some(&synced), 1_180),
+            "Synchronized 3 min ago (-12 ms off)"
+        );
+        assert_eq!(
+            ntp_summary(true, None, 0),
+            "The time service is not running."
+        );
+        assert!(ntp_summary(true, Some(&status(NtpState::Disabled)), 0).contains("Turning"));
+        assert_eq!(
+            ntp_summary(true, Some(&status(NtpState::WaitingForNetwork)), 0),
+            "Waiting for the network."
+        );
+        let mut fresh = status(NtpState::Syncing);
+        fresh.last_sync_unix = 0;
+        assert_eq!(
+            ntp_summary(true, Some(&fresh), 0),
+            "Contacting a time server..."
+        );
+        let failed = ntp_summary(true, Some(&status(NtpState::Failed)), 1_100);
+        assert!(failed.starts_with("No answer"), "{failed}");
+        assert!(failed.contains("Synchronized 1 min ago"), "{failed}");
+    }
 
     fn zone(name: &str) -> &'static Zone {
         timezone::find(name).unwrap()

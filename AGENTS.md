@@ -602,7 +602,7 @@ them (`webkit/README.md` says how to keep the caches).
 W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
 the run loop and the C API on the main thread) with the xui window as a Rust static library
 (`xui-app/crates/webkit`: chrome, page view, input forwarding, host-tested against a recording engine)
-on a second thread, joined by a sixteen-function C ABI (`webkit/port/app/lazyos_ui.h`). `python
+on a second thread, joined by a C ABI (`webkit/port/app/lazyos_ui.h`: sixteen functions in W5, more for LazyWeb+ below). `python
 tools/webkit/app.py` builds the library on the host and links the program in the build container;
 `python tools/xui/build.py` packages it as a core package, and only a `LAZYOS_WEBKIT=1` image
 (`run_demo.py --webkit`, the launcher's WebKit group; needs the desktop and the network stack, a 1 GiB OS
@@ -611,8 +611,7 @@ the shipped browser. `python tools/webkit/app_run.py` builds the image, serves L
 from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
 Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot
 (`tools/webkit/test_app_judge.py` is the judge's self-test; `--label-trace` lists the package's
-`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser has **no sandbox**
-(the page process holds the app's display, input and network access as the user), persists nothing, and prints
+`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser's engine processes are sandboxed (#836: `docs/architecture/process-sandbox.md`, `python tools/webkit/attack_run.py --kernel`), and it prints
 the markers that name a page only in a `LAZYOS_UI_PROBE=1` image. `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
 OpenSSL: never link any of it into LazyWeb. See [`webkit/README.md`](webkit/README.md) and
 [`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) §5 W5.
@@ -622,6 +621,38 @@ python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webki
 python tools/xui/build.py                                                                  # the package
 python tools/webkit/app_run.py --accel auto                                                # boot and judge
 python tools/webkit/test_app_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webkit
+```
+
+## LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, `os.lazy.lazywebplus`)
+
+LazyWeb's browser window on the WebKit engine ([`docs/lazywebplus.md`](docs/lazywebplus.md), issue #835; W6 of
+the plan). The same C++ UI process as `webkit-app` (`webkit/port/app/`) with a different Rust window:
+`xui-app/webplus` (`xui-webplus`: LazyWeb's menu bar, toolbar, status bar, history, downloads, internal
+pages and hand-offs, driving WebKit through the `xui-webkit` seam, `xui-app/crates/webkit`, which both
+windows share) linked by `python tools/webkit/app.py --plus` into `lazywebplus-app`. The seam's C ABI grew
+(`webkit/port/app/lazyos_ui.h`, table in [`webkit/README.md`](webkit/README.md)) by a navigation policy
+(`policy.rs`: **a page's script can never start another program or run a browser command: only a user
+gesture can**), downloads to `$HOME/Downloads` through `.part` files, JavaScript dialogs drawn as xui
+dialogs, the link under the pointer, the pointer shape, new-window requests and a profile directory for
+cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplus`, the launcher's Simple
+tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
+and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
+`mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
+`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed like W5's (`[processes.*]` tables in the manifest, the network
+process also writing `$HOME/Downloads`; attack them with `python tools/webkit/attack_run.py --browser --app
+lazywebplus`). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
+otherwise). The window crates are declared `GPL-2.0-only
+OR GPL-3.0-or-later` (the program links OpenSSL through WebKit's curl and is GPL-3.0-or-later); only link
+GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplus` and `python
+tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
+first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
+and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
+
+```bash
+python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
+python tools/xui/build.py                                                                         # the package
+python tools/webplus/run.py --accel auto                                                          # boot twice, judge
+python tools/webplus/test_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
@@ -792,6 +823,17 @@ image with `LAZYOS_DESKTOP=1 LAZYOS_LAZYRAD=1 LAZYOS_XUI_AUTOSTART=term
 LAZYRAD_SAMPLES=lazyrad-os/samples/devplay LAZYOS_LABEL_TRACE=1
 LAZYOS_RESET_OS=1`) and must show no `LABEL:DENY`.
 
+A package may also declare helper programs that run under a narrower label of
+their own, `[processes.<name>]` tables whose `program` an `execve` of the app's
+task enters as `app:<system_name>/<name>` (issue #832; `docs/packages.md`,
+"Process tables"; `kernel/src/ipc/children.rs`). Such a label holds at most the
+app's permissions, owns no names, and may not start programs. A traced run
+prints `LABEL:ENTER label=<child> pid=<n> program=<path>` when a task enters
+one and `LABEL:DENY label=<child> start=<call>` when it tries to start a
+program; the kernel tests are `LAZYOS_TEST_FILTER=label_child python
+tools/test/run.py --accel none`, and a ring-3 `execve` of a bound program
+runs end to end in `label_child_real_execve`.
+
 ## App failures (the "stopped unexpectedly" notice)
 
 `init` restarts services and the desktop shell as before, but a launched app
@@ -911,6 +953,36 @@ cd lazyrad-os && cargo test                   # tracker unit tests; tests/modpla
 python tools/lazyrad/gen_demo_song.py --check # the built-in song (an original, CC0) is current
 ```
 
+## Network time (`timed`, SNTP)
+
+When the network has an address `timed` asks NTP servers for the time and
+steps the wall clock; at start it lifts a clock earlier than the build's floor
+(`sntp::CLOCK_FLOOR_UNIX`, a checked-in date: raise it when you cut a release).
+It is on by default and switched with `sys/time/ntp/enabled` and
+`sys/time/ntp/servers` (Settings -> Time & Date, through `elevd`; a session
+cannot write `sys/**`). The first sync of a boot may step by any amount, later
+ones by at most 1000 s (a larger offset only when answers keep agreeing for ten
+minutes), never to before the floor, and offsets under 250 ms are left alone
+(`libs/sntp/src/policy.rs`). Plain SNTP is unauthenticated: it is a
+correctness aid (certificate validity, SMB/NTLM times), not a security
+control. Plan and as-built notes: [`docs/ntp-plan.md`](docs/ntp-plan.md).
+
+The packet, step policy and schedule are host-tested; the QEMU harness boots a
+services console image against a misbehaving host server (`tools/ntp`) with a
+good or years-off RTC and judges the guest's `TIMED:NTP:*` lines, the clock
+`timectl now` prints and what the server received (nonce, request spacing).
+`LAZYOS_TIMED_ARGS=ntp.server=10.0.2.2:PORT` is the harness switch (it also
+forces the client on); `timectl ntp [status|sync]` is the command line.
+
+```bash
+cargo test -p sntp                       # packet, maths, policy, schedule, seeded fuzz
+python fuzz/gen_corpus.py --check        # the sntp seeds are current
+python tools/ntp/test_judge.py           # the harness judge fails when it should
+python tools/ntp/run.py --accel none     # build, boot once per scenario, judge (--only NAME, --list)
+LAZYOS_TEST_FILTER=timed python tools/test/run.py --accel none   # the clock syscall (centiseconds)
+cargo test --manifest-path xui-app/Cargo.toml -p xui-settings    # the Time & Date page
+```
+
 ## Latency harness
 
 `python tools/perf/run.py` builds the desktop with `LAZYOS_PERF=1` (kernel cfg
@@ -938,6 +1010,16 @@ It writes `docs/compat/matrix.md` (+ `compat.json`). CI
 (`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
 coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
 wiki **Linux ABI Plan**.
+
+The Linux loader runs dynamically linked musl programs (`PT_INTERP`; issue
+#535): the interpreter is looked up as stored, else in `/system/lib`
+(`fhs::SYSTEM_LIB`, which also serves `/lib/<name>` and `/usr/lib/<name>`),
+and `mmap(fd)` of a regular file is demand-faulted from a per-inode page
+cache (`kernel/src/fs/openfile/pagecache.rs`, `kernel/src/mem/filemap.rs`).
+`python tools/abi/dynlink.py` builds the `dynlink` row's program, PIE twin and
+libraries with zig and reads musl's `ld-musl-x86_64.so.1` out of the
+`alpine:3.20` Docker image (`--interpreter FILE` or `LAZYOS_LD_MUSL` name
+another); `LAZYOS_DYNLINK=1` embeds them (`tools/abi/run.py` does).
 
 ## Kernel test harness
 

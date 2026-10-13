@@ -77,11 +77,12 @@ pub fn wall_centis() -> u64 {
     unsafe { crate::raw::syscall2(nr::WALL_TIME, WALL_GET, 0) as u64 }
 }
 
-/// Step the wall clock to `unix_secs` (UTC). Needs `CAP_SYS_TIME`; returns
-/// the negative errno the kernel refused with.
-pub fn wall_set(unix_secs: u64) -> Result<(), i64> {
+/// Step the wall clock to `centis` UTC centiseconds since the Unix epoch,
+/// the unit [`wall_centis`] reads. Needs `CAP_SYS_TIME`; returns the negative
+/// errno the kernel refused with.
+pub fn wall_set_centis(centis: u64) -> Result<(), i64> {
     // SAFETY: syscall 24 takes no pointer.
-    crate::zero(unsafe { crate::raw::syscall2(nr::WALL_TIME, WALL_SET, unix_secs) })
+    crate::zero(unsafe { crate::raw::syscall2(nr::WALL_TIME, WALL_SET, centis) })
 }
 
 /// The monotonic deadline `after` from now, for [`crate::msg::wait_any_ns`].

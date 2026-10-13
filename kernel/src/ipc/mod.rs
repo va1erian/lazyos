@@ -16,6 +16,8 @@
 pub mod acl;
 pub mod audit;
 pub mod channels;
+pub mod children;
+pub mod confine;
 pub mod connect;
 pub mod credentials;
 pub mod devspawn;

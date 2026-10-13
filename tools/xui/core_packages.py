@@ -111,6 +111,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # (`build_support/webkit_embed.rs`, which fails that build when it is missing).
     "webkit": CoreApp({"xui-webkit.elf": "bin/webkit.elf"}, optional=True,
                       built_by="python tools/webkit/app.py"),
+    # LazyWeb+ (docs/lazywebplus.md): LazyWeb's chrome on the same WebKit build, one static program
+    # linked by `tools/webkit/app.py --plus`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
+    # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
+    "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,
+                           built_by="python tools/webkit/app.py --plus"),
     # The Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1` image
     # ships it (`build_support/lazysky_embed.rs`, which fails that build when
     # it is missing).

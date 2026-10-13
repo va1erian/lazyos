@@ -4,6 +4,7 @@
 //!
 //! Split out of `mimed.rs`, which is past the file-size budget.
 
+use alloc::string::ToString;
 use user::messenger::mime;
 use user::sys;
 use user::trace;
@@ -11,6 +12,7 @@ use user::trace;
 use super::apps::{choose, AppRegistry};
 use super::db::MimeDb;
 use super::handlers::open_path;
+use super::prefs::Prefs;
 
 /// The boot self-test: database guesses, a registry round trip, and the open
 /// walk. Every check prints one machine-parseable marker.
@@ -227,7 +229,10 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         );
     }
 
+    prefers(apps);
+
     let mut bus = None;
+    let mut prefs = Prefs::new();
     for (path, expected) in [
         ("NOTES.TXT", "os.lazy.editor"),
         ("LOGO.PNG", "os.lazy.paint"),
@@ -236,7 +241,16 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         // Session 0: the service's own (system) session. No open-with app is
         // installed yet in this image, so the launch attempt exercises the
         // gated fallback and the open walk still passes on the publish record.
-        match open_path(db, apps, &mut bus, path, mime::DEFAULT_VERB, Some(0)) {
+        match open_path(
+            db,
+            apps,
+            &mut bus,
+            &mut prefs,
+            path,
+            mime::DEFAULT_VERB,
+            Some(0),
+            None,
+        ) {
             Ok(result) if result.app == expected => {
                 trace::line!(trace::Channel::Mime, "OPEN:PASS {path} {}", result.app);
                 if !result.published {
@@ -255,5 +269,40 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
                 trace::line!(trace::Channel::Mime, "OPEN:FAIL {path} {}", error.message())
             }
         }
+    }
+}
+
+/// A user's choice between two apps that handle one type (docs/lazywebplus.md): the choice wins
+/// when the app handles the type, an app that does not handle it is ignored, and the key is a
+/// `confd` path in the user's own subtree. Pure, so a boot proves it without `confd`.
+fn prefers(apps: &mut AppRegistry) {
+    const TYPE: &str = "x-scheme-handler/lazytest";
+    apps.register(TYPE, "os.lazy.first", "open");
+    apps.register(TYPE, "os.lazy.second", "open");
+    let resolve = |apps: &AppRegistry, preferred| {
+        apps.resolve_preferred(TYPE, "open", preferred)
+            .map(|(app, _)| app.to_string())
+    };
+    let by_install_order = resolve(apps, None).as_deref() == Some("os.lazy.second");
+    let chosen = resolve(apps, Some("os.lazy.first")).as_deref() == Some("os.lazy.first");
+    let registered_is_chosen =
+        resolve(apps, Some("os.lazy.second")).as_deref() == Some("os.lazy.second");
+    let stranger = resolve(apps, Some("os.lazy.stranger")).as_deref() == Some("os.lazy.second");
+    let empty = resolve(apps, Some("  ")).as_deref() == Some("os.lazy.second");
+    let untyped = apps
+        .resolve_preferred("x-scheme-handler/none", "open", Some("os.lazy.first"))
+        .is_none();
+    apps.unregister(TYPE, "os.lazy.second", "open");
+    apps.unregister(TYPE, "os.lazy.first", "open");
+    if by_install_order && chosen && registered_is_chosen && stranger && empty && untyped {
+        trace::line!(
+            trace::Channel::Mime,
+            "PREFER:PASS a user's default app wins, a stranger does not"
+        );
+    } else {
+        trace::line!(
+            trace::Channel::Mime,
+            "PREFER:FAIL order={by_install_order} chosen={chosen} registered={registered_is_chosen} stranger={stranger} empty={empty} untyped={untyped}"
+        );
     }
 }

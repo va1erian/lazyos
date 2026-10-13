@@ -23,7 +23,7 @@ pub const DEFAULT_OS_SIZE: u64 = 512 << 20;
 /// Default OS volume size with `LAZYOS_SRB2KART=1` (its game data is about
 /// 250 MB): too much for [`DEFAULT_OS_SIZE`].
 pub const SRB2KART_OS_SIZE: u64 = 1 << 30;
-/// Default OS volume size with `LAZYOS_WEBKIT=1`: the browser's three static programs (the UI
+/// Default OS volume size with `LAZYOS_WEBKIT=1` or `LAZYOS_LAZYWEBPLUS=1`: the browser's three static programs (the UI
 /// process, `webprocess`, `networkprocess`) are about 107 MiB each and its package, which
 /// `pkgd` unpacks into `/apps`, holds them again, which leaves too little of
 /// [`DEFAULT_OS_SIZE`], and 768 MiB left too little room to write, with the rest of the image.
@@ -46,16 +46,18 @@ pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
     }
 }
 
-/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`, `LAZYOS_WEBKIT=1` and
-/// `LAZYOS_WEBKIT_PORT=1` (the console proof, with the same three programs) ask for larger ones (`tools/lazygui/osvolume.py` mirrors this).
+/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`, `LAZYOS_WEBKIT=1`,
+/// `LAZYOS_LAZYWEBPLUS=1` and `LAZYOS_WEBKIT_PORT=1` (the console proof, with the same three
+/// programs) ask for larger ones (`tools/lazygui/osvolume.py` mirrors this).
 pub fn default_size_env() -> u64 {
     println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
     let on = |name: &str| std::env::var_os(name).is_some_and(|value| value == "1");
     default_size(
         on("LAZYOS_SRB2KART"),
-        on("LAZYOS_WEBKIT") || on("LAZYOS_WEBKIT_PORT"),
+        on("LAZYOS_WEBKIT") || on("LAZYOS_WEBKIT_PORT") || on("LAZYOS_LAZYWEBPLUS"),
     )
 }
 

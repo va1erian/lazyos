@@ -9,16 +9,30 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Canvas, Event, NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::backend::{Canvas, Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Color, Image, Key, Modifiers, MouseButton};
 
-use crate::app::{shortcut, Msg};
 use crate::engine::{Button, Engine, MouseKind};
+use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
 use crate::mailbox::Frame;
+
+/// Whether a key is one of the window's own.
+pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
+
+/// What ties a view to the window that holds it.
+pub struct Hooks<M> {
+    /// The window's own shortcuts (Ctrl+L, F5, ...): the page never sees them.
+    pub is_shortcut: IsShortcut,
+    /// The message raised when the page is clicked.
+    pub clicked: M,
+    /// The message raised for a right click at a point of the view, when the window has a
+    /// context menu of its own (the page gets the click as well).
+    pub right_click: Option<Rc<dyn Fn(i32, i32) -> M>>,
+}
 
 /// xui's wheel unit: 120 for one notch (`WHEEL_DELTA`).
 const NOTCH: i32 = 120;
@@ -34,14 +48,14 @@ struct State {
     mods: Cell<u32>,
 }
 
-pub struct PageView {
-    control: Control<Msg>,
+pub struct PageView<M: 'static> {
+    control: Control<M>,
     state: Rc<RefCell<State>>,
     engine: Rc<dyn Engine>,
 }
 
-impl PageView {
-    pub fn new(ui: &Ui<Msg>, engine: Rc<dyn Engine>) -> Result<PageView> {
+impl<M: Clone + 'static> PageView<M> {
+    pub fn new(ui: &Ui<M>, engine: Rc<dyn Engine>, hooks: Hooks<M>) -> Result<PageView<M>> {
         let control = Control::new(
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
@@ -58,9 +72,26 @@ impl PageView {
         {
             let (ui, id) = (ui.clone(), control.id());
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
+            let Hooks {
+                is_shortcut,
+                clicked,
+                right_click,
+            } = hooks;
             control.on_events(move |event| {
-                handle(&ui, id, &state, engine.as_ref(), event);
-                matches!(event, Event::MouseDown { .. }).then_some(Msg::PageClicked)
+                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, event);
+                match (event, &right_click) {
+                    (
+                        Event::MouseDown {
+                            button: MouseButton::Right,
+                            x,
+                            y,
+                            ..
+                        },
+                        Some(make),
+                    ) => Some(make(*x, *y)),
+                    (Event::MouseDown { .. }, _) => Some(clicked.clone()),
+                    _ => None,
+                }
             });
         }
         Ok(PageView {
@@ -109,20 +140,41 @@ impl PageView {
     pub fn engine(&self) -> &Rc<dyn Engine> {
         &self.engine
     }
+
+    /// The pointer shape over the page, as the page asked for it.
+    pub fn set_cursor(&self, kind: CursorKind) {
+        self.control
+            .ui()
+            .set_cursor(self.control.id(), cursor(kind));
+    }
 }
 
-impl Placeable<Msg> for PageView {
+/// The xui pointer for a page's shape: the compositor has an arrow, a hand, an I-beam and the
+/// resize arrows (busy is a window-wide state, and a hidden pointer is not offered).
+fn cursor(kind: CursorKind) -> Cursor {
+    match kind {
+        CursorKind::Hand => Cursor::Hand,
+        CursorKind::Text => Cursor::Text,
+        CursorKind::ResizeHorizontal => Cursor::SizeHorizontal,
+        CursorKind::ResizeVertical => Cursor::SizeVertical,
+        CursorKind::ResizeNwSe => Cursor::SizeNwSe,
+        CursorKind::ResizeNeSw => Cursor::SizeNeSw,
+        CursorKind::Default | CursorKind::Wait | CursorKind::Hidden => Cursor::Default,
+    }
+}
+
+impl<M: Clone + 'static> Placeable<M> for PageView<M> {
     fn id(&self) -> WidgetId {
         self.control.id()
     }
 
     /// The view takes whatever its `fill` entry gives it.
-    fn measure(&self, _ui: &Ui<Msg>, _constraints: Constraints) -> Size {
+    fn measure(&self, _ui: &Ui<M>, _constraints: Constraints) -> Size {
         Size::new(0, 0)
     }
 
     /// The page is laid out at the size the view is given.
-    fn placed(&self, _ui: &Ui<Msg>, rect: Rect) {
+    fn placed(&self, _ui: &Ui<M>, rect: Rect) {
         let size = (rect.width().max(1), rect.height().max(1));
         let state = self.state.borrow();
         if state.size.replace(size) != size {
@@ -166,7 +218,14 @@ fn notches(delta: i16) -> i32 {
 }
 
 /// What a mouse event does to the engine, and to the capture of the pointer.
-fn handle(ui: &Ui<Msg>, id: WidgetId, state: &RefCell<State>, engine: &dyn Engine, event: &Event) {
+fn handle<M: 'static>(
+    ui: &Ui<M>,
+    id: WidgetId,
+    state: &RefCell<State>,
+    engine: &dyn Engine,
+    is_shortcut: &IsShortcut,
+    event: &Event,
+) {
     let Ok(state) = state.try_borrow() else {
         return;
     };
@@ -242,7 +301,7 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &RefCell<State>, engine: &dyn Engin
             ..
         } => {
             state.mods.set(modifier_bits(modifiers));
-            forward_key(engine, true, key, modifiers, system);
+            forward_key(engine, is_shortcut, true, key, modifiers, system);
         }
         Event::KeyUp {
             key,
@@ -250,7 +309,7 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &RefCell<State>, engine: &dyn Engin
             system,
         } => {
             state.mods.set(modifier_bits(modifiers));
-            forward_key(engine, false, key, modifiers, system);
+            forward_key(engine, is_shortcut, false, key, modifiers, system);
         }
         Event::Char(c) => {
             // Enter, Tab and Backspace came as keys; only text arrives here.
@@ -267,9 +326,16 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, state: &RefCell<State>, engine: &dyn Engin
 
 /// A key press or release as the page gets it: a key that types nothing by
 /// its symbol, a Ctrl or Alt chord on a letter by its (lower case) letter.
-fn forward_key(engine: &dyn Engine, press: bool, key: Key, modifiers: Modifiers, _system: bool) {
+fn forward_key(
+    engine: &dyn Engine,
+    is_shortcut: &IsShortcut,
+    press: bool,
+    key: Key,
+    modifiers: Modifiers,
+    _system: bool,
+) {
     // The window's own shortcuts (Ctrl+L, F5, Alt+Left...) are the window's, not the page's.
-    if shortcut(key, modifiers, false).is_some() {
+    if is_shortcut(key, modifiers) {
         return;
     }
     let bits = modifier_bits(modifiers);

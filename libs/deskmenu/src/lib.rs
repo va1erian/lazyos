@@ -44,6 +44,7 @@ pub const MAX_APP: usize = 64;
 /// [`MAX_APP`].
 pub const MAX_SYSTEM_NAME: usize = 128;
 
+pub mod defaults;
 pub mod hidden;
 
 /// One menu row: which registry app it launches and what it says.

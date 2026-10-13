@@ -23,8 +23,45 @@ interface os.lazy.timed.v1 {
 
     /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
     /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
-    /// an administrator approved `time.set`); anyone else gets `EPERM`.
+    /// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+    /// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+    /// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+    /// the next time it starts.
     method SetTime(unix_secs: I64 = 1) -> ();
+
+    /// The state of the network time client (docs/ntp-plan.md): whether it is
+    /// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+    /// `NtpState` ordinal), and the last exchange that was accepted. Open to
+    /// everyone. Times are UTC seconds, 0 when there is none yet;
+    /// `offset_ms` and `delay_ms` are the last accepted exchange's server
+    /// minus local clock and round trip.
+    method NtpStatus() -> (
+        enabled: Bool = 1,
+        state: U32 = 2,
+        server: String = 3,
+        stratum: U32 = 4,
+        offset_ms: I64 = 5,
+        delay_ms: I64 = 6,
+        last_sync_unix: I64 = 7,
+        next_sync_unix: I64 = 8
+    );
+
+    /// Ask the network time client to query a server now. Open to everyone,
+    /// and rate-limited like the schedule: it fails with `EAGAIN` when a
+    /// query went out less than 15 seconds ago or is still in flight, or a
+    /// server asked to be left alone (`RATE`) and its hold has not passed,
+    /// `ENETUNREACH` when there is
+    /// no network and `ENODEV` when the client is off. Whatever the server
+    /// says is still judged by the same clock-step policy as a scheduled
+    /// exchange, so a caller cannot choose the time, only when to ask.
+    method SyncNow() -> ();
+
+    /// What the network time client is doing. Ordinals are append-only.
+    /// `Disabled`: switched off. `WaitingForNetwork`: on, no address yet.
+    /// `Syncing`: a query is in flight or due. `Synchronized`: an exchange
+    /// succeeded since boot. `Failed`: the last attempts got no usable
+    /// answer.
+    enum NtpState { Disabled, WaitingForNetwork, Syncing, Synchronized, Failed }
 
     /// The retained `time/tick` topic payload (issue #307). `unix` is UTC
     /// seconds, `offset` the local offset in seconds with DST included, and

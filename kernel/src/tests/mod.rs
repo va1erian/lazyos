@@ -172,6 +172,7 @@ mod boot_trace_suite;
 mod bufops;
 mod chmod_suite;
 mod confd_suite;
+mod confine_suite;
 mod connect_suite;
 mod credentials_suite;
 mod crypto_suite;
@@ -198,6 +199,7 @@ mod ipc_shared_suite;
 mod ipc_suite;
 mod irq_window_deadline;
 mod irq_window_suite;
+mod itimer_suite;
 mod keyboard_suite;
 mod label_suite;
 mod limits_suite;
@@ -267,6 +269,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     linux_suite::CASES,
     linux_compat_suite::CASES,
     loader_suite::CASES,
+    loader_suite::dynamic::CASES,
     sched_suite::CASES,
     guard_suite::CASES,
     runq_suite::CASES,
@@ -275,6 +278,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
+    itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,
     ipc_suite::CASES,
@@ -350,6 +354,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     overlay_suite::CASES,
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
+    ext2_suite::data_fds::filemap::CASES,
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
@@ -361,6 +366,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     spawn_suite::CASES,
     native_exec_suite::CASES,
     exec_perm_suite::CASES,
+    confine_suite::CASES,
     chmod_suite::CASES,
     display_suite::CASES,
     mux_suite::CASES,

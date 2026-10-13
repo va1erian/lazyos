@@ -52,9 +52,38 @@ fn set_zone(name) {
 ///
 /// Step the wall clock to `unix_secs` (UTC). The caller's kernel-stamped
 /// credentials must hold `CAP_SYS_TIME`, or the caller be `elevd` (once
-/// an administrator approved `time.set`); anyone else gets `EPERM`.
+/// an administrator approved `time.set`); anyone else gets `EPERM`. A time
+/// before the build's floor (`sntp::CLOCK_FLOOR_UNIX`, 2026-01-01) or past
+/// 2200 fails with `EINVAL`: the service would lift an earlier clock again
+/// the next time it starts.
 fn set_time(unix_secs) {
     msg::connect("os.lazy.timed.v1").invoke("SetTime", [unix_secs])
+}
+
+/// `NtpStatus() -> (enabled: Bool, state: U32, server: String, stratum: U32, offset_ms: I64, delay_ms: I64, last_sync_unix: I64, next_sync_unix: I64)`
+///
+/// The state of the network time client (docs/ntp-plan.md): whether it is
+/// switched on (`sys/time/ntp/enabled`), what it is doing (`state`, an
+/// `NtpState` ordinal), and the last exchange that was accepted. Open to
+/// everyone. Times are UTC seconds, 0 when there is none yet;
+/// `offset_ms` and `delay_ms` are the last accepted exchange's server
+/// minus local clock and round trip.
+fn ntp_status() {
+    msg::connect("os.lazy.timed.v1").invoke("NtpStatus", [])
+}
+
+/// `SyncNow() -> ()`
+///
+/// Ask the network time client to query a server now. Open to everyone,
+/// and rate-limited like the schedule: it fails with `EAGAIN` when a
+/// query went out less than 15 seconds ago or is still in flight, or a
+/// server asked to be left alone (`RATE`) and its hold has not passed,
+/// `ENETUNREACH` when there is
+/// no network and `ENODEV` when the client is off. Whatever the server
+/// says is still judged by the same clock-step policy as a scheduled
+/// exchange, so a caller cannot choose the time, only when to ask.
+fn sync_now() {
+    msg::connect("os.lazy.timed.v1").invoke("SyncNow", [])
 }
 
 /// A `Tick` with every field at its zero value.
@@ -65,6 +94,19 @@ fn set_time(unix_secs) {
 fn new_tick() {
     #{ unix: 0, offset: 0, zone_name: "" }
 }
+
+// The variants of `NtpState`, in wire order.
+export const NTP_STATE = ["Disabled", "WaitingForNetwork", "Syncing", "Synchronized", "Failed"];
+
+export const NTP_STATE_DISABLED = "Disabled";
+
+export const NTP_STATE_WAITING_FOR_NETWORK = "WaitingForNetwork";
+
+export const NTP_STATE_SYNCING = "Syncing";
+
+export const NTP_STATE_SYNCHRONIZED = "Synchronized";
+
+export const NTP_STATE_FAILED = "Failed";
 
 // Filter for every event of the topic `time/tick` (payload `Tick`, qos latest, retained).
 // Published each minute (and on any zone or clock change) and retained, so

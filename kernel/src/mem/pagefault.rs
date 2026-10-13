@@ -39,6 +39,14 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
     // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
     // this same table.
     let old = unsafe { *entry };
+    if old & pte::SHARED != 0 && old & PTE_USER != 0 && old & PTE_WRITABLE == 0 {
+        // A shared file page maps read-only until its first store.
+        return if super::filemap::shared_write_fault(table, va, entry) {
+            Resolve::Handled
+        } else {
+            Resolve::Refused
+        };
+    }
     if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return Resolve::Refused;
     }
@@ -82,10 +90,10 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
 ///
 /// Only access the VMA permits is granted: a write fault in a read-only range
 /// (or any access to `PROT_NONE`) stays unresolved and falls through to the
-/// fatal path, where a future signal would be delivered. `File` VMAs are
-/// mapped eagerly and never demand-fault; a stack is mapped eagerly only where
-/// the loader wrote its start frame, the rest of its reservation fills on
-/// first touch.
+/// fatal path, where a future signal would be delivered. A file mapping is
+/// filled from the page cache by [`super::filemap`]; a stack is mapped eagerly
+/// only where the loader wrote its start frame, the rest of its reservation
+/// fills on first touch.
 #[cfg(lazyos_tests)]
 pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool {
     demand_resolve(table, va, error) == Resolve::Handled
@@ -99,6 +107,15 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
     let Some(vma) = vma::find(table, va) else {
         return Resolve::Refused;
     };
+    if vma.kind.is_file_mapping() {
+        // A file page is read from the page cache (it may park the task); a
+        // file that cannot be read is the program's `SIGSEGV`.
+        return if super::filemap::fault(table, va, error, vma) {
+            Resolve::Handled
+        } else {
+            Resolve::Refused
+        };
+    }
     if !matches!(
         vma.kind,
         vma::Kind::Anon | vma::Kind::Heap | vma::Kind::Stack

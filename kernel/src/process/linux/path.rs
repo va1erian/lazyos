@@ -17,7 +17,7 @@ use crate::process::image::VfsFile;
 use crate::task::{self, Fd};
 
 use super::cwd::user_path;
-use super::errno::{err, fs_err, EEXIST, EISDIR, ENOENT, ENOTDIR, EROFS};
+use super::errno::{err, fs_err, EEXIST, EISDIR, ENOENT, ENOTDIR, EPERM, EROFS};
 use super::fd::{file_meta, open_device_fd, open_snapshot};
 use super::native::{BIN_DIRS, SYSTEM_BIN_DIR};
 use super::vfsfd::open_vfs_fd;
@@ -150,6 +150,10 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             kind: FileKind::File,
             times: vfs::Times::default(),
         });
+    }
+    if let Some(target) = super::libpath::alias(path) {
+        // `/lib/libfoo.so` is `/system/lib/libfoo.so` (`libpath`).
+        return crate::fs::abi_stat(Id::current(), &target).ok();
     }
     if let Some(program) = system_bin_path(path) {
         // What `execve` of the name runs: the `/system/bin` program of that
@@ -352,10 +356,40 @@ fn open_file_as(id: Id, path: &str, meta: Meta, mode: Access, created: bool, thr
     }
 }
 
+/// Whether a task under a confined label (`ipc::confine`) may open the
+/// fabricated device node `path`: the baseline devices (`/dev/null`, ...) and
+/// whatever its rules name. Everyone else always may.
+fn confined_device_ok(path: &str, flags: u64) -> bool {
+    let id = Id::current();
+    if !crate::ipc::confine::confined(id.label) {
+        return true;
+    }
+    let access = if flags & O_ACCMODE != 0 {
+        crate::ipc::confine::Access::Write
+    } else {
+        crate::ipc::confine::Access::Read
+    };
+    crate::ipc::confine::check_path(id.label, path, access).is_ok()
+}
+
 /// Open a path through the ABI VFS (the copy-up overlay root and the shared
 /// `/tmp` ramfs), plus the synthetic device nodes and BusyBox applet aliases.
 /// Honours `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, and `O_DIRECTORY`.
 fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
+    // A shared object looked up in a conventional library directory.
+    // (Only to read: a create or write open of such a name is its own file.)
+    let aliased = if flags & (O_ACCMODE | O_CREAT | O_TRUNC) == 0 {
+        super::libpath::alias(path)
+    } else {
+        None
+    };
+    let path = aliased.as_deref().unwrap_or(path);
+
+    // The device nodes below are named before the VFS is asked about
+    // anything, so a confined label's rules are applied to them here.
+    if path.starts_with("/dev/") && !confined_device_ok(path, flags) {
+        return err(EPERM);
+    }
     match path {
         "/dev/tty" => return super::tty::open_tty(),
         "/dev/console" | "/dev/tty0" | "/dev/tty1" => {

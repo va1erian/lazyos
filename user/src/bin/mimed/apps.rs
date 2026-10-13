@@ -185,6 +185,13 @@ impl AppRegistry {
         }
     }
 
+    /// Whether two apps handle `(mime, verb)`: the only case in which a user's choice of app matters,
+    /// so the only one that costs the `confd` lookup of it (`mimed` serves every open from one thread).
+    pub(crate) fn contested(&self, mime_type: &str, verb: &str) -> bool {
+        self.entry(mime_type, verb)
+            .is_some_and(|entry| !entry.shadowed.is_empty())
+    }
+
     /// Name the fallback for an already-registered `(mime, verb)`; a no-op for
     /// a pair that was never registered.
     fn set_fallback(&mut self, mime_type: &str, verb: &str, fallback: &str) {
@@ -214,6 +221,36 @@ impl AppRegistry {
                     && entry.verb.eq_ignore_ascii_case(verb.trim())
             })
             .map(|entry| (entry.app.as_str(), entry.fallback.as_deref()))
+    }
+
+    /// [`resolve`](Self::resolve) for a user with a preference: `preferred`, when that app holds a
+    /// registration for the pair (it is the registered app, or one it replaced: installed, and
+    /// handling the type), else what `resolve` says. An app that does not handle the type is never
+    /// chosen, whatever the preference says.
+    pub(crate) fn resolve_preferred(
+        &self,
+        mime_type: &str,
+        verb: &str,
+        preferred: Option<&str>,
+    ) -> Option<(&str, Option<&str>)> {
+        let entry = self.entry(mime_type, verb)?;
+        let preferred = preferred.map(str::trim).filter(|app| !app.is_empty());
+        if let Some(app) = preferred {
+            if entry.app == app {
+                return Some((entry.app.as_str(), entry.fallback.as_deref()));
+            }
+            if let Some((held, fallback)) = entry.shadowed.iter().find(|(held, _)| held == app) {
+                return Some((held.as_str(), fallback.as_deref()));
+            }
+        }
+        Some((entry.app.as_str(), entry.fallback.as_deref()))
+    }
+
+    fn entry(&self, mime_type: &str, verb: &str) -> Option<&Registration> {
+        self.entries.iter().find(|entry| {
+            entry.mime.eq_ignore_ascii_case(mime_type.trim())
+                && entry.verb.eq_ignore_ascii_case(verb.trim())
+        })
     }
 
     /// The verbs registered for a type, in registration order.

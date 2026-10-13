@@ -140,6 +140,7 @@ channels! {
     Volume => "VOLUME",
     Web => "WEB",
     Webkit => "WEBKIT",
+    Webplus => "WEBPLUS",
     Widget => "WIDGET",
     Wifid => "WIFID",
     Wifi => "WIFI",

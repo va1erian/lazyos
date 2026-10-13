@@ -32,7 +32,7 @@
  "xui-app/crates/settings/src/keyboard_page.rs": 2,
  "xui-app/crates/settings/src/menu_page.rs": 1,
  "xui-app/crates/webkit/src/app.rs": 3,
- "xui-app/crates/webkit/src/ffi.rs": 3,
+ "xui-app/crates/webkit/src/window_ffi.rs": 1,
  "xui-app/crates/writer/src/commands/files.rs": 8,
  "xui-app/crates/writer/src/commands/print.rs": 4,
  "xui-app/docs/src/app.rs": 5,
@@ -122,5 +122,9 @@
  "xui-app/web/src/fonts.rs": 1,
  "xui-app/web/src/handoff.rs": 3,
  "xui-app/web/src/main.rs": 1,
- "xui-app/web/src/transfers.rs": 3
+ "xui-app/web/src/transfers.rs": 3,
+ "xui-app/webplus/src/app.rs": 1,
+ "xui-app/webplus/src/app/events.rs": 4,
+ "xui-app/webplus/src/ffi.rs": 1,
+ "xui-app/webplus/src/lib.rs": 1
 }

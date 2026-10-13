@@ -11,7 +11,9 @@ dependency bundle, as static-PIE ``x86_64-linux-musl`` programs by zig:
   (``webkit/port/smoke/``);
 * ``webkit-app`` (``--only webkit-app``, W5): the desktop UI process, WebKit's run loop in
   C++ and the xui window in a Rust static library (``webkit/port/app/``,
-  ``xui-app/crates/webkit``); ``tools/webkit/app.py`` does both halves.
+  ``xui-app/crates/webkit``); ``tools/webkit/app.py`` does both halves;
+* ``lazywebplus-app`` (``--only lazywebplus-app``): the same UI process with LazyWebPlus's
+  window (``xui-app/webplus``; ``app.py --plus``, docs/lazywebplus.md).
 
 Runs inside the ``jsc`` build's Docker container (``tools/jsc/Dockerfile``, the
 volume ``lazyos-jsc-work``) like ``deps.py``; ``--no-docker`` runs the same
@@ -50,6 +52,7 @@ NAMES = ["WebProcess", "NetworkProcess", "webkit-smoke"]
 #: The desktop UI process (W5): built only on request, once the window's static library exists
 #: (``tools/webkit/app.py`` builds that first and then runs ``--only webkit-app``).
 APP = "webkit-app"
+PLUS = "lazywebplus-app"
 
 
 def in_container() -> bool:
@@ -110,8 +113,8 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, APP], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, APP])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, APP, PLUS], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, APP, PLUS])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
     parser.add_argument("--require", action="store_true",
                         help="fail (exit 1) when Docker or a download is unavailable")

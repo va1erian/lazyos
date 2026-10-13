@@ -95,6 +95,21 @@ impl Client {
     }
 }
 
+impl Client {
+    /// `NtpStatus()`: what the network time client is doing.
+    pub fn ntp_status(&self) -> Result<wire::NtpStatusReply> {
+        let reply = self.call(wire::METHOD_NTPSTATUS, Vec::new())?;
+        wire::decode_ntp_status_reply(&reply.body).map_err(Error::Parcel)
+    }
+
+    /// `SyncNow()`: ask a server now. `EAGAIN` when a query went out under
+    /// 15 s ago, `ENETUNREACH` without a network, `ENODEV` when the client
+    /// is off.
+    pub fn sync_now(&self) -> Result<()> {
+        self.call(wire::METHOD_SYNCNOW, Vec::new()).map(|_| ())
+    }
+}
+
 /// The retained `time/tick` topic, declared in `idl/timed.midl` (issue #307).
 pub const TICK_TOPIC: &str = wire::TOPIC_TIME_TICK;
 

@@ -164,6 +164,27 @@ pub fn fd_close_cloexec() -> usize {
     marked.into_iter().filter(|&fd| fd_close(fd)).count()
 }
 
+/// Close every descriptor above standard input, output and error that is not
+/// a connected socket: what a confined image (`ipc::confine`) starts with is
+/// the three standard streams and the socket pairs its launcher meant it to
+/// have, never a file, directory, listener or memory object the launcher
+/// happened to leave open without `FD_CLOEXEC`. Returns how many were closed.
+pub fn fd_close_all_but_sockets() -> usize {
+    let open: Vec<usize> = {
+        let tasks = TASKS.lock();
+        match tasks[current()].as_ref() {
+            Some(task) => task
+                .fds
+                .iter()
+                .filter(|(fd, entry)| *fd > 2 && !matches!(entry, Fd::Socket { .. }))
+                .map(|(fd, _)| fd)
+                .collect(),
+            None => return 0,
+        }
+    };
+    open.into_iter().filter(|&fd| fd_close(fd)).count()
+}
+
 /// Linux `O_NONBLOCK` (as `fd_status`/`fd_set_status` carry it).
 pub const O_NONBLOCK: u64 = 0o4000;
 

@@ -47,6 +47,33 @@ pub trait Filesystem: Send + Sync {
         Err(FsError::NotSupported)
     }
 
+    /// Write back one page of a mapped file: `data` at `offset`, cut at the
+    /// file's size *as it is when the write happens* (a truncate that landed
+    /// meanwhile is not undone). `wait` false is the periodic flusher's
+    /// call, which must never park on a busy volume: `None` means "busy, or
+    /// not something to do without waiting", and the page stays dirty. The
+    /// default waits for nothing and so answers `None` to the flusher, and
+    /// for `wait` composes [`Filesystem::stat_node`] and
+    /// [`Filesystem::write_node`].
+    fn flush_page(
+        &self,
+        node: NodeId,
+        offset: u64,
+        data: &[u8],
+        wait: bool,
+    ) -> Option<Result<usize, FsError>> {
+        if !wait {
+            return None;
+        }
+        Some(self.stat_node(node).and_then(|meta| {
+            if offset >= meta.size {
+                return Ok(0);
+            }
+            let keep = data.len().min((meta.size - offset) as usize);
+            self.write_node(node, offset, &data[..keep])
+        }))
+    }
+
     /// Metadata by node.
     fn stat_node(&self, _node: NodeId) -> Result<Meta, FsError> {
         Err(FsError::NotSupported)

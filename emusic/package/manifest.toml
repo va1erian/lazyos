@@ -27,9 +27,15 @@ type = "audio/mpeg"
 verbs = ["open", "play"]
 
 [permissions]
-# The compositor for its window, `inputd` for its keyboard, the system mixer
-# for its sound, the clipboard for "copy path".
-interfaces = ["os.lazy.display.v1", "os.lazy.input.v1", "os.lazy.audio.v1", "os.lazy.clipboard.v1"]
+# The compositor for its window and the pointer shape over it, `inputd` for
+# its keyboard, the system mixer for its sound, the clipboard for "copy path".
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.audio.v1",
+    "os.lazy.clipboard.v1",
+]
 # Its config, library database and thumbnails in its own folder; the music
 # where people keep it.
 files = ["write:$HOME/.apps/org.lazy.emusic", "read:$HOME/Music", "read:$HOME/Downloads"]

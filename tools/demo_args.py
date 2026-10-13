@@ -185,6 +185,13 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "volume, WebProcess and NetworkProcess in /system/bin and the app's core "
                              "package; built in Docker (tools/webkit/deps.py, port.py, app.py) and "
                              "packaged by tools/xui/build.py")
+    parser.add_argument("--lazywebplus", action="store_true",
+                        help="LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus "
+                             "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
+                             "stack, the big-app profile, a 1 GiB OS volume, WebProcess and "
+                             "NetworkProcess in /system/bin and the app's core package; built in "
+                             "Docker (tools/webkit/deps.py, port.py, app.py --plus) and packaged by "
+                             "tools/xui/build.py")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -287,9 +294,10 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
-    if args.webkit:
+    if args.webkit or args.lazywebplus:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
-    if args.big_app or args.jsc or args.webkit_deps or args.webkit_port or args.webkit:
+    if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port or args.webkit
+            or args.lazywebplus):
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -304,7 +312,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.webkit or args.lazysky or args.mail or args.pictures
+                    or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
+                    or args.pictures
                     or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
     args.tls = args.tls or args.lazyweb or args.mail
@@ -313,7 +322,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
     args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
-                or args.webkit_deps or args.webkit_port or args.webkit)
+                or args.webkit_deps or args.webkit_port or args.webkit or args.lazywebplus)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer

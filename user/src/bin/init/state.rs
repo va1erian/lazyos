@@ -129,6 +129,15 @@ pub(super) const BOOT_SELFTESTS: bool = cfg!(debug_assertions);
 /// the registry and policy self-tests but must not start demo programs.
 pub(super) const BOOT_EVIDENCE: bool = BOOT_SELFTESTS && !DESKTOP;
 
+/// The argument string of the `timed` row: `demo=1` runs the boot evidence;
+/// `LAZYOS_TIMED_ARGS` replaces it at build time (the NTP harness passes
+/// `ntp.server=10.0.2.2:PORT`, which also switches the client on and points
+/// it at the host, `docs/ntp-plan.md`).
+const TIMED_ARGS: &str = match option_env!("LAZYOS_TIMED_ARGS") {
+    Some(args) => args,
+    None => "demo=1",
+};
+
 /// One manifest row: the fields the supervisor needs to start and watch a
 /// service. The service's retained health topic is derived from its name via
 /// the generated `system/health/{name}` helper, so it is not stored here.
@@ -188,7 +197,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "timed",
         path: fhs::bin::TIMED,
-        args: "demo=1",
+        args: TIMED_ARGS,
         restart: Restart::Always,
         deps: &["messengerd", "confd"],
     },

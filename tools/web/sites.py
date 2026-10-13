@@ -55,6 +55,12 @@ ECHO_PATH = "/webkit/echo"
 #: presses Stop and judges that a cancelled load is not reported as a failure).
 SLOW_PATH = "/webkit/slow"
 SLOW_SECONDS = 30
+#: LazyWeb+'s harness (tools/webplus): sets the cookie `COOKIE_NAME=COOKIE_VALUE` (a day) and answers
+#: with a page whose title is `cookie:<the value of that cookie the request carried, or none>`:
+#: the first run's answer is `none`, a run after a restart (a persistent profile) `COOKIE_VALUE`.
+COOKIE_PATH = "/webplus/cookie"
+COOKIE_NAME = "lwp"
+COOKIE_VALUE = "kept"
 
 
 def echo_page(path: str) -> bytes:
@@ -64,9 +70,35 @@ def echo_page(path: str) -> bytes:
             f"<body style=\"font:28px sans-serif\"><h1>echo:{text}</h1></body></html>\n").encode()
 
 
+def cookie_page(cookie_header: str) -> bytes:
+    """The page `COOKIE_PATH` answers with: the title says which value of the cookie came."""
+    sent = {}
+    for part in cookie_header.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name:
+            sent[name] = value
+    seen = html.escape(sent.get(COOKIE_NAME, "none"))
+    return (f"<!doctype html><html><head><meta charset=\"utf-8\"><title>cookie:{seen}</title></head>"
+            f"<body style=\"font:28px sans-serif\"><h1>cookie:{seen}</h1></body></html>\n").encode()
+
+
 def download_payload() -> bytes:
     """The download's bytes: 300 KB the judge can check by length."""
     return bytes(i % 251 for i in range(300 * 1024))
+
+
+#: A slow attachment (LazyWeb+'s harness): `SLOW_DOWNLOAD_BYTES` sent in `SLOW_DOWNLOAD_STEPS` pieces
+#: `SLOW_DOWNLOAD_PAUSE` seconds apart, so its progress is on screen while it runs.
+SLOW_DOWNLOAD_PATH = "/files/slow-kit.zip"
+SLOW_DOWNLOAD_NAME = "slow-kit.zip"
+SLOW_DOWNLOAD_BYTES = 200 * 1024
+SLOW_DOWNLOAD_STEPS = 10
+SLOW_DOWNLOAD_PAUSE = 1.0
+
+
+def slow_download_payload() -> bytes:
+    """The slow download's bytes, checkable by length."""
+    return bytes((i * 7) % 251 for i in range(SLOW_DOWNLOAD_BYTES))
 
 
 @dataclass
@@ -78,6 +110,8 @@ class Request:
     status: int
     user_agent: str = ""
     sni: str | None = None
+    #: The Cookie header the request carried (the persistence check of tools/webplus).
+    cookie: str = ""
 
 
 @dataclass
@@ -130,13 +164,20 @@ class Handler(BaseHTTPRequestHandler):
         with record.lock:
             record.requests.append(Request(scheme, host, self.command, self.path, status,
                                            self.headers.get("User-Agent", ""),
-                                           getattr(self.connection, "lazyweb_sni", None)))
+                                           getattr(self.connection, "lazyweb_sni", None),
+                                           self.headers.get("Cookie", "")))
         self.send_response(status)
         for name, value in headers:
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        if body:
+        if body and self.path.split("?")[0] == SLOW_DOWNLOAD_PATH:
+            step = len(payload) // SLOW_DOWNLOAD_STEPS
+            for at in range(0, len(payload), step):
+                self.wfile.write(payload[at:at + step])
+                self.wfile.flush()
+                time.sleep(SLOW_DOWNLOAD_PAUSE)
+        elif body:
             self.wfile.write(payload)
 
     def route(self, scheme: str, host: str) -> tuple[int, list[tuple[str, str]], bytes]:
@@ -155,10 +196,17 @@ class Handler(BaseHTTPRequestHandler):
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == ECHO_PATH:
             return 200, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], \
                 echo_page(self.path)
+        if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == COOKIE_PATH:
+            return 200, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store"),
+                         ("Set-Cookie", f"{COOKIE_NAME}={COOKIE_VALUE}; Max-Age=86400; Path=/")], \
+                cookie_page(self.headers.get("Cookie", ""))
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == SLOW_PATH:
             time.sleep(SLOW_SECONDS)
             return 200, [("Content-Type", "text/html"), ("Cache-Control", "no-store")], \
                 b"<!doctype html><title>slow</title><h1>too slow</h1>\n"
+        if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == SLOW_DOWNLOAD_PATH:
+            return 200, [("Content-Type", "application/zip"),
+                         ("Content-Disposition", f'attachment; filename="{SLOW_DOWNLOAD_NAME}"')],                 slow_download_payload()
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == DOWNLOAD_PATH:
             return 200, [("Content-Type", "application/zip"),
                          ("Content-Disposition", f'attachment; filename="{DOWNLOAD_NAME}"')], \

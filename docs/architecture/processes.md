@@ -39,11 +39,21 @@ syscall shim.
   headers, then copies each segment's file bytes in 128 KiB chunks straight
   into the new frames.
 - Headers are validated before anything is mapped (little-endian ELF64,
-  x86-64, `ET_EXEC` or static-PIE `ET_DYN`, 56-byte program headers inside the
+  x86-64, `ET_EXEC` or `ET_DYN`, 56-byte program headers inside the
   file; every `PT_LOAD` inside the file, below the layout's `MMAP_BASE`, clear
   of the reserved windows, no two segments sharing a byte, the entry inside a
   segment). There is no cap on image size or segment count: the overlap check
   sorts the segments and compares neighbours.
+- A program with `PT_INTERP` is dynamically linked (issue #535): the Linux
+  loader maps the interpreter named there (read as stored, else the file of
+  that name in `/system/lib` for `/lib`, `/usr/lib`, `/usr/local/lib` and
+  `/lib64`) at `INTERP_BASE` (1 GiB below `MMAP_LIMIT`), moves a PIE program to
+  `PIE_BASE` (`0x40_0000`), starts at the interpreter's entry and passes
+  `AT_BASE` (the interpreter's load bias), `AT_PHDR` and `AT_ENTRY` of the
+  program; musl's `ld-musl-x86_64.so.1` then maps the libraries with
+  file-backed `mmap`. An interpreter that is missing is `ENOENT`, one that
+  is not an ELF or has a `PT_INTERP` itself `ENOEXEC`. Static and static-PIE
+  images load exactly as before.
 - Pages holding file bytes are mapped eagerly; a segment's `.bss` tail past
   its last file page is an `Anon` VMA, zero-filled on first touch, so the
   eager cost is bounded by the file, not by what its headers claim.
@@ -72,7 +82,7 @@ syscall shim.
 | 21 | `power(op, arg)` | `0` reboot, `1` power-off (sync, then stop), `2` arm the shutdown watchdog (`arg` = the stop the kernel forces 30 s later if the machine is still up); `CAP_SYS_ADMIN` only, checked before the op; `init` is the only caller, after its orderly shutdown ([../shutdown.md](../shutdown.md); `process/power.rs`, `power_watchdog.rs`) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |
 | 23 | `dev(op, a1, a2, a3, a4)` | userspace driver access: list, claim, map_bar, pio, cfg, irq, release; `CAP_DEV_CLAIM` (`dev/syscall.rs`, #240; see [devices.md](devices.md)) |
-| 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` seconds (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
+| 24 | `wall_time(op, a1)` | UTC wall clock for native services: `get` returns centiseconds since the epoch, `set` steps it to `a1` centiseconds, the unit `get` returns (`CAP_SYS_TIME`, checked before the argument; `process/wallsys.rs`, #369) |
 | 25 | `input_raw(op, a1, a2)` | the raw input event bus for `inputd`: `open` (raises the consumer to `Interactive`), `poll` (24-byte HID-coded key events with a gapless `seq`, `Dropped` markers and a TSC-interpolated `ts_ns`), `close`; a publication rings the consumer's doorbell, which the Messenger `wait` op parks on (`WAIT_RAW_INPUT`); `CAP_INPUT_RAW` (`input/rawsys.rs`; see [../input-plan.md](../input-plan.md)) |
 | 27 | `inet(op, a1, a2, a3)` | the `AF_INET` pump: `netd` (root or `_netd` only) fetches the socket requests the kernel queued for Linux programs, answers them, and moves bytes through the kernel's side of each socket (`process/inetsys.rs`, `ipc/inet/`, networking plan N5) |
 | 26 | `random(buf, len)` | up to 256 bytes from the kernel CSPRNG (`entropy.rs`) for native services such as `netd`; open to every task, no capability, `-EFAULT` on a bad destination (`process/randsys.rs`, networking plan N2) |
@@ -469,8 +479,13 @@ supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
 jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
 linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`;
-`alarm`/`setitimer`; `SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
-regular files; the umask is global, not per process. `SCM_RIGHTS`,
+`SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
+regular files; the umask is global, not per process. `alarm`, `setitimer`/`getitimer` and POSIX timers
+(`timer_create` with `SIGEV_SIGNAL`/`SIGEV_THREAD_ID`/`SIGEV_NONE`) exist
+(issue #535: `task/itimer.rs`, `process/linux/timers.rs`; wall-clock timers
+share the deadline timer, CPU-time timers are charged per scheduler tick, so
+they are tick-granular; `fork` gives the child none, `execve` keeps the
+interval timers; tests `itimer_suite`, fixture `alarm`). `SCM_RIGHTS`,
 `memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
 "Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
 filesystem stores links). The `persist` fixture also sets and re-checks mode,

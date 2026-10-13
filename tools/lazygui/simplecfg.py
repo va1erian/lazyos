@@ -46,6 +46,11 @@ SIMPLE_GROUPS = (
                          "108 MB, 4 GiB of RAM and a 1 GiB OS volume; builds in Docker (turns "
                          "Networking on).",
      ("webkit",)),
+    ("lazywebplus", "LazyWeb+", "LazyWeb's browser window on the WebKit engine: JavaScript and the "
+                                "modern web, with history, downloads and the rest of LazyWeb's "
+                                "chrome; three programs of about 108 MB, 4 GiB of RAM and a 1 GiB OS "
+                                "volume; builds in Docker (turns Networking on).",
+     ("lazywebplus",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
@@ -68,7 +73,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
-                  srb2kart: bool = False, webkit: bool = False) -> dict:
+                  srb2kart: bool = False, webkit: bool = False,
+                  lazywebplus: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -94,7 +100,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
     ``net``); ``webkit`` the WebKit browser (Desktop only, docs/webkit-port-plan.md; it implies
-    ``net`` and the big-app profile). Machine settings
+    ``net`` and the big-app profile); ``lazywebplus`` LazyWeb+, LazyWeb's browser on WebKit (the same).
+    Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
     """
@@ -106,6 +113,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     lazyweb = desktop and lazyweb
     lazysky = desktop and lazysky
     webkit = desktop and webkit
+    lazywebplus = desktop and lazywebplus
     tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
@@ -141,7 +149,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or wifi or lazysky or webkit,
+        "net": net or tls or wifi or lazysky or webkit or lazywebplus,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
@@ -154,6 +162,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "lazyweb": lazyweb,
         "lazysky": lazysky,
         "webkit": webkit,
+        "lazywebplus": lazywebplus,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,
