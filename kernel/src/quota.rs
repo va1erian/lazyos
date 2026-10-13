@@ -14,8 +14,11 @@
 //! * [`Resource::UserMemory`] -- user address-space bytes: VMA growth through
 //!   `mmap`/`brk`, and a program's ELF segments, charged by the loader to the
 //!   uid that will run it ([`charge_space`], issue #265). Stacks stay
-//!   uncharged. Every charge is recorded per address space and refunded when
-//!   the space is freed.
+//!   uncharged. A *reservation* (`PROT_NONE` or `MAP_NORESERVE` anonymous
+//!   memory) is charged by the pages resident in it instead, one page at its
+//!   first touch (`mem::demand_resolve`), so a runtime's gigabytes of
+//!   address space cost what it fills. Every charge is recorded per address
+//!   space and refunded when the space is freed.
 //! * [`Resource::Handles`] -- Messenger handles held across every task of the
 //!   uid. The per-process [`crate::ipc::handles::MAX_HANDLES`] check stays the
 //!   first line; this is the aggregate.

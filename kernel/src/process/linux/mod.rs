@@ -54,6 +54,7 @@ mod memfd;
 mod misc;
 mod mmapfile;
 mod mmapvfs;
+mod mremap;
 mod msgio;
 mod names;
 pub(crate) mod native;
@@ -263,7 +264,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         20 => iov::sys_writev(a1, a2, a3),
         21 => pathops::sys_access(a1, a2), // access(path, mode)
         22 => pipes::sys_pipe(a1, 0),      // pipe(fds)
-        25 => mem::sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
+        25 => mremap::sys_mremap(a1, a2, a3, a4, a5), // mremap(old, old_size, new_size, flags, new)
         26 => mmapvfs::sys_msync(a1, a2, a3), // msync(addr, len, flags)
         32 | 33 => fd::sys_dup(nr, a1, a2), // dup / dup2
         // nanosleep(req, rem) is always relative, so the clock is irrelevant.

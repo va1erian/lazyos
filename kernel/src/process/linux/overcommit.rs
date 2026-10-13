@@ -15,8 +15,9 @@
 //! not catch (many requests that each fit, or one that fits the machine but not
 //! the memory left on a busy one) is the page fault's job. `PROT_NONE` ranges and `MAP_NORESERVE`
 //! ones commit nothing and are never refused here, which is how a runtime
-//! reserves a large address range and commits it in pieces; they are still
-//! charged against the user-memory quota.
+//! reserves a large address range and commits it in pieces. They are not
+//! charged by length either: the user-memory quota counts the pages that come
+//! to be resident in them (`mem::vma::Vma::reserve`).
 
 use crate::mem::vma::Prot;
 

@@ -164,7 +164,27 @@ pub fn clone_space(parent: PhysAddr, child: PhysAddr) {
 /// agree and overwriting any different mapping already inside the range
 /// (`MAP_FIXED` semantics: the new intent wins).
 pub fn insert(table: PhysAddr, start: u64, end: u64, prot: Prot, kind: Kind) {
-    insert_mapped(table, start, end, prot, kind, None);
+    insert_mapped(table, start, end, prot, kind, false, None);
+}
+
+/// [`insert`] for a reservation ([`Vma::reserve`]): its quota charge is its
+/// resident pages, not its length.
+pub fn insert_reserve(table: PhysAddr, start: u64, end: u64, prot: Prot, kind: Kind) {
+    insert_mapped(table, start, end, prot, kind, true, None);
+}
+
+/// [`insert`] a range that is `template` moved or grown: the same protection,
+/// purpose and charging (`mremap`). A file mapping is [`insert_file`]'s.
+pub fn insert_like(table: PhysAddr, start: u64, end: u64, template: &Vma) {
+    insert_mapped(
+        table,
+        start,
+        end,
+        template.prot,
+        template.kind,
+        template.reserve,
+        None,
+    );
 }
 
 /// [`insert`] for a file mapping: `file` is the open file, mapped from
@@ -178,7 +198,7 @@ pub fn insert_file(
     file: Arc<OpenFile>,
     offset: u64,
 ) {
-    insert_mapped(table, start, end, prot, kind, Some((file, offset)));
+    insert_mapped(table, start, end, prot, kind, false, Some((file, offset)));
 }
 
 fn insert_mapped(
@@ -187,6 +207,7 @@ fn insert_mapped(
     end: u64,
     prot: Prot,
     kind: Kind,
+    reserve: bool,
     file: Option<(Arc<OpenFile>, u64)>,
 ) {
     let start = align_down(start);
@@ -215,6 +236,7 @@ fn insert_mapped(
                 kind,
                 file: id,
                 file_off,
+                reserve,
             },
         );
         space.prune()
@@ -463,6 +485,9 @@ fn merge(vmas: Vec<Vma>, out: &mut Vec<Vma>) {
                 if last.end == vma.start
                     && last.prot == vma.prot
                     && last.kind == vma.kind
+                    // A reservation is charged by its pages, anything else by
+                    // its length: the two never become one range.
+                    && last.reserve == vma.reserve
                     && last.file == vma.file
                     // The same file only merges where the offsets continue.
                     && (last.file == 0 || last.offset_at(last.end) == vma.file_off) =>

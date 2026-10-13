@@ -32,23 +32,40 @@ use super::errno::{err, EACCES, EBADF, EINVAL, ENODEV, ENOMEM, EOVERFLOW};
 use super::mem::Mapping;
 use super::PAGE;
 
+/// What [`unmap_vmas`] took out of an address space.
+pub(super) struct Gone {
+    /// The removed pieces, clipped to the range.
+    pub(super) vmas: alloc::vec::Vec<vma::Vma>,
+    /// The user-memory quota they held: a piece's length, or for a
+    /// reservation ([`vma::Vma::reserve`]) the pages that were resident in it
+    /// (a memfd mapping's pages are the memfd's: no charge).
+    pub(super) charged: u64,
+}
+
+/// The quota `vma` holds in `table`, counted before its pages are unmapped.
+pub(super) fn held(table: PhysAddr, vma: &vma::Vma) -> u64 {
+    if vma.kind == Kind::Shared {
+        0
+    } else if vma.reserve {
+        crate::mem::resident_pages(table, vma.start, vma.end) * PAGE
+    } else {
+        vma.len()
+    }
+}
+
 /// Take `[start, end)` out of the VMAs and the page tables, and let go of
-/// the file pages its file mappings held. Returns the removed pieces. A range
-/// with no VMA is left alone unless `always` (`MAP_FIXED` clears pages the
-/// VMAs do not know).
-pub(super) fn unmap_vmas(
-    table: PhysAddr,
-    start: u64,
-    end: u64,
-    always: bool,
-) -> alloc::vec::Vec<vma::Vma> {
+/// the file pages its file mappings held. Returns the removed pieces and what
+/// they were charged. A range with no VMA is left alone unless `always`
+/// (`MAP_FIXED` clears pages the VMAs do not know).
+pub(super) fn unmap_vmas(table: PhysAddr, start: u64, end: u64, always: bool) -> Gone {
     let pieces = vma::remove_files(table, start, end);
+    let charged = pieces.iter().map(|piece| held(table, &piece.vma)).sum();
     if always || !pieces.is_empty() {
         crate::mem::unmap_range(table, start, end);
     }
     let vmas = pieces.iter().map(|piece| piece.vma).collect();
     crate::mem::filemap::released(pieces, true);
-    vmas
+    Gone { vmas, charged }
 }
 
 const MS_ASYNC: u64 = 1;
@@ -97,8 +114,7 @@ fn map_file(spec: &Mapping, file: Arc<OpenFile>, offset: u64, shared: bool) -> u
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        let gone = unmap_vmas(table, spec.base, spec.end, true);
-        replaced = super::mem::charged_len(&gone);
+        replaced = unmap_vmas(table, spec.base, spec.end, true).charged;
     }
     let kind = if shared {
         Kind::FileShared
@@ -131,8 +147,7 @@ fn map_snapshot(spec: &Mapping, fd: u64, offset: u64) -> u64 {
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        let gone = unmap_vmas(table, spec.base, spec.end, true);
-        replaced = super::mem::charged_len(&gone);
+        replaced = unmap_vmas(table, spec.base, spec.end, true).charged;
     }
     let flags = crate::mem::prot_flags(spec.prot);
     let mut va = spec.base;

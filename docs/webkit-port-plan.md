@@ -617,8 +617,12 @@ of every `mmap` (`kernel/src/process/linux/mem.rs`), not the pages touched, so t
 a collector count; one WebProcess and a NetworkProcess and the UI process fit, three WebProcesses' worth did
 not. The port turns process swapping, pre-warming and the process cache off
 (`WKContextConfigurationSetProcessSwapsOnNavigation(false)` and two more): one WebProcess serves every page,
-which is also what a 4 GiB machine wants. Open: charge on commit rather than on reservation (a `PROT_NONE`
-mapping commits nothing), or give the quota a virtual-size allowance. Userspace, not the kernel: `pkgd`
+which is also what a 4 GiB machine wants. The kernel side is done: a `PROT_NONE` or `MAP_NORESERVE` mapping
+(the JIT pool, the structure heap, libpas's pages) is charged by the pages resident in it, not by its length
+(`docs/architecture/limits.md`), so a second process no longer starves for quota. (A response with
+`Cross-Origin-Opener-Policy: same-origin`, such as www.iana.org, starts a second WebProcess whatever
+`ProcessSwapsOnNavigation` says: it found the length-charged quota exhausted and crashed in `fastMalloc` with
+a 64 MiB structure heap.) Userspace, not the kernel: `pkgd`
 (core packages are provisioned at first boot) restarts itself once its heap has grown 32 MB past where it
 started, and sizes a buffer for the largest package first, so the 44 MB package made every fresh `pkgd` over
 the limit after one step; five rapid restarts exhaust `init`'s budget and provisioning stopped half way (`PKGD:

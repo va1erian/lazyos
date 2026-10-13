@@ -201,11 +201,27 @@ byte, and a refusal changes nothing (no charge, no frames): tests
 `linux_mmap_quota_exhaustion_is_enomem`, `..._soak` (2000 rounds) and
 `..._returns_when_the_process_exits`.
 
+**Reservations are charged by resident pages.** An anonymous private mapping
+made `PROT_NONE` or `MAP_NORESERVE` commits nothing, so `mmap` charges nothing
+for it; each page is charged to the uid when it is first touched
+(`mem::demand_resolve`) and given back when it is unmapped, dropped by
+`madvise(MADV_DONTNEED)`, or left behind by a shrinking `mremap`. The mapping
+stays a reservation through `mprotect`. Everything else (read-write memory
+without `MAP_NORESERVE`, `brk`, file and shared mappings, an ELF's segments)
+is still charged by length, with `ENOMEM` at the call. A touch the quota
+cannot cover cannot fail with `ENOMEM`, so it is answered like a machine with
+no frame left: the process is killed (`oom: killed ...`, `quota: uid N is at
+its user-memory quota ...`), or a syscall that touched the page gets `ENOMEM`.
+This is what lets a JavaScript engine reserve a 1 GiB code pool and an 8 GiB
+heap in each of several processes without the sum of the reservations
+exhausting one uid. Tests: `linux_mmap_reservation_*` (charge by page, the
+refused touch at the quota, `mremap`, a 3000-round soak).
+
 ## Running out of memory
 
-The quota counts reservations, not frames, so a program can reserve more than
-the machine has and find out only when it touches the last frame. Three rules
-keep that honest (issue #823):
+The quota counts reservations (apart from the ones above), not frames, so a
+program can reserve more than the machine has and find out only when it touches
+the last frame. Three rules keep that honest (issue #823):
 
 * **The page fault never answers a shortage with `SIGSEGV`.** When the
   demand-zero or copy-on-write path finds the frame allocator empty, the
@@ -229,7 +245,7 @@ keep that honest (issue #823):
   runs. It is one request against the machine's total, not against what is free
   now or what the process already holds: a big sparse reservation that fits
   must work. `PROT_NONE` ranges and `MAP_NORESERVE` mappings commit nothing and
-  are never refused here (they still count against the quota). Shared mappings
+  are never refused here (the quota counts their resident pages, above). Shared mappings
   keep their stricter eager check (`fits_in_memory`, against the free frames).
 * **The default quota never exceeds what the user can be given**: `3r/4`, at
   most RAM less the initial heap and the DMA pool, so a 256 MiB guest gets
@@ -268,12 +284,14 @@ launcher has no checkbox for it: type the memory in the Machine settings and
 "Kernel limits".
 
 **The WebKit browser** (`run_demo.py --webkit`, docs/webkit-port-plan.md W5) adds `quota_user_memory=8G`
-(`lazygui.limits.WEBKIT_LIMITS`; `--limit` still wins). The quota charges the *length* of every `mmap`, not
-the pages touched, and the three WebKit processes (the UI process, one WebProcess, the NetworkProcess) took
-what the quota let them: 2989 MiB of the profile's 3072 after the first page and 3059 after seven, 6957 and
-7027 MiB of 8192 at 8G, while 3405 of 4019 MiB of RAM stayed free. A second WebProcess's `exec` failed with
-`ENOMEM` under the 3G quota, so the port keeps one process for every page. Charging on commit instead of on
-reservation (a `PROT_NONE` mapping commits nothing) is the open kernel question.
+(`lazygui.limits.WEBKIT_LIMITS`; `--limit` still wins). The quota used to charge the *length* of every
+`mmap`, and the three WebKit processes (the UI process, one WebProcess, the NetworkProcess) took what it let
+them: 2989 MiB of the profile's 3072 after the first page and 3059 after seven, 6957 and 7027 MiB of 8192 at
+8G, while 3405 of 4019 MiB of RAM stayed free (each process's JIT pool and structure heap are
+`MAP_NORESERVE` reservations, and the structure heap halves its request until it fits). A second WebProcess
+(a page with `Cross-Origin-Opener-Policy`, such as www.iana.org, starts one whatever
+`ProcessSwapsOnNavigation` says) got a 64 MiB structure heap, ran out and crashed in `fastMalloc`. Reservations
+are charged by resident page now (above), so a process costs what it touches and the headroom stays.
 
 ## Derived only
 

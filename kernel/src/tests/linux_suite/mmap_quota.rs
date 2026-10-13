@@ -8,21 +8,24 @@ use crate::ipc::credentials::{self, Cred};
 use crate::quota::{self, Resource};
 
 /// A regular uid with a quota of its own.
-const UID: u32 = 48_411;
-const MIB: u64 = 1 << 20;
+pub(super) const UID: u32 = 48_411;
+pub(super) const MIB: u64 = 1 << 20;
 const ENOMEM: u64 = (-12i64) as u64;
 
 fn mmap_any(len: u64) -> u64 {
     process::linux::dispatch_args5_for_test(9, 0, len, PROT_RW, MAP_PRIVATE | MAP_ANONYMOUS, 0)
 }
 
-fn used() -> u64 {
+pub(super) fn used() -> u64 {
     quota::usage(UID, Resource::UserMemory)
 }
 
 /// Run the kernel task as [`UID`] with `limit` bytes of user memory; the
 /// ledger starts empty and root comes back afterwards.
-fn with_quota(limit: u64, body: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+pub(super) fn with_quota(
+    limit: u64,
+    body: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
     fresh()?;
     quota::reset();
     quota::set_limit(UID, Resource::UserMemory, limit);

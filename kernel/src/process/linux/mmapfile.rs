@@ -30,7 +30,7 @@ use crate::quota::{self, Resource};
 use crate::task::{self, Fd};
 
 use super::errno::{err, EBADF, EINVAL, ENOMEM, EOVERFLOW};
-use super::mem::{charged_len, Mapping};
+use super::mem::Mapping;
 use super::PAGE;
 
 /// Software page-table bits as the `x86_64` crate names them: 52 is
@@ -132,9 +132,7 @@ fn install(
     let table = spec.table;
     let mut replaced = 0u64;
     if spec.fixed {
-        replaced = charged_len(&super::mmapvfs::unmap_vmas(
-            table, spec.base, spec.end, true,
-        ));
+        replaced = super::mmapvfs::unmap_vmas(table, spec.base, spec.end, true).charged;
     }
     let mut va = spec.base;
     while va < spec.end {

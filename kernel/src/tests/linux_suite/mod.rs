@@ -212,6 +212,7 @@ mod inet_server;
 mod inet_soak;
 mod inet_timeouts;
 mod mmap_quota;
+mod mmap_reserve;
 mod mmap_reuse;
 mod mremap_eventfd;
 mod nanosleep_clock;
@@ -236,6 +237,7 @@ pub(super) use inet_server::*;
 pub(super) use inet_soak::*;
 pub(super) use inet_timeouts::*;
 pub(super) use mmap_quota::*;
+pub(super) use mmap_reserve::*;
 pub(super) use mmap_reuse::*;
 pub(super) use mremap_eventfd::*;
 pub(super) use nanosleep_clock::*;
@@ -357,6 +359,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "linux_mmap_quota_returns_when_the_process_exits",
         mmap_quota_returns_when_the_process_exits,
     ),
+    (
+        "linux_mmap_reservation_is_charged_by_resident_pages",
+        mmap_reservation_is_charged_by_resident_pages,
+    ),
+    (
+        "linux_mmap_reservation_at_the_quota_refuses_the_touch",
+        mmap_reservation_at_the_quota_refuses_the_touch,
+    ),
+    (
+        "linux_mmap_reservation_follows_mremap",
+        mmap_reservation_follows_mremap,
+    ),
+    ("linux_mmap_reservation_soak", mmap_reservation_soak),
     (
         "linux_overcommit_refuses_what_could_never_fit",
         overcommit_refuses_what_could_never_fit,
