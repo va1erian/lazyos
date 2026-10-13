@@ -1,0 +1,31 @@
+WebKit: the network cache's file times have a body on a port with neither st_birthtime nor GLib.
+
+NetworkCache::fileTimes() is three #if branches (HAVE(STAT_BIRTHTIME), USE(SOUP), OS(WINDOWS)) and
+nothing else: on a port that is none of them the function has no body, falls off its end (undefined
+behaviour) and clang compiles every path that reaches it to a trap. updateFileModificationTime()'s
+lambda is then `push rbp; mov rbp,rsp; int3`, so the first cache *hit* of a second boot (the
+record is read, its modification time is refreshed on the serial background queue) killed a
+NetworkProcess thread, and the cache's shrink and "clear since" would have done the same.
+
+LazyOS has no st_birthtime (musl) and no GLib to emulate it with an xattr, so the creation time is
+not known; the fallback reports the modification time (which stat gives) as both.
+
+--- a/Source/WebKit/NetworkProcess/cache/NetworkCacheFileSystem.cpp
++++ b/Source/WebKit/NetworkProcess/cache/NetworkCacheFileSystem.cpp
+@@ -82,6 +82,16 @@
+     auto createTime = FileSystem::fileCreationTime(path);
+     auto modifyTime = FileSystem::fileModificationTime(path);
+     return { valueOrDefault(createTime), valueOrDefault(modifyTime) };
++#else
++    // No st_birthtime (musl) and no xattr birthtime (that is written by the GLib IO channel): the
++    // creation time of a record is not known. Report its modification time as both, so a record's
++    // worth is 0 ("nothing known": the shrink treats all records alike) and
++    // updateFileModificationTimeIfNeeded refreshes it on every hit, which keeps the modification
++    // time (the only one that is real) a last-used time.
++    auto modifyTime = FileSystem::fileModificationTime(path);
++    if (!modifyTime)
++        return { };
++    return { *modifyTime, *modifyTime };
+ #endif
+ }
+ 

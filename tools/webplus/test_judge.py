@@ -179,6 +179,12 @@ class ServerTests(unittest.TestCase):
         second = sites.Record([request(sites.COOKIE_PATH, f"{sites.COOKIE_NAME}={sites.COOKIE_VALUE}")], [])
         self.assertEqual(self.judge(first, second), [])
 
+    def test_a_page_the_cache_should_have_served_is_named(self) -> None:
+        first = served("", [request("/style.css")])
+        again = sites.Record([request("/"), request(sites.COOKIE_PATH, f"{sites.COOKIE_NAME}={sites.COOKIE_VALUE}")], [])
+        problems = self.judge(first, again)
+        self.assertTrue(any("HTTP cache" in p for p in problems), problems)
+
     def test_a_profile_that_forgot_the_cookie_is_named(self) -> None:
         first = served("", [request("/style.css")])
         second = sites.Record([request(sites.COOKIE_PATH, "")], [])
@@ -267,6 +273,7 @@ class ProfileTests(unittest.TestCase):
 class SecondBootTests(unittest.TestCase):
     def good(self) -> str:
         return log(f"{P}:UP", f"{P}:UP:PASS", f"{P}:WEBPROCESS:UP:5", f"{P}:NETWORKPROCESS:UP:6",
+                   *page(j.OLDNET_URL, j.OLDNET_TITLE),
                    *page(j.COOKIE_URL, j.COOKIE_KEPT), *page("about:history", "History"),
                    f"{P}:CHILD:web:5:GONE", f"{P}:CHILD:network:6:GONE", f"{P}:QUIT:PASS")
 
@@ -274,6 +281,16 @@ class SecondBootTests(unittest.TestCase):
         self.assertEqual(j.judge_second(self.good()), [])
         gone = self.good().replace(j.COOKIE_KEPT, j.COOKIE_NONE)
         self.assertTrue(any("did not come back" in p for p in j.judge_second(gone)))
+
+    def test_the_cached_page_must_load(self) -> None:
+        gone = self.good().replace(j.OLDNET_TITLE, "Could not load")
+        self.assertTrue(any("from the cache" in p for p in j.judge_second(gone)), j.judge_second(gone))
+
+    def test_a_task_killed_by_a_fault_is_named_in_either_boot(self) -> None:
+        crash = "user: task 77 killed by general protection fault (rip 0x3d5ef54), status 139\n"
+        for judged in (j.judge_second(self.good() + crash), j.judge_start(good_first() + crash)):
+            self.assertTrue(any("died of a fault" in p and "task 77" in p for p in judged), judged)
+        self.assertEqual(j.judge_no_fault(self.good()), [])
 
     def test_the_second_boot_starts_no_program(self) -> None:
         text = self.good() + f"{P}:LAUNCH:{j.COMMAND_URL}:BLOCKED\n"

@@ -141,7 +141,15 @@ def judge_start(text: str) -> list[str]:
             problems.append(f"no {P}:{kind}:UP:<pid>")
     for failure in re.findall(rf"{P}:(?:BIND|RUN):FAIL[^\r\n]*", text):
         problems.append(f"the window failed: {failure}")
+    problems += judge_no_fault(text)
     return problems
+
+
+def judge_no_fault(text: str) -> list[str]:
+    """No task of the run died of a CPU fault: the kernel prints `user: task N killed by <fault> ...` for
+    each (a trap in a child, say, which the page only shows as an "internal error" load failure)."""
+    return [f"a task died of a fault: {line}" for line in
+            re.findall(r"user: task \d+ killed by [^\r\n]*", text)[:8]]
 
 
 def expected_failure(failure: str) -> bool:
@@ -283,6 +291,9 @@ def judge_second(text: str) -> list[str]:
     problems = judge_start(text)
     if COOKIE_KEPT not in titles(text):
         problems.append(f"the first boot's cookie did not come back: no {P}:TITLE:{COOKIE_KEPT} (seen: {titles(text)})")
+    if OLDNET_TITLE not in titles(text):
+        problems.append(f"the page of the first boot did not load from the cache: no {P}:TITLE:{OLDNET_TITLE} "
+                        f"(seen: {titles(text)})")
     if not loaded(text, "about:history"):
         problems.append(f"no {P}:LOAD:about:history")
     if "History cleared" in text:
@@ -329,6 +340,12 @@ def judge_servers(first, second, assets: list[str]) -> list[str]:
         problems.append(f"the first boot never asked for {sites.COOKIE_PATH}")
     elif any(sites.COOKIE_NAME in r.cookie for r in first_cookie):
         problems.append("the cookie page saw a cookie on the first boot, before it had set one")
+    # A cacheable page the first boot fetched comes from the HTTP cache, which is what makes the
+    # second boot a test of the cache-hit path (a hit refreshes the record's modification time):
+    # never serve it `no-store` to make a run pass.
+    if asked(second.requests, "https", OLDNET_HOSTS, "/"):
+        problems.append("the second boot asked theoldnet.com for / again: the HTTP cache did not serve the "
+                        "first boot's copy, so the cache-hit path was not exercised")
     second_cookie = asked(second.requests, "https", ("theoldnet.com",), sites.COOKIE_PATH)
     if not second_cookie:
         problems.append(f"the second boot never asked for {sites.COOKIE_PATH}")
