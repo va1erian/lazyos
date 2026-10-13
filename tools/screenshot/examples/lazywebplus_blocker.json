@@ -77,22 +77,13 @@
    "window": "Ad blocker - LazyWeb+",
    "widget": "page_origin",
    "offset": [
-    700,
-    380
+    562,
+    169
    ]
   },
-  "timeout": 300.0
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "enter",
+  "timeout": 300.0,
   "until": "WEBPLUS:BLOCK:SITE:theoldnet.com:OFF",
-  "timeout": 300.0
+  "retries": 2
  },
  {
   "wait": 3.0
@@ -105,25 +96,13 @@
    "window": "Ad blocker - LazyWeb+",
    "widget": "page_origin",
    "offset": [
-    700,
-    380
+    134,
+    203
    ]
   },
-  "timeout": 300.0
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "enter",
+  "timeout": 300.0,
   "until": "WEBPLUS:LOAD:https://theoldnet.com/webplus/blocker.html",
-  "timeout": 300.0
+  "retries": 2
  },
  {
   "wait_for": "WEBPLUS:TITLE:blocker:ad=loaded,tracker=loaded,script=loaded,allowed=loaded,logo=loaded",
@@ -148,41 +127,26 @@
   "wait": 3.0
  },
  {
+  "shot": "44_before_update"
+ },
+ {
   "click_at": {
    "window": "Ad blocker - LazyWeb+",
    "widget": "page_origin",
    "offset": [
-    700,
-    380
+    894,
+    271
    ]
   },
-  "timeout": 300.0
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "tab"
- },
- {
-  "key": "enter",
+  "timeout": 300.0,
   "until": "WEBPLUS:BLOCK:UPDATE:easylist:NOTMODIFIED",
-  "timeout": 300.0
+  "retries": 2
  },
  {
   "wait": 2.0
  },
  {
-  "shot": "44_updated"
+  "shot": "45_updated"
  },
  {
   "click_at": {

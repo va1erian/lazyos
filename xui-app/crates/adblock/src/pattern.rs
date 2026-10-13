@@ -14,6 +14,11 @@ const SEPARATOR: &str = "[^a-zA-Z0-9_.%-]";
 /// has a path (`http://example.com/`), so a trailing `^` after a host always finds one.
 const DOMAIN_START: &str = "^[^:]+://+([^:/?#]+\\.)?";
 
+/// Generous bounds: EasyList's longest pattern is a few hundred characters and its most
+/// wildcards a handful.
+const MAX_PATTERN_LEN: usize = 2048;
+const MAX_WILDCARDS: usize = 16;
+
 /// The `url-filter` for `pattern`, or why there is none.
 pub(crate) fn url_filter(pattern: &str) -> Result<String, DropReason> {
     if !pattern.is_ascii() {
@@ -22,6 +27,13 @@ pub(crate) fn url_filter(pattern: &str) -> Result<String, DropReason> {
     if pattern
         .bytes()
         .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+    {
+        return Err(DropReason::UnsupportedPattern);
+    }
+    // WebKit compiles every pattern of a list into one automaton, in the browser's own process: a
+    // pattern with many wildcards (the states multiply) or a very long one is not an ad filter.
+    if pattern.len() > MAX_PATTERN_LEN
+        || pattern.bytes().filter(|&b| b == b'*').count() > MAX_WILDCARDS
     {
         return Err(DropReason::UnsupportedPattern);
     }

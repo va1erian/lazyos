@@ -257,13 +257,9 @@ fn toolbar(widgets: &Widgets) -> Layout<Msg> {
                 .on_change(|_| Msg::AddressEdited)
                 .fill(1),
             tool(Lucide::ExternalLink, "Go (Enter)", Msg::Go).width(TOOL_SIDE),
-            tool(
-                Lucide::EyeOff,
-                "Ad blocker",
-                Msg::Menu(Command::Blocker),
-            )
-            .bind(&widgets.shield)
-            .width(TOOL_SIDE),
+            tool(Lucide::EyeOff, "Ad blocker", Msg::Menu(Command::Blocker))
+                .bind(&widgets.shield)
+                .width(TOOL_SIDE),
             build(Throbber::new).bind(&widgets.throbber),
         ))
 }

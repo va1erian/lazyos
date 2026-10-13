@@ -68,6 +68,9 @@ pub struct Stats {
     pub duplicates: usize,
     /// Filters removed by a `$badfilter` line.
     pub badfiltered: usize,
+    /// Of the dropped filters, how many were exceptions (`@@`): the block they would have cancelled
+    /// stays, which is the one way a drop makes a list block *more*.
+    pub dropped_exceptions: usize,
     dropped: [usize; 6],
 }
 
@@ -99,6 +102,9 @@ impl fmt::Display for Stats {
             self.duplicates,
             self.badfiltered
         )?;
+        if self.dropped_exceptions > 0 {
+            write!(f, " dropped_exceptions={}", self.dropped_exceptions)?;
+        }
         for reason in DropReason::ALL {
             let n = self.dropped(reason);
             if n > 0 {

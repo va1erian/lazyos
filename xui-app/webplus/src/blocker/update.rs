@@ -96,19 +96,24 @@ impl Meta {
 
     /// Whether a fetch is due at `now`: never fetched, or expired, and not tried too lately.
     pub fn due(&self, now: u64) -> bool {
-        if now < self.attempted.saturating_add(RETRY_AFTER) && self.attempted > 0 {
+        // A time in the future (the clock was set back, or a guest started at 1970 after a fetch
+        // in 2026) cannot be trusted: it must not hold updates back until the clock catches up.
+        let attempted = if self.attempted > now {
+            0
+        } else {
+            self.attempted
+        };
+        if attempted > 0 && now < attempted.saturating_add(RETRY_AFTER) {
             return false;
         }
         let expires = self.expires.clamp(MIN_EXPIRES, MAX_EXPIRES);
-        self.fetched == 0 || now >= self.fetched.saturating_add(expires)
+        self.fetched == 0 || self.fetched > now || now >= self.fetched.saturating_add(expires)
     }
 }
 
 /// A header value that is safe to keep and to send back: printable ASCII, no quotes broken, short.
 fn validator(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 200
-        && value.bytes().all(|b| (0x20..0x7f).contains(&b))
+    !value.is_empty() && value.len() <= 200 && value.bytes().all(|b| (0x20..0x7f).contains(&b))
 }
 
 /// The `! Expires: 4 days` (or `12 hours`) line of a list's header, in seconds; the default when
@@ -208,15 +213,12 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// Whether `text` is a filter list: its header, and a body big enough to be one.
 pub fn looks_like_list(text: &[u8]) -> bool {
     text.len() >= MIN_LIST_BYTES
-        && text
-            .get(..64)
-            .or(Some(text))
-            .is_some_and(|head| {
-                String::from_utf8_lossy(head)
-                    .trim_start()
-                    .to_ascii_lowercase()
-                    .starts_with("[adblock")
-            })
+        && text.get(..64).or(Some(text)).is_some_and(|head| {
+            String::from_utf8_lossy(head)
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("[adblock")
+        })
 }
 
 /// The `curl` arguments that fetch `url` into `out`: quiet, follow a few redirects, give up on an
@@ -271,7 +273,8 @@ mod tests {
             last_modified: Some("Tue, 13 Oct 2026 12:47:00 GMT".into()),
         };
         assert_eq!(Meta::parse(&meta.render()), meta);
-        let junk = Meta::parse("hash=zz\nparts=../x,ok-1\nrules=-4\nunknown=1\nno equals\netag=\u{1}\n");
+        let junk =
+            Meta::parse("hash=zz\nparts=../x,ok-1\nrules=-4\nunknown=1\nno equals\netag=\u{1}\n");
         assert_eq!(junk.hash, "");
         assert_eq!(junk.parts, ["ok-1"]);
         assert_eq!(junk.rules, 0);
@@ -287,7 +290,10 @@ mod tests {
         assert!(!meta.due(1_000_000 + DEFAULT_EXPIRES - 1));
         assert!(meta.due(1_000_000 + DEFAULT_EXPIRES));
         meta.attempted = 1_000_000 + DEFAULT_EXPIRES;
-        assert!(!meta.due(1_000_000 + DEFAULT_EXPIRES + 10), "a failed try waits");
+        assert!(
+            !meta.due(1_000_000 + DEFAULT_EXPIRES + 10),
+            "a failed try waits"
+        );
         assert!(meta.due(1_000_000 + DEFAULT_EXPIRES + RETRY_AFTER));
         // A list that asks for a refresh every second is refreshed hourly at most.
         meta.attempted = 0;
@@ -298,7 +304,10 @@ mod tests {
 
     #[test]
     fn the_expires_header_is_read_in_days_or_hours() {
-        assert_eq!(expires_of("[Adblock Plus 2.0]\n! Expires: 4 days (update frequency)\n"), 4 * 86_400);
+        assert_eq!(
+            expires_of("[Adblock Plus 2.0]\n! Expires: 4 days (update frequency)\n"),
+            4 * 86_400
+        );
         assert_eq!(expires_of("! Expires: 12 hours\n"), 12 * 3_600);
         assert_eq!(expires_of("! expires: 1 day\n"), 86_400);
         assert_eq!(expires_of("! Expires: 900 days\n"), MAX_EXPIRES);
@@ -313,9 +322,13 @@ mod tests {
         let reply = parse_reply(raw).unwrap();
         assert_eq!(reply.status, 200);
         assert_eq!(reply.etag.as_deref(), Some("\"v2\""));
-        assert_eq!(reply.last_modified.as_deref(), Some("Tue, 13 Oct 2026 12:47:00 GMT"));
+        assert_eq!(
+            reply.last_modified.as_deref(),
+            Some("Tue, 13 Oct 2026 12:47:00 GMT")
+        );
         assert_eq!(reply.body, b"body");
-        let not_modified = parse_reply(b"HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\n\r\n").unwrap();
+        let not_modified =
+            parse_reply(b"HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\n\r\n").unwrap();
         assert_eq!((not_modified.status, not_modified.body.len()), (304, 0));
         assert_eq!(parse_reply(b"not http"), None);
         assert_eq!(parse_reply(b"HTTP/1.1 200 OK\r\nno end"), None);
@@ -336,11 +349,20 @@ mod tests {
     #[test]
     fn the_command_asks_only_for_what_changed_and_sends_no_credentials() {
         let mut meta = Meta::default();
-        let args = curl_args("https://easylist.to/easylist/easylist.txt", "/p/easylist.dl", &meta);
-        assert_eq!(args.last().unwrap(), "https://easylist.to/easylist/easylist.txt");
+        let args = curl_args(
+            "https://easylist.to/easylist/easylist.txt",
+            "/p/easylist.dl",
+            &meta,
+        );
+        assert_eq!(
+            args.last().unwrap(),
+            "https://easylist.to/easylist/easylist.txt"
+        );
         assert!(args.windows(2).any(|w| w == ["-o", "/p/easylist.dl"]));
         assert!(!args.iter().any(|a| a.contains("If-None-Match")));
-        assert!(!args.iter().any(|a| a == "-b" || a == "--cookie" || a == "-e" || a == "-k"));
+        assert!(!args
+            .iter()
+            .any(|a| a == "-b" || a == "--cookie" || a == "-e" || a == "-k"));
         meta.etag = Some("\"abc\"".into());
         meta.last_modified = Some("Tue, 13 Oct 2026 12:47:00 GMT".into());
         let args = curl_args("https://x/", "/o", &meta);

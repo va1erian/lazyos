@@ -154,6 +154,9 @@ void startBlocking(WKPageConfigurationRef configuration, const std::string& prof
 // A navigation is about to begin: the rule lists go on the page or off it as lzw_ui_blocking says.
 // Only a main frame decides; a frame's own navigation keeps the page's state.
 void blockingNavigation(const std::string& address, bool mainFrame);
+// The rule lists apply or not as the page on show says (after a navigation that did not replace it:
+// a download, a failed load): the state the last decision left is put right.
+void blockingSettle();
 // The main frame committed (the count of blocked loads starts again) and finished loading.
 void blockingCommitted();
 void blockingFinished();

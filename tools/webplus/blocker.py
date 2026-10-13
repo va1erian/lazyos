@@ -41,8 +41,13 @@ LIST_DROPPED = 1
 #: The page's ad-network resources, by path, and the one the list lets through.
 BLOCKED_PATHS = ("/banner.gif", "/pixel.gif", "/ad.js")
 ALLOWED_PATH = sites.AD_ALLOWED_PATH
-#: Where the pointer rests to give the blocker page the keyboard: a corner of the page, no link.
-FOCUS_AT = (700, 380)
+#: The buttons of `about:blocker`, in page pixels (the page area starts at (50, 136) of the 1280x720
+#: screen; measured on the guest's own screenshot, `shot_41_blocker_page.png`). The sentence of the
+#: "This site" paragraph has the same length with the site excepted or not, so the positions of the
+#: lines below it do not move.
+SITE_OFF_AT = (562, 169)
+GO_BACK_AT = (134, 203)
+UPDATE_NOW_AT = (894, 271)
 
 
 # ---- the serial log -----------------------------------------------------------------------
@@ -153,9 +158,8 @@ def judge_blocker_servers(first, blocker, persisted) -> list[str]:
     allowed = len(ad_requests(blocker.requests, ALLOWED_PATH))
     if allowed != 2:
         problems.append(f"the excepted script {ALLOWED_PATH} was requested {allowed} times (wanted 2)")
-    logos = [r for r in blocker.requests if r.host in j.OLDNET_HOSTS and r.path.endswith("/images/logo.png")]
-    if len(logos) < 2:
-        problems.append(f"the page's own picture was requested {len(logos)} times (wanted both loads)")
+    # The page's own picture is not counted here: an earlier boot cached it, so a load may not ask
+    # the host at all. The page reports for itself (`logo=loaded` in both titles).
     updates = [r for r in blocker.requests if r.host == sites.LIST_HOST and r.path.split("?")[0] == sites.LIST_PATH]
     if len(updates) != 1 or sites.LIST_ETAG not in updates[0].conditional or updates[0].status != 304:
         problems.append("Update now was not one conditional request answered 304: "
@@ -176,8 +180,8 @@ def _wait(marker: str, timeout: float) -> dict:
 
 
 def blocker_boot(timeout: float = 300.0) -> list[dict]:
-    """The blocker boot; see the module note. Keys, not coordinates, move through `about:blocker`:
-    a click on the empty page gives it the keyboard, Tab walks its links in order, Enter follows."""
+    """The blocker boot; see the module note. The buttons of `about:blocker` are clicked at the
+    page coordinates a screenshot of the guest showed (a click is re-sent until its marker)."""
     import session as s
     loaded = lambda url: f"{j.P}:LOAD:{url}"  # noqa: E731
     titled = lambda title: f"{j.P}:TITLE:{title}"  # noqa: E731
@@ -198,28 +202,23 @@ def blocker_boot(timeout: float = 300.0) -> list[dict]:
          "until": loaded(BLOCKER_PAGE), "retries": 2},
         {"wait": 3.0},
         {"shot": "41_blocker_page"},
-        # Link 2 is "Turn off for <site>": click the page, Tab twice, Enter.
-        s.page_click(blocker_window, FOCUS_AT, timeout),
-        {"key": "tab"}, {"key": "tab"},
-        {"key": "enter", "until": f"{j.P}:BLOCK:SITE:{SITE_NAME}:OFF", "timeout": timeout},
+        # "Turn off for <site>".
+        s.page_click(blocker_window, SITE_OFF_AT, timeout, f"{j.P}:BLOCK:SITE:{SITE_NAME}:OFF"),
         {"wait": 3.0},
         {"shot": "42_site_off"},
-        # Link 3 is now "Go back to <site>" (the sentence has one button): the page, whole.
-        s.page_click(blocker_window, FOCUS_AT, timeout),
-        {"key": "tab"}, {"key": "tab"}, {"key": "tab"},
-        {"key": "enter", "until": loaded(PAGE_URL), "timeout": timeout},
+        # "Go back to <site>": the page, whole.
+        s.page_click(blocker_window, GO_BACK_AT, timeout, loaded(PAGE_URL)),
         _wait(titled(OPEN_TITLE), timeout),
         {"wait": 2.0},
         {"shot": "43_whole"},
-        # The shield again, then "Update now" (link 5 with the site excepted).
+        # The shield again, then "Update now".
         {"click_at": {"window": open_window, "widget": "shield"}, "timeout": timeout,
          "until": loaded(BLOCKER_PAGE), "retries": 2},
         {"wait": 3.0},
-        s.page_click(blocker_window, FOCUS_AT, timeout),
-        *[{"key": "tab"} for _ in range(5)],
-        {"key": "enter", "until": f"{j.P}:BLOCK:UPDATE:{LIST_ID}:NOTMODIFIED", "timeout": timeout},
+        {"shot": "44_before_update"},
+        s.page_click(blocker_window, UPDATE_NOW_AT, timeout, f"{j.P}:BLOCK:UPDATE:{LIST_ID}:NOTMODIFIED"),
         {"wait": 2.0},
-        {"shot": "44_updated"},
+        {"shot": "45_updated"},
         {"click_at": {"target": f"title:{blocker_window}", "offset": list(s.CLOSE_AT_NORMAL)},
          "timeout": 60, "until": f"{j.P}:QUIT:", "retries": 2},
         {"wait": 9.0},

@@ -201,6 +201,9 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
+    // After redirects the committed address is the one that counts, and it is known before the page's
+    // first subresource is asked for.
+    blockingSettle();
     blockingCommitted();
     postState();
 }
@@ -275,6 +278,8 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
 {
     // A "save this page" load that failed before a response must not turn the next page into a download.
     E.saveNext = false;
+    // The page on show stays, and so does what blocks it (issue #845).
+    blockingSettle();
     didFail("provisional", error);
 }
 

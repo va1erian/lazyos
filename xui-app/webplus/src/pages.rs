@@ -34,9 +34,15 @@ pub enum Command {
     /// The ad blocker on or off, for every site.
     BlockerEnabled(bool),
     /// Stop blocking on `site` (`excepted`), or block there again.
-    Site { site: String, excepted: bool },
+    Site {
+        site: String,
+        excepted: bool,
+    },
     /// A filter list on or off.
-    List { id: String, on: bool },
+    List {
+        id: String,
+        on: bool,
+    },
     /// Fetch the lists now.
     UpdateLists,
     /// Reload the page browsed last once, without blocking.
@@ -475,12 +481,18 @@ mod tests {
                 on: false
             })
         );
-        assert_eq!(Command::parse("x-lazyweb:update-lists"), Some(Command::UpdateLists));
+        assert_eq!(
+            Command::parse("x-lazyweb:update-lists"),
+            Some(Command::UpdateLists)
+        );
         assert_eq!(
             Command::parse("x-lazyweb:reload-unblocked"),
             Some(Command::ReloadUnblocked)
         );
-        assert_eq!(Command::parse("x-lazyweb:open-site"), Some(Command::OpenSite));
+        assert_eq!(
+            Command::parse("x-lazyweb:open-site"),
+            Some(Command::OpenSite)
+        );
     }
 
     #[test]

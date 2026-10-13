@@ -107,7 +107,9 @@ mod tests {
         assert_eq!(prepared.parts.len(), 1);
         let (id, json) = &prepared.parts[0];
         assert_eq!(*id, format!("easylist-{}-0", source_hash(text)));
-        assert!(id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
+        assert!(id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
         assert!(json.starts_with('[') && json.contains("ignore-previous-rules"));
         assert_eq!((prepared.rules(), prepared.dropped()), (2, 1));
     }

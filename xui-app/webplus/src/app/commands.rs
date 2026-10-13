@@ -5,8 +5,8 @@ use xui_core::widget::{HasText, Placeable};
 
 use super::{Browser, Msg};
 use crate::address::{self, START};
-use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::blocker::site_of;
+use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
 use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 

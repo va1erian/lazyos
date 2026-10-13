@@ -94,13 +94,19 @@ pub fn convert(source: &str, options: &Options) -> Converted {
                 }
                 match build(&f) {
                     Ok(b) => built.push(b),
-                    Err(reason) => stats.drop_filter(reason),
+                    Err(reason) => {
+                        if f.exception {
+                            stats.dropped_exceptions += 1;
+                        }
+                        stats.drop_filter(reason);
+                    }
                 }
             }
         }
     }
 
-    let mut seen: HashSet<String> = HashSet::new();
+    // A duplicate is the same rule in the same place: `||x^` and `||x^$important` are not.
+    let mut seen: HashSet<(bool, bool, String)> = HashSet::new();
     let (mut blocks, mut exceptions, mut important) = (Vec::new(), Vec::new(), Vec::new());
     for b in built {
         if badfilters.contains(&b.key) {
@@ -109,7 +115,7 @@ pub fn convert(source: &str, options: &Options) -> Converted {
         }
         for rule in b.rules {
             let json = rule.to_json();
-            if !seen.insert(json.clone()) {
+            if !seen.insert((b.exception, b.important, json.clone())) {
                 stats.duplicates += 1;
                 continue;
             }
@@ -139,6 +145,11 @@ pub fn convert(source: &str, options: &Options) -> Converted {
 fn build(f: &Filter<'_>) -> Result<Built, DropReason> {
     let spec = options::interpret(&f.options, f.exception)?;
     let url_filter = pattern::url_filter(f.pattern)?;
+    // A pattern that is only anchors and wildcards matches every address: with no type, party or
+    // domain to narrow it, that is a list gone wrong (a truncated line), not a rule.
+    if !spec.constrained && f.pattern.bytes().all(|b| matches!(b, b'|' | b'*' | b'^')) {
+        return Err(DropReason::UnsupportedPattern);
+    }
     let mut rules = Vec::new();
 
     if spec.emit_normal {

@@ -217,3 +217,52 @@ fn crlf_and_padding_are_tolerated() {
     let r = rules("  ||a.example^  \r\n! c\r\n");
     assert_eq!(r.len(), 1);
 }
+
+#[test]
+fn a_filter_that_would_block_everything_is_not_a_rule() {
+    let out = convert("*\n|\n||\n^\n$script\n||ok.example^\n", &Options::default());
+    // `$script` alone is a type, so it is a rule (blocks every script); the bare anchors are not.
+    assert_eq!(out.stats.blocks, 2);
+    assert_eq!(out.stats.dropped(DropReason::UnsupportedPattern), 4);
+}
+
+#[test]
+fn plugin_requests_have_no_webkit_type_and_are_dropped() {
+    let out = convert(
+        "||a.example^$object\n||b.example^$object-subrequest\n",
+        &Options::default(),
+    );
+    assert_eq!(out.stats.blocks, 0);
+    assert_eq!(out.stats.dropped(DropReason::UnsupportedOption), 2);
+}
+
+#[test]
+fn a_dropped_exception_is_counted_apart() {
+    let out = convert(
+        "||a.example^\n@@/(x|y)js/\n@@||b.example^$csp=x\n",
+        &Options::default(),
+    );
+    assert_eq!(out.stats.dropped_exceptions, 2);
+    assert_eq!(out.stats.dropped_total(), 2);
+}
+
+#[test]
+fn important_is_not_a_duplicate_of_the_plain_filter() {
+    let out = convert(
+        "||a.example^\n||a.example^$important\n@@||a.example/ok\n",
+        &Options::default(),
+    );
+    assert_eq!(
+        (out.stats.blocks, out.stats.important, out.stats.duplicates),
+        (1, 1, 0)
+    );
+}
+
+#[test]
+fn a_pattern_that_is_all_wildcards_or_enormous_is_refused() {
+    let many = format!("||a.example/{}\n", "x*".repeat(40));
+    let long = format!("||a.example/{}\n", "y".repeat(3000));
+    let out = convert(&format!("{many}{long}||ok.example^\n"), &Options::default());
+    assert_eq!(out.stats.blocks, 1);
+    assert_eq!(out.stats.dropped(DropReason::UnsupportedPattern), 2);
+}

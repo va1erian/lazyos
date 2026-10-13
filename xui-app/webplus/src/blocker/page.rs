@@ -174,7 +174,9 @@ mod tests {
         assert!(html.contains("x-lazyweb:open-site"));
         assert!(html.contains("Blocking with 56926 rules (24851 filters not used)"));
         assert!(html.contains("Updated 2026-10-0"));
-        assert!(html.contains("x-lazyweb:list-off/easylist") && html.contains("x-lazyweb:update-lists"));
+        assert!(
+            html.contains("x-lazyweb:list-off/easylist") && html.contains("x-lazyweb:update-lists")
+        );
         assert!(html.contains("GPL-3.0-or-later or CC BY-SA 3.0"));
     }
 
@@ -186,7 +188,10 @@ mod tests {
         let html = blocker(&r);
         assert!(html.contains("ad blocking is <b>off</b> for this site"));
         assert!(html.contains("x-lazyweb:site-on/news.example"));
-        assert!(html.contains("x-lazyweb:site-on/example"), "the exception itself is listed");
+        assert!(
+            html.contains("x-lazyweb:site-on/example"),
+            "the exception itself is listed"
+        );
         assert!(!html.contains("x-lazyweb:site-off/"));
     }
 

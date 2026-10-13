@@ -103,6 +103,9 @@ def easylist_text() -> bytes:
 def ad_response(path: str) -> tuple[list[tuple[str, str]], bytes]:
     """What an ad host answers: a script for `.js`, a picture for anything else. Never cached, so
     every load reaches the host and the request log is the truth."""
+    if path.split("?")[0] == AD_ALLOWED_PATH:
+        return [("Content-Type", "application/javascript"), ("Cache-Control", "no-store")], \
+            b"window.allowedLoaded = true;\n"
     if path.split("?")[0].endswith(".js"):
         return [("Content-Type", "application/javascript"), ("Cache-Control", "no-store")], \
             b"window.adLoaded = true;\n"

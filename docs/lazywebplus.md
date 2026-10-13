@@ -283,6 +283,8 @@ Four pieces make it work here:
 The switches are `confd` keys under `user/<uid>/lazywebplus/blocker/` (`enabled`, `exceptions`, `lists_off`):
 the user's, out of the engine's processes' reach (the network process may write the profile folder, and a
 compromised one must not be able to switch the blocker off for a site). Without `confd` they last for the run.
+The price is `os.lazy.confd.v1` in the app's permissions, which the UI process (the one a browser exploit
+would have to escape into) holds for every `user/<uid>/**` key, as the other core apps do.
 `x-lazyweb:` commands of `about:blocker` obey the rule of the other internal pages: only from that page and only
 for a click.
 

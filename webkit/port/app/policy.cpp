@@ -120,6 +120,8 @@ void didFailWithError(WKDownloadRef, WKErrorRef error, WKDataRef, const void* cl
 // Wires a new download to the window: its id, its client.
 void adopt(WKDownloadRef download)
 {
+    // The navigation became a file: the page on show stays, and so does what blocks it.
+    blockingSettle();
     auto* info = new DownloadInfo();
     info->id = E.nextDownload++;
     WKRetain(download);
@@ -162,7 +164,10 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
     // A request for a new window (target=_blank, window.open) has no target frame: createNewPage
     // follows, and needs to know whether a gesture started it.
     WKFrameInfoRef target = WKNavigationActionCopyTargetFrameInfo(action);
-    bool mainFrame = true;
+    // Only a navigation of the main frame decides about the rule lists. A request for a new window
+    // (no target frame) does not replace the page on show: a script's window.open("about:blank")
+    // must not switch the blocker off for the page that made it.
+    bool mainFrame = false;
     if (!target) {
         E.popupGesture = gesture;
         E.popupUrl = address;

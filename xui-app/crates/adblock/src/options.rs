@@ -61,7 +61,7 @@ fn type_bits(name: &str) -> Option<u16> {
         "stylesheet" | "css" => bit("style-sheet"),
         "font" => bit("font"),
         "media" => bit("media"),
-        "object" | "object-subrequest" | "other" => bit("other"),
+        "other" => bit("other"),
         "xmlhttprequest" | "xhr" | "fetch" => bit("fetch"),
         "subdocument" | "frame" => bit("child-document"),
         "document" | "doc" => TOP_DOCUMENT,
@@ -90,6 +90,8 @@ pub(crate) struct Spec {
     pub document_exception: bool,
     /// False when the filter had no other effect than `$document`.
     pub emit_normal: bool,
+    /// The filter names a type, a party or a domain: it is not "everything" even with no pattern.
+    pub constrained: bool,
 }
 
 pub(crate) fn interpret(options: &[Opt<'_>], exception: bool) -> Result<Spec, DropReason> {
@@ -150,6 +152,11 @@ pub(crate) fn interpret(options: &[Opt<'_>], exception: bool) -> Result<Spec, Dr
         return Err(DropReason::UnsupportedOption);
     }
 
+    let constrained = positive != 0
+        || negative != 0
+        || third.is_some()
+        || !if_domain.is_empty()
+        || !unless_domain.is_empty();
     Ok(Spec {
         resource_types: if emit_normal {
             type_names(mask)
@@ -163,6 +170,7 @@ pub(crate) fn interpret(options: &[Opt<'_>], exception: bool) -> Result<Spec, Dr
         important,
         document_exception,
         emit_normal,
+        constrained,
     })
 }
 

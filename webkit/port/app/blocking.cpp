@@ -46,6 +46,8 @@ struct Blocking {
     bool wanted { true };
     bool attached { false };
     int blocked { 0 };
+    // Bumped when a list is forgotten, so a compile or lookup still in flight for it is dropped.
+    std::map<std::string, int> generation;
 };
 
 Blocking B;
@@ -53,6 +55,7 @@ Blocking B;
 // A compile or lookup in flight: the callback gets it back as its context.
 struct Job {
     std::string id;
+    int generation { 0 };
 };
 
 // Puts the lists on the page, or takes them off, to match what the last navigation decided. A
@@ -98,8 +101,16 @@ void report(const std::string& id, int status)
 void listReady(WKUserContentFilterRef filter, WKUserContentExtensionStoreResult result, void* context)
 {
     std::unique_ptr<Job> job(static_cast<Job*>(context));
-    const int status = statusFor(result);
-    if (status == LZW_BLOCK_READY && filter) {
+    if (job->generation != B.generation[job->id]) {
+        // The list was forgotten while this was under way: it must not come back.
+        if (filter)
+            WKRelease(filter);
+        return;
+    }
+    int status = statusFor(result);
+    if (status == LZW_BLOCK_READY && !filter)
+        status = LZW_BLOCK_COMPILE_FAILED;
+    if (status == LZW_BLOCK_READY) {
         auto old = B.lists.find(job->id);
         if (old != B.lists.end())
             WKRelease(old->second);
@@ -144,6 +155,13 @@ void blockingNavigation(const std::string& address, bool mainFrame)
         return;
     B.wanted = lzw_ui_blocking(address.c_str()) != 0;
     reapply(false);
+}
+
+void blockingSettle()
+{
+    if (!B.controller)
+        return;
+    blockingNavigation(committedUrl(), true);
 }
 
 void blockingCommitted()
@@ -192,7 +210,7 @@ void lzw_engine_blocking_load(const char* id)
             return;
         }
         WKStringRef wkId = WKStringCreateWithUTF8CString(name.c_str());
-        WKUserContentExtensionStoreLookup(B.store, wkId, new Job { name }, listReady);
+        WKUserContentExtensionStoreLookup(B.store, wkId, new Job { name, B.generation[name] }, listReady);
         WKRelease(wkId);
     });
 }
@@ -208,7 +226,7 @@ void lzw_engine_blocking_compile(const char* id, const char* json)
         }
         WKStringRef wkId = WKStringCreateWithUTF8CString(name.c_str());
         WKStringRef wkJson = WKStringCreateWithUTF8CString(source.c_str());
-        WKUserContentExtensionStoreCompile(B.store, wkId, wkJson, new Job { name }, listReady);
+        WKUserContentExtensionStoreCompile(B.store, wkId, wkJson, new Job { name, B.generation[name] }, listReady);
         WKRelease(wkJson);
         WKRelease(wkId);
     });
@@ -218,6 +236,7 @@ void lzw_engine_blocking_forget(const char* id)
 {
     std::string name = id ? id : "";
     onMain([name] {
+        ++B.generation[name];
         auto it = B.lists.find(name);
         if (it != B.lists.end()) {
             WKRelease(it->second);
@@ -227,7 +246,7 @@ void lzw_engine_blocking_forget(const char* id)
         if (!B.store)
             return;
         WKStringRef wkId = WKStringCreateWithUTF8CString(name.c_str());
-        WKUserContentExtensionStoreRemove(B.store, wkId, new Job { name }, listRemoved);
+        WKUserContentExtensionStoreRemove(B.store, wkId, new Job { name, 0 }, listRemoved);
         WKRelease(wkId);
     });
 }

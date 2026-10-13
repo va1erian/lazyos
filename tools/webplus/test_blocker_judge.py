@@ -142,13 +142,13 @@ class BlockerJudgeTests(unittest.TestCase):
         problems = b.judge_blocker_servers(FIRST_RECORD, twice, PERSISTED_RECORD)
         self.assertTrue(any("/banner.gif" in p and "2 times" in p for p in problems), problems)
 
-    def test_servers_the_excepted_script_and_the_logo_load_in_both_phases(self) -> None:
+    def test_servers_the_excepted_script_loads_in_both_phases(self) -> None:
         no_allowed = record(*[r for r in BLOCKER_RECORD.requests if r.path != "/allowed.js"])
         self.assertTrue(any("allowed.js" in p for p in b.judge_blocker_servers(FIRST_RECORD, no_allowed,
                                                                                PERSISTED_RECORD)))
+        # A cached picture is not asked for again: no request for it is not a failure.
         no_logo = record(*[r for r in BLOCKER_RECORD.requests if "logo" not in r.path])
-        self.assertTrue(any("own picture" in p for p in b.judge_blocker_servers(FIRST_RECORD, no_logo,
-                                                                                PERSISTED_RECORD)))
+        self.assertEqual(b.judge_blocker_servers(FIRST_RECORD, no_logo, PERSISTED_RECORD), [])
 
     def test_servers_the_update_is_one_conditional_request_answered_304(self) -> None:
         plain = record(*[r if r.host != sites.LIST_HOST else request(sites.LIST_HOST, sites.LIST_PATH)

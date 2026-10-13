@@ -547,6 +547,14 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
         );
         let commands = worker.spawn();
         let _ = commands.send(BlockerCmd::Start);
+    } else {
+        // No home folder, so nowhere for a list or the engine's store to live: say so, rather than
+        // leaving the shield at "preparing" for ever.
+        for list in shared.blocker.lists() {
+            shared
+                .blocker
+                .update_list(list.id, |l| l.state = crate::blocker::ListState::Unavailable);
+        }
     }
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
     let focus_backend = Rc::clone(&backend);
