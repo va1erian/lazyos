@@ -58,3 +58,33 @@ unsafe fn count_below(phys: u64, level: u8, base: u64, start: u64, end: u64) -> 
     }
     count
 }
+
+/// How many page-table frames mapping a page at `va` in `table` would have
+/// to allocate (0 to 3: the PDPT, PD and PT levels that are not there yet).
+///
+/// A reservation is charged by its pages, so a fault that creates tables is
+/// charged for them too: touching one page in each 2 MiB of a huge reservation
+/// would otherwise pin a table frame per page for free. The tables stay until
+/// the address space dies, and so does their charge.
+pub fn missing_tables(table: PhysAddr, va: u64) -> u64 {
+    let mut phys = table.as_u64();
+    // Levels 4 (PML4) down to 2 (PD): the entry at `level` names the table of
+    // `level - 1`; an absent one means every table below it is absent too.
+    for level in (2..=4u8).rev() {
+        let shift = 12 + 9 * (u32::from(level) - 1);
+        let index = ((va >> shift) & 0x1ff) as usize;
+        // Safety: `phys` is the PML4 of a live address space or a table a
+        // present entry of it named; both are reachable through the physical
+        // map and 512 entries long, and `index` is below 512.
+        let entry =
+            unsafe { core::ptr::read_volatile(entry_table(PhysAddr::new(phys)).add(index)) };
+        if entry & PTE_PRESENT == 0 {
+            return u64::from(level) - 1;
+        }
+        if entry & PTE_HUGE != 0 {
+            return 0;
+        }
+        phys = entry & PTE_ADDR;
+    }
+    0
+}

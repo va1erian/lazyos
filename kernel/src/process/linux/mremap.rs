@@ -10,7 +10,7 @@ use crate::quota::{self, Resource};
 use crate::task;
 
 use super::errno::{err, EFAULT, EINVAL, ENOMEM};
-use super::mem::first_free_range;
+use super::mem::{align_up, first_free_range};
 use super::mmapvfs::unmap_vmas;
 use super::overcommit::hopeless;
 use super::{MMAP_LIMIT, PAGE};
@@ -18,14 +18,6 @@ use super::{MMAP_LIMIT, PAGE};
 /// `mremap(2)` flags.
 const MREMAP_MAYMOVE: u64 = 1;
 const MREMAP_FIXED: u64 = 2;
-
-/// Round `value` up to a multiple of `align`, or `None` if the rounding would
-/// overflow `u64` (the lengths are the caller's).
-fn align_up(value: u64, align: u64) -> Option<u64> {
-    value
-        .checked_add(align - 1)
-        .map(|value| value & !(align - 1))
-}
 
 /// `mremap(old_address, old_size, new_size, flags, new_address)`: grow, shrink
 /// or relocate an existing mapping.
@@ -161,9 +153,9 @@ pub(super) fn sys_mremap(
     let mut offset = 0;
     while offset < keep {
         if crate::mem::remap_page(table, old_addr + offset, dest + offset).is_err() {
-            // Roll the pages already moved back, then undo the charge. The
-            // destination was free (or replaced on request), so only the move
-            // needs undoing.
+            // Roll the pages already moved back, then undo the charge. What
+            // the destination held is gone (it was replaced on request), so
+            // its charge goes back too; the move is all that needs undoing.
             let mut back = 0;
             while back < offset {
                 let _ = crate::mem::remap_page(table, dest + back, old_addr + back);
@@ -171,6 +163,9 @@ pub(super) fn sys_mremap(
             }
             if extra > 0 {
                 quota::release_for_slot(task::current(), Resource::UserMemory, extra);
+            }
+            if replaced > 0 {
+                quota::release_for_slot(task::current(), Resource::UserMemory, replaced);
             }
             return err(ENOMEM);
         }

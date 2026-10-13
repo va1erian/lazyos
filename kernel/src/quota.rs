@@ -70,7 +70,9 @@ pub mod cpu;
 mod space;
 mod types;
 
-pub use space::{charge_for_slot, charge_space, forget_address_space, release_for_slot};
+pub use space::{
+    charge_for_slot, charge_space, forget_address_space, release_for_slot, release_space,
+};
 use types::{default_limits, Entry};
 #[allow(unused_imports)] // the full limit tables stay part of the module API
 pub use types::{default_limits_regular, QuotaError, Resource, Stats, ROOT_LIMITS};

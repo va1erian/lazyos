@@ -267,6 +267,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     quota_enforce_suite::CASES,
     pipe_suite::CASES,
     linux_suite::CASES,
+    linux_suite::mmap_reserve::CASES,
     linux_compat_suite::CASES,
     loader_suite::CASES,
     loader_suite::dynamic::CASES,

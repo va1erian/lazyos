@@ -127,23 +127,35 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
     if vma.prot.0 & (vma::Prot::READ.0 | vma::Prot::WRITE.0 | vma::Prot::EXEC.0) == 0 {
         return Resolve::Refused;
     }
-    // A reservation's quota charge is its resident pages: this one starts
-    // to count now. The fault cannot return `ENOMEM`, so a uid at its quota
-    // is answered like a machine with no frame left (`oom_kill`, or `ENOMEM`
-    // from the syscall that touched the page): the page stays unmapped.
-    if vma.reserve && !charge_reserved_page(table) {
-        return Resolve::OutOfFrames;
-    }
     let Some(frame) = alloc_zeroed_frame() else {
-        release_reserved_page(vma.reserve);
         return Resolve::OutOfFrames;
+    };
+    // A reservation's quota charge is its resident pages (and the page tables
+    // they need): this one starts to count now. The fault cannot return
+    // `ENOMEM`, so a uid at its quota is answered like a machine with no frame
+    // left (`oom_kill`, or `ENOMEM` from the syscall that touched the page):
+    // the page stays unmapped. The frame comes first so that the out-of-frames
+    // path has nothing to undo (nothing there may allocate).
+    let charged = if vma.reserve {
+        let bytes = FRAME_SIZE * (1 + missing_tables(table, va));
+        match charge_reserved(table, bytes) {
+            Some(uid) => Some((uid, bytes)),
+            None => {
+                free_frame(frame);
+                return Resolve::OutOfFrames;
+            }
+        }
+    } else {
+        None
     };
     let page = VirtAddr::new(va & !(FRAME_SIZE - 1));
     match try_map_page_in(table, page, frame, prot_flags(vma.prot)) {
         Ok(()) => Resolve::Handled,
         Err(error) => {
             free_frame(frame);
-            release_reserved_page(vma.reserve);
+            if let Some((uid, bytes)) = charged {
+                crate::quota::release_space(uid, table.as_u64(), bytes);
+            }
             // A page-table frame the allocator could not give is the same
             // shortage as a data frame; anything else is a bad request.
             if matches!(error, MapToError::FrameAllocationFailed) {
@@ -155,33 +167,14 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
     }
 }
 
-/// Charge one page of a reservation to the user-memory quota of the uid
-/// running the fault, recorded against `table` so that the space's teardown
-/// gives it back. `false` (with the reason on the console) when the uid is at
-/// its quota.
-fn charge_reserved_page(table: PhysAddr) -> bool {
+/// Charge `bytes` (a page and the table frames it needs) to the user-memory
+/// quota of the uid running the fault, recorded against `table` so that the
+/// space's teardown gives them back. The uid, or `None` when it is at its
+/// quota (the denial is counted in its ledger; the process dies with the
+/// report of `mem::oom`). Allocates nothing that can fail the fault.
+fn charge_reserved(table: PhysAddr, bytes: u64) -> Option<u32> {
     let uid = crate::ipc::credentials::of(crate::task::current()).uid;
-    match crate::quota::charge_space(uid, table.as_u64(), FRAME_SIZE) {
-        Ok(()) => true,
-        Err(error) => {
-            crate::serial_println!(
-                "quota: uid {uid} is at its user-memory quota ({} of {} bytes): a reserved page was refused",
-                error.usage,
-                error.limit
-            );
-            false
-        }
-    }
-}
-
-/// Give back what [`charge_reserved_page`] took, when the page did not come
-/// to be (`reserved` says the fault charged one).
-fn release_reserved_page(reserved: bool) {
-    if reserved {
-        crate::quota::release_for_slot(
-            crate::task::current(),
-            crate::quota::Resource::UserMemory,
-            FRAME_SIZE,
-        );
-    }
+    crate::quota::charge_space(uid, table.as_u64(), bytes)
+        .ok()
+        .map(|()| uid)
 }

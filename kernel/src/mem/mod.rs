@@ -32,7 +32,7 @@ pub use frames::*;
 pub use pagefault::{cow_fault, demand_fault};
 pub use pagefault::{cow_resolve, demand_resolve, Resolve};
 pub use protect::protect_range;
-pub use resident::resident_pages;
+pub use resident::{missing_tables, resident_pages};
 pub use table_guard::UserTableGuard;
 pub use uspace::*;
 

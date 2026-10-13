@@ -28,7 +28,7 @@ const MAP_ANONYMOUS: u64 = 0x20;
 /// Round `value` up to a multiple of `align`, or `None` if the rounding would
 /// overflow `u64`. All callers feed this untrusted user lengths, so the
 /// addition must be checked: the default profile panics on overflow.
-fn align_up(value: u64, align: u64) -> Option<u64> {
+pub(super) fn align_up(value: u64, align: u64) -> Option<u64> {
     value
         .checked_add(align - 1)
         .map(|value| value & !(align - 1))

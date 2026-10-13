@@ -55,13 +55,51 @@ pub fn charge_space(uid: u32, table: u64, delta: u64) -> Result<(), QuotaError> 
         .find(|space| space.table == table && space.uid == uid)
     {
         Some(space) => space.bytes = space.bytes.saturating_add(delta),
-        None => spaces.push(SpaceCharge {
-            table,
-            uid,
-            bytes: delta,
-        }),
+        None => {
+            // The page-fault path charges here with the frame allocator
+            // possibly empty: a record the heap cannot hold is a refusal, not
+            // an allocation failure (which would be a kernel panic).
+            if spaces.try_reserve(1).is_err() {
+                drop(spaces);
+                release(uid, Resource::UserMemory, delta);
+                return Err(QuotaError {
+                    uid,
+                    resource: Resource::UserMemory,
+                    usage: super::usage(uid, Resource::UserMemory),
+                    limit: super::limit(uid, Resource::UserMemory),
+                });
+            }
+            spaces.push(SpaceCharge {
+                table,
+                uid,
+                bytes: delta,
+            });
+        }
     }
     Ok(())
+}
+
+/// Give back up to `delta` bytes that [`charge_space`] recorded for
+/// `(uid, table)`, naming both so it undoes exactly one charge whatever task
+/// runs it. Unlike [`release_for_slot`] it takes no task lock and allocates
+/// nothing: the page-fault path undoes a charge with it when no frame was
+/// left to give.
+pub fn release_space(uid: u32, table: u64, delta: u64) {
+    let mut taken = 0;
+    {
+        let mut spaces = SPACES.lock();
+        if let Some(space) = spaces
+            .iter_mut()
+            .find(|space| space.table == table && space.uid == uid)
+        {
+            taken = space.bytes.min(delta);
+            space.bytes -= taken;
+        }
+        spaces.retain(|space| space.bytes > 0);
+    }
+    if taken > 0 {
+        release(uid, Resource::UserMemory, taken);
+    }
 }
 
 /// Release up to `delta` bytes of `slot`'s address space's user-memory
