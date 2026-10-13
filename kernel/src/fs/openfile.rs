@@ -48,6 +48,13 @@ use spin::Mutex;
 
 use super::vfs::{FsError, Id, Meta, Node, NodeId, Path, StatFs};
 
+mod mapping;
+mod rmdir;
+pub(super) use rmdir::rmdir;
+pub mod pagecache;
+pub use mapping::writeback_all;
+use pagecache::PageCache;
+
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
     /// Absolute ABI path, kept current across renames. Empty once the name
@@ -64,6 +71,8 @@ struct Inode {
     /// close racing with them must still see itself as the last description.
     /// Changed only under the [`OPEN`] lock.
     descriptions: AtomicUsize,
+    /// The frames a file-backed `mmap` maps (`mapping`).
+    cache: PageCache,
 }
 
 impl Inode {
@@ -168,7 +177,16 @@ impl OpenFile {
         }
     }
 
+    /// Read at `offset`. A page a writable shared mapping may have changed
+    /// is newer in its frame than in the file, so the frame's bytes win.
     pub fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let count = self.read_raw(offset, buf)?;
+        self.inode.cache.overlay(offset, &mut buf[..count]);
+        Ok(count)
+    }
+
+    /// Read the file's own bytes, ignoring the page cache.
+    fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         match &self.inode.node {
             Some(node) => node.read(offset, buf),
             None => super::abi_read_at(Id::ROOT, &self.path(), offset, buf),
@@ -179,9 +197,12 @@ impl OpenFile {
     /// of the path is refreshed afterwards, as a write by path does.
     pub fn write_at(&self, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let Some(node) = &self.inode.node else {
-            return super::abi_write(Id::ROOT, &self.path(), offset, data);
+            let written = super::abi_write(Id::ROOT, &self.path(), offset, data)?;
+            self.inode.cache.update(offset, &data[..written]);
+            return Ok(written);
         };
         let written = node.write(offset, data)?;
+        self.inode.cache.update(offset, &data[..written]);
         let path = self.path();
         if !path.is_empty() {
             if let Ok(meta) = node.stat() {
@@ -197,9 +218,12 @@ impl OpenFile {
     /// metadata of the path is refreshed afterwards, as a write by path does.
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
         let Some(node) = &self.inode.node else {
-            return super::abi_truncate(Id::ROOT, &self.path(), size);
+            super::abi_truncate(Id::ROOT, &self.path(), size)?;
+            self.inode.cache.truncate(size);
+            return Ok(());
         };
         node.truncate(size)?;
+        self.inode.cache.truncate(size);
         let path = self.path();
         if !path.is_empty() {
             if let Ok(meta) = node.stat() {
@@ -212,6 +236,8 @@ impl OpenFile {
     /// Flush the filesystem this file lives on (`fsync`). Through a node, this
     /// does not depend on the path still naming the file.
     pub fn flush(&self) -> Result<(), FsError> {
+        // Stores through a shared mapping are the file's data too.
+        self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush(),
             None => super::abi_flush(Id::ROOT, &self.path()),
@@ -261,6 +287,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
         orphan: AtomicBool::new(false),
         node,
         descriptions: AtomicUsize::new(1),
+        cache: PageCache::new(),
     });
     open.push(Arc::clone(&inode));
     Ok(inode)
@@ -375,97 +402,6 @@ pub(super) fn retarget(from: &str, to: &str) {
         // directory leaves an orphan an orphan.)
         if itself {
             inode.orphan.store(false, Ordering::Relaxed);
-        }
-    }
-}
-
-/// `rmdir` of `path` (issue #612). On Linux an unlinked-but-open file has no
-/// name left, so its directory is empty and can go; here the file is parked
-/// as a hidden entry *in* that directory. So when the directory holds nothing
-/// but parked files, they move to the root of the directory's mount first,
-/// where they live until their last close (and where an unclean mount's
-/// reclaim still finds them), and the directory is removed. If the removal
-/// fails all the same (permissions, the sticky bit), they move back, so a
-/// refused `rmdir` changes nothing.
-///
-/// A directory with any other entry, or a stray reserved name no open file
-/// owns, is not empty: the backend answers `ENOTEMPTY` as before.
-pub(super) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    let dir = Path::parse(path).to_path_string();
-    let parked = parked_in(&dir);
-    let root = if parked.is_empty() {
-        None
-    } else {
-        super::abi_with(|vfs| vfs.mount_point(&dir)).flatten()
-    };
-    let Some(root) = root.filter(|root| *root != dir && only(&dir, &parked)) else {
-        return rmdir_raw(id, &dir);
-    };
-    let mut moved: Vec<(Arc<Inode>, String)> = Vec::new();
-    for inode in parked {
-        let from = inode.path();
-        let to = hidden_name(&alloc::format!("{}/", root.trim_end_matches('/')));
-        if super::abi_rename_raw(Id::ROOT, &from, &to).is_err() {
-            unpark(moved);
-            return rmdir_raw(id, &dir);
-        }
-        *inode.path.lock() = to;
-        moved.push((inode, from));
-    }
-    let result = rmdir_raw(id, &dir);
-    if result.is_err() {
-        unpark(moved);
-    }
-    result
-}
-
-fn rmdir_raw(id: Id, dir: &str) -> Result<(), FsError> {
-    super::abi_with(|vfs| vfs.rmdir(id, dir)).unwrap_or(Err(FsError::NotFound))
-}
-
-/// The unlinked-but-open files parked directly inside `dir`.
-fn parked_in(dir: &str) -> Vec<Arc<Inode>> {
-    OPEN.lock()
-        .iter()
-        .filter(|inode| {
-            inode.orphan.load(Ordering::Relaxed)
-                && inode
-                    .path
-                    .lock()
-                    .rsplit_once('/')
-                    .is_some_and(|(parent, _)| parent == dir || (parent.is_empty() && dir == "/"))
-        })
-        .cloned()
-        .collect()
-}
-
-/// Whether every entry of `dir` is one of the `parked` files.
-fn only(dir: &str, parked: &[Arc<Inode>]) -> bool {
-    let Ok(entries) = super::abi_readdir(Id::ROOT, dir) else {
-        return false;
-    };
-    let names: Vec<String> = parked
-        .iter()
-        .filter_map(|inode| {
-            inode
-                .path()
-                .rsplit_once('/')
-                .map(|(_, name)| String::from(name))
-        })
-        .collect();
-    entries.iter().all(|entry| names.contains(&entry.name))
-}
-
-/// Undo [`rmdir`]'s moves: each parked file goes back to its old hidden name.
-fn unpark(moved: Vec<(Arc<Inode>, String)>) {
-    for (inode, original) in moved {
-        match super::abi_rename_raw(Id::ROOT, &inode.path(), &original) {
-            Ok(()) => *inode.path.lock() = original,
-            // The file stays valid and reclaimable at its mount-root name; the
-            // refused rmdir just cannot put it back.
-            Err(error) => crate::serial_println!(
-                "openfile: could not restore {original} after a refused rmdir: {error:?}"
-            ),
         }
     }
 }

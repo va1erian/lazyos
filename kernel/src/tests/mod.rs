@@ -350,6 +350,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     overlay_suite::CASES,
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
+    ext2_suite::data_fds::filemap::CASES,
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,

@@ -36,6 +36,7 @@ NAMES = [
     "memstress",
     "bigapp",
     "jitmem",
+    "filemap",
     "procstress",
     "sigstress",
     "fpsig",

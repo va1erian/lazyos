@@ -12,95 +12,62 @@
 //! an address space, as `clone(CLONE_VM)` threads require. When `Task` grows an
 //! `AddressSpace` field, this registry can collapse into a plain field.
 
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::PhysAddr;
 
+use crate::fs::openfile::OpenFile;
+
+mod types;
+pub use types::{Kind, Prot, Unmapped, Vma};
+
 /// Page size the VMA granularity is tied to (the kernel only maps 4 KiB pages).
 const PAGE: u64 = 4096;
-
-/// Access protection bits. The numeric values match Linux `PROT_*`, so a
-/// syscall argument can be masked straight into a `Prot`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Prot(pub u8);
-
-impl Prot {
-    pub const READ: Prot = Prot(1);
-    pub const WRITE: Prot = Prot(2);
-    pub const EXEC: Prot = Prot(4);
-
-    pub fn has_write(self) -> bool {
-        self.0 & Self::WRITE.0 != 0
-    }
-
-    pub fn has_exec(self) -> bool {
-        self.0 & Self::EXEC.0 != 0
-    }
-}
-
-impl core::ops::BitOr for Prot {
-    type Output = Prot;
-
-    fn bitor(self, other: Prot) -> Prot {
-        Prot(self.0 | other.0)
-    }
-}
-
-/// What a range backs. Anonymous memory, heaps and stacks are demand-zero;
-/// file segments are loaded eagerly from the ELF image.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Kind {
-    /// Anonymous private memory (`mmap(MAP_ANONYMOUS)`, scratch mappings).
-    Anon,
-    /// A `PT_LOAD` segment mapped eagerly from an ELF file.
-    File,
-    /// A user stack. The pages holding the start frame are mapped eagerly
-    /// (the loader writes them before the task first runs); the rest of the
-    /// reservation is populated on first touch.
-    Stack,
-    /// A `brk`/`sbrk` heap, populated on first touch.
-    Heap,
-    /// A `MAP_SHARED` mapping of a memfd, mapped eagerly. Its pages belong to
-    /// the memfd, which holds the user-memory charge, so unmapping it gives
-    /// no quota back; `fork` keeps the pages shared (`pte::SHARED`).
-    Shared,
-    /// A `MAP_SHARED | MAP_ANONYMOUS` mapping, mapped eagerly and shared with
-    /// `fork` children. The mapping's creator holds the charge, as for
-    /// [`Kind::Anon`].
-    SharedAnon,
-}
-
-/// One page-aligned protection range: `start < end`, both 4 KiB aligned.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Vma {
-    pub start: u64,
-    pub end: u64,
-    pub prot: Prot,
-    pub kind: Kind,
-}
-
-impl Vma {
-    /// Size of the range in bytes (accounting/diagnostics).
-    #[allow(dead_code)] // exercised by `vma_stats` from tests and tools
-    pub fn len(self) -> u64 {
-        self.end - self.start
-    }
-
-    /// Whether `va` lies inside the range.
-    pub fn contains(self, va: u64) -> bool {
-        va >= self.start && va < self.end
-    }
-
-    /// Whether the range overlaps `[start, end)`.
-    pub fn intersects(self, start: u64, end: u64) -> bool {
-        start < self.end && end > self.start
-    }
-}
 
 /// The VMAs of one address space, keyed by PML4 frame.
 struct Space {
     pml4: u64,
     vmas: Vec<Vma>,
+    /// The files file mappings of this space name, by [`Vma::file`] id.
+    files: Vec<(u32, Arc<OpenFile>)>,
+    /// The id the next file mapping gets.
+    next_file: u32,
+}
+
+impl Space {
+    fn new(pml4: u64) -> Space {
+        Space {
+            pml4,
+            vmas: Vec::new(),
+            files: Vec::new(),
+            next_file: 1,
+        }
+    }
+
+    fn file(&self, id: u32) -> Option<Arc<OpenFile>> {
+        self.files
+            .iter()
+            .find(|(file, _)| *file == id)
+            .map(|(_, file)| Arc::clone(file))
+    }
+
+    /// Forget the files no VMA names any more; the caller drops them after
+    /// the registry lock is released (the last close of a file can do I/O).
+    fn prune(&mut self) -> Vec<Arc<OpenFile>> {
+        let vmas = &self.vmas;
+        let mut dropped = Vec::new();
+        let mut index = 0;
+        while index < self.files.len() {
+            let id = self.files[index].0;
+            if vmas.iter().any(|vma| vma.file == id) {
+                index += 1;
+            } else {
+                dropped.push(self.files.remove(index).1);
+            }
+        }
+        dropped
+    }
 }
 
 /// All address spaces' VMA lists. A `Vec` scan is fine at this scale (a
@@ -124,10 +91,7 @@ fn find_space(spaces: &mut [Space], table: PhysAddr) -> Option<&mut Space> {
 fn ensure_space(spaces: &mut Vec<Space>, table: PhysAddr) -> &mut Space {
     let pml4 = table.as_u64();
     if spaces.iter().all(|space| space.pml4 != pml4) {
-        spaces.push(Space {
-            pml4,
-            vmas: Vec::new(),
-        });
+        spaces.push(Space::new(pml4));
     }
     // INVARIANT: the branch above just pushed a `Space` with this exact
     // `pml4`, and nothing between the push and this lookup can remove it
@@ -138,76 +102,142 @@ fn ensure_space(spaces: &mut Vec<Space>, table: PhysAddr) -> &mut Space {
 /// Start tracking a fresh address space. Reusing a recycled PML4 frame must not
 /// inherit the previous address space's VMAs, so an existing entry is reset.
 pub fn register(table: PhysAddr) {
-    let mut spaces = SPACES.lock();
-    match find_space(&mut spaces, table) {
-        Some(space) => space.vmas.clear(),
-        None => spaces.push(Space {
-            pml4: table.as_u64(),
-            vmas: Vec::new(),
-        }),
-    }
+    let old = {
+        let mut spaces = SPACES.lock();
+        match find_space(&mut spaces, table) {
+            Some(space) => Some(core::mem::replace(space, Space::new(table.as_u64()))),
+            None => {
+                spaces.push(Space::new(table.as_u64()));
+                None
+            }
+        }
+    };
+    drop(old);
 }
 
-/// Drop an address space's list (called when its PML4 is torn down).
+/// Drop an address space's list (called when its PML4 is torn down). The
+/// files its mappings held go with it, after the registry lock is released.
 pub fn forget(table: PhysAddr) {
-    SPACES.lock().retain(|space| space.pml4 != table.as_u64());
+    let gone: Vec<Space> = {
+        let mut spaces = SPACES.lock();
+        let (gone, kept): (Vec<Space>, Vec<Space>) = core::mem::take(&mut *spaces)
+            .into_iter()
+            .partition(|space| space.pml4 == table.as_u64());
+        *spaces = kept;
+        gone
+    };
+    drop(gone);
 }
 
-/// Give `child` a copy of `parent`'s list (fork keeps both sides' layout).
+/// Give `child` a copy of `parent`'s list (fork keeps both sides' layout, and
+/// the child's file mappings name the same open files).
 pub fn clone_space(parent: PhysAddr, child: PhysAddr) {
     let mut spaces = SPACES.lock();
-    let vmas = find_space(&mut spaces, parent)
-        .map(|space| space.vmas.clone())
-        .unwrap_or_default();
-    match find_space(&mut spaces, child) {
-        Some(space) => space.vmas = vmas,
-        None => spaces.push(Space {
-            pml4: child.as_u64(),
-            vmas,
-        }),
-    }
+    let (vmas, files, next_file) = find_space(&mut spaces, parent)
+        .map(|space| (space.vmas.clone(), space.files.clone(), space.next_file))
+        .unwrap_or_else(|| (Vec::new(), Vec::new(), 1));
+    let replaced = match find_space(&mut spaces, child) {
+        Some(space) => Some(core::mem::replace(
+            space,
+            Space {
+                pml4: child.as_u64(),
+                vmas,
+                files,
+                next_file,
+            },
+        )),
+        None => {
+            spaces.push(Space {
+                pml4: child.as_u64(),
+                vmas,
+                files,
+                next_file,
+            });
+            None
+        }
+    };
+    drop(spaces);
+    drop(replaced);
 }
 
 /// Record `[start, end)` with `prot`/`kind`, coalescing with adjacent VMAs that
 /// agree and overwriting any different mapping already inside the range
 /// (`MAP_FIXED` semantics: the new intent wins).
 pub fn insert(table: PhysAddr, start: u64, end: u64, prot: Prot, kind: Kind) {
+    insert_mapped(table, start, end, prot, kind, None);
+}
+
+/// [`insert`] for a file mapping: `file` is the open file, mapped from
+/// offset `offset` at `start`.
+pub fn insert_file(
+    table: PhysAddr,
+    start: u64,
+    end: u64,
+    prot: Prot,
+    kind: Kind,
+    file: Arc<OpenFile>,
+    offset: u64,
+) {
+    insert_mapped(table, start, end, prot, kind, Some((file, offset)));
+}
+
+fn insert_mapped(
+    table: PhysAddr,
+    start: u64,
+    end: u64,
+    prot: Prot,
+    kind: Kind,
+    file: Option<(Arc<OpenFile>, u64)>,
+) {
     let start = align_down(start);
     let end = align_up(end);
     if end <= start {
         return;
     }
-    let mut spaces = SPACES.lock();
-    insert_in(
-        &mut ensure_space(&mut spaces, table).vmas,
-        start,
-        end,
-        prot,
-        kind,
-    );
+    let dropped = {
+        let mut spaces = SPACES.lock();
+        let space = ensure_space(&mut spaces, table);
+        let (id, file_off) = match file {
+            Some((file, offset)) => {
+                let id = space.next_file;
+                space.next_file = id.wrapping_add(1).max(1);
+                space.files.push((id, file));
+                (id, offset)
+            }
+            None => (0, 0),
+        };
+        insert_in(
+            &mut space.vmas,
+            Vma {
+                start,
+                end,
+                prot,
+                kind,
+                file: id,
+                file_off,
+            },
+        );
+        space.prune()
+    };
+    drop(dropped);
 }
 
-fn insert_in(vmas: &mut Vec<Vma>, start: u64, end: u64, prot: Prot, kind: Kind) {
+fn insert_in(vmas: &mut Vec<Vma>, new: Vma) {
     let mut kept: Vec<Vma> = Vec::with_capacity(vmas.len() + 2);
     for vma in vmas.drain(..) {
-        if !vma.intersects(start, end) {
+        if !vma.intersects(new.start, new.end) {
             kept.push(vma);
             continue;
         }
         // Keep the parts outside the new range; the covered parts are replaced.
-        if vma.start < start {
-            kept.push(Vma { end: start, ..vma });
+        if vma.start < new.start {
+            kept.push(vma.clipped(vma.start, new.start));
         }
-        if vma.end > end {
-            kept.push(Vma { start: end, ..vma });
+        if vma.end > new.end {
+            kept.push(vma.clipped(new.end, vma.end));
         }
     }
-    kept.push(Vma {
-        start,
-        end,
-        prot,
-        kind,
-    });
+    kept.push(new);
     kept.sort_unstable_by_key(|vma| vma.start);
     merge(kept, vmas);
 }
@@ -215,34 +245,49 @@ fn insert_in(vmas: &mut Vec<Vma>, start: u64, end: u64, prot: Prot, kind: Kind) 
 /// Remove `[start, end)`, splitting partially covered VMAs. Returns the removed
 /// pieces (clipped to the range) so callers can report what was unmapped.
 pub fn remove(table: PhysAddr, start: u64, end: u64) -> Vec<Vma> {
+    remove_files(table, start, end)
+        .into_iter()
+        .map(|piece| piece.vma)
+        .collect()
+}
+
+/// [`remove`], each piece with the file it mapped. The caller unmaps the
+/// pages and then calls `mem::filemap::released` so the file's pages are
+/// written back and let go.
+pub fn remove_files(table: PhysAddr, start: u64, end: u64) -> Vec<Unmapped> {
     let start = align_down(start);
     let end = align_up(end);
     let mut removed = Vec::new();
     if end <= start {
         return removed;
     }
-    let mut spaces = SPACES.lock();
-    if let Some(space) = find_space(&mut spaces, table) {
+    let dropped = {
+        let mut spaces = SPACES.lock();
+        let Some(space) = find_space(&mut spaces, table) else {
+            return removed;
+        };
         let mut kept: Vec<Vma> = Vec::with_capacity(space.vmas.len() + 2);
-        for vma in space.vmas.drain(..) {
+        let old = core::mem::take(&mut space.vmas);
+        for vma in old {
             if !vma.intersects(start, end) {
                 kept.push(vma);
                 continue;
             }
             if vma.start < start {
-                kept.push(Vma { end: start, ..vma });
+                kept.push(vma.clipped(vma.start, start));
             }
             if vma.end > end {
-                kept.push(Vma { start: end, ..vma });
+                kept.push(vma.clipped(end, vma.end));
             }
-            removed.push(Vma {
-                start: vma.start.max(start),
-                end: vma.end.min(end),
-                ..vma
+            removed.push(Unmapped {
+                vma: vma.clipped(start, end),
+                file: space.file(vma.file),
             });
         }
         space.vmas = kept;
-    }
+        space.prune()
+    };
+    drop(dropped);
     removed
 }
 
@@ -251,6 +296,35 @@ pub fn find(table: PhysAddr, va: u64) -> Option<Vma> {
     let spaces = SPACES.lock();
     let space = spaces.iter().find(|space| space.pml4 == table.as_u64())?;
     space.vmas.iter().copied().find(|vma| vma.contains(va))
+}
+
+/// The open file the file mapping `vma` of `table` maps.
+pub fn file_of(table: PhysAddr, vma: &Vma) -> Option<Arc<OpenFile>> {
+    if vma.file == 0 {
+        return None;
+    }
+    let spaces = SPACES.lock();
+    spaces
+        .iter()
+        .find(|space| space.pml4 == table.as_u64())?
+        .file(vma.file)
+}
+
+/// Every file mapping of `table` with its file (clones of the references).
+pub fn file_mappings(table: PhysAddr) -> Vec<Unmapped> {
+    let spaces = SPACES.lock();
+    let Some(space) = spaces.iter().find(|space| space.pml4 == table.as_u64()) else {
+        return Vec::new();
+    };
+    space
+        .vmas
+        .iter()
+        .filter(|vma| vma.file != 0)
+        .map(|vma| Unmapped {
+            vma: *vma,
+            file: space.file(vma.file),
+        })
+        .collect()
 }
 
 /// Whether `va` lies in a VMA that does not permit writing. A page with no
@@ -272,11 +346,7 @@ pub fn find_range(table: PhysAddr, start: u64, end: u64) -> Vec<Vma> {
     if let Some(space) = spaces.iter().find(|space| space.pml4 == table.as_u64()) {
         for vma in &space.vmas {
             if vma.intersects(start, end) {
-                found.push(Vma {
-                    start: vma.start.max(start),
-                    end: vma.end.min(end),
-                    ..*vma
-                });
+                found.push(vma.clipped(start, end));
             }
         }
     }
@@ -334,13 +404,7 @@ fn split_at(vmas: &mut Vec<Vma>, address: u64) {
     };
     let original = vmas[index];
     vmas[index].end = address;
-    vmas.insert(
-        index + 1,
-        Vma {
-            start: address,
-            ..original
-        },
-    );
+    vmas.insert(index + 1, original.clipped(address, original.end));
 }
 
 /// A snapshot of an address space's VMAs, for diagnostics and tests (the
@@ -362,7 +426,12 @@ fn merge(vmas: Vec<Vma>, out: &mut Vec<Vma>) {
     for vma in vmas {
         match out.last_mut() {
             Some(last)
-                if last.end == vma.start && last.prot == vma.prot && last.kind == vma.kind =>
+                if last.end == vma.start
+                    && last.prot == vma.prot
+                    && last.kind == vma.kind
+                    && last.file == vma.file
+                    // The same file only merges where the offsets continue.
+                    && (last.file == 0 || last.offset_at(last.end) == vma.file_off) =>
             {
                 last.end = vma.end;
             }

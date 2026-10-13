@@ -16,6 +16,7 @@ use crate::ipc::credentials::{self, Cred};
 mod attrs;
 mod cwd;
 mod cwd_paths;
+pub(in crate::tests) mod filemap;
 mod inherit;
 mod inherit_read;
 mod inspect;

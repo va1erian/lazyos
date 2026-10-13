@@ -172,6 +172,9 @@ pub fn free_user_table(table: PhysAddr) -> usize {
     if release_frame(table) == Release::Pooled {
         released += 1;
     }
+    // File mappings write back what shared stores changed and let go of the
+    // file's pages now that this space holds no references to them.
+    super::filemap::release_space(table);
     // The address space no longer exists: drop its VMA list so a recycled PML4
     // frame cannot inherit it.
     vma::forget(table);
@@ -420,6 +423,9 @@ pub fn demand_fault(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> bool
     let Some(vma) = vma::find(table, va) else {
         return false;
     };
+    if vma.kind.is_file_mapping() {
+        return super::filemap::fault(table, va, error, vma);
+    }
     if !matches!(
         vma.kind,
         vma::Kind::Anon | vma::Kind::Heap | vma::Kind::Stack
