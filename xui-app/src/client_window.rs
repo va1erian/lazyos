@@ -403,18 +403,30 @@ mod tests {
     #[test]
     fn a_window_closed_while_opening_exits_cleanly() {
         let failed = |_: ()| Err::<(), _>(OpenError::Failed("create_surface: errno 5".into()));
-        assert_eq!(crate::launch::finish("T", Ok::<(), OpenError>(())), 0);
-        assert_eq!(crate::launch::finish("T", failed(())), 1);
+        assert_eq!(
+            crate::launch::finish(crate::trace::Channel::Test, Ok::<(), OpenError>(())),
+            0
+        );
+        assert_eq!(
+            crate::launch::finish(crate::trace::Channel::Test, failed(())),
+            1
+        );
         assert!(!closed_while_opening());
 
         note_closed_while_opening();
         assert!(closed_while_opening());
-        assert_eq!(crate::launch::finish("T", Err(OpenError::Closed)), 0);
+        assert_eq!(
+            crate::launch::finish(crate::trace::Channel::Test, Err(OpenError::Closed)),
+            0
+        );
         assert_eq!(OpenError::Closed.to_string(), "window closed while opening");
         // The shape `open_window` really reports: the close text wrapped by the
         // backend, so a change to the text or the wrapper fails here.
         let wrapped = xui_core::backend::BackendError::Other(OpenError::Closed.to_string());
-        assert_eq!(crate::launch::finish("T", Err(wrapped)), 0);
+        assert_eq!(
+            crate::launch::finish(crate::trace::Channel::Test, Err(wrapped)),
+            0
+        );
     }
 
     #[test]

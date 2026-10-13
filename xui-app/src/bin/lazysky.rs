@@ -96,7 +96,7 @@ fn main() {
     // before any thread starts, as Mail does.
     lazysky_core::install_tls_provider();
     let service = service_arg();
-    launch::run("SKY", "LazySky", WINDOW, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Sky, "LazySky", WINDOW, move |ui, backend| {
         backend.on_first_frame(|| println!("SKY:UP:PASS"));
         backend.set_size_hints(480, 360, 0, 0);
         // The user's settings (read once, before the first frame); a

@@ -1,7 +1,10 @@
 # Tracing plan: one evidence API instead of ad hoc prints
 
 Status: T0, T1 and T2 landed (the inventory and lint, `libs/tracefmt`, the
-kernel sink, the no_std services); T3 (std apps) next. Owner: whoever picks up the tracking issue.
+kernel sink, the no_std services); T3 (std apps) is under way: T3a landed (the
+`xui_app::trace` sink, `probe`, `stall`, `launch`, `lazyrad_os::marker`, the
+scaffolder and the CI ratchet), the app-by-app migration (T3b) is next.
+Owner: whoever picks up the tracking issue.
 
 What T0/T1 settled while landing, where it differs from the text below:
 
@@ -46,6 +49,46 @@ What T2 settled while landing:
   shutdown, keyd, crash, accounts, fuse, smb and dbg harnesses need the
   BusyBox build (`tools/abi/busybox.py`) or other tools and were not run in
   this change.
+
+What T3a settled while landing:
+
+- `xui-app/src/trace.rs` is the std sink: `trace::{pass!, fail!, warn!,
+  event!, line!, print!}`, `enabled`, `within`/`within_with` (a `Budget` for
+  one tag), `Markers` (a `Channel` bound once, with `once` and
+  `install_panic_hook`). It writes with one `write_all` to `/dev/console`
+  (opened once) and falls back to stdout only when the device cannot be
+  opened. `xui-app/build.rs` reads `LAZYOS_TRACE` like `user/build.rs`
+  (cfg `lazyos_trace`); the macros test `xui_app::trace::ENABLED`, so a
+  portable crate under `xui-app/crates/` that calls them needs no cfg of its
+  own. The mask comes from the kernel's `TRACE_MASK` op.
+- `launch::run` and `launch::finish` take a `Channel`, not a `&str`
+  (`<channel>:BIND:FAIL`, `RUN:FAIL`, `RUN:CLOSED` are traces). A new app gets
+  its `Channel` row from `tools/xui/new_app.py`; `About`, `Sky`, `Video` and
+  `Webkit` joined the catalogue (113 channels). `WEBKIT:W5:UI:*` failures are
+  now `WEBKIT:BIND|RUN:FAIL`, which `tools/webkit` already accepted.
+- `probe::rect`/`widget` keep their lines byte for byte (`UI:RECT x= y= w=
+  h= name=<free text>`: the sessions read `name=` to the end of the line) with
+  `line!`, not `event!`, which would quote a name with a space.
+  `stall::finish` keeps `UI:STALL kind= ms= at= app= thread= what=` and
+  `UI:STALL:SUPPRESSED n= app=`; its per-thread `Budget` is its own.
+- **`Channel::Ui` lost its channel-wide rate limit.** T1 gave `ui` the stall's
+  40 lines per 10 s, but `ui` also carries `UI:RECT` (`xuid` prints one per
+  window since T2, a menu opens fifty rows at once) and `UI:WIDGET`: a session
+  that clicks by name would have lost rows silently. Only `label` is limited
+  per channel now; a tag that can loop uses `trace::within` with its own
+  `Budget`, as `USBD:DIAG` and `UI:STALL` do.
+- `lazyrad_os::marker` is two constants (`PLAYER`, `IDE`) over
+  `xui_app::trace::Markers`. A panic report is a class 2 diagnostic: the hook
+  writes `PANIC:FAIL` and `PANIC:BT` lines whatever the switch and the mask say.
+- **Enforcement started early, as a ratchet** (`check_adhoc.py --ratchet`,
+  `tools/trace/adhoc_baseline.json`, a CI step): a new file, or a file with
+  more ad hoc prints than its entry, fails, and a file that improved must lower
+  its entry. T4's `--enforce` replaces it when the baseline reaches zero.
+  AGENTS.md makes the API mandatory (section "Tracing" and the "Project
+  conventions" bullet), and the `xui-app` skill teaches it.
+- Counts at T3a (`python tools/trace/check_adhoc.py`): 506 sites in 121 files;
+  `xui-app` is 445 now, against 374 at T0 (LazyGolf, LazySky, Video, the
+  Terminal rewrite and the Wi-Fi tab landed in between), `srb2kart/` 18.
 
 ## 1. Why
 

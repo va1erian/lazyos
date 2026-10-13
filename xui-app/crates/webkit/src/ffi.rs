@@ -219,7 +219,10 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             .expect("the WebKit window's widgets built")
     });
     backend.unbind();
-    c_int::from(xui_app::launch::finish("WEBKIT:W5:UI", outcome))
+    c_int::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Webkit,
+        outcome,
+    ))
 }
 
 /// WebKit painted a frame: `rgba` is exactly `width * height * 4` bytes, top row first, opaque.

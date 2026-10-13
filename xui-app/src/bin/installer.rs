@@ -336,7 +336,7 @@ fn main() -> ExitCode {
         return develop::main(path);
     }
     let start = argv::file_arg(std::env::args_os());
-    launch::run("INSTALLER", "Installer", WINDOW, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Installer, "Installer", WINDOW, move |ui, backend| {
         // Resizable; the screens' layouts follow the client area. The
         // minimum keeps the consent screen's lists readable.
         backend.set_size_hints(480, 360, 0, 0);

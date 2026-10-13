@@ -29,7 +29,7 @@ fn main() {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(1, |d| d.as_secs() % 100_000)
         });
-    launch::run("GOLF", "LazyGolf", WINDOW, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Golf, "LazyGolf", WINDOW, move |ui, backend| {
         backend.on_first_frame(|| println!("GOLF:UP:PASS"));
         // Resizable down to 320 x 200 and up to the screen (maximizable):
         // the view re-renders at the new size.

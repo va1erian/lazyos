@@ -336,6 +336,22 @@ fn a_channel_over_budget_prints_one_suppressed_line_per_window() {
 }
 
 #[test]
+fn the_ui_channel_is_not_rate_limited_for_its_probe_evidence() {
+    // `UI:RECT` lines (a menu opens fifty rows at once; a session clicks them
+    // by name) share the channel with `UI:STALL`, which has a budget of its
+    // own: a channel-wide limit would drop probe lines and break a session.
+    assert_eq!(Channel::Ui.rate(), None);
+    let tracer = Tracer::new();
+    let sink = Capture::default();
+    for _ in 0..500 {
+        tracer.emit(&sink, 1, Channel::Ui, |b| {
+            let _ = write::line(b, Channel::Ui, format_args!("RECT x=0 y=0 w=1 h=1 name=a"));
+        });
+    }
+    assert_eq!(sink.0.borrow().len(), 500);
+}
+
+#[test]
 fn emit_always_ignores_the_mask() {
     let tracer = Tracer::new();
     let sink = Capture::default();

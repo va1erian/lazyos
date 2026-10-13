@@ -409,7 +409,7 @@ impl NetTools {
 }
 
 fn main() {
-    launch::run("NETTOOLS", "Net Tools", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Nettools, "Net Tools", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("NETTOOLS:UP:PASS"));
         let widgets = Widgets::default();
         ui.root(widgets.layout())

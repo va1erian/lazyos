@@ -966,24 +966,74 @@ is `.github/workflows/kernel-tests.yml`; see `tools/test/README.md`.
 
 ## Tracing (`LAZYOS_TRACE`)
 
-Evidence lines (`UP`/`QUIT`, `TEST:`, `DEV:`, `LABEL:DENY`, ...) go through
-`libs/tracefmt` and a sink per runtime, never a bare print
-([`docs/tracing-plan.md`](docs/tracing-plan.md); the kernel's is
-`kernel/src/trace.rs`: `trace::pass!`, `fail!`, `event!`, `line!`). Stage T1
-migrated the kernel; `python tools/trace/check_adhoc.py` counts the prints
-left in the services and apps (T2, T3). `LAZYOS_TRACE=0` compiles the macros
-out, `LAZYOS_TRACE_MASK=init,pkgd,-shell` (`trace.mask=` in `lazyos.cfg`)
-chooses channels, and `LAZYOS_LABEL_TRACE`, `LAZYOS_USB_TRACE` and
-`LAZYOS_UI_PROBE` add theirs. Diagnostics an operator needs on a PC with no
-serial port (`HW:`, `EXCEPTION:`, `IRQOFF:`, `DBGD:AUDIT`) stay on
-`serial_println!`. The channel list is generated into
-[`docs/trace/channels.md`](docs/trace/channels.md)
-(`python tools/trace/catalog.py`, `--check` in CI).
+**Mandatory: every evidence line goes through the `trace` API of its runtime,
+never a print.** An evidence line is anything a harness, a session script or
+`dbgctl` reads off the serial port or the program ring: `UP`/`QUIT`/`PASS`/
+`FAIL` markers, `UI:RECT`, `TEST:`, `DEV:`, `LABEL:DENY`, ... Do not write
+`println!("UP:PASS")`, `eprintln!`, `serial_println!("X:..")` or
+`sys::write_str(&format!("X:..."))` for one. A print is also torn by another
+task's line and is invisible to `LAZYOS_TRACE=0`, the mask and the budgets.
+
+| You are writing | Use | Sink |
+|---|---|---|
+| a desktop (xui) app, `lazyrad-os`, `doom`, `emusic`, `quake`, `srb2kart` | `xui_app::trace` | `/dev/console`, one write per line |
+| a service or command in `user/` | `user::trace` | the terminal, one write per line |
+| the kernel | `kernel/src/trace.rs` | the serial lock |
+
+```rust
+use xui_app::trace::{self, Channel};
+
+trace::pass!(Channel::Writer, "SAVE");                 // WRITER:SAVE:PASS
+trace::pass!(Channel::Pdf, "OPEN", "{path}:{pages}");  // PDF:OPEN:PASS:/x.pdf:3
+trace::fail!(Channel::Lrplay, "BIND", "{error}");      // LRPLAY:BIND:FAIL:code 2
+trace::event!(Channel::Golf, "FPS", fps = fps, w = w); // GOLF:FPS fps=.. w=..
+trace::line!(Channel::Ui, "RECT x={x} name={name}");   // a line with a shape of its own
+if trace::enabled(Channel::Ui) { /* work that only feeds a trace */ }
+```
+
+- **Name the channel.** A line's prefix is a `tracefmt::Channel`
+  (`libs/tracefmt/src/channel.rs`, one row per prefix); a stray prefix is a
+  compile error. A new app gets its row from `tools/xui/new_app.py`; add one by
+  hand otherwise and run `python tools/trace/catalog.py`
+  ([`docs/trace/channels.md`](docs/trace/channels.md)).
+- **An xui app starts with `launch::run(Channel::X, ...)`**, which prints
+  `X:BIND:FAIL` and `X:RUN:FAIL`; `UP` and `QUIT` are `trace::pass!(Channel::X,
+  "UP")`. `xui_app::probe` (`UI:RECT`/`UI:WIDGET`), `xui_app::stall`
+  (`UI:STALL`) and `lazyrad_os::marker::Markers` are thin layers over it:
+  use them, do not reimplement them. A `Markers` panic hook (`install_panic_hook`)
+  reports a crash on the console.
+- **A line with free text keeps it last and unquoted** (`name=<text>`):
+  session scripts parse to the end of the line. Use `trace::line!` for that
+  shape, `event!` for `key=value` fields.
+- **A diagnostic an operator needs on a PC with no serial port** (`HW:`,
+  `EXCEPTION:`, `IRQOFF:`, `DBGD:AUDIT`, a panic, a command's result) is not
+  evidence: it stays on `serial_println!`/`sys::write_str`, or
+  `trace::print!` for a command's output. When in doubt it is a trace.
+- **A tag that can fire in a loop** (a stall, a refusal) gets its own
+  `Budget` (`trace::within`); a whole channel is never rate limited if it also
+  carries evidence that must not be dropped (`UI:RECT`).
+- **Never put a password, token or secret in a trace's arguments**; the lint
+  greps the `LOGIN`/`GREETER`/`KEYD`/`ELEVD`/`SMB`/`ACCOUNTS` channels.
+
+`LAZYOS_TRACE=0` compiles the macros out (the arguments stay type-checked, none
+is evaluated), `LAZYOS_TRACE_MASK=init,pkgd,-shell` (`trace.mask=` in
+`lazyos.cfg`) chooses channels, and `LAZYOS_LABEL_TRACE`, `LAZYOS_USB_TRACE`
+and `LAZYOS_UI_PROBE` add theirs. Plan and status:
+[`docs/tracing-plan.md`](docs/tracing-plan.md).
+
+CI enforces it. `python tools/trace/check_adhoc.py --ratchet` fails when a file
+has more ad hoc prints than `tools/trace/adhoc_baseline.json` records (a new
+file's baseline is 0, so a new app or module cannot start with a print) and
+when a file has fewer and its entry was not lowered. Migrating a file means
+moving its prints to `trace` and running
+`python tools/trace/check_adhoc.py --update-baseline`; never raise an entry.
 
 ```bash
 cargo test -p tracefmt -p dbgwire
 LAZYOS_TEST_FILTER=trace python tools/test/run.py --accel none
 python tools/trace/test_check_adhoc.py
+python tools/trace/check_adhoc.py --ratchet
+cargo test --manifest-path xui-app/Cargo.toml -p xui-app --lib trace   # Linux/WSL
 ```
 
 ## Interrupt latency
@@ -1458,6 +1508,17 @@ regressions, not kernel-internal correctness or resource leaks.
   See the "Code standards" section of `README.md`.
 - Well-known paths and program paths come from `libs/fhs`; never write
   one as a literal (`python tools/fhs/check_literals.py` enforces it).
+- **Evidence markers go through the `trace` API, never a print.** A desktop
+  (xui) app, or any code in `xui-app/`, `lazyrad-os/`, `doom/`, `emusic/`,
+  `quake/`, `srb2kart/`, writes `UP`/`QUIT`/`PASS`/`FAIL` lines, probe
+  rectangles and stalls with `xui_app::trace::{pass!, fail!, event!, line!}`
+  on a `Channel` from `libs/tracefmt`, starts with
+  `launch::run(Channel::X, ...)`, and never `println!("X:UP:PASS")`; services
+  use `user::trace`, the kernel `kernel/src/trace.rs`. A new app is started
+  with `tools/xui/new_app.py`, which writes the calls and the channel.
+  `python tools/trace/check_adhoc.py --ratchet` is a CI step: a new file with a
+  marker print, or a file with more of them than
+  `tools/trace/adhoc_baseline.json` records, fails (see "Tracing").
 - Keep source files **under 500 lines**; split by responsibility instead of
   growing a file past it. `python tools/check_file_length.py` (a CI step)
   enforces it for every tracked `.rs`/`.py` file except `@generated` output;

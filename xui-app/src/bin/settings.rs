@@ -24,7 +24,7 @@ use xui_app::platform::system::OsSystem;
 use xui_settings::app::{SettingsApp, WINDOW};
 
 fn main() {
-    launch::run("SETTINGS", "Settings", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Settings, "Settings", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("SETTINGS:UP:PASS"));
         SettingsApp::build(
             ui,

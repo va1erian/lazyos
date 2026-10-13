@@ -192,7 +192,7 @@ fn main() {
         inner: PngStorage::new(path).with_max_load(EDITOR_MAX_LOAD_BYTES),
     });
 
-    launch::run("PAINT", "Paint", WINDOW, move |ui, backend| {
+    launch::run(xui_app::trace::Channel::Paint, "Paint", WINDOW, move |ui, backend| {
         // Paint's document is fixed; only the viewport follows the window, so
         // it can be resized down to a workable drawing area.
         backend.set_size_hints(MIN_WINDOW.0, MIN_WINDOW.1, 0, 0);

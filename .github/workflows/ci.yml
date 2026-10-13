@@ -56,7 +56,7 @@ jobs:
       - uses: ./.github/actions/rust-cache
         with:
           key: host
-      - run: python tools/trace/check_adhoc.py
+      - run: python tools/trace/check_adhoc.py --ratchet
       - run: python tools/trace/catalog.py --check
       - run: python tools/trace/test_check_adhoc.py
       - run: cargo test -p tracefmt -p dbgwire

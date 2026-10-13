@@ -36,6 +36,7 @@ REGISTRIES = [
     "tools/lazygui/catalog.py",
     "tools/screenshot/examples/core_apps.json",
     "xui-app/crates/app-icons/src/lib.rs",
+    "libs/tracefmt/src/channel.rs",
 ]
 
 
@@ -56,8 +57,10 @@ class NewAppTests(unittest.TestCase):
         touched = new_app.scaffold(self.root, self.app)
         self.assertEqual(len(touched), len(REGISTRIES) + 4)
         source = self.text("xui-app/src/bin/notes.rs")
-        self.assertIn('launch::run("NOTES", "Notes"', source)
-        self.assertIn("NOTES:UP:PASS", source)
+        self.assertIn('launch::run(Channel::Notes, "Notes"', source)
+        self.assertIn('trace::pass!(Channel::Notes, "UP")', source)
+        self.assertNotIn("println!", source)  # markers go through xui_app::trace
+        self.assertIn('    Notes => "NOTES",', self.text("libs/tracefmt/src/channel.rs"))
         self.assertIn("NOTES:QUIT:PASS", source)
         self.assertIn('system_name = "os.lazy.notes"', self.text("xui-app/packages/notes/manifest.toml"))
         self.assertIn("NOTES:UP:PASS", self.text("tools/screenshot/examples/xui_notes.json"))

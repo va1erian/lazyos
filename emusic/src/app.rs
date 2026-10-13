@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use emusic_frontend_portable::{Host, run_on};
+use emusic_frontend_portable::{run_on, Host};
 use emusic_lazyaudio::LazyBackend;
 use emusic_player::backend::AudioBackend;
 use emusic_ui::startup::Startup;
@@ -17,7 +17,7 @@ use xui_core::backend::Backend;
 use crate::audiod::Audiod;
 use crate::markers::{MarkingBackend, Sink};
 use crate::soundcheck;
-use crate::{MIN_WINDOW_SIZE, WINDOW_SIZE, data_dir};
+use crate::{data_dir, MIN_WINDOW_SIZE, WINDOW_SIZE};
 
 /// The argument that runs the sound check instead of the app.
 const SOUND_CHECK: &str = "--sound-check";
@@ -82,7 +82,10 @@ pub fn run() -> ! {
     };
     let outcome = run_on(startup, host);
     backend.unbind();
-    std::process::exit(i32::from(xui_app::launch::finish("EMUSIC", outcome)))
+    std::process::exit(i32::from(xui_app::launch::finish(
+        xui_app::trace::Channel::Emusic,
+        outcome,
+    )))
 }
 
 /// `--sound-check <file>`: plays `file` through `audiod` in the fixed

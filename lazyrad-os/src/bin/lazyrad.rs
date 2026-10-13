@@ -28,14 +28,14 @@ use std::path::PathBuf;
 use lazyrad_ide::{IdeEvent, RunOptions, StopKind};
 use lazyrad_os::args;
 use lazyrad_os::handoff::HandoffInstaller;
-use lazyrad_os::marker::Markers;
+use lazyrad_os::marker::{self, Markers};
 use lazyrad_os::migrate::{migrate_legacy_data, Migration};
 use lazyrad_os::platform::{player_beside, Home, LazyOsPlatform};
 use xui_app::backend::LazyOSBackend;
 use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
 
-const MARK: Markers = Markers::IDE;
+const MARK: Markers = marker::IDE;
 /// The flag of a windowless development run.
 const PLAY_DEV: &str = "--play-dev";
 

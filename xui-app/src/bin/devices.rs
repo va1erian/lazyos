@@ -93,7 +93,7 @@ fn up_line(view: &DevView) -> String {
 }
 
 fn main() {
-    launch::run("DEVICES", "Devices", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Devices, "Devices", WINDOW, |ui, backend| {
         backend.set_size_hints(560, 360, 0, 0);
         let first = DevView::read();
         let evidence = up_line(&first);

@@ -211,7 +211,7 @@ fn shortcut(key: Key) -> Option<Msg> {
 }
 
 fn main() {
-    launch::run("FABMON", "fabricmon", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Fabmon, "fabricmon", WINDOW, |ui, backend| {
         // Resizable, down to the compact view, so `RequestSize` is accepted.
         backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
         let state = State::load();

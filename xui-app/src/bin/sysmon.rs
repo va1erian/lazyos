@@ -263,7 +263,7 @@ fn evidence(snapshot: &Result<Snapshot, i64>) -> String {
 }
 
 fn main() {
-    launch::run("SYSMON", "System Monitor", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Sysmon, "System Monitor", WINDOW, |ui, backend| {
         // Resizable, down to the compact view, so `RequestSize` is accepted.
         backend.set_size_hints(compact::MIN_SIZE.0, compact::MIN_SIZE.1, 0, 0);
         let first = evidence(&sysinfo::snapshot());

@@ -8,7 +8,10 @@ image build, `run_demo.py`, the GUI launcher, and a core package with its
 icons). This writes all of it at once:
 
 * ``xui-app/src/bin/<short>.rs``: a starting app on xui layouts that already
-  prints ``<MARKER>:UP:PASS`` and ``<MARKER>:QUIT:PASS``;
+  prints ``<MARKER>:UP:PASS`` and ``<MARKER>:QUIT:PASS`` through
+  ``xui_app::trace`` (a marker is never a ``println!``: docs/tracing-plan.md,
+  ``tools/trace/check_adhoc.py``), and its ``Channel`` in
+  ``libs/tracefmt/src/channel.rs`` (``docs/trace/channels.md`` is regenerated);
 * the ``[[bin]]`` in ``xui-app/Cargo.toml`` and the elf in
   ``tools/xui/build.py``, ``build_support/xui_embed.rs`` (shipped with every
   desktop image) and ``tools/run_demo.py``;
@@ -59,6 +62,11 @@ class App:
         return self.short.upper().replace("-", "_")
 
     @property
+    def channel(self) -> str:
+        """The `tracefmt::Channel` variant of the app's markers: `Notes`."""
+        return self.type_name
+
+    @property
     def type_name(self) -> str:
         """The app struct's name: `NoteTaker` for `note-taker`."""
         return "".join(part.capitalize() for part in re.split(r"[-_]", self.short))
@@ -92,6 +100,29 @@ def insert_before_close(text: str, opener: str, close: str, line: str) -> str:
     raise ScaffoldError(f"no {close!r} after {opener!r}")
 
 
+CHANNEL_ROW = re.compile(r'^    ([A-Z][A-Za-z0-9]*) => "([A-Z][A-Z0-9_]*)",$', re.M)
+
+
+def add_channel(text: str, app: App) -> str:
+    """`text` of `libs/tracefmt/src/channel.rs` with a row for the app's
+    markers, in alphabetical order, unless its prefix is already catalogued
+    (a channel is one prefix, whoever emits it)."""
+    rows = CHANNEL_ROW.findall(text)
+    if not rows:
+        raise ScaffoldError("no channel rows in libs/tracefmt/src/channel.rs")
+    if any(prefix == app.marker for _, prefix in rows):
+        return text
+    if any(variant == app.channel for variant, _ in rows):
+        raise ScaffoldError(f"channel {app.channel} exists with another prefix")
+    row = f'    {app.channel} => "{app.marker}",'
+    later = [m for m in CHANNEL_ROW.finditer(text) if m.group(1) > app.channel]
+    if later:
+        at = later[0].start()
+    else:
+        at = list(CHANNEL_ROW.finditer(text))[-1].end() + 1
+    return text[:at] + row + "\n" + text[at:]
+
+
 def noted(app: App, comment: str, line: str) -> str:
     """`line` under a comment naming the app, so a new last item never reads
     as part of the comment block above it (e.g. "LazyWeb, only with ...")."""
@@ -115,13 +146,14 @@ def quoted(value: str) -> str:
 
 def app_source(app: App) -> str:
     """The starting app: a layout, a handle, a message, and the evidence."""
-    m, t = app.marker, app.type_name
+    m, t, c = app.marker, app.type_name, app.channel
     return f'''//! `{app.short}`: {app.description}
 //!
 //! Serial evidence: `{m}:UP:PASS` after the first frame and `{m}:QUIT:PASS` on
 //! `q` (or the window close button).
 
 use xui_app::launch;
+use xui_app::trace::{{self, Channel}};
 use xui_core::prelude::*;
 
 /// The window size when a compositor lays the app out; as the display owner
@@ -151,7 +183,7 @@ impl App for {t} {{
                 self.status.get().set_text(&text);
             }}
             Msg::Quit => {{
-                println!("{m}:QUIT:PASS");
+                trace::pass!(Channel::{c}, "QUIT");
                 ui.quit();
             }}
         }}
@@ -159,8 +191,8 @@ impl App for {t} {{
 }}
 
 fn main() {{
-    launch::run("{m}", {quoted(app.name)}, WINDOW, |ui, backend| {{
-        backend.on_first_frame(|| println!("{m}:UP:PASS"));
+    launch::run(Channel::{c}, {quoted(app.name)}, WINDOW, |ui, backend| {{
+        backend.on_first_frame(|| trace::pass!(Channel::{c}, "UP"));
         let app = {t}::default();
         ui.root(
             column().padding(16).gap(8).children((
@@ -254,6 +286,7 @@ def scaffold(root: Path, app: App) -> list[str]:
         return text[:end] + "\n" + block + text[end:]
 
     change("xui-app/Cargo.toml", cargo)
+    change("libs/tracefmt/src/channel.rs", lambda t: add_channel(t, app))
     change(
         "tools/xui/build.py",
         lambda t: insert_before_close(
@@ -386,6 +419,9 @@ def main(argv: list[str] | None = None) -> int:
             print("new_app: drawing the icons failed; run `cargo run -p app-icons`",
                   file=sys.stderr)
             return 1
+    if args.root == ROOT:
+        # The catalogue is generated from the enum (CI checks it is current).
+        subprocess.run([sys.executable, str(ROOT / "tools/trace/catalog.py")], cwd=ROOT, check=False)
     print(
         f"""
 Next:

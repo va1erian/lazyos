@@ -94,7 +94,7 @@ fn layout(
 }
 
 fn main() {
-    launch::run("XUIAPP", "xui counter", WINDOW, |ui, backend| {
+    launch::run(xui_app::trace::Channel::Xuiapp, "xui counter", WINDOW, |ui, backend| {
         backend.on_first_frame(|| println!("XUIAPP:COUNTER:PASS"));
         let scale = backend.scale() as i32;
         let area = hidpi::design_rect(ui);

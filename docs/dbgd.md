@@ -124,6 +124,12 @@ with `log --source programs --lines 2000 | grep UI:STALL`. At most 40 lines
 per 10 s per thread print, then `UI:STALL:SUPPRESSED n=<count>`. Map an
 interface id to its service with `idl/manifest.json`.
 
+The line is an `xui_app::trace` line on channel `ui` (docs/tracing-plan.md,
+T3): one whole write to the console device, so it reaches the program ring
+and the serial port even from an app started in the Terminal (whose stdout
+is a pty), and it is absent from an image built with `LAZYOS_TRACE=0`
+(`sysinfo`'s `trace_channels` says which channels print).
+
 ## 4. Troubleshooting
 
 | Symptom | Likely cause |

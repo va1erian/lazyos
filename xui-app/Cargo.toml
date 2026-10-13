@@ -94,6 +94,9 @@ inputmap = { path = "../libs/inputmap" }
 libc = "0.2"
 # Well-known paths and boot-volume names (docs/filesystem-plan.md F0).
 fhs = { path = "../libs/fhs" }
+# The evidence-line grammar, channel catalogue, mask and budgets `xui_app::trace`
+# writes every marker with (docs/tracing-plan.md, T3). `no_std` + `alloc`.
+tracefmt = { path = "../libs/tracefmt" }
 # The account name rules `accountsd` applies, so the login screen's setup
 # refuses exactly what the service would (docs/accounts-plan.md U1).
 accountdb = { path = "../libs/accountdb" }
