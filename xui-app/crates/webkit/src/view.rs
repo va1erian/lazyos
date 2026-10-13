@@ -186,7 +186,14 @@ impl<M: Clone + 'static> Placeable<M> for PageView<M> {
 fn paint(canvas: &mut dyn Canvas, state: &State) {
     let bounds = canvas.bounds();
     canvas.push_clip(bounds);
-    canvas.fill_rect(bounds, Color::rgb(255, 255, 255));
+    // White only where the picture does not reach (a window being resized): a frame is opaque and
+    // covers the view, and filling under it was a whole extra pass over every repaint.
+    let covered = state.image.as_ref().is_some_and(|image| {
+        image.width() as i32 >= bounds.width() && image.height() as i32 >= bounds.height()
+    });
+    if !covered {
+        canvas.fill_rect(bounds, Color::rgb(255, 255, 255));
+    }
     if let Some(image) = &state.image {
         let picture = Rect::new(
             bounds.left,

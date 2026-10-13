@@ -386,8 +386,10 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
   apart, and was tried: Back then reloads from the HTTP cache, which hits the crash above.)
 * **One startup crash was seen and not reproduced.** In one second boot the UI process died at its first resize
   (`memcpy` of a 1,800,000-byte frame past the end of its destination, a page fault at the end of a mapping, rip
-  in `compiler_rt` `copyBlocks`) before `UP:PASS`; the same harness passed on the runs before and after. The code
-  is the frame path (`paint.cpp` to `mailbox.rs`), which this change does not touch.
+  in `compiler_rt` `copyBlocks`) before `UP:PASS`; the same harness passed on the runs before and after. Reproduced
+  on 2026-10-13 in two of four launches: the destination is a block `mremap` had just moved, and the fault is at
+  the first page of a 2 MiB region the moved copy-on-write pages created with non-writable page-table parents. A
+  kernel bug, issue #853; see `lazywebplus-performance-plan.md`, section 8.
 * **Toasts are made on WebKit's main thread.** The shell names an app by the task id of the sender and a
   thread other than the process's first carries its own id, so a toast from the window's thread or the download
   thread was refused as "not an app". The app now makes every call of the notification service from the first
@@ -419,6 +421,18 @@ has the rows. Choosing GPL-3.0-or-later for the program is a decision for the ma
 * The blocked count of `about:blocker` and the shield is for the web page on show or browsed last (opening
   `about:blocker` does not reset it); a load a script makes in a loop is counted as often as it is blocked.
 * The prompt dialog does not seed the page's default value.
+
+## Paint counters
+
+Once a second, while the page is painted, the UI process prints `INFO:PAINT:` (after the window's prefix):
+`mode`, `n` (paints), `needs` (damage reports WebKit made), `px` (pixels painted), the microseconds summed over the
+second in `clear`, `wk` (`WKPagePaint`), `swz` (conversion) and `post` (handing the frame to the window), `avg` and
+`max` per paint, `lat` (the longest wait from a report to the paint that took it), `wheel` and `mouse` (calls from
+the window), and `w2d` (average/longest microseconds from a wheel turn to the first report after it: the
+WebProcess's share of a scroll step). Only the UI process's own time is in it; the window thread and the compositor
+are not. In an image built with the UI probe, a file `<profile>/paint-mode` holding `legacy` (the whole view painted
+and converted on every report, as before) or `fast:<ms>` (the default, `fast:33`: only the damaged rectangle,
+at least <ms> between paints) picks the path, for comparing them in one image.
 
 ## Testing
 
