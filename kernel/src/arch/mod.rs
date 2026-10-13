@@ -34,6 +34,16 @@ pub mod timer_cal;
 /// Initialise interrupt hardware and load the IDT.
 pub fn init() {
     cpu::init();
+    crate::serial_println!(
+        "HW:CPU:fpu xsave_mask={:#x} area={} mxcsr_mask={:#x}",
+        cpu::xsave_mask(),
+        if cpu::xsave_mask() != 0 {
+            cpu::XSAVE_AREA_SIZE
+        } else {
+            512
+        },
+        cpu::mxcsr_mask()
+    );
     gdt::init();
     idt::init_hardware();
     linux::init();

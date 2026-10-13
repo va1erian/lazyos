@@ -184,9 +184,10 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > `mprotect` answers `EINVAL` for a `prot` with a bit beyond read, write and
 > exec whatever the length. A fatal fault's report (`user: code at <rip>`)
 > reads the code bytes without demand paging (`user_ptr::try_resident_bytes`).
-> Follow-ups: CPUID advertises AVX although the kernel enables no OSXSAVE/XCR0,
-> so any guest that trusts `CPUID.1:ECX` bit 28 alone takes `#UD` (JSC is
-> patched around it; a kernel-side fix is issue #822), and a 2 GiB typed
+> Follow-ups: CPUID advertised AVX although the kernel enabled no OSXSAVE/XCR0,
+> so any guest that trusted `CPUID.1:ECX` bit 28 alone took `#UD` (JSC was
+> patched around it; issue #822 enables AVX state in the kernel, see
+> [`architecture/arch.md`](architecture/arch.md)), and a 2 GiB typed
 > array that exhausts the frame allocator ends in `SIGSEGV` in the fault path
 > instead of failing the allocation (Linux would OOM-kill; issue #823).
 

@@ -1,9 +1,9 @@
 //! `tlsfix` — rustls with the `nettls-crypto` provider on the Linux ABI
 //! (docs/tls-plan.md §8, stage T0).
 //!
-//! 1. Reports the CPU features the RustCrypto SIMD dispatch depends on and
-//!    fails on LazyOS if an AVX path could be chosen (LazyOS does not save
-//!    YMM state; see `cpu.rs`).
+//! 1. Reports the CPU features the RustCrypto SIMD dispatch depends on (see
+//!    `cpu.rs`). LazyOS saves YMM state since issue #822, so an AVX path may be
+//!    chosen: the handshakes below then run through it.
 //! 2. Runs complete TLS 1.3 and 1.2 handshakes between a rustls client and
 //!    server joined by in-memory buffers, with a request and a 256 KiB
 //!    response through each AEAD (AES-128/256-GCM, ChaCha20-Poly1305):
@@ -36,9 +36,6 @@ fn cpu_check() -> Result<String, String> {
     let features = cpu::Features::probe();
     println!("{}", features.line());
     let system = cpu::sysname();
-    if system == "LazyOS" && features.avx_path() {
-        return Err("an AVX backend could be chosen, but LazyOS does not save YMM state".into());
-    }
     Ok(format!("system={system} avx_path={}", features.avx_path()))
 }
 
