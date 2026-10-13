@@ -489,7 +489,9 @@ pub fn exec(old: u64, new: u64) {
 
 mod fire;
 mod posix;
-pub use fire::{charge_cpu, fire_due, fire_due_now};
+#[cfg(lazyos_tests)]
+pub use fire::fire_due;
+pub use fire::{charge_cpu, fire_due_now};
 pub use posix::{clock_of, create, delete, gettime, overrun, settime};
 
 #[cfg(lazyos_tests)]
