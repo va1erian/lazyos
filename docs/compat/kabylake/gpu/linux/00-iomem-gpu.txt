@@ -1,0 +1,8 @@
+# grep -i -E "i915|stolen|graphics|gtt|igfx|0000:00:02.0|0000:00:1f.3|audio" /proc/iomem 2>&1
+  be000000-bfffffff : Graphics Stolen Memory
+  c0000000-cfffffff : 0000:00:02.0
+  de000000-deffffff : 0000:00:02.0
+  df200000-df20ffff : 0000:00:1f.3
+  df220000-df223fff : 0000:00:1f.3
+    df220000-df223fff : ICH HD audio
+# exit 0

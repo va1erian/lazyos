@@ -1,0 +1,436 @@
+# intel_reg dump
+                    GEN8_MASTER_IRQ (0x00044200): 0x80000000
+                       GEN8_GT_ISR0 (0x00044300): 0x00000000
+                       GEN8_GT_IMR0 (0x00044304): 0xf6f6f6f6
+                       GEN8_GT_IIR0 (0x00044308): 0x00000000
+                       GEN8_GT_IER0 (0x0004430c): 0x09090909
+                       GEN8_GT_ISR1 (0x00044310): 0x00000000
+                       GEN8_GT_IMR1 (0x00044314): 0xf6f6f6f6
+                       GEN8_GT_IIR1 (0x00044318): 0x00000000
+                       GEN8_GT_IER1 (0x0004431c): 0x09090909
+                       GEN8_GT_ISR2 (0x00044320): 0x00000000
+                       GEN8_GT_IMR2 (0x00044324): 0xffffffcf
+                       GEN8_GT_IIR2 (0x00044328): 0x00000000
+                       GEN8_GT_IER2 (0x0004432c): 0x00000000
+                       GEN8_GT_ISR3 (0x00044330): 0x00000000
+                       GEN8_GT_IMR3 (0x00044334): 0xfffff6f6
+                       GEN8_GT_IIR3 (0x00044338): 0x00000000
+                       GEN8_GT_IER3 (0x0004433c): 0x00000909
+                  GEN8_DE_PIPE_ISR0 (0x00044400): 0x00000000
+                  GEN8_DE_PIPE_IMR0 (0x00044404): 0x6ffff07f
+                  GEN8_DE_PIPE_IIR0 (0x00044408): 0x00000000
+                  GEN8_DE_PIPE_IER0 (0x0004440c): 0x90000f89
+                  GEN8_DE_PIPE_ISR1 (0x00044410): 0x00000000
+                  GEN8_DE_PIPE_IMR1 (0x00044414): 0xeffff07f
+                  GEN8_DE_PIPE_IIR1 (0x00044418): 0x00000000
+                  GEN8_DE_PIPE_IER1 (0x0004441c): 0x90000f89
+                  GEN8_DE_PIPE_ISR2 (0x00044420): 0x00000000
+                  GEN8_DE_PIPE_IMR2 (0x00044424): 0xeffff07f
+                  GEN8_DE_PIPE_IIR2 (0x00044428): 0x00000000
+                  GEN8_DE_PIPE_IER2 (0x0004442c): 0x90000f89
+                   GEN8_DE_PORT_ISR (0x00044440): 0x00000000
+                   GEN8_DE_PORT_IMR (0x00044444): 0xc0000038
+                   GEN8_DE_PORT_IIR (0x00044448): 0x00000000
+                   GEN8_DE_PORT_IER (0x0004444c): 0x0e000001
+                   GEN8_DE_MISC_ISR (0x00044460): 0x00000000
+                   GEN8_DE_MISC_IMR (0x00044464): 0xf7f08000
+                   GEN8_DE_MISC_IIR (0x00044468): 0x00000000
+                   GEN8_DE_MISC_IER (0x0004446c): 0x08080000
+                       GEN8_PCU_ISR (0x000444e0): 0x00000000
+                       GEN8_PCU_IMR (0x000444e4): 0xffffffff
+                       GEN8_PCU_IIR (0x000444e8): 0x00000000
+                       GEN8_PCU_IER (0x000444ec): 0x00000000
+                         RENDER_IMR (0x000020a8): 0xfffff6f7
+                            BSD_IMR (0x000120a8): 0xfffff6f7
+                            BLT_IMR (0x000220a8): 0xf6f7ffff
+                       PRIVATE_PAT1 (0x000040e0): 0x00030907
+                       PRIVATE_PAT2 (0x000040e4): 0x3b2b1b0b
+                      PWR_WELL_BIOS (0x00045400): 0x50000011
+                    PWR_WELL_DRIVER (0x00045404): 0xf0000033
+                       PWR_WELL_KVM (0x00045408): 0x40000000
+                     PWR_WELL_DEBUG (0x0004540c): 0x50000011
+                        DPLL_STATUS (0x0006c060): 0x00001111
+                       DPLL1_CFGCR1 (0x0006c040): 0x8046675b
+                       DPLL2_CFGCR1 (0x0006c048): 0x00000000
+                       DPLL3_CFGCR1 (0x0006c050): 0x00000000
+                       DPLL1_CFGCR2 (0x0006c044): 0x00000147
+                       DPLL2_CFGCR2 (0x0006c04c): 0x00000000
+                       DPLL3_CFGCR2 (0x0006c054): 0x00000000
+                         DPLL_CTRL1 (0x0006c058): 0x00000845
+                         DPLL_CTRL2 (0x0006c05c): 0x00a20018
+                          CDCLK_CTL (0x00046000): 0x080002a1
+                         LCPLL1_CTL (0x00046010): 0xc0000000
+                         LCPLL2_CTL (0x00046014): 0x80000000
+                    TRANS_CLK_SEL_A (0x00046140): 0x40000000 (DDIB)
+                    TRANS_CLK_SEL_B (0x00046144): 0x00000000 (None)
+                    TRANS_CLK_SEL_C (0x00046148): 0x00000000 (None)
+                         WRPLL_CTL1 (0x00046040): 0x00202418
+                         WRPLL_CTL2 (0x00046060): 0x00202418
+                  PLANE_BUF_CFG_1_A (0x0007027c): 0x03570000
+                  PLANE_BUF_CFG_2_A (0x0007037c): 0x00000000
+                  PLANE_BUF_CFG_3_A (0x0007047c): 0x00000000
+             PLANE_NV12_BUF_CFG_1_A (0x00070278): 0x00000000
+             PLANE_NV12_BUF_CFG_2_A (0x00070378): 0x00000000
+             PLANE_NV12_BUF_CFG_3_A (0x00070478): 0x00000000
+                      PLANE_CTL_1_A (0x00070180): 0xc404b020 (enabled)
+                      PLANE_CTL_2_A (0x00070280): 0x00000000
+                      PLANE_CTL_3_A (0x00070380): 0x00000000
+                   PLANE_KEYMAX_1_A (0x000701a0): 0xff000000
+                   PLANE_KEYMAX_2_A (0x000702a0): 0x00000000
+                   PLANE_KEYMAX_3_A (0x000703a0): 0x00000000
+                   PLANE_KEYMSK_1_A (0x00070198): 0x00000000
+                   PLANE_KEYMSK_2_A (0x00070298): 0x00000000
+                   PLANE_KEYMSK_3_A (0x00070398): 0x00000000
+                   PLANE_KEYVAL_1_A (0x00070194): 0x00000000
+                   PLANE_KEYVAL_2_A (0x00070294): 0x00000000
+                   PLANE_KEYVAL_3_A (0x00070394): 0x00000000
+                   PLANE_OFFSET_1_A (0x000701a4): 0x00000000 (0, 0)
+                   PLANE_OFFSET_2_A (0x000702a4): 0x00000000
+                   PLANE_OFFSET_3_A (0x000703a4): 0x00000000
+                 PLANE_AUX_DIST_1_A (0x000701c0): 0x00e10003
+                 PLANE_AUX_DIST_2_A (0x000702c0): 0x00000000
+                 PLANE_AUX_DIST_3_A (0x000703c0): 0x00000000
+               PLANE_AUX_OFFSET_1_A (0x000701c4): 0x00000000
+               PLANE_AUX_OFFSET_2_A (0x000702c4): 0x00000000
+               PLANE_AUX_OFFSET_3_A (0x000703c4): 0x00000000
+                      PLANE_POS_1_A (0x0007018c): 0x00000000
+                      PLANE_POS_2_A (0x0007028c): 0x00000000
+                      PLANE_POS_3_A (0x0007038c): 0x00000000
+                     PLANE_SIZE_1_A (0x00070190): 0x059f09ff
+                     PLANE_SIZE_2_A (0x00070290): 0x00000000
+                     PLANE_SIZE_3_A (0x00070390): 0x00000000
+                   PLANE_STRIDE_1_A (0x00070188): 0x00000050 (1)
+                   PLANE_STRIDE_2_A (0x00070288): 0x00000000
+                   PLANE_STRIDE_3_A (0x00070388): 0x00000000
+                     PLANE_SURF_1_A (0x0007019c): 0x01100000
+                     PLANE_SURF_2_A (0x0007029c): 0x00000000
+                     PLANE_SURF_3_A (0x0007039c): 0x00000000
+                 PLANE_SURFLIVE_1_A (0x000701ac): 0x01100020
+                 PLANE_SURFLIVE_2_A (0x000702ac): 0x00000020
+                 PLANE_SURFLIVE_3_A (0x000703ac): 0x00000020
+                     PLANE_WM_1_A_0 (0x00070240): 0x80000141
+                     PLANE_WM_1_A_1 (0x00070244): 0x80040141
+                     PLANE_WM_1_A_2 (0x00070248): 0x80040141
+                     PLANE_WM_1_A_3 (0x0007024c): 0x80040141
+                     PLANE_WM_1_A_4 (0x00070250): 0x80040141
+                     PLANE_WM_1_A_5 (0x00070254): 0x80044155
+                     PLANE_WM_1_A_6 (0x00070258): 0x80044155
+                     PLANE_WM_1_A_7 (0x0007025c): 0x8004c17d
+                     PLANE_WM_2_A_0 (0x00070340): 0x00000000
+                     PLANE_WM_2_A_1 (0x00070344): 0x00000000
+                     PLANE_WM_2_A_2 (0x00070348): 0x00000000
+                     PLANE_WM_2_A_3 (0x0007034c): 0x00000000
+                     PLANE_WM_2_A_4 (0x00070350): 0x00000000
+                     PLANE_WM_2_A_5 (0x00070354): 0x00000000
+                     PLANE_WM_2_A_6 (0x00070358): 0x00000000
+                     PLANE_WM_2_A_7 (0x0007035c): 0x00000000
+                     PLANE_WM_3_A_0 (0x00070440): 0x00004007
+                     PLANE_WM_3_A_1 (0x00070444): 0x00004007
+                     PLANE_WM_3_A_2 (0x00070448): 0x00004007
+                     PLANE_WM_3_A_3 (0x0007044c): 0x00004007
+                     PLANE_WM_3_A_4 (0x00070450): 0x00004007
+                     PLANE_WM_3_A_5 (0x00070454): 0x00004007
+                     PLANE_WM_3_A_6 (0x00070458): 0x00004007
+                     PLANE_WM_3_A_7 (0x0007045c): 0x00004007
+                 PLANE_WM_TRANS_1_A (0x00070268): 0x00000000
+                 PLANE_WM_TRANS_2_A (0x00070368): 0x00000000
+                 PLANE_WM_TRANS_3_A (0x00070468): 0x00004007
+                      CUR_BUF_CFG_A (0x0007017c): 0x037b0358
+                         CUR_BASE_A (0x00070084): 0x00000000
+                          CUR_CTL_A (0x00070080): 0x00000000
+                      CUR_FBC_CTL_A (0x000700a0): 0x00000000
+                          CUR_POS_A (0x00070088): 0x00000000
+                     CUR_SURFLIVE_A (0x000700ac): 0x00000000
+                         CUR_WM_A_0 (0x00070140): 0x00000000
+                         CUR_WM_A_1 (0x00070144): 0x00000000
+                         CUR_WM_A_2 (0x00070148): 0x00000000
+                         CUR_WM_A_3 (0x0007014c): 0x00000000
+                         CUR_WM_A_4 (0x00070150): 0x00000000
+                         CUR_WM_A_5 (0x00070154): 0x00000000
+                         CUR_WM_A_6 (0x00070158): 0x00000000
+                         CUR_WM_A_7 (0x0007015c): 0x00000000
+                     CUR_WM_TRANS_A (0x00070168): 0x00000000
+                        PS_CTRL_1_A (0x00068180): 0x00000000
+                        PS_CTRL_2_A (0x00068280): 0x00000000
+                    PS_ECC_STAT_1_A (0x000681d0): 0x00000000
+                    PS_ECC_STAT_2_A (0x000682d0): 0x00000000
+                      PS_HPHASE_1_A (0x00068194): 0x00000000
+                      PS_HPHASE_2_A (0x00068294): 0x00000000
+                      PS_HSCALE_1_A (0x00068190): 0x00007b00
+                      PS_HSCALE_2_A (0x00068290): 0x00007b00
+                    PS_PWR_GATE_1_A (0x00068160): 0x00000000
+                    PS_PWR_GATE_2_A (0x00068260): 0x00000000
+                      PS_VPHASE_1_A (0x00068188): 0x00000000
+                      PS_VPHASE_2_A (0x00068288): 0x00000000
+                      PS_VSCALE_1_A (0x00068184): 0x00007d30
+                      PS_VSCALE_2_A (0x00068284): 0x00007d30
+                     PS_WIN_POS_1_A (0x00068170): 0x00000000
+                     PS_WIN_POS_2_A (0x00068270): 0x00000000
+                      PS_WIN_SZ_1_A (0x00068174): 0x00000000
+                      PS_WIN_SZ_2_A (0x00068274): 0x00000000
+                  PLANE_BUF_CFG_1_B (0x0007127c): 0x037b01be
+                  PLANE_BUF_CFG_2_B (0x0007137c): 0x00000000
+                  PLANE_BUF_CFG_3_B (0x0007147c): 0x00000000
+             PLANE_NV12_BUF_CFG_1_B (0x00071278): 0x00000000
+             PLANE_NV12_BUF_CFG_2_B (0x00071378): 0x00000000
+             PLANE_NV12_BUF_CFG_3_B (0x00071478): 0x00000000
+                      PLANE_CTL_1_B (0x00071180): 0x00000000 (disabled)
+                      PLANE_CTL_2_B (0x00071280): 0x00000000
+                      PLANE_CTL_3_B (0x00071380): 0x00000000
+                   PLANE_KEYMAX_1_B (0x000711a0): 0x00000000
+                   PLANE_KEYMAX_2_B (0x000712a0): 0x00000000
+                   PLANE_KEYMAX_3_B (0x000713a0): 0x00000000
+                   PLANE_KEYMSK_1_B (0x00071198): 0x00000000
+                   PLANE_KEYMSK_2_B (0x00071298): 0x00000000
+                   PLANE_KEYMSK_3_B (0x00071398): 0x00000000
+                   PLANE_KEYVAL_1_B (0x00071194): 0x00000000
+                   PLANE_KEYVAL_2_B (0x00071294): 0x00000000
+                   PLANE_KEYVAL_3_B (0x00071394): 0x00000000
+                   PLANE_OFFSET_1_B (0x000711a4): 0x00000000 (0, 0)
+                   PLANE_OFFSET_2_B (0x000712a4): 0x00000000
+                   PLANE_OFFSET_3_B (0x000713a4): 0x00000000
+                 PLANE_AUX_DIST_1_B (0x000711c0): 0x00000000
+                 PLANE_AUX_DIST_2_B (0x000712c0): 0x00000000
+                 PLANE_AUX_DIST_3_B (0x000713c0): 0x00000000
+               PLANE_AUX_OFFSET_1_B (0x000711c4): 0x00000000
+               PLANE_AUX_OFFSET_2_B (0x000712c4): 0x00000000
+               PLANE_AUX_OFFSET_3_B (0x000713c4): 0x00000000
+                      PLANE_POS_1_B (0x0007118c): 0x00000000
+                      PLANE_POS_2_B (0x0007128c): 0x00000000
+                      PLANE_POS_3_B (0x0007138c): 0x00000000
+                     PLANE_SIZE_1_B (0x00071190): 0x00000000
+                     PLANE_SIZE_2_B (0x00071290): 0x00000000
+                     PLANE_SIZE_3_B (0x00071390): 0x00000000
+                   PLANE_STRIDE_1_B (0x00071188): 0x00000000 (0)
+                   PLANE_STRIDE_2_B (0x00071288): 0x00000000
+                   PLANE_STRIDE_3_B (0x00071388): 0x00000000
+                     PLANE_SURF_1_B (0x0007119c): 0x00000000
+                     PLANE_SURF_2_B (0x0007129c): 0x00000000
+                     PLANE_SURF_3_B (0x0007139c): 0x00000000
+                 PLANE_SURFLIVE_1_B (0x000711ac): 0x00000020
+                 PLANE_SURFLIVE_2_B (0x000712ac): 0x00000020
+                 PLANE_SURFLIVE_3_B (0x000713ac): 0x00000020
+                     PLANE_WM_1_B_0 (0x00071240): 0x00004007
+                     PLANE_WM_1_B_1 (0x00071244): 0x00004007
+                     PLANE_WM_1_B_2 (0x00071248): 0x00004007
+                     PLANE_WM_1_B_3 (0x0007124c): 0x00004007
+                     PLANE_WM_1_B_4 (0x00071250): 0x00004007
+                     PLANE_WM_1_B_5 (0x00071254): 0x00004007
+                     PLANE_WM_1_B_6 (0x00071258): 0x00004007
+                     PLANE_WM_1_B_7 (0x0007125c): 0x00004007
+                     PLANE_WM_2_B_0 (0x00071340): 0x00004007
+                     PLANE_WM_2_B_1 (0x00071344): 0x00004007
+                     PLANE_WM_2_B_2 (0x00071348): 0x00004007
+                     PLANE_WM_2_B_3 (0x0007134c): 0x00004007
+                     PLANE_WM_2_B_4 (0x00071350): 0x00004007
+                     PLANE_WM_2_B_5 (0x00071354): 0x00004007
+                     PLANE_WM_2_B_6 (0x00071358): 0x00004007
+                     PLANE_WM_2_B_7 (0x0007135c): 0x00004007
+                     PLANE_WM_3_B_0 (0x00071440): 0x00004007
+                     PLANE_WM_3_B_1 (0x00071444): 0x00004007
+                     PLANE_WM_3_B_2 (0x00071448): 0x00004007
+                     PLANE_WM_3_B_3 (0x0007144c): 0x00004007
+                     PLANE_WM_3_B_4 (0x00071450): 0x00004007
+                     PLANE_WM_3_B_5 (0x00071454): 0x00004007
+                     PLANE_WM_3_B_6 (0x00071458): 0x00004007
+                     PLANE_WM_3_B_7 (0x0007145c): 0x00004007
+                 PLANE_WM_TRANS_1_B (0x00071268): 0x00004007
+                 PLANE_WM_TRANS_2_B (0x00071368): 0x00004007
+                 PLANE_WM_TRANS_3_B (0x00071468): 0x00004007
+                      CUR_BUF_CFG_B (0x0007117c): 0x00000000
+                         CUR_BASE_B (0x00071084): 0x00000000
+                          CUR_CTL_B (0x00071080): 0x00000000
+                      CUR_FBC_CTL_B (0x000710a0): 0x00000000
+                          CUR_POS_B (0x00071088): 0x00000000
+                     CUR_SURFLIVE_B (0x000710ac): 0x00000000
+                         CUR_WM_B_0 (0x00071140): 0x00004007
+                         CUR_WM_B_1 (0x00071144): 0x00004007
+                         CUR_WM_B_2 (0x00071148): 0x00004007
+                         CUR_WM_B_3 (0x0007114c): 0x00004007
+                         CUR_WM_B_4 (0x00071150): 0x00004007
+                         CUR_WM_B_5 (0x00071154): 0x00004007
+                         CUR_WM_B_6 (0x00071158): 0x00004007
+                         CUR_WM_B_7 (0x0007115c): 0x00004007
+                     CUR_WM_TRANS_B (0x00071168): 0x00004007
+                        PS_CTRL_1_B (0x00068980): 0x00000000
+                        PS_CTRL_2_B (0x00068a80): 0x00000000
+                    PS_ECC_STAT_1_B (0x000689d0): 0x00000000
+                    PS_ECC_STAT_2_B (0x00068ad0): 0x00000000
+                      PS_HPHASE_1_B (0x00068994): 0x00000000
+                      PS_HPHASE_2_B (0x00068a94): 0x00000000
+                      PS_HSCALE_1_B (0x00068990): 0x00000000
+                      PS_HSCALE_2_B (0x00068a90): 0x00000000
+                    PS_PWR_GATE_1_B (0x00068960): 0x00000000
+                    PS_PWR_GATE_2_B (0x00068a60): 0x00000000
+                      PS_VPHASE_1_B (0x00068988): 0x00000000
+                      PS_VPHASE_2_B (0x00068a88): 0x00000000
+                      PS_VSCALE_1_B (0x00068984): 0x00000000
+                      PS_VSCALE_2_B (0x00068a84): 0x00000000
+                     PS_WIN_POS_1_B (0x00068970): 0x00000000
+                     PS_WIN_POS_2_B (0x00068a70): 0x00000000
+                  PLANE_BUF_CFG_1_C (0x0007227c): 0x00000000
+                  PLANE_BUF_CFG_2_C (0x0007237c): 0x00000000
+                  PLANE_BUF_CFG_3_C (0x0007247c): 0x00000000
+             PLANE_NV12_BUF_CFG_1_C (0x00072278): 0x00000000
+             PLANE_NV12_BUF_CFG_2_C (0x00072378): 0x00000000
+             PLANE_NV12_BUF_CFG_3_C (0x00072478): 0x00000000
+                      PLANE_CTL_1_C (0x00072180): 0x00000000 (disabled)
+                      PLANE_CTL_2_C (0x00072280): 0x00000000
+                      PLANE_CTL_3_C (0x00072380): 0x00000000
+                   PLANE_KEYMAX_1_C (0x000721a0): 0x00000000
+                   PLANE_KEYMAX_2_C (0x000722a0): 0x00000000
+                   PLANE_KEYMAX_3_C (0x000723a0): 0x00000000
+                   PLANE_KEYMSK_1_C (0x00072198): 0x00000000
+                   PLANE_KEYMSK_2_C (0x00072298): 0x00000000
+                   PLANE_KEYMSK_3_C (0x00072398): 0x00000000
+                   PLANE_KEYVAL_1_C (0x00072194): 0x00000000
+                   PLANE_KEYVAL_2_C (0x00072294): 0x00000000
+                   PLANE_KEYVAL_3_C (0x00072394): 0x00000000
+                   PLANE_OFFSET_1_C (0x000721a4): 0x00000000 (0, 0)
+                   PLANE_OFFSET_2_C (0x000722a4): 0x00000000
+                   PLANE_OFFSET_3_C (0x000723a4): 0x00000000
+                 PLANE_AUX_DIST_1_C (0x000721c0): 0x00000000
+                 PLANE_AUX_DIST_2_C (0x000722c0): 0x00000000
+                 PLANE_AUX_DIST_3_C (0x000723c0): 0x00000000
+               PLANE_AUX_OFFSET_1_C (0x000721c4): 0x00000000
+               PLANE_AUX_OFFSET_2_C (0x000722c4): 0x00000000
+               PLANE_AUX_OFFSET_3_C (0x000723c4): 0x00000000
+                      PLANE_POS_1_C (0x0007218c): 0x00000000
+                      PLANE_POS_2_C (0x0007228c): 0x00000000
+                      PLANE_POS_3_C (0x0007238c): 0x00000000
+                     PLANE_SIZE_1_C (0x00072190): 0x00000000
+                     PLANE_SIZE_2_C (0x00072290): 0x00000000
+                     PLANE_SIZE_3_C (0x00072390): 0x00000000
+                   PLANE_STRIDE_1_C (0x00072188): 0x00000000 (0)
+                   PLANE_STRIDE_2_C (0x00072288): 0x00000000
+                   PLANE_STRIDE_3_C (0x00072388): 0x00000000
+                     PLANE_SURF_1_C (0x0007219c): 0x00000000
+                     PLANE_SURF_2_C (0x0007229c): 0x00000000
+                     PLANE_SURF_3_C (0x0007239c): 0x00000000
+                 PLANE_SURFLIVE_1_C (0x000721ac): 0x00000020
+                 PLANE_SURFLIVE_2_C (0x000722ac): 0x00000020
+                 PLANE_SURFLIVE_3_C (0x000723ac): 0x00000020
+                     PLANE_WM_1_C_0 (0x00072240): 0x00004007
+                     PLANE_WM_1_C_1 (0x00072244): 0x00004007
+                     PLANE_WM_1_C_2 (0x00072248): 0x00004007
+                     PLANE_WM_1_C_3 (0x0007224c): 0x00004007
+                     PLANE_WM_1_C_4 (0x00072250): 0x00004007
+                     PLANE_WM_1_C_5 (0x00072254): 0x00004007
+                     PLANE_WM_1_C_6 (0x00072258): 0x00004007
+                     PLANE_WM_1_C_7 (0x0007225c): 0x00004007
+                     PLANE_WM_2_C_0 (0x00072340): 0x00004007
+                     PLANE_WM_2_C_1 (0x00072344): 0x00004007
+                     PLANE_WM_2_C_2 (0x00072348): 0x00004007
+                     PLANE_WM_2_C_3 (0x0007234c): 0x00004007
+                     PLANE_WM_2_C_4 (0x00072350): 0x00004007
+                     PLANE_WM_2_C_5 (0x00072354): 0x00004007
+                     PLANE_WM_2_C_6 (0x00072358): 0x00004007
+                     PLANE_WM_2_C_7 (0x0007235c): 0x00004007
+                     PLANE_WM_3_C_0 (0x00072440): 0x00004007
+                     PLANE_WM_3_C_1 (0x00072444): 0x00004007
+                     PLANE_WM_3_C_2 (0x00072448): 0x00004007
+                     PLANE_WM_3_C_3 (0x0007244c): 0x00004007
+                     PLANE_WM_3_C_4 (0x00072450): 0x00004007
+                     PLANE_WM_3_C_5 (0x00072454): 0x00004007
+                     PLANE_WM_3_C_6 (0x00072458): 0x00004007
+                     PLANE_WM_3_C_7 (0x0007245c): 0x00004007
+                 PLANE_WM_TRANS_1_C (0x00072268): 0x00004007
+                 PLANE_WM_TRANS_2_C (0x00072368): 0x00004007
+                 PLANE_WM_TRANS_3_C (0x00072468): 0x00004007
+                      CUR_BUF_CFG_C (0x0007217c): 0x00000000
+                         CUR_BASE_C (0x00072084): 0x00000000
+                          CUR_CTL_C (0x00072080): 0x00000000
+                      CUR_FBC_CTL_C (0x000720a0): 0x00000000
+                          CUR_POS_C (0x00072088): 0x00000000
+                     CUR_SURFLIVE_C (0x000720ac): 0x00000000
+                         CUR_WM_C_0 (0x00072140): 0x00004007
+                         CUR_WM_C_1 (0x00072144): 0x00004007
+                         CUR_WM_C_2 (0x00072148): 0x00004007
+                         CUR_WM_C_3 (0x0007214c): 0x00004007
+                         CUR_WM_C_4 (0x00072150): 0x00004007
+                         CUR_WM_C_5 (0x00072154): 0x00004007
+                         CUR_WM_C_6 (0x00072158): 0x00004007
+                         CUR_WM_C_7 (0x0007215c): 0x00004007
+                     CUR_WM_TRANS_C (0x00072168): 0x00004007
+                        PS_CTRL_1_C (0x00069180): 0x00000000
+                    PS_ECC_STAT_1_C (0x000691d0): 0x00000000
+                      PS_HPHASE_1_C (0x00069194): 0x00000000
+                      PS_HSCALE_1_C (0x00069190): 0x00000000
+                    PS_PWR_GATE_1_C (0x00069160): 0x00000000
+                      PS_VPHASE_1_C (0x00069188): 0x00000000
+                      PS_VSCALE_1_C (0x00069184): 0x00000000
+                     PS_WIN_POS_1_C (0x00069170): 0x00000000
+                      PS_WIN_SZ_1_C (0x00069174): 0x00000000
+                     TRANS_CONF_EDP (0x0007f008): 0x00000000 (disabled, inactive, pf-pd)
+                   TRANS_HBLANK_EDP (0x0006f004): 0x00000000 (1 start, 1 end)
+                    TRANS_HSYNC_EDP (0x0006f008): 0x00000000 (1 start, 1 end)
+                   TRANS_HTOTAL_EDP (0x0006f000): 0x00000000 (1 active, 1 total)
+                    TRANS_SPACE_EDP (0x0006f024): 0x00000000
+                   TRANS_VBLANK_EDP (0x0006f010): 0x00000000 (1 start, 1 end)
+                    TRANS_VSYNC_EDP (0x0006f014): 0x00000000 (1 start, 1 end)
+               TRANS_VSYNCSHIFT_EDP (0x0006f028): 0x00000000
+                   TRANS_VTOTAL_EDP (0x0006f00c): 0x00000000 (1 active, 1 total)
+                   TRANS_DATAM1_EDP (0x0006f030): 0x00000000 (TU 1, val 0x0 0)
+                   TRANS_DATAN1_EDP (0x0006f034): 0x00000000 (val 0x0 0)
+                   TRANS_LINKM1_EDP (0x0006f040): 0x00000000 (val 0x0 0)
+                   TRANS_LINKN1_EDP (0x0006f044): 0x00000000 (val 0x0 0)
+             TRANS_DDI_FUNC_CTL_EDP (0x0006f400): 0x00030000 (disabled, no port, HDMI, 8 bpc, +VSync, +HSync, EDP A ON, x1)
+                 TRANS_MSA_MISC_EDP (0x0006f410): 0x00000000
+                       TRANS_CONF_A (0x00070008): 0xc0000000 (enabled, active, pf-pd)
+                     TRANS_HBLANK_A (0x00060004): 0x0a6d09ff (2560 start, 2670 end)
+                      TRANS_HSYNC_A (0x00060008): 0x0a360a16 (2583 start, 2615 end)
+                     TRANS_HTOTAL_A (0x00060000): 0x0a6d09ff (2560 active, 2670 total)
+                       TRANS_MULT_A (0x0006002c): 0x00000000
+                      TRANS_SPACE_A (0x00060024): 0x00000000
+                     TRANS_VBLANK_A (0x00060010): 0x05cf059f (1440 start, 1488 end)
+                      TRANS_VSYNC_A (0x00060014): 0x05c905c1 (1474 start, 1482 end)
+                 TRANS_VSYNCSHIFT_A (0x00060028): 0x00000000
+                     TRANS_VTOTAL_A (0x0006000c): 0x05cf059f (1440 active, 1488 total)
+                     TRANS_DATAM1_A (0x00060030): 0x00000000 (TU 1, val 0x0 0)
+                     TRANS_DATAN1_A (0x00060034): 0x00000000 (val 0x0 0)
+                     TRANS_LINKM1_A (0x00060040): 0x00000000 (val 0x0 0)
+                     TRANS_LINKN1_A (0x00060044): 0x00000000 (val 0x0 0)
+               TRANS_DDI_FUNC_CTL_A (0x00060400): 0x90030000 (enabled, DDIB, HDMI, 8 bpc, +VSync, +HSync, EDP A ON, x1)
+                   TRANS_MSA_MISC_A (0x00060410): 0x00000000
+                       TRANS_CONF_B (0x00071008): 0x00000000 (disabled, inactive, pf-pd)
+                     TRANS_HBLANK_B (0x00061004): 0x00000000 (1 start, 1 end)
+                      TRANS_HSYNC_B (0x00061008): 0x00000000 (1 start, 1 end)
+                     TRANS_HTOTAL_B (0x00061000): 0x00000000 (1 active, 1 total)
+                       TRANS_MULT_B (0x0006102c): 0x00000000
+                      TRANS_SPACE_B (0x00061024): 0x00000000
+                     TRANS_VBLANK_B (0x00061010): 0x00000000 (1 start, 1 end)
+                      TRANS_VSYNC_B (0x00061014): 0x00000000 (1 start, 1 end)
+                 TRANS_VSYNCSHIFT_B (0x00061028): 0x00000000
+                     TRANS_VTOTAL_B (0x0006100c): 0x00000000 (1 active, 1 total)
+                     TRANS_DATAM1_B (0x00061030): 0x00000000 (TU 1, val 0x0 0)
+                     TRANS_DATAN1_B (0x00061034): 0x00000000 (val 0x0 0)
+                     TRANS_LINKM1_B (0x00061040): 0x00000000 (val 0x0 0)
+                     TRANS_LINKN1_B (0x00061044): 0x00000000 (val 0x0 0)
+               TRANS_DDI_FUNC_CTL_B (0x00061400): 0x00030000 (disabled, no port, HDMI, 8 bpc, +VSync, +HSync, EDP A ON, x1)
+                   TRANS_MSA_MISC_B (0x00061410): 0x00000000
+                       TRANS_CONF_C (0x00072008): 0x00000000 (disabled, inactive, pf-pd)
+                     TRANS_HBLANK_C (0x00062004): 0x00000000 (1 start, 1 end)
+                      TRANS_HSYNC_C (0x00062008): 0x00000000 (1 start, 1 end)
+                     TRANS_HTOTAL_C (0x00062000): 0x00000000 (1 active, 1 total)
+                       TRANS_MULT_C (0x0006202c): 0x00000000
+                      TRANS_SPACE_C (0x00062024): 0x00000000
+                     TRANS_VBLANK_C (0x00062010): 0x00000000 (1 start, 1 end)
+                      TRANS_VSYNC_C (0x00062014): 0x00000000 (1 start, 1 end)
+                 TRANS_VSYNCSHIFT_C (0x00062028): 0x00000000
+                     TRANS_VTOTAL_C (0x0006200c): 0x00000000 (1 active, 1 total)
+                     TRANS_DATAM1_C (0x00062030): 0x00000000 (TU 1, val 0x0 0)
+                     TRANS_DATAN1_C (0x00062034): 0x00000000 (val 0x0 0)
+                     TRANS_LINKM1_C (0x00062040): 0x00000000 (val 0x0 0)
+                     TRANS_LINKN1_C (0x00062044): 0x00000000 (val 0x0 0)
+               TRANS_DDI_FUNC_CTL_C (0x00062400): 0x00030000 (disabled, no port, HDMI, 8 bpc, +VSync, +HSync, EDP A ON, x1)
+                   TRANS_MSA_MISC_C (0x00062410): 0x00000000
+                      WM_LINETIME_A (0x00045270): 0x0000004d
+                      WM_LINETIME_B (0x00045274): 0x00000000
+                      WM_LINETIME_C (0x00045278): 0x00000000
+                            WM_MISC (0x00045260): 0x20000000
+                    VIDEO_DIP_CTL_A (0x00060200): 0x00011001
+                    VIDEO_DIP_CTL_B (0x00061200): 0x00000000
+                    VIDEO_DIP_CTL_C (0x00062200): 0x00000000
+                        DC_STATE_EN (0x00045504): 0x00000000
+                     DC_STATE_DEBUG (0x00045520): 0x00000003
+# exit 0

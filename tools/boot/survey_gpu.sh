@@ -12,8 +12,9 @@
 # READ-ONLY. Nothing is written to the machine: no module is loaded, debugfs
 # is not mounted for you, no MMIO write is made by this script (debugfs reads can still wake
 # forcewake or make the sink transact on AUX/DPCD), the option ROM is not
-# enabled. Registers are read by mapping the BAR0 resource PROT_READ (the same
-# thing `intel_reg` does). A missing tool, file or privilege only leaves a
+# enabled. Registers are read with `intel_reg read` (the script only ever
+# invokes that verb: it issues no write) or, without it, through a PROT_READ
+# mmap of the BAR0 resource. A missing tool, file or privilege only leaves a
 # note in its output file and in MISSING.txt.
 #
 # Optional tools (Debian/Ubuntu):
@@ -103,8 +104,8 @@ run 01-intel_reg-dump.txt intel_reg dump
 # DPLL, CDCLK, power-well, DDB/watermark and audio blocks, from memory of
 # i915's regs; the offsets are TO CONFIRM and a wrong range only wastes a few
 # lines. GMBUS data (0xC510C) is deliberately NOT read: a data read advances
-# the transfer. The bytes come from a PROT_READ mmap of resource0, so nothing
-# can be written.
+# the transfer. The bytes come from `intel_reg read` or a PROT_READ mmap of
+# resource0; neither path in this script issues a write.
 mmio_ranges="
 0x045000 0x045600 power wells, DC state, DMC control
 0x046000 0x046200 CDCLK_CTL, LCPLL1/2, PORT_CLK_SEL
@@ -120,13 +121,39 @@ mmio_ranges="
 0x0C2000 0x0C2100 south display: SFUSE_STRAP
 0x0C4000 0x0C4040 display straps
 0x0C5100 0x0C510C GMBUS0..2 only
+0x000D80 0x000D90 forcewake acks: render 0xD84, media 0xD88 (G3, to confirm)
+0x00A180 0x00A290 forcewake requests: blitter 0xA188, media 0xA270, render 0xA278 (G3)
+0x130040 0x130048 forcewake ack: blitter
 "
+
+# Each range, one dword per register, through `intel_reg read` (a read-only
+# mapping of BAR0, the same one the named dump above used). The Python mmap of
+# the sysfs resource below failed with EINVAL on the first box (G0, 2026-10-13)
+# while intel_reg worked, so this is the preferred path.
+mmio_intel_reg() {
+    echo "$mmio_ranges" | while read -r lo hi rest; do
+        [ -n "$lo" ] || continue
+        echo "# range $lo-$hi $rest"
+        regs=""
+        off=$((lo))
+        end=$((hi))
+        while [ "$off" -lt "$end" ]; do
+            regs="$regs $(printf '0x%06x' "$off")"
+            off=$((off + 4))
+        done
+        # shellcheck disable=SC2086
+        intel_reg read $regs 2>&1
+    done
+}
 
 mmio_dump() {
     res=/sys/bus/pci/devices/$gpu/resource0
     {
-        echo "# read-only mmap of $res; ranges TO CONFIRM"
-        if ! command -v python3 >/dev/null 2>&1; then
+        if command -v intel_reg >/dev/null 2>&1; then
+            echo "# intel_reg read, read-only; ranges TO CONFIRM"
+            mmio_intel_reg
+        elif ! command -v python3 >/dev/null 2>&1; then
+            echo "# read-only mmap of $res; ranges TO CONFIRM"
             echo "# python3 missing: only intel_reg output is available"
             missing "02-mmio-ranges.txt: python3 not installed"
         elif [ ! -r "$res" ]; then
@@ -169,7 +196,11 @@ if ! [ -d "$dbg" ]; then
 else
     for dir in "$dbg"/[0-9]*; do
         [ -d "$dir" ] || continue
-        n=$(basename "$dir")
+        # i915 names its directory by PCI address and links minors 1 and 128
+        # to it: one copy of the files is enough, and a ':' in a file name
+        # cannot be checked out on Windows (the first capture had it).
+        [ -L "$dir" ] && continue
+        n=$(basename "$dir" | tr ':' '_')
         for f in i915_display_info i915_dmc_info i915_gem_gtt i915_ddb_info \
             i915_power_domain_info i915_runtime_pm_status i915_shared_dplls_info \
             i915_forcewake_domains i915_engine_info i915_gem_framebuffer \
@@ -220,8 +251,8 @@ done
 
 # Audio -------------------------------------------------------------------------------
 runsh 05-asound-cards.txt 'cat /proc/asound/cards 2>&1; echo; ls -l /proc/asound 2>&1'
-run 05-aplay-l.txt aplay -l
-run 05-aplay-L.txt aplay -L
+run 05-aplay-cards.txt aplay -l
+run 05-aplay-pcms.txt aplay -L
 runsh 05-eld.txt 'for f in /proc/asound/card*/eld#*; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'
 runsh 05-codecs.txt 'for f in /proc/asound/card*/codec#*; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'
 runsh 05-pcm-info.txt 'for f in /proc/asound/card*/pcm*/info; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done'

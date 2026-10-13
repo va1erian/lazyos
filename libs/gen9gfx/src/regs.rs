@@ -1,15 +1,18 @@
 //! Gen9 display register offsets (BAR 0, bytes) for the plan's first stages:
 //! G1 (adopt and observe the firmware's mode) and G2 (HDMI audio).
 //!
-//! Every constant here is from memory of i915's `i915_reg.h` and Intel's
-//! Gen9 display PRM volumes and is **to confirm against a register dump from
-//! the box**: `docs/compat/kabylake/gpu/` (`02-mmio-ranges.txt`) holds the
-//! capture `tools/boot/survey_gpu.sh` makes, and `intel_reg dump` names the
-//! same registers. Nothing here is written by any code yet; the offsets that
-//! are laid out per pipe or per port use the strides i915 uses.
-//! Marker: `// TO CONFIRM against dump` on each group.
+//! Every constant is from memory of i915's `i915_reg.h` and Intel's Gen9
+//! display PRM volumes. The groups marked `CONFIRMED` match the box's own
+//! `intel_reg dump` (`docs/compat/kabylake/gpu/linux/01-intel_reg-dump.txt`,
+//! read while i915 drove the panel, so each *value* is Linux's state, not the
+//! firmware's); the tests decode that real state. The group marked
+//! `TO CONFIRM` is not in that dump (`intel_reg dump` does not list the audio
+//! block or the DDI buffer registers, and the raw range capture
+//! `02-mmio-ranges.txt` failed; see `docs/kabylake-gpu-plan.md` section 10).
+//! Nothing here is written by any code yet; the offsets that are laid out per
+//! pipe or per port use the strides i915 uses.
 
-// TO CONFIRM against dump -----------------------------------------------------
+// CONFIRMED against dump ------------------------------------------------------
 
 /// Pipe/transcoder A register block base, and the stride to the next pipe
 /// (A 0x70000, B 0x71000, C 0x72000) for the pipe registers.
@@ -27,7 +30,6 @@ pub mod trans {
     pub const VTOTAL: u32 = 0x0C;
     pub const VBLANK: u32 = 0x10;
     pub const VSYNC: u32 = 0x14;
-    pub const PIPESRC: u32 = 0x1C;
     /// `TRANS_DDI_FUNC_CTL` sits at +0x400 of the transcoder block.
     pub const DDI_FUNC_CTL: u32 = 0x400;
 }
@@ -48,29 +50,83 @@ pub const PLANE_CTL_ENABLE: u32 = 1 << 31;
 pub const PLANE_BUF_CFG_1_A: u32 = 0x7_027C;
 pub const PLANE_WM_1_A_0: u32 = 0x7_0240;
 
-/// Core display clock, LCPLLs, and the per-DDI clock select (A at 0x46100,
-/// 4 bytes apart).
+/// Core display clock and the two LCPLLs.
 pub const CDCLK_CTL: u32 = 0x4_6000;
 pub const LCPLL1_CTL: u32 = 0x4_6010;
 pub const LCPLL2_CTL: u32 = 0x4_6014;
-pub const PORT_CLK_SEL_A: u32 = 0x4_6100;
+/// Which DDI feeds transcoder A (`TRANS_CLK_SEL`; B at +4, C at +8). SKL+
+/// has no `PORT_CLK_SEL`: the DDI's clock comes from `DPLL_CTRL2`.
+pub const TRANS_CLK_SEL_A: u32 = 0x4_6140;
 
-/// SKL-style shared DPLL control (DPLL1 to 3 share these) and status.
+/// SKL-style shared DPLL control (DPLL1 to 3 share these) and status; the
+/// per-PLL `CFGCR1`/`CFGCR2` of PLL `n` (1 to 3) sit 8 bytes apart.
 pub const DPLL_CTRL1: u32 = 0x6_C058;
 pub const DPLL_CTRL2: u32 = 0x6_C05C;
 pub const DPLL_STATUS: u32 = 0x6_C060;
+pub const DPLL1_CFGCR1: u32 = 0x6_C040;
+pub const DPLL1_CFGCR2: u32 = 0x6_C044;
+pub const DPLL_CFGCR_STRIDE: u32 = 8;
 
-/// DDI buffer control for DDI A, stride 0x100 per port; and the transcoder
-/// function control of transcoder A.
-pub const DDI_BUF_CTL_A: u32 = 0x6_4000;
-pub const DDI_BUF_STRIDE: u32 = 0x100;
-pub const DDI_BUF_CTL_ENABLE: u32 = 1 << 31;
+/// Transcoder function control of transcoder A, line time (for watermarks)
+/// and the video data island packet (infoframe) enables.
 pub const TRANS_DDI_FUNC_CTL_A: u32 = 0x6_0400;
+pub const WM_LINETIME_A: u32 = 0x4_5270;
+pub const VIDEO_DIP_CTL_A: u32 = 0x6_0200;
+/// `VIDEO_DIP_CTL` enables, one per packet type (graphics control, AVI, SPD).
+pub mod dip {
+    pub const ENABLE_GCP: u32 = 1 << 16;
+    pub const ENABLE_AVI: u32 = 1 << 12;
+    pub const ENABLE_SPD: u32 = 1 << 0;
+}
 
 /// Power wells and DC states.
 pub const PWR_WELL_CTL_BIOS: u32 = 0x4_5400;
 pub const PWR_WELL_CTL_DRIVER: u32 = 0x4_5404;
 pub const DC_STATE_EN: u32 = 0x4_5504;
+
+/// Whether `DPLL_CTRL1` puts PLL `pll` (0 to 3) in HDMI mode: each PLL has
+/// six bits at `pll * 6`: override (bit 0), DP link rate (3:1), HDMI mode (5).
+pub fn dpll_ctrl1_hdmi_mode(ctrl1: u32, pll: u32) -> bool {
+    pll < 4 && ctrl1 >> (pll * 6) & 0x20 != 0
+}
+
+/// Which PLL `DPLL_CTRL2` routes to DDI `port` (A = 0 ... E = 4), when that
+/// port's override bit is set (otherwise the hardware's own default).
+pub fn dpll_ctrl2_ddi_pll(ctrl2: u32, port: u32) -> Option<u32> {
+    (port < 5 && ctrl2 >> (port * 3) & 1 != 0).then(|| ctrl2 >> (port * 3 + 1) & 3)
+}
+
+/// Core display clock in kHz from `CDCLK_CTL`: the decimal field (bits 10:0)
+/// is `(cdclk - 1 MHz) / 500 kHz`. The box runs 337.5 MHz. The frequency
+/// select bits (27:26) are not decoded here.
+pub fn cdclk_khz(ctl: u32) -> u32 {
+    (ctl & 0x7FF) * 500 + 1000
+}
+
+/// The DDI port (A = 0 ... E = 4) a `TRANS_CLK_SEL` value names (bits 31:29
+/// hold `port + 1`), `None` for "no clock".
+pub fn trans_clk_sel_port(v: u32) -> Option<u8> {
+    match v >> 29 & 7 {
+        0 => None,
+        n => Some((n - 1) as u8),
+    }
+}
+
+// TO CONFIRM against dump -----------------------------------------------------
+
+/// `PIPESRC` (the pipe's source size) inside the transcoder block, `0x6001C`
+/// for pipe A. `intel_reg dump` does not list it.
+pub const TRANS_PIPESRC: u32 = 0x1C;
+
+/// Per-DDI clock select of the pre-Skylake path (A at 0x46100, 4 bytes
+/// apart). Gen9 routes the DDI clock through `DPLL_CTRL2` instead, so this is
+/// only here so a dump that shows it can be read; the Gen9 dump does not.
+pub const PORT_CLK_SEL_A: u32 = 0x4_6100;
+
+/// DDI buffer control for DDI A, stride 0x100 per port.
+pub const DDI_BUF_CTL_A: u32 = 0x6_4000;
+pub const DDI_BUF_STRIDE: u32 = 0x100;
+pub const DDI_BUF_CTL_ENABLE: u32 = 1 << 31;
 
 /// Audio: per-pipe registers at +0x100 per pipe from these (pipe A).
 pub const AUD_CONFIG_A: u32 = 0x6_5000;
@@ -122,7 +178,8 @@ pub enum DdiMode {
     Reserved(u8),
 }
 
-/// A decoded `TRANS_DDI_FUNC_CTL` (`// TO CONFIRM against dump`: enable bit
+/// A decoded `TRANS_DDI_FUNC_CTL` (CONFIRMED: the box's dump reads
+/// `0x90030000` for "enabled, DDIB, HDMI, 8 bpc, +VSync, +HSync"; enable bit
 /// 31, DDI select bits 30:28, mode bits 26:24, bpc bits 22:20, sync polarity
 /// bits 17:16). Audio needs [`DdiMode::Hdmi`]: a DVI-mode link is the case
 /// that makes G2 rewrite a live pipe (plan section 4).
@@ -130,8 +187,7 @@ pub enum DdiMode {
 pub struct DdiFunc {
     pub enabled: bool,
     /// The DDI port feeding this transcoder: 0 = none, 1 = DDI B ... 4 = DDI E
-    /// (`// TO CONFIRM against dump`: DDI A is reached through the eDP
-    /// transcoder, not through this field).
+    /// (DDI A is reached through the eDP transcoder, not through this field).
     pub ddi_select: u8,
     pub mode: DdiMode,
     pub bits_per_component: Option<u8>,
@@ -165,13 +221,22 @@ impl DdiFunc {
     }
 }
 
-/// Decode `PIPESRC` (`(width - 1) << 16 | (height - 1)`), TO CONFIRM.
+/// Decode `PIPESRC` (`(width - 1) << 16 | (height - 1)`). Not in the dump
+/// (`intel_reg` does not list it), so TO CONFIRM; `PLANE_SIZE` has the halves
+/// the other way round (`(height - 1) << 16`).
 pub fn pipesrc_size(v: u32) -> (u32, u32) {
     ((v >> 16 & 0x1FFF) + 1, (v & 0x1FFF) + 1)
 }
 
+/// Decode `PLANE_SIZE_n_x` (`(height - 1) << 16 | (width - 1)`, CONFIRMED:
+/// `PLANE_SIZE_1_A` reads `0x059f09ff`, 2560x1440), as `(width, height)`.
+pub fn plane_size(v: u32) -> (u32, u32) {
+    ((v & 0xFFFF) + 1, (v >> 16) + 1)
+}
+
 /// Decode a `HTOTAL`/`VTOTAL`-style register: active-1 in the low half,
-/// total-1 in the high half. TO CONFIRM.
+/// total-1 in the high half (CONFIRMED: `TRANS_HTOTAL_A` reads `0x0a6d09ff`,
+/// 2560 active, 2670 total).
 pub fn timing_pair(v: u32) -> (u32, u32) {
     ((v & 0xFFFF) + 1, (v >> 16) + 1)
 }
@@ -203,12 +268,115 @@ mod tests {
         assert_eq!(DdiFunc::decode(7 << 20).bits_per_component, None);
     }
 
+    /// The survey's `intel_reg dump`, taken while i915 drove pipe A with
+    /// 2560x1440 at 70 Hz (277.82 MHz) on DDI B.
+    const DUMP: &str =
+        include_str!("../../../docs/compat/kabylake/gpu/linux/01-intel_reg-dump.txt");
+
+    /// `(offset, value)` of the dump line `NAME (0xOFFSET): 0xVALUE ...`.
+    fn dump(name: &str) -> (u32, u32) {
+        let hex = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).unwrap();
+        for line in DUMP.lines() {
+            let Some((head, tail)) = line.trim().split_once(" (0x") else {
+                continue;
+            };
+            if head != name {
+                continue;
+            }
+            let (offset, rest) = tail.split_once("): ").expect("dump line shape");
+            let value = rest.split_whitespace().next().expect("dump value");
+            return (hex(offset), hex(value));
+        }
+        panic!("{name} is not in the dump");
+    }
+
+    #[test]
+    fn confirmed_offsets_are_the_dumps() {
+        for (name, offset) in [
+            ("TRANS_HTOTAL_A", TRANS_A_BASE + trans::HTOTAL),
+            ("TRANS_HBLANK_A", TRANS_A_BASE + trans::HBLANK),
+            ("TRANS_HSYNC_A", TRANS_A_BASE + trans::HSYNC),
+            ("TRANS_VTOTAL_A", TRANS_A_BASE + trans::VTOTAL),
+            ("TRANS_VBLANK_A", TRANS_A_BASE + trans::VBLANK),
+            ("TRANS_VSYNC_A", TRANS_A_BASE + trans::VSYNC),
+            ("TRANS_DDI_FUNC_CTL_A", TRANS_DDI_FUNC_CTL_A),
+            ("TRANS_DDI_FUNC_CTL_A", TRANS_A_BASE + trans::DDI_FUNC_CTL),
+            ("TRANS_CONF_A", PIPE_A_BASE + PIPECONF),
+            ("PLANE_CTL_1_A", PLANE_CTL_1_A),
+            ("PLANE_STRIDE_1_A", PLANE_STRIDE_1_A),
+            ("PLANE_POS_1_A", PLANE_POS_1_A),
+            ("PLANE_SIZE_1_A", PLANE_SIZE_1_A),
+            ("PLANE_SURF_1_A", PLANE_SURF_1_A),
+            ("PLANE_BUF_CFG_1_A", PLANE_BUF_CFG_1_A),
+            ("PLANE_WM_1_A_0", PLANE_WM_1_A_0),
+            ("CDCLK_CTL", CDCLK_CTL),
+            ("LCPLL1_CTL", LCPLL1_CTL),
+            ("LCPLL2_CTL", LCPLL2_CTL),
+            ("TRANS_CLK_SEL_A", TRANS_CLK_SEL_A),
+            ("TRANS_CLK_SEL_B", TRANS_CLK_SEL_A + 4),
+            ("DPLL_CTRL1", DPLL_CTRL1),
+            ("DPLL_CTRL2", DPLL_CTRL2),
+            ("DPLL_STATUS", DPLL_STATUS),
+            ("DPLL1_CFGCR1", DPLL1_CFGCR1),
+            ("DPLL1_CFGCR2", DPLL1_CFGCR2),
+            ("DPLL2_CFGCR1", DPLL1_CFGCR1 + DPLL_CFGCR_STRIDE),
+            ("DPLL3_CFGCR1", DPLL1_CFGCR1 + 2 * DPLL_CFGCR_STRIDE),
+            ("WM_LINETIME_A", WM_LINETIME_A),
+            ("VIDEO_DIP_CTL_A", VIDEO_DIP_CTL_A),
+            ("PWR_WELL_BIOS", PWR_WELL_CTL_BIOS),
+            ("PWR_WELL_DRIVER", PWR_WELL_CTL_DRIVER),
+            ("DC_STATE_EN", DC_STATE_EN),
+        ] {
+            assert_eq!(dump(name).0, offset, "{name}");
+        }
+        // Per-pipe stride: plane 1 of pipe B is one pipe block up.
+        assert_eq!(dump("PLANE_CTL_1_B").0, PLANE_CTL_1_A + PIPE_STRIDE);
+        assert_eq!(dump("TRANS_HTOTAL_B").0, TRANS_A_BASE + TRANS_STRIDE);
+    }
+
+    #[test]
+    fn decodes_the_boxs_display_state() {
+        let v = |name| dump(name).1;
+        assert_eq!(cdclk_khz(v("CDCLK_CTL")), 337_500);
+        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_A")), Some(1), "DDI B");
+        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_B")), None);
+        // PLL1 is in HDMI mode; PLL0 (the CDCLK PLL) is not.
+        assert!(dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 1));
+        assert!(!dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 0));
+        // DDI B (port 1) is overridden to PLL1; DDI A has no override.
+        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 1), Some(1));
+        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 0), None);
+        let f = DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_A"));
+        assert!(f.enabled);
+        assert_eq!(f.ddi_select, 1);
+        assert_eq!(f.mode, DdiMode::Hdmi, "HDMI mode: audio needs no mode set");
+        assert_eq!(f.bits_per_component, Some(8));
+        assert!(f.hsync_positive && f.vsync_positive);
+        assert!(!DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_B")).enabled);
+        assert_eq!(timing_pair(v("TRANS_HTOTAL_A")), (2560, 2670));
+        assert_eq!(timing_pair(v("TRANS_VTOTAL_A")), (1440, 1488));
+        assert_eq!(plane_size(v("PLANE_SIZE_1_A")), (2560, 1440));
+        let pipeconf = v("TRANS_CONF_A");
+        assert_ne!(pipeconf & PIPECONF_ENABLE, 0);
+        assert_ne!(pipeconf & PIPECONF_STATE, 0);
+        assert_ne!(v("PLANE_CTL_1_A") & PLANE_CTL_ENABLE, 0);
+        for bit in [dip::ENABLE_AVI, dip::ENABLE_GCP, dip::ENABLE_SPD] {
+            assert_ne!(v("VIDEO_DIP_CTL_A") & bit, 0);
+        }
+    }
+
+    #[test]
+    fn new_offsets_follow_the_documented_strides() {
+        assert_eq!(DPLL1_CFGCR2, DPLL1_CFGCR1 + 4);
+    }
+
     #[test]
     fn pipe_and_transcoder_addresses_follow_the_strides() {
         assert_eq!(PIPE_A_BASE + PIPECONF, 0x70008);
         assert_eq!(TRANS_A_BASE + trans::DDI_FUNC_CTL, TRANS_DDI_FUNC_CTL_A);
         assert_eq!(PLANE_CTL_1_A + 0xC0, PLANE_WM_1_A_0);
         assert_eq!(pipesrc_size(2559 << 16 | 1439), (2560, 1440));
+        assert_eq!(TRANS_A_BASE + TRANS_PIPESRC, 0x6001C);
         assert_eq!(timing_pair(2719 << 16 | 2559), (2560, 2720));
     }
 }

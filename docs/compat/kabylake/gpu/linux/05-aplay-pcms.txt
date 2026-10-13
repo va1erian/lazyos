@@ -1,0 +1,80 @@
+# aplay -L
+null
+    Discard all samples (playback) or generate zero samples (capture)
+pipewire
+    PipeWire Sound Server
+default
+    Default ALSA Output (currently PipeWire Media Server)
+hw:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Direct hardware device without any conversions
+plughw:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Hardware device with all software conversions
+hdmi:CARD=PCH,DEV=0
+    HDA Intel PCH, PL2730Q
+    HDMI Audio Output
+hdmi:CARD=PCH,DEV=1
+    HDA Intel PCH, HDMI 1
+    HDMI Audio Output
+hdmi:CARD=PCH,DEV=2
+    HDA Intel PCH, HDMI 2
+    HDMI Audio Output
+dmix:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Direct sample mixing device
+hw:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    Direct hardware device without any conversions
+plughw:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    Hardware device with all software conversions
+sysdefault:CARD=HID
+    USB Audio and HID, USB Audio
+    Default Audio Device
+front:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    Front output / input
+surround21:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    2.1 Surround output to Front and Subwoofer speakers
+surround40:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    4.0 Surround output to Front and Rear speakers
+surround41:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    4.1 Surround output to Front, Rear and Subwoofer speakers
+surround50:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    5.0 Surround output to Front, Center and Rear speakers
+surround51:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    5.1 Surround output to Front, Center, Rear and Subwoofer speakers
+surround71:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    7.1 Surround output to Front, Center, Side, Rear and Woofer speakers
+iec958:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    IEC958 (S/PDIF) Digital Audio Output
+dmix:CARD=HID,DEV=0
+    USB Audio and HID, USB Audio
+    Direct sample mixing device
+# exit 0

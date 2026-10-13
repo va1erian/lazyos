@@ -1,0 +1,72 @@
+# for f in /proc/asound/card*/eld#*; do [ -r "$f" ] && { echo "== $f"; cat "$f"; }; done
+== /proc/asound/card0/eld#2.0
+monitor_present		1
+eld_valid		1
+codec_pin_nid		0x5
+codec_dev_id		0x0
+codec_cvt_nid		0x2
+monitor_name		PL2730Q
+connection_type		HDMI
+eld_version		[0x2] CEA-861D or below
+edid_version		[0x3] CEA-861-B, C or D
+manufacture_id		0xcd26
+product_id		0x6643
+port_id			0x0
+support_hdcp		0
+support_ai		0
+audio_sync_delay	0
+speakers		[0x1] FL/FR
+sad_count		1
+sad0_coding_type	[0x1] LPCM
+sad0_channels		2
+sad0_rates		[0xe0] 32000 44100 48000
+sad0_bits		[0xe] 16 20 24
+== /proc/asound/card0/eld#2.1
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x5
+codec_dev_id		0x1
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.2
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x5
+codec_dev_id		0x2
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.3
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x6
+codec_dev_id		0x0
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.4
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x6
+codec_dev_id		0x1
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.5
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x6
+codec_dev_id		0x2
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.6
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x7
+codec_dev_id		0x0
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.7
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x7
+codec_dev_id		0x1
+codec_cvt_nid		0x0
+== /proc/asound/card0/eld#2.8
+monitor_present		0
+eld_valid		0
+codec_pin_nid		0x7
+codec_dev_id		0x2
+codec_cvt_nid		0x0
+# exit 0
