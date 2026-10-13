@@ -6,10 +6,7 @@ use crate::ipc::acl::ANY_INTERFACE;
 use crate::ipc::topics::fnv1a32;
 use filepolicy::{rule_id, Kind};
 
-const FONT: &str = "/system/share/fonts/liberation/LiberationSans-Regular.ttf";
-const NOTES: &str = "/home/user/notes.txt";
 const CV: &str = "/home/user/Documents/cv.txt";
-const COOKIES: &str = "/home/user/.apps/os.lazy.webkit/cookie.jar.db";
 
 fn compile(rules: &[&str]) -> Result<Vec<u64>, String> {
     filepolicy::compile(rules)

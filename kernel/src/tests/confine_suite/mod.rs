@@ -9,9 +9,10 @@
 //! without the label.
 //!
 //! * [`files`]: the path matrix through `openat`, `stat`, `mkdir`, `unlink`,
-//!   `rename`, `chmod`, `chdir`, directory descriptors, `..`, the fabricated
-//!   `/dev`, `/proc` and `/etc`, `execve`, the native filesystem calls and
-//!   every `Vfs` entry point;
+//!   `rename`, `chmod`, `chdir`, directory descriptors, `..` and the
+//!   fabricated `/dev`, `/proc` and `/etc`;
+//! * [`entry`]: `execve`, the native filesystem calls, every `Vfs` entry
+//!   point and the labels that are not confined;
 //! * [`procs`]: sockets, process creation, signals and the calls that must
 //!   stay unimplemented (`ptrace`, `process_vm_readv`, `mount`, ...);
 //! * [`policy`]: rule reloads, revocation, the wildcard rule, the audit
@@ -25,6 +26,7 @@ use crate::ipc::credentials::{self, Cred};
 use crate::ipc::{audit, confine, labels};
 use alloc::sync::Arc;
 
+mod entry;
 mod files;
 mod policy;
 mod procs;
@@ -38,6 +40,8 @@ const ADMIN: Id = Id::new(1001, 100);
 /// `-EPERM` as a syscall result.
 const EPERM: i64 = -1;
 const ENOEXEC: i64 = -8;
+const EACCES: i64 = -13;
+const EEXIST: i64 = -17;
 const ENOSYS: i64 = -38;
 const AT_FDCWD: u64 = (-100i64) as u64;
 const O_RDONLY: u64 = 0;
@@ -45,6 +49,12 @@ const O_WRONLY: u64 = 0o1;
 const O_RDWR: u64 = 0o2;
 const O_CREAT: u64 = 0o100;
 const O_DIRECTORY: u64 = 0o200000;
+
+/// Paths of the world: a granted font, the profile directory and a file in it, and a private file.
+pub(super) const FONT: &str = "/system/share/fonts/liberation/LiberationSans-Regular.ttf";
+pub(super) const PROFILE: &str = "/home/user/.apps/os.lazy.webkit";
+pub(super) const COOKIES: &str = "/home/user/.apps/os.lazy.webkit/cookie.jar.db";
+pub(super) const NOTES: &str = "/home/user/notes.txt";
 
 /// What the sandbox of these tests is granted, in the manifest's words: the
 /// fonts to read, its own profile directory to write, the CA bundle and the
@@ -325,15 +335,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("confine_dot_dot_and_dirfds", files::dot_dot_and_dirfds),
     ("confine_fabricated_entries", files::fabricated_entries),
-    ("confine_execve_and_native_programs", files::execve_refused),
-    ("confine_native_filesystem_calls", files::native_calls),
+    ("confine_execve_and_native_programs", entry::execve_refused),
+    ("confine_native_filesystem_calls", entry::native_calls),
     (
         "confine_every_vfs_entry_point",
-        files::every_vfs_entry_point,
+        entry::every_vfs_entry_point,
     ),
     (
         "confine_unconfined_are_untouched",
-        files::unconfined_untouched,
+        entry::unconfined_untouched,
     ),
     ("confine_sockets", procs::sockets),
     ("confine_no_process_creation", procs::no_spawn),

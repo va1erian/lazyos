@@ -258,6 +258,17 @@ impl Vfs {
         if path.is_root() {
             return Err(FsError::Exists);
         }
+        // A name that is already there is `EEXIST` before it is a question of whether the
+        // caller may write the directory above it, as on Linux: programs that make every
+        // component of a path (`mkdir -p`, WebKit's `makeAllDirectories`) walk through
+        // directories they may look at but not change. A caller that cannot look at the name
+        // (no search permission on the way, or a confined label's gate) gets that error
+        // instead, so existence is never told to someone who may not see it.
+        match self.check_path(id, &path, 0) {
+            Ok(_) => return Err(FsError::Exists),
+            Err(FsError::NotFound) => {}
+            Err(error) => return Err(error),
+        }
         self.check_path(id, &path.parent(), WRITE | EXECUTE)?;
         let mode = mode & !self.umask & 0o7777;
         let (mount, rel) = self.resolve_writable(&path)?;
