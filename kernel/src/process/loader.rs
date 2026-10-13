@@ -60,8 +60,6 @@ pub fn is_out_of_memory(reason: &str) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Loaded {
     pub entry: u64,
-    /// Page-aligned start of the lowest segment.
-    pub start: u64,
     /// Page-aligned end of the highest segment: where a heap may begin.
     pub end: u64,
     /// `AT_PHDR`, `AT_PHENT`, `AT_PHNUM` for the start stack.
@@ -219,9 +217,6 @@ pub fn load_planned<I: Image + ?Sized>(
     let phdr = elfhdr::phdr_address(headers);
     Ok(Loaded {
         entry: headers.entry.wrapping_add(bias),
-        // The first byte of the lowest segment, so a caller can tell where
-        // the image sits (a relocated image's base).
-        start: segments.iter().map(|seg| seg.start).min().unwrap_or(0),
         end: segments.iter().map(|seg| seg.end).max().unwrap_or(0),
         phdr: if phdr == 0 { 0 } else { phdr.wrapping_add(bias) },
         phent: elfhdr::PHDR_SIZE,

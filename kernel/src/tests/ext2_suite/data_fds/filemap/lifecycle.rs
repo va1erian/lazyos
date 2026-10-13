@@ -116,6 +116,28 @@ fn truncation_on(dir: &str) -> Result<(), String> {
         space.load(BASE + PAGE + 100, 8)? == [0u8; 8],
         "grown tail of the old last page is not zero"
     );
+    // Truncation by name (`truncate(2)`, `O_TRUNC`) reaches the mapped file
+    // too: the tail of the last kept page is zeroed, and a page past the end
+    // is refused again.
+    space.store(BASE + PAGE + 60, b"TAILTAIL")?;
+    check!(
+        path_call(SYS_TRUNCATE, &path, PAGE + 50) == 0,
+        "truncate by name"
+    );
+    check!(
+        space.load(BASE + PAGE + 60, 8)? == [0u8; 8],
+        "the tail of the last page survived truncate(2)"
+    );
+    check!(munmap(BASE + 2 * PAGE, PAGE) == 0, "munmap page 2");
+    check!(
+        mmap(BASE + 2 * PAGE, PAGE, RW, MAP_SHARED | MAP_FIXED, fd, 2 * PAGE) == BASE + 2 * PAGE,
+        "remap page 2"
+    );
+    check!(
+        !space.can_touch(BASE + 2 * PAGE, false),
+        "a page past a truncate(2) was mapped"
+    );
+    check!(ftruncate(fd, 3 * PAGE) == 0, "ftruncate grow again");
     // Unlink and close: the mapping keeps the data.
     let name = cstr(&path);
     close(fd);

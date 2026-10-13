@@ -311,6 +311,21 @@ fn release(inode: &Arc<Inode>) -> bool {
     true
 }
 
+/// The contents of the file at `path` changed by name (`truncate(2)`,
+/// `O_TRUNC`, a path write): an open file's cached pages past its new end go,
+/// and the tail of the last one is zeroed (`mmap` of it sees the new size).
+pub(super) fn content_changed(path: &str) {
+    let Some(inode) = find(path) else {
+        return;
+    };
+    if inode.cache.is_empty() {
+        return;
+    }
+    if let Ok(size) = inode.size() {
+        inode.cache.truncate(size);
+    }
+}
+
 /// The open inode whose current name is exactly `path`.
 fn find(path: &str) -> Option<Arc<Inode>> {
     let path = Path::parse(path).to_path_string();

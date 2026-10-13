@@ -191,7 +191,7 @@ impl Inode {
         result
     }
 
-    fn size(&self) -> Result<u64, FsError> {
+    pub(super) fn size(&self) -> Result<u64, FsError> {
         match &self.node {
             Some(node) => node.stat().map(|meta| meta.size),
             None => crate::fs::abi_stat(Id::ROOT, &self.path()).map(|meta| meta.size),
