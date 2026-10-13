@@ -704,3 +704,23 @@ boot self-test prints `XUID:FOCUS:PASS` (`window::selftest_focus_on_create`).
 Only the shell may raise or focus an *existing* window (`ActivateSurface`), so
 the portable explorer still reports a duplicate open in its status bar rather
 than bringing the open window forward.
+
+**Screen blanking**
+
+After `sys/ui/screen/off_minutes` minutes (shadowed per account by `user/<uid>/ui/screen/off_minutes`, which Settings > Appearance > Turn off screen after writes) (`uitheme::KEY_SCREEN_OFF`; `0`, the
+default, is never) with no key or pointer event, `xuid` paints the whole
+screen black and hides the cursor (`xuid/idle.rs`). No display driver can
+switch a monitor off here (the framebuffer is the firmware's or Bochs's), so
+black is the whole feature; a monitor sees no picture and usually sleeps on its
+own. The key is read with the theme keys and follows changes live; changing it
+restarts the countdown. The first input afterwards wakes the screen and is
+dropped when it is a press, a key or a wheel notch (a move or a release
+carries on), so waking never types or clicks into the window below; keys
+`inputd` delivers itself are held meanwhile with `NoteKeysHeld`. The
+shutting-down screen and the trusted prompt wake a blank screen. Nothing yet
+lets a video or game ask to stay awake, which is why the default is off.
+Settings (Appearance, "Turn off screen after") writes the account's own key,
+so it asks nobody; "Make this the default for everyone" publishes it as the
+machine value through `elevd` like the theme keys, and "Reset to defaults"
+clears it. The boot self-test prints `XUID:IDLE:PASS`
+(`idle::selftest_idle`); serial markers `XUID:IDLE:SET|BLANK|WAKE`.

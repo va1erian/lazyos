@@ -19,10 +19,12 @@ use confd::Value;
 
 mod cursor;
 mod scale;
+mod screenoff;
 mod user;
 mod wallpaper;
 pub use cursor::*;
 pub use scale::*;
+pub use screenoff::*;
 pub use user::*;
 pub use wallpaper::*;
 

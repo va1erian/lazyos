@@ -11,12 +11,12 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    button, checkbox, color_picker, column, group, radio_group, row, Build, Handle, LayoutExt,
-    Mounted,
+    button, checkbox, color_picker, column, combo_box, group, radio_group, row, Build, Handle,
+    LayoutExt, Mounted,
 };
 use xui_core::backend::{Result, WidgetId};
 use xui_core::layout::Align;
-use xui_core::widget::{CheckBox, ColorPicker, ListView, RadioGroup};
+use xui_core::widget::{CheckBox, ColorPicker, ComboBox, ListView, RadioGroup};
 use xui_core::Color;
 
 use crate::app::{choice_list, Msg};
@@ -39,6 +39,8 @@ pub struct AppearancePage {
     /// The desktop pictures: "None", then one row per picture.
     pub wallpaper: Rc<ListView<Msg>>,
     pub anim: Rc<CheckBox<Msg>>,
+    /// The blank-screen delay, one row per [`uitheme::SCREEN_OFF_CHOICES`].
+    pub screen_off: Rc<ComboBox<Msg>>,
     _mounted: Mounted<Msg>,
 }
 
@@ -56,7 +58,12 @@ impl AppearancePage {
     /// `pictures` beside the background colours.
     pub fn build(ui: &Ui<Msg>, page: WidgetId, pictures: &[String]) -> Result<AppearancePage> {
         let (mode, accent, background) = (Handle::new(), Handle::new(), Handle::new());
-        let (wallpaper, anim) = (Handle::new(), Handle::new());
+        let (wallpaper, anim, screen_off) = (Handle::new(), Handle::new(), Handle::new());
+        let delays: Vec<String> = uitheme::SCREEN_OFF_CHOICES
+            .iter()
+            .map(|&minutes| uitheme::ScreenOffLabel(minutes).to_string())
+            .collect();
+        let delays: Vec<&str> = delays.iter().map(String::as_str).collect();
         let rows = wallpaper_ops::rows(pictures);
         let rows: Vec<&str> = rows.iter().map(String::as_str).collect();
         let mounted = ui.mount_in(
@@ -96,14 +103,26 @@ impl AppearancePage {
                             .max_height(112),
                     )),
                 ),
-                group(
-                    "Animations",
-                    column().child(
-                        checkbox("Window animations")
-                            .on_toggle(Msg::Anim)
-                            .bind(&anim),
+                row().gap(12).children((
+                    group(
+                        "Animations",
+                        column().child(
+                            checkbox("Window animations")
+                                .on_toggle(Msg::Anim)
+                                .bind(&anim),
+                        ),
                     ),
-                ),
+                    group(
+                        "Turn off screen after",
+                        column().child(
+                            combo_box(&delays)
+                                .on_select(Msg::ScreenOff)
+                                .bind(&screen_off)
+                                .width(150)
+                                .align(Align::Start),
+                        ),
+                    ),
+                )),
                 row().gap(8).children((
                     button("Reset to defaults").on_click(Msg::ResetAppearance),
                     button("Make this the default for everyone").on_click(Msg::MakeDefault),
@@ -116,6 +135,7 @@ impl AppearancePage {
             background: background.get(),
             wallpaper: wallpaper.get(),
             anim: anim.get(),
+            screen_off: screen_off.get(),
             _mounted: mounted,
         })
     }

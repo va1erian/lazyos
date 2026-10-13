@@ -170,6 +170,10 @@ impl Compositor {
         // stays hidden meanwhile, `Compositor::cursor_target`).
         if super::powerfeed::active() {
             super::powerfeed::draw(screen, damage);
+        } else if super::idle::blanked() {
+            // The blank screen (`idle.rs`): black over everything, the
+            // shutting-down screen excepted.
+            super::idle::draw(screen, damage);
         }
     }
 }

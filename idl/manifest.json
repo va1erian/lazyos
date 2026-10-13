@@ -1076,6 +1076,11 @@
         "name": "GrabChanged",
         "id": 26,
         "oneway": true
+      },
+      {
+        "name": "KeyActivity",
+        "id": 27,
+        "oneway": true
       }
     ],
     "topics": []

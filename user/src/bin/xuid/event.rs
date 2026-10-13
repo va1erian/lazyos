@@ -24,6 +24,11 @@ impl Compositor {
         if super::powerfeed::active() {
             return;
         }
+        // Any input restarts the idle countdown; the one that wakes a blank
+        // screen is not delivered (`idle.rs`).
+        if self.idle_input(&event) {
+            return;
+        }
         // The trusted prompt takes every key and press while it is up
         // (`prompt.rs`): no client hears any of it.
         if self.prompt.is_some() {

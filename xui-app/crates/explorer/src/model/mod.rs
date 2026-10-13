@@ -18,6 +18,8 @@ mod history;
 mod path;
 mod sort;
 mod summary;
+mod thumb_decode;
+mod thumbs;
 mod village;
 
 #[cfg(test)]
@@ -31,3 +33,4 @@ pub use history::History;
 pub use path::{deletion_refused, is_root, is_within, title};
 pub use sort::{SortKey, SortOrder, sort_entries};
 pub use summary::summarize;
+pub use thumbs::Thumbs;

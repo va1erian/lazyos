@@ -6928,6 +6928,7 @@ dependencies = [
 name = "xui-explorer"
 version = "0.1.0"
 dependencies = [
+ "image",
  "xui-app-testkit",
  "xui-canvas",
  "xui-core",
