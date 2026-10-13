@@ -61,6 +61,7 @@ stack is libsoup). The glue is therefore:
 | `port/glstub/gen_stub.py` | writes `libEGL.a`/`libGLESv2.a` from the Khronos headers: every entry point does nothing (`tools/webkit/recipes_port.py`, built with the bundle) |
 | `port/tree/Source/WebKit/WebProcess/InjectedBundle/lazyos/InjectedBundleLazyOS.cpp` | injected bundles are shared libraries; the programs are static executables: refused with a message |
 | `port/tree/Source/WebKit/UIProcess/API/C/lazyos/WPELoaderLazyOS.cpp` | the `_wpe_loader_interface` that statically linked libwpe asks its backend for: no backend, so no objects (libwpe then uses its in-process pasteboard) |
+| `port/app/{main,engine}.cpp`, `lazyos_ui.h` | `webkit-app`, the desktop UI process (W5, below) |
 | `port/smoke/main.cpp` | `webkit-smoke`, the headless UI process: C API only, one `WEBKIT:W4:*` line per step (`tools/webkit/portjudge.py` lists them), plus `INFO` lines for the fonts Fontconfig sees, the glyphs as text and timings |
 | `port/fonts.conf` | Fontconfig's configuration in the image (`/system/etc/fonts/fonts.conf`) |
 | `patches/` | changes to the tarball, applied in name order after `tools/jsc/patches/webkit` (below) |
@@ -99,6 +100,8 @@ except `0003` and `0004`.
 | `0010-cmake-symlink-forwarded-headers-on-lazyos` | forwarded headers are symlinks, as on macOS: the C API headers are reached both as `<WebKit/X.h>` and as `"X.h"` and a copy is parsed twice |
 | `0011-webkit-layertreehost-playstation-skia-painting-engine` | `SkiaPaintingEngine::create` gained an argument that the (never entered) composited path of the PlayStation layer tree host did not pass |
 | `0012-webkit-playstation-page-events-text-modifiers-time` | the C API a UI process sends input through (`WKPageHandleKeyboardEvent`, `...MouseEvent`, `...WheelEvent`) dropped the key's text (so nothing could be typed into a field), the modifiers, the event time (so every click at one spot counted as one more click of a series) and the held button of a drag, and sent a zero horizontal wheel step on every vertical one |
+| `0013-webkit-playstation-editing-keyboard-events` | `WebPage::handleEditingKeyboardEvent` is `notImplemented()` (the GTK and WPE ports leave it to a toolkit input method): a page got keydown, keypress and keyup but no text in any field. The hook now runs the editing command of a key down (arrows, Home, End, Delete, Backspace, select all, copy, cut, paste, undo) and inserts the text of a key press |
+| `0014-webkit-playstation-view-resize-reaches-the-drawing-area` | `PlayStationWebView::setViewSize` stored the size only: a window that was resized kept laying the page out and painting it at the old size; it now calls `DrawingAreaProxy::setSize` |
 
 ## Drawing
 
@@ -113,7 +116,7 @@ EGL and GLESv2 stand-ins and are never reached.
 
 ## The desktop app (W5)
 
-`org.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of ten
+`org.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI of sixteen
 functions (`port/app/lazyos_ui.h`):
 
 * **the UI process, C++** (`port/app/main.cpp`, `engine.cpp`): WebKit's run loop on the process's main

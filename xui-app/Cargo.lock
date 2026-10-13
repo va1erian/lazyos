@@ -7038,6 +7038,7 @@ dependencies = [
 name = "xui-webkit"
 version = "0.1.0"
 dependencies = [
+ "lazyos-sys",
  "xui-app",
  "xui-canvas",
  "xui-core",

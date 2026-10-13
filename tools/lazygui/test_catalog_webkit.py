@@ -139,6 +139,12 @@ class WebkitBrowserTests(unittest.TestCase):
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py",
                           "tools/xui/build.py"])
 
+    def test_the_quota_covers_three_processes_unless_the_launcher_chose_one(self) -> None:
+        self.assertEqual(catalog.build_env({**self.base(), "webkit": True})["LAZYOS_LIMIT_QUOTA_USER_MEMORY"], "8G")
+        chosen = catalog.build_env({**self.base(), "webkit": True, "limits": "quota_user_memory=5G fd_max=4096"})
+        self.assertEqual((chosen["LAZYOS_LIMIT_QUOTA_USER_MEMORY"], chosen["LAZYOS_LIMIT_FD_MAX"]), ("5G", "4096"))
+        self.assertNotIn("LAZYOS_LIMIT_QUOTA_USER_MEMORY", catalog.build_env({**self.base(), "desktop": True}))
+
     def test_the_os_volume_is_a_large_one(self) -> None:
         from lazygui import osvolume
         self.assertTrue(osvolume.large({"webkit": True}))

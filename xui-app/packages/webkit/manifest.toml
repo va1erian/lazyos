@@ -28,15 +28,17 @@ abi = "linux"
 autostart = false
 
 [permissions]
-# Provisional, modelled on LazyWeb: the window and sockets (the `outbound` network
-# permission); WebProcess and NetworkProcess are children of the app and run under its label.
-# Derive the final list from a run under it (`LAZYOS_LABEL_TRACE=1`, docs/packages.md).
+# Derived from a run under `LAZYOS_LABEL_TRACE=1` (`python tools/webkit/app_run.py --label-trace`,
+# docs/packages.md): the window, its keyboard and pointer, and the pointer shape (without
+# `os.lazy.display.cursor.v1` the run prints `LABEL:DENY ... SetCursor`). Sockets are plain musl
+# ones (the `outbound` network permission) and names resolve through `/etc/resolv.conf`, so
+# `os.lazy.net.stack.v1` is not needed. WebProcess and NetworkProcess are children of the app and
+# run under its label. WebKit's data directories default to the PlayStation's `/app0`, which LazyOS
+# has not, so nothing is persisted yet and no file is asked
+# for (a persistent profile would ask for `write:$HOME/.apps/org.lazy.webkit`).
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
-    "os.lazy.net.stack.v1",
 ]
 network = ["outbound"]
-# WebKit's cookies, cache and local storage, in the app's own folder.
-files = ["write:$HOME/.apps/org.lazy.webkit"]

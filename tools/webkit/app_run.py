@@ -78,7 +78,8 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     env = {k: v for k, v in os.environ.items() if k not in STALE}
     env.update(LAZYOS_DESKTOP="1", LAZYOS_WEBKIT="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_XUI_AUTOSTART="webkit", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
-               LAZYOS_BUSYBOX=str(shell), **limits.limit_env(list(limits.BIG_APP_LIMITS)), **extra)
+               LAZYOS_BUSYBOX=str(shell), **extra,
+               **limits.limit_env(limits.with_defaults(list(limits.WEBKIT_LIMITS), limits.BIG_APP_LIMITS)))
     if label_trace:
         env["LAZYOS_LABEL_TRACE"] = "1"
     switches = " ".join(f"{k}={env[k]}" for k in sorted(env) if k.startswith("LAZYOS_") and k != "LAZYOS_BUSYBOX")

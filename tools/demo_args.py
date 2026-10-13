@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
-from lazygui.limits import add_limit_option, big_app, build_limits  # noqa: E402
+from lazygui.limits import WEBKIT_LIMITS, add_limit_option, big_app, build_limits, with_defaults  # noqa: E402
 from lazygui.login import add_login_option, build_login  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "net"))
@@ -275,6 +275,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
+    if args.webkit:
+        args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if args.big_app or args.jsc or args.webkit_deps or args.webkit_port or args.webkit:
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD

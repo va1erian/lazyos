@@ -44,7 +44,6 @@
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
-#include <atomic>
 #include <functional>
 #include <signal.h>
 #include <stdarg.h>
@@ -257,6 +256,9 @@ void reportMemory()
     if (firstFreeMiB < 0)
         firstFreeMiB = freeMiB;
     say("WEBKIT:W5:INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
+    uint64_t used = 0, limit = 0;
+    if (!lzw_ui_user_memory(&used, &limit))
+        say("WEBKIT:W5:INFO:QUOTA:user_memory_mib=%lu:limit_mib=%lu", static_cast<unsigned long>(used >> 20), static_cast<unsigned long>(limit >> 20));
 }
 
 void sayTitle()
@@ -523,16 +525,9 @@ void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
 void lzw_engine_key(int press, uint32_t keysym, const char* text, uint32_t mods)
 {
     std::string typed = text ? text : "";
-    // Evidence for the first keys of a run: what the window sent, and that it got here.
-    static std::atomic<int> said { 0 };
-    if (said.fetch_add(1) < 24)
-        say("WEBKIT:W5:INFO:KEY:press=%d:sym=%x:text=%s:mods=%u", press, keysym, typed.c_str(), mods);
     onMain([=] {
         WKKeyboardEvent event = WKKeyboardEventMake(press ? kWKEventKeyDown : kWKEventKeyUp, kWKInputTypeNormal,
             typed.c_str(), static_cast<uint32_t>(typed.size()), nullptr, static_cast<int32_t>(keysym), 0, 0, mods);
-        static int handled = 0;
-        if (handled++ < 24)
-            say("WEBKIT:W5:INFO:KEYMAIN:press=%d:sym=%x:len=%d", press, keysym, event.length);
         WKPageHandleKeyboardEvent(E.page, event);
     });
 }

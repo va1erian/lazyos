@@ -11,7 +11,7 @@ current editor API.
 
 --- a/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
 +++ b/Source/WebKit/WebProcess/WebPage/playstation/WebPagePlayStation.cpp
-@@ -26,8 +26,16 @@
+@@ -26,8 +26,17 @@
  #include "config.h"
  #include "WebPage.h"
  
@@ -22,13 +22,14 @@ current editor API.
 +#include <WebCore/HTMLInputElement.h>
 +#include <WebCore/KeyboardEvent.h>
 +#include <WebCore/LocalFrame.h>
++#include <WebCore/LocalFrameInlines.h>
  #include <WebCore/NotImplemented.h>
  #include <WebCore/Page.h>
 +#include <WebCore/PlatformKeyboardEvent.h>
  #include <WebCore/PointerCharacteristics.h>
  #include <WebCore/Settings.h>
  #include <WebCore/UserAgent.h>
-@@ -81,10 +89,97 @@
+@@ -81,10 +90,97 @@
      return PointerCharacteristics::Fine;
  }
  

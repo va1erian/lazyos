@@ -16,7 +16,7 @@ import sys
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
 from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
 from . import osvolume
-from .limits import LIMIT_KEYS, limit_env  # noqa: F401 (re-exported)
+from .limits import LIMIT_KEYS, cfg_limit_env, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
@@ -253,7 +253,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env.update({"LAZYOS_WIFI_SIM": "1", "LAZYOS_NETD": "1"})
         env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
-    env.update(limit_env(cfg.get("limits", "")))
+    env.update(cfg_limit_env(cfg))  # the browser's quota too (`limits.WEBKIT_LIMITS`)
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
     env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):

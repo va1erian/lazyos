@@ -52,7 +52,16 @@ class WebkitTests(test_run_demo.RunDemoCase):
         self.assertNotIn("LAZYOS_WEBKIT_PORT", env)
         self.assertEqual(command[command.index("-m") + 1], "4G")
         self.assertEqual(env.get("LAZYOS_LIMIT_TASK_MAX"), "1024")
+        # Three processes charge ~1 GiB of mappings each: the big-app profile's 3G is not enough.
+        self.assertEqual(env.get("LAZYOS_LIMIT_QUOTA_USER_MEMORY"), "8G")
         self.assertNotIn("LAZYOS_OS_SIZE", env, "a fresh image takes the build's own large default")
+
+    def test_webkit_keeps_a_quota_the_caller_chose(self) -> None:
+        with mock.patch.object(run_demo, "build_webkit", return_value=True), \
+                mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _ = self.run_main("--webkit", "--yes", "--limit", "quota_user_memory=5G")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_QUOTA_USER_MEMORY"), "5G")
 
     def test_webkit_recreates_a_small_os_volume_with_a_gigabyte(self) -> None:
         from lazygui.test_osvolume import make_image

@@ -602,11 +602,11 @@ them (`webkit/README.md` says how to keep the caches).
 W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
 the run loop and the C API on the main thread) with the xui window as a Rust static library
 (`xui-app/crates/webkit`: chrome, page view, input forwarding, host-tested against a recording engine)
-on a second thread, joined by a ten-function C ABI (`webkit/port/app/lazyos_ui.h`). `python
+on a second thread, joined by a sixteen-function C ABI (`webkit/port/app/lazyos_ui.h`). `python
 tools/webkit/app.py` builds the library on the host and links the program in the build container;
 `python tools/xui/build.py` packages it as a core package, and only a `LAZYOS_WEBKIT=1` image
 (`run_demo.py --webkit`, the launcher's WebKit group; needs the desktop and the network stack, a 1 GiB OS
-volume and 4 GiB of RAM) ships it with `WebProcess` and `NetworkProcess` in `/system/bin`. LazyWeb stays
+volume, 4 GiB of RAM and an 8G user memory quota, which the launchers set) ships it with `WebProcess` and `NetworkProcess` in `/system/bin`. LazyWeb stays
 the shipped browser. `python tools/webkit/app_run.py` builds the image, serves LazyWeb's stand-in sites
 from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
 Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot

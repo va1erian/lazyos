@@ -18,6 +18,10 @@ extern "C" {
 
 // ---- implemented by the window (Rust) ----
 
+// The calling user's user-memory charge and limit in bytes, as the kernel counts them (the length
+// of every mapping, not the pages touched). Returns 0 on success.
+int lzw_ui_user_memory(uint64_t* used, uint64_t* limit);
+
 // Runs the window until it is closed; returns the process exit status. argv[1], if
 // it is not an option, is the first address to open.
 int lzw_ui_main(int argc, const char* const* argv);

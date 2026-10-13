@@ -130,6 +130,34 @@ unsafe fn arguments(argc: c_int, argv: *const *const c_char) -> Vec<String> {
         .collect()
 }
 
+/// The calling user's user-memory charge and limit, in bytes, as the kernel counts them: the
+/// length of every mapping, not the pages touched, so what a JIT or a collector reserves counts
+/// (the page's WebProcess, the NetworkProcess and this process share one user's quota).
+/// Returns 0 on success.
+///
+/// # Safety
+/// `used` and `limit` must be valid for a write.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_user_memory(used: *mut u64, limit: *mut u64) -> c_int {
+    /// `Resource::COUNT` words of usage and limit (`kernel/src/quota/types.rs`).
+    const WORDS: usize = 18;
+    /// `Resource::UserMemory`'s index.
+    const USER_MEMORY: usize = 1;
+    let mut words = [0u64; WORDS];
+    // SAFETY: syscall 11 writes `Resource::COUNT * 2` words into the buffer, which has room.
+    let status =
+        unsafe { lazyos_sys::raw::syscall1(lazyos_sys::nr::QUOTA, words.as_mut_ptr() as u64) };
+    if status != 0 || used.is_null() || limit.is_null() {
+        return -1;
+    }
+    // SAFETY: the caller promises both pointers are writable.
+    unsafe {
+        *used = words[USER_MEMORY * 2];
+        *limit = words[USER_MEMORY * 2 + 1];
+    }
+    0
+}
+
 /// The compositor client, waiting for the compositor: an app that opens at login starts while the
 /// core apps are still being installed, and `xuid` serves no display until they are (LazyShell
 /// retries the same way, `SHELL:CONNECT:RETRY`).
