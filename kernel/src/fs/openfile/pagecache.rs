@@ -18,9 +18,12 @@
 //!   takes its bytes from the frame ([`PageCache::overlay`]) and
 //!   `msync`/`munmap`/`fsync`/exit and the periodic flusher write it back.
 //!
-//! Dirty is sticky: a page stays dirty while any mapping still holds its
-//! frame (the cache cannot see the stores), and is cleaned only by a
-//! writeback that finds the cache its last holder.
+//! Dirty is set by the first store through a writable shared mapping (the
+//! write-protection fault, `mem::filemap`), and a writeback clears it *after*
+//! write-protecting every mapping of the page, so the next store faults and
+//! marks it again. While a page is being written back it is *flushing*: reads
+//! still take its bytes from the frame, and a write to the file that lands
+//! meanwhile dirties it again, so the flush cannot leave the file stale.
 //!
 //! Nothing here does I/O or holds the lock across it: filling a page reads the
 //! file with no lock held and uses a generation counter to notice a write that
@@ -41,6 +44,8 @@ pub const PAGE: u64 = 4096;
 struct Page {
     frame: u64,
     dirty: bool,
+    /// A writeback of the page is in flight ([`PageCache::take_dirty`]).
+    flushing: bool,
 }
 
 /// The cached pages of one file, by page index.
@@ -128,31 +133,39 @@ impl PageCache {
             Page {
                 frame: frame.as_u64(),
                 dirty: false,
+                flushing: false,
             },
         );
         Ok(frame)
     }
 
     /// A page the file's own write changed: copy `data` (written at file
-    /// `offset`) into every cached page it overlaps.
+    /// `offset`) into every cached page it overlaps. The generation moves
+    /// once the frames hold the bytes, so a fill that read the file before
+    /// the write cannot insert its stale page.
     pub fn update(&self, offset: u64, data: &[u8]) {
+        let mut pages = self.pages.lock();
+        if !pages.is_empty() && !data.is_empty() {
+            let end = offset + data.len() as u64;
+            for (&index, page) in pages.range_mut(offset / PAGE..=(end - 1) / PAGE) {
+                let page_start = index * PAGE;
+                let from = offset.max(page_start);
+                let to = end.min(page_start + PAGE);
+                let src = &data[(from - offset) as usize..(to - offset) as usize];
+                copy_to_frame(page.frame, (from - page_start) as usize, src);
+                // A writeback may have read the frame before these bytes:
+                // it must not call the page clean.
+                if page.flushing {
+                    page.dirty = true;
+                }
+            }
+        }
         self.generation.fetch_add(1, Ordering::AcqRel);
-        let pages = self.pages.lock();
-        if pages.is_empty() || data.is_empty() {
-            return;
-        }
-        let end = offset + data.len() as u64;
-        for (&index, page) in pages.range(offset / PAGE..=(end - 1) / PAGE) {
-            let page_start = index * PAGE;
-            let from = offset.max(page_start);
-            let to = end.min(page_start + PAGE);
-            let src = &data[(from - offset) as usize..(to - offset) as usize];
-            copy_to_frame(page.frame, (from - page_start) as usize, src);
-        }
     }
 
     /// Replace the bytes of `buf` (read from file offset `offset`) that lie
-    /// in a dirty page with the frame's, which are newer than the file's.
+    /// in a dirty or flushing page with the frame's, which are newer than
+    /// the file's.
     pub fn overlay(&self, offset: u64, buf: &mut [u8]) {
         if buf.is_empty() {
             return;
@@ -163,7 +176,7 @@ impl PageCache {
         }
         let end = offset + buf.len() as u64;
         for (&index, page) in pages.range(offset / PAGE..=(end - 1) / PAGE) {
-            if !page.dirty {
+            if !page.dirty && !page.flushing {
                 continue;
             }
             let page_start = index * PAGE;
@@ -174,8 +187,8 @@ impl PageCache {
         }
     }
 
-    /// Mark pages `first..=last` that are cached as possibly changed through
-    /// a writable shared mapping.
+    /// Mark pages `first..=last` that are cached as changed through a
+    /// writable shared mapping.
     pub fn mark_dirty(&self, first: u64, last: u64) {
         let mut pages = self.pages.lock();
         for (_, page) in pages.range_mut(first..=last) {
@@ -183,13 +196,15 @@ impl PageCache {
         }
     }
 
-    /// The dirty pages in `first..=last`, each with a frame reference the
-    /// caller must give back with [`PageCache::finish`].
+    /// The dirty pages in `first..=last`, now *flushing*, each with a frame
+    /// reference the caller must give back with [`PageCache::finish`]. The
+    /// caller write-protects the mappings of these pages before it writes
+    /// them.
     pub fn take_dirty(&self, first: u64, last: u64) -> Vec<DirtyPage> {
-        let pages = self.pages.lock();
+        let mut pages = self.pages.lock();
         let mut out = Vec::new();
-        for (&index, page) in pages.range(first..=last) {
-            if !page.dirty {
+        for (&index, page) in pages.range_mut(first..=last) {
+            if !page.dirty || page.flushing {
                 continue;
             }
             let frame = PhysAddr::new(page.frame);
@@ -197,26 +212,46 @@ impl PageCache {
                 break;
             }
             if share_frame(frame) {
+                page.dirty = false;
+                page.flushing = true;
                 out.push(DirtyPage { index, frame });
             }
         }
         out
     }
 
-    /// A written-back page: drop the caller's reference and, when no mapping
-    /// holds the frame any more (only the cache and the caller did), clear its
-    /// dirty mark. A page that is still mapped stays dirty.
+    /// A page's writeback ended: drop the caller's reference. A page that
+    /// was not written, or that was written to meanwhile, is dirty again.
     pub fn finish(&self, page: DirtyPage, written: bool) {
-        if written {
+        {
             let mut pages = self.pages.lock();
             if let Some(entry) = pages.get_mut(&page.index) {
-                // The cache's reference plus the one being returned.
-                if entry.frame == page.frame.as_u64() && frame_refcount(page.frame) <= 2 {
-                    entry.dirty = false;
+                if entry.frame == page.frame.as_u64() {
+                    entry.flushing = false;
+                    if !written {
+                        entry.dirty = true;
+                    }
                 }
             }
         }
         free_frame(page.frame);
+    }
+
+    /// The clean, idle pages of the cache with a reference each (the caller
+    /// frees them): what a change made behind the cache's back refreshes.
+    pub fn clean_pages(&self) -> Vec<(u64, PhysAddr)> {
+        let pages = self.pages.lock();
+        let mut out = Vec::new();
+        for (&index, page) in pages.iter() {
+            if page.dirty || page.flushing || out.try_reserve(1).is_err() {
+                continue;
+            }
+            let frame = PhysAddr::new(page.frame);
+            if share_frame(frame) {
+                out.push((index, frame));
+            }
+        }
+        out
     }
 
     /// Give back the pages of `first..=last` that no mapping holds (the cache
@@ -228,7 +263,9 @@ impl PageCache {
             let mut pages = self.pages.lock();
             let stale: Vec<u64> = pages
                 .range(first..=last)
-                .filter(|(_, page)| !page.dirty && frame_refcount(PhysAddr::new(page.frame)) == 1)
+                .filter(|(_, page)| {
+                    !page.dirty && !page.flushing && frame_refcount(PhysAddr::new(page.frame)) == 1
+                })
                 .map(|(&index, _)| index)
                 .collect();
             for index in stale {
@@ -247,7 +284,6 @@ impl PageCache {
     /// mapping that still holds a dropped frame keeps it until it unmaps
     /// (where Linux would raise `SIGBUS` on the next touch).
     pub fn truncate(&self, size: u64) {
-        self.generation.fetch_add(1, Ordering::AcqRel);
         let keep = size.div_ceil(PAGE);
         let mut freed = Vec::new();
         {
@@ -261,6 +297,7 @@ impl PageCache {
                     copy_to_frame(page.frame, within, &zeros[within..]);
                 }
             }
+            self.generation.fetch_add(1, Ordering::AcqRel);
         }
         for frame in freed {
             free_frame(PhysAddr::new(frame));

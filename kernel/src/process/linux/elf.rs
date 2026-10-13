@@ -16,7 +16,7 @@ use x86_64::PhysAddr;
 
 use crate::mem::vma::{Kind, Prot};
 use crate::fs::vfs::FsError;
-use crate::process::elfhdr::{self, Headers, ET_DYN, ET_EXEC, PT_INTERP};
+use crate::process::elfhdr::{self, Headers, ET_DYN, PT_INTERP};
 use crate::process::image::{self, Image};
 use crate::process::layout::{IMAGE_RESERVED, MMAP_LIMIT, STACK_MAX, STACK_TOP};
 use crate::process::{load_planned, loader, map_range_kind, page_phys, Loaded};
@@ -180,10 +180,14 @@ fn load_interpreter(
     if headers.phdrs.iter().any(|header| header.kind == PT_INTERP) {
         return Err(LoadError::BadImage("the interpreter has an interpreter"));
     }
-    let bias = match headers.etype {
-        ET_EXEC => 0,
-        _ => INTERP_BASE,
-    };
+    // A fixed-address interpreter could land in the program's heap range or
+    // on its image; only a position-independent one is placed by the kernel.
+    if headers.etype != ET_DYN {
+        return Err(LoadError::BadImage(
+            "the interpreter is not position independent",
+        ));
+    }
+    let bias = INTERP_BASE;
     let reserved = [(0, main.end), (MMAP_LIMIT, crate::mem::USER_TOP)];
     let loaded =
         load_planned(table, &file, &headers, &reserved, charge_uid, bias).map_err(classify)?;

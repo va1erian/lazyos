@@ -324,6 +324,7 @@ pub fn dynamic_load_soak() -> Result<(), String> {
     let pie = image(ET_DYN, 0, 0x1100, Some(b"/lib/ld-test.so\0"));
     let fixed = image(ET_EXEC, 0x40_0000, 0x40_1100, Some(b"/lib/ld-test.so\0"));
     let broken = image(ET_DYN, 0, 0x1100, Some(b"/lib/none.so\0"));
+    let held = crate::quota::usage(0, crate::quota::Resource::UserMemory);
     for round in 0..150 {
         for (name, elf, ok) in [("pie", &pie, true), ("fixed", &fixed, true), ("broken", &broken, false)] {
             with_table(|table| {
@@ -337,6 +338,8 @@ pub fn dynamic_load_soak() -> Result<(), String> {
             })?;
         }
     }
+    let after = crate::quota::usage(0, crate::quota::Resource::UserMemory);
+    check!(after == held, "user-memory quota leaked: {held} -> {after}");
     Ok(())
 }
 

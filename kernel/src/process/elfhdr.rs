@@ -12,8 +12,7 @@ use super::image::{Image, READ_FAILED};
 pub const PT_LOAD: u32 = 1;
 /// `PT_INTERP`: the path of the program interpreter (the dynamic linker).
 pub const PT_INTERP: u32 = 3;
-/// `e_type`: a fixed-address executable, and a position-independent one.
-pub const ET_EXEC: u16 = 2;
+/// `e_type` of a position-independent executable or shared object.
 pub const ET_DYN: u16 = 3;
 /// Longest interpreter path accepted (`PATH_MAX`, NUL included).
 pub const INTERP_MAX: u64 = 4096;

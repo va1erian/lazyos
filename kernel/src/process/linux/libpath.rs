@@ -17,13 +17,12 @@ use alloc::string::String;
 use crate::fs::vfs::{FileKind, FsError, Id};
 use crate::process::image::VfsFile;
 
-/// The conventional library directories, with the trailing slash.
-const ALIAS_DIRS: [&str; 4] = ["/lib/", "/usr/lib/", "/usr/local/lib/", "/lib64/"];
-
 /// The `/system/lib` path a name in a conventional library directory stands
 /// for: one path component, so `/lib/../etc/passwd` is nothing.
 pub(super) fn system_lib_path(path: &str) -> Option<String> {
-    let name = ALIAS_DIRS.iter().find_map(|dir| path.strip_prefix(dir))?;
+    let name = fhs::system::LIB_ALIAS_DIRS
+        .iter()
+        .find_map(|dir| path.strip_prefix(dir)?.strip_prefix('/'))?;
     if name.is_empty() || name.contains('/') || name == "." || name == ".." {
         return None;
     }
@@ -50,8 +49,10 @@ pub(super) fn alias(path: &str) -> Option<String> {
 /// counterpart.
 pub(crate) fn open_interpreter(path: &str) -> Result<VfsFile, FsError> {
     let id = Id::current();
-    match alias(path) {
-        Some(target) => VfsFile::abi(id, &target),
-        None => VfsFile::abi(id, path),
-    }
+    let target = alias(path);
+    let real = target.as_deref().unwrap_or(path);
+    // Like `execve` of the program itself: the interpreter must be
+    // executable by the caller.
+    crate::fs::abi_check(id, real, crate::fs::vfs::EXECUTE)?;
+    VfsFile::abi(id, real)
 }

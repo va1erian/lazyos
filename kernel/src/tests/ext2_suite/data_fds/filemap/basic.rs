@@ -137,9 +137,10 @@ fn shared_mapping_on(dir: &str) -> Result<(), String> {
         "two mappings of one file page use different frames"
     );
     let entry = a.entry(BASE).ok_or("unmapped")?;
+    // A read maps a shared page read-only; the first store makes it writable.
     check!(
-        entry & (1 << 52) != 0 && entry & PTE_WRITABLE != 0 && entry & COW_BIT == 0,
-        "not a shared writable leaf: {entry:#x}"
+        entry & (1 << 52) != 0 && entry & PTE_WRITABLE == 0 && entry & COW_BIT == 0,
+        "not a read-only shared leaf after a read: {entry:#x}"
     );
     check!(
         mem::vma::find(a.table, BASE).map(|vma| vma.kind) == Some(Kind::FileShared),
@@ -147,6 +148,10 @@ fn shared_mapping_on(dir: &str) -> Result<(), String> {
     );
     // A's store is B's, and a read(2) sees it before any write-back.
     a.store(BASE + 100, b"stored by A")?;
+    check!(
+        a.entry(BASE).ok_or("unmapped")? & PTE_WRITABLE != 0,
+        "a store left the shared page read-only"
+    );
     check!(b.load(vb + 100, 11)? == b"stored by A", "B misses A's store");
     check!(
         pread_ok(fdb, 11, 100)? == b"stored by A",

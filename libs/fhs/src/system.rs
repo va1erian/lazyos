@@ -18,6 +18,11 @@ pub const SYSTEM_ETC: &str = "/system/etc";
 /// image build (`LAZYOS_DYNLINK=1`).
 pub const SYSTEM_LIB: &str = "/system/lib";
 
+/// The conventional library directories the Linux ABI answers from
+/// [`SYSTEM_LIB`] (`/lib/<name>` is `/system/lib/<name>` when no such file
+/// exists).
+pub const LIB_ALIAS_DIRS: [&str; 4] = ["/lib", "/usr/lib", "/usr/local/lib", "/lib64"];
+
 /// Read-only data: MIME types, samples ([`crate::share`]).
 pub const SYSTEM_SHARE: &str = "/system/share";
 

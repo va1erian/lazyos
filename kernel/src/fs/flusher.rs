@@ -34,7 +34,7 @@ pub fn service() {
     }
     // Stores through shared file mappings reach the file first, so the
     // commit below covers them.
-    super::openfile::writeback_all();
+    super::openfile::writeback_all(false);
     let pressure = under_pressure();
     let next = match super::try_with(|vfs| vfs.writeback_all(pressure)) {
         // A failure is logged by the volume and kept for the next `sync`,

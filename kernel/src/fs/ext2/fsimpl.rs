@@ -120,6 +120,46 @@ impl Filesystem for Ext2 {
         Ok(done)
     }
 
+    fn flush_page(
+        &self,
+        node: NodeId,
+        offset: u64,
+        data: &[u8],
+        wait: bool,
+    ) -> Option<Result<usize, FsError>> {
+        let handle = match handle_of(node) {
+            Ok(handle) => handle,
+            Err(error) => return Some(Err(error)),
+        };
+        // The periodic flusher runs on the kernel task: it skips a volume
+        // another task holds (`Ext2::writeback`) and writes next round.
+        let gate = if wait { self.enter() } else { self.try_enter()? };
+        let size = match self.volume.handle_meta(handle) {
+            Ok(meta) => meta.size,
+            Err(error) => return Some(Err(error.into())),
+        };
+        if offset >= size {
+            return Some(Ok(0));
+        }
+        let data = &data[..data.len().min((size - offset) as usize)];
+        let mut done = 0;
+        for piece in data.chunks(WRITE_PIECE) {
+            if done > 0 {
+                gate.breathe();
+            }
+            match self.volume.write_handle(handle, offset + done as u64, piece) {
+                Ok(written) => {
+                    done += written;
+                    if written < piece.len() {
+                        break;
+                    }
+                }
+                Err(error) => return Some(Err(error.into())),
+            }
+        }
+        Some(Ok(done))
+    }
+
     fn stat_node(&self, node: NodeId) -> Result<Meta, FsError> {
         let handle = handle_of(node)?;
         let _gate = self.enter();

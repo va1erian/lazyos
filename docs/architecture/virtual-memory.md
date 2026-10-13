@@ -99,7 +99,12 @@ page cache (`fs/openfile/pagecache.rs`, `mem/filemap.rs`). Private pages map
 read-only copy-on-write, shared ones with `pte::SHARED`; the cache is
 write-through for `write`/`ftruncate`, `read` sees stores of writable shared
 mappings, and dirty pages are written back at `msync`, `munmap`, address-space
-exit, `fsync` and by the periodic flusher. Quota is charged at `mmap`;
+exit, `fsync` and by the periodic flusher (which never waits for a busy
+volume). A shared page maps read-only on a read fault and dirty-and-writable on
+the first store; a write-back write-protects every mapping of the page again,
+so only changed pages are written. The address-space validators repeat a
+validation when a file fault may have parked the task (`mem::filemap::
+fault_epoch`). Quota is charged at `mmap`;
 `PROT_NONE` file mappings are fine (demand-faulted). Limits: a page past the
 end of the file is a `SIGSEGV`, not `SIGBUS`; a file truncated under a
 mapping keeps already mapped pages until unmapped; writes by native services

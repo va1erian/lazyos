@@ -10,7 +10,7 @@
 use alloc::vec::Vec;
 use x86_64::PhysAddr;
 
-use super::pagecache::{copy_from_frame, DirtyPage, PAGE};
+use super::pagecache::{DirtyPage, PAGE};
 use super::{Inode, OpenFile, OPEN};
 use crate::fs::vfs::{FsError, Id};
 use crate::mem::{alloc_zeroed_frame, free_frame, phys_to_virt};
@@ -117,18 +117,31 @@ impl OpenFile {
     }
 
     /// Write the dirty pages of `first..=last` to the file (clipped to its
-    /// size: a page past the end is not part of it).
+    /// size: a page past the end is not part of it), waiting for the volume.
     pub fn writeback(&self, first: u64, last: u64) -> Result<(), FsError> {
-        self.inode.writeback(first, last)
+        self.inode.writeback(first, last, true)
     }
 
     /// A mapping of pages `first..=last` went away: write what it changed
-    /// back and let go of the pages nothing maps any more.
-    pub fn release_pages(&self, first: u64, last: u64) {
-        if let Err(error) = self.writeback(first, last) {
+    /// back and let go of the pages nothing maps any more. `wait` false is
+    /// for teardown that must not park (what is skipped stays dirty and the
+    /// flusher writes it).
+    pub fn release_pages(&self, first: u64, last: u64, wait: bool) {
+        if let Err(error) = self.inode.writeback(first, last, wait) {
             crate::serial_println!("mmap: writeback of {} failed: {error:?}", self.path());
         }
         self.inode.cache.trim(first, last);
+    }
+
+    /// Let go of page `index` if nothing maps it and it is clean (a fault
+    /// that lost a race to another thread of the same mapping).
+    pub fn trim_page(&self, index: u64) {
+        self.inode.cache.trim(index, index);
+    }
+
+    /// An identity of the file shared by every description of it.
+    pub fn inode_id(&self) -> usize {
+        alloc::sync::Arc::as_ptr(&self.inode) as usize
     }
 
     /// Cached page count (tests).
@@ -144,10 +157,12 @@ impl OpenFile {
     }
 }
 
-/// Write back every dirty file page of every open file: the periodic
-/// flusher's job, so a store through a shared mapping reaches the file within
-/// the flush interval even if the mapping lives on.
-pub fn writeback_all() {
+/// Write back every dirty file page of every open file. The periodic
+/// flusher's call (`wait` false) never parks: it runs on the kernel task, so
+/// a busy volume, or a filesystem that cannot write without waiting (FUSE),
+/// leaves the page dirty for the next round. `sync(2)` passes `wait`.
+pub fn writeback_all(wait: bool) {
+    static LOGGED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
     let files: Vec<_> = OPEN
         .lock()
         .iter()
@@ -155,20 +170,73 @@ pub fn writeback_all() {
         .cloned()
         .collect();
     for inode in files {
-        if let Err(error) = inode.writeback(0, LAST_PAGE) {
-            crate::serial_println!("mmap: writeback of {} failed: {error:?}", inode.path());
+        // A file with no node is path-addressed (ramfs): a write by name
+        // takes the VFS lock, so only a waiting caller does it.
+        if !wait && inode.node.is_none() {
+            continue;
         }
+        if let Err(error) = inode.writeback(0, LAST_PAGE, wait) {
+            // Once: a failing volume would repeat this every round.
+            if !LOGGED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                crate::serial_println!(
+                    "mmap: writeback of {} failed: {error:?} (reported once)",
+                    inode.path()
+                );
+            }
+        }
+    }
+}
+
+/// A file changed behind the cache's back (a native write by name): refresh
+/// the clean cached pages from the file, so mappings see it, and cut the
+/// cache to the new size.
+pub(super) fn refresh(inode: &Inode) {
+    if inode.cache.is_empty() {
+        return;
+    }
+    let Ok(size) = inode.size() else {
+        return;
+    };
+    inode.cache.truncate(size);
+    for (index, frame) in inode.cache.clean_pages() {
+        let start = index * PAGE;
+        let want = size.saturating_sub(start).min(PAGE) as usize;
+        let mut buf = alloc::vec![0u8; PAGE as usize];
+        let mut done = 0;
+        while done < want {
+            match inode.read_raw(start + done as u64, &mut buf[done..want]) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => done += count,
+            }
+        }
+        super::pagecache::copy_to_frame(frame.as_u64(), 0, &buf);
+        free_frame(frame);
     }
 }
 
 /// The highest page index a range can name.
 const LAST_PAGE: u64 = u64::MAX / PAGE;
 
+impl Drop for Inode {
+    /// The last description and mapping are gone: what a store through a
+    /// shared mapping left unwritten (the exit-time flush skipped it, or the
+    /// flusher never reached it) goes to the file now.
+    fn drop(&mut self) {
+        if self.cache.has_dirty() {
+            if let Err(error) = self.writeback(0, LAST_PAGE, true) {
+                crate::serial_println!("mmap: final writeback of {} failed: {error:?}", self.path());
+            }
+        }
+    }
+}
+
 impl Inode {
-    /// Write the dirty pages of `first..=last` to the file, up to its size,
-    /// with the file's own write (no cache update: the frame is the newer
-    /// copy). A page that could not be written stays dirty.
-    fn writeback(&self, first: u64, last: u64) -> Result<(), FsError> {
+    /// Write the dirty pages of `first..=last` to the file, up to its size
+    /// at the time of the write. Every mapping of a page is write-protected
+    /// first, so the next store through it faults and dirties it again. A
+    /// page that could not be written (busy volume with `wait` false, an
+    /// error) stays dirty.
+    fn writeback(&self, first: u64, last: u64, wait: bool) -> Result<(), FsError> {
         if self.cache.is_empty() {
             return Ok(());
         }
@@ -176,19 +244,52 @@ impl Inode {
         if dirty.is_empty() {
             return Ok(());
         }
-        let size = self.size().ok();
+        let indices: Vec<u64> = dirty.iter().map(|page| page.index).collect();
+        crate::mem::filemap::write_protect(self as *const Inode as usize, &indices);
         let mut result = Ok(());
         for page in dirty {
-            let written = match size {
-                Some(size) => self.write_page(&page, size),
-                None => Err(FsError::Io),
-            };
-            if let Err(error) = written {
+            let written = self.flush_page(&page, wait);
+            if let Some(Err(error)) = written {
                 result = Err(error);
             }
-            self.cache.finish(page, written.is_ok());
+            self.cache.finish(page, matches!(written, Some(Ok(_))));
         }
         result
+    }
+
+    /// One page to the file: `None` when it was not written for want of
+    /// waiting.
+    fn flush_page(&self, page: &DirtyPage, wait: bool) -> Option<Result<usize, FsError>> {
+        // SAFETY: `page.frame` is a live frame we hold a reference to,
+        // reachable through the physical window; it is read in place so the
+        // bytes written are the frame's at write time, not at take time.
+        let data = unsafe {
+            core::slice::from_raw_parts(phys_to_virt(page.frame).as_ptr::<u8>(), PAGE as usize)
+        };
+        let offset = page.index * PAGE;
+        match &self.node {
+            Some(node) => node.flush_page(offset, data, wait),
+            None if !wait => None,
+            None => {
+                let path = self.path();
+                let size = match crate::fs::abi_stat(Id::ROOT, &path) {
+                    Ok(meta) => meta.size,
+                    Err(error) => return Some(Err(error)),
+                };
+                if offset >= size {
+                    return Some(Ok(0));
+                }
+                let keep = data.len().min((size - offset) as usize);
+                Some(crate::fs::abi_write(Id::ROOT, &path, offset, &data[..keep]))
+            }
+        }
+    }
+
+    fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        match &self.node {
+            Some(node) => node.read(offset, buf),
+            None => crate::fs::abi_read_at(Id::ROOT, &self.path(), offset, buf),
+        }
     }
 
     pub(super) fn size(&self) -> Result<u64, FsError> {
@@ -196,29 +297,5 @@ impl Inode {
             Some(node) => node.stat().map(|meta| meta.size),
             None => crate::fs::abi_stat(Id::ROOT, &self.path()).map(|meta| meta.size),
         }
-    }
-
-    /// Write one frame to the file at its place, up to `size`.
-    fn write_page(&self, page: &DirtyPage, size: u64) -> Result<(), FsError> {
-        let start = page.index * PAGE;
-        if start >= size {
-            return Ok(());
-        }
-        let len = (size - start).min(PAGE) as usize;
-        let mut buf = alloc::vec![0u8; len];
-        copy_from_frame(page.frame.as_u64(), 0, &mut buf);
-        let mut done = 0;
-        while done < len {
-            let at = start + done as u64;
-            let count = match &self.node {
-                Some(node) => node.write(at, &buf[done..])?,
-                None => crate::fs::abi_write(Id::ROOT, &self.path(), at, &buf[done..])?,
-            };
-            if count == 0 {
-                return Err(FsError::Io);
-            }
-            done += count;
-        }
-        Ok(())
     }
 }

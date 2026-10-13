@@ -107,7 +107,7 @@ pub(super) fn sys_syncfs(fd: u64) -> u64 {
 /// is logged instead.
 pub(super) fn sys_sync() -> u64 {
     // Stores through shared file mappings are file data too.
-    crate::fs::openfile::writeback_all();
+    crate::fs::openfile::writeback_all(true);
     if let Err(error) = crate::fs::abi_sync_all() {
         crate::serial_println!("sync: {}", error.message());
     }

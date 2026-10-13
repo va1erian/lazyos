@@ -10,6 +10,7 @@ use crate::mem::vma::Kind;
 use crate::quota::{self, Resource};
 
 mod basic;
+mod coherence;
 mod lifecycle;
 
 pub(super) const PAGE: u64 = 4096;
@@ -210,4 +211,20 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         lifecycle::partial_unmap_and_remap,
     ),
     ("linux_filemap_soak", lifecycle::leaks_nothing),
+    (
+        "linux_filemap_dirty_tracking_and_flusher",
+        coherence::dirty_tracking_and_flusher,
+    ),
+    (
+        "linux_filemap_parked_fault_stale_translation",
+        coherence::parked_fault_cannot_leave_a_stale_translation,
+    ),
+    (
+        "linux_filemap_lost_fault_race_no_extra_reference",
+        coherence::lost_fault_race_keeps_no_extra_reference,
+    ),
+    (
+        "linux_filemap_change_behind_the_cache",
+        coherence::change_behind_the_cache_is_refreshed,
+    ),
 ];

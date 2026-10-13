@@ -151,27 +151,20 @@ fn fill_snapshot_page(table: PhysAddr, fd: u64, va: u64, offset: u64, flags: Pag
     }
 }
 
-/// `mprotect` on a shared file mapping gains write access: the open file must
-/// allow it (`EACCES` otherwise), and from then on its pages may be changed
-/// through the mapping, so reads must look at the frames.
+/// `mprotect` on a shared file mapping gains write access: the open file
+/// must allow it (`EACCES` otherwise). The pages themselves become writable,
+/// and dirty, through their write-protection fault.
 pub(super) fn protect_shared(table: PhysAddr, start: u64, end: u64, prot: Prot) -> Result<(), u64> {
     if !prot.has_write() {
         return Ok(());
     }
-    let pieces: alloc::vec::Vec<_> = vma::find_range(table, start, end)
-        .into_iter()
-        .filter(|piece| piece.kind == Kind::FileShared && !piece.prot.has_write())
-        .collect();
-    for piece in &pieces {
-        match vma::file_of(table, piece) {
+    for piece in vma::find_range(table, start, end) {
+        if piece.kind != Kind::FileShared || piece.prot.has_write() {
+            continue;
+        }
+        match vma::file_of(table, &piece) {
             Some(file) if file.writable() && !file.append() => {}
             _ => return Err(err(EACCES)),
-        }
-    }
-    for piece in pieces {
-        if let Some(file) = vma::file_of(table, &piece) {
-            let first = piece.file_off / PAGE;
-            file.mark_dirty(first, first + (piece.end - piece.start) / PAGE - 1);
         }
     }
     Ok(())

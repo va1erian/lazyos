@@ -327,6 +327,30 @@ pub fn file_mappings(table: PhysAddr) -> Vec<Unmapped> {
         .collect()
 }
 
+/// Every `MAP_SHARED` file mapping of every address space: its table, its
+/// range and its file (write-back write-protects them).
+pub fn shared_file_mappings() -> Vec<(PhysAddr, Vma, Arc<OpenFile>)> {
+    let spaces = SPACES.lock();
+    let mut out = Vec::new();
+    for space in spaces.iter() {
+        for vma in space.vmas.iter().filter(|vma| vma.kind == Kind::FileShared) {
+            if let Some(file) = space.file(vma.file) {
+                out.push((PhysAddr::new(space.pml4), *vma, file));
+            }
+        }
+    }
+    out
+}
+
+/// Take `table`'s file mappings out of its VMA list (and forget the list):
+/// the teardown order is "forget, release the PML4 frame, then write back",
+/// so a recycled PML4 frame never meets a stale list.
+pub fn take_file_mappings(table: PhysAddr) -> Vec<Unmapped> {
+    let taken = file_mappings(table);
+    forget(table);
+    taken
+}
+
 /// Whether `va` lies in a VMA that does not permit writing. A page with no
 /// VMA (unit tests map frames by hand) is not second-guessed. Copy-on-write
 /// asks it: a private view of a memfd is mapped COW whatever its protection,

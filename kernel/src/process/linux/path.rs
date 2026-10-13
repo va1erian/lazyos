@@ -361,7 +361,12 @@ fn open_file_as(id: Id, path: &str, meta: Meta, mode: Access, created: bool, thr
 /// Honours `O_CREAT`, `O_EXCL`, `O_TRUNC`, `O_APPEND`, and `O_DIRECTORY`.
 fn open_path(path: &str, flags: u64, mode: u64) -> u64 {
     // A shared object looked up in a conventional library directory.
-    let aliased = super::libpath::alias(path);
+    // (Only to read: a create or write open of such a name is its own file.)
+    let aliased = if flags & (O_ACCMODE | O_CREAT | O_TRUNC) == 0 {
+        super::libpath::alias(path)
+    } else {
+        None
+    };
     let path = aliased.as_deref().unwrap_or(path);
     match path {
         "/dev/tty" => return super::tty::open_tty(),

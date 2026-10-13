@@ -169,15 +169,18 @@ pub fn free_user_table(table: PhysAddr) -> usize {
             }
         }
     }
+    // The address space no longer exists: take its file mappings and drop
+    // its VMA list *before* the PML4 frame can be handed out again, so a
+    // recycled frame never inherits a list (releasing a file's pages below
+    // may park).
+    let mappings = vma::take_file_mappings(table);
     if release_frame(table) == Release::Pooled {
         released += 1;
     }
-    // File mappings write back what shared stores changed and let go of the
-    // file's pages now that this space holds no references to them.
-    super::filemap::release_space(table);
-    // The address space no longer exists: drop its VMA list so a recycled PML4
-    // frame cannot inherit it.
-    vma::forget(table);
+    // File mappings write back what shared stores changed (without waiting
+    // for a busy volume: what is skipped stays dirty for the flusher) and let
+    // go of the file's pages now that this space holds no references to them.
+    super::filemap::released(mappings, false);
     released
 }
 
@@ -280,6 +283,10 @@ pub fn cow_fault(table: PhysAddr, va: u64) -> bool {
     // Safety: `entry` was just returned by `leaf_entry` as a present leaf in
     // this same table.
     let old = unsafe { *entry };
+    if old & pte::SHARED != 0 && old & PTE_USER != 0 && old & PTE_WRITABLE == 0 {
+        // A shared file page maps read-only until its first store.
+        return super::filemap::shared_write_fault(table, va, entry);
+    }
     if old & PTE_USER == 0 || old & COW_BIT == 0 {
         return false;
     }

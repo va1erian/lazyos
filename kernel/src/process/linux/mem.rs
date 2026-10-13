@@ -65,7 +65,7 @@ pub(super) fn unmap_vmas(table: PhysAddr, start: u64, end: u64, always: bool) ->
         crate::mem::unmap_range(table, start, end);
     }
     let vmas = pieces.iter().map(|piece| piece.vma).collect();
-    crate::mem::filemap::released(pieces);
+    crate::mem::filemap::released(pieces, true);
     vmas
 }
 
