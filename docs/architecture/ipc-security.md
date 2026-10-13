@@ -110,7 +110,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
      end of a `#!` chain), and the stamp is applied after the image loaded and
      before it is committed: a refusal is a failed `execve`, never a process
      that runs wider than asked. `spawnv` and native `execve` keep inheriting
-     the creator's label.
+     the creator's label. Under `LAZYOS_LABEL_TRACE=1` an entry prints
+     `LABEL:ENTER label=<child> pid=<slot> program=<path>`.
   2. *Holding.* A call by a child is allowed only when its own rules **and**
      its app's rules allow it (`acl::evaluate_label`), and `LoadLabel` refuses
      (`-EACCES`, audited `CHILD_WIDENS_APP`) a rule list the app's loaded
@@ -124,9 +125,11 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   4. *Leaving.* `LoadLabel` of a child with no rules and no program unbinds
      it, and so does an empty load for the app: the children go with it.
      Tasks still holding the label then have no rules.
-  The binding table is bounded (64) and a program is bound to one child per
-  app; `kernel/src/tests/label_suite/children.rs` covers each clause and a
-  thousand-cycle soak.
+  The binding table is bounded (64) and a program enters one child per app:
+  binding it to another child of the same app (a table renamed in an upgrade)
+  takes it over and clears the older child's rules. The tests are in
+  `kernel/src/tests/label_suite/children/`: each clause, and a thousand-cycle
+  soak.
 
 **ACL** (`acl.rs`)
 

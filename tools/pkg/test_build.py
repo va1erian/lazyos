@@ -267,6 +267,37 @@ class SharedCaseTests(unittest.TestCase):
             self.assertEqual(pkgmanifest.Version(left), pkgmanifest.Version(right))
             self.assertEqual(hash(pkgmanifest.Version(left)), hash(pkgmanifest.Version(right)))
 
+    def test_a_childs_files_rule_must_be_covered_like_in_rust(self):
+        # The same tables as `libs/lazypkg/src/files.rs` (`covers`), issue #832.
+        covered = [
+            ("read:/system/share/fonts", "read:/system/share/fonts"),
+            ("read:/system/share/fonts", "read:/system/share/fonts/a/b.ttf"),
+            ("write:$HOME/.apps/org.lazy.x", "write:$HOME/.apps/org.lazy.x/db"),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/*"),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/2026"),
+            ("read:$HOME/Pictures/*", "read:$HOME/Pictures/2026/a.png"),
+            ("read:/a/*/c", "read:/a/b/c"),
+            ("read:/a/*/c", "read:/a/*/c/d"),
+        ]
+        refused = [
+            ("write:/a/b", "read:/a/b"),
+            ("read:/a/b", "write:/a/b"),
+            ("read:/a/b", "read:/a"),
+            ("read:/a/b", "read:/a/*"),
+            ("read:/a/b", "read:/a/c"),
+            ("read:/a/b", "read:/ab"),
+            ("read:/a/b", "read:$HOME/a/b"),
+            ("read:$HOME/a", "read:/a"),
+            ("read:/a/*/c", "read:/a/b"),
+            ("read:/a/*/c", "read:/a/b/d"),
+            ("exec:/a", "read:/a"),
+            ("read:/a", "x"),
+        ]
+        for app, child in covered:
+            self.assertTrue(pkgmanifest.file_rule_covers(app, child), (app, child))
+        for app, child in refused:
+            self.assertFalse(pkgmanifest.file_rule_covers(app, child), (app, child))
+
     def test_the_absolute_home_switch_is_on_on_both_sides(self):
         # One line in each validator (F5 cleanup, issue #509).
         self.assertTrue(pkgmanifest.REJECT_ABSOLUTE_HOME)

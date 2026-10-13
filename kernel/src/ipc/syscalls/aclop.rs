@@ -139,17 +139,32 @@ fn load_child(
         audit_refusal(me, reason::CHILD_WIDENS_APP);
         return Err(errno::EACCES);
     }
-    let existing = labels::lookup(&request.label);
-    children::check_bind(existing, parent, program).map_err(|error| match error {
-        children::BindError::BadProgram | children::BindError::Duplicate => errno::EINVAL,
-        children::BindError::Full => errno::ENOMEM,
-    })?;
-    let child = labels::intern(&request.label).map_err(intern_error)?;
-    acl::load_label(child, &rules).map_err(load_error)?;
-    if children::bind(child, program).is_err() {
-        // Only a race with another loader can get here; leave nothing half-made.
-        let _ = acl::load_label(child, &[]);
+    if !children::valid_program(program) {
+        return Err(errno::EINVAL);
+    }
+    // Before the label table or the rule store is touched.
+    if !children::has_room_for(labels::lookup(&request.label)) {
         return Err(errno::ENOMEM);
     }
-    Ok(rules.len())
+    let child = labels::intern(&request.label).map_err(intern_error)?;
+    acl::load_label(child, &rules).map_err(load_error)?;
+    match children::bind(child, program) {
+        // A program already bound to another child of this app moves here:
+        // the older child can no longer be entered, so its rules go too.
+        Ok(displaced) => {
+            for old in displaced {
+                let _ = acl::load_label(old, &[]);
+            }
+            Ok(rules.len())
+        }
+        Err(error) => {
+            // Only a race with another loader can get here; leave nothing
+            // half-made.
+            let _ = acl::load_label(child, &[]);
+            Err(match error {
+                children::BindError::BadProgram => errno::EINVAL,
+                children::BindError::Full => errno::ENOMEM,
+            })
+        }
+    }
 }

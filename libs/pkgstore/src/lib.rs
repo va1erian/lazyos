@@ -10,7 +10,9 @@
 //! * [`rules`]: what a manifest's permissions compile to in kernel
 //!   [`LabelRule`](messenger_generated::os_lazy_messenger_policy_v1::LabelRule)s,
 //!   so what the installer *shows* and what the kernel *enforces* come from one
-//!   function;
+//!   function; and what each `[processes.<name>]` table (a helper program with
+//!   a narrower label, issue #832) compiles to, and which labels an upgrade or
+//!   a removal drops;
 //! * [`explain`]: the plain-language sentence and risk for every permission,
 //!   keyed by MIDL interface name (a test proves it covers every `idl/*.midl`
 //!   interface);

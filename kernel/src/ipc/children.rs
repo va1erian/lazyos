@@ -67,8 +67,6 @@ static BINDINGS: Mutex<Vec<Binding>> = Mutex::new(Vec::new());
 pub enum BindError {
     /// Not an absolute, canonical path of at most [`MAX_PROGRAM_BYTES`].
     BadProgram,
-    /// Another child of the same app already takes that program.
-    Duplicate,
     /// [`MAX_BINDINGS`] programs are bound already.
     Full,
 }
@@ -90,56 +88,55 @@ pub fn valid_program(program: &str) -> bool {
         })
 }
 
-/// Whether `program` could be bound to `child` (an existing label id, or
-/// `None` for one not interned yet) of the app label `parent`; nothing is
-/// changed.
-pub fn check_bind(child: Option<u32>, parent: u32, program: &str) -> Result<(), BindError> {
+/// Whether a binding for `child` (an existing label id, or `None` for one not
+/// interned yet) fits the table: it replaces its own earlier binding, or there
+/// is a free entry. [`bind`] checks again under the lock.
+pub fn has_room_for(child: Option<u32>) -> bool {
+    let bindings = BINDINGS.lock();
+    bindings.len() < MAX_BINDINGS || child.is_some_and(|c| bindings.iter().any(|b| b.child == c))
+}
+
+/// Bind `program` to the child label `child`, replacing its earlier binding.
+///
+/// A program enters one child of an app, so a binding of the same program to
+/// another child of the same app is taken over: the loader loads a new
+/// version's tables after the old version's, and a table renamed in an upgrade
+/// must not leave the program bound to a label the new version no longer
+/// declares. Returns the displaced children, whose rules the caller clears.
+pub fn bind(child: u32, program: &str) -> Result<Vec<u32>, BindError> {
     if !valid_program(program) {
         return Err(BindError::BadProgram);
     }
     // Candidates under the lock; the label table is asked after it is released.
-    let (same, replacing) = {
-        let bindings = BINDINGS.lock();
-        let same: Vec<u32> = bindings
-            .iter()
-            .filter(|binding| binding.program == program && Some(binding.child) != child)
-            .map(|binding| binding.child)
-            .collect();
-        let replacing = child.is_some_and(|child| bindings.iter().any(|b| b.child == child));
-        (same, replacing)
-    };
-    if same
+    let same: Vec<u32> = BINDINGS
+        .lock()
+        .iter()
+        .filter(|binding| binding.program == program && binding.child != child)
+        .map(|binding| binding.child)
+        .collect();
+    let parent = labels::parent_of(child);
+    let displaced: Vec<u32> = same
         .into_iter()
-        .any(|other| labels::parent_of(other) == Some(parent))
-    {
-        return Err(BindError::Duplicate);
-    }
-    if !replacing && count() >= MAX_BINDINGS {
-        return Err(BindError::Full);
-    }
-    Ok(())
-}
-
-/// Bind `program` to the child label `child`, replacing its earlier binding.
-/// Callers run [`check_bind`] first; this repeats the table-bound checks
-/// under the lock, so a race can refuse but never overfill.
-pub fn bind(child: u32, program: &str) -> Result<(), BindError> {
-    if !valid_program(program) {
-        return Err(BindError::BadProgram);
-    }
+        .filter(|other| parent.is_some() && labels::parent_of(*other) == parent)
+        .collect();
     let mut bindings = BINDINGS.lock();
-    if let Some(existing) = bindings.iter_mut().find(|b| b.child == child) {
-        existing.program = String::from(program);
-        return Ok(());
-    }
-    if bindings.len() >= MAX_BINDINGS {
+    let replacing = bindings.iter().any(|binding| binding.child == child);
+    let freed = bindings
+        .iter()
+        .filter(|binding| displaced.contains(&binding.child))
+        .count();
+    if !replacing && bindings.len() - freed >= MAX_BINDINGS {
         return Err(BindError::Full);
     }
-    bindings.push(Binding {
-        child,
-        program: String::from(program),
-    });
-    Ok(())
+    bindings.retain(|binding| !displaced.contains(&binding.child));
+    match bindings.iter_mut().find(|b| b.child == child) {
+        Some(existing) => existing.program = String::from(program),
+        None => bindings.push(Binding {
+            child,
+            program: String::from(program),
+        }),
+    }
+    Ok(displaced)
 }
 
 /// Forget `child`'s program, if it has one.
@@ -223,7 +220,9 @@ pub fn enter_on_exec(slot: usize, path: &str) -> Result<Option<u32>, TransitionE
         label_id: child,
         ..actor
     };
-    credentials::transition_with(slot, slot, requested, LabelStamp::Child).map(|_| Some(child))
+    credentials::transition_with(slot, slot, requested, LabelStamp::Child)?;
+    super::label_trace::entered(slot, child, path);
+    Ok(Some(child))
 }
 
 /// Whether the task in `slot` is in a child label.
