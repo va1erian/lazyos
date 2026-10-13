@@ -113,7 +113,7 @@ memory/fds/handles within their quota, and race multi-threaded code.
 | Group | `gid`; a user has a primary group + supplementary groups |
 | Service account | a user with no login, owning service state |
 | Session | `session_id`, created by `logind`; scopes topic/service namespaces and default ACLs |
-| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
+| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `app:<id>/<name>` for a helper program of that app that holds less (a *child label*, issue #832), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
 | Kernel | the only component that stamps credentials; userspace can never set them |
 
 Credentials travel with every Messenger message and syscall and are copied into
@@ -123,7 +123,39 @@ elevation service. A label is assigned once, when a child is created, by an
 unlabelled `CAP_SETUID` holder (`init`); the one exception is an IDE package
 with `develop = true` spawning a child into a `dev:` label that `pkgd` holds an
 approved rule set for: same uid, gid and session, never more capabilities
-(`docs/architecture/ipc-security.md`, "Spawning into `dev:`").
+(`docs/architecture/ipc-security.md`, "Spawning into `dev:`"), and an app's own
+`execve` of a helper program its manifest declares (below).
+
+### 2.1 Child labels (issue #832)
+
+An app that runs code it does not trust as much as itself (a browser's page
+process executes whatever a website sends, with a JIT) declares that helper in
+its manifest, `[processes.<name>]` with the helper's `program` and a subset of
+the app's own `interfaces`, `network` and `files`
+([`packages.md`](packages.md), section 3). `pkgd` loads it as the label
+`app:<system_name>/<name>`, and the kernel applies one rule
+(`kernel/src/ipc/children.rs`, `docs/architecture/ipc-security.md`):
+
+* **Entering.** A task labelled `app:<system_name>` that `execve`s exactly the
+  declared `program` takes the child label: the same uid, gid, capabilities and
+  session, a narrower label. Nothing else gives a task a child label, and the
+  lookup is keyed by the caller's *own* label, so an app can enter only its own
+  children, another app's child or a path nothing is bound to changes nothing,
+  and a task already in a child has no children to enter.
+* **Never wider.** A child is allowed a call only when its own rules and its
+  app's rules both allow it, and its rules are refused at load unless the
+  app's loaded rules cover them. A child owns no `app.<id>.*` service name and
+  no `app/<id>/` topic. Revoking the app (removing the package) revokes every
+  child with it, and an upgrade that drops a table drops its label.
+* **No further processes.** A task in a child label cannot start a program:
+  `execve`, `fork`, `vfork`/`clone` without `CLONE_THREAD` and `spawnv` are
+  refused with `EPERM` and audited. Threads are allowed.
+
+What a child label does *not* do yet: its `files` rules, like the app's own,
+are recorded and shown at consent but are not a kernel file sandbox (section 0
+and [`packages.md`](packages.md)); the guarantees above are about Messenger
+authority, programs and the network interface, which are the label rules the
+kernel has.
 
 ---
 

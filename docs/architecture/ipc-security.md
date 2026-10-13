@@ -10,8 +10,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 |---|---|
 | `kernel/src/ipc/credentials.rs` | `Cred`, capability bits, audited transition gate (issue #68/#101) |
 | `kernel/src/ipc/acl.rs` | Ordered default-deny rule list, verdicts, reason codes; label-keyed rule sets |
-| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`, `dev:<id>`) |
+| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`, `dev:<id>`, `app:<id>/<name>`) |
 | `kernel/src/ipc/devspawn.rs` | A labelled task's spawn into a `dev:` label (issue #529) |
+| `kernel/src/ipc/children.rs` | Child labels: an app's `execve` of a declared helper program takes a narrower label (issue #832) |
 | `kernel/src/ipc/policy.rs` | Namespace rules for labelled tasks (`os.lazy.*`, `app.<id>.*`, `app/<id>/`) |
 | `kernel/src/ipc/syscalls/aclop.rs` | The `acl_load` messenger op (`OP_ACL_LOAD = 18`) |
 | `kernel/src/ipc/audit.rs` | 128-entry ring with an FNV-1a hash chain |
@@ -67,9 +68,12 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   `reason` codes for allowed, not-privileged, widening, bad target and
   label-locked.
 - **Labels.** `label_id` names an interned string (`labels.rs`): at most 160
-  bytes of `[a-z0-9.:-]`, one of `app:<reverse.dns.name>` (an installed app),
-  `system:<name>` (a platform service) or `dev:<reverse.dns.name>` (an app run
-  from an IDE under its own permissions), 256 labels, append-only (`0` =
+  bytes, one of `app:<reverse.dns.name>` (an installed app),
+  `system:<name>` (a platform service), `dev:<reverse.dns.name>` (an app run
+  from an IDE under its own permissions) or `app:<reverse.dns.name>/<name>` (a
+  *child* of an installed app, below; the name is `[a-z0-9][a-z0-9_-]*`, at
+  most 24 bytes, and its app label must be interned first, a link the slot
+  records and `labels::parent_of` reads back), 256 labels, append-only (`0` =
   unlabelled; a full table refuses new labels rather than evicting). The label
   is write-once: `LabelStamp::Assign` (the labelled spawn, `spawnv` with
   `AsLabelled`) sets it on a new child for an unlabelled `CAP_SETUID` creator;
@@ -92,6 +96,37 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   Unlabelled callers are unchanged. The stamp is re-checked when applied.
   `spawnv`'s `personality::STDIO` flag hands the child three of the caller's
   descriptors as 0, 1 and 2 (nothing else), so the IDE keeps the run's pipes.
+- **Child labels** (`children.rs`, `LabelStamp::Child`, issue #832). An app
+  declares helper programs in its manifest (`[processes.<name>]`,
+  [packages.md](../packages.md)); `pkgd` loads each as `app:<id>/<name>` with
+  `LoadLabel`'s `program`. The kernel rule, in full:
+  1. *Entering.* A task labelled `app:<id>` that `execve`s a program whose
+     canonical path equals the `program` bound to one of **its own label's**
+     children takes that child's label, through the credential gate (audited
+     as an allowed transition, uid, gid, capabilities and session unchanged).
+     The lookup is keyed by the caller's label, so another app's child, a
+     path nothing is bound to, an unlabelled task and a task already in a
+     child are all left as they were. The match is on the ELF that runs (the
+     end of a `#!` chain), and the stamp is applied after the image loaded and
+     before it is committed: a refusal is a failed `execve`, never a process
+     that runs wider than asked. `spawnv` and native `execve` keep inheriting
+     the creator's label.
+  2. *Holding.* A call by a child is allowed only when its own rules **and**
+     its app's rules allow it (`acl::evaluate_label`), and `LoadLabel` refuses
+     (`-EACCES`, audited `CHILD_WIDENS_APP`) a rule list the app's loaded
+     rules do not cover (`acl::covered_by`). A child owns no `app.<id>.*` name
+     and no `app/<id>/` topic; those belong to the `app:<id>` label alone.
+  3. *Starting.* A task in a child label may not start a program: `execve`,
+     `fork`, `vfork` and a vfork-style `clone`, and `spawnv`, are `-EPERM`,
+     audited (`CHILD_MAY_NOT_START`, on the spawn scope with the call as the
+     method) and printed as `LABEL:DENY ... start=<call>` under
+     `LAZYOS_LABEL_TRACE=1`. Threads are not programs and stay allowed.
+  4. *Leaving.* `LoadLabel` of a child with no rules and no program unbinds
+     it, and so does an empty load for the app: the children go with it.
+     Tasks still holding the label then have no rules.
+  The binding table is bounded (64) and a program is bound to one child per
+  app; `kernel/src/tests/label_suite/children.rs` covers each clause and a
+  thousand-cycle soak.
 
 **ACL** (`acl.rs`)
 
@@ -155,7 +190,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   `OUTSIDE_NAMESPACE`, ...); `policy::explain(label, reason)` renders the
   friendly sentence naming the namespace the app may use.
 - **Loading policy** (`OP_ACL_LOAD`, `idl/policy.midl`): the request parcel's
-  body is the generated `LoadLabelArgs { label, rules: Array<LabelRule> }`;
+  body is the generated `LoadLabelArgs { label, rules: Array<LabelRule>,
+  program: Option<String> }` (`program` only for a child label);
   the caller needs `CAP_IPC_CONTROL` (`-EPERM`, audited) and must itself pass
   `authorize` (a labelled task is refused). Replace-all per label; a malformed
   label or more than 256 rules is `-EINVAL`, a full table or rule budget

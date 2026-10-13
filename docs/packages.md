@@ -126,12 +126,82 @@ topics = ["publish:app/org.lazy.paint/#", "subscribe:system/events/open/+"]
 files = ["read:$HOME/Pictures/*", "write:$HOME/.apps/org.lazy.paint/*"]
 network = []                         # v1: empty or ["outbound"]
 develop = false                      # optional: may run apps the user develops (an IDE); default false
+
+[processes.helper]                   # zero to four helper programs, each with a narrower label (see "Process tables")
+program = "/system/bin/helper"       # absolute path of the executable that takes the label
+interfaces = ["os.lazy.clipboard.v1"]    # a subset of the app's interfaces
+network = []                         # empty, or ["outbound"] when the app's own is
+files = ["read:/system/share/fonts"]     # each covered by one of the app's rules
 ```
 
-`[app]`, `[entry]` and their required fields must be present. `[[mime]]` and
-`[permissions]` are optional and default to empty. Semantic validation runs in
+`[app]`, `[entry]` and their required fields must be present. `[[mime]]`,
+`[permissions]` and `[processes.<name>]` are optional and default to empty.
+Semantic validation runs in
 a separate pass that returns **every** problem as a list, so an installer can
 show them all at once.
+
+### Process tables: `[processes.<name>]` (child labels, issue #832)
+
+A child inherits its parent's label, so a helper the app does not trust as much
+as itself (a browser's page process, which runs whatever a website sends) would
+hold everything the app does. A process table gives that helper a label of its
+own, `app:<system_name>/<name>`, that can hold *less*:
+
+```toml
+[permissions]
+interfaces = ["os.lazy.display.v1", "os.lazy.input.v1"]
+network    = ["outbound"]
+files      = ["read:/system/share/fonts", "write:$HOME/.apps/org.lazy.web"]
+
+[processes.webprocess]               # the page process: no interface, no network, fonts only
+program = "/system/bin/webprocess"
+files   = ["read:/system/share/fonts"]
+
+[processes.networkprocess]
+program = "/system/bin/networkprocess"
+network = ["outbound"]
+files   = ["write:$HOME/.apps/org.lazy.web"]
+```
+
+* **Fields.** `program` (required) is the absolute path of the executable
+  (`/` then `/`-separated segments of `[A-Za-z0-9_.-]`, none `.` or `..`, at
+  most 255 bytes), compared byte for byte with the path `execve` runs. It
+  must be a Linux-ABI program: `execve` of a native one (the short list in
+  `kernel/src/process/linux/native.rs`) starts a child instead of replacing
+  the image and does not enter the label. `interfaces`, `network` and
+  `files` have exactly the meaning and syntax of the same fields of
+  `[permissions]`; there is no `topics` (a child owns no `app/<id>/`
+  namespace) and no `develop`. Unknown fields are errors.
+* **Names.** `<name>` is `[a-z0-9]` then `[a-z0-9_-]`, at most 24 bytes, so
+  `app:<system_name>/<name>` always fits the kernel's 160-byte label. At most
+  4 tables; two of them may not name the same `program`.
+* **Never wider than the app.** Every `interfaces` entry must be one of the
+  app's own `permissions.interfaces`; `network = ["outbound"]` needs the
+  app's `outbound`; every `files` rule must be *covered* by one of the app's
+  rules: the same verb (`write:` does not cover `read:`: list both), and the
+  app's path is the child's or a directory above it, segment by segment (an
+  app `*` matches any one child segment; a child `*` under an app literal is
+  wider, so refused). Anything else is a manifest problem and the package is
+  refused at `Inspect` and `Install`. `libs/lazypkg/src/processes.rs` and
+  `tools/pkg/pkgmanifest.py` hold the same rules and run the shared cases.
+* **What it compiles to.** `pkgstore::rules::children` compiles each table
+  like the app's own entries (an interface allows every method and the names
+  it is served under, `outbound` allows the socket interface), without the
+  baseline and without topics; `files` are consent-only, as the app's.
+  `pkgd` loads the app's label first and then each child with its `program`
+  (`LoadLabel`, `idl/policy.midl`).
+* **The kernel rule** (`docs/architecture/ipc-security.md`, "Child labels"):
+  a task of `app:<system_name>` that `execve`s the `program` takes the child
+  label (same uid, gid, capabilities and session); a call by the child needs
+  its own rules *and* the app's to allow it; a child owns no names and topics
+  and may not start programs (`execve`, `fork`, `vfork`, `spawnv`: `EPERM`);
+  removing the app revokes its children, and an upgrade that drops a table
+  drops its label.
+* **Not covered.** The child's `files` are not kernel-enforced file access
+  yet, for the same reason the app's are not (section "What a manifest
+  compiles to").
+* A development run (`dev:` label) does not get child labels; its helpers
+  inherit the development label.
 
 ### Field grammar
 
@@ -226,7 +296,8 @@ The manifest and version cases both validators must agree on live in
 
 ```rust
 pub struct Package<'a> { /* validated archive plus parsed manifest */ }
-pub struct Manifest { pub app: App, pub entry: Entry, pub mime: Vec<MimeHandler>, pub permissions: Permissions }
+pub struct Manifest { pub app: App, pub entry: Entry, pub mime: Vec<MimeHandler>, pub permissions: Permissions,
+                      pub processes: BTreeMap<String, Process> }   // [processes.<name>], issue #832
 pub struct EntryInfo<'a> { pub name: &'a str, pub size: u32, pub compressed_size: u32, pub crc32: u32, pub is_dir: bool }
 
 impl<'a> Package<'a> {
@@ -404,7 +475,9 @@ switching**:
    `pkgstore::layout::file_mode`);
 2. record the `Installed` row in `confd`;
 3. register every `[[mime]]` verb with `mimed` (`Register(mime, <system_name>, verb)`);
-4. compile and load the policy (`load_label("app:<system_name>", rules)`);
+4. compile and load the policy (`load_label("app:<system_name>", rules)`),
+   then each declared child label (`[processes.<name>]`, issue #832) with
+   the program that enters it; a child the kernel refuses undoes the others;
 5. append the audit record and publish `system/events/pkg/install`.
 
 A failure at any step undoes the earlier ones and says which step failed
@@ -415,8 +488,10 @@ policy switch, and only then is the old directory deleted (and the file types th
 new version no longer handles are withdrawn). `Remove(system_name)` asks `init`
 to stop every running instance (`init.Stop`), withdraws the file types
 (`mimed.Unregister`, which hands a type back to the handler it replaced), revokes
-the policy (an empty `load_label`), deletes the install directory and the record,
-and audits it. User data under `/home` is never touched.
+the policy (an empty `load_label`, which takes the app's child labels with it),
+deletes the install directory and the record, and audits it. User data under
+`/home` is never touched. An upgrade revokes the child labels the new version
+no longer declares (`POLICY:CHILD:DROPPED`).
 
 Files larger than the 1 MiB a single `write_file` takes are written as one
 `write_file` plus `append_file` (native syscall 28) per further MiB.
@@ -479,7 +554,10 @@ the consent screen and the enforcement come from the same data:
 * `resident = true` (under `[entry]`) compiles the two interfaces and the topic
   it implies exactly as if the manifest listed them (see `entry.resident`);
 * `files` rules are **consent only** today: there is no file sandbox in the
-  kernel yet, so they are recorded and shown but compile to nothing.
+  kernel yet, so they are recorded and shown but compile to nothing;
+* each `[processes.<name>]` table compiles to a child label of its own
+  (`pkgstore::rules::children`, see "Process tables" in section 3): the same
+  entries by the same functions, without the baseline.
 
 A label carries at most 256 rules; a manifest that needs more is refused.
 The count includes the baseline every installed app gets (`init`'s
