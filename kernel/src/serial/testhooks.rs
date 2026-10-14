@@ -54,3 +54,10 @@ pub fn counters_for_test() -> (usize, usize) {
         .as_ref()
         .map_or((0, 0), |port| (port.tx.queued(), port.tx.drained()))
 }
+
+/// [`report_backlog_at`] at a chosen tick, with the throttle forgotten.
+#[cfg(lazyos_tests)]
+pub fn report_backlog_for_test(now: u64) {
+    BACKLOG_LAST.store(0, Ordering::Relaxed);
+    report_backlog_at(now);
+}

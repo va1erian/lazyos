@@ -351,6 +351,16 @@ pub(crate) unsafe fn apply_regs_to_frame(rsp: u64, regs: &UserRegs, rip_index: u
     put_frame_word(rsp, rip_index + 3, regs.rsp);
 }
 
+/// The `rip` of the frame a not-running task was switched out with, and
+/// whether it is a ring-3 frame (the task is in user mode) or a kernel one
+/// (it is inside a syscall or a handler, `SCHED:STUCK`).
+pub fn saved_rip(rsp: u64) -> (u64, bool) {
+    (
+        frame_word(rsp, FRAME_RIP_INDEX),
+        frame_is_user(rsp, FRAME_RIP_INDEX),
+    )
+}
+
 /// Whether a saved frame's `CS` says ring 3.
 pub(super) fn frame_is_user(rsp: u64, rip_index: usize) -> bool {
     frame_word(rsp, rip_index + 1) & 3 == 3

@@ -19,7 +19,7 @@ Examples
     python tools/run_demo.py --usb-stick target/stick.img  # a FAT USB stick, mounted at /media/<label> after login
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
-    python tools/run_demo.py --serial-log s.log  # the guest's serial output (default target/serial.log)
+    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial file; QMP for tools/webplus/sample.py
     python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
@@ -444,7 +444,7 @@ def main(argv: list[str]) -> int:
         return 1
     qemu = find_qemu(args.qemu)
     command = [qemu, "-m", args.memory, "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-               *qemu_serial.qemu_args(Path(args.serial_log), args.serial_stdio)]
+               *qemu_serial.qemu_args(args)]
     # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
     # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
     if args.disk == "virtio":
@@ -491,7 +491,7 @@ def main(argv: list[str]) -> int:
 
     print("running:", " ".join(command), flush=True)
     try:
-        return qemu_serial.run(command, Path(args.serial_log), args.serial_stdio)
+        return qemu_serial.run(command, args)
     finally:
         simnet.stop(fake_ap)
 

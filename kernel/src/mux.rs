@@ -76,6 +76,8 @@ pub fn run() -> ! {
         without_interrupts(|| crate::arch::irqoff::kernel_section(crate::fs::flusher::service));
         // `PERF:` latency lines (LAZYOS_PERF=1 images only).
         crate::perf::service();
+        // Freeze forensics (issue #861): exits, stuck tasks, busy processes.
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::task::forensics::service));
         // Repeats of an unimplemented syscall, counted (`process::linux::enosys`).
         without_interrupts(|| crate::arch::irqoff::kernel_section(crate::process::linux::enosys::report));
         // Serial output the writers left queued, and the count of bytes that

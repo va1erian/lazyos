@@ -6,6 +6,7 @@ Run: python tools/test_qemu_serial.py
 
 from __future__ import annotations
 
+import argparse
 import io
 import sys
 import tempfile
@@ -18,13 +19,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import qemu_serial  # noqa: E402
 
 
+def ns(log=None, stdio=False, port=None) -> argparse.Namespace:
+    return argparse.Namespace(serial_log=log, serial_stdio=stdio, sample_port=port)
+
+
 def pairs(command: list[str], flag: str) -> list[str]:
     return [command[i + 1] for i, item in enumerate(command) if item == flag]
 
 
 class ArgsTests(unittest.TestCase):
     def test_default_serial_is_a_file_and_the_monitor_keeps_stdio(self) -> None:
-        command = qemu_serial.qemu_args(Path("target/serial.log"))
+        command = qemu_serial.qemu_args(ns("target/serial.log"))
         chardevs = pairs(command, "-chardev")
         self.assertTrue(any(c.startswith("file,id=ser0,path=") for c in chardevs))
         self.assertEqual(pairs(command, "-serial"), ["chardev:ser0"])
@@ -37,15 +42,29 @@ class ArgsTests(unittest.TestCase):
         self.assertNotIn("mon:stdio", command)
 
     def test_serial_stdio_is_the_old_muxed_device_with_a_log_copy(self) -> None:
-        command = qemu_serial.qemu_args(Path("target/serial.log"), stdio=True)
+        command = qemu_serial.qemu_args(ns("target/serial.log", stdio=True))
         (chardev,) = pairs(command, "-chardev")
         self.assertTrue(chardev.startswith("stdio,id=ser0,mux=on,logfile="))
         self.assertEqual(pairs(command, "-serial"), ["chardev:ser0"])
         self.assertEqual(pairs(command, "-mon"), ["chardev=ser0,mode=readline"])
 
     def test_a_comma_in_the_path_is_doubled_for_qemu(self) -> None:
-        command = qemu_serial.qemu_args(Path("a,b") / "s.log")
+        command = qemu_serial.qemu_args(ns(str(Path("a,b") / "s.log")))
         self.assertIn(",,", pairs(command, "-chardev")[0])
+
+
+class RunTests(unittest.TestCase):
+    def test_the_default_log_is_named_for_the_run_and_stable_within_it(self) -> None:
+        args = ns()
+        log = qemu_serial.resolve_log(args)
+        self.assertRegex(log.name, r"^serial-\d{8}-\d{6}\.log$")
+        self.assertEqual(qemu_serial.resolve_log(args), log)
+        self.assertIn(log.name, " ".join(qemu_serial.qemu_args(args)))
+
+    def test_sample_port_adds_the_second_qmp_socket(self) -> None:
+        command = qemu_serial.qemu_args(ns("s.log", port=5555))
+        self.assertEqual(pairs(command, "-qmp"), ["tcp:127.0.0.1:5555,server=on,wait=off"])
+        self.assertEqual(pairs(qemu_serial.qemu_args(ns("s.log")), "-qmp"), [])
 
 
 class TailTests(unittest.TestCase):

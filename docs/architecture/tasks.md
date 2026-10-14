@@ -104,8 +104,12 @@ ISR that performs context switches.
   On an AMD NUC (Ryzen 5 3501U) a LazyGolf course generation left the shell
   and the Normal services unserved for up to 25 s; with the guard the longest
   `UI:STALL` is about 0.5 s and the generation takes the same time.
-  `SCHED:GUARD:DEMOTED task=... slot=... total=...` names who tripped it
-  (reported at most once a second). The test build defaults the guard off so
+  `SCHED:GUARD:DEMOTED task=... comm=... slot=... tgid=... total=...` names who tripped
+  it the first time; after that one `SCHED:GUARD:SUMMARY` line per process every 10 s
+  (issue #857). Freeze forensics (issue #861) are printed from the multiplexer loop:
+  `PROC:EXIT` per ended process, `SCHED:STUCK` for a task runnable inside the kernel
+  for 2 s, `PERF:CPU` for busy processes, `LOCK:WAIT` for a long lock wait; see
+  `tools/webplus/README.md` ("How to capture a freeze"). The test build defaults the guard off so
   the suites that check the stride shares test the scheduler core; `guard_suite`
   (`task_guard_*`) turns it on.
 - Starvation bound: within a class a peer is selected at most

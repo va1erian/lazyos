@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_LOG = ROOT / "target" / "serial.log"
+LOG_DIR = ROOT / "target"
 
 #: Seconds between two looks at a file that has no new bytes.
 POLL_SECONDS = 0.05
@@ -38,9 +38,12 @@ CHUNK = 64 * 1024
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """The launcher's serial options."""
-    parser.add_argument("--serial-log", default=str(DEFAULT_LOG), metavar="PATH",
+    parser.add_argument("--serial-log", metavar="PATH",
                         help="the guest's serial output, tailed to this console "
-                             f"(default: {DEFAULT_LOG.relative_to(ROOT)})")
+                             "(default: target/serial-<date>-<time>.log)")
+    parser.add_argument("--sample-port", type=int, metavar="N",
+                        help="a QMP socket on 127.0.0.1:N for tools/webplus/sample.py "
+                             "(CR3 + RIP at 30 Hz during a freeze)")
     parser.add_argument("--serial-stdio", action="store_true",
                         help="the old single muxed stdio for serial and monitor "
                              "(a console that stops reading then stalls the guest)")
@@ -51,15 +54,32 @@ def _option_path(path: Path) -> str:
     return path.resolve().as_posix().replace(",", ",,")
 
 
-def qemu_args(log: Path, stdio: bool = False) -> list[str]:
-    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor."""
-    path = _option_path(log)
-    if stdio:
-        return ["-chardev", f"stdio,id=ser0,mux=on,logfile={path}",
-                "-serial", "chardev:ser0", "-mon", "chardev=ser0,mode=readline"]
-    return ["-chardev", f"file,id=ser0,path={path}", "-serial", "chardev:ser0",
-            "-chardev", "stdio,id=mon0,mux=on,signal=off",
-            "-mon", "chardev=mon0,mode=readline"]
+def resolve_log(args: argparse.Namespace) -> Path:
+    """The run's serial log: `--serial-log`, else a file named for this run
+    (decided once, so the arguments and the tail agree)."""
+    if not getattr(args, "_serial_log", None):
+        args._serial_log = (Path(args.serial_log) if args.serial_log
+                            else LOG_DIR / time.strftime("serial-%Y%m%d-%H%M%S.log"))
+    return args._serial_log
+
+
+def sample_args(port: int | None) -> list[str]:
+    """The second QMP socket `tools/webplus/sample.py record --port N` reads."""
+    return ["-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off"] if port else []
+
+
+def qemu_args(args: argparse.Namespace) -> list[str]:
+    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor
+    (and the sampling socket, if asked for)."""
+    path = _option_path(resolve_log(args))
+    if args.serial_stdio:
+        chardevs = ["-chardev", f"stdio,id=ser0,mux=on,logfile={path}",
+                    "-serial", "chardev:ser0", "-mon", "chardev=ser0,mode=readline"]
+    else:
+        chardevs = ["-chardev", f"file,id=ser0,path={path}", "-serial", "chardev:ser0",
+                    "-chardev", "stdio,id=mon0,mux=on,signal=off",
+                    "-mon", "chardev=mon0,mode=readline"]
+    return chardevs + sample_args(args.sample_port)
 
 
 class Tail:
@@ -125,9 +145,11 @@ def prepare_log(log: Path) -> None:
         pass  # held open by something: QEMU truncates it when it opens it
 
 
-def run(command: list[str], log: Path, stdio: bool = False) -> int:
+def run(command: list[str], args: argparse.Namespace) -> int:
     """Run QEMU; with the file serial port, tail the log to this console."""
-    if stdio:
+    log = resolve_log(args)
+    print(f"serial log: {log}", flush=True)
+    if args.serial_stdio:
         return subprocess.call(command)
     prepare_log(log)
     tail = Tail(log)

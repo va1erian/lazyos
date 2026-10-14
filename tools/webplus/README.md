@@ -50,3 +50,41 @@ ones that name a page print only in a `LAZYOS_UI_PROBE=1` image.
 The sandbox of the two engine processes is attacked by `python tools/webkit/attack_run.py --browser --app
 lazywebplus` (and `--kernel`), see [`docs/lazywebplus.md`](../../docs/lazywebplus.md). `--label-trace` here fails
 on any `LABEL:DENY` beyond the nine optional ones of #836 (`denies.py`).
+
+## How to capture a freeze
+
+A freeze report is a file and a recording, not a terminal copy (issue #861; the analysis of the first one is
+issue #865).
+
+1. Start the desktop with the serial port in a file and a second QMP socket for the sampler:
+
+   ```bash
+   python tools/run_demo.py --lazywebplus --serial-log target/freeze.log --sample-port 5555
+   ```
+
+   The serial output goes to `target/serial-<date>-<time>.log` (or `--serial-log`) and the launcher tails it to its
+   console from a thread, so a console that stops reading (a Windows selection, the GUI's reader) cannot stall the
+   guest. The monitor stays on the console (`Ctrl-A x` quits). `--serial-stdio` is the old single muxed device.
+2. While the page is stuck, record where the guest's CPU goes:
+
+   ```bash
+   python tools/webplus/sample.py record --port 5555 --out s.tsv     # Ctrl-C after ten seconds or so
+   python tools/webplus/sample.py report s.tsv                        # by process (CR3), then by address
+   ```
+
+   A CR3 names the process; a kernel RIP (`0xffff8000...`) says it is inside a syscall (symbolize with
+   `addr2line -e <kernel> <rip - 0xffff800000000000>`).
+3. Read the log for what the kernel itself says (all channels in `docs/trace/channels.md`):
+
+   | Line | Meaning |
+   |---|---|
+   | `PROC:EXIT tgid= status= sig= by= parent= cpu_ms= comm=` | a process ended, how, and who sent the signal |
+   | `SCHED:STUCK tgid= thread= abi= nr= ms= cpu_ms= krip= comm=` | a task runnable inside the kernel for 2 s or more; `cpu_ms` near `ms` is a spin, near 0 is starvation |
+   | `SCHED:GUARD:DEMOTED` / `SCHED:GUARD:SUMMARY` | the first demotion of a task, then a summary per process every 10 s |
+   | `PERF:CPU tgid= pct= user= kernel= class= demotions= comm=` | every 5 s while a process is above 20% |
+   | `LOCK:WAIT thread= nr= waiters= ms=` | a task waited over 500 ms for a contended filesystem or block lock (the lock itself is not named) |
+   | `SERIAL:BACKLOG bytes= dropped= max_io_us=` | the serial ring holds over 4 KiB; a large `max_io_us` means the host is slow to take bytes |
+   | `SERIAL:DROPPED bytes= total=` | output the ring had no room for (the ring never makes a writer wait) |
+   | `ENOSYS <nr> <name>` then `ENOSYS ... count=` | an unimplemented syscall, once per process, then a count every 10 s |
+
+   `IRQOFF:MAX` lines name interrupts-off stretches; none should end at `serial	x.rs` any more.

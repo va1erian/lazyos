@@ -320,6 +320,48 @@ pub fn service() {
         }
     }
     report_dropped();
+    report_backlog();
+}
+
+/// Ring fill above which `SERIAL:BACKLOG` speaks.
+const BACKLOG_REPORT_BYTES: usize = 4096;
+/// Ticks between two `SERIAL:BACKLOG` lines.
+const BACKLOG_REPORT_TICKS: u64 = 500;
+
+/// While the ring holds more than 4 KiB, every 5 s:
+/// `SERIAL:BACKLOG bytes=<n> dropped=<total> max_io_us=<n>`: how far behind
+/// the port is, what it has refused, and the longest single access to it
+/// (a host that is slow to take bytes shows here before anything else does).
+fn report_backlog() {
+    report_backlog_at(crate::task::ticks());
+}
+
+/// Tick of the last `SERIAL:BACKLOG` line.
+static BACKLOG_LAST: AtomicU64 = AtomicU64::new(0);
+
+fn report_backlog_at(now: u64) {
+    if now.wrapping_sub(BACKLOG_LAST.load(Ordering::Relaxed)) < BACKLOG_REPORT_TICKS {
+        return;
+    }
+    let (bytes, cycles) = x86_64::instructions::interrupts::without_interrupts(|| {
+        match SERIAL1.lock().as_mut() {
+            Some(port) if port.tx.len() > BACKLOG_REPORT_BYTES => {
+                (port.tx.len(), port.tx.take_max_io())
+            }
+            _ => (0, 0),
+        }
+    });
+    if bytes == 0 {
+        return;
+    }
+    BACKLOG_LAST.store(now, Ordering::Relaxed);
+    crate::trace::event!(
+        tracefmt::Channel::Serial,
+        "BACKLOG",
+        bytes = bytes,
+        dropped = dropped_total(),
+        max_io_us = crate::arch::irqoff::to_us(cycles)
+    );
 }
 
 /// Whether bytes wait in the ring beyond what the next writer will take

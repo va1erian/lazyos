@@ -233,6 +233,7 @@ pub(crate) fn finish_locked(
         task.parent
     };
     super::runq::sync(tasks, slot);
+    super::procexit::note_exit(tasks, slot, status);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
     // runs later in task context, outside this lock.

@@ -185,6 +185,7 @@ mod ext2_suite;
 mod fault_resident_suite;
 mod fault_suite;
 mod firmware_suite;
+mod forensics_suite;
 mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
@@ -264,6 +265,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     preempt_lock_suite::CASES,
     irq_window_suite::CASES,
     serial_suite::CASES,
+    forensics_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,

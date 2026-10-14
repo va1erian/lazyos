@@ -64,6 +64,9 @@ pub(super) struct Tx {
     /// TSC value before which an ordinary drain does not touch the UART: the
     /// last one found it not emptying ([`Tx::drain`]).
     retry_at: u64,
+    /// Longest single port access seen since the last report (TSC cycles):
+    /// what a host that is slow to take serial bytes looks like from here.
+    max_io: u64,
     /// Test builds: the most one drain call may send (a slow consumer).
     #[cfg(lazyos_tests)]
     cap: usize,
@@ -80,6 +83,7 @@ impl Tx {
             drained: 0,
             dropped: 0,
             retry_at: 0,
+            max_io: 0,
             #[cfg(lazyos_tests)]
             cap: usize::MAX,
         }
@@ -180,19 +184,34 @@ impl Tx {
                 self.head = (self.head + 1) % RING;
                 self.len -= 1;
                 self.drained = self.drained.wrapping_add(1);
+                let began = crate::perf::rdtsc();
                 // SAFETY: writing COM1's data register sends one byte; the
                 // port was probed and initialised, and the FIFO has room.
                 unsafe { outb(self.base + DATA, byte) };
+                self.note_io(began);
             }
             sent += burst;
         }
     }
 
+    /// A port access that began at TSC `began` just finished.
+    fn note_io(&mut self, began: u64) {
+        self.max_io = self.max_io.max(crate::perf::rdtsc().wrapping_sub(began));
+    }
+
+    /// The longest port access since the last call, in TSC cycles.
+    pub(super) fn take_max_io(&mut self) -> u64 {
+        core::mem::take(&mut self.max_io)
+    }
+
     /// Wait until the transmitter is empty; false if it never gets there.
-    fn wait_empty(&self, polls: u32) -> bool {
+    fn wait_empty(&mut self, polls: u32) -> bool {
         for _ in 0..polls {
+            let began = crate::perf::rdtsc();
             // SAFETY: reading the line status register has no side effect.
-            if unsafe { inb(self.base + LINE_STATUS) } & THR_EMPTY != 0 {
+            let status = unsafe { inb(self.base + LINE_STATUS) };
+            self.note_io(began);
+            if status & THR_EMPTY != 0 {
                 return true;
             }
             // Safe under the port lock: a window's handlers take no lock but

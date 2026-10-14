@@ -132,6 +132,7 @@ pub(super) fn send_checked(
     if sig == 0 {
         return Ok(());
     }
+    crate::task::procexit::note_signal(pml4, sig, tgid_of(caller));
     // A signal to a zombie is dropped, like Linux. A process-directed one
     // aimed at an exited thread (the group leader may leave first) goes to a
     // live thread of the same process instead.

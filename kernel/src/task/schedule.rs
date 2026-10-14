@@ -91,6 +91,9 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
+        if tick && code_segment & 3 == 3 {
+            task.guard.note_user_tick();
+        }
     }
     #[cfg(lazyos_tests)]
     runq::verify(&tasks);
