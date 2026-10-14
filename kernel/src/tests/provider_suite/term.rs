@@ -29,6 +29,10 @@ fn on_idle_disk(body: impl FnOnce(usize, usize) -> Result<(), String>) -> Result
     test_clock::set_server(None);
     test_clock::set_parkless(true);
     let (disk, owner) = with_fake(|fake| (fake.disk, fake.owner));
+    // Parked in `NEXT` the provider's saved frame is a kernel frame; a user
+    // frame with a fatal signal pending is ended by the scheduler's sweep,
+    // which would turn a timer tick into a flake.
+    task::harness::set_kernel_frame(owner).ok_or("the provider has no frame")?;
     let result = body(disk, owner);
     signal::harness::reset();
     teardown();
@@ -101,9 +105,8 @@ pub fn term_takes_no_request() -> Result<(), String> {
         );
         check!(!test_clock::queued(disk), "the request was not taken");
 
-        // A kill is the same. The provider sits in the kernel (as one parked
-        // in `NEXT` does), so the kill wakes it rather than ending it.
-        task::harness::set_kernel_frame(owner).ok_or("the provider has no frame")?;
+        // A kill is the same (the provider sits in the kernel, so the kill
+        // wakes it rather than ending it).
         test_clock::hold_queued(disk);
         raise(owner, signal::SIGKILL)?;
         check!(

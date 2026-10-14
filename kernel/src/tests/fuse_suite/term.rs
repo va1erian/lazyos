@@ -26,6 +26,10 @@ fn on_idle_slot(body: impl FnOnce(usize, usize) -> Result<(), String>) -> Result
     test_hook::set_server(None);
     test_hook::set_parkless(true);
     let owner = with_fake(|fake| fake.owner);
+    // Parked in `NEXT` the daemon's saved frame is a kernel frame; a user
+    // frame with a fatal signal pending is ended by the scheduler's sweep,
+    // which would turn a timer tick into a flake.
+    task::harness::set_kernel_frame(owner).ok_or("the daemon has no frame")?;
     let result = body(index, owner);
     signal::harness::reset();
     teardown();
@@ -102,9 +106,8 @@ pub fn term_takes_no_request() -> Result<(), String> {
         );
         check!(!test_hook::queued(index), "the request was not taken");
 
-        // A kill is the same. The daemon sits in the kernel (as one parked
-        // in `NEXT` does), so the kill wakes it rather than ending it.
-        task::harness::set_kernel_frame(owner).ok_or("the daemon has no frame")?;
+        // A kill is the same (the daemon sits in the kernel, so the kill
+        // wakes it rather than ending it).
         test_hook::hold_queued(index);
         raise(owner, signal::SIGKILL)?;
         check!(
