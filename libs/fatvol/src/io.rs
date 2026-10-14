@@ -212,7 +212,10 @@ impl<D: BlockIo> Cache<D> {
         if end > self.len_bytes() {
             return Err(Fault::Eof);
         }
-        if buf.len() >= BYPASS && at.is_multiple_of(SECTOR as u64) && buf.len().is_multiple_of(SECTOR) {
+        if buf.len() >= BYPASS
+            && at.is_multiple_of(SECTOR as u64)
+            && buf.len().is_multiple_of(SECTOR)
+        {
             return self.read_direct(at / SECTOR as u64, buf);
         }
         let mut done = 0;
@@ -241,7 +244,10 @@ impl<D: BlockIo> Cache<D> {
         if end > self.len_bytes() {
             return Err(Fault::Eof);
         }
-        if data.len() >= BYPASS && at.is_multiple_of(SECTOR as u64) && data.len().is_multiple_of(SECTOR) {
+        if data.len() >= BYPASS
+            && at.is_multiple_of(SECTOR as u64)
+            && data.len().is_multiple_of(SECTOR)
+        {
             return self.write_direct(at / SECTOR as u64, data);
         }
         let mut done = 0;
