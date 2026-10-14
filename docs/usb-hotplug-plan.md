@@ -1,7 +1,7 @@
 # Plan: USB hot-plug for HID devices and storage
 
-> **Status: scope settled (2026-10-10); the FAT path is implemented
-> (2026-10-13), the rest is not.** Builds on
+> **Status: scope settled (2026-10-10); the FAT path, its eject and the tray
+> applet are implemented (2026-10-14), the rest is not.** Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (`usbd`, HID, U3 hot-plug),
 > [architecture/usb.md](architecture/usb.md) and
 > [architecture/usb-storage.md](architecture/usb-storage.md) (syscall 33, the
@@ -27,12 +27,16 @@ to that was taken, and it differs from the design below in these ways:
 | P6 raw-block syscall with its own capability | Ops 6-11 of syscall 33: list disks (`CAP_FS_PROVIDER` + `_mountd` or root), then an exclusive **claim** bound to the disk's generation and read/write/flush through the requests the kernel's own filesystems make. The kernel gates the claim on the **program**: only a task `spawnv` started from `/system/bin/fatfuse` may claim (`ftpfuse` and `smbfuse` hold the same capability and uid and are `mountd`'s children too), and a disk the kernel mounted a volume through (`/home`) is refused. No new capability bit. |
 | P4 `storaged` service, `idl/storage.midl`, kernel mount op for ext2 | The automount policy is a module of **`mountd`** (`user/src/bin/mountd/volumes.rs`, rules in `libs/mounttable/src/volumes.rs`): one `fatfuse` per plug, as the session user. No new service, interface or capability. ext2 data sticks, the `/home` replace-mount and `fs/late.rs` are untouched. |
 | P3 inventory and events (`os.lazy.usb.v1`, topics) | Not done. `mountd` polls the kernel's disk list once a second. |
-| P7 eject, P8 tray applet, Files "Devices" section | Not done. Pulling the stick is the only way out; Files reaches `/media` by path. |
+| P7 eject | **Done for FAT.** `os.lazy.mount.v1` `Eject` and `Volumes`, the `eject` command; `fatfuse` flushes, drops the filesystem (dirty flag clear), flushes the device and unmounts on a kernel `STOP`, refused with the holders named while a file is open. Logout and shutdown stop daemons the same way, not with `SIGKILL`. The write order of one operation is data, FAT, entry (or entry, FAT when freeing). No separate `usbd` eject: the daemon's `SYNCHRONIZE CACHE` is the flush, and no START STOP UNIT is sent. ext2 sticks have no eject (no kernel mount op yet). |
+| P8 tray applet | **Done** (`os.lazy.removable`, `xui-app/src/bin/removable.rs`, model `xui-app/src/removable`): a windowless resident applet shipped with `LAZYOS_USB=1` desktops. It looks at `mountd`'s `Volumes` once a second (there are no `usb`/`storage` topics yet), shows a drawn USB-stick mask, the mounted count as a badge, a notice as tooltip plus `Attention` for six seconds, and a menu with Open (Files at the mount point) and Eject per drive, Eject all, and the last refusal naming its holder. What was in at login is silent, except a removal without ejecting. Session: `python tools/storage/removable_run.py`. |
+| Files "Devices" section, Settings -> Devices pane | Not done. Files reaches `/media` by path; the applet and `eject` are the front ends. |
 
 What a person gets: `ls /media`, Files' address bar and every program see the
-volume as an ordinary directory. The limits worth knowing: one volume per
-stick (the first that validates), 512-byte sectors, no eject, nothing on the
-volume is executable, a `-2` suffix names a second volume of the same label.
+volume as an ordinary directory. `eject usb1` (or `eject MY_STICK`) flushes
+and unmounts it and says when the stick may be pulled; `eject -l` lists the
+volumes. The limits worth knowing: one volume per stick (the first that
+validates), 512-byte sectors, nothing on the volume is executable, a `-2`
+suffix names a second volume of the same label.
 
 ## Goal
 

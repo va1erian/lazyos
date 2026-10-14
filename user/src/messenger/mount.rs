@@ -5,9 +5,13 @@
 //! the service uses. Its clients are the Network Drives app (`xui-app`) and
 //! scripts (`sys::mount` in `rhai`), which have their own.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
-use libmessenger::{Header, Parcel, VERSION};
+use libmessenger::{Decoder, Header, Kind, Parcel, VERSION};
+use messenger_generated::errors::ERROR_FIELD;
+
+use super::{Endpoint, Error, Result};
 
 /// The generated `os.lazy.mount.v1` stubs.
 pub use messenger_generated::os_lazy_mount_v1 as wire;
@@ -33,4 +37,52 @@ pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
         body,
         ..Parcel::default()
     }
+}
+
+/// The structured error field of a reply, when the service refused.
+fn refusal(reply: &Parcel) -> Result<Option<i64>> {
+    let mut decoder = Decoder::new(&reply.body);
+    while let Some(field) = decoder.next().map_err(Error::Parcel)? {
+        if field.kind == Kind::Error && field.id == ERROR_FIELD {
+            let (code, _text) = field.error_parts().map_err(Error::Parcel)?;
+            return Ok(Some(i64::from(code)));
+        }
+    }
+    Ok(None)
+}
+
+/// Send `method` with an encoded `body`, waiting until `deadline` (PIT
+/// ticks); a refusal is `Err(Errno(-code))`.
+fn call(endpoint: &Endpoint, method: u32, body: Vec<u8>, deadline: Option<u64>) -> Result<Parcel> {
+    let reply = endpoint.call(&parcel(method, body), deadline)?;
+    match refusal(&reply)? {
+        Some(code) => Err(Error::Errno(-code)),
+        None => Ok(reply),
+    }
+}
+
+/// The caller's removable volumes (`Volumes`).
+pub fn volumes(endpoint: &Endpoint, deadline: Option<u64>) -> Result<Vec<wire::VolumeInfo>> {
+    let reply = call(endpoint, wire::METHOD_VOLUMES, Vec::new(), deadline)?;
+    Ok(wire::decode_volumes_reply(&reply.body)
+        .map_err(Error::Parcel)?
+        .volumes)
+}
+
+/// Eject the volume on `disk` (`usb<n>`): `(state, detail)` as the service
+/// answers (`ejecting`, `ejected` or `busy`).
+pub fn eject(
+    endpoint: &Endpoint,
+    disk: &str,
+    force: bool,
+    deadline: Option<u64>,
+) -> Result<(String, String)> {
+    let body = wire::encode_eject_args(&wire::EjectArgs {
+        disk: String::from(disk),
+        force,
+    })
+    .map_err(Error::Parcel)?;
+    let reply = call(endpoint, wire::METHOD_EJECT, body, deadline)?;
+    let reply = wire::decode_eject_reply(&reply.body).map_err(Error::Parcel)?;
+    Ok((reply.state, reply.detail))
 }

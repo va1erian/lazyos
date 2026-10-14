@@ -6,6 +6,7 @@
 //! gate; and a soak.
 
 mod coherence;
+mod eject;
 mod hostile;
 mod io;
 mod sys;
@@ -165,7 +166,7 @@ fn serve(index: usize) {
         payload.extend_from_slice(bytes);
         Ok(())
     });
-    let Ok(Some(request)) = taken else {
+    let Ok(fuse::Next::Request(request)) = taken else {
         test_hook::advance(fuse::SLICE_TICKS);
         return;
     };
@@ -388,4 +389,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_sys_gate", sys::gate),
     ("fuse_sys_request_cycle", sys::request_cycle),
     ("fuse_sys_hostile_buffers", sys::hostile_buffers),
+    ("fuse_eject_list_and_stop", eject::list_and_stop),
+    ("fuse_eject_busy_names_holders", eject::busy_names_holders),
+    (
+        "fuse_eject_queued_request_answered_first",
+        eject::queued_request_answered_first,
+    ),
+    ("fuse_eject_syscalls", eject::supervise_syscalls),
+    ("fuse_eject_soak", eject::stop_soak),
 ];

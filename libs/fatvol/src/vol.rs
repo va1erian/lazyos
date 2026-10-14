@@ -28,7 +28,7 @@ use fused::payload::{set, DirEnt, SetAttrRecord, StatFsRecord};
 use fused::wire::{errno, Attr, S_IFDIR, S_IFREG};
 
 use crate::clock::{date_to_unix, to_datetime, to_unix, Clock};
-use crate::io::{BlockIo, Cache, Fault, Shared, Stats, SECTOR};
+use crate::io::{BlockIo, Cache, Fault, Layout, Order, Shared, Stats, SECTOR};
 
 type Fs<D> = FileSystem<Shared<D>, Clock, LossyOemCpConverter>;
 type Directory<'a, D> = Dir<'a, Shared<D>, Clock, LossyOemCpConverter>;
@@ -133,7 +133,13 @@ impl<D: BlockIo> Volume<D> {
         let mut boot = [0u8; SECTOR];
         cache.read_at(0, &mut boot).map_err(OpenError::Io)?;
         let device_sectors = cache.device().sectors();
-        crate::bpb::validate(&boot, device_sectors).map_err(|_| OpenError::NotFat)?;
+        let geometry =
+            crate::bpb::validate(&boot, device_sectors).map_err(|_| OpenError::NotFat)?;
+        cache.set_layout(Layout {
+            fat_start: geometry.fat_start,
+            fat_end: geometry.fat_end,
+            data_start: geometry.data_start,
+        });
         let cache = Shared(Rc::new(RefCell::new(cache)));
         let fs = Self::mount(&cache, &clock)?;
         let dirty_at_open = fs.read_status_flags().map(|f| f.dirty()).unwrap_or(false);
@@ -199,6 +205,12 @@ impl<D: BlockIo> Volume<D> {
         self.cache.0.borrow().stats()
     }
 
+    /// Switch the write ordering of `io::order` off (or back on): tests
+    /// compare it with the plain ascending order it replaced.
+    pub fn set_write_ordering(&self, on: bool) {
+        self.cache.0.borrow_mut().set_ordering(on);
+    }
+
     /// Set the wall time stamped on files changed from now on.
     pub fn set_time(&self, unix: i64) {
         self.clock.set(unix);
@@ -231,7 +243,14 @@ impl<D: BlockIo> Volume<D> {
 
     /// Write back what the operation changed; the operation's own error wins.
     fn finish<T>(&mut self, result: Result<T, Errno>) -> Result<T, Errno> {
-        let flushed = self.cache.0.borrow_mut().flush_dirty();
+        let flushed = {
+            let mut cache = self.cache.0.borrow_mut();
+            let flushed = cache.flush_dirty();
+            // Back to the default for whatever comes next.
+            cache.set_order(Order::Ascending);
+            cache.tag_file_data(false);
+            flushed
+        };
         match (result, flushed) {
             (Ok(value), Ok(())) => Ok(value),
             (Ok(_), Err(fault)) => Err(fault_errno(fault)),

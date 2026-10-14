@@ -103,6 +103,17 @@ def usb_sticks(paths: list[str]) -> list[str] | None:
     return usb_stick_args(sticks) if all(prepare_usb_stick(stick) for stick in sticks) else None
 
 
+# The removable-drives tray applet, shipped by a desktop with the USB stack
+# (`build_support/xui_embed.rs` USB_XUI_APPS).
+USB_APPS = [ROOT / "target" / "xui" / "xui-removable.elf"]
+
+
+def usb_desktop(args) -> bool:
+    """Whether this build ships the USB stack (`LAZYOS_USB=1`), which brings the
+    removable-drives tray applet."""
+    return bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
+
+
 def usb_env(sticks: list[str], desktop: bool) -> dict[str, str]:
     """Sticks in the guest need the driver and a session that starts it."""
     if not sticks:

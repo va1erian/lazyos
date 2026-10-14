@@ -130,33 +130,59 @@ impl<D: BlockIo> Volume<D> {
         Ok(done)
     }
 
+    /// The order the operation about to run writes in (`io::order`), kept
+    /// until its write-back.
+    fn write_order(&self, order: Order) {
+        self.cache.0.borrow_mut().set_order(order);
+    }
+
     pub(super) fn write_file(
         &mut self,
         path: &str,
         offset: u64,
         data: &[u8],
     ) -> Result<usize, Errno> {
+        // The file's bytes, then the FAT that allocates them, then the
+        // entry that names them: a cut never leaves an entry that claims
+        // bytes that were not written.
+        self.write_order(Order::Grow);
+        let cache = self.cache.clone();
         let fs = self.fs()?;
         let mut file = Self::open_file(fs, path)?;
         let size = file.seek(SeekFrom::End(0)).map_err(to_errno)?;
-        if offset > size {
-            Self::extend(&mut file, offset - size)?;
-        }
-        file.seek(SeekFrom::Start(offset)).map_err(to_errno)?;
-        file.write_all(data).map_err(to_errno)?;
+        cache.0.borrow_mut().tag_file_data(true);
+        let written = (|| {
+            if offset > size {
+                Self::extend(&mut file, offset - size)?;
+            }
+            file.seek(SeekFrom::Start(offset)).map_err(to_errno)?;
+            file.write_all(data).map_err(to_errno)
+        })();
+        // Off before anything else happens, whatever came of the write: the
+        // entry `file`'s flush (and its drop, on an error) writes is not file
+        // data, and a tag left on would sort it before the FAT.
+        cache.0.borrow_mut().tag_file_data(false);
+        written?;
         file.flush().map_err(to_errno)?;
         Ok(data.len())
     }
 
     pub(super) fn resize(&mut self, path: &str, size: u64) -> Result<(), Errno> {
+        let cache = self.cache.clone();
         let fs = self.fs()?;
         let mut file = Self::open_file(fs, path)?;
         let current = file.seek(SeekFrom::End(0)).map_err(to_errno)?;
         if size < current {
+            // The entry stops naming the clusters before the FAT frees them.
+            cache.0.borrow_mut().set_order(Order::Shrink);
             file.seek(SeekFrom::Start(size)).map_err(to_errno)?;
             file.truncate().map_err(to_errno)?;
         } else if size > current {
-            Self::extend(&mut file, size - current)?;
+            cache.0.borrow_mut().set_order(Order::Grow);
+            cache.0.borrow_mut().tag_file_data(true);
+            let extended = Self::extend(&mut file, size - current);
+            cache.0.borrow_mut().tag_file_data(false);
+            extended?;
         }
         file.flush().map_err(to_errno)
     }
@@ -167,6 +193,12 @@ impl<D: BlockIo> Volume<D> {
             Ok(_) => return Err(errno::EEXIST),
             Err(errno::ENOENT) => {}
             Err(code) => return Err(code),
+        }
+        if dir {
+            // The new directory's cluster (its `.` and `..`) before the
+            // entry that names it: a cut never leaves a directory whose
+            // cluster still holds what a deleted file left there.
+            self.write_order(Order::Grow);
         }
         {
             let fs = self.fs()?;
@@ -192,6 +224,8 @@ impl<D: BlockIo> Volume<D> {
                 errno::EISDIR
             });
         }
+        // The entry goes before the FAT frees its clusters.
+        self.write_order(Order::Shrink);
         let fs = self.fs()?;
         fs.root_dir().remove(path).map_err(to_errno)?;
         self.inodes.forget(path);
@@ -236,6 +270,8 @@ impl<D: BlockIo> Volume<D> {
                     }
                     // The target is replaced, as `rename(2)` does; a
                     // directory only when it is empty (`remove` says so).
+                    // Its entry goes before the FAT frees its clusters.
+                    self.write_order(Order::Shrink);
                     let fs = self.fs()?;
                     fs.root_dir().remove(to).map_err(to_errno)?;
                     self.inodes.forget(to);

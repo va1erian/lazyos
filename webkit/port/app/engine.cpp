@@ -337,6 +337,7 @@ void lzw_engine_resize(int width, int height)
 void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
 {
     onMain([=] {
+        notePointer(false);
         WKEventType type = kind == 0 ? kWKEventMouseDown : kind == 1 ? kWKEventMouseUp : kWKEventMouseMove;
         WKEventMouseButton which = button == 0 ? kWKEventMouseButtonLeftButton
             : button == 1                      ? kWKEventMouseButtonMiddleButton
@@ -349,6 +350,7 @@ void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
 void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
 {
     onMain([=] {
+        notePointer(true);
         // One call per notch: the page takes the sign of each axis and scrolls a line step.
         for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
             WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));

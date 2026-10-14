@@ -18,6 +18,11 @@
 //! crash does not (they are this task's children, not `init`'s): after a
 //! restart their mounts keep working but are no longer listed.
 //!
+//! Removable volumes (`mountd/volumes.rs`, `mountd/removable.rs`): a FAT
+//! stick is served at `/media/<label>` by a `fatfuse` per stick;
+//! `Volumes` lists them and `Eject` has the daemon flush, close and unmount
+//! its volume, so that the stick can be pulled.
+//!
 //! Serial lines: `MOUNTD:READY`, `MOUNTD:START <name> kind=<kind> pid=<pid>`,
 //! `MOUNTD:UP <name>`, `MOUNTD:FAIL <name> <reason>`, `MOUNTD:STOP <name>`.
 
@@ -28,6 +33,8 @@ extern crate alloc;
 
 #[path = "mountd/handler.rs"]
 mod handler;
+#[path = "mountd/removable.rs"]
+mod removable;
 #[path = "mountd/volumes.rs"]
 mod volumes;
 
@@ -102,12 +109,13 @@ fn run() -> messenger::Result<()> {
             Err(error) => return Err(error),
         };
         if let Some(reason) = lifecycle::stop_requested(&message) {
-            stop_all(&table, &automount, &reason);
+            stop_all(&table, &mut automount, &reason);
             return Ok(());
         }
-        let reply = handler::dispatch(&mut table, &message).unwrap_or_else(|error| {
-            services::error_reply(message.interface_id(), message.method(), error)
-        });
+        let reply =
+            handler::dispatch(&mut table, &mut automount, &message).unwrap_or_else(|error| {
+                services::error_reply(message.interface_id(), message.method(), error)
+            });
         if let Some(txn) = message.txn {
             // A caller whose deadline passed is a normal race, not a failure.
             let _ = server.reply(txn, &reply);
@@ -150,21 +158,15 @@ fn reap(table: &mut Table, automount: &mut volumes::Automount) {
     }
 }
 
-/// The lifecycle stop: end every daemon. Their mounts then fail every call
-/// until the kernel takes them out, which is moments before power-off.
-fn stop_all(table: &Table, automount: &volumes::Automount, reason: &str) {
+/// The lifecycle stop: end every daemon. A network daemon has nothing
+/// unsaved and is signalled; a volume daemon is asked to flush its stick
+/// and unmount (a `SIGKILL` could land in the middle of a FAT update) and is
+/// waited for, a bounded while, before the service goes.
+fn stop_all(table: &Table, automount: &mut volumes::Automount, reason: &str) {
     for pid in table.daemons() {
         let _ = sys::kill(pid, sys::SIG_TERM);
     }
-    // A volume daemon has nothing unsaved between requests (its cache is
-    // written before each answer) and installs no handler, so SIGTERM would
-    // only be a SIGKILL one syscall return later, and a wait in the stick's
-    // block I/O ends for a kill alone. It is ended outright. (A daemon parked
-    // in `NEXT` leaves it at once on SIGTERM, `signal::must_unwind`, and
-    // takes no request on the way out; the daemons above rely on that.)
-    for pid in automount.daemons() {
-        let _ = sys::kill(pid, sys::SIG_KILL);
-    }
+    automount.shutdown();
     trace::line!(trace::Channel::Mountd, "STOP reason=\"{reason}\"");
 }
 

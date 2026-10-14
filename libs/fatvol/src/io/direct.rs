@@ -38,6 +38,7 @@ impl<D: BlockIo> Cache<D> {
                 page.valid |= 1 << slot;
                 if page.dirty & (1 << slot) != 0 {
                     page.dirty &= !(1 << slot);
+                    page.filedata &= !(1 << slot);
                     self.dirty_bytes -= SECTOR;
                 }
             }

@@ -575,6 +575,14 @@ path = "src/bin/fatfuse.rs"
 test = false
 bench = false
 
+# `eject` (docs/usb-hotplug-plan.md D): flush and unmount a removable
+# volume through `mountd`, then say the stick may be pulled.
+[[bin]]
+name = "eject"
+path = "src/bin/eject.rs"
+test = false
+bench = false
+
 # `mountd` (docs/smb-plan.md): the network mount service, starting one
 # `ftpfuse` or `smbfuse` per mount for the Network Drives app
 # (`os.lazy.mount.v1`).

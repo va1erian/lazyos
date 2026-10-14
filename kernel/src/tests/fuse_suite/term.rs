@@ -11,7 +11,10 @@ use crate::task::signal::{self, Disposition, SigInfo};
 /// One `NEXT` of `owner` that would wait `ticks` for a request.
 fn take(index: usize, owner: usize, ticks: u64) -> Result<Option<Request>, FuseError> {
     let deadline = task::ticks() + test_hook::offset() + ticks;
-    fuse::next(index, owner, deadline, &mut |_| Ok(()))
+    fuse::next(index, owner, deadline, &mut |_| Ok(())).map(|next| match next {
+        fuse::Next::Request(request) => Some(request),
+        fuse::Next::Idle | fuse::Next::Stop => None,
+    })
 }
 
 fn raise(owner: usize, sig: u8) -> Result<(), String> {

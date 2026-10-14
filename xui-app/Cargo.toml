@@ -390,3 +390,7 @@ path = "src/bin/lazysky.rs"
 [[bin]]
 name = "xui-about"
 path = "src/bin/about.rs"
+
+[[bin]]
+name = "xui-removable"
+path = "src/bin/removable.rs"

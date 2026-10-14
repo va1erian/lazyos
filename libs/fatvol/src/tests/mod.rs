@@ -3,6 +3,7 @@
 mod basic;
 mod cache;
 mod hostile;
+mod ordering;
 mod parts;
 mod soak;
 

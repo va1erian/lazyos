@@ -86,9 +86,8 @@ provider in `provider::next` (`usbd`). Both used to leave that wait for
 wait's own deadline (1 s) and could take a request it then died holding.
 `task::signal::must_unwind` (a kill, or a default-fatal signal the syscall
 return would act on) now ends the wait first and the daemon takes no request on
-its way out. `mountd` still ends a stick's `fatfuse` with `SIGKILL`: it has no
-handler, so `SIGTERM` only defers the same death to a syscall return, and a
-wait in the stick's block I/O ends for a kill alone.
+its way out. A stick's `fatfuse` is not ended by a signal at all (`mountd`
+asks it to stop, docs/architecture/usb-storage.md); the signal is the fallback.
 
 ### What is not stopped by `init`
 

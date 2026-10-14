@@ -24,6 +24,10 @@ persistent home on the boot stick ([real-pc-boot-plan.md](../real-pc-boot-plan.m
 | `libs/fatvol/` | A FAT volume as a `fused::daemon::FuseFs`: `rust-fatfs` over a sector cache, boot-sector validation, MBR/GPT discovery; host-tested and fuzzed |
 | `user/src/bin/fatfuse.rs` | The daemon: claims a disk, finds the volume, mounts `/media/<label>`, serves it |
 | `user/src/bin/mountd/volumes.rs`, `libs/mounttable/src/volumes.rs` | The automount: which disks get a daemon, as whom, and when one is stopped |
+| `user/src/bin/mountd/removable.rs`, `user/src/bin/eject.rs` | `Eject` and `Volumes` of `os.lazy.mount.v1`, and the `eject` command |
+| `kernel/src/fs/fuse/supervise.rs`, `kernel/src/task/holders.rs` | The supervisor's ops of syscall 35 (`LIST`, `STOP`, `HOLDERS`): ask a media provider to finish, and who keeps it busy |
+| `libs/fatvol/src/io/order.rs` | The order an operation's sectors reach the stick in |
+| `xui-app/src/bin/removable.rs`, `xui-app/src/removable/` | The Removable Drives tray applet and its host-tested model |
 | `kernel/src/task/relax.rs` | `YieldMutex`: locks that may be held across a park |
 | `kernel/src/fs/late.rs` | The late `/home` mount (`SETTLE`) |
 | `user/src/bin/init/home.rs` | `init`'s bounded wait for the home volume |
@@ -259,32 +263,67 @@ FAT volume is parsed in user space (docs/usb-hotplug-plan.md, decision 7):
   `nosuid` like every FUSE mount, and read-only when the stick is write
   protected.
 - **Writes** are applied to a write-back sector cache and sent to the stick,
-  in ascending order with adjacent sectors as one request, before the FUSE
-  request is answered; a flush (SYNCHRONIZE CACHE) follows on `fsync` and
-  when the volume goes idle. When idle for a second the filesystem object is
-  dropped, which clears the volume's dirty flag and writes its free-cluster
-  count: a stick pulled between requests is a clean volume. FAT has no
-  journal: a cut inside one operation can leave a file shorter than its
-  entry says (`tests/cache.rs` cuts after every write and requires only that
-  the volume mounts and every listed file reads to its end).
+  adjacent sectors as one request, before the FUSE request is answered; a
+  flush (SYNCHRONIZE CACHE) follows on `fsync`, on a stop and when the volume
+  goes idle. When idle for a second the filesystem object is dropped, which
+  clears the volume's dirty flag and writes its free-cluster count: a stick
+  pulled between requests is a clean volume.
+- **Write order** (`libs/fatvol/src/io/order.rs`). FAT has no journal, so the
+  order of one operation's writes is what a cut leaves. A file that grows
+  writes its bytes first, then the FAT that allocates them, then the
+  directory entry that names them; a new directory writes its cluster
+  (`.` and `..`) before the entry; one that shrinks (truncate, unlink,
+  rmdir, a rename that replaces) writes the entry before the FAT frees the
+  clusters; everything else goes lowest sector first. The boot sector, with
+  the dirty mark, always goes first. A cut then leaves a file as it was, or
+  leaked clusters (`fsck.fat` frees them), never an entry that claims bytes
+  that were not written, a directory that is not one, or a freed cluster
+  that is still somebody's (`tests/ordering.rs` cuts after every write
+  against a checker that reads the image itself, and fails on the old
+  ascending order). Two limits: a rename writes its new entry and deletes
+  the old by sector number, so a cut can lose the *name* (the data
+  survives for `fsck`), never corrupt; and an operation that frees more
+  than about 512 MiB of clusters at once overflows the cache's 1 MiB dirty
+  limit mid-way, and the FAT then reaches the stick before the entry.
 - **Pulling the stick** ends the volume: `usbd` removes the disk, the
   daemon's next request gets `ENODEV` and it exits with `15` (`removed`);
   the kernel fails the mount's calls until its flusher takes it out of the
   mount tables. A new plug is a new generation, usually the same slot, and
   mounts the same way.
 - **Limits:** one volume per stick (the first that validates), 512-byte
-  sectors only, FAT12/16/32 only (no exFAT, no NTFS), no eject (pulling is
-  the only way out). The claim is the whole disk, not a partition, and a
-  disk `/home` is mounted from is never offered, so none of its other
-  partitions (a boot partition, say) is mounted.
-- **Stopping** is `SIGKILL` (at logout, shutdown and when the disk is gone):
-  the daemon keeps nothing unsaved between requests, but a request in flight
-  at that instant is a torn FAT update (the cache writes ascending sector
-  order, FAT and directory before data, and FAT has no journal), which the
-  next mount's dirty flag shows. The nuisance is the price of not having a
-  graceful stop yet. (`SIGTERM` would not be gentler: `fatfuse` has no handler,
-  the signal is acted on at a syscall return, and a wait in the stick's block
-  I/O ends for a kill alone; docs/shutdown.md, "Native services and SIGTERM".)
+  sectors only, FAT12/16/32 only (no exFAT, no NTFS). The claim is the whole
+  disk, not a partition, and a disk `/home` is mounted from is never offered,
+  so none of its other partitions (a boot partition, say) is mounted.
+- **Stopping and ejecting.** A daemon is ended by asking it: `mountd` calls
+  the kernel's `STOP` (syscall 35, op 5) on the volume's provider, which
+  refuses every new request from then on (`EIO`) and has the daemon's `NEXT`
+  return `STOP_PENDING` once what was queued is answered. The daemon then
+  writes everything back, drops the filesystem (clearing the dirty flag),
+  flushes the device (SYNCHRONIZE CACHE), unregisters and exits `0`
+  (`FATFUSE:STOPPED clean`). Native programs install no signal handlers, so
+  a `SIGTERM` or `SIGKILL` lands wherever the task is, possibly in a FAT
+  update: they are the fallback, not the way.
+  - **Eject** (`os.lazy.mount.v1` `Eject`, the `eject` command): the same
+    stop, but refused with `EBUSY` while a file is open on the volume or a
+    task's working directory is in it (`HOLDERS`, op 6, names each task
+    (by its program) and path from the descriptor tables and the open-file
+    registry, mappings included; at most 64 of each, control characters
+    shown as `?`). `LIST`, `STOP` and `HOLDERS` are `mountd`'s (or root's):
+    by program, as the raw disk claim is, and a stop names the daemon's pid
+    with the id so a reused id is never stopped by mistake. `-f` / `force` stops anyway; its open files then fail with
+    `EIO`. The answer comes at once (`ejecting`); `Volumes` shows `ejected`
+    when the daemon has exited `0` after an eject, and only then may the
+    stick be pulled. A daemon that has not registered a mount (looking for a
+    volume, or none on the stick) has nothing to flush and is ended outright.
+    An eject that takes more than 45 s is killed and shown as `failed`; a
+    final flush the stick refuses is exit `16` ("do not remove it").
+  - **Logout** and **shutdown** are stops with `force`: `mountd` asks each
+    daemon, waits for it (30 s after a logout; about 2 s at shutdown, inside
+    the 3 s `init` gives the service) and kills only what did not finish. A
+    disk that is gone has nothing left to flush and is killed at once.
+  - Nothing of this needs `usbd` to do anything: the flush of an eject is
+    the daemon's own `SYNCHRONIZE CACHE`. (START STOP UNIT is not sent: a
+    flash stick does not spin down.)
 - **A slow stick:** a failed read is that request's error alone, and the
   device's flush is sent only after something was written. The FUSE
   requests of a media mount have the block layer's patience (45 s, below its
@@ -353,8 +392,10 @@ disk, oldest out first.
 | End to end | QEMU with `qemu-xhci` and a `usb-storage` stick (MBR, ext2 `lazyhome`), the virtio boot disk and no home disk: log in on the console, write a file in `/home/user`, power off, boot again, read it back, power off; `e2fsck -fn` on the stick | `python tools/storage/run.py` |
 | Lifecycle (kernel) | `provider_suite` (lifecycle.rs, claims.rs): a dead slot is reused with nothing of the old disk visible; live, scanned and claimed slots are kept; a stale generation never reaches a new disk; a stale provider handle is refused; a kernel-mounted disk is pinned; claim cycle (exclusive, generation-bound, released by death); the raw syscalls' gate (uid, capability, program) and hostile lengths; 400 plug/claim/write/unplug rounds in one slot | `LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none` |
 | FAT volume | `fatvol`: FAT12/16/32, long and Unicode names, rename/truncate/sparse writes, write coalescing, the clean flag, a power cut after every write, 900 files through the cache, damaged boot sectors, tables and directory entries (no panic, no hang), MBR/GPT discovery, a model soak | `cargo test -p fatvol` (`--release soak -- --ignored` for the long one) |
-| Automount rules | `mounttable::volumes`: one daemon per plug, session ownership, logout stops, no retry of a non-FAT stick | `cargo test -p mounttable` |
-| End to end (FAT) | The stick is plugged in over QMP, mounted at `/media/MY_STICK`, read, written, pulled, plugged in again, then read on the host with the same library and `fsck.fat -n` (Docker, when present) | `python tools/storage/fat_run.py` |
+| Automount rules | `mounttable::volumes`: one daemon per plug, session ownership, logout asks and then insists, no retry of a non-FAT stick, eject ownership and its deadline | `cargo test -p mounttable` |
+| Eject (kernel) | `fuse_suite` (eject.rs): the media listing, stop and its refusal of new requests, a queued request answered first, holders named (open file, mapping, working directory), force, the syscall gate and short buffers, a 1000-round stop/re-register soak | `LAZYOS_TEST_FILTER=fuse_eject python tools/test/run.py --accel none` |
+| Tray applet | `xui_app::removable`: the baseline is silent, arrival/eject/removal notices, coalescing, the menu and its actions, refusals, the drawn mask (Linux/WSL: `cargo test --lib removable` in `xui-app`). Desktop session: plug, tooltip and `Attention`, Open in Files, a refused eject from inside the volume, a clean eject, an unsafe pull; screenshots read | `python tools/storage/removable_run.py` |
+| End to end (FAT) | The stick is plugged in over QMP, mounted at `/media/MY_STICK`, read, written, pulled, plugged in again, written and ejected (refused from inside, then clean), plugged in a third time and powered off with the volume mounted; then read on the host with the same library and `fsck.fat -n` (Docker, when present) | `python tools/storage/fat_run.py` |
 
 ## Not done
 
@@ -365,8 +406,8 @@ disk, oldest out first.
 - Re-mounting an *ext2* stick that was unplugged and plugged back in (a
   home stick, or a data stick): it comes back as a new disk, unmounted. FAT
   volumes are remounted by the automount.
-- A kernel mount/unmount op for ext2 data sticks, an eject that flushes and
-  unmounts first, exFAT, a Files "Devices" place and the tray applet
-  (docs/usb-hotplug-plan.md P4, P7, P8).
+- A kernel mount/unmount op for ext2 data sticks (and so an eject of one),
+  exFAT, a Files "Devices" place (docs/usb-hotplug-plan.md P4, P8). An eject
+  today is FAT only, through `mountd`.
 - Booting the kernel itself from the stick is the bootloader's business
   (real-pc-boot-plan.md); this only serves `/home`.
