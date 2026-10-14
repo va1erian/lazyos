@@ -4,7 +4,8 @@
 // lzw_launcher_event for every process it starts, collects and kills, so no WebProcess or
 // NetworkProcess comes or goes without a line, and the process a NetworkProcess replaced (WebKit's 6 s
 // responsiveness timeout kills the busy one and starts another) is known here too. Shutdown works
-// from that list, not only from the two ids WebKit still answers with at the end.
+// from that list alone, and signals through the launcher (`lzw_launcher_signal`, under its lock): a
+// process that was collected, whose id may belong to another by now, is never named.
 //
 // Markers (after the window's prefix):
 //   PROCESS:LAUNCH:<web|network>:<pid>              the launcher forked it
@@ -14,20 +15,24 @@
 //                                                   thread could not wait for it, issue #859)
 //   PROCESS:TERMINATE:<type>:<pid>:group=<e>:pid=<e> WebKit's terminate(): errno of kill(-pid) and of
 //                                                   kill(pid) (-1: not tried), 0 when it was sent
+//   PROCESS:KEPT:<pid>:<n>                          patch 0021 keeps the dead web process's proxy
 //   CHILD:<name>:<pid>:GONE|ALIVE:term=<rc>:kill=<rc>:wait=<rc>
 //                                                   the end: each rc is 0, or the errno negated; wait
-//                                                   is the pid it reaped, or the errno negated
+//                                                   is the pid it reaped, 0 for an id the kernel no
+//                                                   longer has, or -1 for one still there. During the
+//                                                   shutdown a child's end is this line, not an EXIT.
 
-#include <errno.h>
 #include <signal.h>
-#include <string.h>
-#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
+
+#include <WebKit/WKRunLoop.h>
 
 #include "engine.h"
 #include "lazyos_ui.h"
@@ -40,16 +45,9 @@ namespace {
 struct Child {
     int pid { 0 };
     std::string type;
+    // WebKit's terminate() signalled it: its collection is awaited (see `pumpReaping`).
+    bool terminating { false };
 };
-
-std::mutex registryLock;
-std::vector<Child> registry;
-// Ids of processes seen to end: WebKit's own answers (`E.webPid`) go on naming them, and the number
-// may belong to another process by shutdown. A launch of the same id takes it off again; the oldest
-// is dropped when the list is full. The stored ids are zeroed when their process is reported over, so
-// this is a second line of defence.
-std::vector<int> ended;
-constexpr size_t kEndedMax = 64;
 
 // Shutdown's view of one process.
 struct Target {
@@ -58,12 +56,26 @@ struct Target {
     bool gone { false };
     int term { 0 };
     int kill { 0 };
-    int wait { 0 };
+    int wait { -1 };
 };
+
+std::mutex registryLock;
+std::vector<Child> registry;
+// How many processes of each type the launcher has started (a launch of a reused id is a new process).
+unsigned webLaunches { 0 };
+unsigned networkLaunches { 0 };
+// The shutdown is under way: a child's end is recorded in `shutdownTargets` and printed with its
+// CHILD line, not as a PROCESS:EXIT.
+bool shuttingDown { false };
+std::vector<Target> shutdownTargets;
+
+constexpr long kPumpStepMs = 100;
+constexpr long kPumpGiveUpMs = 60000;
 
 constexpr long kGraceMs = 2000;
 constexpr long kGiveUpMs = 10000;
 constexpr long kStepMs = 100;
+constexpr int kMaxChildren = 32;
 
 long monotonicMs()
 {
@@ -72,101 +84,121 @@ long monotonicMs()
     return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
 }
 
-// Is the process gone? Collects it when it is ours to collect. One that is not (the launcher's
-// thread forked it, issue #859) is gone when the kernel has no such id; a zombie that nobody has
-// collected still answers kill(pid, 0), and stays "not gone" until it is.
-bool reap(Target& target)
+unsigned& launchCounter(const std::string& type)
 {
-    int status = 0;
-    const pid_t reaped = waitpid(target.pid, &status, WNOHANG);
-    if (reaped == target.pid) {
-        target.wait = static_cast<int>(reaped);
-        return target.gone = true;
-    }
-    if (reaped < 0) {
-        const int error = errno;
-        target.wait = -error;
-        if (error == ECHILD && ::kill(target.pid, 0) < 0 && errno == ESRCH)
-            target.gone = true;
-    }
-    return target.gone;
+    return type == "web" ? webLaunches : networkLaunches;
 }
 
-// SIGKILL to the process's group (the launcher made each its own) and to the process itself.
-int killProcess(const Target& target)
+// Sends `signal` to every live child through the launcher and files each answer in the matching target
+// as its `term` or `kill` code.
+void signalAll(int signal, bool group)
 {
-    int result = 0;
-    if (::kill(-target.pid, SIGKILL) < 0)
-        result = -errno;
-    if (::kill(target.pid, SIGKILL) < 0 && !result)
-        result = -errno;
-    return result;
+    int pids[kMaxChildren];
+    int codes[kMaxChildren];
+    const int live = lzw_launcher_signal(signal, group ? 1 : 0, pids, codes, kMaxChildren);
+    std::lock_guard<std::mutex> guard(registryLock);
+    for (int at = 0; at < live && at < kMaxChildren; ++at) {
+        for (Target& target : shutdownTargets) {
+            if (target.pid == pids[at])
+                (signal == SIGTERM ? target.term : target.kill) = codes[at];
+        }
+    }
 }
 
-// The processes still to end: the launcher's list, and the ids WebKit says that it never told us of.
-std::vector<Target> targets()
+bool anyTerminating()
 {
-    std::vector<Target> list;
-    {
-        std::lock_guard<std::mutex> guard(registryLock);
-        for (const Child& child : registry)
-            list.push_back({ child.type, child.pid });
+    std::lock_guard<std::mutex> guard(registryLock);
+    for (const Child& child : registry) {
+        if (child.terminating)
+            return true;
     }
-    auto known = [&list](int pid) {
-        for (const Target& target : list) {
-            if (target.pid == pid)
-                return true;
+    return false;
+}
+
+void reapTask(void*)
+{
+    lzw_launcher_reap();
+}
+
+std::atomic<bool> pumping { false };
+
+// A process that was sent SIGKILL is not collectable until the kernel has finished with it (a thread
+// inside a call ends it when the call returns): collecting it once, as the terminate is reported, finds
+// it still there and the next collection was the next process's end, a whole reload later, with its
+// memory charged all the while. So while a terminated process is awaited the launcher's collection runs
+// on the main thread (the thread that forked it) every 100 ms; WKRunLoop has no timer, a thread posts it.
+void pumpReaping()
+{
+    if (pumping.exchange(true))
+        return;
+    std::thread([] {
+        const long began = monotonicMs();
+        while (anyTerminating() && monotonicMs() - began < kPumpGiveUpMs) {
+            usleep(kPumpStepMs * 1000);
+            WKRunLoopCallOnMainThread(reapTask, nullptr);
         }
-        return false;
-    };
-    auto over = [](int pid) {
-        std::lock_guard<std::mutex> guard(registryLock);
-        for (int id : ended) {
-            if (id == pid)
-                return true;
-        }
-        return false;
-    };
-    const int web = E.webPid, network = E.networkPid;
-    if (web > 0 && !known(web) && !over(web))
-        list.push_back({ "web", web });
-    if (network > 0 && !known(network) && !over(network))
-        list.push_back({ "network", network });
-    return list;
+        pumping = false;
+        // A terminate that came while this thread was ending found `pumping` set and started nothing.
+        if (anyTerminating())
+            pumpReaping();
+    }).detach();
 }
 
 } // namespace
+
+bool processLive(const char* type, int pid)
+{
+    std::lock_guard<std::mutex> guard(registryLock);
+    for (const Child& child : registry) {
+        if (child.pid == pid && child.type == type)
+            return true;
+    }
+    return false;
+}
+
+unsigned processLaunches(const char* type)
+{
+    std::lock_guard<std::mutex> guard(registryLock);
+    return launchCounter(type);
+}
 
 int shutdownChildren()
 {
     if (E.page && E.context)
         rememberChildren();
-    std::vector<Target> list = targets();
-    for (Target& target : list)
-        target.term = ::kill(target.pid, SIGTERM) < 0 ? -errno : 0;
+    {
+        std::lock_guard<std::mutex> guard(registryLock);
+        shuttingDown = true;
+        for (const Child& child : registry)
+            shutdownTargets.push_back({ child.type, child.pid });
+    }
+    signalAll(SIGTERM, false);
 
-    // A grace period for the processes to flush and exit, then SIGKILL, repeated every step: a thread
-    // that is inside the kernel is not killed until the call returns (issue #858).
+    // A grace period for the processes to flush and exit, then SIGKILL of each group, repeated every
+    // step: a thread that is inside the kernel is not killed until the call returns (issue #858).
+    // Collecting is the launcher's (under its lock); each child's end arrives as an event.
     const long began = monotonicMs();
     for (;;) {
+        lzw_launcher_reap();
         bool all = true;
-        for (Target& target : list) {
-            if (!target.gone)
-                reap(target);
-            all = all && target.gone;
+        {
+            std::lock_guard<std::mutex> guard(registryLock);
+            for (const Target& target : shutdownTargets)
+                all = all && target.gone;
         }
         const long elapsed = monotonicMs() - began;
         if (all || elapsed >= kGiveUpMs)
             break;
-        if (elapsed >= kGraceMs) {
-            for (Target& target : list) {
-                if (!target.gone)
-                    target.kill = killProcess(target);
-            }
-        }
+        if (elapsed >= kGraceMs)
+            signalAll(SIGKILL, true);
         usleep(kStepMs * 1000);
     }
 
+    std::vector<Target> list;
+    {
+        std::lock_guard<std::mutex> guard(registryLock);
+        list = shutdownTargets;
+    }
     int left = 0;
     for (const Target& target : list) {
         say("CHILD:%s:%d:%s:term=%d:kill=%d:wait=%d", target.name.c_str(), target.pid, target.gone ? "GONE" : "ALIVE",
@@ -198,12 +230,7 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
                 }
             }
             registry.push_back({ pid, type });
-            for (size_t at = 0; at < ended.size(); ++at) {
-                if (ended[at] == pid) {
-                    ended.erase(ended.begin() + static_cast<long>(at));
-                    break;
-                }
-            }
+            ++launchCounter(type);
         }
         say("PROCESS:LAUNCH:%s:%d", type, pid);
         return;
@@ -213,32 +240,49 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
         return;
     }
     if (what == "terminate") {
+        {
+            std::lock_guard<std::mutex> guard(registryLock);
+            for (Child& child : registry) {
+                if (child.pid == pid && child.type == type)
+                    child.terminating = true;
+            }
+        }
+        pumpReaping();
         say("PROCESS:TERMINATE:%s:%d:group=%d:pid=%d", type, pid, detail, detail2);
         return;
     }
-    // exit / signal / vanish: no longer the launcher's to signal, and not ours to end. Said once:
-    // the main thread (reapChildren) and the launcher's reaper can both find the same process over.
+    // exit / signal / vanish: no longer the launcher's to signal, and not ours to end. The launcher
+    // reports each child once, under its lock: the reaper's thread and `lzw_launcher_reap` cannot both.
     bool known = false;
+    bool quiet = false;
     {
         std::lock_guard<std::mutex> guard(registryLock);
         for (size_t at = 0; at < registry.size(); ++at) {
-            if (registry[at].pid == pid) {
+            if (registry[at].pid == pid && registry[at].type == type) {
                 registry.erase(registry.begin() + static_cast<long>(at));
-                if (ended.size() >= kEndedMax)
-                    ended.erase(ended.begin());
-                ended.push_back(pid);
                 known = true;
                 break;
+            }
+        }
+        if (known && shuttingDown) {
+            quiet = true;
+            for (Target& target : shutdownTargets) {
+                if (target.pid == pid && target.name == type && !target.gone) {
+                    target.gone = true;
+                    target.wait = what == "vanish" ? 0 : pid;
+                }
             }
         }
     }
     if (!known)
         return;
-    // WebKit's answers go on naming a process after it ended: nothing may signal that id again.
+    // WebKit's answers go on naming a process after it ended: nothing may use that id again.
     int expected = pid;
     E.webPid.compare_exchange_strong(expected, 0);
     expected = pid;
     E.networkPid.compare_exchange_strong(expected, 0);
+    if (quiet)
+        return;
     if (what == "exit")
         say("PROCESS:EXIT:%s:%d:status=%d", type, pid, detail);
     else if (what == "signal")
@@ -248,10 +292,12 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
 }
 
 // WebKit's patch 0021 keeps the proxy of an ended web process alive (a leak of a few kilobytes each, for
-// a reason that is not found): the count is evidence of how many a run leaked.
+// a reason that is not found): the count is evidence of how many a run leaked. WebKit no longer knows
+// the process's id when it calls (it is cleared as the process is torn down): the page's last announced
+// id is the process that ended.
 void lzw_proxy_kept(int pid, int kept)
 {
-    webkitapp::say("PROCESS:KEPT:%d:%d", pid, kept);
+    webkitapp::say("PROCESS:KEPT:%d:%d", pid > 0 ? pid : webkitapp::E.webPidShown, kept);
 }
 
 // The ids of the page's WebProcess and of the NetworkProcess as last seen (0: none yet); any thread.

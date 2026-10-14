@@ -159,6 +159,10 @@ struct Inner {
 #[derive(Clone)]
 pub struct Blocker {
     inner: Arc<Mutex<Inner>>,
+    /// Held from the moment a settings snapshot is taken until it is saved, so two saves (a change
+    /// and `attach`'s) reach the store in the order their snapshots were taken: the newer wins. Taken
+    /// before `inner`, and never by the policy callback, which only takes `inner`.
+    saves: Arc<Mutex<()>>,
 }
 
 impl Blocker {
@@ -190,6 +194,7 @@ impl Blocker {
                 commands: None,
                 wake: None,
             })),
+            saves: Arc::new(Mutex::new(())),
         }
     }
 
@@ -206,6 +211,7 @@ impl Blocker {
     /// WebKit's main thread. The window is woken.
     pub fn attach(&self, persist: Arc<dyn Persist>) {
         let stored = persist.load();
+        let _saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
         let (wake, chosen) = {
             let mut guard = self.lock();
             guard.persist = Arc::clone(&persist);
@@ -221,7 +227,8 @@ impl Blocker {
             }
             (guard.wake.clone(), chosen)
         };
-        // A save may be a call to a service: with the lock released.
+        // A save may be a call to a service: with the settings lock released (`_saves` keeps another
+        // save from passing this one).
         if let Some(settings) = chosen {
             persist.save(&settings);
         }
@@ -258,6 +265,7 @@ impl Blocker {
     }
 
     fn change(&self, change: impl FnOnce(&mut Settings)) {
+        let _saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
         let (saved, persist) = {
             let mut guard = self.lock();
             let Inner {

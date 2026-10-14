@@ -194,6 +194,30 @@ extern "C" void lzw_launcher_reap()
         collectLocked(entry.first, entry.second);
 }
 
+// Signals every live child under the launcher's lock (the shutdown's SIGTERM and SIGKILL: a signal may
+// only name an id that is still the child's, never one that was collected and reused). With `group` the
+// child's process group first, the process itself if there is no such group. Fills `pids` and `codes`
+// (0: sent, else the errno negated) for up to `capacity` children, and returns how many are live.
+extern "C" int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capacity)
+{
+    Locker locker { s_childrenLock };
+    int count = 0;
+    for (auto& entry : liveChildren()) {
+        const pid_t pid = entry.key;
+        int code = 0;
+        if (group && kill(-pid, signal) == 0)
+            code = 0;
+        else
+            code = kill(pid, signal) == 0 ? 0 : -errno;
+        if (count < capacity) {
+            pids[count] = static_cast<int>(pid);
+            codes[count] = code;
+        }
+        ++count;
+    }
+    return count;
+}
+
 // Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
 // its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child; it
 // ends when its child is collected, by it or by anyone else, or when the id belongs to a newer launch.

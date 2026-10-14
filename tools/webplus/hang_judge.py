@@ -32,6 +32,10 @@ P = j.P
 PAGE = j.SITE + "/webplus/hang.html"
 #: Hang-and-Reload cycles after the first (tools/webplus/hang_session.py).
 CYCLES = 3
+#: The most the user memory charge may grow per Reload cycle, in MiB. The leak patch 0021 works around
+#: is of a proxy's kilobytes (a mapping's length counts, so they hide in the noise); what this bound
+#: catches is a whole process that was killed and never collected (120 MiB a cycle).
+QUOTA_SLOPE_MIB = 16
 READY = "hang:ready"
 SPINNING = "hang:spinning"
 
@@ -55,6 +59,35 @@ def in_order(text: str, patterns: list[str]) -> list[str]:
     return problems
 
 
+def quota_after_exits(text: str) -> list[int]:
+    """The user memory charge (MiB) of each `INFO:QUOTA` reading taken after a web process ended, one
+    per ending: the reading after a load that follows the process's collection, where an uncollected
+    process still shows. (Several readings after one ending count once, the first.)"""
+    readings = []
+    ended = False
+    for line in text.splitlines():
+        if re.search(rf"{P}:PROCESS:EXIT:web:", line):
+            ended = True
+        found = re.search(rf"{P}:INFO:QUOTA:user_memory_mib=(\d+)", line)
+        if found and ended:
+            readings.append(int(found.group(1)))
+            ended = False
+    return readings
+
+
+def judge_quota(text: str) -> list[str]:
+    """The charge must not climb by a process per Reload: at least CYCLES + 1 readings (one per Reload,
+    each after the process it replaced was collected), and the growth from the first to the last at most
+    QUOTA_SLOPE_MIB a cycle."""
+    used = quota_after_exits(text)
+    if len(used) < CYCLES + 1:
+        return [f"expected {CYCLES + 1} user memory readings taken after a web process ended, saw {used}"]
+    growth = used[-1] - used[0]
+    if growth > QUOTA_SLOPE_MIB * (len(used) - 1):
+        return [f"the user memory charge grew {growth} MiB over {len(used) - 1} Reloads ({used}): a process is not freed"]
+    return []
+
+
 def judge_hang(text: str) -> list[str]:
     problems: list[str] = []
     if f"{P}:HEARTBEAT:UP" not in text:
@@ -73,9 +106,11 @@ def judge_hang(text: str) -> list[str]:
     ])
     if sum(1 for _ in re.finditer(rf"{P}:TITLE:{re.escape(READY)}", text)) < 2:
         problems.append(f"the page did not load (and title itself {READY!r}) a second time after Reload")
+    # Every relaunch is announced, whatever id the kernel gave it (the lowest free slot is often the dead
+    # process's own): the first process, the Reload's, the cycles' (Stop starts none).
     ups = pids(text, "WEBPROCESS", "UP")
-    if len(set(ups)) < 2:
-        problems.append(f"Reload did not start a new process for the page: WEBPROCESS:UP pids {ups}")
+    if len(ups) < 2 + CYCLES:
+        problems.append(f"expected {2 + CYCLES} WEBPROCESS:UP (the first process, then one per Reload), saw {ups}")
     gone = re.findall(rf"{P}:WEBPROCESS:GONE:(\d+):(\w+)", text)
     for pid, why in gone:
         if why != "requested":
@@ -83,15 +118,15 @@ def judge_hang(text: str) -> list[str]:
     if len(gone) < 2 + CYCLES:
         problems.append(f"expected {2 + CYCLES} page processes ended on request (Reload, {CYCLES} more, Stop), saw {gone}")
     # Every web process that ended has its proxy kept (patch 0021) and counted, in order.
-    kept = [int(count) for count in re.findall(rf"{P}:PROCESS:KEPT:\d+:(\d+)", text)]
+    kept_lines = re.findall(rf"{P}:PROCESS:KEPT:(\d+):(\d+)", text)
+    kept = [int(count) for _, count in kept_lines]
     if kept != list(range(1, len(kept) + 1)) or len(kept) < len(gone):
         problems.append(f"the kept-proxy count {kept} does not follow the {len(gone)} web processes that ended")
-    # The UI process does not grow by more than a few cycles' worth while it keeps them: the quota reading
-    # after each load (a mapping's length counts, so a dead proxy's kilobytes are lost in it; what shows is a
-    # leak of whole mappings).
-    used = [int(mib) for mib in re.findall(rf"{P}:INFO:QUOTA:user_memory_mib=(\d+)", text)]
-    if used and max(used) > min(used) + 400:
-        problems.append(f"the user memory charge grew from {min(used)} to {max(used)} MiB over the run")
+    # ...and names the process that ended (not 0, not another one).
+    kept_pids = [pid for pid, _ in kept_lines]
+    if kept_pids != [pid for pid, _ in gone][:len(kept_pids)]:
+        problems.append(f"the kept proxies name processes {kept_pids}, the ones that ended were {[pid for pid, _ in gone]}")
+    problems += judge_quota(text)
     # The process that hung is the one that was ended: the UNRESPONSIVE and the GONE name the same pid.
     for stuck in pids(text, "WEBPROCESS", "UNRESPONSIVE"):
         if stuck not in [pid for pid, _ in gone]:

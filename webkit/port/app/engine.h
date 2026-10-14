@@ -68,6 +68,10 @@ struct Engine {
     // (nothing may signal an id that may be somebody else's by now).
     int webPidShown { 0 };
     int networkPidShown { 0 };
+    // How many web and network launches had been seen when the ids above were last announced: a launch
+    // since then is a new process even when it took the dead one's id.
+    unsigned webLaunchSeen { 0 };
+    unsigned networkLaunchSeen { 0 };
     // WebKit's run loop has begun to turn (the window's heartbeat does not time a loop that has not).
     std::atomic<bool> running { false };
     long navStartMs { 0 };
@@ -135,6 +139,11 @@ void installContextClient();
 const char* terminationReason(uint32_t reason);
 
 // ---- children.cpp: the engine processes the launcher started -----------------------------
+
+// Whether the launcher has started `type` ("web" or "network") process `pid` and not seen it end, and
+// how many of `type` it has started in all (children.cpp; any thread).
+bool processLive(const char* type, int pid);
+unsigned processLaunches(const char* type);
 
 // Ends every engine process (SIGTERM, then SIGKILL of the process group, retried for up to 10 s),
 // reaps them, and prints CHILD:<name>:<pid>:GONE|ALIVE:term=..:kill=..:wait=.. for each. Returns the

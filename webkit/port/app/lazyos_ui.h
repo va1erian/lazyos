@@ -302,6 +302,12 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
 // child can wait for it.
 void lzw_launcher_reap(void);
 
+// Implemented by WebKit's launcher: sends `signal` to every live child under the launcher's lock (to the
+// child's process group first when `group` is non-zero, then to the process). Fills `pids` and `codes` (0:
+// sent, else the errno negated) for up to `capacity` children and returns how many are live. The shutdown's
+// only way to signal: an id that was collected (and may be reused) is never named.
+int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capacity);
+
 // WebKit keeps the proxy of every web process that ended alive (patch 0021: destroying it aborts the UI
 // process); `kept` counts them since the start. Prints PROCESS:KEPT:<pid>:<kept>. Weak in WebKit.
 void lzw_proxy_kept(int pid, int kept);

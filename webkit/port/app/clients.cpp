@@ -75,10 +75,16 @@ void rememberChildren()
 {
     if (!E.page)
         return;
+    // A process is announced when WebKit names an id the launcher has started and not seen end, and the
+    // id is new or a launch has happened since the last announcement (the kernel gives the lowest free
+    // slot, so a replacement often takes the dead process's id). An id the launcher does not hold is a
+    // stale answer (WebKit names a process after it ended): not announced, not remembered.
     const int web = static_cast<int>(WKPageGetProcessIdentifier(E.page));
-    if (web > 0 && web != E.webPidShown) {
+    const unsigned webLaunches = processLaunches("web");
+    if (web > 0 && processLive("web", web) && (web != E.webPidShown || webLaunches != E.webLaunchSeen)) {
         E.webPid = web;
         E.webPidShown = web;
+        E.webLaunchSeen = webLaunches;
         say("WEBPROCESS:UP:%d", web);
         // A process the window has not heard of: whatever it was told of the last one (not answering)
         // does not hold for this one.
@@ -86,9 +92,12 @@ void rememberChildren()
     }
     WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
     const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
-    if (network > 0 && network != E.networkPidShown) {
+    const unsigned networkLaunches = processLaunches("network");
+    if (network > 0 && processLive("network", network)
+        && (network != E.networkPidShown || networkLaunches != E.networkLaunchSeen)) {
         E.networkPid = network;
         E.networkPidShown = network;
+        E.networkLaunchSeen = networkLaunches;
         say("NETWORKPROCESS:UP:%d", network);
     }
 }

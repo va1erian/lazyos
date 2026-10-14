@@ -38,7 +38,8 @@ namespace {
 // A crash (WebKit's CRASH is a SIGSEGV at 0xbbadbeef or an illegal instruction, an assertion or a pure
 // virtual call is SIGABRT) leaves no message anywhere on this system: the kernel says only which signal
 // ended the task. So the handler prints the signal, where it was (rip, rsp) and every word of the first
-// 16 KiB of the stack that points into the program's code, which a person reads with
+// 16 KiB of the stack (never past the top of this thread's stack, noted when the handler is installed)
+// that points into the program's code, which a person reads with
 // `addr2line -f -C -e <the unstripped program> <at>` (the program is not position independent: the words
 // are addresses as they are). The first frames below rsp are the crash's own; the callers follow (some
 // words are stale, as on any stack walked by scanning). It runs on its own stack (a stack overflow is
@@ -47,6 +48,10 @@ namespace {
 // process the way it ended without the handler, and returning re-raises the original signal.
 constexpr int kScanWords = 2048;
 constexpr int kScanPrint = 48;
+// Where the crashing thread's stack ends (a little above the frame that installed the handler; 0: not
+// known, so nothing is scanned). One word per thread of TLS, not a buffer.
+thread_local unsigned long stackTop = 0;
+constexpr unsigned long kStackTopMargin = 256;
 
 char* putText(char* at, const char* text)
 {
@@ -102,15 +107,31 @@ void reportCrash(int signal, siginfo_t* info, void* context)
     const unsigned long rsp = static_cast<unsigned long>(uc->uc_mcontext.gregs[REG_RSP]);
     const unsigned long rip = static_cast<unsigned long>(uc->uc_mcontext.gregs[REG_RIP]);
     putLine("signal", static_cast<unsigned long>(signal), ":base=", base, ":rip=", rip);
-    putLine("rsp", rsp, ":addr=", reinterpret_cast<unsigned long>(info ? info->si_addr : nullptr));
+    putLine("rsp", rsp, ":addr=", reinterpret_cast<unsigned long>(info ? info->si_addr : nullptr), ":top=", stackTop);
     const unsigned long* words = reinterpret_cast<const unsigned long*>(rsp);
+    // A stack pointer outside the stack (an overflow, a corrupt frame) scans nothing.
+    unsigned long available = 0;
+    if (stackTop > rsp && (stackTop - rsp) <= (64UL << 20))
+        available = (stackTop - rsp) / sizeof(unsigned long);
+    const int limit = available < static_cast<unsigned long>(kScanWords) ? static_cast<int>(available) : kScanWords;
     int printed = 0;
-    for (int i = 0; i < kScanWords && printed < kScanPrint; ++i) {
+    for (int i = 0; i < limit && printed < kScanPrint; ++i) {
         const unsigned long word = words[i];
         if (word > base && word < base + 0x8000000UL) {
             putLine("at", word);
             ++printed;
         }
+    }
+    // The handler is reset (SA_RESETHAND) and SIGABRT is blocked while it runs: unblock it and raise it
+    // again for a SIGABRT (so the exit status is the signal's, as without the handler), `_exit(134)`
+    // (128 + SIGABRT) if the system does not deliver it. Other signals re-fault on return.
+    if (signal == SIGABRT) {
+        sigset_t pending;
+        sigemptyset(&pending);
+        sigaddset(&pending, SIGABRT);
+        sigprocmask(SIG_UNBLOCK, &pending, nullptr);
+        raise(SIGABRT);
+        _exit(134);
     }
 }
 
@@ -129,8 +150,9 @@ void useCrashStack(char* stack, size_t size)
     sigaltstack(&alternate, nullptr);
 }
 
-void installCrashHandler()
+void installCrashHandler(const void* frame)
 {
+    stackTop = reinterpret_cast<unsigned long>(frame) + kStackTopMargin;
     useCrashStack(mainCrashStack, sizeof mainCrashStack);
     struct sigaction action = { };
     action.sa_sigaction = reportCrash;
@@ -149,6 +171,7 @@ void* windowThread(void* context)
 {
     auto* arguments = static_cast<Arguments*>(context);
     useCrashStack(windowCrashStack, sizeof windowCrashStack);
+    stackTop = reinterpret_cast<unsigned long>(__builtin_frame_address(0)) + kStackTopMargin;
     arguments->status = lzw_ui_main(arguments->argc, arguments->argv);
     lzw_engine_quit();
     return nullptr;
@@ -159,7 +182,7 @@ void* windowThread(void* context)
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
-    installCrashHandler();
+    installCrashHandler(__builtin_frame_address(0));
     // A WebProcess or NetworkProcess that dies (a crash, the OOM kill, a refused call it did not
     // survive) closes its end of the IPC socket; the next `write` here must be `EPIPE`, not a
     // SIGPIPE that ends the window with it. (WebKit sends with MSG_NOSIGNAL; the Rust half and any

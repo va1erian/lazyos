@@ -74,6 +74,60 @@ fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_somet
     assert!(!late.1.lock().unwrap().clone().unwrap().enabled);
 }
 
+/// A store whose first save waits for the test to let it finish, and which keeps every save in order.
+struct Gated {
+    saves: std::sync::Mutex<Vec<bool>>,
+    started: std::sync::mpsc::SyncSender<()>,
+    release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Persist for Gated {
+    fn load(&self) -> Settings {
+        Settings::default()
+    }
+    fn save(&self, settings: &Settings) {
+        let first = {
+            let mut saves = self.saves.lock().unwrap();
+            saves.push(settings.enabled);
+            saves.len() == 1
+        };
+        if first {
+            self.started.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+        }
+    }
+}
+
+#[test]
+fn a_change_made_while_attach_saves_is_saved_after_it() {
+    let (started, started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release) = std::sync::mpsc::channel();
+    let gated = Arc::new(Gated {
+        saves: std::sync::Mutex::new(Vec::new()),
+        started,
+        release: std::sync::Mutex::new(release),
+    });
+    // The user's choice before the store came (on) is what attach saves, slowly...
+    let blocker = Blocker::volatile();
+    blocker.set_enabled(true);
+    let attaching = {
+        let (blocker, gated) = (blocker.clone(), gated.clone());
+        std::thread::spawn(move || blocker.attach(gated))
+    };
+    started_rx.recv().unwrap();
+    // ...and a newer choice (off) made during that save must not be overtaken by it.
+    let changing = {
+        let blocker = blocker.clone();
+        std::thread::spawn(move || blocker.set_enabled(false))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    release_tx.send(()).unwrap();
+    attaching.join().unwrap();
+    changing.join().unwrap();
+    assert_eq!(*gated.saves.lock().unwrap(), vec![true, false]);
+    assert!(!blocker.settings().enabled);
+}
+
 #[test]
 fn attaching_a_store_wakes_the_window() {
     let blocker = Blocker::volatile();
