@@ -82,6 +82,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
                 // path: its doorbell wake (P1.3) must preempt ordinary work,
                 // as the sources' and the compositor's do.
                 task::raise_priority(me, task::PriorityClass::Interactive);
+                task::guard::mark_input(me);
                 0
             }
             Err(_) => negative(EBUSY),
@@ -107,6 +108,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
                 // console repaint loses keys. Raise it to the class of the
                 // multiplexer it would otherwise wait on, never lowering it.
                 task::raise_priority(me, task::PriorityClass::Interactive);
+                task::guard::mark_input(me);
                 id
             }
             Ok(Err(sources::Error::Full)) => negative(EBUSY),

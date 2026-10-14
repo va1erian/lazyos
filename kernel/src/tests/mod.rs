@@ -190,6 +190,7 @@ mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
 mod gpt_suite;
+mod guard_process_suite;
 mod guard_report_suite;
 mod guard_suite;
 mod hardening_suite;
@@ -264,8 +265,6 @@ const SUITE: &[&[(&str, Test)]] = &[
     arch_suite::CASES,
     preempt_lock_suite::CASES,
     irq_window_suite::CASES,
-    serial_suite::CASES,
-    forensics_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,
@@ -278,7 +277,6 @@ const SUITE: &[&[(&str, Test)]] = &[
     loader_suite::dynamic::CASES,
     sched_suite::CASES,
     guard_suite::CASES,
-    guard_report_suite::CASES,
     runq_suite::CASES,
     preempt_wake_suite::CASES,
     relax_suite::CASES,
@@ -382,6 +380,12 @@ const SUITE: &[&[(&str, Test)]] = &[
     sysinfo_klog_suite::CASES,
     wallclock_suite::CASES,
     timed_suite::CASES,
+    // Issue #857/#860/#861 suites: last, so their allocations (hundreds of
+    // forked tasks) do not change the heap the frame-counting suites above see.
+    serial_suite::CASES,
+    forensics_suite::CASES,
+    guard_report_suite::CASES,
+    guard_process_suite::CASES,
     // Runs the tick for ~15 s of real time: after the suites that step a
     // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
     // `task::ticks()` past their deadlines would expire early.

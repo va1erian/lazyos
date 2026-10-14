@@ -201,7 +201,26 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
         "execve of a program missing from the volume -> {code:#x}, expected -ENOENT"
     );
 
-    // Fill the table: the next spawn is EAGAIN, and freeing one slot fixes it.
+    // The kernel heap only grows: the first fill takes the frames it needs
+    // from the allocator for good (more or fewer depending on what ran
+    // before). A leak is what a second, identical fill still adds.
+    fill_the_table()?;
+    let frames_before = mem::frame_stats().live();
+    fill_the_table()?;
+    check!(
+        mem::frame_stats().live() <= frames_before,
+        "filling the table twice leaked frames: {frames_before} -> {}",
+        mem::frame_stats().live()
+    );
+    task::harness::switch_current(task::KERNEL_TASK);
+    task::harness::reset();
+    Ok(())
+}
+
+/// Fill the task table: the next spawn is `EAGAIN`, and freeing one slot
+/// fixes it; then reap everything through the parent so the address spaces
+/// are released (`harness::reset` only drops the task entries).
+fn fill_the_table() -> Result<(), String> {
     let mut fillers = Vec::new();
     while let Ok(slot) = task::spawn_child("fill", &service_suite::minimal_elf()) {
         fillers.push(slot);
@@ -221,8 +240,6 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
     let slot = native::spawn(fhs::bin::TOP, &service_suite::minimal_elf(), &["x"])
         .map_err(|e| format!("spawn after freeing a slot: errno {e}"))?;
     check!(task::is_child(slot), "the retry did not start a child");
-    // Reap everything through the parent so the address spaces are released
-    // (`harness::reset` only drops the task entries).
     fillers.push(slot);
     for slot in fillers {
         task::harness::finish(slot, 0);
@@ -231,13 +248,6 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
             "could not reap {slot}"
         );
     }
-    check!(
-        mem::frame_stats().live() <= frames_before,
-        "filling the table leaked frames: {frames_before} -> {}",
-        mem::frame_stats().live()
-    );
-    task::harness::switch_current(task::KERNEL_TASK);
-    task::harness::reset();
     Ok(())
 }
 
