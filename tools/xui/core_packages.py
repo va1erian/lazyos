@@ -163,6 +163,10 @@ CORE_APPS: dict[str, CoreApp] = {
     "video": xui_app("xui-video.elf", "video"),
     # About LazyOS: About LazyOS, with a real-time 3D renderer.
     "about": xui_app("xui-about.elf", "about"),
+    # Removable Drives, the tray applet over `mountd`'s volumes
+    # (docs/usb-hotplug-plan.md G): shipped with the USB stack
+    # (`LAZYOS_USB=1`).
+    "removable": xui_app("xui-removable.elf", "removable", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

@@ -128,10 +128,19 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
 TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
+# The removable-drives tray applet, shipped by a desktop with the USB stack
+# (`build_support/xui_embed.rs` USB_XUI_APPS).
+USB_APPS = [ROOT / "target" / "xui" / "xui-removable.elf"]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n
             for n in ("xui-network.elf", "xui-nettools.elf", "xui-netdrives.elf", "xui-printd.elf",
                       "xui-netstatus.elf")]
+
+
+def usb_desktop(args) -> bool:
+    """Whether this build ships the USB stack (`LAZYOS_USB=1`), which brings the
+    removable-drives tray applet."""
+    return bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
 
 
 def confirm(question: str) -> bool:
@@ -375,7 +384,8 @@ def main(argv: list[str]) -> int:
             # The simulated radio brings the stack, so the Network app (with
             # its Wi-Fi page) and the Network Status applet too.
             needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi_sim else [])
-                      + (TRAYDEMO_APPS if args.traydemo else []))
+                      + (TRAYDEMO_APPS if args.traydemo else [])
+                      + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
         if args.mail:

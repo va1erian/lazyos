@@ -922,6 +922,13 @@ sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 (`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
 `SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
 
+The **Removable Drives** applet (`os.lazy.removable`,
+`xui-app/src/bin/removable.rs`, shipped with `LAZYOS_USB=1` desktops) shows USB
+sticks: notices as the tooltip and `Attention`, the mounted count as a badge, a
+menu with Open and Eject per drive (`eject` is its command-line twin;
+[`docs/architecture/usb-storage.md`](docs/architecture/usb-storage.md)); its
+session is `python tools/storage/removable_run.py`.
+
 A package with `[entry] resident = true` is a *resident app*: it runs once
 per session, may live with no window (`xui_app::resident`: a windowless loop,
 windows opened on demand and closed to the tray), always has a tray icon (the
