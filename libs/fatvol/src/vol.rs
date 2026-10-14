@@ -110,11 +110,9 @@ fn to_errno(error: Error<Fault>) -> Errno {
         Error::InvalidFileNameLength => errno::ENAMETOOLONG,
         Error::UnsupportedFileNameCharacter | Error::InvalidInput => errno::EINVAL,
         Error::Io(Fault::ReadOnly) => errno::EROFS,
-        Error::Io(_)
-        | Error::UnexpectedEof
-        | Error::WriteZero
-        | Error::CorruptedFileSystem
-        | _ => errno::EIO,
+        Error::Io(_) | Error::UnexpectedEof | Error::WriteZero | Error::CorruptedFileSystem | _ => {
+            errno::EIO
+        }
     }
 }
 
@@ -252,11 +250,9 @@ impl<D: BlockIo> Volume<D> {
     fn path_of(&self, target: Target) -> Result<String, Errno> {
         match target {
             Target::Path(path) => Ok(String::from(path)),
-            Target::Node { ino, .. } => self
-                .inodes
-                .path(ino)
-                .map(String::from)
-                .ok_or(errno::ESTALE),
+            Target::Node { ino, .. } => {
+                self.inodes.path(ino).map(String::from).ok_or(errno::ESTALE)
+            }
         }
     }
 

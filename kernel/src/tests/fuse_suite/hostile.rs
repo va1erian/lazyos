@@ -144,8 +144,8 @@ pub fn death_mid_request() -> Result<(), String> {
         );
         // A re-registration of the name replaces the dead mount at once.
         let owner = with_fake(|f| f.owner);
-        let again =
-            fuse::register(owner, "t", MountFlags::default(), false).map_err(|e| format!("{e:?}"))?;
+        let again = fuse::register(owner, "t", MountFlags::default(), false)
+            .map_err(|e| format!("{e:?}"))?;
         with_fake(|f| {
             f.index = again;
             f.mode = Mode::Normal;

@@ -6,9 +6,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use fused::wire::{Op, Reply, Request, FLAG_NODE, MAX_PAYLOAD};
 
 use super::{
-    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, MEDIA_REQUEST_TICKS, REQUEST_TICKS,
-    SLICE_TICKS,
-    SLOTS,
+    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, MEDIA_REQUEST_TICKS,
+    REQUEST_TICKS, SLICE_TICKS, SLOTS,
 };
 use crate::fs::vfs::FsError;
 use crate::task::{self, wait::WaitQueue};

@@ -160,14 +160,21 @@ fn main() {
             let (disk, window) = open_image(args.get(1).unwrap_or_else(|| die("ls IMG [PATH]")));
             let mut vol = volume(&disk, window, false);
             let path = args.get(2).map_or("", String::as_str);
-            for entry in vol.readdir(path).unwrap_or_else(|e| die(&format!("errno {e}"))) {
+            for entry in vol
+                .readdir(path)
+                .unwrap_or_else(|e| die(&format!("errno {e}")))
+            {
                 let full = if path.is_empty() {
                     entry.name.clone()
                 } else {
                     format!("{path}/{}", entry.name)
                 };
                 let size = vol.lookup(Target::Path(&full)).map_or(0, |a| a.size);
-                println!("{} {size} {}", if entry.dir { 'd' } else { 'f' }, entry.name);
+                println!(
+                    "{} {size} {}",
+                    if entry.dir { 'd' } else { 'f' },
+                    entry.name
+                );
             }
         }
         Some("cat") => {

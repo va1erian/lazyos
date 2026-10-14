@@ -274,7 +274,8 @@ fn prepare(with_mnt: bool) -> Result<usize, String> {
 /// [`prepare`], then mount `/mnt/<name>` served by the fake in `mode`.
 fn setup_named(name: &str, mode: Mode, flags: MountFlags) -> Result<usize, String> {
     let owner = prepare(true)?;
-    let index = fuse::register(owner, name, flags, false).map_err(|e| format!("register: {e:?}"))?;
+    let index =
+        fuse::register(owner, name, flags, false).map_err(|e| format!("register: {e:?}"))?;
     *FAKE.lock() = Some(Fake {
         index,
         owner,

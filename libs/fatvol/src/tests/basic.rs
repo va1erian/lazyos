@@ -232,7 +232,12 @@ fn utimes_sets_the_modification_time_and_chmod_is_accepted() {
 #[test]
 fn dos_time_round_trips() {
     use crate::clock::{to_datetime, to_unix};
-    for unix in [315_532_800, NOW, 951_782_400 /* 2000-02-29 */, 4_354_819_198] {
+    for unix in [
+        315_532_800,
+        NOW,
+        951_782_400, /* 2000-02-29 */
+        4_354_819_198,
+    ] {
         let stamp = to_datetime(unix);
         // DOS time has two-second resolution.
         assert!((to_unix(stamp) - unix).abs() <= 1, "{unix} -> {stamp:?}");

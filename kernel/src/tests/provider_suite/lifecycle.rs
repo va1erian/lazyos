@@ -215,13 +215,17 @@ pub fn claim_cycle() -> Result<(), String> {
         provider::raw_read(id, daemon, 10, &mut back).map_err(|e| format!("read: {e:?}"))?;
         check!(back == data, "read back other bytes");
         provider::raw_flush(id, daemon).map_err(|e| format!("flush: {e:?}"))?;
-        check!(with_fake(|fake| fake.flushes) == 1, "the flush did not arrive");
+        check!(
+            with_fake(|fake| fake.flushes) == 1,
+            "the flush did not arrive"
+        );
         check!(
             provider::raw_read(id, daemon, 0, &mut [0u8; 100]) == Err(RawError::Range),
             "a partial sector"
         );
         check!(
-            provider::raw_read(id, daemon, SECTORS, &mut [0u8; SECTOR_SIZE]) == Err(RawError::Range),
+            provider::raw_read(id, daemon, SECTORS, &mut [0u8; SECTOR_SIZE])
+                == Err(RawError::Range),
             "past the end"
         );
         let mut big = vec![0u8; MAX_REQUEST_BYTES + SECTOR_SIZE];
@@ -259,7 +263,8 @@ pub fn claim_dies_with_its_task() -> Result<(), String> {
         provider::claim(id, generation, daemon).map_err(|e| format!("{e:?}"))?;
         provider::teardown_task(daemon);
         let next = daemon_task()?;
-        provider::claim(id, generation, next).map_err(|e| format!("not free after death: {e:?}"))?;
+        provider::claim(id, generation, next)
+            .map_err(|e| format!("not free after death: {e:?}"))?;
         Ok(())
     })();
     teardown();
@@ -287,7 +292,10 @@ pub fn kernel_mounted_disk_is_pinned() -> Result<(), String> {
             "a daemon claimed a kernel-mounted disk"
         );
         let listed = provider::list();
-        let info = listed.iter().find(|info| info.id == id).ok_or("not listed")?;
+        let info = listed
+            .iter()
+            .find(|info| info.id == id)
+            .ok_or("not listed")?;
         check!(info.claimed, "a kernel-mounted disk is listed as available");
         provider::remove(id, me).map_err(|e| format!("{e:?}"))?;
         let again = provider::register(me, SECTORS, true).map_err(|e| format!("{e:?}"))?;

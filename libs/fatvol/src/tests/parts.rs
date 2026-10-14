@@ -118,8 +118,12 @@ fn a_window_writes_only_inside_itself() {
     )
     .unwrap();
     vol.create("w.bin", 0o644, 0, 0).unwrap();
-    vol.write(fused::daemon::Target::Path("w.bin"), 0, &pattern(300_000, 4))
-        .unwrap();
+    vol.write(
+        fused::daemon::Target::Path("w.bin"),
+        0,
+        &pattern(300_000, 4),
+    )
+    .unwrap();
     vol.settle().unwrap();
     let after = disk.image();
     let (lo, hi) = (4096 * SECTOR, (4096 + 20_480) * SECTOR);
@@ -167,7 +171,10 @@ fn gpt_partitions_are_found() {
     let found = candidates(&mut dev).unwrap();
     // Every GPT entry is a candidate; the boot sector decides.
     assert_eq!(found.len(), 2);
-    let results: Vec<_> = found.iter().map(|&w| open_window(&disk, w).is_ok()).collect();
+    let results: Vec<_> = found
+        .iter()
+        .map(|&w| open_window(&disk, w).is_ok())
+        .collect();
     assert_eq!(results, [false, true]);
 }
 

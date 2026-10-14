@@ -90,7 +90,15 @@ fn run(fat: u8, seed: u64, steps: usize) {
     let mut model = Model::default();
     model.dirs.insert(String::new());
     let mut rng = Rng(seed | 1);
-    let names = ["alpha", "beta", "gamma", "delta", "ep sil on.txt", "Zeta.DAT", "eta"];
+    let names = [
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "ep sil on.txt",
+        "Zeta.DAT",
+        "eta",
+    ];
     for step in 0..steps {
         let dirs: Vec<String> = model.dirs.iter().cloned().collect();
         let dir = dirs[rng.below(dirs.len())].clone();

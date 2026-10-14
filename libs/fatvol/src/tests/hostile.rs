@@ -118,8 +118,14 @@ fn garbage_is_not_a_volume() {
         let image: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
         assert_eq!(run_bounded(image, "random"), Outcome::Rejected, "len {len}");
     }
-    assert_eq!(run_bounded(alloc::vec![0; 1 << 20], "zeros"), Outcome::Rejected);
-    assert_eq!(run_bounded(alloc::vec![0xFF; 1 << 20], "ones"), Outcome::Rejected);
+    assert_eq!(
+        run_bounded(alloc::vec![0; 1 << 20], "zeros"),
+        Outcome::Rejected
+    );
+    assert_eq!(
+        run_bounded(alloc::vec![0xFF; 1 << 20], "ones"),
+        Outcome::Rejected
+    );
 }
 
 #[test]
@@ -141,7 +147,12 @@ fn damaged_boot_sectors_never_panic_or_hang() {
             }
         }
     }
-    assert!(panics.is_empty(), "{} panics:\n{}", panics.len(), panics.join("\n"));
+    assert!(
+        panics.is_empty(),
+        "{} panics:\n{}",
+        panics.len(),
+        panics.join("\n")
+    );
 }
 
 #[test]
@@ -165,7 +176,12 @@ fn damaged_allocation_tables_never_panic_or_hang() {
             }
         }
     }
-    assert!(panics.is_empty(), "{} panics:\n{}", panics.len(), panics.join("\n"));
+    assert!(
+        panics.is_empty(),
+        "{} panics:\n{}",
+        panics.len(),
+        panics.join("\n")
+    );
 }
 
 #[test]
@@ -194,7 +210,10 @@ fn a_directory_that_loops_ends() {
             image[entry..entry + 2].copy_from_slice(&(cluster as u16).to_le_bytes());
         }
         let outcome = run_bounded(image, "looping directory");
-        assert!(matches!(outcome, Outcome::Used | Outcome::Rejected), "{outcome:?}");
+        assert!(
+            matches!(outcome, Outcome::Used | Outcome::Rejected),
+            "{outcome:?}"
+        );
     }
 }
 
@@ -228,5 +247,10 @@ fn damaged_directory_entries_never_panic_or_hang() {
             }
         }
     }
-    assert!(panics.is_empty(), "{} panics:\n{}", panics.len(), panics.join("\n"));
+    assert!(
+        panics.is_empty(),
+        "{} panics:\n{}",
+        panics.len(),
+        panics.join("\n")
+    );
 }

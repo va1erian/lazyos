@@ -24,7 +24,11 @@ fn a_64k_write_costs_a_handful_of_device_requests() {
     let writes = disk.writes();
     // The data, the FAT sectors (both copies), the directory entry, the
     // dirty flag and FSInfo: far fewer than one request per FAT entry.
-    assert!(writes <= 16, "{writes} device writes: {:?}", disk.write_log());
+    assert!(
+        writes <= 16,
+        "{writes} device writes: {:?}",
+        disk.write_log()
+    );
     let sectors: usize = disk.write_log().iter().map(|&(_, n)| n).sum();
     assert!(sectors >= 128, "the data itself is 128 sectors");
 }
@@ -50,7 +54,11 @@ fn the_dirty_flag_is_set_while_changing_and_cleared_when_idle() {
         let torn = MemDisk::from_image(&disk.image());
         assert!(open(&torn, opts()).dirty_at_open());
         vol.settle().unwrap();
-        assert_eq!(disk.byte(dirty_byte(fat)) & 1, 0, "FAT{fat} clean when idle");
+        assert_eq!(
+            disk.byte(dirty_byte(fat)) & 1,
+            0,
+            "FAT{fat} clean when idle"
+        );
         let clean = MemDisk::from_image(&disk.image());
         assert!(!open(&clean, opts()).dirty_at_open());
         // The next request opens the volume again, and it works.
@@ -207,8 +215,8 @@ fn a_failed_read_is_that_requests_error_alone() {
     drop(vol);
     let mut vol = open(&disk, opts());
     vol.lookup(path("keep.txt")).unwrap(); // the directory is warm now
-    // The file's data is cold: the read that has to go to the stick fails
-    // once (a slow stick that timed out), and the next request is answered.
+                                           // The file's data is cold: the read that has to go to the stick fails
+                                           // once (a slow stick that timed out), and the next request is answered.
     disk.fail_next_reads(1);
     let mut buf = [0u8; 3000];
     assert_errno(vol.read(path("keep.txt"), 0, &mut buf), e::EIO);
@@ -255,6 +263,9 @@ fn a_failed_read_with_changes_waiting_ends_the_volume() {
     let mut buf = [0u8; 512];
     assert!(cache.read_at(8 * 512 * 40, &mut buf).is_err());
     assert_eq!(cache.failure(), Some(Fault::Io));
-    assert!(cache.flush_dirty().is_err(), "the half-done change was committed");
+    assert!(
+        cache.flush_dirty().is_err(),
+        "the half-done change was committed"
+    );
     assert_eq!(disk.writes(), 0);
 }

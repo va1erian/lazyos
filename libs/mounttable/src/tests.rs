@@ -363,7 +363,9 @@ mod volumes {
         v.plan(&[disk(1, 1)], Some(USER));
         v.started(1, 1, 4);
         let ended = v.exited(4, code::DAMAGED).unwrap();
-        assert!(matches!(&ended.state, State::Ended(Outcome::Failed(s)) if s.contains("cannot be read")));
+        assert!(
+            matches!(&ended.state, State::Ended(Outcome::Failed(s)) if s.contains("cannot be read"))
+        );
         assert!(v.exited(99, 0).is_none());
     }
 

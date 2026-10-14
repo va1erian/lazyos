@@ -97,7 +97,12 @@ pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
             "a task with no program claimed a disk"
         );
         // Near misses of the program path are other programs.
-        for path in ["fatfuse", "/system/bin/fatfuse2", "//system/bin/fatfuse", "/tmp/fatfuse"] {
+        for path in [
+            "fatfuse",
+            "/system/bin/fatfuse2",
+            "//system/bin/fatfuse",
+            "/tmp/fatfuse",
+        ] {
             task::linuxstate::record_program(bare, path);
             check!(
                 call(op::CLAIM, id64, generation, 0, 0) == failed(EPERM),
@@ -148,8 +153,13 @@ pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
             "past the end"
         );
         check!(
-            call(op::READ, id64, 0, ptr, (MAX_REQUEST_BYTES + SECTOR_SIZE) as u64)
-                == failed(EINVAL),
+            call(
+                op::READ,
+                id64,
+                0,
+                ptr,
+                (MAX_REQUEST_BYTES + SECTOR_SIZE) as u64
+            ) == failed(EINVAL),
             "longer than a request"
         );
         let previous = user_ptr::set_trust_kernel_pointers(false);
@@ -157,7 +167,10 @@ pub fn raw_syscalls_are_gated_and_checked() -> Result<(), String> {
         let bad_write = call(op::WRITE, id64, 0, 0x10, SECTOR_SIZE as u64);
         user_ptr::set_trust_kernel_pointers(previous);
         check!(bad == failed(14), "an unwritable buffer: {bad:#x}");
-        check!(bad_write == failed(14), "an unreadable buffer: {bad_write:#x}");
+        check!(
+            bad_write == failed(14),
+            "an unreadable buffer: {bad_write:#x}"
+        );
         sector.fill(0xA7);
         check!(
             call(op::WRITE, id64, 5, ptr, SECTOR_SIZE as u64) == SECTOR_SIZE as u64,

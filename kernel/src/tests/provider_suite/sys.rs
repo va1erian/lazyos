@@ -174,7 +174,13 @@ fn serve_sys(index: usize) {
     let record = req.as_mut_ptr() as u64;
     let got = if trick == Trick::BadRecord {
         let previous = user_ptr::set_trust_kernel_pointers(false);
-        let got = call(op::NEXT, provider::handle(index), 0x10, data.as_mut_ptr() as u64, cap);
+        let got = call(
+            op::NEXT,
+            provider::handle(index),
+            0x10,
+            data.as_mut_ptr() as u64,
+            cap,
+        );
         user_ptr::set_trust_kernel_pointers(previous);
         got
     } else {

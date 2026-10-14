@@ -204,7 +204,10 @@ fn open_volume(
     let mut probe = raw;
     let windows = candidates(&mut probe).map_err(|fault| match fault {
         Fault::Gone => (Failure::Lost, String::from("the disk went away")),
-        _ => (Failure::Damaged, String::from("cannot read the partition table")),
+        _ => (
+            Failure::Damaged,
+            String::from("cannot read the partition table"),
+        ),
     })?;
     if windows.is_empty() {
         return Err((Failure::NoVolume, String::from("no FAT volume on the disk")));
@@ -244,7 +247,10 @@ fn run() -> Result<(), Failed> {
         .ok_or_else(|| {
             (
                 Failure::Disk,
-                format!("usb{} generation {} is not there", opts.disk, opts.generation),
+                format!(
+                    "usb{} generation {} is not there",
+                    opts.disk, opts.generation
+                ),
             )
         })?;
     sys::block_claim(opts.disk, opts.generation).map_err(|e| match e {
@@ -299,12 +305,8 @@ fn run() -> Result<(), Failed> {
             }
         }
     }
-    let (mut mount, name) = registered.ok_or_else(|| {
-        (
-            Failure::Mount,
-            format!("every name of {base} is in use"),
-        )
-    })?;
+    let (mut mount, name) =
+        registered.ok_or_else(|| (Failure::Mount, format!("every name of {base} is in use")))?;
     trace::line!(
         trace::Channel::Fatfuse,
         "UP {}/{name} disk=usb{} fat={} {}",

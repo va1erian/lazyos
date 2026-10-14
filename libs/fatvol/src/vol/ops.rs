@@ -21,7 +21,8 @@ fn join(dir: &str, name: &str) -> String {
 /// format does (case-insensitively): `Docs/x` is inside `docs`.
 fn inside(path: &str, dir: &str) -> bool {
     let mut below = path.split('/');
-    dir.split('/').all(|part| below.next().is_some_and(|name| same_name(name, part)))
+    dir.split('/')
+        .all(|part| below.next().is_some_and(|name| same_name(name, part)))
 }
 
 fn same_name(a: &str, b: &str) -> bool {
@@ -105,7 +106,12 @@ impl<D: BlockIo> Volume<D> {
         Ok(())
     }
 
-    pub(super) fn read_file(&mut self, path: &str, offset: u64, out: &mut [u8]) -> Result<usize, Errno> {
+    pub(super) fn read_file(
+        &mut self,
+        path: &str,
+        offset: u64,
+        out: &mut [u8],
+    ) -> Result<usize, Errno> {
         let fs = self.fs()?;
         let mut file = Self::open_file(fs, path)?;
         let size = file.seek(SeekFrom::End(0)).map_err(to_errno)?;
@@ -124,7 +130,12 @@ impl<D: BlockIo> Volume<D> {
         Ok(done)
     }
 
-    pub(super) fn write_file(&mut self, path: &str, offset: u64, data: &[u8]) -> Result<usize, Errno> {
+    pub(super) fn write_file(
+        &mut self,
+        path: &str,
+        offset: u64,
+        data: &[u8],
+    ) -> Result<usize, Errno> {
         let fs = self.fs()?;
         let mut file = Self::open_file(fs, path)?;
         let size = file.seek(SeekFrom::End(0)).map_err(to_errno)?;
@@ -175,7 +186,11 @@ impl<D: BlockIo> Volume<D> {
         self.writable()?;
         let found = self.find(path)?;
         if found.dir != want_dir {
-            return Err(if want_dir { errno::ENOTDIR } else { errno::EISDIR });
+            return Err(if want_dir {
+                errno::ENOTDIR
+            } else {
+                errno::EISDIR
+            });
         }
         let fs = self.fs()?;
         fs.root_dir().remove(path).map_err(to_errno)?;
@@ -213,7 +228,11 @@ impl<D: BlockIo> Volume<D> {
             match self.find(to) {
                 Ok(target) => {
                     if target.dir != source.dir {
-                        return Err(if target.dir { errno::EISDIR } else { errno::ENOTDIR });
+                        return Err(if target.dir {
+                            errno::EISDIR
+                        } else {
+                            errno::ENOTDIR
+                        });
                     }
                     // The target is replaced, as `rename(2)` does; a
                     // directory only when it is empty (`remove` says so).
