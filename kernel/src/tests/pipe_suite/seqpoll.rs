@@ -8,7 +8,7 @@
 //! that follows it never fails with `EAGAIN`.
 
 use super::*;
-use crate::ipc::pipe::{Side, SocketPair, POLLOUT};
+use crate::ipc::pipe::{Side, SocketPair, POLLERR, POLLOUT};
 use crate::task::pollwait;
 use crate::task::wait::POLL;
 use crate::task::TaskState;
@@ -183,12 +183,13 @@ pub fn seqpacket_pollout_needs_room_for_a_frame() -> Result<(), String> {
     check!(buf[0] == 0xc3 && buf[PROMISED - 1] == 0xc3, "bytes");
     check!(writable_everywhere(a, epfd)?, "not writable after the read");
 
-    // A peer that is gone is POLLERR, never writable.
+    // A peer that is gone reports an error. (Linux reports EPOLLOUT|EPOLLHUP
+    // here; the sender learns of it from the EPIPE its next send gets.)
     check!(task::fd_close(b as usize), "close b");
     let revents = poll_fd(a, POLLOUT)?;
     check!(
-        revents & POLLOUT == 0,
-        "writable with no reader: {revents:#x}"
+        revents & POLLERR != 0,
+        "no error with no reader: {revents:#x}"
     );
     check!(
         task::fd_close(a as usize) && task::fd_close(epfd as usize),

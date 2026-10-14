@@ -332,8 +332,10 @@ impl Pipe {
         ring.has_data() || self.writers.load(Ordering::Acquire) == 0
     }
 
-    /// Whether the write end would make progress (space and a reader): what
-    /// `poll`, `select` and `epoll` call writable ([`Pipe::space_to_write`]).
+    /// Whether the write end would make progress (space and a reader), by the
+    /// same rule as [`Pipe::poll`]'s `POLLOUT` ([`Pipe::space_to_write`]);
+    /// `poll`, `select` and `epoll` go through `Pipe::poll`, this has no
+    /// production caller.
     pub fn writable(&self) -> bool {
         let ring = self.state.lock();
         self.space_to_write(&ring) && self.readers.load(Ordering::Acquire) > 0
@@ -443,10 +445,16 @@ impl Pipe {
 
 impl Pipe {
     /// A read took bytes: writers may go on (and the doorbell may ring).
-    fn after_read(&self, free_before: usize) {
+    /// `wake_pollers` says the read changed what `poll` reports for the write
+    /// end (always for a stream; for a seqpacket ring only when it became
+    /// writable); blocked writers are woken regardless, they retry with their
+    /// own frame size.
+    fn after_read(&self, free_before: usize, wake_pollers: bool) {
         self.write_events.fetch_add(1, Ordering::AcqRel);
         self.write_wq.notify_all();
-        crate::task::notify_poll_key(self as *const Self as u64);
+        if wake_pollers {
+            crate::task::notify_poll_key(self as *const Self as u64);
+        }
         self.bell_after_read(free_before);
     }
 }
