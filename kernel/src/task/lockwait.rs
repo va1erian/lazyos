@@ -14,7 +14,7 @@
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use super::{linuxstate, yieldlock, MAX_TASKS, TASKS};
+use super::{linuxstate, yieldlock, TaskState, MAX_TASKS, TASKS};
 
 /// A wait this long is worth a line.
 const WAIT_NS: u64 = 500_000_000;
@@ -54,14 +54,20 @@ fn sample_at(now: u64) {
         let tasks = TASKS.lock();
         let mut printed = PRINTED.lock();
         for slot in 1..MAX_TASKS {
+            // A slot without a live task has no wait to report, whatever a
+            // record says (it is cleared when a task ends; this is the belt).
+            let Some(task) = tasks[slot]
+                .as_ref()
+                .filter(|task| task.state != TaskState::Done)
+            else {
+                printed[slot] = 0;
+                continue;
+            };
             let Some((lock, holder, waited)) = yieldlock::waiting(slot, now) else {
                 printed[slot] = 0;
                 continue;
             };
             waiters += 1;
-            let Some(task) = tasks[slot].as_ref() else {
-                continue;
-            };
             let due = waited >= WAIT_NS
                 && (printed[slot] == 0 || now.saturating_sub(printed[slot]) >= REPEAT_NS);
             if !due || count == ROWS_MAX {

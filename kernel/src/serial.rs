@@ -6,11 +6,12 @@
 //! written, and the verdict is logged as `HW:COM1:PRESENT|ABSENT`.
 //!
 //! Output is queued in a ring and drained a transmit FIFO at a time
-//! ([`tx`]). No writer waits for room or for the ring to empty (issue #857):
-//! a full ring drops what does not fit and counts it, a program's terminal
-//! output ([`mirror`]) waits at most for its own last byte to go out, in
-//! chunks with interrupts let in between and for a bounded time, and the
-//! kernel task's loop ([`service`]) drains the rest and reports the drops.
+//! ([`tx`]). No writer ever waits for the ring to *empty* (issue #857): a full
+//! ring drops whole lines and counts them, a program's terminal output
+//! ([`mirror`]) waits for room, and then for its own last byte to go out, in
+//! chunks with interrupts let in between and for a bounded *time*, and the
+//! kernel task's loop ([`service`]) drains the rest while [`report`] says what
+//! was dropped.
 
 mod report;
 mod stamp;
@@ -102,13 +103,21 @@ pub fn present() -> bool {
 /// Most bytes a writer drains for its own line, however much it queued: the
 /// rest goes out from the kernel task, with interrupts on.
 const DRAIN_OWN_MAX: usize = 1024;
-/// Most rounds a program write drains for its own bytes (or for room): a
-/// ring's worth of chunks, so even a caller that cannot let a tick in ends.
+/// Most rounds the kernel task's drain runs per pass (a ring's worth of
+/// chunks), so even a caller that cannot let a tick in ends.
 const MIRROR_MAX_ROUNDS: usize = tx::Tx::CAPACITY / tx::CHUNK + 8;
-/// Ticks (10 ms) a program write waits for its own bytes to go out.
+/// Timer ticks (10 ms) of real time, measured on the TSC, a program write
+/// waits for its own bytes to go out.
 const MIRROR_WAIT_TICKS: u64 = 2;
-/// Ticks a program write waits for room in the ring before it drops lines.
+/// Ticks of real time a program write waits for room in the ring before it
+/// drops lines.
 const MIRROR_ROOM_TICKS: u64 = 5;
+/// Most bytes of one program write considered at all (the rest is dropped,
+/// counted): at 38400 baud a megabyte takes four minutes to send.
+const WRITE_MAX: usize = 1024 * 1024;
+/// Most bytes set aside at once while waiting for room: what the ring can
+/// hold for a program, so a huge write never costs a huge copy.
+const ASIDE_MAX: usize = tx::Tx::CAPACITY - stamp::PROGRAM_RESERVE;
 /// Ticks one pass of the kernel task's drain may take.
 const SERVICE_TICKS: u64 = 2;
 /// Bytes of backlog above which the kernel task asks for another pass soon
@@ -262,10 +271,30 @@ pub fn flush() {
 /// The last line of a panic: the ring is emptied first, so a kernel that
 /// filled it does not drop the line that says why it stopped (issue #857),
 /// and again after, so the line is out before the machine halts.
+///
+/// A panic can come from code that held the port: the panicking context is
+/// the only one that runs (one CPU), so a lock still held is never released
+/// by its holder, and waiting for it would hang the report. It is broken.
 pub fn final_line(args: fmt::Arguments) {
-    flush();
+    if SERIAL1.is_locked() {
+        // SAFETY: the holder is the context that panicked (or one it
+        // interrupted), which never resumes: nobody else uses the guard.
+        unsafe { SERIAL1.force_unlock() };
+    }
+    flush_final();
     _print(format_args!("{args}\n"));
+    flush_final();
+}
+
+/// [`flush`] for the last lines the machine prints (a panic, a power-off):
+/// then, if the ring dropped bytes since the last report, say so on the spot
+/// (`SERIAL:DROPPED`, no budget applies to the end of a run) and flush that.
+pub fn flush_final() {
     flush();
+    if let Some((bytes, total)) = report::take_for_final() {
+        _print(format_args!("SERIAL:DROPPED bytes={bytes} total={total}\n"));
+        flush();
+    }
 }
 
 /// Write one finished trace line (`trace.rs`): the serial port and, in a
@@ -280,8 +309,9 @@ pub fn write_trace(line: &[u8]) {
     if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
         let mut out = Stamped::kernel(&mut port.tx);
-        if out.lines(line) < line.len() {
-            out.drop_lines(line);
+        let taken = out.lines(line);
+        if taken < line.len() {
+            out.drop_lines(&line[taken..]);
         }
         port.drain_own(before);
     }
@@ -291,39 +321,66 @@ pub fn write_trace(line: &[u8]) {
 ///
 /// The whole lines that fit below the kernel's reserve are queued first, so
 /// `bytes` (user memory) is read before any window opens. What does not fit
-/// is copied aside and the writer waits for room, helping to drain the ring
-/// in [`tx::CHUNK`]s with interrupts let in between when the caller may sleep
-/// (`block::iowait::breathe`), for [`MIRROR_ROOM_TICKS`]; lines still without
-/// room then are dropped, whole, and counted (`SERIAL:DROPPED`). A caller
-/// with a fatal signal pending stops waiting at once.
+/// is copied aside, a ring's worth of whole lines at a time, and the writer
+/// waits for room, helping to drain the ring in [`tx::CHUNK`]s with
+/// interrupts let in between when the caller may sleep
+/// (`block::iowait::breathe`), for [`MIRROR_ROOM_TICKS`] of real time; lines
+/// still without room then are dropped, whole, and counted
+/// (`SERIAL:DROPPED`). A caller with a fatal signal pending stops waiting at
+/// once. At most [`WRITE_MAX`] bytes of one write are considered: at 38400
+/// baud more would take minutes to send, and a huge buffer is a linear scan
+/// with interrupts off.
 ///
 /// Then it drains until its *own last byte* has gone out, so output keeps its
 /// order with the kernel's own lines and a program that writes and then exits
 /// has been heard. It never waits for the ring to empty (issue #857: while
 /// anything else kept logging it never did, and the writer spun in the
-/// kernel, immune to `SIGKILL`). It gives up after [`MIRROR_WAIT_TICKS`],
-/// after [`MIRROR_MAX_ROUNDS`] chunks, or at once when the caller has a fatal
-/// signal pending; its bytes stay queued and the kernel task drains them. A
-/// write that queued nothing (all of it dropped) returns at once.
+/// kernel, immune to `SIGKILL`). It gives up after [`MIRROR_WAIT_TICKS`] of
+/// real time, or at once when the caller has a fatal signal pending; its
+/// bytes stay queued and the kernel task drains them. A write that queued
+/// nothing (all of it dropped) returns at once.
 pub fn mirror(bytes: &[u8]) {
     #[cfg(lazyos_dbgd)]
     crate::klog::push_program(bytes);
+    let (bytes, excess) = cap_write(bytes);
+    if excess > 0 {
+        count_dropped(excess);
+    }
     let Some((taken, start, mut end)) = queue_program(bytes) else {
         return;
     };
     let rest = &bytes[taken..];
     if !rest.is_empty() {
-        // Waiting lets other tasks run: keep our own copy of what is left.
-        let mut aside: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
-        if aside.try_reserve_exact(rest.len()).is_ok() {
-            aside.extend_from_slice(rest);
-            end = wait_for_room(&aside, end);
-        } else {
-            drop_program_lines(rest);
-        }
+        end = queue_waiting(rest, end);
     }
     if end != start {
         wait_for_own_bytes(end);
+    }
+}
+
+/// The part of a write that is considered: at most [`WRITE_MAX`] bytes, cut
+/// at a line end, and how many bytes were left out.
+fn cap_write(bytes: &[u8]) -> (&[u8], usize) {
+    if bytes.len() <= WRITE_MAX {
+        return (bytes, 0);
+    }
+    let cut = bytes[..WRITE_MAX]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(WRITE_MAX, |end| end + 1);
+    (&bytes[..cut], bytes.len() - cut)
+}
+
+/// The next piece of `rest` to set aside: whole lines, at most
+/// [`ASIDE_MAX`] bytes. `(len, skip)`: take `len` bytes, or (when the first
+/// line is longer than the ring may hold) drop the first `skip` bytes.
+fn next_chunk(rest: &[u8]) -> (usize, usize) {
+    if rest.len() <= ASIDE_MAX {
+        return (rest.len(), 0);
+    }
+    match rest[..ASIDE_MAX].iter().rposition(|&b| b == b'\n') {
+        Some(end) => (end + 1, 0),
+        None => (0, ASIDE_MAX),
     }
 }
 
@@ -337,19 +394,60 @@ fn queue_program(bytes: &[u8]) -> Option<(usize, usize, usize)> {
     Some((taken, start, port.tx.queued()))
 }
 
-/// Count `bytes` (whole lines) as dropped.
-fn drop_program_lines(bytes: &[u8]) {
+/// Count `bytes` as dropped.
+fn count_dropped(bytes: usize) {
     if let Some(port) = port().as_mut() {
-        Stamped::program(&mut port.tx).drop_lines(bytes);
+        port.tx.note_dropped(bytes);
     }
 }
 
-/// Queue `rest` line by line as room appears; what is left when the wait is
-/// over is dropped. Returns the queued mark after the last line taken (`end`
-/// if none was).
-fn wait_for_room(mut rest: &[u8], mut end: usize) -> usize {
-    let deadline = crate::task::ticks() + MIRROR_ROOM_TICKS;
-    for _ in 0..MIRROR_MAX_ROUNDS {
+/// TSC cycles in `ticks` timer ticks (a guess before the timer is calibrated).
+fn cycles_in_ticks(ticks: u64) -> u64 {
+    match crate::arch::clock::cycles_per_tick() {
+        0 => ticks * 30_000_000,
+        per_tick => per_tick * ticks,
+    }
+}
+
+/// Queue the lines of `rest` that did not fit, a chunk at a time as room
+/// appears, until the room deadline; what is left then is dropped. Returns
+/// the queued mark after the last line taken (`end` if none was).
+fn queue_waiting(mut rest: &[u8], mut end: usize) -> usize {
+    let deadline = crate::perf::rdtsc().saturating_add(cycles_in_ticks(MIRROR_ROOM_TICKS));
+    while !rest.is_empty() {
+        let (len, skip) = next_chunk(rest);
+        if len == 0 {
+            count_dropped(skip);
+            rest = &rest[skip..];
+            continue;
+        }
+        // Waiting lets other tasks run: keep our own copy of the chunk.
+        let mut aside: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+        if aside.try_reserve_exact(len).is_err() {
+            break;
+        }
+        aside.extend_from_slice(&rest[..len]);
+        rest = &rest[len..];
+        match wait_for_room(&aside, end, deadline) {
+            (mark, true) => end = mark,
+            (mark, false) => {
+                end = mark;
+                break;
+            }
+        }
+    }
+    if !rest.is_empty() {
+        count_dropped(rest.len());
+    }
+    end
+}
+
+/// Queue `chunk` line by line as room appears, until `deadline` (TSC) or a
+/// fatal signal. Returns the queued mark after the last line taken and
+/// whether the whole chunk went in; the lines left are counted as dropped.
+fn wait_for_room(chunk: &[u8], mut end: usize, deadline: u64) -> (usize, bool) {
+    let mut rest = chunk;
+    loop {
         if crate::task::signal::must_unwind(crate::task::current()) {
             break;
         }
@@ -364,21 +462,23 @@ fn wait_for_room(mut rest: &[u8], mut end: usize) -> usize {
             }
         }
         if rest.is_empty() {
-            return end;
+            return (end, true);
         }
-        if crate::task::ticks() >= deadline {
+        if crate::perf::rdtsc() >= deadline {
             break;
         }
         crate::block::iowait::breathe(crate::block::Wait::MaySleep);
     }
-    drop_program_lines(rest);
-    end
+    count_dropped(rest.len());
+    (end, false)
 }
 
-/// Help drain until the bytes queued up to `mark` have gone out.
+/// Help drain until the bytes queued up to `mark` have gone out, for at most
+/// [`MIRROR_WAIT_TICKS`] of real time (a port in back-off sends nothing, and
+/// the time, not a count of rounds, bounds the wait).
 fn wait_for_own_bytes(mark: usize) {
-    let deadline = crate::task::ticks() + MIRROR_WAIT_TICKS;
-    for _ in 0..MIRROR_MAX_ROUNDS {
+    let deadline = crate::perf::rdtsc().saturating_add(cycles_in_ticks(MIRROR_WAIT_TICKS));
+    loop {
         if crate::task::signal::must_unwind(crate::task::current()) {
             return;
         }
@@ -391,7 +491,7 @@ fn wait_for_own_bytes(mark: usize) {
             }
             None => true,
         };
-        if sent || crate::task::ticks() >= deadline {
+        if sent || crate::perf::rdtsc() >= deadline {
             return;
         }
         crate::block::iowait::breathe(crate::block::Wait::MaySleep);

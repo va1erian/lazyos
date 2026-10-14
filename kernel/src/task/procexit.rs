@@ -172,15 +172,41 @@ pub(super) fn note_exit(tasks: &[Option<Task>; MAX_TASKS], slot: usize, status: 
                 *sender = None;
             }
         }
-        if tables.len == EXITS {
-            tables.head = (tables.head + 1) % EXITS;
-            tables.len -= 1;
-            tables.lost += 1;
+        if tables.len == EXITS && !make_room(&mut tables, exit.sig == 0 && exit.status == 0) {
+            return; // a clean exit with nothing clean to replace: lost
         }
         let at = (tables.head + tables.len) % EXITS;
         tables.exits[at] = Some(exit);
         tables.len += 1;
     });
+}
+
+/// A full table needs room for one more exit: drop the oldest *clean* exit
+/// (a shell loop's `exit(0)`), and only if there is none the oldest of all, so
+/// a storm of clean exits never evicts a crash. A clean newcomer finding only
+/// abnormal exits is itself the one lost (returns false). Counts the loss.
+fn make_room(tables: &mut Tables, newcomer_clean: bool) -> bool {
+    let clean = |exit: &Option<Exit>| exit.is_some_and(|e| e.sig == 0 && e.status == 0);
+    let found = (0..tables.len).find(|&k| clean(&tables.exits[(tables.head + k) % EXITS]));
+    tables.lost += 1;
+    match found {
+        Some(k) => {
+            // Shift the entries after `k` down over it.
+            for i in k..tables.len - 1 {
+                let from = (tables.head + i + 1) % EXITS;
+                let to = (tables.head + i) % EXITS;
+                tables.exits[to] = tables.exits[from];
+            }
+            tables.len -= 1;
+            true
+        }
+        None if newcomer_clean => false,
+        None => {
+            tables.head = (tables.head + 1) % EXITS;
+            tables.len -= 1;
+            true
+        }
+    }
 }
 
 /// A value that prints as `-` when absent.
@@ -249,8 +275,19 @@ pub fn report() {
         }
         print(line);
     }
-    if lost > 0 && LOST.charge(now) != tracefmt::Charge::Deny {
-        crate::trace::line!(tracefmt::Channel::Proc, "LOST exits={lost}");
+    if lost > 0 {
+        match LOST.charge(now) {
+            tracefmt::Charge::Deny => {}
+            tracefmt::Charge::Allow => {
+                crate::trace::line!(tracefmt::Channel::Proc, "LOST exits={lost}");
+            }
+            tracefmt::Charge::AllowAfter(n) => {
+                crate::trace::line!(
+                    tracefmt::Channel::Proc,
+                    "LOST exits={lost} notices_suppressed={n}"
+                );
+            }
+        }
     }
 }
 

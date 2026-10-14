@@ -67,8 +67,11 @@ class SampleTests(unittest.TestCase):
 
 class LogNameTests(unittest.TestCase):
     def test_the_default_name_has_the_image_and_the_moment(self) -> None:
-        name = qemu_serial.default_log_name("target/lazyos.img", 86400 * 365)
-        self.assertRegex(name, r"^serial-lazyos-\d{8}-\d{6}\.log$")
+        name = qemu_serial.default_log_name("target/lazyos.img", 86400 * 365, pid=4242)
+        self.assertRegex(name, r"^serial-lazyos-\d{8}-\d{6}-4242\.log$")
+        self.assertTrue(qemu_serial.GENERATED.match(name))
+        # Two launches of one image in the same second differ by process.
+        self.assertNotEqual(name, qemu_serial.default_log_name("target/lazyos.img", 86400 * 365, pid=4243))
         other = qemu_serial.default_log_name("shots/other image.img", 86400 * 365)
         self.assertIn("serial-other_image-", other)
         self.assertNotEqual(name, other)
@@ -87,15 +90,19 @@ class LogNameTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
             for index in range(7):
-                log = folder / f"serial-a-{index}.log"
+                log = folder / f"serial-a-20260101-00000{index}-{index}.log"
                 log.write_text("x")
                 os.utime(log, (1000 + index, 1000 + index))
             (folder / "other.log").write_text("keep")
+            # A name the user gave with --serial-log is never ours to delete.
+            (folder / "serial-notes.log").write_text("mine")
+            os.utime(folder / "serial-notes.log", (1, 1))
             gone = qemu_serial.prune_logs(folder, keep=3)
             self.assertEqual(sorted(p.name for p in gone),
-                             [f"serial-a-{i}.log" for i in range(4)])
+                             [f"serial-a-20260101-00000{i}-{i}.log" for i in range(4)])
             self.assertTrue((folder / "other.log").exists())
-            self.assertEqual(len(list(folder.glob("serial-*.log"))), 3)
+            self.assertTrue((folder / "serial-notes.log").exists())
+            self.assertEqual(len(list(folder.glob("serial-a-*.log"))), 3)
 
 
 class TailTests(unittest.TestCase):
@@ -175,6 +182,10 @@ class IntegrityTests(unittest.TestCase):
         found = serial_integrity.problems(text)
         self.assertEqual(len(found), 2)
         self.assertIn("bytes=300", found[0])
+
+    def test_a_console_echo_of_the_marker_is_not_a_drop(self) -> None:
+        text = "$ grep SERIAL:DROPPED serial.log\nUsage: SERIAL:DROPPED lines mean...\n"
+        self.assertEqual(serial_integrity.problems(text), [])
 
     def test_the_judges_and_the_session_use_it(self) -> None:
         sys.path.insert(0, str(Path(__file__).resolve().parent / "boot"))

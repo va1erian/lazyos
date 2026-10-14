@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import re
 
-DROPPED = re.compile(r"SERIAL:DROPPED\b.*")
+DROPPED = re.compile(r"SERIAL:DROPPED bytes=\d+ total=\d+")
 
 
 def problems(text: str) -> list[str]:
     """One problem per ``SERIAL:DROPPED`` line (none for a complete log)."""
-    return [f"serial output was dropped, the log is incomplete: {m.group(0).strip()}"
+    return [f"serial output was dropped, the log is incomplete: {m.group(0)}"
             for m in DROPPED.finditer(text)]

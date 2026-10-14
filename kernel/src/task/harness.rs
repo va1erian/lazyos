@@ -103,6 +103,7 @@ pub fn reset() {
     drop(removed);
     for slot in 1..super::MAX_TASKS {
         crate::process::forget_task_args(slot);
+        super::yieldlock::forget_wait(slot);
     }
     // A reschedule a removed task's wake asked for has nobody to run: left
     // set, the next interrupt a test takes would switch to a slot that no

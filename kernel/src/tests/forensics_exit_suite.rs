@@ -237,6 +237,59 @@ fn soak_exits_overflow_the_table() -> Result<(), String> {
     Ok(())
 }
 
+/// A storm of clean exits that overflows the 64-entry ring does not evict the
+/// crash that came first; the clean ones are what is lost, and it is said.
+fn clean_exit_storm_keeps_the_crash() -> Result<(), String> {
+    fresh()?;
+    let crashed = fork()?;
+    linuxstate::with_extras_of(crashed, |extras| extras.term_signal = 11);
+    task::harness::finish(crashed, 139);
+    let mut batch = Vec::new();
+    for _ in 0..90 {
+        batch.push(fork()?);
+    }
+    for &child in &batch {
+        task::harness::finish(child, 0);
+    }
+    while task::reap_child().is_some() {}
+    let (pending, lost) = procexit::pending_for_test();
+    check!(
+        pending == 64 && lost >= 27,
+        "{pending} pending, {lost} lost: no overflow"
+    );
+    let text = captured(procexit::report);
+    check!(
+        text.contains(&format!("PROC:EXIT tgid={crashed} ")) && text.contains("sig=11"),
+        "the crash was evicted by clean exits: {} lines",
+        text.lines().count()
+    );
+    check!(
+        text.contains("PROC:LOST exits="),
+        "the loss was not said: {text:?}"
+    );
+    cleanup();
+    Ok(())
+}
+
+/// A process the kernel ends (a fault, the OOM killer, a hardening kill) says
+/// `by=kernel`.
+fn kernel_kills_say_by_kernel() -> Result<(), String> {
+    fresh()?;
+    let victim = fork()?;
+    let pml4 = task::harness::pml4(victim).ok_or("no address space")?;
+    let text = captured(|| {
+        signal::terminate_process(pml4, 128 + u64::from(signal::SIGSEGV));
+        procexit::report();
+    });
+    check!(
+        text.contains(&format!("PROC:EXIT tgid={victim} "))
+            && text.contains("status=- sig=11 by=kernel"),
+        "no `by=kernel` in {text:?}"
+    );
+    cleanup();
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "forensics_exit_137_is_a_status_not_a_signal",
@@ -261,5 +314,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "forensics_soak_exits_overflow_the_table",
         soak_exits_overflow_the_table,
+    ),
+    (
+        "forensics_clean_exit_storm_keeps_the_crash",
+        clean_exit_storm_keeps_the_crash,
+    ),
+    (
+        "forensics_kernel_kills_say_by_kernel",
+        kernel_kills_say_by_kernel,
     ),
 ];

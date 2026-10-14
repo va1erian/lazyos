@@ -88,7 +88,11 @@ pub(super) fn retire(tasks: &[Option<Task>; super::MAX_TASKS], slot: usize, task
         // busy process look a little less busy.
         if let Some(at) = at {
             let (_, ticks, users) = retired[at].unwrap_or((tgid, 0, 0));
-            retired[at] = Some((tgid, ticks.saturating_add(task.cpu_ticks), users + user));
+            retired[at] = Some((
+                tgid,
+                ticks.saturating_add(task.cpu_ticks),
+                users.saturating_add(user),
+            ));
         }
     });
 }
@@ -135,7 +139,9 @@ fn sample_at(now: u64) {
                     .map_or((0, 0), |p| (p.ticks, p.user));
                 let delta = usage.ticks.saturating_sub(before.0);
                 let user = usage.user.saturating_sub(before.1);
-                let percent = delta * 100 / elapsed;
+                // A process first seen after the table overflowed brings its
+                // whole life: never more than the CPU there is.
+                let percent = (delta * 100 / elapsed).min(100);
                 if percent >= BUSY_PERCENT {
                     busy = true;
                 }
