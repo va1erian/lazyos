@@ -97,7 +97,12 @@ fn print_first(nr: u64, sub: u64) {
     if sub == u64::MAX {
         crate::serial_println!("ENOSYS {} {}", nr, super::names::syscall_name(nr));
     } else {
-        crate::serial_println!("ENOSYS {} {} op {}", nr, super::names::syscall_name(nr), sub);
+        crate::serial_println!(
+            "ENOSYS {} {} op {}",
+            nr,
+            super::names::syscall_name(nr),
+            sub
+        );
     }
 }
 

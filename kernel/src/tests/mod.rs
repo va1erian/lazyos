@@ -228,6 +228,7 @@ mod registry_suite;
 mod relax_suite;
 mod runq_suite;
 mod sched_suite;
+mod serial_ring_suite;
 mod serial_suite;
 mod service_suite;
 mod signal_suite;
@@ -264,6 +265,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     preempt_lock_suite::CASES,
     irq_window_suite::CASES,
     serial_suite::CASES,
+    serial_ring_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,

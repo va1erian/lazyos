@@ -30,6 +30,12 @@ Exit status is non-zero on any failure.
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
+
 import argparse
 import re
 import sys
@@ -75,7 +81,7 @@ def judge(log: str, mode: str, desktop: bool = True) -> list[str]:
 
     `desktop` (an image with the ext2 OS volume, where `/logs` is writable)
     also requires `logd` to have persisted records."""
-    failures: list[str] = []
+    failures: list[str] = serial_integrity.problems(log)
     begin = log.find(ORDERED[0])
     if begin < 0:
         return [f"no {ORDERED[0]}: the shutdown never started"]

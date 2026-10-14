@@ -120,6 +120,9 @@ from session_pointer import (POINTER, TABLET_MAX, StepFailed, load_targets,  # n
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "net"))
 import qemu_net  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import serial_integrity  # noqa: E402
+
 _ACTIONS = {
     "shot", "type", "type_secret", "key", "keys", "key_down", "key_up", "mouse_move",
     "mouse_click", "mouse_down", "mouse_up", "mouse_scroll", "mouse_abs",
@@ -469,6 +472,12 @@ def main() -> int:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+    # A log with `SERIAL:DROPPED` cannot prove a marker was not printed.
+    dropped = serial_integrity.problems(serial.text())
+    if dropped and failure is None:
+        failure = dropped[0]
+        print(f"session FAILED: {failure}", file=sys.stderr, flush=True)
 
     summary = {
         "qemu": qemu,

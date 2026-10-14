@@ -31,6 +31,21 @@ fn line(bytes: usize) -> String {
     text
 }
 
+/// `count` program lines of `width` bytes each, numbered and ending in a
+/// newline: `PROG:0007:....`.
+pub(super) fn numbered_lines(count: usize, width: usize) -> String {
+    let mut text = String::new();
+    for index in 0..count {
+        let mut one = format!("PROG:{index:04}:");
+        while one.len() + 1 < width {
+            one.push('.');
+        }
+        one.push('\n');
+        text.push_str(&one);
+    }
+    text
+}
+
 /// Fill the ring with kernel lines until it holds at least `bytes`.
 fn fill_to(bytes: usize) {
     let text = line(200);
@@ -49,12 +64,15 @@ fn mirror_ends_on_a_stalled_port() -> Result<(), String> {
     serial::mirror(&[b'x'; 100]);
     let took = monotonic_ns() - start;
     let ran = serial::MIRROR_ROUNDS.load(Ordering::Relaxed) - rounds;
-    // The program may not fill the last 2 KiB: those bytes were dropped.
-    serial::mirror(&vec![b'y'; 8000]);
+    // The program may not fill the last 2 KiB: those lines were dropped.
+    serial::mirror(numbered_lines(80, 100).as_bytes());
     let held = serial::queued_len();
     let dropped = serial::dropped_total();
     drop(port);
-    check!(took < 500_000_000, "a write to a stalled port took {took} ns");
+    check!(
+        took < 500_000_000,
+        "a write to a stalled port took {took} ns"
+    );
     check!(
         ran > 0 && ran <= 600,
         "{ran} drain rounds against a port that never empties"
@@ -72,7 +90,7 @@ fn mirror_ends_on_a_stalled_port() -> Result<(), String> {
 /// and counted, never drained for room.
 fn kernel_lines_use_the_reserve() -> Result<(), String> {
     let port = serial::divert_for_test(0);
-    serial::mirror(&vec![b'p'; 3 * RING]);
+    serial::mirror(numbered_lines(3 * RING / 100, 100).as_bytes());
     let program_fill = serial::queued_len();
     serial::_write_str(&line(300));
     let with_line = serial::queued_len();
@@ -113,17 +131,17 @@ fn mirror_returns_to_a_killed_caller() -> Result<(), String> {
     let before = serial::MIRROR_ROUNDS.load(Ordering::Relaxed);
     serial::mirror(b"alive\n");
     let alive = serial::MIRROR_ROUNDS.load(Ordering::Relaxed) - before;
-    signal::send_to_slot(
-        task::KERNEL_TASK,
-        child,
-        signal::SIGKILL,
-        SigInfo::kernel(),
-    )
-    .map_err(|error| format!("SIGKILL: {error:?}"))?;
+    signal::send_to_slot(task::KERNEL_TASK, child, signal::SIGKILL, SigInfo::kernel())
+        .map_err(|error| format!("SIGKILL: {error:?}"))?;
     let killed = signal::killed(child);
     let before = serial::MIRROR_ROUNDS.load(Ordering::Relaxed);
     serial::mirror(b"dying\n");
     let rounds = serial::MIRROR_ROUNDS.load(Ordering::Relaxed) - before;
+    // ...nor while it waits for room in a full ring.
+    fill_to(RING - 100);
+    let before = serial::MIRROR_ROUNDS.load(Ordering::Relaxed);
+    serial::mirror(numbered_lines(40, 100).as_bytes());
+    let waiting = serial::MIRROR_ROUNDS.load(Ordering::Relaxed) - before;
     drop(port);
     task::harness::switch_current(task::KERNEL_TASK);
     task::harness::finish(child, 0);
@@ -133,6 +151,10 @@ fn mirror_returns_to_a_killed_caller() -> Result<(), String> {
     check!(alive > 0, "an unkilled write ran no rounds");
     check!(killed, "SIGKILL was not pending");
     check!(rounds == 0, "a killed caller drained for {rounds} rounds");
+    check!(
+        waiting == 0,
+        "a killed caller waited {waiting} rounds for room"
+    );
     Ok(())
 }
 
@@ -154,11 +176,12 @@ fn mirror_waits_for_its_own_bytes() -> Result<(), String> {
         "the write queued {} bytes",
         queued_after.wrapping_sub(queued)
     );
-    // Either everything went out, or the wait ended on its bound; but the
-    // sent sequence never ran past the queued one.
+    // The consumer takes 64 bytes a call and the backlog is 2000: the wait
+    // ends when the write's own last byte is out, and that is everything
+    // queued ahead of it.
     check!(
-        queued_after.wrapping_sub(sent_after) < RING,
-        "sent {sent_after} of {queued_after}"
+        sent_after == queued_after,
+        "sent {sent_after} of {queued_after}: the write returned before its last byte went out"
     );
     Ok(())
 }
@@ -287,7 +310,10 @@ fn flood_round(cap: usize, run_ns: u64, bound_ns: u64) -> Result<u64, String> {
             since => end.saturating_sub(since),
         })
         .collect();
-    let calls = [CALLS[0].load(Ordering::Relaxed), CALLS[1].load(Ordering::Relaxed)];
+    let calls = [
+        CALLS[0].load(Ordering::Relaxed),
+        CALLS[1].load(Ordering::Relaxed),
+    ];
     let slowest = [
         SLOWEST[0].load(Ordering::Relaxed).max(stuck[0]),
         SLOWEST[1].load(Ordering::Relaxed).max(stuck[1]),
@@ -323,7 +349,10 @@ fn flood_round(cap: usize, run_ns: u64, bound_ns: u64) -> Result<u64, String> {
     check!(held <= RING, "cap {cap}: the ring holds {held} bytes");
     check!(flooded > 0, "cap {cap}: the flooder never ran");
     if cap < 256 {
-        check!(dropped > 0, "cap {cap}: a flooded slow port dropped nothing");
+        check!(
+            dropped > 0,
+            "cap {cap}: a flooded slow port dropped nothing"
+        );
     }
     Ok(flooded)
 }
@@ -395,6 +424,8 @@ fn enosys_repeats_are_counted() -> Result<(), String> {
 /// table replaces its oldest entries, counts stay consistent (never more
 /// printed than counted), and nothing panics.
 fn soak_enosys_table_turns_over() -> Result<(), String> {
+    // ~8000 first-time lines: to a port that swallows them, not the real one.
+    let _port = serial::divert_for_test(usize::MAX);
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -432,8 +463,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("serial_drops_are_reported_once", drops_are_reported_once),
     ("serial_writers_survive_a_flood", writers_survive_a_flood),
-    ("serial_soak_floods_at_every_speed", soak_floods_at_every_speed),
-    ("serial_enosys_repeats_are_counted", enosys_repeats_are_counted),
+    (
+        "serial_soak_floods_at_every_speed",
+        soak_floods_at_every_speed,
+    ),
+    (
+        "serial_enosys_repeats_are_counted",
+        enosys_repeats_are_counted,
+    ),
     (
         "serial_soak_enosys_table_turns_over",
         soak_enosys_table_turns_over,
