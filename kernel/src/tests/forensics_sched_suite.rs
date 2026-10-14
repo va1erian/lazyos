@@ -109,6 +109,7 @@ fn stuck_ignores_blocked_and_interrupted_tasks() -> Result<(), String> {
     // `busy` runs user code and is preempted by an IRQ whose stub yields: the
     // saved frame is a kernel one, the one the CPU pushed on top is ring 3.
     task::harness_frames::set_preempted_in_irq(busy, 0x40_2000);
+    task::switch::set_yielding_for_test(busy, true);
     task::set_priority(busy, PriorityClass::Normal);
     let before = task::cpu_ticks(busy);
     for now in (1000..6000u64).step_by(50) {
@@ -131,6 +132,37 @@ fn stuck_ignores_blocked_and_interrupted_tasks() -> Result<(), String> {
         "a blocked or interrupted task is watched"
     );
     set_task_syscall_for_test(reader, None);
+    task::switch::set_yielding_for_test(busy, false);
+    cleanup();
+    Ok(())
+}
+
+/// A task that entered the kernel from user mode (a page fault, say) and
+/// loops in the handler is preempted by the timer, not by its own `yield_now`:
+/// the ring-3 frame on top of its stack does not make it "on its way back".
+fn stuck_reports_a_loop_in_an_exception_handler() -> Result<(), String> {
+    fresh()?;
+    let looper = fork()?;
+    task::harness_frames::set_preempted_in_irq(looper, 0x40_3000);
+    task::switch::set_yielding_for_test(looper, false);
+    stuck::sample_at_for_test(1000);
+    check!(
+        stuck::watched_for_test(looper).is_some(),
+        "a task preempted by the timer inside an exception handler was not watched"
+    );
+    let text = captured(|| stuck::sample_at_for_test(1200));
+    check!(
+        text.contains(&format!("SCHED:STUCK tgid={looper} ")) && text.contains("urip=0x403000"),
+        "no report with the user rip in {text:?}"
+    );
+    // Inside `yield_now` it is a different story.
+    task::switch::set_yielding_for_test(looper, true);
+    stuck::sample_at_for_test(1300);
+    check!(
+        stuck::watched_for_test(looper).is_none(),
+        "a task in yield_now is still watched"
+    );
+    task::switch::set_yielding_for_test(looper, false);
     cleanup();
     Ok(())
 }
@@ -200,6 +232,37 @@ fn repeated_acquisition_is_never_reported() -> Result<(), String> {
     }
     let reported = lockwait::sample_at_for_test(monotonic_ns() + 3_000_000_000);
     check!(reported.is_empty(), "reported {reported:?}");
+    cleanup();
+    Ok(())
+}
+
+/// A contender that is ended while parked in `lock` (a fault, the OOM killer,
+/// `terminate_process`) never leaves it: its record must go with it, or the
+/// slot is blamed for a wait forever and the record outlives the lock.
+fn an_ended_contender_leaves_no_wait_behind() -> Result<(), String> {
+    fresh()?;
+    let waiter = fork()?;
+    let bystander = fork()?;
+    const S: u64 = 1_000_000_000;
+    let now = 100 * S;
+    simulate_holder_for_test(&LOCK, Some(bystander));
+    simulate_wait_for_test(waiter, Some((&LOCK, now - 2 * S)));
+    check!(
+        lockwait::sample_at_for_test(now) == [waiter],
+        "the live waiter was not reported"
+    );
+    task::harness::finish(waiter, 137);
+    check!(
+        crate::task::yieldlock::waiting(waiter, now).is_none(),
+        "an ended task still waits for a lock"
+    );
+    check!(
+        lockwait::sample_at_for_test(now + 30 * S).is_empty(),
+        "an ended task was reported afterwards"
+    );
+    // The slot is born again: nothing of the old wait.
+    task::harness::reset();
+    simulate_holder_for_test(&LOCK, None);
     cleanup();
     Ok(())
 }
@@ -378,12 +441,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
         stuck_ignores_blocked_and_interrupted_tasks,
     ),
     (
+        "forensics_stuck_reports_a_loop_in_an_exception_handler",
+        stuck_reports_a_loop_in_an_exception_handler,
+    ),
+    (
         "forensics_soak_stuck_sampling_is_bounded",
         soak_stuck_sampling_is_bounded,
     ),
     (
         "forensics_lock_repeated_acquisition_is_never_reported",
         repeated_acquisition_is_never_reported,
+    ),
+    (
+        "forensics_lock_an_ended_contender_leaves_no_wait_behind",
+        an_ended_contender_leaves_no_wait_behind,
     ),
     (
         "forensics_lock_wait_reports_a_long_wait",

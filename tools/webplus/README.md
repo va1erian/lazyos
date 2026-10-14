@@ -63,7 +63,7 @@ issue #865).
    python tools/run_demo.py --lazywebplus --sample-port 5555
    ```
 
-   The serial output goes to `target/serial-<image>-<date>-<time>.log` (the newest ten are kept; `--serial-log FILE`
+   The serial output goes to `target/serial-<image>-<date>-<time>-<pid>.log` (the newest ten are kept; `--serial-log FILE`
    names one yourself) and the launcher tails it to its console from a thread, so a console that stops reading (a
    Windows selection, the GUI's reader) cannot stall the guest. The monitor stays on the console (`Ctrl-A x` quits;
    Ctrl-C is not a signal to QEMU, as with `mon:stdio`). `--serial-stdio` is the old single muxed device.
