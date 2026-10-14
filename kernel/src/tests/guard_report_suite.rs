@@ -54,9 +54,11 @@ fn summary_rows_are_per_process() -> Result<(), String> {
     let _peer = child(PriorityClass::Normal)?;
     picks(4 * WINDOW_TICKS as usize);
     let (first, _, _) = task::guard::collect_for_test(false);
+    // A process is named once, by whichever thread was demoted first; its
+    // other threads wait for the summary.
     check!(
-        first.contains(&leader) && first.contains(&second),
-        "each new task is named once: {first:?}"
+        usize::from(first.contains(&leader)) + usize::from(first.contains(&second)) == 1,
+        "a two-thread process was named {first:?}"
     );
     picks(6 * WINDOW_TICKS as usize);
     let (_, summary, _) = task::guard::collect_for_test(true);

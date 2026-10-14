@@ -195,6 +195,7 @@ mod gpt_suite;
 mod guard_process_suite;
 mod guard_report_suite;
 mod guard_suite;
+mod guard_window_suite;
 mod hardening_suite;
 mod heap_slab_suite;
 mod heap_suite;
@@ -392,6 +393,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     forensics_sched_suite::CASES,
     guard_report_suite::CASES,
     guard_process_suite::CASES,
+    guard_window_suite::CASES,
     // Runs the tick for ~15 s of real time: after the suites that step a
     // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
     // `task::ticks()` past their deadlines would expire early.

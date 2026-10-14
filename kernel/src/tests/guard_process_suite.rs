@@ -50,14 +50,21 @@ fn threads_share_one_budget() -> Result<(), String> {
     }
     let total = windows * WINDOW_TICKS as usize;
     check!(together, "the busy process was never demoted");
+    // The process may run 6 ticks of a window before it is demoted, and
+    // inside the class the stride scheduler shares per *thread*: the four
+    // threads reach their budget in about a window and a half of their fair
+    // share, so the lone task ends near 30% (it got a fifth with a budget per
+    // thread). A fair-share-per-process scheduler would make it 50%; this
+    // guard bounds a process, it does not equalise processes. The bounds
+    // below are that: better than per-thread, no worse than the budget.
     check!(
-        ran[peer] * 100 >= total * 26,
+        (25..=45).contains(&(ran[peer] * 100 / total)),
         "the single-threaded task ran {} of {total} ticks beside four busy threads",
         ran[peer]
     );
     let process_ticks: usize = threads.iter().map(|&slot| ran[slot]).sum();
     check!(
-        process_ticks * 100 >= total * 40,
+        process_ticks * 100 >= total * 55,
         "the four threads got only {process_ticks} of {total}: over-punished"
     );
     cleanup();
@@ -248,10 +255,15 @@ fn soak_mixed_processes() -> Result<(), String> {
     }
     let total = windows * WINDOW_TICKS as usize;
     let sum = |slots: &[usize]| slots.iter().map(|&slot| ran[slot]).sum::<usize>();
+    // Per-process accounting: the single task gets at least what one thread
+    // of the five-thread process gets, and the five threads together do not
+    // get five times that.
     check!(
-        ran[single] * 100 >= total * 2,
-        "the single task starved: {} of {total}",
-        ran[single]
+        ran[single] * big.len() >= sum(&big),
+        "the single task ran {} ticks, the five-thread process {} ({} a thread)",
+        ran[single],
+        sum(&big),
+        sum(&big) / big.len()
     );
     check!(
         sum(&big) + sum(&small) + ran[single] + ran[heavy] + ran[light] >= total * 95 / 100,

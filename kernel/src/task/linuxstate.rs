@@ -271,6 +271,8 @@ pub fn set_exe(path: &str) {
         task.linux.fs_group = 0;
         // The name is the new image's, as on Linux (`PR_SET_NAME` is lost).
         task.linux.comm = comm_of_path(path);
+        // ...and it is not the input path of the old one (`guard::mark_input`).
+        task.guard.clear_input();
         task.linux.exe.replace(new)
     });
     drop(old);

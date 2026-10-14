@@ -91,7 +91,10 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
         op::CLOSE => {
             let closed = bus::consumer_of(me).map(|id| bus::close(id, me));
             match closed {
-                Some(Ok(())) => 0,
+                Some(Ok(())) => {
+                    task::guard::unmark_input(me);
+                    0
+                }
                 _ => negative(EBADF),
             }
         }
@@ -128,7 +131,10 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             None => negative(ENOENT),
         },
         op::CLOSE_SOURCE => match sources::close(buf, me) {
-            Ok(()) => 0,
+            Ok(()) => {
+                task::guard::unmark_input(me);
+                0
+            }
             Err(_) => negative(EBADF),
         },
         _ => negative(EINVAL),

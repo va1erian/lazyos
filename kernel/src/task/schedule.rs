@@ -306,11 +306,9 @@ fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
         }
     }
     // The guard counts them too: a long syscall that runs with interrupts
-    // off was invisible to it. Bounded: a call that took a second is a window
-    // or two of budget, not a hundred.
-    for _ in 0..ticks.min(super::guard::WINDOW_TICKS * 2) {
-        super::guard::on_tick(tasks, cur, true);
-    }
+    // off was invisible to it. Bounded to one window boundary: a call that
+    // took a second is a window of budget, not a hundred (`on_window_ticks`).
+    super::guard::on_window_ticks(tasks, cur, ticks);
 }
 
 /// A tick landed in the code segment `code_segment` while `cur` was the

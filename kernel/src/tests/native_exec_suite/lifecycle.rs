@@ -206,11 +206,19 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
     // before). A leak is what a second, identical fill still adds.
     fill_the_table()?;
     let frames_before = mem::frame_stats().live();
+    // Frames can hide a leak inside heap the first fill already grew: the
+    // heap's own count of bytes handed out cannot.
+    let heap_before = mem::heap_stats().used;
     fill_the_table()?;
     check!(
         mem::frame_stats().live() <= frames_before,
         "filling the table twice leaked frames: {frames_before} -> {}",
         mem::frame_stats().live()
+    );
+    let heap_after = mem::heap_stats().used;
+    check!(
+        heap_after <= heap_before + 256 * 1024,
+        "filling the table twice leaked heap: {heap_before} -> {heap_after} bytes in use"
     );
     task::harness::switch_current(task::KERNEL_TASK);
     task::harness::reset();

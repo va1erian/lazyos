@@ -99,10 +99,12 @@ ISR that performs context switches.
   path (`guard::mark_input`: the input consumer and the drivers publishing to
   it), whose first 3 ticks of a window come from a separate pool of 3; a
   `Normal` *process* whose threads together ran more than 6 ticks of a window
-  has every thread demoted to `Background` until its end (issue #860; a
+  (one booking per process in a small per-window ledger) has its runnable
+  threads demoted to `Background` until its end; a thread asleep at that moment
+  joins on its first tick after waking (issue #860; a
   per-thread budget let N busy threads take N times a peer's share; ticks that
   land on a finished task are idle ticks, and ticks taken in interrupt windows
-  reach the guard like any other) (every other `Normal` task then outranks it, while it still runs when
+  reach the guard, at most one window boundary's worth (`guard::on_window_ticks`)) (every other `Normal` task then outranks it, while it still runs when
   nothing else wants the CPU, so a lone task loses nothing). `set_priority`
   and `raise_priority` cancel the pending restore, and a raise compares with
   the home class. Tasks that sleep most of each window are never touched.
