@@ -28,6 +28,14 @@ impl LockInfo {
     }
 }
 
+/// Forget that task `slot` waits for a lock: the task is ended (or the slot
+/// is born anew) and will never leave `lock` by itself.
+pub fn forget_wait(slot: usize) {
+    if let Some(record) = WAITING_FOR.get(slot) {
+        record.store(core::ptr::null_mut(), Ordering::Release);
+    }
+}
+
 /// Per slot, the lock it is waiting for (null: none) and since when
 /// (monotonic ns).
 static WAITING_FOR: [AtomicPtr<LockInfo>; MAX_TASKS] =
@@ -43,7 +51,8 @@ pub struct YieldMutex<T> {
 /// The guard of a [`YieldMutex`]; dropping it frees the lock and clears the
 /// holder.
 pub struct YieldGuard<'a, T> {
-    // Declared first: dropped last, after `Drop` has cleared the holder.
+    // `Drop::drop` clears the holder first; then the fields drop in
+    // declaration order, so the spin guard (the lock itself) goes next.
     inner: spin::mutex::MutexGuard<'a, T>,
     info: &'a LockInfo,
 }
@@ -151,18 +160,23 @@ impl<T> DerefMut for YieldGuard<'_, T> {
 /// The lock task `slot` is waiting for at `now_ns` (monotonic ns) and how long
 /// it has waited, or `None` if it waits for none.
 ///
-/// The record points into a lock the waiter borrows for as long as it waits
-/// (it clears the record before `lock` returns), so while the record is set
-/// the lock is alive; only its atomics are read.
+/// The record points into a lock the waiter borrows while it is parked in
+/// `lock`; `lock` clears it when it returns, and `process::finish_locked`
+/// ([`forget_wait`]) clears it when the task is ended wherever it stands (a
+/// fault, the OOM killer, `terminate_process`: a thread parked in `lock` then
+/// never resumes). Callers ask only about a slot whose task exists and is not
+/// `Done`, so while the record is set the waiter is parked inside `lock`,
+/// still borrowing the lock; only its atomics and name are read.
 pub fn waiting(slot: usize, now_ns: u64) -> Option<(&'static str, Option<usize>, u64)> {
     let lock = WAITING_FOR.get(slot)?.load(Ordering::Acquire);
     if lock.is_null() {
         return None;
     }
-    // SAFETY: see above: set by `YieldMutex::lock` while it borrows the lock
-    // and cleared before it returns; the caller holds the task table with
-    // interrupts off on one CPU, so the waiter cannot have moved on in
-    // between. Only atomics and a `&'static str` are read.
+    // SAFETY: see above: the record is set only while the task is parked in
+    // `YieldMutex::lock` borrowing the lock, and is cleared on return and on
+    // the task's end; the caller holds the task table with interrupts off on
+    // one CPU and has checked the task is live, so the lock is still alive.
+    // Only atomics and a `&'static str` are read.
     let info = unsafe { &*lock };
     let since = WAIT_SINCE_NS[slot].load(Ordering::Relaxed);
     Some((info.name, info.holder(), now_ns.saturating_sub(since)))

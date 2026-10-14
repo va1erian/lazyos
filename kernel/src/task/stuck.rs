@@ -9,11 +9,13 @@
 //! task that spins (it ran) from one that is starved (it did not).
 //!
 //! "Inside the kernel" is judged from the kernel stack, not from the saved
-//! frame alone: an interrupt stub's `preempt_point` switches a task out with a
-//! *kernel* frame saved while the task was only interrupted in user mode, and
-//! the frame the CPU pushed at the top of the stack is the ring-3 one. Such a
-//! task is not stuck; a task in a syscall (`irqoff::task_syscall`) or whose
-//! outermost frame is a kernel one is.
+//! frame alone: an interrupt stub's `preempt_point` switches a task out (in
+//! `yield_now`) with a *kernel* frame saved while the task was only
+//! interrupted in user mode, and the frame the CPU pushed at the top of the
+//! stack is the ring-3 one. Such a task is not stuck; a task in a syscall
+//! (`irqoff::task_syscall`), whose outermost frame is a kernel one, or that
+//! was preempted by the timer inside a handler it entered from user mode (it
+//! is not in `yield_now`) is.
 //!
 //! A task blocked in a syscall is not reported (a `read` may wait for
 //! minutes); neither is one in user mode.
@@ -111,9 +113,19 @@ fn sample_at(now: u64) {
                 None => {
                     // SAFETY: as above.
                     let (urip, user) = unsafe { signal::outer_user_frame(task.kstack_top, false) };
-                    // Interrupted in user mode, switched out inside a stub:
-                    // on its way back, not stuck.
-                    (urip, if user { 0 } else { 1 })
+                    // Interrupted in user mode and switched out by a stub's
+                    // `preempt_point` (it is inside `yield_now`): on its way
+                    // back, not stuck. Preempted by the timer while it ran
+                    // kernel code for that interrupt or exception (a #PF
+                    // handler that loops), it is.
+                    (
+                        urip,
+                        if user && super::switch::yielding(slot) {
+                            0
+                        } else {
+                            1
+                        },
+                    )
                 }
             };
             let entry = &mut watch[slot];
