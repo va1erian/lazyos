@@ -158,8 +158,9 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
    the blobs vanish and a revisit refetches what the inline path used to serve (the LazyWeb+ harness's
    cache-hit check fails). The shared-mmap body path itself is proven (`linux_filemap_cache_body_*`: create,
    `ftruncate`, `MAP_SHARED` write, `mprotect(PROT_READ)`, `msync`, unmap, read back, remount, a soak). So the
-   order is: hard links on ext2 (`link`/`linkat`, a real `st_nlink`, unlink's decrement is in `ext2fs`
-   already), then `fallocate`.
+   order is: hard links on ext2 (issue #871: an `ext2fs` link operation, VFS `link`, open-file and page-cache
+   identity by inode rather than path, `unlink_open` parking when `nlink > 1`, a real `st_nlink`; unlink's
+   decrement is in `ext2fs` already), then `fallocate` (`EOPNOTSUPP`).
 2. **Demand-paged, shared executables.** Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged
    in only where used, and a second WebProcess shares the first's text. Expected: exec in well under a second.
