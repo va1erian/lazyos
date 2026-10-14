@@ -39,7 +39,7 @@ impl<D: BlockIo> Slice<D> {
     fn check(&self, lba: u64, bytes: usize) -> Result<u64, Fault> {
         let sectors = (bytes / SECTOR) as u64;
         let end = lba.checked_add(sectors).ok_or(Fault::Eof)?;
-        if end > self.window.sectors || bytes % SECTOR != 0 {
+        if end > self.window.sectors || !bytes.is_multiple_of(SECTOR) {
             return Err(Fault::Eof);
         }
         self.window.start.checked_add(lba).ok_or(Fault::Eof)

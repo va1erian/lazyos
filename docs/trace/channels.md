@@ -38,7 +38,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `ELEVD` | `Elevd` | `elevd` | other, user | sessions, tools/accounts, tools/screenshot | programs |
 | `EMUSIC` | `Emusic` | `emusic` | emusic | sessions, tools/emusic | programs |
 | `FABMON` | `Fabmon` | `fabmon` | xui-app | sessions | programs |
-| `FATFUSE` | `Fatfuse` | `fatfuse` | user | tools/storage | programs |
+| `FATFUSE` | `Fatfuse` | `fatfuse` | user | sessions, tools/storage | programs |
 | `FAULT` | `Fault` | `fault` | kernel | tools/wifi | programs |
 | `FILES` | `Files` | `files` | xui-app | sessions, tools/fuse | programs |
 | `FS` | `Fs` | `fs` | kernel, kernel suite | tools/boot, tools/install | programs |
@@ -63,7 +63,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MIME` | `Mime` | `mime` | user | tools/services | programs |
 | `MIXER` | `Mixer` | `mixer` | user | tools/sound | programs |
 | `MODPLAY` | `Modplay` | `modplay` | lazyrad-os, user | sessions, tools/lazyrad, tools/sound | programs |
-| `MOUNTD` | `Mountd` | `mountd` | user | tools/fuse, tools/storage | programs |
+| `MOUNTD` | `Mountd` | `mountd` | user | sessions, tools/fuse, tools/storage | programs |
 | `MSG` | `Msg` | `msg` | kernel suite, lazyrad-os, xui-app | sessions, tools/rhai | programs |
 | `MSGBENCH` | `Msgbench` | `msgbench` | user | tools/perf | programs |
 | `MSGCTL` | `Msgctl` | `msgctl` | user | tools/services | programs |

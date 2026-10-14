@@ -91,8 +91,6 @@ fn make(args: &[String]) {
     let part = total - START;
     let fat = if fat != 0 {
         fat
-    } else if bytes >= 600 << 20 || part >= 1 << 20 {
-        32
     } else if bytes >= 64 << 20 {
         32
     } else {

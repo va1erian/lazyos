@@ -33,6 +33,7 @@ use alloc::vec::Vec;
 
 use fatfs::IoError;
 
+mod direct;
 mod stream;
 
 pub use stream::Shared;
@@ -212,7 +213,10 @@ impl<D: BlockIo> Cache<D> {
         if end > self.len_bytes() {
             return Err(Fault::Eof);
         }
-        if buf.len() >= BYPASS && at % SECTOR as u64 == 0 && buf.len() % SECTOR == 0 {
+        if buf.len() >= BYPASS
+            && at.is_multiple_of(SECTOR as u64)
+            && buf.len().is_multiple_of(SECTOR)
+        {
             return self.read_direct(at / SECTOR as u64, buf);
         }
         let mut done = 0;
@@ -241,7 +245,10 @@ impl<D: BlockIo> Cache<D> {
         if end > self.len_bytes() {
             return Err(Fault::Eof);
         }
-        if data.len() >= BYPASS && at % SECTOR as u64 == 0 && data.len() % SECTOR == 0 {
+        if data.len() >= BYPASS
+            && at.is_multiple_of(SECTOR as u64)
+            && data.len().is_multiple_of(SECTOR)
+        {
             return self.write_direct(at / SECTOR as u64, data);
         }
         let mut done = 0;
@@ -340,57 +347,6 @@ impl<D: BlockIo> Cache<D> {
     fn touch(&mut self) -> u64 {
         self.tick += 1;
         self.tick
-    }
-
-    fn read_direct(&mut self, lba: u64, buf: &mut [u8]) -> Result<(), Fault> {
-        for (index, chunk) in buf.chunks_mut(MAX_IO).enumerate() {
-            let at = lba + (index * MAX_IO / SECTOR) as u64;
-            self.stats.reads += 1;
-            if let Err(fault) = self.dev.read(at, chunk) {
-                return Err(self.read_failed(fault));
-            }
-        }
-        // What the device returned may predate sectors still waiting here.
-        self.overlay_dirty(lba, buf);
-        Ok(())
-    }
-
-    fn write_direct(&mut self, lba: u64, data: &[u8]) -> Result<(), Fault> {
-        for (index, chunk) in data.chunks(MAX_IO).enumerate() {
-            let at = lba + (index * MAX_IO / SECTOR) as u64;
-            self.stats.writes += 1;
-            if let Err(fault) = self.dev.write(at, chunk) {
-                return Err(self.fail(fault));
-            }
-            self.wrote = true;
-        }
-        // Cached copies of these sectors now hold the new bytes, clean.
-        for (n, sector_bytes) in data.chunks(SECTOR).enumerate() {
-            let sector = lba + n as u64;
-            let index = sector / PAGE_SECTORS;
-            let slot = (sector % PAGE_SECTORS) as usize;
-            if let Some(page) = self.pages.get_mut(&index) {
-                page.data[slot * SECTOR..(slot + 1) * SECTOR].copy_from_slice(sector_bytes);
-                page.valid |= 1 << slot;
-                if page.dirty & (1 << slot) != 0 {
-                    page.dirty &= !(1 << slot);
-                    self.dirty_bytes -= SECTOR;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn overlay_dirty(&self, lba: u64, buf: &mut [u8]) {
-        for (n, sector_bytes) in buf.chunks_mut(SECTOR).enumerate() {
-            let sector = lba + n as u64;
-            if let Some(page) = self.pages.get(&(sector / PAGE_SECTORS)) {
-                let slot = (sector % PAGE_SECTORS) as usize;
-                if page.dirty & (1 << slot) != 0 {
-                    sector_bytes.copy_from_slice(&page.data[slot * SECTOR..(slot + 1) * SECTOR]);
-                }
-            }
-        }
     }
 
     /// Make room for one more page: drop the least recently used clean one,
