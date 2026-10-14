@@ -1,5 +1,7 @@
-//! Transfers that bypass the pages: long aligned runs (a file's data) go
-//! straight to the device and back, with the cache only kept coherent.
+//! Transfers that bypass the pages: a long aligned read or write goes
+//! straight to the device, and the cached copies of its sectors are kept
+//! coherent (a read sees what is still waiting to be written; a write
+//! replaces the cached bytes, clean).
 
 use super::{BlockIo, Cache, Fault, MAX_IO, PAGE_SECTORS, SECTOR};
 
