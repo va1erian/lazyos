@@ -6,7 +6,7 @@ window (`tools/webkit/appjudge.py`, whose pixel helpers are used here):
 * **serial** - the window's markers (`WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`, `NAV`,
   `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,
   `FAIL`, `STOPPED`) and the UI process's (`UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`,
-  `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`): every page loaded with its title, the script's three
+  `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`; the launcher's `PROCESS:LAUNCH|EXIT|TERMINATE`): every page loaded with its title, the script's three
   dialogs were answered (the title carries the answers), what the script tried on its own was
   `BLOCKED` and nothing but the user's click started another program, the downloads finished whole;
 * **servers** - what the host's stand-in sites recorded (`tools/web/sites.py`): the pages, every
@@ -273,10 +273,33 @@ def judge_quit(text: str) -> list[str]:
         problems.append(f"the window did not close cleanly: no {P}:QUIT:PASS (saw {re.findall(rf'{P}:QUIT:\\w+', text)})")
     for name, kind in (("web", "WEBPROCESS"), ("network", "NETWORKPROCESS")):
         for pid in sorted(set(re.findall(rf"{P}:{kind}:UP:(\d+)", text))):
-            if f"{P}:CHILD:{name}:{pid}:GONE" not in text:
+            # Ended by the shutdown (a CHILD line), or earlier and collected (a PROCESS:EXIT line: a
+            # NetworkProcess WebKit replaced, a crashed page's process).
+            if f"{P}:CHILD:{name}:{pid}:GONE" not in text and not ended_earlier(text, name, pid):
                 problems.append(f"the {name} process {pid} was not seen to end: no {P}:CHILD:{name}:{pid}:GONE")
-    for alive in re.findall(rf"{P}:CHILD:\w+:\d+:ALIVE", text):
+    for alive in re.findall(rf"{P}:CHILD:\w+:\d+:ALIVE[^\r\n]*", text):
         problems.append(f"a child outlived the window: {alive}")
+    problems += judge_processes(text)
+    return problems
+
+
+def ended_earlier(text: str, name: str, pid: str) -> bool:
+    """The launcher saw the process end (or the kernel have no such id) before the window closed."""
+    return re.search(rf"{P}:PROCESS:EXIT:{name}:{pid}:(?:status=\d+|signal=\d+|gone)", text) is not None
+
+
+def judge_processes(text: str) -> list[str]:
+    """Every engine process the launcher started is accounted for (issue #862): it ended on its own
+    (`PROCESS:EXIT`) or the shutdown ended it (`CHILD:<name>:<pid>:GONE`), and a `terminate` that
+    sent nothing (neither the group's kill nor the process's) is a process left running unseen."""
+    problems = []
+    for name, pid in re.findall(rf"{P}:PROCESS:LAUNCH:(\w+):(\d+)\r?$", text, re.MULTILINE):
+        if f"{P}:CHILD:{name}:{pid}:GONE" not in text and not ended_earlier(text, name, pid):
+            problems.append(f"the {name} process {pid} was launched and never seen to end")
+    for name, pid, group, single in re.findall(
+            rf"{P}:PROCESS:TERMINATE:(\w+):(\d+):group=(-?\d+):pid=(-?\d+)", text):
+        if group != "0" and single != "0" and not ended_earlier(text, name, pid):
+            problems.append(f"WebKit's terminate of the {name} process {pid} sent no signal (group errno {group}, pid errno {single})")
     return problems
 
 

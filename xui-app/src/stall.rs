@@ -21,6 +21,7 @@
 //! through [`crate::trace`] (channel `ui`), whole, to the console device: an
 //! app started in the Terminal reaches `dbgctl` too, not its pty.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use crate::sys;
@@ -39,6 +40,31 @@ thread_local! {
     /// This thread's budget (the channel itself carries `UI:RECT` evidence
     /// that must never be dropped, so only the stall is limited).
     static RATE: Budget = const { Budget::new(BUDGET, WINDOW_TICKS) };
+}
+
+/// When the window loop's current pass began (the monotonic clock, ns); 0 between passes (parked or
+/// idle). A thread that is not the loop can read it, which is what a stall *in progress* needs: the
+/// `UI:STALL` line above is printed only when the work ends.
+static PASS_BEGAN: AtomicU64 = AtomicU64::new(0);
+
+/// The loop begins a pass: the stopwatch start for `finish`, and the time [`pass_age_ms`] counts from.
+pub fn begin_pass() -> u64 {
+    let now = sys::monotonic_ns().max(1);
+    PASS_BEGAN.store(now, Ordering::Release);
+    now
+}
+
+/// The loop's pass ended (it is about to park or sleep).
+pub fn end_pass() {
+    PASS_BEGAN.store(0, Ordering::Release);
+}
+
+/// How long the loop's current pass has run, in ms; `None` when it is between passes. Any thread.
+pub fn pass_age_ms() -> Option<u64> {
+    match PASS_BEGAN.load(Ordering::Acquire) {
+        0 => None,
+        began => Some(sys::monotonic_ns().saturating_sub(began) / 1_000_000),
+    }
 }
 
 /// A stopwatch start: the monotonic clock now (nothing in a `LAZYOS_TRACE=0`

@@ -11,8 +11,9 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use xui_app::platform::confd_store::ConfdStore;
@@ -48,38 +49,6 @@ const HANDOFF_WINDOW: Duration = Duration::from_millis(3000);
 /// The window size asked of the compositor: short enough that the status bar clears the taskbar of
 /// a 720p desktop.
 const WINDOW: (i32, i32) = (1000, 540);
-
-extern "C" {
-    /// `lazyos_ui.h`: runs `task(context)` once on WebKit's main thread and returns.
-    fn lzw_engine_run_on_main(task: extern "C" fn(*mut c_void), context: *mut c_void);
-}
-
-/// How long a call into the main thread is waited for. The main thread is WebKit's run loop, which
-/// only ever waits for the shell's answer (bounded) inside what is sent to it.
-const MAIN_WAIT: Duration = Duration::from_secs(3);
-
-/// Runs `job` on WebKit's main thread and returns what it returned; `None` when the thread did not
-/// get to it in [`MAIN_WAIT`] (the job then still runs, its answer unread).
-///
-/// The shell's notification service names an app by the task id of the sender, and a message from
-/// a thread other than the process's first carries the thread's id: the window's thread, and a
-/// worker's, are refused as "not an app". The first thread is WebKit's run loop, so the calls the
-/// window makes of that service are made there.
-fn on_main<T: Send + 'static>(job: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    extern "C" fn run(context: *mut c_void) {
-        // SAFETY: `context` is the pointer `Box::into_raw` made in `on_main`, handed over once.
-        let job = unsafe { Box::from_raw(context.cast::<Box<dyn FnOnce() + Send>>()) };
-        job();
-    }
-    let (answer, reply) = mpsc::channel();
-    let job: Box<dyn FnOnce() + Send> = Box::new(move || {
-        let _ = answer.send(job());
-    });
-    let context = Box::into_raw(Box::new(job)).cast::<c_void>();
-    // SAFETY: `run` takes the pointer back exactly once; the engine calls it once, on its thread.
-    unsafe { lzw_engine_run_on_main(run, context) };
-    reply.recv_timeout(MAIN_WAIT).ok()
-}
 
 /// What the three threads of the process share: made once, by whichever call comes first (the UI
 /// process asks for the profile directory before it starts the window).
@@ -122,7 +91,9 @@ fn shared() -> &'static Shared {
             internal: Internal::default(),
             profile,
             permissions,
-            blocker: Blocker::new(settings_store()),
+            // Without its store: `confd` is connected to off WebKit's main thread (the first caller of
+            // this is `lzw_ui_profile_dir`, which runs on it), and the settings attach afterwards.
+            blocker: Blocker::volatile(),
         }
     })
 }
@@ -279,99 +250,14 @@ pub unsafe extern "C" fn lzw_ui_notify_permission_at(
 }
 
 mod blocker;
+mod heartbeat;
 mod hosts;
-use blocker::{settings_store, CurlRunner};
+mod main_thread;
+mod shell;
+use blocker::{settings_store, stop_children, CurlRunner};
 use hosts::{LazyLauncher, LazyToaster};
-
-/// The shell's event channel for web notifications. Messenger handles belong to the thread that
-/// made them: this lives on WebKit's main thread (`on_main`), which is also the thread the shell
-/// accepts the app's calls from.
-struct Listening {
-    listener: Option<notify::Listener>,
-    retry_at: Option<Instant>,
-}
-
-thread_local! {
-    static LISTENING: RefCell<Listening> = const { RefCell::new(Listening { listener: None, retry_at: None }) };
-}
-
-impl Listening {
-    /// Asks for the event channel when there is none (before the first toast, so no event is
-    /// missed; again, a little later, when the shell restarted).
-    fn listen(&mut self) {
-        if self.listener.is_some() || self.retry_at.is_some_and(|at| Instant::now() < at) {
-            return;
-        }
-        match notify::listen() {
-            Ok(listener) => {
-                self.listener = Some(listener);
-                self.retry_at = None;
-            }
-            Err(_) => self.retry_at = Some(Instant::now() + Duration::from_secs(2)),
-        }
-    }
-
-    fn poll(&mut self) -> Vec<ShellEvent> {
-        self.listen();
-        let Some(listener) = self.listener.as_mut() else {
-            return Vec::new();
-        };
-        match listener.poll() {
-            Ok(events) => events
-                .into_iter()
-                .filter_map(|event| match event {
-                    notify::Event::Activated { id } => Some(ShellEvent::Activated { toast: id }),
-                    notify::Event::Closed { id, reason } => Some(ShellEvent::Closed {
-                        toast: id,
-                        reason: match reason {
-                            notify::CloseReason::User => Reason::User,
-                            notify::CloseReason::Timeout => Reason::Timeout,
-                            notify::CloseReason::Replaced => Reason::Replaced,
-                            notify::CloseReason::Sender => Reason::Sender,
-                            notify::CloseReason::Restart => Reason::Restart,
-                            notify::CloseReason::Muted => Reason::Muted,
-                            notify::CloseReason::Other => Reason::Other,
-                        },
-                    }),
-                    // A web notification offers no buttons of its own.
-                    notify::Event::Action { .. } => None,
-                })
-                .collect(),
-            Err(_) => {
-                // The shell's end is gone (it restarted): ask again.
-                self.listener = None;
-                Vec::new()
-            }
-        }
-    }
-}
-
-/// `os.lazy.notify`, for web notifications: posts them, and listens to what becomes of them. Every
-/// call is made on WebKit's main thread (`on_main`); this value is only the worker's handle.
-struct LazyShell;
-
-impl Shell for LazyShell {
-    fn post(&mut self, toast: &Toast) -> Result<u64, String> {
-        let notice = notify::Notice {
-            replaces: toast.replaces,
-            ..notify::Notice::new(notify::Level::Info, &toast.title, &toast.body)
-        };
-        on_main(move || {
-            LISTENING.with(|state| state.borrow_mut().listen());
-            notify::post(&notice)
-        })
-        .ok_or_else(|| String::from("the browser's main thread did not answer"))?
-        .map_err(|code| format!("errno {code}"))
-    }
-
-    fn close(&mut self, toast: u64) {
-        let _ = on_main(move || notify::close(toast));
-    }
-
-    fn poll(&mut self) -> Vec<ShellEvent> {
-        on_main(|| LISTENING.with(|state| state.borrow_mut().poll())).unwrap_or_default()
-    }
-}
+use main_thread::{on_main, on_main_detached};
+use shell::LazyShell;
 
 /// The history file, in the app's folder in the home; in memory without one.
 fn visits(shared: &Shared) -> Visits {
@@ -400,6 +286,7 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     backend.set_size_hints(420, 300, 0, 0);
     backend.on_first_frame(|| println!("WEBPLUS:UP:PASS"));
     let theme = backend.desktop_theme();
+    heartbeat::start();
     // The lists' worker: a thread that fetches and converts, started with the window. Nothing waits
     // for it: a page loads unblocked until a list is ready.
     if let Some(profile) = &shared.profile {
@@ -417,7 +304,21 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             now,
         );
         let commands = worker.spawn();
-        let _ = commands.send(BlockerCmd::Start);
+        // The settings' store first (a service that may take a while to come up), then the lists
+        // that settings leave on; on a thread of its own, since a Messenger call waits.
+        let blocker = shared.blocker.clone();
+        let opened = std::thread::Builder::new()
+            .name(String::from("confd"))
+            .spawn({
+                let commands = commands.clone();
+                move || {
+                    blocker.attach(settings_store());
+                    let _ = commands.send(BlockerCmd::Start);
+                }
+            });
+        if opened.is_err() {
+            let _ = commands.send(BlockerCmd::Start);
+        }
     } else {
         // No home folder, so nowhere for a list or the engine's store to live: say so, rather than
         // leaving the shield at "preparing" for ever.
@@ -470,8 +371,18 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             .expect("the LazyWebPlus window's widgets built")
     });
     backend.unbind();
-    c_int::from(xui_app::launch::finish(
+    // The list updater's `curl` must not outlive the window: the UI process exits with it.
+    let left = !stop_children();
+    if left {
+        crate::marker("CHILD:curl:ALIVE");
+    }
+    let status = c_int::from(xui_app::launch::finish(
         xui_app::trace::Channel::Webplus,
         outcome,
-    ))
+    ));
+    if status == 0 && left {
+        1
+    } else {
+        status
+    }
 }

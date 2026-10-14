@@ -40,6 +40,14 @@
 // has collected it, and both the collecting (waitpid with WNOHANG, polled: LazyOS has no
 // waitid with WNOWAIT to wait without reaping) and `terminateProcess`'s kill happen under one
 // lock, so a kill only ever reaches a child that is still running or a zombie.
+//
+// A child that the reaper's thread cannot wait for (until issue #859 a child belongs to the thread
+// that forked it, and this is not it: waitpid answers ECHILD) is not dropped for that: it stays
+// until the kernel has no such id, so terminate() still reaches it. Each child is its own process
+// group and asks to be killed with its parent (PR_SET_PDEATHSIG; refused with EINVAL until the
+// kernel supports it), so a kill of the group ends whatever it started. Every launch, exit and
+// terminate is reported to the embedder (`lzw_launcher_event`, webkit/port/app/children.cpp), which
+// prints one line for each (issue #862); without an embedder it goes to stderr.
 
 #include "config.h"
 #include "ProcessLauncher.h"
@@ -50,6 +58,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -70,7 +79,33 @@
 #error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
 #endif
 
+// The embedder's report (webkit/port/app/children.cpp). Weak: webkit-smoke and the other programs
+// that link WebKit without it print to stderr. type: "web" or "network"; event: "launch", "fail"
+// (detail: errno), "exit" (detail: status), "signal" (detail: signal), "vanish", "terminate"
+// (detail, detail2: errno of kill(-pid) and of kill(pid), 0 when sent, -1 when not tried).
+extern "C" __attribute__((weak)) void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2);
+
 namespace WebKit {
+
+static const char* typeName(ProcessLauncher::ProcessType type)
+{
+    switch (type) {
+    case ProcessLauncher::ProcessType::Network:
+        return "network";
+    case ProcessLauncher::ProcessType::Web:
+    default:
+        return "web";
+    }
+}
+
+static void report(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail = 0, int detail2 = 0)
+{
+    if (lzw_launcher_event) {
+        lzw_launcher_event(typeName(type), static_cast<int>(pid), event, detail, detail2);
+        return;
+    }
+    fprintf(stderr, "WebKit: %s process %d: %s %d %d\n", typeName(type), static_cast<int>(pid), event, detail, detail2);
+}
 
 // Where `init` finds the programs when the embedder did not say (WKContextConfigurationSetWebProcessPath).
 static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
@@ -98,24 +133,38 @@ static constexpr useconds_t reapPollInterval = 50 * 1000;
 
 // Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
 // its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child.
-static void reapInBackground(pid_t pid)
+static void reapInBackground(pid_t pid, ProcessLauncher::ProcessType type)
 {
-    Thread::create("ProcessLauncher reaper"_s, [pid] {
+    Thread::create("ProcessLauncher reaper"_s, [pid, type] {
         for (;;) {
             int status = 0;
             pid_t result;
+            int error = 0;
+            bool vanished = false;
             {
                 Locker locker { s_childrenLock };
                 result = waitpid(pid, &status, WNOHANG);
-                if (result == pid || (result == -1 && errno != EINTR))
-                    liveChildren().remove(pid); // reaped (or not ours any more): no kill may name it
+                error = result == -1 ? errno : 0;
+                if (result == -1 && error == ECHILD) {
+                    // Not ours to wait for (another thread forked it): it is over when the kernel
+                    // has no such id. Until then it stays in the list, so terminate() reaches it.
+                    vanished = kill(pid, 0) == -1 && errno == ESRCH;
+                }
+                if (result == pid || vanished || (result == -1 && error != EINTR && error != ECHILD))
+                    liveChildren().remove(pid); // reaped (or gone): no kill may name it
             }
             if (result == pid) {
                 if (WIFSIGNALED(status))
-                    fprintf(stderr, "WebKit: auxiliary process %d killed by signal %d\n", static_cast<int>(pid), WTERMSIG(status));
+                    report(type, pid, "signal", WTERMSIG(status));
+                else
+                    report(type, pid, "exit", WEXITSTATUS(status));
                 return;
             }
-            if (result == -1 && errno != EINTR)
+            if (vanished) {
+                report(type, pid, "vanish");
+                return;
+            }
+            if (result == -1 && error != EINTR && error != ECHILD)
                 return;
             usleep(reapPollInterval);
         }
@@ -148,7 +197,9 @@ void ProcessLauncher::launchProcess()
 
     pid_t pid = fork();
     if (pid < 0) {
-        fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(errno));
+        const int error = errno;
+        fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(error));
+        report(m_launchOptions.processType, 0, "fail", error);
         // Finish the launch without a connection (an invalid identifier, as the other launchers do
         // when they cannot start the process): the proxy stops waiting for a launch that never was.
         RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
@@ -157,6 +208,11 @@ void ProcessLauncher::launchProcess()
         return;
     }
     if (!pid) {
+        // Its own process group (a kill of the group ends whatever it started), and a SIGKILL when
+        // this process dies: the kernel refuses the second with EINVAL until issue #859, which is
+        // tolerated. Both are plain system calls, safe between fork and exec.
+        setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
         // chdir is async-signal-safe; a profile that cannot be entered leaves the directory as it is.
         if (profile) {
             int ignored = chdir(profile);
@@ -182,13 +238,17 @@ void ProcessLauncher::launchProcess()
     }
 
     m_processID = pid;
+    // The parent's half of the group change as well: a kill of the group may come before the child
+    // has run (the usual pair of calls; it fails harmlessly once the child has exec'd).
+    setpgid(pid, pid);
     {
         // Entered before the reaper exists, so the reaper (and a later kill) always find it. Not
         // taken around the fork: the child must not touch a lock that another thread may hold.
         Locker locker { s_childrenLock };
         liveChildren().add(pid);
     }
-    reapInBackground(pid);
+    report(m_launchOptions.processType, pid, "launch");
+    reapInBackground(pid, m_launchOptions.processType);
     close(socketPair.client.release()); // the child holds its end now
 
     // We've finished launching the process, message back to the main run loop.
@@ -209,9 +269,18 @@ void ProcessLauncher::terminateProcess()
 
     {
         // Only a child the reaper has not collected: a collected pid may be someone else's now.
+        // The group first (the child made itself its leader), then the process itself if there was
+        // no such group; what each said is reported (issue #862: a terminate that sent nothing
+        // left a busy NetworkProcess running beside its replacement).
         Locker locker { s_childrenLock };
-        if (liveChildren().contains(m_processID))
-            kill(m_processID, SIGKILL);
+        if (liveChildren().contains(m_processID)) {
+            const int groupError = kill(-m_processID, SIGKILL) == 0 ? 0 : errno;
+            int pidError = -1;
+            if (groupError)
+                pidError = kill(m_processID, SIGKILL) == 0 ? 0 : errno;
+            report(m_launchOptions.processType, m_processID, "terminate", groupError, pidError);
+        } else
+            report(m_launchOptions.processType, m_processID, "terminate", -1, -1);
     }
     m_processID = 0;
 }

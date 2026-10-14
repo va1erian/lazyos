@@ -435,6 +435,53 @@ are not. In an image built with the UI probe, a file `<profile>/paint-mode` hold
 and converted on every report, as before) or `fast:<ms>` (the default, `fast:33`: only the damaged rectangle,
 at least <ms> between paints) picks the path, for comparing them in one image.
 
+## Engine processes and the heartbeat (issues #861, #862)
+
+The page's WebProcess and the NetworkProcess are WebKit's to start and to replace (it kills a NetworkProcess
+that has not answered for 6 s and starts another on demand), so nothing about them may be silent. The UI
+process prints, after `WEBPLUS:`:
+
+| Marker | Meaning |
+|---|---|
+| `PROCESS:LAUNCH:<web\|network>:<pid>` | the launcher forked it (`PROCESS:LAUNCH:<type>:FAIL:errno=<n>`: it could not) |
+| `PROCESS:EXIT:<type>:<pid>:status=<n>\|signal=<n>\|gone` | it ended and was collected; `gone`: the kernel has no such id, though the launcher's thread could not wait for it (a child belongs to the thread that forked it until #859) |
+| `PROCESS:TERMINATE:<type>:<pid>:group=<e>:pid=<e>` | WebKit's `terminate()`: the errno of `kill(-pid)` and of `kill(pid)` (-1: not tried); 0 is sent; both non-zero (or `-1:-1`) means nothing was signalled |
+| `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>` | the id WebKit reports changed (a replacement prints its own, every state post is checked) |
+| `WEBPROCESS:GONE:<pid>:<reason>`, `NETWORKPROCESS:GONE:<pid>:<reason>` | `memory`, `cpu`, `requested` (the window's own doing) or `crash` (WebKit's C API calls every other reason, an unanswered ping included, a crash) |
+| `WEBPROCESS:UNRESPONSIVE:<pid>`, `WEBPROCESS:RESPONSIVE:<pid>` | WebKit's 6 s ping of the page's process went unanswered, or was answered again |
+| `WEBPROCESS:RECOVER:<pid>:reload\|stop` | the window's answer to the bar below was taken |
+| `HANG:SHOW`, `HANG:HIDE`, `HANG:ANSWER:wait\|reload\|stop` | the window's "page not responding" bar |
+| `ABORT:base=<hex>:rip=<hex>:rsp=<hex>`, `ABORT:at=<hex>` | the UI process aborted (WebKit's `CRASH`, an assertion, a pure virtual call: signal 6 leaves no message here): where it was, and the words of its stack that point into its code, for `addr2line -f -C -e <the unstripped lazywebplus-app in the build volume's webkit-port-build/bin> <at>` (the program is not position independent: the words are addresses as they are; some are stale) |
+| `HEARTBEAT:UP`, `INFO:CPU:GROUPS:ui=<pgid>:web=<pid>:net=<pid>:threads=<n>` | the heartbeat thread started; once, the process groups the CPU shares are summed over (`INFO:CPU:UNAVAILABLE`: the task list could not be read) |
+| `CHILD:<name>:<pid>:GONE\|ALIVE:term=<rc>:kill=<rc>:wait=<rc>` | the end: SIGTERM, then SIGKILL of each process group (retried every 100 ms for up to 10 s), then `waitpid`; each rc is 0 or the errno negated, `wait` is the pid it reaped. `QUIT:FAIL` and exit status 3 when one is left. `CHILD:curl:ALIVE` is the ad blocker's list updater, which the window kills at its end |
+| `INFO:MAINLAG:<ms>` | WebKit's main thread ran the heartbeat's once-a-second ping 250 ms or more late |
+| `STALL:main:<ms>` | the ping has not run after 2 s (again every 5 s while it stays stuck): WebKit's main thread is busy or blocked |
+| `STALL:window:<ms>` | one pass of the window's loop has lasted 2 s (`xui_app::stall::pass_age_ms`, every 5 s while it does) |
+| `STALL:on_main:<what>:<ms>[:timeout]` | a worker thread waited 1 s or more (or gave up after 3 s) for a call on WebKit's main thread (at most 20 lines) |
+| `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` | every 5 s when any is 5% or more: the scheduler's task list summed by process group (the launcher makes each engine process its own group; the UI's own group may hold other programs) |
+
+A process that ended is not destroyed on the WebKit side (patch `0021`): releasing the old `WebProcessProxy` when
+the page is loaded again in a new process aborted the UI process on this port (`crashDueToCheckedPtrToDeadObject`
+from `~BackgroundProcessResponsivenessTimer`), after a crash, a client-requested termination (`WKPageTerminate`)
+or a process that did not answer; the cause is not found, so the proxy is kept (a few kilobytes each time).
+
+Each engine process is started in a group of its own and asks for a SIGKILL when the UI process dies
+(`PR_SET_PDEATHSIG`, which the kernel refuses with `EINVAL` until issue #859; the launcher tolerates that), so
+the shutdown can kill what a process started, and a replaced NetworkProcess that WebKit's `terminate()`
+missed is still on the launcher's list and is ended with the others.
+
+**Page not responding.** When the page's WebProcess does not answer WebKit's ping, a bar above the page says so
+(`HANG:SHOW`) with **Wait** (hide it until the page answers and then stops again), **Reload** (end the stuck
+process and load the page again in a fresh one: `lzw_engine_recover(1)`) and **Stop** (end it and leave the page
+stopped, with a message; Reload or a new address starts it again). Patch `0020` exposes
+`WKPageIsWebProcessResponsive`: the C API only tells that the answer changed. The model is `src/hang.rs`
+(host-tested), the bar `src/app/hang.rs`, the tests `tests/hang.rs`.
+
+Calls into WebKit's main thread: a worker thread that needs an answer (a toast's id) waits on its own thread and
+a slow wait prints `STALL:on_main`; the shell's event channel is polled by a job that is posted and not waited
+for (one outstanding at a time), and `confd` is connected to on a thread of its own (`Blocker::attach`), not on
+WebKit's main thread, which is where `lzw_ui_profile_dir` first asks for the shared state.
+
 ## Testing
 
 `tools/webplus/run.py` ([`tools/webplus/README.md`](../tools/webplus/README.md)) builds the image, serves

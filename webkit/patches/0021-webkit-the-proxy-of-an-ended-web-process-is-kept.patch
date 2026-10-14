@@ -1,0 +1,30 @@
+WebKit: the proxy of a web process that ended is not destroyed.
+
+When the page of a process that ended (crashed, was terminated by the client, ran out of memory) is
+loaded again in a new process, WebPageProxy::launchProcess releases the old WebProcessProxy. On this
+port that destruction aborts the UI process: crashDueToCheckedPtrToDeadObject, a CheckedRef released
+on an object that was already scribbled, from ~BackgroundProcessResponsivenessTimer's RunLoop timers
+(the timers' callbacks hold a CheckedRef to their owner). Reproduced with LazyWeb+'s Stop or Reload on
+a page whose process does not answer (issue #862): the UI process died right after launching the
+replacement process, with or without waiting for the socket to close first, and with the process
+responsive or not. The cause is not found. Keeping the dead proxy (one reference leaked each time a
+process ends) avoids it: the proxy is a few kilobytes, and a process ends only by a crash, a limit
+or the person's choice.
+
+--- a/Source/WebKit/UIProcess/WebProcessProxy.cpp
++++ b/Source/WebKit/UIProcess/WebProcessProxy.cpp
+@@ -1462,6 +1462,14 @@
+     // to be deleted before we can finish our work.
+     Ref protectedThis { *this };
+ 
++    // LazyOS: the proxy of a process that ended is never destroyed. Destroying it (when the page is
++    // reloaded in a new process, which releases the old proxy) aborts the UI process in
++    // crashDueToCheckedPtrToDeadObject, from ~BackgroundProcessResponsivenessTimer's RunLoop timers;
++    // seen on this port after WKPageTerminate and Reload (LazyWeb+, issue #862). The cause is not
++    // found; a dead proxy is a few kilobytes and a process ends only by a crash, a memory limit or
++    // the person's choice, so it is kept (a reference leaked once per ending).
++    ref();
++
+     liveProcessesLRU().remove(*this);
+ 
+     auto pages = mainPages();

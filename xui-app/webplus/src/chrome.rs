@@ -20,6 +20,7 @@ use xui_webkit::view::{Hooks, PageView};
 
 use crate::app::Msg;
 use crate::indicators::{Badge, Throbber};
+use crate::hang::Answer as HangAnswer;
 use crate::keys;
 use crate::notify::BarAnswer;
 
@@ -30,6 +31,8 @@ const STATUS_HEIGHT: Dip = Dip(24.0);
 /// The bar a site's request to notify shows in, between the toolbar and the page.
 const NOTIFY_HEIGHT: Dip = Dip(64.0);
 const NOTIFY_BUTTON: Dip = Dip(84.0);
+/// The bar a page that stopped answering shows, in the same place.
+const HANG_HEIGHT: Dip = Dip(64.0);
 /// The square icon buttons of the toolbar, and the download progress bar.
 const TOOL_SIDE: Dip = Dip(30.0);
 const PROGRESS_WIDTH: Dip = Dip(120.0);
@@ -120,6 +123,12 @@ pub struct Widgets {
     pub notify_allow: Handle<Button<Msg>>,
     pub notify_block: Handle<Button<Msg>>,
     pub notify_later: Handle<Button<Msg>>,
+    /// The bar of a page that does not answer (hidden until WebKit says so) and its parts.
+    pub hang_bar: Handle<GroupBox<Msg>>,
+    pub hang_text: Handle<Label<Msg>>,
+    pub hang_wait: Handle<Button<Msg>>,
+    pub hang_reload: Handle<Button<Msg>>,
+    pub hang_stop: Handle<Button<Msg>>,
 }
 
 /// The whole window. `loading` is whether a page loads (Escape means Stop only then, so the page
@@ -129,6 +138,7 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
         menus(widgets).fixed(MENU_HEIGHT),
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
+        hang_bar(widgets).fixed(HANG_HEIGHT),
         build(move |ui| {
             let hooks = Hooks {
                 is_shortcut: Rc::new(move |key, mods| {
@@ -288,6 +298,33 @@ fn notify_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
             )),
     )
     .bind(&widgets.notify_bar)
+}
+
+/// This page is not responding: Wait, Reload (ends the stuck process and loads the page again) or
+/// Stop (ends it). The browser's own chrome, so a page that has stopped cannot take it with it.
+fn hang_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
+    let answer = |text: &str, which, handle: &Handle<Button<Msg>>| {
+        button(text)
+            .on_click(Msg::Hang(which))
+            .bind(handle)
+            .width(NOTIFY_BUTTON)
+    };
+    group(
+        "Page not responding",
+        row()
+            .gap(8)
+            .align(Align::Center)
+            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
+            .children((
+                label("This page is not responding.")
+                    .bind(&widgets.hang_text)
+                    .fill(1),
+                answer("Wait", HangAnswer::Wait, &widgets.hang_wait),
+                answer("Reload", HangAnswer::Reload, &widgets.hang_reload),
+                answer("Stop", HangAnswer::Stop, &widgets.hang_stop),
+            )),
+    )
+    .bind(&widgets.hang_bar)
 }
 
 /// The status text taking the rest, a download's progress, and the badge.

@@ -31,6 +31,7 @@ pub mod context;
 pub mod dialogs;
 pub mod downloads;
 pub mod handoff;
+pub mod hang;
 pub mod indicators;
 pub mod internal;
 pub mod keys;

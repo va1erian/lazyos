@@ -1,0 +1,35 @@
+WebKit: the C API says whether the page's WebProcess responds.
+
+The page state client reports that the WebProcess became unresponsive or responsive again
+(`willChangeWebProcessIsResponsive` / `didChangeWebProcessIsResponsive`, from the 6 s ping of
+ResponsivenessTimer) but not which way it changed, and the navigation client's
+`processDidBecomeUnresponsive` is not exposed by the C API at all. LazyWeb+'s "this page is not
+responding" bar (issue #862) needs the value, so `WKPageIsWebProcessResponsive` reads it from the
+page's process (`WebProcessProxy::isResponsive`: the foreground and the background timer).
+
+--- a/Source/WebKit/UIProcess/API/C/WKPage.cpp
++++ b/Source/WebKit/UIProcess/API/C/WKPage.cpp
+@@ -3264,6 +3264,11 @@
+     return toImpl(page)->legacyMainFrameProcessID();
+ }
+ 
++bool WKPageIsWebProcessResponsive(WKPageRef page)
++{
++    return protect(toImpl(page)->legacyMainFrameProcess())->isResponsive();
++}
++
+ ProcessID WKPageGetGPUProcessIdentifier(WKPageRef page)
+ {
+ #if ENABLE(GPU_PROCESS)
+--- a/Source/WebKit/UIProcess/API/C/WKPagePrivate.h
++++ b/Source/WebKit/UIProcess/API/C/WKPagePrivate.h
+@@ -176,6 +176,9 @@
+ WK_EXPORT void WKPageSetVirtualWalletBehaviorForTesting(WKPageRef page, WKStringRef action, WKStringRef protocol, WKStringRef responseJSON);
+ 
+ WK_EXPORT WKProcessID WKPageGetProcessIdentifier(WKPageRef page);
++// LazyOS: whether the page's WebProcess answers its responsiveness pings (the C API reports only
++// that this changed, through WKPageStateClient's didChangeWebProcessIsResponsive).
++WK_EXPORT bool WKPageIsWebProcessResponsive(WKPageRef page);
+ WK_EXPORT WKProcessID WKPageGetGPUProcessIdentifier(WKPageRef page);
+ 
+ typedef void (*WKPageGetApplicationManifestFunction)(void* functionContext, bool success);

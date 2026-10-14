@@ -148,6 +148,32 @@ class QuitTests(unittest.TestCase):
     def test_a_dirty_quit_fails(self) -> None:
         self.assertTrue(j.judge_quit(good_first().replace("QUIT:PASS", "QUIT:FAIL")))
 
+    def test_the_shutdowns_extended_child_line_is_accepted(self) -> None:
+        text = good_first().replace(f"{P}:CHILD:web:41:GONE", f"{P}:CHILD:web:41:GONE:term=0:kill=0:wait=41")
+        self.assertEqual(j.judge_quit(text), [])
+
+    def test_a_replaced_network_process_that_ended_earlier_is_accounted_for(self) -> None:
+        text = good_first().replace(f"{P}:CHILD:network:42:GONE", f"{P}:CHILD:network:44:GONE")
+        text = text.replace(f"{P}:NETWORKPROCESS:UP:42", f"{P}:NETWORKPROCESS:UP:42\n{P}:NETWORKPROCESS:UP:44")
+        self.assertTrue(j.judge_quit(text), "42 was never seen to end")
+        text = text.replace(f"{P}:NETWORKPROCESS:UP:44", f"{P}:PROCESS:EXIT:network:42:signal=9\n{P}:NETWORKPROCESS:UP:44")
+        self.assertEqual(j.judge_quit(text), [])
+
+    def test_a_launched_process_nobody_saw_end_fails(self) -> None:
+        text = good_first().replace(f"{P}:QUIT:PASS", f"{P}:PROCESS:LAUNCH:network:50\n{P}:QUIT:PASS")
+        self.assertTrue(any("50" in p for p in j.judge_quit(text)))
+        text = text.replace(f"{P}:QUIT:PASS", f"{P}:PROCESS:EXIT:network:50:status=0\n{P}:QUIT:PASS")
+        self.assertEqual(j.judge_quit(text), [])
+
+    def test_a_terminate_that_sent_nothing_fails(self) -> None:
+        sent = f"{P}:PROCESS:TERMINATE:network:42:group=0:pid=-1"
+        self.assertEqual(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{sent}\n{P}:QUIT:PASS")), [])
+        lost = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=3"
+        self.assertTrue(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{lost}\n{P}:QUIT:PASS")))
+        # The group is gone but the process itself was signalled: sent.
+        fallback = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=0"
+        self.assertEqual(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{fallback}\n{P}:QUIT:PASS")), [])
+
     def test_a_start_without_both_children_fails(self) -> None:
         self.assertTrue(any("NETWORKPROCESS" in p for p in j.judge_start(f"{P}:UP\n{P}:UP:PASS\n{P}:WEBPROCESS:UP:1\n")))
         self.assertTrue(j.judge_start(f"{P}:UP:PASS\n{P}:WEBPROCESS:UP:1\n{P}:NETWORKPROCESS:UP:2\n"))

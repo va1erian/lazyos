@@ -1,6 +1,8 @@
 //! The ad blocker's side of the UI process: its settings in `confd`, the `curl` child, and the
 //! engine's per-navigation question.
 
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use super::*;
 
 /// `confd`'s registered name: a store call blocks while it is not registered, so nothing is read or
@@ -64,26 +66,100 @@ pub(super) fn settings_store() -> Arc<dyn Persist> {
     }
 }
 
+/// The longest one `curl` run may take; a hung transfer is killed, not waited for.
+const CURL_DEADLINE: Duration = Duration::from_secs(600);
+/// How often a running `curl` is looked at (for its end, the deadline and the quit).
+const CURL_POLL: Duration = Duration::from_millis(50);
+/// How long the quit waits for a `curl` it has killed to be collected.
+const CURL_QUIT_WAIT: Duration = Duration::from_secs(3);
+
+/// The window is closing: no new `curl`, and a running one is killed.
+static CURL_STOP: AtomicBool = AtomicBool::new(false);
+/// The `curl` children running now.
+static CURL_RUNNING: AtomicU32 = AtomicU32::new(0);
+
+/// Counts one running child for as long as it lives.
+struct Running;
+
+impl Running {
+    fn new() -> Running {
+        CURL_RUNNING.fetch_add(1, Ordering::AcqRel);
+        Running
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        CURL_RUNNING.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Runs `curl` as a child of this program: the kernel enters it under the manifest's
 /// `[processes.listupdate]` label, which holds the network and the lists folder and nothing else.
+/// The child is watched, not waited for: it is killed at its deadline and when the window closes
+/// (`stop_children`), so quitting never leaves one behind (issue #862).
 pub(super) struct CurlRunner;
 
 impl Runner for CurlRunner {
     fn curl(&self, args: &[String]) -> std::io::Result<Exit> {
-        let output = std::process::Command::new(fhs::bin::CURL)
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        if CURL_STOP.load(Ordering::Acquire) {
+            return Ok(Exit {
+                code: -1,
+                note: String::from("the window is closing"),
+            });
+        }
+        let mut child = Command::new(fhs::bin::CURL)
             .args(args)
-            .stdin(std::process::Stdio::null())
-            .output()?;
-        let note = String::from_utf8_lossy(&output.stderr)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let _running = Running::new();
+        // Drained on a thread of its own, so a chatty child cannot fill the pipe and stall.
+        let stderr = child.stderr.take().map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut text = Vec::new();
+                let _ = pipe.by_ref().take(64 * 1024).read_to_end(&mut text);
+                text
+            })
+        });
+        let began = Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if CURL_STOP.load(Ordering::Acquire) || began.elapsed() > CURL_DEADLINE {
+                let _ = child.kill();
+                break child.wait()?;
+            }
+            std::thread::sleep(CURL_POLL);
+        };
+        let text = stderr
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        let note = String::from_utf8_lossy(&text)
             .trim()
             .chars()
             .take(200)
             .collect();
         Ok(Exit {
-            code: output.status.code().unwrap_or(-1),
+            code: status.code().unwrap_or(-1),
             note,
         })
     }
+}
+
+/// The window is closing: stops the list updater's `curl` (none starts afterwards) and waits for
+/// it to be collected. True when none is left.
+pub(super) fn stop_children() -> bool {
+    CURL_STOP.store(true, Ordering::Release);
+    let until = Instant::now() + CURL_QUIT_WAIT;
+    while CURL_RUNNING.load(Ordering::Acquire) > 0 && Instant::now() < until {
+        std::thread::sleep(CURL_POLL);
+    }
+    CURL_RUNNING.load(Ordering::Acquire) == 0
 }
 
 /// Whether the rule lists apply to a page whose main-frame address is `url`: the user's switch,

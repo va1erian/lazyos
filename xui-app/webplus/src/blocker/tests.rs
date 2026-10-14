@@ -30,6 +30,56 @@ fn a_site_is_the_host_without_www_port_and_credentials() {
     }
 }
 
+/// A store that answers with a fixed set of settings and remembers the last save.
+struct Stored(Settings, std::sync::Mutex<Option<Settings>>);
+
+impl Persist for Stored {
+    fn load(&self) -> Settings {
+        self.0.clone()
+    }
+    fn save(&self, settings: &Settings) {
+        *self.1.lock().unwrap() = Some(settings.clone());
+    }
+}
+
+#[test]
+fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_something() {
+    let off = Settings {
+        enabled: false,
+        ..Settings::default()
+    };
+    let late = Arc::new(Stored(off.clone(), std::sync::Mutex::new(None)));
+    let blocker = Blocker::volatile();
+    assert!(blocker.settings().enabled, "on until the store says");
+    blocker.attach(late.clone());
+    assert!(!blocker.settings().enabled);
+    blocker.set_enabled(true);
+    assert_eq!(late.1.lock().unwrap().as_ref().map(|s| s.enabled), Some(true));
+
+    // A switch the user flipped before the store came keeps their choice, and is saved there from now on.
+    let blocker = Blocker::volatile();
+    blocker.set_enabled(true);
+    blocker.set_site_excepted("example.com", true);
+    let late = Arc::new(Stored(off, std::sync::Mutex::new(None)));
+    blocker.attach(late.clone());
+    assert!(blocker.settings().enabled);
+    assert!(blocker.site_excepted("example.com"));
+    blocker.set_enabled(false);
+    assert!(late.1.lock().unwrap().is_some());
+}
+
+#[test]
+fn attaching_a_store_wakes_the_window() {
+    let blocker = Blocker::volatile();
+    let woken = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = Arc::clone(&woken);
+    blocker.on_change(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    blocker.attach(Arc::new(Volatile));
+    assert_eq!(woken.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
+
 #[test]
 fn an_exception_covers_the_site_and_its_subdomains_only() {
     assert!(covers("example.com", "example.com"));

@@ -12,6 +12,7 @@
 #include <WebKit/WKPageConfigurationRef.h>
 #include <WebKit/WKView.h>
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <stdint.h>
@@ -42,7 +43,6 @@ struct Engine {
     std::vector<uint8_t> pixels;
     bool paintScheduled { false };
     bool loading { false };
-    bool processesReported { false };
     bool formNavigation { false };
     bool inputPending { false };
     bool committedSincePaint { false };
@@ -54,9 +54,16 @@ struct Engine {
     bool crashed { false };
     // The user pressed Stop: the failure WebKit reports for it is not one.
     bool stopRequested { false };
-    // The children's ids, kept while WebKit still says them (shutdown reaps them by id).
-    int webPid { 0 };
-    int networkPid { 0 };
+    // The WebProcess does not answer WebKit's responsiveness pings (the window shows its bar).
+    bool unresponsive { false };
+    // The window asked to end the page's process (lzw_engine_recover): the termination that follows is
+    // its doing. `recoverReload`: load the page again in a fresh process, else leave it stopped.
+    bool recovering { false };
+    bool recoverReload { false };
+    // The children's ids, kept while WebKit still says them (shutdown reaps them by id). Atomic: the
+    // window's heartbeat thread reads them (lzw_engine_children).
+    std::atomic<int> webPid { 0 };
+    std::atomic<int> networkPid { 0 };
     long navStartMs { 0 };
     long commitMs { 0 };
     long firstPaintMs { -1 };
@@ -114,8 +121,21 @@ void onMain(std::function<void()> task);
 void installClients();
 void postState();
 // Reads the WebProcess's and NetworkProcess's ids from WebKit into E (they are gone from WebKit's
-// answers once the processes are).
+// answers once the processes are) and prints WEBPROCESS|NETWORKPROCESS:UP:<pid> whenever one changed.
 void rememberChildren();
+// The context's client: the NetworkProcess's end (after the context exists).
+void installContextClient();
+// The words for WebKit's termination reasons, in the markers.
+const char* terminationReason(uint32_t reason);
+
+// ---- children.cpp: the engine processes the launcher started -----------------------------
+
+// Ends every engine process (SIGTERM, then SIGKILL of the process group, retried for up to 10 s),
+// reaps them, and prints CHILD:<name>:<pid>:GONE|ALIVE:term=..:kill=..:wait=.. for each. Returns the
+// number that are left. Main thread, after the run loop.
+int shutdownChildren();
+// Collects the engine processes that ended and that this thread (WebKit's main) forked.
+void reapChildren();
 std::string activeUrl();
 std::string committedUrl();
 std::string pageTitle();
