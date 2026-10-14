@@ -30,6 +30,51 @@ fn class_of(slot: usize) -> Result<PriorityClass, String> {
     task::priority(slot).ok_or_else(|| format!("slot {slot} has no task"))
 }
 
+/// A driver that owns two sources (a keyboard and a mouse) or is also the
+/// consumer keeps its input share until the last of them is closed: unplugging
+/// the mouse must not demote the keyboard's driver with the compositor.
+pub fn closing_one_source_keeps_the_input_share() -> Result<(), String> {
+    clean();
+    let driver = driver_task(CAP_INPUT_SOURCE | CAP_INPUT_RAW)?;
+    let keyboard = register(class::KEYBOARD)?;
+    let mouse = register(class::POINTER)?;
+    check!(
+        task::guard::is_input_for_test(driver),
+        "registering did not mark the driver"
+    );
+    check!(
+        call(op::CLOSE_SOURCE, mouse, 0) == 0,
+        "closing the mouse failed"
+    );
+    check!(
+        task::guard::is_input_for_test(driver),
+        "closing the mouse took the keyboard driver's share"
+    );
+    // The consumer ring also counts.
+    check!(
+        call(op::OPEN, 0, 0) == 0,
+        "could not open the consumer ring"
+    );
+    check!(
+        call(op::CLOSE_SOURCE, keyboard, 0) == 0,
+        "closing the keyboard failed"
+    );
+    check!(
+        task::guard::is_input_for_test(driver),
+        "closing the last source took the share of the ring's consumer"
+    );
+    check!(
+        call(op::CLOSE, 0, 0) == 0,
+        "could not close the consumer ring"
+    );
+    check!(
+        !task::guard::is_input_for_test(driver),
+        "the share outlived the last source and the consumer"
+    );
+    clean();
+    Ok(())
+}
+
 /// Normal and Background drivers become Interactive on register; a Realtime
 /// one stays Realtime; refusals (no capability, bad class) raise nothing.
 pub fn register_raises_driver() -> Result<(), String> {

@@ -172,9 +172,11 @@ static INPUT_USED: AtomicU64 = AtomicU64::new(0);
 /// Demotions since boot (a process demoted as a whole counts once).
 static DEMOTIONS: AtomicU64 = AtomicU64::new(0);
 
-/// Processes the per-window ledger follows; one more falls back to the
-/// per-thread count of the old guard for that window.
-const LEDGER: usize = 32;
+/// Processes the per-window ledger follows. A window books at most
+/// [`WINDOW_TICKS`] ticks (position rolls the window at the tenth), each to one
+/// process, so there is always room: no fallback is needed.
+const LEDGER: usize = 16;
+const _: () = assert!(LEDGER >= WINDOW_TICKS as usize, "the ledger could fill up");
 
 /// One process's ticks this window, kept so charging a tick is one lookup
 /// instead of a walk over the task table with interrupts off (issue #860).
@@ -195,24 +197,55 @@ static BOOKINGS: [Booking; LEDGER] = [const {
 }; LEDGER];
 
 /// Book one tick to process `pml4`; its ticks this window and whether it has
-/// already been demoted this window, or `None` if the ledger is full.
-fn book(pml4: u64) -> Option<(u64, bool)> {
+/// already been demoted this window.
+fn book(pml4: u64) -> (u64, bool) {
     let mut free = None;
     for entry in &BOOKINGS {
         match entry.pml4.load(Ordering::Relaxed) {
             key if key == pml4 => {
                 let used = entry.used.fetch_add(1, Ordering::Relaxed) + 1;
-                return Some((used, entry.over.load(Ordering::Relaxed)));
+                return (used, entry.over.load(Ordering::Relaxed));
             }
             0 if free.is_none() => free = Some(entry),
             _ => {}
         }
     }
-    let entry = free?;
+    // Room is guaranteed by the assertion above; should it ever not be, the
+    // first entry is shared rather than a process left unbooked.
+    let entry = free.unwrap_or(&BOOKINGS[0]);
     entry.pml4.store(pml4, Ordering::Relaxed);
     entry.used.store(1, Ordering::Relaxed);
     entry.over.store(false, Ordering::Relaxed);
-    Some((1, false))
+    (1, false)
+}
+
+/// The address space `pml4` is gone (its page table frame is freed and may be
+/// handed out again within this window): forget what it was booked.
+pub(super) fn forget(pml4: u64) {
+    for entry in &BOOKINGS {
+        if entry.pml4.load(Ordering::Relaxed) == pml4 {
+            entry.pml4.store(0, Ordering::Relaxed);
+            entry.used.store(0, Ordering::Relaxed);
+            entry.over.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Ticks process `pml4` has been booked this window (the suite).
+#[cfg(lazyos_tests)]
+pub fn booked_for_test(pml4: u64) -> Option<u64> {
+    BOOKINGS
+        .iter()
+        .find(|e| e.pml4.load(Ordering::Relaxed) == pml4)
+        .map(|e| e.used.load(Ordering::Relaxed))
+}
+
+/// Whether task `slot` is marked as on the input path (the suite).
+#[cfg(lazyos_tests)]
+pub fn is_input_for_test(slot: usize) -> bool {
+    TASKS.lock()[slot]
+        .as_ref()
+        .is_some_and(|task| task.guard.input)
 }
 
 /// Mark process `pml4` demoted for this window.
@@ -311,13 +344,19 @@ pub(super) fn on_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize,
     if !ENABLED.load(Ordering::Relaxed) || ticks == 0 {
         return;
     }
+    // The kernel task's own windows (the flusher's write-back, the serial
+    // drain: kernel sections in the multiplexer, slot 0, `Interactive`) are
+    // the machine's work, not a client's: they move the window along and are
+    // charged to nobody, or a long flush would hand the whole class budget to
+    // the kernel and demote `xuid` on its first tick.
+    let ran = cur != KERNEL_TASK;
     let remaining = WINDOW_TICKS - POSITION.load(Ordering::Relaxed).min(WINDOW_TICKS - 1);
     let now = ticks.min(remaining);
     for _ in 0..now {
-        on_tick(tasks, cur, true);
+        on_tick(tasks, cur, ran);
     }
     for _ in 0..(ticks - now).min(WINDOW_TICKS - 1) {
-        on_tick(tasks, cur, true);
+        on_tick(tasks, cur, ran);
     }
 }
 
@@ -355,11 +394,8 @@ fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
             task.guard.used = task.guard.used.saturating_add(1);
             let pml4 = task.pml4;
             let budget = u64::from(NORMAL_BUDGET_TICKS);
-            let (over, already) = match book(pml4) {
-                Some((used, already)) => (used > budget, already),
-                // Ledger full: this thread's own count, as before the ledger.
-                None => (u64::from(task.guard.used) > budget, false),
-            };
+            let (used, already) = book(pml4);
+            let over = used > budget;
             if already {
                 // The process was demoted this window and this thread was
                 // asleep for it: it runs, so it joins the demotion.
@@ -380,12 +416,22 @@ fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
 fn demote_process(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, pml4: u64) {
     mark_over(pml4);
     DEMOTIONS.fetch_add(1, Ordering::Relaxed);
-    for slot in 0..MAX_TASKS {
-        let Some(task) = tasks[slot].as_ref() else {
-            continue;
-        };
-        let competes = slot == cur || task.state == TaskState::Runnable;
-        if task.pml4 == pml4 && task.class == PriorityClass::Normal && competes {
+    let normal = |tasks: &[Option<Task>; MAX_TASKS], slot: usize| {
+        tasks[slot]
+            .as_ref()
+            .is_some_and(|task| task.pml4 == pml4 && task.class == PriorityClass::Normal)
+    };
+    // `cur` ran the tick (it may have just blocked, so it is not necessarily
+    // in the run queue)...
+    if normal(tasks, cur) {
+        demote(tasks, cur, PriorityClass::Background, false);
+    }
+    // ...the rest are the runnable `Normal` tasks the run queue indexes: the
+    // cost is the number of them, not the size of the table, which matters
+    // with the task table locked and interrupts off (a snapshot, so demoting
+    // while walking it is fine).
+    for slot in runq::runnable(PriorityClass::Normal.rank() as usize).iter() {
+        if slot != cur && normal(tasks, slot) {
             demote(tasks, slot, PriorityClass::Background, false);
         }
     }

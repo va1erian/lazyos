@@ -65,6 +65,20 @@ pub fn report() {
 fn collect(summary_due: bool) -> Findings {
     let mut found = Findings::default();
     let mut tasks = TASKS.lock();
+    // The processes already named (or waiting for their summary), found in
+    // one pass over the table: asking per candidate would walk it again and
+    // again with interrupts off and the table locked.
+    let mut named = [false; MAX_TASKS];
+    for (index, other) in tasks.iter().enumerate() {
+        if let Some(other) = other {
+            if other.guard.reported > 0 || other.guard.quiet {
+                named[match other.linux.tgid {
+                    0 => index,
+                    leader => leader,
+                }] = true;
+            }
+        }
+    }
     for slot in 0..MAX_TASKS {
         let Some(task) = tasks[slot].as_ref() else {
             continue;
@@ -79,7 +93,7 @@ fn collect(summary_due: bool) -> Findings {
         if task.guard.reported == 0 && !task.guard.quiet {
             // Only the first demotion of a *process* is a line of its own:
             // later threads wait for the process's summary.
-            if found.first.iter().any(|row| row.tgid == tgid) || process_named(&tasks, slot, tgid) {
+            if named[tgid] {
                 if let Some(task) = tasks[slot].as_mut() {
                     task.guard.quiet = true;
                 }
@@ -91,6 +105,7 @@ fn collect(summary_due: bool) -> Findings {
             found
                 .first
                 .push(row(task, slot, tgid, task.guard.demotions));
+            named[tgid] = true;
         } else if summary_due {
             let since = task.guard.demotions - task.guard.reported;
             if let Some(existing) = found.summary.iter_mut().find(|row| row.tgid == tgid) {
@@ -110,21 +125,6 @@ fn collect(summary_due: bool) -> Findings {
         }
     }
     found
-}
-
-/// Whether another thread of process `tgid` has been named by a first line
-/// (or is waiting for the summary because its process was).
-fn process_named(tasks: &[Option<Task>; MAX_TASKS], slot: usize, tgid: usize) -> bool {
-    tasks.iter().enumerate().any(|(index, other)| {
-        index != slot
-            && other.as_ref().is_some_and(|other| {
-                let other_tgid = match other.linux.tgid {
-                    0 => index,
-                    leader => leader,
-                };
-                other_tgid == tgid && (other.guard.reported > 0 || other.guard.quiet)
-            })
-    })
 }
 
 fn row(task: &Task, slot: usize, tgid: usize, count: u32) -> Row {

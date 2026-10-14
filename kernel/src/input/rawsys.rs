@@ -92,7 +92,10 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             let closed = bus::consumer_of(me).map(|id| bus::close(id, me));
             match closed {
                 Some(Ok(())) => {
-                    task::guard::unmark_input(me);
+                    // Still the input path while it owns a source.
+                    if !sources::owns_any(me) {
+                        task::guard::unmark_input(me);
+                    }
                     0
                 }
                 _ => negative(EBADF),
@@ -132,7 +135,11 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
         },
         op::CLOSE_SOURCE => match sources::close(buf, me) {
             Ok(()) => {
-                task::guard::unmark_input(me);
+                // One source closed (a mouse unplugged): a driver that still
+                // owns another, or is the consumer, keeps its share.
+                if !sources::owns_any(me) && bus::consumer_of(me).is_none() {
+                    task::guard::unmark_input(me);
+                }
                 0
             }
             Err(_) => negative(EBADF),

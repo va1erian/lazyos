@@ -204,21 +204,35 @@ pub fn failures_report_errno_without_leaking() -> Result<(), String> {
     // The kernel heap only grows: the first fill takes the frames it needs
     // from the allocator for good (more or fewer depending on what ran
     // before). A leak is what a second, identical fill still adds.
+    //
+    // Frames can hide a leak inside heap the first fill already grew, and the
+    // heap's bytes in use drift a little with what the task table keeps
+    // (caches, free lists). A leak grows with every fill: so the third fill
+    // may not leave more behind than the second did (plus a small noise).
     fill_the_table()?;
     let frames_before = mem::frame_stats().live();
-    // Frames can hide a leak inside heap the first fill already grew: the
-    // heap's own count of bytes handed out cannot.
-    let heap_before = mem::heap_stats().used;
+    let heap_one = mem::heap_stats().used;
     fill_the_table()?;
+    let heap_two = mem::heap_stats().used;
+    fill_the_table()?;
+    let heap_three = mem::heap_stats().used;
     check!(
         mem::frame_stats().live() <= frames_before,
-        "filling the table twice leaked frames: {frames_before} -> {}",
+        "filling the table leaked frames: {frames_before} -> {}",
         mem::frame_stats().live()
     );
-    let heap_after = mem::heap_stats().used;
+    let second = heap_two.saturating_sub(heap_one);
+    let third = heap_three.saturating_sub(heap_two);
+    crate::trace::test!(
+        "native_exec_failures_report_errno_without_leaking:INFO:heap_in_use={heap_one},{heap_two},{heap_three}"
+    );
     check!(
-        heap_after <= heap_before + 256 * 1024,
-        "filling the table twice leaked heap: {heap_before} -> {heap_after} bytes in use"
+        third <= second + 8 * 1024,
+        "each fill leaves more behind: {second} then {third} bytes of heap ({heap_one} -> {heap_three})"
+    );
+    check!(
+        third <= 16 * 1024,
+        "a fill leaves {third} bytes of heap in use: about 16 bytes a task is already a leak"
     );
     task::harness::switch_current(task::KERNEL_TASK);
     task::harness::reset();
