@@ -65,6 +65,8 @@ impl<'a> Stamped<'a> {
     pub(super) fn lines(&mut self, bytes: &[u8]) -> usize {
         let mut taken = 0;
         for segment in bytes.split_inclusive(|&b| b == b'\n') {
+            // A long buffer is a long scan with interrupts off: let them in.
+            crate::arch::irq_window::poll_point();
             let need = segment.len() + STAMP_MAX;
             if need > self.limit {
                 self.tx.note_dropped(segment.len());

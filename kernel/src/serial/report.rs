@@ -92,6 +92,19 @@ pub(super) fn report_backlog_at(now: u64) {
     );
 }
 
+/// The drops not yet reported and the total with them, taken for the last
+/// line the machine prints (a panic, a power-off), where no budget applies.
+pub(super) fn take_for_final() -> Option<(usize, u64)> {
+    let taken = x86_64::instructions::interrupts::without_interrupts(|| {
+        port().as_mut().map_or(0, |port| port.tx.take_dropped())
+    });
+    if taken == 0 {
+        return None;
+    }
+    let total = DROPPED_TOTAL.fetch_add(taken as u64, Ordering::Relaxed) + taken as u64;
+    Some((taken, total))
+}
+
 /// Test builds: forget when the backlog was last looked at.
 #[cfg(lazyos_tests)]
 pub(super) fn forget_throttle() {

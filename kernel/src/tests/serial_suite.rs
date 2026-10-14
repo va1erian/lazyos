@@ -54,15 +54,22 @@ fn fill_to(bytes: usize) {
     }
 }
 
+/// Milliseconds a TSC span is (what the tick clock cannot say with
+/// interrupts off: it saturates at one tick).
+pub(super) fn tsc_ms(cycles: u64) -> u64 {
+    cycles * 10 / crate::arch::clock::cycles_per_tick().max(1)
+}
+
 /// A stalled consumer (nothing ever drains): a program write ends, bounded
-/// by its rounds, and what does not fit is dropped and counted.
+/// by real time (its own-bytes wait, 20 ms), and what does not fit is dropped
+/// and counted.
 fn mirror_ends_on_a_stalled_port() -> Result<(), String> {
     let port = serial::divert_for_test(0);
     fill_to(RING - 3000);
     let rounds = serial::MIRROR_ROUNDS.load(Ordering::Relaxed);
-    let start = monotonic_ns();
+    let start = crate::perf::rdtsc();
     serial::mirror(&[b'x'; 100]);
-    let took = monotonic_ns() - start;
+    let took = tsc_ms(crate::perf::rdtsc() - start);
     let ran = serial::MIRROR_ROUNDS.load(Ordering::Relaxed) - rounds;
     // The program may not fill the last 2 KiB: those lines were dropped.
     serial::mirror(numbered_lines(80, 100).as_bytes());
@@ -70,13 +77,10 @@ fn mirror_ends_on_a_stalled_port() -> Result<(), String> {
     let dropped = serial::dropped_total();
     drop(port);
     check!(
-        took < 500_000_000,
-        "a write to a stalled port took {took} ns"
+        (10..150).contains(&took),
+        "a write to a stalled port took {took} ms (it waits 20 ms for its bytes, no more)"
     );
-    check!(
-        ran > 0 && ran <= 600,
-        "{ran} drain rounds against a port that never empties"
-    );
+    check!(ran > 0, "no drain round against a port that never empties");
     check!(
         held <= RING - 2048 + 1,
         "a program filled the ring to {held} bytes, into the kernel's reserve"
