@@ -174,10 +174,7 @@ pub(super) fn for_fork(parent: &Task) -> LinuxExtras {
 /// `getpid`: the thread-group leader's slot (a process's own slot).
 pub fn tgid() -> usize {
     let me = current();
-    match TASKS.lock()[me].as_ref().map(|task| task.linux.tgid) {
-        Some(0) | None => me,
-        Some(leader) => leader,
-    }
+    super::family::leader_of(&TASKS.lock(), me)
 }
 
 /// Count one thread-directed signal sent by the calling task's process. It
@@ -330,8 +327,12 @@ pub fn pdeathsig() -> u8 {
 /// it carries the value, so whichever thread is left when the parent dies
 /// (the leader may be a zombie by then) still has it.
 pub fn set_pdeathsig(sig: u8) {
+    set_pdeathsig_of(current(), sig);
+}
+
+/// [`set_pdeathsig`] for the process `me` is a thread of.
+pub fn set_pdeathsig_of(me: usize, sig: u8) {
     let mut tasks = TASKS.lock();
-    let me = current();
     for slot in 0..MAX_TASKS {
         if super::family::same_process(&tasks, slot, me) {
             if let Some(task) = tasks[slot].as_mut() {

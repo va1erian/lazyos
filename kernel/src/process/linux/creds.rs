@@ -58,13 +58,7 @@ fn apply(uid: Option<u32>, gid: Option<u32>) -> u64 {
         return 0; // Setting an id to its current value needs no privilege.
     }
     match credentials::transition(slot, slot, requested) {
-        Ok(_) => {
-            // A credential change clears the parent-death signal (Linux's
-            // `commit_creds`): a program that dropped privileges must not be
-            // signalled on behalf of the one that started it.
-            crate::task::linuxstate::set_pdeathsig(0);
-            0
-        }
+        Ok(_) => 0,
         Err(_) => err(EPERM),
     }
 }

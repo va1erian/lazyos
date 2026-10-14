@@ -17,7 +17,15 @@ use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS};
 /// somebody else's process anyway.
 pub(super) fn leader_of(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
     match tasks.get(slot).and_then(|task| task.as_ref()) {
-        Some(task) if task.linux.tgid != 0 && same_process(tasks, task.linux.tgid, slot) => {
+        // The recorded leader must still live in the thread's own address
+        // space (kernel threads of the test suite share the kernel's).
+        Some(task)
+            if task.linux.tgid != 0
+                && tasks
+                    .get(task.linux.tgid)
+                    .and_then(|leader| leader.as_ref())
+                    .is_some_and(|leader| leader.pml4 == task.pml4) =>
+        {
             task.linux.tgid
         }
         _ => slot,
@@ -44,6 +52,44 @@ pub(super) fn reapable(tasks: &[Option<Task>; MAX_TASKS], slot: usize, task: &Ta
             .iter()
             .enumerate()
             .any(|(other, t)| other != slot && is_live(t) && same_process(tasks, other, slot))
+}
+
+/// Whom the death of `slot` (already `Done`) tells: the parent whose wait is
+/// now answerable, or 0 for nobody. A process is reapable only when its
+/// leader is finished *and* no thread of it runs, so a leader that dies
+/// first notifies nobody (the parent could not reap it), and the last thread
+/// to go tells the leader's parent, with `SIGCHLD`, the child bell and the
+/// `wait4` queue. `parent` is the dead task's own parent.
+pub(super) fn notify_target(
+    tasks: &[Option<Task>; MAX_TASKS],
+    slot: usize,
+    parent: usize,
+) -> usize {
+    if (1..MAX_TASKS)
+        .any(|other| other != slot && is_live(&tasks[other]) && same_process(tasks, other, slot))
+    {
+        return 0;
+    }
+    match leader_of(tasks, slot) {
+        leader if leader == slot => parent,
+        leader => tasks[leader].as_ref().map_or(0, |task| task.parent),
+    }
+}
+
+/// A group exit began in process `pml4` with `status`: a leader that left
+/// earlier reports the group's status (and terminating signal) when it is
+/// reaped, as Linux's `wait_task_zombie` does.
+pub(super) fn note_group_exit(tasks: &mut [Option<Task>; MAX_TASKS], pml4: u64, status: u64) {
+    for task in tasks.iter_mut().flatten() {
+        if task.pml4 == pml4 && task.state == TaskState::Done && task.linux.tgid == 0 {
+            task.exit_status = status;
+            task.linux.term_signal = if (129..=128 + 64).contains(&status) {
+                (status - 128) as u8
+            } else {
+                0
+            };
+        }
+    }
 }
 
 fn is_live(task: &Option<Task>) -> bool {

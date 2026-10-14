@@ -94,7 +94,9 @@ fn has_finished_child(me: usize) -> bool {
     tasks.iter().enumerate().any(|(slot, task)| {
         slot != me
             && task.as_ref().is_some_and(|task| {
-                task.state == TaskState::Done && super::family::is_child_of(&tasks, me, task)
+                task.state == TaskState::Done
+                    && super::family::is_child_of(&tasks, me, task)
+                    && super::family::reapable(&tasks, slot, task)
             })
     })
 }

@@ -435,6 +435,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("child_leader_exits_first", more::leader_exits_first),
     (
+        "child_last_thread_notifies_parent",
+        more::last_thread_notifies_the_parent,
+    ),
+    (
+        "child_sigkill_thread_in_kernel",
+        more::sigkill_with_a_thread_in_the_kernel,
+    ),
+    (
+        "child_group_exit_status_zombie_leader",
+        more::group_exit_status_reaches_a_zombie_leader,
+    ),
+    (
+        "child_exec_from_last_thread",
+        more::exec_from_the_last_thread,
+    ),
+    (
         "child_wait4_from_sibling_thread",
         wait4_from_a_sibling_thread,
     ),

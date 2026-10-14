@@ -47,7 +47,27 @@ pub fn set_pml4(value: u64) {
                     .is_some_and(|task| task.pml4 == old && task.state != TaskState::Done)
         })
     });
+    // A thread that execs becomes its own thread-group leader, in the new
+    // address space (there is no de_thread: its siblings stay behind). If it
+    // was the last live task of the old process and the leader is a zombie,
+    // the leader is reapable now: tell its parent.
+    let mut notify = 0;
+    if let Some(old) = old.filter(|old| *old != value) {
+        let leader = tasks[me].as_ref().map_or(0, |task| task.linux.tgid);
+        if let Some(task) = tasks[me].as_mut() {
+            task.linux.tgid = 0;
+        }
+        if leader != 0 && !shared_live {
+            notify = tasks[leader]
+                .as_ref()
+                .filter(|task| task.state == TaskState::Done && task.pml4 == old)
+                .map_or(0, |task| task.parent);
+        }
+    }
     drop(tasks);
+    if notify != 0 {
+        super::process::after_finish(notify);
+    }
     // A kill that reached the task while it loaded the new image must still
     // end it: the old table's signal state is about to be dropped.
     if let Some(old) = old.filter(|old| *old != value) {

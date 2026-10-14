@@ -211,8 +211,9 @@ pub(crate) fn after_finish(parent: usize) {
     CHILD_EXIT.notify_all();
 }
 
-/// [`finish`] on a caller-held task table, returning the dead task's parent so
-/// the caller can post `SIGCHLD` after releasing the lock. The timer signal
+/// [`finish`] on a caller-held task table, returning the parent to tell (0:
+/// nobody, see [`family::notify_target`]) so the caller can post `SIGCHLD`
+/// after releasing the lock. The timer signal
 /// sweep (`task::signal::sweep`) needs this: it runs on the scheduler's lock
 /// and cannot re-enter `finish`.
 pub(crate) fn finish_locked(
@@ -230,6 +231,8 @@ pub(crate) fn finish_locked(
         task.exit_status = status;
         task.parent
     };
+    // Who hears of it: not the parent of a leader whose threads still run.
+    let parent = family::notify_target(tasks, slot, parent);
     super::runq::sync(tasks, slot);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
