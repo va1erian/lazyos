@@ -18,12 +18,23 @@
 //! `libs/fatvol`, host-tested and fuzzed, and runs here, in a process whose
 //! worst outcome is its own mount.
 //!
+//! # Stopping
+//!
+//! `mountd` ends a daemon by asking (syscall 35 `STOP`, for an eject, a
+//! logout or a shutdown): the kernel then refuses every new request and
+//! the daemon's `NEXT` reports it once what was queued is answered. The
+//! daemon writes everything back, drops the filesystem (which clears the
+//! volume's dirty flag), flushes the device (SYNCHRONIZE CACHE) and only
+//! then unregisters and exits `0`. Native programs install no signal
+//! handlers, so a `SIGTERM` or `SIGKILL` ends the task at once, possibly
+//! inside a FAT update: they are the last resort, not the way.
+//!
 //! Prints `FATFUSE:UP /media/<name> ...` once mounted, `FATFUSE:END <why>`
 //! when it ends the way it is meant to (no FAT volume on the disk, the medium
 //! pulled) and `FATFUSE:FAIL <reason>` otherwise, and exits with a
 //! [`Failure`] code `mountd` reads (native programs have no pipe): `0` is a
 //! clean stop, `12` no volume, `15` the medium was pulled while mounted (the
-//! usual end of a mount).
+//! usual end of a mount), `16` the stick refused the final flush of a stop.
 
 #![no_std]
 #![no_main]
@@ -66,6 +77,9 @@ enum Failure {
     Mount = 14,
     /// The medium was pulled (or the device failed for good) while mounted.
     Lost = 15,
+    /// A stop was asked for and the volume could not be written out whole:
+    /// the stick may be inconsistent and must not be taken for ejected.
+    Flush = 16,
 }
 
 type Failed = (Failure, String);
@@ -351,7 +365,40 @@ fn run() -> Result<(), Failed> {
         if volume.failure() == Some(Fault::Gone) {
             return Err((Failure::Lost, String::from("the medium was pulled")));
         }
+        // Asked to finish (an eject, a logout, a shutdown): the kernel
+        // refuses new requests from now on, so this is the last write.
+        if mount.stop_requested() {
+            return finish(&mut volume);
+        }
     }
+}
+
+/// Settles attempts at a stop's final write-back: a stick that refuses one
+/// flush (a busy controller) usually takes the next.
+const SETTLE_TRIES: u32 = 3;
+
+/// Write the volume out for good: every dirty sector, the filesystem
+/// dropped (the dirty flag cleared and the free-cluster count stored), and
+/// the device's own flush after it. The caller then unregisters the mount
+/// and exits.
+fn finish(volume: &mut Volume<Slice<RawDisk>>) -> Result<(), Failed> {
+    for _ in 0..SETTLE_TRIES {
+        match volume.settle() {
+            Ok(()) => {
+                trace::line!(trace::Channel::Fatfuse, "STOPPED clean");
+                return Ok(());
+            }
+            Err(_) if volume.failure().is_some() => break,
+            Err(_) => continue,
+        }
+    }
+    Err(match volume.failure() {
+        Some(Fault::Gone) => (Failure::Lost, String::from("the medium was pulled")),
+        _ => (
+            Failure::Flush,
+            String::from("the final write-back was refused"),
+        ),
+    })
 }
 
 #[no_mangle]

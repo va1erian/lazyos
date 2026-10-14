@@ -11943,12 +11943,72 @@ pub mod os_lazy_mount_v1 {
         Ok(out)
     }
 
+    /// One removable volume the service knows about.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct VolumeInfo {
+        pub disk: alloc::string::String,
+        pub name: alloc::string::String,
+        pub path: alloc::string::String,
+        pub state: alloc::string::String,
+        pub detail: alloc::string::String,
+        pub owner: u32,
+        pub writable: bool,
+    }
+
+    pub fn encode_volume_info(value: &VolumeInfo) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.disk)?;
+        target.string(2, &value.name)?;
+        target.string(3, &value.path)?;
+        target.string(4, &value.state)?;
+        target.string(5, &value.detail)?;
+        target.u32(6, value.owner)?;
+        target.bool(7, value.writable)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_volume_info(body: &[u8]) -> Result<VolumeInfo, Error> {
+        let mut out = VolumeInfo::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.disk = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.path = field.as_str()?.into();
+                }
+                4 => {
+                    out.state = field.as_str()?.into();
+                }
+                5 => {
+                    out.detail = field.as_str()?.into();
+                }
+                6 => {
+                    out.owner = field.as_u32()?;
+                }
+                7 => {
+                    out.writable = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `Mount` method id.
     pub const METHOD_MOUNT: u32 = 1041399898;
     /// `Unmount` method id.
     pub const METHOD_UNMOUNT: u32 = 2047171115;
     /// `List` method id.
     pub const METHOD_LIST: u32 = 220805025;
+    /// `Volumes` method id.
+    pub const METHOD_VOLUMES: u32 = 2053774420;
+    /// `Eject` method id.
+    pub const METHOD_EJECT: u32 = 819391126;
 
     /// The mount's name: it is served at `path`, `/mnt/<name>`.
     /// The filesystem daemon's protocol (`ftp` or `smb`).
@@ -12099,6 +12159,118 @@ pub mod os_lazy_mount_v1 {
                 while let Some(item) = nested.next()? {
                     out.mounts.push(decode_mount_info(item.payload)?);
                 }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The disk, `usb<n>`: what `Eject` names.
+    /// The mount's name, the volume's label made safe for a path; empty
+    /// until the volume is mounted.
+    /// Where it is mounted, `/media/<name>`; empty until mounted.
+    /// `starting` (a daemon is looking for a volume), `mounted`,
+    /// `ejecting`, `ejected` (flushed and unmounted: safe to pull),
+    /// `removed` (the stick was pulled while mounted), `unsupported`
+    /// (no FAT volume on it) or `failed` (see `detail`).
+    /// Why, for `failed`, `unsupported` and `removed`; empty otherwise.
+    /// The session user it belongs to: its files' owner.
+    /// The stick is not write protected.
+    /// The removable volumes of the caller (all of them for root), oldest
+    /// plug first. An ended volume stays listed until its stick is pulled,
+    /// so its outcome can be read.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct VolumesReply {
+        pub volumes: alloc::vec::Vec<VolumeInfo>,
+    }
+
+    pub fn encode_volumes_reply(value: &VolumesReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.volumes {
+            nested.raw(Kind::Struct, 1, &encode_volume_info(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_volumes_reply(body: &[u8]) -> Result<VolumesReply, Error> {
+        let mut out = VolumesReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.volumes.push(decode_volume_info(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
+    /// then let the stick be pulled. Answers at once; the answer's `state`
+    /// is `ejecting` (poll `Volumes` for `ejected`), `ejected` (nothing was
+    /// mounted, or it already was), or `busy` with the holders in `detail`:
+    /// one line per program and open file or working directory. `force`
+    /// ejects anyway: open files then fail with an I/O error. Failures of the
+    /// request itself are `ENOENT` (no such disk), `EPERM` (another user's
+    /// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
+    /// ask again in a moment).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct EjectArgs {
+        pub disk: alloc::string::String,
+        pub force: bool,
+    }
+
+    pub fn encode_eject_args(value: &EjectArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.disk)?;
+        target.bool(2, value.force)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_eject_args(body: &[u8]) -> Result<EjectArgs, Error> {
+        let mut out = EjectArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.disk = field.as_str()?.into();
+                }
+                2 => {
+                    out.force = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct EjectReply {
+        pub state: alloc::string::String,
+        pub detail: alloc::string::String,
+    }
+
+    pub fn encode_eject_reply(value: &EjectReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.state)?;
+        target.string(2, &value.detail)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_eject_reply(body: &[u8]) -> Result<EjectReply, Error> {
+        let mut out = EjectReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.state = field.as_str()?.into();
+                }
+                2 => {
+                    out.detail = field.as_str()?.into();
+                }
+                _ => {}
             }
         }
         Ok(out)

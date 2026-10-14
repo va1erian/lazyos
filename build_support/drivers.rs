@@ -82,6 +82,8 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         // Its volumes are mounted at `/media/<label>` by `mountd`, which
         // starts one `fatfuse` per disk (docs/usb-hotplug-plan.md).
         add(sink, fhs::bin::FATFUSE, "fatfuse");
+        // `eject`: flush and unmount one of them, so the stick can be pulled.
+        add(sink, fhs::bin::EJECT, "eject");
     }
     if usb || netd {
         // `mountd`: the network mounts' service, and the USB volumes' automount.

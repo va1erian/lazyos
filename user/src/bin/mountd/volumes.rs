@@ -4,26 +4,36 @@
 //! `/media/<label>`. The decisions are `mounttable::volumes`, host-tested;
 //! this file lists the disks, follows who is logged in and spawns.
 //!
+//! A daemon is ended by asking it (docs/usb-hotplug-plan.md D): the kernel's
+//! `STOP` makes it flush, close the filesystem (the volume's dirty flag is
+//! cleared) and unmount itself, and only a daemon that has not registered a
+//! mount yet, whose stick is gone, or that does not answer in time is killed.
+//! A request in flight at a `SIGKILL` is a torn FAT update.
+//!
 //! Serial lines: `MOUNTD:VOLUME START usb<n> gen=<g> owner=<uid>:<gid>
-//! pid=<pid>`, `MOUNTD:VOLUME STOP usb<n> gen=<g>`, `MOUNTD:VOLUME END
+//! pid=<pid>`, `MOUNTD:VOLUME STOP pid=<pid>`, `MOUNTD:VOLUME KILL pid=<pid>
+//! <why>`, `MOUNTD:VOLUME MOUNT usb<n> /media/<name>`, `MOUNTD:VOLUME END
 //! usb<n> gen=<g> <what the daemon said>`.
 
 use alloc::vec::Vec;
 use user::trace::{self, Channel};
 
-use mounttable::volumes::{self, Action, DiskView, Outcome, State, Volumes};
+use mounttable::volumes::{self, disk_name, Action, DiskView, Outcome, State, Volumes};
 use user::logins::Logins;
 use user::messenger::{accounts, registry};
-use user::sys::{self, BlockDisk, Personality, SpawnCred};
+use user::sys::{self, fuse, BlockDisk, Personality, SpawnCred};
 
 /// Ticks (100 Hz) between looks at the disks: a stick is mounted within a
 /// second of appearing, and the cost of looking is one syscall.
 const POLL_TICKS: u64 = 100;
 /// Ticks `accountsd` may take to name the group of the session user.
 const LOOKUP_TICKS: u64 = 50;
+/// Ticks a shutdown waits for the volume daemons it asked to finish
+/// (`init` gives the service three seconds in all).
+const SHUTDOWN_WAIT_TICKS: u64 = 220;
 
 pub(crate) struct Automount {
-    volumes: Volumes,
+    pub(crate) volumes: Volumes,
     logins: Logins,
     next_poll: u64,
     /// The session user and their primary group, once known.
@@ -67,18 +77,88 @@ impl Automount {
                 claimed: d.claimed,
             })
             .collect();
-        for action in self.volumes.plan(&disks, self.owner) {
+        for action in self.volumes.plan(now, &disks, self.owner) {
             match action {
                 Action::Start {
                     disk,
                     generation,
                     owner,
                 } => self.start(disk, generation, owner),
-                Action::Stop { pid } => {
+                Action::Stop { pid } => self.ask_to_stop(pid),
+                Action::Kill { pid } => {
                     let _ = sys::kill(pid, sys::SIG_KILL);
-                    trace::line!(Channel::Mountd, "VOLUME STOP pid={pid}");
+                    trace::line!(Channel::Mountd, "VOLUME KILL pid={pid} gone or unresponsive");
                 }
             }
+        }
+        self.note_mounts();
+    }
+
+    /// Ask daemon `pid` to flush and end. A daemon that has registered no
+    /// mount has served nothing and holds nothing: it is ended outright.
+    fn ask_to_stop(&self, pid: u64) {
+        let provider = fuse::providers()
+            .ok()
+            .and_then(|all| all.into_iter().find(|p| p.owner == pid));
+        let asked = provider.is_some_and(|p| fuse::stop(p.id, true).is_ok());
+        if asked {
+            trace::line!(Channel::Mountd, "VOLUME STOP pid={pid}");
+        } else {
+            let _ = sys::kill(pid, sys::SIG_KILL);
+            trace::line!(Channel::Mountd, "VOLUME KILL pid={pid} no mount to finish");
+        }
+    }
+
+    /// Learn the mount names of daemons that have registered theirs.
+    fn note_mounts(&mut self) {
+        let waiting = self
+            .volumes
+            .entries()
+            .iter()
+            .any(|v| v.pid.is_some() && v.name.is_none());
+        if !waiting {
+            return;
+        }
+        let Ok(providers) = fuse::providers() else {
+            return;
+        };
+        for provider in providers {
+            if self.volumes.mounted_as(provider.owner, &provider.name) {
+                let disk = self
+                    .volumes
+                    .entries()
+                    .iter()
+                    .find(|v| v.pid == Some(provider.owner))
+                    .map_or(0, |v| v.disk);
+                trace::line!(
+                    Channel::Mountd,
+                    "VOLUME MOUNT {} {}/{}",
+                    disk_name(disk),
+                    fhs::mount::MEDIA,
+                    provider.name
+                );
+            }
+        }
+    }
+
+    /// The service is stopping: ask every daemon to finish, wait (bounded)
+    /// for them, and end what is left.
+    pub(crate) fn shutdown(&mut self) {
+        let mut pending: Vec<u64> = self.volumes.daemons().collect();
+        for &pid in &pending {
+            self.ask_to_stop(pid);
+        }
+        let deadline = sys::clock() + SHUTDOWN_WAIT_TICKS;
+        while !pending.is_empty() {
+            let Some((pid, status)) = sys::wait(deadline) else {
+                break;
+            };
+            pending.retain(|&p| p != pid);
+            self.exited(pid, status);
+        }
+        for pid in pending {
+            let _ = sys::kill(pid, sys::SIG_KILL);
+            trace::line!(Channel::Mountd, "VOLUME KILL pid={pid} did not finish");
         }
     }
 
@@ -123,6 +203,7 @@ impl Automount {
             State::Ended(Outcome::NoVolume) => "no FAT volume",
             State::Ended(Outcome::Removed) => "removed",
             State::Ended(Outcome::Stopped) => "stopped",
+            State::Ended(Outcome::Ejected) => "ejected",
             State::Ended(Outcome::Failed(reason)) => reason.as_str(),
             _ => "ended",
         };
@@ -133,11 +214,6 @@ impl Automount {
             volume.generation
         );
         true
-    }
-
-    /// Every volume daemon still running.
-    pub(crate) fn daemons(&self) -> impl Iterator<Item = u64> + '_ {
-        self.volumes.daemons()
     }
 
     /// Who the volumes belong to: the user with a session, and their group.
