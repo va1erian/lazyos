@@ -50,6 +50,10 @@ pub struct LinuxExtras {
     /// per-thread signal path is used (JavaScriptCore's collector suspends a
     /// parked mutator with one).
     pub thread_signals: u64,
+    /// `prctl(PR_SET_PDEATHSIG)`: the signal sent to this process when its
+    /// parent process exits (0: none). Kept on the thread-group leader, which
+    /// is the task the parent's `fork` created; a fork clears it.
+    pub pdeathsig: u8,
 }
 
 /// A thread's Linux scheduling attributes. Only the plain policies are ever
@@ -151,6 +155,7 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         ctty: parent.linux.ctty.clone(),
         sched: parent.linux.sched.for_child(),
         thread_signals: 0,
+        pdeathsig: 0,
     }
 }
 

@@ -63,6 +63,7 @@ pub mod childbell;
 pub mod diag;
 pub mod introspect;
 mod linux_spawn;
+mod family;
 pub mod process;
 pub mod relax;
 pub mod signal;

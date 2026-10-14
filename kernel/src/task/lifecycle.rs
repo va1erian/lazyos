@@ -89,7 +89,7 @@ pub fn has_children() -> bool {
     tasks
         .iter()
         .flatten()
-        .any(|task| task.parent == me && task.parent != 0)
+        .any(|task| task.parent != 0 && super::family::is_child_of(&tasks, me, task))
 }
 
 /// Drop an address space's non-task state and release its user pages, page
@@ -314,8 +314,9 @@ pub fn has_child_filtered(filter: ChildFilter) -> bool {
     let me = current();
     let tasks = TASKS.lock();
     tasks.iter().enumerate().any(|(slot, task)| {
-        task.as_ref()
-            .is_some_and(|task| task.parent == me && slot != me && filter.accepts(slot, task))
+        task.as_ref().is_some_and(|task| {
+            slot != me && super::family::is_child_of(&tasks, me, task) && filter.accepts(slot, task)
+        })
     })
 }
 
@@ -326,14 +327,14 @@ pub fn reap_child_slot(slot: usize) -> Option<u64> {
     reap_matching(|index, _| index == slot).map(|(_, status, _)| status)
 }
 
-/// Whether `slot` holds a not-yet-reaped child of the current task.
+/// Whether `slot` holds a not-yet-reaped child of the current task's process.
 pub fn is_child(slot: usize) -> bool {
     let me = current();
-    TASKS
-        .lock()
+    let tasks = TASKS.lock();
+    tasks
         .get(slot)
         .and_then(|task| task.as_ref())
-        .is_some_and(|task| task.parent == me && slot != me)
+        .is_some_and(|task| slot != me && super::family::is_child_of(&tasks, me, task))
 }
 
 /// The reaping body: take the first finished child whose slot `wanted` accepts.
@@ -348,7 +349,9 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
             let finished = tasks[index]
                 .as_ref()
                 .map(|task| {
-                    task.parent == me && task.state == TaskState::Done && wanted(index, task)
+                    task.state == TaskState::Done
+                        && super::family::is_child_of(&tasks, me, task)
+                        && wanted(index, task)
                 })
                 .unwrap_or(false);
             if finished {

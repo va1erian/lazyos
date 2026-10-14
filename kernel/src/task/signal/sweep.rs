@@ -266,6 +266,7 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
         return;
     }
     NEEDS_REDRAW.store(true, core::sync::atomic::Ordering::Relaxed);
+    crate::task::family::deliver_parent_death();
     for done in finished {
         // A fatal signal ends the whole thread group, not the one thread the
         // sweep happened to catch (Linux's group exit): the rest follow it.
