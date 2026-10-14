@@ -11,6 +11,7 @@ from qemu_qmp import DEFAULT_MEMORY  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
+import qemu_serial  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import WEBKIT_LIMITS, add_limit_option, big_app, build_limits, with_defaults  # noqa: E402
@@ -36,6 +37,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--release", action="store_true",
                         help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
+    qemu_serial.add_arguments(parser)
     parser.add_argument("--image", default=str(default_image), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")

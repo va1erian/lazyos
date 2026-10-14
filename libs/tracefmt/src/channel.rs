@@ -116,6 +116,7 @@ channels! {
     Removable => "REMOVABLE",
     Rhai => "RHAI",
     Sched => "SCHED",
+    Serial => "SERIAL",
     Settings => "SETTINGS",
     Shell => "SHELL",
     Shellprobe => "SHELLPROBE",

@@ -189,6 +189,7 @@ mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
 mod gpt_suite;
+mod guard_report_suite;
 mod guard_suite;
 mod hardening_suite;
 mod heap_slab_suite;
@@ -227,6 +228,7 @@ mod registry_suite;
 mod relax_suite;
 mod runq_suite;
 mod sched_suite;
+mod serial_suite;
 mod service_suite;
 mod signal_suite;
 mod slab_suite;
@@ -261,6 +263,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     arch_suite::CASES,
     preempt_lock_suite::CASES,
     irq_window_suite::CASES,
+    serial_suite::CASES,
     slab_suite::CASES,
     quota_suite::CASES,
     task_suite::CASES,
@@ -273,6 +276,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     loader_suite::dynamic::CASES,
     sched_suite::CASES,
     guard_suite::CASES,
+    guard_report_suite::CASES,
     runq_suite::CASES,
     preempt_wake_suite::CASES,
     relax_suite::CASES,
