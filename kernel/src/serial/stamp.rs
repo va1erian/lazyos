@@ -58,11 +58,6 @@ impl<'a> Stamped<'a> {
         }
     }
 
-    /// The ring fill this writer may not pass.
-    pub(super) fn limit(&self) -> usize {
-        self.limit
-    }
-
     /// Queue the whole lines of `bytes` that fit, in order, and stop at the
     /// first that does not. Returns how many bytes it took; a segment that
     /// can never fit (longer than the ring may hold) is counted as dropped
@@ -70,6 +65,8 @@ impl<'a> Stamped<'a> {
     pub(super) fn lines(&mut self, bytes: &[u8]) -> usize {
         let mut taken = 0;
         for segment in bytes.split_inclusive(|&b| b == b'\n') {
+            // A long buffer is a long scan with interrupts off: let them in.
+            crate::arch::irq_window::poll_point();
             let need = segment.len() + STAMP_MAX;
             if need > self.limit {
                 self.tx.note_dropped(segment.len());

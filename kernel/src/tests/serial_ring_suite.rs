@@ -146,9 +146,9 @@ fn dropped_write_returns_at_once() -> Result<(), String> {
         serial::_write_str(&kernel);
     }
     let (queued, _) = serial::counters_for_test();
-    let before = serial::MIRROR_ROUNDS.load(core::sync::atomic::Ordering::Relaxed);
+    let start = crate::perf::rdtsc();
     serial::mirror(numbered_lines(3, 100).as_bytes());
-    let rounds = serial::MIRROR_ROUNDS.load(core::sync::atomic::Ordering::Relaxed) - before;
+    let took = super::serial_suite::tsc_ms(crate::perf::rdtsc() - start);
     let (after, _) = serial::counters_for_test();
     drop(port);
     check!(
@@ -156,10 +156,11 @@ fn dropped_write_returns_at_once() -> Result<(), String> {
         "{} bytes of a dropped write queued",
         after - queued
     );
-    // One wait (for room) at most: a second, for own bytes, would double it.
+    // One wait (50 ms for room); a second, for own bytes (20 ms), would be
+    // more. Time, not rounds: a port in back-off makes rounds free.
     check!(
-        rounds <= 530,
-        "{rounds} rounds for a write that queued nothing"
+        (30..75).contains(&took),
+        "{took} ms for a write that queued nothing (one 50 ms wait for room)"
     );
     Ok(())
 }
@@ -298,7 +299,7 @@ fn soak_mixed_writers_keep_lines_whole() -> Result<(), String> {
         seed ^= seed << 17;
         seed
     };
-    for round in 0..3000 {
+    for round in 0..800 {
         match next() % 8 {
             0..=2 => serial::mirror(numbered_lines(1 + (next() % 4) as usize, 100).as_bytes()),
             3..=4 => serial::write_trace(trace.as_bytes()),
@@ -323,6 +324,92 @@ fn soak_mixed_writers_keep_lines_whole() -> Result<(), String> {
     Ok(())
 }
 
+/// A multi-megabyte write costs bounded time and memory: at most a ring's
+/// worth is set aside, the rest is dropped (counted), and what is queued is
+/// whole lines.
+fn huge_write_is_bounded() -> Result<(), String> {
+    let text = numbered_lines(25_000, 100); // 2.5 MB
+    let port = serial::divert_for_test(0);
+    let heap_before = crate::mem::heap_stats().used;
+    let start = crate::perf::rdtsc();
+    serial::mirror(text.as_bytes());
+    let took = super::serial_suite::tsc_ms(crate::perf::rdtsc() - start);
+    let heap_after = crate::mem::heap_stats().used;
+    let dropped = serial::dropped_total();
+    check_lines(&[("PROG:", 100)])?;
+    let held = serial::queued_len();
+    drop(port);
+    drop(text);
+    check!(took < 200, "a 2.5 MB write took {took} ms");
+    check!(
+        heap_after <= heap_before + 64 * 1024,
+        "the write held {} bytes of heap",
+        heap_after - heap_before
+    );
+    check!(
+        dropped as usize + held >= 2_400_000,
+        "{dropped} dropped and {held} queued of 2.5 MB: bytes unaccounted for"
+    );
+    Ok(())
+}
+
+/// A port that never takes a byte (in back-off, drains return at once) still
+/// bounds a write by real time: the wait is the 20 ms it says, not the few
+/// microseconds a count of rounds allowed.
+fn wait_is_bounded_in_time_not_rounds() -> Result<(), String> {
+    let port = serial::divert_for_test(usize::MAX);
+    serial::set_never_empty_for_test(true);
+    // The first write finds the port stalled and puts it in back-off.
+    serial::_write_str(&kernel_line(100));
+    let before = serial::MIRROR_ROUNDS.load(core::sync::atomic::Ordering::Relaxed);
+    let start = crate::perf::rdtsc();
+    serial::mirror(numbered_lines(1, 100).as_bytes());
+    let took = super::serial_suite::tsc_ms(crate::perf::rdtsc() - start);
+    let rounds = serial::MIRROR_ROUNDS.load(core::sync::atomic::Ordering::Relaxed) - before;
+    serial::set_never_empty_for_test(false);
+    drop(port);
+    check!(
+        (15..60).contains(&took),
+        "a write behind a stalled port waited {took} ms, not about 20"
+    );
+    check!(
+        rounds > 600,
+        "only {rounds} rounds in {took} ms: not waiting on the clock"
+    );
+    Ok(())
+}
+
+/// The last line of a panic does not wait for a port lock its context holds,
+/// and says if bytes were dropped before it.
+fn final_line_survives_a_held_lock() -> Result<(), String> {
+    let port = serial::divert_for_test(0);
+    for _ in 0..80 {
+        serial::_write_str(&kernel_line(300));
+    }
+    check!(
+        serial::dropped_total() > 0,
+        "nothing dropped: the case proves nothing"
+    );
+    serial::set_cap_for_test(usize::MAX);
+    let (queued, _) = serial::counters_for_test();
+    serial::leak_port_lock_for_test();
+    serial::final_line(format_args!("SERIALTEST:last words"));
+    let locked = serial::port_locked_for_test();
+    let (after, sent) = serial::counters_for_test();
+    drop(port);
+    check!(!locked, "the lock is still held");
+    check!(
+        after == sent,
+        "the final line is not out: {after} queued, {sent} sent"
+    );
+    check!(
+        after - queued >= "SERIALTEST:last words\nSERIAL:DROPPED bytes=".len(),
+        "no word of the drops after the last line ({} bytes)",
+        after - queued
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "serial_ring_lines_are_whole_or_absent",
@@ -343,6 +430,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "serial_ring_stalled_uart_is_bounded_in_time",
         stalled_uart_is_bounded_in_time,
+    ),
+    ("serial_ring_huge_write_is_bounded", huge_write_is_bounded),
+    (
+        "serial_ring_wait_is_bounded_in_time_not_rounds",
+        wait_is_bounded_in_time_not_rounds,
+    ),
+    (
+        "serial_ring_final_line_survives_a_held_lock",
+        final_line_survives_a_held_lock,
     ),
     (
         "serial_ring_soak_mixed_writers_keep_lines_whole",

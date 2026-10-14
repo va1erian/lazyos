@@ -9,7 +9,7 @@ write, and the guest turns it into a frozen desktop. Now the serial port goes
 to a file, which never blocks, and this launcher tails the file to its own
 stdout from a thread: a console that stops reading stalls the tail, not the
 guest. The file is also the whole serial log of the run
-(`target/serial-<image>-<date>-<time>.log`, one per run, the newest
+(`target/serial-<image>-<date>-<time>-<pid>.log`, one per run, the newest
 [`KEEP_LOGS`] kept, so a freeze report is a file and two launchers from one
 checkout never share one).
 
@@ -27,6 +27,7 @@ now with the log file as a copy of the output.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -50,7 +51,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     """The launcher's serial options."""
     parser.add_argument("--serial-log", metavar="PATH",
                         help="the guest's serial output, tailed to this console "
-                             "(default: target/serial-<image>-<date>-<time>.log)")
+                             "(default: target/serial-<image>-<date>-<time>-<pid>.log)")
     parser.add_argument("--serial-stdio", action="store_true",
                         help="the old single muxed stdio for serial and monitor "
                              "(a console that stops reading then stalls the guest)")
@@ -61,12 +62,18 @@ def _option_path(path: Path) -> str:
     return path.resolve().as_posix().replace(",", ",,")
 
 
-def default_log_name(image: str | None, now: float | None = None) -> str:
-    """`serial-<image stem>-<date>-<time>.log`: named for the image and the
-    moment, so two launchers in one checkout (on Windows a second process
-    cannot open the other's file for writing) never collide."""
+#: A log name `default_log_name` makes (and the only kind `prune_logs` deletes).
+GENERATED = re.compile(r"^serial-[A-Za-z0-9._-]+-\d{8}-\d{6}-\d+\.log$")
+
+
+def default_log_name(image: str | None, now: float | None = None, pid: int | None = None) -> str:
+    """`serial-<image stem>-<date>-<time>-<pid>.log`: named for the image, the
+    moment and the process, so two launchers in one checkout (on Windows a
+    second process cannot open the other's file for writing), even of the same
+    image in the same second, never collide."""
     stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(image).stem) if image else "lazyos"
-    return time.strftime(f"serial-{stem}-%Y%m%d-%H%M%S.log", time.localtime(now))
+    pid = os.getpid() if pid is None else pid
+    return time.strftime(f"serial-{stem}-%Y%m%d-%H%M%S-{pid}.log", time.localtime(now))
 
 
 def resolve_log(args: argparse.Namespace) -> Path:
@@ -80,7 +87,8 @@ def resolve_log(args: argparse.Namespace) -> Path:
 
 def prune_logs(directory: Path, keep: int = KEEP_LOGS) -> list[Path]:
     """Delete all but the newest `keep` default-named logs; returns the deleted."""
-    logs = sorted((p for p in directory.glob("serial-*.log") if p.is_file()),
+    logs = sorted((p for p in directory.glob("serial-*.log")
+                   if p.is_file() and GENERATED.match(p.name)),
                   key=lambda p: p.stat().st_mtime, reverse=True)
     gone = []
     for old in logs[keep:]:

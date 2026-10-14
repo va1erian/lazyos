@@ -1,6 +1,7 @@
 //! Hooks for the kernel test suite (`tests/serial_suite.rs`).
 
 use super::*;
+use core::sync::atomic::AtomicU64;
 
 /// Test builds: send everything to the absent COM4 (`0x2E8`) instead of the
 /// real port, at most `cap` bytes per drain call (a slow consumer), until the
@@ -87,4 +88,15 @@ pub fn watch_interrupt_locks(on: bool) -> u64 {
         LOCKED_WITH_INTERRUPTS.store(0, Ordering::Relaxed);
     }
     LOCKED_WITH_INTERRUPTS.load(Ordering::Relaxed)
+}
+
+/// Take the port's lock and never release it, as a context that panicked
+/// while logging leaves it (`final_line` must not wait for it).
+pub fn leak_port_lock_for_test() {
+    core::mem::forget(port());
+}
+
+/// Whether the port's lock is held right now.
+pub fn port_locked_for_test() -> bool {
+    SERIAL1.is_locked()
 }

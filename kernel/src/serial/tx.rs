@@ -15,15 +15,18 @@
 //! interrupts off when something is (the kernel task's loop drains that,
 //! `serial::service`).
 //!
-//! A writer never waits for room. A full ring drops the byte and counts it
-//! (issue #857): the port can be slower than the producers for as long as the
-//! host's consumer stalls, and a writer that drained synchronously, or a
-//! program write that waited for the ring to empty, turned that into a frozen
-//! machine (writers livelocked in the kernel, each demotion printing more).
-//! The count is reported as `SERIAL:DROPPED` once the ring has room again
-//! (`serial::service`); only a panic or a power-off drains without limit
-//! (`serial::flush`). `drained` counts the bytes sent, so a writer can tell
-//! when its own last byte has gone without asking for an empty ring.
+//! A writer never waits for the ring to *empty*, and never drains
+//! synchronously for room. A full ring drops what does not fit (whole lines;
+//! `serial::stamp`) and counts it (issue #857): the port can be slower than
+//! the producers for as long as the host's consumer stalls, and a writer that
+//! drained for room, or a program write that waited for the ring to empty,
+//! turned that into a frozen machine (writers livelocked in the kernel, each
+//! demotion printing more). A program's write waits a bounded time for room
+//! (`serial::mirror`). The count is reported as `SERIAL:DROPPED` by
+//! `serial::report`, from the multiplexer loop, once the ring has room again;
+//! only a panic or a power-off drains without limit (`serial::flush_final`).
+//! `drained` counts the bytes sent, so a writer can tell when its own last
+//! byte has gone without asking for an empty ring.
 
 use crate::arch::io::{inb, outb};
 
@@ -107,6 +110,7 @@ impl Tx {
     }
 
     /// Bytes ever sent (wrapping); see [`Tx::passed`].
+    #[cfg(lazyos_tests)]
     pub(super) fn drained(&self) -> usize {
         self.drained
     }
