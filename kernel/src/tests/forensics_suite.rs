@@ -7,7 +7,9 @@ use super::*;
 use crate::process;
 use crate::serial;
 use crate::task::signal::{self, SigInfo};
-use crate::task::{cpustat, linuxstate, lockwait, procexit, relax, stuck, PriorityClass, TaskState};
+use crate::task::{
+    cpustat, linuxstate, lockwait, procexit, relax, stuck, PriorityClass, TaskState,
+};
 use crate::trace::capture;
 
 static LINES: spin::Mutex<Vec<u8>> = spin::Mutex::new(Vec::new());
@@ -72,7 +74,11 @@ fn exec_sets_the_comm() -> Result<(), String> {
         let (bytes, len) = linuxstate::comm(slot);
         String::from_utf8_lossy(&bytes[..len]).into_owned()
     };
-    check!(comm(child) == "webprocess", "comm after exec: {}", comm(child));
+    check!(
+        comm(child) == "webprocess",
+        "comm after exec: {}",
+        comm(child)
+    );
     linuxstate::with_extras(|extras| extras.comm = linuxstate::comm_of_path("renamed"));
     check!(comm(child) == "renamed", "comm after PR_SET_NAME");
     linuxstate::set_exe("/a/very/long/program-name-over-fifteen");
@@ -124,7 +130,10 @@ fn exit_line_waits_for_the_last_thread() -> Result<(), String> {
         task::harness::finish(leader, 0);
         procexit::report();
     });
-    check!(text.is_empty(), "the process printed with a thread alive: {text:?}");
+    check!(
+        text.is_empty(),
+        "the process printed with a thread alive: {text:?}"
+    );
     let text = captured(|| {
         task::harness::finish(thread, 0);
         procexit::report();
@@ -144,8 +153,13 @@ fn exit_line_names_the_killer() -> Result<(), String> {
     let killer = fork()?;
     let victim = fork()?;
     task::harness::switch_current(killer);
-    signal::send_to_slot(killer, victim, signal::SIGKILL, SigInfo::user(killer, signal::SI_USER))
-        .map_err(|error| format!("SIGKILL: {error:?}"))?;
+    signal::send_to_slot(
+        killer,
+        victim,
+        signal::SIGKILL,
+        SigInfo::user(killer, signal::SI_USER),
+    )
+    .map_err(|error| format!("SIGKILL: {error:?}"))?;
     check!(
         task::harness::set_user_frame(victim, 0x40_0500, 0x70_0800),
         "could not shape the victim's frame"
@@ -316,7 +330,10 @@ fn cpu_report_names_the_busy() -> Result<(), String> {
         .filter_map(|line| line.split("pct=").nth(1))
         .filter_map(|rest| rest.split_whitespace().next()?.parse::<u64>().ok())
         .sum();
-    check!((90..=100).contains(&total), "shares add up to {total}% in {text:?}");
+    check!(
+        (90..=100).contains(&total),
+        "shares add up to {total}% in {text:?}"
+    );
     for slot in [a, b] {
         task::harness::set_state(
             slot,
@@ -418,7 +435,10 @@ fn serial_backlog_is_reported() -> Result<(), String> {
     let text = captured(|| serial::report_backlog_for_test(30_000));
     drop(port);
     check!(quiet.is_empty(), "an empty ring reported: {quiet:?}");
-    check!(low < 4096 && seen.is_empty(), "a small backlog reported: {seen:?}");
+    check!(
+        low < 4096 && seen.is_empty(),
+        "a small backlog reported: {seen:?}"
+    );
     check!(
         text.contains("SERIAL:BACKLOG bytes=") && text.contains("max_io_us="),
         "no backlog line: {text:?}"
@@ -452,7 +472,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "forensics_soak_stuck_sampling_is_bounded",
         soak_stuck_sampling_is_bounded,
     ),
-    ("forensics_cpu_report_names_the_busy", cpu_report_names_the_busy),
+    (
+        "forensics_cpu_report_names_the_busy",
+        cpu_report_names_the_busy,
+    ),
     (
         "forensics_soak_cpu_with_many_processes",
         soak_cpu_with_many_processes,

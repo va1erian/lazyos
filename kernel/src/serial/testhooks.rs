@@ -7,57 +7,90 @@ use super::*;
 /// returned guard is dropped. What was queued is discarded on both ends.
 /// Nothing printed meanwhile reaches the real port: do not print from the
 /// test body.
-#[cfg(lazyos_tests)]
 pub struct Diverted {
     saved: Option<(u16, usize)>,
 }
 
-#[cfg(lazyos_tests)]
 pub fn divert_for_test(cap: usize) -> Diverted {
     const COM4: u16 = 0x2E8;
-    let saved = SERIAL1
-        .lock()
-        .as_mut()
-        .map(|port| {
-            port.tx.drain_all();
-            port.tx.divert(COM4, cap)
-        });
+    let saved = port().as_mut().map(|port| {
+        port.tx.drain_all();
+        port.tx.divert(COM4, cap)
+    });
     Diverted { saved }
 }
 
-#[cfg(lazyos_tests)]
 impl Drop for Diverted {
     fn drop(&mut self) {
-        if let (Some((base, cap)), Some(port)) = (self.saved, SERIAL1.lock().as_mut()) {
+        if let (Some((base, cap)), Some(port)) = (self.saved, port().as_mut()) {
             port.tx.divert(base, cap);
+            port.tx.set_never_empty(false);
         }
     }
 }
 
 /// Drain rounds [`mirror`] ran (a killed caller runs none).
-#[cfg(lazyos_tests)]
 pub static MIRROR_ROUNDS: AtomicU64 = AtomicU64::new(0);
 
 /// Change the bytes one drain call may send on a diverted port.
-#[cfg(lazyos_tests)]
 pub fn set_cap_for_test(cap: usize) {
-    if let Some(port) = SERIAL1.lock().as_mut() {
+    if let Some(port) = port().as_mut() {
         port.tx.set_cap(cap);
     }
 }
 
+/// Make the diverted port never report its transmitter empty (a host that
+/// stopped reading the serial port), or report normally again.
+pub fn set_never_empty_for_test(on: bool) {
+    if let Some(port) = port().as_mut() {
+        port.tx.set_never_empty(on);
+    }
+}
+
+/// How many drains in a row gave up on the port (the back-off level).
+pub fn stall_level_for_test() -> u32 {
+    port().as_ref().map_or(0, |port| port.tx.stall_level())
+}
+
 /// Test hook: bytes queued and sent so far, to judge a run.
-#[cfg(lazyos_tests)]
 pub fn counters_for_test() -> (usize, usize) {
-    SERIAL1
-        .lock()
+    port()
         .as_ref()
         .map_or((0, 0), |port| (port.tx.queued(), port.tx.drained()))
 }
 
-/// [`report_backlog_at`] at a chosen tick, with the throttle forgotten.
-#[cfg(lazyos_tests)]
+/// The backlog look at a chosen tick, with the throttle forgotten.
 pub fn report_backlog_for_test(now: u64) {
-    BACKLOG_LAST.store(0, Ordering::Relaxed);
-    report_backlog_at(now);
+    report::forget_throttle();
+    report::report_backlog_at(now);
+}
+
+/// The bytes waiting in the ring, oldest first.
+pub fn ring_contents_for_test() -> alloc::vec::Vec<u8> {
+    port()
+        .as_ref()
+        .map_or_else(alloc::vec::Vec::new, |port| port.tx.contents())
+}
+
+/// Whether [`note_lock`] is counting, and the locks it saw taken with
+/// interrupts enabled (the #382 rule: a task preempted holding the port
+/// would starve every syscall that logs with interrupts off).
+static WATCH: AtomicBool = AtomicBool::new(false);
+static LOCKED_WITH_INTERRUPTS: AtomicU64 = AtomicU64::new(0);
+
+/// Called by every lock of the port in a test build.
+pub(super) fn note_lock() {
+    if WATCH.load(Ordering::Relaxed) && x86_64::instructions::interrupts::are_enabled() {
+        LOCKED_WITH_INTERRUPTS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Start (or stop) counting port locks taken with interrupts on; returns the
+/// count so far.
+pub fn watch_interrupt_locks(on: bool) -> u64 {
+    WATCH.store(on, Ordering::Relaxed);
+    if on {
+        LOCKED_WITH_INTERRUPTS.store(0, Ordering::Relaxed);
+    }
+    LOCKED_WITH_INTERRUPTS.load(Ordering::Relaxed)
 }

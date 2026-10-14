@@ -153,7 +153,9 @@ pub(super) fn note_exit(tasks: &[Option<Task>; MAX_TASKS], slot: usize, status: 
 
 /// The signal a status stands for (`128 + sig`), if it is one.
 fn signal_of(status: u64) -> Option<u8> {
-    (129..=128 + 64).contains(&status).then(|| (status - 128) as u8)
+    (129..=128 + 64)
+        .contains(&status)
+        .then(|| (status - 128) as u8)
 }
 
 /// A value that prints as `-` when absent.

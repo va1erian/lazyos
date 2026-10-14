@@ -262,12 +262,13 @@ pub fn report() {
         return;
     }
     let now = ticks();
-    let due = now.wrapping_sub(LAST_SUMMARY.load(Ordering::Relaxed)) >= SUMMARY_TICKS;
+    let since = now.wrapping_sub(LAST_SUMMARY.load(Ordering::Relaxed));
+    let due = since >= SUMMARY_TICKS;
     let findings = collect(due);
     if due && !findings.summary.is_empty() {
         LAST_SUMMARY.store(now, Ordering::Relaxed);
     }
-    print(&findings);
+    print(&findings, since / 100);
 }
 
 /// Take the unreported demotions out of the task table. A task whose first
@@ -291,7 +292,9 @@ fn collect(summary_due: bool) -> Findings {
             if found.first.len() >= FIRST_LINES_MAX {
                 continue;
             }
-            found.first.push(row(task, slot, tgid, task.guard.demotions));
+            found
+                .first
+                .push(row(task, slot, tgid, task.guard.demotions));
         } else if summary_due {
             let since = task.guard.demotions - task.guard.reported;
             if let Some(existing) = found.summary.iter_mut().find(|row| row.tgid == tgid) {
@@ -324,7 +327,7 @@ fn row(task: &Task, slot: usize, tgid: usize, count: u32) -> Row {
 }
 
 /// Print `found` (the table lock is released).
-fn print(found: &Findings) {
+fn print(found: &Findings, window_s: u64) {
     for row in &found.first {
         emit(format_args!(
             "DEMOTED task={} comm={} slot={} tgid={} total={}",
@@ -333,8 +336,8 @@ fn print(found: &Findings) {
     }
     for row in &found.summary {
         emit(format_args!(
-            "SUMMARY tgid={} comm={} demotions={} threads={} window_s=10",
-            row.tgid, row.comm, row.count, row.threads
+            "SUMMARY tgid={} comm={} demotions={} threads={} window_s={}",
+            row.tgid, row.comm, row.count, row.threads, window_s
         ));
     }
     if found.omitted > 0 {

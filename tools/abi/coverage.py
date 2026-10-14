@@ -21,6 +21,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 COMPAT = ROOT / "docs" / "compat"
 USED = re.compile(r"SYSCALL_USED\s+(\d+)(?:\s+(\S+))?")
+# An `ENOSYS` line is the first call of a (process, number), or a count line
+# every 10 s after it (`count=<n>`, issue #857): the "count" in the report is
+# the number of such lines, not of calls.
 ENOSYS = re.compile(r"ENOSYS\s+(\d+)(?:\s+(\S+))?")
 
 
