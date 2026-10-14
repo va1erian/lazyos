@@ -95,6 +95,7 @@ fn claim(owner: usize, name: &str, media: bool) -> Result<&'static Slot, FuseErr
             state.alive = true;
             state.mounted = false;
             state.busy = false;
+            state.stopping = false;
             state.phase = Phase::Idle;
             state.timeouts = 0;
             state.stats = Stats::default();

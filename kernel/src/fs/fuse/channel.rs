@@ -50,6 +50,11 @@ pub(super) fn transact(
             if !current(&state, epoch) {
                 return Err(FsError::Io);
             }
+            // Being ejected: nothing new reaches the volume. What was
+            // queued before the stop is still answered.
+            if state.stopping {
+                return Err(FsError::Io);
+            }
             if !state.busy {
                 state.busy = true;
                 state.next_tag += 1;
@@ -75,6 +80,10 @@ pub(super) fn transact(
     slot.work.notify_all();
     let result = await_reply(slot, epoch, tag, deadline, out);
     slot.idle.notify_one();
+    // A daemon asked to stop is waiting for the slot to go idle.
+    if slot.state.lock().stopping {
+        slot.work.notify_all();
+    }
     if result.is_err() {
         slot.state.lock().stats.errors += 1;
     }

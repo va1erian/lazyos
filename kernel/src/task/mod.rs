@@ -94,6 +94,7 @@ mod fs_base;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+pub mod holders;
 pub mod itimer;
 mod kernel_task;
 mod kstack;

@@ -44,6 +44,7 @@ mod fake {
             state.alive = false;
             state.mounted = false;
             state.busy = false;
+            state.stopping = false;
             state.phase = Phase::Idle;
             state.timeouts = 0;
             state.stats = Stats::default();

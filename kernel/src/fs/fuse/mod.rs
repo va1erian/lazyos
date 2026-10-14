@@ -49,6 +49,7 @@
 mod backend;
 mod channel;
 mod mount;
+mod supervise;
 pub mod sys;
 pub mod test_hook;
 
@@ -75,6 +76,7 @@ pub(crate) fn provider_gone(index: usize, epoch: u64) -> bool {
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the suite's bound check
 pub use backend::MAX_DIR_ENTRIES;
 pub use mount::{reap, register, teardown_task, unregister};
+pub use supervise::{holders_report, list, stop, StopError};
 
 /// How many daemons can be mounted at once.
 pub const MAX_PROVIDERS: usize = 8;
@@ -149,6 +151,10 @@ struct State {
     media: bool,
     /// A requester owns the request slot.
     busy: bool,
+    /// The supervisor asked this provider to finish and unmount
+    /// ([`supervise::stop`]): new requests are refused, the daemon's `NEXT`
+    /// reports it once what it already took is answered.
+    stopping: bool,
     phase: Phase,
     request: Request,
     /// Bytes of the bounce buffer the request's payload fills.
@@ -187,6 +193,7 @@ impl Slot {
                 name: String::new(),
                 media: false,
                 busy: false,
+                stopping: false,
                 phase: Phase::Idle,
                 request: Request::EMPTY,
                 payload_len: 0,
@@ -234,15 +241,29 @@ fn now() -> u64 {
     task::ticks() + test_hook::offset()
 }
 
+/// What a daemon's `NEXT` got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Next {
+    /// A request, its payload already handed over.
+    Request(Request),
+    /// Nothing came before the deadline.
+    Idle,
+    /// The supervisor asked this daemon to finish: nothing is queued and
+    /// nothing new will be (see [`supervise::stop`]).
+    Stop,
+}
+
 /// Take the next request of provider `id` for its daemon `owner`, waiting
 /// until `deadline` (absolute ticks) for one. Its payload is handed to
-/// `copy_out` first; if that fails the request stays queued.
+/// `copy_out` first; if that fails the request stays queued. A stop asked
+/// for is reported only once no request is queued, so everything the daemon
+/// was owed is answered before it finishes.
 pub fn next(
     id: usize,
     owner: usize,
     deadline: u64,
     copy_out: &mut dyn FnMut(&[u8]) -> Result<(), FuseError>,
-) -> Result<Option<Request>, FuseError> {
+) -> Result<Next, FuseError> {
     let slot = SLOTS.get(id).ok_or(FuseError::NotOwner)?;
     loop {
         {
@@ -254,7 +275,10 @@ pub fn next(
                 let request = state.request;
                 copy_out(&state.bounce[..state.payload_len])?;
                 state.phase = Phase::Taken;
-                return Ok(Some(request));
+                return Ok(Next::Request(request));
+            }
+            if state.stopping && !state.busy {
+                return Ok(Next::Stop);
             }
         }
         if now() >= deadline
@@ -262,7 +286,7 @@ pub fn next(
             || test_hook::serving()
             || task::signal::killed(task::current())
         {
-            return Ok(None);
+            return Ok(Next::Idle);
         }
         park(&slot.work, deadline);
     }
