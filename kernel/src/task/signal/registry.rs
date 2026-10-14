@@ -38,6 +38,11 @@ pub(super) struct Signals {
     /// began finish with this status once they leave the kernel, whatever
     /// signal they meet on the way out.
     pub(super) group_exit: Option<u64>,
+    /// When the kill began (`arch::clock::monotonic_ns`; 0: none), so
+    /// [`killwatch`](super::killwatch) can name a process that has not
+    /// finished a second later, and whether it already did.
+    pub(super) kill_at_ns: u64,
+    pub(super) slow_reported: bool,
 }
 
 impl Signals {
@@ -48,6 +53,8 @@ impl Signals {
             actions: [Disposition::Default; NSIG],
             infos: [SigInfo::user(0, SI_USER); NSIG],
             group_exit: None,
+            kill_at_ns: 0,
+            slow_reported: false,
         }
     }
 }

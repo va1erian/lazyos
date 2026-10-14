@@ -63,6 +63,8 @@ pub fn run() -> ! {
         crate::process::power::watchdog::service();
         // Name the tasks the Interactive CPU guard demoted (`task::guard`).
         without_interrupts(crate::task::guard::report);
+        // Name a process that was sent SIGKILL and has not finished (#858).
+        without_interrupts(crate::task::signal::killwatch::service);
         // Report each disk's request counters after a burst of I/O, and
         // write cached filesystem data back every few seconds. Both take
         // spin locks (the serial port, the VFS) that syscalls take with
