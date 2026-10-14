@@ -56,6 +56,7 @@ mod fault;
 mod fpframe;
 mod frames;
 pub mod harden;
+pub mod killwatch;
 mod native;
 mod registry;
 mod send;
@@ -70,7 +71,7 @@ pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the signal suite checks the markers
 pub use fpframe::{FP_XSTATE_MAGIC1, FP_XSTATE_MAGIC2};
 pub use harden::{die_with_segv, restore_frame};
-pub use native::{deliver_native, must_unwind, native_fatal_pending};
+pub use native::{deliver_native, fatal_pending, must_unwind, native_fatal_pending};
 pub use send::{kill, kill_terminal_group, send_tid};
 
 pub use access::*;

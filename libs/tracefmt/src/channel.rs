@@ -119,6 +119,7 @@ channels! {
     Settings => "SETTINGS",
     Shell => "SHELL",
     Shellprobe => "SHELLPROBE",
+    Signal => "SIGNAL",
     Sky => "SKY",
     Smb => "SMB",
     Smbfuse => "SMBFUSE",

@@ -312,6 +312,9 @@ pub(super) fn wake_blocked_thread(slot: usize) {
 pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
     let status = with_signals(pml4, |state| {
         state.pending |= bit(SIGKILL);
+        if state.kill_at_ns == 0 {
+            state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
+        }
         *state.group_exit.get_or_insert(status)
     });
     let me = current();

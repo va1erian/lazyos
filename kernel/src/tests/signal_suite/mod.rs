@@ -29,6 +29,7 @@ mod delivery;
 mod fpstate;
 mod hardening;
 mod kill_parked;
+mod killwatch;
 mod linux_abi;
 mod native_kill;
 mod suspend;
@@ -40,6 +41,7 @@ pub(super) use delivery::*;
 pub(super) use fpstate::*;
 pub(super) use hardening::*;
 pub(super) use kill_parked::*;
+pub(super) use killwatch::*;
 pub(super) use linux_abi::*;
 pub(super) use native_kill::*;
 pub(super) use suspend::*;
@@ -76,6 +78,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
         kill_defers_tasks_parked_in_kernel,
     ),
     ("task_signal_soak_kill_parked", soak_kill_parked),
+    (
+        "task_signal_fatal_pending_follows_kill",
+        fatal_pending_follows_the_kill,
+    ),
+    (
+        "task_signal_kill_slow_names_stuck_thread",
+        kill_slow_line_names_the_stuck_thread,
+    ),
+    ("task_signal_soak_kill_every_state", soak_kill_every_state),
     ("task_signal_sigchld_child_exit", sigchld_on_child_exit),
     (
         "task_signal_handler_frame_roundtrip",
