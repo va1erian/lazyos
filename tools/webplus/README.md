@@ -16,6 +16,9 @@ python tools/webplus/session.py --write                    # regenerate tools/sc
 python tools/webplus/notify_run.py                         # web notifications: build, boot twice, judge (shots/webplus-notify)
 python tools/webplus/test_notify_judge.py                  # its judge fails when it should; its sessions are current
 python tools/webplus/notify_session.py --write             # regenerate tools/screenshot/examples/lazywebplus_notify*.json
+python tools/webplus/hang_run.py                           # a page that hangs: the bar, Wait, Reload, Stop; build, boot, judge (shots/webplus-hang)
+python tools/webplus/test_hang_judge.py                    # its judge fails when it should; its session is current
+python tools/webplus/hang_session.py --write               # regenerate tools/screenshot/examples/lazywebplus_hang.json
 python tools/webplus/sample.py record --port 5555 --out s.tsv   # where the guest's CPU goes: CR3 + RIP at 30 Hz over a second QMP port
 python tools/webplus/sample.py report s.tsv [--cr3 HEX --elf PROGRAM]   # by process, then by function (needs binutils' addr2line)
 python tools/webplus/test_sample.py                        # its parser and summary
@@ -28,6 +31,7 @@ python tools/webplus/test_sample.py                        # its parser and summ
 | `judge.py`, `pixels.py` | the verdict as pure functions: serial markers, the host's request log, the profile, the page area of the screenshots |
 | `test_judge.py` | the judge's own tests |
 | `sample.py`, `test_sample.py` | a sampling profiler for a running guest, from the host: `info registers` over a second QMP port (`--extra-arg=-qmp --extra-arg=tcp:127.0.0.1:5555,server=on,wait=off` on any session script), kept as CPL, CR3 (the process) and RIP; `report` shows time by address space and the busiest addresses, and names functions against an unstripped program |
+| `hang_run.py`, `hang_session.py`, `hang_judge.py`, `test_hang_judge.py` | the hung-page harness (issue #862): `fixtures/theoldnet.com/webplus/hang.html` runs a loop that never ends; one boot checks that WebKit's unanswered ping becomes `WEBPROCESS:UNRESPONSIVE` and the window's bar (`HANG:SHOW`), that Wait puts it away and ends nothing, that the toolbar's Reload ends the stuck process and loads the page in a new one, that the bar's Stop ends a second one and leaves the page stopped, and that every process the launcher started is accounted for |
 | `notify_run.py`, `notify_session.py`, `notify_judge.py`, `test_notify_judge.py` | the web notifications harness: the page `fixtures/theoldnet.com/webplus/notify.html` over two origins in two boots (no bar without a gesture, Allow kept, the toast titled with the site and updated in place, a burst cut, a click on a live and on a gone page, Block, Forget), judged from the markers, the shell's `SHELL:NOTIFY:POST` lines, the page's titles and `notify.tsv` on the OS volume |
 
 The sites are LazyWeb's (`example.com`, `theoldnet.com` with its pictures and a download), WebKit's test pages

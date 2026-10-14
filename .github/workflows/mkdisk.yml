@@ -66,6 +66,7 @@ jobs:
           python tools/webkit/licenses.py
           python tools/webplus/test_judge.py
           python tools/webplus/test_notify_judge.py
+          python tools/webplus/test_hang_judge.py
           python tools/webplus/test_blocker_judge.py
           python tools/webplus/test_sample.py
           python tools/webplus/session.py --check

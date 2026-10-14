@@ -32,12 +32,12 @@ impl Toaster for LazyToaster {
             ..notify::Notice::new(level, &toast.title, &toast.body)
         };
         // Made from the main thread: the shell refuses any other as "not an app" (`on_main`).
-        on_main(move || notify::post(&notice))
+        on_main("download.post", move || notify::post(&notice))
             .ok_or_else(|| String::from("the browser's main thread did not answer"))?
             .map_err(|code| format!("errno {code}"))
     }
 
     fn close(&mut self, id: u64) {
-        let _ = on_main(move || notify::close(id));
+        let _ = on_main("download.close", move || notify::close(id));
     }
 }

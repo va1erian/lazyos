@@ -19,6 +19,7 @@ pub mod events;
 pub mod gesture;
 pub mod keys;
 pub mod mailbox;
+pub mod taskstat;
 pub mod view;
 
 #[cfg(feature = "window")]

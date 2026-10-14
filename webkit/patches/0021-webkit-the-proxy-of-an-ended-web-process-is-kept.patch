@@ -1,0 +1,46 @@
+WebKit: the proxy of an ended web process is kept alive (and counted).
+
+When the page of a process that ended (crashed, was terminated by the client, ran out of memory) is
+loaded again in a new process, WebPageProxy::launchProcess releases the old WebProcessProxy. On this
+port that destruction aborts the UI process: crashDueToCheckedPtrToDeadObject, from a CheckedPtr count of
+the thread-safe kind (IPC::Connection::Client, which AuxiliaryProcessProxy implements) that is already
+zero when a reference to it is released. Reproduced with LazyWeb+'s Stop or Reload on a page whose
+process does not answer (issue #862): the UI process died right after launching the replacement process,
+with the page's responsiveness calls of the embedder removed, with and without waiting for the socket to
+close first. The cause is not found. Keeping the dead proxy (one reference leaked each time a process
+ends) avoids it, and the embedder's `lzw_proxy_kept(pid, count)` says how many are kept.
+
+--- a/Source/WebKit/UIProcess/WebProcessProxy.cpp
++++ b/Source/WebKit/UIProcess/WebProcessProxy.cpp
+@@ -171,6 +171,9 @@
+ 
+ #define WEBPROCESSPROXY_RELEASE_LOG_ERROR(channel, fmt, ...) RELEASE_LOG_ERROR(channel, "%p - [PID=%i] WebProcessProxy::" fmt, static_cast<const void*>(this), processID(), ##__VA_ARGS__)
+ 
++// The embedder's count of kept proxies (webkit/port/app/children.cpp); weak: other programs have none.
++extern "C" __attribute__((weak)) void lzw_proxy_kept(int pid, int kept);
++
+ namespace WebKit {
+ using namespace WebCore;
+ 
+@@ -1462,6 +1465,21 @@
+     // to be deleted before we can finish our work.
+     Ref protectedThis { *this };
+ 
++    // LazyOS: the proxy of a process that ended is never destroyed. Destroying it (when the page is
++    // reloaded in a new process, which releases the old proxy) aborts the UI process in
++    // crashDueToCheckedPtrToDeadObject, a thread-safe CheckedPtr count that is already zero; seen on this
++    // port after WKPageTerminate and Reload (LazyWeb+, issue #862), with or without waiting for the
++    // socket to close first. The cause is not found; a dead proxy is a few kilobytes and a process ends
++    // only by a crash, a memory limit or the person's choice, so it is kept (a reference leaked once per
++    // ending) and counted: the embedder's hook says how many are kept.
++    ref();
++    {
++        static unsigned s_kept;
++        ++s_kept;
++        if (lzw_proxy_kept)
++            lzw_proxy_kept(static_cast<int>(processID()), static_cast<int>(s_kept));
++    }
++
+     liveProcessesLRU().remove(*this);
+ 
+     auto pages = mainPages();

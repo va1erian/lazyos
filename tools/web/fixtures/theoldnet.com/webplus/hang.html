@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hang:ready</title>
+<style>
+  body { margin: 0; font: 22px sans-serif; background: #fff4f4; }
+  /* One big box the harness clicks at a known place: 360 x 70 at the page's top-left
+     (tools/webplus/hang_session.py: SPIN). */
+  #spin { position: absolute; left: 0; top: 0; width: 360px; height: 70px; background: #c33; color: #fff;
+          border: 0; font: bold 24px sans-serif; cursor: pointer; }
+  p { position: absolute; left: 400px; top: 20px; margin: 0; }
+</style>
+</head>
+<body>
+<button id="spin">Hang this page</button>
+<p>The button runs a loop that never ends: the page's process stops answering WebKit's pings
+(issue #862, tools/webplus/hang_run.py).</p>
+<script>
+document.getElementById('spin').onclick = function () {
+  document.title = 'hang:spinning';
+  // Later, so the title and the repaint are on their way before the loop starts.
+  setTimeout(function () { for (;;) { } }, 300);
+};
+</script>
+</body>
+</html>

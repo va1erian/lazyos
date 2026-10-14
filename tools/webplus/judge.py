@@ -6,7 +6,7 @@ window (`tools/webkit/appjudge.py`, whose pixel helpers are used here):
 * **serial** - the window's markers (`WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`, `NAV`,
   `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,
   `FAIL`, `STOPPED`) and the UI process's (`UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`,
-  `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`): every page loaded with its title, the script's three
+  `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`; the launcher's `PROCESS:LAUNCH|EXIT|TERMINATE`): every page loaded with its title, the script's three
   dialogs were answered (the title carries the answers), what the script tried on its own was
   `BLOCKED` and nothing but the user's click started another program, the downloads finished whole;
 * **servers** - what the host's stand-in sites recorded (`tools/web/sites.py`): the pages, every
@@ -265,19 +265,74 @@ def judge_resize(text: str) -> list[str]:
     return []
 
 
+PROCESS_EVENT = re.compile(
+    rf"{P}:(?:PROCESS:(?P<kind>LAUNCH|EXIT):(?P<ptype>\w+):(?P<ppid>\d+)(?::(?P<rest>[^\r\n]*))?"
+    rf"|PROCESS:TERMINATE:(?P<ttype>\w+):(?P<tpid>\d+):group=(?P<group>-?\d+):pid=(?P<single>-?\d+)"
+    rf"|CHILD:(?P<ctype>\w+):(?P<cpid>\d+):(?P<cstate>GONE|ALIVE))")
+
+
+def process_history(text: str) -> tuple[list[str], set[tuple[str, str]]]:
+    """Follows every engine process through the log in order (issue #862): a launch makes it live, an
+    exit (or the shutdown's `CHILD:...:GONE`) ends it. LazyOS ids are task slots and are reused at once, so
+    an id means a process only between its launch and its end: an exit of an id that is not live, or
+    of another type than the launch, a launch of an id still live, a `terminate` that sent nothing to a live
+    process (neither the group's kill nor the process's), a `CHILD` line naming a process that had ended, and
+    a process still live at the end are all problems. Returns the problems and the (type, id) pairs seen to end."""
+    problems: list[str] = []
+    live: dict[str, str] = {}
+    ended: set[tuple[str, str]] = set()
+    for match in PROCESS_EVENT.finditer(text):
+        if match["kind"] == "LAUNCH":
+            kind, pid = match["ptype"], match["ppid"]
+            if pid in live:
+                problems.append(f"the {kind} process {pid} was launched while the {live[pid]} process {pid} was still live")
+            live[pid] = kind
+            ended.discard((kind, pid))
+        elif match["kind"] == "EXIT":
+            kind, pid = match["ptype"], match["ppid"]
+            if pid not in live:
+                problems.append(f"an exit of the {kind} process {pid}, which was not live")
+            elif live[pid] != kind:
+                problems.append(f"an exit of the {kind} process {pid}, which was launched as {live.pop(pid)}")
+            else:
+                del live[pid]
+                ended.add((kind, pid))
+        elif match["ttype"]:
+            kind, pid = match["ttype"], match["tpid"]
+            if pid in live and match["group"] != "0" and match["single"] != "0":
+                problems.append(f"WebKit's terminate of the {kind} process {pid} sent no signal "
+                                f"(group errno {match['group']}, pid errno {match['single']})")
+        elif match["cstate"] == "GONE":
+            kind, pid = match["ctype"], match["cpid"]
+            if pid in live:
+                if live[pid] != kind:
+                    problems.append(f"the shutdown ended the {kind} process {pid}, which was launched as {live[pid]}")
+                del live[pid]
+                ended.add((kind, pid))
+            elif (kind, pid) in ended:
+                problems.append(f"the shutdown named the {kind} process {pid}, which had ended already")
+            else:
+                ended.add((kind, pid))
+    for pid, kind in live.items():
+        problems.append(f"the {kind} process {pid} was launched and never seen to end")
+    return problems, ended
+
+
 def judge_quit(text: str) -> list[str]:
-    """Closing the window ends the run loop and both child processes: `QUIT:PASS`, and for each pid
-    the UI process named, a `CHILD:<name>:<pid>:GONE` (what its own waitpid/kill saw)."""
+    """Closing the window ends the run loop and both child processes: `QUIT:PASS`, and every process the
+    UI process named is accounted for (`process_history`): ended by the shutdown (`CHILD:<name>:<pid>:GONE`,
+    what its own waitpid/kill saw) or earlier and collected (`PROCESS:EXIT`)."""
     problems = []
     if f"{P}:QUIT:PASS" not in text:
         problems.append(f"the window did not close cleanly: no {P}:QUIT:PASS (saw {re.findall(rf'{P}:QUIT:\\w+', text)})")
+    history, ended = process_history(text)
     for name, kind in (("web", "WEBPROCESS"), ("network", "NETWORKPROCESS")):
         for pid in sorted(set(re.findall(rf"{P}:{kind}:UP:(\d+)", text))):
-            if f"{P}:CHILD:{name}:{pid}:GONE" not in text:
+            if (name, pid) not in ended:
                 problems.append(f"the {name} process {pid} was not seen to end: no {P}:CHILD:{name}:{pid}:GONE")
-    for alive in re.findall(rf"{P}:CHILD:\w+:\d+:ALIVE", text):
+    for alive in re.findall(rf"{P}:CHILD:\w+:\d+:ALIVE[^\r\n]*", text):
         problems.append(f"a child outlived the window: {alive}")
-    return problems
+    return problems + history
 
 
 def judge_first(text: str) -> list[str]:

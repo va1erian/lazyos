@@ -120,7 +120,7 @@ under 10 ms of UI-process CPU, and U2 holds on the animation fixture with the wi
 
 ### P2. Stop the spin and keep the desktop responsive (3 days; H2, H3, H4)
 
-1. **Throttle rendering in the engine.** A LazyOS patch (`0020`; 0018 and 0019 are the content rule list patches) to the classic drawing area so `scheduleDisplay` waits
+1. **Throttle rendering in the engine.** A LazyOS patch (`0022`; `0018` and `0019` are the content rule list patches, `0020` and `0021` the unresponsive-page ones) to the classic drawing area so `scheduleDisplay` waits
    a frame interval (33 ms by default; the interval is a preference the window can raise, up to 100 ms, while the
    page is hidden or the machine is loaded) instead of a 0 s timer; then check what `requestAnimationFrame`, CSS
    animation and `DOMTimer` do with it (the page-level knobs that exist in the C API: `WKPreferencesSetDOMTimersThrottlingEnabled`,

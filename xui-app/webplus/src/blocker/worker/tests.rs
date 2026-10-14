@@ -19,6 +19,7 @@ impl Engine for Recording {
     fn load(&self, _: &str) {}
     fn reload(&self) {}
     fn stop(&self) {}
+    fn recover(&self, _: bool) {}
     fn back(&self) {}
     fn forward(&self) {}
     fn resize(&self, _: i32, _: i32) {}
