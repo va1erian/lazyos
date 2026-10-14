@@ -19,6 +19,10 @@ pub struct Geometry {
     pub sectors_per_cluster: u32,
     pub total_sectors: u64,
     pub clusters: u32,
+    /// First sector after the reserved sectors and the FATs.
+    pub fat_end: u64,
+    /// First sector of the data area (cluster 2).
+    pub data_start: u64,
 }
 
 const SIGNATURE: [u8; 2] = [0x55, 0xAA];
@@ -128,5 +132,7 @@ pub fn validate(sector: &[u8], device_sectors: u64) -> Result<Geometry, &'static
         sectors_per_cluster: per_cluster as u32,
         total_sectors: total,
         clusters: clusters as u32,
+        fat_end: reserved + fats * per_fat,
+        data_start: first_data,
     })
 }
