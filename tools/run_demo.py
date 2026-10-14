@@ -87,7 +87,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui import osvolume  # noqa: E402
-from demo_qemu import device_env, sound_args, usb_env, usb_sticks  # noqa: E402
+from demo_qemu import USB_APPS, device_env, sound_args, usb_desktop, usb_env, usb_sticks  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
@@ -375,7 +375,7 @@ def main(argv: list[str]) -> int:
             # The simulated radio brings the stack, so the Network app (with
             # its Wi-Fi page) and the Network Status applet too.
             needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi_sim else [])
-                      + (TRAYDEMO_APPS if args.traydemo else []))
+                      + (TRAYDEMO_APPS if args.traydemo else []) + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
         if args.mail:

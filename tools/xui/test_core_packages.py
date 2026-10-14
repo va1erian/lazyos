@@ -29,7 +29,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
 
 #: The windowless tray applets (docs/tray-plan.md T3,
 #: `build_support/core_packages.rs` APPLETS).
-WINDOWLESS = ("volume", "netstatus")
+WINDOWLESS = ("volume", "netstatus", "removable")
 
 
 def sha(path: Path) -> str:

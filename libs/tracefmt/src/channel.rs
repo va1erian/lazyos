@@ -113,6 +113,7 @@ channels! {
     Pkgd => "PKGD",
     Printd => "PRINTD",
     Quake => "QUAKE",
+    Removable => "REMOVABLE",
     Rhai => "RHAI",
     Sched => "SCHED",
     Settings => "SETTINGS",

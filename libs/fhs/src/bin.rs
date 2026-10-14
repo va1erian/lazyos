@@ -143,6 +143,9 @@ programs! {
     /// `fatfuse`, a FAT volume of a USB stick mounted under `/media`
     /// (docs/usb-hotplug-plan.md).
     FATFUSE = "fatfuse";
+    /// `eject`, flush and unmount a removable volume so its stick can be
+    /// pulled (docs/usb-hotplug-plan.md D).
+    EJECT = "eject";
     /// `smb`, the SMB 2.1 client (`LAZYOS_SMB=1`, docs/smb-plan.md F2).
     SMB = "smb";
     /// `smbfuse`, an SMB share mounted under `/mnt` (docs/smb-plan.md F3).

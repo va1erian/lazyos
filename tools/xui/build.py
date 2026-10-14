@@ -140,6 +140,8 @@ BINS = {
     "xui-video": "xui-video.elf",
     # About LazyOS: About LazyOS, with a real-time 3D renderer.
     "xui-about": "xui-about.elf",
+    # Removable Drives: Removable drives in the taskbar tray.
+    "xui-removable": "xui-removable.elf",
 }
 
 

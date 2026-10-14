@@ -333,13 +333,18 @@ def scaffold(root: Path, app: App) -> list[str]:
 
     change("tools/run_demo.py", run_demo)
 
-    def catalog(text: str) -> str:
-        text = insert_before_close(
-            text,
+    # The session list moved out of catalog.py (file length limit).
+    change(
+        "tools/lazygui/scripts.py",
+        lambda t: insert_before_close(
+            t,
             "SCRIPTS = [",
             "]",
             f'("xui_{app.short}.json", {quoted("XUI app: " + app.name)}, ("desktop",), "{app.short}"),',
-        )
+        ),
+    )
+
+    def catalog(text: str) -> str:
         viewers = re.search(r"XUI_VIEWERS = \[[^\]]*\]", text)
         if viewers is None:
             raise ScaffoldError("no XUI_VIEWERS in tools/lazygui/catalog.py")

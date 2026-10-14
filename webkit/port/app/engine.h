@@ -165,7 +165,14 @@ void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef, co
 
 // ---- paint.cpp ----------------------------------------------------------------------------
 
+// All of the view is painted next (a caller that names no rectangle).
 void schedulePaint();
+// The view's own callback: the rectangle that changed is the one painted.
 void viewNeedsDisplay(WKViewRef view, WKRect rect, const void* clientInfo);
+// Input counted for the once-a-second INFO:PAINT line (a wheel turn also starts the clock the line's
+// `w2d` is measured with).
+void notePointer(bool wheel);
+// The page's process is gone: the next paint starts from white and covers the whole view.
+void invalidatePaint();
 
 } // namespace webkitapp

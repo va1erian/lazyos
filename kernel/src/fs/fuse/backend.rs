@@ -276,7 +276,11 @@ impl Filesystem for FuseFs {
     /// `mountd` stops every daemon before the power-off sync, and one stick
     /// pulled out must not make that sync (and the shutdown) report failure.
     fn flush(&self) -> Result<(), FsError> {
-        if super::provider_gone(self.index, self.epoch) {
+        // Gone, or finishing (an eject, a logout, a shutdown): the daemon
+        // flushes its volume itself before it unmounts.
+        if super::provider_gone(self.index, self.epoch)
+            || super::provider_stopping(self.index, self.epoch)
+        {
             return Ok(());
         }
         self.path_call(Op::Flush, "", &[])

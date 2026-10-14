@@ -19,6 +19,8 @@ extern crate alloc;
 mod table;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod volume_tests;
 pub mod volumes;
 
 use alloc::format;
@@ -254,6 +256,7 @@ pub fn exit_reason(status: u64) -> String {
         13 => "the volume cannot be read",
         14 => "cannot mount the volume (no /media, or every name is in use)",
         15 => "the disk was removed",
+        16 => "the stick did not accept the last writes: do not remove it",
         129..=191 => return format!("the daemon was stopped (signal {})", status - 128),
         _ => return format!("the daemon exited with status {status}"),
     };

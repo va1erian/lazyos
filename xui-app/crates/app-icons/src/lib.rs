@@ -147,6 +147,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/about",
         Art::Lucide(Lucide::Box, Tone::Teal),
     ),
+    // Removable Drives: a stick has no outline in xui's set; the floppy is the
+    // closest "storage" glyph (the tray item draws its own stick mask).
+    (
+        "xui-app/packages/removable",
+        Art::Lucide(Lucide::Save, Tone::Amber),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

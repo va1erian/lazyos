@@ -25,7 +25,7 @@ const CALL_TICKS: u64 = 200;
 const EINVAL: i64 = 22;
 const EPIPE: i64 = 32;
 
-pub use wire::MountInfo;
+pub use wire::{MountInfo, VolumeInfo};
 
 /// Why a call failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,4 +126,24 @@ pub fn open_in_files(path: &str) -> Result<(), Error> {
         body,
     )
     .map(drop)
+}
+
+/// The caller's removable volumes (the Removable Drives applet's list).
+pub fn volumes() -> Result<Vec<VolumeInfo>, Error> {
+    let body = call_idempotent(NAME, wire::INTERFACE_ID, wire::METHOD_VOLUMES, Vec::new())?;
+    Ok(decoded(wire::decode_volumes_reply(&body))?.volumes)
+}
+
+/// Eject the volume on `disk` (`usb<n>`): `(state, detail)` as `mountd`
+/// answers (`ejecting`, `ejected`, or `busy` with the holders). Not resent:
+/// an eject in flight is answered `ejecting` the second time, which is the
+/// same outcome, but a lost reply is better seen than hidden.
+pub fn eject(disk: &str, force: bool) -> Result<(String, String), Error> {
+    let body = decoded(wire::encode_eject_args(&wire::EjectArgs {
+        disk: disk.to_owned(),
+        force,
+    }))?;
+    let body = call(NAME, wire::INTERFACE_ID, wire::METHOD_EJECT, body)?;
+    let reply = decoded(wire::decode_eject_reply(&body))?;
+    Ok((reply.state, reply.detail))
 }

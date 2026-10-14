@@ -21,6 +21,14 @@
 // friendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in
 // use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 // `EAGAIN` when every slot is taken.
+//
+// The service also automounts removable volumes (docs/usb-hotplug-plan.md):
+// a FAT USB stick plugged in while someone is logged in is served at
+// `/media/<label>` by a `fatfuse` as that user. `Volumes` lists them and
+// `Eject` finishes one: the daemon flushes everything, closes the filesystem
+// (the dirty flag is cleared) and unmounts, and only then is the stick safe
+// to pull. An eject is refused while a file is open on the volume, and the
+// refusal says who holds it.
 
 // The interface every function of this module calls.
 export const INTERFACE = "os.lazy.mount.v1";
@@ -75,9 +83,51 @@ fn list() {
     msg::connect("os.lazy.mount.v1").invoke("List", [])
 }
 
+/// `Volumes() -> (volumes: Array<VolumeInfo>)`
+///
+/// The disk, `usb<n>`: what `Eject` names.
+/// The mount's name, the volume's label made safe for a path; empty
+/// until the volume is mounted.
+/// Where it is mounted, `/media/<name>`; empty until mounted.
+/// `starting` (a daemon is looking for a volume), `mounted`,
+/// `ejecting`, `ejected` (flushed and unmounted: safe to pull),
+/// `removed` (the stick was pulled while mounted), `unsupported`
+/// (no FAT volume on it) or `failed` (see `detail`).
+/// Why, for `failed`, `unsupported` and `removed`; empty otherwise.
+/// The session user it belongs to: its files' owner.
+/// The stick is not write protected.
+/// The removable volumes of the caller (all of them for root), oldest
+/// plug first. An ended volume stays listed until its stick is pulled,
+/// so its outcome can be read.
+fn volumes() {
+    msg::connect("os.lazy.mount.v1").invoke("Volumes", [])
+}
+
+/// `Eject(disk: String, force: Bool) -> (state: String, detail: String)`
+///
+/// Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,
+/// then let the stick be pulled. Answers at once; the answer's `state`
+/// is `ejecting` (poll `Volumes` for `ejected`), `ejected` (nothing was
+/// mounted, or it already was), or `busy` with the holders in `detail`:
+/// one line per program and open file or working directory. `force`
+/// ejects anyway: open files then fail with an I/O error. Failures of the
+/// request itself are `ENOENT` (no such disk), `EPERM` (another user's
+/// volume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:
+/// ask again in a moment).
+fn eject(disk, force) {
+    msg::connect("os.lazy.mount.v1").invoke("Eject", [disk, force])
+}
+
 /// A `MountInfo` with every field at its zero value.
 ///
 /// One mount the service knows about.
 fn new_mount_info() {
     #{ name: "", kind: "", host: "", port: 0, user: "", path: "", state: "", detail: "", owner: 0, share: "" }
+}
+
+/// A `VolumeInfo` with every field at its zero value.
+///
+/// One removable volume the service knows about.
+fn new_volume_info() {
+    #{ disk: "", name: "", path: "", state: "", detail: "", owner: 0, writable: false }
 }

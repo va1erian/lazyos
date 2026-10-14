@@ -92,7 +92,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
 /// The resident tray applets (docs/tray-plan.md T3): they open with every
 /// session of an image that ships them, whatever `LAZYOS_XUI_AUTOSTART`
 /// says, as the taskbar's own volume and network icons.
-pub const APPLETS: &[&str] = &["volume", "netstatus"];
+pub const APPLETS: &[&str] = &["volume", "netstatus", "removable"];
 
 /// The short ids to open at boot: what `LAZYOS_XUI_AUTOSTART` names
 /// (comma-separated, each a short id (`terminal`), an xui binary stem
@@ -180,6 +180,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         "video",
         // About LazyOS: About LazyOS, with a real-time 3D renderer.
         "about",
+        // Removable Drives: the USB sticks' tray applet, shipped with the
+        // USB stack (`LAZYOS_USB=1`, `xui_embed`).
+        "removable",
     ];
     CORE.contains(&short_of(stem))
 }

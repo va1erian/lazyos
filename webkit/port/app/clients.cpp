@@ -289,6 +289,7 @@ void webProcessDidCrash(WKPageRef, const void*)
     E.loading = false;
     E.crashed = true;
     E.error = "The page's process stopped. Reload (F5) starts it again.";
+    invalidatePaint();
     say("FAIL:webprocess:crashed");
     postState();
 }

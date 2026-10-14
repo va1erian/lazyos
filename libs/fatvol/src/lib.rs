@@ -27,7 +27,7 @@ pub mod parts;
 pub mod vol;
 
 pub use clock::Clock;
-pub use io::{BlockIo, Cache, Fault, MAX_IO, SECTOR};
+pub use io::{BlockIo, Cache, Fault, Layout, Order, MAX_IO, SECTOR};
 pub use vol::{OpenError, Options, Volume};
 
 #[cfg(test)]

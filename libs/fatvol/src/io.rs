@@ -9,7 +9,10 @@
 //! # Write-back within an operation, write-through between them
 //!
 //! A write only dirties cached sectors. [`Cache::flush_dirty`] sends them to
-//! the device in ascending order, adjacent sectors as one request, and the
+//! the device in the order the volume asked for ([`Order`]: a file's bytes
+//! before the table that allocates them and the entry that names them when
+//! it grows, the entry before the table when it shrinks; ascending
+//! otherwise), adjacent sectors as one request, and the
 //! volume calls it before it answers every operation that changed anything,
 //! so a power cut loses at most the operation in flight, as with a
 //! write-through cache, while a 64 KiB file write costs a handful of device
@@ -27,15 +30,18 @@
 //! Large aligned transfers (a file's data) bypass the pages: they would only
 //! be copied through and evict the metadata that makes the next lookup fast.
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use fatfs::IoError;
-
+mod device;
 mod direct;
+mod order;
+mod page;
 mod stream;
 
+pub use device::{BlockIo, Fault, Stats};
+pub use order::{Layout, Order};
+use page::{Page, PAGE_SECTORS};
 pub use stream::Shared;
 
 /// Bytes in a sector.
@@ -43,8 +49,6 @@ pub const SECTOR: usize = 512;
 /// The most a [`BlockIo`] request carries.
 pub const MAX_IO: usize = 64 * 1024;
 
-const PAGE_SECTORS: u64 = 8;
-const PAGE_BYTES: usize = SECTOR * PAGE_SECTORS as usize;
 /// Pages kept (2 MiB).
 const MAX_PAGES: usize = 512;
 /// Pages a miss reads at once (16 KiB): the next FAT entry or directory
@@ -54,76 +58,6 @@ const READ_AHEAD: u64 = 4;
 const BYPASS: usize = 32 * 1024;
 /// Dirty bytes that force a flush inside one long operation.
 const DIRTY_LIMIT: usize = 1024 * 1024;
-
-/// Why a device request failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Fault {
-    /// The device reported an error.
-    Io,
-    /// The medium is gone (unplugged): the volume is over.
-    Gone,
-    /// A write to a read-only medium.
-    ReadOnly,
-    /// A read or write ran past the end.
-    Eof,
-}
-
-impl IoError for Fault {
-    fn is_interrupted(&self) -> bool {
-        false
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Fault::Eof
-    }
-
-    fn new_write_zero_error() -> Self {
-        Fault::Io
-    }
-}
-
-/// A raw device of 512-byte sectors.
-pub trait BlockIo {
-    /// Sectors on the device (the volume's window of the disk).
-    fn sectors(&self) -> u64;
-    /// Read `buf.len() / 512` sectors from `lba`; `buf` is a whole number of
-    /// sectors, at most [`MAX_IO`].
-    fn read(&mut self, lba: u64, buf: &mut [u8]) -> Result<(), Fault>;
-    /// Write whole sectors from `lba`; at most [`MAX_IO`].
-    fn write(&mut self, lba: u64, buf: &[u8]) -> Result<(), Fault>;
-    /// Make everything written so far durable on the device.
-    fn flush(&mut self) -> Result<(), Fault>;
-}
-
-/// Counters, for tests and the daemon's log.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Stats {
-    pub reads: u64,
-    pub writes: u64,
-    pub hits: u64,
-    pub misses: u64,
-}
-
-struct Page {
-    data: Box<[u8; PAGE_BYTES]>,
-    /// Bit `i`: sector `i` of the page holds what the device holds (or what
-    /// is waiting to be written).
-    valid: u8,
-    /// Bit `i`: sector `i` is waiting to be written.
-    dirty: u8,
-    used: u64,
-}
-
-impl Page {
-    fn new() -> Page {
-        Page {
-            data: Box::new([0; PAGE_BYTES]),
-            valid: 0,
-            dirty: 0,
-            used: 0,
-        }
-    }
-}
 
 /// A sector cache over a [`BlockIo`], read, written and seeked as a byte
 /// stream by `rust-fatfs` (through [`Shared`]).
@@ -138,6 +72,17 @@ pub struct Cache<D> {
     failed: Option<Fault>,
     writable: bool,
     stats: Stats,
+    /// Which sectors go first when the dirty ones are sent
+    /// ([`Order`]); the volume sets it for each operation.
+    order: Order,
+    layout: Option<Layout>,
+    /// Sectors written now are a file's contents ([`Layout::data_start`]
+    /// and above).
+    tag_data: bool,
+    /// Off, [`Cache::set_order`] and [`Cache::tag_file_data`] change
+    /// nothing: every flush is ascending, as it was before orders existed.
+    /// For tests that compare the two.
+    ordering: bool,
 }
 
 impl<D: BlockIo> Cache<D> {
@@ -152,7 +97,44 @@ impl<D: BlockIo> Cache<D> {
             failed: None,
             writable,
             stats: Stats::default(),
+            order: Order::Ascending,
+            layout: None,
+            tag_data: false,
+            ordering: true,
         }
+    }
+
+    /// Tell the cache where the FATs end and the data area begins, so that
+    /// [`Order`] can tell a file's contents from the structures that
+    /// describe them.
+    pub fn set_layout(&mut self, layout: Layout) {
+        self.layout = Some(layout);
+    }
+
+    /// Choose the order the next flush sends sectors in (until changed).
+    pub fn set_order(&mut self, order: Order) {
+        self.order = if self.ordering {
+            order
+        } else {
+            Order::Ascending
+        };
+    }
+
+    /// Switch ordering on (the default) or off; see [`Cache::set_order`].
+    pub fn set_ordering(&mut self, on: bool) {
+        self.ordering = on;
+        if !on {
+            self.order = Order::Ascending;
+            self.tag_data = false;
+        }
+    }
+
+    /// From now on the sectors written in the data area are a file's
+    /// contents, until switched off. (Directory clusters live there too, and
+    /// are not tagged: the volume switches this on only around the writes of
+    /// a file's bytes.)
+    pub fn tag_file_data(&mut self, on: bool) {
+        self.tag_data = on && self.ordering;
     }
 
     pub fn stats(&self) -> Stats {
@@ -269,11 +251,29 @@ impl<D: BlockIo> Cache<D> {
             }
             let page = self.pages.get_mut(&index).ok_or(Fault::Io)?;
             let from = slot * SECTOR + within;
+            // A whole sector of the data area, written without being read, is
+            // new content (a directory cluster being made, say: whether
+            // read-ahead had brought the old bytes in does not matter); under
+            // `Order::Grow` it goes before what names it. Entries, FAT
+            // entries and tails are partial sectors.
+            let fresh = whole;
             page.data[from..from + take].copy_from_slice(&data[done..done + take]);
             page.valid |= 1 << slot;
             if page.dirty & (1 << slot) == 0 {
                 page.dirty |= 1 << slot;
                 self.dirty_bytes += SECTOR;
+            }
+            match self.layout {
+                Some(layout)
+                    if sector >= layout.data_start
+                        && (self.tag_data || (fresh && self.order == Order::Grow)) =>
+                {
+                    page.filedata |= 1 << slot;
+                }
+                // A partial write into a sector that is new content (the
+                // `.` and `..` entries of a new directory's cluster) leaves
+                // it new content; the tags go at the operation's flush.
+                _ => {}
             }
             page.used = tick;
             done += take;
@@ -299,6 +299,12 @@ impl<D: BlockIo> Cache<D> {
                 }
             }
         }
+        let pages = &self.pages;
+        order::arrange(&mut dirty, self.order, self.layout, |sector| {
+            pages
+                .get(&(sector / PAGE_SECTORS))
+                .is_some_and(|p| p.filedata & (1 << (sector % PAGE_SECTORS)) != 0)
+        });
         let mut start = 0;
         let mut staging: Vec<u8> = Vec::new();
         while start < dirty.len() {
@@ -322,7 +328,9 @@ impl<D: BlockIo> Cache<D> {
             self.wrote = true;
             for &sector in &dirty[start..end] {
                 if let Some(page) = self.pages.get_mut(&(sector / PAGE_SECTORS)) {
-                    page.dirty &= !(1 << (sector % PAGE_SECTORS));
+                    let bit = 1 << (sector % PAGE_SECTORS);
+                    page.dirty &= !bit;
+                    page.filedata &= !bit;
                 }
             }
             self.dirty_bytes -= (end - start) * SECTOR;

@@ -92,6 +92,9 @@ const NATIVE: &[&str] = &[
     // A FAT volume of a USB stick as a directory (docs/usb-hotplug-plan.md):
     // `fatfuse disk=ID:GENERATION owner=UID:GID`, started by `mountd`.
     fhs::bin::FATFUSE,
+    // `eject [-f] usbN|NAME` and `eject -l`: flush and unmount a removable
+    // volume through `mountd` (docs/usb-hotplug-plan.md D).
+    fhs::bin::EJECT,
     // The SMB 2.1 client (docs/smb-plan.md F2): `smb -U USER //SERVER/SHARE
     // [cmd ; cmd ...]`. On the image only with `LAZYOS_SMB=1`.
     fhs::bin::SMB,

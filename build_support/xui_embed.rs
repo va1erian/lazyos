@@ -176,6 +176,11 @@ const NETWORK_XUI_APPS: &[&str] = &[
     "xui-netdrives.elf",
 ];
 
+/// The removable-drives tray applet, shipped by a desktop image that has the
+/// USB stack (`LAZYOS_USB=1`, docs/usb-hotplug-plan.md G): without `usbd`
+/// there is nothing for it to show.
+const USB_XUI_APPS: &[&str] = &["xui-removable.elf"];
+
 /// Mail (esMail, docs/mail.md), shipped by `LAZYOS_MAIL=1` desktop images:
 /// `python tools/xui/build.py --mail` builds it (`run_demo.py --mail` does
 /// both), and a missing one fails such a build.
@@ -218,6 +223,13 @@ pub fn rerun_if_changed() {
     }
 }
 
+/// Whether this build has the USB stack, which brings the removable-drives
+/// applet.
+fn usb_stack() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB");
+    std::env::var_os("LAZYOS_USB").as_deref() == Some(OsStr::new("1"))
+}
+
 /// Whether this build has the network stack, which brings the network apps.
 fn network_stack() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
@@ -254,6 +266,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .chain(DOCUMENT_XUI_APPS)
             .chain(OPTIONAL_XUI_APPS)
             .chain(NETWORK_XUI_APPS.iter().filter(|_| network_stack()))
+            .chain(USB_XUI_APPS.iter().filter(|_| usb_stack()))
             .chain(MAIL_XUI_APPS.iter().filter(|_| mail_app()))
             .chain(TRAYDEMO_XUI_APPS.iter().filter(|_| traydemo_app()))
             .map(|name| dir.join(name))
