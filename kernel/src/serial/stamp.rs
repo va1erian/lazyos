@@ -58,11 +58,6 @@ impl<'a> Stamped<'a> {
         }
     }
 
-    /// The ring fill this writer may not pass.
-    pub(super) fn limit(&self) -> usize {
-        self.limit
-    }
-
     /// Queue the whole lines of `bytes` that fit, in order, and stop at the
     /// first that does not. Returns how many bytes it took; a segment that
     /// can never fit (longer than the ring may hold) is counted as dropped

@@ -69,6 +69,7 @@ pub mod relax;
 pub mod signal;
 mod snapshot;
 pub mod stuck;
+pub mod yieldlock;
 pub use snapshot::{
     fd_advance, fd_apply_pwrite, fd_apply_write, fd_file_meta, fd_offset, fd_peek, fd_peek_at,
     fd_read, fd_seek, fd_set_len, fd_size, prepare_fd_write, FileMeta, SnapFile,
@@ -98,6 +99,8 @@ mod fs_base;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+#[cfg(lazyos_tests)]
+pub mod harness_frames;
 pub mod holders;
 pub mod itimer;
 mod kernel_task;

@@ -220,11 +220,6 @@ impl Channel {
                 lines: 40,
                 window: 1000,
             }),
-            // A fork storm ends hundreds of processes a second.
-            Channel::Proc => Some(Rate {
-                lines: 200,
-                window: 1000,
-            }),
             // A contended lock is reported per waiter, every few seconds.
             Channel::Lock => Some(Rate {
                 lines: 20,

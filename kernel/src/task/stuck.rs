@@ -3,11 +3,17 @@
 //! A thread that loops in a syscall (issue #857's console write waiting for
 //! a serial ring that never emptied) is invisible: it is `Runnable`, the
 //! guard demotes it, and nothing says it is not running user code. The
-//! multiplexer loop samples the table; a task that is `Runnable` and either
-//! inside one syscall invocation or switched out with a kernel frame, for
-//! the same invocation at every sample for [`STUCK_TICKS`], is reported, and
-//! again every [`REPEAT_TICKS`] while it lasts. `cpu_ms` tells a task that
-//! spins (it ran) from one that is starved (it did not).
+//! multiplexer loop samples the table; a task that is `Runnable` and inside
+//! one kernel invocation, the same at every sample for [`STUCK_TICKS`], is
+//! reported, and again every [`REPEAT_TICKS`] while it lasts. `cpu_ms` tells a
+//! task that spins (it ran) from one that is starved (it did not).
+//!
+//! "Inside the kernel" is judged from the kernel stack, not from the saved
+//! frame alone: an interrupt stub's `preempt_point` switches a task out with a
+//! *kernel* frame saved while the task was only interrupted in user mode, and
+//! the frame the CPU pushed at the top of the stack is the ring-3 one. Such a
+//! task is not stuck; a task in a syscall (`irqoff::task_syscall`) or whose
+//! outermost frame is a kernel one is.
 //!
 //! A task blocked in a syscall is not reported (a `read` may wait for
 //! minutes); neither is one in user mode.
@@ -23,6 +29,10 @@ const STUCK_TICKS: u64 = 200;
 const REPEAT_TICKS: u64 = 1000;
 /// Reports one sample prints; the rest come with the next.
 const ROWS_MAX: usize = 8;
+
+/// Lines allowed in a ten-second window, all tasks together: a machine with
+/// many stuck tasks says so, once in a while, instead of 80 lines a second.
+static BUDGET: tracefmt::Budget = tracefmt::Budget::new(16, 1000);
 
 /// What was seen of one slot at the last sample.
 #[derive(Clone, Copy)]
@@ -54,9 +64,12 @@ struct Row {
     name: &'static str,
     comm: [u8; 16],
     call: Option<(bool, u64)>,
+    /// Ticks in the invocation (since the syscall was entered, else since
+    /// first seen) and CPU ticks the task ran meanwhile.
     ticks: u64,
     cpu_ticks: u64,
     krip: u64,
+    urip: u64,
 }
 
 /// Look at every task once; print the ones stuck. Task context, interrupts off.
@@ -76,18 +89,32 @@ fn sample_at(now: u64) {
                 watch[slot] = IDLE;
                 continue;
             };
+            if task.state != TaskState::Runnable || slot == me || task.kstack_top < 64 {
+                watch[slot] = IDLE;
+                continue;
+            }
             let call = crate::arch::irqoff::task_syscall(slot);
-            let (rip, user) = if task.state == TaskState::Runnable && slot != me {
-                signal::saved_rip(task.rsp)
-            } else {
-                (0, true)
-            };
-            let key = match (task.state == TaskState::Runnable && slot != me, call, user) {
-                (true, Some((native, nr, entered)), _) => {
-                    (u64::from(native) << 63) ^ (nr << 40) ^ entered.wrapping_add(2)
+            // SAFETY: `task` is a live task other than the running one, so
+            // its `rsp` is the frame the scheduler saved and nothing writes
+            // its kernel stack while the table is held with interrupts off.
+            let (krip, saved_user) = unsafe { signal::saved_rip(task.rsp) };
+            let (urip, key) = match call {
+                Some((native, nr, entered)) => {
+                    // SAFETY: as above; `kstack_top` is this task's.
+                    let (urip, _) = unsafe { signal::outer_user_frame(task.kstack_top, !native) };
+                    (
+                        urip,
+                        (u64::from(native) << 63) ^ (nr << 40) ^ entered.wrapping_add(2),
+                    )
                 }
-                (true, None, false) => 1,
-                _ => 0,
+                None if saved_user => (0, 0),
+                None => {
+                    // SAFETY: as above.
+                    let (urip, user) = unsafe { signal::outer_user_frame(task.kstack_top, false) };
+                    // Interrupted in user mode, switched out inside a stub:
+                    // on its way back, not stuck.
+                    (urip, if user { 0 } else { 1 })
+                }
             };
             let entry = &mut watch[slot];
             if key == 0 {
@@ -114,20 +141,32 @@ fn sample_at(now: u64) {
                 0 => slot,
                 leader => leader,
             };
+            let ticks = match call {
+                Some((_, _, entered)) => now.saturating_sub(entered),
+                None => age,
+            };
             rows[count] = Some(Row {
                 slot,
                 tgid,
                 name: task.name,
                 comm: linuxstate::comm_of(task).0,
                 call: call.map(|(native, nr, _)| (native, nr)),
-                ticks: age,
+                ticks,
                 cpu_ticks: task.cpu_ticks.saturating_sub(entry.cpu0),
-                krip: rip,
+                krip,
+                urip,
             });
             count += 1;
         }
     });
     for row in rows.iter().flatten() {
+        match BUDGET.charge(now) {
+            tracefmt::Charge::Deny => continue,
+            tracefmt::Charge::AllowAfter(n) => {
+                crate::trace::line!(tracefmt::Channel::Sched, "STUCK_SUPPRESSED n={n}")
+            }
+            tracefmt::Charge::Allow => {}
+        }
         print(row);
     }
 }
@@ -142,7 +181,7 @@ fn print(row: &Row) {
     };
     crate::trace::line!(
         tracefmt::Channel::Sched,
-        "STUCK tgid={} thread={}/{} abi={} nr={} ms={} cpu_ms={} krip={:#x} state=runnable comm={}",
+        "STUCK tgid={} thread={}/{} abi={} nr={} ms={} cpu_ms={} krip={:#x} urip={:#x} comm={}",
         row.tgid,
         row.slot,
         row.name,
@@ -151,14 +190,16 @@ fn print(row: &Row) {
         row.ticks * 10,
         row.cpu_ticks * 10,
         row.krip,
+        row.urip,
         comm
     );
 }
 
-/// Forget every watch (the kernel suite).
+/// Forget every watch and the line budget (the kernel suite).
 #[cfg(lazyos_tests)]
 pub fn reset_for_test() {
     without_interrupts(|| *WATCH.lock() = [IDLE; MAX_TASKS]);
+    BUDGET.reset();
 }
 
 /// Whether the slot is being watched as in a kernel invocation, with the

@@ -51,6 +51,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--serial-log", metavar="PATH",
                         help="the guest's serial output, tailed to this console "
                              "(default: target/serial-<image>-<date>-<time>.log)")
+    parser.add_argument("--sample-port", type=int, metavar="N",
+                        help="a second QMP socket on 127.0.0.1:N for tools/webplus/sample.py "
+                             "(CR3 + RIP at 30 Hz during a freeze)")
     parser.add_argument("--serial-stdio", action="store_true",
                         help="the old single muxed stdio for serial and monitor "
                              "(a console that stops reading then stalls the guest)")
@@ -92,15 +95,23 @@ def prune_logs(directory: Path, keep: int = KEEP_LOGS) -> list[Path]:
     return gone
 
 
+def sample_args(port: int | None) -> list[str]:
+    """The second QMP socket `tools/webplus/sample.py record --port N` reads."""
+    return ["-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off"] if port else []
+
+
 def qemu_args(args: argparse.Namespace) -> list[str]:
-    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor."""
+    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor (and
+    the sampling socket, if asked for)."""
     path = _option_path(resolve_log(args))
     if args.serial_stdio:
-        return ["-chardev", f"stdio,id=ser0,mux=on,logfile={path}",
-                "-serial", "chardev:ser0", "-mon", "chardev=ser0,mode=readline"]
-    return ["-chardev", f"file,id=ser0,path={path}", "-serial", "chardev:ser0",
-            "-chardev", "stdio,id=mon0,mux=on,signal=off",
-            "-mon", "chardev=mon0,mode=readline"]
+        chardevs = ["-chardev", f"stdio,id=ser0,mux=on,logfile={path}",
+                    "-serial", "chardev:ser0", "-mon", "chardev=ser0,mode=readline"]
+    else:
+        chardevs = ["-chardev", f"file,id=ser0,path={path}", "-serial", "chardev:ser0",
+                    "-chardev", "stdio,id=mon0,mux=on,signal=off",
+                    "-mon", "chardev=mon0,mode=readline"]
+    return chardevs + sample_args(getattr(args, "sample_port", None))
 
 
 class Tail:

@@ -1,6 +1,7 @@
 //! Hooks for the kernel test suite (`tests/serial_suite.rs`).
 
 use super::*;
+use core::sync::atomic::AtomicU64;
 
 /// Test builds: send everything to the absent COM4 (`0x2E8`) instead of the
 /// real port, at most `cap` bytes per drain call (a slow consumer), until the

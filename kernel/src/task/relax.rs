@@ -39,17 +39,6 @@ pub const PARK_NS: u64 = 200_000;
 /// Parks taken by contenders since boot (diagnostics and the kernel suite).
 static PARKS: AtomicU64 = AtomicU64::new(0);
 
-/// Per slot, when its last contention park happened and when the wait it
-/// belongs to began (monotonic ns; 0: never). A park less than
-/// [`SAME_WAIT_GAP_NS`] after the previous one continues the same wait.
-static LAST_PARK_NS: [AtomicU64; super::MAX_TASKS] =
-    [const { AtomicU64::new(0) }; super::MAX_TASKS];
-static WAIT_SINCE_NS: [AtomicU64; super::MAX_TASKS] =
-    [const { AtomicU64::new(0) }; super::MAX_TASKS];
-/// Longest gap between two parks of one wait. A contender parks for
-/// [`PARK_NS`] at a time, and the tick that ends a park may be 10 ms late.
-const SAME_WAIT_GAP_NS: u64 = 50_000_000;
-
 /// Test builds: let kernel test threads park before the scheduler starts.
 static TEST_PARK: AtomicBool = AtomicBool::new(false);
 
@@ -72,8 +61,7 @@ impl spin::RelaxStrategy for Yield {
     }
 }
 
-/// A spin lock whose contenders yield the CPU (see the module docs).
-pub type YieldMutex<T> = spin::mutex::Mutex<T, Yield>;
+pub use super::yieldlock::{YieldGuard, YieldMutex};
 
 /// Whether the contender can park for [`PARK_NS`]: the scheduler runs (or a
 /// test allowed its threads to park) and [`can_block`] holds.
@@ -94,12 +82,7 @@ fn park() {
     interrupts::disable();
     let me = super::current();
     PARKS.fetch_add(1, Ordering::Relaxed);
-    let now = crate::arch::clock::monotonic_ns();
-    let last = LAST_PARK_NS[me].swap(now, Ordering::Relaxed);
-    if now.saturating_sub(last) > SAME_WAIT_GAP_NS {
-        WAIT_SINCE_NS[me].store(now, Ordering::Relaxed);
-    }
-    let deadline = now.saturating_add(PARK_NS);
+    let deadline = crate::arch::clock::monotonic_ns().saturating_add(PARK_NS);
     super::block_task(me, super::WaitKind::Sleep, Some(deadline));
     super::switch::yield_now();
     // Picked again before the deadline (a stray wake): sleep through ticks
@@ -128,25 +111,6 @@ fn yield_and_halt() {
             interrupts::disable();
         });
     }
-}
-
-/// How long task `slot` has been waiting for a contended lock at `now_ns`
-/// (monotonic ns), or `None` if it is not (it parked for one recently). The
-/// lock itself is not known: the relax strategy is not told which one.
-pub fn waiting_ns(slot: usize, now_ns: u64) -> Option<u64> {
-    let last = LAST_PARK_NS.get(slot)?.load(Ordering::Relaxed);
-    if last == 0 || now_ns.saturating_sub(last) > SAME_WAIT_GAP_NS {
-        return None;
-    }
-    Some(now_ns.saturating_sub(WAIT_SINCE_NS[slot].load(Ordering::Relaxed)))
-}
-
-/// Test builds: make `slot` look like a contender that began waiting at
-/// `since_ns` and parked last at `last_ns`.
-#[cfg(lazyos_tests)]
-pub fn set_waiting_for_test(slot: usize, since_ns: u64, last_ns: u64) {
-    WAIT_SINCE_NS[slot].store(since_ns, Ordering::Relaxed);
-    LAST_PARK_NS[slot].store(last_ns, Ordering::Relaxed);
 }
 
 /// Parks taken by lock contenders since boot.

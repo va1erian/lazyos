@@ -111,6 +111,7 @@ impl Tx {
     }
 
     /// Bytes ever sent (wrapping); see [`Tx::passed`].
+    #[cfg(lazyos_tests)]
     pub(super) fn drained(&self) -> usize {
         self.drained
     }

@@ -396,7 +396,7 @@ pub fn frame_base(slot: usize) -> Option<u64> {
 }
 
 /// The saved-frame pointer of `slot`.
-fn frame_of(slot: usize) -> Option<u64> {
+pub(super) fn frame_of(slot: usize) -> Option<u64> {
     TASKS.lock()[slot].as_ref().map(|task| task.rsp)
 }
 

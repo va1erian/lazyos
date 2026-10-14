@@ -21,8 +21,10 @@ mod tx;
 pub use testhooks::*;
 
 use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-pub use report::{dropped_total, report, report_dropped};
+use core::sync::atomic::{AtomicBool, Ordering};
+pub use report::report;
+#[cfg(lazyos_tests)]
+pub use report::{dropped_total, report_dropped};
 use spin::Mutex;
 use stamp::Stamped;
 use uart_16550::SerialPort;
@@ -234,7 +236,8 @@ pub fn backlog() -> bool {
     })
 }
 
-/// Bytes waiting in the ring (`SERIAL:BACKLOG`, tests).
+/// Bytes waiting in the ring (tests).
+#[cfg(lazyos_tests)]
 pub fn queued_len() -> usize {
     x86_64::instructions::interrupts::without_interrupts(|| {
         port().as_ref().map_or(0, |port| port.tx.len())
