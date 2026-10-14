@@ -282,7 +282,9 @@ FAT volume is parsed in user space (docs/usb-hotplug-plan.md, decision 7):
   at that instant is a torn FAT update (the cache writes ascending sector
   order, FAT and directory before data, and FAT has no journal), which the
   next mount's dirty flag shows. The nuisance is the price of not having a
-  graceful stop yet.
+  graceful stop yet. (`SIGTERM` would not be gentler: `fatfuse` has no handler,
+  the signal is acted on at a syscall return, and a wait in the stick's block
+  I/O ends for a kill alone; docs/shutdown.md, "Native services and SIGTERM".)
 - **A slow stick:** a failed read is that request's error alone, and the
   device's flush is sent only after something was written. The FUSE
   requests of a media mount have the block layer's patience (45 s, below its

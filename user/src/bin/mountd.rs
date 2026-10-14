@@ -157,10 +157,11 @@ fn stop_all(table: &Table, automount: &volumes::Automount, reason: &str) {
         let _ = sys::kill(pid, sys::SIG_TERM);
     }
     // A volume daemon has nothing unsaved between requests (its cache is
-    // written before each answer), so it is ended outright: a SIGTERM waits
-    // for the task's next return to user mode, and a daemon parked in the
-    // kernel for its next request does not always get there before the
-    // power-off sync asks it to flush.
+    // written before each answer) and installs no handler, so SIGTERM would
+    // only be a SIGKILL one syscall return later, and a wait in the stick's
+    // block I/O ends for a kill alone. It is ended outright. (A daemon parked
+    // in `NEXT` leaves it at once on SIGTERM, `signal::must_unwind`, and
+    // takes no request on the way out; the daemons above rely on that.)
     for pid in automount.daemons() {
         let _ = sys::kill(pid, sys::SIG_KILL);
     }

@@ -9,6 +9,7 @@ mod coherence;
 mod hostile;
 mod io;
 mod sys;
+mod term;
 
 use super::*;
 use crate::fs::fuse::{self, test_hook, FuseError};
@@ -372,6 +373,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_faulting_reply_data", hostile::faulting_reply_data),
     ("fuse_lying_replies", hostile::lying_replies),
     ("fuse_endless_directory", hostile::endless_directory),
+    (
+        "fuse_signal_term_ends_the_daemons_wait",
+        term::term_ends_the_daemons_wait,
+    ),
+    (
+        "fuse_signal_term_takes_no_request",
+        term::term_takes_no_request,
+    ),
+    (
+        "fuse_signal_soak_term_unwinds_the_daemon",
+        term::soak_term_unwinds_the_daemon,
+    ),
     ("fuse_sys_gate", sys::gate),
     ("fuse_sys_request_cycle", sys::request_cycle),
     ("fuse_sys_hostile_buffers", sys::hostile_buffers),
