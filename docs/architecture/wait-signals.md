@@ -50,7 +50,9 @@ delivery.
   provider request), so it only gets `SIGKILL` pending and a
   `WakeReason::Interrupted` wake, unwinds through its syscall and dies at the
   syscall return or in the sweep. Kernel waits that would park again check
-  `signal::killed(slot)`; a killed requester waiting on a block provider
+  `signal::killed(slot)` (the waits of a native daemon that holds nothing,
+  `recv` and a provider's `NEXT`, check `signal::must_unwind(slot)`: a kill
+  or a default-fatal signal its syscall return would act on); a killed requester waiting on a block provider
   naps one tick at a time until its request completes (never abandoned).
   `execve` carries a pending kill over to the new image.
 - `default_action` classifies term / core / stop / cont / ignore.

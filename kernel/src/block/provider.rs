@@ -285,6 +285,14 @@ pub fn next(
 ) -> Result<Option<Request>, ProviderError> {
     let disk = disk(id).ok_or(ProviderError::NotOwner)?;
     loop {
+        // A task a fatal signal is about to end (a `SIGTERM` is acted on at
+        // the syscall return, not at the send) takes no request and stops
+        // waiting for one: it would die holding it, between the two halves of
+        // an operation, and it must reach its syscall return. Asked outside
+        // the slot's lock: the signal tables sit after the task table.
+        if task::signal::must_unwind(owner) {
+            return Ok(None);
+        }
         {
             let mut state = disk.state.lock();
             if state.owner != owner || !state.alive {
@@ -300,13 +308,7 @@ pub fn next(
                 return Ok(Some(request));
             }
         }
-        // A killed provider stops waiting for work (nothing of its is in
-        // flight here) so it reaches its syscall return and dies.
-        if now() >= deadline
-            || !task::relax::can_block()
-            || test_clock::serving()
-            || task::signal::killed(task::current())
-        {
+        if now() >= deadline || !task::relax::can_block() || test_clock::serving() {
             return Ok(None);
         }
         park(&disk.work, deadline);
@@ -465,6 +467,9 @@ pub fn stats(id: usize) -> Option<(Stats, bool)> {
 /// request is never abandoned, so the request slot and the filesystem state
 /// around it stay consistent, and the release path always runs.
 fn park(queue: &WaitQueue, deadline: u64) {
+    if test_clock::parked() {
+        return;
+    }
     let enabled = x86_64::instructions::interrupts::are_enabled();
     x86_64::instructions::interrupts::disable();
     let ticks = deadline.saturating_sub(test_clock::offset());

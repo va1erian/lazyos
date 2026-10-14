@@ -11,6 +11,7 @@ mod io;
 mod lifecycle;
 mod slow;
 mod sys;
+mod term;
 mod vfs;
 
 use super::*;
@@ -401,6 +402,18 @@ pub(super) const CASES: &[(&str, Test)] = &[
         cache::epoch_and_eviction,
     ),
     ("provider_cache_soak_random_io", cache::soak_random_io),
+    (
+        "provider_signal_term_ends_the_providers_wait",
+        term::term_ends_the_providers_wait,
+    ),
+    (
+        "provider_signal_term_takes_no_request",
+        term::term_takes_no_request,
+    ),
+    (
+        "provider_signal_soak_term_unwinds_the_provider",
+        term::soak_term_unwinds_the_provider,
+    ),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
     ("provider_sys_hostile_lengths", sys::hostile_lengths),

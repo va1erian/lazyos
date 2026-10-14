@@ -274,6 +274,14 @@ pub fn next(
 ) -> Result<Next, FuseError> {
     let slot = SLOTS.get(id).ok_or(FuseError::NotOwner)?;
     loop {
+        // A task a fatal signal is about to end (a `SIGTERM` is acted on at
+        // the syscall return, not at the send) takes no request and stops
+        // waiting for one: it would die holding it, between the two halves of
+        // an operation, and it must reach its syscall return. Asked outside
+        // the slot's lock: the signal tables sit after the task table.
+        if task::signal::must_unwind(owner) {
+            return Ok(Next::Idle);
+        }
         {
             let mut state = slot.state.lock();
             if !state.registered || state.owner != owner || !state.alive {
@@ -289,11 +297,7 @@ pub fn next(
                 return Ok(Next::Stop);
             }
         }
-        if now() >= deadline
-            || !task::relax::can_block()
-            || test_hook::serving()
-            || task::signal::killed(task::current())
-        {
+        if now() >= deadline || !task::relax::can_block() || test_hook::serving() {
             return Ok(Next::Idle);
         }
         park(&slot.work, deadline);
@@ -346,6 +350,9 @@ pub fn stats(id: usize) -> Option<(Stats, bool)> {
 /// wait (the request in flight is never abandoned, so the slot stays
 /// consistent); one tick is let through so the daemon can run.
 fn park(queue: &WaitQueue, deadline: u64) {
+    if test_hook::parked() {
+        return;
+    }
     let enabled = x86_64::instructions::interrupts::are_enabled();
     x86_64::instructions::interrupts::disable();
     let ticks = deadline.saturating_sub(test_hook::offset());
