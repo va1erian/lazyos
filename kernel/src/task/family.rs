@@ -4,7 +4,9 @@
 //! children (`wait4`, the child bell, `setpgid`) asks whether the child's
 //! parent is in the asker's process. Also `PR_SET_PDEATHSIG`.
 
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+#[cfg(lazyos_tests)]
+use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::process::reparent_children_locked;
 use super::signal;
@@ -214,11 +216,9 @@ pub(super) fn release_children_locked(tasks: &mut [Option<Task>; MAX_TASKS], slo
                     && other.linux.pdeathsig != 0
             })
         });
-        if let Some((carrier, other)) = carrier {
-            if let Some(other) = other {
-                PENDING_SPACE[carrier].store(other.pml4, Ordering::Release);
-                PENDING_PDEATH.set(carrier);
-            }
+        if let Some((carrier, Some(other))) = carrier {
+            PENDING_SPACE[carrier].store(other.pml4, Ordering::Release);
+            PENDING_PDEATH.set(carrier);
         }
     }
     reparent_children_locked(tasks, slot, KERNEL_TASK)
