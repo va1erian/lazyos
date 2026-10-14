@@ -23,6 +23,7 @@ ORDER = [
     "msgpoll",
     "unixstress",
     "threadreap",
+    "seqpollout",
     "scmrights",
     "persist",
     "statxio",

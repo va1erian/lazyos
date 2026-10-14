@@ -108,6 +108,10 @@ path = "src/unixstress.rs"
 name = "threadreap"
 path = "src/threadreap.rs"
 
+[[bin]]
+name = "seqpollout"
+path = "src/seqpollout.rs"
+
 # SCM_RIGHTS, memfd_create and MAP_SHARED between processes (issue #771).
 [[bin]]
 name = "scmrights"
