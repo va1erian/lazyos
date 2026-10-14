@@ -450,7 +450,14 @@ pub fn transition_with(
         txn_id: target_slot as u64,
     });
     verdict?;
+    let before = of(target_slot);
     set(target_slot, requested);
+    if before.uid != requested.uid || before.gid != requested.gid {
+        // A credential change clears the parent-death signal (Linux's
+        // `commit_creds`): a program that dropped privileges must not be
+        // signalled on behalf of the one that started it.
+        crate::task::linuxstate::set_pdeathsig_of(target_slot, 0);
+    }
     Ok(requested)
 }
 

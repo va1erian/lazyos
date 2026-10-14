@@ -312,6 +312,9 @@ pub(super) fn wake_blocked_thread(slot: usize) {
 pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
     let status = with_signals(pml4, |state| {
         state.pending |= bit(SIGKILL);
+        if state.kill_at_ns == 0 {
+            state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
+        }
         *state.group_exit.get_or_insert(status)
     });
     let me = current();
@@ -321,6 +324,7 @@ pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
     // task judged to be in user mode cannot enter the kernel before it ends.
     x86_64::instructions::interrupts::without_interrupts(|| {
         let mut tasks = TASKS.lock();
+        crate::task::family::note_group_exit(&mut tasks, pml4, status);
         for slot in 1..MAX_TASKS {
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
@@ -387,6 +391,7 @@ pub fn terminate_process(pml4: u64, status: u64) -> usize {
         }
     }
     let mut killed = 0;
+    crate::task::family::note_group_exit(&mut TASKS.lock(), pml4, status);
     // `128 + signal` is the status; `wait4` reports the signal itself.
     if (129..=128 + 64).contains(&status) {
         let mut tasks = TASKS.lock();

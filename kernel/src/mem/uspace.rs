@@ -63,10 +63,55 @@ pub fn try_map_page_in(
     let mut frames = GlobalFrames;
     let page = Page::<Size4KiB>::containing_address(virt);
     let frame = PhysFrame::containing_address(phys);
+    // The leaf alone decides what the page may do: its parents are always writable (and user-accessible
+    // for a user page). `map_to` would derive them from the leaf, and the first read-only leaf (a moved
+    // copy-on-write page, a read-faulted `PROT_READ` or shared file page) in a region nothing had touched
+    // would create read-only parents that no later in-place change of the leaf (`cow_resolve`, `mprotect`)
+    // looks at: the store then faults again with a writable leaf, which nothing resolves (issue #853).
+    // An existing parent that lacks a flag has it added, so a table an older kernel built heals as well.
+    let parents = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | (flags & PageTableFlags::USER_ACCESSIBLE);
     // Safety: the virtual page is not otherwise mapped in this table.
-    let flush = unsafe { mapper.map_to(page, frame, flags, &mut frames) }?;
+    let flush =
+        unsafe { mapper.map_to_with_table_flags(page, frame, flags, parents, &mut frames) }?;
     flush.flush();
     Ok(())
+}
+
+/// Makes the table entries above `va`'s leaf in `table` writable where they are not, for a leaf that has
+/// just become writable in place (a COW copy or a sole owner's shortcut, an `mprotect`, a shared file page's
+/// first store). A CPU takes the lowest R/W bit of the whole walk, so a read-only parent under a writable
+/// leaf is a store that faults again with nothing left to resolve (issue #853).
+///
+/// Defence in depth, not a migration: [`try_map_page_in`] creates every parent writable, so no table this
+/// kernel builds has a read-only one (and no page table survives a reboot). This keeps the in-place paths
+/// from depending on that: a future mapping path, or a bug in one, cannot turn a COW fault into a SIGSEGV.
+/// Only entries of a user walk are touched (user-accessible, not huge). Flushes `va` when it changed anything.
+///
+/// # Safety
+/// `table` must be a live address space whose lower levels are stable for the call.
+pub(super) unsafe fn make_walk_writable(table: PhysAddr, va: u64) {
+    let mut phys = table;
+    let mut changed = false;
+    for shift in [39u64, 30, 21] {
+        let slot = entry_table(phys).add(((va >> shift) & 0x1ff) as usize);
+        let entry = *slot;
+        if entry & PTE_PRESENT == 0
+            || entry & PTE_USER == 0
+            || (shift != 39 && entry & PTE_HUGE != 0)
+        {
+            break;
+        }
+        if entry & PTE_WRITABLE == 0 {
+            *slot = entry | PTE_WRITABLE;
+            changed = true;
+        }
+        phys = PhysAddr::new(entry & PTE_ADDR);
+    }
+    if changed {
+        x86_64::instructions::tlb::flush(VirtAddr::new(va));
+    }
 }
 
 /// Switch the active address space.

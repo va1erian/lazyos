@@ -103,8 +103,10 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     return None if IMAGE.is_file() else f"{IMAGE} was not built"
 
 
-def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
-    """Drive the guest; (session ok, serial log text)."""
+def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str, ...] = ()) -> tuple[bool, str]:
+    """Drive the guest; (session ok, serial log text). `expected_failures` are `WEBPLUS:FAIL:` texts a
+    session provokes on purpose (the hung-page harness stops a page's process)."""
+    allowed = "".join(f"|{re.escape(text)}" for text in expected_failures)
     out.mkdir(parents=True, exist_ok=True)
     for stale in ["serial.log", "net.pcap", "summary.json", *(p.name for p in out.glob("shot_*.png"))]:
         (out / stale).unlink(missing_ok=True)
@@ -115,7 +117,7 @@ def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
                "--net", "--net-forward", "none", "--net-pcap", str(out / "net.pcap"),
                "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
                # Every failure but the one load the session breaks on purpose.
-               "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)})",
+               "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)}{allowed})",
                "--fail-on", rf"{judge.P}:(BIND|RUN):FAIL", "--fail-on", rf"{judge.P}:QUIT:FAIL",
                "--fail-on", rf"{judge.P}:DOWNLOAD:FAIL"]
     if args.qemu:

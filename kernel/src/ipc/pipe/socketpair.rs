@@ -213,7 +213,19 @@ impl SocketPair {
     /// `poll` revents for one side, merging its read and write directions.
     pub fn poll(&self, side: Side, events: u16) -> u16 {
         let (read, write) = self.directions(side);
-        read.poll(End::Read, events) | write.poll(End::Write, events)
+        Self::eof_readable(read.poll(End::Read, events), events) | write.poll(End::Write, events)
+    }
+
+    /// A socket whose peer is gone reads end-of-file: `POLLIN` (and
+    /// `POLLRDHUP`) beside the `POLLHUP`, as Linux reports for `AF_UNIX`, so a
+    /// loop that waits for `POLLIN` and reads sees the EOF. A plain pipe
+    /// reports only `POLLHUP` and does not come through here.
+    fn eof_readable(revents: u16, events: u16) -> u16 {
+        if revents & POLLHUP != 0 {
+            revents | events & (POLLIN | POLLRDHUP)
+        } else {
+            revents
+        }
     }
 
     /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
@@ -227,7 +239,8 @@ impl SocketPair {
 
     pub fn poll_gen(&self, side: Side, events: u16) -> (u16, u64) {
         let (read, write) = self.directions(side);
-        let revents = read.poll(End::Read, events) | write.poll(End::Write, events);
+        let revents = Self::eof_readable(read.poll(End::Read, events), events)
+            | write.poll(End::Write, events);
         let gen = read.read_events() ^ write.write_events();
         (revents, gen)
     }

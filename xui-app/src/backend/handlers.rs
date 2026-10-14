@@ -36,13 +36,14 @@ impl Backend for LazyOSBackend {
             if windows.is_empty() {
                 break;
             }
-            let pass = crate::stall::start();
+            let pass = crate::stall::begin_pass();
             for raw in windows {
                 self.tick(xui_core::backend::WindowId::from_raw(raw));
                 if self.quit.load(Ordering::Relaxed) {
                     break;
                 }
             }
+            crate::stall::end_pass();
             crate::stall::finish(pass, crate::stall::SLOW_PASS_NS, "pass", String::new);
             if self.quit.load(Ordering::Relaxed) {
                 break;

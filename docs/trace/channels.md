@@ -95,6 +95,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
 | `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/webplus | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
+| `SIGNAL` | `Signal` | `signal` | kernel, kernel suite | - | programs |
 | `SKY` | `Sky` | `sky` | xui-app | sessions, tools/lazysky | programs |
 | `SMB` | `Smb` | `smb` | user | tools/smb | programs |
 | `SMBFUSE` | `Smbfuse` | `smbfuse` | user | tools/fuse, tools/smb | programs |

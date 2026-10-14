@@ -70,6 +70,12 @@ fn bucket(key: Key) -> &'static Mutex<Vec<Waiter>> {
 /// interrupts off, so no wake can run between that check and this park.
 pub(super) fn wait(key: Key, bitset: u32, deadline: Option<u64>) -> WakeReason {
     let slot = task::current();
+    // A task being killed does not go to sleep: the kill's wake came while it
+    // was runnable inside the syscall (reading the word may have waited on a
+    // file page), so nothing would ever wake this park (issue #858).
+    if task::signal::killed(slot) {
+        return WakeReason::Interrupted;
+    }
     {
         let mut waiters = bucket(key).lock();
         waiters.push(Waiter { key, slot, bitset });

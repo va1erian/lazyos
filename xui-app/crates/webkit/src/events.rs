@@ -157,6 +157,10 @@ pub enum Event {
     },
     /// The number of loads the rule lists blocked on the page on show (0 when a page commits).
     Blocked(u32),
+    /// The page's WebProcess answers WebKit's responsiveness pings again (`true`), or has not for
+    /// six seconds (`false`): the window offers a way out (`Engine::recover`). `true` is also what
+    /// a process that went away reports, there being nothing to wait for.
+    PageResponsive(bool),
 }
 
 impl Event {
@@ -165,7 +169,8 @@ impl Event {
         match (self, newer) {
             (Event::Hover(_), Event::Hover(_))
             | (Event::Cursor(_), Event::Cursor(_))
-            | (Event::Blocked(_), Event::Blocked(_)) => true,
+            | (Event::Blocked(_), Event::Blocked(_))
+            | (Event::PageResponsive(_), Event::PageResponsive(_)) => true,
             (Event::DownloadProgress { id: a, .. }, Event::DownloadProgress { id: b, .. }) => {
                 a == b
             }
@@ -271,6 +276,14 @@ mod tests {
             events.take(),
             vec![Event::Hover(String::new()), Event::Cursor(CursorKind::Text)]
         );
+    }
+
+    #[test]
+    fn the_pages_responsiveness_keeps_only_the_newest_report() {
+        let events = Events::default();
+        events.push(Event::PageResponsive(false));
+        events.push(Event::PageResponsive(true));
+        assert_eq!(events.take(), vec![Event::PageResponsive(true)]);
     }
 
     #[test]

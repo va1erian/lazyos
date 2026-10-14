@@ -10,8 +10,11 @@ use crate::mem::vma::Kind;
 use crate::quota::{self, Resource};
 
 mod basic;
+mod cache_body;
 mod coherence;
+mod killed;
 mod lifecycle;
+mod parents;
 mod refresh;
 
 pub(super) const PAGE: u64 = 4096;
@@ -197,6 +200,15 @@ pub(super) fn bytes_of(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
+    (
+        "linux_filemap_cache_body_write_path",
+        cache_body::body_write_path,
+    ),
+    ("linux_filemap_cache_body_soak", cache_body::body_soak),
+    (
+        "linux_filemap_read_then_write_keeps_writable_parents",
+        parents::read_then_write_keeps_writable_parents,
+    ),
     ("linux_filemap_private", basic::private_mapping),
     ("linux_filemap_shared", basic::shared_mapping),
     (
@@ -232,6 +244,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_filemap_store_during_writeback",
         coherence::store_during_writeback_is_not_lost,
+    ),
+    (
+        "linux_filemap_killed_writeback_stops_waiting",
+        killed::killed_writeback_stops_waiting,
     ),
     (
         "linux_filemap_fork_write_protect",

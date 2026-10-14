@@ -25,6 +25,7 @@ use xui_webkit::view::PageView;
 
 mod commands;
 mod events;
+mod hang;
 mod host;
 mod notifications;
 mod shield;
@@ -37,6 +38,7 @@ use crate::blocker::{self, Blocker};
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
+use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
@@ -79,6 +81,8 @@ pub enum Msg {
     Dialog(DialogAction),
     /// The person answered the bar a site's request to notify them shows.
     NotifyAnswer(BarAnswer),
+    /// The person answered the bar a page that does not respond shows.
+    Hang(HangAnswer),
     /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
     Shell,
     /// A list of the ad blocker changed state on the worker's thread.
@@ -103,6 +107,8 @@ pub struct Browser {
     dialogs: Dialogs,
     /// The permission bar and what it is asking about.
     bar: notifications::Bar,
+    /// The "not responding" bar and its question.
+    hang: hang::Bar,
     notifications: Notifications,
     /// When the window was built: the clock the notification limits run on.
     started: Instant,
@@ -209,6 +215,7 @@ impl Browser {
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
             bar: notifications::Bar::new(&widgets),
+            hang: hang::Bar::new(&widgets),
             notifications: Notifications::new(permissions, toasts),
             started: Instant::now(),
             engine,
@@ -239,6 +246,7 @@ impl Browser {
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
+        browser.hang.start_hidden(ui);
         browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
@@ -381,6 +389,9 @@ impl Browser {
         if self.bar.shown().is_some() {
             named.extend(self.bar.controls(ui));
         }
+        if self.hang.visible() {
+            named.extend(self.hang.controls(ui));
+        }
         for (name, rect) in named {
             (self.host.probe)(&self.caption, name, rect);
         }
@@ -447,6 +458,7 @@ impl App for Browser {
                 }
             }
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
+            Msg::Hang(answer) => self.hang_answer(ui, answer),
             Msg::Shell => self.shell_news(ui),
         }
         self.update_buttons();

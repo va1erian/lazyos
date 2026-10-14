@@ -132,6 +132,11 @@ void lzw_ui_state(const char* url, const char* title, int loading, int can_back,
 // run loop: it must not block.
 int lzw_ui_navigate(const char* url, int kind, int user_gesture, const char* committed_url);
 
+// The page's WebProcess stopped answering WebKit's responsiveness pings (responsive 0), or answers
+// again (1), or is gone (1: there is nothing left to wait for). The window may offer a way out
+// (lzw_engine_recover). Runs on the run loop and must not block.
+void lzw_ui_page_responsive(int responsive);
+
 // LZW_FEATURE_PAGE_UI: the pointer is over a link (its absolute URL), or no longer ("").
 void lzw_ui_hover(const char* url);
 // LZW_FEATURE_PAGE_UI: the page wants this pointer shape (LZW_CURSOR_*).
@@ -268,10 +273,48 @@ int lzw_engine_start(void);
 // Ends WKRunLoopRunMain() (callable from any thread).
 void lzw_engine_quit(void);
 
-// After WKRunLoopRunMain() returned, on the main thread: ends the WebProcess and the
-// NetworkProcess (SIGTERM, then SIGKILL after a grace period), waits for them and prints
-// <prefix>:CHILD:<web|network>:<pid>:GONE|ALIVE for each.
+// After WKRunLoopRunMain() returned, on the main thread: ends every engine process the launcher
+// started (SIGTERM, then SIGKILL of each one's process group, retried every 100 ms for up to 10 s),
+// waits for them and prints <prefix>:CHILD:<web|network>:<pid>:GONE|ALIVE:term=<rc>:kill=<rc>:wait=<rc>
+// for each. Returns how many are left.
 int lzw_engine_shutdown(void);
+
+// The ids of the page's WebProcess and of the NetworkProcess as WebKit last said them (0: none
+// yet). Callable from any thread: the window's heartbeat reads their CPU use.
+void lzw_engine_children(int* web, int* network);
+
+// The page's WebProcess does not answer (it is stuck) and the person chose a way out: its process is
+// ended, and with reload non-zero the page is loaded again in a fresh one; else the page stays
+// stopped (lzw_ui_state's `crashed`) until the next load.
+void lzw_engine_recover(int reload);
+
+// WebKit's launcher reports every engine process it starts, collects or kills here (a weak
+// symbol there: the stand-alone programs that link WebKit without this file print to stderr).
+// type: "web" or "network"; event: "launch", "fail" (detail: errno), "exit" (detail: status),
+// "signal" (detail: signal), "vanish", "terminate" (detail, detail2: errno of kill(-pid) and
+// of kill(pid), 0 when sent, -1 when not tried). Any thread.
+void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2);
+
+// Implemented by WebKit's launcher (ProcessLauncherLazyOS.cpp): collects, on the calling thread and under
+// the launcher's lock (the one that orders every reap against every kill), the engine processes that are
+// over, and reports each through lzw_launcher_event. WebKit's main thread calls it when WebKit says a
+// process ended: until the kernel makes children per process (issue #859) only the thread that forked a
+// child can wait for it.
+void lzw_launcher_reap(void);
+
+// Implemented by WebKit's launcher: sends `signal` to every live child under the launcher's lock (to the
+// child's process group first when `group` is non-zero, then to the process). Fills `pids` and `codes` (0:
+// sent, else the errno negated) for up to `capacity` children and returns how many are live. The shutdown's
+// only way to signal: an id that was collected (and may be reused) is never named.
+int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capacity);
+
+// WebKit keeps the proxy of every web process that ended alive (patch 0021: destroying it aborts the UI
+// process); `kept` counts them since the start. Prints PROCESS:KEPT:<pid>:<kept>. Weak in WebKit.
+void lzw_proxy_kept(int pid, int kept);
+
+// Whether WebKit's run loop has begun to turn (any thread): a ping posted before it would be late
+// through no fault of the loop.
+int lzw_engine_running(void);
 
 #ifdef __cplusplus
 }
