@@ -57,7 +57,7 @@ impl Automount {
             return Err(Error::Errno(-errno::EAGAIN));
         };
         let provider = fuse::providers()
-            .map_err(Error::Errno)?
+            .map_err(|code| Error::Errno(-code))?
             .into_iter()
             .find(|p| p.owner == pid);
         let Some(provider) = provider else {
@@ -72,7 +72,7 @@ impl Automount {
             );
             return Ok(answer("ejected", "nothing was mounted"));
         };
-        match fuse::stop(provider.id, force) {
+        match fuse::stop(provider.id, provider.owner, force) {
             Ok(()) => {
                 self.volumes.ejecting(disk, generation, sys::clock());
                 trace::line!(
@@ -84,7 +84,7 @@ impl Automount {
                 Ok(answer("ejecting", ""))
             }
             Err(sys::EBUSY) => {
-                let holders = fuse::holders(provider.id).unwrap_or_default();
+                let holders = fuse::holders(provider.id, provider.owner).unwrap_or_default();
                 trace::line!(
                     Channel::Mountd,
                     "VOLUME BUSY {} {}",
@@ -99,7 +99,7 @@ impl Automount {
             // The daemon went away between the listing and the stop: its
             // exit is on its way.
             Err(errno::ESRCH) => Ok(answer("ejecting", "")),
-            Err(code) => Err(Error::Errno(code)),
+            Err(code) => Err(Error::Errno(-code)),
         }
     }
 
@@ -152,6 +152,7 @@ fn describe(volume: &Volume) -> (&'static str, String) {
         State::Ejecting { .. } => ("ejecting", none()),
         State::Leaving { .. } => ("ejecting", none()),
         State::Ended(Outcome::Ejected) => ("ejected", none()),
+        State::Ended(Outcome::Left) => ("ejecting", none()),
         State::Ended(Outcome::NoVolume) => {
             ("unsupported", String::from("no FAT volume on the disk"))
         }

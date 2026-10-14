@@ -103,7 +103,7 @@ impl Automount {
         let provider = fuse::providers()
             .ok()
             .and_then(|all| all.into_iter().find(|p| p.owner == pid));
-        let asked = provider.is_some_and(|p| fuse::stop(p.id, true).is_ok());
+        let asked = provider.is_some_and(|p| fuse::stop(p.id, p.owner, true).is_ok());
         if asked {
             trace::line!(Channel::Mountd, "VOLUME STOP pid={pid}");
         } else {

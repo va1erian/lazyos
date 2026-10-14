@@ -136,6 +136,7 @@ impl<D: BlockIo> Volume<D> {
         let geometry =
             crate::bpb::validate(&boot, device_sectors).map_err(|_| OpenError::NotFat)?;
         cache.set_layout(Layout {
+            fat_start: geometry.fat_start,
             fat_end: geometry.fat_end,
             data_start: geometry.data_start,
         });

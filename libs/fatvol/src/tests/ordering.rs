@@ -64,6 +64,23 @@ impl<'a> Raw<'a> {
         &self.image[at..at + self.cluster_bytes]
     }
 
+    /// Every directory of the root: name and first cluster.
+    fn dirs(&self) -> Vec<(String, usize)> {
+        let mut found = Vec::new();
+        for entry in 0..self.root_entries {
+            let at = self.root + entry * 32;
+            let e = &self.image[at..at + 32];
+            if e[0] == 0 {
+                break;
+            }
+            if e[0] != 0xE5 && e[11] != 0x0F && e[11] & 0x08 == 0 && e[11] & 0x10 != 0 {
+                let name = String::from_utf8_lossy(&e[..11]).trim_end().into();
+                found.push((name, usize::from(u16::from_le_bytes([e[26], e[27]]))));
+            }
+        }
+        found
+    }
+
     /// Every file of the root: name, size and its chain.
     fn files(&self) -> Result<Vec<(String, usize, Vec<usize>)>, String> {
         let mut found = Vec::new();
@@ -266,4 +283,82 @@ fn the_old_ascending_order_is_what_the_checker_catches() {
         })
         .count();
     assert!(broken > 0, "no cut of the ascending order was caught");
+}
+
+/// A directory the root names must be a real one: its first cluster is
+/// allocated and starts with its own `.` entry.
+fn directories_hold(raw: &Raw<'_>) -> Result<(), String> {
+    for (name, first) in raw.dirs() {
+        if first < 2 || first >= raw.clusters + 2 {
+            return Err(alloc::format!("{name}: first cluster {first}"));
+        }
+        if raw.next(first) == 0 {
+            return Err(alloc::format!("{name}: cluster {first} is free"));
+        }
+        let head = raw.cluster(first);
+        let dot = head[..11] == *b".          ";
+        let own = usize::from(u16::from_le_bytes([head[26], head[27]])) == first;
+        if !dot || !own {
+            return Err(alloc::format!("{name}: cluster {first} is not a directory"));
+        }
+    }
+    Ok(())
+}
+
+fn mkdir_script(vol: &mut crate::Volume<MemDisk>) {
+    for name in ["ALPHA", "BETA", "GAMMA"] {
+        let _ = vol.mkdir(name, 0o755, 0, 0);
+    }
+    let _ = vol.create("FILE.TXT", 0o644, 0, 0);
+    let _ = vol.write(path("FILE.TXT"), 0, &pattern(1500, 8));
+    let _ = vol.mkdir("DELTA", 0o755, 0, 0);
+}
+
+#[test]
+fn making_a_directory_never_names_a_cluster_that_is_not_one() {
+    let base = MemDisk::formatted(SECTORS, 16, LABEL);
+    let total = total_writes(&base, &mkdir_script);
+    assert!(total > 8, "{total}");
+    for cut in 0..=total {
+        let image = cut_run(&base, cut, &mkdir_script);
+        let raw = Raw::new(&image);
+        consistent(&raw).unwrap_or_else(|why| panic!("cut {cut}: {why}"));
+        directories_hold(&raw).unwrap_or_else(|why| panic!("cut {cut}: {why}"));
+    }
+}
+
+#[test]
+fn the_ascending_order_names_clusters_that_are_not_directories() {
+    // The checker bites: with ordering off some cut shows a directory entry
+    // before its cluster (a FAT16 root entry sorts below the data area).
+    let script = |vol: &mut crate::Volume<MemDisk>| {
+        vol.set_write_ordering(false);
+        mkdir_script(vol);
+    };
+    let base = MemDisk::formatted(SECTORS, 16, LABEL);
+    let total = total_writes(&base, &script);
+    let broken = (0..=total)
+        .filter(|&cut| directories_hold(&Raw::new(&cut_run(&base, cut, &script))).is_err())
+        .count();
+    assert!(broken > 0, "no cut of the ascending order was caught");
+}
+
+#[test]
+fn a_full_volume_still_writes_the_entry_after_the_fat() {
+    // A write that runs out of space returns with the file-data tag it set:
+    // the entry its drop flushes must not be sorted ahead of the FAT.
+    let script = |vol: &mut crate::Volume<MemDisk>| {
+        let _ = vol.create("BIG.BIN", 0o644, 0, 0);
+        let _ = vol.write(path("BIG.BIN"), 0, &pattern(7 << 20, 1));
+        let _ = vol.create("TAIL.BIN", 0o644, 0, 0);
+        let _ = vol.write(path("TAIL.BIN"), 0, &pattern(3 << 20, 2));
+    };
+    let base = MemDisk::formatted(SECTORS, 16, LABEL);
+    // Past the point of a full disk: cut just a few writes at a time.
+    let total = total_writes(&base, &script);
+    let step = (total / 40).max(1);
+    for cut in (0..=total).step_by(step as usize).chain([total]) {
+        let image = cut_run(&base, cut, &script);
+        consistent(&Raw::new(&image)).unwrap_or_else(|why| panic!("cut {cut}: {why}"));
+    }
 }

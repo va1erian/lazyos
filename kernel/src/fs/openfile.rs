@@ -451,9 +451,16 @@ pub fn open_files() -> usize {
 /// what a descriptor scan of the task table does not.
 pub fn paths_under(prefix: &str) -> alloc::vec::Vec<String> {
     let prefix = Path::parse(prefix).to_path_string();
-    OPEN.lock()
-        .iter()
-        .map(|inode| inode.path())
-        .filter(|path| crate::task::holders::is_under(path, &prefix))
-        .collect()
+    let mut found = alloc::vec::Vec::new();
+    for inode in OPEN.lock().iter() {
+        // Looked at in place: only a match is cloned, and only so many.
+        let path = inode.path.lock();
+        if crate::task::holders::is_under(&path, &prefix) {
+            found.push(path.clone());
+            if found.len() >= crate::task::holders::MAX_HOLDERS {
+                break;
+            }
+        }
+    }
+    found
 }

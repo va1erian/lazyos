@@ -28,21 +28,31 @@ use xui_app::trace::{self, Channel};
 /// Between looks at `mountd`'s list.
 const LOOK: Duration = Duration::from_secs(1);
 
-/// `mountd`'s volumes as the model's drives. A service that is not running
-/// (an image without USB) or does not answer is an empty list: the applet
-/// shows no drives and tries again.
-fn drives() -> Vec<Drive> {
-    mounts::volumes()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|v| Drive {
-            phase: Phase::of(&v.state),
-            disk: v.disk,
-            name: v.name,
-            path: v.path,
-            detail: v.detail,
-        })
-        .collect()
+/// `mountd`'s volumes as the model's drives, or `None` when it did not
+/// answer (not running, restarting, busy): the last list stands. An empty
+/// answer would read as every drive pulled.
+fn drives() -> Option<Vec<Drive>> {
+    let list = mounts::volumes().ok()?;
+    Some(
+        list.into_iter()
+            .map(|v| Drive {
+                phase: Phase::of(&v.state),
+                disk: v.disk,
+                name: v.name,
+                path: v.path,
+                detail: v.detail,
+            })
+            .collect(),
+    )
+}
+
+/// A failed call in words for the tooltip (the shared text speaks of the
+/// network stack).
+fn describe(error: mounts::Error) -> String {
+    match error {
+        mounts::Error::NotRunning => String::from("The mount service is not running"),
+        other => other.describe(),
+    }
 }
 
 /// The tray picture: a USB stick mask the shell tints.
@@ -72,12 +82,9 @@ fn eject(model: &mut Model, disk: &str) {
             }
         }
         Err(error) => {
-            trace::line!(
-                Channel::Removable,
-                "EJECT {disk} failed: {}",
-                error.describe()
-            );
-            model.refused(&title, &error.describe());
+            let why = describe(error);
+            trace::line!(Channel::Removable, "EJECT {disk} failed: {why}");
+            model.refused(&title, &why);
         }
     }
 }
@@ -105,7 +112,9 @@ fn act(model: &mut Model, action: Action) {
 fn main() {
     let res = Resident::windowless("REMOVABLE");
     let mut model = Model::new();
-    model.poll(drives());
+    // A first list that never comes is an empty one: nothing is plugged in
+    // that this applet could know of.
+    model.poll(drives().unwrap_or_default());
     let mut first = item(icon(), &model.tooltip());
     first.status = model.status();
     first.menu = model.menu();
@@ -141,7 +150,9 @@ fn main() {
         }
         if looked.elapsed() >= LOOK {
             looked = Instant::now();
-            model.poll(drives());
+            if let Some(list) = drives() {
+                model.poll(list);
+            }
         }
         let now = model.shown();
         if now != shown {

@@ -59,10 +59,24 @@ pub fn may_provide(me: usize) -> bool {
         && mounttable::FS_PROVIDER_UIDS.contains(&cred.uid)
 }
 
+/// Whether task `me` may supervise media providers (`LIST`, `STOP`,
+/// `HOLDERS`): `mountd`, or root. Every provider daemon holds the same
+/// capability and uid, and `ftpfuse`, `smbfuse` and `fatfuse` parse hostile
+/// input: none of them may stop another user's volume, so the program decides
+/// (the path `spawnv` was given, as for the raw disk claim).
+pub fn may_supervise(me: usize) -> bool {
+    may_provide(me)
+        && (credentials::of(me).uid == 0
+            || task::linuxstate::program_of(me).is_some_and(|path| &*path == fhs::bin::MOUNTD))
+}
+
 /// The syscall entry point.
 pub fn dispatch(operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
     let me = task::current();
     if !may_provide(me) {
+        return negative(EPERM);
+    }
+    if matches!(operation, sys_op::LIST | sys_op::STOP | sys_op::HOLDERS) && !may_supervise(me) {
         return negative(EPERM);
     }
     let id = || usize::try_from(a1).map_err(|_| negative(EINVAL));
@@ -75,8 +89,8 @@ pub fn dispatch(operation: u64, a1: u64, a2: u64, a3: u64, a4: u64) -> u64 {
             Err(error) => errno(error),
         }),
         sys_op::LIST => Ok(list(a1, a2)),
-        sys_op::STOP => id().map(|id| stop(id, a2 != 0)),
-        sys_op::HOLDERS => id().map(|id| holders(id, a2, a3)),
+        sys_op::STOP => id().map(|id| stop(id, a3, a2 != 0)),
+        sys_op::HOLDERS => id().map(|id| holders(id, a4, a2, a3)),
         _ => Err(negative(EINVAL)),
     };
     result.unwrap_or_else(|code| code)
@@ -143,35 +157,50 @@ fn list(out: u64, cap: u64) -> u64 {
     written as u64
 }
 
-/// `STOP(id, force)`.
-fn stop(id: usize, force: bool) -> u64 {
-    match super::stop(id, force) {
+/// `STOP(id, force, owner)`: `owner` is the daemon's pid the supervisor
+/// listed with the id, so an id reused by another daemon in between is not
+/// stopped by mistake.
+fn stop(id: usize, owner: u64, force: bool) -> u64 {
+    let Ok(owner) = usize::try_from(owner) else {
+        return negative(EINVAL);
+    };
+    match super::stop(id, owner, force) {
         Ok(()) => 0,
         Err(StopError::NoSuchProvider) => negative(ESRCH),
         Err(StopError::Busy) => negative(EBUSY),
     }
 }
 
-/// `HOLDERS(id, out, cap)`: the report, cut at `cap` (and at
+/// `HOLDERS(id, out, cap, owner)`: the report, cut at `cap` (and at
 /// [`MAX_REPORT`]) on a line boundary.
-fn holders(id: usize, out: u64, cap: u64) -> u64 {
-    let text = match super::holders_report(id) {
+fn holders(id: usize, owner: u64, out: u64, cap: u64) -> u64 {
+    let Ok(owner) = usize::try_from(owner) else {
+        return negative(EINVAL);
+    };
+    let text = match super::holders_report(id, owner) {
         Ok(text) => text,
         Err(error) => return errno(error),
     };
     let room = usize::try_from(cap).unwrap_or(0).min(MAX_REPORT);
-    let mut end = text.len().min(room);
-    if end < text.len() {
-        // Whole lines only; a first line longer than the room is cut.
-        end = text[..end].rfind('\n').map_or(end, |at| at + 1);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-    }
+    let end = report_cut(&text, room);
     match user_ptr::try_copy_to(out, &text.as_bytes()[..end]) {
         Ok(()) => end as u64,
         Err(_) => negative(EFAULT),
     }
+}
+
+/// Where to cut `text` for a buffer of `room` bytes: at the last whole line
+/// that fits, else at the last character boundary below `room`. (A name on a
+/// stick is any Unicode: byte `room` may be inside a character.)
+pub(super) fn report_cut(text: &str, room: usize) -> usize {
+    if text.len() <= room {
+        return text.len();
+    }
+    let mut end = room;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].rfind('\n').map_or(end, |at| at + 1)
 }
 
 /// Hand the request record to the daemon (checked writable before the

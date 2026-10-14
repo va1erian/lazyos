@@ -360,8 +360,17 @@ fn run() -> Result<(), Failed> {
             // The kernel took the mount away (it was unmounted, or its
             // provider side closed): the normal end.
             Err(_) => {
-                let _ = volume.settle();
-                return Ok(());
+                // Not asked for by `mountd`: its status 0 would be read as
+                // a volume that was written out whole, so a settle that
+                // failed is not one.
+                return match volume.settle() {
+                    Ok(()) => Ok(()),
+                    Err(Fault::Gone) => Err((Failure::Lost, String::from("the medium was pulled"))),
+                    Err(_) => Err((
+                        Failure::Flush,
+                        String::from("the final write-back was refused"),
+                    )),
+                };
             }
         }
         if volume.failure() == Some(Fault::Gone) {

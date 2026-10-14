@@ -14,6 +14,15 @@ fn drive(disk: &str, name: &str, phase: Phase) -> Drive {
     }
 }
 
+/// A model past the login's first looks, with nothing plugged in.
+fn settled() -> Model {
+    let mut model = Model::new();
+    for _ in 0..=WARMUP_POLLS {
+        model.poll(vec![]);
+    }
+    model
+}
+
 #[test]
 fn what_was_there_at_the_start_is_silent_until_it_leaves_badly() {
     let mut model = Model::new();
@@ -37,8 +46,7 @@ fn what_was_there_at_the_start_is_silent_until_it_leaves_badly() {
 
 #[test]
 fn a_stick_that_arrives_is_announced_once_and_the_attention_fades() {
-    let mut model = Model::new();
-    model.poll(vec![]);
+    let mut model = settled();
     assert_eq!(model.poll(vec![drive("usb1", "", Phase::Starting)]), None);
     let notice = model.poll(vec![drive("usb1", "MY_STICK", Phase::Mounted)]);
     assert_eq!(
@@ -81,6 +89,9 @@ fn an_eject_is_told_when_the_stick_may_be_pulled_and_its_removal_is_mild() {
 fn a_plug_that_comes_back_is_news_again() {
     let mut model = Model::new();
     model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
+    for _ in 0..WARMUP_POLLS {
+        model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
+    }
     // At login: silent. Pulled, then plugged in again: announced.
     model.poll(vec![]);
     model.poll(vec![drive("usb1", "", Phase::Starting)]);
@@ -131,14 +142,14 @@ fn the_menu_has_open_and_eject_per_drive_and_actions_resolve() {
         ["Open A", "Eject A", "Open B", "Eject B", "", "Eject all"]
     );
     assert!(model.menu()[0].is_default);
-    assert_eq!(model.action(100), Some(Action::Open("/media/A".into())));
-    assert_eq!(model.action(201), Some(Action::Eject("usb2".into())));
+    // Row ids name the disk, not the place in the list.
+    assert_eq!(model.action(0x1001), Some(Action::Open("/media/A".into())));
+    assert_eq!(model.action(0x2002), Some(Action::Eject("usb2".into())));
     assert_eq!(
         model.action(300),
         Some(Action::EjectAll(vec!["usb1".into(), "usb2".into()]))
     );
-    // A row of a drive that has gone (a stale menu) does nothing.
-    assert_eq!(model.action(102), None);
+    assert_eq!(model.action(0x1007), None);
     assert_eq!(model.action(7), None);
     assert_eq!(
         model.default_action(),
@@ -219,4 +230,68 @@ fn the_mask_is_a_tilted_stick() {
     assert_eq!(alpha(15, 17), 255);
     let ink = mask.chunks(4).filter(|px| px[3] > 0).count();
     assert!((side * side / 5..side * side / 2).contains(&ink), "{ink} px");
+}
+
+#[test]
+fn a_stale_menu_never_acts_on_another_drive() {
+    let mut model = Model::new();
+    model.poll(vec![]);
+    model.poll(vec![
+        drive("usb1", "A", Phase::Mounted),
+        drive("usb2", "B", Phase::Mounted),
+    ]);
+    let eject_a = model.menu().iter().find(|r| r.label == "Eject A").unwrap().id;
+    // A goes away while the menu is open: its row now asks for nothing,
+    // and B (which moved up the list) is not what it ejects.
+    model.poll(vec![drive("usb2", "B", Phase::Mounted)]);
+    assert_eq!(model.action(eject_a), None);
+}
+
+#[test]
+fn a_pull_the_kernel_noticed_first_is_still_the_unsafe_removal() {
+    // `mountd` lists a pulled stick as `removed` for a moment before it
+    // forgets it: the notice is raised once, at the first look that sees it.
+    let mut model = Model::new();
+    model.poll(vec![]);
+    model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
+    let notice = model.poll(vec![drive("usb1", "A", Phase::Removed)]).unwrap();
+    assert!(notice.contains("A was removed without ejecting"), "{notice}");
+    // And when the entry then disappears, nothing more is said.
+    assert_eq!(model.poll(vec![]), None);
+}
+
+#[test]
+fn a_failure_after_the_logins_drives_is_still_news() {
+    let mut model = Model::new();
+    // A stick that was in at login and has mounted by the first look.
+    model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
+    model.poll(vec![drive("usb1", "A", Phase::Ejecting)]);
+    let mut failed = drive("usb1", "A", Phase::Failed);
+    failed.detail = String::from("the stick stopped answering while it was ejected");
+    let notice = model.poll(vec![failed]).unwrap();
+    assert!(notice.contains("stopped answering"), "{notice}");
+}
+
+#[test]
+fn a_stick_that_shows_up_in_the_first_looks_is_the_logins() {
+    let mut model = Model::new();
+    // `mountd` has not started the login's stick yet at the first look.
+    model.poll(vec![]);
+    assert_eq!(model.poll(vec![drive("usb1", "", Phase::Starting)]), None);
+    assert_eq!(model.poll(vec![drive("usb1", "A", Phase::Mounted)]), None);
+    // Long after, a plug is announced.
+    for _ in 0..WARMUP_POLLS {
+        model.poll(vec![drive("usb1", "A", Phase::Mounted)]);
+    }
+    model.poll(vec![
+        drive("usb1", "A", Phase::Mounted),
+        drive("usb2", "", Phase::Starting),
+    ]);
+    let notice = model
+        .poll(vec![
+            drive("usb1", "A", Phase::Mounted),
+            drive("usb2", "B", Phase::Mounted),
+        ])
+        .unwrap();
+    assert_eq!(notice, "B mounted at /media/B");
 }

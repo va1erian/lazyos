@@ -34,6 +34,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 mod device;
+mod direct;
 mod order;
 mod page;
 mod stream;
@@ -250,6 +251,12 @@ impl<D: BlockIo> Cache<D> {
             }
             let page = self.pages.get_mut(&index).ok_or(Fault::Io)?;
             let from = slot * SECTOR + within;
+            // A whole sector of the data area, written without being read, is
+            // new content (a directory cluster being made, say: whether
+            // read-ahead had brought the old bytes in does not matter); under
+            // `Order::Grow` it goes before what names it. Entries, FAT
+            // entries and tails are partial sectors.
+            let fresh = whole;
             page.data[from..from + take].copy_from_slice(&data[done..done + take]);
             page.valid |= 1 << slot;
             if page.dirty & (1 << slot) == 0 {
@@ -257,10 +264,16 @@ impl<D: BlockIo> Cache<D> {
                 self.dirty_bytes += SECTOR;
             }
             match self.layout {
-                Some(layout) if self.tag_data && sector >= layout.data_start => {
+                Some(layout)
+                    if sector >= layout.data_start
+                        && (self.tag_data || (fresh && self.order == Order::Grow)) =>
+                {
                     page.filedata |= 1 << slot;
                 }
-                _ => page.filedata &= !(1 << slot),
+                // A partial write into a sector that is new content (the
+                // `.` and `..` entries of a new directory's cluster) leaves
+                // it new content; the tags go at the operation's flush.
+                _ => {}
             }
             page.used = tick;
             done += take;
@@ -342,58 +355,6 @@ impl<D: BlockIo> Cache<D> {
     fn touch(&mut self) -> u64 {
         self.tick += 1;
         self.tick
-    }
-
-    fn read_direct(&mut self, lba: u64, buf: &mut [u8]) -> Result<(), Fault> {
-        for (index, chunk) in buf.chunks_mut(MAX_IO).enumerate() {
-            let at = lba + (index * MAX_IO / SECTOR) as u64;
-            self.stats.reads += 1;
-            if let Err(fault) = self.dev.read(at, chunk) {
-                return Err(self.read_failed(fault));
-            }
-        }
-        // What the device returned may predate sectors still waiting here.
-        self.overlay_dirty(lba, buf);
-        Ok(())
-    }
-
-    fn write_direct(&mut self, lba: u64, data: &[u8]) -> Result<(), Fault> {
-        for (index, chunk) in data.chunks(MAX_IO).enumerate() {
-            let at = lba + (index * MAX_IO / SECTOR) as u64;
-            self.stats.writes += 1;
-            if let Err(fault) = self.dev.write(at, chunk) {
-                return Err(self.fail(fault));
-            }
-            self.wrote = true;
-        }
-        // Cached copies of these sectors now hold the new bytes, clean.
-        for (n, sector_bytes) in data.chunks(SECTOR).enumerate() {
-            let sector = lba + n as u64;
-            let index = sector / PAGE_SECTORS;
-            let slot = (sector % PAGE_SECTORS) as usize;
-            if let Some(page) = self.pages.get_mut(&index) {
-                page.data[slot * SECTOR..(slot + 1) * SECTOR].copy_from_slice(sector_bytes);
-                page.valid |= 1 << slot;
-                if page.dirty & (1 << slot) != 0 {
-                    page.dirty &= !(1 << slot);
-                    page.filedata &= !(1 << slot);
-                    self.dirty_bytes -= SECTOR;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn overlay_dirty(&self, lba: u64, buf: &mut [u8]) {
-        for (n, sector_bytes) in buf.chunks_mut(SECTOR).enumerate() {
-            let sector = lba + n as u64;
-            if let Some(page) = self.pages.get(&(sector / PAGE_SECTORS)) {
-                let slot = (sector % PAGE_SECTORS) as usize;
-                if page.dirty & (1 << slot) != 0 {
-                    sector_bytes.copy_from_slice(&page.data[slot * SECTOR..(slot + 1) * SECTOR]);
-                }
-            }
-        }
     }
 
     /// Make room for one more page: drop the least recently used clean one,

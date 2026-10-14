@@ -271,15 +271,20 @@ FAT volume is parsed in user space (docs/usb-hotplug-plan.md, decision 7):
 - **Write order** (`libs/fatvol/src/io/order.rs`). FAT has no journal, so the
   order of one operation's writes is what a cut leaves. A file that grows
   writes its bytes first, then the FAT that allocates them, then the
-  directory entry that names them; one that shrinks (truncate, unlink,
-  rmdir) writes the entry before the FAT frees the clusters; everything else
-  goes lowest sector first. A cut then leaves a file as it was, or leaked
-  clusters (`fsck.fat` frees them), never an entry that claims bytes that
-  were not written or a freed cluster that is still somebody's
-  (`tests/ordering.rs` cuts after every write against a checker that reads
-  the image itself, and fails on the old ascending order). A rename is still
-  one directory-entry change and a replace is a shrink then a rename: a cut
-  between them can lose the target, never corrupt it.
+  directory entry that names them; a new directory writes its cluster
+  (`.` and `..`) before the entry; one that shrinks (truncate, unlink,
+  rmdir, a rename that replaces) writes the entry before the FAT frees the
+  clusters; everything else goes lowest sector first. The boot sector, with
+  the dirty mark, always goes first. A cut then leaves a file as it was, or
+  leaked clusters (`fsck.fat` frees them), never an entry that claims bytes
+  that were not written, a directory that is not one, or a freed cluster
+  that is still somebody's (`tests/ordering.rs` cuts after every write
+  against a checker that reads the image itself, and fails on the old
+  ascending order). Two limits: a rename writes its new entry and deletes
+  the old by sector number, so a cut can lose the *name* (the data
+  survives for `fsck`), never corrupt; and an operation that frees more
+  than about 512 MiB of clusters at once overflows the cache's 1 MiB dirty
+  limit mid-way, and the FAT then reaches the stick before the entry.
 - **Pulling the stick** ends the volume: `usbd` removes the disk, the
   daemon's next request gets `ENODEV` and it exits with `15` (`removed`);
   the kernel fails the mount's calls until its flusher takes it out of the
@@ -300,9 +305,12 @@ FAT volume is parsed in user space (docs/usb-hotplug-plan.md, decision 7):
   update: they are the fallback, not the way.
   - **Eject** (`os.lazy.mount.v1` `Eject`, the `eject` command): the same
     stop, but refused with `EBUSY` while a file is open on the volume or a
-    task's working directory is in it (`HOLDERS`, op 6, names each task and
-    path from the descriptor tables and the open-file registry, mappings
-    included). `-f` / `force` stops anyway; its open files then fail with
+    task's working directory is in it (`HOLDERS`, op 6, names each task
+    (by its program) and path from the descriptor tables and the open-file
+    registry, mappings included; at most 64 of each, control characters
+    shown as `?`). `LIST`, `STOP` and `HOLDERS` are `mountd`'s (or root's):
+    by program, as the raw disk claim is, and a stop names the daemon's pid
+    with the id so a reused id is never stopped by mistake. `-f` / `force` stops anyway; its open files then fail with
     `EIO`. The answer comes at once (`ejecting`); `Volumes` shows `ejected`
     when the daemon has exited `0` after an eject, and only then may the
     stick be pulled. A daemon that has not registered a mount (looking for a

@@ -149,17 +149,19 @@ pub fn providers() -> Result<Vec<ProviderInfo>, i64> {
         .collect())
 }
 
-/// Ask provider `id` to finish: flush, unmount and exit on its own. Unless
-/// `force`, `Err(EBUSY)` (errno 16) while a file is open on it; ask
-/// [`holders`] who. `Err(ESRCH)` (3) for a provider that is not there.
-pub fn stop(id: u64, force: bool) -> Result<(), i64> {
+/// Ask provider `id`, registered by task `owner` (the pid [`providers`]
+/// reported), to finish: flush, unmount and exit on its own. Unless `force`,
+/// `Err(EBUSY)` (errno 16) while a file is open on it; ask [`holders`] who.
+/// `Err(ESRCH)` (3) for a provider that is not there. A supervisor's call
+/// (`mountd`, or root).
+pub fn stop(id: u64, owner: u64, force: bool) -> Result<(), i64> {
     // SAFETY: no pointer crosses the gate.
-    unsafe { fuse(sys_op::STOP, id, u64::from(force), 0, 0) }.map(|_| ())
+    unsafe { fuse(sys_op::STOP, id, u64::from(force), owner, 0) }.map(|_| ())
 }
 
-/// Who keeps provider `id` busy, one line per task and file (empty when
-/// nobody does).
-pub fn holders(id: u64) -> Result<String, i64> {
+/// Who keeps provider `id` (registered by `owner`) busy, one line per task
+/// and file (empty when nobody does).
+pub fn holders(id: u64, owner: u64) -> Result<String, i64> {
     let mut text = vec![0u8; HOLDERS_ROOM];
     // SAFETY: the kernel writes at most `text.len()` bytes into `text`.
     let len = unsafe {
@@ -168,7 +170,7 @@ pub fn holders(id: u64) -> Result<String, i64> {
             id,
             text.as_mut_ptr() as u64,
             text.len() as u64,
-            0,
+            owner,
         )
     }?;
     text.truncate(len as usize);

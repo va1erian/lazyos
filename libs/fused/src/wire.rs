@@ -20,18 +20,22 @@
 //!   op 4 LIST(out, cap)              write up to cap / PROVIDER_WORDS * 8
 //!                                    [`ProviderInfo`] records of the live
 //!                                    removable-media providers -> count
-//!   op 5 STOP(id, force)             ask the media provider `id` to finish
-//!                                    and unmount itself ([`STOP_PENDING`]
-//!                                    from its NEXT, once its queue is
-//!                                    empty); without `force` refused with
-//!                                    EBUSY while a file is open on it
-//!   op 6 HOLDERS(id, out, cap)       who holds a file open on provider `id`,
-//!                                    as text lines -> bytes written
+//!   op 5 STOP(id, force, owner)      ask the media provider `id`, registered
+//!                                    by task `owner`, to finish and unmount
+//!                                    itself ([`STOP_PENDING`] from its NEXT,
+//!                                    once its queue is empty); without
+//!                                    `force` refused with EBUSY while a file
+//!                                    is open on it
+//!   op 6 HOLDERS(id, out, cap, owner) who holds a file open on provider
+//!                                    `id` (registered by `owner`), as text
+//!                                    lines -> bytes written
 //! ```
 //!
-//! `STOP` and `HOLDERS` are the supervisor's (any provider task, not only
-//! the registrant: `mountd` for a `fatfuse` it started); every other op is
-//! the registrant's. A provider asked to stop refuses every new request
+//! `LIST`, `STOP` and `HOLDERS` are the supervisor's (`mountd`, or root: not
+//! another provider daemon, which parses hostile input, and not only the
+//! registrant); every other op is the registrant's. The `owner` is the pid
+//! `LIST` reported with the id, so an id another daemon took in between is
+//! not stopped by mistake. A provider asked to stop refuses every new request
 //! (EIO) while it finishes what it already took, so nothing new can land on
 //! a volume that is being flushed for removal.
 //!

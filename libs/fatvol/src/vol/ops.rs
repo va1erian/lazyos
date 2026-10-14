@@ -151,13 +151,18 @@ impl<D: BlockIo> Volume<D> {
         let mut file = Self::open_file(fs, path)?;
         let size = file.seek(SeekFrom::End(0)).map_err(to_errno)?;
         cache.0.borrow_mut().tag_file_data(true);
-        if offset > size {
-            Self::extend(&mut file, offset - size)?;
-        }
-        file.seek(SeekFrom::Start(offset)).map_err(to_errno)?;
-        file.write_all(data).map_err(to_errno)?;
-        // The entry is written by the flush below: not file data.
+        let written = (|| {
+            if offset > size {
+                Self::extend(&mut file, offset - size)?;
+            }
+            file.seek(SeekFrom::Start(offset)).map_err(to_errno)?;
+            file.write_all(data).map_err(to_errno)
+        })();
+        // Off before anything else happens, whatever came of the write: the
+        // entry `file`'s flush (and its drop, on an error) writes is not file
+        // data, and a tag left on would sort it before the FAT.
         cache.0.borrow_mut().tag_file_data(false);
+        written?;
         file.flush().map_err(to_errno)?;
         Ok(data.len())
     }
@@ -175,8 +180,9 @@ impl<D: BlockIo> Volume<D> {
         } else if size > current {
             cache.0.borrow_mut().set_order(Order::Grow);
             cache.0.borrow_mut().tag_file_data(true);
-            Self::extend(&mut file, size - current)?;
+            let extended = Self::extend(&mut file, size - current);
             cache.0.borrow_mut().tag_file_data(false);
+            extended?;
         }
         file.flush().map_err(to_errno)
     }
@@ -187,6 +193,12 @@ impl<D: BlockIo> Volume<D> {
             Ok(_) => return Err(errno::EEXIST),
             Err(errno::ENOENT) => {}
             Err(code) => return Err(code),
+        }
+        if dir {
+            // The new directory's cluster (its `.` and `..`) before the
+            // entry that names it: a cut never leaves a directory whose
+            // cluster still holds what a deleted file left there.
+            self.write_order(Order::Grow);
         }
         {
             let fs = self.fs()?;

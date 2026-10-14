@@ -38,9 +38,16 @@ pub const MAX_ROW: usize = 36;
 /// Side of the tray icon mask in pixels (the shell takes up to 64).
 pub const MASK_SIDE: u32 = 32;
 
-/// Menu row ids: `OPEN + i` and `EJECT + i` for the `i`-th mounted drive.
-const OPEN: u32 = 100;
-const EJECT: u32 = 200;
+/// How many looks after the first still count as "at login": a stick that
+/// was plugged in before the session starts mounting a moment after it, and
+/// the applet's first look can come before `mountd`'s.
+pub const WARMUP_POLLS: u32 = 5;
+
+/// Menu row ids: `OPEN + n` and `EJECT + n` for the drive `usb<n>` (not its
+/// place in the list, which shifts under a menu that is open).
+const OPEN: u32 = 0x1000;
+const EJECT: u32 = 0x2000;
+const NUMBER_MASK: u32 = 0xFFF;
 const EJECT_ALL: u32 = 300;
 const SEPARATOR: u32 = 301;
 const INFO: u32 = 302;
@@ -118,6 +125,8 @@ pub struct Model {
     /// Disks that were there at the first look: their mounting is not news.
     quiet: Vec<String>,
     seen: bool,
+    /// Looks left in which a drive that first shows up is still the login's.
+    warmup: u32,
     notice: Option<String>,
     attention: u32,
     refusal: Option<String>,
@@ -139,9 +148,26 @@ impl Model {
         }
         if !self.seen {
             self.seen = true;
-            self.quiet = list.iter().map(|d| d.disk.clone()).collect();
+            self.warmup = WARMUP_POLLS;
+            // Only what has not mounted yet is waiting to be told about; a
+            // drive that is up already can still fail, or be ejected, and
+            // that is news.
+            self.quiet = list
+                .iter()
+                .filter(|d| d.phase == Phase::Starting)
+                .map(|d| d.disk.clone())
+                .collect();
             self.drives = list;
             return None;
+        }
+        if self.warmup > 0 {
+            self.warmup -= 1;
+            for new in &list {
+                let known = self.drives.iter().any(|d| d.disk == new.disk);
+                if !known && new.phase == Phase::Starting {
+                    self.quiet.push(new.disk.clone());
+                }
+            }
         }
         let mut told: Vec<String> = Vec::new();
         let mut ejecting = false;
@@ -168,8 +194,26 @@ impl Model {
                 continue;
             }
             let quiet = self.quiet.contains(&new.disk);
+            if new.phase != Phase::Starting {
+                // Past the login's mounting: whatever happens next is news.
+                self.quiet.retain(|disk| *disk != new.disk);
+            }
             ejecting |= new.phase == Phase::Ejecting;
             match new.phase {
+                // The kernel noticed the pull before the entry was
+                // forgotten: this is the unsafe removal (its disappearing
+                // from the list afterwards is silent).
+                Phase::Removed => {
+                    if matches!(
+                        before,
+                        Some(Phase::Mounted | Phase::Ejecting | Phase::Starting)
+                    ) {
+                        told.push(format!(
+                            "{} was removed without ejecting (data may be lost)",
+                            new.title()
+                        ));
+                    }
+                }
                 Phase::Mounted if !quiet => {
                     told.push(format!("{} mounted at {}", new.title(), new.path));
                 }
@@ -274,16 +318,16 @@ impl Model {
         let mut rows = Vec::new();
         let mounted: Vec<&Drive> = self.mounted().collect();
         for (index, drive) in mounted.iter().enumerate() {
-            let index = index as u32;
+            let number = number_of(&drive.disk);
             let mut open = menu_row(
-                OPEN + index,
+                OPEN + number,
                 &clip(&format!("Open {}", drive.title())),
                 wire::MENU_KIND_NORMAL,
             );
             open.is_default = index == 0;
             rows.push(open);
             rows.push(menu_row(
-                EJECT + index,
+                EJECT + number,
                 &clip(&format!("Eject {}", drive.title())),
                 wire::MENU_KIND_NORMAL,
             ));
@@ -319,24 +363,29 @@ impl Model {
         rows
     }
 
-    /// What menu row `id` asks for, against the drives as they are now.
+    /// What menu row `id` asks for, against the drives as they are now: a
+    /// row of a drive that has gone (a menu that was open meanwhile) asks
+    /// for nothing.
     pub fn action(&self, id: u32) -> Option<Action> {
         let mounted: Vec<&Drive> = self.mounted().collect();
-        let nth = |base: u32| mounted.get(id.checked_sub(base)? as usize).copied();
+        let of = |base: u32| {
+            let number = id.checked_sub(base).filter(|n| *n <= NUMBER_MASK)?;
+            mounted.iter().copied().find(|d| number_of(&d.disk) == number)
+        };
         match id {
             EJECT_ALL => {
                 let disks: Vec<String> = mounted.iter().map(|d| d.disk.clone()).collect();
                 (!disks.is_empty()).then_some(Action::EjectAll(disks))
             }
-            OPEN..=199 => nth(OPEN).map(|d| Action::Open(d.path.clone())),
-            EJECT..=299 => nth(EJECT).map(|d| Action::Eject(d.disk.clone())),
+            OPEN..=0x1FFF => of(OPEN).map(|d| Action::Open(d.path.clone())),
+            EJECT..=0x2FFF => of(EJECT).map(|d| Action::Eject(d.disk.clone())),
             _ => None,
         }
     }
 
     /// What a click on the icon does: open the first mounted drive.
     pub fn default_action(&self) -> Option<Action> {
-        self.action(OPEN)
+        self.mounted().next().map(|d| Action::Open(d.path.clone()))
     }
 
     /// A cheap fingerprint of everything the tray shows, to send an update
@@ -352,6 +401,14 @@ impl Model {
                 .collect(),
         )
     }
+}
+
+/// The `n` of `usb<n>`, masked to a menu id's room (a disk the kernel
+/// numbers past it shares an id, which only costs that menu an Open).
+fn number_of(disk: &str) -> u32 {
+    disk.strip_prefix("usb")
+        .and_then(|n| n.parse::<u32>().ok())
+        .map_or(0, |n| n & NUMBER_MASK)
 }
 
 /// `text` cut to [`MAX_ROW`] characters.

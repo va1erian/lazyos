@@ -24,14 +24,20 @@ pub struct Holder {
     pub cwd: bool,
 }
 
+/// Most holders one scan collects: enough to name who to close, and a bound
+/// on the work done with the task table locked.
+pub const MAX_HOLDERS: usize = 64;
+
 /// Whether `path` is `prefix` or lies below it, whole components only.
 pub fn is_under(path: &str, prefix: &str) -> bool {
     path.strip_prefix(prefix)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
-/// Every task with a file open or its working directory at or under
-/// `prefix`, one entry per task and path.
+/// The tasks with a file open or their working directory at or under
+/// `prefix`, at most [`MAX_HOLDERS`] entries (one per task, path and kind
+/// of hold; a descriptor duplicated or shared by threads may appear twice).
+/// Stops scanning when the bound is reached.
 pub fn under(prefix: &str) -> Vec<Holder> {
     let tasks = TASKS.lock();
     let mut found: Vec<Holder> = Vec::new();
@@ -39,6 +45,9 @@ pub fn under(prefix: &str) -> Vec<Holder> {
         let Some(task) = slot else { continue };
         if matches!(task.state, super::TaskState::Done) {
             continue;
+        }
+        if found.len() >= MAX_HOLDERS {
+            break;
         }
         // A syscall runs with interrupts off and this walks every
         // descriptor of every task: take pending interrupts between tasks
@@ -52,10 +61,7 @@ pub fn under(prefix: &str) -> Vec<Holder> {
             .filter(|name| !name.is_empty())
             .map_or_else(|| String::from(task.name), String::from);
         let mut note = |path: String, cwd: bool| {
-            let duplicate = found
-                .iter()
-                .any(|h| h.pid == pid && h.path == path && h.cwd == cwd);
-            if !duplicate {
+            if found.len() < MAX_HOLDERS {
                 found.push(Holder {
                     pid,
                     name: program.clone(),

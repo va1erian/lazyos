@@ -65,19 +65,22 @@ pub fn list_and_stop() -> Result<(), String> {
             "wrong entry {entry:?}"
         );
         check!(
-            fuse::stop(plain, false) == Err(StopError::NoSuchProvider),
+            fuse::stop(plain, owner, false) == Err(StopError::NoSuchProvider),
             "a network mount was stopped"
         );
         check!(
-            fuse::stop(fuse::MAX_PROVIDERS, false) == Err(StopError::NoSuchProvider),
+            fuse::stop(fuse::MAX_PROVIDERS, owner, false) == Err(StopError::NoSuchProvider),
             "an id past the table"
         );
         vfsapi::abi_create(ROOT, "/media/STICK/a", 0o644).map_err(|e| format!("create: {e:?}"))?;
         // Nothing queued and not stopping: an idle NEXT.
         check!(next_of(index, owner) == Ok(Next::Idle), "idle NEXT");
 
-        check!(fuse::stop(index, false).is_ok(), "stop");
-        check!(fuse::stop(index, false).is_ok(), "a second stop is a no-op");
+        check!(fuse::stop(index, owner, false).is_ok(), "stop");
+        check!(
+            fuse::stop(index, owner, false).is_ok(),
+            "a second stop is a no-op"
+        );
         let listed = fuse::list();
         check!(
             listed.len() == 1 && listed[0].state == PROVIDER_ALIVE | PROVIDER_STOPPING,
@@ -133,7 +136,7 @@ pub fn busy_names_holders() -> Result<(), String> {
         vfsapi::abi_create(ROOT, "/media/STICK/log", 0o644)
             .map_err(|e| format!("create: {e:?}"))?;
         check!(
-            fuse::holders_report(index).as_deref() == Ok(""),
+            fuse::holders_report(index, owner).as_deref() == Ok(""),
             "a report for an idle volume"
         );
 
@@ -141,10 +144,10 @@ pub fn busy_names_holders() -> Result<(), String> {
         let file = OpenFile::open("/media/STICK/log", true, true, false)
             .map_err(|e| format!("open: {e:?}"))?;
         check!(
-            fuse::stop(index, false) == Err(StopError::Busy),
+            fuse::stop(index, owner, false) == Err(StopError::Busy),
             "open file"
         );
-        let report = fuse::holders_report(index).map_err(|e| format!("report: {e:?}"))?;
+        let report = fuse::holders_report(index, owner).map_err(|e| format!("report: {e:?}"))?;
         check!(
             report == "(mapped): /media/STICK/log\n",
             "an unattributed open file: {report:?}"
@@ -154,14 +157,14 @@ pub fn busy_names_holders() -> Result<(), String> {
             file: alloc::sync::Arc::clone(&file),
         })
         .ok_or("no descriptor")?;
-        let report = fuse::holders_report(index).map_err(|e| format!("report: {e:?}"))?;
+        let report = fuse::holders_report(index, owner).map_err(|e| format!("report: {e:?}"))?;
         let line = format!("({owner}): /media/STICK/log\n");
         check!(
             report.ends_with(&line) && !report.contains("(mapped)"),
             "an attributed open file: {report:?}"
         );
         check!(
-            fuse::stop(index, false) == Err(StopError::Busy),
+            fuse::stop(index, owner, false) == Err(StopError::Busy),
             "descriptor"
         );
         // The refusal left the provider serving.
@@ -178,22 +181,25 @@ pub fn busy_names_holders() -> Result<(), String> {
 
         // A shell sitting in the volume.
         task::set_cwd("/media/STICK");
-        check!(fuse::stop(index, false) == Err(StopError::Busy), "cwd");
-        let report = fuse::holders_report(index).map_err(|e| format!("report: {e:?}"))?;
+        check!(
+            fuse::stop(index, owner, false) == Err(StopError::Busy),
+            "cwd"
+        );
+        let report = fuse::holders_report(index, owner).map_err(|e| format!("report: {e:?}"))?;
         check!(
             report.contains("working directory /media/STICK\n"),
             "cwd not named: {report:?}"
         );
         task::set_cwd("/");
         check!(
-            fuse::holders_report(index).as_deref() == Ok(""),
+            fuse::holders_report(index, owner).as_deref() == Ok(""),
             "holders after letting go"
         );
 
         // Forced: goes ahead with the file still open.
         let held = OpenFile::open("/media/STICK/log", true, false, false)
             .map_err(|e| format!("reopen: {e:?}"))?;
-        check!(fuse::stop(index, true).is_ok(), "forced stop");
+        check!(fuse::stop(index, owner, true).is_ok(), "forced stop");
         check!(next_of(index, owner) == Ok(Next::Stop), "NEXT after force");
         drop(held);
         check!(fuse::unregister(index, owner).is_ok(), "unregister");
@@ -210,7 +216,8 @@ fn stop_then_serve(index: usize) {
     use core::sync::atomic::{AtomicBool, Ordering};
     static ASKED: AtomicBool = AtomicBool::new(false);
     if !ASKED.swap(true, Ordering::SeqCst) {
-        assert!(fuse::stop(index, true).is_ok(), "stop while queued");
+        let owner = with_fake(|f| f.owner);
+        assert!(fuse::stop(index, owner, true).is_ok(), "stop while queued");
     }
     serve(index);
 }
@@ -256,23 +263,56 @@ pub fn queued_request_answered_first() -> Result<(), String> {
     result
 }
 
+/// A task with `uid` and `caps`, made current.
+fn task_as(uid: u32, caps: u32) -> Result<usize, String> {
+    task::harness::switch_current(task::KERNEL_TASK);
+    let slot = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+    credentials::set(slot, Cred::new(uid, uid, caps, 0, 0));
+    task::harness::switch_current(slot);
+    Ok(slot)
+}
+
 /// Syscall 35: `LIST`, `STOP` and `HOLDERS` through the gate, with the same
-/// gate as every other op and short buffers.
+/// gate as every other op, short buffers, a name cut inside a character, and
+/// an owner that does not match.
 pub fn supervise_syscalls() -> Result<(), String> {
     let (index, owner) = setup_media("STICK")?;
     let result = (|| {
         let call = fusesys::dispatch;
-
-        // LIST: one record; a buffer of one word fits none.
+        let (id, pid) = (index as u64, owner as u64);
         let mut words = [0u64; PROVIDER_WORDS * 2];
         let cap = (PROVIDER_WORDS * 16) as u64;
+        let mut text = [0u8; 64];
+        let at = text.as_mut_ptr() as u64;
+        // The registrant is a provider daemon (`ftpfuse`, `smbfuse` or
+        // `fatfuse` in life): it may not supervise. Nor may a session user
+        // holding the capability, or `_mountd`'s uid without it. Only
+        // `mountd` by its program (root here) may.
+        for op in [sys_op::LIST, sys_op::STOP, sys_op::HOLDERS] {
+            check!(
+                call(op, id, at, 64, pid) == failed(EPERM),
+                "op {op} by the registrant itself"
+            );
+        }
+        for (uid, caps) in [(1000u32, CAP_FS_PROVIDER), (mounttable::MOUNTD_UID, 0)] {
+            task_as(uid, caps)?;
+            for op in [sys_op::LIST, sys_op::STOP, sys_op::HOLDERS] {
+                check!(
+                    call(op, id, at, 64, pid) == failed(EPERM),
+                    "op {op} by uid {uid} caps {caps:#x}"
+                );
+            }
+        }
+        task_as(0, CAP_FS_PROVIDER)?;
+
+        // LIST: one record; a buffer of one word fits none.
         let got = call(sys_op::LIST, words.as_mut_ptr() as u64, cap, 0, 0);
         check!(got == 1, "LIST returned {got:#x}");
         let record: [u64; PROVIDER_WORDS] = words[..PROVIDER_WORDS]
             .try_into()
             .map_err(|_| "record size")?;
         check!(
-            ProviderInfo::from_words(&record).is_some_and(|i| i.name == "STICK"),
+            ProviderInfo::from_words(&record).is_some_and(|i| i.name == "STICK" && i.owner == pid),
             "LIST record {record:?}"
         );
         check!(
@@ -281,68 +321,75 @@ pub fn supervise_syscalls() -> Result<(), String> {
         );
 
         // HOLDERS: empty; then with an open file, then cut to a short buffer.
-        let mut text = [0u8; 64];
-        let at = text.as_mut_ptr() as u64;
-        let none = call(sys_op::HOLDERS, index as u64, at, 64, 0);
+        let none = call(sys_op::HOLDERS, id, at, 64, pid);
         check!(none == 0, "HOLDERS of an idle volume: {none:#x}");
         vfsapi::abi_create(ROOT, "/media/STICK/log", 0o644)
             .map_err(|e| format!("create: {e:?}"))?;
         let file = OpenFile::open("/media/STICK/log", true, true, false)
             .map_err(|e| format!("open: {e:?}"))?;
         let want = "(mapped): /media/STICK/log\n";
-        let got = call(sys_op::HOLDERS, index as u64, at, 64, 0);
+        let got = call(sys_op::HOLDERS, id, at, 64, pid);
         check!(
             got == want.len() as u64 && &text[..want.len()] == want.as_bytes(),
             "HOLDERS: {got}"
         );
         // A buffer too small for the only line returns a cut line, never
         // overruns.
-        let got = call(sys_op::HOLDERS, index as u64, at, 5, 0);
+        let got = call(sys_op::HOLDERS, id, at, 5, pid);
         check!(got == 5, "HOLDERS into 5 bytes: {got:#x}");
         check!(
-            call(sys_op::HOLDERS, 99, at, 64, 0) == failed(ESRCH),
+            call(sys_op::HOLDERS, 99, at, 64, pid) == failed(ESRCH),
             "HOLDERS of no provider"
         );
-
-        // STOP: busy, then asked; NEXT through the gate reports it.
+        // An id another daemon has taken since the listing: the owner does
+        // not match.
         check!(
-            call(sys_op::STOP, index as u64, 0, 0, 0) == failed(EBUSY),
+            call(sys_op::HOLDERS, id, at, 64, pid + 1) == failed(ESRCH),
+            "HOLDERS with the wrong owner"
+        );
+        check!(
+            call(sys_op::STOP, id, 0, pid + 1, 0) == failed(ESRCH),
+            "STOP with the wrong owner"
+        );
+        drop(file);
+
+        // A name from a stick is any Unicode and the cut can fall inside a
+        // character: the report is cut at a boundary, never panics.
+        let name = format!("/media/STICK/{}.txt", "\u{e9}".repeat(30));
+        vfsapi::abi_create(ROOT, &name, 0o644).map_err(|e| format!("create: {e:?}"))?;
+        let held = OpenFile::open(&name, true, true, false).map_err(|e| format!("open: {e:?}"))?;
+        let got = call(sys_op::HOLDERS, id, at, 64, pid);
+        check!(
+            got > 0 && got <= 64 && core::str::from_utf8(&text[..got as usize]).is_ok(),
+            "HOLDERS cut inside a character: {got}"
+        );
+        drop(held);
+
+        // STOP: busy, then asked; the registrant's NEXT reports it.
+        let file = OpenFile::open("/media/STICK/log", true, true, false)
+            .map_err(|e| format!("open: {e:?}"))?;
+        check!(
+            call(sys_op::STOP, id, 0, pid, 0) == failed(EBUSY),
             "STOP busy"
         );
         check!(
-            call(sys_op::STOP, 99, 0, 0, 0) == failed(ESRCH),
+            call(sys_op::STOP, 99, 0, pid, 0) == failed(ESRCH),
             "STOP of no provider"
         );
         drop(file);
-        check!(call(sys_op::STOP, index as u64, 0, 0, 0) == 0, "STOP");
+        check!(call(sys_op::STOP, id, 0, pid, 0) == 0, "STOP");
+        task::harness::switch_current(owner);
         let mut req = [0u64; fused::wire::REQUEST_WORDS];
         let mut data = [0u8; 16];
         let packed = data.len() as u64;
         let got = call(
             sys_op::NEXT,
-            index as u64,
+            id,
             req.as_mut_ptr() as u64,
             data.as_mut_ptr() as u64,
             packed,
         );
         check!(got == STOP_PENDING, "NEXT after STOP: {got:#x}");
-
-        // The gate: a session user holding the capability, a provider uid
-        // without it.
-        let me = task::current();
-        for (uid, caps) in [(1000u32, CAP_FS_PROVIDER), (DAEMON_UID, 0)] {
-            task::harness::switch_current(task::KERNEL_TASK);
-            let slot = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
-            credentials::set(slot, Cred::new(uid, uid, caps, 0, 0));
-            task::harness::switch_current(slot);
-            for op in [sys_op::LIST, sys_op::STOP, sys_op::HOLDERS] {
-                check!(
-                    call(op, index as u64, at, 64, 0) == failed(EPERM),
-                    "op {op} by uid {uid} caps {caps:#x}"
-                );
-            }
-        }
-        task::harness::switch_current(me);
         check!(fuse::unregister(index, owner).is_ok(), "unregister");
         Ok(())
     })();
@@ -375,12 +422,15 @@ pub fn stop_soak() -> Result<(), String> {
                 Ok(())
             };
             check!(
-                fuse::stop(id, false) == want,
+                fuse::stop(id, owner, false) == want,
                 "{round}: stop, wanted {want:?}"
             );
             if file.is_some() {
                 drop(file);
-                check!(fuse::stop(id, false).is_ok(), "{round}: stop after close");
+                check!(
+                    fuse::stop(id, owner, false).is_ok(),
+                    "{round}: stop after close"
+                );
             }
             check!(next_of(id, owner) == Ok(Next::Stop), "{round}: NEXT");
             check!(fuse::unregister(id, owner).is_ok(), "{round}: unregister");

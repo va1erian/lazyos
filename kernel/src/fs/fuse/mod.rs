@@ -73,6 +73,14 @@ pub(crate) fn provider_gone(index: usize, epoch: u64) -> bool {
         !(state.registered && state.alive && state.epoch == epoch)
     })
 }
+/// Whether provider `index` (registration `epoch`) was asked to finish: its
+/// mount refuses requests, and a sync has nothing left to ask of it.
+pub(crate) fn provider_stopping(index: usize, epoch: u64) -> bool {
+    SLOTS.get(index).is_some_and(|slot| {
+        let state = slot.state.lock();
+        state.registered && state.epoch == epoch && state.stopping
+    })
+}
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the suite's bound check
 pub use backend::MAX_DIR_ENTRIES;
 pub use mount::{reap, register, teardown_task, unregister};

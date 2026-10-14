@@ -218,11 +218,9 @@ fn another_users_volume_is_stopped_when_the_session_changes_even_mid_eject() {
         v.plan(6, &[disk(0, 1)], Some((1001, 1001))),
         [Action::Stop { pid: 10 }]
     );
-    // Its exit is a stop, not an eject: the owner has gone.
-    assert_eq!(
-        v.exited(10, 0).unwrap().state,
-        State::Ended(Outcome::Stopped)
-    );
+    // Its exit is not an eject: the owner has gone (and the entry is
+    // forgotten at the next look).
+    assert_eq!(v.exited(10, 0).unwrap().state, State::Ended(Outcome::Left));
 }
 
 #[test]
@@ -283,6 +281,27 @@ fn disk_names_round_trip_and_nothing_else_parses() {
     ] {
         assert_eq!(parse_disk_name(bad), None, "{bad:?}");
     }
+}
+
+#[test]
+fn the_same_user_returning_mounts_the_stick_again() {
+    let mut v = Volumes::new();
+    v.plan(0, &[disk(0, 1)], Some(USER));
+    v.started(0, 1, 10);
+    assert_eq!(v.plan(10, &[disk(0, 1)], None), [Action::Stop { pid: 10 }]);
+    // The daemon finishes cleanly after the user is back.
+    assert_eq!(v.plan(20, &[disk(0, 1)], Some(USER)), []);
+    assert_eq!(v.exited(10, 0).unwrap().state, State::Ended(Outcome::Left));
+    // Not an answer for this plug: a daemon is started again.
+    let plan = v.plan(30, &[disk(0, 1)], Some(USER));
+    assert_eq!(
+        plan,
+        [Action::Start {
+            disk: 0,
+            generation: 1,
+            owner: USER
+        }]
+    );
 }
 
 #[test]

@@ -103,6 +103,10 @@ pub enum Outcome {
     /// The volume was flushed, closed and unmounted at the user's request:
     /// the stick may be pulled.
     Ejected,
+    /// Its owner logged out and the daemon finished: the entry is forgotten
+    /// at the next look, so the next session (even the same user's) mounts
+    /// the stick again.
+    Left,
     /// Anything else, with the words for a log or a notice.
     Failed(String),
 }
@@ -164,6 +168,9 @@ impl Volumes {
                 .any(|d| d.id == volume.disk && d.generation == volume.generation);
             let mine = session == Some(volume.owner);
             match (volume.pid, there) {
+                // A volume whose owner left and whose daemon finished is
+                // not an answer for this plug: forget it, mount again.
+                (None, _) if volume.state == State::Ended(Outcome::Left) => {}
                 (None, true) if mine => kept.push(volume),
                 // Over: the daemon has exited and the plug or its owner is
                 // gone.
@@ -284,7 +291,12 @@ impl Volumes {
         v.pid = None;
         // A clean exit is an eject only when one was asked for.
         let asked = matches!(v.state, State::Ejecting { .. });
-        v.state = State::Ended(Outcome::of(status, asked));
+        let left = matches!(v.state, State::Leaving { .. });
+        v.state = State::Ended(if left && status == 0 {
+            Outcome::Left
+        } else {
+            Outcome::of(status, asked)
+        });
         Some(v)
     }
 
