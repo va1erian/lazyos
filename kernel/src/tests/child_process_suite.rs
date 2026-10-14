@@ -451,6 +451,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         more::exec_from_the_last_thread,
     ),
     (
+        "child_kill_group_zombie_leader",
+        more::kill_group_with_a_zombie_leader,
+    ),
+    (
+        "child_exit_group_status_zombie_leader",
+        more::exit_group_status_reaches_a_zombie_leader,
+    ),
+    (
         "child_wait4_from_sibling_thread",
         wait4_from_a_sibling_thread,
     ),

@@ -277,6 +277,7 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
         }
         let parent = done.parent as usize;
         if parent != KERNEL_TASK && parent != 0 {
+            crate::task::family::count_notification(parent);
             post_sigchld(parent);
             crate::task::childbell::ring(parent);
         }

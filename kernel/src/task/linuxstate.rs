@@ -124,20 +124,17 @@ pub struct ThreadShare {
     pub fs: bool,
 }
 
-/// The extras of a thread created by `parent` (slot `parent_slot`): the same
+/// The extras of a thread created by `parent`, a thread of the group led by
+/// slot `leader` (validated by the caller, `family::leader_of`): the same
 /// thread group, the same program, and the share groups `share` asks for (a
 /// group is created on first use, and the creator joins it too).
-pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadShare) -> LinuxExtras {
+pub(super) fn for_thread(parent: &mut Task, leader: usize, share: ThreadShare) -> LinuxExtras {
     if share.files && parent.linux.files_group == 0 {
         parent.linux.files_group = new_group();
     }
     if share.fs && parent.linux.fs_group == 0 {
         parent.linux.fs_group = new_group();
     }
-    let leader = match parent.linux.tgid {
-        0 => parent_slot,
-        tgid => tgid,
-    };
     LinuxExtras {
         files_group: if share.files {
             parent.linux.files_group

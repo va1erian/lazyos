@@ -206,6 +206,7 @@ pub(crate) fn after_finish(parent: usize) {
     // the signal is recorded/queued (and wakes a handler-armed parent), while
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run
     // after dropping the task table, in queue-before-table order.
+    family::count_notification(parent);
     signal::post_sigchld(parent);
     super::childbell::ring(parent);
     CHILD_EXIT.notify_all();
@@ -232,7 +233,9 @@ pub(crate) fn finish_locked(
         task.parent
     };
     // Who hears of it: not the parent of a leader whose threads still run.
-    let parent = family::notify_target(tasks, slot, parent);
+    // Init (slot 0) hears of exits through the child-exit queue alone, so
+    // "nobody" is slot 0 too.
+    let parent = family::notify_target(tasks, slot, parent).unwrap_or(KERNEL_TASK);
     super::runq::sync(tasks, slot);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
@@ -302,6 +305,7 @@ pub fn kill_group(pgid: usize) -> usize {
         NEEDS_REDRAW.store(true, Ordering::Relaxed);
         // See `finish`: queue before task table, and the table is now unlocked.
         for parent in parents {
+            family::count_notification(parent);
             signal::post_sigchld(parent);
             super::childbell::ring(parent);
         }

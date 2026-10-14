@@ -40,7 +40,9 @@ pub fn exit_thread_group(status: u64) -> Vec<u64> {
         return Vec::new();
     };
     let (slots, tids) = {
-        let tasks = TASKS.lock();
+        let mut tasks = TASKS.lock();
+        // A leader that left earlier reports this group status when reaped.
+        super::family::note_group_exit(&mut tasks, pml4, status);
         let mut slots = Vec::new();
         let mut tids = Vec::new();
         for (slot, task) in tasks.iter().enumerate() {

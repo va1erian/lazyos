@@ -48,7 +48,11 @@ pub fn set_pml4(value: u64) {
         })
     });
     // A thread that execs becomes its own thread-group leader, in the new
-    // address space (there is no de_thread: its siblings stay behind). If it
+    // address space (there is no de_thread: its siblings stay behind). Known
+    // limitation: unlike Linux, which gives the exec'ing thread the leader's
+    // pid and parent, the program keeps running as this thread (a new pid, no
+    // parent, process group and session still naming the old leader), and the
+    // old leader's parent reaps the leader once the siblings are gone. If it
     // was the last live task of the old process and the leader is a zombie,
     // the leader is reapable now: tell its parent.
     let mut notify = 0;

@@ -254,7 +254,12 @@ pub fn last_thread_notifies_the_parent() -> Result<(), String> {
         "a running child satisfied the bell"
     );
 
+    crate::task::family::reset_notifications();
     task::harness::finish(child, 0);
+    check!(
+        crate::task::family::notifications(parent) == 0,
+        "the parent was told at the leader's exit"
+    );
     check!(
         !sigchld_pending(parent),
         "SIGCHLD before the process was reapable"
@@ -277,6 +282,11 @@ pub fn last_thread_notifies_the_parent() -> Result<(), String> {
     check!(
         !childbell::armed(parent),
         "the bell was not rung by the last thread"
+    );
+    check!(
+        crate::task::family::notifications(parent) == 1,
+        "the parent was told {} times",
+        crate::task::family::notifications(parent)
     );
     check!(
         childbell::arm(parent),
@@ -416,6 +426,80 @@ pub fn exec_from_the_last_thread() -> Result<(), String> {
     task::harness::simulate_tick();
     here(KERNEL_TASK);
     task::reclaim_pending();
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
+/// `kill_group` of a process group holding a zombie leader and its thread:
+/// the parent is told once, when the last of them goes, not at the leader.
+pub fn kill_group_with_a_zombie_leader() -> Result<(), String> {
+    use crate::task::family::{notifications, reset_notifications};
+    fresh()?;
+    let (parent, _) = process_with_threads(0)?;
+    let child = fork_as(parent)?;
+    // Its own process group, so the parent is not in the one killed.
+    task::process::setpgid(parent, child as i64, 0).map_err(|e| format!("setpgid: {e:?}"))?;
+    here(child);
+    let thread =
+        task::spawn_thread("group-thread", process::USER_STACK_TOP, 0, 0).map_err(String::from)?;
+    here(KERNEL_TASK);
+    task::harness::finish(child, 0);
+    reset_notifications();
+    check!(
+        task::process::pgid_of(thread) == task::process::pgid_of(child),
+        "the thread left its group"
+    );
+    check!(
+        task::kill_group(task::process::pgid_of(child)) == 1,
+        "kill_group should have ended the one live thread"
+    );
+    check!(
+        notifications(parent) == 1,
+        "the parent was told {} times",
+        notifications(parent)
+    );
+    check!(sigchld_pending(parent), "no SIGCHLD from kill_group");
+    let (ret, _) = wait4_as(parent);
+    check!(ret == child as u64, "wait4 returned {ret:#x}");
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
+/// The ordinary `exit_group` path (`exit_thread_group`): the main thread left
+/// first with status 0, a thread then ends the group with status 3, and the
+/// parent hears once and reaps the group's status.
+pub fn exit_group_status_reaches_a_zombie_leader() -> Result<(), String> {
+    use crate::task::family::{notifications, reset_notifications};
+    fresh()?;
+    let (parent, _) = process_with_threads(0)?;
+    let child = fork_as(parent)?;
+    here(child);
+    let thread =
+        task::spawn_thread("exit-thread", process::USER_STACK_TOP, 0, 0).map_err(String::from)?;
+    let other =
+        task::spawn_thread("other-thread", process::USER_STACK_TOP, 0, 0).map_err(String::from)?;
+    here(KERNEL_TASK);
+    task::harness::finish(child, 0);
+    reset_notifications();
+    here(thread);
+    task::exit_thread_group(3);
+    here(KERNEL_TASK);
+    check!(
+        task::harness::state(other) == Some(TaskState::Done),
+        "exit_group left a thread running"
+    );
+    check!(
+        notifications(parent) == 1,
+        "the parent was told {} times",
+        notifications(parent)
+    );
+    let (ret, status) = wait4_as(parent);
+    check!(
+        ret == child as u64 && status == 3 << 8,
+        "wait4 returned {ret:#x} status {status:#x}, want the group's 3"
+    );
     task::harness::reset();
     signal::harness::reset();
     Ok(())

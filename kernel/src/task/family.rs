@@ -4,7 +4,7 @@
 //! children (`wait4`, the child bell, `setpgid`) asks whether the child's
 //! parent is in the asker's process. Also `PR_SET_PDEATHSIG`.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use super::process::reparent_children_locked;
 use super::signal;
@@ -55,7 +55,7 @@ pub(super) fn reapable(tasks: &[Option<Task>; MAX_TASKS], slot: usize, task: &Ta
 }
 
 /// Whom the death of `slot` (already `Done`) tells: the parent whose wait is
-/// now answerable, or 0 for nobody. A process is reapable only when its
+/// now answerable, or `None` for nobody. A process is reapable only when its
 /// leader is finished *and* no thread of it runs, so a leader that dies
 /// first notifies nobody (the parent could not reap it), and the last thread
 /// to go tells the leader's parent, with `SIGCHLD`, the child bell and the
@@ -64,15 +64,44 @@ pub(super) fn notify_target(
     tasks: &[Option<Task>; MAX_TASKS],
     slot: usize,
     parent: usize,
-) -> usize {
+) -> Option<usize> {
     if (1..MAX_TASKS)
         .any(|other| other != slot && is_live(&tasks[other]) && same_process(tasks, other, slot))
     {
-        return 0;
+        return None;
     }
     match leader_of(tasks, slot) {
-        leader if leader == slot => parent,
-        leader => tasks[leader].as_ref().map_or(0, |task| task.parent),
+        leader if leader == slot => Some(parent),
+        leader => tasks[leader].as_ref().map(|task| task.parent),
+    }
+}
+
+/// Test builds count the parents told of a death, per parent slot, so a test
+/// can assert that a process's parent hears of it exactly once.
+#[cfg(lazyos_tests)]
+static NOTIFIED: [AtomicU32; MAX_TASKS] = [const { AtomicU32::new(0) }; MAX_TASKS];
+
+/// A death told `parent` (its `SIGCHLD`, bell and `wait4` queue are next).
+pub(crate) fn count_notification(parent: usize) {
+    #[cfg(lazyos_tests)]
+    if let Some(count) = NOTIFIED.get(parent) {
+        count.fetch_add(1, Ordering::Relaxed);
+    }
+    #[cfg(not(lazyos_tests))]
+    let _ = parent;
+}
+
+/// Test hook: how many times `parent` was told since [`reset_notifications`].
+#[cfg(lazyos_tests)]
+pub fn notifications(parent: usize) -> u32 {
+    NOTIFIED[parent].load(Ordering::Relaxed)
+}
+
+/// Test hook: zero the counters.
+#[cfg(lazyos_tests)]
+pub fn reset_notifications() {
+    for count in &NOTIFIED {
+        count.store(0, Ordering::Relaxed);
     }
 }
 
