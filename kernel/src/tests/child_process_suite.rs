@@ -22,6 +22,7 @@ const POLLHUP: u16 = 0x10;
 const POLLRDHUP: u16 = 0x2000;
 
 mod more;
+mod reapable;
 
 fn fresh() -> Result<(), String> {
     task::register_kernel();
@@ -436,27 +437,27 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("child_leader_exits_first", more::leader_exits_first),
     (
         "child_last_thread_notifies_parent",
-        more::last_thread_notifies_the_parent,
+        reapable::last_thread_notifies_the_parent,
     ),
     (
         "child_sigkill_thread_in_kernel",
-        more::sigkill_with_a_thread_in_the_kernel,
+        reapable::sigkill_with_a_thread_in_the_kernel,
     ),
     (
         "child_group_exit_status_zombie_leader",
-        more::group_exit_status_reaches_a_zombie_leader,
+        reapable::group_exit_status_reaches_a_zombie_leader,
     ),
     (
         "child_exec_from_last_thread",
-        more::exec_from_the_last_thread,
+        reapable::exec_from_the_last_thread,
     ),
     (
         "child_kill_group_zombie_leader",
-        more::kill_group_with_a_zombie_leader,
+        reapable::kill_group_with_a_zombie_leader,
     ),
     (
         "child_exit_group_status_zombie_leader",
-        more::exit_group_status_reaches_a_zombie_leader,
+        reapable::exit_group_status_reaches_a_zombie_leader,
     ),
     (
         "child_wait4_from_sibling_thread",
