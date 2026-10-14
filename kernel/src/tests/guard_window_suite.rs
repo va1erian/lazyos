@@ -181,6 +181,58 @@ fn threads_come_and_go_mid_window() -> Result<(), String> {
     Ok(())
 }
 
+/// What the guard adds to a tick, measured with the task table full of tasks
+/// (the tick runs with interrupts off and the table locked): the ledger
+/// lookup every tick, the walk over the table that demotes a process once per
+/// window, and the walk that ends a window. The worst tick of the run with
+/// the guard on, against the same run with it off, stays small.
+fn tick_cost_with_a_full_table() -> Result<(), String> {
+    use crate::perf::rdtsc;
+    fresh()?;
+    let leader = child(PriorityClass::Normal)?;
+    task::harness::switch_current(leader);
+    for _ in 0..3 {
+        task::spawn_thread("busy", process::USER_STACK_TOP, 0, 0)
+            .map_err(|error| format!("thread: {error}"))?;
+    }
+    task::harness::switch_current(task::KERNEL_TASK);
+    let mut filled = 0;
+    while task::free_slots() > 16 {
+        let Ok(slot) = task::spawn_fork() else {
+            break;
+        };
+        task::harness::set_state(slot, asleep());
+        filled += 1;
+    }
+    let per_us = crate::arch::clock::cycles_per_tick().max(1) / 10_000;
+    let mut worst = [0u64; 2];
+    for (index, on) in [true, false].into_iter().enumerate() {
+        guard::set_enabled(on);
+        guard::reset_window();
+        for _ in 0..20 * WINDOW_TICKS {
+            let began = rdtsc();
+            task::harness::simulate_tick();
+            worst[index] = worst[index].max(rdtsc().wrapping_sub(began));
+        }
+    }
+    guard::set_enabled(true);
+    let (on, off) = (worst[0] / per_us.max(1), worst[1] / per_us.max(1));
+    crate::trace::test!(
+        "task_guard_window_tick_cost_with_a_full_table:INFO:tasks={filled} worst_tick_us_guard_on={on} worst_tick_us_guard_off={off}"
+    );
+    check!(
+        filled > 100,
+        "only {filled} tasks fit: the table is not full"
+    );
+    check!(
+        on < off + 150,
+        "the guard added {} µs to the worst tick ({on} against {off})",
+        on.saturating_sub(off)
+    );
+    cleanup();
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "task_guard_window_long_replays_are_charged",
@@ -193,6 +245,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "task_guard_window_sleeping_threads_join_when_they_wake",
         sleeping_threads_join_when_they_wake,
+    ),
+    (
+        "task_guard_window_tick_cost_with_a_full_table",
+        tick_cost_with_a_full_table,
     ),
     (
         "task_guard_window_threads_come_and_go_mid_window",
