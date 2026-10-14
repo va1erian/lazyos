@@ -17,11 +17,18 @@ attached at boot: a 64 MiB FAT32 disk (MBR, one partition, label
    shell answers;
 5. plugs it in again: the same files are there, including what step 3
    wrote, and the volume was clean when it was pulled (no `dirty` mark);
-6. powers off.
+6. **ejects** it (docs/usb-hotplug-plan.md D): writes a file and, with no
+   idle wait, runs `eject` from inside the volume (refused, naming the
+   shell's working directory), then from outside (the daemon flushes, drops
+   the filesystem, flushes the device and unmounts: `safe to remove`), and
+   pulls the stick at once;
+7. plugs it in a third time, writes a file and **powers off with the volume
+   mounted**: `mountd` asks the daemon to finish (no `SIGKILL`).
 
-The host then reads the stick image with the same library: both written
-files are on it with the right contents, and `fsck.fat -n` (Docker, when
-available) finds nothing wrong.
+The host then reads the stick image with the same library: every written
+file is on it with the right contents, the volume is not marked dirty (the
+file written just before the eject and the shutdown included), and
+`fsck.fat -n` (Docker, when available) finds nothing wrong.
 
     python tools/storage/fat_run.py               # build, boot, judge
     python tools/storage/fat_run.py --no-build    # reuse target/lazyos.img
@@ -115,7 +122,8 @@ def add_block_node(name: str, image: Path) -> dict:
                      "file": {"driver": "file", "filename": str(image.resolve())}}}
 
 
-def session(nonce: str, written: str, slow: bool, fat: Path) -> list[dict]:
+def session(nonce: str, written: str, last: str, shut: str, slow: bool,
+            fat: Path) -> list[dict]:
     step = 120 if slow else 30
     up = 600 if slow else 90
     steps = storage.login(slow)
@@ -144,6 +152,22 @@ def session(nonce: str, written: str, slow: bool, fat: Path) -> list[dict]:
               {"wait_for": f"FATFUSE:UP {MOUNT}", "timeout": up, "occurrence": 2}]
     steps += storage.command(f"cat {MOUNT}/written.txt", rf"(?m)^{written}\r?$", step)
     steps += storage.command(f"cat {MOUNT}/newdir/copy.txt", rf"(?m)^hello-{nonce}\r?$", step)
+    # Eject. The file is written an instant before: the dirty flag it sets
+    # must be cleared by the eject itself, not by the idle settle.
+    steps += storage.command(f"echo {last} > {MOUNT}/last.txt; echo wrote-$?", r"(?m)^wrote-0", step)
+    # The shell sits in the volume: refused, with the holder named.
+    steps += storage.command(f"cd {MOUNT}/newdir; eject MY_STICK; echo ejrc-$?",
+                             r"(?m)^ejrc-3", step)
+    steps += storage.command(f"cat {MOUNT}/last.txt", rf"(?m)^{last}\r?$", step)
+    steps += storage.command("cd /; eject MY_STICK; echo ejrc-$?", r"(?m)^ejrc-0", step)
+    steps += storage.command("ls /media | wc -l", r"(?m)^0\r?$", step)
+    steps += [{"qmp": "device_del", "args": {"id": "usbfat1"}}, {"wait": 3.0 if not slow else 10.0}]
+    # A third plug, and the machine is powered off with the volume mounted.
+    steps += [add_block_node("fat2", fat), plug("fat2", "usbfat2"),
+              {"wait_for": f"FATFUSE:UP {MOUNT}", "timeout": up, "occurrence": 3}]
+    steps += storage.command(f"cat {MOUNT}/last.txt", rf"(?m)^{last}\r?$", step)
+    steps += storage.command(f"echo {shut} > {MOUNT}/shutdown.txt; echo wrote-$?",
+                             r"(?m)^wrote-0", step)
     steps += storage.command("poweroff", "INIT:SHUTDOWN:BEGIN", step)
     steps += [{"wait_for": "power: filesystems synced", "timeout": 600 if slow else 120},
               {"wait": 1.0}, {"quit": True}]
@@ -153,16 +177,35 @@ def session(nonce: str, written: str, slow: bool, fat: Path) -> list[dict]:
 def judge(log: str) -> list[str]:
     failures: list[str] = []
     ups = re.findall(rf"FATFUSE:UP {re.escape(MOUNT)} disk=usb\d+ fat=32 rw", log)
-    if len(ups) != 2:
-        failures.append(f"expected the FAT volume mounted twice (fat=32 rw), saw {len(ups)}")
+    if len(ups) != 3:
+        failures.append(f"expected the FAT volume mounted three times (fat=32 rw), saw {len(ups)}")
     if "MOUNTD:VOLUME START" not in log:
         failures.append("mountd never started a volume daemon")
     ended = re.findall(r"MOUNTD:VOLUME END usb\d+ gen=\d+ (.*)", log)
     # A pulled stick ends its daemon one of two ways, whichever comes first:
     # the daemon's next request fails (`removed`), or `mountd` sees the disk
-    # leave the list and stops it (`MOUNTD:VOLUME STOP`).
-    if "MOUNTD:VOLUME STOP" not in log and not any("removed" in line for line in ended):
-        failures.append(f"the pulled stick's daemon was neither stopped nor ended: {ended}")
+    # leave the list and ends it (`MOUNTD:VOLUME KILL`: nothing is left to
+    # flush).
+    if "MOUNTD:VOLUME KILL" not in log and not any("removed" in line for line in ended):
+        failures.append(f"the pulled stick's daemon was neither killed nor ended: {ended}")
+    # The eject: refused while the shell sat in the volume, then done.
+    if not re.search(r"MOUNTD:VOLUME BUSY usb\d+ ", log):
+        failures.append("the eject of a volume with a working directory was not refused")
+    if not re.search(rf"MOUNTD:VOLUME EJECT usb\d+ {re.escape(MOUNT)}", log):
+        failures.append("mountd never accepted an eject")
+    if not any(line.strip() == "ejected" for line in ended):
+        failures.append(f"no daemon ended as ejected: {ended}")
+    if "is busy" not in log or "working directory" not in log:
+        failures.append("the refusal did not name its holder (eject printed no `is busy` list)")
+    if "safe to remove" not in log:
+        failures.append("eject never said the stick was safe to remove")
+    # Every stop is graceful: the eject and the shutdown both end with the
+    # daemon's own clean close, and mountd needs no SIGKILL for a mount.
+    stopped = len(re.findall(r"FATFUSE:STOPPED clean", log))
+    if stopped < 2:
+        failures.append(f"expected two clean daemon stops (eject, shutdown), saw {stopped}")
+    if re.search(r"MOUNTD:VOLUME KILL pid=\d+ did not finish", log):
+        failures.append("a volume daemon had to be killed at shutdown")
     if f"fuse: {MOUNT} unmounted" not in log:
         failures.append("the pulled stick's mount was never taken out")
     # The home stick is the kernel's (`/home` is mounted through it): no
@@ -234,12 +277,15 @@ def main() -> int:
     stick.make_stick(home)
     nonce = secrets.token_hex(6)
     written = "w" + secrets.token_hex(6)
+    last = "e" + secrets.token_hex(6)
+    shut = "s" + secrets.token_hex(6)
     fat = args.out / "fat.img"
     make_fat_stick(fat, nonce)
-    log = boot(args, home, fat, session(nonce, written, slow, fat))
+    log = boot(args, home, fat, session(nonce, written, last, shut, slow, fat))
     failures = judge(log)
     for name, want in [("written.txt", written), ("hello.txt", f"hello-{nonce}"),
-                       ("newdir/copy.txt", f"hello-{nonce}")]:
+                       ("newdir/copy.txt", f"hello-{nonce}"), ("last.txt", last),
+                       ("shutdown.txt", shut)]:
         got = host_cat(fat, name)
         if got is None or got.strip() != (want if name != "hello.txt" else want):
             failures.append(f"the stick holds {got!r} in {name}, wanted {want!r}")
