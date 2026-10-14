@@ -57,8 +57,8 @@ use super::{BlockDevice, BlockError};
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
 pub use lifecycle::{
-    claim, handle, list, mark_in_use, raw_flush, raw_read, raw_write, register, release,
-    resolve, RawError,
+    claim, handle, list, mark_in_use, raw_flush, raw_read, raw_write, register, release, resolve,
+    RawError,
 };
 #[cfg(lazyos_tests)]
 pub use lifecycle::{read_as_generation, write_as_generation};

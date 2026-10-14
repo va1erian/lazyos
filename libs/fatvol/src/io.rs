@@ -112,7 +112,11 @@ impl<D: BlockIo> Cache<D> {
 
     /// Choose the order the next flush sends sectors in (until changed).
     pub fn set_order(&mut self, order: Order) {
-        self.order = if self.ordering { order } else { Order::Ascending };
+        self.order = if self.ordering {
+            order
+        } else {
+            Order::Ascending
+        };
     }
 
     /// Switch ordering on (the default) or off; see [`Cache::set_order`].

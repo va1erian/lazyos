@@ -45,8 +45,8 @@ use user::messenger::{self, errno, registry, wait, Endpoint, Error};
 use user::sys;
 
 use radio::Slot;
-use user::logins::Logins;
 use store::Store;
+use user::logins::Logins;
 
 /// Ticks (100 Hz) between looks at the registry for radios.
 const DISCOVER_TICKS: u64 = 100;

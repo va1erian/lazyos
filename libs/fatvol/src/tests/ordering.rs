@@ -129,17 +129,17 @@ fn consistent(raw: &Raw<'_>) -> Result<Vec<(String, usize, Vec<usize>)>, String>
 }
 
 fn content(raw: &Raw<'_>, size: usize, chain: &[usize]) -> Vec<u8> {
-    let mut bytes: Vec<u8> = chain.iter().flat_map(|&c| raw.cluster(c)).copied().collect();
+    let mut bytes: Vec<u8> = chain
+        .iter()
+        .flat_map(|&c| raw.cluster(c))
+        .copied()
+        .collect();
     bytes.truncate(size);
     bytes
 }
 
 /// Run `script` over a fresh formatted disk, cutting after `cut` writes.
-fn cut_run(
-    base: &MemDisk,
-    cut: u64,
-    script: &dyn Fn(&mut crate::Volume<MemDisk>),
-) -> Vec<u8> {
+fn cut_run(base: &MemDisk, cut: u64, script: &dyn Fn(&mut crate::Volume<MemDisk>)) -> Vec<u8> {
     let disk = MemDisk::from_image(&base.image());
     disk.fail_writes_after(cut);
     {

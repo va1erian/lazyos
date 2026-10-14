@@ -15,7 +15,9 @@ use super::{Fd, TASKS};
 pub struct Holder {
     /// The task's slot (its pid).
     pub pid: usize,
-    pub name: &'static str,
+    /// The program's file name when it is known (`busybox`), else the
+    /// task's own name.
+    pub name: String,
     /// The open file's path, or the working directory itself.
     pub path: String,
     /// `path` is the task's working directory, not an open file.
@@ -42,6 +44,13 @@ pub fn under(prefix: &str) -> Vec<Holder> {
         // descriptor of every task: take pending interrupts between tasks
         // (the window runs no handler that needs a lock, so it is safe here).
         crate::arch::irq_window::poll_point();
+        let program = task
+            .linux
+            .exe
+            .as_deref()
+            .and_then(|path| path.rsplit('/').next())
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| String::from(task.name), String::from);
         let mut note = |path: String, cwd: bool| {
             let duplicate = found
                 .iter()
@@ -49,7 +58,7 @@ pub fn under(prefix: &str) -> Vec<Holder> {
             if !duplicate {
                 found.push(Holder {
                     pid,
-                    name: task.name,
+                    name: program.clone(),
                     path,
                     cwd,
                 });

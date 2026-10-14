@@ -65,7 +65,11 @@ impl Automount {
             // nothing to flush, and was only reading.
             let _ = sys::kill(pid, sys::SIG_KILL);
             self.volumes.ejected_unmounted(disk, generation);
-            trace::line!(Channel::Mountd, "VOLUME EJECT {} nothing mounted", disk_name(disk));
+            trace::line!(
+                Channel::Mountd,
+                "VOLUME EJECT {} nothing mounted",
+                disk_name(disk)
+            );
             return Ok(answer("ejected", "nothing was mounted"));
         };
         match fuse::stop(provider.id, force) {
@@ -148,7 +152,9 @@ fn describe(volume: &Volume) -> (&'static str, String) {
         State::Ejecting { .. } => ("ejecting", none()),
         State::Leaving { .. } => ("ejecting", none()),
         State::Ended(Outcome::Ejected) => ("ejected", none()),
-        State::Ended(Outcome::NoVolume) => ("unsupported", String::from("no FAT volume on the disk")),
+        State::Ended(Outcome::NoVolume) => {
+            ("unsupported", String::from("no FAT volume on the disk"))
+        }
         State::Ended(Outcome::Removed) => (
             "removed",
             String::from("the stick was pulled while it was mounted"),

@@ -44,8 +44,7 @@ pub fn list() -> Vec<ProviderInfo> {
         found.push(ProviderInfo {
             id: slot.index as u64,
             owner: state.owner as u64,
-            state: PROVIDER_ALIVE
-                | if state.stopping { PROVIDER_STOPPING } else { 0 },
+            state: PROVIDER_ALIVE | if state.stopping { PROVIDER_STOPPING } else { 0 },
             name: state.name.clone(),
         });
     }
@@ -70,9 +69,7 @@ pub fn stop(id: usize, force: bool) -> Result<(), StopError> {
     let point = media_point(id)?;
     // A descriptor scan and the open-file registry: a mapping outlives its
     // descriptor and only the registry sees it.
-    if !force
-        && (!holders::under(&point).is_empty() || !openfile::paths_under(&point).is_empty())
-    {
+    if !force && (!holders::under(&point).is_empty() || !openfile::paths_under(&point).is_empty()) {
         return Err(StopError::Busy);
     }
     let slot = SLOTS.get(id).ok_or(StopError::NoSuchProvider)?;
@@ -99,7 +96,11 @@ pub fn holders_report(id: usize) -> Result<String, FuseError> {
     let mut text = String::new();
     for holder in &tasks {
         let _ = if holder.cwd {
-            writeln!(text, "{} ({}): working directory {}", holder.name, holder.pid, holder.path)
+            writeln!(
+                text,
+                "{} ({}): working directory {}",
+                holder.name, holder.pid, holder.path
+            )
         } else {
             writeln!(text, "{} ({}): {}", holder.name, holder.pid, holder.path)
         };

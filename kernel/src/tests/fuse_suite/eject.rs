@@ -72,8 +72,7 @@ pub fn list_and_stop() -> Result<(), String> {
             fuse::stop(fuse::MAX_PROVIDERS, false) == Err(StopError::NoSuchProvider),
             "an id past the table"
         );
-        vfsapi::abi_create(ROOT, "/media/STICK/a", 0o644)
-            .map_err(|e| format!("create: {e:?}"))?;
+        vfsapi::abi_create(ROOT, "/media/STICK/a", 0o644).map_err(|e| format!("create: {e:?}"))?;
         // Nothing queued and not stopping: an idle NEXT.
         check!(next_of(index, owner) == Ok(Next::Idle), "idle NEXT");
 
@@ -91,7 +90,10 @@ pub fn list_and_stop() -> Result<(), String> {
             FsError::Io,
             "a request after the stop",
         )?;
-        check!(next_of(index, owner) == Ok(Next::Stop), "NEXT after the stop");
+        check!(
+            next_of(index, owner) == Ok(Next::Stop),
+            "NEXT after the stop"
+        );
         // The daemon finishes by unregistering; the name is free and the
         // new registration is not stopping.
         check!(fuse::unregister(index, owner).is_ok(), "unregister");
@@ -138,7 +140,10 @@ pub fn busy_names_holders() -> Result<(), String> {
         // A mapping or a descriptor that no task table shows: the registry.
         let file = OpenFile::open("/media/STICK/log", true, true, false)
             .map_err(|e| format!("open: {e:?}"))?;
-        check!(fuse::stop(index, false) == Err(StopError::Busy), "open file");
+        check!(
+            fuse::stop(index, false) == Err(StopError::Busy),
+            "open file"
+        );
         let report = fuse::holders_report(index).map_err(|e| format!("report: {e:?}"))?;
         check!(
             report == "(mapped): /media/STICK/log\n",
@@ -155,7 +160,10 @@ pub fn busy_names_holders() -> Result<(), String> {
             report.ends_with(&line) && !report.contains("(mapped)"),
             "an attributed open file: {report:?}"
         );
-        check!(fuse::stop(index, false) == Err(StopError::Busy), "descriptor");
+        check!(
+            fuse::stop(index, false) == Err(StopError::Busy),
+            "descriptor"
+        );
         // The refusal left the provider serving.
         check!(
             fuse::list()[0].state == PROVIDER_ALIVE,
@@ -237,7 +245,10 @@ pub fn queued_request_answered_first() -> Result<(), String> {
             FsError::Io,
             "a request after the stop",
         )?;
-        check!(with_fake(|f| f.served) == served, "a refused request was served");
+        check!(
+            with_fake(|f| f.served) == served,
+            "a refused request was served"
+        );
         check!(fuse::unregister(index, owner).is_ok(), "unregister");
         Ok(())
     })();
@@ -346,7 +357,11 @@ pub fn stop_soak() -> Result<(), String> {
     let result = (|| {
         let mut id = index;
         for round in 0..1000usize {
-            check!(fuse::list().len() == 1, "{round}: listed {:?}", fuse::list());
+            check!(
+                fuse::list().len() == 1,
+                "{round}: listed {:?}",
+                fuse::list()
+            );
             let file = (round % 2 == 0)
                 .then(|| {
                     let path = format!("/media/STICK/f{round}");
@@ -359,7 +374,10 @@ pub fn stop_soak() -> Result<(), String> {
             } else {
                 Ok(())
             };
-            check!(fuse::stop(id, false) == want, "{round}: stop, wanted {want:?}");
+            check!(
+                fuse::stop(id, false) == want,
+                "{round}: stop, wanted {want:?}"
+            );
             if file.is_some() {
                 drop(file);
                 check!(fuse::stop(id, false).is_ok(), "{round}: stop after close");

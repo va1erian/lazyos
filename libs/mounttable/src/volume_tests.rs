@@ -134,7 +134,9 @@ fn a_daemon_that_ignores_the_stop_is_killed_after_the_grace() {
         [Action::Kill { pid: 10 }]
     );
     // The entry is final: never killed twice, forgotten at the next look.
-    assert!(v.plan(1000 + LEAVE_TICKS + 1, &[disk(0, 1)], None).is_empty());
+    assert!(v
+        .plan(1000 + LEAVE_TICKS + 1, &[disk(0, 1)], None)
+        .is_empty());
     assert!(v.entries().is_empty());
 }
 
@@ -181,7 +183,9 @@ fn an_eject_that_never_finishes_is_killed_and_reported() {
     v.plan(0, &[disk(0, 1)], Some(USER));
     v.started(0, 1, 10);
     v.ejecting(0, 1, 100);
-    assert!(v.plan(100 + EJECT_TICKS - 1, &[disk(0, 1)], Some(USER)).is_empty());
+    assert!(v
+        .plan(100 + EJECT_TICKS - 1, &[disk(0, 1)], Some(USER))
+        .is_empty());
     assert_eq!(
         v.plan(100 + EJECT_TICKS, &[disk(0, 1)], Some(USER)),
         [Action::Kill { pid: 10 }]
@@ -264,8 +268,18 @@ fn disk_names_round_trip_and_nothing_else_parses() {
         assert_eq!(parse_disk_name(&disk_name(id)), Some(id));
     }
     for bad in [
-        "", "usb", "usb-1", "usb+1", "usb01", "usb1 ", " usb1", "USB1", "sda", "usb1x",
-        "usb1234567", "usb0x10",
+        "",
+        "usb",
+        "usb-1",
+        "usb+1",
+        "usb01",
+        "usb1 ",
+        " usb1",
+        "USB1",
+        "sda",
+        "usb1x",
+        "usb1234567",
+        "usb0x10",
     ] {
         assert_eq!(parse_disk_name(bad), None, "{bad:?}");
     }

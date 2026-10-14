@@ -19,9 +19,9 @@ extern crate alloc;
 mod table;
 #[cfg(test)]
 mod tests;
-pub mod volumes;
 #[cfg(test)]
 mod volume_tests;
+pub mod volumes;
 
 use alloc::format;
 use alloc::string::String;

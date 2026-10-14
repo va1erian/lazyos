@@ -63,9 +63,7 @@ impl<D: BlockIo> Seek for Shared<D> {
         let target = match from {
             SeekFrom::Start(at) => i64::try_from(at).map_err(|_| Fault::Eof)?,
             SeekFrom::End(delta) => len.checked_add(delta).ok_or(Fault::Eof)?,
-            SeekFrom::Current(delta) => (cache.pos as i64)
-                .checked_add(delta)
-                .ok_or(Fault::Eof)?,
+            SeekFrom::Current(delta) => (cache.pos as i64).checked_add(delta).ok_or(Fault::Eof)?,
         };
         if target < 0 {
             return Err(Fault::Eof);

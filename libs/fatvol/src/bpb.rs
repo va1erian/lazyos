@@ -75,7 +75,11 @@ pub fn validate(sector: &[u8], device_sectors: u64) -> Result<Geometry, &'static
         return Err("volume size does not fit the device");
     }
     let fat32 = le16(sector, 22) == 0;
-    let per_fat = if fat32 { le32(sector, 36) } else { le16(sector, 22) };
+    let per_fat = if fat32 {
+        le32(sector, 36)
+    } else {
+        le16(sector, 22)
+    };
     if per_fat == 0 {
         return Err("no FAT");
     }

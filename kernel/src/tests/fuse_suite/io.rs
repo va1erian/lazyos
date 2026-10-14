@@ -285,8 +285,8 @@ pub fn unregister_and_remount() -> Result<(), String> {
         );
         // A new provider under the same name, likely in the same slot: the
         // old node must not reach it.
-        let again =
-            fuse::register(owner, "t", MountFlags::default(), false).map_err(|e| format!("{e:?}"))?;
+        let again = fuse::register(owner, "t", MountFlags::default(), false)
+            .map_err(|e| format!("{e:?}"))?;
         with_fake(|f| f.index = again);
         let mut buf = [0u8; 4];
         expect(

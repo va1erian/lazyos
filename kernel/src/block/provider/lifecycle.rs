@@ -31,9 +31,7 @@
 
 use alloc::vec::Vec;
 
-use super::{
-    disk, ProviderError, State, Stats, DISKS, MAX_REQUEST_BYTES, NAMES,
-};
+use super::{disk, ProviderError, State, Stats, DISKS, MAX_REQUEST_BYTES, NAMES};
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 
 /// One live disk, as a claimant sees it.
@@ -150,7 +148,9 @@ pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, Pro
 /// given to next, even when both are the same task (`usbd` registers the
 /// next stick before it has noticed the old one is gone).
 pub fn handle(index: usize) -> u64 {
-    let generation = DISKS.get(index).map_or(0, |disk| disk.state.lock().generation);
+    let generation = DISKS
+        .get(index)
+        .map_or(0, |disk| disk.state.lock().generation);
     generation << 8 | index as u64
 }
 
@@ -291,7 +291,8 @@ pub fn raw_read(id: usize, owner: usize, lba: u64, buf: &mut [u8]) -> Result<(),
 pub fn raw_write(id: usize, owner: usize, lba: u64, data: &[u8]) -> Result<(), RawError> {
     check_len(data.len())?;
     let disk = claimed(id, owner)?;
-    disk.write_sectors(lba, data).map_err(|e| raw_error(disk, e))
+    disk.write_sectors(lba, data)
+        .map_err(|e| raw_error(disk, e))
 }
 
 /// Flush the device's write cache.

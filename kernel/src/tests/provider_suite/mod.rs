@@ -404,7 +404,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
     ("provider_sys_hostile_lengths", sys::hostile_lengths),
-    ("provider_dead_slot_is_reused", lifecycle::dead_slot_is_reused),
+    (
+        "provider_dead_slot_is_reused",
+        lifecycle::dead_slot_is_reused,
+    ),
     (
         "provider_live_scanned_and_claimed_slots_are_kept",
         lifecycle::live_scanned_and_claimed_slots_are_kept,

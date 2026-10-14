@@ -26,9 +26,7 @@
 
 use alloc::vec::Vec;
 
-use super::{
-    claim, list, raw_flush, raw_read, raw_write, release, RawError, MAX_REQUEST_BYTES,
-};
+use super::{claim, list, raw_flush, raw_read, raw_write, release, RawError, MAX_REQUEST_BYTES};
 use crate::ipc::credentials::{self, CAP_FS_PROVIDER};
 use crate::{task, user_ptr};
 

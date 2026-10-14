@@ -9,8 +9,7 @@ use alloc::vec::Vec;
 
 use fused::daemon::Provider;
 use fused::wire::{
-    sys_op, ProviderInfo, Reply, Request, PROVIDER_WORDS, REPLY_WORDS, REQUEST_WORDS,
-    STOP_PENDING,
+    sys_op, ProviderInfo, Reply, Request, PROVIDER_WORDS, REPLY_WORDS, REQUEST_WORDS, STOP_PENDING,
 };
 use lazyos_sys::nr;
 
@@ -58,7 +57,10 @@ impl Mount {
                 0,
             )
         }?;
-        Ok(Mount { id, stopping: false })
+        Ok(Mount {
+            id,
+            stopping: false,
+        })
     }
 
     /// Whether the supervisor asked this daemon to finish (a [`stop`] of its

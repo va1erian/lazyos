@@ -98,7 +98,9 @@ impl ProviderInfo {
     /// Decode a record; `None` when the name is longer than a mount name or
     /// not a valid one (the kernel never writes either).
     pub fn from_words(words: &[u64; PROVIDER_WORDS]) -> Option<ProviderInfo> {
-        let len = usize::try_from(words[3]).ok().filter(|&n| n <= MAX_MOUNT_NAME)?;
+        let len = usize::try_from(words[3])
+            .ok()
+            .filter(|&n| n <= MAX_MOUNT_NAME)?;
         let mut bytes = [0u8; MAX_MOUNT_NAME];
         for (index, word) in words[4..].iter().enumerate() {
             bytes[index * 8..index * 8 + 8].copy_from_slice(&word.to_le_bytes());

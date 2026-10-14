@@ -87,7 +87,10 @@ impl Automount {
                 Action::Stop { pid } => self.ask_to_stop(pid),
                 Action::Kill { pid } => {
                     let _ = sys::kill(pid, sys::SIG_KILL);
-                    trace::line!(Channel::Mountd, "VOLUME KILL pid={pid} gone or unresponsive");
+                    trace::line!(
+                        Channel::Mountd,
+                        "VOLUME KILL pid={pid} gone or unresponsive"
+                    );
                 }
             }
         }

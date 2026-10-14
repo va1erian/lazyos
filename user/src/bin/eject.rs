@@ -74,7 +74,9 @@ fn run() -> Result<(), Exit> {
     let service = registry::resolve(mount::NAME).map_err(|_| {
         fail(
             1,
-            String::from("eject: the mount service is not running (no USB support in this image)\n"),
+            String::from(
+                "eject: the mount service is not running (no USB support in this image)\n",
+            ),
         )
     })?;
     let deadline = || Some(sys::clock() + CALL_TICKS);
@@ -123,9 +125,9 @@ fn run() -> Result<(), Exit> {
 
 /// The volume `target` names: by disk, by name, or by mount point.
 fn find<'a>(volumes: &'a [VolumeInfo], target: &str) -> Option<&'a VolumeInfo> {
-    volumes
-        .iter()
-        .find(|v| v.disk == target || (!v.name.is_empty() && (v.name == target || v.path == target)))
+    volumes.iter().find(|v| {
+        v.disk == target || (!v.name.is_empty() && (v.name == target || v.path == target))
+    })
 }
 
 /// One line of the listing.
@@ -175,7 +177,10 @@ fn wait_ejected(service: &user::messenger::Endpoint, disk: &str) -> Result<(), E
             }
         }
         if sys::clock() >= give_up {
-            return Err(fail(1, format!("eject: {disk} did not finish: do not remove it\n")));
+            return Err(fail(
+                1,
+                format!("eject: {disk} did not finish: do not remove it\n"),
+            ));
         }
         sys::sleep_ns(POLL_TICKS * 10_000_000);
     }

@@ -59,7 +59,11 @@ pub fn to_datetime(unix: i64) -> DateTime {
 
 /// Unix seconds of a DOS date (midnight).
 pub fn date_to_unix(date: Date) -> i64 {
-    days_from_civil(i64::from(date.year), i64::from(date.month), i64::from(date.day)) * 86_400
+    days_from_civil(
+        i64::from(date.year),
+        i64::from(date.month),
+        i64::from(date.day),
+    ) * 86_400
 }
 
 /// Unix seconds of a DOS date and time.
