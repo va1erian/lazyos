@@ -92,7 +92,9 @@ def session(fat_img: Path, slow: bool) -> list[dict]:
         {"wait_for": "TERM:UP:PASS", "timeout": 240},
         {"wait_for": "REMOVABLE:STATE No removable drives", "timeout": 60},
         {"wait": 2.0}, {"shot": "01_no_drives"},
-        # 2. Plug.
+        # 2. Plug, after the applet's first looks: a stick that shows up
+        # within them is taken for the login's and mounts silently.
+        {"wait": 20.0 if slow else 8.0},
         fat.plug("fat0", "usbfat0"),
         {"wait_for": f"REMOVABLE:STATE MY_STICK mounted at {MOUNT}", "timeout": up},
         {"wait_for": f"SHELL:TRAY:UPDATE app={APP}", "timeout": 30},
