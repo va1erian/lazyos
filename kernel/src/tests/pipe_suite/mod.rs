@@ -52,10 +52,12 @@ fn io_err(error: pipe::Error) -> String {
 mod basic;
 mod exit;
 mod lifecycle;
+mod seqpoll;
 
 pub(super) use basic::*;
 pub(super) use exit::*;
 pub(super) use lifecycle::*;
+pub(super) use seqpoll::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_syscalls_create_and_io", syscalls_create_and_io),
@@ -68,6 +70,30 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_eof_on_killed_writer", eof_on_killed_writer),
     ("pipe_exit_drops_epoll_interest", exit_drops_epoll_interest),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),
+    (
+        "pipe_seqpacket_pollout_maximal_frame",
+        seqpacket_pollout_needs_a_maximal_frame,
+    ),
+    (
+        "pipe_seqpacket_pollout_frame_limit",
+        seqpacket_pollout_respects_frame_limit,
+    ),
+    (
+        "pipe_stream_pollout_one_byte",
+        stream_pollout_still_means_one_byte,
+    ),
+    (
+        "pipe_seqpacket_poller_wakes",
+        seqpacket_poller_wakes_when_writable,
+    ),
+    (
+        "pipe_soak_seqpacket_poll_then_send",
+        seqpacket_poll_then_send_stress,
+    ),
+    (
+        "pipe_soak_seqpacket_poll_then_sendto",
+        seqpacket_poll_then_sendto_stress,
+    ),
     (
         "pipe_soak_throughput_and_lifecycle",
         soak_throughput_and_lifecycle,

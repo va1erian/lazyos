@@ -332,10 +332,32 @@ impl Pipe {
         ring.has_data() || self.writers.load(Ordering::Acquire) == 0
     }
 
-    /// Whether the write end would make progress (space and a reader).
+    /// Whether the write end would make progress (space and a reader): what
+    /// `poll`, `select` and `epoll` call writable ([`Pipe::space_to_write`]).
     pub fn writable(&self) -> bool {
         let ring = self.state.lock();
-        self.space_for(&ring, 1) && self.readers.load(Ordering::Acquire) > 0
+        self.space_to_write(&ring) && self.readers.load(Ordering::Acquire) > 0
+    }
+
+    /// The readiness rule for `POLLOUT`. A byte stream is writable while any
+    /// byte fits (a write makes partial progress). A `SOCK_SEQPACKET` send is
+    /// all-or-nothing, so "one byte fits" would send a poller straight back
+    /// into `-EAGAIN`, and a loop of `sendmsg`, `poll`, `sendmsg` would spin
+    /// (issue #863): it is writable only while a **maximal frame**
+    /// ([`Pipe::max_frame`]) fits, and then every send up to that size is
+    /// accepted (when nobody else writes), whatever size the sender picks.
+    fn space_to_write(&self, ring: &Ring) -> bool {
+        match ring.mode {
+            Mode::Stream => self.space_for(ring, 1),
+            Mode::Seqpacket => self.space_for(ring, Self::max_frame(ring)),
+        }
+    }
+
+    /// The largest message a seqpacket sender can make: a `pipe(2)`-sized
+    /// ring ([`CAPACITY`]) takes frames up to its whole size; a bigger ring
+    /// (`AF_INET`'s) is only ever given datagrams far below [`CAPACITY`].
+    fn max_frame(ring: &Ring) -> usize {
+        CAPACITY.min(ring.buf.len())
     }
 
     /// Whether `len` bytes fit in the ring (all-or-nothing in seqpacket mode).

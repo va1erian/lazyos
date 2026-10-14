@@ -106,6 +106,10 @@ path = "src/unixstress.rs"
 
 # SCM_RIGHTS, memfd_create and MAP_SHARED between processes (issue #771).
 [[bin]]
+name = "seqpollout"
+path = "src/seqpollout.rs"
+
+[[bin]]
 name = "scmrights"
 path = "src/scmrights.rs"
 

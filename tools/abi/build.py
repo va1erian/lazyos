@@ -46,6 +46,7 @@ NAMES = [
     "epollstress",
     "msgpoll",
     "unixstress",
+    "seqpollout",
     "scmrights",
     "persist",
     "statxio",
