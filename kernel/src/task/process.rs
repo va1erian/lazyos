@@ -38,6 +38,7 @@
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
+use super::family::{self, deliver_parent_death, release_children_locked, same_process};
 use super::signal;
 use super::wait::CHILD_EXIT;
 use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS, NEEDS_REDRAW, PENDING_CLOSE, TASKS};
@@ -79,14 +80,10 @@ pub fn pid_of(slot: usize) -> usize {
     slot
 }
 
-/// The parent pid of a slot; 0 is the kernel/init task.
+/// The parent pid of a slot (`getppid`): the thread-group leader of the
+/// process that forked its process; 0 is the kernel/init task.
 pub fn ppid_of(slot: usize) -> usize {
-    TASKS
-        .lock()
-        .get(slot)
-        .and_then(|task| task.as_ref())
-        .map(|task| task.parent)
-        .unwrap_or(0)
+    family::ppid(&TASKS.lock(), slot)
 }
 
 /// The process group id of a slot.
@@ -197,6 +194,7 @@ pub(crate) fn finish(slot: usize, status: u64) -> bool {
 /// The side effects of a [`finish_locked`] that returned `parent`, run once
 /// the task table lock is dropped.
 pub(crate) fn after_finish(parent: usize) {
+    deliver_parent_death();
     // The dead task's pipe ends close now, so a reader that has not reaped it
     // yet still sees end-of-file.
     super::close_exited_fds();
@@ -208,13 +206,15 @@ pub(crate) fn after_finish(parent: usize) {
     // the signal is recorded/queued (and wakes a handler-armed parent), while
     // every `wait4` sleeper is woken to re-check for a reapable child. Both run
     // after dropping the task table, in queue-before-table order.
+    family::count_notification(parent);
     signal::post_sigchld(parent);
     super::childbell::ring(parent);
     CHILD_EXIT.notify_all();
 }
 
-/// [`finish`] on a caller-held task table, returning the dead task's parent so
-/// the caller can post `SIGCHLD` after releasing the lock. The timer signal
+/// [`finish`] on a caller-held task table, returning the parent to tell (0:
+/// nobody, see [`family::notify_target`]) so the caller can post `SIGCHLD`
+/// after releasing the lock. The timer signal
 /// sweep (`task::signal::sweep`) needs this: it runs on the scheduler's lock
 /// and cannot re-enter `finish`.
 pub(crate) fn finish_locked(
@@ -232,6 +232,10 @@ pub(crate) fn finish_locked(
         task.exit_status = status;
         task.parent
     };
+    // Who hears of it: not the parent of a leader whose threads still run.
+    // Init (slot 0) hears of exits through the child-exit queue alone, so
+    // "nobody" is slot 0 too.
+    let parent = family::notify_target(tasks, slot, parent).unwrap_or(KERNEL_TASK);
     super::runq::sync(tasks, slot);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
@@ -239,7 +243,7 @@ pub(crate) fn finish_locked(
     crate::dev::note_task_exited(slot);
     PENDING_CLOSE.set(slot);
     drop_timers_if_last(tasks, slot);
-    let reparented = reparent_children_locked(tasks, slot, KERNEL_TASK);
+    let reparented = release_children_locked(tasks, slot);
     if reparented > 0 {
         serial_println!("proc: task {slot} died; re-parented {reparented} task(s) to init");
     }
@@ -296,10 +300,12 @@ pub fn kill_group(pgid: usize) -> usize {
         (parents.len(), parents)
     };
     if killed > 0 {
+        deliver_parent_death();
         super::close_exited_fds();
         NEEDS_REDRAW.store(true, Ordering::Relaxed);
         // See `finish`: queue before task table, and the table is now unlocked.
         for parent in parents {
+            family::count_notification(parent);
             signal::post_sigchld(parent);
             super::childbell::ring(parent);
         }
@@ -339,7 +345,7 @@ pub(crate) fn setpgid(caller: usize, pid: i64, pgid: i64) -> Result<(), GroupErr
     if target_done {
         return Err(GroupError::NoSuchProcess);
     }
-    if target != caller && target_parent != caller {
+    if target != caller && !same_process(&tasks, target_parent, caller) {
         return Err(GroupError::NotPermitted);
     }
     if caller_sid != target_sid {
@@ -417,7 +423,7 @@ pub(crate) fn getsid(caller: usize, pid: i64) -> Result<usize, GroupError> {
 ///
 /// Callers hold the task table lock: adoption must commit in the same critical
 /// section as the death that caused it.
-fn reparent_children_locked(
+pub(super) fn reparent_children_locked(
     tasks: &mut [Option<Task>; MAX_TASKS],
     slot: usize,
     new_parent: usize,

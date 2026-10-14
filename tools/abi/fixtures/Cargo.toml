@@ -105,6 +105,10 @@ name = "unixstress"
 path = "src/unixstress.rs"
 
 [[bin]]
+name = "threadreap"
+path = "src/threadreap.rs"
+
+[[bin]]
 name = "seqpollout"
 path = "src/seqpollout.rs"
 

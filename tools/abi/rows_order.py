@@ -22,6 +22,7 @@ ORDER = [
     "epollstress",
     "msgpoll",
     "unixstress",
+    "threadreap",
     "seqpollout",
     "scmrights",
     "persist",

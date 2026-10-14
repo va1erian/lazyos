@@ -106,6 +106,8 @@ pub const POLLIN: u16 = 0x0001;
 pub const POLLOUT: u16 = 0x0004;
 pub const POLLERR: u16 = 0x0008;
 pub const POLLHUP: u16 = 0x0010;
+/// The peer of a socket shut down its writing half (Linux `EPOLLRDHUP`).
+pub const POLLRDHUP: u16 = 0x2000;
 
 /// The byte ring. `len` bytes starting at `head` are valid; the free space is
 /// the rest, so the buffer wraps without a growable deque. In seqpacket mode

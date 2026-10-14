@@ -31,11 +31,13 @@ const PR_GET_NO_NEW_PRIVS: u64 = 39;
 ///   and `1` are both honoured and `GET` reports `1`;
 /// * `PR_SET_NO_NEW_PRIVS`/`GET`: recorded and inherited (LazyOS `execve`
 ///   never grants privileges, so the promise holds trivially);
-/// * `PR_SET_PDEATHSIG` with signal 0 (no signal: the default), `GET` = 0;
+/// * `PR_SET_PDEATHSIG`/`GET`: the signal (0, the default, or 1..=64) sent to
+///   the process when its parent process exits (issue #859; Linux names the
+///   parent *thread*, but a parent here is a process). Kept per process (every thread carries it);
+///   `fork` clears it and `execve` keeps it;
 /// * `PR_SET_TIMERSLACK`/`GET`: the timer is 100 Hz, slack is moot.
 ///
-/// Everything else, including a parent-death signal that would never be sent,
-/// is `EINVAL`.
+/// Everything else is `EINVAL`.
 pub(super) fn sys_prctl(option: u64, arg2: u64, arg3: u64) -> u64 {
     match option {
         PR_SET_NAME => {
@@ -66,11 +68,17 @@ pub(super) fn sys_prctl(option: u64, arg2: u64, arg3: u64) -> u64 {
         PR_GET_NO_NEW_PRIVS => {
             u64::from(task::linuxstate::with_extras(|extras| extras.no_new_privs).unwrap_or(false))
         }
-        PR_SET_PDEATHSIG if arg2 == 0 => 0,
-        PR_GET_PDEATHSIG => match user_ptr::try_write::<i32>(arg2, 0) {
-            Ok(()) => 0,
-            Err(_) => err(EFAULT),
-        },
+        PR_SET_PDEATHSIG if arg2 < task::signal::NSIG as u64 => {
+            task::linuxstate::set_pdeathsig(arg2 as u8);
+            0
+        }
+        PR_GET_PDEATHSIG => {
+            let sig = task::linuxstate::pdeathsig();
+            match user_ptr::try_write::<i32>(arg2, i32::from(sig)) {
+                Ok(()) => 0,
+                Err(_) => err(EFAULT),
+            }
+        }
         PR_SET_TIMERSLACK => 0,
         PR_GET_TIMERSLACK => 10_000_000,
         _ => err(EINVAL),

@@ -213,6 +213,7 @@ mod boot_io_suite;
 mod boot_media_suite;
 mod boot_trace_suite;
 mod bufops;
+mod child_process_suite;
 mod chmod_suite;
 mod confd_suite;
 mod confine_suite;
@@ -322,6 +323,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
+    child_process_suite::CASES,
     itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,
