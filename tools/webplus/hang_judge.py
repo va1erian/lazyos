@@ -81,7 +81,8 @@ def judge_quota(text: str) -> list[str]:
     QUOTA_SLOPE_MIB a cycle."""
     used = quota_after_exits(text)
     if len(used) < CYCLES + 1:
-        return [f"expected {CYCLES + 1} user memory readings taken after a web process ended, saw {used}"]
+        return [f"expected {CYCLES + 1} user memory readings taken after a web process ended, saw {used} "
+                "(a reading is skipped when its process's PROCESS:EXIT came after it: a process ended after its reading)"]
     growth = used[-1] - used[0]
     if growth > QUOTA_SLOPE_MIB * (len(used) - 1):
         return [f"the user memory charge grew {growth} MiB over {len(used) - 1} Reloads ({used}): a process is not freed"]

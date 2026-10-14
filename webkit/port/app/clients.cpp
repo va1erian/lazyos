@@ -75,16 +75,16 @@ void rememberChildren()
 {
     if (!E.page)
         return;
-    // A process is announced when WebKit names an id the launcher has started and not seen end, and the
-    // id is new or a launch has happened since the last announcement (the kernel gives the lowest free
-    // slot, so a replacement often takes the dead process's id). An id the launcher does not hold is a
+    // A process is announced when WebKit names an id the launcher has started and not seen end, and it
+    // is another launch than the one announced (the kernel gives the lowest free slot, so a replacement
+    // often takes the dead process's id: the id alone cannot tell). An id the launcher does not hold is a
     // stale answer (WebKit names a process after it ended): not announced, not remembered.
     const int web = static_cast<int>(WKPageGetProcessIdentifier(E.page));
-    const unsigned webLaunches = processLaunches("web");
-    if (web > 0 && processLive("web", web) && (web != E.webPidShown || webLaunches != E.webLaunchSeen)) {
+    const unsigned webOrdinal = web > 0 ? processOrdinal("web", web) : 0;
+    if (webOrdinal && (web != E.webPidShown || webOrdinal != E.webOrdinalShown)) {
         E.webPid = web;
         E.webPidShown = web;
-        E.webLaunchSeen = webLaunches;
+        E.webOrdinalShown = webOrdinal;
         say("WEBPROCESS:UP:%d", web);
         // A process the window has not heard of: whatever it was told of the last one (not answering)
         // does not hold for this one.
@@ -92,12 +92,11 @@ void rememberChildren()
     }
     WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
     const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
-    const unsigned networkLaunches = processLaunches("network");
-    if (network > 0 && processLive("network", network)
-        && (network != E.networkPidShown || networkLaunches != E.networkLaunchSeen)) {
+    const unsigned networkOrdinal = network > 0 ? processOrdinal("network", network) : 0;
+    if (networkOrdinal && (network != E.networkPidShown || networkOrdinal != E.networkOrdinalShown)) {
         E.networkPid = network;
         E.networkPidShown = network;
-        E.networkLaunchSeen = networkLaunches;
+        E.networkOrdinalShown = networkOrdinal;
         say("NETWORKPROCESS:UP:%d", network);
     }
 }
@@ -332,6 +331,8 @@ void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const 
 {
     say("WEBPROCESS:GONE:%d:%s", E.webPidShown, terminationReason(reason));
     lzw_launcher_reap();
+    // A crashed process the kernel has not finished with yet is still the launcher's: keep collecting.
+    processCrashed("web", E.webPidShown);
     dropDialogs();
     E.loading = false;
     E.unresponsive = false;
@@ -376,6 +377,7 @@ void networkProcessDidCrash(WKContextRef, WKProcessID pid, WKProcessTerminationR
 {
     say("NETWORKPROCESS:GONE:%d:%s", static_cast<int>(pid), terminationReason(reason));
     lzw_launcher_reap();
+    processCrashed("network", static_cast<int>(pid));
 }
 
 void stateChanged(const void*) { postState(); }

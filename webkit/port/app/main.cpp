@@ -49,7 +49,7 @@ namespace {
 constexpr int kScanWords = 2048;
 constexpr int kScanPrint = 48;
 // Where the crashing thread's stack ends (a little above the frame that installed the handler; 0: not
-// known, so nothing is scanned). One word per thread of TLS, not a buffer.
+// known, so the scan stops at the end of the page rsp is in). One word per thread of TLS, not a buffer.
 thread_local unsigned long stackTop = 0;
 constexpr unsigned long kStackTopMargin = 256;
 
@@ -109,10 +109,15 @@ void reportCrash(int signal, siginfo_t* info, void* context)
     putLine("signal", static_cast<unsigned long>(signal), ":base=", base, ":rip=", rip);
     putLine("rsp", rsp, ":addr=", reinterpret_cast<unsigned long>(info ? info->si_addr : nullptr), ":top=", stackTop);
     const unsigned long* words = reinterpret_cast<const unsigned long*>(rsp);
-    // A stack pointer outside the stack (an overflow, a corrupt frame) scans nothing.
+    // Up to the top of the stack the thread noted when it installed the handler (the main and window
+    // threads); any other thread (WebKit's workers, the reapers) to the end of rsp's page, which is
+    // mapped whenever rsp is. A top that does not lie above rsp (an overflow, a corrupt frame) is not
+    // trusted either.
     unsigned long available = 0;
     if (stackTop > rsp && (stackTop - rsp) <= (64UL << 20))
         available = (stackTop - rsp) / sizeof(unsigned long);
+    else
+        available = ((rsp | 4095UL) + 1 - rsp) / sizeof(unsigned long);
     const int limit = available < static_cast<unsigned long>(kScanWords) ? static_cast<int>(available) : kScanWords;
     int printed = 0;
     for (int i = 0; i < limit && printed < kScanPrint; ++i) {

@@ -22,6 +22,7 @@
 //                                                   longer has, or -1 for one still there. During the
 //                                                   shutdown a child's end is this line, not an EXIT.
 
+#include <pthread.h>
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
@@ -29,7 +30,6 @@
 #include <atomic>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include <WebKit/WKRunLoop.h>
@@ -45,6 +45,9 @@ namespace {
 struct Child {
     int pid { 0 };
     std::string type;
+    // The launch's number among the launches of its type: a process that took a dead one's id has
+    // another.
+    unsigned ordinal { 0 };
     // WebKit's terminate() signalled it: its collection is awaited (see `pumpReaping`).
     bool terminating { false };
 };
@@ -61,7 +64,7 @@ struct Target {
 
 std::mutex registryLock;
 std::vector<Child> registry;
-// How many processes of each type the launcher has started (a launch of a reused id is a new process).
+// How many processes of each type the launcher has started.
 unsigned webLaunches { 0 };
 unsigned networkLaunches { 0 };
 // The shutdown is under way: a child's end is recorded in `shutdownTargets` and printed with its
@@ -121,6 +124,26 @@ void reapTask(void*)
 }
 
 std::atomic<bool> pumping { false };
+// How many times a process was marked terminating: a pump that gave up restarts only for a newer one,
+// so a child that cannot be collected is not pumped for ever.
+std::atomic<unsigned> terminates { 0 };
+
+void pumpReaping();
+
+void* pumpMain(void*)
+{
+    const unsigned seen = terminates.load();
+    const long began = monotonicMs();
+    while (anyTerminating() && monotonicMs() - began < kPumpGiveUpMs) {
+        usleep(kPumpStepMs * 1000);
+        WKRunLoopCallOnMainThread(reapTask, nullptr);
+    }
+    pumping = false;
+    // A process marked while this thread was ending found `pumping` set and started nothing.
+    if (terminates.load() != seen && anyTerminating())
+        pumpReaping();
+    return nullptr;
+}
 
 // A process that was sent SIGKILL is not collectable until the kernel has finished with it (a thread
 // inside a call ends it when the call returns): collecting it once, as the terminate is reported, finds
@@ -131,35 +154,50 @@ void pumpReaping()
 {
     if (pumping.exchange(true))
         return;
-    std::thread([] {
-        const long began = monotonicMs();
-        while (anyTerminating() && monotonicMs() - began < kPumpGiveUpMs) {
-            usleep(kPumpStepMs * 1000);
-            WKRunLoopCallOnMainThread(reapTask, nullptr);
-        }
+    // pthread_create, not std::thread: this is on WebKit's call path (possibly under the launcher's lock)
+    // and a thread that cannot start (task_max, memory) must not throw or abort the UI process.
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attributes, 64 * 1024);
+    pthread_t thread;
+    const int started = pthread_create(&thread, &attributes, pumpMain, nullptr);
+    pthread_attr_destroy(&attributes);
+    if (started != 0) {
+        // No pump: the one collection that runs once, on the main thread, as before.
         pumping = false;
-        // A terminate that came while this thread was ending found `pumping` set and started nothing.
-        if (anyTerminating())
-            pumpReaping();
-    }).detach();
+        WKRunLoopCallOnMainThread(reapTask, nullptr);
+    }
 }
 
 } // namespace
 
-bool processLive(const char* type, int pid)
+unsigned processOrdinal(const char* type, int pid)
 {
     std::lock_guard<std::mutex> guard(registryLock);
     for (const Child& child : registry) {
         if (child.pid == pid && child.type == type)
-            return true;
+            return child.ordinal;
     }
-    return false;
+    return 0;
 }
 
-unsigned processLaunches(const char* type)
+void processCrashed(const char* type, int pid)
 {
-    std::lock_guard<std::mutex> guard(registryLock);
-    return launchCounter(type);
+    bool marked = false;
+    {
+        std::lock_guard<std::mutex> guard(registryLock);
+        for (Child& child : registry) {
+            if (child.pid == pid && child.type == type) {
+                child.terminating = true;
+                marked = true;
+            }
+        }
+    }
+    if (marked) {
+        ++terminates;
+        pumpReaping();
+    }
 }
 
 int shutdownChildren()
@@ -229,8 +267,7 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
                     break;
                 }
             }
-            registry.push_back({ pid, type });
-            ++launchCounter(type);
+            registry.push_back({ pid, type, ++launchCounter(type) });
         }
         say("PROCESS:LAUNCH:%s:%d", type, pid);
         return;
@@ -240,14 +277,7 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
         return;
     }
     if (what == "terminate") {
-        {
-            std::lock_guard<std::mutex> guard(registryLock);
-            for (Child& child : registry) {
-                if (child.pid == pid && child.type == type)
-                    child.terminating = true;
-            }
-        }
-        pumpReaping();
+        processCrashed(type, pid);
         say("PROCESS:TERMINATE:%s:%d:group=%d:pid=%d", type, pid, detail, detail2);
         return;
     }

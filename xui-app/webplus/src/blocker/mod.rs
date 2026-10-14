@@ -211,7 +211,7 @@ impl Blocker {
     /// WebKit's main thread. The window is woken.
     pub fn attach(&self, persist: Arc<dyn Persist>) {
         let stored = persist.load();
-        let _saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
+        let saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
         let (wake, chosen) = {
             let mut guard = self.lock();
             guard.persist = Arc::clone(&persist);
@@ -227,11 +227,13 @@ impl Blocker {
             }
             (guard.wake.clone(), chosen)
         };
-        // A save may be a call to a service: with the settings lock released (`_saves` keeps another
+        // A save may be a call to a service: with the settings lock released (`saves` keeps another
         // save from passing this one).
         if let Some(settings) = chosen {
             persist.save(&settings);
         }
+        // The window's wake-up runs with no lock of ours held: it may call back into the blocker.
+        drop(saves);
         if let Some(wake) = wake {
             wake();
         }
