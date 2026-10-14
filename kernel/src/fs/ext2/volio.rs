@@ -42,7 +42,7 @@ impl VolumeIo {
 
 /// The gate, held: the library may be called, and its requests may sleep.
 pub(super) struct Entered<'a> {
-    _gate: spin::mutex::MutexGuard<'a, ()>,
+    _gate: crate::task::relax::YieldGuard<'a, ()>,
     io: &'a VolumeIo,
 }
 

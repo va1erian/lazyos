@@ -5,30 +5,50 @@
 //! unless a core signal crashed it. [`note_exit`] records the facts when the
 //! process's last thread dies (`process::finish_locked`, the single place a
 //! task dies, under the task-table lock), [`note_signal`] remembers who sent a
-//! fatal signal, and [`report`] prints the lines from the multiplexer loop,
-//! where neither the table nor the serial ring is held.
+//! signal that is about to end a process, and [`report`] prints the lines from
+//! the multiplexer loop, where neither the table nor the serial ring is held.
+//!
+//! A **process** is a thread group: the tasks whose `tgid` is the same (a
+//! task's own slot for a leader). Not an address space: a `vfork` child shares
+//! its parent's, and a thread that `execve`s leaves its siblings on the old
+//! one. How a process died is what the kernel recorded for `wait4`
+//! (`LinuxExtras::term_signal`), not a guess from the exit status: `exit(137)`
+//! is a status, not `SIGKILL`.
 //!
 //! Both writers can run in interrupt context (the signal sweep, interval
 //! timers), so the two small tables are locked with interrupts off only, and
-//! the printer never holds one while it prints.
+//! the printer never holds one while it prints. A fork storm cannot bury the
+//! exits that matter: clean exits have a budget of their own, and so do the
+//! rest.
 
 use core::fmt;
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use super::{linuxstate, Task, TaskState, KERNEL_TASK, MAX_TASKS};
+use super::{cpustat, linuxstate, Task, TaskState, KERNEL_TASK, MAX_TASKS};
 
 /// Exits kept between two reports; a burst past it is counted, not lost silently.
 const EXITS: usize = 64;
 /// Fatal-signal senders remembered (the newest replace the oldest).
 const SENDERS: usize = 32;
 
+/// Lines per ten seconds: clean exits (`exit(0)` of every shell command),
+/// abnormal ones (a status, a signal), and the notice that exits were lost.
+static CLEAN: tracefmt::Budget = tracefmt::Budget::new(20, 1000);
+static ABNORMAL: tracefmt::Budget = tracefmt::Budget::new(100, 1000);
+static LOST: tracefmt::Budget = tracefmt::Budget::new(5, 1000);
+
 /// One ended process.
 #[derive(Clone, Copy)]
 struct Exit {
     tgid: usize,
+    /// The thread whose death ended it.
+    thread: usize,
+    thread_name: &'static str,
     comm: [u8; 16],
     status: u64,
+    /// The signal that ended it (0: it exited).
+    sig: u8,
     parent: usize,
     cpu_ticks: u64,
     pml4: u64,
@@ -60,12 +80,10 @@ static TABLES: Mutex<Tables> = Mutex::new(Tables {
     next_sender: 0,
 });
 
-/// Remember that `by` (the sender's process id) sent `sig` to process `pml4`.
-/// Only signals that end a process by default matter; the rest are ignored.
+/// Remember that process `by` (a thread-group id; 0: the kernel) sent `sig`,
+/// whose default action ends the process, to address space `pml4`. Call only
+/// where the signal will in fact end it (not ignored, not caught).
 pub fn note_signal(pml4: u64, sig: u8, by: usize) {
-    if !ends_process(sig) {
-        return;
-    }
     without_interrupts(|| {
         let mut tables = TABLES.lock();
         let entry = Sender { pml4, sig, by };
@@ -85,13 +103,12 @@ pub fn note_signal(pml4: u64, sig: u8, by: usize) {
     });
 }
 
-/// Signals whose default action ends the process (the ones `128 + sig`
-/// statuses come from).
-fn ends_process(sig: u8) -> bool {
-    matches!(
-        sig,
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 24 | 25 | 26 | 27 | 31
-    )
+/// The thread-group id of `task`, which sits in `slot`.
+fn tgid_of(task: &Task, slot: usize) -> usize {
+    match task.linux.tgid {
+        0 => slot,
+        leader => leader,
+    }
 }
 
 /// `slot` just became `Done` under the task-table lock: if it was the last
@@ -103,43 +120,58 @@ pub(super) fn note_exit(tasks: &[Option<Task>; MAX_TASKS], slot: usize, status: 
     let Some(task) = tasks[slot].as_ref() else {
         return;
     };
-    let pml4 = task.pml4;
+    let tgid = tgid_of(task, slot);
     let mut cpu_ticks = 0u64;
-    for other in tasks.iter().flatten() {
-        if other.pml4 != pml4 {
+    let mut sig = 0u8;
+    for (index, other) in tasks.iter().enumerate() {
+        let Some(other) = other else {
+            continue;
+        };
+        if index == KERNEL_TASK || tgid_of(other, index) != tgid {
             continue;
         }
         if other.state != TaskState::Done {
-            return; // another thread still runs: the process lives
+            return; // another thread of the process still runs
         }
         cpu_ticks = cpu_ticks.saturating_add(other.cpu_ticks);
+        if sig == 0 {
+            sig = other.linux.term_signal;
+        }
     }
-    let tgid = match task.linux.tgid {
-        0 => slot,
-        leader => leader,
-    };
-    let parent_slot = tasks
+    cpu_ticks = cpu_ticks.saturating_add(cpustat::take_retired(tgid));
+    // The leader names the parent, if it is still the process's own leader
+    // (a recycled slot is not).
+    let leader = tasks
         .get(tgid)
-        .and_then(|leader| leader.as_ref())
-        .map_or(task.parent, |leader| leader.parent);
-    let parent = match tasks.get(parent_slot).and_then(|p| p.as_ref()) {
-        Some(parent) => match parent.linux.tgid {
-            0 => parent_slot,
-            leader => leader,
-        },
-        None => parent_slot,
-    };
+        .and_then(|l| l.as_ref())
+        .filter(|l| tgid_of(l, tgid) == tgid && l.pml4 == task.pml4);
+    let parent_slot = leader.map_or(task.parent, |l| l.parent);
+    let parent = tasks
+        .get(parent_slot)
+        .and_then(|p| p.as_ref())
+        .map_or(parent_slot, |p| tgid_of(p, parent_slot));
     let (comm, _) = linuxstate::comm_of(task);
     let exit = Exit {
         tgid,
+        thread: slot,
+        thread_name: task.name,
         comm,
         status,
+        sig,
         parent,
         cpu_ticks,
-        pml4,
+        pml4: task.pml4,
     };
     without_interrupts(|| {
         let mut tables = TABLES.lock();
+        // Whoever signalled this address space is history now: a recycled
+        // page table must not inherit the sender.
+        let pml4 = task.pml4;
+        for sender in tables.senders.iter_mut() {
+            if sender.is_some_and(|s| s.pml4 == pml4 && s.sig != sig) {
+                *sender = None;
+            }
+        }
         if tables.len == EXITS {
             tables.head = (tables.head + 1) % EXITS;
             tables.len -= 1;
@@ -149,11 +181,6 @@ pub(super) fn note_exit(tasks: &[Option<Task>; MAX_TASKS], slot: usize, status: 
         tables.exits[at] = Some(exit);
         tables.len += 1;
     });
-}
-
-/// The signal a status stands for (`128 + sig`), if it is one.
-fn signal_of(status: u64) -> Option<u8> {
-    (129..=128 + 64).contains(&status).then(|| (status - 128) as u8)
 }
 
 /// A value that prints as `-` when absent.
@@ -188,23 +215,41 @@ pub fn report() {
             };
             tables.head = (at + 1) % EXITS;
             tables.len -= 1;
-            let by = signal_of(exit.status).and_then(|sig| {
-                tables
-                    .senders
-                    .iter_mut()
-                    .find(|s| s.is_some_and(|s| s.pml4 == exit.pml4 && s.sig == sig))
-                    .and_then(|s| s.take())
-                    .map(|s| s.by)
-            });
+            // The sender of the signal that ended it; consumed, with every
+            // other entry of the address space (`note_exit` kept the one
+            // that matters).
+            let mut by = None;
+            let pml4 = exit.pml4;
+            for sender in tables.senders.iter_mut() {
+                if let Some(s) = *sender {
+                    if s.pml4 == pml4 {
+                        if exit.sig != 0 && s.sig == exit.sig {
+                            by = Some(s.by);
+                        }
+                        *sender = None;
+                    }
+                }
+            }
             lines[count] = Some(Line { exit, by });
             count += 1;
         }
         core::mem::take(&mut tables.lost)
     });
+    let now = super::ticks();
     for line in lines.iter().flatten() {
+        let clean = line.exit.sig == 0 && line.exit.status == 0;
+        let budget = if clean { &CLEAN } else { &ABNORMAL };
+        match budget.charge(now) {
+            tracefmt::Charge::Deny => continue,
+            tracefmt::Charge::AllowAfter(n) => {
+                let kind = if clean { "clean" } else { "other" };
+                crate::trace::line!(tracefmt::Channel::Proc, "SUPPRESSED {kind}={n}");
+            }
+            tracefmt::Charge::Allow => {}
+        }
         print(line);
     }
-    if lost > 0 {
+    if lost > 0 && LOST.charge(now) != tracefmt::Charge::Deny {
         crate::trace::line!(tracefmt::Channel::Proc, "LOST exits={lost}");
     }
 }
@@ -213,20 +258,31 @@ fn print(line: &Line) {
     let exit = &line.exit;
     let len = exit.comm.iter().position(|&b| b == 0).unwrap_or(16);
     let comm = core::str::from_utf8(&exit.comm[..len]).unwrap_or("?");
-    let sig = signal_of(exit.status).map(usize::from);
-    let status = if sig.is_some() { 0 } else { exit.status };
+    // A process killed by a signal has no exit status; one that exited has no
+    // signal. `by=0` is the kernel (a fault, a timer).
+    let signalled = exit.sig != 0;
+    let status = Opt((!signalled).then_some(exit.status as usize));
+    let sig = Opt(signalled.then_some(usize::from(exit.sig)));
+    let by = match line.by {
+        Some(0) => String::from("kernel"),
+        by => alloc::format!("{}", Opt(by)),
+    };
     crate::trace::line!(
         tracefmt::Channel::Proc,
-        "EXIT tgid={} status={} sig={} by={} parent={} cpu_ms={} comm={}",
+        "EXIT tgid={} thread={}/{} status={} sig={} by={} parent={} cpu_ms={} comm={}",
         exit.tgid,
+        exit.thread,
+        exit.thread_name,
         status,
-        Opt(sig),
-        Opt(line.by),
+        sig,
+        by,
         exit.parent,
         exit.cpu_ticks * 10,
         comm
     );
 }
+
+use alloc::string::String;
 
 /// Drop everything recorded (the kernel suite).
 #[cfg(lazyos_tests)]
@@ -240,6 +296,17 @@ pub fn reset_for_test() {
         tables.senders = [None; SENDERS];
         tables.next_sender = 0;
     });
+    CLEAN.reset();
+    ABNORMAL.reset();
+    LOST.reset();
+}
+
+/// Fresh line budgets (the suite).
+#[cfg(lazyos_tests)]
+pub fn reset_budgets_for_test() {
+    CLEAN.reset();
+    ABNORMAL.reset();
+    LOST.reset();
 }
 
 /// Exits waiting to be printed and exits lost to a full table (the suite).
@@ -249,4 +316,10 @@ pub fn pending_for_test() -> (usize, u64) {
         let tables = TABLES.lock();
         (tables.len, tables.lost)
     })
+}
+
+/// Senders remembered (the suite): none should outlive their process.
+#[cfg(lazyos_tests)]
+pub fn senders_for_test() -> usize {
+    without_interrupts(|| TABLES.lock().senders.iter().flatten().count())
 }

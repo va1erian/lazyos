@@ -79,12 +79,12 @@ use vfs::{DirEntry, FsError, Id, Meta, MountFlags, Vfs};
 /// A [`YieldMutex`]: a task holds it while it waits for a user-space block
 /// provider (a USB stick under `/home`), and another task wanting the table
 /// meanwhile must give the CPU away rather than spin (`task::relax`).
-static FS: YieldMutex<Option<(Vfs, bool)>> = YieldMutex::new(None);
+static FS: YieldMutex<Option<(Vfs, bool)>> = YieldMutex::named("vfs", None);
 
 /// The Linux ABI's mount table: a copy-up overlay over the boot volume at `/`
 /// (or a plain ramfs when no volume mounted) plus a ramfs at `/tmp`. Built by
 /// [`init`]; `None` until the boot volumes are mounted.
-static ABI_FS: YieldMutex<Option<Vfs>> = YieldMutex::new(None);
+static ABI_FS: YieldMutex<Option<Vfs>> = YieldMutex::named("abi-vfs", None);
 
 /// Probe the block layer and build the mount tables ([`mounts`] explains the
 /// two layouts). Returns whether a root volume was found (the scratch ramfs

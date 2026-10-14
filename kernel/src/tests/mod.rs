@@ -185,6 +185,8 @@ mod ext2_suite;
 mod fault_resident_suite;
 mod fault_suite;
 mod firmware_suite;
+mod forensics_exit_suite;
+mod forensics_sched_suite;
 mod forensics_suite;
 mod fs_suite;
 mod fsops_suite;
@@ -230,6 +232,7 @@ mod registry_suite;
 mod relax_suite;
 mod runq_suite;
 mod sched_suite;
+mod serial_ring_suite;
 mod serial_suite;
 mod service_suite;
 mod signal_suite;
@@ -383,7 +386,10 @@ const SUITE: &[&[(&str, Test)]] = &[
     // Issue #857/#860/#861 suites: last, so their allocations (hundreds of
     // forked tasks) do not change the heap the frame-counting suites above see.
     serial_suite::CASES,
+    serial_ring_suite::CASES,
     forensics_suite::CASES,
+    forensics_exit_suite::CASES,
+    forensics_sched_suite::CASES,
     guard_report_suite::CASES,
     guard_process_suite::CASES,
     // Runs the tick for ~15 s of real time: after the suites that step a

@@ -114,7 +114,10 @@ fn input_task_survives_a_heavy_one() -> Result<(), String> {
         }
     }
     check!(heavy_demoted > 0, "the heavy task was never demoted");
-    check!(plain_demoted > 0, "an unmarked task was never demoted: the exemption is not bounded");
+    check!(
+        plain_demoted > 0,
+        "an unmarked task was never demoted: the exemption is not bounded"
+    );
     cleanup();
     Ok(())
 }

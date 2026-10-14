@@ -121,6 +121,19 @@ pub fn task_syscall(slot: usize) -> Option<(bool, u64, u64)> {
     Some((tagged & NATIVE != 0, tagged & !NATIVE, entered))
 }
 
+/// Test hook: make task `slot` look like it is inside syscall `nr` (entered
+/// at tick `entered`), or outside any (`None`).
+#[cfg(lazyos_tests)]
+pub fn set_task_syscall_for_test(slot: usize, call: Option<(bool, u64, u64)>) {
+    match call {
+        Some((native, nr, entered)) => {
+            TASK_NR[slot].store(if native { NATIVE | nr } else { nr }, Ordering::Relaxed);
+            TASK_ENTER[slot].store(entered, Ordering::Relaxed);
+        }
+        None => TASK_NR[slot].store(NONE, Ordering::Relaxed),
+    }
+}
+
 /// Run `f`, interrupts-off work of the kernel task (the periodic writeback,
 /// disk statistics), as a span of its own: its poll points open interrupt
 /// windows as a syscall's do, and its stretches are logged as `abi=kernel`.

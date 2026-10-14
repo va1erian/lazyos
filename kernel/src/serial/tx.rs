@@ -33,16 +33,21 @@ const RING: usize = 16 * 1024;
 const FIFO: usize = 16;
 /// Bytes a program's output drains between two breaths.
 pub(super) const CHUNK: usize = 32;
-/// Status polls before a drain gives up on a UART that is not emptying (the
-/// bytes stay queued for the next drain). A 16-byte FIFO empties within
-/// ~17 ms even at 9600 baud, so this is generous; a host that stopped reading
-/// the port (a paused console) must cost a writer milliseconds, not seconds.
-const MAX_POLLS: u32 = 20_000;
+/// Milliseconds a drain waits for the transmitter to empty before it gives up
+/// on a UART that is not emptying (the bytes stay queued for the next drain).
+/// Time, not polls: a port read is a VM exit of a microsecond or a hundred,
+/// and a host that stopped reading the port (a paused console) must cost a
+/// writer about a millisecond, not tens. A 16-byte FIFO empties within ~17 ms
+/// at 9600 baud, so a slow line costs a few gave-up drains, not data.
+const WAIT_MS: u64 = 1;
 /// The same for [`Tx::drain_all`], used when the machine is about to stop.
-const MAX_POLLS_FLUSH: u32 = 1_000_000;
-/// TSC cycles a drain that gave up leaves the port alone, when the timer
-/// is not calibrated yet (afterwards two timer periods).
-const BACKOFF_FALLBACK_CYCLES: u64 = 5_000_000;
+const WAIT_FLUSH_MS: u64 = 100;
+/// TSC cycles in a millisecond when the timer is not calibrated yet.
+const FALLBACK_CYCLES_PER_MS: u64 = 3_000_000;
+/// Timer periods a drain that gave up leaves the port alone the first time;
+/// each further give-up in a row doubles it, up to [`BACKOFF_MAX_TICKS`].
+const BACKOFF_TICKS: u64 = 2;
+const BACKOFF_MAX_TICKS: u64 = 100;
 
 const DATA: u16 = 0;
 const LINE_STATUS: u16 = 5;
@@ -67,9 +72,14 @@ pub(super) struct Tx {
     /// Longest single port access seen since the last report (TSC cycles):
     /// what a host that is slow to take serial bytes looks like from here.
     max_io: u64,
+    /// Drains in a row that gave up (the back-off doubles with it).
+    stalls: u32,
     /// Test builds: the most one drain call may send (a slow consumer).
     #[cfg(lazyos_tests)]
     cap: usize,
+    /// Test builds: the transmitter never reports empty.
+    #[cfg(lazyos_tests)]
+    never_empty: bool,
 }
 
 impl Tx {
@@ -84,8 +94,11 @@ impl Tx {
             dropped: 0,
             retry_at: 0,
             max_io: 0,
+            stalls: 0,
             #[cfg(lazyos_tests)]
             cap: usize::MAX,
+            #[cfg(lazyos_tests)]
+            never_empty: false,
         }
     }
 
@@ -98,6 +111,7 @@ impl Tx {
     }
 
     /// Bytes ever sent (wrapping); see [`Tx::passed`].
+    #[cfg(lazyos_tests)]
     pub(super) fn drained(&self) -> usize {
         self.drained
     }
@@ -152,20 +166,20 @@ impl Tx {
     /// long enough for QEMU's 16-byte PS/2 queue to overflow and lose keys.
     ///
     /// A UART that stops emptying (the host's consumer is paused or slow,
-    /// issue #857) makes the drain give up after [`MAX_POLLS`], and the next
-    /// ones return at once for a short while instead of each paying that
-    /// again.
+    /// issue #857) makes the drain give up after [`WAIT_MS`], and the next
+    /// ones return at once for a while that doubles with every give-up in a
+    /// row, instead of each paying the wait again.
     pub(super) fn drain(&mut self, budget: usize) {
-        self.drain_with(budget, MAX_POLLS, true);
+        self.drain_with(budget, WAIT_MS, true);
     }
 
     /// Send everything, however long the UART takes: a panic or a power-off
     /// is about to stop the machine and the last lines must not be lost.
     pub(super) fn drain_all(&mut self) {
-        self.drain_with(usize::MAX, MAX_POLLS_FLUSH, false);
+        self.drain_with(usize::MAX, WAIT_FLUSH_MS, false);
     }
 
-    fn drain_with(&mut self, budget: usize, polls: u32, back_off: bool) {
+    fn drain_with(&mut self, budget: usize, wait_ms: u64, back_off: bool) {
         #[cfg(lazyos_tests)]
         let budget = budget.min(self.cap);
         if back_off && crate::perf::rdtsc() < self.retry_at {
@@ -174,10 +188,12 @@ impl Tx {
         let mut sent = 0;
         while sent < budget && self.len > 0 {
             crate::arch::irq_window::poll_point();
-            if !self.wait_empty(polls) {
-                self.retry_at = crate::perf::rdtsc().saturating_add(back_off_cycles());
+            if !self.wait_empty(wait_ms * cycles_per_ms()) {
+                self.stalls = (self.stalls + 1).min(16);
+                self.retry_at = crate::perf::rdtsc().saturating_add(back_off_cycles(self.stalls));
                 return;
             }
+            self.stalls = 0;
             let burst = FIFO.min(budget - sent).min(self.len);
             for _ in 0..burst {
                 let byte = self.ring[self.head];
@@ -204,22 +220,50 @@ impl Tx {
         core::mem::take(&mut self.max_io)
     }
 
-    /// Wait until the transmitter is empty; false if it never gets there.
-    fn wait_empty(&mut self, polls: u32) -> bool {
-        for _ in 0..polls {
-            let began = crate::perf::rdtsc();
+    /// Wait until the transmitter is empty, for at most `cycles` TSC cycles;
+    /// false if it never gets there.
+    fn wait_empty(&mut self, cycles: u64) -> bool {
+        let began = crate::perf::rdtsc();
+        loop {
+            let access = crate::perf::rdtsc();
             // SAFETY: reading the line status register has no side effect.
             let status = unsafe { inb(self.base + LINE_STATUS) };
-            self.note_io(began);
+            self.note_io(access);
+            #[cfg(lazyos_tests)]
+            let status = if self.never_empty { 0 } else { status };
             if status & THR_EMPTY != 0 {
                 return true;
+            }
+            if crate::perf::rdtsc().wrapping_sub(began) > cycles {
+                return false;
             }
             // Safe under the port lock: a window's handlers take no lock but
             // the i8042 FIFO's, which no serial writer holds.
             crate::arch::irq_window::poll_point();
             core::hint::spin_loop();
         }
-        false
+    }
+
+    /// Test builds: make the transmitter never report empty, or normal again.
+    #[cfg(lazyos_tests)]
+    pub(super) fn set_never_empty(&mut self, on: bool) {
+        self.never_empty = on;
+        self.retry_at = 0;
+        self.stalls = 0;
+    }
+
+    /// Test builds: the queued bytes, oldest first.
+    #[cfg(lazyos_tests)]
+    pub(super) fn contents(&self) -> alloc::vec::Vec<u8> {
+        (0..self.len)
+            .map(|i| self.ring[(self.head + i) % RING])
+            .collect()
+    }
+
+    /// Test builds: drains in a row that gave up.
+    #[cfg(lazyos_tests)]
+    pub(super) fn stall_level(&self) -> u32 {
+        self.stalls
     }
 
     /// Test builds: change the per-call cap of a diverted port.
@@ -227,6 +271,7 @@ impl Tx {
     pub(super) fn set_cap(&mut self, cap: usize) {
         self.cap = cap;
         self.retry_at = 0;
+        self.stalls = 0;
     }
 
     /// Test builds: send to `base` (a port nothing answers on swallows the
@@ -242,16 +287,23 @@ impl Tx {
         self.drained = self.queued;
         self.dropped = 0;
         self.retry_at = 0;
+        self.stalls = 0;
         old
     }
 }
 
-/// How long a drain that gave up leaves the UART alone.
-fn back_off_cycles() -> u64 {
+/// TSC cycles in a millisecond.
+fn cycles_per_ms() -> u64 {
     match crate::arch::clock::cycles_per_tick() {
-        0 => BACKOFF_FALLBACK_CYCLES,
-        per_tick => per_tick * 2,
+        0 => FALLBACK_CYCLES_PER_MS,
+        per_tick => (per_tick / 10).max(1),
     }
+}
+
+/// How long the `stalls`-th give-up in a row leaves the UART alone.
+fn back_off_cycles(stalls: u32) -> u64 {
+    let ticks = (BACKOFF_TICKS << stalls.saturating_sub(1).min(8)).min(BACKOFF_MAX_TICKS);
+    ticks * 10 * cycles_per_ms()
 }
 
 /// The ring on a port that is not there (COM4: its status reads `0xFF`, so

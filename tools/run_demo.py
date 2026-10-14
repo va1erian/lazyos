@@ -19,7 +19,8 @@ Examples
     python tools/run_demo.py --usb-stick target/stick.img  # a FAT USB stick, mounted at /media/<label> after login
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
-    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial file; QMP for tools/webplus/sample.py
+    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial in a file; QMP for tools/webplus/sample.py
+    python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
@@ -43,7 +44,8 @@ Examples
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
     python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
-    python tools/run_demo.py --journal       # ext2 journal on the OS volume (LAZYOS_JOURNAL=1)
+    python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
+    python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --lazysky       # desktop + networking + the LazySky Bluesky client
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
@@ -87,7 +89,9 @@ import mkdisk  # noqa: E402
 import qemu_serial  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui import osvolume  # noqa: E402
-from demo_qemu import USB_APPS, device_env, sound_args, usb_desktop, usb_env, usb_sticks  # noqa: E402
+from demo_qemu import (  # noqa: E402
+    USB_APPS, boot_disk_args, device_env, sound_args, usb_desktop, usb_env, usb_sticks,
+)
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
@@ -445,19 +449,7 @@ def main(argv: list[str]) -> int:
     qemu = find_qemu(args.qemu)
     command = [qemu, "-m", args.memory, "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
                *qemu_serial.qemu_args(args)]
-    # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
-    # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
-    if args.disk == "virtio":
-        command += ["-drive", f"format=raw,file={image},if=none,id=boot",
-                    "-device", "virtio-blk-pci,drive=boot"]
-    elif args.disk == "ahci":
-        # Its own AHCI controller (works on every machine type), the image the
-        # only disk on it: the kernel must find it as ahci0.
-        command += ["-device", "ahci,id=ahcib",
-                    "-drive", f"format=raw,file={image},if=none,id=boot",
-                    "-device", "ide-hd,drive=boot,bus=ahcib.0"]
-    else:
-        command += ["-drive", f"format=raw,file={image}"]
+    command += boot_disk_args(args.disk, image)
     # Same order as the screenshot tools: boot, data, then home.
     if data_disk:
         command += data_disk_args(data_disk)

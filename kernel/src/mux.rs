@@ -79,10 +79,15 @@ pub fn run() -> ! {
         // Freeze forensics (issue #861): exits, stuck tasks, busy processes.
         without_interrupts(|| crate::arch::irqoff::kernel_section(crate::task::forensics::service));
         // Repeats of an unimplemented syscall, counted (`process::linux::enosys`).
-        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::process::linux::enosys::report));
+        without_interrupts(|| {
+            crate::arch::irqoff::kernel_section(crate::process::linux::enosys::report)
+        });
         // Serial output the writers left queued, and the count of bytes that
         // did not fit (P5, issue #857). Interrupts are on here.
         crate::serial::service();
+        // ...and what it dropped, said with interrupts off like every other
+        // line a task prints (the drain above takes the port with them on).
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::serial::report));
         let serial_backlog = crate::serial::backlog();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that

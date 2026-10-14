@@ -24,6 +24,23 @@ NICS = ("virtio", "e1000")
 IRQCHIPS = ["ioapic", "pic"]
 
 
+def boot_disk_args(disk: str, image) -> list[str]:
+    """The QEMU arguments of the boot disk (`--disk`).
+
+    virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
+    which made loading the ~2.7 MB desktop ELFs take tens of seconds."""
+    if disk == "virtio":
+        return ["-drive", f"format=raw,file={image},if=none,id=boot",
+                "-device", "virtio-blk-pci,drive=boot"]
+    if disk == "ahci":
+        # Its own AHCI controller (works on every machine type), the image the
+        # only disk on it: the kernel must find it as ahci0.
+        return ["-device", "ahci,id=ahcib",
+                "-drive", f"format=raw,file={image},if=none,id=boot",
+                "-device", "ide-hd,drive=boot,bus=ahcib.0"]
+    return ["-drive", f"format=raw,file={image}"]
+
+
 def add_device_options(parser: argparse.ArgumentParser) -> None:
     """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip` and
     `--no-msi`."""

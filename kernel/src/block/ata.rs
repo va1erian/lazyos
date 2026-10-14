@@ -50,7 +50,7 @@ const COMMAND_READ: u8 = 0x20;
 /// Serialises PIO sequences: the scheduler can have several tasks reading the
 /// filesystem, and interleaving command bytes would corrupt a transfer. Held
 /// across a sleeping wait, so contenders yield (module docs).
-static IO: YieldMutex<()> = YieldMutex::new(());
+static IO: YieldMutex<()> = YieldMutex::named("ata", ());
 
 /// How long the drive usually takes to raise a sector, for the first look of
 /// a sleeping wait.

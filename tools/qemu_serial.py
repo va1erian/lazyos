@@ -8,18 +8,26 @@ launcher's reader busy, a full pipe) stalls the guest's vCPU inside a port
 write, and the guest turns it into a frozen desktop. Now the serial port goes
 to a file, which never blocks, and this launcher tails the file to its own
 stdout from a thread: a console that stops reading stalls the tail, not the
-guest. The file is also the whole serial log of the run (`target/serial.log`).
+guest. The file is also the whole serial log of the run
+(`target/serial-<image>-<date>-<time>.log`, one per run, the newest
+[`KEEP_LOGS`] kept, so a freeze report is a file and two launchers from one
+checkout never share one).
 
-The monitor stays on the console, as before: a muxed stdio chardev, so
-`Ctrl-A x` still quits QEMU, `Ctrl-A c` is the monitor prompt and `Ctrl-A h`
-lists the keys. (Nothing the guest does reads its serial port, so the console's
-keyboard never fed it.) `--serial-stdio` restores the old single muxed device,
+The monitor stays on the console, as a muxed stdio chardev with the keys
+`mon:stdio` had: `Ctrl-A x` quits QEMU and `Ctrl-A h` lists them. `signal=off`
+is what `mon:stdio` did too: Ctrl-C is not a signal to QEMU (on Linux it no
+longer ends the launcher; use `Ctrl-A x`). The muxed device now holds the
+monitor alone, so `Ctrl-A c`, which cycles between the muxed frontends, has
+nothing to switch to; the monitor is simply the prompt. (Nothing the guest does
+reads its serial port, so the console's keyboard never fed it.)
+`--serial-stdio` restores the old single muxed device for serial and monitor,
 now with the log file as a copy of the output.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import threading
@@ -34,15 +42,17 @@ POLL_SECONDS = 0.05
 #: Seconds `stop` waits for the tail to hand over the rest of the log.
 STOP_SECONDS = 2.0
 CHUNK = 64 * 1024
+#: Default per-run logs kept in `target/` (the newest).
+KEEP_LOGS = 10
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     """The launcher's serial options."""
     parser.add_argument("--serial-log", metavar="PATH",
                         help="the guest's serial output, tailed to this console "
-                             "(default: target/serial-<date>-<time>.log)")
+                             "(default: target/serial-<image>-<date>-<time>.log)")
     parser.add_argument("--sample-port", type=int, metavar="N",
-                        help="a QMP socket on 127.0.0.1:N for tools/webplus/sample.py "
+                        help="a second QMP socket on 127.0.0.1:N for tools/webplus/sample.py "
                              "(CR3 + RIP at 30 Hz during a freeze)")
     parser.add_argument("--serial-stdio", action="store_true",
                         help="the old single muxed stdio for serial and monitor "
@@ -54,13 +64,35 @@ def _option_path(path: Path) -> str:
     return path.resolve().as_posix().replace(",", ",,")
 
 
+def default_log_name(image: str | None, now: float | None = None) -> str:
+    """`serial-<image stem>-<date>-<time>.log`: named for the image and the
+    moment, so two launchers in one checkout (on Windows a second process
+    cannot open the other's file for writing) never collide."""
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(image).stem) if image else "lazyos"
+    return time.strftime(f"serial-{stem}-%Y%m%d-%H%M%S.log", time.localtime(now))
+
+
 def resolve_log(args: argparse.Namespace) -> Path:
     """The run's serial log: `--serial-log`, else a file named for this run
     (decided once, so the arguments and the tail agree)."""
     if not getattr(args, "_serial_log", None):
         args._serial_log = (Path(args.serial_log) if args.serial_log
-                            else LOG_DIR / time.strftime("serial-%Y%m%d-%H%M%S.log"))
+                            else LOG_DIR / default_log_name(getattr(args, "image", None)))
     return args._serial_log
+
+
+def prune_logs(directory: Path, keep: int = KEEP_LOGS) -> list[Path]:
+    """Delete all but the newest `keep` default-named logs; returns the deleted."""
+    logs = sorted((p for p in directory.glob("serial-*.log") if p.is_file()),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+    gone = []
+    for old in logs[keep:]:
+        try:
+            old.unlink()
+            gone.append(old)
+        except OSError:
+            pass  # in use by another launcher
+    return gone
 
 
 def sample_args(port: int | None) -> list[str]:
@@ -69,8 +101,8 @@ def sample_args(port: int | None) -> list[str]:
 
 
 def qemu_args(args: argparse.Namespace) -> list[str]:
-    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor
-    (and the sampling socket, if asked for)."""
+    """The `-chardev`/`-serial`/`-mon` arguments for serial and monitor (and
+    the sampling socket, if asked for)."""
     path = _option_path(resolve_log(args))
     if args.serial_stdio:
         chardevs = ["-chardev", f"stdio,id=ser0,mux=on,logfile={path}",
@@ -79,7 +111,7 @@ def qemu_args(args: argparse.Namespace) -> list[str]:
         chardevs = ["-chardev", f"file,id=ser0,path={path}", "-serial", "chardev:ser0",
                     "-chardev", "stdio,id=mon0,mux=on,signal=off",
                     "-mon", "chardev=mon0,mode=readline"]
-    return chardevs + sample_args(args.sample_port)
+    return chardevs + sample_args(getattr(args, "sample_port", None))
 
 
 class Tail:
@@ -148,6 +180,8 @@ def prepare_log(log: Path) -> None:
 def run(command: list[str], args: argparse.Namespace) -> int:
     """Run QEMU; with the file serial port, tail the log to this console."""
     log = resolve_log(args)
+    if not args.serial_log:
+        prune_logs(log.parent)
     print(f"serial log: {log}", flush=True)
     if args.serial_stdio:
         return subprocess.call(command)

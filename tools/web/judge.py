@@ -22,6 +22,12 @@ Three kinds of evidence, each judged on its own:
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
+
 import hashlib
 import re
 import sys
@@ -116,7 +122,7 @@ def judge_prechecks(text: str, names: list[str]) -> list[str]:
 def judge_serial(text: str, oldnet_title: str | None = OLDNET_TITLE) -> list[str]:
     """The browser's markers. `oldnet_title` None (`--live`) accepts any title
     other than example.com's for the second page."""
-    problems = []
+    problems = serial_integrity.problems(text)
     if "WEB:UP:PASS" not in text:
         problems.append("the browser never reported WEB:UP:PASS")
     for failure in _lines(text, "WEB:FAIL:"):

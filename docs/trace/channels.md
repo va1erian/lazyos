@@ -93,7 +93,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `REMOVABLE` | `Removable` | `removable` | xui-app | tools/storage | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel, kernel suite | - | programs |
-| `SERIAL` | `Serial` | `serial` | kernel, kernel suite | - | programs |
+| `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/install, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py, tools/web, tools/webplus | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
 | `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/webplus | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
@@ -118,7 +118,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
-| `WEB` | `Web` | `web` | xui-app | sessions, tools/web | programs |
+| `WEB` | `Web` | `web` | xui-app | sessions, tools/test_qemu_serial.py, tools/web | programs |
 | `WEBKIT` | `Webkit` | `webkit` | xui-app | sessions, tools/webkit | programs |
 | `WEBPLUS` | `Webplus` | `webplus` | xui-app | sessions, tools/webplus | programs |
 | `WIDGET` | `Widget` | `widget` | xui-app | sessions | programs |

@@ -198,6 +198,7 @@ class Launcher:
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
         self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
+        self._field(g, "Sample port:", "sample_port", 8)  # QMP port for webplus/sample.py: CR3+RIP during a freeze (#861)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         self._field(g, "Autologin:", "autologin", 12)  # user: no login screen (#623)
         self._field(g, "Netboot key:", "netboot_key", 44)  # key.sec for manifest.sig; empty = unsigned

@@ -89,7 +89,11 @@ fn soak_report_is_bounded() -> Result<(), String> {
         picks(2 * WINDOW_TICKS as usize);
         let due = round % 10 == 9;
         let (first, summary, omitted) = task::guard::collect_for_test(due);
-        check!(first.len() <= 4, "round {round}: {} first lines", first.len());
+        check!(
+            first.len() <= 4,
+            "round {round}: {} first lines",
+            first.len()
+        );
         check!(
             summary.len() <= 8,
             "round {round}: {} summary rows",
@@ -102,7 +106,11 @@ fn soak_report_is_bounded() -> Result<(), String> {
             "round {round}: rows left out ({omitted}) with room in the summary"
         );
     }
-    check!(named <= hogs.len(), "{named} tasks named, only {} exist", hogs.len());
+    check!(
+        named <= hogs.len(),
+        "{named} tasks named, only {} exist",
+        hogs.len()
+    );
     check!(
         summarised <= task::guard::demotions(),
         "the summaries counted {summarised}, the guard did {}",

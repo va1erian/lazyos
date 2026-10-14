@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for qemu_serial.py: the serial port's file chardev and its tail.
+"""Tests for qemu_serial.py (the serial port's file chardev and its tail) and
+serial_integrity.py (what a log with dropped lines means to a judge).
 
 Run: python tools/test_qemu_serial.py
 """
@@ -8,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import sys
 import tempfile
 import threading
@@ -17,10 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import qemu_serial  # noqa: E402
+import serial_integrity  # noqa: E402
 
 
-def ns(log=None, stdio=False, port=None) -> argparse.Namespace:
-    return argparse.Namespace(serial_log=log, serial_stdio=stdio, sample_port=port)
+def ns(log=None, stdio=False, image=None, port=None) -> argparse.Namespace:
+    return argparse.Namespace(serial_log=log, serial_stdio=stdio, image=image, sample_port=port)
 
 
 def pairs(command: list[str], flag: str) -> list[str]:
@@ -53,18 +56,46 @@ class ArgsTests(unittest.TestCase):
         self.assertIn(",,", pairs(command, "-chardev")[0])
 
 
-class RunTests(unittest.TestCase):
-    def test_the_default_log_is_named_for_the_run_and_stable_within_it(self) -> None:
-        args = ns()
-        log = qemu_serial.resolve_log(args)
-        self.assertRegex(log.name, r"^serial-\d{8}-\d{6}\.log$")
-        self.assertEqual(qemu_serial.resolve_log(args), log)
-        self.assertIn(log.name, " ".join(qemu_serial.qemu_args(args)))
-
+class SampleTests(unittest.TestCase):
     def test_sample_port_adds_the_second_qmp_socket(self) -> None:
         command = qemu_serial.qemu_args(ns("s.log", port=5555))
         self.assertEqual(pairs(command, "-qmp"), ["tcp:127.0.0.1:5555,server=on,wait=off"])
         self.assertEqual(pairs(qemu_serial.qemu_args(ns("s.log")), "-qmp"), [])
+        stdio = qemu_serial.qemu_args(ns("s.log", stdio=True, port=7))
+        self.assertEqual(pairs(stdio, "-qmp"), ["tcp:127.0.0.1:7,server=on,wait=off"])
+
+
+class LogNameTests(unittest.TestCase):
+    def test_the_default_name_has_the_image_and_the_moment(self) -> None:
+        name = qemu_serial.default_log_name("target/lazyos.img", 86400 * 365)
+        self.assertRegex(name, r"^serial-lazyos-\d{8}-\d{6}\.log$")
+        other = qemu_serial.default_log_name("shots/other image.img", 86400 * 365)
+        self.assertIn("serial-other_image-", other)
+        self.assertNotEqual(name, other)
+
+    def test_the_default_log_is_stable_within_a_run_and_in_target(self) -> None:
+        args = ns(image="target/lazyos.img")
+        log = qemu_serial.resolve_log(args)
+        self.assertEqual(log.parent, qemu_serial.LOG_DIR)
+        self.assertEqual(qemu_serial.resolve_log(args), log)
+        self.assertIn(log.name, " ".join(qemu_serial.qemu_args(args)))
+
+    def test_an_explicit_log_is_used_as_given(self) -> None:
+        self.assertEqual(qemu_serial.resolve_log(ns("x.log")), Path("x.log"))
+
+    def test_only_the_newest_logs_are_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            for index in range(7):
+                log = folder / f"serial-a-{index}.log"
+                log.write_text("x")
+                os.utime(log, (1000 + index, 1000 + index))
+            (folder / "other.log").write_text("keep")
+            gone = qemu_serial.prune_logs(folder, keep=3)
+            self.assertEqual(sorted(p.name for p in gone),
+                             [f"serial-a-{i}.log" for i in range(4)])
+            self.assertTrue((folder / "other.log").exists())
+            self.assertEqual(len(list(folder.glob("serial-*.log"))), 3)
 
 
 class TailTests(unittest.TestCase):
@@ -133,6 +164,23 @@ class PrepareTests(unittest.TestCase):
             log.write_bytes(b"old")
             qemu_serial.prepare_log(log)
             self.assertFalse(log.exists())
+
+
+class IntegrityTests(unittest.TestCase):
+    def test_a_complete_log_has_no_problem(self) -> None:
+        self.assertEqual(serial_integrity.problems("WEB:UP:PASS\nSERIAL:BACKLOG bytes=5000\n"), [])
+
+    def test_every_dropped_report_is_a_problem(self) -> None:
+        text = "A\nSERIAL:DROPPED bytes=300 total=300\nB\n[12.5] SERIAL:DROPPED bytes=1 total=301\n"
+        found = serial_integrity.problems(text)
+        self.assertEqual(len(found), 2)
+        self.assertIn("bytes=300", found[0])
+
+    def test_the_judges_and_the_session_use_it(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "boot"))
+        import judge as boot_judge  # noqa: E402
+        failures = boot_judge.judge_serial("SERIAL:DROPPED bytes=9 total=9\n", "bios")
+        self.assertTrue(any("dropped" in f for f in failures))
 
 
 if __name__ == "__main__":

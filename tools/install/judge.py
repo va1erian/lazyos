@@ -22,6 +22,12 @@ should without booting anything. The verdicts:
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
+
 import importlib.util
 import re
 from pathlib import Path
@@ -54,7 +60,7 @@ def install_uuids(log: str) -> tuple[str | None, str | None]:
 
 def judge_install(log: str, before: dict[str, bytes] | None = None,
                   after: dict[str, bytes] | None = None) -> list[str]:
-    failures = []
+    failures = serial_integrity.problems(log)
     if not re.search(r"^done\s*$", log, re.M):
         failures.append("lazyos-install did not finish (no `done`)")
     if "lazyos-install:" in log:

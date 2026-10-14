@@ -5,16 +5,16 @@
 //! disk) runs. When the holder never lets go, every other task that touches
 //! the filesystem queues behind it and the desktop goes quiet with nothing in
 //! the log. The multiplexer loop reports a contender that has waited more than
-//! [`WAIT_NS`], with the syscall it is in (which names the path it was taking)
-//! and how many tasks wait now; again every [`REPEAT_NS`] while it lasts.
-//! The lock's own name and holder are not known: the relax strategy is not
-//! told which lock it serves. The holder is a task parked in a filesystem or
-//! block syscall (`SCHED:STUCK` names runnable ones).
+//! [`WAIT_NS`], with the lock's name (`vfs`, `ext2`, `ata`, ...), its holder
+//! and the syscall the waiter is in; again every [`REPEAT_NS`] while it lasts.
+//!
+//! A wait is recorded when the first try fails and cleared when the lock is
+//! taken (`task::yieldlock`), so any number of short waits never add up.
 
 use spin::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use super::{linuxstate, relax, MAX_TASKS, TASKS};
+use super::{linuxstate, yieldlock, MAX_TASKS, TASKS};
 
 /// A wait this long is worth a line.
 const WAIT_NS: u64 = 500_000_000;
@@ -26,6 +26,9 @@ const ROWS_MAX: usize = 6;
 /// Per slot, when the wait was last reported (monotonic ns; 0: not yet).
 static PRINTED: Mutex<[u64; MAX_TASKS]> = Mutex::new([0; MAX_TASKS]);
 
+/// Lines allowed in a ten-second window, all waiters together.
+static BUDGET: tracefmt::Budget = tracefmt::Budget::new(12, 1000);
+
 #[derive(Clone, Copy)]
 struct Row {
     slot: usize,
@@ -33,6 +36,8 @@ struct Row {
     name: &'static str,
     comm: [u8; 16],
     call: Option<(bool, u64)>,
+    lock: &'static str,
+    holder: Option<(usize, &'static str, [u8; 16])>,
     waited_ns: u64,
 }
 
@@ -49,7 +54,7 @@ fn sample_at(now: u64) {
         let tasks = TASKS.lock();
         let mut printed = PRINTED.lock();
         for slot in 1..MAX_TASKS {
-            let Some(waited) = relax::waiting_ns(slot, now) else {
+            let Some((lock, holder, waited)) = yieldlock::waiting(slot, now) else {
                 printed[slot] = 0;
                 continue;
             };
@@ -72,27 +77,50 @@ fn sample_at(now: u64) {
                 name: task.name,
                 comm: linuxstate::comm_of(task).0,
                 call: crate::arch::irqoff::task_syscall(slot).map(|(native, nr, _)| (native, nr)),
+                lock,
+                holder: holder.and_then(|h| {
+                    tasks
+                        .get(h)
+                        .and_then(|t| t.as_ref())
+                        .map(|t| (h, t.name, linuxstate::comm_of(t).0))
+                }),
                 waited_ns: waited,
             });
             count += 1;
         }
     });
     for row in rows.iter().flatten() {
+        match BUDGET.charge(now / 10_000_000) {
+            tracefmt::Charge::Deny => continue,
+            tracefmt::Charge::AllowAfter(n) => {
+                crate::trace::line!(tracefmt::Channel::Lock, "WAIT_SUPPRESSED n={n}")
+            }
+            tracefmt::Charge::Allow => {}
+        }
         print(row, waiters);
     }
 }
 
+fn text(comm: &[u8; 16]) -> &str {
+    let len = comm.iter().position(|&b| b == 0).unwrap_or(16);
+    core::str::from_utf8(&comm[..len]).unwrap_or("?")
+}
+
 fn print(row: &Row, waiters: usize) {
-    let len = row.comm.iter().position(|&b| b == 0).unwrap_or(16);
-    let comm = core::str::from_utf8(&row.comm[..len]).unwrap_or("?");
     let (abi, nr) = match row.call {
         Some((true, nr)) => ("native", nr as i64),
         Some((false, nr)) => ("linux", nr as i64),
         None => ("-", -1),
     };
+    let holder = match row.holder {
+        Some((slot, name, comm)) => alloc::format!("{slot}/{name}:{}", text(&comm)),
+        None => alloc::string::String::from("-"),
+    };
     crate::trace::line!(
         tracefmt::Channel::Lock,
-        "WAIT thread={}/{} tgid={} abi={} nr={} waiters={} ms={} comm={}",
+        "WAIT lock={} holder={} thread={}/{} tgid={} abi={} nr={} waiters={} ms={} comm={}",
+        row.lock,
+        holder,
         row.slot,
         row.name,
         row.tgid,
@@ -100,7 +128,7 @@ fn print(row: &Row, waiters: usize) {
         nr,
         waiters,
         row.waited_ns / 1_000_000,
-        comm
+        text(&row.comm)
     );
 }
 
@@ -108,6 +136,7 @@ fn print(row: &Row, waiters: usize) {
 #[cfg(lazyos_tests)]
 pub fn reset_for_test() {
     without_interrupts(|| *PRINTED.lock() = [0; MAX_TASKS]);
+    BUDGET.reset();
 }
 
 /// [`sample`] at a chosen time; returns the slots it reported (the suite).

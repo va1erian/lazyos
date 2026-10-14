@@ -300,6 +300,17 @@ def _script(cfg: dict) -> tuple:
     return SCRIPTS[cfg["script"]]
 
 
+def sample_argv(cfg: dict) -> list[str]:
+    """`--sample-port N` for the Advanced tab's "Sample port" (a QEMU argument,
+    so it applies with "Skip build" too); empty means none."""
+    port = str(cfg.get("sample_port") or "").strip()
+    if not port:
+        return []
+    if not port.isdigit() or not 1024 <= int(port) <= 65535:
+        raise ValueError(f"Sample port must be a number from 1024 to 65535, not {port!r}")
+    return ["--sample-port", port]
+
+
 def build_plan(cfg: dict) -> list[dict]:
     """Turn a configuration dict into an ordered list of steps."""
     check_limits(cfg)
@@ -402,6 +413,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # A virtio-net card on QEMU's user network with the forwards; run_demo
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)
+        argv += sample_argv(cfg)  # a QMP socket for tools/webplus/sample.py (#861)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

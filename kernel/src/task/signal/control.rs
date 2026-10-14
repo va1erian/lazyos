@@ -132,7 +132,6 @@ pub(super) fn send_checked(
     if sig == 0 {
         return Ok(());
     }
-    crate::task::procexit::note_signal(pml4, sig, tgid_of(caller));
     // A signal to a zombie is dropped, like Linux. A process-directed one
     // aimed at an exited thread (the group leader may leave first) goes to a
     // live thread of the same process instead.
@@ -172,6 +171,7 @@ pub(super) fn send_checked(
     let disposition = with_signals(pml4, |state| state.actions[sig as usize]);
     match sig {
         SIGKILL => {
+            crate::task::procexit::note_signal(pml4, sig, tgid_of(info.pid));
             kill_process(pml4, 128 + sig as u64);
             return Ok(());
         }
@@ -201,6 +201,15 @@ pub(super) fn send_checked(
         return Ok(());
     }
 
+    // A default term/core signal will end the process (`PROC:EXIT by=`).
+    if disposition == Disposition::Default
+        && matches!(
+            default_action(sig),
+            DefaultAction::Term | DefaultAction::Core
+        )
+    {
+        crate::task::procexit::note_signal(pml4, sig, tgid_of(info.pid));
+    }
     let Some(taker) = queue(pml4, target, sig, info, scope) else {
         // Queued, but every thread that could take it blocks it for now.
         return Ok(());

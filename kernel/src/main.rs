@@ -484,8 +484,7 @@ fn drop_input_caps(index: usize) {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    serial_println!("LazyOS PANIC: {}", info);
-    serial::flush();
+    serial::final_line(format_args!("LazyOS PANIC: {}", info));
     // A real PC has no serial port: put the reason and the boot log on screen.
     panic_screen::show("LazyOS stopped: kernel panic", format_args!("{}", info));
     halt();
