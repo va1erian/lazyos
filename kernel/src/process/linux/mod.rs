@@ -294,6 +294,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         74 | 75 => filesys::sys_fsync(a1),     // fsync / fdatasync
         76 => filesys::sys_truncate(a1, a2),   // truncate(path, length)
         77 => filesys::sys_ftruncate(a1, a2),  // ftruncate(fd, length)
+        285 => filesys::sys_fallocate(a1, a2, a3, a4), // fallocate(fd, mode, offset, len): EOPNOTSUPP
         78 => dents::sys_getdents(a1, a2, a3), // getdents
         79 => cwd::sys_getcwd(a1, a2),
         80 => cwd::sys_chdir(a1),                       // chdir

@@ -10,6 +10,7 @@ use crate::mem::vma::Kind;
 use crate::quota::{self, Resource};
 
 mod basic;
+mod cache_body;
 mod coherence;
 mod lifecycle;
 mod refresh;
@@ -197,6 +198,12 @@ pub(super) fn bytes_of(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
+    (
+        "linux_filemap_cache_body_write_path",
+        cache_body::body_write_path,
+    ),
+    ("linux_filemap_fallocate_answers", cache_body::fallocate_answers),
+    ("linux_filemap_cache_body_soak", cache_body::body_soak),
     ("linux_filemap_private", basic::private_mapping),
     ("linux_filemap_shared", basic::shared_mapping),
     (

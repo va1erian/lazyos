@@ -152,6 +152,11 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
 1. **`fallocate` (285).** Implement mode 0 on ext2 (reserve blocks, or just extend) or return `EOPNOTSUPP` (what
    Linux says for a file system without it, and what WTF accepts). Then make a five-site run print **no**
    `ENOSYS`, and keep that as a harness check (`tools/webplus/perf.py` fails on any). Half a day, big for H8.
+   *Done (issue #864):* `fallocate` answers `EOPNOTSUPP` to every valid request (`process/linux/filesys.rs`:
+   reserving ext2 blocks means writing them, the burst the call exists to avoid), and the cache's whole body
+   sequence (`O_EXCL` create, `ftruncate`, `fallocate`, `MAP_SHARED` write, `mprotect(PROT_READ)`,
+   `msync(MS_ASYNC)`, unmap, read back, remount) is a kernel test with a soak
+   (`linux_filemap_cache_body_*`, `linux_filemap_fallocate_answers`).
 2. **Demand-paged, shared executables.** Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged
    in only where used, and a second WebProcess shares the first's text. Expected: exec in well under a second.
