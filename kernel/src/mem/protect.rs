@@ -44,7 +44,13 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
                 }
                 // Safety: same `entry`, still valid; nothing else can have
                 // unmapped it in between (single-threaded `mprotect`).
-                unsafe { *entry = applied };
+                unsafe {
+                    *entry = applied;
+                    if applied & PTE_WRITABLE != 0 {
+                        // A read-only parent over a leaf that may now be written (issue #853).
+                        make_walk_writable(table, va);
+                    }
+                }
                 x86_64::instructions::tlb::flush(VirtAddr::new(va));
             }
         }

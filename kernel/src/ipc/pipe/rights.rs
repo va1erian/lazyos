@@ -326,6 +326,7 @@ impl Pipe {
                 let free_before = ring.buf.len() - ring.len;
                 if ring.mode == Mode::Seqpacket {
                     if let Some(&message) = ring.frames.front() {
+                        let was_writable = self.space_to_write(&ring);
                         let n = message.min(dst.len());
                         let copied = ring.drain_into(&mut dst[..n]);
                         if message > copied {
@@ -336,8 +337,12 @@ impl Pipe {
                         let frame = ring.frames_out;
                         ring.frames_out += 1;
                         let taken = ring.take_frame_rights(frame);
+                        // Pollers care only when this read made room for a
+                        // frame: a read that leaves the ring as unwritable as
+                        // it was would wake them for nothing.
+                        let room = !was_writable && self.space_to_write(&ring);
                         drop(ring);
-                        self.after_read(if full { 0 } else { free_before });
+                        self.after_read(if full { 0 } else { free_before }, room);
                         deliver(taken, sink);
                         return Ok(n);
                     }
@@ -346,7 +351,7 @@ impl Pipe {
                     let n = ring.drain_into(&mut dst[..want]);
                     let taken = ring.take_rights();
                     drop(ring);
-                    self.after_read(free_before);
+                    self.after_read(free_before, true);
                     deliver(taken, sink);
                     return Ok(n);
                 }
