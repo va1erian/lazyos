@@ -61,9 +61,9 @@ use crate::process as user_process;
 
 pub mod childbell;
 pub mod diag;
+mod family;
 pub mod introspect;
 mod linux_spawn;
-mod family;
 pub mod process;
 pub mod relax;
 pub mod signal;

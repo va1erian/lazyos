@@ -4,17 +4,51 @@
 //! children (`wait4`, the child bell, `setpgid`) asks whether the child's
 //! parent is in the asker's process. Also `PR_SET_PDEATHSIG`.
 
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
 use super::process::reparent_children_locked;
 use super::signal;
 use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS};
 
 /// The thread-group leader of `slot`: its own slot for a process, the slot
-/// `clone(CLONE_THREAD)` recorded for a thread.
+/// `clone(CLONE_THREAD)` recorded for a thread. A leader stays a zombie until
+/// its last thread is gone (`reapable`), so the recorded slot cannot have been
+/// reused while the thread runs; the check keeps a stale value from naming
+/// somebody else's process anyway.
 pub(super) fn leader_of(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
     match tasks.get(slot).and_then(|task| task.as_ref()) {
-        Some(task) if task.linux.tgid != 0 => task.linux.tgid,
+        Some(task) if task.linux.tgid != 0 && same_process(tasks, task.linux.tgid, slot) => {
+            task.linux.tgid
+        }
         _ => slot,
     }
+}
+
+/// `getppid` of `slot`: the leader of the process that forked its process
+/// (0: init).
+pub(super) fn ppid(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
+    let parent = tasks
+        .get(leader_of(tasks, slot))
+        .and_then(|task| task.as_ref())
+        .map_or(0, |task| task.parent);
+    leader_of(tasks, parent)
+}
+
+/// Whether the finished task `task` (in `slot`) may be reaped or reclaimed:
+/// a thread-group leader stays a zombie while a thread of its process runs
+/// (Linux's `delay_group_leader`), so its slot, the process's identity, is not
+/// reused under the threads.
+pub(super) fn reapable(tasks: &[Option<Task>; MAX_TASKS], slot: usize, task: &Task) -> bool {
+    task.linux.tgid != 0
+        || !tasks
+            .iter()
+            .enumerate()
+            .any(|(other, t)| other != slot && is_live(t) && same_process(tasks, other, slot))
+}
+
+fn is_live(task: &Option<Task>) -> bool {
+    task.as_ref()
+        .is_some_and(|task| task.state != TaskState::Done)
 }
 
 /// Whether slots `a` and `b` are threads of one process: the same task, or
@@ -44,18 +78,41 @@ pub(super) fn is_child_of(tasks: &[Option<Task>; MAX_TASKS], me: usize, child: &
     child.parent == me || (child.parent != 0 && same_process(tasks, child.parent, me))
 }
 
-/// Children whose process asked to be signalled when its parent dies
-/// (`PR_SET_PDEATHSIG`), flagged by [`finish_locked`] and signalled by
-/// [`deliver_parent_death`] once the task table is unlocked.
+/// Live threads (and the address space they were flagged in) whose process
+/// asked to be signalled when its parent dies (`PR_SET_PDEATHSIG`), flagged
+/// by [`release_children_locked`] and signalled by [`deliver_parent_death`]
+/// once the task table is unlocked. A flagged slot whose task has since been
+/// replaced by another process is not signalled.
 static PENDING_PDEATH: super::slotmask::SlotMask = super::slotmask::SlotMask::new();
+static PENDING_SPACE: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// Set while some call to [`deliver_parent_death`] is draining the flags.
+static DELIVERING: AtomicBool = AtomicBool::new(false);
 
-/// Send the parent-death signals [`finish_locked`] flagged. Call with the
-/// task table unlocked, wherever a death is finished off.
+/// Send the parent-death signals [`release_children_locked`] flagged. Call
+/// with the task table unlocked, wherever a death is finished off.
+///
+/// Iterative and not re-entrant: a signal that kills its target (SIGKILL)
+/// finishes it, which flags *its* children and calls back in here. That
+/// nested call returns at once and the outermost call picks the new flags up,
+/// so a chain of N processes each asking for SIGKILL costs a loop, not N
+/// levels of kernel stack.
 pub(crate) fn deliver_parent_death() {
-    for slot in PENDING_PDEATH.take().iter() {
-        let sig = super::linuxstate::with_extras_of(slot, |extras| extras.pdeathsig).unwrap_or(0);
-        if sig != 0 {
-            let _ = signal::send_to_slot(KERNEL_TASK, slot, sig, signal::SigInfo::kernel());
+    if DELIVERING.swap(true, Ordering::Acquire) {
+        return;
+    }
+    loop {
+        for slot in PENDING_PDEATH.take().iter() {
+            let space = PENDING_SPACE[slot].load(Ordering::Acquire);
+            let sig = super::linuxstate::pdeathsig_in(slot, space);
+            if sig != 0 {
+                let _ = signal::send_to_slot(KERNEL_TASK, slot, sig, signal::SigInfo::kernel());
+            }
+        }
+        DELIVERING.store(false, Ordering::Release);
+        // A flag set while the last batch ran (by a nested call that returned
+        // at once, or an interrupt) is this call's to deliver.
+        if !PENDING_PDEATH.any() || DELIVERING.swap(true, Ordering::Acquire) {
+            return;
         }
     }
 }
@@ -63,24 +120,30 @@ pub(crate) fn deliver_parent_death() {
 /// `slot` died: its children go on with its process. While another thread of
 /// the process lives, that thread inherits them (they belong to the process,
 /// and `slot` may be reclaimed); when `slot` was the last, they are adopted by
-/// init, and each that asked for a parent-death signal is flagged for it.
-/// Returns how many went to init.
+/// init, and each child process that asked for a parent-death signal (on any
+/// of its live threads) is flagged for it. Returns how many went to init.
 pub(super) fn release_children_locked(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize) -> usize {
-    let heir = (1..MAX_TASKS).find(|&other| {
-        other != slot
-            && tasks[other]
-                .as_ref()
-                .is_some_and(|task| task.state != TaskState::Done)
-            && same_process(tasks, other, slot)
-    });
+    let heir = (1..MAX_TASKS)
+        .find(|&other| other != slot && is_live(&tasks[other]) && same_process(tasks, other, slot));
     if let Some(heir) = heir {
         reparent_children_locked(tasks, slot, heir);
         return 0;
     }
-    for (child, task) in tasks.iter().enumerate() {
-        let Some(task) = task else { continue };
-        if task.parent == slot && task.state != TaskState::Done && task.linux.pdeathsig != 0 {
-            PENDING_PDEATH.set(child);
+    for child in tasks.iter().flatten().filter(|task| task.parent == slot) {
+        // The child's process: any live thread of it that carries the signal
+        // (the leader may be a zombie while a thread runs).
+        let carrier = tasks.iter().enumerate().find(|(_, other)| {
+            other.as_ref().is_some_and(|other| {
+                other.state != TaskState::Done
+                    && other.pml4 == child.pml4
+                    && other.linux.pdeathsig != 0
+            })
+        });
+        if let Some((carrier, other)) = carrier {
+            if let Some(other) = other {
+                PENDING_SPACE[carrier].store(other.pml4, Ordering::Release);
+                PENDING_PDEATH.set(carrier);
+            }
         }
     }
     reparent_children_locked(tasks, slot, KERNEL_TASK)

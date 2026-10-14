@@ -21,6 +21,8 @@ const POLLIN: u16 = 0x1;
 const POLLHUP: u16 = 0x10;
 const POLLRDHUP: u16 = 0x2000;
 
+mod more;
+
 fn fresh() -> Result<(), String> {
     task::register_kernel();
     task::harness::reset();
@@ -415,6 +417,23 @@ pub fn socket_peer_gone_is_readable() -> Result<(), String> {
 }
 
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "child_bell_rings_sibling_thread",
+        more::bell_rings_a_sibling_thread,
+    ),
+    (
+        "child_blocking_wait4_on_sibling",
+        more::blocking_wait4_on_a_sibling,
+    ),
+    (
+        "child_pdeathsig_timer_sweep",
+        more::pdeathsig_through_the_timer_sweep,
+    ),
+    (
+        "child_pdeathsig_chain_no_recursion",
+        more::pdeathsig_chain_does_not_recurse,
+    ),
+    ("child_leader_exits_first", more::leader_exits_first),
     (
         "child_wait4_from_sibling_thread",
         wait4_from_a_sibling_thread,

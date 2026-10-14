@@ -29,6 +29,7 @@ unsafe extern "C" {
     fn close(fd: i32) -> i32;
     fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     fn read(fd: i32, buf: *mut u8, len: usize) -> isize;
+    fn write(fd: i32, buf: *const u8, len: usize) -> isize;
     fn usleep(us: u32) -> i32;
 }
 
@@ -111,23 +112,37 @@ fn run() -> Result<(), String> {
     if unsafe { pipe(fds.as_mut_ptr()) } != 0 {
         return Err("pipe failed".into());
     }
+    // The middle process must not exit before the grandchild has armed the
+    // signal: a second pipe carries "armed" from the grandchild to it.
+    let mut armed = [0i32; 2];
+    if unsafe { pipe(armed.as_mut_ptr()) } != 0 {
+        return Err("pipe failed".into());
+    }
     let middle = unsafe { fork() };
     if middle == 0 {
         let grandchild = unsafe { fork() };
         if grandchild == 0 {
             unsafe {
                 close(fds[0]);
+                close(armed[0]);
                 prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+                write(armed[1], b"1".as_ptr(), 1);
                 usleep(60_000_000); // killed long before this ends
                 _exit(2)
             }
         }
         unsafe {
-            usleep(200_000);
+            close(armed[1]);
+            let mut byte = 0u8;
+            read(armed[0], &mut byte, 1);
             _exit(0)
         }
     }
-    unsafe { close(fds[1]) };
+    unsafe {
+        close(fds[1]);
+        close(armed[0]);
+        close(armed[1]);
+    }
     wait_status(middle)?;
     let mut entry = PollFd {
         fd: fds[0],

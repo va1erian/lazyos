@@ -33,7 +33,7 @@ const PR_GET_NO_NEW_PRIVS: u64 = 39;
 ///   never grants privileges, so the promise holds trivially);
 /// * `PR_SET_PDEATHSIG`/`GET`: the signal (0, the default, or 1..=64) sent to
 ///   the process when its parent process exits (issue #859; Linux names the
-///   parent *thread*, but a parent here is a process). Kept per process;
+///   parent *thread*, but a parent here is a process). Kept per process (every thread carries it);
 ///   `fork` clears it and `execve` keeps it;
 /// * `PR_SET_TIMERSLACK`/`GET`: the timer is 100 Hz, slack is moot.
 ///
@@ -69,16 +69,11 @@ pub(super) fn sys_prctl(option: u64, arg2: u64, arg3: u64) -> u64 {
             u64::from(task::linuxstate::with_extras(|extras| extras.no_new_privs).unwrap_or(false))
         }
         PR_SET_PDEATHSIG if arg2 < task::signal::NSIG as u64 => {
-            task::linuxstate::with_extras_of(task::linuxstate::tgid(), |extras| {
-                extras.pdeathsig = arg2 as u8;
-            });
+            task::linuxstate::set_pdeathsig(arg2 as u8);
             0
         }
         PR_GET_PDEATHSIG => {
-            let sig = task::linuxstate::with_extras_of(task::linuxstate::tgid(), |extras| {
-                extras.pdeathsig
-            })
-            .unwrap_or(0);
+            let sig = task::linuxstate::pdeathsig();
             match user_ptr::try_write::<i32>(arg2, i32::from(sig)) {
                 Ok(()) => 0,
                 Err(_) => err(EFAULT),

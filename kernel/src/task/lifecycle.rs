@@ -121,9 +121,11 @@ pub(super) fn take_finished(
     tasks: &mut [Option<Task>; MAX_TASKS],
     slot: usize,
 ) -> Option<(Task, bool)> {
-    let reclaimable = tasks[slot]
-        .as_ref()
-        .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
+    let reclaimable = tasks[slot].as_ref().is_some_and(|task| {
+        task.state == TaskState::Done
+            && task.parent == 0
+            && super::family::reapable(tasks, slot, task)
+    });
     if !reclaimable {
         return None;
     }
@@ -141,9 +143,11 @@ pub(super) fn take_finished(
 /// task. Called from the scheduler with the task table locked; the actual
 /// freeing is deferred to [`reclaim_pending`] (see [`PENDING_RECLAIM`]).
 pub(super) fn mark_finished(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
-    let finished_parentless = tasks[slot]
-        .as_ref()
-        .is_some_and(|task| task.state == TaskState::Done && task.parent == 0);
+    let finished_parentless = tasks[slot].as_ref().is_some_and(|task| {
+        task.state == TaskState::Done
+            && task.parent == 0
+            && super::family::reapable(tasks, slot, task)
+    });
     if finished_parentless {
         PENDING_RECLAIM.set(slot);
     }
@@ -351,6 +355,7 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
                 .map(|task| {
                     task.state == TaskState::Done
                         && super::family::is_child_of(&tasks, me, task)
+                        && super::family::reapable(&tasks, index, task)
                         && wanted(index, task)
                 })
                 .unwrap_or(false);

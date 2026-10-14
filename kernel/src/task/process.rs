@@ -83,12 +83,7 @@ pub fn pid_of(slot: usize) -> usize {
 /// The parent pid of a slot (`getppid`): the thread-group leader of the
 /// process that forked its process; 0 is the kernel/init task.
 pub fn ppid_of(slot: usize) -> usize {
-    let tasks = TASKS.lock();
-    let parent = tasks
-        .get(family::leader_of(&tasks, slot))
-        .and_then(|task| task.as_ref())
-        .map_or(0, |task| task.parent);
-    family::leader_of(&tasks, parent)
+    family::ppid(&TASKS.lock(), slot)
 }
 
 /// The process group id of a slot.

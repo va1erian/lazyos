@@ -155,7 +155,7 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         ctty: parent.linux.ctty.clone(),
         sched: parent.linux.sched.for_child(),
         thread_signals: 0,
-        pdeathsig: 0,
+        pdeathsig: parent.linux.pdeathsig,
     }
 }
 
@@ -319,4 +319,35 @@ pub fn comm(slot: usize) -> ([u8; 16], usize) {
     let len = bytes.len().min(15);
     name[..len].copy_from_slice(&bytes[..len]);
     (name, len)
+}
+
+/// The calling process's parent-death signal (`PR_GET_PDEATHSIG`).
+pub fn pdeathsig() -> u8 {
+    with_extras(|extras| extras.pdeathsig).unwrap_or(0)
+}
+
+/// Set the parent-death signal of the calling process: every live thread of
+/// it carries the value, so whichever thread is left when the parent dies
+/// (the leader may be a zombie by then) still has it.
+pub fn set_pdeathsig(sig: u8) {
+    let mut tasks = TASKS.lock();
+    let me = current();
+    for slot in 0..MAX_TASKS {
+        if super::family::same_process(&tasks, slot, me) {
+            if let Some(task) = tasks[slot].as_mut() {
+                task.linux.pdeathsig = sig;
+            }
+        }
+    }
+}
+
+/// `slot`'s parent-death signal if it still runs in address space `space`
+/// (a recycled slot is another process and has no claim to the signal).
+pub(super) fn pdeathsig_in(slot: usize, space: u64) -> u8 {
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .filter(|task| task.pml4 == space && task.state != TaskState::Done)
+        .map_or(0, |task| task.linux.pdeathsig)
 }
