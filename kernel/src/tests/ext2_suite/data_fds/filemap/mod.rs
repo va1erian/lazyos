@@ -11,6 +11,7 @@ use crate::quota::{self, Resource};
 
 mod basic;
 mod coherence;
+mod killed;
 mod lifecycle;
 mod refresh;
 
@@ -232,6 +233,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_filemap_store_during_writeback",
         coherence::store_during_writeback_is_not_lost,
+    ),
+    (
+        "linux_filemap_killed_writeback_stops_waiting",
+        killed::killed_writeback_stops_waiting,
     ),
     (
         "linux_filemap_fork_write_protect",

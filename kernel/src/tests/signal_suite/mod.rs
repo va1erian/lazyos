@@ -86,6 +86,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_kill_slow_names_stuck_thread",
         kill_slow_line_names_the_stuck_thread,
     ),
+    (
+        "task_signal_kill_slow_zombie_budget_exec",
+        kill_slow_zombie_budget_and_exec,
+    ),
     ("task_signal_soak_kill_every_state", soak_kill_every_state),
     ("task_signal_sigchld_child_exit", sigchld_on_child_exit),
     (

@@ -150,6 +150,55 @@ pub fn kill_slow_line_names_the_stuck_thread() -> Result<(), String> {
     result
 }
 
+/// A killed process whose threads are all dead but not reaped is looked at
+/// once and then left alone; a mass kill is reported at most 16 lines per
+/// look and the rest on the next; the start time survives `execve`.
+pub fn kill_slow_zombie_budget_and_exec() -> Result<(), String> {
+    use crate::task::signal::killwatch;
+    fresh()?;
+    crate::trace::reset_for_test();
+    let now = crate::arch::clock::monotonic_ns();
+    let later = now + 2 * killwatch::SLOW_NS;
+
+    // A zombie: killed, finished, never reaped.
+    let (zombie, zombie_cs) = kernel_child()?;
+    send(zombie, signal::SIGKILL)?;
+    task::harness::set_frame_cs(zombie, zombie_cs);
+    check!(task::harness::resume_delivery(zombie), "zombie not ended");
+    check!(killwatch::due(later) == 1, "the zombie is not due");
+    check!(killwatch::check(later) == 0, "a zombie was reported");
+    check!(killwatch::due(later) == 0, "the zombie is looked at again");
+
+    // A mass kill: 20 stuck processes, 16 lines per look.
+    for _ in 0..20 {
+        let (stuck, _) = kernel_child()?;
+        send(stuck, signal::SIGKILL)?;
+    }
+    check!(
+        killwatch::check(later) == 16,
+        "the first look was not capped"
+    );
+    check!(killwatch::check(later) == 4, "the rest did not follow");
+    check!(killwatch::check(later) == 0, "a process was reported twice");
+
+    // execve carries a kill (and when it began) to the new image.
+    let (old, _) = kernel_child()?;
+    let (new, _) = kernel_child()?;
+    send(old, signal::SIGKILL)?;
+    let (old_pml4, new_pml4) = (
+        task::harness::pml4(old).ok_or("pml4")?,
+        task::harness::pml4(new).ok_or("pml4")?,
+    );
+    signal::carry_kill(old_pml4, new_pml4);
+    check!(
+        killwatch::check(later) == 2,
+        "the exec'd image's carried kill was not timed"
+    );
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
 /// Soak: 1000 kills of processes in every state a killed process can be in,
 /// each reaped as `128 + SIGKILL` with nothing left behind: a thread in user
 /// mode, a thread parked in the kernel, one runnable in the kernel (it learns
