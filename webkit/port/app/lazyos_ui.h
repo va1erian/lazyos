@@ -295,6 +295,21 @@ void lzw_engine_recover(int reload);
 // of kill(pid), 0 when sent, -1 when not tried). Any thread.
 void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2);
 
+// Implemented by WebKit's launcher (ProcessLauncherLazyOS.cpp): collects, on the calling thread and under
+// the launcher's lock (the one that orders every reap against every kill), the engine processes that are
+// over, and reports each through lzw_launcher_event. WebKit's main thread calls it when WebKit says a
+// process ended: until the kernel makes children per process (issue #859) only the thread that forked a
+// child can wait for it.
+void lzw_launcher_reap(void);
+
+// WebKit keeps the proxy of every web process that ended alive (patch 0021: destroying it aborts the UI
+// process); `kept` counts them since the start. Prints PROCESS:KEPT:<pid>:<kept>. Weak in WebKit.
+void lzw_proxy_kept(int pid, int kept);
+
+// Whether WebKit's run loop has begun to turn (any thread): a ping posted before it would be late
+// through no fault of the loop.
+int lzw_engine_running(void);
+
 #ifdef __cplusplus
 }
 #endif

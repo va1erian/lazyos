@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -16,21 +17,39 @@ P = h.P
 
 
 def good() -> str:
+    """The log of the session: Wait, the toolbar's Reload, CYCLES more bar Reloads, then Stop; every
+    ended web process has its proxy kept and counted (patch 0021)."""
     lines = [
-        f"{P}:HEARTBEAT:UP", f"{P}:WEBPROCESS:UP:30", f"{P}:NETWORKPROCESS:UP:32",
-        f"{P}:LOAD:{h.PAGE}", f"{P}:TITLE:{h.READY}", f"{P}:TITLE:{h.SPINNING}",
-        f"{P}:WEBPROCESS:UNRESPONSIVE:30", f"{P}:HANG:SHOW",
-        f"{P}:HANG:ANSWER:wait", f"{P}:HANG:HIDE",
-        f"{P}:HANG:ANSWER:reload", f"{P}:WEBPROCESS:RECOVER:30:reload",
-        f"{P}:PROCESS:TERMINATE:web:30:group=0:pid=-1",
-        f"{P}:WEBPROCESS:GONE:30:requested", f"{P}:PROCESS:EXIT:web:30:signal=9",
-        f"{P}:PROCESS:LAUNCH:web:36", f"{P}:WEBPROCESS:UP:36",
-        f"{P}:LOAD:{h.PAGE}", f"{P}:TITLE:{h.READY}", f"{P}:TITLE:{h.SPINNING}",
-        f"{P}:WEBPROCESS:UNRESPONSIVE:36", f"{P}:HANG:SHOW",
-        f"{P}:HANG:ANSWER:stop", f"{P}:WEBPROCESS:RECOVER:36:stop",
-        f"{P}:WEBPROCESS:GONE:36:requested", f"{P}:PROCESS:EXIT:web:36:signal=9", f"{P}:FAIL:webprocess:stopped",
-        f"{P}:CHILD:network:32:GONE:term=0:kill=0:wait=32", f"{P}:QUIT:PASS",
+        f"{P}:HEARTBEAT:UP", f"{P}:PROCESS:LAUNCH:web:30", f"{P}:PROCESS:LAUNCH:network:32",
+        f"{P}:WEBPROCESS:UP:30", f"{P}:NETWORKPROCESS:UP:32", f"{P}:INFO:QUOTA:user_memory_mib=300:limit_mib=8192",
+        f"{P}:LOAD:{h.PAGE}", f"{P}:TITLE:{h.READY}",
     ]
+    pid = 30
+    kept = 0
+
+    def cycle(answer: str, wait_first: bool) -> None:
+        nonlocal pid, kept
+        lines.extend([f"{P}:TITLE:{h.SPINNING}", f"{P}:WEBPROCESS:UNRESPONSIVE:{pid}", f"{P}:HANG:SHOW"])
+        if wait_first:
+            lines.extend([f"{P}:HANG:ANSWER:wait", f"{P}:HANG:HIDE"])
+        lines.extend([
+            f"{P}:HANG:ANSWER:{answer}", f"{P}:WEBPROCESS:RECOVER:{pid}:{answer}",
+            f"{P}:PROCESS:TERMINATE:web:{pid}:group=0:pid=-1", f"{P}:PROCESS:KEPT:{pid}:{kept + 1}",
+            f"{P}:WEBPROCESS:GONE:{pid}:requested", f"{P}:PROCESS:EXIT:web:{pid}:signal=9",
+        ])
+        kept += 1
+        if answer == "reload":
+            pid += 6
+            lines.extend([f"{P}:PROCESS:LAUNCH:web:{pid}", f"{P}:WEBPROCESS:UP:{pid}", f"{P}:LOAD:{h.PAGE}",
+                          f"{P}:TITLE:{h.READY}", f"{P}:INFO:QUOTA:user_memory_mib=310:limit_mib=8192"])
+        else:
+            lines.append(f"{P}:FAIL:webprocess:stopped")
+
+    cycle("reload", True)
+    for _ in range(h.CYCLES):
+        cycle("reload", False)
+    cycle("stop", False)
+    lines.extend([f"{P}:CHILD:network:32:GONE:term=0:kill=0:wait=32", f"{P}:QUIT:PASS"])
     return "\n".join(lines) + "\n"
 
 
@@ -40,11 +59,12 @@ class HangJudge(unittest.TestCase):
 
     def test_each_step_is_needed(self) -> None:
         for gone in (f"{P}:HEARTBEAT:UP\n", f"{P}:HANG:SHOW\n", f"{P}:HANG:ANSWER:wait\n",
-                     f"{P}:WEBPROCESS:RECOVER:30:reload\n", f"{P}:FAIL:webprocess:stopped\n"):
-            self.assertTrue(h.judge_hang(good().replace(gone, "", 1)), gone)
+                     f"{P}:HANG:ANSWER:stop\n", f"{P}:FAIL:webprocess:stopped\n",
+                     f"{P}:PROCESS:KEPT:30:1\n"):
+            self.assertTrue(h.judge_hang(good().replace(gone, "")), gone)
 
     def test_reload_must_start_another_process(self) -> None:
-        text = good().replace(f"{P}:WEBPROCESS:UP:36", f"{P}:WEBPROCESS:UP:30")
+        text = re.sub(rf"{P}:WEBPROCESS:UP:\d+", f"{P}:WEBPROCESS:UP:30", good())
         self.assertTrue(any("new process" in p for p in h.judge_hang(text)))
 
     def test_a_process_ended_by_a_crash_is_not_the_windows_doing(self) -> None:

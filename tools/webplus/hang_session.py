@@ -28,6 +28,8 @@ import session as s  # noqa: E402
 EXAMPLE = ROOT / "tools" / "screenshot" / "examples" / "lazywebplus_hang.json"
 #: The page's one button, in page pixels (`fixtures/theoldnet.com/webplus/hang.html`).
 SPIN = (180, 35)
+#: Hang-and-Reload cycles after the first, each with the bar's own Reload.
+CYCLES = 3
 
 
 def hang(timeout: float = 300.0) -> list[dict]:
@@ -59,17 +61,30 @@ def hang(timeout: float = 300.0) -> list[dict]:
         wait(titled(h.READY), occurrence=2),
         {"wait": 2.0},
         {"shot": "h03_reloaded"},
-        # Hung again: this time the bar's Stop.
+        # Hung and recovered again and again, with the bar's own Reload: every cycle ends a process and
+        # keeps its proxy (patch 0021), and the judge counts what was kept.
+        *[step for cycle in range(CYCLES) for step in (
+            s.page_click(ready, SPIN, timeout, titled(h.SPINNING)),
+            wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + cycle),
+            wait(f"{j.P}:HANG:SHOW", 30, occurrence=2 + cycle),
+            {"wait": 1.0},
+            {"click_at": {"window": spinning, "widget": "hang_reload"}, "timeout": timeout,
+             "until": f"{j.P}:HANG:ANSWER:reload", "retries": 2},
+            wait(titled(h.READY), occurrence=3 + cycle),
+            {"wait": 1.5},
+        )],
+        {"shot": "h04_cycles"},
+        # Hung once more: this time the bar's Stop.
         s.page_click(ready, SPIN, timeout, titled(h.SPINNING)),
-        wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2),
-        wait(f"{j.P}:HANG:SHOW", 30, occurrence=2),
+        wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + CYCLES),
+        wait(f"{j.P}:HANG:SHOW", 30, occurrence=2 + CYCLES),
         {"wait": 1.5},
-        {"shot": "h04_bar_again"},
+        {"shot": "h05_bar_again"},
         {"click_at": {"window": spinning, "widget": "hang_stop"}, "timeout": timeout,
          "until": f"{j.P}:HANG:ANSWER:stop", "retries": 2},
         wait(f"{j.P}:FAIL:webprocess:stopped", 60),
         {"wait": 2.0},
-        {"shot": "h05_stopped"},
+        {"shot": "h06_stopped"},
         {"click_at": {"target": f"title:{spinning}", "offset": list(s.CLOSE_AT_NORMAL)},
          "timeout": 60, "until": f"{j.P}:QUIT:", "retries": 2},
         {"wait": 9.0},

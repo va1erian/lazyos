@@ -45,8 +45,11 @@ struct Child {
 std::mutex registryLock;
 std::vector<Child> registry;
 // Ids of processes seen to end: WebKit's own answers (`E.webPid`) go on naming them, and the number
-// may belong to another process by shutdown. A launch of the same id takes it off again.
+// may belong to another process by shutdown. A launch of the same id takes it off again; the oldest
+// is dropped when the list is full. The stored ids are zeroed when their process is reported over, so
+// this is a second line of defence.
 std::vector<int> ended;
+constexpr size_t kEndedMax = 64;
 
 // Shutdown's view of one process.
 struct Target {
@@ -134,26 +137,6 @@ std::vector<Target> targets()
 
 } // namespace
 
-// The processes the launcher's reaper thread cannot collect (until issue #859 a child belongs to the
-// thread that forked it, and WebKit forks on this one) become zombies; this thread can collect them.
-void reapChildren()
-{
-    std::vector<Child> list;
-    {
-        std::lock_guard<std::mutex> guard(registryLock);
-        list = registry;
-    }
-    for (const Child& child : list) {
-        int status = 0;
-        if (waitpid(child.pid, &status, WNOHANG) != child.pid)
-            continue;
-        if (WIFSIGNALED(status))
-            lzw_launcher_event(child.type.c_str(), child.pid, "signal", WTERMSIG(status), 0);
-        else
-            lzw_launcher_event(child.type.c_str(), child.pid, "exit", WEXITSTATUS(status), 0);
-    }
-}
-
 int shutdownChildren()
 {
     if (E.page && E.context)
@@ -207,6 +190,13 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
     if (what == "launch") {
         {
             std::lock_guard<std::mutex> guard(registryLock);
+            // An entry of the same id is a process nobody saw end (its slot was reused): replaced.
+            for (size_t at = 0; at < registry.size(); ++at) {
+                if (registry[at].pid == pid) {
+                    registry.erase(registry.begin() + static_cast<long>(at));
+                    break;
+                }
+            }
             registry.push_back({ pid, type });
             for (size_t at = 0; at < ended.size(); ++at) {
                 if (ended[at] == pid) {
@@ -234,8 +224,9 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
         for (size_t at = 0; at < registry.size(); ++at) {
             if (registry[at].pid == pid) {
                 registry.erase(registry.begin() + static_cast<long>(at));
-                if (ended.size() < 64)
-                    ended.push_back(pid);
+                if (ended.size() >= kEndedMax)
+                    ended.erase(ended.begin());
+                ended.push_back(pid);
                 known = true;
                 break;
             }
@@ -243,12 +234,24 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
     }
     if (!known)
         return;
+    // WebKit's answers go on naming a process after it ended: nothing may signal that id again.
+    int expected = pid;
+    E.webPid.compare_exchange_strong(expected, 0);
+    expected = pid;
+    E.networkPid.compare_exchange_strong(expected, 0);
     if (what == "exit")
         say("PROCESS:EXIT:%s:%d:status=%d", type, pid, detail);
     else if (what == "signal")
         say("PROCESS:EXIT:%s:%d:signal=%d", type, pid, detail);
     else
         say("PROCESS:EXIT:%s:%d:gone", type, pid);
+}
+
+// WebKit's patch 0021 keeps the proxy of an ended web process alive (a leak of a few kilobytes each, for
+// a reason that is not found): the count is evidence of how many a run leaked.
+void lzw_proxy_kept(int pid, int kept)
+{
+    webkitapp::say("PROCESS:KEPT:%d:%d", pid, kept);
 }
 
 // The ids of the page's WebProcess and of the NetworkProcess as last seen (0: none yet); any thread.

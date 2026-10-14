@@ -63,6 +63,11 @@ pub fn named_marker(line: &str) {
 /// Prints `WEBPLUS:<line>`: a marker that names no page, address or file. The one place this
 /// crate's evidence lines are printed from (the trace ratchet counts it once).
 pub fn marker(line: &str) {
+    // On LazyOS through the trace API (one write per line, the channel's mask); a host build, where
+    // the tests run, has no console to write.
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    xui_app::trace::line!(xui_app::trace::Channel::Webplus, "{line}");
+    #[cfg(not(all(target_os = "linux", target_env = "musl")))]
     println!("WEBPLUS:{line}");
 }
 

@@ -61,19 +61,34 @@ std::string activeUrl()
     return text;
 }
 
+// Tells the window whether the page's process answers WebKit's pings, as WebKit says now (also when a
+// process the window has not heard of appears, and when a page commits: a stale "not responding" must
+// not make Reload or Stop end a healthy process).
+static void reportResponsiveness()
+{
+    const bool responsive = WKPageIsWebProcessResponsive(E.page);
+    E.unresponsive = !responsive;
+    lzw_ui_page_responsive(responsive ? 1 : 0);
+}
+
 void rememberChildren()
 {
     if (!E.page)
         return;
     const int web = static_cast<int>(WKPageGetProcessIdentifier(E.page));
-    if (web > 0 && web != E.webPid) {
+    if (web > 0 && web != E.webPidShown) {
         E.webPid = web;
+        E.webPidShown = web;
         say("WEBPROCESS:UP:%d", web);
+        // A process the window has not heard of: whatever it was told of the last one (not answering)
+        // does not hold for this one.
+        reportResponsiveness();
     }
     WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
     const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
-    if (network > 0 && network != E.networkPid) {
+    if (network > 0 && network != E.networkPidShown) {
         E.networkPid = network;
+        E.networkPidShown = network;
         say("NETWORKPROCESS:UP:%d", network);
     }
 }
@@ -218,6 +233,7 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
+    reportResponsiveness();
     // After redirects the committed address is the one that counts, and it is known before the page's
     // first subresource is asked for.
     blockingSettle();
@@ -305,9 +321,8 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
 // stopped.
 void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const void*)
 {
-    const int pid = E.webPid;
-    say("WEBPROCESS:GONE:%d:%s", pid, terminationReason(reason));
-    reapChildren();
+    say("WEBPROCESS:GONE:%d:%s", E.webPidShown, terminationReason(reason));
+    lzw_launcher_reap();
     dropDialogs();
     E.loading = false;
     E.unresponsive = false;
@@ -342,9 +357,8 @@ void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const 
 void responsivenessChanged(const void*)
 {
     const bool responsive = WKPageIsWebProcessResponsive(E.page);
-    E.unresponsive = !responsive;
     say("WEBPROCESS:%s:%d", responsive ? "RESPONSIVE" : "UNRESPONSIVE", static_cast<int>(WKPageGetProcessIdentifier(E.page)));
-    lzw_ui_page_responsive(responsive ? 1 : 0);
+    reportResponsiveness();
 }
 
 // The NetworkProcess ended. WebKit also kills the one that did not answer for 6 s and starts another
@@ -352,7 +366,7 @@ void responsivenessChanged(const void*)
 void networkProcessDidCrash(WKContextRef, WKProcessID pid, WKProcessTerminationReason reason, const void*)
 {
     say("NETWORKPROCESS:GONE:%d:%s", static_cast<int>(pid), terminationReason(reason));
-    reapChildren();
+    lzw_launcher_reap();
 }
 
 void stateChanged(const void*) { postState(); }

@@ -140,10 +140,142 @@
   "occurrence": 2
  },
  {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb+",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 3
+ },
+ {
   "wait": 1.5
  },
  {
-  "shot": "h04_bar_again"
+  "click_at": {
+   "window": "hang:ready - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 3
+ },
+ {
+  "wait_for": "WEBPLUS:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 3
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb+",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 4
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 4
+ },
+ {
+  "wait_for": "WEBPLUS:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 4
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb+",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 5
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h04_cycles"
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 5
+ },
+ {
+  "wait_for": "WEBPLUS:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 5
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h05_bar_again"
  },
  {
   "click_at": {
@@ -162,7 +294,7 @@
   "wait": 2.0
  },
  {
-  "shot": "h05_stopped"
+  "shot": "h06_stopped"
  },
  {
   "click_at": {

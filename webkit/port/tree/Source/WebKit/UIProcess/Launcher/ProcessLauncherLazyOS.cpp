@@ -62,7 +62,8 @@
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <wtf/HashSet.h>
+#include <wtf/HashMap.h>
+#include <wtf/Vector.h>
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
 #include <wtf/NeverDestroyed.h>
@@ -119,53 +120,95 @@ static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
     }
 }
 
-// The children that are not reaped yet, and the lock that orders a reap against a kill.
+// The children that are not reaped yet, and the lock that orders every reap against every kill. A
+// launch gets a generation number: LazyOS ids are task slots and are reused at once, so a thread
+// that watches "its" child must be able to tell that the id now belongs to a newer one.
+struct LiveChild {
+    ProcessLauncher::ProcessType type;
+    uint64_t generation;
+};
 static Lock s_childrenLock;
-static HashSet<pid_t>& liveChildren()
+static HashMap<pid_t, LiveChild>& liveChildren()
 {
-    static NeverDestroyed<HashSet<pid_t>> children;
+    static NeverDestroyed<HashMap<pid_t, LiveChild>> children;
     return children;
+}
+static uint64_t s_nextGeneration;
+// The generation of the child each launcher started (under s_childrenLock): a launcher may signal only
+// the child it started, never a newer one that took the same id.
+static HashMap<const ProcessLauncher*, uint64_t>& launchGenerations()
+{
+    static NeverDestroyed<HashMap<const ProcessLauncher*, uint64_t>> generations;
+    return generations;
 }
 
 // How often the reaper looks at its child, in microseconds: a finished child is a zombie for
 // at most this long.
 static constexpr useconds_t reapPollInterval = 50 * 1000;
 
-// Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
-// its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child.
-static void reapInBackground(pid_t pid, ProcessLauncher::ProcessType type)
+// Collects `pid` if it is over, and takes it off the list: the one place a child is waited for
+// (the reaper thread's polls and `lzw_launcher_reap`), always under `s_childrenLock`, so no kill
+// can name an id that was collected (and may be somebody else's now) and no report names the wrong
+// process. Returns whether the child is gone. A child this thread cannot wait for (until the
+// kernel makes children per process, issue #859, a child belongs to the thread that forked it) is
+// over when the kernel has no such id.
+static bool collectLocked(pid_t pid, LiveChild child)
 {
-    Thread::create("ProcessLauncher reaper"_s, [pid, type] {
+    int status = 0;
+    const pid_t result = waitpid(pid, &status, WNOHANG);
+    const int error = result == -1 ? errno : 0;
+    if (result == pid) {
+        liveChildren().remove(pid);
+        if (WIFSIGNALED(status))
+            report(child.type, pid, "signal", WTERMSIG(status));
+        else
+            report(child.type, pid, "exit", WEXITSTATUS(status));
+        return true;
+    }
+    if (result == -1 && error == ECHILD) {
+        if (kill(pid, 0) == -1 && errno == ESRCH) {
+            liveChildren().remove(pid);
+            report(child.type, pid, "vanish");
+            return true;
+        }
+        return false;
+    }
+    if (result == -1 && error != EINTR) {
+        liveChildren().remove(pid); // not a child of this process at all: nothing to signal or wait for
+        report(child.type, pid, "vanish");
+        return true;
+    }
+    return false;
+}
+
+// Collects every child that is over: for the embedder's thread that forked them, which can wait for
+// them where the reaper's threads cannot (webkit/port/app/children.cpp calls it when WebKit says a
+// process ended).
+extern "C" void lzw_launcher_reap()
+{
+    Locker locker { s_childrenLock };
+    Vector<std::pair<pid_t, LiveChild>> children;
+    for (auto& entry : liveChildren())
+        children.append({ entry.key, entry.value });
+    for (auto& entry : children)
+        collectLocked(entry.first, entry.second);
+}
+
+// Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
+// its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child; it
+// ends when its child is collected, by it or by anyone else, or when the id belongs to a newer launch.
+static void reapInBackground(pid_t pid, uint64_t generation)
+{
+    Thread::create("ProcessLauncher reaper"_s, [pid, generation] {
         for (;;) {
-            int status = 0;
-            pid_t result;
-            int error = 0;
-            bool vanished = false;
             {
                 Locker locker { s_childrenLock };
-                result = waitpid(pid, &status, WNOHANG);
-                error = result == -1 ? errno : 0;
-                if (result == -1 && error == ECHILD) {
-                    // Not ours to wait for (another thread forked it): it is over when the kernel
-                    // has no such id. Until then it stays in the list, so terminate() reaches it.
-                    vanished = kill(pid, 0) == -1 && errno == ESRCH;
-                }
-                if (result == pid || vanished || (result == -1 && error != EINTR && error != ECHILD))
-                    liveChildren().remove(pid); // reaped (or gone): no kill may name it
+                auto found = liveChildren().find(pid);
+                if (found == liveChildren().end() || found->value.generation != generation)
+                    return;
+                if (collectLocked(pid, LiveChild { found->value }))
+                    return;
             }
-            if (result == pid) {
-                if (WIFSIGNALED(status))
-                    report(type, pid, "signal", WTERMSIG(status));
-                else
-                    report(type, pid, "exit", WEXITSTATUS(status));
-                return;
-            }
-            if (vanished) {
-                report(type, pid, "vanish");
-                return;
-            }
-            if (result == -1 && error != EINTR && error != ECHILD)
-                return;
             usleep(reapPollInterval);
         }
     })->detach();
@@ -241,14 +284,18 @@ void ProcessLauncher::launchProcess()
     // The parent's half of the group change as well: a kill of the group may come before the child
     // has run (the usual pair of calls; it fails harmlessly once the child has exec'd).
     setpgid(pid, pid);
+    uint64_t generation;
     {
         // Entered before the reaper exists, so the reaper (and a later kill) always find it. Not
-        // taken around the fork: the child must not touch a lock that another thread may hold.
+        // taken around the fork: the child must not touch a lock that another thread may hold. An
+        // entry of the same id that is still here is a child nobody noticed ending: it is replaced.
         Locker locker { s_childrenLock };
-        liveChildren().add(pid);
+        generation = ++s_nextGeneration;
+        liveChildren().set(pid, LiveChild { m_launchOptions.processType, generation });
+        launchGenerations().set(this, generation);
     }
     report(m_launchOptions.processType, pid, "launch");
-    reapInBackground(pid, m_launchOptions.processType);
+    reapInBackground(pid, generation);
     close(socketPair.client.release()); // the child holds its end now
 
     // We've finished launching the process, message back to the main run loop.
@@ -273,7 +320,9 @@ void ProcessLauncher::terminateProcess()
         // no such group; what each said is reported (issue #862: a terminate that sent nothing
         // left a busy NetworkProcess running beside its replacement).
         Locker locker { s_childrenLock };
-        if (liveChildren().contains(m_processID)) {
+        auto found = liveChildren().find(m_processID);
+        const uint64_t mine = launchGenerations().take(this);
+        if (found != liveChildren().end() && mine && found->value.generation == mine) {
             const int groupError = kill(-m_processID, SIGKILL) == 0 ? 0 : errno;
             int pidError = -1;
             if (groupError)

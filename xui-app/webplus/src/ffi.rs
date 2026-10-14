@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -323,9 +323,9 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
         // No home folder, so nowhere for a list or the engine's store to live: say so, rather than
         // leaving the shield at "preparing" for ever.
         for list in shared.blocker.lists() {
-            shared
-                .blocker
-                .update_list(list.id, |l| l.state = crate::blocker::ListState::Unavailable);
+            shared.blocker.update_list(list.id, |l| {
+                l.state = crate::blocker::ListState::Unavailable
+            });
         }
     }
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
@@ -371,7 +371,9 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
             .expect("the LazyWebPlus window's widgets built")
     });
     backend.unbind();
-    // The list updater's `curl` must not outlive the window: the UI process exits with it.
+    // The heartbeat must not time a run loop that is being left; the list updater's `curl` must not
+    // outlive the window: the UI process exits with it.
+    heartbeat::stop();
     let left = !stop_children();
     if left {
         crate::marker("CHILD:curl:ALIVE");

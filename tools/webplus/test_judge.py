@@ -37,7 +37,8 @@ def page(url: str, title: str) -> list[str]:
 
 def good_first() -> str:
     """A serial log that satisfies every serial judge of the first boot."""
-    lines = [f"{P}:UP", f"{P}:UP:PASS", f"{P}:WEBPROCESS:UP:41", f"{P}:NETWORKPROCESS:UP:42"]
+    lines = [f"{P}:UP", f"{P}:UP:PASS", f"{P}:PROCESS:LAUNCH:web:41", f"{P}:PROCESS:LAUNCH:network:42",
+             f"{P}:WEBPROCESS:UP:41", f"{P}:NETWORKPROCESS:UP:42"]
     for url, title in ((j.START, "LazyWeb+"), (j.EXAMPLE_URL, j.EXAMPLE_TITLE), (j.OLDNET_URL, j.OLDNET_TITLE),
                        (j.COOKIE_URL, j.COOKIE_NONE)):
         lines += page(url, title)
@@ -156,7 +157,8 @@ class QuitTests(unittest.TestCase):
         text = good_first().replace(f"{P}:CHILD:network:42:GONE", f"{P}:CHILD:network:44:GONE")
         text = text.replace(f"{P}:NETWORKPROCESS:UP:42", f"{P}:NETWORKPROCESS:UP:42\n{P}:NETWORKPROCESS:UP:44")
         self.assertTrue(j.judge_quit(text), "42 was never seen to end")
-        text = text.replace(f"{P}:NETWORKPROCESS:UP:44", f"{P}:PROCESS:EXIT:network:42:signal=9\n{P}:NETWORKPROCESS:UP:44")
+        text = text.replace(f"{P}:NETWORKPROCESS:UP:44",
+                            f"{P}:PROCESS:EXIT:network:42:signal=9\n{P}:PROCESS:LAUNCH:network:44\n{P}:NETWORKPROCESS:UP:44")
         self.assertEqual(j.judge_quit(text), [])
 
     def test_a_launched_process_nobody_saw_end_fails(self) -> None:
@@ -165,14 +167,41 @@ class QuitTests(unittest.TestCase):
         text = text.replace(f"{P}:QUIT:PASS", f"{P}:PROCESS:EXIT:network:50:status=0\n{P}:QUIT:PASS")
         self.assertEqual(j.judge_quit(text), [])
 
-    def test_a_terminate_that_sent_nothing_fails(self) -> None:
+    def test_a_terminate_that_sent_nothing_to_a_live_process_fails(self) -> None:
         sent = f"{P}:PROCESS:TERMINATE:network:42:group=0:pid=-1"
-        self.assertEqual(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{sent}\n{P}:QUIT:PASS")), [])
+        end = f"{P}:CHILD:network:42:GONE"
+        self.assertEqual(j.judge_quit(good_first().replace(end, f"{sent}\n{end}")), [])
         lost = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=3"
-        self.assertTrue(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{lost}\n{P}:QUIT:PASS")))
+        self.assertTrue(j.judge_quit(good_first().replace(end, f"{lost}\n{end}")))
         # The group is gone but the process itself was signalled: sent.
         fallback = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=0"
-        self.assertEqual(j.judge_quit(good_first().replace(f"{P}:QUIT:PASS", f"{fallback}\n{P}:QUIT:PASS")), [])
+        self.assertEqual(j.judge_quit(good_first().replace(end, f"{fallback}\n{end}")), [])
+        # Nothing to signal once it has ended: not a fault.
+        after = f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:TERMINATE:network:42:group=-1:pid=-1"
+        text = good_first().replace(f"{P}:CHILD:network:42:GONE", after)
+        self.assertEqual(j.judge_quit(text), [])
+
+    def test_a_reused_id_is_a_new_process_not_the_old_ones_end(self) -> None:
+        # Slot 42 was a network process that ended; a web process then took the slot. Its launch is not
+        # accounted for by the earlier exit, and an exit of the wrong type is a fault.
+        base = good_first()
+        text = base.replace(f"{P}:CHILD:network:42:GONE",
+                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42\n{P}:CHILD:web:42:GONE")
+        self.assertEqual(j.judge_quit(text), [])
+        text = base.replace(f"{P}:CHILD:network:42:GONE",
+                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42")
+        self.assertTrue(any("never seen to end" in p for p in j.judge_quit(text)))
+        text = base.replace(f"{P}:CHILD:network:42:GONE",
+                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42\n"
+                            f"{P}:PROCESS:EXIT:network:42:gone\n{P}:CHILD:web:42:GONE")
+        self.assertTrue(any("not live" in p or "launched as web" in p for p in j.judge_quit(text)))
+
+    def test_a_launch_of_an_id_still_live_and_a_late_child_line_are_faults(self) -> None:
+        end = f"{P}:CHILD:network:42:GONE"
+        text = good_first().replace(end, f"{P}:PROCESS:LAUNCH:network:42\n{end}")
+        self.assertTrue(any("still live" in p for p in j.judge_quit(text)))
+        text = good_first().replace(f"{P}:QUIT:PASS", f"{P}:CHILD:network:42:GONE\n{P}:QUIT:PASS")
+        self.assertTrue(any("had ended already" in p for p in j.judge_quit(text)))
 
     def test_a_start_without_both_children_fails(self) -> None:
         self.assertTrue(any("NETWORKPROCESS" in p for p in j.judge_start(f"{P}:UP\n{P}:UP:PASS\n{P}:WEBPROCESS:UP:1\n")))

@@ -451,19 +451,25 @@ process prints, after `WEBPLUS:`:
 | `WEBPROCESS:UNRESPONSIVE:<pid>`, `WEBPROCESS:RESPONSIVE:<pid>` | WebKit's 6 s ping of the page's process went unanswered, or was answered again |
 | `WEBPROCESS:RECOVER:<pid>:reload\|stop` | the window's answer to the bar below was taken |
 | `HANG:SHOW`, `HANG:HIDE`, `HANG:ANSWER:wait\|reload\|stop` | the window's "page not responding" bar |
-| `ABORT:base=<hex>:rip=<hex>:rsp=<hex>`, `ABORT:at=<hex>` | the UI process aborted (WebKit's `CRASH`, an assertion, a pure virtual call: signal 6 leaves no message here): where it was, and the words of its stack that point into its code, for `addr2line -f -C -e <the unstripped lazywebplus-app in the build volume's webkit-port-build/bin> <at>` (the program is not position independent: the words are addresses as they are; some are stale) |
+| `CRASH:signal=<n>:base=<hex>:rip=<hex>`, `CRASH:rsp=<hex>:addr=<hex>`, `CRASH:at=<hex>` | the UI process crashed (WebKit's `CRASH` is a SIGSEGV at 0xbbadbeef or an illegal instruction, an assertion or a pure virtual call is SIGABRT: the kernel names only the signal): the signal, where it was, the fault address, and the words of the first 16 KiB of its stack that point into its code, for `addr2line -f -C -e <the unstripped lazywebplus-app in the build volume's webkit-port-build/bin> <at>` (the program is not position independent: the words are addresses as they are; some are stale). The handler runs on its own stack, writes by hand and is reset on entry |
 | `HEARTBEAT:UP`, `INFO:CPU:GROUPS:ui=<pgid>:web=<pid>:net=<pid>:threads=<n>` | the heartbeat thread started; once, the process groups the CPU shares are summed over (`INFO:CPU:UNAVAILABLE`: the task list could not be read) |
 | `CHILD:<name>:<pid>:GONE\|ALIVE:term=<rc>:kill=<rc>:wait=<rc>` | the end: SIGTERM, then SIGKILL of each process group (retried every 100 ms for up to 10 s), then `waitpid`; each rc is 0 or the errno negated, `wait` is the pid it reaped. `QUIT:FAIL` and exit status 3 when one is left. `CHILD:curl:ALIVE` is the ad blocker's list updater, which the window kills at its end |
 | `INFO:MAINLAG:<ms>` | WebKit's main thread ran the heartbeat's once-a-second ping 250 ms or more late |
 | `STALL:main:<ms>` | the ping has not run after 2 s (again every 5 s while it stays stuck): WebKit's main thread is busy or blocked |
 | `STALL:window:<ms>` | one pass of the window's loop has lasted 2 s (`xui_app::stall::pass_age_ms`, every 5 s while it does) |
-| `STALL:on_main:<what>:<ms>[:timeout]` | a worker thread waited 1 s or more (or gave up after 3 s) for a call on WebKit's main thread (at most 20 lines) |
-| `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` | every 5 s when any is 5% or more: the scheduler's task list summed by process group (the launcher makes each engine process its own group; the UI's own group may hold other programs) |
+| `STALL:on_main:<what>:<ms>[:timeout]` | a worker thread waited 1 s or more (or gave up after 3 s) for a call on WebKit's main thread (at most six lines a minute) |
+| `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` | every 5 s when any is 20% or more (at most a dozen lines a minute): the scheduler's task list summed by process group (the launcher makes each engine process its own group; the UI's own group may hold other programs) |
 
-A process that ended is not destroyed on the WebKit side (patch `0021`): releasing the old `WebProcessProxy` when
-the page is loaded again in a new process aborted the UI process on this port (`crashDueToCheckedPtrToDeadObject`
-from `~BackgroundProcessResponsivenessTimer`), after a crash, a client-requested termination (`WKPageTerminate`)
-or a process that did not answer; the cause is not found, so the proxy is kept (a few kilobytes each time).
+A web process that ended is not destroyed on the WebKit side (patch `0021`; `PROCESS:KEPT:<pid>:<n>` counts them):
+releasing the old `WebProcessProxy` when the page is loaded again in a new process aborts the UI process on this
+port (`crashDueToCheckedPtrToDeadObject`: a thread-safe CheckedPtr count, the kind `IPC::Connection::Client` has,
+that is already zero when a reference is released). What is known: it follows `WKPageTerminate` and Reload of a page
+that did not answer; it happens with the embedder's responsiveness calls removed (a build that only toggled a
+flag), with a 1.5 s wait before the reload, and with or without the page being unresponsive at the time the
+process ended. What is not: which object holds the stale count, whether a NetworkProcess replaced by WebKit's 6 s
+timeout (or a process cache or prewarmed process) can hit it, and whether a plain crash does. Each ended
+process leaks its proxy (a few kilobytes, a `WebsiteDataStore` reference and an entry in the process map);
+`tools/webplus/hang_run.py` ends five and judges the count and the user-memory charge.
 
 Each engine process is started in a group of its own and asks for a SIGKILL when the UI process dies
 (`PR_SET_PDEATHSIG`, which the kernel refuses with `EINVAL` until issue #859; the launcher tolerates that), so

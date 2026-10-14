@@ -70,11 +70,7 @@ impl Browser {
     fn show_hang_bar(&mut self, ui: &Ui<Msg>) {
         let visible = self.hang.visible();
         ui.set_visible(self.hang.frame.id(), visible);
-        crate::marker(if visible {
-            "HANG:SHOW"
-        } else {
-            "HANG:HIDE"
-        });
+        crate::marker(if visible { "HANG:SHOW" } else { "HANG:HIDE" });
         ui.relayout();
         self.announce(ui);
     }

@@ -99,7 +99,9 @@ impl Shell for LazyShell {
             on_main_detached(|| {
                 let events = LISTENING.with(|state| state.borrow_mut().poll());
                 if !events.is_empty() {
-                    NEWS.lock().unwrap_or_else(|e| e.into_inner()).extend(events);
+                    NEWS.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .extend(events);
                 }
                 LOOKING.store(false, Ordering::Release);
             });
@@ -107,4 +109,3 @@ impl Shell for LazyShell {
         std::mem::take(&mut *NEWS.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
-

@@ -104,6 +104,9 @@ impl Runner for CurlRunner {
     fn curl(&self, args: &[String]) -> std::io::Result<Exit> {
         use std::io::Read;
         use std::process::{Command, Stdio};
+        // Counted before the quit is looked at: `stop_children` sets the flag and then waits for the
+        // count, so a run that starts after the flag still ends it (the loop below kills it).
+        let _running = Running::new();
         if CURL_STOP.load(Ordering::Acquire) {
             return Ok(Exit {
                 code: -1,
@@ -116,7 +119,6 @@ impl Runner for CurlRunner {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()?;
-        let _running = Running::new();
         // Drained on a thread of its own, so a chatty child cannot fill the pipe and stall.
         let stderr = child.stderr.take().map(|mut pipe| {
             std::thread::spawn(move || {

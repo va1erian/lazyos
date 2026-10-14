@@ -13,8 +13,8 @@ extern "C" {
 const MAIN_WAIT: Duration = Duration::from_secs(3);
 /// A wait longer than this is worth a line (the main thread was busy), as is one that timed out.
 const MAIN_SLOW: Duration = Duration::from_millis(1000);
-/// The most `STALL:on_main` lines a run prints.
-const MAIN_STALL_LINES: u32 = 20;
+/// The most `STALL:on_main` lines a minute prints.
+const MAIN_STALL_LINES: u32 = 6;
 
 /// Runs `job` on WebKit's main thread and returns at once; nobody waits for it.
 ///
@@ -39,7 +39,10 @@ pub(super) fn on_main_detached(job: impl FnOnce() + Send + 'static) {
 /// thread, which has nothing else to do while it waits: the window's thread never calls this, and a
 /// call whose answer nobody needs uses [`on_main_detached`]. `what` names the call in the
 /// `STALL:on_main` line a slow or timed-out wait prints.
-pub(super) fn on_main<T: Send + 'static>(what: &'static str, job: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+pub(super) fn on_main<T: Send + 'static>(
+    what: &'static str,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
     let (answer, reply) = mpsc::channel();
     let began = Instant::now();
     on_main_detached(move || {
@@ -48,8 +51,8 @@ pub(super) fn on_main<T: Send + 'static>(what: &'static str, job: impl FnOnce() 
     let result = reply.recv_timeout(MAIN_WAIT).ok();
     let waited = began.elapsed();
     if result.is_none() || waited >= MAIN_SLOW {
-        static LINES: AtomicU32 = AtomicU32::new(0);
-        if LINES.fetch_add(1, Ordering::Relaxed) < MAIN_STALL_LINES {
+        static BUDGET: xui_app::trace::Budget = xui_app::trace::Budget::new(MAIN_STALL_LINES, 6000);
+        if xui_app::trace::within(&BUDGET, xui_app::trace::Channel::Webplus) {
             crate::marker(&format!(
                 "STALL:on_main:{what}:{}{}",
                 waited.as_millis(),
@@ -59,4 +62,3 @@ pub(super) fn on_main<T: Send + 'static>(what: &'static str, job: impl FnOnce() 
     }
     result
 }
-

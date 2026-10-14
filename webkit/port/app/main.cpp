@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1
+#endif
 // The desktop UI process: WebKit in a window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
 // One program for both windows: `webkit-app` links the W5 window, `lazywebplus-app` LazyWeb's
 // (the Rust library each one links is the only difference).
@@ -32,32 +35,108 @@ extern "C" const char __ehdr_start;
 
 namespace {
 
-// An abort (WebKit's CRASH, an assertion, a pure virtual call) leaves no message anywhere on this
-// system, and the kernel says only that signal 6 killed the task. So the handler prints where it
-// was (rip, rsp) and every word of the stack's first 32 KiB that points into the program's code,
-// which a person reads with `addr2line -f -C -e <the unstripped program> <at>` (the program is not
-// position independent: the words are addresses as they are). The first frames below rsp are the
-// abort's own; the callers follow (some words are stale, as on any unwound-by-scanning stack).
-void reportAbort(int, siginfo_t*, void* context)
+// A crash (WebKit's CRASH is a SIGSEGV at 0xbbadbeef or an illegal instruction, an assertion or a pure
+// virtual call is SIGABRT) leaves no message anywhere on this system: the kernel says only which signal
+// ended the task. So the handler prints the signal, where it was (rip, rsp) and every word of the first
+// 16 KiB of the stack that points into the program's code, which a person reads with
+// `addr2line -f -C -e <the unstripped program> <at>` (the program is not position independent: the words
+// are addresses as they are). The first frames below rsp are the crash's own; the callers follow (some
+// words are stale, as on any stack walked by scanning). It runs on its own stack (a stack overflow is
+// one of the crashes), builds its lines by hand (nothing it calls may take a lock or allocate), and the
+// handler is reset on entry (SA_RESETHAND): a fault inside it, past the end of the stack, ends the
+// process the way it ended without the handler, and returning re-raises the original signal.
+constexpr int kScanWords = 2048;
+constexpr int kScanPrint = 48;
+
+char* putText(char* at, const char* text)
 {
-    char line[256];
+    while (*text)
+        *at++ = *text++;
+    return at;
+}
+
+char* putHex(char* at, unsigned long value)
+{
+    char digits[16];
+    int count = 0;
+    do {
+        digits[count++] = "0123456789abcdef"[value & 15];
+        value >>= 4;
+    } while (value && count < 16);
+    while (count)
+        *at++ = digits[--count];
+    return at;
+}
+
+// "<prefix>:CRASH:<name>=<a>[<second><b>[<third><c>]]\n", in one write.
+void putLine(const char* name, unsigned long a, const char* second = nullptr, unsigned long b = 0, const char* third = nullptr, unsigned long c = 0)
+{
+    char line[200];
+    char* at = putText(line, lzw_ui_marker_prefix());
+    at = putText(at, ":CRASH:");
+    at = putText(at, name);
+    at = putText(at, "=");
+    at = putHex(at, a);
+    if (second) {
+        at = putText(at, second);
+        at = putHex(at, b);
+    }
+    if (third) {
+        at = putText(at, third);
+        at = putHex(at, c);
+    }
+    *at++ = '\n';
+    ssize_t ignored = write(STDOUT_FILENO, line, static_cast<size_t>(at - line));
+    (void)ignored;
+}
+
+void reportCrash(int signal, siginfo_t* info, void* context)
+{
+    // musl's abort() ends with a trap of its own after the handler returns: that second crash is not news.
+    if (signal == SIGABRT) {
+        for (int number : { SIGSEGV, SIGILL, SIGTRAP, SIGBUS, SIGFPE })
+            ::signal(number, SIG_DFL);
+    }
     const unsigned long base = reinterpret_cast<unsigned long>(&__ehdr_start);
     auto* uc = static_cast<ucontext_t*>(context);
-    const unsigned long rsp = static_cast<unsigned long>(uc->uc_mcontext.gregs[15]);
-    const unsigned long rip = static_cast<unsigned long>(uc->uc_mcontext.gregs[16]);
-    int n = snprintf(line, sizeof line, "%s:ABORT:base=%lx:rip=%lx:rsp=%lx\n", lzw_ui_marker_prefix(), base, rip, rsp);
-    write(STDOUT_FILENO, line, n);
+    const unsigned long rsp = static_cast<unsigned long>(uc->uc_mcontext.gregs[REG_RSP]);
+    const unsigned long rip = static_cast<unsigned long>(uc->uc_mcontext.gregs[REG_RIP]);
+    putLine("signal", static_cast<unsigned long>(signal), ":base=", base, ":rip=", rip);
+    putLine("rsp", rsp, ":addr=", reinterpret_cast<unsigned long>(info ? info->si_addr : nullptr));
     const unsigned long* words = reinterpret_cast<const unsigned long*>(rsp);
     int printed = 0;
-    for (int i = 0; i < 4096 && printed < 48; ++i) {
+    for (int i = 0; i < kScanWords && printed < kScanPrint; ++i) {
         const unsigned long word = words[i];
         if (word > base && word < base + 0x8000000UL) {
-            n = snprintf(line, sizeof line, "%s:ABORT:at=%lx\n", lzw_ui_marker_prefix(), word);
-            write(STDOUT_FILENO, line, n);
+            putLine("at", word);
             ++printed;
         }
     }
-    _exit(134);
+}
+
+// The stack the handler runs on, for the thread that asks: its own array, one for the main thread and
+// one for the window's. (Not `thread_local`: that would add its size to the TLS block of every
+// thread the process ever starts, and musl keeps a thread's TLS in its stack mapping: a 128 KiB
+// thread stack of WebKit's would lose half of it.)
+char mainCrashStack[64 * 1024];
+char windowCrashStack[64 * 1024];
+
+void useCrashStack(char* stack, size_t size)
+{
+    stack_t alternate = { };
+    alternate.ss_sp = stack;
+    alternate.ss_size = size;
+    sigaltstack(&alternate, nullptr);
+}
+
+void installCrashHandler()
+{
+    useCrashStack(mainCrashStack, sizeof mainCrashStack);
+    struct sigaction action = { };
+    action.sa_sigaction = reportCrash;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    for (int number : { SIGSEGV, SIGILL, SIGTRAP, SIGBUS, SIGFPE, SIGABRT })
+        sigaction(number, &action, nullptr);
 }
 
 struct Arguments {
@@ -69,6 +148,7 @@ struct Arguments {
 void* windowThread(void* context)
 {
     auto* arguments = static_cast<Arguments*>(context);
+    useCrashStack(windowCrashStack, sizeof windowCrashStack);
     arguments->status = lzw_ui_main(arguments->argc, arguments->argv);
     lzw_engine_quit();
     return nullptr;
@@ -79,10 +159,7 @@ void* windowThread(void* context)
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
-    struct sigaction action = { };
-    action.sa_sigaction = reportAbort;
-    action.sa_flags = SA_SIGINFO;
-    sigaction(SIGABRT, &action, nullptr);
+    installCrashHandler();
     // A WebProcess or NetworkProcess that dies (a crash, the OOM kill, a refused call it did not
     // survive) closes its end of the IPC socket; the next `write` here must be `EPIPE`, not a
     // SIGPIPE that ends the window with it. (WebKit sends with MSG_NOSIGNAL; the Rust half and any
@@ -105,6 +182,8 @@ int main(int argc, char** argv)
     }
     pthread_detach(window);
 
+    // The first thing the loop runs: from here on it is turning (the window's heartbeat times it).
+    WKRunLoopCallOnMainThread([](void*) { webkitapp::E.running = true; }, nullptr);
     WKRunLoopRunMain();
     // End the WebProcess and the NetworkProcess ourselves and wait for them: the sockets closing
     // is not something to rely on, and a process left behind holds its 107 MB and its share of the

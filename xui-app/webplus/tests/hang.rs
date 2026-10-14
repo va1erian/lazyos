@@ -69,7 +69,10 @@ fn reload_and_stop_of_the_toolbar_and_menu_end_a_stuck_page_even_after_a_wait() 
         stage.emit(Msg::Menu(xui_webplus::chrome::Command::Stop));
     });
     assert_eq!(recovers(&calls), [true, false]);
-    assert!(!calls.contains(&Call::Reload), "an ordinary reload is not what a stuck page gets");
+    assert!(
+        !calls.contains(&Call::Reload),
+        "an ordinary reload is not what a stuck page gets"
+    );
 }
 
 #[test]

@@ -54,7 +54,10 @@ fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_somet
     blocker.attach(late.clone());
     assert!(!blocker.settings().enabled);
     blocker.set_enabled(true);
-    assert_eq!(late.1.lock().unwrap().as_ref().map(|s| s.enabled), Some(true));
+    assert_eq!(
+        late.1.lock().unwrap().as_ref().map(|s| s.enabled),
+        Some(true)
+    );
 
     // A switch the user flipped before the store came keeps their choice, and is saved there from now on.
     let blocker = Blocker::volatile();
@@ -64,8 +67,11 @@ fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_somet
     blocker.attach(late.clone());
     assert!(blocker.settings().enabled);
     assert!(blocker.site_excepted("example.com"));
+    // What the user chose before the store came is saved there at once, not lost.
+    let saved = late.1.lock().unwrap().clone().expect("saved on attach");
+    assert!(saved.enabled && saved.exceptions.contains("example.com"));
     blocker.set_enabled(false);
-    assert!(late.1.lock().unwrap().is_some());
+    assert!(!late.1.lock().unwrap().clone().unwrap().enabled);
 }
 
 #[test]

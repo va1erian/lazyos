@@ -9,12 +9,17 @@
 //!   stays stuck).
 //! * The window's loop (`xui_app::stall::pass_age_ms`): `STALL:window:<ms>` when one pass has
 //!   lasted 2 s, every 5 s while it does.
-//! * `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` every 5 s when any is above 5% (`xui_webkit::taskstat`).
+//! * `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` every 5 s when any is 20% or more (`xui_webkit::taskstat`).
+//!
+//! The thread starts with the window and ends with it (`stop`, before the run loop is left): it times
+//! the main thread only once its loop has begun to turn (`lzw_engine_running`), and every line that can
+//! repeat has a budget (`xui_app::trace::within`).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use xui_app::trace::{self, Budget, Channel};
 use xui_webkit::taskstat;
 
 use super::*;
@@ -22,6 +27,24 @@ use super::*;
 extern "C" {
     /// `lazyos_ui.h`: the ids of the page's WebProcess and of the NetworkProcess (0: none yet).
     fn lzw_engine_children(web: *mut c_int, network: *mut c_int);
+    /// `lazyos_ui.h`: whether WebKit's run loop has begun to turn.
+    fn lzw_engine_running() -> c_int;
+}
+
+/// The window is closing: the heartbeat ends at its next look.
+static STOP: AtomicBool = AtomicBool::new(false);
+
+/// The lines that can repeat, each a few per minute at most (the `SUPPRESSED` notice follows).
+static MAIN_BUDGET: Budget = Budget::new(6, 6000);
+static WINDOW_BUDGET: Budget = Budget::new(6, 6000);
+static LAG_BUDGET: Budget = Budget::new(12, 6000);
+static CPU_BUDGET: Budget = Budget::new(12, 6000);
+
+/// Prints `line` when `budget` has some left.
+fn say(budget: &Budget, line: &str) {
+    if trace::within(budget, Channel::Webplus) {
+        crate::marker(line);
+    }
 }
 
 const TICK: Duration = Duration::from_secs(1);
@@ -34,7 +57,7 @@ const REPEAT: Duration = Duration::from_secs(5);
 /// The CPU line is looked at every this many ticks.
 const CPU_EVERY: u32 = 5;
 /// A process below this share of the CPU is not worth a line.
-const CPU_MIN_PERCENT: u64 = 5;
+const CPU_MIN_PERCENT: u64 = 20;
 
 /// What the main thread's ping writes: the number of the last ping it ran and how late it was.
 #[derive(Default)]
@@ -48,6 +71,12 @@ pub(super) fn start() {
     let _ = std::thread::Builder::new()
         .name(String::from("heartbeat"))
         .spawn(run);
+}
+
+/// Ends the heartbeat (the window is closing; the run loop is about to be left, and a ping to it would
+/// never be answered).
+pub(super) fn stop() {
+    STOP.store(true, Ordering::Release);
 }
 
 /// A rate limit for a line that repeats while a condition lasts.
@@ -74,19 +103,27 @@ fn run() {
     let mut ticks = 0u32;
     loop {
         std::thread::sleep(TICK);
+        if STOP.load(Ordering::Acquire) {
+            return;
+        }
         if let Some((number, posted)) = outstanding {
             if pong.answered.load(Ordering::Acquire) >= number {
                 let lag = pong.lag_ms.load(Ordering::Acquire);
                 if Duration::from_millis(lag) >= LAG_REPORT {
-                    crate::marker(&format!("INFO:MAINLAG:{lag}"));
+                    say(&LAG_BUDGET, &format!("INFO:MAINLAG:{lag}"));
                 }
                 outstanding = None;
                 main_line = Every(None);
             } else if posted.elapsed() >= STUCK && main_line.due(REPEAT) {
-                crate::marker(&format!("STALL:main:{}", posted.elapsed().as_millis()));
+                say(
+                    &MAIN_BUDGET,
+                    &format!("STALL:main:{}", posted.elapsed().as_millis()),
+                );
             }
         }
-        if outstanding.is_none() {
+        // SAFETY: no arguments.
+        let turning = unsafe { lzw_engine_running() } != 0;
+        if outstanding.is_none() && turning {
             sent += 1;
             let (number, posted, pong) = (sent, Instant::now(), Arc::clone(&pong));
             on_main_detached(move || {
@@ -99,7 +136,7 @@ fn run() {
         match xui_app::stall::pass_age_ms() {
             Some(age) if Duration::from_millis(age) >= STUCK => {
                 if window_line.due(REPEAT) {
-                    crate::marker(&format!("STALL:window:{age}"));
+                    say(&WINDOW_BUDGET, &format!("STALL:window:{age}"));
                 }
             }
             _ => window_line = Every(None),
@@ -149,12 +186,13 @@ impl Cpu {
         }
         if let Some((before, last)) = self.last.replace((now, used)) {
             let elapsed = now.duration_since(before);
-            let share = [0, 1, 2].map(|at| taskstat::percent(used[at].saturating_sub(last[at]), elapsed));
+            let share =
+                [0, 1, 2].map(|at| taskstat::percent(used[at].saturating_sub(last[at]), elapsed));
             if share.iter().any(|&p| p >= CPU_MIN_PERCENT) {
-                crate::marker(&format!(
-                    "INFO:CPU:ui={}:web={}:net={}",
-                    share[0], share[1], share[2]
-                ));
+                say(
+                    &CPU_BUDGET,
+                    &format!("INFO:CPU:ui={}:web={}:net={}", share[0], share[1], share[2]),
+                );
             }
         }
     }

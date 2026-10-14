@@ -228,6 +228,8 @@ int lzw_engine_start(void)
     return 0;
 }
 
+int lzw_engine_running(void) { return E.running ? 1 : 0; }
+
 void lzw_engine_quit(void) { WKRunLoopCallOnMainThread([](void*) { WKRunLoopStopMain(); }, nullptr); }
 
 int lzw_engine_shutdown(void) { return shutdownChildren(); }

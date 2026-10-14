@@ -64,6 +64,12 @@ struct Engine {
     // window's heartbeat thread reads them (lzw_engine_children).
     std::atomic<int> webPid { 0 };
     std::atomic<int> networkPid { 0 };
+    // The ids as markers print them: kept after the process is reported over, which zeroes the above
+    // (nothing may signal an id that may be somebody else's by now).
+    int webPidShown { 0 };
+    int networkPidShown { 0 };
+    // WebKit's run loop has begun to turn (the window's heartbeat does not time a loop that has not).
+    std::atomic<bool> running { false };
     long navStartMs { 0 };
     long commitMs { 0 };
     long firstPaintMs { -1 };
@@ -134,8 +140,6 @@ const char* terminationReason(uint32_t reason);
 // reaps them, and prints CHILD:<name>:<pid>:GONE|ALIVE:term=..:kill=..:wait=.. for each. Returns the
 // number that are left. Main thread, after the run loop.
 int shutdownChildren();
-// Collects the engine processes that ended and that this thread (WebKit's main) forked.
-void reapChildren();
 std::string activeUrl();
 std::string committedUrl();
 std::string pageTitle();

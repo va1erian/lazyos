@@ -199,15 +199,18 @@ impl Blocker {
     }
 
     /// Hands a blocker made without its store (settings at their defaults) the store that is ready
-    /// now: from here on `persist` keeps the settings, and the ones it holds replace the defaults
-    /// unless the user changed something meanwhile. Opening the store can wait for a service, so it
-    /// is done on a thread of its own, never on WebKit's main thread. The window is woken.
+    /// now: from here on `persist` keeps the settings. The ones it holds replace the defaults unless
+    /// the user changed something meanwhile, and then what the user chose is what is saved (a change
+    /// made before the store came was kept nowhere). Until then navigations ran on the defaults.
+    /// Opening the store can wait for a service, so it is done on a thread of its own, never on
+    /// WebKit's main thread. The window is woken.
     pub fn attach(&self, persist: Arc<dyn Persist>) {
         let stored = persist.load();
-        let wake = {
+        let (wake, chosen) = {
             let mut guard = self.lock();
-            guard.persist = persist;
-            if !guard.touched {
+            guard.persist = Arc::clone(&persist);
+            let chosen = guard.touched.then(|| guard.settings.clone());
+            if chosen.is_none() {
                 let Inner {
                     settings, lists, ..
                 } = &mut *guard;
@@ -216,8 +219,12 @@ impl Blocker {
                     list.enabled = !settings.lists_off.contains(list.id);
                 }
             }
-            guard.wake.clone()
+            (guard.wake.clone(), chosen)
         };
+        // A save may be a call to a service: with the lock released.
+        if let Some(settings) = chosen {
+            persist.save(&settings);
+        }
         if let Some(wake) = wake {
             wake();
         }

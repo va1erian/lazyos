@@ -19,8 +19,8 @@ use xui_webkit::engine::Engine;
 use xui_webkit::view::{Hooks, PageView};
 
 use crate::app::Msg;
-use crate::indicators::{Badge, Throbber};
 use crate::hang::Answer as HangAnswer;
+use crate::indicators::{Badge, Throbber};
 use crate::keys;
 use crate::notify::BarAnswer;
 
