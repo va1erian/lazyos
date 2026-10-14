@@ -87,7 +87,7 @@ pub(super) fn sys_futex(args: Args) -> u64 {
         FUTEX_WAKE_OP => wake_op(&args),
         // FUTEX_FD (2), the PI family (6-8, 11-13) and anything newer.
         _ => {
-            super::enosys::note(202, cmd as u64);
+            super::enosys::note(202, cmd);
             err(ENOSYS)
         }
     }
