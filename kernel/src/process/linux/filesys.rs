@@ -11,7 +11,7 @@ use crate::task::{self, FdKind};
 use crate::user_ptr;
 
 use super::cwd::{user_path, AT_FDCWD};
-use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENODEV, ENOMEM, EOPNOTSUPP, ESPIPE};
+use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
 use super::fd::fd_meta_get;
 use super::path::synthetic_meta;
 use super::vfsfd;
@@ -51,47 +51,6 @@ pub(super) fn sys_ftruncate(fd: u64, length: u64) -> u64 {
         FdKind::Closed => err(EBADF),
         _ => err(EINVAL), // not a regular file
     }
-}
-
-/// `fallocate(fd, mode, offset, len)`: the arguments and the descriptor are judged as Linux does (a closed
-/// descriptor `EBADF`, a negative offset or no length `EINVAL`, a pipe `ESPIPE`, anything that is not a
-/// file `ENODEV`, a file not open for writing `EBADF`), and every valid request on a file is `EOPNOTSUPP`.
-///
-/// Reserving a range means allocating (and, on ext2, zeroing) its blocks, as large a write as the range:
-/// the burst WebKit's HTTP cache asks for the call to avoid (`WTF::FileSystem::createMappedFileData`
-/// calls it for every body and carries on with the sparse file when the answer is `EOPNOTSUPP`; any other
-/// error deletes the file and the cache stores the body inline, issue #864). The price of the honest
-/// answer is that a store through a shared mapping of a sparse file can find the volume full at
-/// write-back; the page cache keeps what it could not write.
-pub(super) fn sys_fallocate(fd: u64, _mode: u64, offset: u64, len: u64) -> u64 {
-    if task::fd_kind(fd as usize) == FdKind::Closed {
-        return err(EBADF);
-    }
-    if (offset as i64) < 0 || (len as i64) <= 0 {
-        return err(EINVAL);
-    }
-    let writable = match task::fd_kind(fd as usize) {
-        FdKind::Vfs => {
-            let mut writable = false;
-            let status = vfsfd::with_file(fd, |file| {
-                writable = file.writable();
-                0
-            });
-            if status != 0 {
-                return status;
-            }
-            writable
-        }
-        FdKind::File => fd_meta_get(fd as usize).is_some_and(|meta| meta.writable),
-        FdKind::Memfd => true,
-        FdKind::Closed => return err(EBADF),
-        FdKind::Pipe => return err(ESPIPE),
-        _ => return err(ENODEV),
-    };
-    if !writable {
-        return err(EBADF);
-    }
-    err(EOPNOTSUPP)
 }
 
 /// `ftruncate` on a snapshot descriptor: cut the backing file, then the
