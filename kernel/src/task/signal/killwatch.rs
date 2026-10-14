@@ -87,7 +87,7 @@ fn calls(rsp: u64) -> ([u64; CALLS], usize) {
     // Same contract as `arch::nmi::write_stack`: `rsp` is a ring-0 stack
     // pointer the scheduler saved, whose page is mapped; a page-aligned one
     // may sit at the very top of its stack, so it is skipped.
-    if rsp % 8 != 0 || rsp % 4096 == 0 || rsp < IMAGE_START {
+    if !rsp.is_multiple_of(8) || rsp.is_multiple_of(4096) || rsp < IMAGE_START {
         return (found, 0);
     }
     let words = (((4096 - rsp % 4096) / 8) as usize).min(STACK_WORDS);
