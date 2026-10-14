@@ -110,7 +110,10 @@ fn make_parent_read_only(table: PhysAddr, va: u64, level: usize) -> Result<(), S
         // Safety: `phys` is a live page table reachable through the physical map.
         let slot = unsafe { ptr.add(((va >> shift) & 0x1ff) as usize) };
         let entry = unsafe { slot.read_volatile() };
-        check!(entry & PTE_PRESENT != 0, "no table at level {depth} for {va:#x}");
+        check!(
+            entry & PTE_PRESENT != 0,
+            "no table at level {depth} for {va:#x}"
+        );
         if depth == level {
             // Safety: as above; nothing else uses this scratch table.
             unsafe { slot.write_volatile(entry & !PTE_WRITABLE) };

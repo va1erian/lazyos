@@ -56,7 +56,8 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
   read-faulted `PROT_READ` or shared file page, made read-only parents, and the later in-place change of the
   leaf by `cow_resolve`, `mprotect` or a shared page's first store faulted again with nothing to resolve).
   An existing parent that lacks a flag has it added by the next mapping, and the in-place paths call
-  `make_walk_writable` for a table an older kernel built. Tests: `mem_suite/table_parents.rs` and
+  `make_walk_writable` as defence in depth (no table this kernel builds has a read-only parent, and page
+  tables do not survive a reboot: it is not a migration). Tests: `mem_suite/table_parents.rs` and
   `ext2_suite/data_fds/filemap/parents.rs` assert it with `parents_writable`.
 
 **User memory layout**

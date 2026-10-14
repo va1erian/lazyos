@@ -81,10 +81,13 @@ pub fn try_map_page_in(
 
 /// Makes the table entries above `va`'s leaf in `table` writable where they are not, for a leaf that has
 /// just become writable in place (a COW copy or a sole owner's shortcut, an `mprotect`, a shared file page's
-/// first store). A CPU takes the lowest R/W bit of the whole walk; [`try_map_page_in`] creates parents
-/// writable, but a table built before that (or by any other path) may hold a read-only one, and a store
-/// through it faults again with nothing left to resolve (issue #853). Only entries of a user walk are
-/// touched (user-accessible, not huge). Flushes `va` when it changed anything.
+/// first store). A CPU takes the lowest R/W bit of the whole walk, so a read-only parent under a writable
+/// leaf is a store that faults again with nothing left to resolve (issue #853).
+///
+/// Defence in depth, not a migration: [`try_map_page_in`] creates every parent writable, so no table this
+/// kernel builds has a read-only one (and no page table survives a reboot). This keeps the in-place paths
+/// from depending on that: a future mapping path, or a bug in one, cannot turn a COW fault into a SIGSEGV.
+/// Only entries of a user walk are touched (user-accessible, not huge). Flushes `va` when it changed anything.
 ///
 /// # Safety
 /// `table` must be a live address space whose lower levels are stable for the call.

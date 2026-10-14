@@ -161,12 +161,12 @@ pub fn writable_leaves_repair_read_only_parents() -> Result<(), String> {
 /// writable through a writable walk, and nothing is leaked across the churn.
 pub fn soak_remap_after_fork_keeps_writable_parents() -> Result<(), String> {
     const SIZES: [u64; 4] = [50, 128, 384, 460];
-    const ROUNDS: u64 = 48;
+    const ROUNDS: u64 = 130;
     let free_before = mem::frame_stats().free;
     for round in 0..ROUNDS {
         let pages = SIZES[(round % 4) as usize];
         // A different 2 MiB slot, and a start shifted by a few pages so the block straddles one or
-        // two boundaries; a different PDPT slot every 64 rounds.
+        // two boundaries; a different PDPT slot every 64 rounds (130 rounds reach the third).
         let dest = 0x4000_0000 + (round % 64) * TWO_MIB + (round / 64) * 0x4000_0000
             - (round % 5) * 7 * PAGE;
         let (parent, child) = forked_and_moved(pages, dest)?;
