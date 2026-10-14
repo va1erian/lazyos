@@ -71,8 +71,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_exit_drops_epoll_interest", exit_drops_epoll_interest),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),
     (
-        "pipe_seqpacket_pollout_maximal_frame",
-        seqpacket_pollout_needs_a_maximal_frame,
+        "pipe_seqpacket_pollout_room_for_a_frame",
+        seqpacket_pollout_needs_room_for_a_frame,
     ),
     (
         "pipe_seqpacket_pollout_frame_limit",

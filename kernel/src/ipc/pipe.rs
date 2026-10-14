@@ -343,9 +343,11 @@ impl Pipe {
     /// byte fits (a write makes partial progress). A `SOCK_SEQPACKET` send is
     /// all-or-nothing, so "one byte fits" would send a poller straight back
     /// into `-EAGAIN`, and a loop of `sendmsg`, `poll`, `sendmsg` would spin
-    /// (issue #863): it is writable only while a **maximal frame**
-    /// ([`Pipe::max_frame`]) fits, and then every send up to that size is
-    /// accepted (when nobody else writes), whatever size the sender picks.
+    /// (issue #863). It is writable only while a frame of [`Pipe::max_frame`]
+    /// fits: with a `pipe(2)` ring that is at most a quarter of the ring in
+    /// use, Linux's `unix_writable` rule, and then every send up to that size
+    /// is accepted (when nobody else writes). Larger frames may still meet
+    /// `-EAGAIN` after `POLLOUT`, as on Linux; they were never promised.
     fn space_to_write(&self, ring: &Ring) -> bool {
         match ring.mode {
             Mode::Stream => self.space_for(ring, 1),
@@ -353,11 +355,15 @@ impl Pipe {
         }
     }
 
-    /// The largest message a seqpacket sender can make: a `pipe(2)`-sized
-    /// ring ([`CAPACITY`]) takes frames up to its whole size; a bigger ring
-    /// (`AF_INET`'s) is only ever given datagrams far below [`CAPACITY`].
+    /// The largest frame `POLLOUT` promises room for: three quarters of a
+    /// `pipe(2)`-sized ring ([`CAPACITY`]). A bigger ring (`AF_INET`'s) is
+    /// only ever given datagrams far below that. Leaving a quarter in use
+    /// keeps two peers that each hold a queued message from both waiting
+    /// for the other to drain (neither would be writable if it took an
+    /// empty ring).
     fn max_frame(ring: &Ring) -> usize {
-        CAPACITY.min(ring.buf.len())
+        let ceiling = CAPACITY.min(ring.buf.len());
+        ceiling - ceiling / 4
     }
 
     /// Whether `len` bytes fit in the ring (all-or-nothing in seqpacket mode).

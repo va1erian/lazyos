@@ -3,8 +3,9 @@
 //! A seqpacket send is all-or-nothing, so a socket that reports "writable"
 //! while only a byte is free sends a `sendmsg` -> `EAGAIN` -> `poll` loop
 //! (WebKit's IPC sender) round and round without ever sleeping. The rule
-//! under test: `POLLOUT` only while a maximal frame fits, so a send that
-//! follows it never fails with `EAGAIN`.
+//! under test: `POLLOUT` only while at most a quarter of the ring is in use
+//! (Linux's `unix_writable`), so a send of up to three quarters of the ring
+//! that follows it never fails with `EAGAIN`.
 
 use super::*;
 use crate::ipc::pipe::{Side, SocketPair, POLLOUT};
@@ -25,6 +26,8 @@ const EPOLLET: u32 = 1 << 31;
 const SOCK_SEQPACKET: u64 = 5;
 const MSG_DONTWAIT: u64 = 0x40;
 const KIB: usize = 1024;
+/// The largest frame `POLLOUT` promises room for: three quarters of the ring.
+const PROMISED: usize = 48 * KIB;
 
 fn sys(nr: u64, args: &[u64]) -> u64 {
     let mut all = [0u64; 6];
@@ -92,8 +95,9 @@ fn writable_everywhere(fd: u64, epfd: u64) -> Result<bool, String> {
 }
 
 /// The issue's case: a ring filled to 1 KiB from full is not writable, a
-/// 4 KiB send would fail, and readiness returns once the reader drains.
-pub fn seqpacket_pollout_needs_a_maximal_frame() -> Result<(), String> {
+/// 4 KiB send would fail, and readiness returns once the reader has drained
+/// the ring down to a quarter.
+pub fn seqpacket_pollout_needs_room_for_a_frame() -> Result<(), String> {
     fresh()?;
     let (a, b) = pair(SOCK_SEQPACKET)?;
     let epfd = sys(EPOLL_CREATE1, &[0]);
@@ -126,9 +130,10 @@ pub fn seqpacket_pollout_needs_a_maximal_frame() -> Result<(), String> {
         "a 4 KiB send into 1 KiB of room was accepted"
     );
 
-    // Draining a little is not enough: still no room for a maximal frame.
+    // Draining a little is not enough: more than a quarter is still in use
+    // (63 KiB queued, 46 read: 17 KiB left).
     let mut buf = alloc::vec![0u8; 64 * KIB];
-    for i in 0..32 {
+    for i in 0..46 {
         check!(recv(b, &mut buf) == KIB as u64, "partial drain {i}");
         check!(
             !writable_everywhere(a, epfd)?,
@@ -137,8 +142,9 @@ pub fn seqpacket_pollout_needs_a_maximal_frame() -> Result<(), String> {
         );
     }
     // An edge-triggered interest armed while unwritable stays silent, then
-    // reports exactly once when the reader makes room for a maximal frame.
+    // reports exactly once when the ring is down to a quarter in use.
     let edge_fd = sys(EPOLL_CREATE1, &[0]);
+    check!((edge_fd as i64) > 0, "epoll_create1 (edge) {edge_fd:#x}");
     let edge = epoll_event(POLLOUT as u32 | EPOLLET);
     check!(
         sys(
@@ -148,21 +154,33 @@ pub fn seqpacket_pollout_needs_a_maximal_frame() -> Result<(), String> {
         "epoll_ctl edge"
     );
     check!(!epoll_out(edge_fd), "an edge reported an unwritable socket");
-    while recv(b, &mut buf) == KIB as u64 {}
-    check!(writable_everywhere(a, epfd)?, "not writable once drained");
+    check!(
+        recv(b, &mut buf) == KIB as u64,
+        "the drain that reaches 16 KiB"
+    );
+    check!(writable_everywhere(a, epfd)?, "not writable at a quarter");
     check!(epoll_out(edge_fd), "the edge did not report the room");
     check!(!epoll_out(edge_fd), "the edge reported twice");
     check!(task::fd_close(edge_fd as usize), "close edge epoll");
 
-    // Writable means every size up to the ceiling is accepted.
-    let largest = alloc::vec![0xc3u8; pipe::CAPACITY];
+    // Writable means every size up to three quarters is accepted, with the
+    // quarter still queued.
+    let largest = alloc::vec![0xc3u8; PROMISED];
     check!(
-        send(a, &largest) == pipe::CAPACITY as u64,
-        "the maximal frame was refused after POLLOUT"
+        send(a, &largest) == PROMISED as u64,
+        "a promised frame was refused after POLLOUT"
     );
     check!(!writable_everywhere(a, epfd)?, "writable with a full ring");
-    check!(recv(b, &mut buf) == pipe::CAPACITY as u64, "read it back");
-    check!(buf[0] == 0xc3 && buf[pipe::CAPACITY - 1] == 0xc3, "bytes");
+    let mut last = 0;
+    loop {
+        let n = recv(b, &mut buf);
+        if n == EAGAIN {
+            break;
+        }
+        last = n;
+    }
+    check!(last == PROMISED as u64, "the big frame came back as {last}");
+    check!(buf[0] == 0xc3 && buf[PROMISED - 1] == 0xc3, "bytes");
     check!(writable_everywhere(a, epfd)?, "not writable after the read");
 
     // A peer that is gone is POLLERR, never writable.
@@ -190,7 +208,7 @@ pub fn seqpacket_pollout_respects_frame_limit() -> Result<(), String> {
     pair.acquire(Side::B);
     for i in 0..pipe::MAX_FRAMES {
         let left = pair.poll(Side::A, POLLOUT) & POLLOUT != 0;
-        check!(left == (i == 0), "frame {i}: POLLOUT is {left}");
+        check!(left, "frame {i}: not writable with {i} bytes queued");
         pair.write_until(Side::A, &[i as u8], true, None)
             .map_err(io_err)?;
     }
@@ -262,29 +280,22 @@ pub fn seqpacket_poller_wakes_when_writable() -> Result<(), String> {
     pair.acquire(Side::A);
     pair.acquire(Side::B);
     let frame = alloc::vec![7u8; 4 * KIB];
-    for _ in 0..4 {
+    for _ in 0..5 {
         pair.write_until(Side::A, &frame, true, None)
             .map_err(io_err)?;
     }
     check!(
         pair.poll(Side::A, POLLOUT) & POLLOUT == 0,
-        "writable with frames queued"
+        "writable with 20 KiB queued"
     );
     let mut buf = alloc::vec![0u8; 64 * KIB];
-    for _ in 0..3 {
-        pair.read_until(Side::B, &mut buf, true, None)
-            .map_err(io_err)?;
-    }
-    // One frame left: the poller parks, and the last read must wake it.
+    // 20 KiB queued: the poller parks, and the read that leaves 16 KiB (a
+    // quarter) must wake it.
     task::harness::switch_current(waiter);
     task::poll_scan_begin();
     pollwait::note_for_test(Some(pair.pipe_keys()));
     task::harness::switch_current(task::KERNEL_TASK);
     POLL.park_ns(waiter, None);
-    check!(
-        pair.poll(Side::A, POLLOUT) & POLLOUT == 0,
-        "writable with a frame queued"
-    );
     pair.read_until(Side::B, &mut buf, true, None)
         .map_err(io_err)?;
     check!(
@@ -298,6 +309,11 @@ pub fn seqpacket_poller_wakes_when_writable() -> Result<(), String> {
     POLL.forget(waiter);
     pair.close(Side::A);
     pair.close(Side::B);
+    task::harness::finish(waiter, 0);
+    check!(
+        task::reap_child().map(|(slot, _)| slot) == Some(waiter),
+        "the poller task was not reaped"
+    );
     Ok(())
 }
 
@@ -312,11 +328,11 @@ impl Rng {
         self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
-    /// A frame size: mostly WebKit-sized, sometimes up to 60 KiB.
+    /// A frame size: mostly WebKit-sized, sometimes up to the promised 48 KiB.
     fn frame_len(&mut self) -> usize {
         let roll = self.next();
         match roll % 8 {
-            0 => 1 + (roll >> 8) as usize % (60 * KIB),
+            0 => 1 + (roll >> 8) as usize % PROMISED,
             1..=2 => 1 + (roll >> 8) as usize % (8 * KIB),
             _ => 1 + (roll >> 8) as usize % 300,
         }
@@ -333,7 +349,7 @@ fn make_frame(n: u64, len: usize, out: &mut Vec<u8>) {
 }
 
 /// Stress: a sender that only sends after `POLLOUT` and a reader that is
-/// sometimes slow, 100k rounds of random 1 B-60 KiB frames straight on the
+/// sometimes slow, 100k rounds of random 1 B-48 KiB frames straight on the
 /// pipe API. A send after `POLLOUT` must never fail; frames arrive whole and
 /// in order; the unwritable state is reached and left many times (so the
 /// test is not vacuous).
@@ -440,7 +456,14 @@ pub fn seqpacket_poll_then_sendto_stress() -> Result<(), String> {
         );
         sent += 1;
     }
-    while recv(b, &mut buf) != EAGAIN {
+    loop {
+        let n = recv(b, &mut buf);
+        if n == EAGAIN {
+            break;
+        }
+        check!(n <= buf.len() as u64, "final drain: recv returned {n:#x}");
+        let seq = u64::from_le_bytes(buf[..8].try_into().unwrap());
+        check!(seq == received, "final drain: frame {seq}, want {received}");
         received += 1;
     }
     check!(received == sent, "{received} received of {sent} sent");
