@@ -83,7 +83,7 @@ pub fn validate(sector: &[u8], device_sectors: u64) -> Result<Geometry, &'static
     if fat32 && root_entries != 0 {
         return Err("a FAT32 volume has no fixed root directory");
     }
-    if !fat32 && (root_entries == 0 || (root_entries * 32) % SECTOR as u64 != 0) {
+    if !fat32 && (root_entries == 0 || !(root_entries * 32).is_multiple_of(SECTOR as u64)) {
         return Err("bad root directory size");
     }
     let first_data = reserved + fats * per_fat + root_sectors;
