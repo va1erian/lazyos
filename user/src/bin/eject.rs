@@ -63,7 +63,7 @@ fn run() -> Result<(), Exit> {
     let mut list = false;
     let mut target: Option<String> = None;
     for arg in sys::args().skip(1) {
-        match &*arg {
+        match arg {
             "-f" | "--force" => force = true,
             "-l" | "--list" => list = true,
             word if word.starts_with('-') => return Err(fail(2, String::from(USAGE))),

@@ -19,8 +19,6 @@
 //! else is written lowest sector first, which puts the FAT before the
 //! directories that use it.
 
-use alloc::vec::Vec;
-
 /// How the dirty sectors of one flush are ordered.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Order {
@@ -49,7 +47,7 @@ pub struct Layout {
 /// Put `dirty` (ascending sector numbers) in the order `order` asks for;
 /// `file_data` says whether a sector holds a file's bytes.
 pub(super) fn arrange(
-    dirty: &mut Vec<u64>,
+    dirty: &mut [u64],
     order: Order,
     layout: Option<Layout>,
     file_data: impl Fn(u64) -> bool,

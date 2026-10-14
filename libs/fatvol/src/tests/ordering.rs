@@ -82,7 +82,7 @@ impl<'a> Raw<'a> {
             let size = u32::from_le_bytes([e[28], e[29], e[30], e[31]]) as usize;
             let mut chain = Vec::new();
             let mut at = first;
-            while at >= 2 && at < 0xFFF8 {
+            while (2..0xFFF8).contains(&at) {
                 if at >= self.clusters + 2 {
                     return Err(alloc::format!("{name}: cluster {at} out of range"));
                 }

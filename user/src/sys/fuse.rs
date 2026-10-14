@@ -141,9 +141,11 @@ pub fn providers() -> Result<Vec<ProviderInfo>, i64> {
         )
     }?;
     Ok(words
-        .chunks_exact(PROVIDER_WORDS)
+        .as_chunks::<PROVIDER_WORDS>()
+        .0
+        .iter()
         .take(count as usize)
-        .filter_map(|chunk| ProviderInfo::from_words(chunk.try_into().ok()?))
+        .filter_map(ProviderInfo::from_words)
         .collect())
 }
 
