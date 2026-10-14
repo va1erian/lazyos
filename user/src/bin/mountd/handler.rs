@@ -10,9 +10,15 @@ use user::messenger::mount::{self as api, wire};
 use user::messenger::{errno, Error, Message, Parcel, Result};
 use user::sys::{self, Personality, SpawnCred};
 
+use crate::volumes::Automount;
+
 /// Route one inbound message. `Ok(parcel)` is the reply; `Err` becomes the
 /// structured error reply the caller sees.
-pub(super) fn dispatch(table: &mut Table, message: &Message) -> Result<Parcel> {
+pub(super) fn dispatch(
+    table: &mut Table,
+    automount: &mut Automount,
+    message: &Message,
+) -> Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -32,6 +38,21 @@ pub(super) fn dispatch(table: &mut Table, message: &Message) -> Result<Parcel> {
             mounts: table.entries().iter().map(info).collect(),
         })
         .map_err(Error::Parcel)?,
+        wire::METHOD_VOLUMES => wire::encode_volumes_reply(&wire::VolumesReply {
+            volumes: automount.listing(message.caller().uid),
+        })
+        .map_err(Error::Parcel)?,
+        wire::METHOD_EJECT => {
+            let args = wire::decode_eject_args(&message.parcel.body).map_err(Error::Parcel)?;
+            let disk = mounttable::volumes::parse_disk_name(&args.disk)
+                .ok_or(Error::Errno(-errno::EINVAL))?;
+            let done = automount.eject(disk, message.caller().uid, args.force)?;
+            wire::encode_eject_reply(&wire::EjectReply {
+                state: String::from(done.state),
+                detail: done.detail,
+            })
+            .map_err(Error::Parcel)?
+        }
         _ => return Err(Error::Errno(-errno::EINVAL)),
     };
     Ok(api::parcel(method, body))

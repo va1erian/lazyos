@@ -3,11 +3,11 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use fused::wire::{Reply, Request, MAX_PAYLOAD};
+use fused::wire::{Op, Reply, Request, FLAG_NODE, MAX_PAYLOAD};
 
 use super::{
-    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, REQUEST_TICKS, SLICE_TICKS,
-    SLOTS,
+    now, park, test_hook, Phase, Slot, State, DEAD_AFTER_TIMEOUTS, MEDIA_REQUEST_TICKS,
+    REQUEST_TICKS, SLICE_TICKS, SLOTS,
 };
 use crate::fs::vfs::FsError;
 use crate::task::{self, wait::WaitQueue};
@@ -31,12 +31,27 @@ pub(super) fn transact(
     if payload_len > MAX_PAYLOAD {
         return Err(FsError::Invalid);
     }
-    let deadline = now() + REQUEST_TICKS;
+    // A path operation holds the VFS mount table while it waits, so every
+    // other path call in the system waits with it: only requests by node
+    // (an open file's reads and writes, which do not) and the flush get the
+    // stick's patience.
+    let patient = request.op & FLAG_NODE != 0 || request.op & 0xFFFF == Op::Flush as u64;
+    let ticks = if patient && slot.state.lock().media {
+        MEDIA_REQUEST_TICKS
+    } else {
+        REQUEST_TICKS
+    };
+    let deadline = now() + ticks;
     // Take the request slot.
     let tag = loop {
         {
             let mut state = slot.state.lock();
             if !current(&state, epoch) {
+                return Err(FsError::Io);
+            }
+            // Being ejected: nothing new reaches the volume. What was
+            // queued before the stop is still answered.
+            if state.stopping {
                 return Err(FsError::Io);
             }
             if !state.busy {
@@ -64,6 +79,10 @@ pub(super) fn transact(
     slot.work.notify_all();
     let result = await_reply(slot, epoch, tag, deadline, out);
     slot.idle.notify_one();
+    // A daemon asked to stop is waiting for the slot to go idle.
+    if slot.state.lock().stopping {
+        slot.work.notify_all();
+    }
     if result.is_err() {
         slot.state.lock().stats.errors += 1;
     }
@@ -112,8 +131,8 @@ fn await_reply(
                     state.alive = false;
                     super::REAP.store(true, Ordering::Release);
                     serial_println!(
-                        "fuse: /mnt/{}: provider stopped answering; dead",
-                        state.name
+                        "fuse: {}: provider stopped answering; dead",
+                        super::mount::point_of(&state.name, state.media)
                     );
                 }
                 release(&mut state);

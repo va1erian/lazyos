@@ -19,6 +19,7 @@ def advanced_cfg(ui) -> dict:
         "home_disk": ui.v["home_disk"].get(),
         "data_path": ui.v["data_path"].get().strip(),
         "data_disk": ui.v["data_disk"].get(),
+        "usb_sticks": ui.v["usb_sticks"].get().strip(),
         "reset_os": ui.v["reset_os"].get(),
         "memory": ui.v["memory"].get().strip(),
         "limits": ui.v["limits"].get().strip(),

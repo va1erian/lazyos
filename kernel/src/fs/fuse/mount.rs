@@ -1,6 +1,7 @@
 //! Registering, unregistering and reaping providers: the mount edge of
 //! [`super`]. A provider's mount lives in both mount tables (native and
-//! Linux ABI) at `/mnt/<name>`, always `nosuid`.
+//! Linux ABI) at `/mnt/<name>` (`/media/<name>` for removable media), always
+//! `nosuid`.
 
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -10,14 +11,28 @@ use super::{FuseError, FuseFs, Phase, Slot, Stats, REAP, SLOTS};
 use crate::fs::vfs::{FileKind, Filesystem, FsError, Id, MountFlags, Vfs};
 use fused::wire::MAX_PAYLOAD;
 
-/// The mount point of provider name `name`.
-pub(super) fn point_of(name: &str) -> String {
-    alloc::format!("{}/{name}", fhs::mount::MNT)
+/// The directory providers of one kind mount under.
+fn base_of(media: bool) -> &'static str {
+    if media {
+        fhs::mount::MEDIA
+    } else {
+        fhs::mount::MNT
+    }
 }
 
-/// Register task `owner` as the provider of `/mnt/<name>` and mount it in
-/// both tables. Returns the provider id.
-pub fn register(owner: usize, name: &str, flags: MountFlags) -> Result<usize, FuseError> {
+/// The mount point of provider name `name`.
+pub(super) fn point_of(name: &str, media: bool) -> String {
+    alloc::format!("{}/{name}", base_of(media))
+}
+
+/// Register task `owner` as the provider of `/mnt/<name>` (`/media/<name>`
+/// when `media`) and mount it in both tables. Returns the provider id.
+pub fn register(
+    owner: usize,
+    name: &str,
+    flags: MountFlags,
+    media: bool,
+) -> Result<usize, FuseError> {
     if !fused::wire::valid_mount_name(name.as_bytes()) {
         return Err(FuseError::Invalid);
     }
@@ -25,7 +40,7 @@ pub fn register(owner: usize, name: &str, flags: MountFlags) -> Result<usize, Fu
     for slot in SLOTS.iter() {
         let (dead, live) = {
             let state = slot.state.lock();
-            let same = state.registered && state.name == name;
+            let same = state.registered && state.name == name && state.media == media;
             (same && !state.alive, same && state.alive)
         };
         if live {
@@ -36,15 +51,15 @@ pub fn register(owner: usize, name: &str, flags: MountFlags) -> Result<usize, Fu
             return Err(FuseError::Busy);
         }
     }
-    let slot = claim(owner, name)?;
+    let slot = claim(owner, name, media)?;
     let epoch = slot.state.lock().epoch;
     let fs: Arc<dyn Filesystem> = Arc::new(FuseFs::new(slot.index, epoch));
     let flags = flags.union(MountFlags {
         nosuid: true,
         ..MountFlags::default()
     });
-    let point = point_of(name);
-    if let Err(error) = mount_both(&point, fs, flags) {
+    let point = point_of(name, media);
+    if let Err(error) = mount_both(&point, base_of(media), fs, flags) {
         let mut state = slot.state.lock();
         state.alive = false;
         state.mounted = false;
@@ -63,7 +78,7 @@ pub fn register(owner: usize, name: &str, flags: MountFlags) -> Result<usize, Fu
 /// acquisition that marks it registered: a slot is never seen registered
 /// but not yet alive (which [`reap`] would take for a dead provider and
 /// free under the new owner).
-fn claim(owner: usize, name: &str) -> Result<&'static Slot, FuseError> {
+fn claim(owner: usize, name: &str, media: bool) -> Result<&'static Slot, FuseError> {
     SLOTS
         .iter()
         .find(|slot| {
@@ -76,9 +91,11 @@ fn claim(owner: usize, name: &str) -> Result<&'static Slot, FuseError> {
             }
             state.owner = owner;
             state.name = String::from(name);
+            state.media = media;
             state.alive = true;
             state.mounted = false;
             state.busy = false;
+            state.stopping = false;
             state.phase = Phase::Idle;
             state.timeouts = 0;
             state.stats = Stats::default();
@@ -93,9 +110,14 @@ fn claim(owner: usize, name: &str) -> Result<&'static Slot, FuseError> {
 
 /// Mount `fs` at `point` in the native and the Linux ABI tables, or in
 /// neither.
-fn mount_both(point: &str, fs: Arc<dyn Filesystem>, flags: MountFlags) -> Result<(), FuseError> {
+fn mount_both(
+    point: &str,
+    base: &str,
+    fs: Arc<dyn Filesystem>,
+    flags: MountFlags,
+) -> Result<(), FuseError> {
     let mount = |vfs: &mut Vfs, fs: Arc<dyn Filesystem>| -> Result<(), FuseError> {
-        match vfs.stat(Id::ROOT, fhs::mount::MNT) {
+        match vfs.stat(Id::ROOT, base) {
             Ok(meta) if meta.kind == FileKind::Dir => {}
             _ => return Err(FuseError::NoMountRoot),
         }
@@ -113,12 +135,12 @@ fn mount_both(point: &str, fs: Arc<dyn Filesystem>, flags: MountFlags) -> Result
 /// trying once otherwise), then free the slot unless a requester still
 /// holds its request slot. False when something is left for [`reap`].
 fn unmount_slot(slot: &Slot, wait: bool) -> bool {
-    let (name, mounted) = {
+    let (name, media, mounted) = {
         let state = slot.state.lock();
-        (state.name.clone(), state.mounted)
+        (state.name.clone(), state.media, state.mounted)
     };
     if mounted {
-        let point = point_of(&name);
+        let point = point_of(&name, media);
         let unmount = |vfs: &mut Vfs| match vfs.unmount(&point) {
             Ok(()) | Err(FsError::NotFound) => Ok(()),
             Err(error) => Err(error),
@@ -185,8 +207,11 @@ pub fn teardown_task(task_slot: usize) {
             died
         };
         if died {
-            let name = slot.state.lock().name.clone();
-            serial_println!("fuse: /mnt/{name}: provider task {task_slot} died");
+            let point = {
+                let state = slot.state.lock();
+                point_of(&state.name, state.media)
+            };
+            serial_println!("fuse: {point}: provider task {task_slot} died");
             REAP.store(true, Ordering::Release);
             slot.wake_all();
         }

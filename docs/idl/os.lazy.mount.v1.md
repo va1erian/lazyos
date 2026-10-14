@@ -20,6 +20,14 @@ friendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in
 use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 `EAGAIN` when every slot is taken.
 
+The service also automounts removable volumes (docs/usb-hotplug-plan.md):
+a FAT USB stick plugged in while someone is logged in is served at
+`/media/<label>` by a `fatfuse` as that user. `Volumes` lists them and
+`Eject` finishes one: the daemon flushes everything, closes the filesystem
+(the dirty flag is cleared) and unmounts, and only then is the stick safe
+to pull. An eject is refused while a file is open on the volume, and the
+refusal says who holds it.
+
 ## Methods
 
 | Method | Id | Kind | Signature |
@@ -27,6 +35,8 @@ use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 | Mount | 1041399898 | sync | `(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)` |
 | Unmount | 2047171115 | sync | `(name: String) -> ()` |
 | List | 220805025 | sync | `() -> (mounts: Array<MountInfo>)` |
+| Volumes | 2053774420 | sync | `() -> (volumes: Array<VolumeInfo>)` |
+| Eject | 819391126 | sync | `(disk: String, force: Bool) -> (state: String, detail: String)` |
 
 ## struct `MountInfo`
 
@@ -40,3 +50,13 @@ use, `ENOENT` for an unknown name, `EPERM` for another user's mount,
 - `detail: String`
 - `owner: U32`
 - `share: String`
+
+## struct `VolumeInfo`
+
+- `disk: String`
+- `name: String`
+- `path: String`
+- `state: String`
+- `detail: String`
+- `owner: U32`
+- `writable: Bool`

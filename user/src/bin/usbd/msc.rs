@@ -135,7 +135,7 @@ impl Msc {
             Err(errno) => return skip(&name, &format!("register errno {errno}")),
         };
         trace::line!(trace::Channel::Usbd, "MSC:DISK port={name} slot={slot} id=usb{} vendor={vendor:#06x} product={product:#06x} blocks={blocks} wp={} burst={} packet={}",
-            self.id,
+            self.id & 0xFF,
             u8::from(disk.write_protected),
             self.pipes.bulk_in.context.max_burst,
             self.pipes.bulk_in.context.max_packet);
@@ -175,7 +175,7 @@ impl Msc {
                 trace::line!(
                     trace::Channel::Usbd,
                     "MSC:FAIL id=usb{} next errno {errno} ({})",
-                    self.id,
+                    self.id & 0xFF,
                     next_errno_text(errno)
                 );
                 self.dead = true;
@@ -189,6 +189,8 @@ impl Msc {
     fn run(&mut self, hc: &mut Hc, device: &mut Device, request: StorageRequest, trace: bool) {
         let bytes = request.bytes as usize;
         let id = self.id;
+        // The handle carries the generation above the slot (`usb<slot>`).
+        let slot = id & 0xFF;
         let Msc {
             pipes,
             disk,
@@ -220,7 +222,7 @@ impl Msc {
         let after = disk.bot.stats;
         let ms = sys::monotonic_ms().saturating_sub(started);
         if trace || result.is_err() || ms >= SLOW_MS {
-            trace::line!(trace::Channel::Usbd, "MSC:REQ id=usb{id} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}",
+            trace::line!(trace::Channel::Usbd, "MSC:REQ id=usb{slot} op={} lba={} bytes={bytes} ms={ms} result={result:?} stalls={} resets={}",
                 op_name(request.op),
                 request.lba,
                 after.stalls - before.stalls,
@@ -243,12 +245,12 @@ impl Msc {
         };
         if status == storage_status::GONE {
             self.dead = true;
-            trace::line!(trace::Channel::Usbd, "MSC:GONE id=usb{id} ({result:?})");
+            trace::line!(trace::Channel::Usbd, "MSC:GONE id=usb{slot} ({result:?})");
         }
         if let Err(errno) = sys::storage_complete(id, request.tag, status, data) {
             trace::line!(
                 trace::Channel::Usbd,
-                "MSC:FAIL id=usb{id} complete errno {errno}"
+                "MSC:FAIL id=usb{slot} complete errno {errno}"
             );
         }
     }
@@ -263,6 +265,8 @@ impl Msc {
         }
         self.dirty_since = None;
         let id = self.id;
+        // The handle carries the generation above the slot (`usb<slot>`).
+        let slot = id & 0xFF;
         let mut pending = self.reset_pending;
         let (mut link, disk) = self.link(hc, device, Patience::idle_flush());
         let result = match disk.as_mut() {
@@ -274,7 +278,7 @@ impl Msc {
         if let Err(error) = out_of_time(result, &link, &mut pending) {
             trace::line!(
                 trace::Channel::Usbd,
-                "MSC:FAIL id=usb{id} idle flush {error:?}"
+                "MSC:FAIL id=usb{slot} idle flush {error:?}"
             );
         }
         self.reset_pending = pending;
@@ -292,7 +296,7 @@ impl Msc {
         trace::line!(
             trace::Channel::Usbd,
             "MSC:GONE id=usb{} (detached)",
-            self.id
+            self.id & 0xFF
         );
     }
 }

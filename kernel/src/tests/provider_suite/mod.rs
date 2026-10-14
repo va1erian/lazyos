@@ -5,10 +5,13 @@
 //! dies or stops answering mid-request, and the syscall 33 gate.
 
 mod cache;
+mod claims;
 mod hostile;
 mod io;
+mod lifecycle;
 mod slow;
 mod sys;
+mod term;
 mod vfs;
 
 use super::*;
@@ -399,7 +402,49 @@ pub(super) const CASES: &[(&str, Test)] = &[
         cache::epoch_and_eviction,
     ),
     ("provider_cache_soak_random_io", cache::soak_random_io),
+    (
+        "provider_signal_term_ends_the_providers_wait",
+        term::term_ends_the_providers_wait,
+    ),
+    (
+        "provider_signal_term_takes_no_request",
+        term::term_takes_no_request,
+    ),
+    (
+        "provider_signal_soak_term_unwinds_the_provider",
+        term::soak_term_unwinds_the_provider,
+    ),
     ("provider_sys_gate", sys::gate),
     ("provider_sys_request_cycle", sys::request_cycle),
     ("provider_sys_hostile_lengths", sys::hostile_lengths),
+    (
+        "provider_dead_slot_is_reused",
+        lifecycle::dead_slot_is_reused,
+    ),
+    (
+        "provider_live_scanned_and_claimed_slots_are_kept",
+        lifecycle::live_scanned_and_claimed_slots_are_kept,
+    ),
+    (
+        "provider_stale_generation_never_reaches_a_new_disk",
+        lifecycle::stale_generation_never_reaches_a_new_disk,
+    ),
+    ("provider_claim_cycle", lifecycle::claim_cycle),
+    (
+        "provider_claim_dies_with_its_task",
+        lifecycle::claim_dies_with_its_task,
+    ),
+    (
+        "provider_raw_syscalls_are_gated_and_checked",
+        claims::raw_syscalls_are_gated_and_checked,
+    ),
+    (
+        "provider_kernel_mounted_disk_is_pinned",
+        lifecycle::kernel_mounted_disk_is_pinned,
+    ),
+    (
+        "provider_stale_provider_handle_is_refused",
+        lifecycle::stale_provider_handle_is_refused,
+    ),
+    ("provider_churn_one_slot_400_times", lifecycle::churn),
 ];

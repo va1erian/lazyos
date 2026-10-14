@@ -5,12 +5,15 @@
 
 #[cfg(lazyos_tests)]
 mod fake {
-    use core::sync::atomic::{AtomicU64, Ordering};
+    use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use fused::wire::Request;
     use spin::Mutex;
 
-    use super::super::{Phase, Stats, SLOTS};
+    use super::super::{Phase, Stats, SLICE_TICKS, SLOTS};
 
     static OFFSET: AtomicU64 = AtomicU64::new(0);
+    static PARKLESS: AtomicBool = AtomicBool::new(false);
+    static PARKS: AtomicU64 = AtomicU64::new(0);
     static SERVER: Mutex<Option<fn(usize)>> = Mutex::new(None);
 
     pub fn offset() -> u64 {
@@ -29,6 +32,45 @@ mod fake {
         SERVER.lock().is_some()
     }
 
+    /// Make every park a counted tick of the fake clock instead of a sleep:
+    /// a test that expects a daemon *not* to park observes [`parks`] stay
+    /// put, and one that regressed ends at its deadline instead of hanging.
+    pub fn set_parkless(on: bool) {
+        PARKLESS.store(on, Ordering::Relaxed);
+        PARKS.store(0, Ordering::Relaxed);
+    }
+
+    /// Parks counted since [`set_parkless`].
+    pub fn parks() -> u64 {
+        PARKS.load(Ordering::Relaxed)
+    }
+
+    /// Whether this park is replaced by a tick of the fake clock.
+    pub fn parked() -> bool {
+        if !PARKLESS.load(Ordering::Relaxed) {
+            return false;
+        }
+        PARKS.fetch_add(1, Ordering::Relaxed);
+        advance(SLICE_TICKS);
+        true
+    }
+
+    /// Put a request in slot `index`'s hands-to-be, as if a requester had
+    /// just queued it and the daemon had not yet asked.
+    pub fn hold_queued(index: usize) {
+        let mut state = SLOTS[index].state.lock();
+        state.busy = true;
+        state.phase = Phase::Queued;
+        state.request = Request::EMPTY;
+        state.payload_len = 0;
+        state.reply_cap = 0;
+    }
+
+    /// Whether a request still waits in slot `index` for its daemon.
+    pub fn queued(index: usize) -> bool {
+        SLOTS[index].state.lock().phase == Phase::Queued
+    }
+
     /// Run the fake daemon for slot `index`; false when none is installed.
     pub fn serve(index: usize) -> bool {
         let server = *SERVER.lock();
@@ -44,11 +86,13 @@ mod fake {
             state.alive = false;
             state.mounted = false;
             state.busy = false;
+            state.stopping = false;
             state.phase = Phase::Idle;
             state.timeouts = 0;
             state.stats = Stats::default();
         }
         OFFSET.store(0, Ordering::Relaxed);
+        set_parkless(false);
         set_server(None);
     }
 }
@@ -68,5 +112,10 @@ pub fn serving() -> bool {
 
 #[cfg(not(lazyos_tests))]
 pub fn serve(_index: usize) -> bool {
+    false
+}
+
+#[cfg(not(lazyos_tests))]
+pub fn parked() -> bool {
     false
 }

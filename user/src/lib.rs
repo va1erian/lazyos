@@ -20,6 +20,9 @@ pub mod dev;
 
 pub mod files;
 
+/// Who is logged in, followed from `logind`'s events and answers.
+pub mod logins;
+
 /// The system-stats snapshot, shared with the xui system monitor.
 pub use lazyos_sys::sysinfo;
 

@@ -139,8 +139,10 @@ pub(super) const ELEVD_CRED: SysCred =
 /// system uid holding only `CAP_FS_PROVIDER`, which the `ftpfuse` and
 /// `smbfuse` daemons it starts inherit: they may serve `/mnt/<name>` and
 /// nothing more (the kernel also requires this uid, or root, to serve:
-/// `mounttable::FS_PROVIDER_UIDS`).
-#[cfg(lazyos_netd)]
+/// `mounttable::FS_PROVIDER_UIDS`). The `fatfuse` daemons it starts for
+/// USB volumes inherit it too, which is also what lets them claim a disk
+/// raw (`block::provider::rawsys`).
+#[cfg(any(lazyos_netd, lazyos_usb))]
 pub(super) const MOUNTD_CRED: SysCred = SysCred::new(
     mounttable::MOUNTD_UID,
     mounttable::MOUNTD_UID,

@@ -74,7 +74,7 @@ MODES = [
 
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -200,6 +200,11 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
+    if cfg.get("usb_sticks", "").strip():
+        # Sticks plugged into the guest (`--usb-stick`): the driver, and a
+        # services session that starts it and the automount.
+        env["LAZYOS_USB"] = "1"
+        env.setdefault("LAZYOS_SERVICES", "1")
     if cfg.get("usb_image") or cfg.get("installer"):
         # Also writes target/lazyos-usb.img, the real-PC USB stick image
         # (docs/usb-stick.md); the run itself still boots target/lazyos.img.
@@ -386,6 +391,8 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--no-home-disk")
         if cfg.get("data_disk", False):
             argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
+        for stick in shlex.split(cfg.get("usb_sticks", "") or ""):
+            argv += ["--usb-stick", stick]
         # Recreate the OS volume (apps, settings, logs) instead of updating it; it needs a
         # build, so "Skip build" wins. run_demo asks before erasing and has no terminal
         # here, so the GUI asks first (datavol.confirm_reset_os) and passes --yes for it.

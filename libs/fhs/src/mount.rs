@@ -31,3 +31,9 @@ pub const TRANSIENT: &str = "/transient";
 /// Where user-space filesystems mount (docs/smb-plan.md F1): a provider of
 /// syscall 35 serves `/mnt/<name>`, and nothing else may mount here.
 pub const MNT: &str = "/mnt";
+
+/// Where removable media mount (docs/usb-hotplug-plan.md): a volume of a USB
+/// stick is served at `/media/<label>` by a user-space filesystem daemon
+/// (`fatfuse`) through the same syscall 35 as [`MNT`], started by `mountd`
+/// when its automount policy asks for it.
+pub const MEDIA: &str = "/media";

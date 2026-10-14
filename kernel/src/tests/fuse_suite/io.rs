@@ -285,8 +285,8 @@ pub fn unregister_and_remount() -> Result<(), String> {
         );
         // A new provider under the same name, likely in the same slot: the
         // old node must not reach it.
-        let again =
-            fuse::register(owner, "t", MountFlags::default()).map_err(|e| format!("{e:?}"))?;
+        let again = fuse::register(owner, "t", MountFlags::default(), false)
+            .map_err(|e| format!("{e:?}"))?;
         with_fake(|f| f.index = again);
         let mut buf = [0u8; 4];
         expect(
@@ -297,6 +297,42 @@ pub fn unregister_and_remount() -> Result<(), String> {
         check!(
             vfsapi::abi_stat(ROOT, "/mnt/t").is_ok(),
             "the new mount answers"
+        );
+        Ok(())
+    })
+}
+
+/// A removable-media provider mounts at `/media/<name>`, beside (not over)
+/// a `/mnt/<name>` of the same name, and each goes away on its own.
+pub fn media_mounts() -> Result<(), String> {
+    run(Mode::Normal, |_| {
+        let owner = with_fake(|f| f.owner);
+        let first = with_fake(|f| f.index);
+        let media = fuse::register(owner, "t", MountFlags::default(), true)
+            .map_err(|e| format!("register media: {e:?}"))?;
+        check!(media != first, "both mounts share a slot");
+        let mounts = vfsapi::abi_mounts();
+        for point in ["/mnt/t", "/media/t"] {
+            check!(
+                mounts.iter().any(|(p, name)| p == point && *name == "fuse"),
+                "{point} missing: {mounts:?}"
+            );
+        }
+        // A second provider of the same name in the same place is refused.
+        check!(
+            fuse::register(owner, "t", MountFlags::default(), true) == Err(FuseError::Busy),
+            "a second /media/t"
+        );
+        check!(
+            vfsapi::abi_mount_flags("/media/t/x").nosuid,
+            "the media mount is not nosuid"
+        );
+        check!(fuse::unregister(media, owner).is_ok(), "unregister media");
+        let mounts = vfsapi::abi_mounts();
+        check!(
+            !mounts.iter().any(|(p, _)| p == "/media/t")
+                && mounts.iter().any(|(p, _)| p == "/mnt/t"),
+            "after unregister: {mounts:?}"
         );
         Ok(())
     })
@@ -340,7 +376,7 @@ pub fn stress() -> Result<(), String> {
         check!(fuse::unregister(index, owner).is_ok(), "unregister");
         for generation in 0..200usize {
             let name = if generation % 2 == 0 { "a" } else { "b" };
-            let id = fuse::register(owner, name, MountFlags::default())
+            let id = fuse::register(owner, name, MountFlags::default(), false)
                 .map_err(|e| format!("generation {generation}: {e:?}"))?;
             with_fake(|f| f.index = id);
             let path = alloc::format!("/mnt/{name}");

@@ -14,8 +14,9 @@ use crate::task::{self, wait::WaitQueue};
 
 impl UserDisk {
     /// One request through the slot, start to finish.
-    fn transact(
+    pub(super) fn transact(
         &self,
+        generation: u64,
         op: Op,
         lba: u64,
         read: Option<&mut [u8]>,
@@ -31,7 +32,9 @@ impl UserDisk {
         let tag = loop {
             {
                 let mut state = self.state.lock();
-                if !state.alive {
+                // A slot reclaimed since this operation began is another
+                // disk: its requests are not ours to send.
+                if !state.alive || state.generation != generation {
                     return Err(BlockError::Io);
                 }
                 if !state.busy {
@@ -179,12 +182,25 @@ fn report_unparkable() {
 
 impl UserDisk {
     /// Read from the provider, in bounce-buffer pieces, past the cache.
-    fn read_through(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
+    fn read_through(&self, generation: u64, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
         for (index, chunk) in buf.chunks_mut(MAX_REQUEST_BYTES).enumerate() {
             let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
-            self.transact(Op::Read, at, Some(chunk), None)?;
+            self.transact(generation, Op::Read, at, Some(chunk), None)?;
         }
         Ok(())
+    }
+
+    /// The generation an operation that starts now belongs to.
+    fn generation(&self) -> u64 {
+        self.state.lock().generation
+    }
+
+    /// Whether the slot still holds the disk generation `generation`, which
+    /// is alive: what a cache fill or a cache update must check before it
+    /// stores anything, so a reclaim in between cannot be polluted.
+    fn current(&self, generation: u64) -> bool {
+        let state = self.state.lock();
+        state.alive && state.generation == generation
     }
 }
 
@@ -199,8 +215,9 @@ impl BlockDevice for UserDisk {
 
     fn read_sectors(&self, lba: u64, buf: &mut [u8]) -> Result<(), BlockError> {
         self.check_range(lba, buf.len())?;
+        let generation = self.generation();
         if buf.is_empty() || buf.len() > BYPASS_BYTES {
-            return self.read_through(lba, buf);
+            return self.read_through(generation, lba, buf);
         }
         // A dead disk fails at once, whatever it once read.
         if !self.state.lock().alive {
@@ -223,13 +240,15 @@ impl BlockDevice for UserDisk {
         let len = (end - first) as usize * SECTOR_SIZE;
         let mut staging = alloc::vec::Vec::new();
         if staging.try_reserve_exact(len).is_err() {
-            return self.read_through(lba, buf);
+            return self.read_through(generation, lba, buf);
         }
         staging.resize(len, 0);
-        self.read_through(first, &mut staging)?;
+        self.read_through(generation, first, &mut staging)?;
         let from = (lba - first) as usize * SECTOR_SIZE;
         buf.copy_from_slice(&staging[from..from + buf.len()]);
-        self.cache.lock().insert(epoch, first, &staging);
+        if self.current(generation) {
+            self.cache.lock().insert(epoch, first, &staging);
+        }
         Ok(())
     }
 
@@ -241,25 +260,30 @@ impl BlockDevice for UserDisk {
         // Write through: the device first, the cache as it completes. The
         // epoch moves on both sides, so a reader that was in flight cannot
         // store what it read before the new bytes landed.
+        let generation = self.generation();
         let ticket = self.cache.lock().begin_write();
         let mut result = Ok(());
         for (index, chunk) in buf.chunks(MAX_REQUEST_BYTES).enumerate() {
             let at = lba + (index * MAX_REQUEST_BYTES / SECTOR_SIZE) as u64;
-            result = self.transact(Op::Write, at, None, Some(chunk));
+            result = self.transact(generation, Op::Write, at, None, Some(chunk));
             if result.is_err() {
                 break;
             }
         }
-        let mut cache = self.cache.lock();
-        match result {
-            Ok(()) => cache.wrote(ticket, lba, buf),
-            Err(_) => cache.forget(lba, (buf.len() / SECTOR_SIZE) as u64),
+        // A reclaim in the middle emptied the cache for the new disk: this
+        // write's bytes are not its to record.
+        if self.current(generation) {
+            let mut cache = self.cache.lock();
+            match result {
+                Ok(()) => cache.wrote(ticket, lba, buf),
+                Err(_) => cache.forget(lba, (buf.len() / SECTOR_SIZE) as u64),
+            }
         }
         result
     }
 
     fn flush(&self) -> Result<(), BlockError> {
-        self.transact(Op::Flush, 0, None, None)
+        self.transact(self.generation(), Op::Flush, 0, None, None)
     }
 
     fn is_writable(&self) -> bool {

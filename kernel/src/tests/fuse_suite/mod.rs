@@ -6,9 +6,11 @@
 //! gate; and a soak.
 
 mod coherence;
+mod eject;
 mod hostile;
 mod io;
 mod sys;
+mod term;
 
 use super::*;
 use crate::fs::fuse::{self, test_hook, FuseError};
@@ -164,7 +166,7 @@ fn serve(index: usize) {
         payload.extend_from_slice(bytes);
         Ok(())
     });
-    let Ok(Some(request)) = taken else {
+    let Ok(fuse::Next::Request(request)) = taken else {
         test_hook::advance(fuse::SLICE_TICKS);
         return;
     };
@@ -246,6 +248,7 @@ fn table(with_mnt: bool) -> Vfs {
     let root = RamFs::new();
     if with_mnt {
         let _ = root.mkdir("mnt", 0o755, Id::ROOT);
+        let _ = root.mkdir("media", 0o755, Id::ROOT);
     }
     let mut vfs = Vfs::new();
     let _ = vfs.mount(fhs::mount::ROOT, Arc::new(root), MountFlags::default());
@@ -273,7 +276,8 @@ fn prepare(with_mnt: bool) -> Result<usize, String> {
 /// [`prepare`], then mount `/mnt/<name>` served by the fake in `mode`.
 fn setup_named(name: &str, mode: Mode, flags: MountFlags) -> Result<usize, String> {
     let owner = prepare(true)?;
-    let index = fuse::register(owner, name, flags).map_err(|e| format!("register: {e:?}"))?;
+    let index =
+        fuse::register(owner, name, flags, false).map_err(|e| format!("register: {e:?}"))?;
     *FAKE.lock() = Some(Fake {
         index,
         owner,
@@ -346,6 +350,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_open_file_in_place", io::open_file_in_place),
     ("fuse_large_directory", io::large_directory),
     ("fuse_read_only_mount", io::read_only_mount),
+    ("fuse_media_mounts_live_under_media", io::media_mounts),
     ("fuse_unregister_and_remount", io::unregister_and_remount),
     ("fuse_stress", io::stress),
     (
@@ -360,12 +365,36 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fuse_error_statuses", hostile::error_statuses),
     ("fuse_silent_daemon_dies", hostile::silent_daemon_dies),
     ("fuse_death_mid_request", hostile::death_mid_request),
+    (
+        "fuse_sync_survives_a_dead_daemon",
+        hostile::sync_survives_a_dead_daemon,
+    ),
     ("fuse_stale_reply", hostile::stale_reply),
     ("fuse_oversized_reply", hostile::oversized_reply),
     ("fuse_faulting_reply_data", hostile::faulting_reply_data),
     ("fuse_lying_replies", hostile::lying_replies),
     ("fuse_endless_directory", hostile::endless_directory),
+    (
+        "fuse_signal_term_ends_the_daemons_wait",
+        term::term_ends_the_daemons_wait,
+    ),
+    (
+        "fuse_signal_term_takes_no_request",
+        term::term_takes_no_request,
+    ),
+    (
+        "fuse_signal_soak_term_unwinds_the_daemon",
+        term::soak_term_unwinds_the_daemon,
+    ),
     ("fuse_sys_gate", sys::gate),
     ("fuse_sys_request_cycle", sys::request_cycle),
     ("fuse_sys_hostile_buffers", sys::hostile_buffers),
+    ("fuse_eject_list_and_stop", eject::list_and_stop),
+    ("fuse_eject_busy_names_holders", eject::busy_names_holders),
+    (
+        "fuse_eject_queued_request_answered_first",
+        eject::queued_request_answered_first,
+    ),
+    ("fuse_eject_syscalls", eject::supervise_syscalls),
+    ("fuse_eject_soak", eject::stop_soak),
 ];

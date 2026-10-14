@@ -79,6 +79,15 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
     // The USB HID driver (docs/usb-hid-plan.md U2).
     if usb {
         add(sink, fhs::bin::USBD, "usbd");
+        // Its volumes are mounted at `/media/<label>` by `mountd`, which
+        // starts one `fatfuse` per disk (docs/usb-hotplug-plan.md).
+        add(sink, fhs::bin::FATFUSE, "fatfuse");
+        // `eject`: flush and unmount one of them, so the stick can be pulled.
+        add(sink, fhs::bin::EJECT, "eject");
+    }
+    if usb || netd {
+        // `mountd`: the network mounts' service, and the USB volumes' automount.
+        add(sink, fhs::bin::MOUNTD, "mountd");
     }
     assert!(
         netd || !enabled("LAZYOS_DBGD"),
@@ -120,9 +129,6 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         add(sink, fhs::bin::FTPFUSE, "ftpfuse");
         // `smbfuse`, an SMB 2.1 share mounted the same way (F3).
         add(sink, fhs::bin::SMBFUSE, "smbfuse");
-        // `mountd`, which starts `ftpfuse` and `smbfuse` for the Network
-        // Drives app.
-        add(sink, fhs::bin::MOUNTD, "mountd");
         // `dbgd`, the remote inspection service, only on request: nothing
         // of it is in an image built without `LAZYOS_DBGD=1`.
         if enabled("LAZYOS_DBGD") {

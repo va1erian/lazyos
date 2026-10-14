@@ -49,6 +49,7 @@
 mod backend;
 mod channel;
 mod mount;
+mod supervise;
 pub mod sys;
 pub mod test_hook;
 
@@ -63,14 +64,39 @@ use super::vfs::FsError;
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
 pub use backend::FuseFs;
+
+/// Whether the provider that registration `epoch` of slot `index` named is
+/// gone: dead, or the slot serves another provider now.
+pub(crate) fn provider_gone(index: usize, epoch: u64) -> bool {
+    SLOTS.get(index).is_none_or(|slot| {
+        let state = slot.state.lock();
+        !(state.registered && state.alive && state.epoch == epoch)
+    })
+}
+/// Whether provider `index` (registration `epoch`) was asked to finish: its
+/// mount refuses requests, and a sync has nothing left to ask of it.
+pub(crate) fn provider_stopping(index: usize, epoch: u64) -> bool {
+    SLOTS.get(index).is_some_and(|slot| {
+        let state = slot.state.lock();
+        state.registered && state.epoch == epoch && state.stopping
+    })
+}
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the suite's bound check
 pub use backend::MAX_DIR_ENTRIES;
 pub use mount::{reap, register, teardown_task, unregister};
+pub use supervise::{holders_report, list, stop, StopError};
 
 /// How many daemons can be mounted at once.
 pub const MAX_PROVIDERS: usize = 8;
 /// How long one request may take (PIT ticks, 100 Hz): 10 s.
 pub const REQUEST_TICKS: u64 = 1000;
+/// The same for a removable-media mount (`/media`), for the requests that do
+/// not hold the VFS mount table (by node, and the flush): 45 s, the patience of
+/// the stick driver's own request budget (`usbd`, below the block layer's
+/// 60 s). A flash stick can stall a write for seconds while it reorganises,
+/// and the daemon's request is a handful of those; a 10 s limit declared a
+/// healthy stick dead after two slow writes.
+pub const MEDIA_REQUEST_TICKS: u64 = 4500;
 /// How often a waiting requester checks that its daemon is alive.
 pub const SLICE_TICKS: u64 = 10;
 /// How long the VFS believes metadata a daemon answered (ticks): 1 s. A
@@ -97,7 +123,7 @@ pub enum FuseError {
     Full,
     /// A live provider already serves that name.
     Busy,
-    /// `/mnt` is not a directory on this system.
+    /// `/mnt` (or `/media`) is not a directory on this system.
     NoMountRoot,
     /// Not a provider this task registered, or it is dead.
     NotOwner,
@@ -129,8 +155,14 @@ struct State {
     /// provider in this slot can never reach a later one.
     epoch: u64,
     name: String,
+    /// Mounted at `/media/<name>` rather than `/mnt/<name>`.
+    media: bool,
     /// A requester owns the request slot.
     busy: bool,
+    /// The supervisor asked this provider to finish and unmount
+    /// ([`supervise::stop`]): new requests are refused, the daemon's `NEXT`
+    /// reports it once what it already took is answered.
+    stopping: bool,
     phase: Phase,
     request: Request,
     /// Bytes of the bounce buffer the request's payload fills.
@@ -167,7 +199,9 @@ impl Slot {
                 owner: 0,
                 epoch: 0,
                 name: String::new(),
+                media: false,
                 busy: false,
+                stopping: false,
                 phase: Phase::Idle,
                 request: Request::EMPTY,
                 payload_len: 0,
@@ -215,17 +249,39 @@ fn now() -> u64 {
     task::ticks() + test_hook::offset()
 }
 
+/// What a daemon's `NEXT` got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Next {
+    /// A request, its payload already handed over.
+    Request(Request),
+    /// Nothing came before the deadline.
+    Idle,
+    /// The supervisor asked this daemon to finish: nothing is queued and
+    /// nothing new will be (see [`supervise::stop`]).
+    Stop,
+}
+
 /// Take the next request of provider `id` for its daemon `owner`, waiting
 /// until `deadline` (absolute ticks) for one. Its payload is handed to
-/// `copy_out` first; if that fails the request stays queued.
+/// `copy_out` first; if that fails the request stays queued. A stop asked
+/// for is reported only once no request is queued, so everything the daemon
+/// was owed is answered before it finishes.
 pub fn next(
     id: usize,
     owner: usize,
     deadline: u64,
     copy_out: &mut dyn FnMut(&[u8]) -> Result<(), FuseError>,
-) -> Result<Option<Request>, FuseError> {
+) -> Result<Next, FuseError> {
     let slot = SLOTS.get(id).ok_or(FuseError::NotOwner)?;
     loop {
+        // A task a fatal signal is about to end (a `SIGTERM` is acted on at
+        // the syscall return, not at the send) takes no request and stops
+        // waiting for one: it would die holding it, between the two halves of
+        // an operation, and it must reach its syscall return. Asked outside
+        // the slot's lock: the signal tables sit after the task table.
+        if task::signal::must_unwind(owner) {
+            return Ok(Next::Idle);
+        }
         {
             let mut state = slot.state.lock();
             if !state.registered || state.owner != owner || !state.alive {
@@ -235,15 +291,14 @@ pub fn next(
                 let request = state.request;
                 copy_out(&state.bounce[..state.payload_len])?;
                 state.phase = Phase::Taken;
-                return Ok(Some(request));
+                return Ok(Next::Request(request));
+            }
+            if state.stopping && !state.busy {
+                return Ok(Next::Stop);
             }
         }
-        if now() >= deadline
-            || !task::relax::can_block()
-            || test_hook::serving()
-            || task::signal::killed(task::current())
-        {
-            return Ok(None);
+        if now() >= deadline || !task::relax::can_block() || test_hook::serving() {
+            return Ok(Next::Idle);
         }
         park(&slot.work, deadline);
     }
@@ -295,6 +350,9 @@ pub fn stats(id: usize) -> Option<(Stats, bool)> {
 /// wait (the request in flight is never abandoned, so the slot stays
 /// consistent); one tick is let through so the daemon can run.
 fn park(queue: &WaitQueue, deadline: u64) {
+    if test_hook::parked() {
+        return;
+    }
     let enabled = x86_64::instructions::interrupts::are_enabled();
     x86_64::instructions::interrupts::disable();
     let ticks = deadline.saturating_sub(test_hook::offset());

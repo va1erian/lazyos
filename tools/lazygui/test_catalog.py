@@ -35,6 +35,7 @@ from lazygui.test_osvolume import OsVolumeTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
 from lazygui.test_usb_image import UsbImageTests  # noqa: E402,F401
+from lazygui.test_usb_sticks import UsbStickTests  # noqa: E402,F401
 from lazygui.test_installer import InstallerTests  # noqa: E402,F401
 from lazygui.test_netboot import NetbootTests  # noqa: E402,F401
 from lazygui.test_assets import AssetDirTests  # noqa: E402,F401

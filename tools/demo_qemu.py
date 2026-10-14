@@ -4,8 +4,11 @@ NIC model, and the `devd` switch (issue #497)."""
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
 
 #: `--sound-card`: the QEMU devices of each card (`{dev}` is the audiodev id).
 #: QEMU's ICH6 HDA controller works on either machine type.
@@ -68,4 +71,62 @@ def sound_args(backend: str, card: str = "virtio") -> list[str]:
     args = ["-audiodev", audiodev]
     for device in SOUND_CARDS[card]:
         args += ["-device", device.format(dev="snd0")]
+    return args
+
+
+# --- USB sticks plugged into the guest (`--usb-stick`) ------------------------
+# A stick is a raw image on one xHCI controller, each its own drive and device
+# so QEMU's monitor can unplug and plug it (`device_del usbstick0`, `device_add
+# usb-storage,bus=xhci.0,drive=ustk0,id=usbstick0`). A missing image is made as
+# an empty 64 MiB FAT32 stick by `libs/fatvol`'s `fatstick`; an existing one is
+# never touched.
+
+
+def prepare_usb_stick(path: Path) -> bool:
+    """Make sure the stick image exists."""
+    if path.is_file():
+        return True
+    path.parent.mkdir(parents=True, exist_ok=True)
+    command = ["cargo", "run", "-q", "-p", "fatvol", "--example", "fatstick", "--",
+               "make", str(path.resolve()), "--size", "64M", "--label", "LAZYFAT"]
+    print(f"creating the USB stick {path} (64 MiB FAT32, label LAZYFAT)", flush=True)
+    if subprocess.run(command, cwd=ROOT).returncode != 0 or not path.is_file():
+        print(f"could not create the USB stick {path}", file=sys.stderr)
+        return False
+    return True
+
+
+def usb_sticks(paths: list[str]) -> list[str] | None:
+    """The QEMU arguments for the sticks at `paths`, after making any that is
+    missing; `None` when one could not be made."""
+    sticks = [Path(p) for p in paths]
+    return usb_stick_args(sticks) if all(prepare_usb_stick(stick) for stick in sticks) else None
+
+
+# The removable-drives tray applet, shipped by a desktop with the USB stack
+# (`build_support/xui_embed.rs` USB_XUI_APPS).
+USB_APPS = [ROOT / "target" / "xui" / "xui-removable.elf"]
+
+
+def usb_desktop(args) -> bool:
+    """Whether this build ships the USB stack (`LAZYOS_USB=1`), which brings the
+    removable-drives tray applet."""
+    return bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
+
+
+def usb_env(sticks: list[str], desktop: bool) -> dict[str, str]:
+    """Sticks in the guest need the driver and a session that starts it."""
+    if not sticks:
+        return {}
+    return {"LAZYOS_USB": "1"} | ({} if desktop else {"LAZYOS_SERVICES": "1"})
+
+
+def usb_stick_args(sticks: list[Path]) -> list[str]:
+    """The controller and one `usb-storage` per stick; nothing for none."""
+    if not sticks:
+        return []
+    args = ["-device", "qemu-xhci,id=xhci"]
+    for index, stick in enumerate(sticks):
+        args += ["-drive", f"format=raw,file={stick},if=none,id=ustk{index}",
+                 "-device", f"usb-storage,bus=xhci.0,drive=ustk{index},id=usbstick{index}"]
     return args

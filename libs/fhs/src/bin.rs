@@ -140,12 +140,18 @@ programs! {
     FTP = "ftp";
     /// `ftpfuse`, an FTP server mounted under `/mnt` (docs/smb-plan.md).
     FTPFUSE = "ftpfuse";
+    /// `fatfuse`, a FAT volume of a USB stick mounted under `/media`
+    /// (docs/usb-hotplug-plan.md).
+    FATFUSE = "fatfuse";
+    /// `eject`, flush and unmount a removable volume so its stick can be
+    /// pulled (docs/usb-hotplug-plan.md D).
+    EJECT = "eject";
     /// `smb`, the SMB 2.1 client (`LAZYOS_SMB=1`, docs/smb-plan.md F2).
     SMB = "smb";
     /// `smbfuse`, an SMB share mounted under `/mnt` (docs/smb-plan.md F3).
     SMBFUSE = "smbfuse";
-    /// `mountd`, the network mount service that starts `ftpfuse` and
-    /// `smbfuse` for apps.
+    /// `mountd`, the mount service: starts `ftpfuse` and `smbfuse` for
+    /// apps, and `fatfuse` for the volumes of USB sticks.
     MOUNTD = "mountd";
     /// `dbgd`, the remote inspection service (`LAZYOS_DBGD=1`,
     /// docs/dbgd-plan.md).
