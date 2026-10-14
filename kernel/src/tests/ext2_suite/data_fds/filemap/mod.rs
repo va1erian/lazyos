@@ -12,6 +12,7 @@ use crate::quota::{self, Resource};
 mod basic;
 mod coherence;
 mod lifecycle;
+mod parents;
 mod refresh;
 
 pub(super) const PAGE: u64 = 4096;
@@ -197,6 +198,10 @@ pub(super) fn bytes_of(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub(in crate::tests) const CASES: &[(&str, Test)] = &[
+    (
+        "linux_filemap_read_then_write_keeps_writable_parents",
+        parents::read_then_write_keeps_writable_parents,
+    ),
     ("linux_filemap_private", basic::private_mapping),
     ("linux_filemap_shared", basic::shared_mapping),
     (

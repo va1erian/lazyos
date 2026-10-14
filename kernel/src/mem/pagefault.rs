@@ -66,7 +66,10 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
     if super::frame_refcount(shared) == 1 {
         // Safety: `entry` is the same present leaf read above; nothing else
         // can have unmapped it in between (single-threaded fault handling).
-        unsafe { *entry = (old & !COW_BIT) | PTE_WRITABLE };
+        unsafe {
+            *entry = (old & !COW_BIT) | PTE_WRITABLE;
+            make_walk_writable(table, va);
+        }
         x86_64::instructions::tlb::flush(VirtAddr::new(va));
         return Resolve::Handled;
     }
@@ -77,7 +80,10 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
     copy_frame(shared, frame);
     // Safety: `entry` is the same present leaf read above; nothing else can
     // have unmapped it in between (single-threaded fault handling).
-    unsafe { *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE };
+    unsafe {
+        *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE;
+        make_walk_writable(table, va);
+    }
     // The page now lives privately here: release our reference to the shared
     // frame (which frees it if this was the last user).
     free_frame(PhysAddr::new(old & PTE_ADDR));

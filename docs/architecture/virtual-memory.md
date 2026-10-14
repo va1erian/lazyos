@@ -49,6 +49,15 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
   is mapped eagerly only where the loader wrote the start frame.
 - A write fault on a present `COW_BIT` page takes `cow_fault` first; a protection
   violation is never a missing page, so it falls through to `SIGSEGV`.
+- **The leaf decides, the parents never restrict** (issue #853). A CPU takes the lowest R/W bit of
+  the whole walk, so every PML4, PDPT and PD entry above a user leaf is writable and user-accessible
+  (`try_map_page_in` maps with `map_to_with_table_flags`, because `map_to` would derive the parents from the
+  leaf: the first read-only leaf in an untouched 2 MiB region, such as a moved COW page from `mremap` or a
+  read-faulted `PROT_READ` or shared file page, made read-only parents, and the later in-place change of the
+  leaf by `cow_resolve`, `mprotect` or a shared page's first store faulted again with nothing to resolve).
+  An existing parent that lacks a flag has it added by the next mapping, and the in-place paths call
+  `make_walk_writable` for a table an older kernel built. Tests: `mem_suite/table_parents.rs` and
+  `ext2_suite/data_fds/filemap/parents.rs` assert it with `parents_writable`.
 
 **User memory layout**
 
