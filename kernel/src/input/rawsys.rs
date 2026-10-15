@@ -82,6 +82,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
                 // path: its doorbell wake (P1.3) must preempt ordinary work,
                 // as the sources' and the compositor's do.
                 task::raise_priority(me, task::PriorityClass::Interactive);
+                task::guard::mark_input(me);
                 0
             }
             Err(_) => negative(EBUSY),
@@ -90,7 +91,13 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
         op::CLOSE => {
             let closed = bus::consumer_of(me).map(|id| bus::close(id, me));
             match closed {
-                Some(Ok(())) => 0,
+                Some(Ok(())) => {
+                    // Still the input path while it owns a source.
+                    if !sources::owns_any(me) {
+                        task::guard::unmark_input(me);
+                    }
+                    0
+                }
                 _ => negative(EBADF),
             }
         }
@@ -107,6 +114,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
                 // console repaint loses keys. Raise it to the class of the
                 // multiplexer it would otherwise wait on, never lowering it.
                 task::raise_priority(me, task::PriorityClass::Interactive);
+                task::guard::mark_input(me);
                 id
             }
             Ok(Err(sources::Error::Full)) => negative(EBUSY),
@@ -126,7 +134,14 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             None => negative(ENOENT),
         },
         op::CLOSE_SOURCE => match sources::close(buf, me) {
-            Ok(()) => 0,
+            Ok(()) => {
+                // One source closed (a mouse unplugged): a driver that still
+                // owns another, or is the consumer, keeps its share.
+                if !sources::owns_any(me) && bus::consumer_of(me).is_none() {
+                    task::guard::unmark_input(me);
+                }
+                0
+            }
             Err(_) => negative(EBADF),
         },
         _ => negative(EINVAL),

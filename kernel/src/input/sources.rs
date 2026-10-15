@@ -233,6 +233,17 @@ pub fn close(id: u64, owner: usize) -> Result<(), Error> {
     })
 }
 
+/// Whether task `owner` still owns any source.
+pub fn owns_any(owner: usize) -> bool {
+    locked(|table| {
+        table
+            .slots
+            .iter()
+            .flatten()
+            .any(|source| source.owner == owner)
+    })
+}
+
 /// Task `slot` is gone: release and free every source it owned.
 pub fn teardown_task(slot: usize) {
     locked(|table| {

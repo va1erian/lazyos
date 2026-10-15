@@ -103,6 +103,7 @@ pub(super) fn release_address_space(pml4: u64) -> usize {
     forget_bumps(pml4);
     signal::forget(pml4);
     super::itimer::forget(pml4);
+    super::guard::forget(pml4);
     mem::free_user_table(PhysAddr::new(pml4))
 }
 

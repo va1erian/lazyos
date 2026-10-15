@@ -150,6 +150,13 @@ extern "C" fn window_tick() {
     crate::input::ps2::service();
 }
 
+/// Test hook: `ticks` more ticks were taken inside windows and are not yet
+/// charged (the scheduler charges them at its next entry).
+#[cfg(lazyos_tests)]
+pub fn add_uncharged_for_test(ticks: u64) {
+    UNCHARGED.fetch_add(ticks, Ordering::Relaxed);
+}
+
 /// Ticks taken inside windows since the previous call, for the scheduler to
 /// charge to the task that was running them.
 pub fn take_uncharged() -> u64 {

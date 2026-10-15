@@ -223,6 +223,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         source_priority::register_raises_driver,
     ),
     (
+        "input_source_closing_one_source_keeps_the_input_share",
+        source_priority::closing_one_source_keeps_the_input_share,
+    ),
+    (
         "input_source_priority_stress_generations",
         source_priority::priority_stress_generations,
     ),
