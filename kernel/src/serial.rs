@@ -308,7 +308,7 @@ pub fn write_trace(line: &[u8]) {
     if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
         let mut out = Stamped::kernel(&mut port.tx);
-        let taken = out.lines(line);
+        let taken = out.own_lines(line);
         if taken < line.len() {
             out.drop_lines(&line[taken..]);
         }
