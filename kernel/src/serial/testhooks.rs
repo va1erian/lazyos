@@ -21,8 +21,22 @@ pub fn divert_for_test(cap: usize) -> Diverted {
     Diverted { saved }
 }
 
+/// How many times longer a program write waits for room or for its own bytes
+/// (1 normally). A diverted port's registers are VM exits, so a loaded CI
+/// runner drains far fewer bytes per timer tick than a developer's machine:
+/// a test that asserts a write *completed* against a slow consumer scales the
+/// wait instead of betting on the host's speed. [`Diverted`] resets it.
+pub(super) static WAIT_SCALE: AtomicU64 = AtomicU64::new(1);
+
+/// Scale the waits of [`mirror`] by `scale` until the diverted port is
+/// released.
+pub fn scale_waits_for_test(scale: u64) {
+    WAIT_SCALE.store(scale.max(1), Ordering::Relaxed);
+}
+
 impl Drop for Diverted {
     fn drop(&mut self) {
+        WAIT_SCALE.store(1, Ordering::Relaxed);
         if let (Some((base, cap)), Some(port)) = (self.saved, port().as_mut()) {
             port.tx.divert(base, cap);
             port.tx.set_never_empty(false);

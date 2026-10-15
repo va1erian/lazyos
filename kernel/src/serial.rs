@@ -403,6 +403,8 @@ fn count_dropped(bytes: usize) {
 
 /// TSC cycles in `ticks` timer ticks (a guess before the timer is calibrated).
 fn cycles_in_ticks(ticks: u64) -> u64 {
+    #[cfg(lazyos_tests)]
+    let ticks = ticks * testhooks::WAIT_SCALE.load(Ordering::Relaxed);
     match crate::arch::clock::cycles_per_tick() {
         0 => ticks * 30_000_000,
         per_tick => per_tick * ticks,
