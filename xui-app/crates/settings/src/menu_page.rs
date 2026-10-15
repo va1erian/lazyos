@@ -132,6 +132,12 @@ impl MenuPage {
         self.list != self.saved
     }
 
+    /// The draft as it stands, for the worker thread that will save it
+    /// (a machine write, and it waits on an administrator: issue #720).
+    pub fn draft(&self) -> &[Entry] {
+        &self.list
+    }
+
     /// Rebuild both lists from the working state, selecting entry `select`.
     fn refresh(&mut self, select: Option<usize>) {
         let rows: Vec<String> = self.list.iter().map(menu_ops::row_text).collect();

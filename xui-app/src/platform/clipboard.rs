@@ -118,7 +118,7 @@ fn offer_payload(mime: &str, bytes: &[u8]) -> Result<u64, i64> {
         }],
     })
     .map_err(|_| -22)?;
-    let reply = service.call_within(
+    let reply = service.call(
         WRITE_INTERFACE,
         wire::METHOD_OFFER,
         ERROR_FIELD,
@@ -206,7 +206,7 @@ fn paste_payload(token: u64, mime: &str) -> Result<Vec<u8>, i64> {
         mime: mime.to_owned(),
     })
     .map_err(|_| -22)?;
-    let reply = service.call_within(
+    let reply = service.call(
         READ_INTERFACE,
         wire::METHOD_REQUEST,
         ERROR_FIELD,

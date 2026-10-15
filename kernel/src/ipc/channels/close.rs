@@ -27,6 +27,7 @@ pub fn forget_task(slot: usize) {
     // count, poll interests) would otherwise leak, and a stale entry could
     // spuriously wake the slot's next owner.
     forget_fd_watcher(slot);
+    completion::forget(slot);
     crate::task::pollwait::forget_task(slot);
     crate::input::bus::disarm_doorbell(slot);
     crate::display::disarm_key_doorbell(slot);
@@ -96,6 +97,9 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
     let mut remove = false;
     let mut woken: Vec<usize> = Vec::new();
     let mut orphans: Vec<u64> = Vec::new();
+    // Transactions the close ended as `(caller, txn id)`, recorded in the
+    // callers' completion queues once the registry lock is released.
+    let mut ended: Vec<(usize, u64)> = Vec::new();
     {
         let mut channels = CHANNELS.lock();
         if let Some(channel) = channels.get_mut(channel_id) {
@@ -120,6 +124,7 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
                 {
                     txn.state = TxnState::PeerDied;
                     released.push(txn.caller);
+                    ended.push((txn.caller, txn.id));
                 }
             }
             for &caller in &released {
@@ -148,6 +153,10 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
         }
     }
     wake(woken);
+    for (caller, txn_id) in ended {
+        // With the registry lock released, as every hook.
+        completion::record(caller, txn_id);
+    }
     pollstate::ring_both(channel_id);
     orphans
 }

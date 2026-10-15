@@ -18,8 +18,9 @@ use super::{op, Endpoint};
 /// The wait set's limit, doorbells and ready-mask bits (the kernel's
 /// `channels::recv::waitset`), from `lazyos-sys`.
 pub use lazyos_sys::msg::{
-    CHILD_READY, DISPLAY_INPUT_READY, INET_READY, RAW_INPUT_READY, WAIT_CHILD, WAIT_DISPLAY_KEYS,
-    WAIT_INET, WAIT_ITEM_CALL, WAIT_MAX_ENDPOINTS as MAX_ENDPOINTS, WAIT_RAW_INPUT,
+    CALLS_READY, CHILD_READY, DISPLAY_INPUT_READY, INET_READY, RAW_INPUT_READY, WAIT_CALLS,
+    WAIT_CHILD, WAIT_DISPLAY_KEYS, WAIT_INET, WAIT_ITEM_CALL, WAIT_MAX_ENDPOINTS as MAX_ENDPOINTS,
+    WAIT_RAW_INPUT,
 };
 
 /// One thing a [`wait_items`] set can wait for.
@@ -92,4 +93,23 @@ fn wait_words(
     let mut result = MsgResult::default();
     syscall(op::WAIT, &args, &mut result)?;
     Ok(result.value)
+}
+
+/// Take up to `out.len()` finished transaction ids off this task's
+/// completion queue ([`WaitItem::Call`]-style items that ended without the
+/// caller parking on them; issue #725), oldest first: the count taken. The
+/// `WAIT_CALLS` doorbell says when there is something to take.
+pub fn take_calls(out: &mut [u64]) -> Result<usize> {
+    let args = MsgArgs {
+        buf_ptr: if out.is_empty() {
+            0
+        } else {
+            out.as_mut_ptr() as u64
+        },
+        buf_cap: out.len() as u64 * 8,
+        ..MsgArgs::default()
+    };
+    let mut result = MsgResult::default();
+    syscall(op::CALL_DRAIN, &args, &mut result)?;
+    Ok(result.value as usize)
 }

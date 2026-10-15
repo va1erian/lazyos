@@ -28,8 +28,11 @@ fn take_or_register(
 ) -> Result<Option<Message>, Error> {
     let mut abandoned = Vec::new();
     let taken = take_locked(channel_id, side, waiter, &mut abandoned);
-    // Woken with `CHANNELS` released (queue-then-task lock order).
-    wake(abandoned);
+    // Woken with `CHANNELS` released (queue-then-task lock order); the
+    // ended polls land in their callers' completion queues.
+    for (caller, txn_id) in abandoned {
+        completion::record(caller, txn_id);
+    }
     let queued = taken?;
     match queued {
         Some(message) => {
@@ -77,12 +80,13 @@ fn unserve_poll(channel_id: u64, side: usize, txn: u64) {
 }
 
 /// The locked half of [`take_or_register`]. Callers of polls the receiver had
-/// left unanswered are pushed onto `abandoned` for the caller to wake.
+/// left unanswered are pushed onto `abandoned` as `(caller, txn id)` for the
+/// grandparent to wake and record in the completion queue.
 fn take_locked(
     channel_id: u64,
     side: usize,
     waiter: Option<usize>,
-    abandoned: &mut Vec<usize>,
+    abandoned: &mut Vec<(usize, u64)>,
 ) -> Result<Option<Queued>, Error> {
     let mut channels = CHANNELS.lock();
     let channel = find_channel(&mut channels, channel_id)?;
@@ -120,7 +124,7 @@ fn take_locked(
 /// has returned to `recv`, so it answered (the transaction is already
 /// `Replied`) or deferred the request (a parked pull), and a poll must not
 /// wait for a deferred answer. Callers are appended to `woken`.
-fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize>) {
+fn expire_served_polls(channel: &mut Channel, side: usize, abandoned: &mut Vec<(usize, u64)>) {
     let served = core::mem::take(&mut channel.endpoints[side].serving_polls);
     for id in served {
         let Some(index) = channel.txns.iter().position(|txn| txn.id == id) else {
@@ -135,7 +139,9 @@ fn expire_served_polls(channel: &mut Channel, side: usize, woken: &mut Vec<usize
         let overdue = channel.txns[index]
             .deadline
             .is_some_and(|deadline| deadline <= task::ticks());
-        woken.push(time_out(channel, index, !overdue));
+        let (caller, expired) = (channel.txns[index].caller, channel.txns[index].id);
+        time_out(channel, index, !overdue);
+        abandoned.push((caller, expired));
     }
 }
 

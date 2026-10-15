@@ -290,3 +290,34 @@ pub fn wait_any_ns(words: &[u64], flags: u64, deadline_ns: u64) -> Result<u64, i
 pub const fn wait_fd(fd: u32) -> u64 {
     WAIT_FD | (fd as u64) << WAIT_FD_SHIFT
 }
+
+/// A terminal transaction's reply or failure **now**, without the park
+/// `await_reply`/[`op::CALL_AWAIT`] is: `-EAGAIN` while it is still open,
+/// the bytes in `buf` otherwise (issue #725, op [`op::CALL_CHECK`]).
+pub fn call_check(txn: u64, buf: &mut [u8]) -> Result<usize, i64> {
+    let len = buf.len();
+    let args = MsgArgs {
+        txn_id: txn,
+        ..with_buffers(&[], buf)
+    };
+    Ok(transfer(op::CALL_CHECK, args, len)?.bytes as usize)
+}
+
+/// Take up to `out.len()` finished transaction ids off this task's
+/// completion queue ([`op::CALL_DRAIN`], oldest first): the count taken.
+/// The kernel copies back what it took, so `out[0..count]` are fresh ids;
+/// an empty queue is `Ok(0)`.
+pub fn drain_calls(out: &mut [u64]) -> Result<usize, i64> {
+    let (ptr, cap) = if out.is_empty() {
+        (0u64, 0u64)
+    } else {
+        (out.as_mut_ptr() as u64, (out.len() * 8) as u64)
+    };
+    let args = MsgArgs {
+        buf_ptr: ptr,
+        buf_cap: cap,
+        ..MsgArgs::default()
+    };
+    let result = plain(op::CALL_DRAIN, args)?;
+    Ok(result.value as usize)
+}

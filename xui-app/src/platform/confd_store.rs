@@ -28,6 +28,11 @@ const KIND_U64: u32 = 2;
 const KIND_STR: u32 = 3;
 const KIND_BYTES: u32 = 4;
 
+/// How long each call waits for `confd` (PIT ticks, 2 s): confd commits its
+/// store behind ext2 write-back and a `List` of a deep tree walks it, so a
+/// stalled `confd` must not hold the UI thread past this.
+const CONF_TICKS: u64 = 200;
+
 /// Reads and writes settings through `confd`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConfdStore;
@@ -41,7 +46,7 @@ impl ConfdStore {
         let service =
             Service::connect(NAME).map_err(|code| format!("confd unavailable ({code})"))?;
         service
-            .call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
+            .call(wire::INTERFACE_ID, method, ERROR_FIELD, body, CONF_TICKS)
             .map_err(|code| format!("confd error {code}"))
     }
 
@@ -49,7 +54,7 @@ impl ConfdStore {
     /// `CONFD_*` codes onto [`ConfStoreError`] instead of a display string.
     fn call_raw(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, i64> {
         let service = Service::connect(NAME)?;
-        service.call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
+        service.call(wire::INTERFACE_ID, method, ERROR_FIELD, body, CONF_TICKS)
     }
 }
 
@@ -153,6 +158,7 @@ impl ConfigStore for ConfdStore {
             init_wire::METHOD_LISTAPPS,
             ERROR_FIELD,
             Vec::new(),
+            CONF_TICKS,
         ) else {
             return Vec::new();
         };

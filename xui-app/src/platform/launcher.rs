@@ -87,6 +87,11 @@ pub fn is_acceptable_url(url: &str) -> bool {
 /// The longest URL handed on: `init`'s launch argument limit.
 const MAX_URL_BYTES: usize = 1024;
 
+/// How long `mimed.Open` waits (PIT ticks, 2 s): `mimed` resolves the app
+/// and launches; a full queue or a stalled service answers here instead of
+/// holding the UI thread.
+const OPEN_TICKS: u64 = 200;
+
 /// `mimed.Open(target, "open")`: guess, resolve and launch. `unhandled` is
 /// the error text when no app takes it.
 fn open_with_mimed(target: &str, unhandled: &str) -> io::Result<()> {
@@ -98,7 +103,13 @@ fn open_with_mimed(target: &str, unhandled: &str) -> io::Result<()> {
     })
     .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path too long for mimed"))?;
     let reply = service
-        .call(wire::INTERFACE_ID, wire::METHOD_OPEN, ERROR_FIELD, body)
+        .call(
+            wire::INTERFACE_ID,
+            wire::METHOD_OPEN,
+            ERROR_FIELD,
+            body,
+            OPEN_TICKS,
+        )
         .map_err(|code| io::Error::other(format!("mimed: errno {code}")))?;
     match wire::decode_open_reply(&reply.body) {
         Ok(reply) if reply.launched && !reply.app.is_empty() => Ok(()),

@@ -151,6 +151,21 @@ pub const OP_BUFFER_MAP: u64 = 23;
 /// compositor's own screen buffer (`unbind` releases that one).
 pub const OP_BUFFER_CLOSE: u64 = 24;
 
+/// A terminal transaction's reply or failure **now**, without the park of
+/// [`OP_CALL_AWAIT`]: `-EAGAIN` while it is still open, the reply's outcome
+/// otherwise. The return path that completes a call begun with
+/// [`OP_CALL_BEGIN`] when the wakeup comes from the `WAIT_CALLS` doorbell
+/// instead of the caller's own park (issue #725,
+/// docs/architecture/call-completion.md).
+pub const OP_CALL_CHECK: u64 = 25;
+
+/// Take up to `buf_cap / 8` transaction ids this task completed and never
+/// watched through `await_reply`/`CALL_AWAIT` yet, out of the per-task
+/// completion queue ([`OP_CALL_CHECK`], the `WAIT_CALLS` doorbell of
+/// [`OP_WAIT`]): oldest first, `value` the count. An empty queue is a
+/// success with `value` 0. A kernel ABI op: words cross, not parcels.
+pub const OP_CALL_DRAIN: u64 = 26;
+
 /// `MsgArgs::txn_id` marker for registry ops: act on the calling task.
 pub const REGISTRY_TARGET_SELF: u64 = u64::MAX;
 

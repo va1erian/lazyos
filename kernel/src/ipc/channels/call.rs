@@ -244,6 +244,10 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
         release_pending(channel, caller);
         caller
     };
+    // The completion queue learns of the end beside the wake: a loop that
+    // parked in `wait` with `WAIT_CALLS` instead of `await_reply` resumes
+    // from the doorbell and takes the reply through its own later click.
+    completion::record(caller, txn_id);
     // Only the caller waits for this outcome (in `await_reply`, or still
     // parked by `begin_call`); it runs as soon as the replier parks (P6.2).
     hand_off_to(wake([caller]));
@@ -266,6 +270,9 @@ pub fn cancel(txn_id: u64) -> Result<(), Error> {
     channel.cancels += 1;
     release_pending(channel, me);
     // The canceller is the caller, which is running; `await_reply` sees the
-    // Canceled outcome on its next check without any wake.
+    // Canceled outcome on its next check without any wake. The completion
+    // queue still records the end: a future in a task that cancels without
+    // parking reports itself from the queue.
+    completion::record(me, txn_id);
     Ok(())
 }

@@ -87,6 +87,7 @@ pub use kernel_post::{
 
 mod call;
 mod close;
+pub mod completion;
 mod connect;
 pub mod declared;
 mod pollstate;
@@ -105,6 +106,7 @@ pub use recv::*;
 use registry::*;
 pub use stats::*;
 use support::*;
+pub use txn::await_reply_now;
 #[cfg(lazyos_tests)]
 pub use txn::expire_deadlines;
 use txn::*;

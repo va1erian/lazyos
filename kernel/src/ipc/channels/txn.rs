@@ -28,6 +28,18 @@ pub(super) fn take_outcome(txn_id: u64) -> Result<Outcome, Error> {
     }))
 }
 
+/// A terminal transaction's reply or failure **now**, without the park that
+/// [`await_reply`] is (`Issue::WouldBlock` while it is open): the shape a
+/// completion-driven future polls with, its wakeup already delivered
+/// through the [`completion`](super) queue's `WAIT_CALLS` doorbell
+/// (issue #725).
+pub fn await_reply_now(txn_id: u64) -> Result<Vec<u8>, Error> {
+    match take_outcome(txn_id)? {
+        Outcome::Done(outcome) => outcome,
+        Outcome::Pending(..) => Err(Error::WouldBlock),
+    }
+}
+
 /// Mark a pending transaction expired. A no-op if it already has another
 /// terminal outcome, so a reply racing the deadline wins, and a no-op if its
 /// deadline is not actually due: the caller may have parked on an earlier
@@ -48,7 +60,11 @@ pub(super) fn expire_transaction(txn_id: u64) {
     }
     let txn = &channel.txns[index];
     let poll = txn.poll && !txn.served;
+    let caller = txn.caller;
     time_out(channel, index, poll);
+    // The registry lock is released with `channels`, so the recording (and
+    // the wake it may ring) cannot invert against it.
+    completion::record(caller, txn_id);
 }
 
 /// Test hook (issue #62 harness): run the timer's deadline sweep and mark every
@@ -58,18 +74,24 @@ pub(super) fn expire_transaction(txn_id: u64) {
 #[cfg(lazyos_tests)]
 pub fn expire_deadlines(now: u64) {
     task::harness::expire_deadlines(now);
-    let mut channels = CHANNELS.lock();
-    for channel in channels.iter_mut() {
-        for index in 0..channel.txns.len() {
-            let txn = &channel.txns[index];
-            if txn.state == TxnState::Pending
-                && txn.deadline.is_some_and(|deadline| deadline <= now)
-            {
-                let poll = txn.poll && !txn.served;
-                time_out(channel, index, poll);
+    let mut ended: Vec<(usize, u64)> = Vec::new();
+    {
+        let mut channels = CHANNELS.lock();
+        for channel in channels.iter_mut() {
+            for index in 0..channel.txns.len() {
+                let txn = &channel.txns[index];
+                if txn.state == TxnState::Pending
+                    && txn.deadline.is_some_and(|deadline| deadline <= now)
+                {
+                    let (poll, caller, id) = (txn.poll && !txn.served, txn.caller, txn.id);
+                    let _ = time_out(channel, index, poll);
+                    ended.push((caller, id));
+                }
             }
         }
     }
-    drop(channels);
+    for (caller, txn_id) in ended {
+        completion::record(caller, txn_id);
+    }
     MESSENGER.notify_all();
 }

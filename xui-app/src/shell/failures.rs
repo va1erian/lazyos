@@ -142,7 +142,7 @@ fn subscribe() -> Result<u64, i64> {
         depth: DEPTH,
     })
     .map_err(|_| -sys::errno::EINVAL)?;
-    let reply = broker()?.call_within(
+    let reply = broker()?.call(
         topics::INTERFACE_ID,
         topics::METHOD_SUBSCRIBE,
         ERROR_FIELD,
