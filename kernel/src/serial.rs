@@ -6,14 +6,28 @@
 //! written, and the verdict is logged as `HW:COM1:PRESENT|ABSENT`.
 //!
 //! Output is queued in a ring and drained a transmit FIFO at a time
-//! ([`tx`]); a program's terminal output ([`mirror`]) drains in chunks with
-//! interrupts let in between.
+//! ([`tx`]). No writer ever waits for the ring to *empty* (issue #857): a full
+//! ring drops whole lines and counts them, a program's terminal output
+//! ([`mirror`]) waits for room, and then for its own last byte to go out, in
+//! chunks with interrupts let in between and for a bounded *time*, and the
+//! kernel task's loop ([`service`]) drains the rest while [`report`] says what
+//! was dropped.
 
+mod report;
+mod stamp;
+#[cfg(lazyos_tests)]
+mod testhooks;
 mod tx;
+#[cfg(lazyos_tests)]
+pub use testhooks::*;
 
 use core::fmt;
 use core::sync::atomic::{AtomicBool, Ordering};
+pub use report::report;
+#[cfg(lazyos_tests)]
+pub use report::{dropped_total, report_dropped};
 use spin::Mutex;
+use stamp::Stamped;
 use uart_16550::SerialPort;
 
 /// COM1, initialised, with its transmit ring.
@@ -24,6 +38,14 @@ struct Port {
 }
 
 static SERIAL1: Mutex<Option<Port>> = Mutex::new(None);
+
+/// The port, locked. Every lock goes through here so the kernel suite can
+/// prove that code which must not hold it with interrupts on does not.
+fn port() -> spin::MutexGuard<'static, Option<Port>> {
+    #[cfg(lazyos_tests)]
+    testhooks::note_lock();
+    SERIAL1.lock()
+}
 /// Whether the COM1 probe found a UART (read lock-free by the NMI writer).
 static PRESENT: AtomicBool = AtomicBool::new(false);
 
@@ -78,70 +100,28 @@ pub fn present() -> bool {
     PRESENT.load(Ordering::Relaxed)
 }
 
-/// Whether lines get an uptime prefix. Only optimized boots stamp: the debug
-/// and `LAZYOS_TESTS` boots feed line-anchored evidence parsers in `tools/`.
-const TIMESTAMPS: bool = cfg!(all(not(debug_assertions), not(lazyos_tests)));
-
-/// Whether the next byte written starts a new line (guarded by `SERIAL1`).
-static AT_LINE_START: AtomicBool = AtomicBool::new(true);
-
-/// Queues for the port, prefixing each line with `[secs.millis]` uptime
-/// from the 100 Hz PIT tick counter (0 until the timer starts).
-struct Stamped<'a>(&'a mut tx::Tx);
-
-impl Stamped<'_> {
-    /// One byte to the UART, a poll point first (`arch::irq_window`): at the
-    /// port's 38400 baud a byte takes about 260 µs on hardware (and a VM exit
-    /// per port access under a hypervisor), all with interrupts off, so a
-    /// line or even a timestamp prefix must not go out in one stretch.
-    fn send(&mut self, byte: u8) {
-        crate::arch::irq_window::poll_point();
-        self.0.push(byte);
-    }
-
-    fn put(&mut self, byte: u8) {
-        if TIMESTAMPS && AT_LINE_START.swap(false, Ordering::Relaxed) {
-            let ms = crate::task::ticks() * 10;
-            let mut digits = [0u8; 20];
-            let mut n = ms / 1000;
-            let mut len = 0;
-            loop {
-                digits[len] = b'0' + (n % 10) as u8;
-                len += 1;
-                n /= 10;
-                if n == 0 {
-                    break;
-                }
-            }
-            self.send(b'[');
-            for i in (0..len).rev() {
-                self.send(digits[i]);
-            }
-            let frac = ms % 1000;
-            for b in [
-                b'.',
-                b'0' + (frac / 100) as u8,
-                b'0' + (frac / 10 % 10) as u8,
-                b'0' + (frac % 10) as u8,
-                b']',
-                b' ',
-            ] {
-                self.send(b);
-            }
-        }
-        if byte == b'\n' {
-            AT_LINE_START.store(true, Ordering::Relaxed);
-        }
-        self.send(byte);
-    }
-}
-
-impl fmt::Write for Stamped<'_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        s.bytes().for_each(|byte| self.put(byte));
-        Ok(())
-    }
-}
+/// Most bytes a writer drains for its own line, however much it queued: the
+/// rest goes out from the kernel task, with interrupts on.
+const DRAIN_OWN_MAX: usize = 1024;
+/// Most rounds the kernel task's drain runs per pass (a ring's worth of
+/// chunks), so even a caller that cannot let a tick in ends.
+const MIRROR_MAX_ROUNDS: usize = tx::Tx::CAPACITY / tx::CHUNK + 8;
+/// Ticks (10 ms, real time on the TSC) a program write waits for its own bytes.
+const MIRROR_WAIT_TICKS: u64 = 2;
+/// Ticks of real time a program write waits for room in the ring before it
+/// drops lines.
+const MIRROR_ROOM_TICKS: u64 = 5;
+/// Most bytes of one program write considered at all (the rest is dropped,
+/// counted): at 38400 baud a megabyte takes four minutes to send.
+const WRITE_MAX: usize = 1024 * 1024;
+/// Most bytes set aside at once while waiting for room: what the ring can
+/// hold for a program, so a huge write never costs a huge copy.
+const ASIDE_MAX: usize = tx::Tx::CAPACITY - stamp::PROGRAM_RESERVE;
+/// Ticks one pass of the kernel task's drain may take.
+const SERVICE_TICKS: u64 = 2;
+/// Bytes of backlog above which the kernel task asks for another pass soon
+/// ([`backlog`]).
+const BACKLOG_SOON: usize = 1024;
 
 /// Whether the port lock is held right now (the NMI hang report, issue #382).
 pub fn locked() -> bool {
@@ -152,7 +132,7 @@ pub fn locked() -> bool {
 /// line would be (the interrupt-window suite). `f` must not print.
 #[cfg(lazyos_tests)]
 pub fn with_port_locked<R>(f: impl FnOnce() -> R) -> R {
-    let _port = SERIAL1.lock();
+    let _port = port();
     f()
 }
 
@@ -162,10 +142,10 @@ pub fn init() {
     PRESENT.store(present, Ordering::Relaxed);
     if present {
         // Safety: 0x3F8 is the standard COM1 base port, and a UART answers there.
-        let mut port = unsafe { SerialPort::new(COM1) };
-        port.init();
-        *SERIAL1.lock() = Some(Port {
-            _uart: port,
+        let mut uart = unsafe { SerialPort::new(COM1) };
+        uart.init();
+        *port() = Some(Port {
+            _uart: uart,
             tx: tx::Tx::new(COM1),
         });
     }
@@ -177,9 +157,9 @@ pub fn init() {
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     crate::klog::write_fmt(args);
-    if let Some(port) = SERIAL1.lock().as_mut() {
+    if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
-        let _ = Stamped(&mut port.tx).write_fmt(args);
+        let _ = Stamped::kernel(&mut port.tx).write_fmt(args);
         port.drain_own(before);
     }
 }
@@ -192,7 +172,7 @@ pub fn try_print(args: fmt::Arguments) -> bool {
     if let Some(mut guard) = SERIAL1.try_lock() {
         if let Some(port) = guard.as_mut() {
             let before = port.tx.queued();
-            let _ = Stamped(&mut port.tx).write_fmt(args);
+            let _ = Stamped::kernel(&mut port.tx).write_fmt(args);
             port.drain_own(before);
         }
         return true;
@@ -205,9 +185,9 @@ pub fn try_print(args: fmt::Arguments) -> bool {
 pub fn _write_str(s: &str) {
     use core::fmt::Write;
     crate::klog::write_fmt(format_args!("{s}"));
-    if let Some(port) = SERIAL1.lock().as_mut() {
+    if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
-        let _ = Stamped(&mut port.tx).write_str(s);
+        let _ = Stamped::kernel(&mut port.tx).write_str(s);
         port.drain_own(before);
     }
 }
@@ -215,43 +195,61 @@ pub fn _write_str(s: &str) {
 /// Write raw bytes to the serial port at once (terminal echo). Not copied
 /// into the boot log: program output would push the boot out of it.
 pub fn write_bytes(bytes: &[u8]) {
-    if let Some(port) = SERIAL1.lock().as_mut() {
+    if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
-        queue(port, bytes);
+        let _ = Stamped::program(&mut port.tx).lines(bytes);
         port.drain_own(before);
     }
 }
 
 impl Port {
     /// Drain as many bytes as the caller queued since `before` (plus a FIFO's
-    /// worth): all of them when nothing else waits, never someone else's
-    /// whole backlog with interrupts off.
+    /// worth, at most [`DRAIN_OWN_MAX`]): all of them when nothing else
+    /// waits, never someone else's whole backlog with interrupts off.
     fn drain_own(&mut self, before: usize) {
         let own = self.tx.queued().wrapping_sub(before);
-        self.tx.drain(own + 16);
+        self.tx.drain((own + 16).min(DRAIN_OWN_MAX));
     }
 }
 
-/// The kernel task's backstop: drain what a writer left queued (it was
-/// preempted between its chunks), a chunk at a time with interrupts let in
-/// between. Call with interrupts on.
+/// The kernel task's drain: what writers left queued, a chunk at a time with
+/// interrupts let in between, for at most [`SERVICE_TICKS`]. Call with
+/// interrupts on. It prints nothing: a trace takes the port's lock, which a
+/// task preempted while holding it would keep from every syscall that logs
+/// with interrupts off (the #382 rule); the reports are [`report`]'s.
 pub fn service() {
-    let mut budget = tx::SERVICE_BUDGET;
-    while budget > 0 {
-        let empty = x86_64::instructions::interrupts::without_interrupts(|| {
-            match SERIAL1.lock().as_mut() {
+    let start = crate::task::ticks();
+    for _ in 0..MIRROR_MAX_ROUNDS {
+        let empty =
+            x86_64::instructions::interrupts::without_interrupts(|| match port().as_mut() {
                 Some(port) => {
                     port.tx.drain(tx::CHUNK);
                     port.tx.is_empty()
                 }
                 None => true,
-            }
-        });
-        if empty {
-            return;
+            });
+        if empty || crate::task::ticks().wrapping_sub(start) >= SERVICE_TICKS {
+            break;
         }
-        budget = budget.saturating_sub(tx::CHUNK);
     }
+}
+
+/// Whether bytes wait in the ring beyond what the next writer will take
+/// (the kernel task's loop sleeps one tick, not many, while this holds).
+pub fn backlog() -> bool {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        port()
+            .as_ref()
+            .is_some_and(|port| port.tx.len() > BACKLOG_SOON)
+    })
+}
+
+/// Bytes waiting in the ring (tests).
+#[cfg(lazyos_tests)]
+pub fn queued_len() -> usize {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        port().as_ref().map_or(0, |port| port.tx.len())
+    })
 }
 
 /// The transmit ring's own checks (kernel test suite).
@@ -261,59 +259,242 @@ pub fn ring_selftest() -> Result<(), &'static str> {
 }
 
 /// Drain everything queued, whatever it costs: before the machine stops
-/// (power off, reboot, a panic), so the last lines are never lost.
+/// (power off, reboot, a panic), so the last lines are never lost. The only
+/// caller that waits for the UART without a bound.
 pub fn flush() {
-    if let Some(port) = SERIAL1.lock().as_mut() {
-        port.tx.drain(usize::MAX);
+    if let Some(port) = port().as_mut() {
+        port.tx.drain_all();
+    }
+}
+
+/// The last line of a panic: the ring is emptied first, so a kernel that
+/// filled it does not drop the line that says why it stopped (issue #857),
+/// and again after, so the line is out before the machine halts.
+///
+/// A panic can come from code that held the port: the panicking context is
+/// the only one that runs (one CPU), so a lock still held is never released
+/// by its holder, and waiting for it would hang the report. It is broken.
+pub fn final_line(args: fmt::Arguments) {
+    if SERIAL1.is_locked() {
+        // SAFETY: the holder is the context that panicked (or one it
+        // interrupted), which never resumes: nobody else uses the guard.
+        unsafe { SERIAL1.force_unlock() };
+    }
+    flush_final();
+    _print(format_args!("{args}\n"));
+    flush_final();
+}
+
+/// [`flush`] for the last lines the machine prints (a panic, a power-off):
+/// then, if the ring dropped bytes since the last report, say so on the spot
+/// (`SERIAL:DROPPED`, no budget applies to the end of a run) and flush that.
+pub fn flush_final() {
+    flush();
+    if let Some((bytes, total)) = report::take_for_final() {
+        _print(format_args!("SERIAL:DROPPED bytes={bytes} total={total}\n"));
+        flush();
     }
 }
 
 /// Write one finished trace line (`trace.rs`): the serial port and, in a
 /// `LAZYOS_DBGD=1` kernel, the program-output ring. Not the boot log: a chatty
 /// trace must not push the boot diagnostics out of it. The line is queued
-/// whole under the port lock, so no other task's output lands inside it.
+/// whole under the port lock, so no other task's output lands inside it, or
+/// not at all: a ring without room for it drops it and counts it
+/// (`SERIAL:DROPPED`), it is never cut.
 pub fn write_trace(line: &[u8]) {
     #[cfg(lazyos_dbgd)]
     crate::klog::push_program(line);
-    if let Some(port) = SERIAL1.lock().as_mut() {
+    if let Some(port) = port().as_mut() {
         let before = port.tx.queued();
-        queue(port, line);
+        let mut out = Stamped::kernel(&mut port.tx);
+        let taken = out.own_lines(line);
+        if taken < line.len() {
+            out.drop_lines(&line[taken..]);
+        }
         port.drain_own(before);
     }
 }
 
 /// Mirror a program's terminal output (`write` to the terminal, `sendfile`).
-/// The bytes are queued whole first, so `bytes` may be user memory: it is
-/// read only here, before any window opens. Then the ring is drained in
-/// [`tx::CHUNK`]s, letting interrupts in between when the caller may sleep
-/// (a syscall that holds no lock; `block::iowait::breathe`). The write
-/// returns once everything queued before it is out, so output keeps its
-/// order with the kernel's own lines and nothing waits in the ring for a
-/// later writer.
+///
+/// The whole lines that fit below the kernel's reserve are queued first, so
+/// `bytes` (user memory) is read before any window opens. What does not fit
+/// is copied aside, a ring's worth of whole lines at a time, and the writer
+/// waits for room, helping to drain the ring in [`tx::CHUNK`]s with
+/// interrupts let in between when the caller may sleep
+/// (`block::iowait::breathe`), for [`MIRROR_ROOM_TICKS`] of real time; lines
+/// still without room then are dropped, whole, and counted
+/// (`SERIAL:DROPPED`). A caller with a fatal signal pending stops waiting at
+/// once. At most [`WRITE_MAX`] bytes of one write are considered: at 38400
+/// baud more would take minutes to send, and a huge buffer is a linear scan
+/// with interrupts off.
+///
+/// Then it drains until its *own last byte* has gone out, so output keeps its
+/// order with the kernel's own lines and a program that writes and then exits
+/// has been heard. It never waits for the ring to empty (issue #857: while
+/// anything else kept logging it never did, and the writer spun in the
+/// kernel, immune to `SIGKILL`). It gives up after [`MIRROR_WAIT_TICKS`] of
+/// real time, or at once when the caller has a fatal signal pending; its
+/// bytes stay queued and the kernel task drains them. A write that queued
+/// nothing (all of it dropped) returns at once.
 pub fn mirror(bytes: &[u8]) {
     #[cfg(lazyos_dbgd)]
     crate::klog::push_program(bytes);
-    match SERIAL1.lock().as_mut() {
-        Some(port) => queue(port, bytes),
-        None => return,
+    let (bytes, excess) = cap_write(bytes);
+    if excess > 0 {
+        count_dropped(excess);
     }
+    let Some((taken, start, mut end)) = queue_program(bytes) else {
+        return;
+    };
+    let rest = &bytes[taken..];
+    if !rest.is_empty() {
+        end = queue_waiting(rest, end);
+    }
+    if end != start {
+        wait_for_own_bytes(end);
+    }
+}
+
+/// The part of a write that is considered: at most [`WRITE_MAX`] bytes, cut
+/// at a line end, and how many bytes were left out.
+fn cap_write(bytes: &[u8]) -> (&[u8], usize) {
+    if bytes.len() <= WRITE_MAX {
+        return (bytes, 0);
+    }
+    let cut = bytes[..WRITE_MAX]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(WRITE_MAX, |end| end + 1);
+    (&bytes[..cut], bytes.len() - cut)
+}
+
+/// The next piece of `rest` to set aside: whole lines, at most
+/// [`ASIDE_MAX`] bytes. `(len, skip)`: take `len` bytes, or (when the first
+/// line is longer than the ring may hold) drop the first `skip` bytes.
+fn next_chunk(rest: &[u8]) -> (usize, usize) {
+    if rest.len() <= ASIDE_MAX {
+        return (rest.len(), 0);
+    }
+    match rest[..ASIDE_MAX].iter().rposition(|&b| b == b'\n') {
+        Some(end) => (end + 1, 0),
+        None => (0, ASIDE_MAX),
+    }
+}
+
+/// Queue what fits: the bytes taken, the queued mark before and the mark
+/// after them; `None` without a port.
+fn queue_program(bytes: &[u8]) -> Option<(usize, usize, usize)> {
+    let mut guard = port();
+    let port = guard.as_mut()?;
+    let start = port.tx.queued();
+    let taken = Stamped::program(&mut port.tx).lines(bytes);
+    Some((taken, start, port.tx.queued()))
+}
+
+/// Count `bytes` as dropped.
+fn count_dropped(bytes: usize) {
+    if let Some(port) = port().as_mut() {
+        port.tx.note_dropped(bytes);
+    }
+}
+
+/// TSC cycles in `ticks` timer ticks (a guess before the timer is calibrated).
+fn cycles_in_ticks(ticks: u64) -> u64 {
+    #[cfg(lazyos_tests)]
+    let ticks = ticks * testhooks::WAIT_SCALE.load(Ordering::Relaxed);
+    match crate::arch::clock::cycles_per_tick() {
+        0 => ticks * 30_000_000,
+        per_tick => per_tick * ticks,
+    }
+}
+
+/// Queue the lines of `rest` that did not fit, a chunk at a time as room
+/// appears, until the room deadline; what is left then is dropped. Returns
+/// the queued mark after the last line taken (`end` if none was).
+fn queue_waiting(mut rest: &[u8], mut end: usize) -> usize {
+    let deadline = crate::perf::rdtsc().saturating_add(cycles_in_ticks(MIRROR_ROOM_TICKS));
+    while !rest.is_empty() {
+        let (len, skip) = next_chunk(rest);
+        if len == 0 {
+            count_dropped(skip);
+            rest = &rest[skip..];
+            continue;
+        }
+        // Waiting lets other tasks run: keep our own copy of the chunk.
+        let mut aside: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+        if aside.try_reserve_exact(len).is_err() {
+            break;
+        }
+        aside.extend_from_slice(&rest[..len]);
+        rest = &rest[len..];
+        match wait_for_room(&aside, end, deadline) {
+            (mark, true) => end = mark,
+            (mark, false) => {
+                end = mark;
+                break;
+            }
+        }
+    }
+    if !rest.is_empty() {
+        count_dropped(rest.len());
+    }
+    end
+}
+
+/// Queue `chunk` line by line as room appears, until `deadline` (TSC) or a
+/// fatal signal. Returns the queued mark after the last line taken and
+/// whether the whole chunk went in; the lines left are counted as dropped.
+fn wait_for_room(chunk: &[u8], mut end: usize, deadline: u64) -> (usize, bool) {
+    let mut rest = chunk;
     loop {
-        let empty = match SERIAL1.lock().as_mut() {
+        if crate::task::signal::must_unwind(crate::task::current()) {
+            break;
+        }
+        #[cfg(lazyos_tests)]
+        MIRROR_ROUNDS.fetch_add(1, Ordering::Relaxed);
+        if let Some(port) = port().as_mut() {
+            port.tx.drain(tx::CHUNK);
+            let taken = Stamped::program(&mut port.tx).lines(rest);
+            rest = &rest[taken..];
+            if taken > 0 {
+                end = port.tx.queued();
+            }
+        }
+        if rest.is_empty() {
+            return (end, true);
+        }
+        if crate::perf::rdtsc() >= deadline {
+            break;
+        }
+        crate::block::iowait::breathe(crate::block::Wait::MaySleep);
+    }
+    count_dropped(rest.len());
+    (end, false)
+}
+
+/// Help drain until the bytes queued up to `mark` have gone out, for at most
+/// [`MIRROR_WAIT_TICKS`] of real time (a port in back-off sends nothing, and
+/// the time, not a count of rounds, bounds the wait).
+fn wait_for_own_bytes(mark: usize) {
+    let deadline = crate::perf::rdtsc().saturating_add(cycles_in_ticks(MIRROR_WAIT_TICKS));
+    loop {
+        if crate::task::signal::must_unwind(crate::task::current()) {
+            return;
+        }
+        #[cfg(lazyos_tests)]
+        MIRROR_ROUNDS.fetch_add(1, Ordering::Relaxed);
+        let sent = match port().as_mut() {
             Some(port) => {
                 port.tx.drain(tx::CHUNK);
-                port.tx.is_empty()
+                port.tx.passed(mark)
             }
             None => true,
         };
-        if empty {
+        if sent || crate::perf::rdtsc() >= deadline {
             return;
         }
         crate::block::iowait::breathe(crate::block::Wait::MaySleep);
     }
-}
-
-/// Queue `bytes` with their line stamps (draining only if the ring fills).
-fn queue(port: &mut Port, bytes: &[u8]) {
-    let mut out = Stamped(&mut port.tx);
-    bytes.iter().for_each(|&byte| out.put(byte));
 }

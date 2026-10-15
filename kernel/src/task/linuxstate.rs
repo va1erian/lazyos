@@ -243,9 +243,11 @@ pub fn exe() -> Option<Arc<str>> {
 /// `slot` is not yet running: unlike [`set_exe`] it leaves the share groups.
 pub fn record_program(slot: usize, path: &str) {
     let new: Arc<str> = Arc::from(path);
-    let old = TASKS.lock()[slot]
-        .as_mut()
-        .and_then(|task| task.linux.exe.replace(new));
+    let comm = comm_of_path(path);
+    let old = TASKS.lock()[slot].as_mut().and_then(|task| {
+        task.linux.comm = comm;
+        task.linux.exe.replace(new)
+    });
     drop(old);
 }
 
@@ -266,6 +268,8 @@ pub fn set_exe(path: &str) {
     let old = TASKS.lock()[current()].as_mut().and_then(|task| {
         task.linux.files_group = 0;
         task.linux.fs_group = 0;
+        // The name is the new image's, as on Linux (`PR_SET_NAME` is lost).
+        task.linux.comm = comm_of_path(path);
         task.linux.exe.replace(new)
     });
     drop(old);
@@ -298,12 +302,27 @@ pub fn with_extras_of<R>(slot: usize, f: impl FnOnce(&mut LinuxExtras) -> R) -> 
         .map(|task| f(&mut task.linux))
 }
 
+/// The 15-byte name (`comm`) of the program at `path`: its last component.
+pub fn comm_of_path(path: &str) -> [u8; 16] {
+    let base = path.rsplit('/').next().unwrap_or(path).as_bytes();
+    let mut name = [0u8; 16];
+    let len = base.len().min(15);
+    name[..len].copy_from_slice(&base[..len]);
+    name
+}
+
 /// The task's display name: the `PR_SET_NAME` name, else its own.
 pub fn comm(slot: usize) -> ([u8; 16], usize) {
     let tasks = TASKS.lock();
     let Some(task) = tasks.get(slot).and_then(|task| task.as_ref()) else {
         return ([0; 16], 0);
     };
+    comm_of(task)
+}
+
+/// [`comm`] of a task the caller already has: the name `execve` or
+/// `PR_SET_NAME` gave it, else the kernel's own (`fork`, `thread`, a service).
+pub fn comm_of(task: &Task) -> ([u8; 16], usize) {
     let len = task.linux.comm.iter().position(|&b| b == 0).unwrap_or(16);
     if len > 0 {
         return (task.linux.comm, len);

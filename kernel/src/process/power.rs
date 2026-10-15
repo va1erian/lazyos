@@ -120,6 +120,10 @@ fn reboot() -> ! {
     crate::serial_println!("power: reboot requested");
     crate::serial::flush();
     sync_filesystems();
+    // The sync line is the last one an installer waits for: it must be out
+    // before the machine goes (a full ring drops lines, issue #857), and so
+    // must the word that some were dropped.
+    crate::serial::flush_final();
     x86_64::instructions::interrupts::disable();
     // SAFETY: port I/O on the 8042 controller. Waiting for its input buffer
     // to drain, then 0xFE to the command port, pulses the CPU reset line: the
@@ -183,6 +187,7 @@ fn shutdown() -> ! {
     crate::serial::flush();
     sync_filesystems();
     crate::block::ahci::standby_all();
+    crate::serial::flush_final();
     x86_64::instructions::interrupts::disable();
     // SAFETY: these ports only exist on virtual machines: 0x604 is QEMU's ACPI
     // PM1a control (SLP_TYP=S5|SLP_EN) and 0xB004 the older Bochs/QEMU one; on

@@ -17,6 +17,12 @@ The verdict (docs/usb-stick.md):
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
+
 import re
 
 MEDIA = re.compile(r"^BOOT:MEDIA:(\w+)\s*$", re.M)
@@ -37,7 +43,7 @@ MIN_COLOURS = 24
 def judge_serial(log: str, firmware: str, root: str = RAM_ROOT,
                  ready: str | None = READY, usb_input: bool = True) -> list[str]:
     """Failures found in a serial log (empty when the boot passed)."""
-    failures = []
+    failures = serial_integrity.problems(log)
     media = MEDIA.findall(log)
     if not media:
         failures.append("no BOOT:MEDIA line (the kernel did not start?)")

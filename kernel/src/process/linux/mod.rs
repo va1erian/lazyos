@@ -31,6 +31,7 @@ mod cwd;
 mod dents;
 mod dirstream;
 mod elf;
+pub(crate) mod enosys;
 mod epoll;
 mod errno;
 mod etcfs;
@@ -379,13 +380,13 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         328 => iov::sys_pwritev2(a1, a2, a3, a4, a6), // pwritev2
         332 => statx::sys_statx(a1, a2, a3, a4, a5), // statx(dirfd, path, flags, mask, buf)
         334 => {
-            crate::serial_println!("ENOSYS 334 rseq");
+            enosys::note(334, u64::MAX);
             errno::err(errno::ENOSYS) // musl falls back
         }
         _ => match extra::dispatch(nr, [a1, a2, a3, a4, a5, a6]) {
             Some(result) => result,
             None => {
-                crate::serial_println!("ENOSYS {} {}", nr, syscall_name(nr));
+                enosys::note(nr, u64::MAX);
                 errno::err(errno::ENOSYS)
             }
         },

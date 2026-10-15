@@ -8,7 +8,7 @@ use crate::task::{PriorityClass, TaskState};
 
 /// Fresh table with the kernel mux parked (as `sched_suite` does) and a new
 /// guard window.
-fn fresh() -> Result<(), String> {
+pub(super) fn fresh() -> Result<(), String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -26,7 +26,7 @@ fn fresh() -> Result<(), String> {
     Ok(())
 }
 
-fn child(class: PriorityClass) -> Result<usize, String> {
+pub(super) fn child(class: PriorityClass) -> Result<usize, String> {
     let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
     check!(
         task::set_priority(slot, class),
@@ -35,7 +35,7 @@ fn child(class: PriorityClass) -> Result<usize, String> {
     Ok(slot)
 }
 
-fn cleanup() {
+pub(super) fn cleanup() {
     for slot in 1..task::MAX_TASKS {
         if task::harness::state(slot).is_some() {
             task::harness::finish(slot, 0);
@@ -49,7 +49,7 @@ fn cleanup() {
 }
 
 /// Run `ticks` simulated ticks and return how many each slot was picked for.
-fn picks(ticks: usize) -> Vec<usize> {
+pub(super) fn picks(ticks: usize) -> Vec<usize> {
     let mut counts = vec![0usize; task::MAX_TASKS];
     for _ in 0..ticks {
         counts[task::harness::simulate_tick()] += 1;

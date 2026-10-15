@@ -31,7 +31,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.append(str(ROOT / "tools" / "web"))
 sys.path.append(str(ROOT / "tools" / "screenshot"))
+sys.path.append(str(ROOT / "tools"))
 sys.path.insert(0, str(HERE))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
 import session_pointer  # noqa: E402
 import sites  # noqa: E402
 
@@ -148,7 +150,7 @@ def judge_start(text: str) -> list[str]:
 def judge_no_fault(text: str) -> list[str]:
     """No task of the run died of a CPU fault: the kernel prints `user: task N killed by <fault> ...` for
     each (a trap in a child, say, which the page only shows as an "internal error" load failure)."""
-    return [f"a task died of a fault: {line}" for line in
+    return serial_integrity.problems(text) + [f"a task died of a fault: {line}" for line in
             re.findall(r"user: task \d+ killed by [^\r\n]*", text)[:8]]
 
 
