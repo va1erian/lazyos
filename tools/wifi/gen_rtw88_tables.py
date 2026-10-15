@@ -32,6 +32,8 @@ import hashlib
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -226,9 +228,17 @@ def read_source(path: Path) -> str:
 def fetch(dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     target = dest / "rtw8822c_table.c"
-    with urllib.request.urlopen(URL, timeout=60) as resp:
-        target.write_bytes(resp.read())
-    return target
+    # raw.githubusercontent.com answers a busy CI runner with 429 now and then.
+    for attempt in range(6):
+        try:
+            with urllib.request.urlopen(URL, timeout=60) as resp:
+                target.write_bytes(resp.read())
+            return target
+        except urllib.error.HTTPError as error:
+            if error.code not in (429, 500, 502, 503, 504) or attempt == 5:
+                raise
+            time.sleep(min(int(error.headers.get("Retry-After") or 0), 120) or 5 * 2**attempt)
+    raise AssertionError("unreachable")
 
 
 def main(argv: list[str] | None = None) -> int:
