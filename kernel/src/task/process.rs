@@ -237,6 +237,8 @@ pub(crate) fn finish_locked(
     // "nobody" is slot 0 too.
     let parent = family::notify_target(tasks, slot, parent).unwrap_or(KERNEL_TASK);
     super::runq::sync(tasks, slot);
+    super::yieldlock::forget_wait(slot);
+    super::procexit::note_exit(tasks, slot, status);
     // Stop the dead task's devices (interrupt line, DMA) and close its
     // descriptors before its parent can be slow to reap it; the actual work
     // runs later in task context, outside this lock.

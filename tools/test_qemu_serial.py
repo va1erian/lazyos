@@ -22,8 +22,8 @@ import qemu_serial  # noqa: E402
 import serial_integrity  # noqa: E402
 
 
-def ns(log=None, stdio=False, image=None) -> argparse.Namespace:
-    return argparse.Namespace(serial_log=log, serial_stdio=stdio, image=image)
+def ns(log=None, stdio=False, image=None, port=None) -> argparse.Namespace:
+    return argparse.Namespace(serial_log=log, serial_stdio=stdio, image=image, sample_port=port)
 
 
 def pairs(command: list[str], flag: str) -> list[str]:
@@ -54,6 +54,15 @@ class ArgsTests(unittest.TestCase):
     def test_a_comma_in_the_path_is_doubled_for_qemu(self) -> None:
         command = qemu_serial.qemu_args(ns(str(Path("a,b") / "s.log")))
         self.assertIn(",,", pairs(command, "-chardev")[0])
+
+
+class SampleTests(unittest.TestCase):
+    def test_sample_port_adds_the_second_qmp_socket(self) -> None:
+        command = qemu_serial.qemu_args(ns("s.log", port=5555))
+        self.assertEqual(pairs(command, "-qmp"), ["tcp:127.0.0.1:5555,server=on,wait=off"])
+        self.assertEqual(pairs(qemu_serial.qemu_args(ns("s.log")), "-qmp"), [])
+        stdio = qemu_serial.qemu_args(ns("s.log", stdio=True, port=7))
+        self.assertEqual(pairs(stdio, "-qmp"), ["tcp:127.0.0.1:7,server=on,wait=off"])
 
 
 class LogNameTests(unittest.TestCase):

@@ -54,3 +54,43 @@ ones that name a page print only in a `LAZYOS_UI_PROBE=1` image.
 The sandbox of the two engine processes is attacked by `python tools/webkit/attack_run.py --browser --app
 lazywebplus` (and `--kernel`), see [`docs/lazywebplus.md`](../../docs/lazywebplus.md). `--label-trace` here fails
 on any `LABEL:DENY` beyond the nine optional ones of #836 (`denies.py`).
+
+## How to capture a freeze
+
+A freeze report is a file and a recording, not a terminal copy (issue #861; the analysis of the first one is
+issue #865).
+
+1. Start the desktop with the serial port in a file and a second QMP socket for the sampler (the GUI launcher's
+   Advanced tab has a "Sample port" field for the second):
+
+   ```bash
+   python tools/run_demo.py --lazywebplus --sample-port 5555
+   ```
+
+   The serial output goes to `target/serial-<image>-<date>-<time>-<pid>.log` (the newest ten are kept; `--serial-log FILE`
+   names one yourself) and the launcher tails it to its console from a thread, so a console that stops reading (a
+   Windows selection, the GUI's reader) cannot stall the guest. The monitor stays on the console (`Ctrl-A x` quits;
+   Ctrl-C is not a signal to QEMU, as with `mon:stdio`). `--serial-stdio` is the old single muxed device.
+2. While the page is stuck, record where the guest's CPU goes:
+
+   ```bash
+   python tools/webplus/sample.py record --port 5555 --out s.tsv     # Ctrl-C after ten seconds or so
+   python tools/webplus/sample.py report s.tsv                        # by process (CR3), then by address
+   ```
+
+   A CR3 names the process; a kernel RIP (`0xffff8000...`) says it is inside a syscall (symbolize with
+   `addr2line -e <kernel> <rip - 0xffff800000000000>`).
+3. Read the log for what the kernel itself says (all channels in `docs/trace/channels.md`):
+
+   | Line | Meaning |
+   |---|---|
+   | `PROC:EXIT tgid= thread= status= sig= by= parent= cpu_ms= comm=` | a process (thread group) ended: its exit status or the signal that killed it (`status=-` then), the process that sent it (`by=kernel` for a fault), the CPU of all its threads. Clean exits are budgeted apart from the rest |
+   | `SCHED:STUCK tgid= thread= abi= nr= ms= cpu_ms= krip= urip= comm=` | a task runnable inside the kernel (a syscall, or a kernel frame) for 2 s or more, `ms` counted from the syscall's entry; `cpu_ms` near `ms` is a spin, near 0 is starvation; `urip` is where it came from in user code |
+   | `SCHED:GUARD:DEMOTED` / `SCHED:GUARD:SUMMARY` | the first demotion of a task, then a summary per process every 10 s |
+   | `PERF:CPU tgid= pct= user= kernel= class= demotions= comm=` | every 5 s while a process is above 20% (threads that ended still count) |
+   | `LOCK:WAIT lock= holder= thread= nr= waiters= ms=` | a task waited over 500 ms for a contended lock (`vfs`, `ext2`, `ata`, `ahci`, `nvme`) and who held it |
+   | `SERIAL:BACKLOG bytes= dropped= max_io_us=` | the serial ring holds over 4 KiB (`max_io_us`: the longest port access in the last 5 s; large means the host is slow to take bytes) |
+   | `SERIAL:DROPPED bytes= total=` | output the ring had no room for (whole lines; the ring never makes a writer wait). The harness judges fail a log that has one |
+   | `ENOSYS <nr> <name>` then `ENOSYS ... count=` | an unimplemented syscall, once per process, then a count every 10 s |
+
+   `IRQOFF:MAX` lines name interrupts-off stretches; none should end in `kernel/src/serial/tx.rs` any more.

@@ -65,9 +65,12 @@ pub(crate) mod family;
 pub mod introspect;
 mod linux_spawn;
 pub mod process;
+pub mod procexit;
 pub mod relax;
 pub mod signal;
 mod snapshot;
+pub mod stuck;
+pub mod yieldlock;
 pub use snapshot::{
     fd_advance, fd_apply_pwrite, fd_apply_write, fd_file_meta, fd_offset, fd_peek, fd_peek_at,
     fd_read, fd_seek, fd_set_len, fd_size, prepare_fd_write, FileMeta, SnapFile,
@@ -82,6 +85,7 @@ pub use linux_spawn::{spawn_linux, spawn_linux_args, spawn_linux_child_env};
 
 mod console;
 pub mod consoletty;
+pub mod cpustat;
 mod cwd;
 mod fdcharge;
 mod fdio;
@@ -90,11 +94,14 @@ mod fdops;
 mod fdshare;
 mod fdtable;
 mod fdtypes;
+pub mod forensics;
 pub mod fpu;
 mod fs_base;
 pub mod guard;
 #[cfg(lazyos_tests)]
 pub mod harness;
+#[cfg(lazyos_tests)]
+pub mod harness_frames;
 pub mod holders;
 pub mod itimer;
 mod kernel_task;
@@ -103,6 +110,7 @@ mod kstack;
 pub mod kthread;
 mod lifecycle;
 pub mod linuxstate;
+pub mod lockwait;
 mod memstate;
 pub mod nice;
 pub mod pollwait;

@@ -132,6 +132,7 @@ pub(super) fn take_finished(
         return None;
     }
     let dead = tasks[slot].take()?;
+    super::cpustat::retire(tasks, slot, &dead);
     runq::sync(tasks, slot);
     let pml4 = dead.pml4;
     let shared = tasks
@@ -377,6 +378,9 @@ fn reap_matching(wanted: impl Fn(usize, &Task) -> bool) -> Option<(usize, u64, u
                     other != index && task.as_ref().is_some_and(|task| task.pml4 == pml4)
                 });
                 let dead = tasks[index].take();
+                if let Some(dead) = &dead {
+                    super::cpustat::retire(&tasks, index, dead);
+                }
                 runq::sync(&tasks, index);
                 found = Some((index, status, pml4, shared, dead));
                 break;

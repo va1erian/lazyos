@@ -74,6 +74,12 @@ pub fn counters_for_test() -> (usize, usize) {
         .map_or((0, 0), |port| (port.tx.queued(), port.tx.drained()))
 }
 
+/// The backlog look at a chosen tick, with the throttle forgotten.
+pub fn report_backlog_for_test(now: u64) {
+    report::forget_throttle();
+    report::report_backlog_at(now);
+}
+
 /// The bytes waiting in the ring, oldest first.
 pub fn ring_contents_for_test() -> alloc::vec::Vec<u8> {
     port()

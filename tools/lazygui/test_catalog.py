@@ -33,6 +33,7 @@ from lazygui.test_catalog_quake import QuakeTests  # noqa: E402,F401
 from lazygui.test_catalog_srb2kart import Srb2kartTests  # noqa: E402,F401
 from lazygui.test_osvolume import OsVolumeTests  # noqa: E402,F401
 from lazygui.test_display import DisplayModeTests  # noqa: E402,F401
+from lazygui.test_catalog_sample import SamplePortTests  # noqa: E402,F401
 from lazygui.test_login import AutologinTests  # noqa: E402,F401
 from lazygui.test_usb_image import UsbImageTests  # noqa: E402,F401
 from lazygui.test_usb_sticks import UsbStickTests  # noqa: E402,F401

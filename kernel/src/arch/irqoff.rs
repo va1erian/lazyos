@@ -57,6 +57,9 @@ static MAX_LINUX: [AtomicU64; LINUX_SLOTS] = [const { AtomicU64::new(0) }; LINUX
 static MAX_KERNEL: AtomicU64 = AtomicU64::new(0);
 /// The syscall each task is in (tagged), [`NONE`] outside one.
 static TASK_NR: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(NONE) }; MAX_TASKS];
+/// The tick each task entered that syscall at (`SCHED:STUCK` tells two calls
+/// of the same number apart by it).
+static TASK_ENTER: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
 /// The open span: its start (0 = none), the syscall it is charged to and
 /// where it began.
 static SPAN_START: AtomicU64 = AtomicU64::new(0);
@@ -101,8 +104,34 @@ pub fn enter_linux(nr: u64) {
 }
 
 fn enter(tagged: u64, at: &'static Site) {
-    TASK_NR[crate::task::current()].store(tagged, Ordering::Relaxed);
+    let me = crate::task::current();
+    TASK_NR[me].store(tagged, Ordering::Relaxed);
+    TASK_ENTER[me].store(crate::task::ticks(), Ordering::Relaxed);
     start(tagged, at);
+}
+
+/// The syscall task `slot` is inside: `(native, number, tick entered)`, or
+/// `None` outside one (a kernel section is not a syscall).
+pub fn task_syscall(slot: usize) -> Option<(bool, u64, u64)> {
+    let tagged = TASK_NR.get(slot)?.load(Ordering::Relaxed);
+    if tagged == NONE || tagged & KERNEL != 0 {
+        return None;
+    }
+    let entered = TASK_ENTER[slot].load(Ordering::Relaxed);
+    Some((tagged & NATIVE != 0, tagged & !NATIVE, entered))
+}
+
+/// Test hook: make task `slot` look like it is inside syscall `nr` (entered
+/// at tick `entered`), or outside any (`None`).
+#[cfg(lazyos_tests)]
+pub fn set_task_syscall_for_test(slot: usize, call: Option<(bool, u64, u64)>) {
+    match call {
+        Some((native, nr, entered)) => {
+            TASK_NR[slot].store(if native { NATIVE | nr } else { nr }, Ordering::Relaxed);
+            TASK_ENTER[slot].store(entered, Ordering::Relaxed);
+        }
+        None => TASK_NR[slot].store(NONE, Ordering::Relaxed),
+    }
 }
 
 /// Run `f`, interrupts-off work of the kernel task (the periodic writeback,

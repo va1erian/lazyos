@@ -53,6 +53,8 @@ pub struct State {
     demotions: u32,
     /// Demotions already reported ([`report`]).
     reported: u32,
+    /// Timer ticks that found the task in ring 3 (`PERF:CPU`'s user share).
+    user_ticks: u64,
 }
 
 impl State {
@@ -63,7 +65,23 @@ impl State {
             weight: 0,
             demotions: 0,
             reported: 0,
+            user_ticks: 0,
         }
+    }
+
+    /// A timer tick found the task in user mode.
+    pub fn note_user_tick(&mut self) {
+        self.user_ticks = self.user_ticks.saturating_add(1);
+    }
+
+    /// Ticks spent in user mode since the task started.
+    pub fn user_ticks(&self) -> u64 {
+        self.user_ticks
+    }
+
+    /// Demotions since the task started.
+    pub fn demotions(&self) -> u32 {
+        self.demotions
     }
 
     /// The class the task holds when the guard is not acting: its own while

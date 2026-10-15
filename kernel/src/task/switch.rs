@@ -116,12 +116,34 @@ extern "C" {
     pub fn yield_isr();
 }
 
+/// Per slot: the task is inside [`yield_now`] (switched out by its own call,
+/// not preempted by the timer).
+static YIELDING: [core::sync::atomic::AtomicBool; super::MAX_TASKS] =
+    [const { core::sync::atomic::AtomicBool::new(false) }; super::MAX_TASKS];
+
+/// Whether task `slot` is in [`yield_now`]: a runnable task in it was switched
+/// out by an interrupt stub's `preempt_point` on its way back to user mode,
+/// not by the timer while it ran kernel code (`SCHED:STUCK`).
+pub fn yielding(slot: usize) -> bool {
+    YIELDING
+        .get(slot)
+        .is_some_and(|flag| flag.load(core::sync::atomic::Ordering::Relaxed))
+}
+
+/// Test builds: pretend `slot` is (or is not) inside [`yield_now`].
+#[cfg(lazyos_tests)]
+pub fn set_yielding_for_test(slot: usize, on: bool) {
+    YIELDING[slot].store(on, core::sync::atomic::Ordering::Relaxed);
+}
+
 /// Enter the scheduler voluntarily: the caller has already marked itself
 /// blocked (or wants to give up the CPU) and resumes here when picked again.
 ///
 /// Does not advance the tick counter, acknowledge the PIC, or charge a CPU
 /// tick; deadline expiry and task selection run exactly as on a tick.
 pub fn yield_now() {
+    let me = super::current();
+    YIELDING[me].store(true, core::sync::atomic::Ordering::Relaxed);
     // Other tasks run meanwhile: the caller's interrupts-off span ends here
     // and, if it had one, starts again when it is picked (`arch::irqoff`).
     crate::arch::irqoff::paused(|| {
@@ -132,4 +154,5 @@ pub fn yield_now() {
         unsafe { x86_64::instructions::interrupts::software_interrupt::<0x81>() };
         crate::perf::irqoff_resume();
     });
+    YIELDING[me].store(false, core::sync::atomic::Ordering::Relaxed);
 }

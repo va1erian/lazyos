@@ -351,6 +351,50 @@ pub(crate) unsafe fn apply_regs_to_frame(rsp: u64, regs: &UserRegs, rip_index: u
     put_frame_word(rsp, rip_index + 3, regs.rsp);
 }
 
+/// The `rip` of the frame a not-running task was switched out with, and
+/// whether it is a ring-3 frame (the task is in user mode) or a kernel one
+/// (it is inside a syscall or a handler, `SCHED:STUCK`).
+///
+/// # Safety
+///
+/// `rsp` must be the saved stack pointer of a task that is not running (the
+/// scheduler's `Task::rsp`), pointing at the frame `task::switch` built: 20
+/// readable words on that task's kernel stack, which nothing writes while the
+/// caller holds the task table with interrupts off.
+pub(crate) unsafe fn saved_rip(rsp: u64) -> (u64, bool) {
+    (
+        frame_word(rsp, FRAME_RIP_INDEX),
+        frame_is_user(rsp, FRAME_RIP_INDEX),
+    )
+}
+
+/// The ring-3 `rip` a task entered the kernel from, and whether the
+/// outermost frame on its kernel stack is a ring-3 one at all.
+///
+/// An interrupt, exception or `int 0x80` from user mode leaves the CPU's
+/// `rip, cs, rflags, rsp, ss` at the very top of the kernel stack; a `syscall`
+/// leaves the entry stub's `rsp, rflags, rip` there (`arch::linux`). A task
+/// that is runnable with a *kernel* frame saved but a ring-3 frame on top was
+/// only interrupted from user mode and is on its way back (an IRQ stub's
+/// `preempt_point` switched it out): not stuck in the kernel.
+///
+/// # Safety
+///
+/// `kstack_top` must be the `kstack_top` of a live task other than the
+/// running one, whose kernel stack has at least 40 readable bytes below it.
+pub(crate) unsafe fn outer_user_frame(kstack_top: u64, linux_syscall: bool) -> (u64, bool) {
+    let word = |back: u64| {
+        // SAFETY: the caller guarantees the top 40 bytes of the stack are mapped.
+        unsafe { core::ptr::read_volatile((kstack_top - back) as *const u64) }
+    };
+    if linux_syscall {
+        // `syscall` stub: user RSP, RFLAGS, RIP pushed in that order.
+        (word(24), true)
+    } else {
+        (word(40), word(32) & 3 == 3)
+    }
+}
+
 /// Whether a saved frame's `CS` says ring 3.
 pub(super) fn frame_is_user(rsp: u64, rip_index: usize) -> bool {
     frame_word(rsp, rip_index + 1) & 3 == 3

@@ -19,7 +19,7 @@ Examples
     python tools/run_demo.py --usb-stick target/stick.img  # a FAT USB stick, mounted at /media/<label> after login
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
-    python tools/run_demo.py --serial-log s.log  # the guest's serial output in a file (default target/serial-*.log)
+    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial in a file; QMP for tools/webplus/sample.py
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen

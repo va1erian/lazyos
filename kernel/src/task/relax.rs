@@ -61,8 +61,7 @@ impl spin::RelaxStrategy for Yield {
     }
 }
 
-/// A spin lock whose contenders yield the CPU (see the module docs).
-pub type YieldMutex<T> = spin::mutex::Mutex<T, Yield>;
+pub use super::yieldlock::{YieldGuard, YieldMutex};
 
 /// Whether the contender can park for [`PARK_NS`]: the scheduler runs (or a
 /// test allowed its threads to park) and [`can_block`] holds.

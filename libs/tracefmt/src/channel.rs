@@ -77,6 +77,7 @@ channels! {
     Installer => "INSTALLER",
     Keyd => "KEYD",
     Label => "LABEL",
+    Lock => "LOCK",
     Lazyweb => "LAZYWEB",
     Logd => "LOGD",
     Login => "LOGIN",
@@ -112,6 +113,7 @@ channels! {
     Pkgctl => "PKGCTL",
     Pkgd => "PKGD",
     Printd => "PRINTD",
+    Proc => "PROC",
     Quake => "QUAKE",
     Removable => "REMOVABLE",
     Rhai => "RHAI",
@@ -217,6 +219,11 @@ impl Channel {
         match self {
             Channel::Label => Some(Rate {
                 lines: 40,
+                window: 1000,
+            }),
+            // A contended lock is reported per waiter, every few seconds.
+            Channel::Lock => Some(Rate {
+                lines: 20,
                 window: 1000,
             }),
             _ => None,
