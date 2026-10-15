@@ -26,13 +26,18 @@ APP_DIR = "xui-app"
 
 # Files where `call_unbounded`/`call_detailed_unbounded` is allowed, a
 # directory (trailing `/`) or file path (relative to the root, `/`-separated)
-# -> why. Empty today: every call site of the #716 worker conversion is
-# bounded. An unbounded path is added only when a worker thread (never the
-# UI loop) genuinely needs it, and the job says so in one line.
+# -> why. The one entry below is the deliberate case so far: an unbounded
+# path is added only when a worker thread (never the UI loop) genuinely
+# needs it, and the reason says what keeps it off the UI thread.
 ALLOWLIST: dict[str, str] = {
     # The API's definitions (and their delegation bodies); consumers are
     # what the scan polices.
     "xui-app/src/platform/messenger.rs": "the wrappers themselves",
+    # The one request site inside `request_within` goes out unbounded only
+    # from a thread the elevated machinery marked (`mark_worker`); a UI
+    # thread keeps `REQUEST_TICKS`. The marker's default is pinned by a
+    # unit test in that module.
+    "xui-app/src/platform/elevd.rs": "a worker-marked thread's elevd requests",
 }
 
 # The explicit deadline-less forms (`platform/messenger.rs` is where they

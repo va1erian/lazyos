@@ -192,6 +192,10 @@ impl System for OsSystem {
     fn detached(&self) -> Option<xui_settings::system::Detached> {
         use std::sync::Arc;
         Some(Arc::new(|| {
+            // The thread this runs on is one of the tree's workers (no UI
+            // loop on it): its `elevd` requests may wait unboundedly, which
+            // the platform clients read off the same marker.
+            crate::platform::messenger::mark_worker();
             let system: Box<dyn xui_settings::system::System> = Box::new(OsSystem);
             system
         }))
@@ -219,8 +223,13 @@ impl System for OsSystem {
             .map_err(|_| String::from("bad time"))?;
         let service =
             Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        match service.call(wire::INTERFACE_ID, wire::METHOD_SETTIME, ERROR_FIELD, body, WRITE_TICKS)
-        {
+        match service.call(
+            wire::INTERFACE_ID,
+            wire::METHOD_SETTIME,
+            ERROR_FIELD,
+            body,
+            WRITE_TICKS,
+        ) {
             Ok(_) => Ok(()),
             Err(code) if -code == errno::EPERM => {
                 super::elevd::request("time.set", &[&unix.to_string()])

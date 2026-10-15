@@ -8,7 +8,7 @@
 //! characters and bounds the length — a hostile package cannot forge serial
 //! markers, overflow a label, or make the app panic on empty/non-ASCII text.
 
-mod model;
+pub(crate) mod model;
 mod view;
 
 pub use model::{

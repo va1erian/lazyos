@@ -27,6 +27,8 @@
 
 mod backdrop;
 mod background;
+#[cfg(target_os = "linux")]
+pub(crate) mod calls;
 mod compositor;
 mod cursor;
 mod dnd;

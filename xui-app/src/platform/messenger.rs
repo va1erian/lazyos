@@ -14,7 +14,7 @@
 //! call that finds the peer gone evicts the entry so the next call re-resolves
 //! a restarted service.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 
@@ -40,6 +40,25 @@ thread_local! {
     /// Endpoints resolved by this task, one per service name. Never closed, so
     /// the service's endpoint outlives every individual call.
     static SERVICES: RefCell<Vec<Cached>> = const { RefCell::new(Vec::new()) };
+    /// Threads the tree's worker closures run on (`mark_worker`): the
+    /// deadline-less call forms are theirs, and the platform clients use
+    /// the marker to keep the same API bounded on UI threads.
+    static WORKER: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Mark the current thread as one of the tree's worker threads (no UI
+/// loop runs here): a deadline-less [`Service::call_unbounded`] is only
+/// legitimate on them, and the UI-thread paths they share the code with
+/// consult [`worker_thread`] to keep the bounded shape.
+pub fn mark_worker() {
+    WORKER.with(|worker| worker.set(true));
+}
+
+/// Whether the calling thread was marked with [`mark_worker`]: false on
+/// every UI thread, which is what keeps the platform client's per-call
+/// budgets the default.
+pub fn worker_thread() -> bool {
+    WORKER.with(Cell::get)
 }
 
 fn cached(name: &str) -> Option<u64> {
@@ -194,6 +213,72 @@ impl Service {
         body: Vec<u8>,
     ) -> Result<Parcel, CallError> {
         self.call_at(interface, method, error_id, body, 0)
+    }
+
+    /// Begin a call and keep the window paintable while the service works
+    /// (issue #725's UI integration): the request goes out now and
+    /// [`on_done`] — on the UI thread, at the tick the kernel's
+    /// `WAIT_CALLS` doorbell gave the loop — carries the reply, with the
+    /// service's structured error resolved just like
+    /// [`Service::call_detailed`] would have. `deadline` is an absolute PIT
+    /// tick, `0` waits for ever: the caller who began it is not parked, so
+    /// only the app's own patience for a still-open call is a bound. The
+    /// lane runs on the thread the backend's loop runs on (the only one
+    /// whose `tick` drains it); a call begun elsewhere waits for a drain
+    /// that thread never makes, so do not.
+    ///
+    /// The begin's own errors are transport failures (a dead peer evicts
+    /// the cached endpoint, as for [`Service::call`]); they arrive in
+    /// [`on_done`]'s result.
+    pub fn call_async(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+        on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
+    ) -> Result<(), i64> {
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: libmessenger::flags::ALLOW_NESTED,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            objects: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        if parcel.encode(&mut bytes).is_err() {
+            return Err(-errno::EINVAL);
+        }
+        crate::backend::calls::begin(
+            self.endpoint,
+            &bytes,
+            deadline,
+            Box::new(move |result| {
+                on_done(match result {
+                    Ok(reply) => match error_field(&reply, error_id) {
+                        Some(call_error) => Err(call_error),
+                        None => Ok(reply),
+                    },
+                    Err(code) => Err(CallError {
+                        code,
+                        message: String::new(),
+                    }),
+                })
+            }),
+        )
+        .map_err(|code| {
+            if code == -errno::EPIPE || code == -errno::ENOENT {
+                forget(self.name);
+            }
+            code
+        })
     }
 
     /// [`Service::call_within`] whose request carries `objects` (what the

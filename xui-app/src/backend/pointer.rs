@@ -147,7 +147,11 @@ impl LazyOSBackend {
                 .borrow_mut()
                 .press(now, window, x, y, button, id)
         };
-        self.deliver_pointer(window, target, kind.event(x, y, button, self.modifiers.get()));
+        self.deliver_pointer(
+            window,
+            target,
+            kind.event(x, y, button, self.modifiers.get()),
+        );
     }
 
     /// Route one pointer release.
