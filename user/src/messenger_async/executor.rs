@@ -8,7 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use crate::messenger::errno;
-use crate::messenger::wait::{MAX_ENDPOINTS, WAIT_CALLS};
+use crate::messenger::wait::WAIT_CALLS;
 
 // ---------------------------------------------------------------------------
 // Minimal executor and waker
@@ -60,7 +60,7 @@ fn park_pending() -> bool {
     if items.is_empty() {
         return false;
     }
-    match wait_items(&items, WAIT_CALLS as u64, None) {
+    match wait_items(&items, WAIT_CALLS, None) {
         // Nothing is taken; one pass of `pass` reads what became ready.
         Ok(_) => true,
         Err(error) if error.errno() == Some(-errno::ENOENT) => {
