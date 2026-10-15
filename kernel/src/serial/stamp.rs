@@ -80,6 +80,18 @@ impl<'a> Stamped<'a> {
         taken
     }
 
+    /// [`Stamped::lines`] for evidence that must start at column 0 (a trace):
+    /// a program's line whose newline comes in a later write (`ls` ends its
+    /// last entry that way) is ended first, or the trace would be glued to its
+    /// tail (`systemPROC:EXIT ...`) and a harness would read neither.
+    pub(super) fn own_lines(&mut self, bytes: &[u8]) -> usize {
+        if !AT_LINE_START.load(Ordering::Relaxed) && self.tx.len() < self.limit {
+            AT_LINE_START.store(true, Ordering::Relaxed);
+            self.tx.push(b'\n');
+        }
+        self.lines(bytes)
+    }
+
     /// Count `bytes` as dropped: the caller gave up on them.
     pub(super) fn drop_lines(&mut self, bytes: &[u8]) {
         self.tx.note_dropped(bytes.len());
@@ -112,7 +124,8 @@ impl<'a> Stamped<'a> {
             AT_LINE_START.store(true, Ordering::Relaxed);
             self.send(b'\n');
         }
-        if TIMESTAMPS && AT_LINE_START.swap(false, Ordering::Relaxed) {
+        // The flag is kept without stamps too: `own_lines` reads it.
+        if AT_LINE_START.swap(false, Ordering::Relaxed) && TIMESTAMPS {
             let ms = crate::task::ticks() * 10;
             let mut digits = [0u8; 20];
             let mut n = ms / 1000;
