@@ -106,8 +106,7 @@ const DRAIN_OWN_MAX: usize = 1024;
 /// Most rounds the kernel task's drain runs per pass (a ring's worth of
 /// chunks), so even a caller that cannot let a tick in ends.
 const MIRROR_MAX_ROUNDS: usize = tx::Tx::CAPACITY / tx::CHUNK + 8;
-/// Timer ticks (10 ms) of real time, measured on the TSC, a program write
-/// waits for its own bytes to go out.
+/// Ticks (10 ms, real time on the TSC) a program write waits for its own bytes.
 const MIRROR_WAIT_TICKS: u64 = 2;
 /// Ticks of real time a program write waits for room in the ring before it
 /// drops lines.
