@@ -8,7 +8,6 @@ use xui_core::app::Ui;
 use xui_core::HasText;
 
 use super::{say, user_theme, ConfigStore, Msg, SettingsApp, UserTheme};
-use crate::menu_ops;
 use crate::menu_page::MenuMsg;
 use crate::store::Detached;
 use crate::system::Detached as DetachedSystem;
@@ -83,6 +82,9 @@ impl SettingsApp {
             .spawn(move || {
                 // The worker's own copy of the stores: the UI's are `Rc`s,
                 // and a thread resolves its own service endpoints anyway.
+                // The thread IS one of the tree's workers by the store
+                // builders the bin hands in; `mark_worker` happens there
+                // (portable crates cannot depend on the platform crate).
                 let mut answer = Answer(Some(proxy));
                 let machine: Rc<dyn ConfigStore> = Rc::from(detached());
                 let store = UserTheme::scoped(Rc::clone(&machine));
@@ -145,7 +147,10 @@ impl SettingsApp {
                 });
             }
             Done::Menu(outcome) => {
-                self.pages.menu.load(self.store.as_ref());
+                // The worker saved; the draft kept accepting edits while
+                // the prompt was up, so the page re-reads only the stored
+                // side of its state and keeps what the user edited since.
+                self.pages.menu.saved_in_background(self.store.as_ref());
                 self.status.set_text(&match outcome {
                     Ok(entries) => {
                         crate::menu_page::report_saved(entries);
@@ -194,8 +199,6 @@ impl SettingsApp {
     ) -> String {
         let detached = self.system.detached();
         if matches!(msg, MenuMsg::Save) && self.pages.menu.unsaved() && detached.is_some() {
-            // TODO(issue #720): edits made while the prompt is up are
-            // dropped by the reload in `finish`; offer them again instead.
             let draft = self.pages.menu.draft().to_vec();
             let entries = draft.len();
             self.with_system(ui, detached, move |machine, _system| {
@@ -231,6 +234,9 @@ impl SettingsApp {
         let spawned = std::thread::Builder::new()
             .name("settings-elevated".into())
             .spawn(move || {
+                // The worker of `with_system`: the same rules (no UI loop
+                // here, its calls may wait unboundedly) are set on the
+                // thread by the system builder it gets (`OsSystem::detached`).
                 let mut answer = Answer(Some(proxy));
                 // The worker's own copies: the UI's are `Rc`s, and a thread
                 // resolves its service endpoints anyway.

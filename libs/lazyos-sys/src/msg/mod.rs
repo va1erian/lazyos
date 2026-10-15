@@ -291,6 +291,21 @@ pub const fn wait_fd(fd: u32) -> u64 {
     WAIT_FD | (fd as u64) << WAIT_FD_SHIFT
 }
 
+/// Register a call and return at once with the transaction id
+/// ([`op::CALL_BEGIN`]); `deadline` is an absolute PIT tick, `0` waits for
+/// ever. The reply is taken later with [`call_check`], and the wakeup the
+/// caller of a completion-driven loop waits on is the [`WAIT_CALLS`]
+/// doorbell (issue #725).
+pub fn call_begin(handle: u64, request: &[u8], deadline: u64) -> Result<u64, i64> {
+    let args = MsgArgs {
+        handle,
+        deadline,
+        ..with_buffers(request, &mut [])
+    };
+    let result = transfer(op::CALL_BEGIN, args, 0)?;
+    Ok(result.value)
+}
+
 /// A terminal transaction's reply or failure **now**, without the park
 /// `await_reply`/[`op::CALL_AWAIT`] is: `-EAGAIN` while it is still open,
 /// the bytes in `buf` otherwise (issue #725, op [`op::CALL_CHECK`]).

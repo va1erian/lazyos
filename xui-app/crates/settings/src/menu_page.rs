@@ -239,6 +239,18 @@ pub fn report_saved(entries: usize) {
 }
 
 impl MenuPage {
+    /// The machine write a worker was doing finished: re-read the stored
+    /// menu into `saved` WITHOUT replacing the draft, so edits the user
+    /// made while the prompt was open remain on the page to save again
+    /// (issue #720's follow-up). Only a successful save reloads `apps`
+    /// with it (the menu editor only reorders and renames when
+    /// `init` cannot be reached, so a registry change does not disturb
+    /// the draft).
+    pub fn saved_in_background(&mut self, store: &dyn ConfigStore) {
+        self.saved = menu_ops::load(store);
+        self.refresh(Some(self.entries.selected().unwrap_or(0)));
+    }
+
     /// Write the draft in one request.
     fn save(&mut self, store: &dyn ConfigStore) -> String {
         if !self.unsaved() {

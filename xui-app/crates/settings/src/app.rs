@@ -36,7 +36,6 @@ use crate::appearance_page::AppearancePage;
 use crate::defaults_page::{DefaultsMsg, DefaultsPage};
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard_page::{self, KeyboardMsg, KeyboardPage};
-use crate::menu_ops;
 use crate::menu_page::{MenuMsg, MenuPage};
 use crate::sections::{Section, SectionsModel};
 use crate::sidebar::sidebar_backdrop;
