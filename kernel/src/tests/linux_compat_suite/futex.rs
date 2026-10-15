@@ -397,3 +397,39 @@ pub fn futex_hashed_buckets() -> Result<(), String> {
     cleanup(&slots);
     Ok(())
 }
+
+/// A task that is being killed does not park on a futex: the kill's wake came
+/// while it was runnable inside the syscall (reading the word can wait on a
+/// file page), so nothing would ever end the park (issue #858). `FUTEX_WAIT`
+/// returns `EINTR` at once, from a thread whose process was sent `SIGKILL`.
+pub fn futex_wait_of_a_killed_task_returns() -> Result<(), String> {
+    const EINTR: u64 = neg(4);
+    fresh()?;
+    let victim = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    task::harness::set_kind(victim, task::Kind::Native);
+    task::harness::set_kernel_frame(victim).ok_or("no frame")?;
+    crate::task::signal::send_to_slot(
+        task::KERNEL_TASK,
+        victim,
+        crate::task::signal::SIGKILL,
+        crate::task::signal::SigInfo::kernel(),
+    )
+    .map_err(|error| format!("kill: {error:?}"))?;
+    let word = 0u32;
+    for round in 0..200 {
+        task::harness::switch_current(victim);
+        let ret = futex(&word, WAIT | PRIVATE, 0, 0, 0, 0);
+        task::harness::switch_current(task::KERNEL_TASK);
+        check!(
+            ret == EINTR,
+            "round {round}: FUTEX_WAIT of a killed task returned {ret:#x}"
+        );
+        check!(
+            hooks::total() == 0 && !blocked(victim),
+            "round {round}: the killed task was parked on the futex"
+        );
+    }
+    // A task that is not being killed would park: its waiter is registered.
+    cleanup(&[victim]);
+    Ok(())
+}

@@ -36,8 +36,8 @@ use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 
 use super::{
-    alloc_frame, free_frame, kernel_table, leaf_entry, map_page_in, prot_flags, pte, vma,
-    FRAME_SIZE,
+    alloc_frame, free_frame, kernel_table, leaf_entry, make_walk_writable, map_page_in, prot_flags,
+    pte, vma, FRAME_SIZE,
 };
 
 /// `pte::SHARED` as the `x86_64` crate names the bit (52).
@@ -162,7 +162,10 @@ pub(super) fn shared_write_fault(table: PhysAddr, va: u64, entry: *mut u64) -> b
     file.mark_dirty(index, index);
     // SAFETY: `entry` is the present leaf `cow_fault` just read in `table`;
     // nothing can have unmapped it since (no parking between).
-    unsafe { *entry |= pte::WRITABLE };
+    unsafe {
+        *entry |= pte::WRITABLE;
+        make_walk_writable(table, va);
+    }
     x86_64::instructions::tlb::flush(VirtAddr::new(va));
     true
 }

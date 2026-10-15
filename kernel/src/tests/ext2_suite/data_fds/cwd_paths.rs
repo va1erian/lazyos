@@ -294,7 +294,9 @@ pub fn fork_inherits_and_isolates() -> Result<(), String> {
     check!(task::cwd() == "/tmp/q", "the thread moved its creator");
     task::harness::switch_current(parent);
 
-    // Exiting lets go: the child and its thread hold nothing afterwards.
+    // Exiting lets go: the child and its thread hold nothing afterwards. (A
+    // leader is a zombie until its last thread has gone, so both exit.)
+    task::harness::finish(thread, 0);
     task::harness::finish(child, 0);
     check!(
         task::reap_child().map(|r| r.0) == Some(child),

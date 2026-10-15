@@ -671,7 +671,8 @@ python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webki
 python tools/xui/build.py                                                                         # the package
 python tools/webplus/run.py --accel auto                                                          # boot four times, judge
 python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
-python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
+python tools/webplus/hang_run.py --accel auto                                                     # a page that hangs: the bar, Wait, Reload, Stop (#862)
+python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py && python tools/webplus/test_hang_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
 
 **The ad blocker** (issue #845, [`docs/lazywebplus.md`](docs/lazywebplus.md) "Blocking ads"): WebKit content

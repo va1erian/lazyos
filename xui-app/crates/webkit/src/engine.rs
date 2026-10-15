@@ -119,6 +119,10 @@ pub trait Engine {
     fn load(&self, url: &str);
     fn reload(&self);
     fn stop(&self);
+    /// The page's process does not answer ([`Event::PageResponsive`](crate::events::Event::PageResponsive)
+    /// said so) and the person chose a way out: its process is ended, and with `reload` the page is
+    /// loaded again in a fresh one; without, it stays stopped until the next load.
+    fn recover(&self, reload: bool);
     fn back(&self);
     fn forward(&self);
     /// The page view's size changed.
@@ -173,6 +177,7 @@ pub enum Call {
     Load(String),
     Reload,
     Stop,
+    Recover(bool),
     Back,
     Forward,
     Resize(i32, i32),
@@ -225,6 +230,9 @@ impl Engine for Recorder {
     }
     fn stop(&self) {
         self.push(Call::Stop);
+    }
+    fn recover(&self, reload: bool) {
+        self.push(Call::Recover(reload));
     }
     fn back(&self) {
         self.push(Call::Back);

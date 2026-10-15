@@ -106,6 +106,8 @@ pub const POLLIN: u16 = 0x0001;
 pub const POLLOUT: u16 = 0x0004;
 pub const POLLERR: u16 = 0x0008;
 pub const POLLHUP: u16 = 0x0010;
+/// The peer of a socket shut down its writing half (Linux `EPOLLRDHUP`).
+pub const POLLRDHUP: u16 = 0x2000;
 
 /// The byte ring. `len` bytes starting at `head` are valid; the free space is
 /// the rest, so the buffer wraps without a growable deque. In seqpacket mode
@@ -332,10 +334,40 @@ impl Pipe {
         ring.has_data() || self.writers.load(Ordering::Acquire) == 0
     }
 
-    /// Whether the write end would make progress (space and a reader).
+    /// Whether the write end would make progress (space and a reader), by the
+    /// same rule as [`Pipe::poll`]'s `POLLOUT` ([`Pipe::space_to_write`]);
+    /// `poll`, `select` and `epoll` go through `Pipe::poll`, this has no
+    /// production caller.
     pub fn writable(&self) -> bool {
         let ring = self.state.lock();
-        self.space_for(&ring, 1) && self.readers.load(Ordering::Acquire) > 0
+        self.space_to_write(&ring) && self.readers.load(Ordering::Acquire) > 0
+    }
+
+    /// The readiness rule for `POLLOUT`. A byte stream is writable while any
+    /// byte fits (a write makes partial progress). A `SOCK_SEQPACKET` send is
+    /// all-or-nothing, so "one byte fits" would send a poller straight back
+    /// into `-EAGAIN`, and a loop of `sendmsg`, `poll`, `sendmsg` would spin
+    /// (issue #863). It is writable only while a frame of [`Pipe::max_frame`]
+    /// fits: with a `pipe(2)` ring that is at most a quarter of the ring in
+    /// use, Linux's `unix_writable` rule, and then every send up to that size
+    /// is accepted (when nobody else writes). Larger frames may still meet
+    /// `-EAGAIN` after `POLLOUT`, as on Linux; they were never promised.
+    fn space_to_write(&self, ring: &Ring) -> bool {
+        match ring.mode {
+            Mode::Stream => self.space_for(ring, 1),
+            Mode::Seqpacket => self.space_for(ring, Self::max_frame(ring)),
+        }
+    }
+
+    /// The largest frame `POLLOUT` promises room for: three quarters of a
+    /// `pipe(2)`-sized ring ([`CAPACITY`]). A bigger ring (`AF_INET`'s) is
+    /// only ever given datagrams far below that. Leaving a quarter in use
+    /// keeps two peers that each hold a queued message from both waiting
+    /// for the other to drain (neither would be writable if it took an
+    /// empty ring).
+    fn max_frame(ring: &Ring) -> usize {
+        let ceiling = CAPACITY.min(ring.buf.len());
+        ceiling - ceiling / 4
     }
 
     /// Whether `len` bytes fit in the ring (all-or-nothing in seqpacket mode).
@@ -415,10 +447,16 @@ impl Pipe {
 
 impl Pipe {
     /// A read took bytes: writers may go on (and the doorbell may ring).
-    fn after_read(&self, free_before: usize) {
+    /// `wake_pollers` says the read changed what `poll` reports for the write
+    /// end (always for a stream; for a seqpacket ring only when it became
+    /// writable); blocked writers are woken regardless, they retry with their
+    /// own frame size.
+    fn after_read(&self, free_before: usize, wake_pollers: bool) {
         self.write_events.fetch_add(1, Ordering::AcqRel);
         self.write_wq.notify_all();
-        crate::task::notify_poll_key(self as *const Self as u64);
+        if wake_pollers {
+            crate::task::notify_poll_key(self as *const Self as u64);
+        }
         self.bell_after_read(free_before);
     }
 }

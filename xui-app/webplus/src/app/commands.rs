@@ -8,6 +8,7 @@ use crate::address::{self, START};
 use crate::blocker::site_of;
 use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
+use crate::hang::Answer as HangAnswer;
 use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 
 impl Browser {
@@ -132,6 +133,9 @@ impl Browser {
             Command::Close => ui.close(),
             Command::Back => self.engine.back(),
             Command::Forward => self.engine.forward(),
+            // A page that does not answer cannot reload or stop itself: end its process.
+            Command::Reload if self.hang.stuck() => self.hang_answer(ui, HangAnswer::Reload),
+            Command::Stop if self.hang.stuck() => self.hang_answer(ui, HangAnswer::Stop),
             Command::Reload => self.reload(),
             Command::Stop => {
                 self.stopping = self.loading.get();

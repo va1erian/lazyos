@@ -50,6 +50,7 @@ type Test = fn() -> Result<(), String>;
 /// Raw page-table entry bits (the public CPU-visible layout; COW uses bit 9).
 const PTE_PRESENT: u64 = 1 << 0;
 const PTE_WRITABLE: u64 = 1 << 1;
+const PTE_USER: u64 = 1 << 2;
 const PTE_ADDR: u64 = 0x000F_FFFF_FFFF_F000;
 const COW_BIT: u64 = 1 << 9;
 
@@ -79,6 +80,48 @@ fn raw_entry(table: PhysAddr, va: u64) -> Option<u64> {
         phys = entry & PTE_ADDR;
     }
     Some(entry)
+}
+
+/// Every table entry above the leaf of `va` in `table` (PML4, PDPT and PD) is present, writable and
+/// user-accessible. A CPU takes the *lowest* R/W bit of the walk, so a writable leaf under a read-only
+/// parent is a write fault no handler can resolve: the leaf is not COW, the VMA allows the store (issue #853).
+fn parents_writable(table: PhysAddr, va: u64) -> Result<(), String> {
+    let chain = mem::pte_chain(table, va);
+    for (level, name) in ["pml4", "pdpt", "pd"].into_iter().enumerate() {
+        let entry = chain[level];
+        check!(
+            entry & PTE_PRESENT != 0,
+            "the {name} entry above {va:#x} is not present"
+        );
+        check!(
+            entry & PTE_WRITABLE != 0 && entry & PTE_USER != 0,
+            "the {name} entry {entry:#x} above {va:#x} is not writable and user-accessible"
+        );
+    }
+    Ok(())
+}
+
+/// Clears the R/W bit of the `level` entry (0 PML4, 1 PDPT, 2 PD) on `table`'s walk for `va`: a table
+/// as an older kernel built it, for the paths that must repair one.
+fn make_parent_read_only(table: PhysAddr, va: u64, level: usize) -> Result<(), String> {
+    let mut phys = table.as_u64();
+    for (depth, shift) in [39u64, 30, 21].into_iter().enumerate() {
+        let ptr = mem::phys_to_virt(PhysAddr::new(phys)).as_mut_ptr::<u64>();
+        // Safety: `phys` is a live page table reachable through the physical map.
+        let slot = unsafe { ptr.add(((va >> shift) & 0x1ff) as usize) };
+        let entry = unsafe { slot.read_volatile() };
+        check!(
+            entry & PTE_PRESENT != 0,
+            "no table at level {depth} for {va:#x}"
+        );
+        if depth == level {
+            // Safety: as above; nothing else uses this scratch table.
+            unsafe { slot.write_volatile(entry & !PTE_WRITABLE) };
+            return Ok(());
+        }
+        phys = entry & PTE_ADDR;
+    }
+    Err(format!("no level {level}"))
 }
 
 /// Physical frame backing `va` in `table`.
@@ -170,6 +213,7 @@ mod boot_io_suite;
 mod boot_media_suite;
 mod boot_trace_suite;
 mod bufops;
+mod child_process_suite;
 mod chmod_suite;
 mod confd_suite;
 mod confine_suite;
@@ -287,6 +331,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     poll_keys_suite::CASES,
     deadline_suite::CASES,
     signal_suite::CASES,
+    child_process_suite::CASES,
     itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,

@@ -50,6 +50,10 @@ pub struct LinuxExtras {
     /// per-thread signal path is used (JavaScriptCore's collector suspends a
     /// parked mutator with one).
     pub thread_signals: u64,
+    /// `prctl(PR_SET_PDEATHSIG)`: the signal sent to this process when its
+    /// parent process exits (0: none). Kept on the thread-group leader, which
+    /// is the task the parent's `fork` created; a fork clears it.
+    pub pdeathsig: u8,
 }
 
 /// A thread's Linux scheduling attributes. Only the plain policies are ever
@@ -120,20 +124,17 @@ pub struct ThreadShare {
     pub fs: bool,
 }
 
-/// The extras of a thread created by `parent` (slot `parent_slot`): the same
+/// The extras of a thread created by `parent`, a thread of the group led by
+/// slot `leader` (validated by the caller, `family::leader_of`): the same
 /// thread group, the same program, and the share groups `share` asks for (a
 /// group is created on first use, and the creator joins it too).
-pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadShare) -> LinuxExtras {
+pub(super) fn for_thread(parent: &mut Task, leader: usize, share: ThreadShare) -> LinuxExtras {
     if share.files && parent.linux.files_group == 0 {
         parent.linux.files_group = new_group();
     }
     if share.fs && parent.linux.fs_group == 0 {
         parent.linux.fs_group = new_group();
     }
-    let leader = match parent.linux.tgid {
-        0 => parent_slot,
-        tgid => tgid,
-    };
     LinuxExtras {
         files_group: if share.files {
             parent.linux.files_group
@@ -151,6 +152,7 @@ pub(super) fn for_thread(parent: &mut Task, parent_slot: usize, share: ThreadSha
         ctty: parent.linux.ctty.clone(),
         sched: parent.linux.sched.for_child(),
         thread_signals: 0,
+        pdeathsig: parent.linux.pdeathsig,
     }
 }
 
@@ -169,10 +171,7 @@ pub(super) fn for_fork(parent: &Task) -> LinuxExtras {
 /// `getpid`: the thread-group leader's slot (a process's own slot).
 pub fn tgid() -> usize {
     let me = current();
-    match TASKS.lock()[me].as_ref().map(|task| task.linux.tgid) {
-        Some(0) | None => me,
-        Some(leader) => leader,
-    }
+    super::family::leader_of(&TASKS.lock(), me)
 }
 
 /// Count one thread-directed signal sent by the calling task's process. It
@@ -335,4 +334,39 @@ pub fn comm_of(task: &Task) -> ([u8; 16], usize) {
     let len = bytes.len().min(15);
     name[..len].copy_from_slice(&bytes[..len]);
     (name, len)
+}
+
+/// The calling process's parent-death signal (`PR_GET_PDEATHSIG`).
+pub fn pdeathsig() -> u8 {
+    with_extras(|extras| extras.pdeathsig).unwrap_or(0)
+}
+
+/// Set the parent-death signal of the calling process: every live thread of
+/// it carries the value, so whichever thread is left when the parent dies
+/// (the leader may be a zombie by then) still has it.
+pub fn set_pdeathsig(sig: u8) {
+    set_pdeathsig_of(current(), sig);
+}
+
+/// [`set_pdeathsig`] for the process `me` is a thread of.
+pub fn set_pdeathsig_of(me: usize, sig: u8) {
+    let mut tasks = TASKS.lock();
+    for slot in 0..MAX_TASKS {
+        if super::family::same_process(&tasks, slot, me) {
+            if let Some(task) = tasks[slot].as_mut() {
+                task.linux.pdeathsig = sig;
+            }
+        }
+    }
+}
+
+/// `slot`'s parent-death signal if it still runs in address space `space`
+/// (a recycled slot is another process and has no claim to the signal).
+pub(super) fn pdeathsig_in(slot: usize, space: u64) -> u8 {
+    TASKS
+        .lock()
+        .get(slot)
+        .and_then(|task| task.as_ref())
+        .filter(|task| task.pml4 == space && task.state != TaskState::Done)
+        .map_or(0, |task| task.linux.pdeathsig)
 }

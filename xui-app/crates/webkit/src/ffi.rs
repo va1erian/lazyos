@@ -36,6 +36,7 @@ extern "C" {
     fn lzw_engine_load(url: *const c_char);
     fn lzw_engine_reload();
     fn lzw_engine_stop();
+    fn lzw_engine_recover(reload: c_int);
     fn lzw_engine_back();
     fn lzw_engine_forward();
     fn lzw_engine_resize(width: c_int, height: c_int);
@@ -73,6 +74,10 @@ impl Engine for FfiEngine {
     fn stop(&self) {
         // SAFETY: no arguments.
         unsafe { lzw_engine_stop() }
+    }
+    fn recover(&self, reload: bool) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_recover(c_int::from(reload)) }
     }
     fn back(&self) {
         // SAFETY: no arguments.
@@ -307,6 +312,13 @@ pub unsafe extern "C" fn lzw_ui_state(
         )
     };
     mailbox::global().post_state(state);
+}
+
+/// The page's WebProcess stopped answering WebKit's responsiveness pings (`responsive` 0), answers
+/// again (1), or is gone (1: nothing is left to wait for).
+#[no_mangle]
+pub extern "C" fn lzw_ui_page_responsive(responsive: c_int) {
+    mailbox::global().post_event(Event::PageResponsive(responsive != 0));
 }
 
 /// The pointer is over a link (`url`), or no longer (empty).
